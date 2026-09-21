@@ -1,6 +1,6 @@
 import { assertString } from "../../ipc-validate";
 import { killCounters } from "../../stats-signals";
-import type { IpcDeps } from "../../ipc/types";
+import { method, type HandlerCtx } from "../method";
 import {
   listProcesses,
   cleanupDeadProcesses,
@@ -10,24 +10,22 @@ import {
 } from "../../process-control";
 
 /**
- * Daemon/process control, whole (ADR-180 ticket 8). `list` was already
- * lifted for the slice-1 bridge table; the rest of this namespace kills
- * something and was deliberately absent from that table. Under D4 that is no
- * longer a reason to hold it back — every one of these crosses as an ordinary
- * entry, reachable by a `full` device on the bridge and nowhere else
- * (ADR-182 D2), and every one of them is in `MUTATING`.
+ * Daemon/process control, whole (ADR-180 ticket 8), as the `processes`
+ * namespace of the handler table. Everything but `list` kills something, is
+ * reachable by a `full` device on the bridge and nowhere else (ADR-182 D2),
+ * and is `mutating`.
  */
-export function processesList(deps: IpcDeps): unknown {
-  const { backend, agentHookServer, webviewServer, portScanner } = deps;
+export function processesList(ctx: HandlerCtx): unknown {
+  const { backend, agentHookServer, webviewServer, portScanner } = ctx.deps;
   return listProcesses({ backend, agentHookServer, webviewServer, portScanner });
 }
 
 export async function processesKillSession(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   sessionId: string,
 ): Promise<void> {
   assertString(sessionId, "sessionId");
-  const { backend, agentManager, statsStore } = deps;
+  const { backend, agentManager, statsStore } = ctx.deps;
   const agent = agentManager.getAgentByPaneId(sessionId);
   if (agent) for (const counter of killCounters(agent)) statsStore.record(counter);
   try {
@@ -38,9 +36,9 @@ export async function processesKillSession(
 }
 
 export function processesCleanupDead(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
 ): Promise<{ success: boolean }> {
-  return cleanupDeadProcesses(deps.backend);
+  return cleanupDeadProcesses(ctx.deps.backend);
 }
 
 export function processesKillDaemon(): Promise<void> {
@@ -51,7 +49,19 @@ export function processesRestartPortless(): Promise<void> {
   return restartPortless();
 }
 
-export function processesKillAll(deps: IpcDeps): Promise<void> {
-  const { backend, agentManager, statsStore, portScanner } = deps;
+export function processesKillAll(ctx: HandlerCtx): Promise<void> {
+  const { backend, agentManager, statsStore, portScanner } = ctx.deps;
   return killAllProcesses({ backend, agentManager, statsStore, portScanner });
 }
+
+// A session, the daemon or the portless proxy dying is exactly "moves state
+// the other viewers of this host will see". `cleanupDead` changes what the
+// process list shows next.
+export const processes = {
+  list: method(processesList),
+  killSession: method(processesKillSession, { mutating: true }),
+  cleanupDead: method(processesCleanupDead, { mutating: true }),
+  killDaemon: method(processesKillDaemon, { mutating: true }),
+  restartPortless: method(processesRestartPortless, { mutating: true }),
+  killAll: method(processesKillAll, { mutating: true }),
+};

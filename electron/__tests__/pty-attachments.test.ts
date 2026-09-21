@@ -16,7 +16,6 @@ import {
   attach,
   release,
   releaseViewer,
-  isDesktopAttached,
   onAttachmentChange,
   ownerOf,
   resetAttachments,
@@ -30,6 +29,11 @@ const windowB: Viewer = { connectionId: "22", callerClass: "local" };
 
 const deviceA: Viewer = { connectionId: "device-a", callerClass: "device" };
 const deviceB: Viewer = { connectionId: "device-b", callerClass: "device" };
+
+/** Is a window on this machine holding the pane (and so its owner)? */
+function isDesktopAttached(paneId: string): boolean {
+  return ownerOf(paneId)?.callerClass === "local";
+}
 
 describe("pty attachments", () => {
   beforeEach(() => {
@@ -197,7 +201,7 @@ describe("pty attachments", () => {
     /**
      * What a create-shaped call asks before it runs: may this caller's
      * `cols×rows` reach the pty, or is it a follower being handed the owner's
-     * grid to render? (`createShaped` in `bridge/handlers.ts`.)
+     * grid to render? (`createShaped` in `bridge/handlers/pty.ts`.)
      */
     describe("wouldOwn", () => {
       it("says yes about a pane nobody has", () => {

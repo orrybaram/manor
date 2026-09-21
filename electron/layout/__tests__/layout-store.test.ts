@@ -661,6 +661,28 @@ describe("LayoutStore", () => {
       });
     });
 
+    it("keeps a device's claim out of the claims and the default viewport", () => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      store.load();
+
+      store.reportViewport(
+        WS,
+        { kind: "bridge", id: "phone" },
+        {
+          activePanelId: "panel-1",
+          selectedTabIds: { "panel-1": "tab-1" },
+          focusedPaneIds: { "tab-1": "pane-diff" },
+          claim: "tab-1",
+        },
+      );
+      store.flush();
+
+      expect(store.claimsFor(WS)).toEqual([]);
+      const stored = readFile().workspaces[0].defaultViewport;
+      expect(stored.focusedPaneIds).toEqual({ "tab-1": "pane-diff" });
+      expect(stored).not.toHaveProperty("claim");
+    });
+
     it("stands in for the primary only when a window reported it", () => {
       fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
       store.load();

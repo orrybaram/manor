@@ -259,10 +259,15 @@ export function fakeLayoutApi(): Record<string, unknown> {
     },
     reportViewport: async (
       workspacePath: string,
-      rendererId: string,
       viewport: WorkspaceViewport,
     ) => {
-      reportedViewports.push({ workspacePath, rendererId, viewport });
+      // The real host names the reporter from the connection; the only
+      // connection here is the renderer under test.
+      reportedViewports.push({
+        workspacePath,
+        rendererId: FAKE_RENDERER_ID,
+        viewport,
+      });
       defaultViewports.set(workspacePath, viewport);
     },
     setPaneTitle: async (paneId: string, title: string | null) => {

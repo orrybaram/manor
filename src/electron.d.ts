@@ -532,9 +532,12 @@ export interface ElectronAPI {
       kind?: "shell" | "agent-startup",
     ) => Promise<void>;
     remove: (workspacePath: string) => Promise<void>;
+    /**
+     * What this renderer is looking at (ADR-179 D3). The host names the
+     * reporter from the connection, never from the call.
+     */
     reportViewport: (
       workspacePath: string,
-      rendererId: string,
       viewport: PersistedDefaultViewport,
     ) => Promise<void>;
     /**

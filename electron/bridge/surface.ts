@@ -81,8 +81,11 @@ import type {
   HandlerMethod,
   MutatingMethod,
   SecretFirstArgMethod,
+  TableLocalOnlyMethod,
 } from "./handlers";
+import type { LocalOnlyMethod } from "./local-only";
 import type {
+  HostRefusedMethod,
   LocallyServedMethod as TabMethod,
   UnavailableNamespace,
 } from "../../src/bridge/unavailable";
@@ -295,8 +298,7 @@ export const _webHole: WebHole extends never
  * And the one rule about the audit log that is a type rather than a test: a
  * method whose first argument is a credential may never be `MUTATING`,
  * because `bridgeTarget` writes an audited call's first string argument into
- * `remote-audit.log`. `linear.connect` is the one, and `SECRET_FIRST_ARG` in
- * `./handlers.ts` is where that is said in full.
+ * `remote-audit.log`. `linear.connect` is the one.
  */
 type AuditedSecret = Extract<SecretFirstArgMethod, MutatingMethod>;
 
@@ -305,4 +307,39 @@ export const _auditedSecret: AuditedSecret extends never
   : Complaint<
       "ADR-180 D4 — this method's first argument is a credential and MUTATING would write it to the audit log",
       AuditedSecret
+    > = true;
+
+/**
+ * The tables' `localOnly` flags and `./local-only.ts` are one fact in two
+ * places — dispatch reads the flags, the browser reads the list, and the
+ * browser may not import the tables. Either both name a method or neither
+ * does.
+ */
+type LocalOnlyDrift =
+  | Exclude<TableLocalOnlyMethod, LocalOnlyMethod>
+  | Exclude<LocalOnlyMethod, TableLocalOnlyMethod>;
+
+export const _localOnlyDrift: LocalOnlyDrift extends never
+  ? true
+  : Complaint<
+      "ADR-182 D3 — flag this method localOnly in its table and list it in local-only.ts, or do neither",
+      LocalOnlyDrift
+    > = true;
+
+/**
+ * Every local-only method has a browser answer: the tab serves it itself
+ * (`SERVED_HERE`), or the tab leaves it to the host's refusal on purpose
+ * (`HostRefusedMethod`). A new one in neither is a method a browser would ask
+ * for and be refused without anybody having decided that it should.
+ */
+type LocalOnlyUnanswered = Exclude<
+  AsSurface<LocalOnlyMethod>,
+  LocallyServedMethod | HostRefusedMethod
+>;
+
+export const _localOnlyUnanswered: LocalOnlyUnanswered extends never
+  ? true
+  : Complaint<
+      "ADR-182 D3 — give this local-only method a browser answer: SERVED_HERE, or HostRefusedMethod",
+      LocalOnlyUnanswered
     > = true;

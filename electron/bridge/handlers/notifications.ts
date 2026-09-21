@@ -3,35 +3,34 @@ import { assertString } from "../../ipc-validate";
 import { sendNotificationsUpdate, showPrNotification } from "../../notifications";
 import type { PrNotifyEventKind } from "../../notifications";
 import type { PrComment } from "../../../src/lib/pr-info";
-import type { IpcDeps } from "../../ipc/types";
-import type { LayoutOrigin } from "../../layout/layout-store";
+import type { HostDeps } from "../../ipc/types";
+import { method, type Caller, type HandlerCtx } from "../method";
 
 /**
  * The durable notification log (ADR-162, ADR-180 ticket 7). Main owns the
  * list; the renderer keeps a cache of it and never mutates its copy
  * speculatively — every mutation re-broadcasts the whole list through the
- * single send-site in `../notifications`. Every one of these was an
- * `ipcMain.handle` wrapper; the handler table is the only caller left.
+ * single send-site in `../notifications`.
  */
-export function notificationsGetAll(deps: IpcDeps): unknown {
-  return deps.notificationStore.getAll();
+export function notificationsGetAll(ctx: HandlerCtx): unknown {
+  return ctx.deps.notificationStore.getAll();
 }
 
-export function notificationsMarkRead(deps: IpcDeps, id: string): void {
+export function notificationsMarkRead(ctx: HandlerCtx, id: string): void {
   assertString(id, "id");
-  if (deps.notificationStore.markRead(id)) {
-    sendNotificationsUpdate(deps.mainWindow);
+  if (ctx.deps.notificationStore.markRead(id)) {
+    sendNotificationsUpdate(ctx.deps.mainWindow);
   }
 }
 
-export function notificationsMarkAllRead(deps: IpcDeps): void {
-  deps.notificationStore.markAllRead();
-  sendNotificationsUpdate(deps.mainWindow);
+export function notificationsMarkAllRead(ctx: HandlerCtx): void {
+  ctx.deps.notificationStore.markAllRead();
+  sendNotificationsUpdate(ctx.deps.mainWindow);
 }
 
-export function notificationsClear(deps: IpcDeps): void {
-  deps.notificationStore.clear();
-  sendNotificationsUpdate(deps.mainWindow);
+export function notificationsClear(ctx: HandlerCtx): void {
+  ctx.deps.notificationStore.clear();
+  sendNotificationsUpdate(ctx.deps.mainWindow);
 }
 
 /**
@@ -39,18 +38,14 @@ export function notificationsClear(deps: IpcDeps): void {
  * focus check `showPrNotification` makes (suppress the native banner while
  * that window is focused, so the caller toasts instead).
  *
- * A window's origin names its own `webContents.id` — the poller may be
+ * A local caller's id is its own `webContents.id` — the poller may be
  * running in a detached window (ADR-156), and it is that window's focus that
  * matters, not the primary's. A device has no window at all, and gets the
- * primary's, which is the same answer `BrowserWindow.fromWebContents` gave
- * when it came up empty under the old `ipcMain.handle`.
+ * primary's.
  */
-function windowForOrigin(
-  deps: IpcDeps,
-  origin: LayoutOrigin | undefined,
-): BrowserWindow | null {
-  if (origin?.kind === "window") {
-    const id = Number(origin.id);
+function windowForCaller(deps: HostDeps, caller: Caller): BrowserWindow | null {
+  if (caller.callerClass === "local") {
+    const id = Number(caller.id);
     for (const win of deps.getRendererWindows()) {
       if (!win.isDestroyed() && win.webContents.id === id) return win;
     }
@@ -65,7 +60,7 @@ function windowForOrigin(
  * `presentNotification` in `../notifications`.
  */
 export function notificationsShow(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   payload: {
     kind: PrNotifyEventKind;
     title: string;
@@ -73,7 +68,6 @@ export function notificationsShow(
     url?: string;
     comment?: PrComment;
   },
-  origin?: LayoutOrigin,
 ): boolean {
   assertString(payload.title, "title");
   assertString(payload.body, "body");
@@ -83,6 +77,14 @@ export function notificationsShow(
     assertString(payload.comment.url, "comment.url");
     assertString(payload.comment.createdAt, "comment.createdAt");
   }
-  const callerWindow = windowForOrigin(deps, origin);
-  return showPrNotification(payload, callerWindow, deps.preferencesManager);
+  const callerWindow = windowForCaller(ctx.deps, ctx.caller);
+  return showPrNotification(payload, callerWindow, ctx.deps.preferencesManager);
 }
+
+export const notifications = {
+  getAll: method(notificationsGetAll),
+  markRead: method(notificationsMarkRead, { mutating: true }),
+  markAllRead: method(notificationsMarkAllRead, { mutating: true }),
+  clear: method(notificationsClear, { mutating: true }),
+  show: method(notificationsShow),
+};

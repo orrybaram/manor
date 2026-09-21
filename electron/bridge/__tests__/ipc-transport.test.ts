@@ -176,7 +176,7 @@ describe("IpcBridgeTransport", () => {
     electronMock.handlers.clear();
     electronMock.listeners.clear();
     windows = [];
-    ping = vi.fn((_deps: unknown, value: unknown) => `pong:${String(value)}`);
+    ping = vi.fn((_ctx: unknown, value: unknown) => `pong:${String(value)}`);
     const deps = {
       getRendererWindows: () => windows,
     } as unknown as IpcDeps;

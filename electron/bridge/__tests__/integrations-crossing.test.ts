@@ -13,9 +13,9 @@
  *   tunnel controls refuse a paired device because a stolen `full` token that
  *   can pair more devices is a token that survives its own revocation;
  *   `linear.connect` refuses one because it is the only method in the surface
- *   whose *argument* is a credential. Both are one line in a `Set` — which is
- *   the point of writing them down, and the reason they are asserted through
- *   real dispatch rather than by reading the `Set` back.
+ *   whose *argument* is a credential. Both are one flag on a table entry —
+ *   which is the point of writing them down, and the reason they are
+ *   asserted through real dispatch rather than by reading the set back.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";

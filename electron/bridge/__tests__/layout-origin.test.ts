@@ -1,14 +1,12 @@
 /**
  * Whose window a layout command came from (ADR-179 D3, ADR-180 ticket 6).
  *
- * `layout` crossed to the handler table with no change to a single call site,
- * which is the good news and the reason this file exists: nothing about the
- * origin is checked by a type. `layout.apply` used to be an `ipcMain.handle`
- * that read `event.sender.id`; it is a table entry now, and the server
- * appends the *connection's* `LayoutOrigin` to the arguments instead
- * (`ORIGIN_ARGS`). If those two ever name different things, every split and
- * every new tab hands its selection hint to the wrong window — silently, in
- * a running app, with a green suite behind it.
+ * Nothing about the origin is checked by a type. The server hands every
+ * handler the *connection* it was called on as `ctx.caller`, and
+ * `handlers/layout.ts` builds the `LayoutOrigin` from it. If that and the id
+ * the page calls itself ever name different things, every split and every
+ * new tab hands its selection hint to the wrong window — silently, in a
+ * running app, with a green suite behind it.
  *
  * So the property under test is an equality: the origin a window's command
  * carries is `String(webContents.id)`, which is the same string the page is
@@ -116,8 +114,8 @@ describe("a layout command's origin", () => {
       getRendererWindows: () => windows,
       layoutStore: { apply, reportViewport },
     } as unknown as IpcDeps;
-    // The real table: the point is what `HANDLERS["layout.apply"]` does with
-    // the argument the server appends, not that a stub receives one.
+    // The real table: the point is what `HANDLERS["layout.apply"]` makes of
+    // the caller the server hands it, not that a stub receives one.
     server = new BridgeServer(deps);
     transport = new IpcBridgeTransport(deps, { server });
     transport.start();
@@ -171,8 +169,8 @@ describe("a layout command's origin", () => {
     const win = makeWindow(11);
     windows.push(win);
 
-    // A page that puts an origin in the arguments is overwritten, not
-    // believed: the slot belongs to the transport (D3).
+    // A page that puts an origin in the arguments is ignored, not believed:
+    // who is calling is the transport's to say (D3).
     await invoke(
       "layout",
       "apply",
@@ -186,20 +184,13 @@ describe("a layout command's origin", () => {
     });
   });
 
-  it("rides in the slot after reportViewport's own rendererId", async () => {
+  it("names a viewport's reporter from the connection", async () => {
     const win = makeWindow(11);
     windows.push(win);
     const viewport = { activeTabId: "tab-1" };
 
-    // The caller's idea of who it is stays argument 2; what the transport
-    // saw is appended after it, and `layoutReportViewport` prefers the
-    // latter because a client cannot be trusted to answer it about itself.
-    await invoke(
-      "layout",
-      "reportViewport",
-      ["/repo/main", "whoever", viewport],
-      win,
-    );
+    // A client cannot be trusted to say who it is, so it is not asked.
+    await invoke("layout", "reportViewport", ["/repo/main", viewport], win);
 
     expect(reportViewport).toHaveBeenCalledWith(
       "/repo/main",
@@ -210,23 +201,17 @@ describe("a layout command's origin", () => {
 
   /**
    * The claim is what makes detach-to-window work (ADR-179 D4): a popout
-   * reports one, and the primary stops showing the tab it took. The table
-   * entry strips it from a socket's report so a phone cannot make a tab
-   * vanish off the desk — and a window's report goes through that same entry
-   * now, so "strip it from everyone" would quietly break detaching
-   * altogether.
+   * reports one, and the primary stops showing the tab it took. The store
+   * honours it only from a `window` origin, so a phone cannot make a tab
+   * vanish off the desk (`layout-store.test.ts`) — which makes the origin
+   * this entry reports under the whole of the rule.
    */
-  it("keeps a window's claim and strips a device's", async () => {
+  it("reports a window's claim as a window's and a device's as a bridge's", async () => {
     const win = makeWindow(11);
     windows.push(win);
     const claimed = { activeTabId: "tab-1", claim: "tab-1" };
 
-    await invoke(
-      "layout",
-      "reportViewport",
-      ["/repo/main", "11", claimed],
-      win,
-    );
+    await invoke("layout", "reportViewport", ["/repo/main", claimed], win);
 
     expect(reportViewport).toHaveBeenCalledWith(
       "/repo/main",
@@ -247,13 +232,13 @@ describe("a layout command's origin", () => {
       id: "v1",
       ns: "layout",
       method: "reportViewport",
-      args: ["/repo/main", "dev-1", claimed],
+      args: ["/repo/main", claimed],
     });
 
     expect(reportViewport).toHaveBeenLastCalledWith(
       "/repo/main",
       { kind: "bridge", id: "dev-1" },
-      { activeTabId: "tab-1" },
+      claimed,
     );
   });
 

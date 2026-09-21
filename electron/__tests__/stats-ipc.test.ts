@@ -16,6 +16,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 import { statsGetSummary, statsReset, wireStatsBroadcast, BROADCAST_DEBOUNCE_MS } from "../bridge/handlers/stats";
+import { localCtx } from "../bridge/method";
 import { StatsStore } from "../stats-store";
 import {
   addRendererBroadcastSink,
@@ -31,7 +32,7 @@ describe("stats.getSummary / stats.reset", () => {
       onChange: vi.fn(() => () => {}),
     };
 
-    expect(statsGetSummary({ statsStore } as never)).toBe(summary);
+    expect(statsGetSummary(localCtx({ statsStore } as never))).toBe(summary);
   });
 
   it("stats.reset delegates to the store", () => {
@@ -41,7 +42,7 @@ describe("stats.getSummary / stats.reset", () => {
       onChange: vi.fn(() => () => {}),
     };
 
-    statsReset({ statsStore } as never);
+    statsReset(localCtx({ statsStore } as never));
 
     expect(statsStore.reset).toHaveBeenCalledTimes(1);
   });

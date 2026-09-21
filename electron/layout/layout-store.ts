@@ -469,7 +469,8 @@ export class LayoutStore {
    * anyone's selection. A *claiming* window is excluded from that: its
    * viewport is one tab, and handing the next renderer a workspace of one tab
    * is exactly the bug claims exist to avoid. Only a window may claim; a
-   * bridge socket's `claim` is dropped before it ever reaches here.
+   * bridge socket's `claim` is dropped here, and is not stored with the
+   * default viewport either.
    */
   reportViewport(
     workspacePath: string,
@@ -491,7 +492,8 @@ export class LayoutStore {
     }
     const state = this.entries.get(workspacePath);
     if (!state || claim !== undefined) return;
-    state.defaultViewport = viewport;
+    const { claim: _refused, ...unclaimed } = viewport;
+    state.defaultViewport = unclaimed;
     this.schedulePersist();
   }
 

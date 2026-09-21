@@ -1230,11 +1230,12 @@ function reportViewport(
   // A claiming window reports too, and its report is the *only* way the host
   // learns who is holding what (D4). The server keeps the claim and leaves the
   // default viewport alone, so one tab never becomes the workspace's default.
+  // The host knows who is reporting from the connection; a renderer it has
+  // not named yet has no connection to report over.
   const api = window.electronAPI;
-  const id = rendererId();
-  if (!api?.layout?.reportViewport || id === null) return;
+  if (!api?.layout?.reportViewport || rendererId() === null) return;
   void api.layout
-    .reportViewport(workspacePath, id, viewport)
+    .reportViewport(workspacePath, viewport)
     ?.catch(
       handleBridgeUnavailable(
         "viewport-report",

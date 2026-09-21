@@ -33,6 +33,7 @@ vi.mock("../ipc-validate", () => ({
 
 import * as notifications from "../notifications";
 import { agentsGetUnseen, agentsMarkSeen } from "../bridge/handlers/agents";
+import { localCtx } from "../bridge/method";
 
 const sendAgentUpdate = vi.mocked(notifications.sendAgentUpdate);
 const updateDockBadge = vi.mocked(notifications.updateDockBadge);
@@ -94,7 +95,7 @@ describe("agents.markSeen re-broadcast (ADR-136)", () => {
     const agent = { id: "t1", lastAgentStatus: "responded" };
     deps.agentManager.getAgentById.mockReturnValue(agent);
 
-    agentsMarkSeen(deps as never, "t1");
+    agentsMarkSeen(localCtx(deps as never), "t1");
 
     expect(deps.unseenRespondedAgents.has("t1")).toBe(false);
     expect(deps.unseenInputAgents.has("t1")).toBe(false);
@@ -111,7 +112,7 @@ describe("agents.markSeen re-broadcast (ADR-136)", () => {
       lastAgentStatus: "responded",
     });
 
-    agentsMarkSeen(deps as never, "t1");
+    agentsMarkSeen(localCtx(deps as never), "t1");
 
     expect(markAgentNotificationsRead).toHaveBeenCalledWith(
       "t1",
@@ -122,7 +123,7 @@ describe("agents.markSeen re-broadcast (ADR-136)", () => {
   it("falls back to dock-badge refresh when the agent no longer exists", () => {
     deps.agentManager.getAgentById.mockReturnValue(null);
 
-    agentsMarkSeen(deps as never, "t1");
+    agentsMarkSeen(localCtx(deps as never), "t1");
 
     expect(deps.unseenRespondedAgents.has("t1")).toBe(false);
     expect(sendAgentUpdate).not.toHaveBeenCalled();

@@ -37,6 +37,13 @@ export interface WorkspaceMeta {
   portlessEnabled: boolean;
 }
 
+/**
+ * The same object, by the name the host surface uses for it: what a bridge
+ * handler's `ctx.deps` is. An alias until the routes' `ControlDeps` folds
+ * into it (ADR-182 D8).
+ */
+export type HostDeps = IpcDeps;
+
 export interface IpcDeps {
   /** The PRIMARY renderer window. */
   mainWindow: BrowserWindow | null;

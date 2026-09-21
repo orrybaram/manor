@@ -15,8 +15,9 @@
  *
  * **Authentication is not here.** Remote control decides whether a token is
  * good and whether its device is `full`; this class never learns what a token
- * is. It is told the answer once, as a `callerClass`, and the only thing it
- * does with it is `LOCAL_ONLY` (D4) and the audit line.
+ * is. It is told the answer once, as a `callerClass`, and does three things
+ * with it: `LOCAL_ONLY` (D4), the audit line, and handing it to the handler
+ * as `ctx.caller`.
  *
  * **Subscription membership is the whole event filter.** A connection that
  * never subscribed to pane B never sees a byte of B's output, however much of
@@ -25,23 +26,22 @@
  */
 
 import type { StreamEvent } from "../terminal-host/types";
-import type { IpcDeps } from "../ipc/types";
+import type { HostDeps } from "../ipc/types";
 import { RemoteAuditLog } from "../remote-control/audit";
 import {
   addRendererBroadcastSink,
   type RendererBroadcast,
 } from "../renderer-broadcast";
-import type { LayoutOrigin } from "../layout/layout-store";
 import { onAttachmentChange, ownerOf, releaseViewer } from "../pty-attachments";
 import {
   HANDLERS,
   LOCAL_ONLY,
   MUTATING,
-  ORIGIN_ARGS,
   SECRET_FIRST_ARG,
-  sessionGrid,
   type BridgeHandler,
 } from "./handlers";
+import { sessionGrid } from "./handlers/pty";
+import type { HandlerCtx } from "./method";
 import {
   BridgeRefusal,
   UNAVAILABLE_CODE,
@@ -81,7 +81,7 @@ interface Registered {
 
 export interface BridgeServerOptions {
   audit?: RemoteAuditLog;
-  /** Overridable so a test can assert dispatch without a real `IpcDeps`. */
+  /** Overridable so a test can assert dispatch without a real `HostDeps`. */
   handlers?: Record<string, BridgeHandler>;
 }
 
@@ -94,7 +94,7 @@ export class BridgeServer {
   private readonly disconnectSinks = new Set<(connectionId: string) => void>();
 
   constructor(
-    private readonly deps: IpcDeps,
+    private readonly deps: HostDeps,
     options: BridgeServerOptions = {},
   ) {
     this.audit = options.audit ?? new RemoteAuditLog();
@@ -209,30 +209,15 @@ export class BridgeServer {
     const audited = MUTATING.has(key);
     // Widened here and nowhere else — see `BridgeHandler`. Every handler
     // validates what it is given before it does anything with it.
-    const call = handler as (deps: IpcDeps, ...args: unknown[]) => unknown;
-    // Who sent it, appended here rather than taken from the frame: a caller
-    // does not get to say which caller it is (ADR-179 D3). `kind` is the
-    // caller's class, not its transport — a renderer window reaching this
-    // over `bridge:*` IPC is a `window`, and that is what decides whether a
-    // viewport report's claim is honoured (D4) and which viewer of a pane
-    // outranks which (ADR-180 D6).
-    // The wire arguments are padded (not merely truncated) to the declared
-    // count first: `pty.create`'s `agentKind` is optional, and `args.slice`
-    // on a shorter array would leave the origin sitting in `agentKind`'s slot
-    // rather than its own the moment a caller omits it.
-    const wireArgs = ORIGIN_ARGS.get(key);
-    const callArgs =
-      wireArgs === undefined
-        ? args
-        : [
-            ...Array.from({ length: wireArgs }, (_, i) => args[i]),
-            {
-              kind: connection.callerClass === "local" ? "window" : "bridge",
-              id: connection.id,
-            } satisfies LayoutOrigin,
-          ];
+    const call = handler as (ctx: HandlerCtx, ...args: unknown[]) => unknown;
+    // Who sent it comes from the connection, never from the frame: a caller
+    // does not get to say which caller it is (ADR-179 D3).
+    const ctx: HandlerCtx = {
+      deps: this.deps,
+      caller: { id: connection.id, callerClass: connection.callerClass },
+    };
     try {
-      const result = await call(this.deps, ...callArgs);
+      const result = await call(ctx, ...args);
       if (audited) this.auditInvoke(connection, key, args, "sent", 200);
       return { id, kind: "result", ok: true, result };
     } catch (err) {

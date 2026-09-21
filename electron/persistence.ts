@@ -9,10 +9,7 @@ import type { LinearAssociation, LinkedIssue } from "./linear";
 import type { GitBackend } from "./backend/types";
 import { manorDataDir, worktreesDir } from "./paths";
 import { sanitizeBranchName, toDirSlug } from "./branch-name";
-import {
-  publishRendererBroadcast,
-  publishToRenderer,
-} from "./renderer-broadcast";
+import { publishToRenderer } from "./renderer-broadcast";
 
 const execAsync = promisify(exec);
 
@@ -305,10 +302,6 @@ export class ProjectManager {
     message?: string,
   ) {
     const event = { step, status, message };
-    if (origin === null) {
-      publishRendererBroadcast("projects", "worktreeProgress", event);
-      return;
-    }
     publishToRenderer(origin, "projects", "worktreeProgress", event);
   }
 

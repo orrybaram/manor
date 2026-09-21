@@ -37,6 +37,7 @@ vi.mock("../ipc-validate", () => ({
 }));
 
 import { portsScanNow, portsUpdateWorkspaceMetadata } from "../bridge/handlers/ports";
+import { localCtx } from "../bridge/method";
 import type { WorkspaceMeta } from "../ipc/types";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -77,7 +78,7 @@ function makeDeps(
 }
 
 async function scan(deps: ReturnType<typeof makeDeps>) {
-  return (await portsScanNow(deps as never)) as {
+  return (await portsScanNow(localCtx(deps as never))) as {
     port: number;
     hostname?: string;
   }[];
@@ -126,7 +127,7 @@ describe("portless per-project gate", () => {
     expect((await scan(deps))[0].hostname).toBe("acme.localhost:7999");
 
     // What the renderer pushes when the settings switch changes.
-    portsUpdateWorkspaceMetadata(deps as never, [meta({ portlessEnabled: false })]);
+    portsUpdateWorkspaceMetadata(localCtx(deps as never), [meta({ portlessEnabled: false })]);
 
     const ports = await scan(deps);
     expect(ports[0].hostname).toBeUndefined();

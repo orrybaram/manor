@@ -7,9 +7,11 @@
  * already running.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { ptyCreate } from "../pty";
+import { localCtx } from "../../method";
+import { resetAttachments } from "../../../pty-attachments";
 import type { IpcDeps } from "../../../ipc/types";
 import { PendingCommands } from "../../../layout/pending-commands";
 
@@ -49,10 +51,13 @@ describe("ptyCreate and pending commands", () => {
     } as unknown as IpcDeps;
   });
 
+  // A successful create attaches its caller as a viewer of the pane.
+  afterEach(() => resetAttachments());
+
   it("writes the queued command when the session is fresh", async () => {
     pendingCommands.set(PANE, "echo hello");
 
-    const result = await ptyCreate(deps, PANE, "/repo", 80, 24);
+    const result = await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
 
     expect(result.ok).toBe(true);
     // `\r`, not `\n`: that is what an Enter keypress sends, and zsh's line
@@ -64,16 +69,16 @@ describe("ptyCreate and pending commands", () => {
   it("writes it exactly once — a second viewer finds nothing to take", async () => {
     pendingCommands.set(PANE, "echo hello");
 
-    await ptyCreate(deps, PANE, "/repo", 80, 24);
+    await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
     // The second viewer's create reattaches to the session the first one made.
     snapshot = { screenAnsi: "hello", seq: 1 };
-    await ptyCreate(deps, PANE, "/repo", 80, 24);
+    await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
 
     expect(afterReady).toEqual([[PANE, "echo hello\r"]]);
   });
 
   it("writes nothing when the pane has no queued command", async () => {
-    await ptyCreate(deps, PANE, "/repo", 80, 24);
+    await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
 
     expect(afterReady).toEqual([]);
   });
@@ -84,7 +89,7 @@ describe("ptyCreate and pending commands", () => {
     snapshot = { screenAnsi: "old output", seq: 7 };
     pendingCommands.set(PANE, "echo hello");
 
-    await ptyCreate(deps, PANE, "/repo", 80, 24);
+    await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
 
     expect(afterReady).toEqual([]);
     expect(pendingCommands.take(PANE)).not.toBeNull();
@@ -99,7 +104,7 @@ describe("ptyCreate and pending commands", () => {
     adopted.add(PANE);
     pendingCommands.set(PANE, "claude", "agent-startup");
 
-    await ptyCreate(deps, PANE, "/repo", 80, 24);
+    await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
 
     expect(afterReady).toEqual([[PANE, "claude\r"]]);
   });
@@ -109,9 +114,9 @@ describe("ptyCreate and pending commands", () => {
     adopted.add(PANE);
     pendingCommands.set(PANE, "claude", "agent-startup");
 
-    await ptyCreate(deps, PANE, "/repo", 80, 24);
+    await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
     pendingCommands.set(PANE, "claude", "agent-startup");
-    await ptyCreate(deps, PANE, "/repo", 80, 24);
+    await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
 
     expect(afterReady).toEqual([[PANE, "claude\r"]]);
   });
@@ -124,7 +129,7 @@ describe("ptyCreate and pending commands", () => {
       throw new Error("daemon went away");
     };
 
-    const result = await ptyCreate(deps, PANE, "/repo", 80, 24);
+    const result = await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
 
     // The caller has its session; a command that did not land is not a reason
     // to fail the pane it was meant for.

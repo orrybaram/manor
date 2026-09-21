@@ -118,15 +118,16 @@ export function publishRendererBroadcast(
 }
 
 /**
- * The same, for one connection only (ADR-180 D5).
+ * The same, for one connection only (ADR-180 D5) — or for everyone, when
+ * there is no one connection to address.
  *
  * `connectionId` comes either from `connectionIdForWindow` above or from the
- * renderer that asked for the thing this reports on — `ipc/*` handlers read
- * it off `event.sender.id`, which is what a desktop connection is named
- * after.
+ * caller that asked for the thing this reports on (a bridge handler's
+ * `ctx.caller.id`). Null is the callers with no connection behind them — the
+ * CLI, MCP, the issue-batch path — and broadcasts.
  */
 export function publishToRenderer(
-  connectionId: string,
+  connectionId: string | null,
   ns: string,
   event: string,
   ...args: unknown[]

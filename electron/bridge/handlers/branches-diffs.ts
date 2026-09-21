@@ -1,36 +1,23 @@
 /**
- * Branches, diffs and the `git.*` writes, as plain functions over `IpcDeps`
- * (ADR-180 D8).
+ * Branches, diffs and the `git.*` writes (ADR-180 D8), as the `branches`,
+ * `diffs`, `git` and `git.push` namespaces of the handler table.
  *
- * There is no `register()` here any more. Ticket 8 crossed the two watchers
- * and the three diff reads and thinned this file's wrapper down to the seven
- * `git:*` handlers; ticket 10 lifts those too, so `electron/bridge/handlers.ts`
- * is the only caller of everything below — a renderer window and a paired
- * `full` device alike.
- *
- * **`git.commit` and `git.push` are the reason `MUTATING` has the wording it
+ * **`git.commit` and `git.push` are the reason `mutating` has the wording it
  * does.** They are the clearest case of "moves state the other viewers of
  * this host will see": a commit rewrites what every sidebar badge, diff pane
  * and PR check on this machine is looking at, and a push does it on the
  * remote as well. Both leave an audit line when a device makes them and none
  * when the user at the machine does (D4).
  *
- * **Push progress goes back to the caller, not to every window.** It used to
- * ride `event.sender` — the one thing a lifted function does not have — so
- * the caller arrives as a `LayoutOrigin` instead (`ORIGIN_ARGS`, ADR-179 D3)
- * and the lines become a `git.push.progress` event addressed to that
- * connection, exactly as `projects.createWorktree`'s setup progress does. One
- * push dialog, in one window; a second window has no business watching its
- * progress bar.
+ * **Push progress goes back to the caller, not to every window**, as a
+ * `git.push.progress` event addressed to `ctx.caller.id` — exactly as
+ * `projects.createWorktree`'s setup progress does. One push dialog, in one
+ * window; a second window has no business watching its progress bar.
  */
 
 import { assertString } from "../../ipc-validate";
-import {
-  publishRendererBroadcast,
-  publishToRenderer,
-} from "../../renderer-broadcast";
-import type { LayoutOrigin } from "../../layout/layout-store";
-import type { IpcDeps } from "../../ipc/types";
+import { publishToRenderer } from "../../renderer-broadcast";
+import { method, type HandlerCtx } from "../method";
 
 /** What one `git.push.progress` frame carries. */
 export type PushProgressEvent =
@@ -48,46 +35,46 @@ export function killAllActivePushes(): void {
 }
 
 /** The branch and diff watchers, lifted for the ADR-180 ticket 8 crossing. */
-export function branchesStart(deps: IpcDeps, paths: string[]): void {
-  deps.branchWatcher.start(paths);
+export function branchesStart(ctx: HandlerCtx, paths: string[]): void {
+  ctx.deps.branchWatcher.start(paths);
 }
 
-export function branchesStop(deps: IpcDeps): void {
-  deps.branchWatcher.stop();
+export function branchesStop(ctx: HandlerCtx): void {
+  ctx.deps.branchWatcher.stop();
 }
 
 export function diffsStart(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   workspaces: Record<string, string>,
 ): void {
-  deps.diffWatcher.start(workspaces);
+  ctx.deps.diffWatcher.start(workspaces);
 }
 
-export function diffsStop(deps: IpcDeps): void {
-  deps.diffWatcher.stop();
+export function diffsStop(ctx: HandlerCtx): void {
+  ctx.deps.diffWatcher.stop();
 }
 
 export function diffsGetFullDiff(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   wsPath: string,
   defaultBranch: string,
 ): Promise<string | null> {
-  return deps.backend.git.getFullDiff(wsPath, defaultBranch);
+  return ctx.deps.backend.git.getFullDiff(wsPath, defaultBranch);
 }
 
 export function diffsGetLocalDiff(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   wsPath: string,
 ): Promise<string | null> {
-  return deps.backend.git.getLocalDiff(wsPath);
+  return ctx.deps.backend.git.getLocalDiff(wsPath);
 }
 
 export function diffsGetStagedFiles(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   wsPath: string,
 ): Promise<string[]> {
   assertString(wsPath, "wsPath");
-  return deps.backend.git.getStagedFiles(wsPath);
+  return ctx.deps.backend.git.getStagedFiles(wsPath);
 }
 
 /**
@@ -98,49 +85,49 @@ export function diffsGetStagedFiles(
  * table calls these rather than reaching into Electron's handler map.
  */
 export async function gitStage(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   wsPath: string,
   files: string[],
 ): Promise<void> {
   assertString(wsPath, "wsPath");
-  await deps.backend.git.stage(wsPath, files);
+  await ctx.deps.backend.git.stage(wsPath, files);
 }
 
 export async function gitUnstage(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   wsPath: string,
   files: string[],
 ): Promise<void> {
   assertString(wsPath, "wsPath");
-  await deps.backend.git.unstage(wsPath, files);
+  await ctx.deps.backend.git.unstage(wsPath, files);
 }
 
 export async function gitDiscard(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   wsPath: string,
   files: string[],
 ): Promise<void> {
   assertString(wsPath, "wsPath");
-  await deps.backend.git.discard(wsPath, files);
+  await ctx.deps.backend.git.discard(wsPath, files);
 }
 
 export async function gitStash(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   wsPath: string,
   files: string[],
 ): Promise<void> {
   assertString(wsPath, "wsPath");
-  await deps.backend.git.stash(wsPath, files);
+  await ctx.deps.backend.git.stash(wsPath, files);
 }
 
 export async function gitCommit(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   wsPath: string,
   message: string,
   flags: string[],
 ): Promise<void> {
   assertString(wsPath, "wsPath");
-  await deps.backend.git.commit(wsPath, message, flags);
+  await ctx.deps.backend.git.commit(wsPath, message, flags);
 }
 
 /**
@@ -148,15 +135,11 @@ export async function gitCommit(
  *
  * `pushId` is the workspace path, which is also the lock: one push per
  * workspace, and a second caller — another window, a phone — is told so
- * rather than racing the first. The stream is addressed to the caller's
- * connection; a call with no origin behind it (the CLI, a test) broadcasts,
- * which is what every window used to get from `event.sender` anyway when the
- * sender happened to be the only one open.
+ * rather than racing the first.
  */
 export function gitPushStart(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   args: { wsPath: string; setUpstream?: boolean },
-  origin?: LayoutOrigin,
 ): { pushId: string; startedAt: number } {
   assertString(args.wsPath, "wsPath");
   const pushId = args.wsPath;
@@ -165,13 +148,11 @@ export function gitPushStart(
     throw new Error("Push already in progress for this workspace");
   }
 
-  const to = origin?.id ?? null;
   const report = (event: PushProgressEvent) => {
-    if (to === null) publishRendererBroadcast("git.push", "progress", event);
-    else publishToRenderer(to, "git.push", "progress", event);
+    publishToRenderer(ctx.caller.id, "git.push", "progress", event);
   };
 
-  const { cancel } = deps.backend.git.pushStream(
+  const { cancel } = ctx.deps.backend.git.pushStream(
     args.wsPath,
     { setUpstream: args.setUpstream },
     {
@@ -194,10 +175,47 @@ export function gitPushStart(
  * Cancel one. The wrapper took a `{ pushId }` envelope because the preload
  * built one; the table passes the id the caller actually named.
  */
-export function gitPushCancel(_deps: IpcDeps, pushId: string): void {
+export function gitPushCancel(_ctx: HandlerCtx, pushId: string): void {
   const entry = activePushes.get(pushId);
   if (!entry) return;
   // Do NOT remove from the map here — let `onDone` remove it so the done
   // event still fires.
   entry.cancel();
 }
+
+// The watcher lifecycle and the reads are what a viewer does to its own view,
+// so none of `branches` or `diffs` is audited.
+export const branches = {
+  start: method(branchesStart),
+  stop: method(branchesStop),
+};
+
+export const diffs = {
+  start: method(diffsStart),
+  stop: method(diffsStop),
+  getFullDiff: method(diffsGetFullDiff),
+  getLocalDiff: method(diffsGetLocalDiff),
+  getStagedFiles: method(diffsGetStagedFiles),
+};
+
+// Nothing here merely reads, and nothing is local-only: committing from a
+// phone is the sentence ADR-178 started from. Staging moves the index every
+// other viewer's diff pane reads; `discard` and `stash` take work away.
+export const git = {
+  stage: method(gitStage, { mutating: true }),
+  unstage: method(gitUnstage, { mutating: true }),
+  discard: method(gitDiscard, { mutating: true }),
+  stash: method(gitStash, { mutating: true }),
+  commit: method(gitCommit, { mutating: true }),
+};
+
+/**
+ * A namespace of its own, not a method: `git.push.start` is the only
+ * two-level path in the surface, and the client proxy resolves it as ns
+ * `git.push` (`src/bridge/client.ts`'s `member`). `cancel` ends a push
+ * somebody is watching.
+ */
+export const gitPush = {
+  start: method(gitPushStart, { mutating: true }),
+  cancel: method(gitPushCancel, { mutating: true }),
+};

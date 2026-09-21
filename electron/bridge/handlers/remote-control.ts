@@ -1,6 +1,6 @@
 /**
- * The remote-control surface, as plain functions over `IpcDeps` (ADR-161
- * ticket 6, lifted for ADR-180 D4/D8 ticket 10).
+ * The remote-control surface (ADR-161 ticket 6, ADR-180 ticket 10), as the
+ * `remoteControl` namespace of the handler table.
  *
  * Thin by design: every decision — what starting a tunnel implies, what
  * disabling takes down with it — lives in `RemoteControlController`, so the
@@ -8,9 +8,9 @@
  *
  * The raw pairing token crosses this boundary exactly once, in the return
  * value of `remoteControlPair`, and is never broadcast in a status push. That
- * return value is also why five of the seven below are `LOCAL_ONLY`
- * (`handlers.ts`): a stolen `full` token that can pair more devices is a
- * token that survives its own revocation, which is a different class of loss
+ * return value is also why five of the seven below are `localOnly`: a stolen
+ * `full` token that can pair more devices is a token that survives its own
+ * revocation, which is a different class of loss
  * from "can remove a workspace" — the one ADR-178 D3 accepted knowingly.
  * `getStatus` and `refreshDetection` are reads and stay open, so a device's
  * own settings page is not lying to it about the surface it is on.
@@ -29,7 +29,8 @@ import { CAPABILITIES, isCapability } from "../../remote-control/devices";
 import type { Capability } from "../../remote-control/devices";
 import type { TunnelKind } from "../../remote-control/tunnel";
 import { publishRendererBroadcast } from "../../renderer-broadcast";
-import type { IpcDeps } from "../../ipc/types";
+import type { HostDeps } from "../../ipc/types";
+import { method, type HandlerCtx } from "../method";
 
 /**
  * The one read the ADR-178 bridge needs, lifted out of its `ipcMain.handle`
@@ -37,8 +38,8 @@ import type { IpcDeps } from "../../ipc/types";
  * is paired and what they can do (device labels and capabilities, never
  * tokens), the same view the desktop settings panel gets.
  */
-export function remoteControlGetStatus(deps: IpcDeps): RemoteControlStatus {
-  return deps.remoteControl.status();
+export function remoteControlGetStatus(ctx: HandlerCtx): RemoteControlStatus {
+  return ctx.deps.remoteControl.status();
 }
 
 /**
@@ -79,7 +80,7 @@ function assertTunnelKind(
  * paired device through the one sink — `remoteControl.status`, which is what
  * `remoteControl.onStatus(cb)` subscribes to on both platforms.
  */
-export function wireRemoteControlStatus(deps: IpcDeps): void {
+export function wireRemoteControlStatus(deps: HostDeps): void {
   deps.remoteControl.onChange((status: RemoteControlStatus) => {
     publishRendererBroadcast("remoteControl", "status", status);
   });
@@ -87,17 +88,17 @@ export function wireRemoteControlStatus(deps: IpcDeps): void {
 
 /** Re-check which tunnel binaries are on PATH. A read, with a refresh in it. */
 export function remoteControlRefreshDetection(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
 ): Promise<RemoteControlStatus> {
-  return deps.remoteControl.refreshDetection();
+  return ctx.deps.remoteControl.refreshDetection();
 }
 
 export function remoteControlSetEnabled(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   enabled: unknown,
 ): Promise<RemoteControlStatus> {
   assertBoolean(enabled, "remoteControl.setEnabled.enabled");
-  return deps.remoteControl.setEnabled(enabled);
+  return ctx.deps.remoteControl.setEnabled(enabled);
 }
 
 /**
@@ -108,7 +109,7 @@ export function remoteControlSetEnabled(
  * the revoke list is a device nobody can identify well enough to revoke.
  */
 export function remoteControlPair(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   label: unknown,
   capability: unknown,
 ): PairResult {
@@ -118,27 +119,40 @@ export function remoteControlPair(
   if (trimmed.length === 0 || trimmed.length > 64) {
     throw new Error("A device label must be 1–64 characters.");
   }
-  return deps.remoteControl.pair(trimmed, capability);
+  return ctx.deps.remoteControl.pair(trimmed, capability);
 }
 
 export function remoteControlRevoke(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   id: unknown,
 ): RemoteControlStatus {
   assertString(id, "remoteControl.revoke.id");
-  return deps.remoteControl.revoke(id);
+  return ctx.deps.remoteControl.revoke(id);
 }
 
 export function remoteControlStartTunnel(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   kind: unknown,
 ): Promise<RemoteControlStatus> {
   assertTunnelKind(kind, "remoteControl.startTunnel.kind");
-  return deps.remoteControl.startTunnel(kind);
+  return ctx.deps.remoteControl.startTunnel(kind);
 }
 
 export function remoteControlStopTunnel(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
 ): Promise<RemoteControlStatus> {
-  return deps.remoteControl.stopTunnel();
+  return ctx.deps.remoteControl.stopTunnel();
 }
+
+export const remoteControl = {
+  getStatus: method(remoteControlGetStatus),
+  refreshDetection: method(remoteControlRefreshDetection),
+  // A token that can pair more devices survives its own revocation, and one
+  // that can turn the listener off locks the owner out of the machine they
+  // are trying to take back: the five that change the exposure stay local.
+  setEnabled: method(remoteControlSetEnabled, { localOnly: true }),
+  pair: method(remoteControlPair, { localOnly: true }),
+  revoke: method(remoteControlRevoke, { localOnly: true }),
+  startTunnel: method(remoteControlStartTunnel, { localOnly: true }),
+  stopTunnel: method(remoteControlStopTunnel, { localOnly: true }),
+};

@@ -132,7 +132,7 @@ function mostRecent(
  * Would this viewer own the pane's winsize if it attached right now?
  *
  * What a create-shaped call has to know *before* it runs (`createShaped` in
- * `bridge/handlers.ts`): the caller's `cols×rows` is a request, and it may
+ * `bridge/handlers/pty.ts`): the caller's `cols×rows` is a request, and it may
  * only be granted to the viewer that is about to own the pane — everyone else
  * is handed the owner's grid to render instead.
  *
@@ -232,19 +232,6 @@ export function releaseViewer(connectionId: string): AttachmentResult {
   }
   notifyChanged(changed);
   return { changed };
-}
-
-/**
- * Is a renderer window on this machine the winsize owner of this pane?
- *
- * Equivalent to "does any `local` viewer hold it", because rule 1 says a
- * local viewer that exists is the owner. What it is *for* is the question a
- * device has to ask before it fits a pane to itself: `false` means the next
- * viewer to attach may own the winsize — which, on the bridge, is the browser
- * asking.
- */
-export function isDesktopAttached(paneId: string): boolean {
-  return ownerOf(paneId)?.callerClass === "local";
 }
 
 /** Forget everything. Tests only — a real main process never wants this. */

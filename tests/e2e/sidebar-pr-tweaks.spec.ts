@@ -262,12 +262,20 @@ test("sidebar PR badge, popover, notifications, folders and diff tree", async ({
   await expect(popover).toBeVisible({ timeout: 5_000 });
   await expect(popover.locator("details summary", { hasText: "Why" })).toBeVisible();
   await expect(popover.locator("code", { hasText: "bcrypt" })).toBeVisible();
-  const commentAuthors = await popover.locator('[class*="prPopoverCommentAuthor"]').allTextContents();
+  // `pr-comment-author`, not `[class*="prPopoverCommentAuthor"]`: the comment
+  // card moved to `ui/PrCommentCard` in `bf77ca65` and took its class names
+  // with it, so this read zero authors and asserted nothing until ADR-180
+  // ticket 13.
+  const commentAuthors = await popover
+    .locator('[data-testid="pr-comment-author"]')
+    .allTextContents();
   log.push(`popover comment authors (bodiless dropped): ${JSON.stringify(commentAuthors)}`);
   expect(commentAuthors).toHaveLength(4); // jane thread, jane comment, sam resolved thread, lee outdated thread
   await expect(popover.getByText("No comment text.")).toHaveCount(0);
 
-  const unresolvedRow = popover.locator('[class*="prPopoverCommentUnresolved"]').first();
+  const unresolvedRow = popover
+    .locator('[data-testid="pr-comment"][data-unresolved="true"]')
+    .first();
   await unresolvedRow.hover();
   const sendButton = unresolvedRow.getByRole("button", { name: "Send this comment to an agent" });
   await expect(sendButton).toBeVisible();

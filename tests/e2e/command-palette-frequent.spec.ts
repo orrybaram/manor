@@ -5,8 +5,13 @@ import { Filmstrip } from "./helpers/filmstrip";
 /**
  * The command palette pins the commands a user runs most often at the top of
  * its root view, in a "Frequently Used" group. The group is ranked by how many
- * times each command has been picked, exists only while the search box is
- * empty, and survives a reload because usage is persisted.
+ * times each command has been picked, and survives a reload because usage is
+ * persisted.
+ *
+ * While the search box has something in it the group does not disappear: the
+ * frequent commands that *match* stay pinned above everything else, and are
+ * lifted out of their home groups so no command is ever listed twice
+ * (`8b18cee`).
  */
 
 const FREQUENT_HEADING = "Frequently Used";
@@ -84,14 +89,24 @@ test("frequently used commands rise to the top of the palette", async ({
   ]);
   await film.shot(window, "palette-frequent-group-pinned");
 
-  // Typing hands ranking over to search; the pinned group gets out of the way
-  // so a command is never listed twice.
+  // Typing does not hand ranking over to search wholesale: a frequent command
+  // that still matches stays pinned at the top (`8b18cee`), lifted *out* of
+  // its home group so it is listed once rather than twice. This assertion read
+  // the other way round until ADR-180 ticket 13 — the group used to vanish on
+  // the first keystroke, and the spec outlived that behaviour by a week.
   await paletteInput(window).fill("new");
-  await expect(frequentGroup(window)).toHaveCount(0);
+  await expect(groupHeadings(window).first()).toHaveText(FREQUENT_HEADING);
+  await expect(frequentGroup(window).locator("[cmdk-item]")).toHaveCount(1);
+  await expect.poll(() => frequentLabels(window)).toEqual(["New Tab"]);
   await expect(
     window.locator("[cmdk-item]", { hasText: "New Tab" }),
   ).toHaveCount(1);
-  await film.shot(window, "palette-search-hides-frequent-group");
+  // Toggle Sidebar is frequent but does not match "new", so it is neither
+  // pinned nor listed — the lift is per match, not per command.
+  await expect(
+    window.locator("[cmdk-item]", { hasText: "Toggle Sidebar" }),
+  ).toHaveCount(0);
+  await film.shot(window, "palette-search-keeps-matching-frequent");
 
   // Clearing the search brings it straight back.
   await paletteInput(window).fill("");

@@ -10,6 +10,7 @@ import type { GitBackend } from "./backend/types";
 import { manorDataDir, worktreesDir } from "./paths";
 import { sanitizeBranchName, toDirSlug } from "./branch-name";
 import { publishToRenderer } from "./renderer-broadcast";
+import type { SetupStep, StepStatus } from "../src/store/project-store";
 
 const execAsync = promisify(exec);
 
@@ -297,8 +298,8 @@ export class ProjectManager {
    */
   private emitSetupProgress(
     origin: string | null,
-    step: string,
-    status: string,
+    step: SetupStep,
+    status: StepStatus,
     message?: string,
   ) {
     const event = { step, status, message };
@@ -1207,7 +1208,7 @@ export class ProjectManager {
     useExistingBranch?: boolean,
     origin: string | null = null,
   ): Promise<ProjectInfo | null> {
-    const progress = (step: string, status: string, message?: string) =>
+    const progress = (step: SetupStep, status: StepStatus, message?: string) =>
       this.emitSetupProgress(origin, step, status, message);
     const project = this.findProject(projectId);
     if (!project) return null;

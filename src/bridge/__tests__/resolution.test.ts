@@ -10,19 +10,20 @@
  * `UNAVAILABLE_NAMESPACES`, and with one method deliberately in two places at
  * once, because precedence is invisible until two of them could answer.
  *
- * It is the runtime half of D7's check. `electron/bridge/surface.ts` asserts
- * that every method of `ElectronAPI` is placed in one of four sets; this
- * asserts that the client consults those sets the way the placement assumes —
- * including, for every entry of `SUBSCRIPTIONS`, that the event name the
- * catalogue declares is the one that actually goes on the wire. That pairing
- * is the one thing in the surface check that a type cannot hold up, since the
- * client derives an event's name by a rule (`onChange` → `changed`) with a
- * table of exceptions beside it.
+ * It is the runtime half of the compile-time contract. `ElectronAPI` is
+ * derived from the handler table, the preload and `SUBSCRIPTIONS`
+ * (`electron/bridge/contract.ts`), and `electron/bridge/surface.ts` checks
+ * what derivation cannot; this asserts that the client consults those sets
+ * the way the derivation assumes — including, for every entry of
+ * `SUBSCRIPTIONS`, that the event name the table declares is the one that
+ * actually goes on the wire. That pairing is the one thing a type cannot hold
+ * up, since the client derives an event's name by a rule (`onChange` →
+ * `changed`) with a table of exceptions beside it.
  */
 
 import { describe, it, expect, vi } from "vitest";
 
-import { SUBSCRIPTIONS } from "../../../electron/bridge/surface";
+import { SUBSCRIPTIONS } from "../../../electron/bridge/events";
 import {
   BridgeUnavailableError,
   createBridge,
@@ -157,10 +158,10 @@ describe("the order an answer is looked for in", () => {
 });
 
 /**
- * Every listener on the contract, resolved. The catalogue in `surface.ts`
- * places these methods for the compile-time check and declares the wire name
- * each one listens on; this is what makes that declaration true of the
- * client rather than merely written down beside it.
+ * Every listener on the contract, resolved. `SUBSCRIPTIONS` in
+ * `electron/bridge/events.ts` declares these listeners and the wire name each
+ * one listens on; this is what makes that declaration true of the client
+ * rather than merely written down beside it.
  */
 describe("SUBSCRIPTIONS resolve to the events they claim", () => {
   it.each(Object.entries(SUBSCRIPTIONS))(

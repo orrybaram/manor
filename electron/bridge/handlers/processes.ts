@@ -2,6 +2,7 @@ import { assertString } from "../../ipc-validate";
 import { killCounters } from "../../stats-signals";
 import { method, type HandlerCtx } from "../method";
 import {
+  type ProcessesSnapshot,
   listProcesses,
   cleanupDeadProcesses,
   killDaemon,
@@ -15,7 +16,7 @@ import {
  * reachable by a `full` device on the bridge and nowhere else (ADR-182 D2),
  * and is `mutating`.
  */
-export function processesList(ctx: HandlerCtx): unknown {
+export function processesList(ctx: HandlerCtx): Promise<ProcessesSnapshot> {
   const { backend, agentHookServer, webviewServer, portScanner } = ctx.deps;
   return listProcesses({ backend, agentHookServer, webviewServer, portScanner });
 }

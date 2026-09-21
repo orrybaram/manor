@@ -1,4 +1,5 @@
 import { getConnector } from "../../agent-connectors";
+import type { AgentInfo } from "../../agent-persistence";
 import { assertString } from "../../ipc-validate";
 import {
   getUnseenSnapshot,
@@ -15,7 +16,13 @@ const ALLOWED_RENDERER_TASK_FIELDS: ReadonlySet<string> = new Set([
   "namePinned",
 ]);
 
-function assertRendererAgentUpdate(updates: unknown): asserts updates is Record<string, unknown> {
+/** What a renderer may change about an agent: its name, and whether it is pinned. */
+export interface RendererAgentUpdate {
+  name?: string | null;
+  namePinned?: boolean;
+}
+
+function assertRendererAgentUpdate(updates: unknown): asserts updates is RendererAgentUpdate {
   if (!updates || typeof updates !== "object") {
     throw new Error("agents:update: updates must be an object");
   }
@@ -55,27 +62,30 @@ export interface PaneContext {
  * it is local-only — a browser that could watch an agent but not mark it
  * seen was exactly the read-and-type state this ADR exists to end.
  */
-export function agentsGetAll(ctx: HandlerCtx, opts?: AgentQuery): unknown {
+export function agentsGetAll(ctx: HandlerCtx, opts?: AgentQuery): AgentInfo[] {
   return ctx.deps.agentManager.getAllAgents(opts);
 }
 
-export function agentsGet(ctx: HandlerCtx, agentId: string): unknown {
+export function agentsGet(ctx: HandlerCtx, agentId: string): AgentInfo | null {
   assertString(agentId, "agentId");
   return ctx.deps.agentManager.getAgentById(agentId);
 }
 
-export function agentsGetActive(ctx: HandlerCtx): unknown {
+export function agentsGetActive(ctx: HandlerCtx): AgentInfo[] {
   return ctx.deps.agentManager.getActiveAgents();
 }
 
 export function agentsGetRecent(
   ctx: HandlerCtx,
   opts?: { limit?: number },
-): unknown {
+): AgentInfo[] {
   return ctx.deps.agentManager.getAllAgents({ limit: opts?.limit ?? 50 });
 }
 
-export function agentsGetUnseen(): unknown {
+export function agentsGetUnseen(): {
+  responded: string[];
+  requires_input: string[];
+} {
   return getUnseenSnapshot();
 }
 
@@ -132,8 +142,8 @@ export function agentsConsumePruneNotice(ctx: HandlerCtx): number {
 export function agentsUpdate(
   ctx: HandlerCtx,
   agentId: string,
-  updates: unknown,
-): unknown {
+  updates: RendererAgentUpdate,
+): AgentInfo | null {
   assertString(agentId, "agentId");
   assertRendererAgentUpdate(updates);
   const updated = ctx.deps.agentManager.updateAgent(agentId, updates);
@@ -179,7 +189,10 @@ export function agentsMarkSeen(ctx: HandlerCtx, agentId: string): void {
   }
 }
 
-export function agentsMarkResumed(ctx: HandlerCtx, agentId: string): unknown {
+export function agentsMarkResumed(
+  ctx: HandlerCtx,
+  agentId: string,
+): AgentInfo | null {
   assertString(agentId, "agentId");
   return ctx.deps.agentManager.updateAgent(agentId, {
     resumedAt: new Date().toISOString(),

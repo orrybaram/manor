@@ -3,7 +3,7 @@ import type {
   LayoutApplyResult,
   LayoutEntry,
   LayoutOrigin,
-} from "../../layout/layout-store";
+} from "../../../src/lib/layout/protocol";
 import type { LayoutCommand } from "../../../src/lib/layout/commands";
 import type { PendingCommandKind } from "../../layout/pending-commands";
 import { assertString } from "../../ipc-validate";

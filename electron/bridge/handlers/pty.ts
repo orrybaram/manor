@@ -21,6 +21,7 @@ import {
   type Viewer,
 } from "../../pty-attachments";
 import type { HostDeps } from "../../ipc/types";
+import type { StreamPosition } from "../../terminal-host/types";
 import { method, type Caller, type HandlerCtx } from "../method";
 
 /** Read git branch synchronously from a repo or worktree root. */
@@ -66,14 +67,38 @@ function asViewer(caller: Caller): Viewer {
   return { connectionId: caller.id, callerClass: caller.callerClass };
 }
 
-/** What a create-shaped call tells the caller about the winsize (D5). */
-interface WinsizeDecoration {
+/**
+ * What a create-shaped PTY call answers with.
+ *
+ * The last three fields are the host's answer to "who owns the winsize"
+ * (ADR-178 D5). **Absent means this viewer owns it**, which is what a failed
+ * call carries. A viewer told `winsizeOwner: false` is a follower — it
+ * renders the `cols×rows` here and never asks the pty for a different pair —
+ * and since ADR-180 D6 that can be a second desktop window as readily as a
+ * browser.
+ */
+export interface PtyCreateResult {
+  ok: boolean;
+  snapshot?: string | null;
+  /**
+   * Stream position the snapshot reflects; the renderer drops queued output
+   * at or below it (ADR-159). Absent when there is no snapshot, or when a
+   * daemon predating ADR-159 reports none.
+   */
+  snapshotSeq?: StreamPosition;
+  error?: string;
+  prewarmed?: boolean;
   /** False when another viewer owns this pane's winsize: follow, do not fit. */
-  winsizeOwner: boolean;
-  /** The grid to render — the owner's, not the one the caller asked for. */
-  cols: number;
-  rows: number;
+  winsizeOwner?: boolean;
+  /** The winsize owner's grid, to be rendered as-is. */
+  cols?: number;
+  rows?: number;
 }
+
+/** What a create-shaped call tells the caller about the winsize (D5). */
+type WinsizeDecoration = Required<
+  Pick<PtyCreateResult, "winsizeOwner" | "cols" | "rows">
+>;
 
 /**
  * The session's current grid, or null if the daemon has no opinion yet.
@@ -196,7 +221,7 @@ export function ptyCreate(
   cols: number,
   rows: number,
   agentKind?: string | null,
-) {
+): Promise<PtyCreateResult> {
   return createShaped(ctx, paneId, cols, rows, (c, r) =>
     createSession(ctx.deps, paneId, cwd, c, r, agentKind),
   );
@@ -340,7 +365,7 @@ export function ptyReset(
   cwd: string | null,
   cols: number,
   rows: number,
-) {
+): Promise<PtyCreateResult> {
   return createShaped(ctx, paneId, cols, rows, (c, r) =>
     resetSession(ctx.deps, paneId, cwd, c, r),
   );

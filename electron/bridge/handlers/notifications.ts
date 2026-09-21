@@ -3,6 +3,7 @@ import { assertString } from "../../ipc-validate";
 import { sendNotificationsUpdate, showPrNotification } from "../../notifications";
 import type { PrNotifyEventKind } from "../../notifications";
 import type { PrComment } from "../../../src/lib/pr-info";
+import type { NotificationRecord } from "../../notification-store";
 import type { HostDeps } from "../../ipc/types";
 import { method, type Caller, type HandlerCtx } from "../method";
 
@@ -12,7 +13,7 @@ import { method, type Caller, type HandlerCtx } from "../method";
  * speculatively — every mutation re-broadcasts the whole list through the
  * single send-site in `../notifications`.
  */
-export function notificationsGetAll(ctx: HandlerCtx): unknown {
+export function notificationsGetAll(ctx: HandlerCtx): NotificationRecord[] {
   return ctx.deps.notificationStore.getAll();
 }
 

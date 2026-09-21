@@ -375,7 +375,7 @@ function detachTabFromPanel(
     nextPanels[sourcePanel.id] = {
       ...sourcePanel,
       tabs: remainingTabs,
-      pinnedTabIds: (sourcePanel.pinnedTabIds ?? []).filter(
+      pinnedTabIds: sourcePanel.pinnedTabIds.filter(
         (id) => id !== tabId,
       ),
     };
@@ -555,7 +555,7 @@ function closeTab(
     withPanel(layout, panel.id, (p) => ({
       ...p,
       tabs: newTabs,
-      pinnedTabIds: (p.pinnedTabIds ?? []).filter((id) => id !== tabId),
+      pinnedTabIds: p.pinnedTabIds.filter((id) => id !== tabId),
     })),
     nextStack,
     effects,
@@ -573,7 +573,7 @@ function closeManyTabs(
   const found = findPanelWithTab(state.layout, command.tabId);
   if (!found) return unchanged(state);
   const { panel } = found;
-  const pinned = new Set(panel.pinnedTabIds ?? []);
+  const pinned = new Set(panel.pinnedTabIds);
 
   let candidates: Tab[];
   if (command.type === "close-other-tabs") {
@@ -655,7 +655,7 @@ function togglePinTab(
   const found = findPanelWithTab(state.layout, command.tabId);
   if (!found) return unchanged(state);
   const { panel, tab } = found;
-  const pinned = panel.pinnedTabIds ?? [];
+  const pinned = panel.pinnedTabIds;
   const isPinned = pinned.includes(command.tabId);
 
   // Pinned tabs sit at the front, in pin order. Pinning moves the tab to the
@@ -775,7 +775,7 @@ function movePaneToTarget(
         tabs: newTabs,
         pinnedTabIds:
           sourceRootAfterRemove === null
-            ? (p.pinnedTabIds ?? []).filter((id) => id !== sourceTab.id)
+            ? p.pinnedTabIds.filter((id) => id !== sourceTab.id)
             : p.pinnedTabIds,
       })),
       closedStack,
@@ -873,7 +873,7 @@ function moveTabToPane(
       withPanel(layout, sourcePanel.id, (p) => ({
         ...p,
         tabs: newTabs,
-        pinnedTabIds: (p.pinnedTabIds ?? []).filter((id) => id !== sourceTab.id),
+        pinnedTabIds: p.pinnedTabIds.filter((id) => id !== sourceTab.id),
       })),
       closedStack,
       effects,
@@ -1315,7 +1315,7 @@ function moveTabToPanel(
         [sourcePanel.id]: {
           ...sourcePanel,
           tabs: sourceTabs,
-          pinnedTabIds: (sourcePanel.pinnedTabIds ?? []).filter(
+          pinnedTabIds: sourcePanel.pinnedTabIds.filter(
             (id) => id !== command.tabId,
           ),
         },
@@ -1356,7 +1356,7 @@ function splitPanelWithTab(
         [sourcePanel.id]: {
           ...sourcePanel,
           tabs: sourceTabs,
-          pinnedTabIds: (sourcePanel.pinnedTabIds ?? []).filter(
+          pinnedTabIds: sourcePanel.pinnedTabIds.filter(
             (id) => id !== command.tabId,
           ),
         },
@@ -1415,7 +1415,7 @@ function mergeTabIntoTab(
       withPanel(layout, sourcePanel.id, (p) => ({
         ...p,
         tabs,
-        pinnedTabIds: (p.pinnedTabIds ?? []).filter((id) => id !== sourceTabId),
+        pinnedTabIds: p.pinnedTabIds.filter((id) => id !== sourceTabId),
       })),
       closedStack,
       effects,

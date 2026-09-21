@@ -71,7 +71,7 @@ describe("bridge events", () => {
     server.subscribe(a.connection, "ports", "changed");
     server.subscribe(b.connection, "ports", "changed");
 
-    publishRendererBroadcast("ports", "changed", [{ port: 3000 }]);
+    publishRendererBroadcast("ports", "changed", [{ port: 3000 }] as never);
 
     const expected = {
       kind: "event",

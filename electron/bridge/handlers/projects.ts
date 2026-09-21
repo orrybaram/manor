@@ -26,7 +26,7 @@ import type { LinkedIssue } from "../../linear";
 import { method, type HandlerCtx } from "../method";
 
 /** The four the sidebar needs to paint itself. */
-export function projectsGetAll(ctx: HandlerCtx): unknown {
+export function projectsGetAll(ctx: HandlerCtx): Promise<ProjectInfo[]> {
   return ctx.deps.projectManager.getProjects();
 }
 

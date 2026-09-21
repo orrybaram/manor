@@ -178,7 +178,7 @@ export function deriveMenuContext(
       panel && selectedTabId
         ? {
             id: selectedTabId,
-            pinned: (panel.pinnedTabIds ?? []).includes(selectedTabId),
+            pinned: panel.pinnedTabIds.includes(selectedTabId),
           }
         : null,
     panelCount: layout ? Object.keys(layout.panels).length : 0,

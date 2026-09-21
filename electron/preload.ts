@@ -1,5 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { MenuCommandPayload, MenuContext } from "../src/lib/menu-commands";
+import type { PickedElementResult } from "../src/electron";
+import type { MenuContext } from "../src/lib/menu-commands";
+import type { RecordingCommand } from "../src/lib/webview-recorder";
+import type { BridgeEvents } from "./bridge/events";
 
 interface WindowBounds {
   x: number;
@@ -9,15 +12,11 @@ interface WindowBounds {
 }
 
 /**
- * Payload of the main→renderer "webview:recording-command" channel (ADR-158).
- * Mirrors `RecordingCommand` in `src/lib/webview-recorder.ts`; declared here
- * rather than imported so the preload's type surface stays self-contained.
+ * `ipcRenderer.invoke`, typed. `NativeApi` is derived from the object below,
+ * so what each channel resolves with is written here, once, or nowhere.
  */
-interface WebviewRecordingCommand {
-  cmd: "start" | "stop";
-  recordingId: string;
-  mediaSourceId?: string;
-  paneId: string;
+function invoke<T = void>(channel: string, ...args: unknown[]): Promise<T> {
+  return ipcRenderer.invoke(channel, ...args) as Promise<T>;
 }
 
 function onChannel<T>(
@@ -42,15 +41,19 @@ function onChannelArgs<Args extends unknown[]>(
 }
 
 /**
- * `onChannel`'s replacement for a push that is now a bridge event: one
- * `updater.<event>` subscription, typed at the call site (ADR-180 D5).
+ * A bridge event heard by a native namespace (ADR-180 D5): `updater.*` and
+ * `menu.command`, typed by their row in `BridgeEvents`.
  */
-function updaterEvent<T>(
-  event: string,
-  callback: (value: T) => void,
+function nativeEvent<
+  N extends "updater" | "menu",
+  E extends keyof BridgeEvents[N] & string,
+>(
+  ns: N,
+  event: E,
+  callback: (...args: BridgeEvents[N][E] & unknown[]) => void,
 ): () => void {
-  return bridgeSubscribe("updater", event, null, (value) =>
-    callback(value as T),
+  return bridgeSubscribe(ns, event, null, (...args) =>
+    callback(...(args as BridgeEvents[N][E] & unknown[])),
   );
 }
 
@@ -127,39 +130,32 @@ try {
  * `detachedWindowId`, `claim`, `env`) are *not* here: they are read off argv
  * above for that reason, and are the same values `ElectronAPI` reports.
  *
- * **This object is the list.** ADR-180 D7's check needs to know which methods
- * the preload serves, and a tuple of their names kept beside it would be one
- * more thing to keep in step — so `NativeMethod` in `electron/bridge/
- * surface.ts` is derived from `NativeApi` below instead, and writing a method
- * here *is* placing it. The type is exported; nothing about this file's
- * runtime crosses that import, which is why the check can read it without
- * dragging the main process into the renderer's bundle.
+ * **This object is the list, and the signatures.** `ElectronAPI`'s native
+ * part is `NativeApi` below (`src/electron.d.ts`), so writing a method here
+ * *is* declaring it, with the types written on it — which is why every
+ * `invoke` names what its channel resolves with. The type is exported;
+ * nothing about this file's runtime crosses that import, which is why the
+ * renderer can read it without dragging the main process into its bundle.
  */
 const nativeApi = {
   dialog: {
-    openDirectory: () => ipcRenderer.invoke("dialog:openDirectory"),
+    openDirectory: () => invoke<string | null>("dialog:openDirectory"),
   },
 
   shell: {
-    openExternal: (url: string) =>
-      ipcRenderer.invoke("shell:openExternal", url),
+    openExternal: (url: string) => invoke("shell:openExternal", url),
     openInEditor: (path: string) =>
-      ipcRenderer.invoke("shell:openInEditor", path),
+      invoke<string>("shell:openInEditor", path),
     resolveFilePath: (filePath: string, cwd: string) =>
-      ipcRenderer.invoke("shell:resolveFilePath", filePath, cwd) as Promise<
-        string | null
-      >,
+      invoke<string | null>("shell:resolveFilePath", filePath, cwd),
     discoverAgents: () =>
-      ipcRenderer.invoke("shell:discoverAgents") as Promise<
-        Array<{ name: string; command: string }>
-      >,
-    showItemInFolder: (path: string) =>
-      ipcRenderer.invoke("shell:showItemInFolder", path) as Promise<void>,
+      invoke<Array<{ name: string; command: string }>>("shell:discoverAgents"),
+    showItemInFolder: (path: string) => invoke("shell:showItemInFolder", path),
   },
 
   updater: {
-    checkForUpdates: () => ipcRenderer.invoke("updater:checkForUpdates"),
-    quitAndInstall: () => ipcRenderer.invoke("updater:quitAndInstall"),
+    checkForUpdates: () => invoke("updater:checkForUpdates"),
+    quitAndInstall: () => invoke("updater:quitAndInstall"),
     /**
      * The six `updater.*` broadcasts (ADR-180 D5), which `electron/updater.
      * ts` publishes instead of pushing at the primary window. Written out
@@ -167,26 +163,23 @@ const nativeApi = {
      * namespace the client refuses outright in a browser, so its
      * subscriptions have to be members of the native namespace.
      */
-    onChecking: (callback: (payload: { manual: boolean }) => void) =>
-      updaterEvent("checking", callback),
-    onUpdateAvailable: (callback: (info: { version: string }) => void) =>
-      updaterEvent("updateAvailable", callback),
-    onUpdateDownloaded: (callback: (info: { version: string }) => void) =>
-      updaterEvent("updateDownloaded", callback),
+    onChecking: (
+      callback: (...args: BridgeEvents["updater"]["checking"]) => void,
+    ) => nativeEvent("updater", "checking", callback),
+    onUpdateAvailable: (
+      callback: (...args: BridgeEvents["updater"]["updateAvailable"]) => void,
+    ) => nativeEvent("updater", "updateAvailable", callback),
+    onUpdateDownloaded: (
+      callback: (...args: BridgeEvents["updater"]["updateDownloaded"]) => void,
+    ) => nativeEvent("updater", "updateDownloaded", callback),
     onUpdateNotAvailable: (
-      callback: (info: { version: string; manual: boolean }) => void,
-    ) => updaterEvent("updateNotAvailable", callback),
+      callback: (...args: BridgeEvents["updater"]["updateNotAvailable"]) => void,
+    ) => nativeEvent("updater", "updateNotAvailable", callback),
     onDownloadProgress: (
-      callback: (progress: {
-        percent: number;
-        bytesPerSecond: number;
-        transferred: number;
-        total: number;
-      }) => void,
-    ) => updaterEvent("downloadProgress", callback),
-    onError: (
-      callback: (payload: { message: string; manual: boolean }) => void,
-    ) => updaterEvent("error", callback),
+      callback: (...args: BridgeEvents["updater"]["downloadProgress"]) => void,
+    ) => nativeEvent("updater", "downloadProgress", callback),
+    onError: (callback: (...args: BridgeEvents["updater"]["error"]) => void) =>
+      nativeEvent("updater", "error", callback),
   },
 
   menu: {
@@ -203,32 +196,27 @@ const nativeApi = {
      * the *invokes* are native forever, so the subscription has to be a
      * member of the native namespace too or the refusal would swallow it.
      */
-    onMenuCommand: (callback: (payload: MenuCommandPayload) => void) =>
-      bridgeSubscribe("menu", "command", null, (payload) =>
-        callback(payload as MenuCommandPayload),
-      ),
+    onMenuCommand: (
+      callback: (...args: BridgeEvents["menu"]["command"]) => void,
+    ) => nativeEvent("menu", "command", callback),
   },
 
   clipboard: {
-    writeText: (text: string) =>
-      ipcRenderer.invoke("clipboard:writeText", text),
+    writeText: (text: string) => invoke("clipboard:writeText", text),
   },
 
   webview: {
     register: (paneId: string, webContentsId: number) =>
-      ipcRenderer.invoke("webview:register", paneId, webContentsId),
-    unregister: (paneId: string) =>
-      ipcRenderer.invoke("webview:unregister", paneId),
-    startPicker: (paneId: string) =>
-      ipcRenderer.invoke("webview:start-picker", paneId),
-    cancelPicker: (paneId: string) =>
-      ipcRenderer.invoke("webview:cancel-picker", paneId),
-    zoomIn: (paneId: string) => ipcRenderer.invoke("webview:zoom-in", paneId),
-    zoomOut: (paneId: string) => ipcRenderer.invoke("webview:zoom-out", paneId),
-    zoomReset: (paneId: string) =>
-      ipcRenderer.invoke("webview:zoom-reset", paneId),
-    onPickerResult: (callback: (paneId: string, result: unknown) => void) =>
-      onChannelArgs("webview:picker-result", callback),
+      invoke("webview:register", paneId, webContentsId),
+    unregister: (paneId: string) => invoke("webview:unregister", paneId),
+    startPicker: (paneId: string) => invoke("webview:start-picker", paneId),
+    cancelPicker: (paneId: string) => invoke("webview:cancel-picker", paneId),
+    zoomIn: (paneId: string) => invoke("webview:zoom-in", paneId),
+    zoomOut: (paneId: string) => invoke("webview:zoom-out", paneId),
+    zoomReset: (paneId: string) => invoke("webview:zoom-reset", paneId),
+    onPickerResult: (
+      callback: (paneId: string, result: PickedElementResult) => void,
+    ) => onChannelArgs("webview:picker-result", callback),
     onPickerCancel: (callback: (paneId: string) => void) =>
       onChannelArgs("webview:picker-cancel", callback),
     onEscape: (callback: (paneId: string) => void) =>
@@ -242,14 +230,14 @@ const nativeApi = {
         opts?: { background?: boolean },
       ) => void,
     ) => onChannelArgs("webview:new-window", callback),
-    stop: (paneId: string) => ipcRenderer.invoke("webview:stop", paneId),
+    stop: (paneId: string) => invoke("webview:stop", paneId),
     findInPage: (
       paneId: string,
       query: string,
       options?: { forward?: boolean; findNext?: boolean },
-    ) => ipcRenderer.invoke("webview:find-in-page", paneId, query, options),
+    ) => invoke("webview:find-in-page", paneId, query, options),
     stopFindInPage: (paneId: string) =>
-      ipcRenderer.invoke("webview:stop-find-in-page", paneId),
+      invoke("webview:stop-find-in-page", paneId),
     onLoadingChanged: (
       callback: (paneId: string, isLoading: boolean) => void,
     ) => onChannelArgs("webview:loading-changed", callback),
@@ -273,7 +261,7 @@ const nativeApi = {
     onGoForward: (callback: (paneId: string) => void) =>
       onChannel("webview:go-forward", callback),
     setAudioMuted: (paneId: string, muted: boolean) =>
-      ipcRenderer.invoke("webview:set-audio-muted", paneId, muted),
+      invoke("webview:set-audio-muted", paneId, muted),
     /**
      * One webm chunk from a pane's `MediaRecorder` (ADR-158). `send`, not
      * `invoke`: chunks arrive once a second per recording and main has nothing
@@ -283,14 +271,12 @@ const nativeApi = {
       ipcRenderer.send("webview:recording-chunk", recordingId, chunk),
     /** Renderer's recorder has flushed; main may finalize the file. */
     notifyRecordingStopped: (recordingId: string, error?: string) =>
-      ipcRenderer.invoke("webview:recording-stopped", recordingId, error),
+      invoke("webview:recording-stopped", recordingId, error),
     /** Main-initiated start/stop of a pane recording. */
-    onRecordingCommand: (
-      callback: (command: WebviewRecordingCommand) => void,
-    ) => onChannel("webview:recording-command", callback),
+    onRecordingCommand: (callback: (command: RecordingCommand) => void) =>
+      onChannel("webview:recording-command", callback),
     /** User clicked the pane's "Recording" indicator to stop it (ADR-158). */
-    stopRecording: (paneId: string) =>
-      ipcRenderer.invoke("webview:stop-recording", paneId) as Promise<void>,
+    stopRecording: (paneId: string) => invoke("webview:stop-recording", paneId),
     onAudioStateChanged: (
       callback: (paneId: string, audible: boolean) => void,
     ) => onChannelArgs("webview:audio-state-changed", callback),
@@ -303,28 +289,20 @@ const nativeApi = {
       workspacePath: string,
       tabId: string,
       spawnBounds?: WindowBounds,
-    ) =>
-      ipcRenderer.invoke(
-        "window:detachTab",
-        workspacePath,
-        tabId,
-        spawnBounds,
-      ) as Promise<string>,
-    getBounds: () =>
-      ipcRenderer.invoke("window:getBounds") as Promise<WindowBounds>,
+    ) => invoke<string>("window:detachTab", workspacePath, tabId, spawnBounds),
+    getBounds: () => invoke<WindowBounds>("window:getBounds"),
     setPosition: (x: number, y: number) =>
       ipcRenderer.send("window:setPosition", x, y),
     listWindows: () =>
-      ipcRenderer.invoke("window:listWindows") as Promise<
-        { id: number; bounds: WindowBounds }[]
-      >,
+      invoke<{ id: number; bounds: WindowBounds }[]>("window:listWindows"),
     closeSelf: () => ipcRenderer.send("window:closeSelf"),
   },
 };
 
 /**
- * The shape of `manorHost.native`, for the D7 surface check. A type, so the
- * import that reads it disappears at build time.
+ * The shape of `manorHost.native`, and the native part of `ElectronAPI`
+ * (`src/electron.d.ts`). A type, so the import that reads it disappears at
+ * build time.
  */
 export type NativeApi = typeof nativeApi;
 

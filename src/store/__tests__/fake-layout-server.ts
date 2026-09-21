@@ -38,26 +38,26 @@ import {
   type LayoutHint,
   type WorkspaceViewport,
 } from "../../lib/layout/viewport";
-import type { PersistedPaneSession, PersistedViewportFile } from "../../electron.d";
+import type {
+  LayoutBroadcast,
+  LayoutOrigin,
+  LayoutPaneTitlePayload,
+  PersistedPaneSession,
+  PersistedViewportFile,
+} from "../../lib/layout/protocol";
 import type { LayoutClaim } from "../../lib/layout/visible-tabs";
 
 /** What the fake calls the renderer under test — matching `rendererId`. */
 export const FAKE_RENDERER_ID = "test-renderer";
 
-interface Broadcast {
-  workspacePath: string;
-  version: number;
-  layout: WorkspaceLayout;
-  /** Who is holding which tab in a window of its own (ADR-179 D4). */
-  claims: LayoutClaim[];
-  origin?: { kind: "window" | "bridge" | "route"; id: string };
-  hint?: LayoutHint;
-  /** Only a `reopen-closed-pane` carries this (ADR-179 ticket 10). */
-  restored?: Record<string, PersistedPaneSession>;
-}
+/**
+ * Who a broadcast came from when a test does not say: somebody other than
+ * the renderer under test, so no selection hint lands on it.
+ */
+const ELSEWHERE: LayoutOrigin = { kind: "route", id: "fake-layout-server" };
 
-type Listener = (payload: Broadcast) => void;
-type PaneTitleListener = (payload: { paneId: string; title: string | null }) => void;
+type Listener = (payload: LayoutBroadcast) => void;
+type PaneTitleListener = (payload: LayoutPaneTitlePayload) => void;
 
 const listeners = new Set<Listener>();
 const paneTitleListeners = new Set<PaneTitleListener>();
@@ -145,7 +145,7 @@ export function broadcastLayout(
   version?: number,
   restored?: Record<string, PersistedPaneSession>,
   extra?: {
-    origin?: Broadcast["origin"];
+    origin?: LayoutOrigin;
     hint?: LayoutHint;
     claims?: LayoutClaim[];
   },
@@ -159,7 +159,7 @@ export function broadcastLayout(
       version: next,
       layout,
       claims: extra?.claims ?? [],
-      ...(extra?.origin && { origin: extra.origin }),
+      origin: extra?.origin ?? ELSEWHERE,
       ...(extra?.hint && { hint: extra.hint }),
       ...(restored && { restored }),
     });

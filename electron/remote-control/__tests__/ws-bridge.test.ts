@@ -645,7 +645,7 @@ describe("WsBridgeServer", () => {
       publishRendererBroadcast("remoteControl", "status", {
         enabled: true,
         listeners: 2,
-      });
+      } as never);
 
       const event = await client.next((f) => f.kind === "event");
       expect(event).toMatchObject({

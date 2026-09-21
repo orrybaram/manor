@@ -163,7 +163,7 @@ export function TabButton(props: TabButtonProps) {
     for (const panel of Object.values(layout.panels)) {
       const idx = panel.tabs.findIndex((t) => t.id === tabId);
       if (idx === -1) continue;
-      const pinned = new Set(panel.pinnedTabIds ?? []);
+      const pinned = new Set(panel.pinnedTabIds);
       const hasOther = panel.tabs.some(
         (t) => t.id !== tabId && !pinned.has(t.id),
       );

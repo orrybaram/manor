@@ -95,7 +95,7 @@ export function remoteControlRefreshDetection(
 
 export function remoteControlSetEnabled(
   ctx: HandlerCtx,
-  enabled: unknown,
+  enabled: boolean,
 ): Promise<RemoteControlStatus> {
   assertBoolean(enabled, "remoteControl.setEnabled.enabled");
   return ctx.deps.remoteControl.setEnabled(enabled);
@@ -110,8 +110,8 @@ export function remoteControlSetEnabled(
  */
 export function remoteControlPair(
   ctx: HandlerCtx,
-  label: unknown,
-  capability: unknown,
+  label: string,
+  capability: Capability,
 ): PairResult {
   assertString(label, "remoteControl.pair.label");
   assertCapability(capability, "remoteControl.pair.capability");
@@ -124,7 +124,7 @@ export function remoteControlPair(
 
 export function remoteControlRevoke(
   ctx: HandlerCtx,
-  id: unknown,
+  id: string,
 ): RemoteControlStatus {
   assertString(id, "remoteControl.revoke.id");
   return ctx.deps.remoteControl.revoke(id);
@@ -132,7 +132,7 @@ export function remoteControlRevoke(
 
 export function remoteControlStartTunnel(
   ctx: HandlerCtx,
-  kind: unknown,
+  kind?: TunnelKind,
 ): Promise<RemoteControlStatus> {
   assertTunnelKind(kind, "remoteControl.startTunnel.kind");
   return ctx.deps.remoteControl.startTunnel(kind);

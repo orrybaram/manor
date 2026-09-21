@@ -57,7 +57,7 @@ function hostWith(overrides: Partial<ManorHost> = {}): ManorHost {
     detachedWindowId: null,
     claim: null,
     env: { isPackaged: true },
-    native: {},
+    native: {} as ManorHost["native"],
     invoke: vi.fn(() => Promise.resolve(undefined)),
     subscribe: vi.fn(() => () => {}),
     ...overrides,

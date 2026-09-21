@@ -38,11 +38,15 @@ import {
   type PaneMetadataMap,
 } from "../../src/lib/layout/commands";
 import { allPaneIds } from "../../src/lib/layout/pane-tree";
-import type {
-  LayoutHint,
-  WorkspaceViewport,
-} from "../../src/lib/layout/viewport";
+import type { WorkspaceViewport } from "../../src/lib/layout/viewport";
 import type { LayoutClaim } from "../../src/lib/layout/visible-tabs";
+import type {
+  LayoutApplyResult,
+  LayoutBroadcast,
+  LayoutEntry,
+  LayoutOrigin,
+  PersistedPaneSession,
+} from "../../src/lib/layout/protocol";
 import {
   type Panel,
   type PaneContentType,
@@ -56,9 +60,7 @@ import type { LocalBackend } from "../backend/local-backend";
 import { PendingCommands } from "./pending-commands";
 import {
   type LayoutPersistence,
-  type PersistedDefaultViewport,
   type PersistedLayout,
-  type PersistedPaneSession,
   type PersistedPanel,
   type PersistedWorkspace,
 } from "../terminal-host/layout-persistence";
@@ -87,63 +89,10 @@ interface PendingKill {
   timer: ReturnType<typeof setTimeout>;
 }
 
-/**
- * Who sent a command, and — for a window — who is reporting a claim.
- *
- * A command's origin is recorded rather than acted on: the sender gets the
- * same broadcast as everybody else (D1). A viewport report's origin is load
- * bearing, because `kind` decides whether a `claim` in it is honoured at all
- * and `id` is the window the claim belongs to (D4).
- */
-export interface LayoutOrigin {
-  kind: "window" | "bridge" | "route";
-  id: string;
-}
-
-export type { LayoutClaim };
-
-/**
- * What `layout.changed` carries.
- *
- * `restored` is set only by `reopen-closed-pane`, and only for the panes that
- * came back with a session still warm: what the server derived about them
- * (cwd, title, agent status) so the pane mounts with it instead of looking
- * brand new. Every *other* change to `paneSessions` stays unbroadcast — a
- * renderer hears the PTY events it is made of.
- */
-export interface LayoutBroadcast {
-  workspacePath: string;
-  version: number;
-  layout: WorkspaceLayout;
-  /**
-   * Who is holding which tab of this workspace in a window of its own (D4).
-   *
-   * Travels on *every* broadcast, and a change to it is a broadcast in its own
-   * right — at the same version, because a claim is not structure. A renderer
-   * therefore compares `(version, claims)` rather than the version alone.
-   */
-  claims: LayoutClaim[];
-  /** Who sent the command. A renderer compares it with its own id (D3). */
-  origin: LayoutOrigin;
-  /** What the command implies about the *sender's* selection (D3). */
-  hint?: LayoutHint;
-  restored?: Record<string, PersistedPaneSession>;
-}
+/** The wire types are `src/lib/layout/protocol.ts`'s, shared with every renderer. */
+export type { LayoutBroadcast, LayoutOrigin };
 
 export type LayoutBroadcaster = (payload: LayoutBroadcast) => void;
-
-export type LayoutApplyResult = { version: number } | { error: string };
-
-/** One workspace as a reader sees it. */
-export interface LayoutEntry {
-  version: number;
-  layout: WorkspaceLayout;
-  defaultViewport: PersistedDefaultViewport;
-  /** Server-derived; a restoring renderer needs it to reattach sessions. */
-  paneSessions: Record<string, PersistedPaneSession>;
-  /** Tabs held by a detached window right now (D4). Never persisted. */
-  claims: LayoutClaim[];
-}
 
 interface WorkspaceState
   extends Omit<LayoutEntry, "claims"> {
@@ -937,7 +886,7 @@ function layoutFromPersisted(workspace: PersistedWorkspace): WorkspaceLayout {
           rootNode: tab.rootNode,
         }),
       ),
-      pinnedTabIds: panel.pinnedTabIds ?? [],
+      pinnedTabIds: panel.pinnedTabIds,
     };
   }
   return { panelTree: workspace.panelTree, panels };
@@ -979,7 +928,7 @@ function persistedPanels(
           paneSessions,
         };
       }),
-      pinnedTabIds: panel.pinnedTabIds ?? [],
+      pinnedTabIds: panel.pinnedTabIds,
     };
   }
   return panels;

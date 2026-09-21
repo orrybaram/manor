@@ -1,5 +1,6 @@
 import { publishRendererBroadcast } from "../../renderer-broadcast";
 import type { HostDeps } from "../../ipc/types";
+import type { StatsSummary } from "../../stats-store";
 import { method, type HandlerCtx } from "../method";
 
 /**
@@ -13,7 +14,7 @@ import { method, type HandlerCtx } from "../method";
  */
 export const BROADCAST_DEBOUNCE_MS = 1000;
 
-export function statsGetSummary(ctx: HandlerCtx): unknown {
+export function statsGetSummary(ctx: HandlerCtx): StatsSummary {
   return ctx.deps.statsStore.getSummary();
 }
 

@@ -6,6 +6,7 @@ import {
   publishToRenderer,
 } from "../../renderer-broadcast";
 import type { HostDeps } from "../../ipc/types";
+import type { AppPreferences } from "../../preferences";
 import { method, type HandlerCtx } from "../method";
 import {
   MAIN_WINDOW_KEYBINDINGS,
@@ -18,7 +19,7 @@ import {
  * hatches, the clipboard and the updater are `electron/ipc/native.ts` — what
  * only Electron can do.
  */
-export function preferencesGetAll(ctx: HandlerCtx): unknown {
+export function preferencesGetAll(ctx: HandlerCtx): AppPreferences {
   return ctx.deps.preferencesManager.getAll();
 }
 
@@ -26,16 +27,13 @@ export function preferencesGetAll(ctx: HandlerCtx): unknown {
  * A `full` device may write preferences (D3); this was off the slice-1 table
  * for scope, not policy.
  */
-export function preferencesSet(
+export function preferencesSet<K extends keyof AppPreferences>(
   ctx: HandlerCtx,
-  key: string,
-  value: unknown,
+  key: K,
+  value: AppPreferences[K],
 ): void {
   assertString(key, "key");
-  ctx.deps.preferencesManager.set(
-    key as keyof import("../../preferences").AppPreferences,
-    value as never,
-  );
+  ctx.deps.preferencesManager.set(key, value);
 }
 
 export function preferencesPlaySound(_ctx: HandlerCtx, soundName: string): void {

@@ -24,7 +24,7 @@ function hostWith(overrides: Partial<ManorHost> = {}): ManorHost {
     detachedWindowId: null,
     claim: null,
     env: { isPackaged: false },
-    native: {},
+    native: {} as ManorHost["native"],
     invoke: vi.fn(() => Promise.resolve(undefined)),
     subscribe: vi.fn(() => () => {}),
     ...overrides,
@@ -54,7 +54,7 @@ describe("createIpcTransport", () => {
 
   it("calls a namespace the preload still answers, without a frame", () => {
     const write = vi.fn(() => Promise.resolve());
-    const host = hostWith({ native: { pty: { write } } });
+    const host = hostWith({ native: { pty: { write } } as never });
     const api = createBridge(createIpcTransport(host));
 
     void api.pty.write("pane-a", "ls\r");
@@ -95,7 +95,7 @@ describe("createIpcTransport", () => {
     const onProjectsChanged = vi.fn(() => () => {});
     const sendAppCommandResult = vi.fn();
     const host = hostWith({
-      native: { onProjectsChanged, sendAppCommandResult },
+      native: { onProjectsChanged, sendAppCommandResult } as never,
     });
     const api = createBridge(createIpcTransport(host));
 

@@ -18,7 +18,15 @@
  */
 
 import { assertString } from "../../ipc-validate";
-import type { LinkedIssue } from "../../linear";
+import type { GitHubIssue, GitHubIssueDetail } from "../../github";
+import type {
+  LinearAssociation,
+  LinearIssue,
+  LinearIssueDetail,
+  LinearTeam,
+  LinkedIssue,
+} from "../../linear";
+import type { PrInfo } from "../../../src/lib/pr-info";
 import { method, type HandlerCtx } from "../method";
 
 type IssueState = "open" | "closed" | "all";
@@ -30,7 +38,7 @@ export function githubGetPrForBranch(
   ctx: HandlerCtx,
   repoPath: string,
   branch: string,
-): unknown {
+): Promise<PrInfo | null> {
   return ctx.deps.githubManager.getPrForBranch(repoPath, branch);
 }
 
@@ -38,11 +46,15 @@ export function githubGetPrsForBranches(
   ctx: HandlerCtx,
   repoPath: string,
   branches: string[],
-): unknown {
+): Promise<[string, PrInfo | null][]> {
   return ctx.deps.githubManager.getPrsForBranches(repoPath, branches);
 }
 
-export function githubCheckStatus(ctx: HandlerCtx): unknown {
+export function githubCheckStatus(ctx: HandlerCtx): Promise<{
+  installed: boolean;
+  authenticated: boolean;
+  username?: string;
+}> {
   return ctx.deps.githubManager.checkStatus();
 }
 
@@ -61,7 +73,7 @@ export function githubGetMyIssues(
   repoPath: string,
   limit?: number | null,
   state?: IssueState | null,
-): unknown {
+): Promise<GitHubIssue[]> {
   return ctx.deps.githubManager.getMyIssues(
     repoPath,
     limit ?? undefined,
@@ -74,7 +86,7 @@ export function githubGetAllIssues(
   repoPath: string,
   limit?: number | null,
   state?: IssueState | null,
-): unknown {
+): Promise<GitHubIssue[]> {
   return ctx.deps.githubManager.getAllIssues(
     repoPath,
     limit ?? undefined,
@@ -86,7 +98,7 @@ export function githubGetIssueDetail(
   ctx: HandlerCtx,
   repoPath: string,
   issueNumber: number,
-): unknown {
+): Promise<GitHubIssueDetail> {
   return ctx.deps.githubManager.getIssueDetail(repoPath, issueNumber);
 }
 
@@ -94,7 +106,7 @@ export function githubAssignIssue(
   ctx: HandlerCtx,
   repoPath: string,
   issueNumber: number,
-): unknown {
+): Promise<void> {
   return ctx.deps.githubManager.assignIssue(repoPath, issueNumber);
 }
 
@@ -102,7 +114,7 @@ export function githubCloseIssue(
   ctx: HandlerCtx,
   repoPath: string,
   issueNumber: number,
-): unknown {
+): Promise<void> {
   return ctx.deps.githubManager.closeIssue(repoPath, issueNumber);
 }
 
@@ -111,7 +123,7 @@ export function githubCreateIssue(
   title: string,
   body: string,
   labels: string[],
-): unknown {
+): Promise<{ url: string } | null> {
   return ctx.deps.githubManager.createIssue(title, body, labels);
 }
 
@@ -161,7 +173,7 @@ export function linearGetViewer(
   return ctx.deps.linearManager.getViewer();
 }
 
-export function linearGetTeams(ctx: HandlerCtx): unknown {
+export function linearGetTeams(ctx: HandlerCtx): Promise<LinearTeam[]> {
   return ctx.deps.linearManager.getTeams();
 }
 
@@ -169,11 +181,14 @@ export function linearGetMyIssues(
   ctx: HandlerCtx,
   teamIds: string[],
   options?: LinearIssueOptions,
-): unknown {
+): Promise<LinearIssue[]> {
   return ctx.deps.linearManager.getMyIssues(teamIds, options);
 }
 
-export function linearGetIssueDetail(ctx: HandlerCtx, issueId: string): unknown {
+export function linearGetIssueDetail(
+  ctx: HandlerCtx,
+  issueId: string,
+): Promise<LinearIssueDetail> {
   return ctx.deps.linearManager.getIssueDetail(issueId);
 }
 
@@ -181,15 +196,21 @@ export function linearGetAllIssues(
   ctx: HandlerCtx,
   teamIds: string[],
   options?: LinearIssueOptions,
-): unknown {
+): Promise<LinearIssue[]> {
   return ctx.deps.linearManager.getAllIssues(teamIds, options);
 }
 
-export function linearStartIssue(ctx: HandlerCtx, issueId: string): unknown {
+export function linearStartIssue(
+  ctx: HandlerCtx,
+  issueId: string,
+): Promise<void> {
   return ctx.deps.linearManager.startIssue(issueId);
 }
 
-export function linearCloseIssue(ctx: HandlerCtx, issueId: string): unknown {
+export function linearCloseIssue(
+  ctx: HandlerCtx,
+  issueId: string,
+): Promise<void> {
   return ctx.deps.linearManager.closeIssue(issueId);
 }
 
@@ -198,7 +219,7 @@ export function linearLinkIssueToWorkspace(
   projectId: string,
   workspacePath: string,
   issue: LinkedIssue,
-): unknown {
+): void {
   return ctx.deps.projectManager.linkIssueToWorkspace(
     projectId,
     workspacePath,
@@ -211,7 +232,7 @@ export function linearUnlinkIssueFromWorkspace(
   projectId: string,
   workspacePath: string,
   issueId: string,
-): unknown {
+): void {
   return ctx.deps.projectManager.unlinkIssueFromWorkspace(
     projectId,
     workspacePath,
@@ -241,7 +262,7 @@ export function linearProxyImage(ctx: HandlerCtx, url: string): Promise<string> 
  */
 export async function linearAutoMatch(
   ctx: HandlerCtx,
-): Promise<Record<string, unknown>> {
+): Promise<Record<string, LinearAssociation>> {
   const projects = await ctx.deps.projectManager.getProjects();
   const teams = await ctx.deps.linearManager.getTeams();
   const matches = ctx.deps.linearManager.autoMatchProjects(

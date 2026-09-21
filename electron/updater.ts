@@ -18,6 +18,7 @@ import {
 } from "electron-updater";
 
 import { publishRendererBroadcast } from "./renderer-broadcast";
+import type { EventArgs, EventOf } from "./bridge/events";
 
 // Track whether the last checkForUpdates() call was triggered manually by the user.
 // Set to true in the exported checkForUpdates() (called via IPC from renderer).
@@ -35,8 +36,11 @@ export function initAutoUpdater(): void {
    * One `updater.<event>` frame. The event names are the preload's, minus
    * the `on` — `onDownloadProgress` hears `downloadProgress`.
    */
-  function send(event: string, payload: unknown): void {
-    publishRendererBroadcast("updater", event, payload);
+  function send<E extends EventOf<"updater">>(
+    event: E,
+    ...args: EventArgs<"updater", E>
+  ): void {
+    publishRendererBroadcast("updater", event, ...args);
   }
 
   autoUpdater.autoDownload = true;

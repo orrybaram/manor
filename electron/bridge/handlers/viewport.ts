@@ -14,17 +14,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { viewportFile } from "../../paths";
-import type { WorkspaceViewport } from "../../../src/lib/layout/viewport";
+import type { PersistedViewportFile } from "../../../src/lib/layout/protocol";
 import { method, type HandlerCtx } from "../method";
 
 const VIEWPORT_FILE = viewportFile();
-
-/** The whole file: every workspace this renderer has looked at, plus where. */
-export interface PersistedViewportFile {
-  version: 1;
-  activeWorkspacePath: string | null;
-  workspaces: Record<string, WorkspaceViewport>;
-}
 
 /**
  * The file, or null when there is none.

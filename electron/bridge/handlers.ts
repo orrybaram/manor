@@ -21,9 +21,10 @@
  * and one a stolen token can use without an audit line unless it is
  * `mutating`.
  *
- * **What keeps this honest is a compile error.** `./surface.ts` checks every
- * key here against `ElectronAPI`, and checks the rules against each other and
- * against `./local-only.ts`.
+ * **What keeps this honest is a compile error.** `ElectronAPI` is derived
+ * from this table (`./contract.ts`), so a handler's signature is what every
+ * caller in `src/` is checked against; `./surface.ts` checks the rules
+ * against each other and against `./local-only.ts`.
  */
 
 import { flatten, type Method, type MethodRules } from "./method";
@@ -72,7 +73,6 @@ type Methods = typeof METHODS;
 
 /**
  * One key of the table — the vocabulary of everything that describes it.
- * `surface.ts` checks this against `ElectronAPI`.
  */
 export type HandlerMethod = keyof Methods;
 

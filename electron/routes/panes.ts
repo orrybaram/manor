@@ -903,7 +903,7 @@ export const tabRoutes: Route[] = [
         json(400, { error: `Unknown tabId: ${tabId}` });
         return;
       }
-      const wasPinned = (found.panel.pinnedTabIds ?? []).includes(tabId);
+      const wasPinned = found.panel.pinnedTabIds.includes(tabId);
       const ok = await applyOrError(
         store,
         workspacePath,

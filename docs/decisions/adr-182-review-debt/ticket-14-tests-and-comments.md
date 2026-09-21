@@ -1,6 +1,6 @@
 ---
 title: Test helper dedupe and changelog-comment pruning
-status: in-progress
+status: done
 priority: low
 assignee: haiku
 blocked_by: [13]

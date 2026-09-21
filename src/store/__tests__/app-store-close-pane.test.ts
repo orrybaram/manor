@@ -4,10 +4,13 @@ import type { WorkspaceLayout, Tab, Panel } from "../app-store";
 import {
   resetFakeLayoutServer,
   seedLayout,
+  sentCommands,
 } from "./fake-layout-server";
 
 // window is provided by the setup file (src/store/__tests__/setup.ts)
-// with a minimal electronAPI mock.  We extend it here with agents.abandonForPane.
+// with a minimal electronAPI mock.  We extend it here with agents.abandonForPane,
+// to show nothing calls it: ending a closed pane's agent is the server's
+// (`LayoutStore`, ADR-182 D7), on every close path, not the renderer's on one.
 
 const WS_PATH = "/test/workspace";
 
@@ -78,7 +81,7 @@ function setupStore(layout?: WorkspaceLayout) {
   });
 }
 
-describe("closePaneById calls abandonForPane", () => {
+describe("closePaneById leaves the agent to the server", () => {
   let abandonForPane: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -95,14 +98,22 @@ describe("closePaneById calls abandonForPane", () => {
     });
   });
 
-  it("calls abandonForPane with the closed paneId and its title", () => {
+  it("sends close-pane and nothing else", () => {
     setupStore(makeTwoPaneLayout());
 
     useAppStore.getState().closePaneById("pane-1");
 
-    expect(abandonForPane).toHaveBeenCalledTimes(1);
-    // `closePaneById` passes the pane's current title (null when untitled) so
-    // the abandoned agent keeps a human-readable name.
-    expect(abandonForPane).toHaveBeenCalledWith("pane-1", null);
+    expect(sentCommands).toEqual([
+      { workspacePath: WS_PATH, command: { type: "close-pane", paneId: "pane-1" } },
+    ]);
+    expect(abandonForPane).not.toHaveBeenCalled();
+  });
+
+  it("ignores a pane the replica no longer holds", () => {
+    setupStore(makeLayout());
+
+    useAppStore.getState().closePaneById("pane-gone");
+
+    expect(sentCommands).toEqual([]);
   });
 });

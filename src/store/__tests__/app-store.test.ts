@@ -13,6 +13,7 @@ import { emptyViewport, reconcileViewport } from "../../lib/layout/viewport";
 import {
   broadcastLayout,
   queuedCommands,
+  removeWorkspace,
   resetFakeLayoutServer,
   seedLayout,
   sentCommands,
@@ -532,7 +533,35 @@ describe("Workspace management", () => {
 
     const state = useAppStore.getState();
     expect(state.workspaceLayouts[WS_PATH]).toBeUndefined();
+    expect(state.viewports[WS_PATH]).toBeUndefined();
     expect(state.paneCwd["pane-1"]).toBeUndefined();
+    // Local only: ending the panes is the server's, when the worktree goes.
+    expect(sentCommands).toEqual([]);
+  });
+
+  it("a removed broadcast drops the replica rather than adopting it", () => {
+    setupStore();
+    broadcastLayout(WS_PATH, makeLayout(), 3);
+    useAppStore.setState({ paneCwd: { "pane-1": "/some/path" } });
+
+    removeWorkspace(WS_PATH);
+
+    const state = useAppStore.getState();
+    expect(state.workspaceLayouts[WS_PATH]).toBeUndefined();
+    expect(state.serverLayouts[WS_PATH]).toBeUndefined();
+    expect(state.layoutVersions[WS_PATH]).toBeUndefined();
+    expect(state.paneCwd["pane-1"]).toBeUndefined();
+  });
+
+  it("a workspace recreated after its removal starts over at version 1", () => {
+    setupStore();
+    broadcastLayout(WS_PATH, makeLayout(), 3);
+    removeWorkspace(WS_PATH);
+
+    const fresh = makeLayout();
+    broadcastLayout(WS_PATH, fresh, 1);
+
+    expect(useAppStore.getState().workspaceLayouts[WS_PATH]).toBe(fresh);
   });
 });
 

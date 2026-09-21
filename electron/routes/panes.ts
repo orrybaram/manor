@@ -42,10 +42,6 @@ import {
 } from "../../src/lib/layout/workspace-layout";
 import { focusedPaneOf, selectedTabOf } from "../../src/lib/layout/viewport";
 import { buildLayoutSnapshot } from "../../src/lib/layout/snapshot";
-import { killCounters } from "../stats-signals";
-import { cleanAgentTitle } from "../title-utils";
-import { getUnseenFlagsForAgent } from "../notifications";
-import { publishRendererBroadcast } from "../renderer-broadcast";
 
 // ── Every command from these routes names the same sender ──
 const ROUTE_ORIGIN: LayoutOrigin = { kind: "route", id: "cli" };
@@ -227,41 +223,6 @@ function queuePendingCommand(
     paneId,
     command,
     contentType === "agent" ? "agent-startup" : "shell",
-  );
-}
-
-/**
- * Mark a closed pane's active agent abandoned.
- *
- * Mirrors `agentsAbandonForPane` (`../ipc/agents.ts`) — the desktop store
- * calls it before every `close-pane` it sends, and a structural close from a
- * route must still do it, or an agent whose pane a CLI/MCP caller closed
- * never learns its turn ended.
- *
- * `publishRendererBroadcast` reaches every desktop window and every browser
- * on the bridge alike (ADR-180 ticket 9) — no `BrowserWindow` lookup, and no
- * legacy `webContents.send` left beside it.
- */
-function abandonAgentForClosedPane(
-  deps: ControlDeps,
-  paneId: string,
-  title: string | null,
-): void {
-  const agent = deps.agentManager?.getAgentByPaneId(paneId);
-  if (!agent || agent.status !== "active") return;
-  for (const counter of killCounters(agent)) deps.statsStore?.record(counter);
-  const nameUpdate = !agent.name && title ? cleanAgentTitle(title) : null;
-  const updated = deps.agentManager?.updateAgent(agent.id, {
-    status: "abandoned",
-    completedAt: new Date().toISOString(),
-    ...(nameUpdate ? { name: nameUpdate } : {}),
-  });
-  if (!updated) return;
-  publishRendererBroadcast(
-    "agents",
-    "updated",
-    updated,
-    getUnseenFlagsForAgent(updated.id),
   );
 }
 
@@ -601,11 +562,6 @@ export const paneRoutes: Route[] = [
         return;
       }
 
-      abandonAgentForClosedPane(
-        deps,
-        paneId,
-        entry.paneSessions[paneId]?.lastTitle ?? null,
-      );
       const ok = await applyOrError(
         store,
         workspacePath,

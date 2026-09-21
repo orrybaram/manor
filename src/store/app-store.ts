@@ -987,13 +987,53 @@ function sessionSideMaps(sessions: Record<string, PersistedPaneSession>): {
 }
 
 /**
- * Workspaces whose removal is in flight (`removeWorkspaceLayout`).
+ * Forget this renderer's copy of a workspace: its layout, the version and
+ * claims it was at, its viewport, and the side maps of every pane in it.
  *
- * Removing a worktree closes its panels first, so the sessions inside them
- * end; each of those closes broadcasts, and without this the workspace would
- * be re-adopted here a moment before the server forgot it.
+ * Nothing is sent. The server ends the panes and forgets the workspace
+ * itself when the worktree goes (ADR-182 D7), and says so with a `removed`
+ * broadcast that lands here too.
  */
-const removingWorkspaces = new Set<string>();
+function dropWorkspace(workspacePath: string): void {
+  useAppStore.setState((state) => {
+    const { [workspacePath]: removed, ...workspaceLayouts } =
+      state.workspaceLayouts;
+    const { [workspacePath]: _version, ...layoutVersions } =
+      state.layoutVersions;
+    const { [workspacePath]: _server, ...serverLayouts } = state.serverLayouts;
+    const { [workspacePath]: _claims, ...claims } = state.claims;
+    const { [workspacePath]: _viewport, ...viewports } = state.viewports;
+    const dropped = { workspaceLayouts, layoutVersions, serverLayouts, claims, viewports };
+    if (!removed) return dropped;
+
+    const paneCwd = { ...state.paneCwd };
+    const paneTitle = { ...state.paneTitle };
+    const paneAgentStatus = { ...state.paneAgentStatus };
+    const paneContentType = { ...state.paneContentType };
+    const paneUrl = { ...state.paneUrl };
+    const paneFavicon = { ...state.paneFavicon };
+    const panePickedElement = { ...state.panePickedElement };
+    for (const paneId of layoutPaneIds(removed)) {
+      delete paneCwd[paneId];
+      delete paneTitle[paneId];
+      delete paneAgentStatus[paneId];
+      delete paneContentType[paneId];
+      delete paneUrl[paneId];
+      delete paneFavicon[paneId];
+      delete panePickedElement[paneId];
+    }
+    return {
+      ...dropped,
+      paneCwd,
+      paneTitle,
+      paneAgentStatus,
+      paneContentType,
+      paneUrl,
+      paneFavicon,
+      panePickedElement,
+    };
+  });
+}
 
 /**
  * The server changed a workspace. Replace the replica with what it sent.
@@ -1008,7 +1048,16 @@ const removingWorkspaces = new Set<string>();
 function applyLayoutChanged(payload: LayoutChangedPayload): void {
   const { workspacePath, version, layout, restored, origin, hint } = payload;
   const claims = payload.claims ?? NO_CLAIMS;
-  if (removingWorkspaces.has(workspacePath)) return;
+  // Gone, not changed: adopting this layout would bring back a workspace
+  // whose worktree no longer exists. A popout holding one of its tabs has
+  // nothing left to show.
+  if (payload.removed) {
+    dropWorkspace(workspacePath);
+    if (OWN_CLAIM?.workspacePath === workspacePath) {
+      window.electronAPI?.window?.closeSelf?.();
+    }
+    return;
+  }
   useAppStore.setState((state) => {
     const held = state.layoutVersions[workspacePath] ?? 0;
     const heldClaims = claimsOf(state, workspacePath);
@@ -1756,11 +1805,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     const ctx = getActiveLayoutContext(state);
     // A pane the replica no longer holds has already been closed — by this
     // window a moment ago, or by another renderer. Its `pty.onExit` arrives
-    // here too, and must not abandon its agent a second time.
+    // here too, and must not close it a second time. The server abandons the
+    // pane's agent when the close lands (ADR-182 D7).
     if (!ctx || !findPanelWithPane(ctx.layout, paneId)) return;
-    window.electronAPI.agents
-      .abandonForPane(paneId, state.paneTitle[paneId] ?? null)
-      .catch(console.error);
     sendLayoutCommand(ctx.path, { type: "close-pane", paneId });
   },
 
@@ -2010,69 +2057,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   /**
    * Forget a workspace whose worktree is going away.
    *
-   * Two things have to happen and they are not the same thing: the sessions
-   * inside it must end, which only the server can do, and the workspace must
-   * leave the file. So every panel is closed by command first —
-   * `effects.killPanes` ends the terminals — and only then is the workspace
-   * removed. The replica is dropped here and now, because the user is already
-   * looking at somewhere else and its panes must unmount.
+   * Local only: the user is already looking somewhere else and its panes
+   * must unmount now. Ending them is the server's — `removeWorktree` calls
+   * `LayoutStore.remove`, whose `removed` broadcast drops any copy that is
+   * left, here and in every other renderer.
    */
   removeWorkspaceLayout: (workspacePath: string) => {
-    const layout = get().workspaceLayouts[workspacePath];
-    const panelIds = Object.keys(layout?.panels ?? {});
-
-    set((state) => {
-      const { [workspacePath]: removed, ...workspaceLayouts } =
-        state.workspaceLayouts;
-      const { [workspacePath]: _version, ...layoutVersions } =
-        state.layoutVersions;
-      const { [workspacePath]: _server, ...serverLayouts } = state.serverLayouts;
-      if (!removed) return { workspaceLayouts, layoutVersions, serverLayouts };
-
-      const paneCwd = { ...state.paneCwd };
-      const paneTitle = { ...state.paneTitle };
-      const paneAgentStatus = { ...state.paneAgentStatus };
-      const paneContentType = { ...state.paneContentType };
-      const paneUrl = { ...state.paneUrl };
-      for (const paneId of layoutPaneIds(removed)) {
-        delete paneCwd[paneId];
-        delete paneTitle[paneId];
-        delete paneAgentStatus[paneId];
-        delete paneContentType[paneId];
-        delete paneUrl[paneId];
-      }
-      return {
-        workspaceLayouts,
-        layoutVersions,
-        serverLayouts,
-        paneCwd,
-        paneTitle,
-        paneAgentStatus,
-        paneContentType,
-        paneUrl,
-      };
-    });
-
-    const api = window.electronAPI;
-    if (!api) return;
-    // Held until the removal lands, so the closes on the way out are not
-    // mistaken for a workspace worth re-adopting.
-    removingWorkspaces.add(workspacePath);
-    void (async () => {
-      try {
-        for (const panelId of panelIds) {
-          await api.layout.apply(workspacePath, {
-            type: "close-panel",
-            panelId,
-          });
-        }
-        await api.layout.remove(workspacePath);
-      } catch (err) {
-        console.error(`[layout] failed to remove ${workspacePath}:`, err);
-      } finally {
-        removingWorkspaces.delete(workspacePath);
-      }
-    })();
+    dropWorkspace(workspacePath);
   },
 
   // ── Panel operations ──

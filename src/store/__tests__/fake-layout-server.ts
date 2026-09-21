@@ -174,6 +174,31 @@ export function broadcastLayout(
 }
 
 /**
+ * Forget a workspace the way the server does when its worktree is removed
+ * (ADR-182 D7): drop it, and tell every renderer it is gone with a `removed`
+ * broadcast at the version it was at.
+ */
+export function removeWorkspace(workspacePath: string): void {
+  const layout = layouts.get(workspacePath);
+  const version = versions.get(workspacePath) ?? 0;
+  layouts.delete(workspacePath);
+  versions.delete(workspacePath);
+  closedStacks.delete(workspacePath);
+  defaultViewports.delete(workspacePath);
+  if (!layout) return;
+  for (const listener of listeners) {
+    listener({
+      workspacePath,
+      version,
+      layout,
+      claims: [],
+      origin: ELSEWHERE,
+      removed: true,
+    });
+  }
+}
+
+/**
  * Forget every `layout.changed` subscriber.
  *
  * For the one test file that imports a *second* `app-store` (a detached
@@ -264,9 +289,7 @@ export function fakeLayoutApi(): Record<string, unknown> {
       serverCalls.push("pending");
     },
     remove: async (workspacePath: string) => {
-      layouts.delete(workspacePath);
-      versions.delete(workspacePath);
-      closedStacks.delete(workspacePath);
+      removeWorkspace(workspacePath);
     },
     reportViewport: async (
       workspacePath: string,

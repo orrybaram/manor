@@ -116,6 +116,12 @@ export interface LayoutBroadcast {
    * renderer hears the PTY events it is made of.
    */
   restored?: Record<string, PersistedPaneSession>;
+  /**
+   * The workspace is gone — its worktree was removed and the server has
+   * already ended its panes (ADR-182 D7). `layout` and `version` are the last
+   * ones it had; a renderer drops its copy rather than adopting them.
+   */
+  removed?: true;
 }
 
 /** The renderer's name for the same payload. */

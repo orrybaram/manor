@@ -56,6 +56,7 @@ import {
   setStatsStore,
 } from "./notifications";
 import { killAllActivePushes } from "./bridge/handlers/branches-diffs";
+import { createAgentService } from "./bridge/handlers/agents";
 import { wireStatsBroadcast } from "./bridge/handlers/stats";
 import {
   wirePreferencesBroadcast,
@@ -231,6 +232,32 @@ export function initApp(devTitle: string | null): void {
   // Managers
   const client = new TerminalHostClient();
   const backend = new LocalBackend(client);
+  // PreferencesManager must be constructed before AgentManager so we can pass
+  // the user's configured retention into the prune step.
+  const preferencesManager = new PreferencesManager();
+  const agentManager = new AgentManager(
+    undefined,
+    preferencesManager.get("agentRetentionDays"),
+  );
+  const keybindingsManager = new KeybindingsManager();
+  // ADR-162's durable notification log. Handed to `notifications.ts` so the
+  // single recording site inside `presentNotification` can reach it.
+  const notificationStore = new NotificationStore();
+  setNotificationStore(notificationStore);
+  // ADR-168's usage stats.
+  const statsStore = new StatsStore(undefined, {
+    isEnabled: () => preferencesManager.get("statsEnabled"),
+    onBadge: (badge) => {
+      notificationStore.append({
+        kind: "badge-unlocked",
+        title: `Badge unlocked: ${badge.title}`,
+        body: badge.description,
+        target: { type: "stats" },
+      });
+      sendNotificationsUpdate(mainWindow);
+    },
+  });
+  setStatsStore(statsStore);
   const layoutPersistence = new LayoutPersistence();
   /**
    * ADR-179: layout is the Manor server's, not a renderer's. One broadcaster
@@ -258,11 +285,16 @@ export function initApp(devTitle: string | null): void {
     // `publishRendererBroadcast` sink as `layout.changed`, on its own event
     // so a renderer's replica does not have to replace itself for a title.
     (paneId, title) => publishRendererBroadcast("layout", "paneTitle", { paneId, title }),
+    // Every pane the store ends takes its agent with it (ADR-182 D7) — the
+    // one abandonment for every close path, and for a removed workspace.
+    createAgentService({ agentManager, statsStore, preferencesManager }),
   );
   // Before any window exists: the first thing a renderer asks for is
   // `layout.getAll()`, and a cold read of the file is not worth racing.
   layoutStore.load();
-  const projectManager = new ProjectManager(backend.git);
+  // Removing a worktree tears its layout down first (ADR-182 D7), whichever
+  // caller — sidebar, quick merge, CLI or MCP — asked for it.
+  const projectManager = new ProjectManager(backend.git, undefined, layoutStore);
   const themeManager = new ThemeManager();
   const portScanner = new PortScanner(backend.ports);
   const branchWatcher = new BranchWatcher();
@@ -272,32 +304,6 @@ export function initApp(devTitle: string | null): void {
 
   const prewarmManager = new PrewarmManager(client, process.env.HOME || "/");
   const agentHookServer = new AgentHookServer();
-  // PreferencesManager must be constructed before AgentManager so we can pass
-  // the user's configured retention into the prune step.
-  const preferencesManager = new PreferencesManager();
-  const agentManager = new AgentManager(
-    undefined,
-    preferencesManager.get("agentRetentionDays"),
-  );
-  const keybindingsManager = new KeybindingsManager();
-  // ADR-162's durable notification log. Handed to `notifications.ts` so the
-  // single recording site inside `presentNotification` can reach it.
-  const notificationStore = new NotificationStore();
-  setNotificationStore(notificationStore);
-  // ADR-168's usage stats.
-  const statsStore = new StatsStore(undefined, {
-    isEnabled: () => preferencesManager.get("statsEnabled"),
-    onBadge: (badge) => {
-      notificationStore.append({
-        kind: "badge-unlocked",
-        title: `Badge unlocked: ${badge.title}`,
-        body: badge.description,
-        target: { type: "stats" },
-      });
-      sendNotificationsUpdate(mainWindow);
-    },
-  });
-  setStatsStore(statsStore);
   // A merged PR ships a workspace just as much as a quick merge does, and it
   // is the only shipping path the app never initiates itself — the PR poll is
   // where it surfaces. Counted once per PR, so a worktree kept around after

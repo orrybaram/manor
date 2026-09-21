@@ -22,7 +22,10 @@ vi.mock("../ipc-validate", () => ({
   assertString: vi.fn(),
 }));
 
-import { agentsAbandonForPane } from "../bridge/handlers/agents";
+import {
+  agentsAbandonForPane,
+  createAgentService,
+} from "../bridge/handlers/agents";
 import { localCtx } from "../bridge/method";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -195,6 +198,45 @@ describe("agents.abandonForPane", () => {
       agentsAbandonForPane(localCtx(deps as never), "pane-1");
 
       expect(deps.statsStore.record).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("createAgentService (what LayoutStore calls)", () => {
+    it("abandons every pane's active agent, naming it by the pane's title", () => {
+      deps.agentManager.getAgentByPaneId.mockImplementation((paneId: string) =>
+        paneId === "pane-1" ? { id: "t1", status: "active" } : null,
+      );
+
+      createAgentService(deps as never).abandonForPanes([
+        { paneId: "pane-1", title: "Fix the build ⠻" },
+        { paneId: "pane-2", title: null },
+      ]);
+
+      expect(deps.agentManager.getAgentByPaneId).toHaveBeenCalledWith("pane-2");
+      expect(deps.agentManager.updateAgent).toHaveBeenCalledTimes(1);
+      expect(deps.agentManager.updateAgent).toHaveBeenCalledWith(
+        "t1",
+        expect.objectContaining({ status: "abandoned", name: "Fix the build" }),
+      );
+    });
+
+    it("keeps going past a pane whose abandonment throws", () => {
+      deps.agentManager.getAgentByPaneId.mockImplementation((paneId: string) => {
+        if (paneId === "pane-1") throw new Error("boom");
+        return { id: "t2", status: "active" };
+      });
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      createAgentService(deps as never).abandonForPanes([
+        { paneId: "pane-1" },
+        { paneId: "pane-2" },
+      ]);
+
+      expect(deps.agentManager.updateAgent).toHaveBeenCalledWith(
+        "t2",
+        expect.objectContaining({ status: "abandoned" }),
+      );
+      error.mockRestore();
     });
   });
 });

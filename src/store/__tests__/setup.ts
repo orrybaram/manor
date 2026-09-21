@@ -28,10 +28,10 @@ if (typeof globalThis.window === "undefined") {
       // subscribes to it at import time and every layout action goes through
       // it. See `fake-layout-server.ts`.
       layout: fakeLayoutApi(),
-      // agent-store.ts subscribes to agents.onUpdate at module-init time, and
-      // app-store.closePaneById calls agents.abandonForPane. Provide a minimal
-      // agents surface so importing those stores does not throw. Individual
-      // tests can override specific methods via vi.stubGlobal.
+      // agent-store.ts subscribes to agents.onUpdate at module-init time.
+      // Provide a minimal agents surface so importing those stores does not
+      // throw. Individual tests can override specific methods via
+      // vi.stubGlobal.
       agents: {
         onUpdate: vi.fn(() => vi.fn()),
         markSeen: vi.fn().mockResolvedValue(undefined),

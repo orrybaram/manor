@@ -92,6 +92,26 @@ export type { LayoutBroadcast, LayoutOrigin };
 
 export type LayoutBroadcaster = (payload: LayoutBroadcast) => void;
 
+/** A pane whose session is ending, and the title to name its agent by. */
+export interface EndedPane {
+  paneId: string;
+  title?: string | null;
+}
+
+/**
+ * The agents side of a pane leaving a tree (ADR-182 D7).
+ *
+ * Every pane this store ends — a close of any size, a whole workspace going
+ * away — goes through `abandonForPanes` first, so an agent running in it is
+ * marked abandoned whichever renderer, route or bridge caller did the
+ * closing. Backed by `createAgentService` in `bridge/handlers/agents.ts`.
+ */
+export interface AgentService {
+  abandonForPanes(panes: readonly EndedPane[]): void;
+}
+
+const NO_AGENTS: AgentService = { abandonForPanes() {} };
+
 interface WorkspaceState
   extends Omit<LayoutEntry, "claims"> {
   closedStack: ClosedPane[];
@@ -181,6 +201,12 @@ export class LayoutStore {
       paneId: string,
       title: string | null,
     ) => void = () => {},
+    /**
+     * Ends the agents of the panes this store ends. Defaults to doing
+     * nothing, for the tests that are not about agents; `app-lifecycle.ts`
+     * passes the real one.
+     */
+    private readonly agents: AgentService = NO_AGENTS,
   ) {}
 
   /** Read `~/.manor/layout.json` into memory. Migration happens below it. */
@@ -261,47 +287,47 @@ export class LayoutStore {
   /**
    * Forget a workspace's layout entirely — the worktree is gone.
    *
-   * Its pending kills run now rather than serving out the reopen grace: a
-   * removed worktree is a directory about to be deleted, and there is
-   * nothing left to reopen a pane *into* (ADR-179 ticket 10's report).
+   * Every pane still in it ends the way a closed one does — its agent
+   * abandoned, its shell killed — but at once: a removed worktree is a
+   * directory about to be deleted, and there is nothing left to reopen a pane
+   * *into* (ADR-179 ticket 10's report). The same goes for the pending kills
+   * of panes closed a moment earlier.
+   *
+   * `ProjectManager.removeWorktree` calls this, so a worktree removed from the
+   * sidebar, the CLI or MCP is torn down the same way.
    */
   remove(workspacePath: string): void {
-    // Captured before the entry is dropped: a popout that claimed a tab here
-    // hears about losing it on the broadcast below, and needs the layout and
-    // version that were true a moment ago to compare against.
     const state = this.entries.get(workspacePath);
-    let hadClaim = false;
+    if (state) {
+      this.endPanes(workspacePath, state, state.layout, [
+        ...layoutPaneIds(state.layout),
+      ], { grace: false });
+    }
     this.entries.delete(workspacePath);
     this.queues.delete(workspacePath);
     this.windowViewports.delete(workspacePath);
     this.primaryViewports.delete(workspacePath);
     for (const [windowId, claim] of [...this.claims]) {
-      if (claim.workspacePath === workspacePath) {
-        this.claims.delete(windowId);
-        hadClaim = true;
-      }
+      if (claim.workspacePath === workspacePath) this.claims.delete(windowId);
     }
     if (this.lastActiveWorkspacePath === workspacePath) {
       this.lastActiveWorkspacePath = null;
     }
     this.runPendingKills(workspacePath);
-    // Filters this one workspace out of the file rather than rewriting the
-    // whole thing from memory, which is what the renderer's parallel writer
-    // (see the header) makes the safer of the two for one more ticket.
     this.persistence.removeWorkspace(workspacePath);
 
-    // Without this a popout whose worktree was just deleted never hears that
-    // its claim is gone — `checkOwnClaim` only reacts to a `layout.changed`,
-    // and `remove` used to leave silently, so the window sat on a splash
-    // forever instead of closing (ticket 6's report). Same version: dropping
-    // a claim is not a structural change.
-    if (state && hadClaim) {
+    // Every renderer drops its copy on this, rather than each one tearing the
+    // workspace down itself: `removed` is what tells it the workspace is gone
+    // rather than changed, so it is not re-adopted, and a popout holding one
+    // of its tabs closes. Same version: nothing structural happened first.
+    if (state) {
       this.broadcast({
         workspacePath,
         version: state.version,
         layout: state.layout,
         claims: [],
         origin: { kind: "route", id: "layout-remove" },
+        removed: true,
       });
     }
   }
@@ -594,16 +620,9 @@ export class LayoutStore {
     // command after its confirmation dialog, and the effect lands here. Not
     // at once, though — a terminal pane's shell stays warm for the grace, so
     // "reopen closed pane" is a real undo (see REOPEN_GRACE_MS).
-    for (const paneId of result.killPanes) {
-      // A pane that never mounted can still be closed — by another window, or
-      // by the CLI. Whatever was queued for it has nowhere left to go.
-      this.pendingCommands.clear(paneId);
-      if (contentTypeOf(before, paneId) !== "terminal") {
-        delete state.paneSessions[paneId];
-        continue;
-      }
-      this.scheduleKill(workspacePath, paneId);
-    }
+    this.endPanes(workspacePath, state, before, result.killPanes, {
+      grace: true,
+    });
 
     // A tab that left the tree takes its claim with it: the window holding it
     // has nothing to show and closes itself when this broadcast lands (D4).
@@ -643,6 +662,44 @@ export class LayoutStore {
       if (session) restored[paneId] = session;
     }
     return Object.keys(restored).length > 0 ? restored : undefined;
+  }
+
+  /**
+   * Panes that left `layout`, ended: every close path and `remove` land here.
+   *
+   * Agents first, while `paneSessions` still has the title to name one by.
+   * Then each pane's queued command goes — a pane that never mounted can
+   * still be closed, by another window or by the CLI — and a terminal's shell
+   * is killed, after the reopen grace or, for `remove`, now. A pane that is
+   * not a terminal has no shell, only a session row.
+   */
+  private endPanes(
+    workspacePath: string,
+    state: WorkspaceState,
+    layout: WorkspaceLayout,
+    paneIds: readonly string[],
+    { grace }: { grace: boolean },
+  ): void {
+    if (paneIds.length === 0) return;
+    this.agents.abandonForPanes(
+      paneIds.map((paneId) => ({
+        paneId,
+        title: state.paneSessions[paneId]?.lastTitle ?? null,
+      })),
+    );
+    for (const paneId of paneIds) {
+      this.pendingCommands.clear(paneId);
+      if (contentTypeOf(layout, paneId) !== "terminal") {
+        delete state.paneSessions[paneId];
+        continue;
+      }
+      if (grace) {
+        this.scheduleKill(workspacePath, paneId);
+      } else {
+        this.cancelKill(paneId);
+        void this.killNow(workspacePath, paneId);
+      }
+    }
   }
 
   /** End this pane's session once the reopen window closes, not before. */

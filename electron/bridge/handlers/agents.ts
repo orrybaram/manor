@@ -9,6 +9,7 @@ import {
 } from "../../notifications";
 import { killCounters } from "../../stats-signals";
 import { cleanAgentTitle } from "../../title-utils";
+import type { AgentService, EndedPane } from "../../layout/layout-store";
 import { method, type HandlerCtx } from "../method";
 
 const ALLOWED_RENDERER_TASK_FIELDS: ReadonlySet<string> = new Set([
@@ -199,19 +200,22 @@ export function agentsMarkResumed(
   });
 }
 
+/** What ending a pane's agent needs: the record, the stats, the dock badge. */
+type AbandonDeps = Pick<
+  HandlerCtx["deps"],
+  "agentManager" | "statsStore" | "preferencesManager"
+>;
+
 /**
  * Marks the active agent on `paneId` abandoned — a session end triggered by
- * a pane close rather than by the agent itself. Mirrored by
- * `abandonAgentForClosedPane` in `electron/routes/panes.ts` for a structural
- * close that never touches a renderer.
+ * a pane close rather than by the agent itself. An agent without a name is
+ * named after the pane's last title, so it stays recognisable in the list.
  */
-export function agentsAbandonForPane(
-  ctx: HandlerCtx,
-  paneId: string,
-  title?: string | null,
+function abandonAgentForPane(
+  deps: AbandonDeps,
+  { paneId, title }: EndedPane,
 ): void {
-  assertString(paneId, "paneId");
-  const { agentManager, statsStore, preferencesManager } = ctx.deps;
+  const { agentManager, statsStore, preferencesManager } = deps;
   const agent = agentManager.getAgentByPaneId(paneId);
   if (!agent || agent.status !== "active") return;
   for (const counter of killCounters(agent)) statsStore.record(counter);
@@ -224,6 +228,31 @@ export function agentsAbandonForPane(
   if (updated) {
     sendAgentUpdate(updated, preferencesManager);
   }
+}
+
+/** The {@link AgentService} `app-lifecycle.ts` hands `LayoutStore`. */
+export function createAgentService(deps: AbandonDeps): AgentService {
+  return {
+    abandonForPanes(panes) {
+      for (const pane of panes) {
+        try {
+          abandonAgentForPane(deps, pane);
+        } catch (err) {
+          console.error(`[agents] failed to abandon ${pane.paneId}:`, err);
+        }
+      }
+    },
+  };
+}
+
+/** {@link abandonAgentForPane}, over the bridge. */
+export function agentsAbandonForPane(
+  ctx: HandlerCtx,
+  paneId: string,
+  title?: string | null,
+): void {
+  assertString(paneId, "paneId");
+  abandonAgentForPane(ctx.deps, { paneId, title });
 }
 
 /**

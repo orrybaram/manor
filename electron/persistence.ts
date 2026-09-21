@@ -253,13 +253,26 @@ export function isFolderDescendant(
   return false;
 }
 
+/** What `removeWorktree` needs of `LayoutStore`: to forget the workspace. */
+interface WorkspaceLayoutOwner {
+  remove(workspacePath: string): void;
+}
+
 export class ProjectManager {
   private state: PersistedState;
   private dataDir: string;
   private git: GitBackend;
   private resyncDone = false;
 
-  constructor(git: GitBackend, dataDir?: string) {
+  /**
+   * @param layout The server's layout store, as far as removing a worktree
+   * needs it. Optional so a test about projects alone need not build one.
+   */
+  constructor(
+    git: GitBackend,
+    dataDir?: string,
+    private readonly layout?: WorkspaceLayoutOwner,
+  ) {
     this.git = git;
     this.dataDir = dataDir ?? manorDataDir();
     this.state = this.loadState();
@@ -851,6 +864,12 @@ export class ProjectManager {
   ): Promise<void> {
     const project = this.findProject(projectId);
     if (!project) return;
+
+    // Before anything touches the directory: the workspace's panes end here —
+    // shells killed, agents abandoned — and every renderer drops its layout
+    // (ADR-182 D7). The one teardown for every way a worktree is removed: the
+    // sidebar, quick merge, the CLI and MCP all come through this method.
+    this.layout?.remove(worktreePath);
 
     const progress = onProgress ?? (() => {});
 

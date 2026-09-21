@@ -16,6 +16,7 @@ import * as crypto from "node:crypto";
 import {
   LayoutStore,
   REOPEN_GRACE_MS,
+  type AgentService,
   type LayoutBroadcast,
 } from "../layout-store";
 import {
@@ -87,6 +88,7 @@ describe("LayoutStore", () => {
   let broadcasts: LayoutBroadcast[];
   let paneTitles: Array<{ paneId: string; title: string | null }>;
   let kill: ReturnType<typeof vi.fn>;
+  let abandonForPanes: ReturnType<typeof vi.fn<AgentService["abandonForPanes"]>>;
   let store: LayoutStore;
 
   function makeStore(primaryId = "primary"): LayoutStore {
@@ -100,6 +102,7 @@ describe("LayoutStore", () => {
       (paneId, title) => {
         paneTitles.push({ paneId, title });
       },
+      { abandonForPanes },
     );
   }
 
@@ -135,6 +138,7 @@ describe("LayoutStore", () => {
     broadcasts = [];
     paneTitles = [];
     kill = vi.fn().mockResolvedValue(undefined);
+    abandonForPanes = vi.fn<AgentService["abandonForPanes"]>();
     store = makeStore();
   });
 
@@ -254,6 +258,34 @@ describe("LayoutStore", () => {
 
       vi.advanceTimersByTime(REOPEN_GRACE_MS);
       expect(kill).toHaveBeenCalledTimes(1);
+    });
+
+    it("abandons the agents of every pane a closed tab held, titled", async () => {
+      store.setPaneTitle("pane-1", "claude ⠋");
+
+      await store.apply(
+        WS,
+        { type: "close-tab", tabId: "tab-1" },
+        { kind: "window", id: "1" },
+      );
+
+      // At once, not after the grace: the agent's turn ended with its pane,
+      // and every close path — not only `close-pane` — lands here (D7).
+      expect(abandonForPanes).toHaveBeenCalledTimes(1);
+      expect(abandonForPanes).toHaveBeenCalledWith([
+        { paneId: "pane-1", title: "claude ⠋" },
+        { paneId: "pane-diff", title: null },
+      ]);
+    });
+
+    it("abandons nothing for a command that ends no pane", async () => {
+      await store.apply(
+        WS,
+        { type: "new-tab", tab: leafTab("tab-2", "pane-2") },
+        { kind: "window", id: "1" },
+      );
+
+      expect(abandonForPanes).not.toHaveBeenCalled();
     });
 
     it("drops the pending command of a pane that leaves the tree", async () => {
@@ -879,6 +911,25 @@ describe("LayoutStore", () => {
   });
 
   describe("remove", () => {
+    it("kills the workspace's terminals at once and abandons their agents", () => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      store.load();
+      store.pendingCommands.set("pane-1", "pnpm dev");
+
+      store.remove(WS);
+
+      // No grace: the directory is about to go, and nothing can reopen into it.
+      expect(kill).toHaveBeenCalledTimes(1);
+      expect(kill).toHaveBeenCalledWith("pane-1");
+      expect(abandonForPanes).toHaveBeenCalledWith([
+        { paneId: "pane-1", title: null },
+        { paneId: "pane-diff", title: null },
+      ]);
+      expect(store.pendingCommands.take("pane-1")).toBeNull();
+      vi.advanceTimersByTime(REOPEN_GRACE_MS);
+      expect(kill).toHaveBeenCalledTimes(1);
+    });
+
     it("ends the pending kills of a workspace that is going away", async () => {
       fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
       store.load();
@@ -913,7 +964,9 @@ describe("LayoutStore", () => {
 
       store.remove(WS);
 
-      expect(kill).not.toHaveBeenCalled();
+      expect(kill).not.toHaveBeenCalledWith("pane-o");
+      vi.advanceTimersByTime(REOPEN_GRACE_MS);
+      expect(kill).toHaveBeenCalledWith("pane-o");
     });
 
     /**
@@ -936,17 +989,26 @@ describe("LayoutStore", () => {
         workspacePath: WS,
         version: versionBefore,
         claims: [],
+        removed: true,
       });
     });
 
-    it("broadcasts nothing when nobody held a claim on the removed workspace", () => {
+    it("tells every renderer the workspace is gone, claim or no claim", () => {
       fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
       store.load();
       broadcasts.length = 0;
 
       store.remove(WS);
 
+      expect(broadcasts).toHaveLength(1);
+      expect(lastBroadcast()).toMatchObject({ workspacePath: WS, removed: true });
+    });
+
+    it("broadcasts nothing for a workspace it never held", () => {
+      store.remove("/project/unknown");
+
       expect(broadcasts).toEqual([]);
+      expect(abandonForPanes).not.toHaveBeenCalled();
     });
   });
 

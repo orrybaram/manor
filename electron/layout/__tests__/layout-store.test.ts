@@ -1010,6 +1010,60 @@ describe("LayoutStore", () => {
       expect(broadcasts).toEqual([]);
       expect(abandonForPanes).not.toHaveBeenCalled();
     });
+
+    it("refuses a command queued before it, rather than recreating the workspace", async () => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      store.load();
+
+      // Queued, not yet run: `apply` chains onto the workspace's queue.
+      const queued = store.apply(
+        WS,
+        { type: "new-tab", tab: leafTab("tab-late", "pane-late") },
+        { kind: "window", id: "1" },
+      );
+      store.remove(WS);
+
+      expect(await queued).toEqual({ error: `Workspace was removed: ${WS}` });
+      expect(store.get(WS)).toBeNull();
+    });
+
+    it("accepts a command sent after it, for a workspace opened again", async () => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      store.load();
+      store.remove(WS);
+
+      const result = await store.apply(
+        WS,
+        { type: "new-tab", tab: leafTab("tab-new", "pane-new") },
+        { kind: "window", id: "1" },
+      );
+
+      expect(result).not.toHaveProperty("error");
+      expect(store.locate({ paneId: "pane-new" })?.workspacePath).toBe(WS);
+    });
+  });
+
+  describe("locate", () => {
+    beforeEach(() => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      store.load();
+    });
+
+    it("finds the workspace holding a pane, nested in a split or not", () => {
+      const found = store.locate({ paneId: "pane-diff" });
+
+      expect(found?.workspacePath).toBe(WS);
+      expect(found?.entry).toEqual(store.get(WS));
+    });
+
+    it("finds the workspace holding a tab", () => {
+      expect(store.locate({ tabId: "tab-1" })?.workspacePath).toBe(WS);
+    });
+
+    it("answers null for an id no workspace holds", () => {
+      expect(store.locate({ paneId: "no-such-pane" })).toBeNull();
+      expect(store.locate({ tabId: "no-such-tab" })).toBeNull();
+    });
   });
 
   describe("the broadcast", () => {

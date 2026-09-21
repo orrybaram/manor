@@ -5,7 +5,7 @@
  * whoever sends it, so the sender can act on the result the moment the
  * broadcast lands (`commands/`). Two senders need the same minting — the
  * desktop store (`src/store/app-store.ts`), which used to keep these
- * private, and the structural routes (`electron/routes/panes.ts`), which
+ * private, and the structural routes (`electron/routes/panes-structural.ts`), which
  * bypass a renderer entirely (ADR-179 D5) — so it lives here instead of
  * being duplicated in both.
  */

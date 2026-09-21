@@ -28,9 +28,9 @@ import {
   type ClosedPane,
   type LayoutCommand,
 } from "../../lib/layout/commands";
-import { allPaneIds } from "../../lib/layout/pane-tree";
 import {
   createSinglePanelLayout,
+  layoutPaneIds,
   type WorkspaceLayout,
 } from "../../lib/layout/workspace-layout";
 import {
@@ -123,12 +123,6 @@ export const queuedCommands: Array<{
  * `pty.create` with nothing waiting (ADR-179 ticket 11).
  */
 export const serverCalls: Array<"pending" | "apply"> = [];
-
-function paneIdsOf(layout: WorkspaceLayout): string[] {
-  return Object.values(layout.panels).flatMap((panel) =>
-    panel.tabs.flatMap((tab) => allPaneIds(tab.rootNode)),
-  );
-}
 
 /** Give the server a workspace to start from — what `getAll` will answer. */
 export function seedLayout(
@@ -280,8 +274,10 @@ export function fakeLayoutApi(): Record<string, unknown> {
         origin: { kind: "window", id: FAKE_RENDERER_ID },
         ...(hint && { hint }),
       });
-      const had = new Set(paneIdsOf(layout));
-      const addedPaneIds = paneIdsOf(result.layout).filter((id) => !had.has(id));
+      const had = layoutPaneIds(layout);
+      const addedPaneIds = [...layoutPaneIds(result.layout)].filter(
+        (id) => !had.has(id),
+      );
       return { version: version + 1, addedPaneIds, ...(hint && { hint }) };
     },
     setPendingCommand: async (paneId: string, text: string, kind: string) => {

@@ -245,16 +245,6 @@ export function createAgentService(deps: AbandonDeps): AgentService {
   };
 }
 
-/** {@link abandonAgentForPane}, over the bridge. */
-export function agentsAbandonForPane(
-  ctx: HandlerCtx,
-  paneId: string,
-  title?: string | null,
-): void {
-  assertString(paneId, "paneId");
-  abandonAgentForPane(ctx.deps, { paneId, title });
-}
-
 /**
  * Sweeps every `active` agent whose pane the daemon no longer has a live
  * session for, and marks it `abandoned` — the desktop's boot-time cleanup
@@ -302,13 +292,13 @@ export const agents = {
   // opened from a browser never gets the project context the sidebar reads.
   setPaneContext: method(agentsSetPaneContext, { mutating: true }),
   // Every write another viewer's sidebar, palette or dock badge reads:
-  // `update` renames/pins, `delete` and `abandonForPane` end a session,
-  // `markSeen` and `markResumed` move the unseen flags every window shares.
+  // `update` renames/pins, `delete` ends a session, `markSeen` and
+  // `markResumed` move the unseen flags every window shares. A pane's agent
+  // is abandoned by `LayoutStore` when the pane ends, not over the bridge.
   update: method(agentsUpdate, { mutating: true }),
   delete: method(agentsDelete, { mutating: true }),
   markSeen: method(agentsMarkSeen, { mutating: true }),
   markResumed: method(agentsMarkResumed, { mutating: true }),
-  abandonForPane: method(agentsAbandonForPane, { mutating: true }),
   // Ends sessions, but `App.tsx` calls it on every mount of every window and
   // tab: a line per page load is noise that buries the lines that matter,
   // and what it ends was already dead.

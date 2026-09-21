@@ -79,6 +79,25 @@ describe("ProjectManager", () => {
 
       expect(manager.getSelectedProjectIndex()).toBe(0);
     });
+
+    it("removes the layout of every one of the project's workspaces", async () => {
+      const git = {
+        worktreeList: vi.fn(async () => [
+          { path: "/tmp/one", branch: "main", isMain: true },
+          { path: "/tmp/one-feature", branch: "feature", isMain: false },
+        ]),
+      } as unknown as GitBackend;
+      const layout = { remove: vi.fn() };
+      const withLayout = new ProjectManager(git, tmpDir, layout);
+      const p1 = await withLayout.addProject("One", "/tmp/one");
+
+      await withLayout.removeProject(p1.id);
+
+      expect(layout.remove.mock.calls.map(([p]) => p).sort()).toEqual([
+        "/tmp/one",
+        "/tmp/one-feature",
+      ]);
+    });
   });
 
   describe("selectProject", () => {

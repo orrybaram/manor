@@ -521,7 +521,7 @@ export const agentRoutes: Route[] = [
 
       await deps.backend.pty.kill(paneId);
 
-      // Mirrors `agents:abandonForPane` (`../ipc/agents.ts`): only an
+      // Mirrors `createAgentService` (`../bridge/handlers/agents.ts`): only an
       // *active* session's record moves to 'abandoned' — a session that had
       // already completed or errored keeps that outcome.
       if (agent.status === "active") {

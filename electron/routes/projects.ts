@@ -617,7 +617,7 @@ export const projectRoutes: Route[] = [
     path: "/projects/:projectId",
     handler: withProject(async ({ params, json, readBody }, pm) => {
       await readBody();
-      pm.removeProject(params.projectId);
+      await pm.removeProject(params.projectId);
       notifyProjectsChanged();
       json(200, { ok: true });
     }),

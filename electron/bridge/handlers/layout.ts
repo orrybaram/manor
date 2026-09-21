@@ -87,12 +87,6 @@ export function layoutSetPendingCommand(
   ctx.deps.layoutStore.pendingCommands.set(paneId, text, kind);
 }
 
-/** Forget a workspace's layout — its worktree is gone. */
-export function layoutRemove(ctx: HandlerCtx, workspacePath: string): void {
-  assertString(workspacePath, "workspacePath");
-  ctx.deps.layoutStore.remove(workspacePath);
-}
-
 /**
  * A pane's title, off the command channel (ADR-182 D1).
  *
@@ -100,8 +94,7 @@ export function layoutRemove(ctx: HandlerCtx, workspacePath: string): void {
  * locally and are not sent here (the server already learns them from the
  * daemon's own `pty.agentStatus`/title events) — this is for the other
  * sources: a browser's own title edit, an MCP/CLI call. Silent on an unknown
- * paneId, the same as `layout.remove` on an unknown workspace: a stale id
- * from a slow renderer is normal, not an error.
+ * paneId: a stale id from a slow renderer is normal, not an error.
  */
 export function layoutSetPaneTitle(
   ctx: HandlerCtx,
@@ -146,6 +139,5 @@ export const layout = {
   apply: method(layoutApply, { mutating: true }),
   setPaneTitle: method(layoutSetPaneTitle, { mutating: true }),
   setPendingCommand: method(layoutSetPendingCommand, { mutating: true }),
-  remove: method(layoutRemove, { mutating: true }),
   reportViewport: method(layoutReportViewport),
 };

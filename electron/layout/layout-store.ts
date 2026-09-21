@@ -53,6 +53,8 @@ import {
   type WorkspaceLayout,
   createSinglePanelLayout,
   findPanelWithPane,
+  findPanelWithTab,
+  layoutPaneIds,
 } from "../../src/lib/layout/workspace-layout";
 import type { LocalBackend } from "../backend/local-backend";
 import { PendingCommands } from "./pending-commands";
@@ -126,21 +128,20 @@ function layoutTabIds(layout: WorkspaceLayout): Set<string> {
   return ids;
 }
 
-/** Every pane a workspace renders, across every panel and tab. */
-function layoutPaneIds(layout: WorkspaceLayout): Set<string> {
-  const ids = new Set<string>();
-  for (const panel of Object.values(layout.panels)) {
-    for (const tab of panel.tabs) {
-      for (const paneId of allPaneIds(tab.rootNode)) ids.add(paneId);
-    }
-  }
-  return ids;
-}
+/** A pane or a tab, named by id — either lives in exactly one workspace. */
+export type LayoutTarget = { paneId: string } | { tabId: string };
 
 export class LayoutStore {
   private readonly entries = new Map<string, WorkspaceState>();
   /** Per-workspace tail of the apply chain: two commands never interleave. */
   private readonly queues = new Map<string, Promise<unknown>>();
+  /**
+   * How many times each workspace has been removed. A command reads this when
+   * it is queued and refuses to run if a `remove` landed in between, so a
+   * command still waiting its turn cannot bring a removed workspace back
+   * through `ensureState`.
+   */
+  private readonly removals = new Map<string, number>();
   /**
    * The primary window's last viewport, per workspace, and the last one any
    * window reported as the fallback.
@@ -250,6 +251,22 @@ export class LayoutStore {
   }
 
   /**
+   * The workspace holding a pane or a tab, and its entry; null when no
+   * workspace does.
+   */
+  locate(
+    target: LayoutTarget,
+  ): { workspacePath: string; entry: LayoutEntry } | null {
+    const found = this.find(target);
+    if (!found) return null;
+    const { workspacePath, state } = found;
+    return {
+      workspacePath,
+      entry: snapshot(state, this.claimsFor(workspacePath)),
+    };
+  }
+
+  /**
    * The workspace's layout, creating an empty single-panel one if this is the
    * first time the server has heard of it. The panel id is minted here because
    * nothing sent a command yet — every id in a *command* comes from its sender.
@@ -274,9 +291,14 @@ export class LayoutStore {
     origin: LayoutOrigin,
   ): Promise<LayoutApplyResult> {
     const previous = this.queues.get(workspacePath) ?? Promise.resolve();
+    const removals = this.removals.get(workspacePath) ?? 0;
     const run = previous
       .catch(() => {})
-      .then(() => this.applyNow(workspacePath, command, origin));
+      .then(() =>
+        (this.removals.get(workspacePath) ?? 0) === removals
+          ? this.applyNow(workspacePath, command, origin)
+          : { error: `Workspace was removed: ${workspacePath}` },
+      );
     this.queues.set(
       workspacePath,
       run.catch(() => {}),
@@ -293,10 +315,13 @@ export class LayoutStore {
    * *into* (ADR-179 ticket 10's report). The same goes for the pending kills
    * of panes closed a moment earlier.
    *
-   * `ProjectManager.removeWorktree` calls this, so a worktree removed from the
-   * sidebar, the CLI or MCP is torn down the same way.
+   * `ProjectManager.removeWorktree` and `removeProject` call this, so a
+   * worktree removed from the sidebar, the CLI or MCP is torn down the same
+   * way. A command queued before this and not yet run is refused (see
+   * `removals`).
    */
   remove(workspacePath: string): void {
+    this.removals.set(workspacePath, (this.removals.get(workspacePath) ?? 0) + 1);
     const state = this.entries.get(workspacePath);
     if (state) {
       this.endPanes(workspacePath, state, state.layout, [
@@ -767,11 +792,21 @@ export class LayoutStore {
     return state;
   }
 
-  private stateWithPane(paneId: string): WorkspaceState | null {
-    for (const state of this.entries.values()) {
-      if (findPanelWithPane(state.layout, paneId)) return state;
+  private find(
+    target: LayoutTarget,
+  ): { workspacePath: string; state: WorkspaceState } | null {
+    for (const [workspacePath, state] of this.entries) {
+      const found =
+        "paneId" in target
+          ? findPanelWithPane(state.layout, target.paneId)
+          : findPanelWithTab(state.layout, target.tabId);
+      if (found) return { workspacePath, state };
     }
     return null;
+  }
+
+  private stateWithPane(paneId: string): WorkspaceState | null {
+    return this.find({ paneId })?.state ?? null;
   }
 
   private schedulePersist(): void {

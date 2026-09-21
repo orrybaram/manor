@@ -4,7 +4,6 @@ import {
   type PaneNode,
   type SplitDirection,
   allPaneIds,
-  clonePaneTree,
   hasPaneId,
   nextPaneId,
   prevPaneId,
@@ -21,9 +20,17 @@ import {
   type WorkspaceLayout,
   findPanelWithPane,
   findPanelWithTab,
+  layoutLeaves,
+  layoutPaneIds,
 } from "../lib/layout/workspace-layout";
 import type { LayoutCommand } from "../lib/layout/commands";
 import { createTab, newPaneId, newPanelId, newTabId } from "../lib/layout/ids";
+import {
+  cloneTabWithFreshIds,
+  createBrowserTab,
+  createDiffTab,
+  findDiffPane as findDiffPaneIn,
+} from "../lib/layout/tab-builders";
 import {
   type WorkspaceViewport,
   EMPTY_VIEWPORT,
@@ -738,30 +745,21 @@ function stepTab(state: AppState, step: 1 | -1): Partial<AppState> {
   return selectTabLocally(state, ctx.path, tabs[nextIdx].tabId);
 }
 
-function diffTab(paneId: string): Tab {
-  return {
-    id: newTabId(),
-    title: "Diff",
-    rootNode: { type: "leaf", paneId, contentType: "diff" },
-  };
-}
-
-/** The workspace's diff pane, wherever it is — there is at most one. */
+/**
+ * The active workspace's diff pane, wherever it is — there is at most one.
+ * A pane this store has marked as a diff counts before the broadcast brings
+ * its leaf back, so a second "open diff" in the meantime does not open two.
+ */
 function findDiffPane(
   state: AppState,
 ): { paneId: string; tabId: string } | null {
   const ctx = getActiveLayoutContext(state);
   if (!ctx) return null;
-  for (const panel of Object.values(ctx.layout.panels)) {
-    for (const tab of panel.tabs) {
-      for (const paneId of allPaneIds(tab.rootNode)) {
-        if (state.paneContentType[paneId] === "diff") {
-          return { paneId, tabId: tab.id };
-        }
-      }
-    }
-  }
-  return null;
+  return findDiffPaneIn(
+    ctx.layout,
+    (paneId, contentType) =>
+      contentType === "diff" || state.paneContentType[paneId] === "diff",
+  );
 }
 
 /**
@@ -924,17 +922,6 @@ export function sendPendingCommand(
     });
 }
 
-/** Every pane the layout renders, across every panel and tab. */
-function layoutPaneIds(layout: WorkspaceLayout): Set<string> {
-  const ids = new Set<string>();
-  for (const panel of Object.values(layout.panels)) {
-    for (const tab of panel.tabs) {
-      for (const paneId of allPaneIds(tab.rootNode)) ids.add(paneId);
-    }
-  }
-  return ids;
-}
-
 /**
  * What the leaves say about their panes — the half of a pane's state that
  * lives in the tree, and therefore arrives with every broadcast.
@@ -945,17 +932,9 @@ function leafSideMaps(layout: WorkspaceLayout): {
 } {
   const contentTypes: Record<string, "terminal" | "browser" | "diff"> = {};
   const urls: Record<string, string> = {};
-  const walk = (node: PaneNode): void => {
-    if (node.type === "leaf") {
-      if (node.contentType) contentTypes[node.paneId] = node.contentType;
-      if (node.url) urls[node.paneId] = node.url;
-      return;
-    }
-    walk(node.first);
-    walk(node.second);
-  };
-  for (const panel of Object.values(layout.panels)) {
-    for (const tab of panel.tabs) walk(tab.rootNode);
+  for (const { leaf } of layoutLeaves(layout)) {
+    if (leaf.contentType) contentTypes[leaf.paneId] = leaf.contentType;
+    if (leaf.url) urls[leaf.paneId] = leaf.url;
   }
   return { contentTypes, urls };
 }
@@ -1485,19 +1464,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   addBrowserTab: (url: string, opts?: { background?: boolean }) => {
     const path = get().activeWorkspacePath;
     if (!path) return null;
-    const paneId = newPaneId();
-    let title: string;
-    try {
-      const parsed = new URL(url);
-      title = parsed.host || url;
-    } catch {
-      title = url;
-    }
-    const tab: Tab = {
-      id: newTabId(),
-      title,
-      rootNode: { type: "leaf", paneId, contentType: "browser", url },
-    };
+    const tab = createBrowserTab(url);
+    const paneId = firstPaneOfTab(tab);
     // The pane's own state first: the broadcast brings the leaf back with the
     // same url, but the webview mounts from these maps and must not wait a
     // round trip to know what it is.
@@ -1517,12 +1485,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   addDiffTab: () => {
     const path = get().activeWorkspacePath;
     if (!path) return;
-    const paneId = newPaneId();
-    const tab: Tab = {
-      id: newTabId(),
-      title: "Diff",
-      rootNode: { type: "leaf", paneId, contentType: "diff" },
-    };
+    const tab = createDiffTab();
+    const paneId = firstPaneOfTab(tab);
     set((state) => ({
       paneContentType: { ...state.paneContentType, [paneId]: "diff" },
     }));
@@ -1537,19 +1501,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!layout) return null;
     const found = findPanelWithTab(layout, tabId);
     if (!found) return null;
-    const sourceTab = found.tab;
-
-    // Every pane of the source gets a fresh id: a duplicated tab is a second
-    // set of sessions, not a second view of the first.
-    const { tree: clonedRoot, idMap } = clonePaneTree(
-      sourceTab.rootNode,
-      newPaneId,
-    );
-    const newTab: Tab = {
-      id: newTabId(),
-      title: sourceTab.title,
-      rootNode: clonedRoot,
-    };
+    const { tab: newTab, idMap } = cloneTabWithFreshIds(found.tab);
     set((s) => {
       const paneContentType = { ...s.paneContentType };
       const paneUrl = { ...s.paneUrl };
@@ -1575,8 +1527,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       set(focusPaneLocally(state, path, existing.paneId));
       return existing.tabId;
     }
-    const paneId = newPaneId();
-    const tab = diffTab(paneId);
+    const tab = createDiffTab();
+    const paneId = firstPaneOfTab(tab);
     set((s) => ({
       paneContentType: { ...s.paneContentType, [paneId]: "diff" },
     }));
@@ -1599,7 +1551,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     const ctx = getActivePanelContext(state);
     if (!ctx) return;
-    const paneId = newPaneId();
+    const tab = createDiffTab();
+    const paneId = firstPaneOfTab(tab);
     set((s) => ({
       paneContentType: { ...s.paneContentType, [paneId]: "diff" },
     }));
@@ -1607,7 +1560,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // into the new panel. The diff opens *beside* what is already there.
     sendLayoutCommand(path, {
       type: "split-panel-with-new-tab",
-      tab: diffTab(paneId),
+      tab,
       direction: "horizontal",
       newPanelId: newPanelId(),
       sourcePanelId: ctx.panel.id,

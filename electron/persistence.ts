@@ -500,7 +500,16 @@ export class ProjectManager {
     };
   }
 
-  removeProject(projectId: string): void {
+  /**
+   * Forget a project, and tear down the layout of every one of its
+   * workspaces the same way `removeWorktree` does: their panes end and every
+   * renderer drops them. The directories stay; only Manor lets go of them.
+   *
+   * The project leaves the list before the first `await`, so a caller that
+   * does not wait still sees it gone.
+   */
+  async removeProject(projectId: string): Promise<void> {
+    const project = this.findProject(projectId);
     this.state.projects = this.state.projects.filter((p) => p.id !== projectId);
     if (this.state.selectedProjectIndex >= this.state.projects.length) {
       this.state.selectedProjectIndex = Math.max(
@@ -509,6 +518,11 @@ export class ProjectManager {
       );
     }
     this.saveState();
+    if (!project || !this.layout) return;
+
+    const workspaces = (await listGitWorkspaces(this.git, project.path)) ?? [];
+    const paths = new Set([project.path, ...workspaces.map((ws) => ws.path)]);
+    for (const workspacePath of paths) this.layout.remove(workspacePath);
   }
 
   selectWorkspace(projectId: string, workspaceIndex: number): void {

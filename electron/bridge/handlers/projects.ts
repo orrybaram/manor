@@ -56,8 +56,11 @@ export function projectsAdd(
   return ctx.deps.projectManager.addProject(name, projectPath);
 }
 
-export function projectsRemove(ctx: HandlerCtx, projectId: string): void {
-  ctx.deps.projectManager.removeProject(projectId);
+export function projectsRemove(
+  ctx: HandlerCtx,
+  projectId: string,
+): Promise<void> {
+  return ctx.deps.projectManager.removeProject(projectId);
 }
 
 /**

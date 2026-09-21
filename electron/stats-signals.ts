@@ -27,7 +27,7 @@ export const KILL_STATUSES: ReadonlySet<string> = new Set([
 
 /**
  * Whether terminating this agent counts as a kill. Defined once so every close
- * path (`agents:abandonForPane`, `processes:killSession`, `processes:killAll`)
+ * path (`createAgentService`, `processes:killSession`, `processes:killAll`)
  * shares the same rule.
  */
 export function isKill(agent: {

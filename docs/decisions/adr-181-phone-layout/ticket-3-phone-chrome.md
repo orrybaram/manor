@@ -1,6 +1,6 @@
 ---
 title: Phone chrome — top bar, tab strip, no status bar
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2]

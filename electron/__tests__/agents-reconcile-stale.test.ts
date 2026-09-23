@@ -2,7 +2,7 @@
  * `agentsReconcileStale`.
  *
  * No `ipcMain` here any more: `agents` crossed to the handler table in
- * ADR-180 ticket 9, so this is a plain function over `IpcDeps` — the same
+ * ADR-180 ticket 9, so this is a plain function over `HostDeps` — the same
  * function the table calls, and a paired `full` device now reaches it the
  * same way the desktop does.
  */
@@ -21,6 +21,7 @@ vi.mock("../ipc-validate", () => ({
 }));
 
 import { agentsReconcileStale } from "../bridge/handlers/agents";
+import { localCtx } from "../bridge/method";
 
 function makeAgent(
   overrides: Partial<{
@@ -78,7 +79,7 @@ describe("agents.reconcileStale", () => {
     ]);
     deps.backend.pty.listSessions.mockResolvedValue([{ sessionId: "pane-2" }]);
 
-    await agentsReconcileStale(deps as never);
+    await agentsReconcileStale(localCtx(deps as never));
 
     expect(deps.agentManager.updateAgent).toHaveBeenCalledTimes(1);
     expect(deps.agentManager.updateAgent).toHaveBeenCalledWith(
@@ -93,7 +94,7 @@ describe("agents.reconcileStale", () => {
   it("does nothing when daemon is unreachable", async () => {
     deps.backend.pty.listSessions.mockRejectedValue(new Error("ECONNREFUSED"));
 
-    await agentsReconcileStale(deps as never);
+    await agentsReconcileStale(localCtx(deps as never));
 
     expect(deps.agentManager.getAllAgents).not.toHaveBeenCalled();
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
@@ -105,7 +106,7 @@ describe("agents.reconcileStale", () => {
     ]);
     deps.backend.pty.listSessions.mockResolvedValue([]);
 
-    await agentsReconcileStale(deps as never);
+    await agentsReconcileStale(localCtx(deps as never));
 
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
@@ -116,7 +117,7 @@ describe("agents.reconcileStale", () => {
     ]);
     deps.backend.pty.listSessions.mockResolvedValue([]);
 
-    await agentsReconcileStale(deps as never);
+    await agentsReconcileStale(localCtx(deps as never));
 
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
@@ -132,7 +133,7 @@ describe("agents.reconcileStale", () => {
     ]);
     deps.backend.pty.listSessions.mockResolvedValue([{ sessionId: "pane-1" }]);
 
-    await agentsReconcileStale(deps as never);
+    await agentsReconcileStale(localCtx(deps as never));
 
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });

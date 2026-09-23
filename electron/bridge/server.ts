@@ -15,8 +15,9 @@
  *
  * **Authentication is not here.** Remote control decides whether a token is
  * good and whether its device is `full`; this class never learns what a token
- * is. It is told the answer once, as a `callerClass`, and the only thing it
- * does with it is `LOCAL_ONLY` (D4) and the audit line.
+ * is. It is told the answer once, as a `callerClass`, and does three things
+ * with it: `LOCAL_ONLY` (D4), the audit line, and handing it to the handler
+ * as `ctx.caller`.
  *
  * **Subscription membership is the whole event filter.** A connection that
  * never subscribed to pane B never sees a byte of B's output, however much of
@@ -25,44 +26,33 @@
  */
 
 import type { StreamEvent } from "../terminal-host/types";
-import type { IpcDeps } from "../ipc/types";
+import type { HostDeps } from "../ipc/types";
 import { RemoteAuditLog } from "../remote-control/audit";
 import {
   addRendererBroadcastSink,
   type RendererBroadcast,
 } from "../renderer-broadcast";
-import type { LayoutOrigin } from "../layout/layout-store";
 import { onAttachmentChange, ownerOf, releaseViewer } from "../pty-attachments";
 import {
   HANDLERS,
   LOCAL_ONLY,
   MUTATING,
-  ORIGIN_ARGS,
   SECRET_FIRST_ARG,
-  sessionGrid,
   type BridgeHandler,
 } from "./handlers";
+import type { EventArgs, EventNs, EventOf } from "./events";
+import { sessionGrid } from "./handlers/pty";
+import type { HandlerCtx } from "./method";
 import {
-  BridgeRefusal,
+  ALL_KEYS,
   UNAVAILABLE_CODE,
+  readInvokeFrame,
+  readSubscribeFrame,
   type BridgeConnection,
   type EventFrame,
   type InvokeFrame,
   type ResultFrame,
 } from "./types";
-
-/** How the PTY stream's six event types are named on the wire. */
-const PTY_EVENT_NAMES: Record<StreamEvent["type"], string> = {
-  data: "output",
-  exit: "exit",
-  cwd: "cwd",
-  error: "error",
-  agentStatus: "agentStatus",
-  resized: "resized",
-};
-
-/** The stand-in key for a subscription that named none. */
-const ALL_KEYS = "*";
 
 /**
  * A connection and what it asked to hear.
@@ -79,9 +69,9 @@ interface Registered {
   subscriptions: Map<string, Set<string>>;
 }
 
-export interface BridgeServerOptions {
+interface BridgeServerOptions {
   audit?: RemoteAuditLog;
-  /** Overridable so a test can assert dispatch without a real `IpcDeps`. */
+  /** Overridable so a test can assert dispatch without a real `HostDeps`. */
   handlers?: Record<string, BridgeHandler>;
 }
 
@@ -94,7 +84,7 @@ export class BridgeServer {
   private readonly disconnectSinks = new Set<(connectionId: string) => void>();
 
   constructor(
-    private readonly deps: IpcDeps,
+    private readonly deps: HostDeps,
     options: BridgeServerOptions = {},
   ) {
     this.audit = options.audit ?? new RemoteAuditLog();
@@ -138,11 +128,6 @@ export class BridgeServer {
    * the winsize (ADR-179 D6). Transports call this only for connections they
    * actually accepted: one that never got past authentication never attached
    * anything, so there is nothing to release and nobody to tell.
-   *
-   * It used to pass a `"bridge"` kind alongside the id, which was harmless
-   * only for as long as a desktop window's panes were held under its
-   * `webContents.id` by an `ipcMain` wrapper instead. Both are connections
-   * now (ADR-180 D6), and there is one id to release.
    */
   drop(connectionId: string): void {
     if (!this.connections.delete(connectionId)) return;
@@ -152,15 +137,67 @@ export class BridgeServer {
 
   /**
    * Told when a connection drops, after this class has released whatever it
-   * held (ADR-179 ticket 7). Nothing subscribes today; kept symmetrical with
-   * `onAttachmentChange` for whatever next needs to react to a viewer leaving
-   * rather than poll `size`.
+   * held. `app-lifecycle.ts` hands a closed window's claim
+   * back to the primary from here (`LayoutStore.releaseWindow`), so "a window
+   * went away" is decided in one place for every transport.
    */
   onDisconnect(cb: (connectionId: string) => void): () => void {
     this.disconnectSinks.add(cb);
     return () => {
       this.disconnectSinks.delete(cb);
     };
+  }
+
+  /**
+   * One frame from a caller, decoded and routed.
+   *
+   * `raw` is whatever the transport received — a parsed socket message, or
+   * an IPC payload — and nothing about it is trusted. An invoke is answered:
+   * with its result, or with `bad-frame` when it does not name a method. A
+   * subscribe or unsubscribe has no id, so it is never answered, and a
+   * malformed one is dropped. An unknown `kind` is ignored rather than fatal:
+   * a newer client sending a frame this version does not have should
+   * degrade, not disconnect.
+   *
+   * Returns the answer rather than sending it, for the reason `dispatch`
+   * does.
+   */
+  async receive(
+    connection: BridgeConnection,
+    raw: unknown,
+  ): Promise<ResultFrame | null> {
+    const frame =
+      typeof raw === "object" && raw !== null
+        ? (raw as Record<string, unknown>)
+        : {};
+    switch (frame.kind) {
+      case "invoke": {
+        const invoke = readInvokeFrame(frame);
+        if (!invoke) {
+          return {
+            id: frame.id,
+            kind: "result",
+            ok: false,
+            error: "invoke needs a string ns and method",
+            code: "bad-frame",
+          };
+        }
+        return this.dispatch(connection, invoke);
+      }
+      case "subscribe":
+      case "unsubscribe": {
+        const asked = readSubscribeFrame(frame, frame.kind);
+        if (!asked) return null;
+        if (asked.kind === "subscribe") {
+          this.subscribe(connection, asked.ns, asked.event, asked.key);
+        } else {
+          this.unsubscribe(connection, asked.ns, asked.event, asked.key);
+        }
+        return null;
+      }
+      default:
+        return null;
+    }
   }
 
   /**
@@ -188,7 +225,7 @@ export class BridgeServer {
     // method is one that exists, is real power, and was refused *because*
     // it was asked for over a paired device — `remoteControl.pair` above all.
     // That is exactly the line an owner reading this log after a lost phone
-    // needs to see, and until ADR-180 ticket 13 it was never written.
+    // needs to see.
     const refusedLocalOnly =
       !!handler &&
       connection.callerClass === "device" &&
@@ -209,41 +246,25 @@ export class BridgeServer {
     const audited = MUTATING.has(key);
     // Widened here and nowhere else — see `BridgeHandler`. Every handler
     // validates what it is given before it does anything with it.
-    const call = handler as (deps: IpcDeps, ...args: unknown[]) => unknown;
-    // Who sent it, appended here rather than taken from the frame: a caller
-    // does not get to say which caller it is (ADR-179 D3). `kind` is the
-    // caller's class, not its transport — a renderer window reaching this
-    // over `bridge:*` IPC is a `window`, and that is what decides whether a
-    // viewport report's claim is honoured (D4) and which viewer of a pane
-    // outranks which (ADR-180 D6).
-    // The wire arguments are padded (not merely truncated) to the declared
-    // count first: `pty.create`'s `agentKind` is optional, and `args.slice`
-    // on a shorter array would leave the origin sitting in `agentKind`'s slot
-    // rather than its own the moment a caller omits it.
-    const wireArgs = ORIGIN_ARGS.get(key);
-    const callArgs =
-      wireArgs === undefined
-        ? args
-        : [
-            ...Array.from({ length: wireArgs }, (_, i) => args[i]),
-            {
-              kind: connection.callerClass === "local" ? "window" : "bridge",
-              id: connection.id,
-            } satisfies LayoutOrigin,
-          ];
+    const call = handler as (ctx: HandlerCtx, ...args: unknown[]) => unknown;
+    // Who sent it comes from the connection, never from the frame: a caller
+    // does not get to say which caller it is (ADR-179 D3).
+    const ctx: HandlerCtx = {
+      deps: this.deps,
+      caller: { id: connection.id, callerClass: connection.callerClass },
+    };
     try {
-      const result = await call(this.deps, ...callArgs);
+      const result = await call(ctx, ...args);
       if (audited) this.auditInvoke(connection, key, args, "sent", 200);
       return { id, kind: "result", ok: true, result };
     } catch (err) {
       if (audited) this.auditInvoke(connection, key, args, "failed", 500);
-      const refusal = err instanceof BridgeRefusal;
       return {
         id,
         kind: "result",
         ok: false,
         error: err instanceof Error ? err.message : String(err),
-        code: refusal ? UNAVAILABLE_CODE : "failed",
+        code: "failed",
       };
     }
   }
@@ -280,21 +301,6 @@ export class BridgeServer {
   }
 
   /**
-   * One event, to one connection.
-   *
-   * `publish` fans one payload out to every subscriber; a winsize-ownership
-   * push is a different `owner` per connection, so each one needs its own
-   * frame. Subscription is still honoured — a viewer that never asked about
-   * this pane does not hear that it isn't the owner of it.
-   */
-  sendTo(connectionId: string, frame: EventFrame): void {
-    const registered = this.connections.get(connectionId);
-    if (!registered) return;
-    if (!this.wants(registered, frame)) return;
-    registered.connection.send(frame);
-  }
-
-  /**
    * One PTY stream event, forwarded to the connections that asked for that
    * pane.
    *
@@ -304,24 +310,30 @@ export class BridgeServer {
    * one that feeds the desktop windows.
    */
   handleStreamEvent(event: StreamEvent): void {
-    const name = PTY_EVENT_NAMES[event.type];
-    if (!name) return;
-    // The argument shapes are the preload's, verbatim: `onOutput(paneId, (data,
-    // seq))`, `onResized(paneId, (cols, rows))`, and so on. The bridge is a
-    // second implementation of `window.electronAPI`, not a second protocol.
-    const args: unknown[] =
-      event.type === "data"
-        ? [event.data, event.seq]
-        : event.type === "resized"
-          ? [event.cols, event.rows]
-          : event.type === "cwd"
-            ? [event.cwd]
-            : event.type === "error"
-              ? [event.message]
-              : event.type === "agentStatus"
-                ? [event.agent]
-                : [];
-    this.publish("pty", name, args, event.sessionId);
+    // The argument shapes are the listeners', verbatim: `onOutput(paneId,
+    // (data, seq))`, `onResized(paneId, (cols, rows))`, and so on — each one
+    // the row of `BridgeEvents.pty` it is published as.
+    const pane = event.sessionId;
+    switch (event.type) {
+      case "data":
+        this.publish("pty", "output", [event.data, event.seq], pane);
+        return;
+      case "exit":
+        this.publish("pty", "exit", [], pane);
+        return;
+      case "cwd":
+        this.publish("pty", "cwd", [event.cwd], pane);
+        return;
+      case "error":
+        this.publish("pty", "error", [event.message], pane);
+        return;
+      case "agentStatus":
+        this.publish("pty", "agentStatus", [event.agent], pane);
+        return;
+      case "resized":
+        this.publish("pty", "resized", [event.cols, event.rows], pane);
+        return;
+    }
   }
 
   /**
@@ -356,15 +368,19 @@ export class BridgeServer {
     const grid = await sessionGrid(this.deps, paneId);
     if (!grid) return;
     const owner = ownerOf(paneId);
+    // One frame per connection, not one fanned out: `owner` is each
+    // connection's own answer. Subscription is still honoured — a viewer
+    // that never asked about this pane does not hear that it isn't the owner
+    // of it.
     for (const id of this.connections.keys()) {
       const isOwner = owner?.connectionId === id;
-      this.sendTo(id, {
-        kind: "event",
-        ns: "pty",
-        event: "winsizeOwner",
-        args: [{ paneId, cols: grid.cols, rows: grid.rows, owner: isOwner }],
-        key: paneId,
-      });
+      this.sendTo(
+        id,
+        "pty",
+        "winsizeOwner",
+        [{ paneId, cols: grid.cols, rows: grid.rows, owner: isOwner }],
+        paneId,
+      );
     }
   }
 
@@ -372,12 +388,12 @@ export class BridgeServer {
    * A change the desktop windows were told about, forwarded to everyone.
    * Keyless: `projects.changed` is about the machine, not about one pane.
    *
-   * The names are `renderer-broadcast.ts`'s, and they line up with the
-   * preload's subscriptions one-for-one, arguments included:
+   * The names are `BridgeEvents`', and they line up with the listeners in
+   * `SUBSCRIPTIONS` one-for-one, arguments included (`./events.ts`):
    *
-   * | frame                   | preload                          |
+   * | frame                   | listener                         |
    * | ----------------------- | -------------------------------- |
-   * | `projects.changed`      | `onProjectsChanged(cb)`          |
+   * | `projects.changed`      | `projects.onChanged(cb)`         |
    * | `agents.updated`        | `agents.onUpdate(cb)`            |
    * | `preferences.changed`   | `preferences.onChange(cb)`       |
    * | `keybindings.changed`   | `keybindings.onChange(cb)`       |
@@ -391,10 +407,9 @@ export class BridgeServer {
    * (ADR-179 D1): the server is the only writer, so a renderer replaces its
    * replica rather than patching it.
    *
-   * `theme.changed` (ADR-179 ticket 7) closed the one this table used to
-   * document as missing: `theme:setSelected` used to answer only the window
-   * that asked, so a second desktop window and every browser on the bridge
-   * kept the old theme until they next remounted.
+   * `theme.changed` keeps a second desktop window and every browser on the
+   * bridge in sync with the theme a `theme.setSelected` call chose, rather
+   * than each holding the theme it last remounted with.
    *
    * ADR-180 D5 adds the addressed half: a broadcast carrying a `to` is for
    * exactly one connection — `appCommands.command` to the primary window,
@@ -404,33 +419,52 @@ export class BridgeServer {
    * they arrive here and take the one-connection door instead.
    */
   private onRendererBroadcast(broadcast: RendererBroadcast): void {
-    if (broadcast.to !== null) {
-      this.sendTo(broadcast.to, {
-        kind: "event",
-        ns: broadcast.ns,
-        event: broadcast.event,
-        args: broadcast.args,
-      });
-      return;
-    }
-    this.publish(broadcast.ns, broadcast.event, broadcast.args, null);
+    // Typed where it was published (`publishRendererBroadcast` /
+    // `publishToRenderer`), so it goes out as it came in.
+    const frame: EventFrame = {
+      kind: "event",
+      ns: broadcast.ns,
+      event: broadcast.event,
+      args: broadcast.args,
+    };
+    if (broadcast.to !== null) this.deliverTo(broadcast.to, frame);
+    else this.fanOut(frame);
   }
 
-  private publish(
-    ns: string,
-    event: string,
-    args: unknown[],
+  /** `ns.event` to every connection that asked for it, at `key` if keyed. */
+  private publish<N extends EventNs, E extends EventOf<N>>(
+    ns: N,
+    event: E,
+    args: EventArgs<N, E>,
     key: string | null,
   ): void {
+    this.fanOut(eventFrame(ns, event, args, key));
+  }
+
+  /** `ns.event` to one connection, if it asked for it. */
+  private sendTo<N extends EventNs, E extends EventOf<N>>(
+    connectionId: string,
+    ns: N,
+    event: E,
+    args: EventArgs<N, E>,
+    key: string | null,
+  ): void {
+    this.deliverTo(connectionId, eventFrame(ns, event, args, key));
+  }
+
+  private fanOut(frame: EventFrame): void {
     if (this.connections.size === 0) return;
-    const frame: EventFrame =
-      key === null
-        ? { kind: "event", ns, event, args }
-        : { kind: "event", ns, event, args, key };
     for (const registered of this.connections.values()) {
       if (!this.wants(registered, frame)) continue;
       registered.connection.send(frame);
     }
+  }
+
+  private deliverTo(connectionId: string, frame: EventFrame): void {
+    const registered = this.connections.get(connectionId);
+    if (!registered) return;
+    if (!this.wants(registered, frame)) return;
+    registered.connection.send(frame);
   }
 
   /** Did this connection ask for this frame? Membership is the whole filter. */
@@ -464,8 +498,8 @@ export class BridgeServer {
       // `bridgeTarget` would otherwise write the key a stolen token just
       // tried to use into the very log meant to catch it.
       target: SECRET_FIRST_ARG.has(route) ? null : bridgeTarget(args),
-      // No bodies, for the reason `fullTierWrite` gives: the table's arguments
-      // are too varied to fish in safely, and one of them is a keystroke.
+      // No bodies: the table's arguments are too varied to fish in safely,
+      // and one of them is a keystroke.
       textLength: null,
       textSha256: null,
       interrupt: false,
@@ -473,6 +507,18 @@ export class BridgeServer {
       status,
     });
   }
+}
+
+/** An event frame; the key, when there is one, rides along on it. */
+function eventFrame(
+  ns: string,
+  event: string,
+  args: unknown[],
+  key: string | null,
+): EventFrame {
+  return key === null
+    ? { kind: "event", ns, event, args }
+    : { kind: "event", ns, event, args, key };
 }
 
 /**

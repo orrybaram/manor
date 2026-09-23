@@ -10,49 +10,20 @@ import {
   useAppStore,
   selectActiveWorkspace,
   selectFocusedPaneId,
+  selectPaneContentType,
   useSelectedTab,
   useVisibleTabs,
 } from "../../../store/app-store";
 import { allPaneIds } from "../../../lib/layout/pane-tree";
 import { useProjectStore } from "../../../store/project-store";
+import { useAgentStore } from "../../../store/agent-store";
+import { paneTitle } from "../../../lib/pane-title";
 import { usePaneDrag } from "../../workspace-panes/PaneDragContext";
 import { detachTabToNewWindow, hasOwnClaim } from "../../../lib/detach";
 import { TabButton } from "../TabButton";
 import styles from "./TabBar.module.css";
 
 const TAB_GAP = 2; // matches .tabs CSS gap
-
-/**
- * The tab's displayed title, computed the same way `useTabTitle` does. The drag
- * chip must show this — not the raw `tab.title`, which is a stale placeholder
- * for terminal tabs (the live title lives in the pane side-maps).
- */
-function deriveTabTitle(focusedPaneId: string): string {
-  const s = useAppStore.getState();
-  const title = s.paneTitle[focusedPaneId] ?? null;
-  const cwd = s.paneCwd[focusedPaneId] ?? null;
-  const contentType = s.paneContentType[focusedPaneId] ?? null;
-  const paneUrl = s.paneUrl[focusedPaneId] ?? null;
-
-  if (contentType === "diff") return "Diff";
-  if (contentType === "browser") {
-    if (title) return title;
-    if (paneUrl) return paneUrl.replace(/^https?:\/\//, "");
-  }
-  if (title) {
-    const cwdMatch = title.match(/^.+@.+:(.+)$/);
-    if (cwdMatch) {
-      const parts = cwdMatch[1].replace(/\/+$/, "").split("/");
-      return parts[parts.length - 1] || title;
-    }
-    return title;
-  }
-  if (cwd) {
-    const parts = cwd.split("/");
-    return parts[parts.length - 1] || parts[parts.length - 2] || cwd;
-  }
-  return "Terminal";
-}
 
 // Lucide `globe` / `git-compare-arrows`, inlined for the drag image (a raw DOM
 // element, so it can't use the React icon components the tab renders).
@@ -122,7 +93,7 @@ export function TabBar(props: TabBarProps) {
     }
   }, [panelId]);
   const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
-  const { drag, startDrag, endDrag } = usePaneDrag();
+  const { drag, dragEnabled, startDrag, endDrag } = usePaneDrag();
   const extractPaneToTab = useAppStore((s) => s.extractPaneToTab);
 
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -231,9 +202,11 @@ export function TabBar(props: TabBarProps) {
       const focusedPaneId =
         selectFocusedPaneId(st, tab.id, workspacePath) ??
         allPaneIds(tab.rootNode)[0];
+      // The title `useTabTitle` shows, not the raw `tab.title`, which is a
+      // stale placeholder for terminal tabs.
       const img = buildTabDragImage(
-        deriveTabTitle(focusedPaneId),
-        st.paneContentType[focusedPaneId],
+        paneTitle(focusedPaneId, st, useAgentStore.getState().agents),
+        selectPaneContentType(st, focusedPaneId),
         st.paneFavicon[focusedPaneId] ?? undefined,
       );
       document.body.appendChild(img);
@@ -561,6 +534,7 @@ export function TabBar(props: TabBarProps) {
             {tabs.map((tab, idx) => {
               const isPinned = pinnedTabIds.includes(tab.id);
               const isDropTarget = mergeTargetTabId === tab.id;
+              const canDrag = dragEnabled && !isPinned;
               return (
                 <TabButton
                   key={tab.id}
@@ -570,7 +544,7 @@ export function TabBar(props: TabBarProps) {
                   canClose={true}
                   isDragging={dragIndex === idx}
                   isDropTarget={isDropTarget}
-                  draggable={!isPinned}
+                  draggable={canDrag}
                   onSelect={() => {
                     ensureFocused();
                     selectTab(tab.id);
@@ -584,10 +558,10 @@ export function TabBar(props: TabBarProps) {
                     togglePinTab(tab.id);
                   }}
                   onDragStart={
-                    isPinned ? undefined : (e) => handleTabDragStart(idx, e)
+                    canDrag ? (e) => handleTabDragStart(idx, e) : undefined
                   }
-                  onDrag={isPinned ? undefined : handleTabDrag}
-                  onDragEnd={isPinned ? undefined : handleTabDragEnd}
+                  onDrag={canDrag ? handleTabDrag : undefined}
+                  onDragEnd={canDrag ? handleTabDragEnd : undefined}
                   buttonRef={(el) => {
                     if (el) itemRefs.current.set(idx, el);
                     else itemRefs.current.delete(idx);

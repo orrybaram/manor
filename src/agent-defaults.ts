@@ -1,7 +1,6 @@
 import { useProjectStore } from "./store/project-store";
 import { usePreferencesStore } from "./store/preferences-store";
-import { isHomePath } from "./lib/home-path";
-import { homeLaunchCommand } from "./lib/home";
+import { resolveAgentCommand } from "./lib/resolve-agent-command";
 
 /**
  * Default agent command used when no project-specific command is configured.
@@ -9,7 +8,6 @@ import { homeLaunchCommand } from "./lib/home";
  * read it too; re-exported here, which is where renderer code expects it.
  */
 export { DEFAULT_AGENT_COMMAND } from "./lib/agent-command";
-import { DEFAULT_AGENT_COMMAND } from "./lib/agent-command";
 
 /** Known agent kinds — must mirror AgentKind in electron/terminal-host/types.ts */
 const AGENT_KIND_TOKENS: Array<{ kind: string; tokens: string[] }> = [
@@ -38,24 +36,17 @@ export function getAgentKindForCommand(command: string): string {
  * Resolve the agent command for the given workspace path, most specific
  * source first: `override` (an explicit caller-supplied command), the home
  * harness for the Home surface, the owning project's `agentCommand`, then the
- * global default.
+ * global default. The precedence is `resolveAgentCommand`'s, which the main
+ * process's `POST /agents` shares; this reads its inputs out of the stores.
  */
 export function getAgentCommand(
   workspacePath: string | null,
   override?: string,
 ): string {
-  if (override) return override;
-  if (isHomePath(workspacePath)) {
-    const { preferences } = usePreferencesStore.getState();
-    return homeLaunchCommand({
-      homeHarness: preferences.homeHarness,
-      homeCustomCommand: preferences.homeCustomCommand,
-      homeCustomInterrupt: preferences.homeCustomInterrupt,
-    });
-  }
-  if (!workspacePath) return DEFAULT_AGENT_COMMAND;
-  const proj = useProjectStore
-    .getState()
-    .projects.find((p) => p.workspaces.some((w) => w.path === workspacePath));
-  return proj?.agentCommand ?? DEFAULT_AGENT_COMMAND;
+  return resolveAgentCommand({
+    override,
+    workspacePath,
+    homePrefs: usePreferencesStore.getState().preferences,
+    projects: useProjectStore.getState().projects,
+  });
 }

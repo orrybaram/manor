@@ -97,6 +97,14 @@ _Avoid_: detach payload, hand-off, ownership (that word is for winsize)
 A desktop window whose viewport is a single claim; the same renderer as the primary, not a separate app.
 _Avoid_: popup, secondary renderer, popout
 
+**Layout mode**:
+`phone` or `desk` — a presentation of the viewport, chosen by width alone
+(`useLayoutMode()`, ~768 px) and never by platform: the desktop window dragged
+narrow is `phone` too, and a **detached window** is always `desk` regardless
+of its width, since it already shows one claim with no chrome (ADR-181 D2).
+_Avoid_: mobile mode, responsive view, breakpoint (breakpoint is the number;
+layout mode is the answer it produces)
+
 **Default viewport**:
 The host's per-workspace memory of the last viewport any renderer reported, used only to open a fresh renderer somewhere sensible; overwritten freely, never pushed to a renderer that already has one.
 _Avoid_: last focus, shared focus

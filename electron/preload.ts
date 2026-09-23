@@ -1,5 +1,20 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { MenuCommandPayload, MenuContext } from "../src/lib/menu-commands";
+import type { PickedElementResult } from "../src/electron";
+import type { MenuContext } from "../src/lib/menu-commands";
+import type { RecordingCommand } from "../src/lib/webview-recorder";
+import { SubscriptionRegistry } from "../src/bridge/subscription-registry";
+import type { BridgeEvents } from "./bridge/events";
+import {
+  BRIDGE_EVENT,
+  BRIDGE_INVOKE,
+  BRIDGE_RENDERER_ID,
+  BRIDGE_SUBSCRIBE,
+  BRIDGE_UNSUBSCRIBE,
+  type ClientFrame,
+  type EventFrame,
+  type InvokeFrame,
+  type ResultFrame,
+} from "./bridge/types";
 
 interface WindowBounds {
   x: number;
@@ -9,15 +24,11 @@ interface WindowBounds {
 }
 
 /**
- * Payload of the main→renderer "webview:recording-command" channel (ADR-158).
- * Mirrors `RecordingCommand` in `src/lib/webview-recorder.ts`; declared here
- * rather than imported so the preload's type surface stays self-contained.
+ * `ipcRenderer.invoke`, typed. `NativeApi` is derived from the object below,
+ * so what each channel resolves with is written here, once, or nowhere.
  */
-interface WebviewRecordingCommand {
-  cmd: "start" | "stop";
-  recordingId: string;
-  mediaSourceId?: string;
-  paneId: string;
+function invoke<T = void>(channel: string, ...args: unknown[]): Promise<T> {
+  return ipcRenderer.invoke(channel, ...args) as Promise<T>;
 }
 
 function onChannel<T>(
@@ -42,36 +53,30 @@ function onChannelArgs<Args extends unknown[]>(
 }
 
 /**
- * `onChannel`'s replacement for a push that is now a bridge event: one
- * `updater.<event>` subscription, typed at the call site (ADR-180 D5).
+ * A bridge event heard by a native namespace (ADR-180 D5): `updater.*` and
+ * `menu.command`, typed by their row in `BridgeEvents`.
  */
-function updaterEvent<T>(
-  event: string,
-  callback: (value: T) => void,
+function nativeEvent<
+  N extends "updater" | "menu",
+  E extends keyof BridgeEvents[N] & string,
+>(
+  ns: N,
+  event: E,
+  callback: (...args: BridgeEvents[N][E] & unknown[]) => void,
 ): () => void {
-  return bridgeSubscribe("updater", event, null, (value) =>
-    callback(value as T),
+  return registry.subscribe(ns, event, null, (...args) =>
+    callback(...(args as BridgeEvents[N][E] & unknown[])),
   );
 }
 
 // Synchronously read isPackaged from the CLI argument injected by main via additionalArguments
 const isPackaged = process.argv.includes("--manor-packaged=true");
 
-// Detached-window flag (ADR-156, ADR-179 D4). Mirrors the `--manor-packaged`
-// pattern: main injects `--manor-detached=<windowId>` via additionalArguments
-// so the renderer knows synchronously, without an IPC round-trip.
-const detachedArg = process.argv.find((arg) =>
-  arg.startsWith("--manor-detached="),
-);
-const detachedWindowId = detachedArg
-  ? detachedArg.slice("--manor-detached=".length)
-  : null;
-const isDetached = detachedWindowId !== null;
-
 // The tab this window holds (ADR-179 D4), as `--manor-claim=<tabId>::<path>`.
 // Split on the FIRST separator: a tab id is `tab-<uuid>` and cannot contain
-// one, a workspace path can contain anything. Read here for the same reason
-// `isDetached` is — the store needs it before it loads anything.
+// one, a workspace path can contain anything. Read synchronously for the same
+// reason `isPackaged` is — the store needs it before it loads anything. A
+// window with a claim *is* a detached window; nothing else says so.
 const claimArg = process.argv.find((arg) => arg.startsWith("--manor-claim="));
 const claim = (() => {
   if (!claimArg) return null;
@@ -96,7 +101,7 @@ const claim = (() => {
 // is.
 let rendererId: string | null = null;
 try {
-  const answer: unknown = ipcRenderer.sendSync("bridge:rendererId");
+  const answer: unknown = ipcRenderer.sendSync(BRIDGE_RENDERER_ID);
   rendererId = typeof answer === "string" ? answer : null;
 } catch {
   // No handler yet (a window opened before `registerIpcHandlers`): a null id
@@ -123,43 +128,36 @@ try {
  * nothing is added here without also being named in
  * `src/bridge/unavailable.ts`.
  *
- * The synchronous facts (`platform`, `rendererId`, `isDetached`,
- * `detachedWindowId`, `claim`, `env`) are *not* here: they are read off argv
- * above for that reason, and are the same values `ElectronAPI` reports.
+ * The synchronous facts (`platform`, `rendererId`, `claim`, `env`) are *not*
+ * here: they are read off argv above for that reason, and are the same values
+ * `ElectronAPI` reports.
  *
- * **This object is the list.** ADR-180 D7's check needs to know which methods
- * the preload serves, and a tuple of their names kept beside it would be one
- * more thing to keep in step — so `NativeMethod` in `electron/bridge/
- * surface.ts` is derived from `NativeApi` below instead, and writing a method
- * here *is* placing it. The type is exported; nothing about this file's
- * runtime crosses that import, which is why the check can read it without
- * dragging the main process into the renderer's bundle.
+ * **This object is the list, and the signatures.** `ElectronAPI`'s native
+ * part is `NativeApi` below (`src/electron.d.ts`), so writing a method here
+ * *is* declaring it, with the types written on it — which is why every
+ * `invoke` names what its channel resolves with. The type is exported;
+ * nothing about this file's runtime crosses that import, which is why the
+ * renderer can read it without dragging the main process into its bundle.
  */
 const nativeApi = {
   dialog: {
-    openDirectory: () => ipcRenderer.invoke("dialog:openDirectory"),
+    openDirectory: () => invoke<string | null>("dialog:openDirectory"),
   },
 
   shell: {
-    openExternal: (url: string) =>
-      ipcRenderer.invoke("shell:openExternal", url),
+    openExternal: (url: string) => invoke("shell:openExternal", url),
     openInEditor: (path: string) =>
-      ipcRenderer.invoke("shell:openInEditor", path),
+      invoke<string>("shell:openInEditor", path),
     resolveFilePath: (filePath: string, cwd: string) =>
-      ipcRenderer.invoke("shell:resolveFilePath", filePath, cwd) as Promise<
-        string | null
-      >,
+      invoke<string | null>("shell:resolveFilePath", filePath, cwd),
     discoverAgents: () =>
-      ipcRenderer.invoke("shell:discoverAgents") as Promise<
-        Array<{ name: string; command: string }>
-      >,
-    showItemInFolder: (path: string) =>
-      ipcRenderer.invoke("shell:showItemInFolder", path) as Promise<void>,
+      invoke<Array<{ name: string; command: string }>>("shell:discoverAgents"),
+    showItemInFolder: (path: string) => invoke("shell:showItemInFolder", path),
   },
 
   updater: {
-    checkForUpdates: () => ipcRenderer.invoke("updater:checkForUpdates"),
-    quitAndInstall: () => ipcRenderer.invoke("updater:quitAndInstall"),
+    checkForUpdates: () => invoke("updater:checkForUpdates"),
+    quitAndInstall: () => invoke("updater:quitAndInstall"),
     /**
      * The six `updater.*` broadcasts (ADR-180 D5), which `electron/updater.
      * ts` publishes instead of pushing at the primary window. Written out
@@ -167,26 +165,23 @@ const nativeApi = {
      * namespace the client refuses outright in a browser, so its
      * subscriptions have to be members of the native namespace.
      */
-    onChecking: (callback: (payload: { manual: boolean }) => void) =>
-      updaterEvent("checking", callback),
-    onUpdateAvailable: (callback: (info: { version: string }) => void) =>
-      updaterEvent("updateAvailable", callback),
-    onUpdateDownloaded: (callback: (info: { version: string }) => void) =>
-      updaterEvent("updateDownloaded", callback),
+    onChecking: (
+      callback: (...args: BridgeEvents["updater"]["checking"]) => void,
+    ) => nativeEvent("updater", "checking", callback),
+    onUpdateAvailable: (
+      callback: (...args: BridgeEvents["updater"]["updateAvailable"]) => void,
+    ) => nativeEvent("updater", "updateAvailable", callback),
+    onUpdateDownloaded: (
+      callback: (...args: BridgeEvents["updater"]["updateDownloaded"]) => void,
+    ) => nativeEvent("updater", "updateDownloaded", callback),
     onUpdateNotAvailable: (
-      callback: (info: { version: string; manual: boolean }) => void,
-    ) => updaterEvent("updateNotAvailable", callback),
+      callback: (...args: BridgeEvents["updater"]["updateNotAvailable"]) => void,
+    ) => nativeEvent("updater", "updateNotAvailable", callback),
     onDownloadProgress: (
-      callback: (progress: {
-        percent: number;
-        bytesPerSecond: number;
-        transferred: number;
-        total: number;
-      }) => void,
-    ) => updaterEvent("downloadProgress", callback),
-    onError: (
-      callback: (payload: { message: string; manual: boolean }) => void,
-    ) => updaterEvent("error", callback),
+      callback: (...args: BridgeEvents["updater"]["downloadProgress"]) => void,
+    ) => nativeEvent("updater", "downloadProgress", callback),
+    onError: (callback: (...args: BridgeEvents["updater"]["error"]) => void) =>
+      nativeEvent("updater", "error", callback),
   },
 
   menu: {
@@ -203,32 +198,27 @@ const nativeApi = {
      * the *invokes* are native forever, so the subscription has to be a
      * member of the native namespace too or the refusal would swallow it.
      */
-    onMenuCommand: (callback: (payload: MenuCommandPayload) => void) =>
-      bridgeSubscribe("menu", "command", null, (payload) =>
-        callback(payload as MenuCommandPayload),
-      ),
+    onMenuCommand: (
+      callback: (...args: BridgeEvents["menu"]["command"]) => void,
+    ) => nativeEvent("menu", "command", callback),
   },
 
   clipboard: {
-    writeText: (text: string) =>
-      ipcRenderer.invoke("clipboard:writeText", text),
+    writeText: (text: string) => invoke("clipboard:writeText", text),
   },
 
   webview: {
     register: (paneId: string, webContentsId: number) =>
-      ipcRenderer.invoke("webview:register", paneId, webContentsId),
-    unregister: (paneId: string) =>
-      ipcRenderer.invoke("webview:unregister", paneId),
-    startPicker: (paneId: string) =>
-      ipcRenderer.invoke("webview:start-picker", paneId),
-    cancelPicker: (paneId: string) =>
-      ipcRenderer.invoke("webview:cancel-picker", paneId),
-    zoomIn: (paneId: string) => ipcRenderer.invoke("webview:zoom-in", paneId),
-    zoomOut: (paneId: string) => ipcRenderer.invoke("webview:zoom-out", paneId),
-    zoomReset: (paneId: string) =>
-      ipcRenderer.invoke("webview:zoom-reset", paneId),
-    onPickerResult: (callback: (paneId: string, result: unknown) => void) =>
-      onChannelArgs("webview:picker-result", callback),
+      invoke("webview:register", paneId, webContentsId),
+    unregister: (paneId: string) => invoke("webview:unregister", paneId),
+    startPicker: (paneId: string) => invoke("webview:start-picker", paneId),
+    cancelPicker: (paneId: string) => invoke("webview:cancel-picker", paneId),
+    zoomIn: (paneId: string) => invoke("webview:zoom-in", paneId),
+    zoomOut: (paneId: string) => invoke("webview:zoom-out", paneId),
+    zoomReset: (paneId: string) => invoke("webview:zoom-reset", paneId),
+    onPickerResult: (
+      callback: (paneId: string, result: PickedElementResult) => void,
+    ) => onChannelArgs("webview:picker-result", callback),
     onPickerCancel: (callback: (paneId: string) => void) =>
       onChannelArgs("webview:picker-cancel", callback),
     onEscape: (callback: (paneId: string) => void) =>
@@ -242,14 +232,14 @@ const nativeApi = {
         opts?: { background?: boolean },
       ) => void,
     ) => onChannelArgs("webview:new-window", callback),
-    stop: (paneId: string) => ipcRenderer.invoke("webview:stop", paneId),
+    stop: (paneId: string) => invoke("webview:stop", paneId),
     findInPage: (
       paneId: string,
       query: string,
       options?: { forward?: boolean; findNext?: boolean },
-    ) => ipcRenderer.invoke("webview:find-in-page", paneId, query, options),
+    ) => invoke("webview:find-in-page", paneId, query, options),
     stopFindInPage: (paneId: string) =>
-      ipcRenderer.invoke("webview:stop-find-in-page", paneId),
+      invoke("webview:stop-find-in-page", paneId),
     onLoadingChanged: (
       callback: (paneId: string, isLoading: boolean) => void,
     ) => onChannelArgs("webview:loading-changed", callback),
@@ -273,7 +263,7 @@ const nativeApi = {
     onGoForward: (callback: (paneId: string) => void) =>
       onChannel("webview:go-forward", callback),
     setAudioMuted: (paneId: string, muted: boolean) =>
-      ipcRenderer.invoke("webview:set-audio-muted", paneId, muted),
+      invoke("webview:set-audio-muted", paneId, muted),
     /**
      * One webm chunk from a pane's `MediaRecorder` (ADR-158). `send`, not
      * `invoke`: chunks arrive once a second per recording and main has nothing
@@ -283,14 +273,12 @@ const nativeApi = {
       ipcRenderer.send("webview:recording-chunk", recordingId, chunk),
     /** Renderer's recorder has flushed; main may finalize the file. */
     notifyRecordingStopped: (recordingId: string, error?: string) =>
-      ipcRenderer.invoke("webview:recording-stopped", recordingId, error),
+      invoke("webview:recording-stopped", recordingId, error),
     /** Main-initiated start/stop of a pane recording. */
-    onRecordingCommand: (
-      callback: (command: WebviewRecordingCommand) => void,
-    ) => onChannel("webview:recording-command", callback),
+    onRecordingCommand: (callback: (command: RecordingCommand) => void) =>
+      onChannel("webview:recording-command", callback),
     /** User clicked the pane's "Recording" indicator to stop it (ADR-158). */
-    stopRecording: (paneId: string) =>
-      ipcRenderer.invoke("webview:stop-recording", paneId) as Promise<void>,
+    stopRecording: (paneId: string) => invoke("webview:stop-recording", paneId),
     onAudioStateChanged: (
       callback: (paneId: string, audible: boolean) => void,
     ) => onChannelArgs("webview:audio-state-changed", callback),
@@ -303,30 +291,64 @@ const nativeApi = {
       workspacePath: string,
       tabId: string,
       spawnBounds?: WindowBounds,
-    ) =>
-      ipcRenderer.invoke(
-        "window:detachTab",
-        workspacePath,
-        tabId,
-        spawnBounds,
-      ) as Promise<string>,
-    getBounds: () =>
-      ipcRenderer.invoke("window:getBounds") as Promise<WindowBounds>,
+    ) => invoke<string>("window:detachTab", workspacePath, tabId, spawnBounds),
+    getBounds: () => invoke<WindowBounds>("window:getBounds"),
     setPosition: (x: number, y: number) =>
       ipcRenderer.send("window:setPosition", x, y),
     listWindows: () =>
-      ipcRenderer.invoke("window:listWindows") as Promise<
-        { id: number; bounds: WindowBounds }[]
-      >,
+      invoke<{ id: number; bounds: WindowBounds }[]>("window:listWindows"),
     closeSelf: () => ipcRenderer.send("window:closeSelf"),
   },
 };
 
 /**
- * The shape of `manorHost.native`, for the D7 surface check. A type, so the
- * import that reads it disappears at build time.
+ * The shape of `manorHost.native`, and the native part of `ElectronAPI`
+ * (`src/electron.d.ts`). A type, so the import that reads it disappears at
+ * build time.
  */
 export type NativeApi = typeof nativeApi;
+
+/**
+ * One client frame onto its channel. An invoke is answered with its
+ * `ResultFrame` — failures included, as data, because `ipcMain.handle` drops
+ * every custom property of a thrown error and the `code` is what tells "the
+ * host does not do this" from "the host tried and it broke".
+ */
+function send(frame: InvokeFrame): Promise<ResultFrame>;
+function send(frame: ClientFrame): void;
+function send(frame: ClientFrame): Promise<ResultFrame> | void {
+  switch (frame.kind) {
+    case "invoke":
+      return ipcRenderer.invoke(BRIDGE_INVOKE, frame) as Promise<ResultFrame>;
+    case "subscribe":
+      ipcRenderer.send(BRIDGE_SUBSCRIBE, frame);
+      return;
+    case "unsubscribe":
+      ipcRenderer.send(BRIDGE_UNSUBSCRIBE, frame);
+      return;
+  }
+}
+
+/**
+ * Every listener in this renderer — the page's, through `manorHost.subscribe`,
+ * and the native namespaces' own `updater.*` / `menu.command` — behind one
+ * subscription per `ns.event` + key (`src/bridge/subscription-registry.ts`).
+ */
+const registry = new SubscriptionRegistry(send, "manorHost");
+
+/**
+ * One `bridge:event` listener for the whole page, feeding the registry.
+ *
+ * Installed once, at load: one IPC listener carries every pane's output and
+ * every broadcast, so a renderer with forty subscriptions still has exactly
+ * one listener on the channel.
+ */
+ipcRenderer.on(
+  BRIDGE_EVENT,
+  (_event: Electron.IpcRendererEvent, frame: EventFrame | null) => {
+    if (frame) registry.deliver(frame);
+  },
+);
 
 /**
  * `window.manorHost` — the one concrete object the page builds a host client
@@ -335,160 +357,32 @@ export type NativeApi = typeof nativeApi;
  * `ns.method(...)` proxy `src/bridge/client.ts` builds over `invoke` has no
  * members to copy, so the page builds it the same way the web renderer
  * builds one over a WebSocket.
- *
- * The four channel names below are written out rather than imported from
- * `electron/bridge/transports/ipc.ts`, which exports them as constants: that
- * module reaches for `ipcMain` and, through the handler table, the whole main
- * process. Importing it here would drag all of it into the renderer's bundle
- * to save four strings.
  */
-
-/** Delivered a frame's `args`, spread — the same shape a preload `onX` has. */
-type BridgeListener = (...args: unknown[]) => void;
-
-/** One `bridge:event` from `electron/bridge/transports/ipc.ts`. */
-interface BridgeEventFrame {
-  ns: string;
-  event: string;
-  key?: string;
-  args?: unknown[];
-}
-
-/**
- * The key a subscription that named none is filed under, here and in
- * `BridgeServer`. Kept off the wire: the host defaults a missing key to
- * exactly this, and sending it would be saying the same thing twice.
- */
-const BRIDGE_ALL_KEYS = "*";
-
-/**
- * `ns.event` → key → its listeners, duplicates and all.
- *
- * An array rather than a `Set` because this is a reference count and a `Set`
- * would collapse two subscriptions that happen to share a callback into one:
- * React StrictMode mounts an effect twice, and the second unmount must not
- * take the live subscription down with it. One occurrence in, one occurrence
- * out; the host hears `subscribe` when the array goes from empty and
- * `unsubscribe` when it goes back to empty.
- */
-const bridgeListeners = new Map<string, Map<string, BridgeListener[]>>();
-
-/**
- * One `bridge:event` listener for the whole page, fanned out locally.
- *
- * Installed once, at load: one IPC listener carries every pane's output and
- * every broadcast, so a renderer with forty subscriptions still has exactly
- * one listener on the channel.
- */
-ipcRenderer.on(
-  "bridge:event",
-  (_event: Electron.IpcRendererEvent, frame: BridgeEventFrame) => {
-    if (!frame || typeof frame.ns !== "string") return;
-    const byKey = bridgeListeners.get(`${frame.ns}.${frame.event}`);
-    if (!byKey) return;
-    const args = Array.isArray(frame.args) ? frame.args : [];
-    // A keyless event is about the machine (`projects.changed`), so every
-    // listener of that name wants it. A keyed one is about one pane, and goes
-    // to that pane's listeners plus anyone who subscribed without naming one.
-    const lists =
-      typeof frame.key === "string"
-        ? [byKey.get(frame.key), byKey.get(BRIDGE_ALL_KEYS)]
-        : [...byKey.values()];
-    for (const list of lists) {
-      if (!list) continue;
-      for (const listener of [...list]) {
-        try {
-          listener(...args);
-        } catch {
-          // A listener that throws is that listener's problem; the rest of
-          // the page still hears the event.
-        }
-      }
-    }
-  },
-);
-
-function bridgeSubscribe(
-  ns: string,
-  event: string,
-  key: string | null | undefined,
-  callback: BridgeListener,
-): () => void {
-  const name = `${ns}.${event}`;
-  const slot = key ?? BRIDGE_ALL_KEYS;
-  let byKey = bridgeListeners.get(name);
-  if (!byKey) {
-    byKey = new Map();
-    bridgeListeners.set(name, byKey);
-  }
-  let list = byKey.get(slot);
-  if (!list) {
-    list = [];
-    byKey.set(slot, list);
-  }
-  list.push(callback);
-  if (list.length === 1) {
-    ipcRenderer.send("bridge:subscribe", { ns, event, key: key ?? undefined });
-  }
-
-  // Idempotent: React calls a cleanup once, but a caller that keeps the
-  // handle and calls it twice must not decrement somebody else's count.
-  let live = true;
-  return () => {
-    if (!live) return;
-    live = false;
-    const current = bridgeListeners.get(name)?.get(slot);
-    if (!current) return;
-    const at = current.indexOf(callback);
-    if (at !== -1) current.splice(at, 1);
-    if (current.length > 0) return;
-    const owner = bridgeListeners.get(name);
-    owner?.delete(slot);
-    if (owner?.size === 0) bridgeListeners.delete(name);
-    ipcRenderer.send("bridge:unsubscribe", {
-      ns,
-      event,
-      key: key ?? undefined,
-    });
-  };
-}
-
 contextBridge.exposeInMainWorld("manorHost", {
   platform: "electron",
 
   /**
-   * The namespaces the preload still answers, and the root-level functions
-   * alongside them. `src/bridge/client.ts` calls straight through to these
-   * and only reaches `invoke` for what is *not* here (ADR-180 D3).
+   * The namespaces the preload still answers. `src/bridge/client.ts` calls
+   * straight through to these and only reaches `invoke` for what is *not*
+   * here (ADR-180 D3).
    */
   native: nativeApi,
 
   rendererId,
-  isDetached,
-  detachedWindowId,
   claim,
 
   env: {
     isPackaged,
   },
 
-  /**
-   * `ns.method(...args)` on the host's handler table.
-   *
-   * A failure comes back as a `{__bridgeError: {code, message}}` *value*
-   * rather than a rejection: `ipcMain.handle` drops the custom properties of
-   * a thrown error, and the `code` is what tells "the host does not do this"
-   * from "the host tried and it broke". The client in the page turns the
-   * envelope into the error it should be.
-   */
-  invoke: (ns: string, method: string, args: unknown[]) =>
-    ipcRenderer.invoke("bridge:invoke", { ns, method, args }),
+  /** One invoke frame to the host's handler table, answered with its result frame. */
+  invoke: (frame: InvokeFrame) => send(frame),
 
   /** Hear `ns.event` (for one `key`, or for all of them). Returns the undo. */
   subscribe: (
     ns: string,
     event: string,
     key: string | null,
-    callback: BridgeListener,
-  ) => bridgeSubscribe(ns, event, key, callback),
+    callback: (...args: unknown[]) => void,
+  ) => registry.subscribe(ns, event, key, callback),
 });

@@ -8,14 +8,13 @@ import { layout, newTab, splitPane } from "./helpers/local-api";
 import { scrollback } from "./helpers/terminal";
 
 /**
- * "Open a pane and run this in it", asked for over HTTP (ADR-179 ticket 11).
+ * "Open a pane and run this in it", asked for over HTTP.
  *
- * This is the regression ticket 5 left behind and this ticket closes. `POST
- * /tabs` and `POST /panes/split` accept a `command`, and MCP's `new_tab` /
- * `split_pane` — the agent fan-out's hands — depend on it. It used to work by
- * seeding the *sending renderer's* map, so when those routes stopped going
- * through a renderer the argument was validated and then silently dropped:
- * the tab opened, the command never ran, and the caller was told it had.
+ * `POST /tabs` and `POST /panes/split` accept a `command`, and MCP's
+ * `new_tab` / `split_pane` — the agent fan-out's hands — depend on it. The
+ * command is queued on the Manor server rather than a renderer's own map, so
+ * a route that mints a pane with nothing on screen still runs the command it
+ * opened with.
  *
  * Nothing here touches the UI: the request goes to the control server and the
  * proof is in the daemon's own scrollback for the pane the route minted. A

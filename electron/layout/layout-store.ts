@@ -32,33 +32,35 @@ import * as crypto from "node:crypto";
 
 import {
   applyLayoutCommand,
+  findLeaf,
+  isLayoutCommandType,
   type ClosedPane,
   type LayoutCommand,
-  type PaneMetadata,
-  type PaneMetadataMap,
 } from "../../src/lib/layout/commands";
 import { allPaneIds } from "../../src/lib/layout/pane-tree";
-import type {
-  LayoutHint,
-  WorkspaceViewport,
-} from "../../src/lib/layout/viewport";
+import type { WorkspaceViewport } from "../../src/lib/layout/viewport";
 import type { LayoutClaim } from "../../src/lib/layout/visible-tabs";
+import type {
+  LayoutApplyResult,
+  LayoutBroadcast,
+  LayoutEntry,
+  LayoutOrigin,
+  PersistedPaneSession,
+} from "../../src/lib/layout/protocol";
 import {
   type Panel,
-  type PaneContentType,
   type Tab,
   type WorkspaceLayout,
   createSinglePanelLayout,
   findPanelWithPane,
+  findPanelWithTab,
+  layoutPaneIds,
 } from "../../src/lib/layout/workspace-layout";
-import type { PaneNode } from "../../src/lib/layout/pane-tree";
 import type { LocalBackend } from "../backend/local-backend";
 import { PendingCommands } from "./pending-commands";
 import {
   type LayoutPersistence,
-  type PersistedDefaultViewport,
   type PersistedLayout,
-  type PersistedPaneSession,
   type PersistedPanel,
   type PersistedWorkspace,
 } from "../terminal-host/layout-persistence";
@@ -87,118 +89,58 @@ interface PendingKill {
   timer: ReturnType<typeof setTimeout>;
 }
 
-/**
- * Who sent a command, and — for a window — who is reporting a claim.
- *
- * A command's origin is recorded rather than acted on: the sender gets the
- * same broadcast as everybody else (D1). A viewport report's origin is load
- * bearing, because `kind` decides whether a `claim` in it is honoured at all
- * and `id` is the window the claim belongs to (D4).
- */
-export interface LayoutOrigin {
-  kind: "window" | "bridge" | "route";
-  id: string;
-}
-
-export type { LayoutClaim };
-
-/**
- * What `layout.changed` carries.
- *
- * `restored` is set only by `reopen-closed-pane`, and only for the panes that
- * came back with a session still warm: what the server derived about them
- * (cwd, title, agent status) so the pane mounts with it instead of looking
- * brand new. Every *other* change to `paneSessions` stays unbroadcast — a
- * renderer hears the PTY events it is made of.
- */
-export interface LayoutBroadcast {
-  workspacePath: string;
-  version: number;
-  layout: WorkspaceLayout;
-  /**
-   * Who is holding which tab of this workspace in a window of its own (D4).
-   *
-   * Travels on *every* broadcast, and a change to it is a broadcast in its own
-   * right — at the same version, because a claim is not structure. A renderer
-   * therefore compares `(version, claims)` rather than the version alone.
-   */
-  claims: LayoutClaim[];
-  /** Who sent the command. A renderer compares it with its own id (D3). */
-  origin: LayoutOrigin;
-  /** What the command implies about the *sender's* selection (D3). */
-  hint?: LayoutHint;
-  restored?: Record<string, PersistedPaneSession>;
-}
+/** The wire types are `src/lib/layout/protocol.ts`'s, shared with every renderer. */
+export type { LayoutBroadcast, LayoutOrigin };
 
 export type LayoutBroadcaster = (payload: LayoutBroadcast) => void;
 
-export type LayoutApplyResult = { version: number } | { error: string };
-
-/** One workspace as a reader sees it. */
-export interface LayoutEntry {
-  version: number;
-  layout: WorkspaceLayout;
-  defaultViewport: PersistedDefaultViewport;
-  /** Server-derived; a restoring renderer needs it to reattach sessions. */
-  paneSessions: Record<string, PersistedPaneSession>;
-  /** Tabs held by a detached window right now (D4). Never persisted. */
-  claims: LayoutClaim[];
+/** A pane whose session is ending, and the title to name its agent by. */
+export interface EndedPane {
+  paneId: string;
+  title?: string | null;
 }
+
+/**
+ * The agents side of a pane leaving a tree (ADR-182 D7).
+ *
+ * Every pane this store ends — a close of any size, a whole workspace going
+ * away — goes through `abandonForPanes` first, so an agent running in it is
+ * marked abandoned whichever renderer, route or bridge caller did the
+ * closing. Backed by `createAgentService` in `bridge/handlers/agents.ts`.
+ */
+export interface AgentService {
+  abandonForPanes(panes: readonly EndedPane[]): void;
+}
+
+const NO_AGENTS: AgentService = { abandonForPanes() {} };
+
+/**
+ * What main knows about a desktop window, by renderer id (D4).
+ *
+ * Asked rather than told, because both answers change as windows come and
+ * go. `claimOf` is the tab a detached window was opened to hold — its launch
+ * argument, which main wrote — so a claim never travels inside a viewport a
+ * renderer reports.
+ */
+export interface WindowDirectory {
+  isPrimary(rendererId: string): boolean;
+  claimOf(rendererId: string): { workspacePath: string; tabId: string } | null;
+}
+
+const NO_WINDOWS: WindowDirectory = {
+  isPrimary: () => false,
+  claimOf: () => null,
+};
+
+/** The file, as far as this store uses it; a test hands in memory. */
+export type LayoutFile = Pick<
+  LayoutPersistence,
+  "load" | "save" | "removeWorkspace"
+>;
 
 interface WorkspaceState
   extends Omit<LayoutEntry, "claims"> {
   closedStack: ClosedPane[];
-}
-
-/** Every command the reducer answers to. An unknown one is refused, not run. */
-const COMMAND_TYPES: ReadonlySet<string> = new Set<LayoutCommand["type"]>([
-  "new-tab",
-  "close-tab",
-  "duplicate-tab",
-  "close-other-tabs",
-  "close-tabs-to-right",
-  "reorder-tabs",
-  "toggle-pin-tab",
-  "split-pane",
-  "split-pane-at",
-  "move-pane",
-  "move-tab-to-pane",
-  "extract-pane-to-tab",
-  "close-pane",
-  "reopen-closed-pane",
-  "set-pane-title",
-  "set-pane-content-type",
-  "split-panel",
-  "close-panel",
-  "merge-tab-into-tab",
-  "update-panel-ratio",
-  "move-tab-to-panel",
-  "split-panel-with-tab",
-  "split-panel-with-new-tab",
-  "update-split-ratio",
-]);
-
-/**
- * What every leaf of a workspace renders, keyed by paneId — the half of a
- * pane's metadata that lives in the tree rather than in `paneSessions`.
- */
-function treeMetadata(layout: WorkspaceLayout): Record<string, PaneMetadata> {
-  const metadata: Record<string, PaneMetadata> = {};
-  const walk = (node: PaneNode): void => {
-    if (node.type === "leaf") {
-      metadata[node.paneId] = {
-        contentType: (node.contentType as PaneContentType) ?? "terminal",
-        ...(node.url !== undefined && { url: node.url }),
-      };
-      return;
-    }
-    walk(node.first);
-    walk(node.second);
-  };
-  for (const panel of Object.values(layout.panels)) {
-    for (const tab of panel.tabs) walk(tab.rootNode);
-  }
-  return metadata;
 }
 
 /** Every tab a workspace holds, across every panel. */
@@ -210,21 +152,20 @@ function layoutTabIds(layout: WorkspaceLayout): Set<string> {
   return ids;
 }
 
-/** Every pane a workspace renders, across every panel and tab. */
-function layoutPaneIds(layout: WorkspaceLayout): Set<string> {
-  const ids = new Set<string>();
-  for (const panel of Object.values(layout.panels)) {
-    for (const tab of panel.tabs) {
-      for (const paneId of allPaneIds(tab.rootNode)) ids.add(paneId);
-    }
-  }
-  return ids;
-}
+/** A pane or a tab, named by id — either lives in exactly one workspace. */
+export type LayoutTarget = { paneId: string } | { tabId: string };
 
 export class LayoutStore {
   private readonly entries = new Map<string, WorkspaceState>();
   /** Per-workspace tail of the apply chain: two commands never interleave. */
   private readonly queues = new Map<string, Promise<unknown>>();
+  /**
+   * How many times each workspace has been removed. A command reads this when
+   * it is queued and refuses to run if a `remove` landed in between, so a
+   * command still waiting its turn cannot bring a removed workspace back
+   * through `ensureState`.
+   */
+  private readonly removals = new Map<string, number>();
   /**
    * The primary window's last viewport, per workspace, and the last one any
    * window reported as the fallback.
@@ -252,7 +193,7 @@ export class LayoutStore {
   /** Sessions of closed panes serving out their grace, keyed by paneId. */
   private readonly pendingKills = new Map<string, PendingKill>();
   /**
-   * Commands queued for panes whose shells do not exist yet (ticket 11).
+   * Commands queued for panes whose shells do not exist yet.
    *
    * Here because every producer of one already holds the store — the
    * structural routes, `POST /agents`, `layout.setPendingCommand` — and
@@ -265,16 +206,31 @@ export class LayoutStore {
   private dirty = false;
 
   /**
-   * @param isPrimary Whether a renderer id is the primary window's. Main owns
-   * that fact (`mainWindow.webContents.id`) and it changes as windows come and
-   * go, so it is asked rather than told. A store built without it has no
-   * primary and falls back to the most recent window report.
+   * @param windows Which renderer is the primary window, and which tab a
+   * detached one holds. A store built without it has no primary — it falls
+   * back to the most recent window report — and no claims.
    */
   constructor(
-    private readonly persistence: LayoutPersistence,
+    private readonly persistence: LayoutFile,
     private readonly broadcast: LayoutBroadcaster,
     private readonly backend: Pick<LocalBackend, "pty">,
-    private readonly isPrimary: (rendererId: string) => boolean = () => false,
+    private readonly windows: WindowDirectory = NO_WINDOWS,
+    /**
+     * A pane's title, off the command channel (D1). Optional, and a no-op by
+     * default, so every existing caller of this constructor keeps working —
+     * only `app-lifecycle.ts` needs to say what "publish" means here, the
+     * same `publishRendererBroadcast` `broadcast` above is built from.
+     */
+    private readonly publishPaneTitle: (
+      paneId: string,
+      title: string | null,
+    ) => void = () => {},
+    /**
+     * Ends the agents of the panes this store ends. Defaults to doing
+     * nothing, for the tests that are not about agents; `app-lifecycle.ts`
+     * passes the real one.
+     */
+    private readonly agents: AgentService = NO_AGENTS,
   ) {}
 
   /** Read `~/.manor/layout.json` into memory. Migration happens below it. */
@@ -318,15 +274,19 @@ export class LayoutStore {
   }
 
   /**
-   * The workspace's layout, creating an empty single-panel one if this is the
-   * first time the server has heard of it. The panel id is minted here because
-   * nothing sent a command yet — every id in a *command* comes from its sender.
+   * The workspace holding a pane or a tab, and its entry; null when no
+   * workspace does.
    */
-  ensure(workspacePath: string): LayoutEntry {
-    return snapshot(
-      this.ensureState(workspacePath),
-      this.claimsFor(workspacePath),
-    );
+  locate(
+    target: LayoutTarget,
+  ): { workspacePath: string; entry: LayoutEntry } | null {
+    const found = this.find(target);
+    if (!found) return null;
+    const { workspacePath, state } = found;
+    return {
+      workspacePath,
+      entry: snapshot(state, this.claimsFor(workspacePath)),
+    };
   }
 
   /**
@@ -342,9 +302,14 @@ export class LayoutStore {
     origin: LayoutOrigin,
   ): Promise<LayoutApplyResult> {
     const previous = this.queues.get(workspacePath) ?? Promise.resolve();
+    const removals = this.removals.get(workspacePath) ?? 0;
     const run = previous
       .catch(() => {})
-      .then(() => this.applyNow(workspacePath, command, origin));
+      .then(() =>
+        (this.removals.get(workspacePath) ?? 0) === removals
+          ? this.applyNow(workspacePath, command, origin)
+          : { error: `Workspace was removed: ${workspacePath}` },
+      );
     this.queues.set(
       workspacePath,
       run.catch(() => {}),
@@ -355,47 +320,50 @@ export class LayoutStore {
   /**
    * Forget a workspace's layout entirely — the worktree is gone.
    *
-   * Its pending kills run now rather than serving out the reopen grace: a
-   * removed worktree is a directory about to be deleted, and there is
-   * nothing left to reopen a pane *into* (ADR-179 ticket 10's report).
+   * Every pane still in it ends the way a closed one does — its agent
+   * abandoned, its shell killed — but at once: a removed worktree is a
+   * directory about to be deleted, and there is nothing left to reopen a pane
+   * *into*. The same goes for the pending kills of panes closed a moment
+   * earlier.
+   *
+   * `ProjectManager.removeWorktree` and `removeProject` call this, so a
+   * worktree removed from the sidebar, the CLI or MCP is torn down the same
+   * way. A command queued before this and not yet run is refused (see
+   * `removals`).
    */
   remove(workspacePath: string): void {
-    // Captured before the entry is dropped: a popout that claimed a tab here
-    // hears about losing it on the broadcast below, and needs the layout and
-    // version that were true a moment ago to compare against.
+    this.removals.set(workspacePath, (this.removals.get(workspacePath) ?? 0) + 1);
     const state = this.entries.get(workspacePath);
-    let hadClaim = false;
+    if (state) {
+      this.endPanes(workspacePath, state, state.layout, [
+        ...layoutPaneIds(state.layout),
+      ], { grace: false });
+    }
     this.entries.delete(workspacePath);
     this.queues.delete(workspacePath);
     this.windowViewports.delete(workspacePath);
     this.primaryViewports.delete(workspacePath);
     for (const [windowId, claim] of [...this.claims]) {
-      if (claim.workspacePath === workspacePath) {
-        this.claims.delete(windowId);
-        hadClaim = true;
-      }
+      if (claim.workspacePath === workspacePath) this.claims.delete(windowId);
     }
     if (this.lastActiveWorkspacePath === workspacePath) {
       this.lastActiveWorkspacePath = null;
     }
     this.runPendingKills(workspacePath);
-    // Filters this one workspace out of the file rather than rewriting the
-    // whole thing from memory, which is what the renderer's parallel writer
-    // (see the header) makes the safer of the two for one more ticket.
     this.persistence.removeWorkspace(workspacePath);
 
-    // Without this a popout whose worktree was just deleted never hears that
-    // its claim is gone — `checkOwnClaim` only reacts to a `layout.changed`,
-    // and `remove` used to leave silently, so the window sat on a splash
-    // forever instead of closing (ticket 6's report). Same version: dropping
-    // a claim is not a structural change.
-    if (state && hadClaim) {
+    // Every renderer drops its copy on this, rather than each one tearing the
+    // workspace down itself: `removed` is what tells it the workspace is gone
+    // rather than changed, so it is not re-adopted, and a popout holding one
+    // of its tabs closes. Same version: nothing structural happened first.
+    if (state) {
       this.broadcast({
         workspacePath,
         version: state.version,
         layout: state.layout,
         claims: [],
         origin: { kind: "route", id: "layout-remove" },
+        removed: true,
       });
     }
   }
@@ -425,35 +393,61 @@ export class LayoutStore {
   }
 
   /**
-   * What one renderer is looking at (ADR-179 D3), and what it holds (D4).
+   * A pane's title, off the command channel (ADR-182 D1).
+   *
+   * `POST /panes/:id/title` and an MCP/CLI `set_pane_title` call this
+   * directly rather than going through a layout command: it finds the owning
+   * workspace itself, so a caller does not resolve one first, and it
+   * publishes — a renderer's own OSC-title write still goes through
+   * `setPaneTitleFromStream`, not here, but every other source (a route, the
+   * bridge) reaches every renderer the way `layout.changed` does.
+   *
+   * Returns false for a pane nothing owns — the route answers 400, the same
+   * shape a stale paneId gets from `apply`.
+   */
+  setPaneTitle(paneId: string, title: string | null): boolean {
+    const state = this.stateWithPane(paneId);
+    if (!state) return false;
+    state.paneSessions[paneId] = {
+      ...(state.paneSessions[paneId] ?? emptySession(paneId)),
+      lastTitle: title,
+    };
+    this.schedulePersist();
+    this.publishPaneTitle(paneId, title);
+    return true;
+  }
+
+  /**
+   * What one renderer is looking at (ADR-179 D3).
    *
    * Last writer wins for the **default viewport** — the answer handed to a
    * renderer that has never seen this workspace, not an authority over
-   * anyone's selection. A *claiming* window is excluded from that: its
-   * viewport is one tab, and handing the next renderer a workspace of one tab
-   * is exactly the bug claims exist to avoid. Only a window may claim; a
-   * bridge socket's `claim` is dropped before it ever reaches here.
+   * anyone's selection.
+   *
+   * A detached window's report is different (D4): it is how the window's
+   * claim takes effect — the claim itself comes from main, never from the
+   * report — and its viewport is not stored at all. It is one tab, and
+   * handing the next renderer a workspace of one tab is exactly the bug
+   * claims exist to avoid. A bridge socket never holds a claim.
    */
   reportViewport(
     workspacePath: string,
     origin: LayoutOrigin,
     viewport: WorkspaceViewport,
   ): void {
-    const isWindow = origin.kind === "window";
-    const claim = isWindow && typeof viewport.claim === "string"
-      ? viewport.claim
-      : undefined;
-    if (isWindow) {
-      this.setClaim(origin.id, workspacePath, claim, origin);
-      if (claim === undefined) {
-        this.windowViewports.set(workspacePath, viewport);
-        if (this.isPrimary(origin.id)) {
-          this.primaryViewports.set(workspacePath, viewport);
-        }
+    if (origin.kind === "window") {
+      const claim = this.windows.claimOf(origin.id);
+      if (claim) {
+        this.setClaim(origin.id, claim.workspacePath, claim.tabId, origin);
+        return;
+      }
+      this.windowViewports.set(workspacePath, viewport);
+      if (this.windows.isPrimary(origin.id)) {
+        this.primaryViewports.set(workspacePath, viewport);
       }
     }
     const state = this.entries.get(workspacePath);
-    if (!state || claim !== undefined) return;
+    if (!state) return;
     state.defaultViewport = viewport;
     this.schedulePersist();
   }
@@ -489,9 +483,10 @@ export class LayoutStore {
   /**
    * A window is gone: whatever it held comes back to the primary (D4).
    *
-   * Called from `trackRendererWindow`'s `closed`, next to `releaseViewer` —
-   * a claim that outlives its window is a tab nobody can see, which is the one
-   * failure mode this design has (see the ADR's Risks).
+   * Called when the window's bridge connection drops
+   * (`BridgeServer.onDisconnect`, wired in `app-lifecycle.ts`) — a claim that
+   * outlives its window is a tab nobody can see, which is the one failure
+   * mode this design has (see the ADR's Risks).
    */
   releaseWindow(rendererId: string): void {
     this.setClaim(rendererId, null, undefined, {
@@ -608,7 +603,7 @@ export class LayoutStore {
     if (
       !command ||
       typeof command !== "object" ||
-      !COMMAND_TYPES.has(command.type)
+      !isLayoutCommandType(command.type)
     ) {
       return {
         error: `unknown layout command from ${origin.kind} ${origin.id}: ${
@@ -620,67 +615,46 @@ export class LayoutStore {
     const state = this.ensureState(workspacePath);
     const before = state.layout;
 
-    // Titles have no structural home: they are `paneSessions`, which is ours.
-    // Not a structural change, so no version bump and no broadcast — every
-    // renderer already saw the title event this came from.
-    if (command.type === "set-pane-title") {
-      if (!findPanelWithPane(before, command.paneId)) {
-        return { version: state.version };
-      }
-      state.paneSessions[command.paneId] = {
-        ...(state.paneSessions[command.paneId] ?? emptySession(command.paneId)),
-        lastTitle: command.title,
-      };
-      this.schedulePersist();
-      return { version: state.version };
-    }
-
-    const metadata = treeMetadata(before);
     const result = applyLayoutCommand(
       { layout: before, closedStack: state.closedStack },
       command,
-      paneMetadata(state, metadata),
     );
-    state.closedStack = result.closedStack;
+    state.closedStack = titleClosedPane(state, result.closedStack);
+    // What the command implies about the *sender's* selection, to travel back
+    // with the broadcast (D3) — and in the answer, for a command that changed
+    // nothing and so broadcasts nothing.
+    const { hint } = result;
 
     if (result.layout === before) {
       // A command naming an id that is not in the tree is a no-op, not an
       // error — a stale command from a slow renderer is normal (D1).
-      return { version: state.version };
+      return { version: state.version, addedPaneIds: [], ...(hint && { hint }) };
     }
-
-    // What the command implies about the *sender's* selection, to travel back
-    // with the broadcast (D3). Extracted from `effects` rather than being a
-    // second return value, so the reducer has one output.
-    const { killPanes: _k, releasedPanes: _r, ...rest } = result.effects;
-    const hint = Object.keys(rest).length > 0 ? rest : undefined;
 
     state.layout = result.layout;
     state.version += 1;
     this.lastActiveWorkspacePath = workspacePath;
+
+    const had = layoutPaneIds(before);
+    const addedPaneIds = [...layoutPaneIds(state.layout)].filter(
+      (paneId) => !had.has(paneId),
+    );
 
     // A reopen takes its panes back off death row: whatever is still warm is
     // reattached rather than respawned, and what the server knows about those
     // panes rides along on the broadcast so they mount with it.
     const restored =
       command.type === "reopen-closed-pane"
-        ? this.reclaim(state, before)
+        ? this.reclaim(state, addedPaneIds)
         : undefined;
 
     // Ending sessions is the server's job now (D2): the renderer sends the
     // command after its confirmation dialog, and the effect lands here. Not
     // at once, though — a terminal pane's shell stays warm for the grace, so
     // "reopen closed pane" is a real undo (see REOPEN_GRACE_MS).
-    for (const paneId of result.effects.killPanes) {
-      // A pane that never mounted can still be closed — by another window, or
-      // by the CLI. Whatever was queued for it has nowhere left to go.
-      this.pendingCommands.clear(paneId);
-      if ((metadata[paneId]?.contentType ?? "terminal") !== "terminal") {
-        delete state.paneSessions[paneId];
-        continue;
-      }
-      this.scheduleKill(workspacePath, paneId);
-    }
+    this.endPanes(workspacePath, state, before, result.killPanes, {
+      grace: true,
+    });
 
     // A tab that left the tree takes its claim with it: the window holding it
     // has nothing to show and closes itself when this broadcast lands (D4).
@@ -697,31 +671,67 @@ export class LayoutStore {
       ...(restored && { restored }),
     });
 
-    return { version: state.version };
+    return { version: state.version, addedPaneIds, ...(hint && { hint }) };
   }
 
   /**
    * Panes a reopen just put back, cancelling the kills they were waiting out.
    *
-   * Told structurally — every pane in the new tree that was not in the old
-   * one — so it covers a reopened *tab* (many panes) and a reopened pane
-   * alike, without a second reading of the reducer's stack entry. A pane
-   * whose session is already gone (grace elapsed, or the daemon lost it)
-   * simply contributes nothing, and the renderer mounts it fresh.
+   * Told structurally — every pane the command added to the tree — so it
+   * covers a reopened *tab* (many panes) and a reopened pane alike, without a
+   * second reading of the reducer's stack entry. A pane whose session is
+   * already gone (grace elapsed, or the daemon lost it) simply contributes
+   * nothing, and the renderer mounts it fresh.
    */
   private reclaim(
     state: WorkspaceState,
-    before: WorkspaceLayout,
+    addedPaneIds: string[],
   ): Record<string, PersistedPaneSession> | undefined {
-    const had = layoutPaneIds(before);
     const restored: Record<string, PersistedPaneSession> = {};
-    for (const paneId of layoutPaneIds(state.layout)) {
-      if (had.has(paneId)) continue;
+    for (const paneId of addedPaneIds) {
       this.cancelKill(paneId);
       const session = state.paneSessions[paneId];
       if (session) restored[paneId] = session;
     }
     return Object.keys(restored).length > 0 ? restored : undefined;
+  }
+
+  /**
+   * Panes that left `layout`, ended: every close path and `remove` land here.
+   *
+   * Agents first, while `paneSessions` still has the title to name one by.
+   * Then each pane's queued command goes — a pane that never mounted can
+   * still be closed, by another window or by the CLI — and a terminal's shell
+   * is killed, after the reopen grace or, for `remove`, now. A pane that is
+   * not a terminal has no shell, only a session row.
+   */
+  private endPanes(
+    workspacePath: string,
+    state: WorkspaceState,
+    layout: WorkspaceLayout,
+    paneIds: readonly string[],
+    { grace }: { grace: boolean },
+  ): void {
+    if (paneIds.length === 0) return;
+    this.agents.abandonForPanes(
+      paneIds.map((paneId) => ({
+        paneId,
+        title: state.paneSessions[paneId]?.lastTitle ?? null,
+      })),
+    );
+    for (const paneId of paneIds) {
+      this.pendingCommands.clear(paneId);
+      if (contentTypeOf(layout, paneId) !== "terminal") {
+        delete state.paneSessions[paneId];
+        continue;
+      }
+      if (grace) {
+        this.scheduleKill(workspacePath, paneId);
+      } else {
+        this.cancelKill(paneId);
+        void this.killNow(workspacePath, paneId);
+      }
+    }
   }
 
   /** End this pane's session once the reopen window closes, not before. */
@@ -770,6 +780,11 @@ export class LayoutStore {
     }
   }
 
+  /**
+   * The workspace's state, creating an empty single-panel layout the first
+   * time the server hears of it. The panel id is minted here because no
+   * command carried one — every id in a *command* comes from its sender.
+   */
   private ensureState(workspacePath: string): WorkspaceState {
     const existing = this.entries.get(workspacePath);
     if (existing) return existing;
@@ -789,11 +804,21 @@ export class LayoutStore {
     return state;
   }
 
-  private stateWithPane(paneId: string): WorkspaceState | null {
-    for (const state of this.entries.values()) {
-      if (findPanelWithPane(state.layout, paneId)) return state;
+  private find(
+    target: LayoutTarget,
+  ): { workspacePath: string; state: WorkspaceState } | null {
+    for (const [workspacePath, state] of this.entries) {
+      const found =
+        "paneId" in target
+          ? findPanelWithPane(state.layout, target.paneId)
+          : findPanelWithTab(state.layout, target.tabId);
+      if (found) return { workspacePath, state };
     }
     return null;
+  }
+
+  private stateWithPane(paneId: string): WorkspaceState | null {
+    return this.find({ paneId })?.state ?? null;
   }
 
   private schedulePersist(): void {
@@ -823,8 +848,8 @@ export class LayoutStore {
   private toPersisted(): PersistedLayout {
     const workspaces: PersistedWorkspace[] = [];
     for (const [workspacePath, state] of this.entries) {
-      // v3 with the focus fields gone from the tree (ADR-179 ticket 4): the
-      // selection lives in `defaultViewport` and in each renderer's own file.
+      // v3 has no focus fields in the tree: the selection lives in
+      // `defaultViewport` and in each renderer's own file.
       // A v3 file written before this still loads — the fields are optional
       // and simply ignored — and is rewritten clean the first time this runs.
       workspaces.push({
@@ -850,7 +875,7 @@ export class LayoutStore {
  * `paneSessions` is filtered to the panes the tree actually holds: a pane
  * closed inside the reopen grace keeps its row in memory — that is what makes
  * `restored` possible — but no tree holds it, and handing it to a renderer
- * would seed side maps for a pane that will never mount (ticket 10's report).
+ * would seed side maps for a pane that will never mount.
  */
 function snapshot(
   state: WorkspaceState,
@@ -876,27 +901,28 @@ function emptySession(paneId: string): PersistedPaneSession {
 }
 
 /**
- * What the reopen stack needs about every pane, from what the server knows.
+ * A closed pane's terminal title, onto the reopen stack entry the command
+ * just pushed.
  *
- * A pane's content type, url, cwd and title all live here — the first two in
- * the tree the command is about to change, the last two in `paneSessions`. No
- * sender is asked for them: `applyLayoutCommand` takes this map as its third
- * argument, and the closing commands are the only ones that read it (D3).
+ * The reducer keeps the pane's leaf — its url and content type are in the
+ * tree — but a title is server-derived `paneSessions` state it never sees
+ * (D3), and it is what a pane reopened into a tab of its own is named.
  */
-function paneMetadata(
+function titleClosedPane(
   state: WorkspaceState,
-  treeMeta: Record<string, PaneMetadata>,
-): PaneMetadataMap {
-  const metadata: PaneMetadataMap = {};
-  for (const [paneId, tree] of Object.entries(treeMeta)) {
-    const session = state.paneSessions[paneId];
-    metadata[paneId] = {
-      ...tree,
-      ...(session?.lastCwd != null && { cwd: session.lastCwd }),
-      ...(session?.lastTitle != null && { title: session.lastTitle }),
-    };
-  }
-  return metadata;
+  stack: ClosedPane[],
+): ClosedPane[] {
+  const head = stack[0];
+  if (stack === state.closedStack || head?.kind !== "pane") return stack;
+  const title = state.paneSessions[head.leaf.paneId]?.lastTitle;
+  return title ? [{ ...head, title }, ...stack.slice(1)] : stack;
+}
+
+/** What a pane renders, read off the tree; a pane it lacks is a terminal. */
+function contentTypeOf(layout: WorkspaceLayout, paneId: string): string {
+  const found = findPanelWithPane(layout, paneId);
+  const leaf = found && findLeaf(found.tab.rootNode, paneId);
+  return leaf?.contentType ?? "terminal";
 }
 
 /** Structure only: a v2 or early-v3 file's focus fields are read out into
@@ -913,7 +939,7 @@ function layoutFromPersisted(workspace: PersistedWorkspace): WorkspaceLayout {
           rootNode: tab.rootNode,
         }),
       ),
-      pinnedTabIds: panel.pinnedTabIds ?? [],
+      pinnedTabIds: panel.pinnedTabIds,
     };
   }
   return { panelTree: workspace.panelTree, panels };
@@ -955,7 +981,7 @@ function persistedPanels(
           paneSessions,
         };
       }),
-      pinnedTabIds: panel.pinnedTabIds ?? [],
+      pinnedTabIds: panel.pinnedTabIds,
     };
   }
   return panels;

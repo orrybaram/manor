@@ -4,7 +4,11 @@ import SquareTerminal from "lucide-react/dist/esm/icons/square-terminal";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
 import Bot from "lucide-react/dist/esm/icons/bot";
-import { sendPendingCommand, useAppStore } from "../../store/app-store";
+import {
+  sendPendingCommand,
+  useAppStore,
+  usePaneContentType,
+} from "../../store/app-store";
 import { getAgentCommand } from "../../agent-defaults";
 import styles from "./PaneLayout/PaneLayout.module.css";
 
@@ -16,7 +20,7 @@ const PANE_TYPES = [
 ];
 
 export function ConvertToSubmenu({ paneId }: { paneId: string }) {
-  const currentType = useAppStore((s) => s.paneContentType[paneId] ?? "terminal");
+  const currentType = usePaneContentType(paneId);
   const setPaneContentType = useAppStore((s) => s.setPaneContentType);
 
   return (

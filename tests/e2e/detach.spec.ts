@@ -1,4 +1,4 @@
-import type { ElectronApplication, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import {
   assertVisiblePaneCount,
   bootWorkspaceWithTerminal,
@@ -9,6 +9,7 @@ import { layout } from "./helpers/local-api";
 import { openWebApp } from "./helpers/phone";
 import { closeSettings, enableRemoteControl, pairDevice } from "./helpers/settings";
 import { activePaneId, awaitShellReady, runInTerminal, scrollback } from "./helpers/terminal";
+import { clickMenuItem } from "./helpers/window";
 
 /**
  * A detached window is a claim, not a hand-off (ADR-179 D4).
@@ -23,23 +24,6 @@ import { activePaneId, awaitShellReady, runInTerminal, scrollback } from "./help
 
 function tabs(window: Page) {
   return window.locator('[data-testid="tab"]');
-}
-
-/** Click a native menu item by its label path, as macOS would. */
-function clickMenuItem(
-  app: ElectronApplication,
-  labels: string[],
-): Promise<void> {
-  return app.evaluate(({ Menu, BrowserWindow }, path) => {
-    let items = Menu.getApplicationMenu()?.items ?? [];
-    let item: Electron.MenuItem | undefined;
-    for (const label of path) {
-      item = items.find((candidate) => candidate.label === label);
-      if (!item) throw new Error(`Menu item not found: ${path.join(" › ")}`);
-      items = item.submenu?.items ?? [];
-    }
-    item!.click(undefined, BrowserWindow.getAllWindows()[0], undefined);
-  }, labels);
 }
 
 /** Right-click a tab and pop it into a window of its own. */

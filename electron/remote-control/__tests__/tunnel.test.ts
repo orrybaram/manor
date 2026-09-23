@@ -2,14 +2,20 @@
  * The tunnel is the step that makes a loopback listener reachable from the
  * internet, so the tests are about the lifecycle rather than the spawn: it
  * must never claim "running" when it is not, must never leave a child behind,
- * and must prefer Tailscale when it can.
+ * and must only ever start Tailscale.
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 
-import { TunnelManager, type TunnelChild, type TunnelStatus } from "../tunnel";
+import {
+  isCancelled,
+  parseTailnet,
+  TunnelManager,
+  type TunnelChild,
+  type TunnelStatus,
+} from "../tunnel";
 
 /** A `ChildProcess` stand-in that never touches a real binary. */
 class FakeChild extends EventEmitter implements TunnelChild {
@@ -30,12 +36,6 @@ class FakeChild extends EventEmitter implements TunnelChild {
   }
 }
 
-const CLOUDFLARE_BANNER = `
-2026-08-23T00:00:00Z INF +--------------------------------------------+
-2026-08-23T00:00:00Z INF |  https://calm-forest-pine-echo.trycloudflare.com  |
-2026-08-23T00:00:00Z INF +--------------------------------------------+
-`;
-
 const TAILSCALE_BANNER = `
 Available within your tailnet:
 
@@ -45,6 +45,7 @@ https://studio.tail1234.ts.net/
 function manager(
   which: (bin: string) => Promise<string | null>,
   child?: FakeChild,
+  exec: (command: string, args: string[]) => Promise<string> = async () => "",
 ) {
   const spawned: Array<{ command: string; args: string[] }> = [];
   const mgr = new TunnelManager({
@@ -53,6 +54,7 @@ function manager(
       spawned.push({ command, args });
       return child ?? new FakeChild();
     },
+    exec,
   });
   return { mgr, spawned };
 }
@@ -63,29 +65,23 @@ const hasNone = async () => null;
 describe("detection", () => {
   it("reports what is on PATH", async () => {
     const { mgr } = manager(async (bin) =>
-      bin === "cloudflared" ? "/usr/local/bin/cloudflared" : null,
+      bin === "tailscale" ? "/usr/local/bin/tailscale" : null,
     );
-    expect(await mgr.detect()).toEqual({
-      tailscale: false,
-      cloudflared: true,
-    });
+    expect(await mgr.detect()).toBe(true);
   });
 
-  it("prefers tailscale when both are present", async () => {
-    const { mgr } = manager(hasAll);
-    expect(await mgr.preferredKind()).toBe("tailscale");
-  });
-
-  it("falls back to cloudflared", async () => {
-    const { mgr } = manager(async (bin) =>
+  it("never checks for cloudflared", async () => {
+    const which = vi.fn(async (bin: string) =>
       bin === "cloudflared" ? "/x" : null,
     );
-    expect(await mgr.preferredKind()).toBe("cloudflared");
+    const { mgr } = manager(which);
+    expect(await mgr.detect()).toBe(false);
+    expect(which).not.toHaveBeenCalledWith("cloudflared");
   });
 
   it("reports nothing available", async () => {
     const { mgr } = manager(hasNone);
-    expect(await mgr.preferredKind()).toBeNull();
+    expect(await mgr.detect()).toBe(false);
   });
 });
 
@@ -96,41 +92,56 @@ describe("start", () => {
     child = new FakeChild();
   });
 
-  it("parses a cloudflared quick-tunnel URL off stderr", async () => {
-    const { mgr, spawned } = manager(hasAll, child);
-    const started = mgr.start("cloudflared", 4321);
-    child.stderr.write(CLOUDFLARE_BANNER);
-    await expect(started).resolves.toEqual({
-      url: "https://calm-forest-pine-echo.trycloudflare.com",
-    });
-    expect(spawned[0]).toEqual({
-      command: "cloudflared",
-      args: ["tunnel", "--url", "http://127.0.0.1:4321"],
-    });
-    expect(mgr.status).toMatchObject({ state: "running", kind: "cloudflared" });
-  });
-
   it("parses a tailscale serve URL and drops the trailing slash", async () => {
     const { mgr, spawned } = manager(hasAll, child);
-    const started = mgr.start("tailscale", 4321);
+    const started = mgr.start(4321);
     child.stdout.write(TAILSCALE_BANNER);
     await expect(started).resolves.toEqual({
       url: "https://studio.tail1234.ts.net",
     });
-    expect(spawned[0].args).toEqual([
-      "serve",
-      "--https=443",
-      "http://127.0.0.1:4321",
-    ]);
+    expect(spawned[0]).toEqual({
+      command: "/usr/local/bin/x",
+      args: ["serve", "--https=443", "http://127.0.0.1:4321"],
+    });
+    expect(mgr.status).toMatchObject({ state: "running" });
+  });
+
+  it("spawns the path `which` resolved, e.g. the app bundle's CLI", async () => {
+    const appCli = "/Applications/Tailscale.app/Contents/MacOS/Tailscale";
+    const { mgr, spawned } = manager(async () => appCli, child);
+    const started = mgr.start(1);
+    await vi.waitFor(() => expect(spawned).toHaveLength(1));
+    child.stdout.write(TAILSCALE_BANNER);
+    await started;
+    expect(spawned[0].command).toBe(appCli);
+  });
+
+  it("spawns nothing when stopped while resolving the binary", async () => {
+    const { mgr, spawned } = manager(hasAll, child);
+    const started = mgr.start(1);
+    const caught = started.catch((err: Error) => err.message);
+    await mgr.stop();
+    expect(await caught).toContain("cancelled");
+    expect(spawned).toHaveLength(0);
+    expect(mgr.status.state).toBe("stopped");
+  });
+
+  it("parses the URL off stderr too", async () => {
+    const { mgr } = manager(hasAll, child);
+    const started = mgr.start(1);
+    child.stderr.write(TAILSCALE_BANNER);
+    await expect(started).resolves.toEqual({
+      url: "https://studio.tail1234.ts.net",
+    });
   });
 
   it("finds a URL split across chunks", async () => {
     const { mgr } = manager(hasAll, child);
-    const started = mgr.start("cloudflared", 1);
-    child.stderr.write("INF |  https://calm-forest");
-    child.stderr.write("-pine-echo.trycloudflare.com  |");
+    const started = mgr.start(1);
+    child.stdout.write("Available within your tailnet:\n\nhttps://studio.tail");
+    child.stdout.write("1234.ts.net/\n");
     await expect(started).resolves.toEqual({
-      url: "https://calm-forest-pine-echo.trycloudflare.com",
+      url: "https://studio.tail1234.ts.net",
     });
   });
 
@@ -138,9 +149,9 @@ describe("start", () => {
     const { mgr } = manager(hasAll, child);
     const seen: TunnelStatus[] = [];
     mgr.onStatus((s) => seen.push(s));
-    const started = mgr.start("cloudflared", 1);
+    const started = mgr.start(1);
     expect(mgr.status.state).toBe("starting");
-    child.stderr.write(CLOUDFLARE_BANNER);
+    child.stdout.write(TAILSCALE_BANNER);
     await started;
     expect(seen.map((s) => s.state)).toEqual(["starting", "running"]);
   });
@@ -149,7 +160,7 @@ describe("start", () => {
     vi.useFakeTimers();
     try {
       const { mgr } = manager(hasAll, child);
-      const started = mgr.start("cloudflared", 1);
+      const started = mgr.start(1);
       const caught = started.catch((err: Error) => err.message);
       await vi.advanceTimersByTimeAsync(30_000);
       expect(await caught).toContain("did not report a URL");
@@ -161,9 +172,10 @@ describe("start", () => {
   });
 
   it("fails when the child exits before reporting a URL", async () => {
-    const { mgr } = manager(hasAll, child);
-    const started = mgr.start("cloudflared", 1);
+    const { mgr, spawned } = manager(hasAll, child);
+    const started = mgr.start(1);
     const caught = started.catch((err: Error) => err.message);
+    await vi.waitFor(() => expect(spawned).toHaveLength(1));
     child.exit(1);
     expect(await caught).toContain("exited before reporting a URL");
     expect(mgr.status.state).toBe("failed");
@@ -175,15 +187,16 @@ describe("start", () => {
       spawn: () => {
         throw new Error("ENOENT");
       },
+      exec: async () => "",
     });
-    await expect(mgr.start("cloudflared", 1)).rejects.toThrow("ENOENT");
+    await expect(mgr.start(1)).rejects.toThrow("ENOENT");
     expect(mgr.status.state).toBe("failed");
   });
 
   it("reports failed when a running child dies on its own", async () => {
     const { mgr } = manager(hasAll, child);
-    const started = mgr.start("cloudflared", 1);
-    child.stderr.write(CLOUDFLARE_BANNER);
+    const started = mgr.start(1);
+    child.stdout.write(TAILSCALE_BANNER);
     await started;
 
     child.exit(137);
@@ -195,19 +208,102 @@ describe("start", () => {
   });
 });
 
+/** What `tailscale serve` prints on a tailnet that has never enabled Serve. */
+const SERVE_DISABLED = `Serve is not enabled on your tailnet.
+To enable, visit:
+
+         https://login.tailscale.com/f/serve?node=nv7CYL11TH11CNTRL
+`;
+
+describe("waiting on the user", () => {
+  let child: FakeChild;
+
+  beforeEach(() => {
+    child = new FakeChild();
+  });
+
+  it("surfaces the enable-Serve link and keeps starting", async () => {
+    const { mgr, spawned } = manager(hasAll, child);
+    const started = mgr.start(1);
+    await vi.waitFor(() => expect(spawned).toHaveLength(1));
+    child.stdout.write(SERVE_DISABLED);
+    await vi.waitFor(() =>
+      expect(mgr.status).toMatchObject({
+        state: "starting",
+        actionUrl: "https://login.tailscale.com/f/serve?node=nv7CYL11TH11CNTRL",
+      }),
+    );
+
+    // The user enables Serve; tailscale carries on and prints the URL.
+    child.stdout.write(TAILSCALE_BANNER);
+    await expect(started).resolves.toEqual({
+      url: "https://studio.tail1234.ts.net",
+    });
+    expect(mgr.status.actionUrl ?? null).toBeNull();
+  });
+
+  it("waits well past 30s once it has asked the user", async () => {
+    vi.useFakeTimers();
+    try {
+      const { mgr, spawned } = manager(hasAll, child);
+      const started = mgr.start(1);
+      const caught = started.catch((err: Error) => err.message);
+      await vi.waitFor(() => expect(spawned).toHaveLength(1));
+      child.stdout.write(SERVE_DISABLED);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(mgr.status.state).toBe("starting");
+
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(await caught).toContain("Serve was not enabled");
+      expect(mgr.status.state).toBe("failed");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("puts the child's last words in a plain timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const { mgr, spawned } = manager(hasAll, child);
+      const started = mgr.start(1);
+      const caught = started.catch((err: Error) => err.message);
+      await vi.waitFor(() => expect(spawned).toHaveLength(1));
+      child.stderr.write("some preamble\nLogged out.\n");
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(await caught).toContain("within 30s: Logged out.");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("treats a stop while starting as a cancel, not a failure", async () => {
+    const { mgr, spawned } = manager(hasAll, child);
+    const started = mgr.start(1);
+    const caught = started.catch((err: unknown) => err);
+    await vi.waitFor(() => expect(spawned).toHaveLength(1));
+    child.stdout.write(SERVE_DISABLED);
+
+    const seen: TunnelStatus[] = [];
+    mgr.onStatus((s) => seen.push(s));
+    await mgr.stop();
+    expect(isCancelled(await caught)).toBe(true);
+    expect(seen.map((s) => s.state)).not.toContain("failed");
+    expect(mgr.status.state).toBe("stopped");
+  });
+});
+
 describe("stop", () => {
   it("kills the child and reports stopped", async () => {
     const child = new FakeChild();
     const { mgr } = manager(hasAll, child);
-    const started = mgr.start("cloudflared", 1);
-    child.stderr.write(CLOUDFLARE_BANNER);
+    const started = mgr.start(1);
+    child.stdout.write(TAILSCALE_BANNER);
     await started;
 
     await mgr.stop();
     expect(child.killed).toEqual(["SIGTERM"]);
     expect(mgr.status).toEqual({
       state: "stopped",
-      kind: null,
       url: null,
       error: null,
     });
@@ -216,8 +312,8 @@ describe("stop", () => {
   it("does not report failed for a child we killed on purpose", async () => {
     const child = new FakeChild();
     const { mgr } = manager(hasAll, child);
-    const started = mgr.start("cloudflared", 1);
-    child.stderr.write(CLOUDFLARE_BANNER);
+    const started = mgr.start(1);
+    child.stdout.write(TAILSCALE_BANNER);
     await started;
 
     const seen: TunnelStatus[] = [];
@@ -231,8 +327,8 @@ describe("stop", () => {
     try {
       const child = new FakeChild(false);
       const { mgr } = manager(hasAll, child);
-      const started = mgr.start("cloudflared", 1);
-      child.stderr.write(CLOUDFLARE_BANNER);
+      const started = mgr.start(1);
+      child.stdout.write(TAILSCALE_BANNER);
       await started;
 
       const stopped = mgr.stop();
@@ -248,8 +344,8 @@ describe("stop", () => {
   it("killNow SIGKILLs synchronously, for the paths that cannot await", async () => {
     const child = new FakeChild();
     const { mgr } = manager(hasAll, child);
-    const started = mgr.start("cloudflared", 1);
-    child.stderr.write(CLOUDFLARE_BANNER);
+    const started = mgr.start(1);
+    child.stdout.write(TAILSCALE_BANNER);
     await started;
 
     mgr.killNow();
@@ -275,5 +371,79 @@ describe("stop", () => {
     off();
     await mgr.stop();
     expect(seen).toEqual([]);
+  });
+});
+
+/** Trimmed from a real `tailscale status --json`. */
+const STATUS_JSON = JSON.stringify({
+  BackendState: "Running",
+  Self: { HostName: "studio", OS: "macOS", Online: true, UserID: 42 },
+  Peer: {
+    "nodekey:a": { HostName: "iphone", OS: "iOS", Online: true, UserID: 42 },
+    "nodekey:b": { HostName: "ipad", OS: "iOS", Online: false, UserID: 42 },
+  },
+  User: { "42": { ID: 42, LoginName: "me@example.com" } },
+});
+
+describe("tailnet", () => {
+  it("parses the account and the other devices", () => {
+    expect(parseTailnet(STATUS_JSON)).toEqual({
+      account: "me@example.com",
+      peers: [
+        { name: "iphone", os: "iOS", online: true },
+        { name: "ipad", os: "iOS", online: false },
+      ],
+    });
+  });
+
+  it("treats a null Peer map as no peers", () => {
+    const json = JSON.stringify({
+      Self: { HostName: "studio", UserID: 42 },
+      Peer: null,
+      User: { "42": { LoginName: "me@example.com" } },
+    });
+    expect(parseTailnet(json)).toEqual({
+      account: "me@example.com",
+      peers: [],
+    });
+  });
+
+  it("returns null for anything that is not status JSON", () => {
+    expect(parseTailnet("Logged out.")).toBeNull();
+    expect(parseTailnet("{}")).toBeNull();
+  });
+
+  it("asks the resolved binary for status --json", async () => {
+    const exec = vi.fn(async () => STATUS_JSON);
+    const { mgr } = manager(hasAll, undefined, exec);
+    await mgr.detect();
+    expect((await mgr.tailnet())?.peers).toHaveLength(2);
+    expect(exec).toHaveBeenCalledWith("/usr/local/bin/x", ["status", "--json"]);
+  });
+
+  it("is null when tailscale was never detected, or the call fails", async () => {
+    // Never resolved at all — `tailnet()` has nothing to run `status` on.
+    expect(await manager(hasAll).mgr.tailnet()).toBeNull();
+
+    const missing = manager(hasNone);
+    await missing.mgr.detect();
+    expect(await missing.mgr.tailnet()).toBeNull();
+
+    const failing = manager(hasAll, undefined, async () => {
+      throw new Error("not running");
+    });
+    await failing.mgr.detect();
+    expect(await failing.mgr.tailnet()).toBeNull();
+  });
+
+  it("resolves the binary once and reuses it for later polls", async () => {
+    const which = vi.fn(async () => "/usr/local/bin/x");
+    const exec = vi.fn(async () => STATUS_JSON);
+    const { mgr } = manager(which, undefined, exec);
+    await mgr.detect();
+    await mgr.tailnet();
+    await mgr.tailnet();
+    expect(which).toHaveBeenCalledTimes(1);
+    expect(exec).toHaveBeenCalledTimes(2);
   });
 });

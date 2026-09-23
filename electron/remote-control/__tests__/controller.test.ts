@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { RemoteControlController } from "../controller";
 import type { Capability, RemoteDeviceStore } from "../devices";
 import type { RemoteControlServer } from "../server";
-import type { TunnelManager, TunnelStatus } from "../tunnel";
+import type { TailnetInfo, TunnelManager, TunnelStatus } from "../tunnel";
 
 function fakes() {
   const serverState = { running: false, port: 0, listeners: 0 };
@@ -37,7 +37,6 @@ function fakes() {
 
   let tunnelStatus: TunnelStatus = {
     state: "stopped",
-    kind: null,
     url: null,
     error: null,
   };
@@ -50,12 +49,16 @@ function fakes() {
       tunnelListeners.push(cb);
       return () => {};
     },
-    detect: vi.fn(async () => ({ tailscale: true, cloudflared: true })),
-    preferredKind: vi.fn(async () => "tailscale" as const),
-    start: vi.fn(async (kind: "tailscale" | "cloudflared") => {
+    detect: vi.fn(async () => true),
+    tailnet: vi.fn(
+      async (): Promise<TailnetInfo | null> => ({
+        account: "me@example.com",
+        peers: [],
+      }),
+    ),
+    start: vi.fn(async () => {
       tunnelStatus = {
         state: "running",
-        kind,
         url: "https://studio.tail1234.ts.net",
         error: null,
       };
@@ -63,7 +66,7 @@ function fakes() {
       return { url: tunnelStatus.url! };
     }),
     stop: vi.fn(async () => {
-      tunnelStatus = { state: "stopped", kind: null, url: null, error: null };
+      tunnelStatus = { state: "stopped", url: null, error: null };
       for (const cb of tunnelListeners) cb(tunnelStatus);
     }),
   };
@@ -126,7 +129,7 @@ describe("RemoteControlController", () => {
   it("enabling probes for tunnel tools without installing anything", async () => {
     const status = await f.controller.setEnabled(true);
     expect(f.tunnel.detect).toHaveBeenCalled();
-    expect(status.detected).toEqual({ tailscale: true, cloudflared: true });
+    expect(status.installed).toBe(true);
   });
 
   it("disabling stops the tunnel before the listener", async () => {
@@ -151,26 +154,70 @@ describe("RemoteControlController", () => {
     expect(f.tunnel.start).not.toHaveBeenCalled();
   });
 
-  it("prefers tailscale and points the tunnel at the listener's port", async () => {
+  it("starts tailscale and points the tunnel at the listener's port", async () => {
     await f.controller.setEnabled(true);
     const status = await f.controller.startTunnel();
-    expect(f.tunnel.start).toHaveBeenCalledWith("tailscale", 51234);
+    expect(f.tunnel.start).toHaveBeenCalledWith(51234);
     expect(status.tunnel).toMatchObject({
       state: "running",
       url: "https://studio.tail1234.ts.net",
     });
   });
 
-  it("honours an explicitly chosen tunnel kind", async () => {
+  it("does not report a cancelled start as an error", async () => {
     await f.controller.setEnabled(true);
-    await f.controller.startTunnel("cloudflared");
-    expect(f.tunnel.start).toHaveBeenCalledWith("cloudflared", 51234);
+    f.tunnel.start.mockRejectedValueOnce(
+      Object.assign(new Error("Tunnel start was cancelled"), {
+        cancelled: true,
+      }),
+    );
+    await expect(f.controller.startTunnel()).resolves.toMatchObject({
+      tunnel: { state: "stopped" },
+    });
   });
 
-  it("explains itself when neither tool is installed", async () => {
-    f.tunnel.preferredKind.mockResolvedValue(null as unknown as "tailscale");
+  it("still throws a real start failure", async () => {
     await f.controller.setEnabled(true);
-    await expect(f.controller.startTunnel()).rejects.toThrow(/on PATH/);
+    f.tunnel.start.mockRejectedValueOnce(new Error("boom"));
+    await expect(f.controller.startTunnel()).rejects.toThrow("boom");
+  });
+
+  it("reports the tailnet while the tunnel runs, and forgets it after", async () => {
+    await f.controller.setEnabled(true);
+    expect(f.controller.status().tailnet).toBeNull();
+    await f.controller.startTunnel();
+    await vi.waitFor(() =>
+      expect(f.controller.status().tailnet).toEqual({
+        account: "me@example.com",
+        peers: [],
+      }),
+    );
+    await f.controller.stopTunnel();
+    expect(f.controller.status().tailnet).toBeNull();
+  });
+
+  it("notices a phone joining the tailnet", async () => {
+    vi.useFakeTimers();
+    try {
+      await f.controller.setEnabled(true);
+      await f.controller.startTunnel();
+      await vi.advanceTimersByTimeAsync(0);
+      f.tunnel.tailnet.mockResolvedValue({
+        account: "me@example.com",
+        peers: [{ name: "iphone", os: "iOS", online: true }],
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(f.controller.status().tailnet?.peers).toHaveLength(1);
+      await f.controller.stopTunnel();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("explains itself when tailscale is not installed", async () => {
+    await f.controller.setEnabled(true);
+    f.tunnel.detect.mockResolvedValueOnce(false);
+    await expect(f.controller.startTunnel()).rejects.toThrow(/not installed/);
   });
 
   it("builds a pairing URL from the live tunnel", async () => {
@@ -245,7 +292,7 @@ describe("RemoteControlController", () => {
       { list: () => [] } as unknown as RemoteDeviceStore,
       {
         onStatus: () => () => {},
-        status: { state: "stopped", kind: null, url: null, error: null },
+        status: { state: "stopped", url: null, error: null },
       } as unknown as TunnelManager,
       () => false,
     );

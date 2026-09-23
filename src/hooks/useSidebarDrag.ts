@@ -43,7 +43,8 @@ export function useSidebarDrag({
 }: {
   items: SidebarItem[];
   collapsedFolderIds: Set<string>;
-  /** Blocks new drags, e.g. while an inline rename input is open. */
+  /** Blocks new drags, e.g. while an inline rename input is open, or in
+   * phone mode (ADR-181 D5). */
   disabled: boolean;
   onDrop: (sourceKey: string, target: DropTarget, rows: Row[]) => void;
 }) {

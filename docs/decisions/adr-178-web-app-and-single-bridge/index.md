@@ -100,6 +100,10 @@ mutating request from a `full` device is audited (route key and target, no
 bodies); none of them needs `confirmed: true` — the desktop UI's own
 confirmation dialogs are in front of them.
 
+**Amended by [ADR-182](../adr-182-review-debt/index.md) D2.** Over HTTP a
+`full` device now gets exactly the `send` table; its reach beyond that exists
+only on `/ws`, where authentication was already the only boundary.
+
 **D4 — Three layers, named.** *Renderer* (React, pure client, no authoritative
 state). *Manor server* (everything in `electron/` that is not Electron:
 projects, routes, integrations, notifications, remote control — and, after D6,
@@ -168,6 +172,15 @@ phone's keyboard: a persistent button opens it full screen. On a PC browser
 the desktop keybindings stay, minus the chords the browser owns (`Cmd+W`,
 `Cmd+T`, `Cmd+N`). **Not built in this ADR** — see D10.
 
+**Amended by [ADR-181](../adr-181-phone-layout/index.md).** Two departures
+from what is written above, both made on purpose and recorded there. No
+swipe between panes: it collides with follower mode's own pan gesture
+(ADR-181 D4), so the tab strip and a pane-switcher sheet are the only ways to
+move. And typing is the native keyboard straight into xterm, not a
+phone-specific input surface (ADR-181 D6) — no composer, no special-key row.
+Everything else here — the top bar, the drawer, the bottom-sheet switcher, the
+full-screen palette, the browser-reserved chords — shipped as described.
+
 **D10 — Ship a tracer bullet first; everything in it survives.** Slice 1, this
 ADR: *a browser on a PC opens `/app`, pairs at `full`, shows the sidebar and a
 live terminal for an existing session, and can type into it* — which forces
@@ -187,6 +200,11 @@ Slice 3 landed as [ADR-180](../adr-180-one-host-surface/index.md): the 169
 table reached over two transports — the desktop's is Electron IPC, not the
 WebSocket this ADR named (D8's amendment above) — and `electron/ipc/` shrinks
 to the six modules that are genuinely Electron-only.
+Slice 4 landed as [ADR-181](../adr-181-phone-layout/index.md): below ~768 px
+a renderer — a phone, or the desktop window dragged narrow — walks the same
+shared layout one pane at a time, with no second tree and no terminal remount
+on a pane switch. It departs from D9 twice, both named in the amendment above:
+no swipe, and the native keyboard rather than a phone-specific input.
 
 ### What can never mirror in a browser
 

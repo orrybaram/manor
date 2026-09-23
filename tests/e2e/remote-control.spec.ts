@@ -22,7 +22,7 @@ import {
   waitForVisibleSession,
   type AgentSummary,
 } from "./helpers/local-api";
-import { openPhoneClient, sessionRow, type Phone } from "./helpers/phone";
+import { openPhoneClient, sessionRow, type Client } from "./helpers/phone";
 import {
   closeSettings,
   enableRemoteControl,
@@ -58,7 +58,7 @@ const PROJECT_NAME = "test-project";
 
 interface Paired {
   session: AgentSummary;
-  phone: Phone;
+  phone: Client;
   device: PairedDevice;
   port: number;
 }

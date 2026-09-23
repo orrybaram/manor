@@ -3,16 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!--
-      Redundant with the header `electron/remote-control/static.ts` sends for
-      `/app` — kept identical to it as a second line of defence for a browser
-      that, for whatever reason, does not see the header.
+      `interactive-widget=resizes-visual` (ADR-181 D6): the soft keyboard
+      shrinks only the visual viewport, never the layout one. It is Chrome
+      for Android's default, but a browser that defaults to
+      `resizes-content` shrinks the initial containing block — and `100lvh`
+      with it — so opening the keyboard would resize every terminal and
+      SIGWINCH the panes this renderer owns the winsize of. Saying it
+      outright makes the phone shell's `100lvh` hold everywhere that honours
+      the key; iOS Safari ignores it and already behaves this way.
     -->
     <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'self'; worker-src 'self';"
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, interactive-widget=resizes-visual"
     />
+    <!--
+      Injected by `vite.web.config.ts` from `WEB_CSP` in
+      `electron/remote-control/static.ts` — the one source, so this tag
+      cannot drift from the header that route sends for `/app`. Redundant
+      with that header; a second line of defence for a browser that, for
+      whatever reason, does not see it.
+    -->
+    <!--csp-->
     <title>Manor</title>
   </head>
 

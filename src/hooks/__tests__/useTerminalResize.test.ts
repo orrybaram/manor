@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * `shouldSendFit`'s contract: a measurement is judged against the last size
  * *sent*, and the grid is never consulted.
@@ -9,15 +10,25 @@
  * from the grid suppresses exactly that request, at exactly the moment it is
  * needed, and the pane then wraps at a different width than the program does
  * for the rest of the session.
+ *
+ * `useFollowerFit`'s own describe block below is regression 6's guard: a
+ * follower that becomes the owner must render at its configured size again.
  */
 
-import { describe, expect, it } from "vitest";
+import { act, createElement, useRef } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { Terminal } from "@xterm/xterm";
 import {
   FONT_FLOOR,
   followerFontSize,
   measureCellWidth,
   shouldSendFit,
+  useFollowerFit,
 } from "../useTerminalResize";
+
+// React only runs effects inside `act` when it is told it is in a test.
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("shouldSendFit", () => {
   it("sends when nothing has been sent yet", () => {
@@ -171,5 +182,158 @@ describe("measureCellWidth", () => {
   it("answers null rather than zero when nothing has been measured yet", () => {
     expect(measureCellWidth(terminal([probe("", 0)], 0))).toBe(null);
     expect(measureCellWidth(terminal(null))).toBe(null);
+  });
+});
+
+/**
+ * `useFollowerFit`'s font restore (regression 6, ADR-182 ticket 1).
+ *
+ * jsdom has no `ResizeObserver`; a no-op stub is enough here since nothing in
+ * this test resizes the container after mount.
+ */
+class FakeResizeObserver {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= FakeResizeObserver;
+
+/** The slice of `Terminal` the hook touches. */
+interface FakeTerm {
+  options: { fontSize: number };
+  cols: number;
+  rows: number;
+  element: null;
+  resize: (cols: number, rows: number) => void;
+  onResize: (cb: () => void) => { dispose: () => void };
+  _core: { _renderService: { dimensions: { css: { cell: { width: number } } } } };
+}
+
+/** A 13px font whose columns are 8px wide, same as `followerFontSize`'s tests. */
+function fakeTerm(fontSize = 13, cellWidth = 8): FakeTerm {
+  const term: Partial<FakeTerm> = {
+    options: { fontSize },
+    cols: 160,
+    rows: 40,
+    element: null,
+    onResize: () => ({ dispose: () => {} }),
+    _core: { _renderService: { dimensions: { css: { cell: { width: cellWidth } } } } },
+  };
+  term.resize = (cols, rows) => {
+    term.cols = cols;
+    term.rows = rows;
+  };
+  return term as FakeTerm;
+}
+
+function Harness(props: {
+  term: FakeTerm;
+  target: { cols: number; rows: number } | null;
+  enabled: boolean;
+  width: number;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  // A callback ref, so the fake dimensions land on the real DOM node before
+  // `useFollowerFit`'s own `useLayoutEffect` reads `clientWidth` in the same
+  // commit — jsdom's elements otherwise measure 0×0.
+  const setRef = (el: HTMLDivElement | null) => {
+    ref.current = el;
+    if (el) {
+      Object.defineProperty(el, "clientWidth", {
+        value: props.width,
+        configurable: true,
+      });
+      Object.defineProperty(el, "clientHeight", {
+        value: 400,
+        configurable: true,
+      });
+    }
+  };
+  useFollowerFit(ref, props.term as unknown as Terminal, props.target, props.enabled);
+  return createElement("div", { ref: setRef, "data-testid": "container" });
+}
+
+describe("useFollowerFit", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    host.remove();
+  });
+
+  it("restores the configured font size when a follower becomes the owner", () => {
+    const term = fakeTerm(13, 8);
+    // 640px at 8px/col fits 80 of the owner's 160 columns, so the follower
+    // must shrink — see `followerFontSize`'s own tests for this exact case.
+    act(() => {
+      root.render(
+        createElement(Harness, {
+          term,
+          target: { cols: 160, rows: 40 },
+          enabled: true,
+          width: 640,
+        }),
+      );
+    });
+    expect(term.options.fontSize).toBe(6);
+    expect(term.cols).toBe(160);
+
+    // The winsize owner now — regression 6 was this shrink surviving.
+    act(() => {
+      root.render(
+        createElement(Harness, {
+          term,
+          target: null,
+          enabled: false,
+          width: 640,
+        }),
+      );
+    });
+    expect(term.options.fontSize).toBe(13);
+  });
+
+  it("captures the ceiling fresh for each follower session", () => {
+    const term = fakeTerm(13, 8);
+    act(() => {
+      root.render(
+        createElement(Harness, {
+          term,
+          target: { cols: 160, rows: 40 },
+          enabled: true,
+          width: 640,
+        }),
+      );
+    });
+    expect(term.options.fontSize).toBe(6);
+
+    act(() => {
+      root.render(
+        createElement(Harness, { term, target: null, enabled: false, width: 640 }),
+      );
+    });
+    expect(term.options.fontSize).toBe(13);
+
+    // A second span as a follower shrinks from the restored size, not from
+    // whatever the first span left behind.
+    act(() => {
+      root.render(
+        createElement(Harness, {
+          term,
+          target: { cols: 160, rows: 40 },
+          enabled: true,
+          width: 640,
+        }),
+      );
+    });
+    expect(term.options.fontSize).toBe(6);
   });
 });

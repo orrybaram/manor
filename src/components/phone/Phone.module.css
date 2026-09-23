@@ -1,0 +1,84 @@
+/*
+ * ADR-181 D3: the phone-only chrome. `useLayoutMode()` is the one breakpoint
+ * for the whole app (ADR-181 D2), so this file has no media query of its
+ * own — `PhoneTopBar` only renders when `App.tsx` has already decided the
+ * renderer is a phone, and `:global(.app[data-layout="phone"])` scopes the
+ * shell-level rule below the same way.
+ */
+
+/*
+ * The phone shell is sized to the large viewport, not the visual one
+ * (`100dvh`). iOS/Android shrink the *visual* viewport when the soft
+ * keyboard opens; sizing `.app` off that would resize this box — and
+ * everything under it, including a terminal pane this renderer owns the
+ * winsize of — on every keyboard toggle. That is a SIGWINCH per toggle,
+ * exactly the bug ADR-163/164/165 fixed for workspace switches. `100lvh` is
+ * the viewport's size ignoring the keyboard, so opening it changes no row
+ * count and sends no SIGWINCH. The native keyboard depends on this
+ * holding.
+ */
+:global(.app[data-layout="phone"]) {
+  height: 100lvh;
+}
+
+.topBar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  min-height: 44px;
+  flex-shrink: 0;
+  background: var(--dim);
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: no-drag;
+}
+
+/*
+ * ADR-181 D3: `[data-mac-inset]` is only ever set on the Electron
+ * desktop on macOS (`isElectronMacOS()` in `PhoneTopBar.tsx`) — the one
+ * platform where `hiddenInset` + `trafficLightPosition`
+ * (`electron/window.ts`) puts the red/yellow/green buttons over this bar's
+ * top-left corner. Left-pad by the same inset the tab strip's `.noSidebar`
+ * uses for the same reason (`--traffic-light-inset`, App.css), and make the
+ * bar itself a drag region so a narrow window keeps a way to move — a
+ * `<Button>` already sets `no-drag` on itself (Button.module.css), so the
+ * bar's own buttons stay clickable over the drag region. Everywhere else —
+ * a non-mac Electron window still has its own native title bar to drag by,
+ * a browser tab has no window chrome at all — neither applies.
+ */
+.topBar[data-mac-inset="true"] {
+  padding-left: var(--traffic-light-inset);
+  -webkit-app-region: drag;
+}
+
+.workspaceName {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-selected);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/*
+ * Touch targets are at least 44x44 (ADR-181 D3) — bigger than the `md`
+ * Button size's own padding gives, so this overrides it directly. The
+ * element-plus-class selector outweighs `Button.module.css`'s single-class
+ * rules regardless of which stylesheet the bundler injects first.
+ */
+button.iconButton {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  flex-shrink: 0;
+}

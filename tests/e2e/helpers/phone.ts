@@ -24,9 +24,6 @@ export interface Client {
   close(): Promise<void>;
 }
 
-/** Kept as the name every existing caller imports; `Client` is the same shape. */
-export type Phone = Client;
-
 export interface OpenClientOptions {
   viewport: { width: number; height: number };
   headed?: boolean;
@@ -83,12 +80,25 @@ export async function openPhoneClient(
   port: number,
   token: string,
   { headed = false }: { headed?: boolean } = {},
-): Promise<Phone> {
+): Promise<Client> {
   return openClient(`http://127.0.0.1:${port}/#${token}`, {
     viewport: { width: 390, height: 844 },
     headed,
     context: { deviceScaleFactor: 2, isMobile: true, hasTouch: true },
   });
+}
+
+export interface OpenWebAppOptions {
+  headed?: boolean;
+  /**
+   * Defaults to a PC viewport. ADR-181's phone tests pass a phone size
+   * instead — the same `/app` bundle, the same desktop renderer, dropped
+   * into phone mode by width alone (ADR-181 D2), with nothing else about
+   * how it is opened any different from a PC browser.
+   */
+  viewport?: { width: number; height: number };
+  /** Passed through to `newContext`, layered under `viewport`. */
+  context?: BrowserContextOptions;
 }
 
 /**
@@ -98,11 +108,16 @@ export async function openPhoneClient(
 export async function openWebApp(
   port: number,
   token: string,
-  { headed = false }: { headed?: boolean } = {},
+  {
+    headed = false,
+    viewport = { width: 1280, height: 800 },
+    context,
+  }: OpenWebAppOptions = {},
 ): Promise<Client> {
   return openClient(`http://127.0.0.1:${port}/app#${token}`, {
-    viewport: { width: 1280, height: 800 },
+    viewport,
     headed,
+    context,
   });
 }
 

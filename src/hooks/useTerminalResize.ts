@@ -1,9 +1,18 @@
 /**
- * useTerminalResize — ResizeObserver + fit addon for auto-fitting a terminal.
+ * useOwnerFit / useFollowerFit — ResizeObserver + fit addon for auto-fitting
+ * a terminal.
  *
- * Measures the pane and tells the pty. It does **not** resize the terminal:
- * the grid is driven from the output stream, in `useTerminalStream`, at the
- * position the daemon marks when the ioctl lands.
+ * Two hooks, not one with a branch inside it (ADR-182 ticket 1): a winsize
+ * owner measures the pane and tells the pty; a follower fits the pane to a
+ * grid it never moves, shrinking its font toward {@link FONT_FLOOR} instead.
+ * `useTerminalLifecycle` calls both, unconditionally, each behind its own
+ * `enabled` — the ownership flip is `enabled` moving from one to the other,
+ * and a hook that stops being enabled cleans up after itself, which is what
+ * lets `useFollowerFit` restore the font it shrank (see its own comment).
+ *
+ * Neither hook resizes the terminal's *grid*: that is driven from the output
+ * stream, in `useTerminalStream`, at the position the daemon marks when the
+ * ioctl lands.
  *
  * That split is the point, and it is ADR-164. A resize in a local terminal is
  * one function — set the grid, call `TIOCSWINSZ` — so it sits at a known place
@@ -44,7 +53,7 @@ import type { Terminal } from "@xterm/xterm";
  * between frames; at 150ms it did not, and a six-second drag sent a dozen
  * sizes instead of one.
  */
-const SETTLE_MS = 400;
+export const SETTLE_MS = 400;
 
 /** A size, as measured or as sent. */
 export interface Dimensions {
@@ -153,39 +162,27 @@ export function measureCellWidth(term: Terminal): number | null {
   return typeof css === "number" && css > 0 ? css : null;
 }
 
-export function useTerminalResize(
+/**
+ * The winsize owner's half of D5: measure the pane, tell the pty.
+ *
+ * `enabled` is false for exactly as long as this viewer is a follower — see
+ * the file header. Disabled, the hook does nothing at all; it neither
+ * measures nor keeps a stale `lastSentRef` around; that ref is reset every
+ * time the effect (re)starts, so a size sent in a previous span of ownership
+ * is never mistaken for one sent in this one.
+ */
+export function useOwnerFit(
   containerRef: React.RefObject<HTMLDivElement | null>,
   fitAddon: FitAddon | null,
   term: Terminal | null,
   resizePty: (cols: number, rows: number) => Promise<void>,
-  /**
-   * The winsize owner's grid, when this viewer is not the owner (ADR-178 D5).
-   *
-   * Non-null turns the whole hook around: nothing is measured *for* the pty,
-   * because the pty's size is not this viewer's to choose. The pane is fitted
-   * to the grid instead of the grid to the pane.
-   */
-  follower: Dimensions | null = null,
+  enabled: boolean,
 ) {
   /** The last size handed to the pty — what a new measurement is judged against. */
   const lastSentRef = useRef<Dimensions | null>(null);
   /** Kept in a ref so a new `resizePty` identity does not re-run the effect. */
   const resizePtyRef = useRef(resizePty);
   resizePtyRef.current = resizePty;
-  /**
-   * The pane's configured font size — follower mode's ceiling.
-   *
-   * Captured before anything has scaled it, and kept across effect re-runs,
-   * because after the first fit `term.options.fontSize` is the *scaled* size
-   * and reading it again would ratchet the pane down a step at a time.
-   */
-  const configuredFontSizeRef = useRef<number | null>(null);
-  /**
-   * The grid to render. Seeded from the create reply and moved by the stream:
-   * when the owner resizes, `useTerminalStream` applies it to the emulator
-   * (ADR-164) and the `onResize` below reads the new grid back out.
-   */
-  const targetRef = useRef<Dimensions | null>(follower);
 
   /**
    * Attach to the pane, and detach from it, as one thing.
@@ -210,20 +207,12 @@ export function useTerminalResize(
    * same frame. `useEffect` is the one that waits.
    */
   useLayoutEffect(() => {
+    if (!enabled) return;
     const container = containerRef.current;
     if (!container || !fitAddon) return;
 
     // A new terminal has been sent nothing.
     lastSentRef.current = null;
-    targetRef.current = follower;
-    if (term && configuredFontSizeRef.current === null) {
-      configuredFontSizeRef.current = term.options.fontSize ?? null;
-    }
-
-    let observerFrame = 0;
-    let refitFrame = 0;
-    let fontFrame = 0;
-    let settle: ReturnType<typeof setTimeout> | null = null;
 
     /** Send the pane's current size, unless it is the size already sent. */
     const sendFit = () => {
@@ -236,65 +225,11 @@ export function useTerminalResize(
       });
     };
 
-    /**
-     * Fit the *pane* to the owner's grid — the follower's half of D5.
-     *
-     * Scaling the glyphs rather than reflowing the text, for ADR-177's reason:
-     * an agent draws box borders and diff gutters at a width it was told, and
-     * a viewer that re-wraps them to its own width breaks every one of them.
-     * So the grid stays exactly as the owner left it, the font shrinks until
-     * it fits, and below the floor the container pans sideways instead.
-     *
-     * `term.resize` here is the follower asserting the owner's grid locally;
-     * it reaches no pty, because the hook's only path to one — `sendFit` — is
-     * not wired up in this mode.
-     */
-    const fitFollower = (converge = true) => {
-      const el = containerRef.current;
-      const target = targetRef.current;
-      if (!el || !term || !target) return;
-      if (el.clientWidth === 0 || el.clientHeight === 0) return;
+    sendFit();
 
-      const ceiling =
-        configuredFontSizeRef.current ?? term.options.fontSize ?? FONT_FLOOR;
-      const current = term.options.fontSize ?? ceiling;
-      const cell = measureCellWidth(term);
-      if (cell !== null) {
-        const size = followerFontSize(
-          current,
-          el.clientWidth,
-          target.cols,
-          cell,
-          ceiling,
-        );
-        if (size !== current) {
-          term.options.fontSize = size;
-          // A font's advance is rounded to device pixels, so a cell is not
-          // exactly proportional to its size and one pass can land a hair
-          // wide. Re-measuring once against the size that now exists settles
-          // it; the maths is a fixed point, so the second pass is a no-op
-          // whenever the first was right.
-          if (converge) {
-            if (fontFrame) cancelAnimationFrame(fontFrame);
-            fontFrame = requestAnimationFrame(() => {
-              fontFrame = 0;
-              fitFollower(false);
-            });
-          }
-        }
-      }
-      if (term.cols !== target.cols || term.rows !== target.rows) {
-        try {
-          term.resize(target.cols, target.rows);
-        } catch (e) {
-          console.error("follower grid resize failed", e);
-        }
-      }
-    };
-
-    const refit = follower ? fitFollower : sendFit;
-
-    refit();
+    let observerFrame = 0;
+    let refitFrame = 0;
+    let settle: ReturnType<typeof setTimeout> | null = null;
 
     const observer = new ResizeObserver(() => {
       if (observerFrame) cancelAnimationFrame(observerFrame);
@@ -305,13 +240,6 @@ export function useTerminalResize(
         // reflow the buffer for good. Skip until it has a real box again.
         const el = containerRef.current;
         if (!el || el.clientWidth === 0 || el.clientHeight === 0) return;
-        // A follower re-fits at once: nothing leaves this machine, so there is
-        // no cost to settle for, and a font that lags the drag by 400ms reads
-        // as a bug.
-        if (follower) {
-          fitFollower();
-          return;
-        }
         if (settle) clearTimeout(settle);
         settle = setTimeout(() => {
           settle = null;
@@ -336,33 +264,167 @@ export function useTerminalResize(
      * is re-read against the grid that now exists, and `sendFit` is a no-op
      * once the two agree, so this settles after one extra round trip instead
      * of oscillating.
-     *
-     * For a follower this is the *other* direction, and it is the reason the
-     * two modes cannot share a handler. The grid moving means the owner moved
-     * it and `useTerminalStream` applied it — so the new grid is the thing to
-     * fit to, not evidence to measure and send back. Sending it back is a loop
-     * with a pty in it: the follower would tell the daemon the size it was
-     * just told, and take the desktop's pane with it.
      */
     const grid =
       term?.onResize(() => {
-        if (follower) targetRef.current = { cols: term.cols, rows: term.rows };
         if (refitFrame) cancelAnimationFrame(refitFrame);
         refitFrame = requestAnimationFrame(() => {
           refitFrame = 0;
           const el = containerRef.current;
           if (!el || el.clientWidth === 0 || el.clientHeight === 0) return;
-          refit();
+          sendFit();
         });
       }) ?? null;
 
     return () => {
       if (observerFrame) cancelAnimationFrame(observerFrame);
       if (refitFrame) cancelAnimationFrame(refitFrame);
-      if (fontFrame) cancelAnimationFrame(fontFrame);
       if (settle) clearTimeout(settle);
       observer.disconnect();
       grid?.dispose();
     };
-  }, [containerRef, fitAddon, term, follower]);
+  }, [containerRef, fitAddon, term, enabled]);
+}
+
+/**
+ * The follower's half of D5: fit the *pane* to the owner's grid, never the
+ * other way around.
+ *
+ * Scaling the glyphs rather than reflowing the text, for ADR-177's reason: an
+ * agent draws box borders and diff gutters at a width it was told, and a
+ * viewer that re-wraps them to its own width breaks every one of them. So the
+ * grid stays exactly as the owner left it, the font shrinks until it fits,
+ * and below {@link FONT_FLOOR} the container pans sideways instead.
+ *
+ * `target` is null exactly when `enabled` is false, so the effect below never
+ * runs without one.
+ *
+ * **The font is a loan, not a rename (regression 6).** `configuredFontSizeRef`
+ * is captured once per span of `enabled` — guarded by `=== null`, so a grid
+ * change partway through a follower session re-fits without recapturing an
+ * already-shrunk size — and the cleanup below always undoes the shrink and
+ * forgets the ceiling again, whether the reason is the grid moving, this
+ * viewer becoming the owner, or the pane unmounting. That makes every capture
+ * fresh: by the time the next one happens, the previous cleanup has already
+ * put `term.options.fontSize` back, so there is no stale preference to miss.
+ */
+export function useFollowerFit(
+  containerRef: React.RefObject<HTMLDivElement | null>,
+  term: Terminal | null,
+  target: Dimensions | null,
+  enabled: boolean,
+) {
+  /**
+   * The grid to render. Reset every time the effect (re)starts and moved by
+   * the stream from then on: when the owner resizes, `useTerminalStream`
+   * applies it to the emulator (ADR-164) and the `onResize` below reads the
+   * new grid back out, without waiting for `target` itself to change.
+   */
+  const targetRef = useRef<Dimensions | null>(target);
+  const configuredFontSizeRef = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    if (!enabled || !term || !target) return;
+    const container = containerRef.current;
+    if (!container) return;
+
+    targetRef.current = target;
+    if (configuredFontSizeRef.current === null) {
+      configuredFontSizeRef.current = term.options.fontSize ?? null;
+    }
+
+    let observerFrame = 0;
+    let refitFrame = 0;
+    let fontFrame = 0;
+
+    const fitFollower = (converge = true) => {
+      const el = containerRef.current;
+      const t = targetRef.current;
+      if (!el || !t) return;
+      if (el.clientWidth === 0 || el.clientHeight === 0) return;
+
+      const ceiling =
+        configuredFontSizeRef.current ?? term.options.fontSize ?? FONT_FLOOR;
+      const current = term.options.fontSize ?? ceiling;
+      const cell = measureCellWidth(term);
+      if (cell !== null) {
+        const size = followerFontSize(
+          current,
+          el.clientWidth,
+          t.cols,
+          cell,
+          ceiling,
+        );
+        if (size !== current) {
+          term.options.fontSize = size;
+          // A font's advance is rounded to device pixels, so a cell is not
+          // exactly proportional to its size and one pass can land a hair
+          // wide. Re-measuring once against the size that now exists settles
+          // it; the maths is a fixed point, so the second pass is a no-op
+          // whenever the first was right.
+          if (converge) {
+            if (fontFrame) cancelAnimationFrame(fontFrame);
+            fontFrame = requestAnimationFrame(() => {
+              fontFrame = 0;
+              fitFollower(false);
+            });
+          }
+        }
+      }
+      if (term.cols !== t.cols || term.rows !== t.rows) {
+        try {
+          term.resize(t.cols, t.rows);
+        } catch (e) {
+          console.error("follower grid resize failed", e);
+        }
+      }
+    };
+
+    fitFollower();
+
+    const observer = new ResizeObserver(() => {
+      if (observerFrame) cancelAnimationFrame(observerFrame);
+      observerFrame = requestAnimationFrame(() => {
+        observerFrame = 0;
+        // Nothing leaves this machine, so there is no cost to settle for, and
+        // a font that lags the drag by the owner's 400ms reads as a bug.
+        const el = containerRef.current;
+        if (!el || el.clientWidth === 0 || el.clientHeight === 0) return;
+        fitFollower();
+      });
+    });
+    observer.observe(container);
+
+    // The grid moving means the owner moved it and `useTerminalStream`
+    // applied it (ADR-178 D5) — so the new grid is the thing to fit to, never
+    // evidence to measure and send back. Sending it back would be a loop with
+    // a pty in it: this viewer would tell the daemon the size it was just
+    // told, and take the desktop's pane with it.
+    const grid = term.onResize(() => {
+      targetRef.current = { cols: term.cols, rows: term.rows };
+      if (refitFrame) cancelAnimationFrame(refitFrame);
+      refitFrame = requestAnimationFrame(() => {
+        refitFrame = 0;
+        const el = containerRef.current;
+        if (!el || el.clientWidth === 0 || el.clientHeight === 0) return;
+        fitFollower();
+      });
+    });
+
+    return () => {
+      if (observerFrame) cancelAnimationFrame(observerFrame);
+      if (refitFrame) cancelAnimationFrame(refitFrame);
+      if (fontFrame) cancelAnimationFrame(fontFrame);
+      observer.disconnect();
+      grid.dispose();
+      // Undo the shrink and forget the ceiling, so the next follower session
+      // — another grid change, or this viewer losing ownership again later —
+      // captures it fresh rather than reusing one from long before
+      // (regression 6: a follower used to keep its shrunk font forever).
+      if (configuredFontSizeRef.current !== null) {
+        term.options.fontSize = configuredFontSizeRef.current;
+      }
+      configuredFontSizeRef.current = null;
+    };
+  }, [containerRef, term, target, enabled]);
 }

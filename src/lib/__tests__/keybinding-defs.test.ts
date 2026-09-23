@@ -5,11 +5,14 @@ import { describe, it, expect } from "vitest";
 // `keybinding-defs.ts` referenced either, this import would throw before any
 // test body ran.
 import {
+  BROWSER_RESERVED_COMBOS,
   DEFAULT_KEYBINDINGS,
   comboMatches,
   comboToAccelerator,
   commandsForCombo,
   isBindableCombo,
+  isBrowserReservedCombo,
+  platformDefaults,
   resolveBindings,
   resolvePageKey,
   type KeyCombo,
@@ -48,9 +51,9 @@ describe("comboToAccelerator", () => {
   });
 
   it("maps Escape to Esc", () => {
-    expect(comboToAccelerator(combo({ key: "Escape", meta: true }), "mac")).toBe(
-      "Cmd+Esc",
-    );
+    expect(
+      comboToAccelerator(combo({ key: "Escape", meta: true }), "mac"),
+    ).toBe("Cmd+Esc");
   });
 
   it("maps Enter to Return", () => {
@@ -67,10 +70,7 @@ describe("comboToAccelerator", () => {
 
   it("renders Ctrl+Shift+D for a non-mac combo", () => {
     expect(
-      comboToAccelerator(
-        combo({ key: "d", ctrl: true, shift: true }),
-        "other",
-      ),
+      comboToAccelerator(combo({ key: "d", ctrl: true, shift: true }), "other"),
     ).toBe("Ctrl+Shift+D");
   });
 });
@@ -243,11 +243,15 @@ describe("resolvePageKey", () => {
       { "command-palette": "meta+shift+p", "browser-reload": "meta+shift+r" },
       "MacIntel",
     );
-    expect(resolvePageKey(combo({ key: "k", meta: true }), bindings)).toBeNull();
+    expect(
+      resolvePageKey(combo({ key: "k", meta: true }), bindings),
+    ).toBeNull();
     expect(
       resolvePageKey(combo({ key: "P", meta: true, shift: true }), bindings),
     ).toEqual({ kind: "app", commandId: "command-palette" });
-    expect(resolvePageKey(combo({ key: "r", meta: true }), bindings)).toBeNull();
+    expect(
+      resolvePageKey(combo({ key: "r", meta: true }), bindings),
+    ).toBeNull();
     expect(
       resolvePageKey(combo({ key: "r", meta: true, shift: true }), bindings),
     ).toEqual({ kind: "browser", commandId: "browser-reload" });
@@ -258,7 +262,9 @@ describe("resolvePageKey", () => {
       { "browser-find": "meta+alt+f" },
       "MacIntel",
     );
-    expect(resolvePageKey(combo({ key: "f", meta: true }), bindings)).toBeNull();
+    expect(
+      resolvePageKey(combo({ key: "f", meta: true }), bindings),
+    ).toBeNull();
   });
 
   it("uses Ctrl bindings off macOS", () => {
@@ -271,5 +277,112 @@ describe("resolvePageKey", () => {
       kind: "app",
       commandId: "command-palette",
     });
+  });
+});
+
+// ADR-181 D7 — a PC browser keeps the desktop keybindings, minus the ones it
+// cannot have.
+describe("platformDefaults in a browser, on a Mac", () => {
+  const webDefs = platformDefaults("MacIntel", { inBrowser: true });
+  const byId = Object.fromEntries(webDefs.map((def) => [def.id, def]));
+
+  it("leaves the browser-reserved commands with no default combo", () => {
+    // Cmd+W, Cmd+T and Cmd+N — whichever commands land on them by default.
+    for (const def of DEFAULT_KEYBINDINGS) {
+      if (def.defaultCombo && isBrowserReservedCombo(def.defaultCombo)) {
+        expect(byId[def.id].defaultCombo).toBeUndefined();
+      }
+    }
+    // Confirms the loop above actually exercised something.
+    expect(
+      DEFAULT_KEYBINDINGS.some(
+        (def) => def.defaultCombo && isBrowserReservedCombo(def.defaultCombo),
+      ),
+    ).toBe(true);
+  });
+
+  it("leaves every other default unchanged", () => {
+    for (const def of DEFAULT_KEYBINDINGS) {
+      if (def.defaultCombo && isBrowserReservedCombo(def.defaultCombo)) {
+        continue;
+      }
+      expect(byId[def.id].defaultCombo).toEqual(def.defaultCombo);
+    }
+  });
+
+  it("keeps the reserved commands reachable — bindable, just unbound", () => {
+    for (const def of DEFAULT_KEYBINDINGS) {
+      if (def.defaultCombo && isBrowserReservedCombo(def.defaultCombo)) {
+        expect(byId[def.id]).toBeDefined();
+      }
+    }
+  });
+});
+
+/**
+ * The regression this guards: an earlier version of D7 passed a `"web"`
+ * platform that meant "Mac-style", so a Windows or Linux browser got ⌘
+ * shortcuts it cannot type. The OS picks ⌘ versus Ctrl; the browser only
+ * removes the chords it keeps for itself. Both must hold at once.
+ */
+describe("platformDefaults in a browser, off a Mac", () => {
+  const winBrowser = platformDefaults("Win32", { inBrowser: true });
+  const winDesk = platformDefaults("Win32");
+  const byId = Object.fromEntries(winBrowser.map((def) => [def.id, def]));
+
+  it("uses Ctrl, not ⌘, for every default it keeps", () => {
+    for (const def of winBrowser) {
+      if (!def.defaultCombo) continue;
+      expect(def.defaultCombo.meta).toBe(false);
+    }
+  });
+
+  it("drops the Ctrl forms of the reserved chords", () => {
+    for (const def of winDesk) {
+      if (def.defaultCombo && isBrowserReservedCombo(def.defaultCombo)) {
+        expect(byId[def.id].defaultCombo).toBeUndefined();
+      }
+    }
+    expect(
+      winDesk.some(
+        (def) => def.defaultCombo && isBrowserReservedCombo(def.defaultCombo),
+      ),
+    ).toBe(true);
+  });
+
+  it("otherwise matches the Windows desktop defaults exactly", () => {
+    for (const def of winDesk) {
+      if (def.defaultCombo && isBrowserReservedCombo(def.defaultCombo)) {
+        continue;
+      }
+      expect(byId[def.id].defaultCombo).toEqual(def.defaultCombo);
+    }
+  });
+});
+
+describe("isBrowserReservedCombo", () => {
+  it("flags Cmd+W", () => {
+    expect(isBrowserReservedCombo(combo({ key: "w", meta: true }))).toBe(true);
+  });
+
+  it("flags Cmd+T and Cmd+N, and their Ctrl equivalents off macOS", () => {
+    expect(isBrowserReservedCombo(combo({ key: "t", meta: true }))).toBe(true);
+    expect(isBrowserReservedCombo(combo({ key: "n", meta: true }))).toBe(true);
+    expect(isBrowserReservedCombo(combo({ key: "w", ctrl: true }))).toBe(true);
+    expect(isBrowserReservedCombo(combo({ key: "t", ctrl: true }))).toBe(true);
+    expect(isBrowserReservedCombo(combo({ key: "n", ctrl: true }))).toBe(true);
+  });
+
+  it("does not flag Cmd+Shift+W (close-tab) or an unrelated key", () => {
+    expect(
+      isBrowserReservedCombo(combo({ key: "w", meta: true, shift: true })),
+    ).toBe(false);
+    expect(isBrowserReservedCombo(combo({ key: "k", meta: true }))).toBe(false);
+  });
+
+  it("every listed combo round-trips through the export", () => {
+    for (const reserved of BROWSER_RESERVED_COMBOS) {
+      expect(isBrowserReservedCombo(reserved)).toBe(true);
+    }
   });
 });

@@ -7,6 +7,7 @@ import {
 } from "./app-menu-template";
 import { resolveBindings } from "../src/lib/keybinding-defs";
 import type { MenuContext } from "../src/lib/menu-commands";
+import { getCommand } from "../src/lib/commands";
 
 function makeContext(overrides: Partial<MenuContext> = {}): MenuContext {
   return {
@@ -415,6 +416,36 @@ describe("buildMenuTemplate", () => {
         menu(build(), "Help").some((i) => i.role === "toggleDevTools"),
       ).toBe(false);
     });
+  });
+
+  // A menu item whose id the command table cannot run is a dead menu item.
+  it("sends only command-table ids that have a run", () => {
+    const actions = makeActions();
+    const template = build(
+      {
+        context: makeContext({
+          agents: [{ id: "agent-1", name: "Claude", workspaceLabel: null }],
+          panelCount: 2,
+          project: {
+            id: "proj-1",
+            name: "Manor",
+            hasSetupScript: true,
+            folders: [{ id: "folder-1", name: "Active", parentId: null }],
+          },
+        }),
+      },
+      actions,
+    );
+    for (const entry of walk(template)) {
+      if (typeof entry.click === "function") click(entry);
+    }
+    const sent = (actions.send as ReturnType<typeof vi.fn>).mock.calls.map(
+      ([id]) => id as string,
+    );
+    expect(sent.length).toBeGreaterThan(40);
+    for (const id of new Set(sent)) {
+      expect(getCommand(id)?.run, id).toBeTypeOf("function");
+    }
   });
 
   describe("Help menu", () => {

@@ -10,14 +10,15 @@ import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { useShallow } from "zustand/react/shallow";
 import {
   useAppStore,
-  selectActivePanelId,
   selectFocusedPaneId,
+  selectPaneContentType,
 } from "../../store/app-store";
 import {
   detachTabToNewWindow,
   hasOwnClaim,
   returnToPrimaryWindow,
 } from "../../lib/detach";
+import { moveTabToNextPanel } from "../../lib/keybinding-commands";
 import { useKeybinding } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
 import { useTabTitle } from "../../hooks/useTabTitle";
@@ -146,7 +147,7 @@ export function TabButton(props: TabButtonProps) {
     if (!layout) return { contentType: undefined, favicon: undefined, audioPlaying: false, audioMuted: false, focusedPaneId: undefined };
     const paneId = selectFocusedPaneId(s, tabId);
     if (paneId) return {
-      contentType: s.paneContentType[paneId] as string | undefined,
+      contentType: selectPaneContentType(s, paneId),
       favicon: s.paneFavicon[paneId] as string | undefined,
       audioPlaying: !!s.paneAudioPlaying[paneId],
       audioMuted: !!s.paneAudioMuted[paneId],
@@ -163,7 +164,7 @@ export function TabButton(props: TabButtonProps) {
     for (const panel of Object.values(layout.panels)) {
       const idx = panel.tabs.findIndex((t) => t.id === tabId);
       if (idx === -1) continue;
-      const pinned = new Set(panel.pinnedTabIds ?? []);
+      const pinned = new Set(panel.pinnedTabIds);
       const hasOther = panel.tabs.some(
         (t) => t.id !== tabId && !pinned.has(t.id),
       );
@@ -331,19 +332,7 @@ export function TabButton(props: TabButtonProps) {
           {panelCount > 1 && (
             <ContextMenu.Item
               className={styles.contextMenuItem}
-              onSelect={() => {
-                const state = useAppStore.getState();
-                const wsPath = state.activeWorkspacePath;
-                if (!wsPath) return;
-                const layout = state.workspaceLayouts[wsPath];
-                if (!layout) return;
-                const panelIds = Object.keys(layout.panels);
-                const currentIdx = panelIds.indexOf(
-                  selectActivePanelId(state) ?? "",
-                );
-                const nextPanelId = panelIds[(currentIdx + 1) % panelIds.length];
-                state.moveTabToPanel(tabId, nextPanelId);
-              }}
+              onSelect={() => moveTabToNextPanel(tabId)}
             >
               Move Tab to Next Panel
             </ContextMenu.Item>

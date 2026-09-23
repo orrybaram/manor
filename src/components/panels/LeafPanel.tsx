@@ -39,7 +39,7 @@ export function LeafPanel({ panelId, workspacePath, onNewAgent }: LeafPanelProps
             key={tab.id}
             style={tab.id === selectedTabId ? TAB_VISIBLE_STYLE : TAB_HIDDEN_STYLE}
           >
-            <PaneLayout node={tab.rootNode} workspacePath={workspacePath} />
+            <PaneLayout node={tab.rootNode} tabId={tab.id} workspacePath={workspacePath} />
           </div>
         ))}
       </div>

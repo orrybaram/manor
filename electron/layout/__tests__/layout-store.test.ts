@@ -16,6 +16,7 @@ import * as crypto from "node:crypto";
 import {
   LayoutStore,
   REOPEN_GRACE_MS,
+  type AgentService,
   type LayoutBroadcast,
 } from "../layout-store";
 import {
@@ -25,6 +26,7 @@ import {
 } from "../../terminal-host/layout-persistence";
 import type { LocalBackend } from "../../backend/local-backend";
 import type { Tab } from "../../../src/lib/layout/workspace-layout";
+import { findLeaf } from "../../../src/lib/layout/commands";
 
 const WS = "/project/main";
 
@@ -84,8 +86,13 @@ describe("LayoutStore", () => {
   let layoutFile: string;
   let persistence: LayoutPersistence;
   let broadcasts: LayoutBroadcast[];
+  let paneTitles: Array<{ paneId: string; title: string | null }>;
   let kill: ReturnType<typeof vi.fn>;
+  let abandonForPanes: ReturnType<typeof vi.fn<AgentService["abandonForPanes"]>>;
   let store: LayoutStore;
+
+  /** The tab each detached window was opened to hold, as main knows it. */
+  let windowClaims: Map<string, string>;
 
   function makeStore(primaryId = "primary"): LayoutStore {
     return new LayoutStore(
@@ -94,20 +101,33 @@ describe("LayoutStore", () => {
         broadcasts.push(payload);
       },
       { pty: { kill } } as unknown as Pick<LocalBackend, "pty">,
-      (rendererId) => rendererId === primaryId,
+      {
+        isPrimary: (rendererId) => rendererId === primaryId,
+        claimOf: (rendererId) => {
+          const tabId = windowClaims.get(rendererId);
+          return tabId === undefined ? null : { workspacePath: WS, tabId };
+        },
+      },
+      (paneId, title) => {
+        paneTitles.push({ paneId, title });
+      },
+      { abandonForPanes },
     );
   }
 
-  /** A window's viewport report, optionally holding one tab (ADR-179 D4). */
-  function report(windowId: string, claim?: string): void {
+  /**
+   * A window's viewport report. `claim` makes it a detached window holding
+   * that tab — main's fact about it, not anything in the report (D4).
+   */
+  function report(windowId: string, claim?: string, workspacePath = WS): void {
+    if (claim !== undefined) windowClaims.set(windowId, claim);
     store.reportViewport(
-      WS,
+      workspacePath,
       { kind: "window", id: windowId },
       {
         activePanelId: "panel-1",
         selectedTabIds: { "panel-1": "tab-1" },
         focusedPaneIds: { "tab-1": "pane-1" },
-        ...(claim !== undefined && { claim }),
       },
     );
   }
@@ -128,7 +148,10 @@ describe("LayoutStore", () => {
     layoutFile = path.join(tmpDir, "layout.json");
     persistence = new LayoutPersistence(layoutFile);
     broadcasts = [];
+    paneTitles = [];
     kill = vi.fn().mockResolvedValue(undefined);
+    abandonForPanes = vi.fn<AgentService["abandonForPanes"]>();
+    windowClaims = new Map();
     store = makeStore();
   });
 
@@ -195,7 +218,7 @@ describe("LayoutStore", () => {
         { kind: "window", id: "1" },
       );
 
-      expect(result).toEqual({ version: 1 });
+      expect(result).toMatchObject({ version: 1, addedPaneIds: ["pane-2"] });
       expect(broadcasts).toHaveLength(1);
       expect(broadcasts[0].workspacePath).toBe(WS);
       expect(broadcasts[0].version).toBe(1);
@@ -219,8 +242,8 @@ describe("LayoutStore", () => {
         { kind: "bridge", id: "web" },
       );
 
-      expect(await first).toEqual({ version: 1 });
-      expect(await second).toEqual({ version: 2 });
+      expect(await first).toMatchObject({ version: 1 });
+      expect(await second).toMatchObject({ version: 2 });
       expect(broadcasts.map((b) => b.version)).toEqual([1, 2]);
       expect(
         store.get(WS)!.layout.panels["panel-1"].tabs.map((t) => t.id),
@@ -248,6 +271,34 @@ describe("LayoutStore", () => {
 
       vi.advanceTimersByTime(REOPEN_GRACE_MS);
       expect(kill).toHaveBeenCalledTimes(1);
+    });
+
+    it("abandons the agents of every pane a closed tab held, titled", async () => {
+      store.setPaneTitle("pane-1", "claude ⠋");
+
+      await store.apply(
+        WS,
+        { type: "close-tab", tabId: "tab-1" },
+        { kind: "window", id: "1" },
+      );
+
+      // At once, not after the grace: the agent's turn ended with its pane,
+      // and every close path — not only `close-pane` — lands here (D7).
+      expect(abandonForPanes).toHaveBeenCalledTimes(1);
+      expect(abandonForPanes).toHaveBeenCalledWith([
+        { paneId: "pane-1", title: "claude ⠋" },
+        { paneId: "pane-diff", title: null },
+      ]);
+    });
+
+    it("abandons nothing for a command that ends no pane", async () => {
+      await store.apply(
+        WS,
+        { type: "new-tab", tab: leafTab("tab-2", "pane-2") },
+        { kind: "window", id: "1" },
+      );
+
+      expect(abandonForPanes).not.toHaveBeenCalled();
     });
 
     it("drops the pending command of a pane that leaves the tree", async () => {
@@ -279,15 +330,16 @@ describe("LayoutStore", () => {
       expect(store.get(WS)!.paneSessions["pane-diff"]).toBeUndefined();
     });
 
-    it("fills the reopen stack's metadata from the server, not the sender", async () => {
-      // No `paneMetadata` on the command at all: the url and content type come
-      // from the tree, the cwd from `paneSessions` (ADR-179 D3).
+    it("reopens a closed browser pane with its url, and says what came back", async () => {
+      // Nothing about the pane travels in the commands: the leaf goes onto
+      // the reopen stack whole and comes back whole (ADR-182 D6).
       await store.apply(
         WS,
         {
-          type: "split-pane",
+          type: "split-pane-at",
           paneId: "pane-1",
           direction: "horizontal",
+          position: "second",
           newPaneId: "pane-web",
           contentType: "browser",
           url: "http://localhost:3000",
@@ -299,16 +351,20 @@ describe("LayoutStore", () => {
         { type: "close-pane", paneId: "pane-web" },
         { kind: "window", id: "1" },
       );
-      await store.apply(
+      const result = await store.apply(
         WS,
         { type: "reopen-closed-pane", newTabId: "tab-restored" },
         { kind: "window", id: "1" },
       );
 
+      expect(result).toMatchObject({ addedPaneIds: ["pane-web"] });
       const tab = store.get(WS)!.layout.panels["panel-1"].tabs[0];
-      const restored = JSON.stringify(tab.rootNode);
-      expect(restored).toContain("pane-web");
-      expect(restored).toContain("browser");
+      expect(findLeaf(tab.rootNode, "pane-web")).toEqual({
+        type: "leaf",
+        paneId: "pane-web",
+        contentType: "browser",
+        url: "http://localhost:3000",
+      });
     });
 
     it("creates the workspace when it has never heard of it", async () => {
@@ -318,7 +374,7 @@ describe("LayoutStore", () => {
         { kind: "route", id: "cli" },
       );
 
-      expect(result).toEqual({ version: 1 });
+      expect(result).toMatchObject({ version: 1, addedPaneIds: ["pane-9"] });
       const entry = store.get("/project/brand-new")!;
       const panels = Object.values(entry.layout.panels);
       expect(panels).toHaveLength(1);
@@ -332,7 +388,7 @@ describe("LayoutStore", () => {
         { kind: "window", id: "1" },
       );
 
-      expect(result).toEqual({ version: 0 });
+      expect(result).toEqual({ version: 0, addedPaneIds: [] });
       expect(broadcasts).toHaveLength(0);
     });
 
@@ -349,36 +405,45 @@ describe("LayoutStore", () => {
       expect(broadcasts).toHaveLength(0);
     });
 
-    it("set-pane-title moves no furniture and wakes no renderer", async () => {
-      const result = await store.apply(
-        WS,
-        { type: "set-pane-title", paneId: "pane-1", title: "build" },
-        { kind: "window", id: "1" },
-      );
+  });
 
-      expect(result).toEqual({ version: 0 });
-      expect(broadcasts).toHaveLength(0);
-      expect(store.get(WS)!.paneSessions["pane-1"].lastTitle).toBe("build");
+  /**
+   * Off the command channel entirely (ADR-182 D1): `setPaneTitle` is a direct
+   * method now, not a `LayoutCommand`, so it neither touches the layout nor
+   * rides on `layout.changed` — it has its own publish, asserted here rather
+   * than in `apply`'s tests above.
+   */
+  describe("setPaneTitle", () => {
+    beforeEach(() => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      store.load();
     });
 
-    it("set-pane-title opens a session entry for a pane that has none", async () => {
+    it("writes the title and publishes it, without touching the layout", () => {
+      const ok = store.setPaneTitle("pane-1", "build");
+
+      expect(ok).toBe(true);
+      expect(store.get(WS)!.paneSessions["pane-1"].lastTitle).toBe("build");
+      expect(store.get(WS)!.version).toBe(0);
+      expect(broadcasts).toHaveLength(0);
+      expect(paneTitles).toEqual([{ paneId: "pane-1", title: "build" }]);
+    });
+
+    it("opens a session entry for a pane that has none", () => {
       // The diff pane has no daemon session and no `paneSessions` row yet.
-      await store.apply(
-        WS,
-        { type: "set-pane-title", paneId: "pane-diff", title: "Diff" },
-        { kind: "window", id: "1" },
-      );
-      await store.apply(
-        WS,
-        { type: "set-pane-title", paneId: "pane-gone", title: "nowhere" },
-        { kind: "window", id: "1" },
-      );
+      store.setPaneTitle("pane-diff", "Diff");
 
       expect(store.get(WS)!.paneSessions["pane-diff"]).toMatchObject({
         daemonSessionId: "pane-diff",
         lastTitle: "Diff",
       });
-      expect(store.get(WS)!.paneSessions["pane-gone"]).toBeUndefined();
+    });
+
+    it("refuses a pane nothing owns, and publishes nothing", () => {
+      const ok = store.setPaneTitle("pane-gone", "nowhere");
+
+      expect(ok).toBe(false);
+      expect(paneTitles).toHaveLength(0);
     });
   });
 
@@ -414,11 +479,7 @@ describe("LayoutStore", () => {
 
     it("a reopen inside the grace cancels the kill and hands the session back", async () => {
       store.onPtyEvent({ type: "cwd", sessionId: "pane-1", cwd: "/tmp/deep" });
-      await store.apply(
-        WS,
-        { type: "set-pane-title", paneId: "pane-1", title: "build" },
-        { kind: "window", id: "1" },
-      );
+      store.setPaneTitle("pane-1", "build");
 
       await close("pane-1");
       vi.advanceTimersByTime(REOPEN_GRACE_MS - 1);
@@ -651,6 +712,26 @@ describe("LayoutStore", () => {
       });
     });
 
+    it("stores a device's report as the default viewport", () => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      store.load();
+
+      store.reportViewport(
+        WS,
+        { kind: "bridge", id: "phone" },
+        {
+          activePanelId: "panel-1",
+          selectedTabIds: { "panel-1": "tab-1" },
+          focusedPaneIds: { "tab-1": "pane-diff" },
+        },
+      );
+      store.flush();
+
+      expect(store.claimsFor(WS)).toEqual([]);
+      const stored = readFile().workspaces[0].defaultViewport;
+      expect(stored.focusedPaneIds).toEqual({ "tab-1": "pane-diff" });
+    });
+
     it("stands in for the primary only when a window reported it", () => {
       fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
       store.load();
@@ -715,6 +796,7 @@ describe("LayoutStore", () => {
       report("primary");
       const primaryDefault = store.get(WS)!.defaultViewport;
 
+      windowClaims.set("window-2", "tab-1");
       store.reportViewport(
         WS,
         { kind: "window", id: "window-2" },
@@ -722,7 +804,6 @@ describe("LayoutStore", () => {
           activePanelId: "panel-1",
           selectedTabIds: { "panel-1": "tab-1" },
           focusedPaneIds: { "tab-1": "pane-diff" },
-          claim: "tab-1",
         },
       );
 
@@ -732,30 +813,30 @@ describe("LayoutStore", () => {
       expect(store.primaryViewport(WS)).toEqual(primaryDefault);
     });
 
-    it("ignores a claim from a bridge socket", () => {
+    it("never asks about a claim for a bridge socket", () => {
+      // Same id as a detached window: only a window's origin is looked up.
+      windowClaims.set("phone", "tab-1");
       store.reportViewport(
         WS,
         { kind: "bridge", id: "phone" },
-        {
-          activePanelId: "panel-1",
-          selectedTabIds: {},
-          focusedPaneIds: {},
-          claim: "tab-1",
-        },
+        { activePanelId: "panel-1", selectedTabIds: {}, focusedPaneIds: {} },
       );
 
       expect(store.claimsFor(WS)).toEqual([]);
       expect(broadcasts).toHaveLength(0);
     });
 
-    it("releases a claim when the window reports without one", () => {
+    it("keeps a claim through the window's reports on other workspaces", () => {
       report("window-2", "tab-1");
       broadcasts = [];
 
-      report("window-2");
+      report("window-2", undefined, "/project/other");
 
-      expect(store.claimsFor(WS)).toEqual([]);
-      expect(lastBroadcast().claims).toEqual([]);
+      expect(store.claimsFor(WS)).toEqual([
+        { windowId: "window-2", tabId: "tab-1" },
+      ]);
+      expect(broadcasts).toHaveLength(0);
+      expect(store.primaryViewport("/project/other")).toBeNull();
     });
 
     it("releases a claim when the window dies", () => {
@@ -841,6 +922,25 @@ describe("LayoutStore", () => {
   });
 
   describe("remove", () => {
+    it("kills the workspace's terminals at once and abandons their agents", () => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      store.load();
+      store.pendingCommands.set("pane-1", "pnpm dev");
+
+      store.remove(WS);
+
+      // No grace: the directory is about to go, and nothing can reopen into it.
+      expect(kill).toHaveBeenCalledTimes(1);
+      expect(kill).toHaveBeenCalledWith("pane-1");
+      expect(abandonForPanes).toHaveBeenCalledWith([
+        { paneId: "pane-1", title: null },
+        { paneId: "pane-diff", title: null },
+      ]);
+      expect(store.pendingCommands.take("pane-1")).toBeNull();
+      vi.advanceTimersByTime(REOPEN_GRACE_MS);
+      expect(kill).toHaveBeenCalledTimes(1);
+    });
+
     it("ends the pending kills of a workspace that is going away", async () => {
       fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
       store.load();
@@ -875,7 +975,9 @@ describe("LayoutStore", () => {
 
       store.remove(WS);
 
-      expect(kill).not.toHaveBeenCalled();
+      expect(kill).not.toHaveBeenCalledWith("pane-o");
+      vi.advanceTimersByTime(REOPEN_GRACE_MS);
+      expect(kill).toHaveBeenCalledWith("pane-o");
     });
 
     /**
@@ -898,17 +1000,80 @@ describe("LayoutStore", () => {
         workspacePath: WS,
         version: versionBefore,
         claims: [],
+        removed: true,
       });
     });
 
-    it("broadcasts nothing when nobody held a claim on the removed workspace", () => {
+    it("tells every renderer the workspace is gone, claim or no claim", () => {
       fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
       store.load();
       broadcasts.length = 0;
 
       store.remove(WS);
 
+      expect(broadcasts).toHaveLength(1);
+      expect(lastBroadcast()).toMatchObject({ workspacePath: WS, removed: true });
+    });
+
+    it("broadcasts nothing for a workspace it never held", () => {
+      store.remove("/project/unknown");
+
       expect(broadcasts).toEqual([]);
+      expect(abandonForPanes).not.toHaveBeenCalled();
+    });
+
+    it("refuses a command queued before it, rather than recreating the workspace", async () => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      store.load();
+
+      // Queued, not yet run: `apply` chains onto the workspace's queue.
+      const queued = store.apply(
+        WS,
+        { type: "new-tab", tab: leafTab("tab-late", "pane-late") },
+        { kind: "window", id: "1" },
+      );
+      store.remove(WS);
+
+      expect(await queued).toEqual({ error: `Workspace was removed: ${WS}` });
+      expect(store.get(WS)).toBeNull();
+    });
+
+    it("accepts a command sent after it, for a workspace opened again", async () => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      store.load();
+      store.remove(WS);
+
+      const result = await store.apply(
+        WS,
+        { type: "new-tab", tab: leafTab("tab-new", "pane-new") },
+        { kind: "window", id: "1" },
+      );
+
+      expect(result).not.toHaveProperty("error");
+      expect(store.locate({ paneId: "pane-new" })?.workspacePath).toBe(WS);
+    });
+  });
+
+  describe("locate", () => {
+    beforeEach(() => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      store.load();
+    });
+
+    it("finds the workspace holding a pane, nested in a split or not", () => {
+      const found = store.locate({ paneId: "pane-diff" });
+
+      expect(found?.workspacePath).toBe(WS);
+      expect(found?.entry).toEqual(store.get(WS));
+    });
+
+    it("finds the workspace holding a tab", () => {
+      expect(store.locate({ tabId: "tab-1" })?.workspacePath).toBe(WS);
+    });
+
+    it("answers null for an id no workspace holds", () => {
+      expect(store.locate({ paneId: "no-such-pane" })).toBeNull();
+      expect(store.locate({ tabId: "no-such-tab" })).toBeNull();
     });
   });
 
@@ -944,9 +1109,14 @@ describe("LayoutStore", () => {
     });
   });
 
-  describe("ensure", () => {
-    it("hands back a fresh single-panel layout the first time", () => {
-      const entry = store.ensure("/project/unseen");
+  describe("a workspace the server has never heard of", () => {
+    it("gets a single panel of its own on its first command", async () => {
+      await store.apply(
+        "/project/unseen",
+        { type: "new-tab", tab: leafTab("tab-1", "pane-1") },
+        { kind: "window", id: "1" },
+      );
+      const entry = store.get("/project/unseen")!;
       const panelIds = Object.keys(entry.layout.panels);
 
       expect(panelIds).toHaveLength(1);
@@ -955,8 +1125,7 @@ describe("LayoutStore", () => {
         panelId: panelIds[0],
       });
       expect(entry.defaultViewport.activePanelId).toBe(panelIds[0]);
-      expect(entry.version).toBe(0);
-      expect(store.ensure("/project/unseen").layout).toBe(entry.layout);
+      expect(entry.version).toBe(1);
     });
   });
 });

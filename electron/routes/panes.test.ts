@@ -21,8 +21,8 @@ vi.mock("../renderer-bridge", () => ({
 }));
 
 import { proxyToRenderer } from "../renderer-bridge";
-import { paneRoutes, tabRoutes } from "./panes";
-import type { ControlDeps, Route } from "./types";
+import { paneRoutes } from "./panes";
+import type { HostDeps, Route } from "./types";
 import { LayoutStore } from "../layout/layout-store";
 import { LayoutPersistence } from "../terminal-host/layout-persistence";
 import type { LocalBackend } from "../backend/local-backend";
@@ -38,7 +38,7 @@ function findRoute(routes: Route[], method: Route["method"], path: string): Rout
 
 async function call(
   route: Route,
-  deps: ControlDeps,
+  deps: HostDeps,
   {
     params = {},
     body = {},
@@ -63,12 +63,14 @@ async function call(
 describe("panes/tabs routes (ADR-179 D5)", () => {
   let tmpDir: string;
   let store: LayoutStore;
-  let deps: ControlDeps;
+  let deps: HostDeps;
+  let paneTitlePublishes: Array<{ paneId: string; title: string | null }>;
 
   beforeEach(() => {
     tmpDir = path.join(os.tmpdir(), `manor-panes-routes-${crypto.randomUUID()}`);
     fs.mkdirSync(tmpDir, { recursive: true });
     const persistence = new LayoutPersistence(path.join(tmpDir, "layout.json"));
+    paneTitlePublishes = [];
     store = new LayoutStore(
       persistence,
       () => {},
@@ -76,8 +78,12 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
         LocalBackend,
         "pty"
       >,
+      undefined,
+      (paneId, title) => {
+        paneTitlePublishes.push({ paneId, title });
+      },
     );
-    deps = { layoutStore: store } as ControlDeps;
+    deps = { layoutStore: store } as unknown as HostDeps;
     vi.mocked(proxyToRenderer).mockClear();
   });
 
@@ -308,7 +314,7 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
   });
 
   describe("POST /tabs", () => {
-    const route = findRoute(tabRoutes, "POST", "/tabs");
+    const route = findRoute(paneRoutes, "POST", "/tabs");
 
     it("creates a terminal tab in the given workspace", async () => {
       const res = await call(route, deps, {
@@ -391,7 +397,7 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
   });
 
   describe("POST /tabs/diff", () => {
-    const route = findRoute(tabRoutes, "POST", "/tabs/diff");
+    const route = findRoute(paneRoutes, "POST", "/tabs/diff");
 
     it("creates a diff tab, then returns the same one on a second call", async () => {
       await seedTab(WS);
@@ -402,10 +408,100 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
       expect(second.status).toBe(200);
       expect(second.body.tabId).toBe(first.body.tabId);
     });
+
+    it("finds a diff pane split into another tab, not only a tab's root", async () => {
+      const { tabId, paneId } = await seedTab(WS);
+      await store.apply(
+        WS,
+        {
+          type: "split-pane-at",
+          paneId,
+          direction: "horizontal",
+          position: "second",
+          newPaneId: "pane-diff",
+          contentType: "diff",
+        },
+        { kind: "route", id: "test" },
+      );
+
+      const res = await call(route, deps, { body: { workspacePath: WS } });
+      expect(res).toEqual({ status: 200, body: { tabId } });
+    });
+  });
+
+  describe("POST /tabs/reorder", () => {
+    const route = findRoute(paneRoutes, "POST", "/tabs/reorder");
+
+    it("reorders a panel's tabs", async () => {
+      const a = await seedTab(WS);
+      const b = await seedTab(WS);
+      const res = await call(route, deps, {
+        body: { tabIds: [b.tabId, a.tabId] },
+      });
+      expect(res).toEqual({ status: 200, body: { ok: true } });
+    });
+
+    it("400s naming reorder-tabs on an unknown tabId", async () => {
+      await seedTab(WS);
+      const res = await call(route, deps, {
+        body: { tabIds: ["no-such-tab"], workspacePath: WS },
+      });
+      expect(res).toEqual({
+        status: 400,
+        body: { error: "reorder-tabs: no such panel for these tabIds" },
+      });
+    });
+
+    it("400s when tabIds is not the panel's whole set", async () => {
+      const a = await seedTab(WS);
+      await seedTab(WS);
+      const res = await call(route, deps, { body: { tabIds: [a.tabId] } });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/exactly the panel's current tabs/);
+    });
+  });
+
+  describe("POST /panes/:paneId/move", () => {
+    const route = findRoute(paneRoutes, "POST", "/panes/:paneId/move");
+
+    it("400s naming the target when only the target is unknown", async () => {
+      const { paneId } = await seedTab(WS);
+      const res = await call(route, deps, {
+        params: { paneId },
+        body: { targetPaneId: "no-such-pane", direction: "horizontal" },
+      });
+      expect(res).toEqual({
+        status: 400,
+        body: { error: "Unknown paneId: no-such-pane" },
+      });
+    });
+  });
+
+  describe("POST /tabs/:tabId/close", () => {
+    const route = findRoute(paneRoutes, "POST", "/tabs/:tabId/close");
+
+    it("closes a tab found without a workspacePath", async () => {
+      const { tabId } = await seedTab(WS);
+      await seedTab(WS);
+      const res = await call(route, deps, { params: { tabId } });
+      expect(res).toEqual({ status: 200, body: { ok: true } });
+    });
+
+    it("400s on an unknown tabId", async () => {
+      await seedTab(WS);
+      const res = await call(route, deps, {
+        params: { tabId: "no-such-tab" },
+        body: { workspacePath: WS },
+      });
+      expect(res).toEqual({
+        status: 400,
+        body: { error: "Unknown tabId: no-such-tab" },
+      });
+    });
   });
 
   describe("POST /tabs/:tabId/pin", () => {
-    const route = findRoute(tabRoutes, "POST", "/tabs/:tabId/pin");
+    const route = findRoute(paneRoutes, "POST", "/tabs/:tabId/pin");
 
     it("pins then unpins a tab, reporting the new state", async () => {
       const { tabId } = await seedTab(WS);
@@ -432,7 +528,7 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
   });
 
   describe("POST /tabs/:tabId/duplicate", () => {
-    const route = findRoute(tabRoutes, "POST", "/tabs/:tabId/duplicate");
+    const route = findRoute(paneRoutes, "POST", "/tabs/:tabId/duplicate");
 
     it("mints a new tab id distinct from the source", async () => {
       const { tabId } = await seedTab(WS);
@@ -447,7 +543,11 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
   });
 
   describe("workspace resolution order", () => {
-    const route = findRoute(paneRoutes, "POST", "/panes/:paneId/title");
+    // `/panes/:paneId/title` used to be the route this rode on; ADR-182
+    // ticket 1 moved it onto `LayoutStore.setPaneTitle`, which finds its own
+    // workspace and never calls `resolveWorkspacePath` at all (see the
+    // route's own tests below). `/panes/:paneId/extract` still does.
+    const route = findRoute(paneRoutes, "POST", "/panes/:paneId/extract");
 
     it("prefers body.workspacePath over the pane's own workspace", async () => {
       const { paneId } = await seedTab(WS);
@@ -455,7 +555,7 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
       // rather than silently searching elsewhere.
       const res = await call(route, deps, {
         params: { paneId },
-        body: { title: "hello", workspacePath: OTHER_WS },
+        body: { workspacePath: OTHER_WS },
       });
       expect(res.status).toBe(400);
     });
@@ -464,7 +564,53 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
       const { paneId } = await seedTab(WS);
       const res = await call(route, deps, {
         params: { paneId },
+        body: {},
+      });
+      expect(res.status).toBe(200);
+    });
+  });
+
+  describe("POST /panes/:paneId/title", () => {
+    const route = findRoute(paneRoutes, "POST", "/panes/:paneId/title");
+
+    it("sets the title and broadcasts it, off the command channel (ADR-182 D1)", async () => {
+      const { paneId } = await seedTab(WS);
+      const res = await call(route, deps, {
+        params: { paneId },
         body: { title: "hello" },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ paneId, title: "hello" });
+      expect(paneTitlePublishes).toEqual([{ paneId, title: "hello" }]);
+    });
+
+    it("clears the title with null", async () => {
+      const { paneId } = await seedTab(WS);
+      const res = await call(route, deps, {
+        params: { paneId },
+        body: { title: null },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ paneId });
+    });
+
+    it("400s on an unknown paneId, and publishes nothing", async () => {
+      const res = await call(route, deps, {
+        params: { paneId: "no-such-pane" },
+        body: { title: "hello" },
+      });
+
+      expect(res.status).toBe(400);
+      expect(paneTitlePublishes).toHaveLength(0);
+    });
+
+    it("ignores body.workspacePath — the pane finds its own workspace", async () => {
+      const { paneId } = await seedTab(WS);
+      const res = await call(route, deps, {
+        params: { paneId },
+        body: { title: "hello", workspacePath: OTHER_WS },
       });
       expect(res.status).toBe(200);
     });
@@ -488,7 +634,7 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
     });
 
     it("POST /workspaces/active", async () => {
-      const route = findRoute(tabRoutes, "POST", "/workspaces/active");
+      const route = findRoute(paneRoutes, "POST", "/workspaces/active");
       await call(route, deps, { body: { workspacePath: WS } });
       expect(proxyToRenderer).toHaveBeenCalledWith(
         expect.any(Function),
@@ -498,7 +644,7 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
     });
 
     it("POST /tabs/:tabId/select", async () => {
-      const route = findRoute(tabRoutes, "POST", "/tabs/:tabId/select");
+      const route = findRoute(paneRoutes, "POST", "/tabs/:tabId/select");
       await call(route, deps, { params: { tabId: "tab-1" } });
       expect(proxyToRenderer).toHaveBeenCalledWith(
         expect.any(Function),

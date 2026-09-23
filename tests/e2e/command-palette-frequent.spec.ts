@@ -91,9 +91,7 @@ test("frequently used commands rise to the top of the palette", async ({
 
   // Typing does not hand ranking over to search wholesale: a frequent command
   // that still matches stays pinned at the top (`8b18cee`), lifted *out* of
-  // its home group so it is listed once rather than twice. This assertion read
-  // the other way round until ADR-180 ticket 13 — the group used to vanish on
-  // the first keystroke, and the spec outlived that behaviour by a week.
+  // its home group so it is listed once rather than twice.
   await paletteInput(window).fill("new");
   await expect(groupHeadings(window).first()).toHaveText(FREQUENT_HEADING);
   await expect(frequentGroup(window).locator("[cmdk-item]")).toHaveCount(1);

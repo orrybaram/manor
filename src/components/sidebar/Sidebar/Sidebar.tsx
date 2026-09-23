@@ -37,6 +37,7 @@ import {
 import { useBranchWatcher } from "../../../hooks/useBranchWatcher";
 import { useDiffWatcher } from "../../../hooks/useDiffWatcher";
 import { usePrWatcher } from "../../../hooks/usePrWatcher";
+import { useLayoutMode } from "../../../hooks/useLayoutMode";
 import { ProjectItem } from "../ProjectItem";
 import { PortsList } from "../../ports/PortsList";
 import { AgentsList } from "../AgentsList";
@@ -47,10 +48,14 @@ interface SidebarProps {
   onShowAgents?: () => void;
   onOpenProjectSettings?: (projectId: string) => void;
   onAddProject?: () => void;
+  /** ADR-181 D3: fires after a workspace (or Home) is chosen — the
+   *  phone drawer closes on this rather than duplicating the selection
+   *  logic below. No-op inline in desk mode, where nothing passes it. */
+  onNavigate?: () => void;
 }
 
 export function Sidebar(props: SidebarProps) {
-  const { onShowAgents, onOpenProjectSettings, onAddProject } = props;
+  const { onShowAgents, onOpenProjectSettings, onAddProject, onNavigate } = props;
 
   const projects = useProjectStore((s) => s.projects);
   const canGoBack = useNavigationHistoryStore((s) => s.canGoBack());
@@ -77,6 +82,14 @@ export function Sidebar(props: SidebarProps) {
   const setProjectExpanded = useProjectStore((s) => s.setProjectExpanded);
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
   const setSidebarWidth = useProjectStore((s) => s.setSidebarWidth);
+  // ADR-181 D5: on a phone the sidebar lives in `SidebarDrawer`'s fixed-width
+  // sheet, so neither the width handle nor the pointer-drag reorders (the
+  // whole-project one below, the workspace/folder one in `ProjectItem`) have
+  // anywhere useful to go. These are `pointerdown`-driven, not native HTML5
+  // DnD: `setPointerCapture` claims the gesture the instant a finger lands,
+  // ahead of the drawer's scroll and a long-press opening a row's context
+  // menu, and no touch idiom needs reordering the sidebar.
+  const isPhone = useLayoutMode() === "phone";
   const openOrFocusDiff = useAppStore((s) => s.openOrFocusDiff);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
@@ -87,6 +100,11 @@ export function Sidebar(props: SidebarProps) {
   usePrWatcher();
 
   const handleAddProject = onAddProject ?? (() => { });
+
+  const handleSelectHome = useCallback(() => {
+    setActiveWorkspace(HOME_PATH);
+    onNavigate?.();
+  }, [setActiveWorkspace, onNavigate]);
 
   // Project drag-and-drop state
   const [projDragIndex, setProjDragIndex] = useState<number | null>(null);
@@ -102,6 +120,7 @@ export function Sidebar(props: SidebarProps) {
 
   const handleProjectDragStart = useCallback(
     (idx: number, e: ReactPointerEvent) => {
+      if (isPhone) return;
       if (e.button !== 0) return;
 
       const target = e.currentTarget as HTMLElement;
@@ -187,7 +206,7 @@ export function Sidebar(props: SidebarProps) {
       target.addEventListener("pointerup", onUp);
       target.addEventListener("lostpointercapture", onUp);
     },
-    [projects, reorderProjects],
+    [projects, reorderProjects, isPhone],
   );
 
   const getProjectTransformStyle = (idx: number): React.CSSProperties => {
@@ -295,10 +314,10 @@ export function Sidebar(props: SidebarProps) {
           data-sidebar-row=""
           tabIndex={-1}
           aria-current={homeActive ? "true" : undefined}
-          onClick={() => setActiveWorkspace(HOME_PATH)}
+          onClick={handleSelectHome}
           onKeyDown={(e) =>
             handleSidebarRowKeyDown(e, {
-              activate: () => setActiveWorkspace(HOME_PATH),
+              activate: handleSelectHome,
             })
           }
         >
@@ -371,10 +390,12 @@ export function Sidebar(props: SidebarProps) {
                           setProjectExpanded(project.id);
                           const wsIdx = project.selectedWorkspaceIndex;
                           selectWorkspace(project.id, wsIdx >= 0 ? wsIdx : 0);
+                          onNavigate?.();
                         }}
                         onRemove={() => removeProject(project.id)}
                         onSelectWorkspace={(wsIdx) => {
                           selectWorkspace(project.id, wsIdx);
+                          onNavigate?.();
                         }}
                         onRemoveWorktree={(ws, deleteBranch) => {
                           removeWorktreeWithToast(project, ws, deleteBranch);
@@ -392,12 +413,17 @@ export function Sidebar(props: SidebarProps) {
                           setWorkspaceHidden(project.id, ws.path, false)
                         }
                         onCreateWorktree={(name, branch, baseBranch, useExistingBranch) =>
-                          createWorktree(project.id, name, branch, undefined, undefined, baseBranch, useExistingBranch)
+                          createWorktree(project.id, name, {
+                            branch,
+                            baseBranch,
+                            useExistingBranch,
+                          })
                         }
                         onOpenSettings={() =>
                           onOpenProjectSettings?.(project.id)
                         }
                         onDragStart={(e) => handleProjectDragStart(idx, e)}
+                        dragDisabled={isPhone}
                         onOpenDiff={(wsIdx) => {
                           selectWorkspace(project.id, wsIdx);
                           openOrFocusDiff();
@@ -414,10 +440,16 @@ export function Sidebar(props: SidebarProps) {
       </div>
       <PortsList />
 
-      <div
-        className={`${styles.resizeHandle} ${isResizing ? styles.resizeHandleActive : ""}`}
-        onMouseDown={handleResizeStart}
-      />
+      {/* ADR-181 D5: `SidebarDrawer` forces its own fixed width on the phone
+          sheet this renders inside (`.sheet [data-focus-region="sidebar"]`,
+          `SidebarDrawer.module.css`) — the handle has nothing to resize
+          there, and this is a mouse drag with no touch idiom regardless. */}
+      {!isPhone && (
+        <div
+          className={`${styles.resizeHandle} ${isResizing ? styles.resizeHandleActive : ""}`}
+          onMouseDown={handleResizeStart}
+        />
+      )}
     </div>
   );
 }

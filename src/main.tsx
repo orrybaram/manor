@@ -4,8 +4,7 @@
 import { bridgeInstalled } from "./bridge/install-desktop";
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import App from "./App";
+import { createQueryClient, AppRoot } from "./app-root";
 import { loadTerminalFonts } from "./lib/terminal-font";
 
 /**
@@ -21,15 +20,7 @@ import { loadTerminalFonts } from "./lib/terminal-font";
  * `native` in the tickets after this one need no change here.
  */
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 1000 * 60 * 2, // 2 minutes
-      gcTime: 1000 * 60 * 10, // 10 minutes
-      refetchOnWindowFocus: false,
-    },
-  },
-});
+const queryClient = createQueryClient();
 
 const root = document.getElementById("root") as HTMLElement;
 
@@ -49,9 +40,7 @@ if (!bridgeInstalled) {
 
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
-      <QueryClientProvider client={queryClient}>
-        <App />
-      </QueryClientProvider>
+      <AppRoot queryClient={queryClient} />
     </React.StrictMode>,
   );
 }

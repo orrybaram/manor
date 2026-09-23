@@ -20,7 +20,7 @@
  * the real route table.
  */
 
-import type { ControlDeps, Json, ReadBody, Route } from "./types";
+import type { HostDeps, Json, ReadBody, Route } from "./types";
 
 /**
  * Match one pattern against an already-split request path. Segment counts must
@@ -63,7 +63,7 @@ export function matchPath(
 export async function dispatch(
   routes: readonly Route[],
   ownedPrefixes: ReadonlySet<string>,
-  deps: ControlDeps,
+  deps: HostDeps,
   method: string,
   url: URL,
   json: Json,

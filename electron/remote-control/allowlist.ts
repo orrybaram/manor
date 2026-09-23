@@ -15,13 +15,12 @@
  * routes (`/projects`, `/issues`, everything under `/agents/`, any `DELETE`)
  * stay off the surface, so widening it means consciously deleting a test line.
  *
- * **This file governs two of the three capability tiers.** `read` and `send`
- * are the arrays below. The third, `full` (ADR-178 D3), is not a longer array
- * and could not be: a `full` device is handed the *whole* route table, and
- * authentication is the only boundary in front of it. `allowedKeys` returns
- * `null` for that tier — "do not filter" — rather than a set nobody maintains.
- * The deny-assertions in the test are therefore written against `read` and
- * `send` explicitly, so that "full" can never be read as "send".
+ * **This file governs all three capability tiers.** `read` gets
+ * `REMOTE_READ_ROUTES`; `send` and `full` both get the read routes plus
+ * `REMOTE_WRITE_ROUTES` — the same set (ADR-182 D2). Over HTTP a `full`
+ * device is not distinguished from a `send` one: everything a `full` device
+ * can do beyond `send` goes through `/ws`, where the bridge's own
+ * `LOCAL_ONLY` and audit rules apply instead of this file's.
  */
 
 import type { Capability } from "./devices";
@@ -92,19 +91,15 @@ export function routeKey(route: Route): string {
 }
 
 /**
- * Every allowlisted key for a tier, or `null` for `full` — meaning "there is
- * no allowlist; do not filter".
- *
- * `null` rather than a set of every key in `routes`: a set built here would be
- * a second copy of the route table that drifts, and it would make `full` look
- * like a list someone curated. It is not one. It is the absence of one.
+ * Every allowlisted key for a tier. `full` returns the same set as `send`
+ * (ADR-182 D2): over HTTP the two are identical, and a `full` device's extra
+ * reach exists only on `/ws`.
  */
-export function allowedKeys(capability: Capability): Set<string> | null {
-  if (capability === "full") return null;
+export function allowedKeys(capability: Capability): Set<string> {
   return new Set<string>(
-    capability === "send"
-      ? [...REMOTE_READ_ROUTES, ...REMOTE_WRITE_ROUTES]
-      : REMOTE_READ_ROUTES,
+    capability === "read"
+      ? REMOTE_READ_ROUTES
+      : [...REMOTE_READ_ROUTES, ...REMOTE_WRITE_ROUTES],
   );
 }
 
@@ -115,17 +110,12 @@ export function allowedKeys(capability: Capability): Set<string> | null {
  * are written once, in `electron/routes/`, and the remote listener reuses them
  * through the same `dispatch()`. Match order is preserved, so the ordering
  * hazards `router.test.ts` checks for cannot be reintroduced by filtering.
- *
- * For `full` the result is `all`, row for row and in order — a shallow copy so
- * that the caller's `guardWrites` mapping can never hand a mutated array back
- * to the real table.
  */
 export function remoteRouteTable(
   all: readonly Route[],
   capability: Capability,
 ): Route[] {
   const allowed = allowedKeys(capability);
-  if (allowed === null) return [...all];
   return all.filter((route) => allowed.has(routeKey(route)));
 }
 

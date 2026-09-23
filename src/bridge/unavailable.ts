@@ -23,6 +23,8 @@
  * `HANDLERS` and nothing here.
  */
 
+import type { LocalOnlyMethod } from "../../electron/bridge/local-only";
+
 /**
  * Namespaces with no browser meaning at all.
  *
@@ -125,23 +127,23 @@ const SERVED_HERE = {
   "keybindings.runInMainWindow": () => undefined,
 
   /**
-   * The prewarm pair — `LOCAL_ONLY` on the table (ADR-180 D4), answered here
+   * The prewarm pair — local-only on the table (ADR-180 D4), answered here
    * so a browser never asks.
    *
    * There is one prewarmed shell per host and its cwd follows the *primary
    * window's* workspace, so a tab has none to steer and none to adopt. That
    * alone would only make these pointless. What makes them belong here is
    * that `App.tsx` calls `updatePrewarmCwd` on every workspace change: sent to
-   * the host, each one was refused, and once refused `LOCAL_ONLY` calls were
-   * audited (ADR-180 ticket 13) every browser mount wrote a `rejected` line
-   * the device never meant — noise in the one log whose job is to show a
-   * stolen token probing for power. `consumePrewarmed` answers `null`, the
+   * the host, each one would be refused, and since refused `LOCAL_ONLY` calls
+   * are audited, every browser mount would write a `rejected` line the device
+   * never meant — noise in the one log whose job is to show a stolen token
+   * probing for power. `consumePrewarmed` answers `null`, the
    * honest "none waiting", and its caller falls back to a fresh shell.
    */
   "pty.updatePrewarmCwd": () => Promise.resolve(),
   "pty.consumePrewarmed": () => Promise.resolve(null),
-  /** Answers an `onAppCommand`, which nothing on the web can deliver. */
-  sendAppCommandResult: () => undefined,
+  /** Answers an `appCommands.onCommand`, which nothing on the web can deliver. */
+  "appCommands.result": () => undefined,
   // `satisfies` rather than an annotation, so the keys stay literal for
   // `electron/bridge/surface.ts`: this is one of the four places a method of
   // `ElectronAPI` may be served, and the check reads it (ADR-180 D7).
@@ -152,3 +154,28 @@ export const LOCALLY_SERVED: Record<string, (...args: unknown[]) => unknown> =
 
 /** One `ns.method` the tab answers itself. */
 export type LocallyServedMethod = keyof typeof SERVED_HERE;
+
+/** Only a local-only method may be named in `HostRefusedMethod`. */
+type LocalOnly<M extends LocalOnlyMethod> = M;
+
+/**
+ * The local-only methods (`electron/bridge/local-only.ts`) the tab does *not*
+ * answer itself, and why that is the right answer for them.
+ *
+ * Each is a key or the lock it turns, or an edit to a settings page the web
+ * app shows read-only. No browser UI calls one; a call that arrives anyway is
+ * somebody probing for power, and the host's `unavailable:web` — with the
+ * `rejected` audit line it writes — is exactly what it should get. Every
+ * other local-only method is in `SERVED_HERE`, which `surface.ts` checks.
+ */
+export type HostRefusedMethod = LocalOnly<
+  | "keybindings.set"
+  | "keybindings.reset"
+  | "keybindings.resetAll"
+  | "remoteControl.setEnabled"
+  | "remoteControl.pair"
+  | "remoteControl.revoke"
+  | "remoteControl.startTunnel"
+  | "remoteControl.stopTunnel"
+  | "linear.connect"
+>;

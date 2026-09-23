@@ -2,7 +2,7 @@
  * `agentsGetActive`, `agentsGetRecent`, `agentsConsumePruneNotice`.
  *
  * No `ipcMain` here any more: `agents` crossed to the handler table in
- * ADR-180 ticket 9, so these are plain functions over `IpcDeps` — the same
+ * ADR-180 ticket 9, so these are plain functions over `HostDeps` — the same
  * functions the table calls, and a paired `full` device now reaches them the
  * same way the desktop does.
  */
@@ -25,6 +25,7 @@ import {
   agentsGetRecent,
   agentsConsumePruneNotice,
 } from "../bridge/handlers/agents";
+import { localCtx } from "../bridge/method";
 
 function makeDeps(overrides: Record<string, unknown> = {}) {
   return {
@@ -67,19 +68,19 @@ describe("agents.getActive (ADR-136)", () => {
     ];
     deps.agentManager.getActiveAgents.mockReturnValue(active);
 
-    const result = agentsGetActive(deps as never);
+    const result = agentsGetActive(localCtx(deps as never));
     expect(result).toBe(active);
     expect(deps.agentManager.getActiveAgents).toHaveBeenCalledTimes(1);
   });
 
   it("never invokes the sort/slice path of getAllAgents", () => {
-    agentsGetActive(deps as never);
+    agentsGetActive(localCtx(deps as never));
 
     expect(deps.agentManager.getAllAgents).not.toHaveBeenCalled();
   });
 
   it("does not require any arguments", () => {
-    const result = agentsGetActive(deps as never);
+    const result = agentsGetActive(localCtx(deps as never));
     expect(result).toBeDefined();
   });
 });
@@ -92,12 +93,12 @@ describe("agents.getRecent (ADR-136)", () => {
   });
 
   it("calls getAllAgents with the requested limit", () => {
-    agentsGetRecent(deps as never, { limit: 25 });
+    agentsGetRecent(localCtx(deps as never), { limit: 25 });
     expect(deps.agentManager.getAllAgents).toHaveBeenCalledWith({ limit: 25 });
   });
 
   it("defaults to a limit of 50 when none is provided", () => {
-    agentsGetRecent(deps as never);
+    agentsGetRecent(localCtx(deps as never));
     expect(deps.agentManager.getAllAgents).toHaveBeenCalledWith({ limit: 50 });
   });
 });
@@ -112,7 +113,7 @@ describe("agents.consumePruneNotice (ADR-136)", () => {
   it("returns 0 when nothing was pruned", () => {
     deps.agentManager.getLastPruneCount.mockReturnValue(0);
 
-    const result = agentsConsumePruneNotice(deps as never);
+    const result = agentsConsumePruneNotice(localCtx(deps as never));
     expect(result).toBe(0);
     expect(deps.preferencesManager.set).not.toHaveBeenCalled();
   });
@@ -121,7 +122,7 @@ describe("agents.consumePruneNotice (ADR-136)", () => {
     deps.agentManager.getLastPruneCount.mockReturnValue(5);
     deps.preferencesManager.get.mockReturnValue(false);
 
-    const result = agentsConsumePruneNotice(deps as never);
+    const result = agentsConsumePruneNotice(localCtx(deps as never));
     expect(result).toBe(5);
     expect(deps.preferencesManager.set).toHaveBeenCalledWith(
       "agentPruneNoticeShown",
@@ -133,7 +134,7 @@ describe("agents.consumePruneNotice (ADR-136)", () => {
     deps.agentManager.getLastPruneCount.mockReturnValue(5);
     deps.preferencesManager.get.mockReturnValue(true);
 
-    const result = agentsConsumePruneNotice(deps as never);
+    const result = agentsConsumePruneNotice(localCtx(deps as never));
     expect(result).toBe(0);
     expect(deps.preferencesManager.set).not.toHaveBeenCalled();
   });

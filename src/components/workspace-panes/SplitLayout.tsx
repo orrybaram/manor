@@ -1,86 +1,44 @@
-import { useCallback, useRef, useState } from "react";
 import type { PaneNode } from "../../lib/layout/pane-tree";
-import { useDragOverlayStore } from "../../store/drag-overlay-store";
+import { paneTreeContains } from "../../lib/layout/pane-tree";
+import { useLayoutMode } from "../../hooks/useLayoutMode";
+import { useAppStore } from "../../store/app-store";
 import { PaneLayout } from "./PaneLayout/PaneLayout";
-import styles from "./PaneLayout/PaneLayout.module.css";
+import { SplitFrame } from "./SplitFrame";
 
 type SplitLayoutProps = {
   direction: "horizontal" | "vertical";
   ratio: number;
   first: PaneNode;
   second: PaneNode;
+  /** The tab this split belongs to, whose focused pane a phone shows. */
+  tabId: string;
   workspacePath?: string;
 };
 
 export function SplitLayout(props: SplitLayoutProps) {
-  const { direction, ratio, first, second, workspacePath } = props;
+  const { direction, ratio, first, second, tabId, workspacePath } = props;
 
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [currentRatio, setCurrentRatio] = useState(ratio);
-  const [isDragging, setIsDragging] = useState(false);
+  const isPhone = useLayoutMode() === "phone";
 
-  const isHorizontal = direction === "horizontal";
-
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      setIsDragging(true);
-      useDragOverlayStore.getState().incrementDragCount();
-
-      const container = containerRef.current;
-      if (!container) return;
-
-      const onMouseMove = (ev: MouseEvent) => {
-        const rect = container.getBoundingClientRect();
-        let newRatio: number;
-        if (isHorizontal) {
-          newRatio = (ev.clientX - rect.left) / rect.width;
-        } else {
-          newRatio = (ev.clientY - rect.top) / rect.height;
-        }
-        newRatio = Math.max(0.1, Math.min(0.9, newRatio));
-        setCurrentRatio(newRatio);
-      };
-
-      const cleanup = () => {
-        useDragOverlayStore.getState().decrementDragCount();
-        setIsDragging(false);
-        document.removeEventListener("mousemove", onMouseMove);
-        document.removeEventListener("mouseup", cleanup);
-        window.removeEventListener("blur", cleanup);
-      };
-
-      document.addEventListener("mousemove", onMouseMove);
-      document.addEventListener("mouseup", cleanup);
-      window.addEventListener("blur", cleanup);
-    },
-    [isHorizontal],
-  );
-
-  const firstSize = `${currentRatio * 100}%`;
-  const secondSize = `${(1 - currentRatio) * 100}%`;
+  // ADR-181 D1: in phone mode only the child containing the tab's focused
+  // pane is shown. A boolean, and only computed in phone mode, so the desk
+  // layout never re-renders on a focus change it did not before. A tab with
+  // no focus recorded falls back to its first pane, which is never in
+  // `second`, so an unset entry reads the same as that fallback.
+  const focusInSecond = useAppStore((s) => {
+    if (!isPhone) return false;
+    const path = workspacePath ?? s.activeWorkspacePath;
+    if (!path) return false;
+    return paneTreeContains(second, s.viewports[path]?.focusedPaneIds[tabId]);
+  });
 
   return (
-    <div
-      ref={containerRef}
-      className={`${styles.split} ${isHorizontal ? styles.splitHorizontal : styles.splitVertical}`}
-    >
-      <div
-        className={styles.splitChild}
-        style={isHorizontal ? { width: firstSize } : { height: firstSize }}
-      >
-        <PaneLayout node={first} workspacePath={workspacePath} />
-      </div>
-      <div
-        className={`${styles.divider} ${isHorizontal ? styles.dividerHorizontal : styles.dividerVertical} ${isDragging ? styles.dividerActive : ""}`}
-        onMouseDown={handleMouseDown}
-      />
-      <div
-        className={styles.splitChild}
-        style={isHorizontal ? { width: secondSize } : { height: secondSize }}
-      >
-        <PaneLayout node={second} workspacePath={workspacePath} />
-      </div>
-    </div>
+    <SplitFrame
+      direction={direction}
+      ratio={ratio}
+      focusInSecond={focusInSecond}
+      first={<PaneLayout node={first} tabId={tabId} workspacePath={workspacePath} />}
+      second={<PaneLayout node={second} tabId={tabId} workspacePath={workspacePath} />}
+    />
   );
 }

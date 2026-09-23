@@ -9,10 +9,8 @@
  * `../editor`, `listWindows` in `../ipc/window`) so neither caller owns a
  * private copy.
  *
- * The managers are nullable on `ControlDeps` (a unit test may construct a
- * server with none, and `WebviewServer`'s constructor still only takes six of
- * them), so each handler opens with `requireDep`: a missing manager is a
- * capability gap, `503`, never a crash.
+ * Every manager is on `deps`, non-null — the same `HostDeps` the bridge
+ * handlers run over (ADR-182 D8) — so no handler here checks for one.
  */
 
 import { shell } from "electron";
@@ -24,42 +22,18 @@ import {
   restartPortless,
 } from "../process-control";
 import { openInEditor } from "../editor";
-import { sendNotificationsUpdate } from "../notifications";
+import {
+  notificationsClear,
+  notificationsGetAll,
+  notificationsMarkAllRead,
+  notificationsMarkRead,
+} from "../bridge/handlers/notifications";
+import { localCtx } from "../bridge/method";
 import { checkForUpdates, quitAndInstall } from "../updater";
 import { listWindows } from "../ipc/window";
 import { themeSetSelected } from "../bridge/handlers/theme";
 import { isPreferenceKey } from "../preferences";
-import type { TunnelKind } from "../remote-control/tunnel";
-import type { ControlDeps, Json, Route } from "./types";
-
-/**
- * Resolve one manager off the bag or answer `503`. Returns `null` when it
- * responded, so callers read `const x = requireDep(…); if (!x) return;`.
- */
-function requireDep<K extends keyof ControlDeps>(
-  deps: ControlDeps,
-  key: K,
-  label: string,
-  json: Json,
-): NonNullable<ControlDeps[K]> | null {
-  const value = deps[key];
-  if (!value) {
-    json(503, { error: `${label} is not available` });
-    return null;
-  }
-  return value as NonNullable<ControlDeps[K]>;
-}
-
-/**
- * Re-broadcast the whole notification list after a mutation, through the same
- * single send-site `../ipc/notifications.ts` uses — the renderer keeps a cache
- * of main's list and never mutates its copy, so a mutation nobody announced is
- * a stale sidebar.
- */
-function broadcastNotifications(deps: ControlDeps): void {
-  const windows = deps.getRendererWindows?.() ?? [];
-  sendNotificationsUpdate(windows[0] ?? null);
-}
+import type { Route } from "./types";
 
 /** Protocols `shell:openExternal` allows; anything else is a 400. */
 const ALLOWED_PROTOCOLS = [
@@ -69,25 +43,19 @@ const ALLOWED_PROTOCOLS = [
   "x-apple.systempreferences:",
 ];
 
-function isTunnelKind(value: unknown): value is TunnelKind {
-  return value === "tailscale" || value === "cloudflared";
-}
-
 export const systemRoutes: Route[] = [
   // ── Notifications ──
+  //
+  // The bridge's own handlers, so a mutation here re-broadcasts the whole list
+  // through the same single send-site a renderer's does — the renderer keeps a
+  // cache of main's list and never mutates its copy, so a mutation nobody
+  // announced is a stale sidebar.
 
   {
     method: "GET",
     path: "/notifications",
     async handler({ deps, json }) {
-      const store = requireDep(
-        deps,
-        "notificationStore",
-        "Notifications",
-        json,
-      );
-      if (!store) return;
-      json(200, store.getAll());
+      json(200, notificationsGetAll(localCtx(deps)));
     },
   },
 
@@ -95,15 +63,7 @@ export const systemRoutes: Route[] = [
     method: "DELETE",
     path: "/notifications",
     async handler({ deps, json }) {
-      const store = requireDep(
-        deps,
-        "notificationStore",
-        "Notifications",
-        json,
-      );
-      if (!store) return;
-      store.clear();
-      broadcastNotifications(deps);
+      notificationsClear(localCtx(deps));
       json(200, { ok: true });
     },
   },
@@ -112,15 +72,7 @@ export const systemRoutes: Route[] = [
     method: "POST",
     path: "/notifications/read-all",
     async handler({ deps, json }) {
-      const store = requireDep(
-        deps,
-        "notificationStore",
-        "Notifications",
-        json,
-      );
-      if (!store) return;
-      store.markAllRead();
-      broadcastNotifications(deps);
+      notificationsMarkAllRead(localCtx(deps));
       json(200, { ok: true });
     },
   },
@@ -129,17 +81,7 @@ export const systemRoutes: Route[] = [
     method: "POST",
     path: "/notifications/:id/read",
     async handler({ deps, params, json }) {
-      const store = requireDep(
-        deps,
-        "notificationStore",
-        "Notifications",
-        json,
-      );
-      if (!store) return;
-      // `markRead` is false for an id that is unknown *or* already read; only
-      // a real transition is worth a broadcast, exactly as the IPC path.
-      const changed = store.markRead(params.id);
-      if (changed) broadcastNotifications(deps);
+      const changed = notificationsMarkRead(localCtx(deps), params.id);
       json(200, { ok: true, changed });
     },
   },
@@ -150,33 +92,7 @@ export const systemRoutes: Route[] = [
     method: "GET",
     path: "/processes",
     async handler({ deps, json }) {
-      const backend = requireDep(deps, "backend", "Terminal backend", json);
-      if (!backend) return;
-      const agentHookServer = requireDep(
-        deps,
-        "agentHookServer",
-        "Agent hook server",
-        json,
-      );
-      if (!agentHookServer) return;
-      const webviewServer = requireDep(
-        deps,
-        "webviewServer",
-        "Webview server",
-        json,
-      );
-      if (!webviewServer) return;
-      const portScanner = requireDep(deps, "portScanner", "Port scanner", json);
-      if (!portScanner) return;
-      json(
-        200,
-        await listProcesses({
-          backend,
-          agentHookServer,
-          webviewServer,
-          portScanner,
-        }),
-      );
+      json(200, await listProcesses(deps));
     },
   },
 
@@ -184,9 +100,7 @@ export const systemRoutes: Route[] = [
     method: "POST",
     path: "/processes/cleanup-dead",
     async handler({ deps, json }) {
-      const backend = requireDep(deps, "backend", "Terminal backend", json);
-      if (!backend) return;
-      json(200, await cleanupDeadProcesses(backend));
+      json(200, await cleanupDeadProcesses(deps.backend));
     },
   },
 
@@ -205,25 +119,7 @@ export const systemRoutes: Route[] = [
     method: "POST",
     path: "/processes/kill-all",
     async handler({ deps, json }) {
-      const backend = requireDep(deps, "backend", "Terminal backend", json);
-      if (!backend) return;
-      const agentManager = requireDep(
-        deps,
-        "agentManager",
-        "Agent management",
-        json,
-      );
-      if (!agentManager) return;
-      const statsStore = requireDep(deps, "statsStore", "Usage stats", json);
-      if (!statsStore) return;
-      const portScanner = requireDep(deps, "portScanner", "Port scanner", json);
-      if (!portScanner) return;
-      await killAllProcesses({
-        backend,
-        agentManager,
-        statsStore,
-        portScanner,
-      });
+      await killAllProcesses(deps);
       json(200, { ok: true });
     },
   },
@@ -243,9 +139,7 @@ export const systemRoutes: Route[] = [
     method: "GET",
     path: "/ports",
     async handler({ deps, json }) {
-      const portScanner = requireDep(deps, "portScanner", "Port scanner", json);
-      if (!portScanner) return;
-      json(200, await portScanner.scanNow());
+      json(200, await deps.portScanner.scanNow());
     },
   },
 
@@ -253,8 +147,6 @@ export const systemRoutes: Route[] = [
     method: "POST",
     path: "/ports/kill",
     async handler({ deps, json, readBody }) {
-      const backend = requireDep(deps, "backend", "Terminal backend", json);
-      if (!backend) return;
       const body = await readBody();
       const pid = body.pid;
       if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) {
@@ -262,7 +154,7 @@ export const systemRoutes: Route[] = [
         return;
       }
       try {
-        await backend.ports.kill(pid);
+        await deps.backend.ports.kill(pid);
       } catch {
         // Process may have already exited — the IPC path ignores this too.
       }
@@ -276,9 +168,7 @@ export const systemRoutes: Route[] = [
     method: "GET",
     path: "/preferences",
     async handler({ deps, json }) {
-      const prefs = requireDep(deps, "preferencesManager", "Preferences", json);
-      if (!prefs) return;
-      json(200, prefs.getAll());
+      json(200, deps.preferencesManager.getAll());
     },
   },
 
@@ -286,8 +176,6 @@ export const systemRoutes: Route[] = [
     method: "POST",
     path: "/preferences",
     async handler({ deps, json, readBody }) {
-      const prefs = requireDep(deps, "preferencesManager", "Preferences", json);
-      if (!prefs) return;
       const body = await readBody();
       const key = body.key;
       // Unlike the renderer — which only ever sends keys its settings UI knows
@@ -304,7 +192,7 @@ export const systemRoutes: Route[] = [
       // `as never` for the same reason `preferences:set` uses it: `key` is a
       // union of every preference name, so its value type is a union `set`'s
       // generic cannot narrow from a runtime string.
-      prefs.set(key, body.value as never);
+      deps.preferencesManager.set(key, body.value as never);
       json(200, { ok: true });
     },
   },
@@ -315,11 +203,9 @@ export const systemRoutes: Route[] = [
     method: "GET",
     path: "/theme",
     async handler({ deps, json }) {
-      const themeManager = requireDep(deps, "themeManager", "Themes", json);
-      if (!themeManager) return;
       json(200, {
-        name: themeManager.getSelectedThemeName(),
-        theme: themeManager.getTheme(),
+        name: deps.themeManager.getSelectedThemeName(),
+        theme: deps.themeManager.getTheme(),
       });
     },
   },
@@ -328,8 +214,6 @@ export const systemRoutes: Route[] = [
     method: "POST",
     path: "/theme",
     async handler({ deps, json, readBody }) {
-      const themeManager = requireDep(deps, "themeManager", "Themes", json);
-      if (!themeManager) return;
       const body = await readBody();
       const name = body.name;
       if (typeof name !== "string" || !name) {
@@ -338,7 +222,7 @@ export const systemRoutes: Route[] = [
       }
       // Not `setSelectedThemeName` directly: a theme set from the CLI or MCP
       // is every viewer's, exactly as one set from the UI is (ADR-179 D6).
-      const theme = themeSetSelected({ themeManager }, name);
+      const theme = themeSetSelected(localCtx(deps), name);
       json(200, { name, theme });
     },
   },
@@ -347,9 +231,7 @@ export const systemRoutes: Route[] = [
     method: "GET",
     path: "/theme/all",
     async handler({ deps, json }) {
-      const themeManager = requireDep(deps, "themeManager", "Themes", json);
-      if (!themeManager) return;
-      json(200, await themeManager.loadAllThemeColors());
+      json(200, await deps.themeManager.loadAllThemeColors());
     },
   },
 
@@ -359,9 +241,7 @@ export const systemRoutes: Route[] = [
     method: "GET",
     path: "/stats",
     async handler({ deps, json }) {
-      const statsStore = requireDep(deps, "statsStore", "Usage stats", json);
-      if (!statsStore) return;
-      json(200, statsStore.getSummary());
+      json(200, deps.statsStore.getSummary());
     },
   },
 
@@ -370,9 +250,7 @@ export const systemRoutes: Route[] = [
     method: "DELETE",
     path: "/stats",
     async handler({ deps, json }) {
-      const statsStore = requireDep(deps, "statsStore", "Usage stats", json);
-      if (!statsStore) return;
-      statsStore.reset();
+      deps.statsStore.reset();
       json(200, { ok: true });
     },
   },
@@ -388,14 +266,7 @@ export const systemRoutes: Route[] = [
     method: "GET",
     path: "/remote-control",
     async handler({ deps, json }) {
-      const remoteControl = requireDep(
-        deps,
-        "remoteControl",
-        "Remote control",
-        json,
-      );
-      if (!remoteControl) return;
-      json(200, remoteControl.status());
+      json(200, deps.remoteControl.status());
     },
   },
 
@@ -403,20 +274,13 @@ export const systemRoutes: Route[] = [
     method: "POST",
     path: "/remote-control/enabled",
     async handler({ deps, json, readBody }) {
-      const remoteControl = requireDep(
-        deps,
-        "remoteControl",
-        "Remote control",
-        json,
-      );
-      if (!remoteControl) return;
       const body = await readBody();
       if (typeof body.enabled !== "boolean") {
         json(400, { error: "Missing 'enabled' boolean in request body" });
         return;
       }
       try {
-        json(200, await remoteControl.setEnabled(body.enabled));
+        json(200, await deps.remoteControl.setEnabled(body.enabled));
       } catch (err) {
         json(400, { error: String(err) });
       }
@@ -427,36 +291,16 @@ export const systemRoutes: Route[] = [
     method: "POST",
     path: "/remote-control/refresh",
     async handler({ deps, json }) {
-      const remoteControl = requireDep(
-        deps,
-        "remoteControl",
-        "Remote control",
-        json,
-      );
-      if (!remoteControl) return;
-      json(200, await remoteControl.refreshDetection());
+      json(200, await deps.remoteControl.refreshDetection());
     },
   },
 
   {
     method: "POST",
     path: "/remote-control/tunnel/start",
-    async handler({ deps, json, readBody }) {
-      const remoteControl = requireDep(
-        deps,
-        "remoteControl",
-        "Remote control",
-        json,
-      );
-      if (!remoteControl) return;
-      const body = await readBody();
-      const kind = body.kind;
-      if (kind !== undefined && !isTunnelKind(kind)) {
-        json(400, { error: "'kind' must be 'tailscale' or 'cloudflared'" });
-        return;
-      }
+    async handler({ deps, json }) {
       try {
-        json(200, await remoteControl.startTunnel(kind));
+        json(200, await deps.remoteControl.startTunnel());
       } catch (err) {
         json(400, { error: String(err) });
       }
@@ -467,14 +311,7 @@ export const systemRoutes: Route[] = [
     method: "POST",
     path: "/remote-control/tunnel/stop",
     async handler({ deps, json }) {
-      const remoteControl = requireDep(
-        deps,
-        "remoteControl",
-        "Remote control",
-        json,
-      );
-      if (!remoteControl) return;
-      json(200, await remoteControl.stopTunnel());
+      json(200, await deps.remoteControl.stopTunnel());
     },
   },
 
@@ -484,8 +321,6 @@ export const systemRoutes: Route[] = [
     method: "POST",
     path: "/shell/open-in-editor",
     async handler({ deps, json, readBody }) {
-      const prefs = requireDep(deps, "preferencesManager", "Preferences", json);
-      if (!prefs) return;
       const body = await readBody();
       const dirPath = body.path;
       if (typeof dirPath !== "string" || !dirPath) {
@@ -494,7 +329,7 @@ export const systemRoutes: Route[] = [
       }
       // Both `openInEditor` branches report failure the same way: a non-empty
       // string. Empty (or undefined) means it opened.
-      const error = await openInEditor(prefs, dirPath);
+      const error = await openInEditor(deps.preferencesManager, dirPath);
       json(200, { ok: !error, error: error ? error : null });
     },
   },
@@ -531,16 +366,9 @@ export const systemRoutes: Route[] = [
     method: "GET",
     path: "/windows",
     async handler({ deps, json }) {
-      const getRendererWindows = requireDep(
-        deps,
-        "getRendererWindows",
-        "Window listing",
-        json,
-      );
-      if (!getRendererWindows) return;
       // No exclusion: `window:listWindows` drops the calling window because a
       // renderer cannot drop a tab into itself; an HTTP caller is not a window.
-      json(200, listWindows(getRendererWindows()));
+      json(200, listWindows(deps.getRendererWindows()));
     },
   },
 

@@ -1,5 +1,5 @@
 /**
- * The last namespace group to cross (ADR-180 D4/D8, ticket 10).
+ * The last namespace group to cross (ADR-180 D4/D8).
  *
  * `git`, `github`, `linear` and `remoteControl` are table entries now, and two
  * things about them are decisions rather than mechanics — which means nothing
@@ -13,14 +13,14 @@
  *   tunnel controls refuse a paired device because a stolen `full` token that
  *   can pair more devices is a token that survives its own revocation;
  *   `linear.connect` refuses one because it is the only method in the surface
- *   whose *argument* is a credential. Both are one line in a `Set` — which is
- *   the point of writing them down, and the reason they are asserted through
- *   real dispatch rather than by reading the `Set` back.
+ *   whose *argument* is a credential. Both are one flag on a table entry —
+ *   which is the point of writing them down, and the reason they are
+ *   asserted through real dispatch rather than by reading the set back.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-import type { IpcDeps } from "../../ipc/types";
+import type { HostDeps } from "../../ipc/types";
 import { UNAVAILABLE_CODE } from "../types";
 import { BridgeServer } from "../server";
 import type { BridgeConnection, EventFrame } from "../types";
@@ -54,7 +54,7 @@ describe("git.push over the bridge", () => {
     const deps = {
       getRendererWindows: () => [],
       backend: { git: { pushStream } },
-    } as unknown as IpcDeps;
+    } as unknown as HostDeps;
     server = new BridgeServer(deps);
   });
 
@@ -161,7 +161,7 @@ describe("what a paired device may not call (LOCAL_ONLY)", () => {
       getRendererWindows: () => [],
       remoteControl,
       linearManager,
-    } as unknown as IpcDeps;
+    } as unknown as HostDeps;
     server = new BridgeServer(deps);
   });
 

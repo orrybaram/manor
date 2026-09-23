@@ -43,7 +43,11 @@ function makeProject(
   } as unknown as ProjectInfo;
 }
 
-function makeAppState(overrides: Partial<MenuAppState> = {}): MenuAppState {
+/** `contentType` is the leaf's own, where the menu reads it (ADR-182 D9). */
+function makeAppState(
+  overrides: Partial<MenuAppState> = {},
+  contentType: "terminal" | "browser" | "diff" | null = "diff",
+): MenuAppState {
   return {
     activeWorkspacePath: MAIN,
     viewports: {},
@@ -58,14 +62,17 @@ function makeAppState(overrides: Partial<MenuAppState> = {}): MenuAppState {
               {
                 id: "tab-1",
                 title: "Terminal",
-                rootNode: { type: "leaf", paneId: "pane-1" },
+                rootNode: {
+                  type: "leaf",
+                  paneId: "pane-1",
+                  ...(contentType && { contentType }),
+                },
               },
             ],
           },
         },
       },
     },
-    paneContentType: { "pane-1": "diff" },
     paneAgentStatus: {},
     ...overrides,
   };
@@ -206,18 +213,20 @@ describe("deriveMenuContext", () => {
 
   it("reports a terminal pane with a detected agent as an agent pane", () => {
     const context = deriveMenuContext(
-      makeAppState({
-        paneContentType: { "pane-1": "terminal" },
-        paneAgentStatus: {
-          "pane-1": {
-            kind: "claude",
-            status: "working",
-            processName: "claude",
-            since: 0,
-            title: null,
+      makeAppState(
+        {
+          paneAgentStatus: {
+            "pane-1": {
+              kind: "claude",
+              status: "working",
+              processName: "claude",
+              since: 0,
+              title: null,
+            },
           },
         },
-      }),
+        "terminal",
+      ),
       [makeProject()],
       [],
       PREFS,
@@ -229,7 +238,7 @@ describe("deriveMenuContext", () => {
 
   it("defaults an unmarked pane to terminal", () => {
     const context = deriveMenuContext(
-      makeAppState({ paneContentType: {} }),
+      makeAppState({}, null),
       [makeProject()],
       [],
       PREFS,

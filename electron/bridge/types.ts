@@ -1,18 +1,21 @@
 /**
  * The bridge protocol, in one file (ADR-180 D1).
  *
- * The frames on the wire and the one thing dispatch knows about a caller.
- * `BridgeServer` speaks these; a transport carries them. Which is why this
- * file imports nothing: a `WebSocket`, an `ipcMain` channel and whatever
- * carries these next must all be describable in the same five shapes, and a
- * type that reached for `ws` here would have decided that question for them.
+ * The frames on the wire, the one thing dispatch knows about a caller, and the
+ * constants both ends of a transport must agree on (channel names, close
+ * codes, the keyless-subscription key). `BridgeServer` speaks these; a
+ * transport carries them. Which is why this file imports nothing: a
+ * `WebSocket`, an `ipcMain` channel and whatever carries these next must all
+ * be describable in the same five shapes, and a type that reached for `ws`
+ * here would have decided that question for them.
  *
  * What this is *not*: it is not the handler table (`handlers.ts` is), not the
  * dispatcher (`server.ts` is), and not a client. `src/bridge/client.ts` holds
  * the renderers' half — and imports this file rather than mirroring it, which
  * is the other reason the import list above has to stay empty: these shapes
- * are read from the main process, an Electron renderer and a browser bundle,
- * and only a file with no dependencies can be read from all three.
+ * are read from the main process, the preload, an Electron renderer and a
+ * browser bundle, and only a file with no dependencies can be read from all
+ * four.
  *
  * A frame is one of five kinds. The client sends `invoke`, `subscribe` and
  * `unsubscribe`; the host answers `result` and pushes `event`. The hello
@@ -31,23 +34,45 @@ export const BRIDGE_PROTOCOL_VERSION = 1;
 export const UNAVAILABLE_CODE = "unavailable:web";
 
 /**
- * A method that is in the table on purpose and refuses on purpose.
- *
- * Refusing beats silently dropping: a browser whose call is quietly discarded
- * has lost the user's work without being able to say so. No entry refuses
- * today — ADR-179 moved layout to the Manor server and `layout.save`, the
- * last one, went with it — but the shape stays, because the next method that
- * is deliberately unavailable should refuse rather than 404. A method that is
- * unavailable to *devices only* is a different thing and says so a different
- * way: `LOCAL_ONLY` in `handlers.ts` (ADR-180 D4).
+ * The key a subscription that named none is filed under — by `BridgeServer`,
+ * and by `SubscriptionRegistry` on the client side of either transport. Kept
+ * off the wire: a subscribe frame with no `key` means exactly this, and
+ * sending it would be saying the same thing twice.
  */
-export class BridgeRefusal extends Error {
-  readonly code = UNAVAILABLE_CODE;
-  constructor(message: string) {
-    super(message);
-    this.name = "BridgeRefusal";
-  }
-}
+export const ALL_KEYS = "*";
+
+/**
+ * The desktop transport's IPC channels (ADR-180 D2): the main process listens
+ * on them (`transports/ipc.ts`) and the preload sends on them. Here rather
+ * than in either, because the preload may not import the main side — that
+ * module reaches for `ipcMain` and, through the handler table, the whole main
+ * process.
+ */
+/** An `InvokeFrame`, answered with its `ResultFrame` (`ipcMain.handle`). */
+export const BRIDGE_INVOKE = "bridge:invoke";
+/** A `SubscribeFrame`. No reply. */
+export const BRIDGE_SUBSCRIBE = "bridge:subscribe";
+/** An `UnsubscribeFrame`. No reply. */
+export const BRIDGE_UNSUBSCRIBE = "bridge:unsubscribe";
+/** Main → renderer: one `EventFrame`. */
+export const BRIDGE_EVENT = "bridge:event";
+/**
+ * "Who am I?", answered synchronously (ADR-179 D3). The one
+ * channel that carries no frame: the preload has to know its `rendererId`
+ * before the page's first line runs, and `webContents.id` is already in hand.
+ */
+export const BRIDGE_RENDERER_ID = "bridge:rendererId";
+
+/**
+ * The WebSocket transport's close codes, in the application range so they
+ * read as the HTTP statuses they mirror: the client can tell "your token is
+ * wrong, re-pair" from "your token is right and this tier cannot do this",
+ * and stops dialling on either.
+ */
+/** No `hello`, a bad token, or a revoked device. */
+export const CLOSE_UNAUTHORIZED = 4401;
+/** A valid token for a device below the `full` tier. */
+export const CLOSE_FORBIDDEN = 4403;
 
 /** A call: `ns.method(...args)`, answered with a `ResultFrame` carrying `id`. */
 export interface InvokeFrame {
@@ -87,6 +112,9 @@ export interface UnsubscribeFrame {
   event: string;
   key?: string;
 }
+
+/** Anything a client sends. */
+export type ClientFrame = InvokeFrame | SubscribeFrame | UnsubscribeFrame;
 
 /**
  * Something happened: `ns.event(...args)`.

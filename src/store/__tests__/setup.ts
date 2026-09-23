@@ -20,7 +20,6 @@ if (typeof globalThis.window === "undefined") {
       // ADR-179 D3: the store compares a broadcast's origin with this to
       // decide whether a command's selection hint is its own.
       rendererId: FAKE_RENDERER_ID,
-      isDetached: false,
       // No claim: the store under test is a primary window, which shows every
       // tab of the workspace (ADR-179 D4).
       claim: null,
@@ -29,10 +28,10 @@ if (typeof globalThis.window === "undefined") {
       // subscribes to it at import time and every layout action goes through
       // it. See `fake-layout-server.ts`.
       layout: fakeLayoutApi(),
-      // agent-store.ts subscribes to agents.onUpdate at module-init time, and
-      // app-store.closePaneById calls agents.abandonForPane. Provide a minimal
-      // agents surface so importing those stores does not throw. Individual
-      // tests can override specific methods via vi.stubGlobal.
+      // agent-store.ts subscribes to agents.onUpdate at module-init time.
+      // Provide a minimal agents surface so importing those stores does not
+      // throw. Individual tests can override specific methods via
+      // vi.stubGlobal.
       agents: {
         onUpdate: vi.fn(() => vi.fn()),
         markSeen: vi.fn().mockResolvedValue(undefined),

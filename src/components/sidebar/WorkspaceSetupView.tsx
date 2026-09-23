@@ -11,6 +11,7 @@ import { ManorLogo } from "../ui/ManorLogo";
 import { Row, Stack } from "../ui/Layout/Layout";
 import { Button } from "../ui/Button/Button";
 import { MiniTerminal } from "../ui/MiniTerminal";
+import { workspaceDisplayName } from "../../lib/workspace-display-name";
 import styles from "./WorkspaceSetupView.module.css";
 
 interface WorkspaceSetupViewProps {
@@ -81,14 +82,7 @@ function SetupChecklist({
 
 function resolveWorkspaceName(wsPath: string): string {
   if (wsPath === "__pending__") return "workspace";
-  const projects = useProjectStore.getState().projects;
-  for (const project of projects) {
-    const ws = project.workspaces.find((w) => w.path === wsPath);
-    if (ws) {
-      return ws.name || ws.branch || wsPath.split("/").pop() || "workspace";
-    }
-  }
-  return wsPath.split("/").pop() || "workspace";
+  return workspaceDisplayName(wsPath, useProjectStore.getState().projects);
 }
 
 export function WorkspaceSetupView({

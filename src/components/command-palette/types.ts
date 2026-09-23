@@ -24,7 +24,6 @@ export interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
   onOpenSettings?: (page?: SettingsPageId) => void;
-  onOpenFeedback?: () => void;
   onNewWorkspace?: (opts?: {
     projectId?: string;
     name?: string;
@@ -36,6 +35,8 @@ export interface CommandPaletteProps {
   onViewAllAgents: () => void;
   onNewAgent: () => void;
   onNewAgentWithPrompt?: (prompt: string) => void;
+  /** Run a command-table command (`lib/commands.ts`) through `App`'s map. */
+  onRunCommand: (commandId: string, args?: Record<string, unknown>) => void;
   initialView?: PaletteView;
   initialIssueId?: string | null;
   initialGitHubIssueNumber?: number | null;

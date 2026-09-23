@@ -9,10 +9,8 @@ import type { LinearAssociation, LinkedIssue } from "./linear";
 import type { GitBackend } from "./backend/types";
 import { manorDataDir, worktreesDir } from "./paths";
 import { sanitizeBranchName, toDirSlug } from "./branch-name";
-import {
-  publishRendererBroadcast,
-  publishToRenderer,
-} from "./renderer-broadcast";
+import { publishToRenderer } from "./renderer-broadcast";
+import type { SetupStep, StepStatus } from "../src/store/project-store";
 
 const execAsync = promisify(exec);
 
@@ -53,6 +51,23 @@ export interface WorkspaceInfo {
   linkedIssues?: LinkedIssue[];
   hidden?: boolean;
   folderId?: string | null;
+}
+
+/** Everything about a new worktree beyond its project and name. */
+export interface CreateWorktreeOptions {
+  /** The branch to create or check out; defaults to one named after `name`. */
+  branch?: string;
+  linkedIssue?: LinkedIssue;
+  /** The ref a new branch starts from; defaults to the project's default. */
+  baseBranch?: string;
+  /** Check `branch` out as it is rather than creating it. */
+  useExistingBranch?: boolean;
+  /**
+   * The bridge connection that asked, so its own window gets the setup
+   * progress (ADR-180 D5). Null — the default, and what the CLI, MCP and the
+   * issue-batch path pass — broadcasts it instead.
+   */
+  origin?: string | null;
 }
 
 /** Pre-fetched issue data needed to create a workspace for it. */
@@ -255,13 +270,26 @@ export function isFolderDescendant(
   return false;
 }
 
+/** What `removeWorktree` needs of `LayoutStore`: to forget the workspace. */
+interface WorkspaceLayoutOwner {
+  remove(workspacePath: string): void;
+}
+
 export class ProjectManager {
   private state: PersistedState;
   private dataDir: string;
   private git: GitBackend;
   private resyncDone = false;
 
-  constructor(git: GitBackend, dataDir?: string) {
+  /**
+   * @param layout The server's layout store, as far as removing a worktree
+   * needs it. Optional so a test about projects alone need not build one.
+   */
+  constructor(
+    git: GitBackend,
+    dataDir?: string,
+    private readonly layout?: WorkspaceLayoutOwner,
+  ) {
     this.git = git;
     this.dataDir = dataDir ?? manorDataDir();
     this.state = this.loadState();
@@ -300,15 +328,11 @@ export class ProjectManager {
    */
   private emitSetupProgress(
     origin: string | null,
-    step: string,
-    status: string,
+    step: SetupStep,
+    status: StepStatus,
     message?: string,
   ) {
     const event = { step, status, message };
-    if (origin === null) {
-      publishRendererBroadcast("projects", "worktreeProgress", event);
-      return;
-    }
     publishToRenderer(origin, "projects", "worktreeProgress", event);
   }
 
@@ -493,7 +517,16 @@ export class ProjectManager {
     };
   }
 
-  removeProject(projectId: string): void {
+  /**
+   * Forget a project, and tear down the layout of every one of its
+   * workspaces the same way `removeWorktree` does: their panes end and every
+   * renderer drops them. The directories stay; only Manor lets go of them.
+   *
+   * The project leaves the list before the first `await`, so a caller that
+   * does not wait still sees it gone.
+   */
+  async removeProject(projectId: string): Promise<void> {
+    const project = this.findProject(projectId);
     this.state.projects = this.state.projects.filter((p) => p.id !== projectId);
     if (this.state.selectedProjectIndex >= this.state.projects.length) {
       this.state.selectedProjectIndex = Math.max(
@@ -502,6 +535,11 @@ export class ProjectManager {
       );
     }
     this.saveState();
+    if (!project || !this.layout) return;
+
+    const workspaces = (await listGitWorkspaces(this.git, project.path)) ?? [];
+    const paths = new Set([project.path, ...workspaces.map((ws) => ws.path)]);
+    for (const workspacePath of paths) this.layout.remove(workspacePath);
   }
 
   selectWorkspace(projectId: string, workspaceIndex: number): void {
@@ -858,6 +896,12 @@ export class ProjectManager {
     const project = this.findProject(projectId);
     if (!project) return;
 
+    // Before anything touches the directory: the workspace's panes end here —
+    // shells killed, agents abandoned — and every renderer drops its layout
+    // (ADR-182 D7). The one teardown for every way a worktree is removed: the
+    // sidebar, quick merge, the CLI and MCP all come through this method.
+    this.layout?.remove(worktreePath);
+
     const progress = onProgress ?? (() => {});
 
     // Detect the branch before removing the worktree
@@ -1185,13 +1229,7 @@ export class ProjectManager {
         };
         const name = toDirSlug(seed.title) || "issue-" + seed.number;
         const worktreePath = this.worktreePathFor(project, name);
-        await this.createWorktree(
-          projectId,
-          name,
-          undefined,
-          linkedIssue,
-          baseBranch,
-        );
+        await this.createWorktree(projectId, name, { linkedIssue, baseBranch });
         results.push({ ...base, worktreePath });
       } catch (err) {
         results.push({ ...base, error: String(err) });
@@ -1200,21 +1238,19 @@ export class ProjectManager {
     return results;
   }
 
-  /**
-   * @param origin  The bridge connection that asked, so its own window gets
-   *   the setup progress (ADR-180 D5). Null — the default, and what the CLI,
-   *   MCP and the issue-batch path pass — broadcasts it instead.
-   */
   async createWorktree(
     projectId: string,
     name: string,
-    branch?: string,
-    linkedIssue?: LinkedIssue,
-    baseBranch?: string,
-    useExistingBranch?: boolean,
-    origin: string | null = null,
+    opts: CreateWorktreeOptions = {},
   ): Promise<ProjectInfo | null> {
-    const progress = (step: string, status: string, message?: string) =>
+    const {
+      branch,
+      linkedIssue,
+      baseBranch,
+      useExistingBranch,
+      origin = null,
+    } = opts;
+    const progress = (step: SetupStep, status: StepStatus, message?: string) =>
       this.emitSetupProgress(origin, step, status, message);
     const project = this.findProject(projectId);
     if (!project) return null;

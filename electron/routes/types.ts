@@ -1,6 +1,6 @@
 /**
- * The vocabulary every route in `electron/routes/` speaks: the dependency bag,
- * the two HTTP callbacks the listener hands down, and the `Route` shape the
+ * The vocabulary every route in `electron/routes/` speaks: the deps it runs
+ * over, the two HTTP callbacks the listener hands down, and the `Route` shape the
  * matcher consumes.
  *
  * This module is the acyclic root of `electron/routes/`. `./index.ts` imports
@@ -8,54 +8,22 @@
  * back from `./index.ts` — the shared declarations live here instead.
  */
 
-import type { BrowserWindow } from "electron";
-import type { ProjectManager } from "../persistence";
-import type { GitHubManager } from "../github";
-import type { LinearManager } from "../linear";
-import type { LayoutPersistence } from "../terminal-host/layout-persistence";
-import type { LayoutStore } from "../layout/layout-store";
-import type { AgentManager } from "../agent-persistence";
-import type { LocalBackend } from "../backend/local-backend";
-import type { NotificationStore } from "../notification-store";
-import type { StatsStore } from "../stats-store";
-import type { PreferencesManager } from "../preferences";
-import type { ThemeManager } from "../theme";
-import type { PortScanner } from "../ports";
-import type { RemoteControlController } from "../remote-control/controller";
-import type { AgentHookServer } from "../agent-hooks";
+import type { HostDeps } from "../ipc/types";
 
-export interface ControlDeps {
-  projectManager: ProjectManager | null;
-  githubManager: GitHubManager | null;
-  linearManager: LinearManager | null;
-  layoutPersistence: LayoutPersistence | null;
-  /** ADR-179. Structural pane routes drive this instead of a window (D5). */
-  layoutStore: LayoutStore | null;
-  agentManager: AgentManager | null;
-  backend: LocalBackend | null;
-  notificationStore: NotificationStore | null;
-  statsStore: StatsStore | null;
-  preferencesManager: PreferencesManager | null;
-  themeManager: ThemeManager | null;
-  portScanner: PortScanner | null;
-  remoteControl: RemoteControlController | null;
-  agentHookServer: AgentHookServer | null;
-  /**
-   * The HTTP server serving this very request, reported by `GET /processes`
-   * alongside the other internal servers. Structural rather than the
-   * `WebviewServer` class so `routes/` keeps no import edge back to its own
-   * host module.
-   */
-  webviewServer: { serverPort: number | null } | null;
-  getRendererWindows: (() => BrowserWindow[]) | null;
-}
+/**
+ * A route runs over the same non-null deps a bridge handler does (ADR-182
+ * D8): `app-lifecycle.ts` builds one `HostDeps` and hands it to both, so a
+ * route can call a bridge handler with `localCtx(deps)` instead of keeping
+ * its own copy of what that handler does.
+ */
+export type { HostDeps };
 
 export type Json = (status: number, body: unknown) => void;
 export type ReadBody = () => Promise<Record<string, unknown>>;
 
 /** Everything a route handler is given. `params` are already decoded. */
 export interface RouteContext {
-  deps: ControlDeps;
+  deps: HostDeps;
   params: Record<string, string>;
   url: URL;
   json: Json;

@@ -1,13 +1,16 @@
 /**
- * The keybinding registry, split into its own leaf module with ZERO imports
- * and no DOM references so the Electron main process can import it directly
- * (to render shortcuts in the native menu) without pulling in renderer-only
- * code. `keybindings.ts` transitively references `navigator`/`KeyboardEvent`,
- * which do not exist in main. See `home-path.ts` for the precedent.
+ * The keybinding registry, split into its own leaf module with no DOM
+ * references so the Electron main process can import it directly (to render
+ * shortcuts in the native menu) without pulling in renderer-only code.
+ * `keybindings.ts` transitively references `navigator`/`KeyboardEvent`, which
+ * do not exist in main. See `home-path.ts` for the precedent. Its one import
+ * is the command table, which is held to the same rule.
  *
  * Renderer code should keep importing these from `keybindings.ts`, which
  * re-exports everything here.
  */
+
+import { COMMANDS } from "./commands";
 
 export interface KeyCombo {
   key: string; // e.g. "t", "w", "d", ",", "[", "]", "\\", "1"-"9", "=", "-", "0"
@@ -55,285 +58,92 @@ function metaCombo(
   return { key, meta: true, ctrl, shift, alt };
 }
 
-/** A combo without ⌘ — only function keys may be bound this way (ADR-175). */
-function plainCombo(key: string, shift = false): KeyCombo {
-  return { key, meta: false, ctrl: false, shift, alt: false };
-}
+/**
+ * Every bindable command, in registry order — the order a combo's commands
+ * are tried in. Derived from the command table (ADR-182 D10): an entry is
+ * bindable when it names a `defaultCombo`, even a `null` one.
+ */
+export const DEFAULT_KEYBINDINGS: KeybindingDef[] = COMMANDS.flatMap(
+  ({ id, label, category, defaultCombo }): KeybindingDef[] =>
+    defaultCombo === undefined
+      ? []
+      : [{ id, label, category, ...(defaultCombo ? { defaultCombo } : {}) }],
+);
 
-export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
-  {
-    id: "new-tab",
-    label: "New Tab",
-    defaultCombo: metaCombo("t"),
-    category: "workspace",
-  },
-  {
-    id: "close-pane",
-    label: "Close Pane",
-    defaultCombo: metaCombo("w"),
-    category: "terminal",
-  },
-  {
-    id: "close-tab",
-    label: "Close Tab",
-    defaultCombo: metaCombo("w", true),
-    category: "workspace",
-  },
-  {
-    id: "split-h",
-    label: "Split Horizontal",
-    defaultCombo: metaCombo("d"),
-    category: "terminal",
-  },
-  {
-    id: "split-v",
-    label: "Split Vertical",
-    defaultCombo: metaCombo("d", true),
-    category: "terminal",
-  },
-  {
-    id: "next-tab",
-    label: "Next Tab",
-    defaultCombo: metaCombo("]", true),
-    category: "workspace",
-  },
-  {
-    id: "prev-tab",
-    label: "Previous Tab",
-    defaultCombo: metaCombo("[", true),
-    category: "workspace",
-  },
-  {
-    id: "next-pane",
-    label: "Next Pane",
-    defaultCombo: metaCombo("]"),
-    category: "terminal",
-  },
-  {
-    id: "prev-pane",
-    label: "Previous Pane",
-    defaultCombo: metaCombo("["),
-    category: "terminal",
-  },
-  {
-    id: "history-back",
-    label: "Navigate Back",
-    defaultCombo: metaCombo("[", false, false, true), // Cmd+Ctrl+[
-    category: "app",
-  },
-  {
-    id: "history-forward",
-    label: "Navigate Forward",
-    defaultCombo: metaCombo("]", false, false, true), // Cmd+Ctrl+]
-    category: "app",
-  },
-  {
-    id: "toggle-sidebar",
-    label: "Toggle Sidebar",
-    defaultCombo: metaCombo("\\"),
-    category: "app",
-  },
-  {
-    id: "focus-sidebar",
-    label: "Focus Sidebar",
-    defaultCombo: metaCombo("e", true), // Cmd+Shift+E
-    category: "app",
-  },
-  {
-    id: "focus-tabbar",
-    label: "Focus Tab Bar",
-    defaultCombo: metaCombo("y", true), // Cmd+Shift+Y
-    category: "app",
-  },
-  {
-    id: "focus-next-region",
-    label: "Focus Next Region",
-    defaultCombo: plainCombo("F6"),
-    category: "app",
-  },
-  {
-    id: "focus-prev-region",
-    label: "Focus Previous Region",
-    defaultCombo: plainCombo("F6", true),
-    category: "app",
-  },
-  {
-    id: "new-agent",
-    label: "New Agent",
-    defaultCombo: metaCombo("n"),
-    category: "workspace",
-  },
-  {
-    id: "new-workspace",
-    label: "New Workspace",
-    defaultCombo: metaCombo("n", true),
-    category: "workspace",
-  },
-  {
-    id: "next-workspace",
-    label: "Next Workspace",
-    defaultCombo: metaCombo("ArrowDown", false, false, true), // Ctrl+Cmd+ArrowDown
-    category: "workspace",
-  },
-  {
-    id: "prev-workspace",
-    label: "Previous Workspace",
-    defaultCombo: metaCombo("ArrowUp", false, false, true), // Ctrl+Cmd+ArrowUp
-    category: "workspace",
-  },
-  ...Array.from({ length: 9 }, (_, i) => ({
-    id: `select-tab-${i + 1}`,
-    label: `Select Tab ${i + 1}`,
-    defaultCombo: metaCombo(String(i + 1)),
-    category: "workspace" as KeybindingCategory,
-  })),
-  {
-    id: "settings",
-    label: "Settings",
-    defaultCombo: metaCombo(","),
-    category: "app",
-  },
-  {
-    id: "command-palette",
-    label: "Command Palette",
-    defaultCombo: metaCombo("k"),
-    category: "app",
-  },
-  {
-    id: "new-browser",
-    label: "New Browser Window",
-    defaultCombo: metaCombo("b", true),
-    category: "workspace",
-  },
-  {
-    id: "browser-zoom-in",
-    label: "Browser Zoom In",
-    defaultCombo: metaCombo("="),
-    category: "browser",
-  },
-  {
-    id: "browser-zoom-out",
-    label: "Browser Zoom Out",
-    defaultCombo: metaCombo("-"),
-    category: "browser",
-  },
-  {
-    id: "browser-zoom-reset",
-    label: "Browser Zoom Reset",
-    defaultCombo: metaCombo("0"),
-    category: "browser",
-  },
-  {
-    id: "browser-reload",
-    label: "Browser Reload",
-    defaultCombo: metaCombo("r"),
-    category: "browser",
-  },
-  {
-    id: "browser-focus-url",
-    label: "Focus URL Bar",
-    defaultCombo: metaCombo("l"),
-    category: "browser",
-  },
-  {
-    id: "browser-back",
-    label: "Browser Back",
-    defaultCombo: metaCombo("["),
-    category: "browser",
-  },
-  {
-    id: "browser-forward",
-    label: "Browser Forward",
-    defaultCombo: metaCombo("]"),
-    category: "browser",
-  },
-  {
-    id: "browser-find",
-    label: "Find in Page",
-    defaultCombo: metaCombo("f"),
-    category: "browser",
-  },
-  {
-    id: "terminal-search",
-    label: "Search Terminal",
-    defaultCombo: metaCombo("f"),
-    category: "terminal",
-  },
-  {
-    id: "reopen-pane",
-    label: "Reopen Closed Pane",
-    defaultCombo: metaCombo("t", true),
-    category: "workspace",
-  },
-  {
-    id: "copy-branch",
-    label: "Copy Branch Name",
-    defaultCombo: metaCombo(".", true),
-    category: "workspace",
-  },
-  {
-    id: "open-diff",
-    label: "Open Diff",
-    defaultCombo: metaCombo("g", true), // Cmd+Shift+G
-    category: "workspace",
-  },
-  {
-    id: "split-panel-right",
-    label: "Split Panel Right",
-    defaultCombo: metaCombo("\\", false, true),
-    category: "workspace",
-  },
-  {
-    id: "split-panel-down",
-    label: "Split Panel Down",
-    defaultCombo: metaCombo("\\", true, true),
-    category: "workspace",
-  },
-  {
-    id: "focus-next-panel",
-    label: "Focus Next Panel",
-    defaultCombo: metaCombo("]", false, true),
-    category: "workspace",
-  },
-  {
-    id: "focus-prev-panel",
-    label: "Focus Previous Panel",
-    defaultCombo: metaCombo("[", false, true),
-    category: "workspace",
-  },
-  {
-    id: "open-notifications",
-    label: "Open Notifications",
-    // No default combo — ⌘⇧E and ⌘⇧Y are already spoken for; bind one in
-    // Settings › Keybindings.
-    category: "app",
-  },
+/**
+ * Combos a PC browser claims for itself — closing the tab, opening a new
+ * one, opening a new window — before a page's own `keydown` listener ever
+ * runs (ADR-181 D7). Both the ⌘ and Ctrl forms are listed: an override is
+ * stored host-wide (see `resolveBindings`), so a Mac desktop user's ⌘T
+ * override reaches a browser on any OS, and which form is intercepted there
+ * depends on that browser's OS, not the override's origin. Exported as data
+ * so the keybindings settings page can flag a stored override landing here
+ * as "reserved by the browser" instead of showing a shortcut that silently
+ * does something else.
+ */
+export const BROWSER_RESERVED_COMBOS: readonly KeyCombo[] = [
+  metaCombo("w"),
+  { key: "w", meta: false, ctrl: true, shift: false, alt: false },
+  metaCombo("t"),
+  { key: "t", meta: false, ctrl: true, shift: false, alt: false },
+  metaCombo("n"),
+  { key: "n", meta: false, ctrl: true, shift: false, alt: false },
 ];
+
+/** Whether `combo` is one the browser claims before Manor ever sees it. */
+export function isBrowserReservedCombo(combo: KeyCombo): boolean {
+  return BROWSER_RESERVED_COMBOS.some((reserved) =>
+    comboMatches(reserved, combo),
+  );
+}
 
 /**
  * Returns a copy of DEFAULT_KEYBINDINGS adjusted for the given platform.
  * On non-macOS platforms, `meta` is swapped to `ctrl`.
+ *
+ * `"web"` (ADR-181 D7 — window.electronAPI.platform in a browser) is its own
+ * variant: every other default is the same as on mac, but a default landing
+ * on a {@link BROWSER_RESERVED_COMBOS} entry — closing the tab, opening a new
+ * one, opening a new window — ships with no combo at all, since the browser
+ * intercepts the key before Manor's own listener runs. Those commands stay
+ * reachable from the palette and the menu; the user just has to get there
+ * without the shortcut this ADR can't give them on the web.
  */
-export function platformDefaults(platform: string): KeybindingDef[] {
+export function platformDefaults(
+  platform: string,
+  { inBrowser = false }: { inBrowser?: boolean } = {},
+): KeybindingDef[] {
+  // Being in a browser and being on a Mac are separate facts, and must stay
+  // so. The OS decides ⌘ versus Ctrl; the browser only takes a few chords
+  // away. An earlier version folded both into a `"web"` platform string that
+  // meant "Mac-style", which handed a Windows or Linux browser ⌘ shortcuts
+  // it cannot type — a regression against passing `navigator.platform`,
+  // which had given it Ctrl all along.
   const isMac = platform.toLowerCase().includes("mac");
 
-  if (isMac) {
-    return DEFAULT_KEYBINDINGS.map((def) => ({
-      ...def,
-      defaultCombo: def.defaultCombo ? { ...def.defaultCombo } : undefined,
-    }));
-  }
+  const mapped = isMac
+    ? DEFAULT_KEYBINDINGS.map((def) => ({
+        ...def,
+        defaultCombo: def.defaultCombo ? { ...def.defaultCombo } : undefined,
+      }))
+    : DEFAULT_KEYBINDINGS.map((def) => ({
+        ...def,
+        defaultCombo: def.defaultCombo
+          ? {
+              ...def.defaultCombo,
+              meta: false,
+              ctrl: def.defaultCombo.meta ? true : def.defaultCombo.ctrl,
+            }
+          : undefined,
+      }));
 
-  return DEFAULT_KEYBINDINGS.map((def) => ({
-    ...def,
-    defaultCombo: def.defaultCombo
-      ? {
-          ...def.defaultCombo,
-          meta: false,
-          ctrl: def.defaultCombo.meta ? true : def.defaultCombo.ctrl,
-        }
-      : undefined,
-  }));
+  if (!inBrowser) return mapped;
+
+  return mapped.map((def) =>
+    def.defaultCombo && isBrowserReservedCombo(def.defaultCombo)
+      ? { ...def, defaultCombo: undefined }
+      : def,
+  );
 }
 
 /**
@@ -375,9 +185,10 @@ export function deserializeCombo(s: string): KeyCombo {
 export function resolveBindings(
   overrides: Record<string, string>,
   platform: string,
+  opts: { inBrowser?: boolean } = {},
 ): { bindings: Record<string, KeyCombo>; overriddenIds: Set<string> } {
   const defaults: Record<string, KeyCombo> = {};
-  for (const def of platformDefaults(platform)) {
+  for (const def of platformDefaults(platform, opts)) {
     if (def.defaultCombo) defaults[def.id] = def.defaultCombo;
   }
 
@@ -444,7 +255,9 @@ export function comboToAccelerator(
  */
 function keysMatch(a: string, b: string): boolean {
   if (a === b) return true;
-  return a.length === 1 && b.length === 1 && a.toLowerCase() === b.toLowerCase();
+  return (
+    a.length === 1 && b.length === 1 && a.toLowerCase() === b.toLowerCase()
+  );
 }
 
 /** True for F1–F12, the only keys a binding may use without a modifier. */

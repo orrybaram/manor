@@ -17,8 +17,11 @@ import {
   FAKE_RENDERER_ID,
   broadcastLayout,
   clearLayoutListeners,
+  layoutServer,
+  reportedViewports,
   resetFakeLayoutServer,
   seedLayout,
+  settled,
 } from "./fake-layout-server";
 import type { Tab, WorkspaceLayout } from "../app-store";
 
@@ -86,11 +89,20 @@ describe("a window that holds a claim", () => {
     api().claim = null;
   });
 
-  it("puts its claim in the viewport it reports", async () => {
+  it("shows its one tab, and leaves the claim itself to main", async () => {
     const fresh = await claimingStore(vi.fn());
-    claimsBroadcast(1, FAKE_RENDERER_ID);
+    claimsBroadcast(1, null);
+    await settled();
 
-    expect(fresh.useAppStore.getState().viewports[WS_PATH].claim).toBe(CLAIMED);
+    // Main knows the claim from the launch argument; the report is only what
+    // makes it take effect (ADR-182 D9), so nothing in it names the tab.
+    expect(reportedViewports.length).toBeGreaterThan(0);
+    for (const { viewport } of reportedViewports) {
+      expect(viewport).not.toHaveProperty("claim");
+    }
+    expect(layoutServer().claimsFor(WS_PATH)).toEqual([
+      { windowId: FAKE_RENDERER_ID, tabId: CLAIMED },
+    ]);
     // And it shows that tab, not the panel's first one.
     expect(
       fresh.selectSelectedTabId(fresh.useAppStore.getState(), "panel-1"),

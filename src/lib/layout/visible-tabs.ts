@@ -31,54 +31,62 @@ export interface LayoutClaim {
 export type RendererPlatform = "electron" | "web";
 
 /**
+ * Everything that decides which tabs of one workspace a renderer shows.
+ *
+ * `claims` is the server's, and changes with every broadcast. `platform` and
+ * `ownClaim` are the renderer's own and fixed for its life: a window is opened
+ * *as* the holder of one tab, and holds it until it closes.
+ */
+export interface Visibility {
+  claims: readonly LayoutClaim[];
+  platform: RendererPlatform | undefined;
+  /** The tab this renderer holds in this workspace, or null. */
+  ownClaim: string | null;
+}
+
+/** A renderer that hides nothing: no claims, no claim of its own. */
+export const SEES_EVERYTHING: Visibility = Object.freeze({
+  claims: Object.freeze([]) as readonly LayoutClaim[],
+  platform: undefined,
+  ownClaim: null,
+});
+
+/**
  * Whether this renderer shows `tabId`.
  *
  * `ownClaim` wins over everything: a claiming window is looking at one tab and
  * the rest of the workspace is somebody else's business.
  */
-export function isTabVisible(
-  tabId: string,
-  claims: readonly LayoutClaim[],
-  platform: RendererPlatform | undefined,
-  ownClaim: string | null | undefined,
-): boolean {
+export function isTabVisible(tabId: string, visibility: Visibility): boolean {
+  const { claims, platform, ownClaim } = visibility;
   if (platform === "web") return true;
-  if (ownClaim != null) return tabId === ownClaim;
+  if (ownClaim !== null) return tabId === ownClaim;
   return !claims.some((claim) => claim.tabId === tabId);
 }
 
 /** The tabs of `panel` this renderer shows, in the panel's own order. */
 export function visibleTabsFor<T extends { id: string }>(
   panel: { tabs: readonly T[] } | null | undefined,
-  claims: readonly LayoutClaim[],
-  platform: RendererPlatform | undefined,
-  ownClaim: string | null | undefined,
+  visibility: Visibility,
 ): T[] {
   const tabs = panel?.tabs ?? [];
-  if (platform === "web") return [...tabs];
-  return tabs.filter((tab) => isTabVisible(tab.id, claims, platform, ownClaim));
+  return tabs.filter((tab) => isTabVisible(tab.id, visibility));
 }
 
 /**
  * Every tab of `layout` this renderer does *not* show — the set
  * {@link reconcileViewport} needs so a selection never lands on a tab that is
- * popped out somewhere else.
- *
- * Empty for a claiming window: `reconcileViewport` derives that window's
- * hidden set from the claim in the viewport itself, because a claim is the one
- * piece of this that the viewport already carries.
+ * popped out somewhere else, or, in a claiming window, on any tab but its own.
  */
 export function hiddenTabIdsIn(
   layout: WorkspaceLayout,
-  claims: readonly LayoutClaim[],
-  platform: RendererPlatform | undefined,
-  ownClaim: string | null | undefined,
+  visibility: Visibility,
 ): ReadonlySet<string> {
   const hidden = new Set<string>();
-  if (platform === "web" || ownClaim != null) return hidden;
+  if (visibility.platform === "web") return hidden;
   for (const panel of Object.values(layout.panels)) {
     for (const tab of panel.tabs) {
-      if (!isTabVisible(tab.id, claims, platform, ownClaim)) hidden.add(tab.id);
+      if (!isTabVisible(tab.id, visibility)) hidden.add(tab.id);
     }
   }
   return hidden;

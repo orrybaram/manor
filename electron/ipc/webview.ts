@@ -17,7 +17,7 @@
  * socket can carry, so none of these has a "make it a table entry" version —
  * they are `unavailable:web` on the bridge (`src/bridge/unavailable.ts`)
  * because there is nothing else honest to answer. `electron/ipc/types.ts`
- * survives alongside them because `IpcDeps` is what both this file's
+ * survives alongside them because `HostDeps` is what both this file's
  * `register()` calls and the handler table's entries take as their first
  * argument.
  */
@@ -34,13 +34,7 @@ import { assertString } from "../ipc-validate";
 import { recordingManager } from "../recording-manager";
 import { PICKER_SCRIPT } from "../picker-script";
 import { WebviewServer } from "../webview-server";
-import type { ProjectManager } from "../persistence";
-import type { GitHubManager } from "../github";
-import type { LinearManager } from "../linear";
-import type { LayoutPersistence } from "../terminal-host/layout-persistence";
-import type { AgentManager } from "../agent-persistence";
-import type { LocalBackend } from "../backend/local-backend";
-import type { IpcDeps } from "./types";
+import type { HostDeps } from "./types";
 import { resolveBindings } from "../../src/lib/keybinding-defs";
 import { createPageKeyHandler } from "./webview-keys";
 import {
@@ -91,23 +85,8 @@ const webviewEventCleanup = new Map<string, () => void>();
 const webviewAudioCleanup = new Map<string, () => void>();
 const webviewPopupCleanup = new Map<string, () => void>();
 
-export function createWebviewServer(
-  projectManager?: ProjectManager,
-  githubManager?: GitHubManager,
-  linearManager?: LinearManager,
-  layoutPersistence?: LayoutPersistence,
-  agentManager?: AgentManager,
-  backend?: LocalBackend,
-): WebviewServer {
-  return new WebviewServer(
-    webviewRegistry,
-    projectManager,
-    githubManager,
-    linearManager,
-    layoutPersistence,
-    agentManager,
-    backend,
-  );
+export function createWebviewServer(getDeps: () => HostDeps): WebviewServer {
+  return new WebviewServer(webviewRegistry, getDeps);
 }
 
 // ── Recording (ADR-158) ──
@@ -329,7 +308,7 @@ export async function stopRecording(recordingId: string, timeoutMs?: number) {
   return recordingManager.stop(recordingId);
 }
 
-export function register(deps: IpcDeps): void {
+export function register(deps: HostDeps): void {
   function getMainWindow() {
     return deps.mainWindow;
   }

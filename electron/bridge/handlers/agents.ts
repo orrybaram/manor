@@ -1,4 +1,5 @@
 import { getConnector } from "../../agent-connectors";
+import type { AgentInfo } from "../../agent-persistence";
 import { assertString } from "../../ipc-validate";
 import {
   getUnseenSnapshot,
@@ -8,14 +9,21 @@ import {
 } from "../../notifications";
 import { killCounters } from "../../stats-signals";
 import { cleanAgentTitle } from "../../title-utils";
-import type { IpcDeps } from "../../ipc/types";
+import type { AgentService, EndedPane } from "../../layout/layout-store";
+import { method, type HandlerCtx } from "../method";
 
 const ALLOWED_RENDERER_TASK_FIELDS: ReadonlySet<string> = new Set([
   "name",
   "namePinned",
 ]);
 
-function assertRendererAgentUpdate(updates: unknown): asserts updates is Record<string, unknown> {
+/** What a renderer may change about an agent: its name, and whether it is pinned. */
+export interface RendererAgentUpdate {
+  name?: string | null;
+  namePinned?: boolean;
+}
+
+function assertRendererAgentUpdate(updates: unknown): asserts updates is RendererAgentUpdate {
   if (!updates || typeof updates !== "object") {
     throw new Error("agents:update: updates must be an object");
   }
@@ -50,43 +58,44 @@ export interface PaneContext {
 }
 
 /**
- * All fifteen methods, lifted out of their `ipcMain.handle` wrappers so a
- * paired `full` device and the desktop renderer call the same code (ADR-180
- * ticket 9). Slice 1 kept the writes below desktop-only; under D4 "check on
- * my agents from anywhere" means none of them stays that way — a browser
- * that could watch an agent but not mark it seen was exactly the
- * read-and-type state this ADR exists to end.
+ * The `agents` namespace of the handler table. "Check on my agents from
+ * anywhere" is the sentence ADR-178 started from, so none of it is
+ * local-only — a browser that could watch an agent but not mark it seen was
+ * exactly the read-and-type state this ADR exists to end.
  */
-export function agentsGetAll(deps: IpcDeps, opts?: AgentQuery): unknown {
-  return deps.agentManager.getAllAgents(opts);
+export function agentsGetAll(ctx: HandlerCtx, opts?: AgentQuery): AgentInfo[] {
+  return ctx.deps.agentManager.getAllAgents(opts);
 }
 
-export function agentsGet(deps: IpcDeps, agentId: string): unknown {
+export function agentsGet(ctx: HandlerCtx, agentId: string): AgentInfo | null {
   assertString(agentId, "agentId");
-  return deps.agentManager.getAgentById(agentId);
+  return ctx.deps.agentManager.getAgentById(agentId);
 }
 
-export function agentsGetActive(deps: IpcDeps): unknown {
-  return deps.agentManager.getActiveAgents();
+export function agentsGetActive(ctx: HandlerCtx): AgentInfo[] {
+  return ctx.deps.agentManager.getActiveAgents();
 }
 
 export function agentsGetRecent(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   opts?: { limit?: number },
-): unknown {
-  return deps.agentManager.getAllAgents({ limit: opts?.limit ?? 50 });
+): AgentInfo[] {
+  return ctx.deps.agentManager.getAllAgents({ limit: opts?.limit ?? 50 });
 }
 
-export function agentsGetUnseen(): unknown {
+export function agentsGetUnseen(): {
+  responded: string[];
+  requires_input: string[];
+} {
   return getUnseenSnapshot();
 }
 
 export function agentsBuildResumeCommand(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   agentId: string,
 ): string | null {
   assertString(agentId, "agentId");
-  const agent = deps.agentManager.getAgentById(agentId);
+  const agent = ctx.deps.agentManager.getAgentById(agentId);
   if (!agent || !agent.agentCommand) return null;
   return getConnector(agent.agentKind).getResumeCommand(
     agent.agentCommand,
@@ -97,11 +106,11 @@ export function agentsBuildResumeCommand(
 /**
  * Records which project/workspace a pane belongs to, so the sidebar's
  * per-pane agent metadata (and a later agent record for that pane) has a
- * project to point at. A write — this is why it is `MUTATING` on the ADR-178
- * bridge (ticket 10), audited by paneId the same way `pty.create` is.
+ * project to point at. A write — this is why it is `mutating` on the ADR-178
+ * bridge, audited by paneId the same way `pty.create` is.
  */
 export function agentsSetPaneContext(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   paneId: string,
   context: PaneContext,
 ): void {
@@ -109,7 +118,7 @@ export function agentsSetPaneContext(
   assertString(context.projectId, "projectId");
   assertString(context.projectName, "projectName");
   assertString(context.workspacePath, "workspacePath");
-  deps.paneContextMap.set(paneId, context);
+  ctx.deps.paneContextMap.set(paneId, context);
 }
 
 /**
@@ -117,8 +126,8 @@ export function agentsSetPaneContext(
  * boot, exactly once per upgrade. After the renderer consumes it, the
  * `agentPruneNoticeShown` flag is set so subsequent boots return 0.
  */
-export function agentsConsumePruneNotice(deps: IpcDeps): number {
-  const { agentManager, preferencesManager } = deps;
+export function agentsConsumePruneNotice(ctx: HandlerCtx): number {
+  const { agentManager, preferencesManager } = ctx.deps;
   const count = agentManager.getLastPruneCount();
   if (count <= 0) return 0;
   if (preferencesManager.get("agentPruneNoticeShown")) return 0;
@@ -132,25 +141,25 @@ export function agentsConsumePruneNotice(deps: IpcDeps): number {
  * (sidebar, palette, toasts) sees the new name without a reload.
  */
 export function agentsUpdate(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   agentId: string,
-  updates: unknown,
-): unknown {
+  updates: RendererAgentUpdate,
+): AgentInfo | null {
   assertString(agentId, "agentId");
   assertRendererAgentUpdate(updates);
-  const updated = deps.agentManager.updateAgent(agentId, updates);
+  const updated = ctx.deps.agentManager.updateAgent(agentId, updates);
   if (updated) {
-    sendAgentUpdate(updated, deps.preferencesManager);
+    sendAgentUpdate(updated, ctx.deps.preferencesManager);
   }
   return updated;
 }
 
-export function agentsDelete(deps: IpcDeps, agentId: string): boolean {
+export function agentsDelete(ctx: HandlerCtx, agentId: string): boolean {
   assertString(agentId, "agentId");
-  const { unseenRespondedAgents, unseenInputAgents, preferencesManager } = deps;
+  const { unseenRespondedAgents, unseenInputAgents, preferencesManager } = ctx.deps;
   unseenRespondedAgents.delete(agentId);
   unseenInputAgents.delete(agentId);
-  const result = deps.agentManager.deleteAgent(agentId);
+  const result = ctx.deps.agentManager.deleteAgent(agentId);
   updateDockBadge(preferencesManager);
   return result;
 }
@@ -162,16 +171,16 @@ export function agentsDelete(deps: IpcDeps, agentId: string): boolean {
  * cleared flags. The agent record itself didn't mutate, but `sendAgentUpdate`
  * ships the unseen flags alongside it — this is what keeps main authoritative
  * for pulse state, for a browser marking an agent seen exactly as much as a
- * desktop window doing it (ADR-179 ticket 4's fix for the viewport path
- * applies here too: the same broadcast, whichever caller wrote the Sets).
+ * desktop window doing it: the same broadcast, whichever caller wrote the
+ * Sets.
  */
-export function agentsMarkSeen(deps: IpcDeps, agentId: string): void {
+export function agentsMarkSeen(ctx: HandlerCtx, agentId: string): void {
   assertString(agentId, "agentId");
-  const { unseenRespondedAgents, unseenInputAgents, preferencesManager } = deps;
+  const { unseenRespondedAgents, unseenInputAgents, preferencesManager } = ctx.deps;
   unseenRespondedAgents.delete(agentId);
   unseenInputAgents.delete(agentId);
-  markAgentNotificationsRead(agentId, deps.mainWindow);
-  const agent = deps.agentManager.getAgentById(agentId);
+  markAgentNotificationsRead(agentId);
+  const agent = ctx.deps.agentManager.getAgentById(agentId);
   if (agent) {
     sendAgentUpdate(agent, preferencesManager);
   } else {
@@ -181,25 +190,31 @@ export function agentsMarkSeen(deps: IpcDeps, agentId: string): void {
   }
 }
 
-export function agentsMarkResumed(deps: IpcDeps, agentId: string): unknown {
+export function agentsMarkResumed(
+  ctx: HandlerCtx,
+  agentId: string,
+): AgentInfo | null {
   assertString(agentId, "agentId");
-  return deps.agentManager.updateAgent(agentId, {
+  return ctx.deps.agentManager.updateAgent(agentId, {
     resumedAt: new Date().toISOString(),
   });
 }
 
+/** What ending a pane's agent needs: the record, the stats, the dock badge. */
+type AbandonDeps = Pick<
+  HandlerCtx["deps"],
+  "agentManager" | "statsStore" | "preferencesManager"
+>;
+
 /**
  * Marks the active agent on `paneId` abandoned — a session end triggered by
- * a pane close rather than by the agent itself. Mirrored by
- * `abandonAgentForClosedPane` in `electron/routes/panes.ts` for a structural
- * close that never touches a renderer.
+ * a pane close rather than by the agent itself. An agent without a name is
+ * named after the pane's last title, so it stays recognisable in the list.
  */
-export function agentsAbandonForPane(
-  deps: IpcDeps,
-  paneId: string,
-  title?: string | null,
+function abandonAgentForPane(
+  deps: AbandonDeps,
+  { paneId, title }: EndedPane,
 ): void {
-  assertString(paneId, "paneId");
   const { agentManager, statsStore, preferencesManager } = deps;
   const agent = agentManager.getAgentByPaneId(paneId);
   if (!agent || agent.status !== "active") return;
@@ -215,14 +230,29 @@ export function agentsAbandonForPane(
   }
 }
 
+/** The {@link AgentService} `app-lifecycle.ts` hands `LayoutStore`. */
+export function createAgentService(deps: AbandonDeps): AgentService {
+  return {
+    abandonForPanes(panes) {
+      for (const pane of panes) {
+        try {
+          abandonAgentForPane(deps, pane);
+        } catch (err) {
+          console.error(`[agents] failed to abandon ${pane.paneId}:`, err);
+        }
+      }
+    },
+  };
+}
+
 /**
  * Sweeps every `active` agent whose pane the daemon no longer has a live
  * session for, and marks it `abandoned` — the desktop's boot-time cleanup
  * for sessions that died while nothing was watching. A `responded` agent is
  * left alone even if its pane is gone: it already has an outcome.
  */
-export async function agentsReconcileStale(deps: IpcDeps): Promise<void> {
-  const { agentManager, backend, preferencesManager } = deps;
+export async function agentsReconcileStale(ctx: HandlerCtx): Promise<void> {
+  const { agentManager, backend, preferencesManager } = ctx.deps;
   let liveSessions: Array<{ sessionId: string }>;
   try {
     liveSessions = await backend.pty.listSessions();
@@ -249,3 +279,28 @@ export async function agentsReconcileStale(deps: IpcDeps): Promise<void> {
     }
   }
 }
+
+export const agents = {
+  getAll: method(agentsGetAll),
+  get: method(agentsGet),
+  getActive: method(agentsGetActive),
+  getRecent: method(agentsGetRecent),
+  getUnseen: method(agentsGetUnseen),
+  consumePruneNotice: method(agentsConsumePruneNotice),
+  buildResumeCommand: method(agentsBuildResumeCommand),
+  // Called after every `pty.create` that has a `cwd` — without it, a pane
+  // opened from a browser never gets the project context the sidebar reads.
+  setPaneContext: method(agentsSetPaneContext, { mutating: true }),
+  // Every write another viewer's sidebar, palette or dock badge reads:
+  // `update` renames/pins, `delete` ends a session, `markSeen` and
+  // `markResumed` move the unseen flags every window shares. A pane's agent
+  // is abandoned by `LayoutStore` when the pane ends, not over the bridge.
+  update: method(agentsUpdate, { mutating: true }),
+  delete: method(agentsDelete, { mutating: true }),
+  markSeen: method(agentsMarkSeen, { mutating: true }),
+  markResumed: method(agentsMarkResumed, { mutating: true }),
+  // Ends sessions, but `App.tsx` calls it on every mount of every window and
+  // tab: a line per page load is noise that buries the lines that matter,
+  // and what it ends was already dead.
+  reconcileStale: method(agentsReconcileStale),
+};

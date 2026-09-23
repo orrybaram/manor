@@ -1,11 +1,8 @@
-import type { PrComment, PrInfo } from "./lib/pr-info";
+import type { PrComment } from "./lib/pr-info";
 import type { HarnessKind } from "./lib/harness";
-import type { RecordingCommand as WebviewRecordingCommand } from "./lib/webview-recorder";
-import type {
-  ForwardedCommandPayload,
-  MenuCommandPayload,
-  MenuContext,
-} from "./lib/menu-commands";
+import type { BridgeApi } from "../electron/bridge/contract";
+import type { InvokeFrame, ResultFrame } from "../electron/bridge/types";
+import type { NativeApi } from "../electron/preload";
 
 export interface AppPreferences {
   dockBadgeEnabled: boolean;
@@ -56,7 +53,7 @@ export interface AgentInfo {
   projectName: string | null;
   workspacePath: string | null;
   cwd: string;
-  agentKind: "claude" | "opencode" | "codex";
+  agentKind: AgentKind;
   agentCommand: string | null;
   paneId: string | null;
   lastAgentStatus: string | null;
@@ -71,8 +68,8 @@ export interface AgentInfo {
 
 /**
  * ADR-162's durable notification log. Mirrors `NotificationRecord` in
- * `electron/notification-store.ts`; declared here rather than imported so the
- * renderer's declaration surface stays self-contained.
+ * `electron/notification-store.ts`; the derived bridge contract fails the
+ * build wherever the host's copy stops fitting this one.
  */
 export type NotificationKind =
   | "agent-responded"
@@ -103,8 +100,8 @@ export interface NotificationRecord {
 
 /**
  * ADR-168's usage stats. Mirrors the corresponding types in
- * `electron/stats-store.ts`; declared here rather than imported so the
- * renderer's declaration surface stays self-contained.
+ * `electron/stats-store.ts`; the derived bridge contract fails the build
+ * wherever the host's copy stops fitting this one.
  */
 export type StatCounter =
   | "prompts"
@@ -258,29 +255,8 @@ export interface AgentState {
  */
 export type StreamPosition = number;
 
-/**
- * What a create-shaped PTY call answers with.
- *
- * The last three fields are the host's answer to "who owns the winsize"
- * (ADR-178 D5). **Absent means this viewer owns it**, which is what a viewer
- * alone on a pane is told and what every desktop pane was told until ADR-180
- * ticket 5 put both platforms on the same handler. A viewer told
- * `winsizeOwner: false` is a follower — it renders the `cols×rows` here and
- * never asks the pty for a different pair — and since D6 that can be a second
- * desktop window as readily as a browser.
- */
-export interface PtyCreateResult {
-  ok: boolean;
-  snapshot?: string | null;
-  snapshotSeq?: StreamPosition;
-  error?: string;
-  prewarmed?: boolean;
-  /** False when another viewer — the desktop app — owns the winsize. */
-  winsizeOwner?: boolean;
-  /** The winsize owner's grid, to be rendered as-is. */
-  cols?: number;
-  rows?: number;
-}
+export type { PtyCreateResult } from "../electron/bridge/handlers/pty";
+export type { PushProgressEvent } from "../electron/bridge/handlers/branches-diffs";
 
 /**
  * A live winsize-ownership change (ADR-179 D6), pushed to every viewer of
@@ -297,88 +273,27 @@ export interface WinsizeOwnerEvent {
 }
 
 /**
- * The parts of `~/.manor/layout.json` a renderer is handed (ADR-179 D1).
- *
- * Not the file: the file is the Manor server's, and nothing here reads or
- * writes it. These two ride along with `layout.getAll()` — what the server
- * derived about each pane, and the viewport it hands a renderer that has none
- * of its own. Mirrored from `electron/terminal-host/layout-persistence.ts`.
+ * The layout wire (ADR-179 D1/D3), defined once for the Manor server and
+ * every renderer in `./lib/layout/protocol.ts`.
  */
-export interface PersistedPaneSession {
-  daemonSessionId: string;
-  lastCwd: string | null;
-  lastTitle: string | null;
-  lastAgentStatus?: AgentState | null;
-}
-
-/**
- * What one renderer is looking at (ADR-179 D3). The layout file keeps one per
- * workspace — the default viewport, handed to a renderer that has none.
- */
-export type PersistedDefaultViewport =
-  import("./lib/layout/viewport").WorkspaceViewport;
-
-/**
- * One renderer's viewport file: `~/.manor/viewport.json` for the desktop's
- * primary window, `localStorage` for a browser tab (ADR-179 D3).
- *
- * Per renderer, deliberately — the whole point is that two windows of one
- * host reopen on the tabs each of them had, not on the tabs the last command
- * happened to touch.
- */
-export interface PersistedViewportFile {
-  version: 1;
-  /** The surface this renderer was last on, Home included. */
-  activeWorkspacePath: string | null;
-  workspaces: Record<string, PersistedDefaultViewport>;
-}
-
-/** One workspace, as the Manor server holds it (ADR-179 D1). */
-export interface LayoutEntry {
-  version: number;
-  layout: import("./lib/layout/workspace-layout").WorkspaceLayout;
-  defaultViewport: PersistedDefaultViewport;
-  /** Server-derived; a restoring renderer reattaches sessions from it. */
-  paneSessions: Record<string, PersistedPaneSession>;
-  /** Tabs held by a detached window of their own (ADR-179 D4). */
-  claims: LayoutClaim[];
-}
+export type {
+  LayoutApplyResult,
+  LayoutChangedPayload,
+  LayoutEntry,
+  LayoutPaneTitlePayload,
+  PersistedDefaultViewport,
+  PersistedPaneSession,
+  PersistedViewportFile,
+} from "./lib/layout/protocol";
 
 /** A detached window's hold on a tab (ADR-179 D4). */
 export type LayoutClaim = import("./lib/layout/visible-tabs").LayoutClaim;
 
-/** The whole workspace layout, to every renderer at once. */
-export interface LayoutChangedPayload {
-  workspacePath: string;
-  version: number;
-  layout: import("./lib/layout/workspace-layout").WorkspaceLayout;
-  claims: LayoutClaim[];
-  /**
-   * Who sent the command this broadcast is the result of, and what that
-   * command implies about *their* selection (ADR-179 D3). A renderer applies
-   * `hint` only when `origin.id` is its own `rendererId`; everybody else
-   * keeps looking where they were looking. Absent on a broadcast no command
-   * produced.
-   */
-  origin?: { kind: "window" | "bridge" | "route"; id: string };
-  hint?: import("./lib/layout/viewport").LayoutHint;
-  /**
-   * What the server knows about the panes a `reopen-closed-pane` just put
-   * back, and only those (ADR-179 ticket 10). Their sessions were still
-   * inside the reopen grace, so the pane reattaches a warm shell and this is
-   * the cwd and title to mount it with.
-   */
-  restored?: Record<string, PersistedPaneSession>;
-}
-
-/** `layout.apply` answers with the new version, never with a layout. */
-export type LayoutApplyResult = { version: number } | { error: string };
-
-export type PushProgressEvent =
-  | { pushId: string; type: "line"; line: string }
-  | { pushId: string; type: "done"; exitCode: number | null; stderr: string };
-
-export interface ElectronAPI {
+/**
+ * What a renderer knows before it can ask anything: answered synchronously,
+ * off the preload's argv or the socket's hello, never a round trip.
+ */
+export interface HostFacts {
   /**
    * Which transport the client in the page is built over (ADR-180 D3): the
    * preload's IPC channels, or a WebSocket to a host. Read it to hide what a
@@ -410,730 +325,38 @@ export interface ElectronAPI {
   };
 
   /**
-   * Multi-window detach (ADR-156, ADR-179 D4). `isDetached` is true when this
-   * renderer was launched as a detached window; `detachedWindowId` carries
-   * that window's id (null in the primary window). Both are surfaced
-   * synchronously from the `--manor-detached=<id>` launch argument.
-   */
-  isDetached: boolean;
-  detachedWindowId: string | null;
-
-  /**
    * The one tab this window holds of the shared layout (ADR-179 D4), from
    * `--manor-claim=<tabId>::<workspacePath>`. Null in the primary window and
    * in a browser — a claim is a desktop window's, and a browser always sees
-   * the whole workspace. The renderer reports it as part of its viewport; the
-   * tab itself never leaves the workspace.
+   * the whole workspace. Main knows it too, and the window's viewport reports
+   * are what make it take effect on the server; the tab itself never leaves
+   * the workspace.
+   *
+   * It is also the whole of what makes a window a detached one (ADR-182 D5):
+   * a window is detached exactly when it holds a claim.
    */
   claim: { workspacePath: string; tabId: string } | null;
-
-  pty: {
-    create: (
-      paneId: string,
-      cwd: string | null,
-      cols: number,
-      rows: number,
-      agentKind?: string | null,
-    ) => Promise<PtyCreateResult>;
-    write: (paneId: string, data: string) => Promise<void>;
-    /** Resolves once the pty is actually at that size, not merely told to be. */
-    resize: (paneId: string, cols: number, rows: number) => Promise<void>;
-    close: (paneId: string) => Promise<void>;
-    reset: (
-      paneId: string,
-      cwd: string | null,
-      cols: number,
-      rows: number,
-    ) => Promise<PtyCreateResult>;
-    detach: (paneId: string) => Promise<void>;
-    consumePrewarmed: () => Promise<{
-      paneId: string;
-      commandInjected: boolean;
-    } | null>;
-    updatePrewarmCwd: (
-      cwd: string,
-      agentCommand?: string | null,
-      agentKind?: string | null,
-    ) => Promise<void>;
-    onOutput: (
-      paneId: string,
-      callback: (data: string, seq?: StreamPosition) => void,
-    ) => () => void;
-    onExit: (paneId: string, callback: () => void) => () => void;
-    onCwd: (paneId: string, callback: (cwd: string) => void) => () => void;
-    /**
-     * The pty reached this size, at this position in the output stream. Resize
-     * the emulator here — see ADR-164.
-     */
-    onResized: (
-      paneId: string,
-      callback: (cols: number, rows: number) => void,
-    ) => () => void;
-    /**
-     * The winsize owner changed, without this viewer having made the call
-     * that changed it (ADR-179 D6) — another viewer of the pane outbid it, or
-     * its owner disconnected and it inherited the grid. It was a no-op
-     * subscription on the desktop preload while a desktop attach always won
-     * ownership; ADR-180 D6 made two windows on one pane comparable to each
-     * other, so a window is now as likely to hear this as a browser.
-     */
-    onWinsizeOwner: (
-      paneId: string,
-      callback: (payload: WinsizeOwnerEvent) => void,
-    ) => () => void;
-    onAgentStatus: (
-      paneId: string,
-      callback: (agent: AgentState) => void,
-    ) => () => void;
-    onError: (
-      paneId: string,
-      callback: (message: string) => void,
-    ) => () => void;
-  };
-
-  layout: {
-    /**
-     * ADR-179 D1. Layout belongs to the Manor server: read it whole, change it
-     * by command, and replace the replica whenever `onChanged` fires — the
-     * sender's own change included. There is no `save`: a renderer never
-     * writes layout.
-     */
-    getAll: () => Promise<Record<string, LayoutEntry>>;
-    /** The surface that was active last — restored on relaunch. */
-    getLastActive: () => Promise<string | null>;
-    apply: (
-      workspacePath: string,
-      command: import("./lib/layout/commands").LayoutCommand,
-    ) => Promise<LayoutApplyResult>;
-    /**
-     * Queue a command for a pane that has no shell yet (ADR-179 ticket 11).
-     *
-     * Sent immediately *before* the `apply` that creates the pane: both go
-     * over the same ordered channel and the server records this one
-     * synchronously, so the line is always waiting by the time the layout
-     * broadcast makes some renderer mount the pane and call `pty.create`.
-     */
-    setPendingCommand: (
-      paneId: string,
-      text: string,
-      kind?: "shell" | "agent-startup",
-    ) => Promise<void>;
-    remove: (workspacePath: string) => Promise<void>;
-    reportViewport: (
-      workspacePath: string,
-      rendererId: string,
-      viewport: PersistedDefaultViewport,
-    ) => Promise<void>;
-    onChanged: (callback: (payload: LayoutChangedPayload) => void) => () => void;
-  };
-
-  /**
-   * This renderer's own viewport file (ADR-179 D3, ADR-180 D4).
-   *
-   * `LOCAL_ONLY` on the handler table: a window at the machine reads and
-   * writes `~/.manor/viewport.json`, and a paired device is refused — the
-   * selection a phone remembers is the phone's, not the desk's. A browser
-   * never asks at all, answering both calls out of `localStorage`
-   * (`src/bridge/unavailable.ts`).
-   */
-  viewport: {
-    load: () => Promise<PersistedViewportFile | null>;
-    save: (file: PersistedViewportFile) => Promise<void>;
-  };
-
-  projects: {
-    getAll: () => Promise<import("./store/project-store").ProjectInfo[]>;
-    getSelectedIndex: () => Promise<number>;
-    select: (index: number) => Promise<void>;
-    add: (
-      name: string,
-      path: string,
-    ) => Promise<import("./store/project-store").ProjectInfo>;
-    remove: (projectId: string) => Promise<void>;
-    selectWorkspace: (
-      projectId: string,
-      workspaceIndex: number,
-    ) => Promise<void>;
-    removeWorktree: (
-      projectId: string,
-      worktreePath: string,
-      deleteBranch?: boolean,
-    ) => Promise<void>;
-    onRemoveWorktreeProgress: (callback: (step: string) => void) => () => void;
-    onWorktreeSetupProgress: (
-      callback: (
-        event: import("./store/project-store").SetupProgressEvent,
-      ) => void,
-    ) => () => void;
-    canQuickMerge: (
-      projectId: string,
-      worktreePath: string,
-    ) => Promise<{ canMerge: boolean; reason?: string }>;
-    quickMergeWorktree: (
-      projectId: string,
-      worktreePath: string,
-    ) => Promise<void>;
-    createWorktree: (
-      projectId: string,
-      name: string,
-      branch?: string,
-      linkedIssue?: import("./store/project-store").LinkedIssue,
-      baseBranch?: string,
-      useExistingBranch?: boolean,
-    ) => Promise<import("./store/project-store").ProjectInfo | null>;
-    convertMainToWorktree: (
-      projectId: string,
-      name: string,
-    ) => Promise<import("./store/project-store").ProjectInfo | null>;
-    listRemoteBranches: (projectId: string) => Promise<string[]>;
-    listLocalBranches: (projectId: string) => Promise<string[]>;
-    renameWorkspace: (
-      projectId: string,
-      workspacePath: string,
-      newName: string,
-    ) => Promise<void>;
-    setWorkspaceHidden: (
-      projectId: string,
-      workspacePath: string,
-      hidden: boolean,
-    ) => Promise<void>;
-    createWorkspaceFolder: (
-      projectId: string,
-      name: string,
-      parentId?: string | null,
-    ) => Promise<import("./store/project-store").WorkspaceFolder | null>;
-    /** Resolves false when the move would create a folder cycle (ADR-172). */
-    setFolderParent: (
-      projectId: string,
-      folderId: string,
-      parentId: string | null,
-    ) => Promise<boolean>;
-    renameWorkspaceFolder: (
-      projectId: string,
-      folderId: string,
-      name: string,
-    ) => Promise<void>;
-    deleteWorkspaceFolder: (
-      projectId: string,
-      folderId: string,
-    ) => Promise<void>;
-    setWorkspaceFolder: (
-      projectId: string,
-      workspacePath: string,
-      folderId: string | null,
-    ) => Promise<void>;
-    /** `orderedKeys` entries may be workspace paths or folder ids (ADR-167). */
-    reorderWorkspaces: (
-      projectId: string,
-      orderedKeys: string[],
-    ) => Promise<void>;
-    reorder: (orderedIds: string[]) => Promise<void>;
-    update: (
-      projectId: string,
-      updates: import("./store/project-store").ProjectUpdatableFields,
-    ) => Promise<import("./store/project-store").ProjectInfo | null>;
-  };
-
-  theme: {
-    get: () => Promise<import("./store/theme-store").Theme>;
-    setSelected: (name: string) => Promise<import("./store/theme-store").Theme>;
-    getSelectedName: () => Promise<string>;
-    hasGhosttyConfig: () => Promise<boolean>;
-    preview: (name: string) => Promise<import("./store/theme-store").Theme>;
-    allColors: () => Promise<
-      Record<
-        string,
-        Pick<
-          import("./store/theme-store").Theme,
-          | "red"
-          | "green"
-          | "yellow"
-          | "blue"
-          | "magenta"
-          | "cyan"
-          | "background"
-          | "foreground"
-        >
-      >
-    >;
-    /**
-     * The selected theme changed somewhere other than this call — another
-     * desktop window's `setSelected`, or a browser on the bridge (ADR-179
-     * ticket 7). The payload is `setSelected`'s own return shape, ready to
-     * apply without a round trip back to `get`.
-     */
-    onChanged: (
-      callback: (payload: {
-        name: string;
-        theme: import("./store/theme-store").Theme;
-      }) => void,
-    ) => () => void;
-  };
-
-  ports: {
-    startScanner: () => Promise<void>;
-    stopScanner: () => Promise<void>;
-    updateWorkspacePaths: (paths: string[]) => Promise<void>;
-    updateWorkspaceMetadata: (
-      meta: Array<{
-        path: string;
-        projectName: string | null;
-        branch: string | null;
-        isMain: boolean;
-        portlessEnabled: boolean;
-      }>,
-    ) => Promise<void>;
-    killPort: (pid: number) => Promise<void>;
-    scanNow: () => Promise<ActivePort[]>;
-    onChange: (callback: (ports: ActivePort[]) => void) => () => void;
-  };
-
-  processes: {
-    list: () => Promise<ManorProcessInfo>;
-    killSession: (sessionId: string) => Promise<void>;
-    cleanupDead: () => Promise<{ success: boolean }>;
-    killDaemon: () => Promise<void>;
-    killAll: () => Promise<void>;
-    restartPortless: () => Promise<void>;
-  };
-
-  branches: {
-    start: (paths: string[]) => Promise<void>;
-    stop: () => Promise<void>;
-    onChange: (
-      callback: (branches: Record<string, string>) => void,
-    ) => () => void;
-  };
-
-  diffs: {
-    start: (workspaces: Record<string, string>) => Promise<void>;
-    stop: () => Promise<void>;
-    onChange: (
-      callback: (
-        diffs: Record<string, { added: number; removed: number }>,
-      ) => void,
-    ) => () => void;
-    getFullDiff: (
-      wsPath: string,
-      defaultBranch: string,
-    ) => Promise<string | null>;
-    getLocalDiff: (wsPath: string) => Promise<string | null>;
-    getStagedFiles: (wsPath: string) => Promise<string[]>;
-  };
-
-  git: {
-    stage: (wsPath: string, files: string[]) => Promise<void>;
-    unstage: (wsPath: string, files: string[]) => Promise<void>;
-    discard: (wsPath: string, files: string[]) => Promise<void>;
-    stash: (wsPath: string, files: string[]) => Promise<void>;
-    commit: (wsPath: string, message: string, flags: string[]) => Promise<void>;
-    push: {
-      start: (args: {
-        wsPath: string;
-        setUpstream?: boolean;
-      }) => Promise<{ pushId: string; startedAt: number }>;
-      cancel: (pushId: string) => Promise<void>;
-      onProgress: (handler: (evt: PushProgressEvent) => void) => () => void;
-    };
-  };
-
-  github: {
-    getPrForBranch: (repoPath: string, branch: string) => Promise<unknown>;
-    getPrsForBranches: (
-      repoPath: string,
-      branches: string[],
-    ) => Promise<[string, PrInfo | null][]>;
-    checkStatus: () => Promise<{
-      installed: boolean;
-      authenticated: boolean;
-      username?: string;
-    }>;
-    getMyIssues: (
-      repoPath: string,
-      limit?: number,
-      state?: "open" | "closed" | "all",
-    ) => Promise<GitHubIssue[]>;
-    getAllIssues: (
-      repoPath: string,
-      limit?: number,
-      state?: "open" | "closed" | "all",
-    ) => Promise<GitHubIssue[]>;
-    getIssueDetail: (
-      repoPath: string,
-      issueNumber: number,
-    ) => Promise<GitHubIssueDetail>;
-    assignIssue: (repoPath: string, issueNumber: number) => Promise<void>;
-    closeIssue: (repoPath: string, issueNumber: number) => Promise<void>;
-    createIssue: (
-      title: string,
-      body: string,
-      labels: string[],
-    ) => Promise<{ url: string } | null>;
-    uploadFeedbackImages: (
-      images: { base64: string; name: string }[],
-    ) => Promise<string[]>;
-  };
-
-  remoteControl: {
-    getStatus: () => Promise<RemoteControlStatus>;
-    refreshDetection: () => Promise<RemoteControlStatus>;
-    setEnabled: (enabled: boolean) => Promise<RemoteControlStatus>;
-    pair: (
-      label: string,
-      capability: RemoteCapability,
-    ) => Promise<RemotePairResult>;
-    revoke: (id: string) => Promise<RemoteControlStatus>;
-    startTunnel: (kind?: TunnelKind) => Promise<RemoteControlStatus>;
-    stopTunnel: () => Promise<RemoteControlStatus>;
-    onStatus: (callback: (status: RemoteControlStatus) => void) => () => void;
-  };
-
-  linear: {
-    connect: (apiKey: string) => Promise<{ name: string; email: string }>;
-    disconnect: () => Promise<void>;
-    isConnected: () => Promise<boolean>;
-    getViewer: () => Promise<{ name: string; email: string }>;
-    getTeams: () => Promise<LinearTeam[]>;
-    getMyIssues: (
-      teamIds: string[],
-      options?: { stateTypes?: string[]; limit?: number },
-    ) => Promise<LinearIssue[]>;
-    getIssueDetail: (issueId: string) => Promise<LinearIssueDetail>;
-    getAllIssues: (
-      teamIds: string[],
-      options?: { stateTypes?: string[]; limit?: number },
-    ) => Promise<LinearIssue[]>;
-    proxyImage: (url: string) => Promise<string>;
-    autoMatch: () => Promise<Record<string, LinearAssociation>>;
-    startIssue: (issueId: string) => Promise<void>;
-    closeIssue: (issueId: string) => Promise<void>;
-    linkIssueToWorkspace: (
-      projectId: string,
-      workspacePath: string,
-      issue: LinkedIssue,
-    ) => Promise<void>;
-    unlinkIssueFromWorkspace: (
-      projectId: string,
-      workspacePath: string,
-      issueId: string,
-    ) => Promise<void>;
-  };
-
-  updater: {
-    checkForUpdates: () => Promise<void>;
-    quitAndInstall: () => Promise<void>;
-    onChecking: (
-      callback: (payload: { manual: boolean }) => void,
-    ) => () => void;
-    onUpdateAvailable: (
-      callback: (info: { version: string }) => void,
-    ) => () => void;
-    onUpdateDownloaded: (
-      callback: (info: { version: string }) => void,
-    ) => () => void;
-    onUpdateNotAvailable: (
-      callback: (info: { version: string; manual: boolean }) => void,
-    ) => () => void;
-    onDownloadProgress: (
-      callback: (progress: {
-        percent: number;
-        bytesPerSecond: number;
-        transferred: number;
-        total: number;
-      }) => void,
-    ) => () => void;
-    onError: (
-      callback: (payload: { message: string; manual: boolean }) => void,
-    ) => () => void;
-  };
-
-  dialog: {
-    openDirectory: () => Promise<string | null>;
-  };
-
-  shell: {
-    openExternal: (url: string) => Promise<void>;
-    openInEditor: (path: string) => Promise<string>;
-    resolveFilePath: (filePath: string, cwd: string) => Promise<string | null>;
-    discoverAgents: () => Promise<Array<{ name: string; command: string }>>;
-    showItemInFolder: (path: string) => Promise<void>;
-  };
-
-  agents: {
-    getAll: (opts?: {
-      projectId?: string;
-      status?: string;
-      limit?: number;
-      offset?: number;
-    }) => Promise<AgentInfo[]>;
-    getActive: () => Promise<AgentInfo[]>;
-    getRecent: (opts?: { limit?: number }) => Promise<AgentInfo[]>;
-    /**
-     * Returns main's full unseen-flag snapshot. Used by the renderer on boot
-     * to prime its `unseenRespondedAgentIds` / `unseenInputAgentIds` Sets so
-     * pulse-state matches main exactly. See ADR-136 §"Change 3".
-     */
-    getUnseen: () => Promise<{ responded: string[]; requires_input: string[] }>;
-    /**
-     * Returns the number of agents pruned during the most recent boot, exactly
-     * once. Renderer should show a one-time notice if count > 0.
-     */
-    consumePruneNotice: () => Promise<number>;
-    get: (agentId: string) => Promise<AgentInfo | null>;
-    update: (
-      agentId: string,
-      updates: { name?: string | null; namePinned?: boolean },
-    ) => Promise<AgentInfo | null>;
-    delete: (agentId: string) => Promise<boolean>;
-    setPaneContext: (
-      paneId: string,
-      context: {
-        projectId: string;
-        projectName: string;
-        workspacePath: string;
-        agentCommand: string | null;
-      },
-    ) => Promise<void>;
-    markSeen: (agentId: string) => Promise<void>;
-    markResumed: (agentId: string) => Promise<AgentInfo | null>;
-    buildResumeCommand: (agentId: string) => Promise<string | null>;
-    reconcileStale: () => Promise<void>;
-    abandonForPane: (paneId: string, title?: string | null) => Promise<void>;
-    /**
-     * Subscribe to live agent updates. The second argument carries main's
-     * authoritative unseen flags for the broadcast agent at the moment it
-     * was sent. The renderer treats these flags as the source of truth.
-     */
-    onUpdate: (
-      callback: (
-        agent: AgentInfo,
-        unseen: { responded: boolean; requires_input: boolean },
-      ) => void,
-    ) => () => void;
-  };
-
-  preferences: {
-    getAll: () => Promise<AppPreferences>;
-    set: (
-      key: keyof AppPreferences,
-      value: AppPreferences[keyof AppPreferences],
-    ) => Promise<void>;
-    onChange: (callback: (prefs: AppPreferences) => void) => () => void;
-    playSound: (name: string) => Promise<void>;
-  };
-
-  keybindings: {
-    getAll: () => Promise<Record<string, string>>;
-    /**
-     * `LOCAL_ONLY` on the handler table (ADR-178 ticket 6, ADR-180 D4): the
-     * keybindings page is read-only on web, and this is where that decision
-     * lives as code rather than as an absence.
-     */
-    set: (commandId: string, combo: string) => Promise<void>;
-    reset: (commandId: string) => Promise<void>;
-    resetAll: () => Promise<void>;
-    onChange: (
-      callback: (overrides: Record<string, string>) => void,
-    ) => () => void;
-    /**
-     * A bound combo pressed where this window's key handler can't see it — in
-     * a web page, or a primary-only command pressed in a popout.
-     */
-    onForwardedCommand: (
-      callback: (payload: ForwardedCommandPayload) => void,
-    ) => () => void;
-    /**
-     * Popout → main: focus the primary window and run `commandId` there.
-     * `LOCAL_ONLY` — it names a window, and a paired device has none of its
-     * own to run a command in.
-     */
-    runInMainWindow: (commandId: string) => Promise<void>;
-  };
-
-  menu: {
-    /** Pushes a fresh `MenuContext` snapshot so main can label/enable menu items. */
-    setContext: (context: MenuContext) => void;
-    /** A native menu item was clicked; fire-and-forget, like a keybinding. */
-    onMenuCommand: (
-      callback: (payload: MenuCommandPayload) => void,
-    ) => () => void;
-  };
-
-  notifications: {
-    /**
-     * Resolves `true` when a native notification was presented, `false` when
-     * the calling window is focused — in which case the caller should show an
-     * in-app toast instead. Either way the event is recorded in the log.
-     */
-    show: (payload: {
-      kind: "comment" | "approved" | "changes-requested" | "checks-failed";
-      title: string;
-      body: string;
-      url?: string;
-      comment?: PrComment;
-    }) => Promise<boolean>;
-    /** Newest first. Main owns the list; the renderer only caches it. */
-    getAll: () => Promise<NotificationRecord[]>;
-    markRead: (id: string) => Promise<void>;
-    markAllRead: () => Promise<void>;
-    clear: () => Promise<void>;
-    /** Fires with the full list after every mutation (ADR-162 §3). */
-    onChanged: (callback: (list: NotificationRecord[]) => void) => () => void;
-    /** A native banner was clicked; the payload is the record id. */
-    onNavigate: (callback: (id: string) => void) => () => void;
-  };
-
-  stats: {
-    /** Main owns the counters; the renderer only caches this snapshot. */
-    getSummary: () => Promise<StatsSummary>;
-    /** Wipes the stats file and in-memory state. */
-    reset: () => Promise<void>;
-    /** Fires with the full summary after a burst of recording settles (ADR-168 §5). */
-    onChanged: (callback: (summary: StatsSummary) => void) => () => void;
-  };
-
-  clipboard: {
-    writeText: (text: string) => Promise<void>;
-  };
-
-  onProjectsChanged: (callback: () => void) => () => void;
-
-  /**
-   * Structurally identical to main's `AppCommand` (electron/renderer-bridge.ts).
-   * A payload carrying `requestId` expects a `sendAppCommandResult` reply.
-   */
-  onAppCommand: (
-    callback: (payload: {
-      cmd: string;
-      requestId?: string;
-      workspacePath?: string;
-      prompt?: string;
-      script?: string;
-      args?: Record<string, unknown>;
-    }) => void,
-  ) => () => void;
-
-  /** Reply to an `onAppCommand` payload that carried a `requestId`. */
-  sendAppCommandResult: (result: {
-    requestId: string;
-    ok: boolean;
-    data?: unknown;
-    error?: string;
-  }) => void;
-
-  webview: {
-    register: (paneId: string, webContentsId: number) => Promise<void>;
-    unregister: (paneId: string) => Promise<void>;
-    startPicker: (paneId: string) => Promise<void>;
-    cancelPicker: (paneId: string) => Promise<void>;
-    zoomIn: (paneId: string) => Promise<void>;
-    zoomOut: (paneId: string) => Promise<void>;
-    zoomReset: (paneId: string) => Promise<void>;
-    onPickerResult: (
-      callback: (paneId: string, result: PickedElementResult) => void,
-    ) => () => void;
-    onPickerCancel: (callback: (paneId: string) => void) => () => void;
-    onEscape: (callback: (paneId: string) => void) => () => void;
-    onFocusUrl: (callback: (paneId: string) => void) => () => void;
-    onNewWindow: (
-      callback: (
-        paneId: string,
-        url: string,
-        opts?: { background?: boolean },
-      ) => void,
-    ) => () => void;
-    stop: (paneId: string) => Promise<void>;
-    findInPage: (
-      paneId: string,
-      query: string,
-      options?: { forward?: boolean; findNext?: boolean },
-    ) => Promise<void>;
-    stopFindInPage: (paneId: string) => Promise<void>;
-    onLoadingChanged: (
-      callback: (paneId: string, isLoading: boolean) => void,
-    ) => () => void;
-    onFaviconUpdated: (
-      callback: (paneId: string, faviconUrl: string) => void,
-    ) => () => void;
-    onFindResult: (
-      callback: (
-        paneId: string,
-        result: {
-          activeMatchOrdinal: number;
-          matches: number;
-          finalUpdate: boolean;
-        },
-      ) => void,
-    ) => () => void;
-    onFind: (callback: (paneId: string) => void) => () => void;
-    onGoBack: (callback: (paneId: string) => void) => () => void;
-    onGoForward: (callback: (paneId: string) => void) => () => void;
-    setAudioMuted: (paneId: string, muted: boolean) => Promise<void>;
-    onAudioStateChanged: (
-      callback: (paneId: string, audible: boolean) => void,
-    ) => () => void;
-    /** One webm chunk from a pane's `MediaRecorder` (ADR-158). */
-    sendRecordingChunk: (recordingId: string, chunk: ArrayBuffer) => void;
-    /** Renderer's recorder has flushed; main may finalize the file. */
-    notifyRecordingStopped: (
-      recordingId: string,
-      error?: string,
-    ) => Promise<void>;
-    /** Main-initiated start/stop of a pane recording. Returns an unsubscribe. */
-    onRecordingCommand: (
-      callback: (command: WebviewRecordingCommand) => void,
-    ) => () => void;
-    /** User clicked the pane's "Recording" indicator to stop it (ADR-158). */
-    stopRecording: (paneId: string) => Promise<void>;
-  };
-
-  /** Multi-window detach (ADR-156, ADR-179 D4). */
-  window: {
-    /**
-     * Pop a tab out into a window of its own; resolves that window's id.
-     *
-     * Nothing is handed over: the tab stays in the workspace, and the new
-     * window boots with a **claim** on it, which it reports as viewport. The
-     * primary hides the tab because the server told it who holds what, and a
-     * browser goes on seeing every tab (ADR-179 D4).
-     */
-    detachTab: (
-      workspacePath: string,
-      tabId: string,
-      spawnBounds?: { x: number; y: number; width: number; height: number },
-    ) => Promise<string>;
-    /** Outer bounds of the calling window (used by the drag-out trigger). */
-    getBounds: () => Promise<{
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-    }>;
-    /**
-     * Move the calling window's top-left to a screen-space point.
-     * Fire-and-forget — driven at pointermove frequency while a window whose
-     * only tab is being dragged follows the cursor instead of tearing off.
-     */
-    setPosition: (x: number, y: number) => void;
-    /**
-     * Every OTHER manor window that a dragged tab could be dropped into,
-     * topmost-first (focus recency). Fetched once per drag; the renderer
-     * hit-tests the release point against these bounds itself.
-     */
-    listWindows: () => Promise<
-      {
-        id: number;
-        bounds: { x: number; y: number; width: number; height: number };
-      }[]
-    >;
-    /**
-     * Close the calling window — and, in a detached window, give the tab back:
-     * the claim dies with the window and the tab reappears in the primary with
-     * its panes and sessions untouched (ADR-179 D4).
-     */
-    closeSelf: () => void;
-  };
 }
+
+/**
+ * `window.electronAPI`, the one surface the desktop renderer and a browser
+ * tab both call (ADR-180 D3, ADR-182 D4).
+ *
+ * Built from its parts rather than written out:
+ *
+ * - `HostFacts` above — the synchronous facts;
+ * - `NativeApi` — what the preload answers in process, desktop only
+ *   (`nativeApi` in `electron/preload.ts`);
+ * - `BridgeApi` — every handler on the table and every listener in
+ *   `SUBSCRIPTIONS` (`electron/bridge/events.ts`), each with the signature
+ *   its handler or event declares (`electron/bridge/contract.ts`).
+ *
+ * So a method's signature is written once, where it is implemented, and
+ * every caller in `src/` is type-checked against that. `electron/bridge/surface.ts`
+ * checks what derivation cannot: that every method has an answer in a
+ * browser, and that the table's rules agree with each other.
+ */
+export type ElectronAPI = HostFacts & NativeApi & BridgeApi;
 
 export interface PickedElementResult {
   outerHTML: string;
@@ -1149,14 +372,14 @@ export interface PickedElementResult {
 
 // ── Remote control (ADR-161) ──
 
-export type TunnelKind = "tailscale" | "cloudflared";
 export type TunnelState = "stopped" | "starting" | "running" | "failed";
 
 export interface TunnelStatus {
   state: TunnelState;
-  kind: TunnelKind | null;
   url: string | null;
   error: string | null;
+  /** Set while starting, when Tailscale is waiting on the user (e.g. to enable Serve). */
+  actionUrl?: string | null;
 }
 
 /**
@@ -1178,12 +401,21 @@ export interface RemoteDeviceInfo {
   hasPush: boolean;
 }
 
+/** Mirrors `TailnetInfo` in `electron/remote-control/tunnel.ts`. */
+export interface TailnetInfo {
+  account: string | null;
+  peers: { name: string; os: string; online: boolean }[];
+}
+
 export interface RemoteControlStatus {
   enabled: boolean;
   port: number | null;
   devices: RemoteDeviceInfo[];
   tunnel: TunnelStatus;
-  detected: Record<TunnelKind, boolean>;
+  /** Whether the tailscale CLI was found, on PATH or in the app bundle. */
+  installed: boolean;
+  /** Other devices on the tailnet while a tunnel runs; null otherwise. */
+  tailnet: TailnetInfo | null;
   encryptionAvailable: boolean;
   listeners: number;
 }
@@ -1198,19 +430,6 @@ export interface RemotePairResult {
 }
 
 // ── The host surface (ADR-180 D3) ──
-
-/**
- * A failed `ManorHost.invoke`, as a value rather than a rejection.
- *
- * `ipcMain.handle` serialises a thrown error to its message and drops every
- * custom property, so a rejection cannot carry the `code` that tells
- * `unavailable:web` from a real failure. The transport returns this instead
- * and the client in the page throws it —
- * `electron/bridge/transports/ipc.ts` is the other half of this shape.
- */
-export interface BridgeErrorEnvelope {
-  __bridgeError: { code: string; message: string };
-}
 
 /**
  * What the preload exposes, and the only thing it exposes: the facts a
@@ -1229,32 +448,22 @@ export interface ManorHost {
   platform: "electron";
   /** This window's `webContents.id`, as `ElectronAPI.rendererId` documents. */
   rendererId: string | null;
-  isDetached: boolean;
-  detachedWindowId: string | null;
   claim: { workspacePath: string; tabId: string } | null;
   env: { isPackaged: boolean };
   /**
-   * The namespaces the preload still answers in process, and the root-level
-   * functions beside them.
-   *
-   * The client calls straight through to these and reaches `invoke` only for
-   * what is not here, so this is the migration's dial: it is every namespace
-   * `ElectronAPI` has today, and each later ADR-180 ticket takes a group out
-   * of it. What is left when they are done is the set that can never leave
-   * the preload — `webview`, `window`, `menu`, `dialog`, `shell`,
-   * `clipboard`, `updater`.
-   *
-   * Typed loosely on purpose: it is a *shrinking* subset of `ElectronAPI`,
-   * and no type can say "some of these keys". `ElectronAPI` stays the
-   * contract, and ADR-180 D7 is what checks the split.
+   * The namespaces the preload answers in process — `webview`, `window`,
+   * `menu`, `dialog`, `shell`, `clipboard`, `updater`, the set that can never
+   * leave it. The client calls straight through to these and reaches
+   * `invoke` only for what is not here.
    */
-  native: Record<string, unknown>;
+  native: NativeApi;
   /**
-   * Call `ns.method(...args)` on the host. Resolves with the handler's
-   * result, or with a `BridgeErrorEnvelope` when the call failed or the host
-   * does not implement it — the client checks for the envelope and throws.
+   * Send one invoke frame to the host. Resolves with its `ResultFrame` —
+   * failures included, as data rather than a rejection, because
+   * `ipcMain.handle` drops the `code` off a thrown error. The client settles
+   * it the same way it settles a frame off the socket.
    */
-  invoke: (ns: string, method: string, args: unknown[]) => Promise<unknown>;
+  invoke: (frame: InvokeFrame) => Promise<ResultFrame>;
   /**
    * Hear `ns.event`, for one `key` (a paneId) or for every key when null.
    * Returns the unsubscribe. Reference-counted in the preload, so two

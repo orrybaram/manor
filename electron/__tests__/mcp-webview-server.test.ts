@@ -65,6 +65,7 @@ import type {
 import { LayoutStore } from "../layout/layout-store";
 import { allPaneIds } from "../../src/lib/layout/pane-tree";
 import type { LocalBackend } from "../backend/local-backend";
+import type { HostDeps } from "../ipc/types";
 
 // ── The renderer, as the bridge sees it (ADR-180 D5) ──
 
@@ -181,6 +182,28 @@ async function resolvePaneId(
   throw new Error(`Multiple webviews open. Specify a paneId:\n${listing}`);
 }
 
+/**
+ * A `WebviewServer` whose control routes run over `deps` — held by reference,
+ * so a test may swap a manager in after construction. Only what a test
+ * reaches is there: `HostDeps` is non-null (ADR-182 D8), and the cast is what
+ * lets a test stub the handful of managers it touches.
+ */
+function serverWith(deps: Partial<HostDeps> = {}): WebviewServer {
+  return new WebviewServer(
+    new Map<string, number>(),
+    () => deps as unknown as HostDeps,
+  );
+}
+
+/** Just the home-harness preferences a launch reads (`resolveAgentCommand`). */
+const LAUNCH_PREFERENCES = {
+  getAll: () => ({
+    homeHarness: "claude",
+    homeCustomCommand: "",
+    homeCustomInterrupt: "",
+  }),
+} as unknown as HostDeps["preferencesManager"];
+
 // ── Tests ──
 
 describe("MCP webview server logic", () => {
@@ -219,7 +242,7 @@ describe("MCP webview server logic", () => {
       undefined,
     );
 
-    server = new WebviewServer(registry);
+    server = new WebviewServer(registry, () => ({}) as HostDeps);
     await server.start();
     baseUrl = `http://127.0.0.1:${server.serverPort}`;
   });
@@ -414,10 +437,9 @@ describe("WebviewServer project/workspace routes", () => {
     );
 
     // The route handler only uses these four methods of ProjectManager.
-    server = new WebviewServer(
-      new Map<string, number>(),
-      pm as unknown as ConstructorParameters<typeof WebviewServer>[1],
-    );
+    server = serverWith({
+      projectManager: pm as unknown as HostDeps["projectManager"],
+    });
     await server.start();
     baseUrl = `http://127.0.0.1:${server.serverPort}`;
   });
@@ -474,28 +496,22 @@ describe("WebviewServer project/workspace routes", () => {
       baseBranch: "origin/main",
     })) as { workspaces: unknown[] };
     expect(project.workspaces).toHaveLength(2);
-    expect(pm.createWorktree).toHaveBeenCalledWith(
-      "proj-1",
-      "feature",
-      undefined,
-      undefined,
-      "origin/main",
-      undefined,
-    );
+    expect(pm.createWorktree).toHaveBeenCalledWith("proj-1", "feature", {
+      branch: undefined,
+      baseBranch: "origin/main",
+      useExistingBranch: undefined,
+    });
   });
 
   it("POST /projects/:id/workspaces falls back to 'branch' when name is omitted", async () => {
     await mcpHttpPost(baseUrl, "/projects/proj-1/workspaces", {
       branch: "feature",
     });
-    expect(pm.createWorktree).toHaveBeenCalledWith(
-      "proj-1",
-      "feature",
-      "feature",
-      undefined,
-      undefined,
-      undefined,
-    );
+    expect(pm.createWorktree).toHaveBeenCalledWith("proj-1", "feature", {
+      branch: "feature",
+      baseBranch: undefined,
+      useExistingBranch: undefined,
+    });
   });
 
   it("POST /projects/:id/workspaces 400s when name and branch are both missing", async () => {
@@ -596,14 +612,6 @@ describe("WebviewServer project/workspace routes", () => {
       true,
     );
   });
-
-  it("returns 503 when project management is unavailable", async () => {
-    const bare = new WebviewServer(new Map<string, number>());
-    await bare.start();
-    const bareUrl = `http://127.0.0.1:${bare.serverPort}`;
-    await expect(mcpHttpGet(bareUrl, "/projects")).rejects.toThrow("HTTP 503");
-    bare.stop();
-  });
 });
 
 // ── Agent orchestration routes (issues, /agents, workspaces/batch) ──
@@ -627,6 +635,8 @@ describe("WebviewServer agent orchestration routes", () => {
   /** `POST /agents` opens the tab itself now (ADR-179 ticket 11), so the
    *  orchestration routes need a real layout store like the pane routes do. */
   let layoutStore: LayoutStore;
+  /** What the server's routes run over; a test may swap a manager in. */
+  let deps: Partial<HostDeps>;
   let pm: {
     getProjects: ReturnType<typeof vi.fn>;
     addProject: ReturnType<typeof vi.fn>;
@@ -746,15 +756,14 @@ describe("WebviewServer agent orchestration routes", () => {
         "pty"
       >,
     );
-    server = new WebviewServer(
-      new Map<string, number>(),
-      pm as unknown as ConstructorParameters<typeof WebviewServer>[1],
-      github as unknown as ConstructorParameters<typeof WebviewServer>[2],
-      linearManager as unknown as ConstructorParameters<
-        typeof WebviewServer
-      >[3],
-    );
-    server.setControlDeps({ layoutStore });
+    deps = {
+      projectManager: pm as unknown as HostDeps["projectManager"],
+      githubManager: github as unknown as HostDeps["githubManager"],
+      linearManager: linearManager as unknown as HostDeps["linearManager"],
+      layoutStore,
+      preferencesManager: LAUNCH_PREFERENCES,
+    };
+    server = serverWith(deps);
     await server.start();
     baseUrl = `http://127.0.0.1:${server.serverPort}`;
   });
@@ -793,10 +802,9 @@ describe("WebviewServer agent orchestration routes", () => {
     });
 
     it("returns 503 when no githubManager is configured", async () => {
-      const bare = new WebviewServer(
-        new Map<string, number>(),
-        pm as unknown as ConstructorParameters<typeof WebviewServer>[1],
-      );
+      const bare = serverWith({
+        projectManager: pm as unknown as HostDeps["projectManager"],
+      });
       await bare.start();
       const bareUrl = `http://127.0.0.1:${bare.serverPort}`;
       await expect(
@@ -876,11 +884,10 @@ describe("WebviewServer agent orchestration routes", () => {
       });
 
       it("returns 503 when no linearManager is configured", async () => {
-        const bare = new WebviewServer(
-          new Map<string, number>(),
-          pm as unknown as ConstructorParameters<typeof WebviewServer>[1],
-          github as unknown as ConstructorParameters<typeof WebviewServer>[2],
-        );
+        const bare = serverWith({
+          projectManager: pm as unknown as HostDeps["projectManager"],
+          githubManager: github as unknown as HostDeps["githubManager"],
+        });
         await bare.start();
         const bareUrl = `http://127.0.0.1:${bare.serverPort}`;
         await expect(
@@ -1177,11 +1184,14 @@ describe("WebviewServer agent orchestration routes", () => {
       expect(failedAssign?.workspacePath).toBe("/repos/demo-ws-20");
     });
 
-    // A launch failure (no layout store to open a tab in, here) happens after
+    // A launch failure (a layout store refusing the tab, here) happens after
     // the workspace already exists on disk — it must land on `launchError`,
     // not `error`, which is reserved for "no workspace was created at all".
     it("reports launchError (not error) on a created workspace whose agent failed to start", async () => {
-      server.setControlDeps({ layoutStore: null });
+      deps.layoutStore = {
+        pendingCommands: layoutStore.pendingCommands,
+        apply: vi.fn(async () => ({ error: "harness crashed" })),
+      } as unknown as LayoutStore;
 
       const result = (await mcpHttpPost(
         baseUrl,
@@ -1203,9 +1213,7 @@ describe("WebviewServer agent orchestration routes", () => {
       expect(failedLaunch?.workspacePath).toBe("/repos/demo-ws-10");
       expect(failedLaunch?.started).toBe(false);
       expect(failedLaunch?.error).toBeUndefined();
-      expect(failedLaunch?.launchError).toContain(
-        "Layout store is not available",
-      );
+      expect(failedLaunch?.launchError).toContain("harness crashed");
       expect((failedLaunch as { paneId?: string }).paneId).toBeUndefined();
     });
 
@@ -1228,7 +1236,7 @@ describe("WebviewServer agent orchestration routes", () => {
               : layoutStore.apply(workspacePath, command, origin),
         ),
       } as unknown as LayoutStore;
-      server.setControlDeps({ layoutStore: refusing });
+      deps.layoutStore = refusing;
 
       const result = (await mcpHttpPost(
         baseUrl,
@@ -1394,10 +1402,9 @@ describe("WebviewServer pane routes", () => {
         "pty"
       >,
     );
-    server = new WebviewServer(new Map<string, number>());
     // ADR-179 D5: the structural pane/tab routes drive this directly now, no
     // renderer round-trip — only `/panes/:paneId/focus` below still proxies.
-    server.setControlDeps({ layoutStore });
+    server = serverWith({ layoutStore });
     await server.start();
     baseUrl = `http://127.0.0.1:${server.serverPort}`;
   });
@@ -1855,17 +1862,13 @@ describe("GET /context", () => {
     linearManager = { isConnected: vi.fn(() => true) };
     layoutPersistence = { load: vi.fn(() => CONTEXT_LAYOUT_FIXTURE) };
 
-    server = new WebviewServer(
-      new Map<string, number>(),
-      pm as unknown as ConstructorParameters<typeof WebviewServer>[1],
-      github as unknown as ConstructorParameters<typeof WebviewServer>[2],
-      linearManager as unknown as ConstructorParameters<
-        typeof WebviewServer
-      >[3],
-      layoutPersistence as unknown as ConstructorParameters<
-        typeof WebviewServer
-      >[4],
-    );
+    server = serverWith({
+      projectManager: pm as unknown as HostDeps["projectManager"],
+      githubManager: github as unknown as HostDeps["githubManager"],
+      linearManager: linearManager as unknown as HostDeps["linearManager"],
+      layoutPersistence:
+        layoutPersistence as unknown as HostDeps["layoutPersistence"],
+    });
     await server.start();
     baseUrl = `http://127.0.0.1:${server.serverPort}`;
   });
@@ -1939,26 +1942,6 @@ describe("GET /context", () => {
     expect(layoutPersistence.load).toHaveBeenCalled();
   });
 
-  it("resolves via cwd when no layoutPersistence is configured at all", async () => {
-    const bare = new WebviewServer(
-      new Map<string, number>(),
-      pm as unknown as ConstructorParameters<typeof WebviewServer>[1],
-    );
-    await bare.start();
-    const bareUrl = `http://127.0.0.1:${bare.serverPort}`;
-
-    // paneId is present too, to prove the optional-chained
-    // `deps.layoutPersistence?.load()` doesn't throw when the dep is null.
-    const { status, body } = await getContext(
-      bareUrl,
-      `?paneId=pane-target&cwd=${encodeURIComponent("/repo")}`,
-    );
-
-    expect(status).toBe(200);
-    expect(body).toMatchObject({ workspacePath: "/repo" });
-    bare.stop();
-  });
-
   it("404s with non-empty candidates when neither param resolves", async () => {
     const { status, body } = await getContext(baseUrl, "?cwd=/nowhere");
 
@@ -1977,25 +1960,14 @@ describe("GET /context", () => {
   it("returns 405 for POST /context", async () => {
     await expect(mcpHttpPost(baseUrl, "/context")).rejects.toThrow("HTTP 405");
   });
-
-  it("returns 503 when there is no projectManager", async () => {
-    const bare = new WebviewServer(new Map<string, number>());
-    await bare.start();
-    const bareUrl = `http://127.0.0.1:${bare.serverPort}`;
-
-    await expect(mcpHttpGet(bareUrl, "/context?cwd=/repo")).rejects.toThrow(
-      "HTTP 503",
-    );
-    bare.stop();
-  });
 });
 
 describe("GET /context sources computation", () => {
   /** Spin up a WebviewServer with the given manager combination, resolvable
    * via `cwd=/repo` against a project with the given linearAssociations. */
   async function serverWithSources(
-    githubManager: ConstructorParameters<typeof WebviewServer>[2] | undefined,
-    linearManager: ConstructorParameters<typeof WebviewServer>[3] | undefined,
+    githubManager: HostDeps["githubManager"] | undefined,
+    linearManager: HostDeps["linearManager"] | undefined,
     linearAssociations: Array<{
       teamId: string;
       teamName: string;
@@ -2007,24 +1979,23 @@ describe("GET /context sources computation", () => {
         { ...CONTEXT_PROJECT, linearAssociations },
       ]),
     };
-    const server = new WebviewServer(
-      new Map<string, number>(),
-      pm as unknown as ConstructorParameters<typeof WebviewServer>[1],
+    const server = serverWith({
+      projectManager: pm as unknown as HostDeps["projectManager"],
       githubManager,
       linearManager,
-    );
+    });
     await server.start();
     return { server, baseUrl: `http://127.0.0.1:${server.serverPort}` };
   }
 
   const GITHUB_STUB = {
     isReady: vi.fn(async () => true),
-  } as unknown as ConstructorParameters<typeof WebviewServer>[2];
+  } as unknown as HostDeps["githubManager"];
 
   it("github present, linear connected, project has associations -> [github, linear]", async () => {
     const linear = {
       isConnected: vi.fn(() => true),
-    } as unknown as ConstructorParameters<typeof WebviewServer>[3];
+    } as unknown as HostDeps["linearManager"];
     const { server, baseUrl } = await serverWithSources(GITHUB_STUB, linear, [
       { teamId: "team-1", teamName: "Engineering", teamKey: "ENG" },
     ]);
@@ -2038,7 +2009,7 @@ describe("GET /context sources computation", () => {
   it("linear connected but linearAssociations is empty -> [github] only", async () => {
     const linear = {
       isConnected: vi.fn(() => true),
-    } as unknown as ConstructorParameters<typeof WebviewServer>[3];
+    } as unknown as HostDeps["linearManager"];
     const { server, baseUrl } = await serverWithSources(
       GITHUB_STUB,
       linear,
@@ -2054,7 +2025,7 @@ describe("GET /context sources computation", () => {
   it("linearManager.isConnected() is false, associations present -> [github] only", async () => {
     const linear = {
       isConnected: vi.fn(() => false),
-    } as unknown as ConstructorParameters<typeof WebviewServer>[3];
+    } as unknown as HostDeps["linearManager"];
     const { server, baseUrl } = await serverWithSources(GITHUB_STUB, linear, [
       { teamId: "team-1", teamName: "Engineering", teamKey: "ENG" },
     ]);
@@ -2068,7 +2039,7 @@ describe("GET /context sources computation", () => {
   it("no githubManager, linear fully configured -> [linear] only", async () => {
     const linear = {
       isConnected: vi.fn(() => true),
-    } as unknown as ConstructorParameters<typeof WebviewServer>[3];
+    } as unknown as HostDeps["linearManager"];
     const { server, baseUrl } = await serverWithSources(undefined, linear, [
       { teamId: "team-1", teamName: "Engineering", teamKey: "ENG" },
     ]);
@@ -2098,10 +2069,10 @@ describe("GET /context sources computation", () => {
   it("githubManager present but isReady() resolves false -> [linear] only", async () => {
     const github = {
       isReady: vi.fn(async () => false),
-    } as unknown as ConstructorParameters<typeof WebviewServer>[2];
+    } as unknown as HostDeps["githubManager"];
     const linear = {
       isConnected: vi.fn(() => true),
-    } as unknown as ConstructorParameters<typeof WebviewServer>[3];
+    } as unknown as HostDeps["linearManager"];
     const { server, baseUrl } = await serverWithSources(github, linear, [
       { teamId: "team-1", teamName: "Engineering", teamKey: "ENG" },
     ]);

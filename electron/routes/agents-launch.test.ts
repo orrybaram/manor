@@ -21,12 +21,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 
-vi.mock("electron", () => ({
-  BrowserWindow: { getAllWindows: () => [] },
-}));
-
 import { agentRoutes } from "./agents";
-import type { ControlDeps, Route } from "./types";
+import type { HostDeps, Route } from "./types";
 import { LayoutStore } from "../layout/layout-store";
 import { LayoutPersistence } from "../terminal-host/layout-persistence";
 import type { LocalBackend } from "../backend/local-backend";
@@ -45,10 +41,10 @@ const launchRoute = ((): Route => {
   return route;
 })();
 
-async function call(deps: Partial<ControlDeps>, body: Record<string, unknown>) {
+async function call(deps: Partial<HostDeps>, body: Record<string, unknown>) {
   const calls: Array<{ status: number; body: any }> = [];
   await launchRoute.handler({
-    deps: deps as ControlDeps,
+    deps: deps as unknown as HostDeps,
     params: {},
     url: new URL("http://localhost/agents"),
     json: (status, b) => calls.push({ status, body: b }),
@@ -60,7 +56,7 @@ async function call(deps: Partial<ControlDeps>, body: Record<string, unknown>) {
 describe("POST /agents", () => {
   let tmpDir: string;
   let store: LayoutStore;
-  let deps: Partial<ControlDeps>;
+  let deps: Partial<HostDeps>;
 
   /** A project manager that owns `WS` with an `agentCommand` of its own. */
   function projectManager(agentCommand: string | null) {
@@ -74,7 +70,12 @@ describe("POST /agents", () => {
           workspaces: [{ path: WS, branch: "main", isMain: false, name: "ws" }],
         },
       ],
-    } as unknown as ControlDeps["projectManager"];
+    } as unknown as HostDeps["projectManager"];
+  }
+
+  /** Preferences carrying just the home harness a launch reads. */
+  function preferencesManager(home: Record<string, string>) {
+    return { getAll: () => home } as unknown as HostDeps["preferencesManager"];
   }
 
   /** The pane the answer named, as the layout store actually holds it. */
@@ -98,7 +99,15 @@ describe("POST /agents", () => {
         "pty"
       >,
     );
-    deps = { layoutStore: store, projectManager: projectManager(PROJECT_COMMAND) };
+    deps = {
+      layoutStore: store,
+      projectManager: projectManager(PROJECT_COMMAND),
+      preferencesManager: preferencesManager({
+        homeHarness: "claude",
+        homeCustomCommand: "",
+        homeCustomInterrupt: "",
+      }),
+    };
   });
 
   afterEach(() => {
@@ -165,13 +174,11 @@ describe("POST /agents", () => {
   });
 
   it("uses the configured home harness for the home surface", async () => {
-    deps.preferencesManager = {
-      getAll: () => ({
-        homeHarness: "custom",
-        homeCustomCommand: "my-harness --go",
-        homeCustomInterrupt: "",
-      }),
-    } as unknown as ControlDeps["preferencesManager"];
+    deps.preferencesManager = preferencesManager({
+      homeHarness: "custom",
+      homeCustomCommand: "my-harness --go",
+      homeCustomInterrupt: "",
+    });
 
     const res = await call(deps, { workspacePath: HOME_PATH, prompt: "go" });
 
@@ -213,11 +220,5 @@ describe("POST /agents", () => {
     expect(res.status).toBe(400);
     expect(store.getAll()).toEqual({});
     expect(store.pendingCommands.size).toBe(0);
-  });
-
-  it("503s when there is no layout store to open a tab in", async () => {
-    const res = await call({ layoutStore: null }, { workspacePath: WS });
-
-    expect(res.status).toBe(503);
   });
 });

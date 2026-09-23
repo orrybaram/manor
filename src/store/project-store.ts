@@ -350,6 +350,16 @@ export interface LinkedIssue {
   url: string;
 }
 
+/** Everything about a new worktree beyond its project and name. */
+export interface CreateWorktreeOptions {
+  branch?: string;
+  /** Typed into the new workspace once it is ready. */
+  agentCommand?: string;
+  linkedIssue?: LinkedIssue;
+  baseBranch?: string;
+  useExistingBranch?: boolean;
+}
+
 export interface LinearAssociation {
   teamId: string;
   teamName: string;
@@ -427,11 +437,7 @@ interface ProjectState {
   createWorktree: (
     projectId: string,
     name: string,
-    branch?: string,
-    agentCommand?: string,
-    linkedIssue?: LinkedIssue,
-    baseBranch?: string,
-    useExistingBranch?: boolean,
+    opts?: CreateWorktreeOptions,
   ) => Promise<string | null>;
   removeWorktree: (
     projectId: string,
@@ -600,12 +606,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   createWorktree: async (
     projectId: string,
     name: string,
-    branch?: string,
-    agentCommand?: string,
-    linkedIssue?: LinkedIssue,
-    baseBranch?: string,
-    useExistingBranch?: boolean,
+    opts: CreateWorktreeOptions = {},
   ) => {
+    const { branch, agentCommand, linkedIssue, baseBranch, useExistingBranch } =
+      opts;
     const project = get().projects.find((p) => p.id === projectId);
     const startScript = project?.worktreeStartScript ?? null;
 
@@ -622,10 +626,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       updated = await window.electronAPI.projects.createWorktree(
         projectId,
         name,
-        branch,
-        linkedIssue,
-        baseBranch,
-        useExistingBranch,
+        { branch, linkedIssue, baseBranch, useExistingBranch },
       );
     } catch (err) {
       unsubProgress();

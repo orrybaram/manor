@@ -1,10 +1,11 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback } from "react";
 import type { PanelNode } from "../../lib/layout/panel-tree";
+import { panelTreeContains } from "../../lib/layout/panel-tree";
 import type { SplitDirection } from "../../lib/layout/pane-tree";
-import { useAppStore } from "../../store/app-store";
-import { useDragOverlayStore } from "../../store/drag-overlay-store";
+import { useLayoutMode } from "../../hooks/useLayoutMode";
+import { activePanelIdOf, useAppStore } from "../../store/app-store";
+import { SplitFrame } from "../workspace-panes/SplitFrame";
 import { PanelLayout } from "./PanelLayout";
-import styles from "../workspace-panes/PaneLayout/PaneLayout.module.css";
 
 /** Walk to the first (leftmost/topmost) leaf in a PanelNode tree. */
 function firstLeafPanelId(node: PanelNode): string {
@@ -24,83 +25,30 @@ type SplitPanelLayoutProps = {
 export function SplitPanelLayout(props: SplitPanelLayoutProps) {
   const { direction, ratio, first, second, workspacePath, onNewAgent } = props;
 
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [currentRatio, setCurrentRatio] = useState(ratio);
-  const currentRatioRef = useRef(currentRatio);
-  currentRatioRef.current = currentRatio;
-  const [isDragging, setIsDragging] = useState(false);
+  const isPhone = useLayoutMode() === "phone";
 
-  // Sync local state when the store ratio changes (e.g., layout restore)
-  if (!isDragging && ratio !== currentRatio) {
-    setCurrentRatio(ratio);
-  }
-
-  const isHorizontal = direction === "horizontal";
-
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      setIsDragging(true);
-      useDragOverlayStore.getState().incrementDragCount();
-
-      const container = containerRef.current;
-      if (!container) return;
-
-      const onMouseMove = (ev: MouseEvent) => {
-        const rect = container.getBoundingClientRect();
-        let newRatio: number;
-        if (isHorizontal) {
-          newRatio = (ev.clientX - rect.left) / rect.width;
-        } else {
-          newRatio = (ev.clientY - rect.top) / rect.height;
-        }
-        newRatio = Math.max(0.1, Math.min(0.9, newRatio));
-        setCurrentRatio(newRatio);
-      };
-
-      const cleanup = () => {
-        useDragOverlayStore.getState().decrementDragCount();
-        setIsDragging(false);
-
-        const panelId = firstLeafPanelId(first);
-        useAppStore.getState().updatePanelSplitRatio(panelId, currentRatioRef.current);
-
-        document.removeEventListener("mousemove", onMouseMove);
-        document.removeEventListener("mouseup", cleanup);
-        window.removeEventListener("blur", cleanup);
-      };
-
-      document.addEventListener("mousemove", onMouseMove);
-      document.addEventListener("mouseup", cleanup);
-      window.addEventListener("blur", cleanup);
-    },
-    [isHorizontal, first],
+  // ADR-181 D1: in phone mode only the child containing this workspace's
+  // active panel is shown. A boolean, and only computed in phone mode, so the
+  // desk layout never re-renders on a focus change it did not before.
+  const focusInSecond = useAppStore(
+    (s) => isPhone && panelTreeContains(second, activePanelIdOf(s, workspacePath)),
   );
 
-  const firstSize = `${currentRatio * 100}%`;
-  const secondSize = `${(1 - currentRatio) * 100}%`;
+  const handleCommitRatio = useCallback(
+    (newRatio: number) => {
+      useAppStore.getState().updatePanelSplitRatio(firstLeafPanelId(first), newRatio);
+    },
+    [first],
+  );
 
   return (
-    <div
-      ref={containerRef}
-      className={`${styles.split} ${isHorizontal ? styles.splitHorizontal : styles.splitVertical}`}
-    >
-      <div
-        className={styles.splitChild}
-        style={isHorizontal ? { width: firstSize } : { height: firstSize }}
-      >
-        <PanelLayout node={first} workspacePath={workspacePath} onNewAgent={onNewAgent} />
-      </div>
-      <div
-        className={`${styles.divider} ${isHorizontal ? styles.dividerHorizontal : styles.dividerVertical} ${isDragging ? styles.dividerActive : ""}`}
-        onMouseDown={handleMouseDown}
-      />
-      <div
-        className={styles.splitChild}
-        style={isHorizontal ? { width: secondSize } : { height: secondSize }}
-      >
-        <PanelLayout node={second} workspacePath={workspacePath} onNewAgent={onNewAgent} />
-      </div>
-    </div>
+    <SplitFrame
+      direction={direction}
+      ratio={ratio}
+      focusInSecond={focusInSecond}
+      onCommitRatio={handleCommitRatio}
+      first={<PanelLayout node={first} workspacePath={workspacePath} onNewAgent={onNewAgent} />}
+      second={<PanelLayout node={second} workspacePath={workspacePath} onNewAgent={onNewAgent} />}
+    />
   );
 }

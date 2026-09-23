@@ -104,9 +104,9 @@ export function layout(
 /**
  * Open a tab through the control server, the way the CLI and MCP do.
  *
- * `command` is the interesting argument (ADR-179 ticket 11): the route has no
- * renderer to hand it to, so it queues the line on the server and whichever
- * renderer mounts the pane types it once the shell is ready.
+ * `command` is the interesting argument: the route has no renderer to hand it
+ * to, so it queues the line on the server and whichever renderer mounts the
+ * pane types it once the shell is ready.
  */
 export async function newTab(
   request: APIRequestContext,
@@ -142,8 +142,8 @@ export async function splitPane(
  * Every other helper here throws on a non-2xx, because every other helper is
  * asking for state. This one is for the tests where the *status* is the
  * answer: `503` from a `proxyToRenderer` route is the app saying "no window
- * is open to ask" (ADR-180 ticket 4), and a test that could only observe a
- * thrown `Error` could not tell it from a `400`.
+ * is open to ask", and a test that could only observe a thrown `Error` could
+ * not tell it from a `400`.
  */
 export async function postRoute(
   request: APIRequestContext,

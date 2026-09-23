@@ -1,10 +1,7 @@
 /**
- * `agentsAbandonForPane`.
- *
- * No `ipcMain` here any more: `agents` crossed to the handler table in
- * ADR-180 ticket 9, so this is a plain function over `IpcDeps` — the same
- * function the table calls, and a paired `full` device now reaches it the
- * same way the desktop does.
+ * `createAgentService` — how `LayoutStore` abandons the agent of every pane
+ * it ends (ADR-182 D7). There is no bridge method for this: a pane's agent
+ * ends with the pane, whoever closed it.
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -22,7 +19,7 @@ vi.mock("../ipc-validate", () => ({
   assertString: vi.fn(),
 }));
 
-import { agentsAbandonForPane } from "../bridge/handlers/agents";
+import { createAgentService } from "../bridge/handlers/agents";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -54,9 +51,18 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** End one pane, the way `LayoutStore` does. */
+function abandon(
+  deps: ReturnType<typeof makeDeps>,
+  paneId: string,
+  title?: string,
+): void {
+  createAgentService(deps as never).abandonForPanes([{ paneId, title }]);
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
-describe("agents.abandonForPane", () => {
+describe("abandoning a pane's agent", () => {
   let deps: ReturnType<typeof makeDeps>;
 
   beforeEach(() => {
@@ -69,7 +75,7 @@ describe("agents.abandonForPane", () => {
       status: "active",
     });
 
-    agentsAbandonForPane(deps as never, "pane-1");
+    abandon(deps, "pane-1");
 
     expect(deps.agentManager.updateAgent).toHaveBeenCalledTimes(1);
     expect(deps.agentManager.updateAgent).toHaveBeenCalledWith(
@@ -84,7 +90,7 @@ describe("agents.abandonForPane", () => {
   it("does nothing if no agent for that pane", () => {
     deps.agentManager.getAgentByPaneId.mockReturnValue(undefined);
 
-    agentsAbandonForPane(deps as never, "pane-99");
+    abandon(deps, "pane-99");
 
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
@@ -95,7 +101,7 @@ describe("agents.abandonForPane", () => {
       status: "completed",
     });
 
-    agentsAbandonForPane(deps as never, "pane-1");
+    abandon(deps, "pane-1");
 
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
@@ -107,7 +113,7 @@ describe("agents.abandonForPane", () => {
       name: null,
     });
 
-    agentsAbandonForPane(deps as never, "pane-1", "Fix conversation naming after slash clear command ⠻");
+    abandon(deps, "pane-1", "Fix conversation naming after slash clear command ⠻");
 
     expect(deps.agentManager.updateAgent).toHaveBeenCalledWith(
       "t1",
@@ -122,7 +128,7 @@ describe("agents.abandonForPane", () => {
       name: "Existing agent name",
     });
 
-    agentsAbandonForPane(deps as never, "pane-1", "Some other title");
+    abandon(deps, "pane-1", "Some other title");
 
     const [[, updates]] = (deps.agentManager.updateAgent as ReturnType<typeof vi.fn>).mock.calls;
     expect(updates).not.toHaveProperty("name");
@@ -135,7 +141,7 @@ describe("agents.abandonForPane", () => {
       name: null,
     });
 
-    agentsAbandonForPane(deps as never, "pane-1", "claude ⠋");
+    abandon(deps, "pane-1", "claude ⠋");
 
     const [[, updates]] = (deps.agentManager.updateAgent as ReturnType<typeof vi.fn>).mock.calls;
     expect(updates).not.toHaveProperty("name");
@@ -151,7 +157,7 @@ describe("agents.abandonForPane", () => {
           lastAgentStatus,
         });
 
-        agentsAbandonForPane(deps as never, "pane-1");
+        abandon(deps, "pane-1");
 
         expect(deps.statsStore.record).toHaveBeenCalledTimes(2);
         expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilled");
@@ -166,7 +172,7 @@ describe("agents.abandonForPane", () => {
         lastAgentStatus: "responded",
       });
 
-      agentsAbandonForPane(deps as never, "pane-1");
+      abandon(deps, "pane-1");
 
       expect(deps.statsStore.record).toHaveBeenCalledTimes(1);
       expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilled");
@@ -179,7 +185,7 @@ describe("agents.abandonForPane", () => {
         lastAgentStatus: null,
       });
 
-      agentsAbandonForPane(deps as never, "pane-1");
+      abandon(deps, "pane-1");
 
       expect(deps.statsStore.record).not.toHaveBeenCalled();
     });
@@ -191,9 +197,48 @@ describe("agents.abandonForPane", () => {
         lastAgentStatus: "working",
       });
 
-      agentsAbandonForPane(deps as never, "pane-1");
+      abandon(deps, "pane-1");
 
       expect(deps.statsStore.record).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("createAgentService (what LayoutStore calls)", () => {
+    it("abandons every pane's active agent, naming it by the pane's title", () => {
+      deps.agentManager.getAgentByPaneId.mockImplementation((paneId: string) =>
+        paneId === "pane-1" ? { id: "t1", status: "active" } : null,
+      );
+
+      createAgentService(deps as never).abandonForPanes([
+        { paneId: "pane-1", title: "Fix the build ⠻" },
+        { paneId: "pane-2", title: null },
+      ]);
+
+      expect(deps.agentManager.getAgentByPaneId).toHaveBeenCalledWith("pane-2");
+      expect(deps.agentManager.updateAgent).toHaveBeenCalledTimes(1);
+      expect(deps.agentManager.updateAgent).toHaveBeenCalledWith(
+        "t1",
+        expect.objectContaining({ status: "abandoned", name: "Fix the build" }),
+      );
+    });
+
+    it("keeps going past a pane whose abandonment throws", () => {
+      deps.agentManager.getAgentByPaneId.mockImplementation((paneId: string) => {
+        if (paneId === "pane-1") throw new Error("boom");
+        return { id: "t2", status: "active" };
+      });
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      createAgentService(deps as never).abandonForPanes([
+        { paneId: "pane-1" },
+        { paneId: "pane-2" },
+      ]);
+
+      expect(deps.agentManager.updateAgent).toHaveBeenCalledWith(
+        "t2",
+        expect.objectContaining({ status: "abandoned" }),
+      );
+      error.mockRestore();
     });
   });
 });

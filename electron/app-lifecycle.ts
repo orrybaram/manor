@@ -34,16 +34,15 @@ import { initAutoUpdater, checkForUpdates } from "./updater";
 import { portlessManager } from "./portless";
 import { LocalBackend } from "./backend/local-backend";
 import { PrewarmManager } from "./prewarm-manager";
-import { releaseViewer } from "./pty-attachments";
 import { RemoteDeviceStore } from "./remote-control/devices";
 import { RemoteControlServer } from "./remote-control/server";
 import { BridgeServer } from "./bridge/server";
 import { WsBridgeServer } from "./bridge/transports/ws";
 import { IpcBridgeTransport } from "./bridge/transports/ipc";
-import { TunnelManager } from "./remote-control/tunnel";
+import { TAILSCALE_APP_CLI, TunnelManager } from "./remote-control/tunnel";
 import { RemoteControlController } from "./remote-control/controller";
 import { PushManager } from "./remote-control/push";
-import type { ControlDeps } from "./routes/types";
+import type { HostDeps } from "./ipc/types";
 import { createWindow, saveZoomLevel } from "./window";
 import { installAppMenu, type AppMenuController } from "./app-menu";
 import {
@@ -57,6 +56,7 @@ import {
   setStatsStore,
 } from "./notifications";
 import { killAllActivePushes } from "./bridge/handlers/branches-diffs";
+import { createAgentService } from "./bridge/handlers/agents";
 import { wireStatsBroadcast } from "./bridge/handlers/stats";
 import {
   wirePreferencesBroadcast,
@@ -69,13 +69,10 @@ import * as windowIpc from "./ipc/window";
 import * as menuIpc from "./ipc/menu";
 
 /**
- * What a stream event means to *main* — which, since ADR-180 ticket 5, is no
- * longer "forward it to a window".
+ * What a stream event means to *main* — not "forward it to a window".
  *
- * Every pane's output, exit, cwd, resize, error and agent status used to go
- * out on a channel of its own — `pty-output-${paneId}` and five siblings, to
- * every live window, whether or not it had the pane. They are bridge event
- * frames now (D5): `BridgeServer.handleStreamEvent` publishes them as
+ * Every pane's output, exit, cwd, resize, error and agent status is a bridge
+ * event frame (D5): `BridgeServer.handleStreamEvent` publishes them as
  * `pty.output`/`exit`/`cwd`/`resized`/`agentStatus`/`error` keyed by paneId,
  * and a renderer hears only the panes it subscribed to — the same filter a
  * browser has always had, and the same `seq` riding along with the output
@@ -87,12 +84,8 @@ import * as menuIpc from "./ipc/menu";
  * event types say anything about that, which is why the other four are
  * absent rather than empty.
  *
- * There is no `window` parameter. This used to take one and the caller
- * looped over every renderer window to feed it, because `sendAgentUpdate`
- * addressed the legacy `agent-updated` channel to whichever window it was
- * handed. The loop went when `agents` crossed (ADR-180 ticket 9); the
- * argument every caller still passed and nobody read went with ticket 15.
- * The bridge reaches every window and every browser on its own.
+ * There is no `window` parameter: the bridge reaches every window and every
+ * browser on its own.
  */
 export function handleStreamEvent(
   event: StreamEvent,
@@ -163,25 +156,19 @@ export function initApp(devTitle: string | null): void {
   // which is how one is reached after it was created.
   const rendererWindows = new Set<BrowserWindow>();
   const detachedWindows = new Map<string, BrowserWindow>();
+  // The tab each detached window was opened to hold, by renderer id — the
+  // same fact its `--manor-claim=` argument tells the page (ADR-179 D4).
+  const windowClaims = new Map<string, { workspacePath: string; tabId: string }>();
 
+  // What a closed window held — the panes it was a viewer of, and the tab it
+  // claimed — is released when its bridge connection drops (the IPC
+  // transport drops it when the `webContents` is destroyed), not here: the
+  // connection is what holds them, and `BridgeServer.onDisconnect` below is
+  // the one place that hears it go.
   function trackRendererWindow(win: BrowserWindow): void {
     rendererWindows.add(win);
-    // Read the id now: `closed` fires with a freed native window behind the
-    // wrapper, and `webContents` is not there to be asked by then.
-    const viewerId = win.webContents.id;
     win.on("closed", () => {
       rendererWindows.delete(win);
-      // A window that dies without unmounting its panes still let them go —
-      // otherwise every pane it held stays desktop-owned forever and every
-      // other viewer follows a grid nothing is driving (ADR-178 D5). The
-      // window's connection id is its `webContents.id` as a string, which is
-      // what its panes are held under since `pty` crossed (ADR-180 D6); the
-      // IPC transport drops the same connection when the `webContents` is
-      // destroyed, and one of the two arrives first.
-      releaseViewer(String(viewerId));
-      // And whatever tab it held comes back to the primary (ADR-179 D4): a
-      // claim that outlives its window is a tab no renderer shows.
-      layoutStore.releaseWindow(String(viewerId));
     });
   }
 
@@ -226,58 +213,29 @@ export function initApp(devTitle: string | null): void {
   }
 
   /**
-   * Register a detached popup window created via `createDetachedWindow`. Ticket
-   * 2 calls this after creating the window so it can be reached by its windowId
+   * Register a detached popup window created via `createDetachedWindow`,
+   * called after creating the window so it can be reached by its windowId
    * (e.g. to deliver a one-shot detach payload) and receives broadcast events.
    */
-  function registerDetachedWindow(windowId: string, win: BrowserWindow): void {
+  function registerDetachedWindow(
+    windowId: string,
+    win: BrowserWindow,
+    claim: { workspacePath: string; tabId: string },
+  ): void {
+    // Read now: a closed window's `webContents` can no longer be asked.
+    const rendererId = String(win.webContents.id);
     detachedWindows.set(windowId, win);
+    windowClaims.set(rendererId, claim);
     trackRendererWindow(win);
     win.on("closed", () => {
       detachedWindows.delete(windowId);
+      windowClaims.delete(rendererId);
     });
   }
 
   // Managers
   const client = new TerminalHostClient();
   const backend = new LocalBackend(client);
-  const layoutPersistence = new LayoutPersistence();
-  /**
-   * ADR-179: layout is the Manor server's, not a renderer's. One broadcaster
-   * feeds every audience from the one place the layout changes.
-   *
-   * It used to be two — a publish for the bridge, and a `layout:changed`
-   * send around every live window. The second one went with the namespace
-   * (ADR-180 ticket 6): a desktop window is a bridge connection now, so the
-   * sink reaches the windows and the sockets alike, and a renderer hears
-   * `layout.changed` by subscription rather than by having a `webContents`.
-   */
-  const layoutStore = new LayoutStore(
-    layoutPersistence,
-    (payload) => publishRendererBroadcast("layout", "changed", payload),
-    backend,
-    // Which renderer is the primary window's (ADR-179 D4). Read at call time,
-    // not captured: `mainWindow` is nulled on close and set again on reopen,
-    // and a stale answer here would make `list_panes` describe a popout.
-    (rendererId) =>
-      mainWindow !== null &&
-      !mainWindow.isDestroyed() &&
-      !mainWindow.webContents.isDestroyed() &&
-      String(mainWindow.webContents.id) === rendererId,
-  );
-  // Before any window exists: the first thing a renderer asks for is
-  // `layout.getAll()`, and a cold read of the file is not worth racing.
-  layoutStore.load();
-  const projectManager = new ProjectManager(backend.git);
-  const themeManager = new ThemeManager();
-  const portScanner = new PortScanner(backend.ports);
-  const branchWatcher = new BranchWatcher();
-  const diffWatcher = new DiffWatcher(backend.git);
-  const githubManager = new GitHubManager();
-  const linearManager = new LinearManager();
-
-  const prewarmManager = new PrewarmManager(client, process.env.HOME || "/");
-  const agentHookServer = new AgentHookServer();
   // PreferencesManager must be constructed before AgentManager so we can pass
   // the user's configured retention into the prune step.
   const preferencesManager = new PreferencesManager();
@@ -300,10 +258,59 @@ export function initApp(devTitle: string | null): void {
         body: badge.description,
         target: { type: "stats" },
       });
-      sendNotificationsUpdate(mainWindow);
+      sendNotificationsUpdate();
     },
   });
   setStatsStore(statsStore);
+  const layoutPersistence = new LayoutPersistence();
+  /**
+   * ADR-179: layout is the Manor server's, not a renderer's. One broadcaster
+   * feeds every audience from the one place the layout changes.
+   *
+   * A desktop window is a bridge connection, so the sink reaches the windows
+   * and the sockets alike, and a renderer hears `layout.changed` by
+   * subscription rather than by having a `webContents`.
+   */
+  const layoutStore = new LayoutStore(
+    layoutPersistence,
+    (payload) => publishRendererBroadcast("layout", "changed", payload),
+    backend,
+    {
+      // Which renderer is the primary window's (ADR-179 D4). Read at call
+      // time, not captured: `mainWindow` is nulled on close and set again on
+      // reopen, and a stale answer here would make `list_panes` describe a
+      // popout.
+      isPrimary: (rendererId) =>
+        mainWindow !== null &&
+        !mainWindow.isDestroyed() &&
+        !mainWindow.webContents.isDestroyed() &&
+        String(mainWindow.webContents.id) === rendererId,
+      // The tab a detached window holds; its reports are how that takes effect.
+      claimOf: (rendererId) => windowClaims.get(rendererId) ?? null,
+    },
+    // A pane's title, off the command channel (ADR-182 D1) — the same
+    // `publishRendererBroadcast` sink as `layout.changed`, on its own event
+    // so a renderer's replica does not have to replace itself for a title.
+    (paneId, title) => publishRendererBroadcast("layout", "paneTitle", { paneId, title }),
+    // Every pane the store ends takes its agent with it (ADR-182 D7) — the
+    // one abandonment for every close path, and for a removed workspace.
+    createAgentService({ agentManager, statsStore, preferencesManager }),
+  );
+  // Before any window exists: the first thing a renderer asks for is
+  // `layout.getAll()`, and a cold read of the file is not worth racing.
+  layoutStore.load();
+  // Removing a worktree tears its layout down first (ADR-182 D7), whichever
+  // caller — sidebar, quick merge, CLI or MCP — asked for it.
+  const projectManager = new ProjectManager(backend.git, undefined, layoutStore);
+  const themeManager = new ThemeManager();
+  const portScanner = new PortScanner(backend.ports);
+  const branchWatcher = new BranchWatcher();
+  const diffWatcher = new DiffWatcher(backend.git);
+  const githubManager = new GitHubManager();
+  const linearManager = new LinearManager();
+
+  const prewarmManager = new PrewarmManager(client, process.env.HOME || "/");
+  const agentHookServer = new AgentHookServer();
   // A merged PR ships a workspace just as much as a quick merge does, and it
   // is the only shipping path the app never initiates itself — the PR poll is
   // where it surfaces. Counted once per PR, so a worktree kept around after
@@ -319,24 +326,9 @@ export function initApp(devTitle: string | null): void {
   const remoteDeviceStore = new RemoteDeviceStore();
   const remotePush = new PushManager(remoteDeviceStore);
   const remoteControlServer = new RemoteControlServer(
-    (): ControlDeps => ({
-      projectManager,
-      githubManager,
-      linearManager,
-      layoutPersistence,
-      layoutStore,
-      agentManager,
-      backend,
-      notificationStore,
-      statsStore,
-      preferencesManager,
-      themeManager,
-      portScanner,
-      remoteControl,
-      agentHookServer,
-      webviewServer,
-      getRendererWindows,
-    }),
+    // A getter: `ipcDeps` holds the controller this server is handed to, so
+    // it is built below. Nothing reads it before the listener is started.
+    () => ipcDeps,
     remoteDeviceStore,
     // Rate limiter, audit log, and client directory all take their defaults.
     { push: remotePush },
@@ -345,9 +337,20 @@ export function initApp(devTitle: string | null): void {
   // manager is constructed here so shutdown can guarantee the child dies with
   // the app — a tunnel outliving Manor is the feature's worst failure mode.
   const remoteTunnel = new TunnelManager({
-    which: (bin) => backend.shell.which(bin),
+    which: async (bin) => {
+      const onPath = await backend.shell.which(bin);
+      if (onPath) return onPath;
+      // The Tailscale app (`brew install --cask tailscale-app`, or the App
+      // Store) ships its CLI inside the bundle and does not put it on PATH.
+      if (bin === "tailscale" && fs.existsSync(TAILSCALE_APP_CLI)) {
+        return TAILSCALE_APP_CLI;
+      }
+      return null;
+    },
     spawn: (command, args) =>
       spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] }),
+    exec: (command, args) =>
+      backend.shell.exec(command, args, { timeout: 5_000 }),
   });
   const remoteControl = new RemoteControlController(
     remoteControlServer,
@@ -356,15 +359,6 @@ export function initApp(devTitle: string | null): void {
     () => safeStorage.isEncryptionAvailable(),
     remotePush,
   );
-  /**
-   * The host surface and its two transports (ADR-180 D1/D2). Declared here
-   * and built below, once `ipcDeps` exists: the handler table runs against
-   * exactly that object, and the PTY forwarding below has to be able to see
-   * the bridge before it is assigned.
-   */
-  let bridgeServer: BridgeServer | null = null;
-  let wsBridge: WsBridgeServer | null = null;
-  let ipcBridge: IpcBridgeTransport | null = null;
 
   const paneContextMap = new Map<
     string,
@@ -375,6 +369,71 @@ export function initApp(devTitle: string | null): void {
       agentCommand: string | null;
     }
   >();
+
+  // ── Register all IPC handlers before window creation to avoid race conditions ──
+
+  // Its control routes (ADR-171) run over `ipcDeps`, which holds this server
+  // and so is built just below; the first request waits on `start()`.
+  const webviewServer = webviewIpc.createWebviewServer(() => ipcDeps);
+
+  // The one deps object every host-side handler runs over — the bridge's
+  // table, the IPC modules below, and the control routes on both listeners
+  // (ADR-182 D8).
+  const ipcDeps: HostDeps = {
+    get mainWindow() {
+      return mainWindow;
+    },
+    getRendererWindows,
+    registerDetachedWindow,
+    backend,
+    layoutPersistence,
+    layoutStore,
+    projectManager,
+    themeManager,
+    portScanner,
+    branchWatcher,
+    diffWatcher,
+    githubManager,
+    linearManager,
+    agentHookServer,
+    agentManager,
+    notificationStore,
+    statsStore,
+    preferencesManager,
+    keybindingsManager,
+    paneContextMap,
+    unseenRespondedAgents,
+    unseenInputAgents,
+    webviewServer,
+    workspaceMeta: [],
+    prewarmManager,
+    remoteControl,
+    get appMenu() {
+      return appMenu;
+    },
+  };
+
+  // The bridge (ADR-178 D8, ADR-180 D1). Same deps the IPC handlers get, by
+  // design: one table of what this host can do, reachable two ways. The
+  // surface is built here rather than inside the transport because it is the
+  // thing the *next* transport attaches to as well.
+  const bridgeServer = new BridgeServer(ipcDeps);
+  // A connection that drops has already let go of every pane it viewed
+  // (`BridgeServer.drop`); whatever tab it claimed comes back to the primary
+  // too (ADR-179 D4) — a claim that outlives its window is a tab no renderer
+  // shows. Only a desktop window ever claims, so for a socket this is a
+  // no-op.
+  bridgeServer.onDisconnect((connectionId) =>
+    layoutStore.releaseWindow(connectionId),
+  );
+  const wsBridge = new WsBridgeServer(bridgeServer);
+  remoteControlServer.setBridge(wsBridge);
+  // The desktop's transport (D2): the same frames over `bridge:*` IPC, one
+  // connection per renderer window. Started unconditionally and for the life
+  // of the app — a window's first frame makes its connection, and remote
+  // control being off has nothing to do with it.
+  const ipcBridge = new IpcBridgeTransport(ipcDeps, bridgeServer);
+  ipcBridge.start();
 
   function updateDockBadge(): void {
     _updateDockBadge(preferencesManager);
@@ -417,22 +476,19 @@ export function initApp(devTitle: string | null): void {
   //
   // The daemon client holds exactly one handler, so this is the only place a
   // stream event can be observed: a second `onEvent` would replace this one
-  // rather than join it. That is why the bridge is fed from inside here — and
-  // since ADR-180 ticket 5 the bridge is the *only* consumer that forwards,
-  // to a renderer window and a paired device alike, each of them hearing only
-  // the panes it subscribed to. `handleStreamEvent` below keeps what is left:
-  // the agent bookkeeping the old per-pane sends were tangled up with.
+  // rather than join it. That is why the bridge is fed from inside here — the
+  // bridge is the *only* consumer that forwards, to a renderer window and a
+  // paired device alike, each of them hearing only the panes it subscribed
+  // to. `handleStreamEvent` below keeps what is left: the agent bookkeeping.
   backend.pty.onEvent((event: StreamEvent) => {
-    bridgeServer?.handleStreamEvent(event);
+    bridgeServer.handleStreamEvent(event);
     // `paneSessions` is server-derived (ADR-179 D3): cwd, title and agent
     // status reach the layout file from the stream, not from a renderer
     // reporting what it saw.
     layoutStore.onPtyEvent(event);
-    // One call, not one per window (ADR-180 ticket 9): `sendAgentUpdate`
-    // only publishes to the bridge now, which already reaches every window
-    // and every browser on its own, so the per-window loop this used to be
-    // — kept alive only by the legacy `agent-updated` channel it addressed —
-    // is gone with it.
+    // One call, not one per window: `sendAgentUpdate` only publishes to the
+    // bridge, which already reaches every window and every browser on its
+    // own.
     handleStreamEvent(
       event,
       agentManager,
@@ -441,93 +497,13 @@ export function initApp(devTitle: string | null): void {
     );
   });
 
-  // ── Register all IPC handlers before window creation to avoid race conditions ──
-
-  const webviewServer = webviewIpc.createWebviewServer(
-    projectManager,
-    githubManager,
-    linearManager,
-    layoutPersistence,
-    agentManager,
-    backend,
-  );
-
-  // Build shared deps object for extracted IPC modules
-  const ipcDeps = {
-    get mainWindow() {
-      return mainWindow;
-    },
-    getRendererWindows,
-    registerDetachedWindow,
-    backend,
-    layoutPersistence,
-    layoutStore,
-    projectManager,
-    themeManager,
-    portScanner,
-    branchWatcher,
-    diffWatcher,
-    githubManager,
-    linearManager,
-    agentHookServer,
-    agentManager,
-    notificationStore,
-    statsStore,
-    preferencesManager,
-    keybindingsManager,
-    paneContextMap,
-    unseenRespondedAgents,
-    unseenInputAgents,
-    webviewServer,
-    workspaceMeta: [],
-    prewarmManager,
-    remoteControl,
-    get appMenu() {
-      return appMenu;
-    },
-  };
-
-  // The bridge (ADR-178 D8, ADR-180 D1). Same deps the IPC handlers get, by
-  // design: one table of what this host can do, reachable two ways. The
-  // surface is built here rather than inside the transport because it is the
-  // thing the *next* transport attaches to as well.
-  bridgeServer = new BridgeServer(ipcDeps);
-  wsBridge = new WsBridgeServer(ipcDeps, { server: bridgeServer });
-  remoteControlServer.setBridge(wsBridge);
-  // The desktop's transport (D2): the same frames over `bridge:*` IPC, one
-  // connection per renderer window. Started unconditionally and for the life
-  // of the app — a window's first frame makes its connection, and remote
-  // control being off has nothing to do with it.
-  ipcBridge = new IpcBridgeTransport(ipcDeps, { server: bridgeServer });
-  ipcBridge.start();
-
-  // Give control routes (ADR-171) the same manager bag IPC handlers have.
-  webviewServer.setControlDeps({
-    projectManager: ipcDeps.projectManager,
-    githubManager: ipcDeps.githubManager,
-    linearManager: ipcDeps.linearManager,
-    layoutPersistence: ipcDeps.layoutPersistence,
-    layoutStore: ipcDeps.layoutStore,
-    agentManager: ipcDeps.agentManager,
-    backend: ipcDeps.backend,
-    notificationStore: ipcDeps.notificationStore,
-    statsStore: ipcDeps.statsStore,
-    preferencesManager: ipcDeps.preferencesManager,
-    themeManager: ipcDeps.themeManager,
-    portScanner: ipcDeps.portScanner,
-    remoteControl: ipcDeps.remoteControl,
-    agentHookServer: ipcDeps.agentHookServer,
-    getRendererWindows: ipcDeps.getRendererWindows,
-  });
-
-  // `electron/ipc/` keeps exactly six things now (ADR-180 D8, ticket 11):
+  // `electron/ipc/` keeps exactly six things (ADR-180 D8):
   // `webview`/`webview-keys`, `window`, `popups`, `menu` and the native
   // remnant of `misc.ts` (dialog/shell/clipboard/updater), renamed
-  // `native.ts`. Everything else that used to `register()` here — layout,
-  // viewport, projects, pty, theme, agents, notifications, stats, ports,
-  // processes, branches/diffs, integrations, remote control — is a handler
-  // table entry now, and its implementation lives under
-  // `electron/bridge/handlers/`.
+  // `native.ts`. Everything else — layout, viewport, projects, pty, theme,
+  // agents, notifications, stats, ports, processes, branches/diffs,
+  // integrations, remote control — is a handler table entry, and its
+  // implementation lives under `electron/bridge/handlers/`.
   webviewIpc.register(ipcDeps);
   nativeIpc.register(ipcDeps);
   windowIpc.register(ipcDeps);
@@ -672,9 +648,9 @@ export function initApp(devTitle: string | null): void {
     // Bridge sockets die with the listener above; disposing the surface then
     // releases the renderer-broadcast and attachment sinks so nothing
     // publishes into a connection set that is gone.
-    wsBridge?.dispose();
-    ipcBridge?.dispose();
-    bridgeServer?.dispose();
+    wsBridge.dispose();
+    ipcBridge.dispose();
+    bridgeServer.dispose();
     portlessManager.stop();
     prewarmManager.dispose().catch(() => {});
     killAllActivePushes();

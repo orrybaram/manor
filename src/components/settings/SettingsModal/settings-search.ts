@@ -146,7 +146,7 @@ const PAGE_SECTIONS: {
       {
         id: "remote-tunnel",
         label: "Tunnel",
-        keywords: ["tunnel", "expose", "ngrok", "cloudflare", "url", "remote"],
+        keywords: ["tunnel", "expose", "tailscale", "url", "remote"],
       },
     ],
   },

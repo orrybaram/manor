@@ -68,14 +68,12 @@ export function setStatsStore(store: StatsStore | null): void {
  * The list is capped at 200 records, so shipping all of it on every mutation
  * is deliberate — it makes renderer drift impossible (ADR-162 §3).
  *
- * `_mainWindow` is a vestige of the desktop-only `webContents.send` this
- * replaced (ADR-180 ticket 7): `publishRendererBroadcast`'s sink now reaches
- * every window and every browser alike, so no caller needs to change what it
- * passes to keep working.
+ * No window parameter: `publishRendererBroadcast`'s sink reaches every window
+ * and every browser alike (ADR-180 ticket 7), so the one this used to take —
+ * a vestige of the desktop-only `webContents.send` it replaced — went with
+ * ADR-182 D8.
  */
-export function sendNotificationsUpdate(
-  _mainWindow: BrowserWindow | null,
-): void {
+export function sendNotificationsUpdate(): void {
   if (!notificationStore) return;
   publishRendererBroadcast(
     "notifications",
@@ -92,13 +90,10 @@ export function sendNotificationsUpdate(
  * unread. Without this the bell kept an indicator up for a session already on
  * screen — and it came back every time the user navigated away.
  */
-export function markAgentNotificationsRead(
-  agentId: string,
-  mainWindow: BrowserWindow | null,
-): void {
+export function markAgentNotificationsRead(agentId: string): void {
   if (!notificationStore) return;
   if (!notificationStore.markReadByAgent(agentId)) return;
-  sendNotificationsUpdate(mainWindow);
+  sendNotificationsUpdate();
 }
 
 export const unseenRespondedAgents = new Set<string>();
@@ -219,7 +214,7 @@ function presentNotification(
     }) ?? null;
   const stat = NOTIFICATION_KIND_TO_STAT[opts.record.kind];
   if (stat) statsStore?.record(stat);
-  sendNotificationsUpdate(mainWindow);
+  sendNotificationsUpdate();
 
   if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isFocused()) {
     return false;

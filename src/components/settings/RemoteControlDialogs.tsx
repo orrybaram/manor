@@ -4,7 +4,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 
 import { Button } from "../ui/Button/Button";
 import { CopyField } from "./CopyField";
-import type { RemotePairResult, TunnelKind } from "../../electron.d";
+import type { RemotePairResult } from "../../electron.d";
 import styles from "./SettingsModal/SettingsModal.module.css";
 import dialogStyles from "../sidebar/dialogs.module.css";
 
@@ -30,21 +30,19 @@ function capabilitySentence(counts: { send: number; full: number }): string {
 
 /**
  * Starting a tunnel is an outward-facing action, so the dialog names what
- * becomes reachable and by which tool rather than asking "are you sure".
+ * becomes reachable rather than asking "are you sure".
  */
 export function TunnelConfirmDialog(props: {
-  kind: TunnelKind | null;
-  /** How the tool is written for a reader: "Tailscale", "Cloudflare Tunnel". */
-  kindLabel: string | null;
+  open: boolean;
   /** Paired devices above the read tier, counted per tier. */
   capabilityCounts: { send: number; full: number };
   onCancel: () => void;
-  onConfirm: (kind: TunnelKind) => void;
+  onConfirm: () => void;
 }) {
-  const { kind, kindLabel, capabilityCounts, onCancel, onConfirm } = props;
+  const { open, capabilityCounts, onCancel, onConfirm } = props;
   return (
     <Dialog.Root
-      open={kind !== null}
+      open={open}
       onOpenChange={(open) => {
         if (!open) onCancel();
       }}
@@ -53,28 +51,20 @@ export function TunnelConfirmDialog(props: {
         <Dialog.Overlay className={dialogStyles.confirmOverlay} />
         <Dialog.Content className={dialogStyles.confirmDialog}>
           <Dialog.Title className={dialogStyles.confirmTitle}>
-            Make this machine reachable via {kindLabel ?? "a tunnel"}?
+            Make this machine reachable over Tailscale?
           </Dialog.Title>
           <Dialog.Description className={dialogStyles.confirmDescription}>
             Paired devices will be able to read your sessions, their statuses,
             and the full scrollback of any of them — which routinely contains
             API keys and source code.
-            {capabilitySentence(capabilityCounts)}
-            {kind === "cloudflared"
-              ? " A Cloudflare quick tunnel is public: the pairing token is the only thing protecting it."
-              : " Only devices on your tailnet can reach the address at all."}{" "}
-            The tunnel stops when Manor quits.
+            {capabilitySentence(capabilityCounts)} Only devices on your tailnet
+            can reach the address at all. The tunnel stops when Manor quits.
           </Dialog.Description>
           <div className={dialogStyles.confirmActions}>
             <Button variant="secondary" onClick={onCancel}>
               Cancel
             </Button>
-            <Button
-              variant="danger"
-              onClick={() => {
-                if (kind) onConfirm(kind);
-              }}
-            >
+            <Button variant="primary" onClick={onConfirm}>
               Start tunnel
             </Button>
           </div>

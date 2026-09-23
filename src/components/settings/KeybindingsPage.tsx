@@ -13,6 +13,7 @@ import {
   comboMatches,
   formatCombo,
   isBindableCombo,
+  isBrowserReservedCombo,
   CATEGORY_LABELS,
   CATEGORY_ORDER,
   KeybindingCategory,
@@ -271,6 +272,16 @@ export function KeybindingsPage() {
                             {conflict}
                           </span>
                         )}
+
+                        {!isRecording &&
+                          isOverridden &&
+                          combo &&
+                          isBrowserReservedCombo(combo) && (
+                            <span className={styles.keybindingReserved}>
+                              Reserved by the browser — a PC browser
+                              intercepts this combo before Manor sees it
+                            </span>
+                          )}
                       </div>
                     );
                   })}

@@ -2,7 +2,7 @@
  * `processes.killSession`, `processes.killAll`, `processes.killDaemon`.
  *
  * No `ipcMain` here any more: `processes` crossed to the handler table in
- * ADR-180 ticket 8, so these are plain functions over `IpcDeps` — the same
+ * ADR-180 ticket 8, so these are plain functions over `HostDeps` — the same
  * functions the table calls, and a paired `full` device now reaches them the
  * same way the desktop does.
  */
@@ -16,6 +16,7 @@ import {
   processesKillAll,
   processesKillDaemon,
 } from "../bridge/handlers/processes";
+import { localCtx } from "../bridge/method";
 
 // ── Mock ipc-validate ────────────────────────────────────────────────────────
 vi.mock("../ipc-validate", () => ({
@@ -78,7 +79,7 @@ describe("processes.killSession / processes.killAll stats", () => {
     it("killAll signals nothing when there is no daemon pid file", async () => {
       expect(fs.existsSync(daemonPidFile())).toBe(false);
 
-      await processesKillAll(deps as never);
+      await processesKillAll(localCtx(deps as never));
 
       expect(killSpy).not.toHaveBeenCalled();
     });
@@ -104,7 +105,7 @@ describe("processes.killSession / processes.killAll stats", () => {
         lastAgentStatus: "thinking",
       });
 
-      await processesKillSession(deps as never, "session-1");
+      await processesKillSession(localCtx(deps as never), "session-1");
 
       expect(deps.statsStore.record).toHaveBeenCalledTimes(2);
       expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilled");
@@ -115,7 +116,7 @@ describe("processes.killSession / processes.killAll stats", () => {
     it("does not record a kill when no agent is found for the pane", async () => {
       deps.agentManager.getAgentByPaneId.mockReturnValue(null);
 
-      await processesKillSession(deps as never, "session-1");
+      await processesKillSession(localCtx(deps as never), "session-1");
 
       expect(deps.statsStore.record).not.toHaveBeenCalled();
     });
@@ -127,7 +128,7 @@ describe("processes.killSession / processes.killAll stats", () => {
         lastAgentStatus: "responded",
       });
 
-      await processesKillSession(deps as never, "session-1");
+      await processesKillSession(localCtx(deps as never), "session-1");
 
       expect(deps.statsStore.record).toHaveBeenCalledTimes(1);
       expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilled");
@@ -148,7 +149,7 @@ describe("processes.killSession / processes.killAll stats", () => {
         return null;
       });
 
-      await processesKillAll(deps as never);
+      await processesKillAll(localCtx(deps as never));
 
       expect(deps.statsStore.record).toHaveBeenCalledTimes(3);
       expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilled");

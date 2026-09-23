@@ -264,8 +264,7 @@ test("sidebar PR badge, popover, notifications, folders and diff tree", async ({
   await expect(popover.locator("code", { hasText: "bcrypt" })).toBeVisible();
   // `pr-comment-author`, not `[class*="prPopoverCommentAuthor"]`: the comment
   // card moved to `ui/PrCommentCard` in `bf77ca65` and took its class names
-  // with it, so this read zero authors and asserted nothing until ADR-180
-  // ticket 13.
+  // with it.
   const commentAuthors = await popover
     .locator('[data-testid="pr-comment-author"]')
     .allTextContents();

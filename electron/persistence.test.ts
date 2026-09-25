@@ -1857,7 +1857,11 @@ describe("ProjectManager.addRemoteProject (ADR-178 ticket 5)", () => {
     const remoteOrigins = opts.remoteOrigins ?? {};
     return {
       exec: vi.fn(async (cwd: string, args: string[]) => {
-        if (args[0] === "remote" && args[1] === "get-url") {
+        if (
+          args[0] === "config" &&
+          args[1] === "--get" &&
+          args[2] === "remote.origin.url"
+        ) {
           if (cwd in remoteOrigins) return remoteOrigins[cwd];
           throw new Error("no such remote");
         }

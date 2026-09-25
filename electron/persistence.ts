@@ -975,7 +975,9 @@ export class ProjectManager {
     repoUrl: string,
   ): Promise<boolean> {
     try {
-      const out = await git.exec(dir, ["remote", "get-url", "origin"]);
+      // The stored URL, not `remote get-url`: that one applies the user's
+      // `url.<base>.insteadOf` rewrites, so it would never match `repoUrl`.
+      const out = await git.exec(dir, ["config", "--get", "remote.origin.url"]);
       return normalizeOriginUrl(out.trim()) === normalizeOriginUrl(repoUrl);
     } catch {
       return false;

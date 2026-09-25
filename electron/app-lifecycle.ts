@@ -75,6 +75,24 @@ import * as menuIpc from "./ipc/menu";
 import * as hostsIpc from "./ipc/hosts";
 import { notifyProjectsChanged } from "./renderer-bridge";
 
+/**
+ * Manor's version. `app.getVersion()` in an unpackaged app launched on a bare
+ * main.js (E2E, some dev setups) is Electron's own version, so read the repo's
+ * package.json there instead. Remote hosts are version-matched against it.
+ */
+function manorVersion(): string {
+  if (app.isPackaged) return app.getVersion();
+  try {
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf-8"),
+    ) as { version?: unknown };
+    if (typeof pkg.version === "string" && pkg.version) return pkg.version;
+  } catch {
+    // fall through
+  }
+  return app.getVersion();
+}
+
 // Extract stream event handler for testability
 export function handleStreamEvent(
   event: StreamEvent,
@@ -242,6 +260,7 @@ export function initApp(devTitle: string | null): void {
   const backendRegistry = new BackendRegistry({
     local: new LocalBackend(client),
     version: app.getVersion(),
+    remoteVersion: manorVersion(),
     // Where each remote host's hook journal was read up to (ADR-178 §2).
     // Only read once hosts are registered, after projectManager exists.
     hookSeqStore: {

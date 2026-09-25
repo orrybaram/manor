@@ -176,6 +176,12 @@ export interface BackendRegistryOptions {
   local: WorkspaceBackend;
   /** App version handed to every `connect()`. */
   version?: string;
+  /**
+   * Manor's own version for remote hosts: it names the manor-host package
+   * bootstrap installs and is what the remote daemon reports back. Wins over
+   * `version`/`setVersion()`, which in an unpackaged app is Electron's version.
+   */
+  remoteVersion?: string;
   /** Builds a remote host's backend. Defaults to `RemoteBackend`. For tests. */
   createRemote?: RemoteBackendFactory;
   /** Builds a remote host's provider. Defaults to `createProvider`. For tests. */
@@ -245,9 +251,11 @@ export class BackendRegistry {
   private readonly hookReplayRetryDelayMs?: (attempt: number) => number;
   private hookSink: HookSink | null = null;
   private version: string | undefined;
+  private readonly remoteVersion: string | undefined;
 
   constructor(opts: BackendRegistryOptions) {
     this.version = opts.version;
+    this.remoteVersion = opts.remoteVersion;
     this.hookSeqStore = opts.hookSeqStore ?? memoryHookSeqStore();
     this.hookReplayRetryDelayMs = opts.hookReplayRetryDelayMs;
     this.createRemote = opts.createRemote ?? createRemoteBackend;
@@ -302,7 +310,7 @@ export class BackendRegistry {
       },
     });
     const backend = this.createRemote(hostId, spec, {
-      version: this.version,
+      version: this.hostVersion(),
       provider,
       onBootstrapWarning: (warnings) => {
         const entry = this.hosts.get(hostId);
@@ -349,6 +357,11 @@ export class BackendRegistry {
   /** Registered remote host ids, in registration order. */
   remoteHostIds(): string[] {
     return Array.from(this.hosts.keys()).filter((id) => id !== LOCAL_HOST_ID);
+  }
+
+  /** The version remote hosts are bootstrapped and handshaken against. */
+  private hostVersion(): string | undefined {
+    return this.remoteVersion ?? this.version;
   }
 
   setVersion(version: string): void {
@@ -601,9 +614,9 @@ export class BackendRegistry {
         await entry.provider.ensureUp();
         if (!current()) throw superseded();
       }
-      await entry.backend.connect(
-        this.version ? { version: this.version } : undefined,
-      );
+      const version =
+        entry.hostId === LOCAL_HOST_ID ? this.version : this.hostVersion();
+      await entry.backend.connect(version ? { version } : undefined);
     } catch (err) {
       if (!current()) throw superseded();
       const failure = classifyHostFailure(err);

@@ -142,6 +142,30 @@ describe("BackendRegistry", () => {
     expect(registry.status("local")).toBe("connected");
   });
 
+  it("hands remote hosts remoteVersion, and local the app version, even after setVersion", async () => {
+    const local = fakeBackend("local");
+    let remote: ReturnType<typeof fakeBackend> | undefined;
+    let createdWith: string | undefined;
+    const registry = new BackendRegistry({
+      local: local.backend,
+      version: "35.7.5",
+      remoteVersion: "0.13.2",
+      createProvider: () => fakeProvider() as unknown as HostProvider,
+      createRemote: (hostId, _spec: HostSpec, opts) => {
+        createdWith = opts.version;
+        remote = fakeBackend(hostId);
+        return remote.backend;
+      },
+    });
+    registry.setVersion("35.7.6");
+    registry.register("box", box);
+    await registry.ensureConnected("box");
+    await registry.ensureConnected("local");
+    expect(createdWith).toBe("0.13.2");
+    expect(remote?.raw.connect).toHaveBeenCalledWith({ version: "0.13.2" });
+    expect(local.raw.connect).toHaveBeenCalledWith({ version: "35.7.6" });
+  });
+
   it("fails every call on an unregistered host instead of throwing synchronously", async () => {
     const { registry } = setup();
     const ghost = registry.get("ghost");

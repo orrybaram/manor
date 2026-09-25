@@ -567,6 +567,9 @@ export function initApp(devTitle: string | null): void {
     // to PTY sessions (which need MANOR_HOOK_PORT for hook scripts).
     await agentHookServer.start();
     process.env.MANOR_HOOK_PORT = String(agentHookServer.hookPort);
+    // Only remote-namespace panes set this; if Manor was launched from one,
+    // local panes would otherwise send hooks to the remote daemon's listener.
+    delete process.env.MANOR_HOOK_PORT_FILE;
 
     await webviewServer.start();
     await portlessManager.start();

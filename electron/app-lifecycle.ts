@@ -31,6 +31,8 @@ import type { AgentStatus, StreamEvent } from "./terminal-host/types";
 import { initAutoUpdater, checkForUpdates } from "./updater";
 import { portlessManager } from "./portless";
 import { LocalBackend } from "./backend/local-backend";
+import { BackendRegistry } from "./backend/registry";
+import { RoutedBackend } from "./backend/routed-backend";
 import { PrewarmManager } from "./prewarm-manager";
 import { RemoteDeviceStore } from "./remote-control/devices";
 import { RemoteControlServer } from "./remote-control/server";
@@ -229,13 +231,26 @@ export function initApp(devTitle: string | null): void {
 
   // Managers
   const client = new TerminalHostClient();
-  const backend = new LocalBackend(client);
+  // Every host's backend, "local" always among them (ADR-160 §6). Remote
+  // hosts come from projects.json below and connect lazily, off the launch
+  // path; with none registered everything routes to the local backend.
+  const backendRegistry = new BackendRegistry({
+    local: new LocalBackend(client),
+    version: app.getVersion(),
+  });
   const layoutPersistence = new LayoutPersistence();
-  const projectManager = new ProjectManager(backend.git);
+  const projectManager = new ProjectManager((hostId) => backendRegistry.get(hostId).git);
+  for (const { hostId, spec } of projectManager.getHosts()) {
+    backendRegistry.register(hostId, spec);
+  }
+  const hostForPath = (p: string) => projectManager.hostIdForPath(p);
+  // The one backend IPC handlers and control routes see: routes each pane,
+  // cwd and pid to the host that owns it.
+  const backend = new RoutedBackend(backendRegistry, hostForPath);
   const themeManager = new ThemeManager();
-  const portScanner = new PortScanner(backend.ports);
+  const portScanner = new PortScanner(backend.ports, hostForPath);
   const branchWatcher = new BranchWatcher();
-  const diffWatcher = new DiffWatcher(backend.git);
+  const diffWatcher = new DiffWatcher(backend.git, hostForPath);
   const githubManager = new GitHubManager();
   const linearManager = new LinearManager();
 
@@ -368,7 +383,11 @@ export function initApp(devTitle: string | null): void {
   // Set up stream event handler — broadcast events to every live renderer
   // window. A detached window hosting a terminal pane must receive its `pty:*`
   // stream events; windows that don't own the pane ignore them harmlessly.
-  backend.pty.onEvent((event: StreamEvent) => {
+  // Events arrive tagged with their host. The registry has already used the
+  // tag to record which host owns the session (so pane calls route back to
+  // it) and dropped any event for a session another host owns; the pane
+  // channels themselves stay keyed by pane id, which is unique across hosts.
+  backendRegistry.onEvent((_hostId: string, event: StreamEvent) => {
     for (const win of getRendererWindows()) {
       // Check that the main frame is still available (avoids "Render frame was
       // disposed" errors during window reload/close).
@@ -406,6 +425,7 @@ export function initApp(devTitle: string | null): void {
     getRendererWindows,
     registerDetachedWindow,
     backend,
+    backendRegistry,
     layoutPersistence,
     projectManager,
     themeManager,
@@ -514,6 +534,13 @@ export function initApp(devTitle: string | null): void {
       console.error("Failed to connect to terminal host daemon:", err);
     }
 
+    // Remote hosts connect in the background — an ssh handshake and a host
+    // bootstrap can take a minute, and launch must not wait for it. Only
+    // hosts a project lives on; the rest connect when first used.
+    for (const hostId of projectManager.remoteHostIdsInUse()) {
+      if (backendRegistry.has(hostId)) backendRegistry.connectInBackground(hostId);
+    }
+
     // Pre-warm a terminal session for instant new-agent
     prewarmManager.warm().catch(() => {});
 
@@ -593,6 +620,8 @@ export function initApp(devTitle: string | null): void {
     void remoteControl.shutdown();
     portlessManager.stop();
     prewarmManager.dispose().catch(() => {});
+    // Takes down the ssh children; remote sessions keep running on their hosts.
+    void backendRegistry.disconnectAll();
     killAllActivePushes();
     statsStore.flushNow();
   });

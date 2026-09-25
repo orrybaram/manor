@@ -1,5 +1,6 @@
 import type { BrowserWindow } from "electron";
 import type { WorkspaceBackend } from "../backend/types";
+import type { BackendRegistry } from "../backend/registry";
 import type { LayoutPersistence } from "../terminal-host/layout-persistence";
 import type { ProjectManager } from "../persistence";
 import type { ThemeManager } from "../theme";
@@ -38,7 +39,10 @@ export interface IpcDeps {
    * is tracked for broadcast and reachable by its windowId.
    */
   registerDetachedWindow: (windowId: string, win: BrowserWindow) => void;
+  /** Routes each pane, cwd and pid to its host (`RoutedBackend`). */
   backend: WorkspaceBackend;
+  /** Every host and its connection status (ADR-160). */
+  backendRegistry: BackendRegistry;
   layoutPersistence: LayoutPersistence;
   projectManager: ProjectManager;
   themeManager: ThemeManager;

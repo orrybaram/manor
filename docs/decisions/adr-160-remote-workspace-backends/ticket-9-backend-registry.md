@@ -1,6 +1,6 @@
 ---
 title: BackendRegistry and per-project hostId
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: [1, 8]

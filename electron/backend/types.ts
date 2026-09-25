@@ -117,6 +117,8 @@ export interface ActivePort {
   pid: number;
   workspacePath: string | null;
   hostname: string | null;
+  /** The remote host the port is listening on; absent for this machine. */
+  hostId?: string;
 }
 
 export interface PortsBackend {
@@ -169,6 +171,22 @@ export interface HostFailure {
 }
 
 export type HostConnectionEventHandler = (event: HostConnectionEvent) => void;
+
+// ── Hosts ──
+
+/**
+ * The host every project without a `hostId` lives on: this machine, reached
+ * through the local terminal-host daemon.
+ */
+export const LOCAL_HOST_ID = "local";
+
+/**
+ * How to reach a remote host (ADR-160). Persisted per host in
+ * `projects.json`; a `BackendRegistry` turns it into a `WorkspaceBackend`.
+ * A discriminated union so other ways of reaching a box (ADR-178's managed
+ * providers) are additions, not a migration.
+ */
+export type HostSpec = { kind: "ssh"; target: string };
 
 // ── Workspace Backend (aggregate) ──
 

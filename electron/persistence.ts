@@ -7,7 +7,11 @@ import { promisify } from "node:util";
 import { BrowserWindow } from "electron";
 
 import type { LinearAssociation, LinkedIssue } from "./linear";
-import type { GitBackend } from "./backend/types";
+import {
+  LOCAL_HOST_ID,
+  type GitBackend,
+  type HostSpec,
+} from "./backend/types";
 import { manorDataDir, worktreesDir } from "./paths";
 import { sanitizeBranchName, toDirSlug } from "./branch-name";
 
@@ -93,6 +97,12 @@ export interface ProjectInfo {
   /** Whether dev-server ports get `.localhost` preview hostnames. Defaults to true. */
   portlessEnabled: boolean;
   backendType?: "local" | "remote";
+  /**
+   * The host this project's paths, git and terminals live on (ADR-160).
+   * Always set by `ProjectManager` — `"local"` for every project persisted
+   * without one. Optional only so hand-built fixtures need not spell it.
+   */
+  hostId?: string;
   folders: WorkspaceFolder[];
   /**
    * Normalized, depth-first order of workspace paths and folder ids — the
@@ -150,11 +160,38 @@ interface PersistedProject {
   setupComplete?: boolean;
   portlessEnabled?: boolean;
   backendType?: "local" | "remote";
+  /**
+   * The host the project lives on. Absent means `"local"`, so files written
+   * before ADR-160 load unchanged.
+   */
+  hostId?: string;
+}
+
+/**
+ * A registered remote host. A record rather than a bare spec so per-host
+ * state that is not part of how to reach it — ADR-178's provider settings
+ * and hook-replay position (`lastHookSeq`) — can sit beside `spec` without
+ * a migration.
+ */
+interface PersistedHost {
+  spec: HostSpec;
 }
 
 interface PersistedState {
   projects: PersistedProject[];
   selectedProjectIndex: number;
+  /** Remote hosts by hostId. Absent in files written before ADR-160. */
+  hosts?: Record<string, PersistedHost>;
+}
+
+/** Resolves the git backend for a host (see `BackendRegistry.get`). */
+export type GitResolver = (hostId: string) => GitBackend;
+
+/** True when `p` is `root` or lies beneath it. */
+function isWithinPath(p: string, root: string): boolean {
+  if (p === root) return true;
+  const prefix = root.endsWith("/") ? root : `${root}/`;
+  return p.startsWith(prefix);
 }
 
 /**
@@ -255,13 +292,97 @@ export function isFolderDescendant(
 export class ProjectManager {
   private state: PersistedState;
   private dataDir: string;
-  private git: GitBackend;
+  private gitForHost: GitResolver;
   private resyncDone = false;
+  /**
+   * Workspace paths git last reported per project id. Worktrees may live
+   * outside the project's worktree directory, so `hostIdForPath` needs them.
+   */
+  private knownWorkspacePaths = new Map<string, string[]>();
 
-  constructor(git: GitBackend, dataDir?: string) {
-    this.git = git;
+  /**
+   * `git` is either one backend for every project (local-only callers and
+   * tests) or a resolver from a project's hostId to its host's backend.
+   */
+  constructor(git: GitBackend | GitResolver, dataDir?: string) {
+    this.gitForHost = typeof git === "function" ? git : () => git;
     this.dataDir = dataDir ?? manorDataDir();
     this.state = this.loadState();
+  }
+
+  private gitFor(project: PersistedProject): GitBackend {
+    return this.gitForHost(project.hostId ?? LOCAL_HOST_ID);
+  }
+
+  // ── Hosts ──
+
+  /** Registered remote hosts, in the order they were added. */
+  getHosts(): Array<{ hostId: string; spec: HostSpec }> {
+    return Object.entries(this.state.hosts ?? {}).map(([hostId, host]) => ({
+      hostId,
+      spec: host.spec,
+    }));
+  }
+
+  /** Add a remote host, or replace how an existing one is reached. */
+  saveHost(hostId: string, spec: HostSpec): void {
+    if (hostId === LOCAL_HOST_ID) {
+      throw new Error(`"${LOCAL_HOST_ID}" is reserved for this machine`);
+    }
+    if (!this.state.hosts) this.state.hosts = {};
+    this.state.hosts[hostId] = { ...this.state.hosts[hostId], spec };
+    this.saveState();
+  }
+
+  /** Forget a remote host. Projects still pointing at it keep their hostId. */
+  removeHost(hostId: string): void {
+    if (!this.state.hosts?.[hostId]) return;
+    delete this.state.hosts[hostId];
+    this.saveState();
+  }
+
+  /** Remote hosts at least one project lives on. */
+  remoteHostIdsInUse(): string[] {
+    const ids = new Set<string>();
+    for (const project of this.state.projects) {
+      if (project.hostId && project.hostId !== LOCAL_HOST_ID) ids.add(project.hostId);
+    }
+    return Array.from(ids);
+  }
+
+  /** The host a project lives on; `"local"` for unknown projects. */
+  getProjectHostId(projectId: string | null | undefined): string {
+    if (!projectId) return LOCAL_HOST_ID;
+    return this.findProject(projectId)?.hostId ?? LOCAL_HOST_ID;
+  }
+
+  /**
+   * The host a filesystem path belongs to: the host of the project whose
+   * root, worktree directory, or known workspace contains it most closely.
+   * Paths outside every project — and every path, while no project lives on
+   * a remote host — are local.
+   */
+  hostIdForPath(p: string): string {
+    const projects = this.state.projects;
+    if (!projects.some((pr) => (pr.hostId ?? LOCAL_HOST_ID) !== LOCAL_HOST_ID)) {
+      return LOCAL_HOST_ID;
+    }
+    let bestLength = -1;
+    let best = LOCAL_HOST_ID;
+    for (const project of projects) {
+      const roots = [
+        project.path,
+        this.worktreeBaseDir(project),
+        ...(this.knownWorkspacePaths.get(project.id) ?? []),
+      ];
+      for (const root of roots) {
+        if (root.length > bestLength && isWithinPath(p, root)) {
+          bestLength = root.length;
+          best = project.hostId ?? LOCAL_HOST_ID;
+        }
+      }
+    }
+    return best;
   }
 
   private projectsFilePath(): string {
@@ -319,9 +440,12 @@ export class ProjectManager {
    * LOCAL-ONLY: reads the symbolic ref for origin/HEAD with no network activity.
    * Returns the bare branch name (e.g. "main") or null on any failure.
    */
-  private async detectDefaultBranchLocal(repoPath: string): Promise<string | null> {
+  private async detectDefaultBranchLocal(
+    git: GitBackend,
+    repoPath: string,
+  ): Promise<string | null> {
     try {
-      const stdout = await this.git.exec(repoPath, [
+      const stdout = await git.exec(repoPath, [
         "symbolic-ref",
         "--short",
         "refs/remotes/origin/HEAD",
@@ -336,15 +460,18 @@ export class ProjectManager {
     }
   }
 
-  private async detectDefaultBranch(repoPath: string): Promise<string | null> {
+  private async detectDefaultBranch(
+    git: GitBackend,
+    repoPath: string,
+  ): Promise<string | null> {
     try {
       // Step 1: Read the local symbolic ref for origin/HEAD — no network needed.
-      const local = await this.detectDefaultBranchLocal(repoPath);
+      const local = await this.detectDefaultBranchLocal(git, repoPath);
       if (local) return local;
 
       // Step 1 failed — try to set the remote HEAD pointer (one network round-trip).
       try {
-        await this.git.exec(repoPath, ["remote", "set-head", "origin", "--auto"]);
+        await git.exec(repoPath, ["remote", "set-head", "origin", "--auto"]);
       } catch (setHeadErr) {
         console.error(
           "[ProjectManager] detectDefaultBranch: remote set-head failed:",
@@ -353,7 +480,7 @@ export class ProjectManager {
       }
 
       // Retry step 1 after set-head.
-      return await this.detectDefaultBranchLocal(repoPath);
+      return await this.detectDefaultBranchLocal(git, repoPath);
     } catch (err) {
       console.error(
         "[ProjectManager] detectDefaultBranch failed:",
@@ -372,7 +499,10 @@ export class ProjectManager {
     let changed = false;
     for (const project of this.state.projects) {
       try {
-        const detected = await this.detectDefaultBranchLocal(project.path);
+        const detected = await this.detectDefaultBranchLocal(
+          this.gitFor(project),
+          project.path,
+        );
         if (detected && detected !== project.defaultBranch) {
           project.defaultBranch = detected;
           changed = true;
@@ -391,9 +521,18 @@ export class ProjectManager {
     }
   }
 
-  async addProject(name: string, projectPath: string): Promise<ProjectInfo> {
+  /**
+   * `hostId` names the host `projectPath` lives on; omitted or `"local"`, it
+   * is this machine and nothing about the project records a host.
+   */
+  async addProject(
+    name: string,
+    projectPath: string,
+    hostId: string = LOCAL_HOST_ID,
+  ): Promise<ProjectInfo> {
     const id = crypto.randomUUID();
-    const detected = await this.detectDefaultBranch(projectPath);
+    const git = this.gitForHost(hostId);
+    const detected = await this.detectDefaultBranch(git, projectPath);
     const project: PersistedProject = {
       id,
       name,
@@ -411,11 +550,16 @@ export class ProjectManager {
       themeName: null,
       setupComplete: false,
       portlessEnabled: true,
+      // Written only for remote hosts, so a local project's record is
+      // byte-for-byte what it was before hosts existed.
+      ...(hostId !== LOCAL_HOST_ID ? { hostId } : {}),
     };
 
-    // Seed commands from package.json if present
+    // Seed commands from package.json if present. Only locally: a remote
+    // project's package.json is not on this filesystem (ADR-178 reads it
+    // through the host's exec).
     const packageJsonPath = path.join(projectPath, "package.json");
-    if (fs.existsSync(packageJsonPath)) {
+    if (hostId === LOCAL_HOST_ID && fs.existsSync(packageJsonPath)) {
       try {
         const packageJson = JSON.parse(
           fs.readFileSync(packageJsonPath, "utf-8"),
@@ -446,7 +590,7 @@ export class ProjectManager {
     this.state.selectedProjectIndex = this.state.projects.length - 1;
     this.saveState();
 
-    const workspaces = (await listGitWorkspaces(this.git, projectPath)) ?? [
+    const workspaces = (await listGitWorkspaces(git, projectPath)) ?? [
       { path: projectPath, branch: "main", isMain: true, name: null },
     ];
 
@@ -468,6 +612,7 @@ export class ProjectManager {
       themeName: null,
       setupComplete: false,
       portlessEnabled: true,
+      hostId,
       folders: [],
       sidebarOrder: [],
     };
@@ -690,10 +835,11 @@ export class ProjectManager {
   }
 
   private async buildProjectInfo(p: PersistedProject): Promise<ProjectInfo> {
-    const rawWorkspaces = (await listGitWorkspaces(this.git, p.path)) ?? [
+    const rawWorkspaces = (await listGitWorkspaces(this.gitFor(p), p.path)) ?? [
       { path: p.path, branch: p.defaultBranch, isMain: true, name: null },
     ];
     const rawWorkspacePaths = rawWorkspaces.map((ws) => ws.path);
+    this.knownWorkspacePaths.set(p.id, rawWorkspacePaths);
     // Apply persisted ordering
     const order = p.workspaceOrder;
     if (order && order.length > 0) {
@@ -750,7 +896,11 @@ export class ProjectManager {
       themeName: p.themeName ?? null,
       setupComplete: p.setupComplete ?? true,
       portlessEnabled: p.portlessEnabled ?? true,
-      backendType: p.backendType ?? "local",
+      backendType:
+        (p.hostId ?? LOCAL_HOST_ID) !== LOCAL_HOST_ID
+          ? "remote"
+          : (p.backendType ?? "local"),
+      hostId: p.hostId ?? LOCAL_HOST_ID,
       folders,
       sidebarOrder: normalizeSidebarOrder(
         p.workspaceOrder,
@@ -845,7 +995,7 @@ export class ProjectManager {
     if (deleteBranch) {
       progress("Detecting branch…");
       try {
-        const worktrees = await this.git.worktreeList(project.path);
+        const worktrees = await this.gitFor(project).worktreeList(project.path);
         const match = worktrees.find((wt) => wt.path === worktreePath);
         if (match) branchName = match.branch;
       } catch (err) {
@@ -874,7 +1024,7 @@ export class ProjectManager {
 
     progress("Removing worktree files…");
     try {
-      await this.git.worktreeRemove(project.path, worktreePath, true);
+      await this.gitFor(project).worktreeRemove(project.path, worktreePath, true);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[ProjectManager] git worktree remove failed:", message);
@@ -889,7 +1039,7 @@ export class ProjectManager {
       // Directory is gone — prune stale git metadata and continue
       progress("Pruning stale worktree entries…");
       try {
-        await this.git.exec(project.path, ["worktree", "prune"]);
+        await this.gitFor(project).exec(project.path, ["worktree", "prune"]);
       } catch (pruneErr) {
         console.error(
           "[ProjectManager] git worktree prune failed:",
@@ -917,7 +1067,7 @@ export class ProjectManager {
     if (deleteBranch && branchName) {
       progress("Deleting branch…");
       try {
-        await this.git.exec(project.path, ["branch", "-D", branchName]);
+        await this.gitFor(project).exec(project.path, ["branch", "-D", branchName]);
       } catch (err) {
         console.error(
           "[ProjectManager] git branch -D failed:",
@@ -941,7 +1091,7 @@ export class ProjectManager {
     // Detect branch name from worktree list
     let branchName: string | null = null;
     try {
-      const worktrees = await this.git.worktreeList(project.path);
+      const worktrees = await this.gitFor(project).worktreeList(project.path);
       const match = worktrees.find((wt) => wt.path === worktreePath);
       if (match) branchName = match.branch;
     } catch (err) {
@@ -953,7 +1103,7 @@ export class ProjectManager {
 
     // Check for uncommitted changes in source worktree
     try {
-      const stdout = await this.git.exec(worktreePath, ["status", "--porcelain"]);
+      const stdout = await this.gitFor(project).exec(worktreePath, ["status", "--porcelain"]);
       if (stdout.trim().length > 0) {
         return { canMerge: false, reason: "Uncommitted changes in workspace" };
       }
@@ -966,7 +1116,7 @@ export class ProjectManager {
 
     // Check for uncommitted changes in main worktree (merge target)
     try {
-      const stdout = await this.git.exec(project.path, ["status", "--porcelain"]);
+      const stdout = await this.gitFor(project).exec(project.path, ["status", "--porcelain"]);
       if (stdout.trim().length > 0) {
         return { canMerge: false, reason: "Uncommitted changes in main workspace" };
       }
@@ -980,7 +1130,7 @@ export class ProjectManager {
     // Check fast-forward eligibility
     if (branchName) {
       try {
-        await this.git.exec(project.path, [
+        await this.gitFor(project).exec(project.path, [
           "merge-base",
           "--is-ancestor",
           project.defaultBranch,
@@ -1011,7 +1161,7 @@ export class ProjectManager {
     // Detect branch name
     let branchName: string | null = null;
     try {
-      const worktrees = await this.git.worktreeList(project.path);
+      const worktrees = await this.gitFor(project).worktreeList(project.path);
       const match = worktrees.find((wt) => wt.path === worktreePath);
       if (match) branchName = match.branch;
     } catch (err) {
@@ -1028,7 +1178,7 @@ export class ProjectManager {
     }
 
     try {
-      await this.git.exec(project.path, ["merge", "--ff-only", branchName]);
+      await this.gitFor(project).exec(project.path, ["merge", "--ff-only", branchName]);
     } catch (err) {
       console.error(
         "[ProjectManager] quickMergeWorktree: git merge --ff-only failed:",
@@ -1045,7 +1195,7 @@ export class ProjectManager {
     if (!project) return [];
 
     try {
-      const stdout = await this.git.exec(project.path, [
+      const stdout = await this.gitFor(project).exec(project.path, [
         "for-each-ref",
         "--sort=-creatordate",
         "--format=%(refname:strip=2)",
@@ -1073,20 +1223,23 @@ export class ProjectManager {
 
     try {
       // Fetch latest remote refs so for-each-ref has up-to-date data
-      await this.git.exec(project.path, ["fetch", "origin", "--prune"]);
+      await this.gitFor(project).exec(project.path, ["fetch", "origin", "--prune"]);
 
       // Natural network touchpoint: refresh origin/HEAD (a plain fetch does NOT
       // update it) so an upstream default-branch rename is picked up here rather
       // than on every app launch, then resync this project's defaultBranch.
       // Best-effort — must never block branch listing. See ADR-144.
       try {
-        await this.git.exec(project.path, [
+        await this.gitFor(project).exec(project.path, [
           "remote",
           "set-head",
           "origin",
           "--auto",
         ]);
-        const detected = await this.detectDefaultBranchLocal(project.path);
+        const detected = await this.detectDefaultBranchLocal(
+          this.gitFor(project),
+          project.path,
+        );
         if (detected && detected !== project.defaultBranch) {
           project.defaultBranch = detected;
           this.saveState();
@@ -1098,7 +1251,7 @@ export class ProjectManager {
         );
       }
 
-      const stdout = await this.git.exec(project.path, [
+      const stdout = await this.gitFor(project).exec(project.path, [
         "for-each-ref",
         "--sort=-creatordate",
         "--format=%(refname:strip=3)",
@@ -1126,10 +1279,14 @@ export class ProjectManager {
    * that need to know the path a worktree will be created at.
    */
   private worktreePathFor(project: PersistedProject, name: string): string {
-    const baseDir = project.worktreePath
+    return path.join(this.worktreeBaseDir(project), toDirSlug(name));
+  }
+
+  /** The directory this project's worktrees are created in. */
+  private worktreeBaseDir(project: PersistedProject): string {
+    return project.worktreePath
       ? expandHome(project.worktreePath)
       : path.join(worktreesDir(), toDirSlug(project.name));
-    return path.join(baseDir, toDirSlug(name));
   }
 
   /**
@@ -1197,7 +1354,7 @@ export class ProjectManager {
     // Prune stale worktree entries (e.g. leftover from a previous failed creation)
     this.emitSetupProgress("prune", "in-progress");
     try {
-      await this.git.exec(project.path, ["worktree", "prune"]);
+      await this.gitFor(project).exec(project.path, ["worktree", "prune"]);
     } catch (err) {
       console.error(
         "[ProjectManager] git worktree prune failed:",
@@ -1210,7 +1367,7 @@ export class ProjectManager {
     this.emitSetupProgress("fetch", "in-progress");
     if (branch) {
       try {
-        await this.git.exec(project.path, ["fetch", "origin", branchName]);
+        await this.gitFor(project).exec(project.path, ["fetch", "origin", branchName]);
       } catch (err) {
         console.error(
           "[ProjectManager] git fetch before checkout failed:",
@@ -1220,7 +1377,7 @@ export class ProjectManager {
     } else {
       // Creating a new branch — fetch origin so we base off the latest remote refs
       try {
-        await this.git.exec(project.path, ["fetch", "origin"]);
+        await this.gitFor(project).exec(project.path, ["fetch", "origin"]);
       } catch (err) {
         console.error(
           "[ProjectManager] git fetch origin before new worktree failed:",
@@ -1237,11 +1394,11 @@ export class ProjectManager {
       this.emitSetupProgress("create-worktree", "in-progress", `Checking out branch ${branchName}`);
       try {
         // Try checking out as a local branch first
-        await this.git.worktreeAdd(project.path, worktreePath, branchName);
+        await this.gitFor(project).worktreeAdd(project.path, worktreePath, branchName);
       } catch {
         // Local branch doesn't exist — create local tracking branch from remote
         try {
-          await this.git.worktreeAdd(project.path, worktreePath, branchName, {
+          await this.gitFor(project).worktreeAdd(project.path, worktreePath, branchName, {
             createBranch: true,
             startPoint: `origin/${branchName}`,
           });
@@ -1256,7 +1413,7 @@ export class ProjectManager {
     } else {
       this.emitSetupProgress("create-worktree", "in-progress", branch ? `Checking out branch ${branchName}` : `Creating new branch ${branchName} from ${defaultBranchRef}`);
       try {
-        await this.git.worktreeAdd(project.path, worktreePath, branchName, {
+        await this.gitFor(project).worktreeAdd(project.path, worktreePath, branchName, {
           createBranch: true,
           startPoint: defaultBranchRef,
         });
@@ -1267,12 +1424,12 @@ export class ProjectManager {
         );
         // Branch already exists — create worktree checking out the existing branch
         try {
-          await this.git.worktreeAdd(project.path, worktreePath, branchName);
+          await this.gitFor(project).worktreeAdd(project.path, worktreePath, branchName);
         } catch {
           // Neither new branch nor existing local branch — try remote tracking branch
           try {
-            await this.git.exec(project.path, ["fetch", "origin", branchName]);
-            await this.git.worktreeAdd(project.path, worktreePath, branchName, {
+            await this.gitFor(project).exec(project.path, ["fetch", "origin", branchName]);
+            await this.gitFor(project).worktreeAdd(project.path, worktreePath, branchName, {
               createBranch: true,
               startPoint: `origin/${branchName}`,
             });
@@ -1318,7 +1475,7 @@ export class ProjectManager {
     if (!project) return null;
 
     // Get the current branch of the main workspace
-    const branchOut = await this.git.exec(project.path, [
+    const branchOut = await this.gitFor(project).exec(project.path, [
       "rev-parse",
       "--abbrev-ref",
       "HEAD",
@@ -1335,7 +1492,7 @@ export class ProjectManager {
 
     // Prune stale worktree entries
     try {
-      await this.git.exec(project.path, ["worktree", "prune"]);
+      await this.gitFor(project).exec(project.path, ["worktree", "prune"]);
     } catch (err) {
       console.error(
         "[ProjectManager] git worktree prune failed:",
@@ -1345,18 +1502,18 @@ export class ProjectManager {
 
     // Checkout the default branch first — the current branch must be
     // freed before git allows it to be checked out in a new worktree.
-    await this.git.exec(project.path, [
+    await this.gitFor(project).exec(project.path, [
       "checkout",
       project.defaultBranch || "main",
     ]);
 
     // Create a worktree for the branch we just freed
     try {
-      await this.git.worktreeAdd(project.path, worktreePath, currentBranch);
+      await this.gitFor(project).worktreeAdd(project.path, worktreePath, currentBranch);
     } catch (worktreeErr) {
       // Roll back: re-checkout the original branch so the user isn't stranded
       try {
-        await this.git.exec(project.path, ["checkout", currentBranch]);
+        await this.gitFor(project).exec(project.path, ["checkout", currentBranch]);
       } catch (rollbackErr) {
         console.error(
           "[ProjectManager] failed to roll back to original branch after worktree failure:",

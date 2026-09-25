@@ -21,6 +21,7 @@ import {
   daemonPidFile,
 } from "../paths";
 import { runRemoteBridge } from "./bridge";
+import { LocalTransport } from "./transport-local";
 
 const DAEMON_DIR = daemonDir();
 const SOCKET_PATH = daemonSocketFile();
@@ -463,6 +464,10 @@ function installDaemonSignalHandlers(): void {
 //     control socket. Signal handlers that tear down *this* box's daemon
 //     would be wrong here, since this process did not spawn it — see
 //     `bridge.ts`.
+//   - `restart` stops this box's daemon and clears its socket and pid file,
+//     using the same path logic as a local client (`LocalTransport.stop`).
+//     The next `remote-bridge` spawns the replacement. `SshTransport.restart`
+//     runs this over ssh when the handshake reports a version mismatch.
 //   - Anything else (the normal case: no argv) starts the daemon itself.
 async function main(): Promise<void> {
   const [mode, ...rest] = process.argv.slice(2);
@@ -478,6 +483,11 @@ async function main(): Promise<void> {
       process.stderr.write("[terminal-host] remote-bridge: stream mode\n");
     }
     process.exitCode = await runRemoteBridge();
+    return;
+  }
+
+  if (mode === "restart") {
+    await new LocalTransport().stop();
     return;
   }
 

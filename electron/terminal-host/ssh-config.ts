@@ -13,9 +13,6 @@ import * as path from "node:path";
 /** Where `remote-bridge` lives on the far side. `$HOME` is expanded by the remote shell. */
 export const REMOTE_HOST_BIN = '"$HOME/.manor/bin/manor-host"';
 
-/** The remote daemon's files, relative to the remote `$HOME` (mirrors `electron/paths.ts`). */
-const REMOTE_DAEMON_DIR = '"$HOME/.manor/daemon"';
-
 // ── Shell quoting ──
 
 const SHELL_SAFE = /^[A-Za-z0-9@%_+=:,./-]+$/;
@@ -115,17 +112,13 @@ export function remoteBridgeCommand(stream: boolean): string {
 }
 
 /**
- * The remote command that replaces a stale daemon: SIGTERM it and clear its
- * socket and pid file, so the next `remote-bridge` starts a fresh one.
- * Mirrors `LocalTransport.killAndRespawn`.
+ * The remote command that replaces a stale daemon: `manor-host restart`
+ * SIGTERMs it and clears its socket and pid file (resolving the daemon
+ * directory exactly as a local client does), so the next `remote-bridge`
+ * starts a fresh one.
  */
 export function remoteRestartCommand(): string {
-  const dir = REMOTE_DAEMON_DIR;
-  return [
-    `pid=$(cat ${dir}/terminal-host.pid 2>/dev/null)`,
-    `if [ -n "$pid" ]; then kill "$pid" 2>/dev/null; sleep 0.5; fi`,
-    `rm -f ${dir}/terminal-host.sock ${dir}/terminal-host.pid`,
-  ].join("; ");
+  return `exec ${REMOTE_HOST_BIN} restart`;
 }
 
 /** `ssh -F <config> -T <target> <remoteCommand>` */

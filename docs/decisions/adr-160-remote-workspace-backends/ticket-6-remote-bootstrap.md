@@ -1,6 +1,6 @@
 ---
 title: Remote bootstrap — detect, install, and version-match manor-host
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [4]
@@ -46,3 +46,27 @@ on <target>…".
 - `electron/backend/__tests__/remote-bootstrap.test.ts` — new; fake ssh runner, assert
   the command sequence, the early-return on version match, and that a failed transfer
   does not commit.
+
+## Implementation notes
+
+- Staging lives at `$HOME/.manor/.host-staging-<id>` (a sibling of `host/`, not inside
+  it, so it can be renamed into place). The id is chosen locally because prepare,
+  stream, install and commit are separate ssh invocations and do not share `$$`.
+- The daemon entry in the package is `terminal-host-index.js` (not `index.js`):
+  `LocalTransport` respawns the daemon by that name via `__dirname`, and the daemon
+  spawns `pty-subprocess.js` beside it, so both bundles ship.
+- The shim pins `MANOR_VERSION` (which `--version` and `bridgeHello` report) and the
+  absolute node path found during the Node check. If that node disappears, `--version`
+  fails and the next bootstrap reinstalls.
+- The install step also runs `node -e 'require("node-pty")'` inside staging, so a
+  broken native build fails before commit.
+- `SshTransport` gained `exec(command, { stdin, timeoutMs })`; `EnsureRemoteHost` now
+  receives that as its third argument. `remoteHostEnsurer({ onProgress })` adapts
+  `ensureRemoteHost` to it. SshTransport's default is still the no-op stub; whoever
+  constructs SshTransport (ticket 9) passes `remoteHostEnsurer(...)`.
+- `manor-host restart` (new argv mode, `LocalTransport.stop()`) replaces the
+  hardcoded remote kill snippet in `SshTransport.restart()`.
+- Packaging: `pnpm package` now runs `scripts/build-host-tarball.mjs` after
+  `vite build`; the tarball lands in `dist-electron/` and ships inside the asar, where
+  `hostTarballPath()` finds it beside `main.js`. `scripts/release.mjs` only bumps,
+  tags and pushes, so it needs no change. In dev, run the script after `pnpm build`.

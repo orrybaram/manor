@@ -177,7 +177,7 @@ describe("SshTransport", () => {
     const ensureRemoteHost = vi.fn(async () => {});
     const { transport } = makeTransport({ ensureRemoteHost });
     await transport.ensureRunning("9.9.9");
-    expect(ensureRemoteHost).toHaveBeenCalledWith("me@box", "9.9.9");
+    expect(ensureRemoteHost).toHaveBeenCalledWith("me@box", "9.9.9", expect.any(Function));
   });
 
   it("strips the hello line, caches its token, and passes later bytes through", async () => {
@@ -292,14 +292,51 @@ describe("SshTransport", () => {
     expect(transport.controlPath).toBeNull();
   });
 
-  it("restart runs a remote kill of the stale daemon", async () => {
+  it("restart runs `manor-host restart` on the remote", async () => {
     const { transport, children } = makeTransport();
     const restarting = transport.restart();
     const child = await nextChild(children, 0);
-    expect(child.args.slice(0, 4)).toEqual(["-F", transport.configPath, "-T", "me@box"]);
-    expect(child.args[4]).toContain("terminal-host.pid");
+    expect(child.args).toEqual([
+      "-F",
+      transport.configPath,
+      "-T",
+      "me@box",
+      'exec "$HOME/.manor/bin/manor-host" restart',
+    ]);
     child.exit(0);
     await restarting;
+  });
+
+  it("restart surfaces a failing remote command", async () => {
+    const { transport, children } = makeTransport();
+    const restarting = transport.restart();
+    const child = await nextChild(children, 0);
+    child.stderr.write("sh: manor-host: not found\n");
+    await new Promise((r) => setImmediate(r));
+    child.exit(127);
+    await expect(restarting).rejects.toThrow(/code 127.*not found/);
+  });
+
+  it("exec collects output and feeds stdin", async () => {
+    const { transport, children } = makeTransport();
+    const running = transport.exec("cat", { stdin: "payload" });
+    const child = await nextChild(children, 0);
+    await vi.waitFor(() => expect(child.written).toBe("payload"));
+    child.stdout.write("out");
+    child.stderr.write("err");
+    await new Promise((r) => setImmediate(r));
+    child.exit(3);
+    await expect(running).resolves.toEqual({ code: 3, stdout: "out", stderr: "err" });
+  });
+
+  it("exec translates auth failures", async () => {
+    const { transport, children } = makeTransport();
+    const running = transport.exec("true");
+    const child = await nextChild(children, 0);
+    child.stderr.write("Permission denied (publickey).\n");
+    await new Promise((r) => setImmediate(r));
+    child.exit(255);
+    await expect(running).rejects.toBeInstanceOf(SshAuthError);
   });
 
   it("createManagedSshConfig makes distinct dirs", () => {

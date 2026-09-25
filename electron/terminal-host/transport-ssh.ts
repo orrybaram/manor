@@ -45,11 +45,43 @@ export interface SshChild {
 
 export type SshSpawn = (command: string, args: string[]) => SshChild;
 
+/** What a one-shot remote command produced. */
+export interface RemoteExecResult {
+  /** Exit code; null when ssh was killed by a signal. */
+  code: number | null;
+  stdout: string;
+  stderr: string;
+}
+
+export interface RemoteExecOptions {
+  /** Bytes fed to the remote command's stdin (closed after). Defaults to none. */
+  stdin?: Buffer | string;
+  /** Kill ssh after this long. Defaults to the transport's handshake timeout. */
+  timeoutMs?: number;
+}
+
+/**
+ * Run `command` through the remote login shell over the shared ssh session.
+ * Resolves with whatever the command produced — a non-zero exit is data, not
+ * an error. Rejects only when ssh itself could not run, auth failed, or the
+ * timeout expired.
+ */
+export type RemoteExec = (
+  command: string,
+  opts?: RemoteExecOptions,
+) => Promise<RemoteExecResult>;
+
 /**
  * Makes sure the remote box has a `manor-host` able to serve `version`
- * (installing or upgrading it if not). Supplied by the bootstrap module.
+ * (installing or upgrading it if not). Supplied by the bootstrap module
+ * (`electron/backend/remote-bootstrap.ts`); `exec` runs commands over this
+ * transport's ControlMaster session.
  */
-export type EnsureRemoteHost = (target: string, version?: string) => Promise<void>;
+export type EnsureRemoteHost = (
+  target: string,
+  version: string | undefined,
+  exec: RemoteExec,
+) => Promise<void>;
 
 export interface SshTransportOptions {
   /** Defaults to `child_process.spawn` with piped stdio. */
@@ -200,11 +232,14 @@ export class SshTransport implements HostTransport {
 
   async ensureRunning(version?: string): Promise<void> {
     this.managedConfig();
-    await this.ensureRemoteHost(this.target, version);
+    await this.ensureRemoteHost(this.target, version, (command, opts) =>
+      this.exec(command, opts),
+    );
   }
 
   async restart(): Promise<void> {
-    await this.runRemote(remoteRestartCommand());
+    const { code, stderr } = await this.exec(remoteRestartCommand());
+    if (code !== 0) throw this.exitError(code, stderr);
   }
 
   connectControl(): Promise<Duplex> {
@@ -334,19 +369,29 @@ export class SshTransport implements HostTransport {
     );
   }
 
-  /** Run a one-shot remote command over the shared session. */
-  private async runRemote(command: string): Promise<void> {
+  /** Run a one-shot remote command over the shared session. See `RemoteExec`. */
+  async exec(command: string, opts: RemoteExecOptions = {}): Promise<RemoteExecResult> {
     const { configPath } = this.managedConfig();
     const child = this.spawnFn("ssh", buildSshArgs(configPath, this.target, command));
     this.track(child);
-    let stderrText = "";
-    child.stderr?.on("data", (chunk: Buffer) => {
-      stderrText = (stderrText + chunk.toString("utf-8")).slice(-MAX_STDERR_BYTES);
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf-8");
     });
-    child.stdin?.end();
-    child.stdout?.resume();
-    const code = await this.waitForExit(child, this.handshakeTimeoutMs);
-    if (code !== 0) throw this.exitError(code, stderrText);
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr = (stderr + chunk.toString("utf-8")).slice(-MAX_STDERR_BYTES);
+    });
+    child.stdin?.on("error", () => {
+      // EPIPE when the remote command exits without draining stdin.
+    });
+    if (opts.stdin !== undefined) child.stdin?.end(opts.stdin);
+    else child.stdin?.end();
+    const code = await this.waitForExit(child, opts.timeoutMs ?? this.handshakeTimeoutMs);
+    if (code === 255 && isRemoteAuthError(stderr)) {
+      throw new SshAuthError(this.target, stderr);
+    }
+    return { code, stdout, stderr };
   }
 
   private track(child: SshChild): void {

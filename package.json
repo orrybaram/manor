@@ -8,7 +8,7 @@
     "dev": "node scripts/patch-electron-name.mjs && vite build --config vite.remote.config.ts && vite",
     "build": "vite build && vite build --config vite.remote.config.ts",
     "preview": "vite preview",
-    "package": "source .env && vite build && electron-builder",
+    "package": "source .env && vite build && node scripts/build-host-tarball.mjs && electron-builder",
     "test": "vitest run && pnpm knip:ci",
     "test:unit": "vitest run",
     "knip": "knip",

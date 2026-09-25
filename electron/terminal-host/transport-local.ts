@@ -50,6 +50,19 @@ export class LocalTransport implements HostTransport {
     await this.killAndRespawn(version);
   }
 
+  /**
+   * SIGTERM the running daemon (if any) and clear its socket and pid file,
+   * without spawning a replacement. The next `ensureRunning` starts a fresh
+   * one. Backs `manor-host restart`, which a remote client runs over ssh.
+   */
+  async stop(): Promise<void> {
+    await this.killDaemonByPid();
+    // Grace period for the process to exit and release the socket
+    await new Promise<void>((r) => setTimeout(r, 500));
+    try { fs.unlinkSync(this.SOCKET_PATH); } catch { /* already gone */ }
+    try { fs.unlinkSync(this.PID_PATH); } catch { /* already gone */ }
+  }
+
   connectControl(): Promise<Duplex> {
     return this.connectSocket();
   }
@@ -100,11 +113,7 @@ export class LocalTransport implements HostTransport {
 
   /** Kill the current daemon and spawn a fresh replacement. */
   private async killAndRespawn(version?: string): Promise<void> {
-    await this.killDaemonByPid();
-    // Grace period for the process to exit and release the socket
-    await new Promise<void>((r) => setTimeout(r, 500));
-    try { fs.unlinkSync(this.SOCKET_PATH); } catch { /* already gone */ }
-    try { fs.unlinkSync(this.PID_PATH); } catch { /* already gone */ }
+    await this.stop();
     await this.spawnDaemon(version);
   }
 

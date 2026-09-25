@@ -20,7 +20,11 @@ Three places read the local disk or local daemon directly (ADR-178 §3).
    is in flight so a slow host can't pile up requests.
 2. `readBranchSync` (`electron/ipc/pty.ts:9`) → async `readBranch(backend, repoPath)`
    with the same semantics; update callers.
-3. `PrewarmManager` (`electron/prewarm-manager.ts`) uses `this.client` directly. Make it
+3. `removeWorktree` in `electron/persistence.ts`: after a failed `git worktree remove`, it checks
+   `existsSync(worktreePath)` on the LOCAL disk to decide whether the directory is gone.
+   For remote projects route that check through the host (e.g. `test -e` via the shell
+   backend, as `remoteFileExists` in persistence.ts does).
+4. `PrewarmManager` (`electron/prewarm-manager.ts`) uses `this.client` directly. Make it
    take the registry and prewarm **only for projects whose hostId is local**. Remote
    projects get no prewarm in this ADR.
 

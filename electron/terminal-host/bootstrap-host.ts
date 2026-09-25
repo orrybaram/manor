@@ -89,11 +89,23 @@ export interface RegisterAgentsOptions {
   mcpServerScriptPath?: string | null;
 }
 
+export interface RegisterAllAgentsResult {
+  /** Agent connectors whose hooks were registered, in connector order. */
+  agents: AgentKind[];
+  /**
+   * Human-readable warnings for anything a connector skipped rather than
+   * risk clobbering — e.g. an unreadable or malformed config file. Never
+   * thrown: a config we can't safely rewrite is reported, not fatal.
+   */
+  warnings: string[];
+}
+
 /**
  * Register hooks (and MCP, unless disabled) for all known agent connectors.
- * Returns the kinds registered, in connector order.
  */
-export function registerAllAgents(opts: RegisterAgentsOptions = {}): AgentKind[] {
+export function registerAllAgents(
+  opts: RegisterAgentsOptions = {},
+): RegisterAllAgentsResult {
   const mcpServerScriptPath =
     opts.mcpServerScriptPath === undefined
       ? bundledFilePath("mcp-webview-server.js")
@@ -101,29 +113,35 @@ export function registerAllAgents(opts: RegisterAgentsOptions = {}): AgentKind[]
   const scriptPath = hookScriptPath();
 
   const registered: AgentKind[] = [];
+  const warnings: string[] = [];
   for (const connector of getAllConnectors()) {
-    connector.registerHooks(scriptPath);
+    warnings.push(...connector.registerHooks(scriptPath));
     if (mcpServerScriptPath !== null) {
-      connector.registerMcp(mcpServerScriptPath);
+      warnings.push(...connector.registerMcp(mcpServerScriptPath));
     }
     registered.push(connector.kind);
   }
-  return registered;
+  return { agents: registered, warnings };
 }
 
 export interface BootstrapHostResult {
   zdotdir: string;
   /** Agent connectors whose hooks were registered. */
   agents: AgentKind[];
+  /** See `RegisterAllAgentsResult.warnings`. */
+  warnings: string[];
 }
 
 /**
  * Run the full host bootstrap: zdotdir, hook scripts, agent registration.
- * Throws on the first failure, as startup always has.
+ * Throws on the first failure setting up zdotdir or the hook scripts
+ * themselves, as startup always has; a connector unable to safely register
+ * (e.g. a malformed config it must not overwrite) is reported via
+ * `warnings` instead, so one agent's bad config never aborts startup.
  */
 export function bootstrapHost(opts: RegisterAgentsOptions = {}): BootstrapHostResult {
   const zdotdir = ShellManager.setupZdotdir();
   ensureHookScript();
-  const agents = registerAllAgents(opts);
-  return { zdotdir, agents };
+  const { agents, warnings } = registerAllAgents(opts);
+  return { zdotdir, agents, warnings };
 }

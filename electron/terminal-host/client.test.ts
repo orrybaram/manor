@@ -47,6 +47,8 @@ class TestDaemon {
   readonly pidPath: string;
   /** Every request seen, in order, as "control:type" / "stream:type". */
   readonly seen: string[] = [];
+  /** Every `env` payload received via `updateEnv`, in order. */
+  readonly receivedEnvUpdates: Record<string, string>[] = [];
   /** Set to make the next getSnapshot fail as though the daemon misbehaved. */
   failNextSnapshot = false;
   /** Behave like a daemon from before ADR-159: no protocol, no `notFound`. */
@@ -241,6 +243,7 @@ class TestDaemon {
         this.send(socket, { type: "pong" }, requestId);
         break;
       case "updateEnv":
+        this.receivedEnvUpdates.push(req.env);
         this.send(socket, { type: "envUpdated" }, requestId);
         break;
       case "exec": {
@@ -474,6 +477,31 @@ describe("TerminalHostClient", () => {
       await client.dispose();
       expect(transport.disposed).toBe(1);
       expect((client as any).connected).toBe(false);
+    });
+
+    it("on reconnect, the live process.env MANOR_* port wins over a stale remembered override", async () => {
+      const originalPort = process.env.MANOR_HOOK_PORT;
+      try {
+        // A stale override remembered from before the port changed.
+        process.env.MANOR_HOOK_PORT = "1111";
+        const client = createTestClient(daemon);
+        await client.connect();
+        await client.updateEnv({ MANOR_HOOK_PORT: "1111" });
+
+        // The port moves (e.g. the hook server was recreated), then we
+        // reconnect — the daemon must see the new port, not the remembered one.
+        process.env.MANOR_HOOK_PORT = "2222";
+        client.disconnect();
+        await client.connect();
+
+        const updates = daemon.receivedEnvUpdates;
+        expect(updates.length).toBeGreaterThanOrEqual(2);
+        expect(updates[updates.length - 1].MANOR_HOOK_PORT).toBe("2222");
+        client.disconnect();
+      } finally {
+        if (originalPort === undefined) delete process.env.MANOR_HOOK_PORT;
+        else process.env.MANOR_HOOK_PORT = originalPort;
+      }
     });
   });
 

@@ -33,15 +33,19 @@ export interface AgentConnector {
 
   /**
    * Register lifecycle hooks in the agent's config so it calls back to Manor.
-   * No-op if the agent doesn't support hooks.
+   * No-op if the agent doesn't support hooks. Returns human-readable warnings
+   * for anything skipped (e.g. an unreadable or malformed config) rather than
+   * throwing — a config we can't safely rewrite must be left untouched, not
+   * treated as empty and clobbered.
    */
-  registerHooks(hookScriptPath: string): void;
+  registerHooks(hookScriptPath: string): string[];
 
   /**
    * Register the Manor MCP server in the agent's config.
-   * No-op if the agent doesn't support MCP.
+   * No-op if the agent doesn't support MCP. Same warnings-not-throw contract
+   * as `registerHooks`.
    */
-  registerMcp(mcpServerScriptPath: string): void;
+  registerMcp(mcpServerScriptPath: string): string[];
 }
 
 // ── Shared helpers ──
@@ -53,6 +57,81 @@ export interface AgentConnector {
 function hasResumeToken(command: string, tokens: string[]): boolean {
   const args = command.split(/\s+/);
   return tokens.some((tok) => args.includes(tok));
+}
+
+/** Result of a best-effort config read: either usable data, or a warning explaining why not. */
+interface ConfigReadResult<T> {
+  data: T;
+  /**
+   * Set when the file exists but could not be read or parsed — the caller
+   * must not write to `configPath` in this case, since doing so with `data`
+   * (an empty fallback) would silently replace content we could not
+   * understand rather than merge with it.
+   */
+  warning?: string;
+}
+
+/**
+ * Read and JSON-parse a config file. A missing file is safe to treat as
+ * `{}` (there's nothing to lose by creating it). Any other read error, or
+ * invalid JSON, is NOT safe to treat as `{}` — that would silently wipe
+ * whatever is actually there when we write our defaults back out. Those
+ * cases return a warning and empty data; callers must check `warning` and
+ * skip writing rather than using `data`.
+ */
+function readJsonConfig<T extends Record<string, unknown>>(
+  configPath: string,
+  label: string,
+): ConfigReadResult<T> {
+  let text: string;
+  try {
+    text = fs.readFileSync(configPath, "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return { data: {} as T };
+    }
+    return {
+      data: {} as T,
+      warning: `skipped ${label}: could not read ${configPath}: ${errMessage(err)}`,
+    };
+  }
+  try {
+    return { data: JSON.parse(text) as T };
+  } catch (err) {
+    return {
+      data: {} as T,
+      warning: `skipped ${label}: ${configPath} is not valid JSON (${errMessage(err)}); leaving it untouched`,
+    };
+  }
+}
+
+/**
+ * Same missing-file-vs-anything-else distinction as `readJsonConfig`, for
+ * config files that aren't JSON (e.g. Codex's `config.toml`).
+ */
+function readTextConfig(
+  configPath: string,
+  label: string,
+): { content: string; warning?: string } {
+  try {
+    return { content: fs.readFileSync(configPath, "utf-8") };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return { content: "" };
+    }
+    return {
+      content: "",
+      warning: `skipped ${label}: could not read ${configPath}: ${errMessage(err)}`,
+    };
+  }
+}
+
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function warnSkip(warning: string): void {
+  console.warn(`[agent-connectors] ${warning}`);
 }
 
 // ── Claude Code Connector ──
@@ -94,18 +173,20 @@ export class ClaudeConnector implements AgentConnector {
     return `${baseCommand} "${escaped}"`;
   }
 
-  registerHooks(hookScriptPath: string): void {
+  registerHooks(hookScriptPath: string): string[] {
     const settingsPath = path.join(
       process.env.HOME || "/tmp",
       ".claude",
       "settings.json",
     );
 
-    let settings: Record<string, unknown> = {};
-    try {
-      settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
-    } catch {
-      // File doesn't exist or invalid JSON
+    const { data: settings, warning } = readJsonConfig<Record<string, unknown>>(
+      settingsPath,
+      "Claude hook registration",
+    );
+    if (warning) {
+      warnSkip(warning);
+      return [warning];
     }
 
     const hooks = (settings.hooks ?? {}) as Record<string, unknown[]>;
@@ -142,16 +223,19 @@ export class ClaudeConnector implements AgentConnector {
       fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
       fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
     }
+    return [];
   }
 
-  registerMcp(mcpServerScriptPath: string): void {
+  registerMcp(mcpServerScriptPath: string): string[] {
     const configPath = path.join(process.env.HOME || "/tmp", ".claude.json");
 
-    let config: Record<string, unknown> = {};
-    try {
-      config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    } catch {
-      // File doesn't exist or invalid JSON
+    const { data: config, warning } = readJsonConfig<Record<string, unknown>>(
+      configPath,
+      "Claude MCP registration",
+    );
+    if (warning) {
+      warnSkip(warning);
+      return [warning];
     }
 
     const mcpServers = (config.mcpServers ?? {}) as Record<
@@ -186,6 +270,7 @@ export class ClaudeConnector implements AgentConnector {
       config.mcpServers = mcpServers;
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
     }
+    return [];
   }
 }
 
@@ -224,18 +309,22 @@ export class CodexConnector implements AgentConnector {
     return `${baseCommand} "${escaped}"`;
   }
 
-  registerHooks(hookScriptPath: string): void {
+  registerHooks(hookScriptPath: string): string[] {
     const hooksPath = path.join(
       process.env.HOME || "/tmp",
       ".codex",
       "hooks.json",
     );
 
-    let hooksFile: Record<string, unknown> = {};
-    try {
-      hooksFile = JSON.parse(fs.readFileSync(hooksPath, "utf-8"));
-    } catch {
-      // File doesn't exist or invalid JSON
+    const { data: hooksFile, warning } = readJsonConfig<Record<string, unknown>>(
+      hooksPath,
+      "Codex hook registration",
+    );
+    if (warning) {
+      warnSkip(warning);
+      // Still try the feature flag — it's a separate file, so an unreadable
+      // hooks.json shouldn't also stop us updating config.toml.
+      return [warning, ...this._ensureCodexHooksFeatureFlag()];
     }
 
     const hooks = (hooksFile.hooks ?? {}) as Record<string, unknown[]>;
@@ -266,26 +355,25 @@ export class CodexConnector implements AgentConnector {
     }
 
     // Ensure the codex_hooks feature flag is enabled in ~/.codex/config.toml
-    this._ensureCodexHooksFeatureFlag();
+    return this._ensureCodexHooksFeatureFlag();
   }
 
-  private _ensureCodexHooksFeatureFlag(): void {
+  private _ensureCodexHooksFeatureFlag(): string[] {
     const configPath = path.join(
       process.env.HOME || "/tmp",
       ".codex",
       "config.toml",
     );
 
-    let content = "";
-    try {
-      content = fs.readFileSync(configPath, "utf-8");
-    } catch {
-      // File doesn't exist — will create it
+    const { content, warning } = readTextConfig(configPath, "Codex hooks feature flag");
+    if (warning) {
+      warnSkip(warning);
+      return [warning];
     }
 
     // Check if codex_hooks = true is already present anywhere in the file
     if (/codex_hooks\s*=\s*true/.test(content)) {
-      return;
+      return [];
     }
 
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
@@ -306,21 +394,25 @@ export class CodexConnector implements AgentConnector {
         content + separator + "\n[features]\ncodex_hooks = true\n",
       );
     }
+    return [];
   }
 
-  registerMcp(mcpServerScriptPath: string): void {
+  registerMcp(mcpServerScriptPath: string): string[] {
     const configPath = path.join(
       process.env.HOME || "/tmp",
       ".codex",
       "config.toml",
     );
 
-    let content = "";
-    try {
-      content = fs.readFileSync(configPath, "utf-8");
-    } catch {
-      // File doesn't exist — will create it
+    const { content: raw, warning } = readTextConfig(
+      configPath,
+      "Codex MCP registration",
+    );
+    if (warning) {
+      warnSkip(warning);
+      return [warning];
     }
+    let content = raw;
 
     // Strip the pre-rename section from earlier versions (up to the next
     // top-level table header or end of file).
@@ -335,7 +427,7 @@ export class CodexConnector implements AgentConnector {
     // Already registered under the new name — persist any legacy strip and stop.
     if (content.includes("[mcp_servers.manor]")) {
       if (hadLegacy) fs.writeFileSync(configPath, content);
-      return;
+      return [];
     }
 
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
@@ -350,6 +442,7 @@ export class CodexConnector implements AgentConnector {
     ].join("\n");
 
     fs.writeFileSync(configPath, content + separator + section);
+    return [];
   }
 }
 
@@ -377,7 +470,7 @@ export class PiConnector implements AgentConnector {
     return `${baseCommand} "${escaped}"`;
   }
 
-  registerHooks(_hookScriptPath: string): void {
+  registerHooks(_hookScriptPath: string): string[] {
     // Pi uses extensions for hooks, not config files.
     // The manor-hooks extension is installed separately.
     // We create a simple shell hook script that pi's extension will call.
@@ -501,12 +594,14 @@ export default function (pi: ExtensionAPI) {
     if (existingContent !== extensionContent) {
       fs.writeFileSync(extensionPath, extensionContent);
     }
+    return [];
   }
 
-  registerMcp(_mcpServerScriptPath: string): void {
+  registerMcp(_mcpServerScriptPath: string): string[] {
     // Pi doesn't have built-in MCP support — it's added via extensions.
     // For now, we skip MCP registration for pi.
     // Users can install an MCP extension package if needed.
+    return [];
   }
 }
 
@@ -534,12 +629,14 @@ export class OpencodeConnector implements AgentConnector {
     return `${baseCommand} "${escaped}"`;
   }
 
-  registerHooks(_hookScriptPath: string): void {
+  registerHooks(_hookScriptPath: string): string[] {
     // opencode hook wiring is out of scope for ADR-144; no-op for now.
+    return [];
   }
 
-  registerMcp(_mcpServerScriptPath: string): void {
+  registerMcp(_mcpServerScriptPath: string): string[] {
     // opencode MCP wiring is out of scope for ADR-144; no-op for now.
+    return [];
   }
 }
 

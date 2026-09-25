@@ -167,8 +167,13 @@ export type ControlResponse =
       exitCode: number | null;
     }
   | { type: "fileContents"; contents: string }
-  /** `bootstrap` succeeded; `agents` lists the connectors registered. */
-  | { type: "bootstrapped"; agents: string[] };
+  /**
+   * `bootstrap` succeeded; `agents` lists the connectors registered.
+   * `warnings`, when present, lists connectors that skipped registration
+   * rather than risk clobbering a config the daemon couldn't safely parse
+   * (e.g. unreadable or malformed JSON) — absent or empty means no issues.
+   */
+  | { type: "bootstrapped"; agents: string[]; warnings?: string[] };
 
 // ── Agent status types ──
 

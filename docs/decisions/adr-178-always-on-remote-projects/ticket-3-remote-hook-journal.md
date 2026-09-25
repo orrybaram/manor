@@ -28,7 +28,11 @@ Hook events fired while the laptop is closed must not be lost (ADR-178 §2).
 4. Control request `{ type: "replayHooks", sinceSeq }` →
    `{ type: "hookReplay", entries, lastSeq }`. Add both to `terminal-host/types.ts`.
 5. PTYs on this daemon spawn with `MANOR_HOOK_PORT` = the listener's port (set at the
-   daemon, not via `updateEnv` from main).
+   daemon, not via `updateEnv` from main). **Also stop the remote client from pushing the
+   laptop.s env** — today `TerminalHostClient` re-sends `MANOR_HOOK_PORT`, `MANOR_WEBVIEW_PORT`
+   and `MANOR_PORTLESS_PORT` via `updateEnv` on every connect, including to remote daemons,
+   which would override the daemon.s own listener. Add a client option (e.g. `pushLocalEnv:
+   false`) used by `RemoteBackend`.
 
 ### Main side
 6. Factor the body of `AgentHookServer`'s request handler into

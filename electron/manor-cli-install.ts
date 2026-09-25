@@ -1,7 +1,7 @@
 /**
  * `manor` CLI installer — writes the `manor` shell command to
  * `~/.manor/bin` on startup. Follows the same pattern as
- * `ensureHookScript()` in agent-hooks.ts.
+ * `ensureHookScript()` in terminal-host/bootstrap-host.ts.
  *
  * Two files land on disk:
  *   - manor.js  — the bundled CLI implementation (electron/manor-cli.ts),
@@ -31,8 +31,8 @@ exec node "$HOME/.manor/bin/manor.js" "$@"
  * Resolve the path to the bundled manor-cli.js source. In packaged builds
  * the asar archive isn't readable by plain Node when invoked via
  * `node /path/to/manor.js`, so we point at the unpacked copy extracted by
- * electron-builder's asarUnpack. Mirrors bundledAgentHookJsPath() in
- * agent-hooks.ts.
+ * electron-builder's asarUnpack. Mirrors bundledFilePath() in
+ * terminal-host/bootstrap-host.ts.
  */
 function bundledManorCliJsPath(): string {
   return path

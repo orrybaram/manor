@@ -319,9 +319,16 @@ async function handleControlMessage(
       // daemon's own filesystem. MCP registration is skipped: the MCP webview
       // server talks to Electron's webview server, which is not on this host.
       try {
-        const { agents } = bootstrapHost({ mcpServerScriptPath: null });
+        const { agents, warnings } = bootstrapHost({ mcpServerScriptPath: null });
         log(`bootstrap: registered agents ${agents.join(", ")}`);
-        sendResponse(socket, { type: "bootstrapped", agents }, requestId);
+        if (warnings.length > 0) {
+          for (const warning of warnings) log(`bootstrap warning: ${warning}`);
+        }
+        sendResponse(
+          socket,
+          { type: "bootstrapped", agents, ...(warnings.length > 0 ? { warnings } : {}) },
+          requestId,
+        );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log(`bootstrap failed: ${message}`);

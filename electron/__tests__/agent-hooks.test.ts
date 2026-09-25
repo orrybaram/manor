@@ -571,12 +571,15 @@ describe("ClaudeConnector.registerHooks", () => {
     expect(settings.foo).toBe(42);
   });
 
-  it("handles invalid JSON gracefully (overwrites)", () => {
-    fs.writeFileSync(settingsPath, "not valid json {{{");
-    freshConnector().registerHooks(hookScriptPath);
+  it("leaves malformed settings.json untouched and reports a skip (ADR-160 ticket 10 review)", () => {
+    const malformed = "not valid json {{{";
+    fs.writeFileSync(settingsPath, malformed);
+    const warnings = freshConnector().registerHooks(hookScriptPath);
 
-    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
-    expect(settings.hooks).toBeDefined();
+    // Must not silently wipe the user's file by treating it as `{}`.
+    expect(fs.readFileSync(settingsPath, "utf-8")).toBe(malformed);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/not valid JSON/);
   });
 
   it("registers all 12 event types", () => {

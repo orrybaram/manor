@@ -564,14 +564,19 @@ export class TerminalHostClient {
       "MANOR_WEBVIEW_PORT",
       "MANOR_PORTLESS_PORT",
     ];
-    const envUpdate: Record<string, string> = {};
+    const inherited: Record<string, string> = {};
     for (const key of envKeys) {
       if (process.env[key]) {
-        envUpdate[key] = process.env[key]!;
+        inherited[key] = process.env[key]!;
       }
     }
-    // Explicit `updateEnv` values win over the inherited ones.
-    Object.assign(envUpdate, this.envOverrides);
+    // Explicit `updateEnv` values win over inherited ones in general, but for
+    // the MANOR_* port keys specifically the live process.env value must win:
+    // a remembered `envOverrides` from a previous connect can hold a now-stale
+    // port (e.g. MANOR_HOOK_PORT from before this process's hook server was
+    // recreated on a later port), and that stale value must not beat the
+    // current one on reconnect.
+    const envUpdate: Record<string, string> = { ...this.envOverrides, ...inherited };
     if (Object.keys(envUpdate).length > 0) {
       await this.request({ type: "updateEnv", env: envUpdate });
       stillWanted();
@@ -898,14 +903,18 @@ export class TerminalHostClient {
 
   /**
    * Bootstrap the daemon's host for shell integration and agent hooks
-   * (ADR-160 ticket 10). Resolves the agent kinds the daemon registered, or
-   * `null` when the daemon predates the request and answered `unknown
-   * request type`; throws on any other failure.
+   * (ADR-160 ticket 10). Resolves the agent kinds the daemon registered
+   * (plus any warnings for connectors it skipped rather than risk
+   * clobbering a config it couldn't parse), or `null` when the daemon
+   * predates the request and answered `unknown request type`; throws on
+   * any other failure.
    */
-  async bootstrap(): Promise<string[] | null> {
+  async bootstrap(): Promise<{ agents: string[]; warnings: string[] } | null> {
     await this.ensureConnected();
     const resp = await this.request({ type: "bootstrap" });
-    if (resp.type === "bootstrapped") return resp.agents;
+    if (resp.type === "bootstrapped") {
+      return { agents: resp.agents, warnings: resp.warnings ?? [] };
+    }
     if (resp.type === "error") {
       if (resp.message.startsWith("unknown request type")) return null;
       throw new Error(`bootstrap failed: ${resp.message}`);

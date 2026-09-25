@@ -365,8 +365,13 @@ export function initApp(devTitle: string | null): void {
   }
 
   // Ensure shell integration and agent hooks are set up — the same bootstrap
-  // a remote daemon runs on its own host (ADR-160 ticket 10).
-  bootstrapHost();
+  // a remote daemon runs on its own host (ADR-160 ticket 10). A connector
+  // that skips registration (e.g. a config it couldn't safely parse) is
+  // reported here, not thrown — one agent's bad config must never abort
+  // local startup.
+  for (const warning of bootstrapHost().warnings) {
+    console.warn(`[app-lifecycle] bootstrap: ${warning}`);
+  }
   ensureManorCli();
   // The Home surface's harness runs in ~/.manor/home. Create it once here
   // instead of on every new session's launch command.

@@ -177,11 +177,15 @@ export class RemoteBackend implements WorkspaceBackend {
    */
   private async bootstrapHost(): Promise<void> {
     try {
-      const agents = await this.client.bootstrap();
-      if (agents === null) {
+      const result = await this.client.bootstrap();
+      if (result === null) {
         console.warn(
           `[remote-backend] manor-host on ${this.target} does not support bootstrap; agent hooks are not set up there`,
         );
+      } else {
+        for (const warning of result.warnings) {
+          console.warn(`[remote-backend] bootstrap on ${this.target}: ${warning}`);
+        }
       }
     } catch (err) {
       console.warn(

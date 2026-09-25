@@ -26,6 +26,13 @@
  *   Pane ids are `pane-<uuid>`, unique across hosts; an event naming a
  *   session another host owns is dropped rather than delivered twice.
  *
+ * - **Agent hooks** (ADR-178 §2). A remote daemon journals its host's agent
+ *   hooks and streams them as `hookEvent`s. Those never reach `onEvent`
+ *   listeners: each remote host has a `HostHookFeed` that replays the
+ *   journal after every (re)connect, then feeds live events, in order, to
+ *   the `HookSink` (`setHookSink`), remembering its position per host in
+ *   the `HookSeqStore`.
+ *
  * A remote host is built from its spec in two steps (ADR-178 §1): a
  * `HostProvider` (how the box is started and reached), then a backend riding
  * the provider's transport. The registry asks the provider to bring the box
@@ -34,6 +41,12 @@
  */
 
 import { createProvider } from "./providers";
+import {
+  HostHookFeed,
+  memoryHookSeqStore,
+  type HookSeqStore,
+  type HookSink,
+} from "./hook-feed";
 import type { HostProvider } from "./providers/types";
 import { RemoteBackend, classifyHostFailure } from "./remote-backend";
 import type { BootstrapProgress } from "./remote-bootstrap";
@@ -135,6 +148,10 @@ export interface BackendRegistryOptions {
   createRemote?: RemoteBackendFactory;
   /** Builds a remote host's provider. Defaults to `createProvider`. For tests. */
   createProvider?: HostProviderFactory;
+  /** Each remote host's last ingested hook seq. Defaults to in-memory. */
+  hookSeqStore?: HookSeqStore;
+  /** Retry delay for a failed hook replay (see `HostHookFeed`). For tests. */
+  hookReplayRetryDelayMs?: (attempt: number) => number;
 }
 
 interface HostEntry {
@@ -159,6 +176,8 @@ interface HostEntry {
   autoConnect: boolean;
   /** The last keep-awake hint handed to the provider (see `updateBusy`). */
   busy: boolean;
+  /** Null for the local host, and for a backend that cannot replay hooks. */
+  hookFeed: HostHookFeed | null;
 }
 
 type HostEventListener = (hostId: string, event: HostConnectionEvent) => void;
@@ -183,10 +202,15 @@ export class BackendRegistry {
   private readonly statusListeners = new Set<StatusListener>();
   private readonly createRemote: RemoteBackendFactory;
   private readonly createProvider: HostProviderFactory;
+  private readonly hookSeqStore: HookSeqStore;
+  private readonly hookReplayRetryDelayMs?: (attempt: number) => number;
+  private hookSink: HookSink | null = null;
   private version: string | undefined;
 
   constructor(opts: BackendRegistryOptions) {
     this.version = opts.version;
+    this.hookSeqStore = opts.hookSeqStore ?? memoryHookSeqStore();
+    this.hookReplayRetryDelayMs = opts.hookReplayRetryDelayMs;
     this.createRemote = opts.createRemote ?? createRemoteBackend;
     this.createProvider = opts.createProvider ?? defaultCreateProvider;
     this.add(LOCAL_HOST_ID, null, null, opts.local);
@@ -329,6 +353,7 @@ export class BackendRegistry {
     entry.connecting = null;
     // Invalidate any in-flight connect so it cannot land after this.
     entry.attempt++;
+    entry.hookFeed?.pause();
     this.setState(entry, { status: "disconnected" });
     await this.disposeProvider(entry);
     await entry.backend.disconnect();
@@ -374,6 +399,17 @@ export class BackendRegistry {
 
   // ── Events ──
 
+  /**
+   * Where remote hosts' agent hooks go (ADR-178 §2). Hosts already connected
+   * catch up from their journals now; the rest do on connect.
+   */
+  setHookSink(sink: HookSink): void {
+    this.hookSink = sink;
+    for (const entry of this.hosts.values()) {
+      if (entry.state.status === "connected") entry.hookFeed?.catchUp();
+    }
+  }
+
   /** Stream events from every host, tagged with the host they came from. */
   onEvent(handler: StreamEventListener): () => void {
     this.eventListeners.add(handler);
@@ -411,12 +447,29 @@ export class BackendRegistry {
       attempt: 0,
       autoConnect: true,
       busy: false,
+      hookFeed: null,
     };
+    const replay = backend.pty.replayHooks?.bind(backend.pty);
+    if (hostId !== LOCAL_HOST_ID && replay) {
+      entry.hookFeed = new HostHookFeed({
+        hostId,
+        replay,
+        store: this.hookSeqStore,
+        sink: () => this.hookSink,
+        ...(this.hookReplayRetryDelayMs
+          ? { retryDelayMs: this.hookReplayRetryDelayMs }
+          : {}),
+      });
+    }
     entry.view = this.makeView(entry);
     this.hosts.set(hostId, entry);
 
     backend.pty.onEvent((event) => {
       if (this.hosts.get(hostId) !== entry) return;
+      if (event.type === "hookEvent") {
+        entry.hookFeed?.onLiveEvent(event.seq, event.payload);
+        return;
+      }
       this.dispatchStreamEvent(hostId, event);
     });
     backend.onHostEvent((event) => {
@@ -427,6 +480,7 @@ export class BackendRegistry {
   }
 
   private async dropBackend(entry: HostEntry): Promise<void> {
+    entry.hookFeed?.pause();
     await this.disposeProvider(entry);
     try {
       await entry.backend.disconnect();
@@ -483,6 +537,7 @@ export class BackendRegistry {
       status: "connected",
       ...(entry.state.warnings ? { warnings: entry.state.warnings } : {}),
     });
+    entry.hookFeed?.catchUp();
   }
 
   private handleHostEvent(entry: HostEntry, event: HostConnectionEvent): void {
@@ -494,6 +549,7 @@ export class BackendRegistry {
       // its warnings — carry them across the blip (connected → reconnecting →
       // connected), as `connect()` does across "connecting".
       case "hostDisconnected":
+        entry.hookFeed?.pause();
         this.setState(entry, {
           status: "reconnecting",
           retryInMs: event.retryInMs,
@@ -505,6 +561,7 @@ export class BackendRegistry {
           status: "connected",
           ...(entry.state.warnings ? { warnings: entry.state.warnings } : {}),
         });
+        entry.hookFeed?.catchUp();
         break;
       case "hostFailed": {
         const failure: HostFailure = {
@@ -512,6 +569,7 @@ export class BackendRegistry {
           message: event.message,
           ...(event.code !== undefined ? { code: event.code } : {}),
         };
+        entry.hookFeed?.pause();
         this.setState(entry, { status: "error", error: event.message, failure });
         break;
       }

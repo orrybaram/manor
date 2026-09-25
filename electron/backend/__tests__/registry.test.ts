@@ -624,3 +624,65 @@ describe("RoutedBackend", () => {
     expect(local.raw.shell.which).toHaveBeenCalledWith("git");
   });
 });
+
+describe("BackendRegistry — remote agent hooks (ADR-178 §2)", () => {
+  function hookSetup() {
+    const local = fakeBackend("local");
+    const remote = fakeBackend("box");
+    const replayHooks = vi.fn(async (_sinceSeq: number) => ({
+      entries: [{ seq: 1, receivedAt: 0, payload: { tag: "1" } }],
+      lastSeq: 1,
+    }));
+    (remote.raw.pty as Record<string, unknown>).replayHooks = replayHooks;
+    const seqs = new Map<string, number>([["box", 0]]);
+    const registry = new BackendRegistry({
+      local: local.backend,
+      createProvider: () => fakeProvider() as unknown as HostProvider,
+      createRemote: () => remote.backend,
+      hookSeqStore: {
+        get: (hostId) => seqs.get(hostId) ?? 0,
+        set: (hostId, seq) => void seqs.set(hostId, seq),
+      },
+    });
+    const ingested: Array<{ hostId: string; tag: string; replay: boolean }> = [];
+    registry.setHookSink({
+      ingest: (payload, ctx) => ingested.push({ hostId: ctx.hostId, tag: payload.tag, replay: ctx.replay }),
+    });
+    registry.register("box", box);
+    return { registry, remote, replayHooks, seqs, ingested };
+  }
+
+  it("replays the journal on connect, then feeds live hookEvents without re-publishing them", async () => {
+    const { registry, remote, replayHooks, seqs, ingested } = hookSetup();
+    const listener = vi.fn();
+    registry.onEvent(listener);
+
+    await registry.ensureConnected("box");
+    await vi.waitFor(() => expect(ingested).toHaveLength(1));
+    expect(replayHooks).toHaveBeenCalledWith(0);
+    expect(ingested[0]).toEqual({ hostId: "box", tag: "1", replay: true });
+
+    remote.stream({ type: "hookEvent", seq: 2, payload: { tag: "2" } });
+    expect(ingested[1]).toEqual({ hostId: "box", tag: "2", replay: false });
+    expect(seqs.get("box")).toBe(2);
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("holds hooks while reconnecting and catches up once the host is back", async () => {
+    const { registry, remote, replayHooks, ingested } = hookSetup();
+    await registry.ensureConnected("box");
+    await vi.waitFor(() => expect(ingested).toHaveLength(1));
+
+    remote.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
+    remote.stream({ type: "hookEvent", seq: 3, payload: { tag: "3" } });
+    expect(ingested).toHaveLength(1);
+
+    replayHooks.mockResolvedValueOnce({
+      entries: [2, 3].map((seq) => ({ seq, receivedAt: 0, payload: { tag: String(seq) } })),
+      lastSeq: 3,
+    });
+    remote.hostEvent({ type: "hostReconnected", sessionIds: [] });
+    await vi.waitFor(() => expect(ingested.map((i) => i.tag)).toEqual(["1", "2", "3"]));
+    expect(replayHooks).toHaveBeenLastCalledWith(1);
+  });
+});

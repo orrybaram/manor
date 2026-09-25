@@ -15,6 +15,7 @@ import type {
   StreamEvent,
   AgentStatus,
   AgentKind,
+  HookJournalEntry,
 } from "../terminal-host/types";
 
 // ── Pty Backend ──
@@ -54,6 +55,15 @@ export interface PtyBackend {
     status: AgentStatus,
     kind: AgentKind,
   ): void;
+  /**
+   * The host daemon's hook journal after `sinceSeq` (ADR-178 §2); `null`
+   * when the daemon has no journal (it predates the request). Optional: only
+   * a remote host's hooks are journaled, and the registry calls this only
+   * for remote hosts.
+   */
+  replayHooks?(
+    sinceSeq: number,
+  ): Promise<{ entries: HookJournalEntry[]; lastSeq: number } | null>;
 }
 
 // ── Git Backend ──

@@ -129,7 +129,29 @@ export type ControlRequest =
    * daemon that predates it answers `error: unknown request type: bootstrap`,
    * which callers tolerate.
    */
-  | { type: "bootstrap" };
+  | { type: "bootstrap" }
+  /**
+   * Hook journal entries after `sinceSeq` (ADR-178 §2). Answered with
+   * `hookReplay`. A daemon that predates it answers `error: unknown request
+   * type: replayHooks`, which callers treat as "no journal".
+   */
+  | { type: "replayHooks"; sinceSeq: number };
+
+/**
+ * One agent-hook request as the hook script sent it: the query parameters of
+ * `GET /hook/event` (paneId, eventType, kind, sessionId, ...). Kept in wire
+ * form so the daemon journals exactly what Electron main would have parsed.
+ */
+export type HookPayload = Record<string, string>;
+
+/** One entry of a remote daemon's hook journal (ADR-178 §2). */
+export interface HookJournalEntry {
+  /** Monotonic across daemon restarts; consecutive, starting at 1. */
+  seq: number;
+  /** Wall-clock ms when the daemon received the hook. */
+  receivedAt: number;
+  payload: HookPayload;
+}
 
 export type ControlResponse =
   | { type: "authOk"; version?: string }
@@ -173,7 +195,23 @@ export type ControlResponse =
    * rather than risk clobbering a config the daemon couldn't safely parse
    * (e.g. unreadable or malformed JSON) — absent or empty means no issues.
    */
-  | { type: "bootstrapped"; agents: string[]; warnings?: string[] };
+  | {
+      type: "bootstrapped";
+      agents: string[];
+      warnings?: string[];
+      /**
+       * Port of the daemon's own hook listener, which `bootstrap` turns on
+       * (ADR-178 §2). Absent when it could not be started, or from daemons
+       * that predate it.
+       */
+      hookPort?: number;
+    }
+  /**
+   * Journal entries with `seq > sinceSeq`, oldest first, and the journal's
+   * highest seq. `lastSeq` may exceed the last entry's seq (and entries may
+   * start after `sinceSeq + 1`) when compaction dropped what was asked for.
+   */
+  | { type: "hookReplay"; entries: HookJournalEntry[]; lastSeq: number };
 
 // ── Agent status types ──
 
@@ -210,7 +248,12 @@ export type StreamEvent =
    */
   | { type: "resized"; sessionId: string; cols: number; rows: number }
   | { type: "execStdout" | "execStderr"; execId: string; data: string }
-  | { type: "execExit"; execId: string; exitCode: number | null };
+  | { type: "execExit"; execId: string; exitCode: number | null }
+  /**
+   * An agent hook the daemon's listener received and journaled (ADR-178 §2).
+   * Sent to every authenticated stream socket, subscribed or not.
+   */
+  | { type: "hookEvent"; seq: number; payload: HookPayload };
 
 // ── Stream socket commands (client → daemon, fire-and-forget) ──
 

@@ -16,6 +16,7 @@ import type {
   TerminalSnapshot,
   AgentStatus,
   AgentKind,
+  HookJournalEntry,
 } from "./types";
 import { TERMINAL_HOST_PROTOCOL } from "./types";
 import type { HostTransport } from "./transport";
@@ -143,6 +144,18 @@ interface ExecStreamEntry {
   finish: (result: { exitCode: number | null; error?: string }) => void;
 }
 
+export interface TerminalHostClientOptions {
+  /**
+   * Push this process's `MANOR_HOOK_PORT`, `MANOR_WEBVIEW_PORT` and
+   * `MANOR_PORTLESS_PORT` to the daemon on every connect (default true).
+   * Those are ports on *this* machine; a remote daemon must not get them —
+   * its PTYs use the daemon's own hook listener (ADR-178 §2) — so
+   * `RemoteBackend` passes false. Explicit `updateEnv` values are still
+   * re-sent either way.
+   */
+  pushLocalEnv?: boolean;
+}
+
 export class TerminalHostClient {
   private controlSocket: Duplex | null = null;
   private streamSocket: Duplex | null = null;
@@ -218,9 +231,17 @@ export class TerminalHostClient {
     return this.transport.handshakeTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   }
 
-  constructor(version?: string, transport: HostTransport = new LocalTransport()) {
+  /** See `TerminalHostClientOptions.pushLocalEnv`. */
+  private readonly pushLocalEnv: boolean;
+
+  constructor(
+    version?: string,
+    transport: HostTransport = new LocalTransport(),
+    opts: TerminalHostClientOptions = {},
+  ) {
     this.clientVersion = version;
     this.transport = transport;
+    this.pushLocalEnv = opts.pushLocalEnv ?? true;
   }
 
   setVersion(version: string): void {
@@ -565,7 +586,7 @@ export class TerminalHostClient {
       "MANOR_PORTLESS_PORT",
     ];
     const inherited: Record<string, string> = {};
-    for (const key of envKeys) {
+    for (const key of this.pushLocalEnv ? envKeys : []) {
       if (process.env[key]) {
         inherited[key] = process.env[key]!;
       }
@@ -920,6 +941,25 @@ export class TerminalHostClient {
       throw new Error(`bootstrap failed: ${resp.message}`);
     }
     throw new Error(`bootstrap failed: unexpected response type: ${resp.type}`);
+  }
+
+  /**
+   * Hook journal entries after `sinceSeq` from the daemon (ADR-178 §2), or
+   * `null` when the daemon predates `replayHooks` and has no journal.
+   */
+  async replayHooks(
+    sinceSeq: number,
+  ): Promise<{ entries: HookJournalEntry[]; lastSeq: number } | null> {
+    await this.ensureConnected();
+    const resp = await this.request({ type: "replayHooks", sinceSeq });
+    if (resp.type === "hookReplay") {
+      return { entries: resp.entries, lastSeq: resp.lastSeq };
+    }
+    if (resp.type === "error") {
+      if (resp.message.startsWith("unknown request type")) return null;
+      throw new Error(`replayHooks failed: ${resp.message}`);
+    }
+    throw new Error(`replayHooks failed: unexpected response type: ${resp.type}`);
   }
 
   /**

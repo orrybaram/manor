@@ -8,6 +8,7 @@ import type {
   TerminalSnapshot,
   AgentStatus,
   AgentKind,
+  HookJournalEntry,
 } from "../terminal-host/types";
 
 export class LocalPtyBackend implements PtyBackend {
@@ -74,6 +75,13 @@ export class LocalPtyBackend implements PtyBackend {
     kind: AgentKind,
   ): void {
     this.client.relayAgentHook(sessionId, status, kind);
+  }
+
+  /** The daemon's hook journal after `sinceSeq` (see `PtyBackend.replayHooks`). */
+  async replayHooks(
+    sinceSeq: number,
+  ): Promise<{ entries: HookJournalEntry[]; lastSeq: number } | null> {
+    return this.client.replayHooks(sinceSeq);
   }
 
   /** Ensure the underlying client is connected to the daemon. */

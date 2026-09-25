@@ -25,12 +25,17 @@ import {
   daemonSocketFile,
   daemonTokenFile,
   daemonPidFile,
+  daemonRemoteModeFile,
+  hookJournalFile,
+  hookPortFile,
 } from "../paths";
 import { runRemoteBridgeProcess } from "./bridge";
 import { LocalTransport } from "./transport-local";
 import { ExecRunner, runExec } from "./exec-runner";
 import { createSerializedHandler } from "./control-queue";
 import { bootstrapHost } from "./bootstrap-host";
+import { HookJournal } from "./hook-journal";
+import { HookListener } from "./hook-listener";
 
 const DAEMON_DIR = daemonDir();
 const SOCKET_PATH = daemonSocketFile();
@@ -65,6 +70,61 @@ function getExecRunner(socket: net.Socket): ExecRunner {
 // Per-control-socket aborters for in-flight `exec` requests, so a socket that
 // closes mid-exec kills the command it started instead of leaving it running.
 const inFlightExecs = new Map<net.Socket, Set<AbortController>>();
+
+/**
+ * Every authenticated stream socket, subscribed to a session or not —
+ * `hookEvent`s go to all of them (ADR-178 §2).
+ */
+const hookStreamSockets = new Set<net.Socket>();
+
+let hookJournal: HookJournal | null = null;
+let hookListener: HookListener | null = null;
+
+/** The hook journal, opened (and recovered) on first use. */
+function getHookJournal(): HookJournal {
+  if (!hookJournal) {
+    const journal = new HookJournal(hookJournalFile(), { log });
+    journal.open();
+    hookJournal = journal;
+  }
+  return hookJournal;
+}
+
+/**
+ * Remote mode (ADR-178 §2): this daemon serves clients on another machine,
+ * so it owns the host's agent hooks — a loopback listener whose port is
+ * this host's `hook-port` and the `MANOR_HOOK_PORT` of every PTY spawned
+ * from here on, journaling what it receives for replay.
+ *
+ * Turned on by the `bootstrap` request (only `RemoteBackend` sends it) and
+ * remembered in `daemonRemoteModeFile()`, so a daemon restarted on the box
+ * (after a crash or a reboot) turns it back on at startup, before any
+ * client reconnects. A local daemon never sees `bootstrap` and never listens.
+ */
+async function enableRemoteMode(): Promise<number> {
+  const flagFile = daemonRemoteModeFile();
+  if (!fs.existsSync(flagFile)) {
+    fs.writeFileSync(flagFile, `${new Date().toISOString()}\n`, { mode: 0o600 });
+  }
+  if (!hookListener) {
+    hookListener = new HookListener({
+      journal: getHookJournal(),
+      portFile: hookPortFile(),
+      log,
+      onEntry: (entry) => {
+        const event: StreamEvent = {
+          type: "hookEvent",
+          seq: entry.seq,
+          payload: entry.payload,
+        };
+        for (const socket of hookStreamSockets) sendStreamEvent(socket, event);
+      },
+    });
+  }
+  const port = await hookListener.start();
+  log(`hook listener on 127.0.0.1:${port} (journal seq ${getHookJournal().lastSeq})`);
+  return port;
+}
 
 /** `readFile` refuses files larger than this rather than buffering them. */
 const MAX_READ_FILE_BYTES = 10 * 1024 * 1024;
@@ -250,6 +310,9 @@ async function handleControlMessage(
       // This is needed when the Electron app restarts (new hook port, etc.)
       // but reconnects to an existing daemon.
       for (const [key, value] of Object.entries(request.env)) {
+        // In remote mode the hook port is this daemon's own listener; a
+        // client's value names a port on *its* machine (ADR-178 §2).
+        if (key === "MANOR_HOOK_PORT" && hookListener) continue;
         process.env[key] = value;
       }
       sendResponse(socket, { type: "envUpdated" }, requestId);
@@ -321,12 +384,24 @@ async function handleControlMessage(
       try {
         const { agents, warnings } = bootstrapHost({ mcpServerScriptPath: null });
         log(`bootstrap: registered agents ${agents.join(", ")}`);
+        let hookPort: number | undefined;
+        try {
+          hookPort = await enableRemoteMode();
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          warnings.push(`agent hook listener could not start: ${message}`);
+        }
         if (warnings.length > 0) {
           for (const warning of warnings) log(`bootstrap warning: ${warning}`);
         }
         sendResponse(
           socket,
-          { type: "bootstrapped", agents, ...(warnings.length > 0 ? { warnings } : {}) },
+          {
+            type: "bootstrapped",
+            agents,
+            ...(warnings.length > 0 ? { warnings } : {}),
+            ...(hookPort !== undefined ? { hookPort } : {}),
+          },
           requestId,
         );
       } catch (err) {
@@ -338,6 +413,20 @@ async function handleControlMessage(
           requestId,
         );
       }
+      break;
+    }
+
+    case "replayHooks": {
+      const journal = getHookJournal();
+      sendResponse(
+        socket,
+        {
+          type: "hookReplay",
+          entries: journal.since(Number(request.sinceSeq) || 0),
+          lastSeq: journal.lastSeq,
+        },
+        requestId,
+      );
       break;
     }
 
@@ -518,6 +607,7 @@ function startServer(): void {
             const expected = readToken();
             if (msg.token === expected) {
               authenticatedSockets.add(socket);
+              hookStreamSockets.add(socket);
             }
           }
         } else {
@@ -540,6 +630,7 @@ function startServer(): void {
       log("Client disconnected");
       host.detachAllFromSocket(socket);
       streamSockets.delete(socket);
+      hookStreamSockets.delete(socket);
       // Kill any live execStream children so a dropped connection (e.g. a
       // dropped ssh session) cannot leak processes.
       execRunners.get(socket)?.disposeAll();
@@ -563,12 +654,20 @@ function startServer(): void {
       // ignore
     }
   });
+
+  if (fs.existsSync(daemonRemoteModeFile())) {
+    enableRemoteMode().catch((err: unknown) => {
+      log(`hook listener failed to start: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }
 }
 
 // ── Graceful shutdown ──
 
 function shutdown(): void {
   log("Shutting down...");
+  hookListener?.stop();
+  hookJournal?.compact();
   host.disposeAll();
   server?.close();
   try {

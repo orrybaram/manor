@@ -1341,6 +1341,24 @@ describe("ProjectManager hosts (ADR-160)", () => {
     expect(() => mgr.saveHost("local", { kind: "ssh", target: "x" })).toThrow();
   });
 
+  it("records each host's last hook seq, debounced, and flushes it on demand", () => {
+    const mgr = new ProjectManager(gitNamed("local"), tmpDir);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    expect(mgr.getHostHookSeq("box")).toBe(0);
+    mgr.setHostHookSeq("box", 7);
+    expect(mgr.getHostHookSeq("box")).toBe(7);
+    // Unknown hosts are ignored rather than created.
+    mgr.setHostHookSeq("ghost", 3);
+    expect(mgr.getHostHookSeq("ghost")).toBe(0);
+
+    const read = () =>
+      JSON.parse(fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8")).hosts.box;
+    expect(read().lastHookSeq).toBeUndefined();
+    mgr.flushHostHookSeqs();
+    expect(read()).toEqual({ spec: { kind: "ssh", target: "me@box" }, lastHookSeq: 7 });
+    expect(new ProjectManager(gitNamed("local"), tmpDir).getHostHookSeq("box")).toBe(7);
+  });
+
   it("does not route a local project's worktrees to a same-named remote project", () => {
     const project = (id: string, extra: Record<string, unknown>) => ({
       id,

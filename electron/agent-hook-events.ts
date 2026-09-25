@@ -146,3 +146,58 @@ export function parseAgentHookEvent(
       };
   }
 }
+
+/** The one path the hook script requests (see electron/scripts/agent-hook.js). */
+export const HOOK_EVENT_PATH = "/hook/event";
+
+/**
+ * The query parameters of a hook request, or null when the request is not
+ * for `HOOK_EVENT_PATH` (the listener answers 404).
+ */
+export function hookRequestParams(rawUrl: string | undefined): URLSearchParams | null {
+  if (!rawUrl) return null;
+  let url: URL;
+  try {
+    url = new URL(rawUrl, "http://127.0.0.1");
+  } catch {
+    return null;
+  }
+  return url.pathname === HOOK_EVENT_PATH ? url.searchParams : null;
+}
+
+/**
+ * What a hook HTTP listener should do with a request. Shared by the local
+ * `AgentHookServer` and the remote daemon's hook listener (ADR-178 §2), so
+ * both accept exactly the same requests:
+ *
+ * - `status: 404` — no URL, or not `/hook/event`.
+ * - `status: 400` — a protocol error (`parseAgentHookEvent` rejected it).
+ * - `status: 200` with no `payload` — well-formed but not relayed (e.g. a
+ *   non-permission Notification); answer `ok` and drop it.
+ * - `status: 200` with `payload` — relay it. `payload` is the request's
+ *   query parameters, the form a remote daemon journals.
+ */
+export type HookRequestVerdict =
+  | { status: 404 }
+  | { status: 400; reason: string }
+  | { status: 200; reason: string; payload?: undefined }
+  | { status: 200; payload: Record<string, string>; event: AgentHookEvent };
+
+export function classifyHookRequest(
+  rawUrl: string | undefined,
+  knownKinds?: ReadonlySet<string>,
+): HookRequestVerdict {
+  const params = hookRequestParams(rawUrl);
+  if (!params) return { status: 404 };
+  const result = parseAgentHookEvent(params, knownKinds);
+  if (!result.ok) {
+    return result.action === "reject"
+      ? { status: 400, reason: result.reason }
+      : { status: 200, reason: result.reason };
+  }
+  return {
+    status: 200,
+    payload: Object.fromEntries(params),
+    event: result.event,
+  };
+}

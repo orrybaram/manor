@@ -99,7 +99,12 @@ export class RemoteBackend implements WorkspaceBackend {
     this.onBootstrapWarning = opts.onBootstrapWarning;
     const transport = (this.transport = opts.transport);
 
-    this.client = new TerminalHostClient(opts.version, transport);
+    // The laptop's MANOR_* ports mean nothing on the box, and a pushed
+    // MANOR_HOOK_PORT would point remote agents away from the daemon's own
+    // hook listener (ADR-178 §2).
+    this.client = new TerminalHostClient(opts.version, transport, {
+      pushLocalEnv: false,
+    });
     this.client.setReconnectPolicy(this.reconnectDelayMs, {
       // Retrying bad credentials or a host without Node every 30s forever
       // only re-runs the bootstrap; stop and tell the user instead.

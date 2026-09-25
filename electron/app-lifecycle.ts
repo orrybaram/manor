@@ -13,6 +13,7 @@ import { GitHubManager } from "./github";
 import { LinearManager } from "./linear";
 import { homeWorkspaceDir } from "./paths";
 import { AgentHookServer } from "./agent-hooks";
+import { NotificationCoalescer } from "./backend/hook-feed";
 import { bootstrapHost } from "./terminal-host/bootstrap-host";
 import { createHookRelay, SWEEP_INTERVAL_MS } from "./hook-relay";
 import { ensureManorCli } from "./manor-cli-install";
@@ -236,6 +237,12 @@ export function initApp(devTitle: string | null): void {
   const backendRegistry = new BackendRegistry({
     local: new LocalBackend(client),
     version: app.getVersion(),
+    // Where each remote host's hook journal was read up to (ADR-178 §2).
+    // Only read once hosts are registered, after projectManager exists.
+    hookSeqStore: {
+      get: (hostId): number => projectManager.getHostHookSeq(hostId),
+      set: (hostId, seq): void => projectManager.setHostHookSeq(hostId, seq),
+    },
   });
   const layoutPersistence = new LayoutPersistence();
   const projectManager = new ProjectManager(
@@ -262,6 +269,18 @@ export function initApp(devTitle: string | null): void {
 
   const prewarmManager = new PrewarmManager(client, process.env.HOME || "/");
   const agentHookServer = new AgentHookServer();
+  // Remote hosts' hooks take the same path as local ones (ADR-178 §2).
+  // Replayed hooks hold their notifications until the catch-up finishes, so
+  // a night's worth of hooks is one banner per agent, not hundreds.
+  const notificationCoalescer = new NotificationCoalescer(maybeSendNotification);
+  backendRegistry.setHookSink({
+    ingest: (payload, { hostId, replay }) => {
+      const ingest = () => agentHookServer.ingestHookPayload(payload, { hostId });
+      if (replay) notificationCoalescer.hold(hostId, ingest);
+      else ingest();
+    },
+    replayFinished: (hostId) => notificationCoalescer.flush(hostId),
+  });
   // PreferencesManager must be constructed before AgentManager so we can pass
   // the user's configured retention into the prune step.
   const preferencesManager = new PreferencesManager();
@@ -595,7 +614,7 @@ export function initApp(devTitle: string | null): void {
       unseenRespondedAgents,
       unseenInputAgents,
       broadcastAgent,
-      maybeSendNotification,
+      maybeSendNotification: notificationCoalescer.send,
       onHookEvent: (event, effects, ctx) =>
         statsStore.observeHookEvent(
           event,
@@ -651,5 +670,6 @@ export function initApp(devTitle: string | null): void {
     void backendRegistry.disconnectAll();
     killAllActivePushes();
     statsStore.flushNow();
+    projectManager.flushHostHookSeqs();
   });
 }

@@ -694,3 +694,49 @@ describe("ensureHookScript", () => {
     expect(content).toContain("hook_event_name");
   });
 });
+
+describe("AgentHookServer.ingestHookPayload (ADR-178 §2)", () => {
+  it("relays a remote host's payload exactly as the HTTP path would", () => {
+    vi.spyOn(console, "debug").mockImplementation(() => {});
+    const server = new AgentHookServer();
+    const relay = vi.fn();
+    server.setRelay(relay);
+    const outcome = server.ingestHookPayload(
+      { paneId: "p1", eventType: "Stop", kind: "claude", sessionId: "s1" },
+      { hostId: "box" },
+    );
+    expect(outcome).toBe("relayed");
+    const parsed = parseAgentHookEvent(
+      new URLSearchParams({ paneId: "p1", eventType: "Stop", kind: "claude", sessionId: "s1" }),
+    );
+    expect(parsed.ok).toBe(true);
+    expect(relay).toHaveBeenCalledWith(parsed.ok ? parsed.event : null);
+  });
+
+  it("reports dropped and rejected payloads without relaying them", () => {
+    vi.spyOn(console, "debug").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const server = new AgentHookServer();
+    const relay = vi.fn();
+    server.setRelay(relay);
+    expect(
+      server.ingestHookPayload(
+        { paneId: "p1", eventType: "Notification", kind: "claude", notificationKind: "idle_prompt" },
+        { hostId: "box" },
+      ),
+    ).toBe("dropped");
+    expect(server.ingestHookPayload({ eventType: "Stop", kind: "claude" }, { hostId: "box" })).toBe(
+      "rejected",
+    );
+    expect(relay).not.toHaveBeenCalled();
+  });
+
+  it("queues a remote payload until the relay is set", () => {
+    vi.spyOn(console, "debug").mockImplementation(() => {});
+    const server = new AgentHookServer();
+    server.ingestHookPayload({ paneId: "p1", eventType: "Stop", kind: "claude" }, { hostId: "box" });
+    const relay = vi.fn();
+    server.setRelay(relay);
+    expect(relay).toHaveBeenCalledTimes(1);
+  });
+});

@@ -110,6 +110,20 @@ export function daemonTokenFile(): string {
   return path.join(daemonDir(), "terminal-host.token");
 }
 
+/**
+ * Present when this daemon serves remote clients (ADR-178 §2): written by the
+ * daemon's `bootstrap` request, read at daemon start so a daemon restarted on
+ * the box re-enables its hook listener without waiting for a client.
+ */
+export function daemonRemoteModeFile(): string {
+  return path.join(daemonDir(), "remote-mode");
+}
+
+/** The remote daemon's hook journal (ADR-178 §2). NDJSON, mode 0600. */
+export function hookJournalFile(): string {
+  return path.join(daemonDir(), "hook-journal.ndjson");
+}
+
 export function hookPortFile(): string {
   return path.join(manorHomeDir(), "hook-port");
 }

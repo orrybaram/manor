@@ -185,6 +185,13 @@ interface PersistedProject {
  */
 interface PersistedHost {
   spec: HostSpec;
+  /**
+   * The last seq of this host's hook journal Electron main has ingested
+   * (ADR-178 §2). Absent until the first hook arrives. Kept when the spec
+   * changes (a new address is usually the same box); if it is a different
+   * box, its journal will be behind this and the hook feed starts over.
+   */
+  lastHookSeq?: number;
 }
 
 interface PersistedState {
@@ -302,6 +309,9 @@ export function isFolderDescendant(
   return false;
 }
 
+/** How long `setHostHookSeq` batches writes. */
+const HOOK_SEQ_SAVE_DEBOUNCE_MS = 1_000;
+
 export class ProjectManager {
   private state: PersistedState;
   private dataDir: string;
@@ -320,6 +330,8 @@ export class ProjectManager {
    * before this cache existed.
    */
   private hostHomeDirs = new Map<string, string>();
+  /** Pending debounced write from `setHostHookSeq`. */
+  private hookSeqSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * `git`/`shell` are either one backend for every project (local-only
@@ -394,6 +406,38 @@ export class ProjectManager {
     // `hostIdForPath` re-resolves it instead of routing against the old
     // value.
     this.hostHomeDirs.delete(hostId);
+    this.saveState();
+  }
+
+  /** The last hook-journal seq ingested from `hostId` (0 if none). */
+  getHostHookSeq(hostId: string): number {
+    return this.state.hosts?.[hostId]?.lastHookSeq ?? 0;
+  }
+
+  /**
+   * Record the last hook-journal seq ingested from `hostId`. Hooks arrive in
+   * bursts (a replay can be thousands), so the write is debounced; call
+   * `flushHostHookSeqs` on quit. A seq lost to a crash means the last
+   * second's hooks are replayed once more on the next launch — into a fresh
+   * relay, with notifications coalesced.
+   */
+  setHostHookSeq(hostId: string, seq: number): void {
+    const host = this.state.hosts?.[hostId];
+    if (!host || host.lastHookSeq === seq) return;
+    host.lastHookSeq = seq;
+    if (this.hookSeqSaveTimer) return;
+    this.hookSeqSaveTimer = setTimeout(() => {
+      this.hookSeqSaveTimer = null;
+      this.saveState();
+    }, HOOK_SEQ_SAVE_DEBOUNCE_MS);
+    this.hookSeqSaveTimer.unref?.();
+  }
+
+  /** Write a pending `setHostHookSeq` now. */
+  flushHostHookSeqs(): void {
+    if (!this.hookSeqSaveTimer) return;
+    clearTimeout(this.hookSeqSaveTimer);
+    this.hookSeqSaveTimer = null;
     this.saveState();
   }
 

@@ -7,6 +7,10 @@
  * 2. Starts an HTTP server on a random port
  * 3. PTY sessions get MANOR_HOOK_PORT env var so hooks can call back
  * 4. Hook script (curl) → HTTP server → IPC to renderer
+ *
+ * Remote hosts (ADR-178 §2) never reach this server: their daemon journals
+ * hooks itself, and the host's hook feed hands each one to
+ * `ingestHookPayload`, the same path the HTTP handler takes.
  */
 
 import * as http from "node:http";
@@ -16,8 +20,11 @@ import * as path from "node:path";
 import { hookPortFile } from "./paths";
 import {
   type AgentHookEvent,
+  hookRequestParams,
   parseAgentHookEvent,
 } from "./agent-hook-events";
+import type { HookPayload } from "./terminal-host/types";
+import { LOCAL_HOST_ID } from "./backend/types";
 
 /**
  * Atomically write the port number to the hook port file.
@@ -29,6 +36,10 @@ function writePortFileAtomic(port: number): void {
   const tmp = `${HOOK_PORT_FILE}.tmp`;
   fs.writeFileSync(tmp, String(port));
   fs.renameSync(tmp, HOOK_PORT_FILE);
+}
+
+function fromHost(ctx: { hostId: string }): string {
+  return ctx.hostId === LOCAL_HOST_ID ? "" : ` from ${ctx.hostId}`;
 }
 
 export type RelayFn = (event: AgentHookEvent) => void;
@@ -58,53 +69,61 @@ export class AgentHookServer {
     }
   }
 
+  /**
+   * Feed one hook into the relay — the single entry point for hooks from
+   * every host (ADR-178 §2). The local HTTP server calls it for each request;
+   * a remote host's hook feed calls it for each journaled entry, replayed or
+   * live. `payload` is the hook request's query parameters.
+   *
+   * Returns what became of it: `relayed` (or queued until `setRelay`),
+   * `dropped` (well-formed but not relayed), or `rejected` (malformed).
+   */
+  ingestHookPayload(
+    payload: URLSearchParams | HookPayload,
+    ctx: { hostId: string },
+  ): "relayed" | "dropped" | "rejected" {
+    const params =
+      payload instanceof URLSearchParams ? payload : new URLSearchParams(payload);
+    const result = parseAgentHookEvent(params);
+    if (!result.ok) {
+      if (result.action === "reject") {
+        console.warn(`[agent-hooks] rejecting hook${fromHost(ctx)}: ${result.reason}`);
+        return "rejected";
+      }
+      console.debug(`[agent-hooks] dropping hook${fromHost(ctx)}: ${result.reason}`);
+      return "dropped";
+    }
+    const event = result.event;
+    console.debug(
+      `[agent-status] hook ${ctx.hostId === LOCAL_HOST_ID ? "HTTP" : `from ${ctx.hostId}`}: paneId=${event.paneId} event=${event.type} kind=${event.agentKind} sessionId=${event.sessionId} → status=${event.status}`,
+    );
+
+    if (this.relayFn) {
+      this.relayFn(event);
+    } else if (this.pending.length < AgentHookServer.MAX_PENDING) {
+      this.pending.push(event);
+    } else {
+      console.warn(
+        `[agent-hooks] dropping hook event (queue full): paneId=${event.paneId} event=${event.type}`,
+      );
+    }
+    return "relayed";
+  }
+
   /** Start the HTTP server on a random port */
   async start(): Promise<void> {
     this.server = http.createServer((req, res) => {
-      if (!req.url) {
+      const params = hookRequestParams(req.url);
+      if (!params) {
         res.writeHead(404);
         res.end();
         return;
       }
-
-      const url = new URL(req.url, `http://127.0.0.1`);
-
-      if (url.pathname !== "/hook/event") {
-        res.writeHead(404);
+      if (this.ingestHookPayload(params, { hostId: LOCAL_HOST_ID }) === "rejected") {
+        res.writeHead(400);
         res.end();
         return;
       }
-
-      const result = parseAgentHookEvent(url.searchParams);
-
-      if (!result.ok) {
-        if (result.action === "reject") {
-          console.warn(`[agent-hooks] rejecting hook: ${result.reason}`);
-          res.writeHead(400);
-          res.end();
-        } else {
-          console.debug(`[agent-hooks] dropping hook: ${result.reason}`);
-          res.writeHead(200);
-          res.end("ok");
-        }
-        return;
-      }
-
-      const event = result.event;
-      console.debug(
-        `[agent-status] hook HTTP: paneId=${event.paneId} event=${event.type} kind=${event.agentKind} sessionId=${event.sessionId} → status=${event.status}`,
-      );
-
-      if (this.relayFn) {
-        this.relayFn(event);
-      } else if (this.pending.length < AgentHookServer.MAX_PENDING) {
-        this.pending.push(event);
-      } else {
-        console.warn(
-          `[agent-hooks] dropping hook event (queue full): paneId=${event.paneId} event=${event.type}`,
-        );
-      }
-
       res.writeHead(200);
       res.end("ok");
     });

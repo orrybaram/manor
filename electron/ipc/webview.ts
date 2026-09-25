@@ -16,7 +16,7 @@ import type { GitHubManager } from "../github";
 import type { LinearManager } from "../linear";
 import type { LayoutPersistence } from "../terminal-host/layout-persistence";
 import type { AgentManager } from "../agent-persistence";
-import type { LocalBackend } from "../backend/local-backend";
+import type { WorkspaceBackend } from "../backend/types";
 import type { IpcDeps } from "./types";
 import { resolveBindings } from "../../src/lib/keybinding-defs";
 import { createPageKeyHandler } from "./webview-keys";
@@ -74,7 +74,7 @@ export function createWebviewServer(
   linearManager?: LinearManager,
   layoutPersistence?: LayoutPersistence,
   agentManager?: AgentManager,
-  backend?: LocalBackend,
+  backend?: WorkspaceBackend,
 ): WebviewServer {
   return new WebviewServer(
     webviewRegistry,

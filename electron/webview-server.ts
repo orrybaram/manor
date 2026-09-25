@@ -26,7 +26,7 @@ import type { GitHubManager } from "./github";
 import type { LinearManager } from "./linear";
 import type { LayoutPersistence } from "./terminal-host/layout-persistence";
 import type { AgentManager } from "./agent-persistence";
-import type { LocalBackend } from "./backend/local-backend";
+import type { WorkspaceBackend } from "./backend/types";
 import type { ControlDeps } from "./routes/types";
 
 interface ConsoleEntry {
@@ -79,7 +79,7 @@ export class WebviewServer {
   private linearManager: LinearManager | null;
   private layoutPersistence: LayoutPersistence | null;
   private agentManager: AgentManager | null;
-  private backend: LocalBackend | null;
+  private backend: WorkspaceBackend | null;
   private consoleLogs: Map<string, ConsoleEntry[]> = new Map();
   private consoleListeners: Map<string, () => void> = new Map(); // paneId → cleanup fn
   /**
@@ -98,7 +98,7 @@ export class WebviewServer {
     linearManager?: LinearManager,
     layoutPersistence?: LayoutPersistence,
     agentManager?: AgentManager,
-    backend?: LocalBackend,
+    backend?: WorkspaceBackend,
   ) {
     this.registry = registry;
     this.projectManager = projectManager ?? null;

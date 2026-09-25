@@ -1,5 +1,5 @@
 import type { BrowserWindow } from "electron";
-import type { LocalBackend } from "../backend/local-backend";
+import type { WorkspaceBackend } from "../backend/types";
 import type { LayoutPersistence } from "../terminal-host/layout-persistence";
 import type { ProjectManager } from "../persistence";
 import type { ThemeManager } from "../theme";
@@ -38,7 +38,7 @@ export interface IpcDeps {
    * is tracked for broadcast and reachable by its windowId.
    */
   registerDetachedWindow: (windowId: string, win: BrowserWindow) => void;
-  backend: LocalBackend;
+  backend: WorkspaceBackend;
   layoutPersistence: LayoutPersistence;
   projectManager: ProjectManager;
   themeManager: ThemeManager;

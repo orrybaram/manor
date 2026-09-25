@@ -360,7 +360,13 @@ export class ProjectManager {
    * The host a filesystem path belongs to: the host of the project whose
    * root, worktree directory, or known workspace contains it most closely.
    * Paths outside every project — and every path, while no project lives on
-   * a remote host — are local.
+   * a remote host — are local. When a local and a remote root match equally
+   * closely, local wins.
+   *
+   * A remote project's worktree directory counts only when it was set
+   * explicitly: the default one is derived from this machine's worktrees
+   * directory, so a local project with the same name would share it.
+   * (ADR-178 defines host-relative worktree roots.)
    */
   hostIdForPath(p: string): string {
     const projects = this.state.projects;
@@ -370,15 +376,20 @@ export class ProjectManager {
     let bestLength = -1;
     let best = LOCAL_HOST_ID;
     for (const project of projects) {
+      const hostId = project.hostId ?? LOCAL_HOST_ID;
+      const isRemote = hostId !== LOCAL_HOST_ID;
       const roots = [
         project.path,
-        this.worktreeBaseDir(project),
+        ...(isRemote && !project.worktreePath ? [] : [this.worktreeBaseDir(project)]),
         ...(this.knownWorkspacePaths.get(project.id) ?? []),
       ];
       for (const root of roots) {
-        if (root.length > bestLength && isWithinPath(p, root)) {
+        if (!isWithinPath(p, root)) continue;
+        const closer = root.length > bestLength;
+        const tieToLocal = root.length === bestLength && !isRemote;
+        if (closer || tieToLocal) {
           bestLength = root.length;
-          best = project.hostId ?? LOCAL_HOST_ID;
+          best = hostId;
         }
       }
     }

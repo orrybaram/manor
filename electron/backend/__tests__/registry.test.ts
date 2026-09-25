@@ -231,6 +231,66 @@ describe("BackendRegistry", () => {
     expect(remote.raw.connect).not.toHaveBeenCalled();
   });
 
+  it("keeps a disconnect made while a connect is in flight that then succeeds", async () => {
+    const { registry, remotes } = setup();
+    registry.register("box", box);
+    const remote = remotes.get("box")!;
+    let finishConnect!: () => void;
+    remote.raw.connect.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (finishConnect = resolve)),
+    );
+    const connecting = registry.ensureConnected("box");
+    expect(registry.status("box")).toBe("connecting");
+
+    await registry.disconnect("box");
+    expect(registry.status("box")).toBe("disconnected");
+    finishConnect();
+    // The cancelled attempt neither resolves (its client is disposed) nor
+    // marks the host connected.
+    await expect(connecting).rejects.toBeInstanceOf(HostUnavailableError);
+    expect(registry.status("box")).toBe("disconnected");
+  });
+
+  it("keeps a disconnect made while a connect is in flight that then fails", async () => {
+    const { registry, remotes } = setup();
+    registry.register("box", box);
+    const remote = remotes.get("box")!;
+    let failConnect!: (err: Error) => void;
+    remote.raw.connect.mockImplementationOnce(
+      () => new Promise<void>((_resolve, reject) => (failConnect = reject)),
+    );
+    const connecting = registry.ensureConnected("box");
+
+    await registry.disconnect("box");
+    // Disposing the client makes the in-flight connect reject.
+    failConnect(new Error("client disposed"));
+    await expect(connecting).rejects.toBeInstanceOf(HostUnavailableError);
+    expect(registry.list()[1]).toEqual({ hostId: "box", spec: box, status: "disconnected" });
+
+    // An explicit connect afterwards still works, and the stale attempt
+    // does not interfere with it.
+    await registry.ensureConnected("box");
+    expect(registry.status("box")).toBe("connected");
+  });
+
+  it("a stale attempt does not clobber a newer connect started after a disconnect", async () => {
+    const { registry, remotes } = setup();
+    registry.register("box", box);
+    const remote = remotes.get("box")!;
+    let failFirst!: (err: Error) => void;
+    remote.raw.connect.mockImplementationOnce(
+      () => new Promise<void>((_resolve, reject) => (failFirst = reject)),
+    );
+    const first = registry.ensureConnected("box");
+    await registry.disconnect("box");
+    await registry.ensureConnected("box");
+    expect(registry.status("box")).toBe("connected");
+
+    failFirst(new Error("client disposed"));
+    await expect(first).rejects.toBeInstanceOf(HostUnavailableError);
+    expect(registry.status("box")).toBe("connected");
+  });
+
   it("waits for the connection before a pty call", async () => {
     const { registry, remotes } = setup();
     registry.register("box", box);

@@ -1,6 +1,7 @@
 import type { BrowserWindow } from "electron";
 import { LOCAL_HOST_ID, type ActivePort, type PortsBackend } from "./backend/types";
 import { groupPathsByHost, type HostForPath } from "./backend/routed-backend";
+import { HostUnavailableError } from "./backend/registry";
 
 export type { ActivePort };
 
@@ -60,6 +61,9 @@ export class PortScanner {
               }
             },
             (err: unknown) => {
+              // A remote host that is connecting, reconnecting or down keeps
+              // its last known ports, quietly, until it answers again.
+              if (err instanceof HostUnavailableError) return;
               console.error(`[PortScanner] scan on ${hostId} failed:`, err);
             },
           )
@@ -93,6 +97,9 @@ export class PortScanner {
       Array.from(groups, ([hostId, paths]) =>
         this.backend.scan(paths).catch((err: unknown) => {
           if (hostId === LOCAL_HOST_ID) throw err;
+          if (err instanceof HostUnavailableError) {
+            return this.hostPorts.get(hostId) ?? [];
+          }
           console.error(`[PortScanner] scan on ${hostId} failed:`, err);
           return [];
         }),

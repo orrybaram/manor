@@ -16,8 +16,9 @@
  *   for the connection before a pty call, and fails fast — kicking off a
  *   background connect — before a git, shell or ports call. Pollers
  *   therefore never sit on a host that is not there, and one unreachable
- *   host cannot stall the others. The local view is the `LocalBackend`
- *   itself, ungated, so a local-only setup behaves exactly as before.
+ *   host cannot stall the others. The local view is an ungated Proxy over
+ *   the `LocalBackend` that calls every method straight through, so a
+ *   local-only setup behaves exactly as before.
  * - **Stream events.** A `TerminalHostClient` takes one event handler, so
  *   the registry is the only subscriber on every backend and re-publishes
  *   each event with the hostId it came from. It also remembers which host
@@ -114,6 +115,12 @@ interface HostEntry {
   view: WorkspaceBackend;
   state: HostState;
   connecting: Promise<void> | null;
+  /**
+   * Bumped by every connect attempt and every `disconnect()`. An attempt
+   * only touches state while it still holds the current value, so a
+   * disconnect during an in-flight connect is not overwritten by it.
+   */
+  attempt: number;
   /**
    * Whether a git/shell/ports call may start a background connect. Cleared
    * by an explicit `disconnect()` so a poller does not undo it.
@@ -243,7 +250,8 @@ export class BackendRegistry {
     entry.autoConnect = true;
     if (entry.state.status === "connected") return;
     if (!entry.connecting) {
-      const attempt = this.connect(entry).finally(() => {
+      const token = ++entry.attempt;
+      const attempt = this.connect(entry, token).finally(() => {
         if (entry.connecting === attempt) entry.connecting = null;
       });
       entry.connecting = attempt;
@@ -264,6 +272,8 @@ export class BackendRegistry {
     if (!entry || hostId === LOCAL_HOST_ID) return;
     entry.autoConnect = false;
     entry.connecting = null;
+    // Invalidate any in-flight connect so it cannot land after this.
+    entry.attempt++;
     this.setState(entry, { status: "disconnected" });
     await entry.backend.disconnect();
   }
@@ -318,6 +328,7 @@ export class BackendRegistry {
       view: backend,
       state: { status: "disconnected" },
       connecting: null,
+      attempt: 0,
       autoConnect: true,
     };
     entry.view = this.makeView(entry);
@@ -342,25 +353,34 @@ export class BackendRegistry {
     }
   }
 
-  private async connect(entry: HostEntry): Promise<void> {
-    const current = () => this.hosts.get(entry.hostId) === entry;
+  private async connect(entry: HostEntry, token: number): Promise<void> {
+    const current = () =>
+      this.hosts.get(entry.hostId) === entry && entry.attempt === token;
+    // A disconnect (or replacing / removing the host) cancelled this attempt.
+    const superseded = () =>
+      new HostUnavailableError(
+        entry.hostId,
+        this.hosts.get(entry.hostId) === entry ? entry.state.status : "unknown",
+        "connect was cancelled",
+      );
     this.setState(entry, { status: "connecting" });
     try {
       await entry.backend.connect(
         this.version ? { version: this.version } : undefined,
       );
     } catch (err) {
-      if (current()) {
-        const failure = classifyHostFailure(err);
-        this.setState(entry, {
-          status: "error",
-          error: failure?.message ?? errorMessage(err),
-          ...(failure ? { failure } : {}),
-        });
-      }
+      if (!current()) throw superseded();
+      const failure = classifyHostFailure(err);
+      this.setState(entry, {
+        status: "error",
+        error: failure?.message ?? errorMessage(err),
+        ...(failure ? { failure } : {}),
+      });
       throw err;
     }
-    if (current()) this.setState(entry, { status: "connected" });
+    // Resolving now would hand a pty call a client that was disposed.
+    if (!current()) throw superseded();
+    this.setState(entry, { status: "connected" });
   }
 
   private handleHostEvent(entry: HostEntry, event: HostConnectionEvent): void {

@@ -10,6 +10,8 @@ import {
   spliceFolderOut,
 } from "./persistence";
 import type { GitBackend } from "./backend/types";
+import { worktreesDir } from "./paths";
+import { toDirSlug } from "./branch-name";
 
 vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
@@ -1337,6 +1339,48 @@ describe("ProjectManager hosts (ADR-160)", () => {
     const saved = JSON.parse(fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8"));
     expect(saved.hosts.box).toEqual({ spec: { kind: "ssh", target: "new" }, lastHookSeq: 42 });
     expect(() => mgr.saveHost("local", { kind: "ssh", target: "x" })).toThrow();
+  });
+
+  it("does not route a local project's worktrees to a same-named remote project", () => {
+    const project = (id: string, extra: Record<string, unknown>) => ({
+      id,
+      name: "App",
+      selectedWorkspaceIndex: 0,
+      workspaces: [],
+      defaultBranch: "main",
+      defaultRunCommand: null,
+      worktreePath: null,
+      ...extra,
+    });
+    fs.writeFileSync(
+      path.join(tmpDir, "projects.json"),
+      JSON.stringify({
+        // The remote project comes first, so a tie would have gone to it.
+        projects: [
+          project("r1", { path: "/home/me/app", hostId: "box" }),
+          project("l1", { path: "/Users/me/app" }),
+          project("r2", {
+            name: "Other",
+            path: "/home/me/other",
+            hostId: "box",
+            worktreePath: "/home/me/other-trees",
+          }),
+          project("r3", { name: "Shared", path: "/srv/shared", hostId: "box" }),
+          project("l3", { name: "Shared", path: "/srv/shared" }),
+        ],
+        selectedProjectIndex: 0,
+        hosts: { box: { spec: { kind: "ssh", target: "me@box" } } },
+      }),
+    );
+    const mgr = new ProjectManager((hostId) => gitNamed(hostId), tmpDir);
+
+    // The default worktree root is this machine's; it belongs to local only.
+    expect(mgr.hostIdForPath(path.join(worktreesDir(), toDirSlug("App"), "feature"))).toBe("local");
+    // An explicit worktree root on a remote project still counts.
+    expect(mgr.hostIdForPath("/home/me/other-trees/feature")).toBe("box");
+    // Equally close local and remote roots: local wins.
+    expect(mgr.hostIdForPath("/srv/shared/src")).toBe("local");
+    expect(mgr.hostIdForPath("/home/me/app/src")).toBe("box");
   });
 
   it("resolves a path to the host of the project containing it", async () => {

@@ -1,6 +1,7 @@
 import type { BrowserWindow } from "electron";
 import { LOCAL_HOST_ID, type GitBackend } from "./backend/types";
 import type { HostForPath } from "./backend/routed-backend";
+import { HostUnavailableError } from "./backend/registry";
 
 export interface DiffStats {
   added: number;
@@ -71,6 +72,9 @@ export class DiffWatcher {
           this.lastStats = stats;
         }
       } catch (err) {
+        // A remote host that is connecting, reconnecting or down keeps its
+        // last known stats, quietly, until it answers again.
+        if (err instanceof HostUnavailableError) return;
         console.error("[DiffWatcher] scan tick failed:", err);
       } finally {
         scanning.delete(hostId);
@@ -108,6 +112,10 @@ export class DiffWatcher {
     );
 
     for (const r of results) {
+      if (r.status === "rejected" && r.reason instanceof HostUnavailableError) {
+        // The whole host is unavailable: no partial result for it.
+        throw r.reason;
+      }
       if (r.status === "rejected") {
         console.error("[DiffWatcher] workspace scan rejected:", r.reason);
       } else if (r.value.stats) {
@@ -157,6 +165,7 @@ export class DiffWatcher {
 
         return { added, removed };
       } catch (err) {
+        if (err instanceof HostUnavailableError) throw err;
         const msg = err instanceof Error ? err.message : String(err);
         // Directory isn't a git repo at all — ignore it completely and stop
         // scanning it on future ticks.

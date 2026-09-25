@@ -106,6 +106,12 @@ export type ControlRequest =
   | { type: "updateEnv"; env: Record<string, string> }
   | { type: "disposeDead" }
   | { type: "handshake"; clientVersion: string }
+  /**
+   * Run a command to completion. Answered out of order relative to other
+   * requests on the socket — match the reply by `requestId`. `timeout` is in
+   * ms (default 30000; `0` means none); `maxBuffer` caps stdout and stderr
+   * each (default 10 MiB, at most 64 MiB) and truncates rather than failing.
+   */
   | {
       type: "exec";
       cmd: string;
@@ -114,6 +120,7 @@ export type ControlRequest =
       timeout?: number;
       maxBuffer?: number;
     }
+  /** Read a UTF-8 file of at most 10 MiB. Also answered out of order. */
   | { type: "readFile"; path: string };
 
 export type ControlResponse =
@@ -208,6 +215,8 @@ export type StreamCommand =
       cmd: string;
       args: string[];
       cwd?: string;
+      /** Overrides merged onto the daemon's own environment. */
+      env?: Record<string, string>;
     }
   | { type: "execCancel"; execId: string };
 

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import type { GitBackend, WorktreeInfo } from "./types";
-import { localExec, type Exec } from "./exec";
+import { localExec, type Exec, type ExecError } from "./exec";
 
 export class LocalGitBackend implements GitBackend {
   constructor(private readonly execImpl: Exec = localExec) {}
@@ -123,8 +123,8 @@ export class LocalGitBackend implements GitBackend {
       args,
       {
         cwd,
+        // Overrides only — the Exec merges them onto its own base env.
         env: {
-          ...process.env,
           GIT_TERMINAL_PROMPT: "0",
           GIT_ASKPASS: "/bin/true",
         },
@@ -140,9 +140,15 @@ export class LocalGitBackend implements GitBackend {
             callbacks.onLine(line);
           }
         },
-        onExit: ({ exitCode }) => {
+        onExit: ({ exitCode, error }) => {
           if (exited) return;
           exited = true;
+          if (error !== undefined) {
+            // The push never ran (e.g. git missing): report the reason as the
+            // whole of stderr, without flushing it as a progress line.
+            callbacks.onDone({ exitCode: null, stderr: error });
+            return;
+          }
           if (pending.length > 0) {
             callbacks.onLine(pending);
             pending = "";
@@ -328,9 +334,11 @@ export class LocalGitBackend implements GitBackend {
  * Handles lint-staged output, husky hooks, and plain git errors.
  */
 function parseCommitError(err: unknown): string {
+  // `Exec.file` rejects with an ExecError; see its doc in exec.ts.
+  const execErr = err as Partial<ExecError> | null | undefined;
   const raw =
-    (err as { stderr?: string })?.stderr ||
-    (err as { stdout?: string })?.stdout ||
+    execErr?.stderr ||
+    execErr?.stdout ||
     (err instanceof Error ? err.message : String(err));
 
   // Strip the "Command failed: git commit ..." prefix

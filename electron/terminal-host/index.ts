@@ -11,7 +11,7 @@ import "./xterm-env-polyfill";
 import * as net from "node:net";
 import * as fs from "node:fs";
 import * as crypto from "node:crypto";
-import { readFile as fsReadFile } from "node:fs/promises";
+import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import { TerminalHost } from "./terminal-host";
 import { TERMINAL_HOST_PROTOCOL } from "./types";
 import type {
@@ -29,6 +29,7 @@ import {
 import { runRemoteBridge } from "./bridge";
 import { LocalTransport } from "./transport-local";
 import { ExecRunner, runExec } from "./exec-runner";
+import { createSerializedHandler } from "./control-queue";
 
 const DAEMON_DIR = daemonDir();
 const SOCKET_PATH = daemonSocketFile();
@@ -50,11 +51,22 @@ const execRunners = new Map<net.Socket, ExecRunner>();
 function getExecRunner(socket: net.Socket): ExecRunner {
   let runner = execRunners.get(socket);
   if (!runner) {
-    runner = new ExecRunner();
-    execRunners.set(socket, runner);
+    const created = new ExecRunner();
+    // Streamed exec output is paused whenever the socket's write buffer is
+    // full (see sendStreamEvent's return value) and resumed once it drains.
+    socket.on("drain", () => created.resumeOutput());
+    execRunners.set(socket, created);
+    runner = created;
   }
   return runner;
 }
+
+// Per-control-socket aborters for in-flight `exec` requests, so a socket that
+// closes mid-exec kills the command it started instead of leaving it running.
+const inFlightExecs = new Map<net.Socket, Set<AbortController>>();
+
+/** `readFile` refuses files larger than this rather than buffering them. */
+const MAX_READ_FILE_BYTES = 10 * 1024 * 1024;
 
 function log(msg: string): void {
   const ts = new Date().toISOString();
@@ -239,13 +251,28 @@ async function handleControlMessage(
       break;
     }
 
+    // exec and readFile are dispatched outside the serial queue (see
+    // control-queue.ts) — their responses may go out after later requests'.
     case "exec": {
       log(`exec: ${request.cmd}`);
-      const result = await runExec(request.cmd, request.args, {
-        cwd: request.cwd,
-        timeout: request.timeout,
-        maxBuffer: request.maxBuffer,
-      });
+      const aborter = new AbortController();
+      let execs = inFlightExecs.get(socket);
+      if (!execs) {
+        execs = new Set();
+        inFlightExecs.set(socket, execs);
+      }
+      execs.add(aborter);
+      let result;
+      try {
+        result = await runExec(request.cmd, request.args, {
+          cwd: request.cwd,
+          timeout: request.timeout,
+          maxBuffer: request.maxBuffer,
+          signal: aborter.signal,
+        });
+      } finally {
+        execs.delete(aborter);
+      }
       sendResponse(
         socket,
         {
@@ -261,6 +288,12 @@ async function handleControlMessage(
 
     case "readFile": {
       try {
+        const { size } = await fsStat(request.path);
+        if (size > MAX_READ_FILE_BYTES) {
+          throw new Error(
+            `file is ${size} bytes, over the ${MAX_READ_FILE_BYTES}-byte limit`,
+          );
+        }
         const contents = await fsReadFile(request.path, "utf-8");
         sendResponse(socket, { type: "fileContents", contents }, requestId);
       } catch (err) {
@@ -330,7 +363,7 @@ async function handleStreamMessage(
         command.execId,
         command.cmd,
         command.args,
-        { cwd: command.cwd },
+        { cwd: command.cwd, env: command.env },
         {
           onStdout: (execId, data) =>
             sendStreamEvent(socket, { type: "execStdout", execId, data }),
@@ -348,11 +381,17 @@ async function handleStreamMessage(
   }
 }
 
-function sendStreamEvent(socket: net.Socket, event: StreamEvent): void {
+/**
+ * Write one stream event. Returns `false` when the socket's write buffer is
+ * full and the caller should hold off until `drain` (exec output uses this
+ * for backpressure; everything else ignores it).
+ */
+function sendStreamEvent(socket: net.Socket, event: StreamEvent): boolean {
   try {
-    socket.write(JSON.stringify(event) + "\n");
+    return socket.write(JSON.stringify(event) + "\n");
   } catch {
     // socket may be closed
+    return true;
   }
 }
 
@@ -385,38 +424,20 @@ function createLineParser(
   };
 }
 
-/**
- * Serialize async handler calls to maintain request/response ordering.
- * Without this, an async handler (e.g. getSnapshot awaiting flushHeadless)
- * can yield, letting a later request complete first and sending responses
- * out of order — which corrupts the client's FIFO response queue.
- */
-function createSerializedHandler(
-  socket: net.Socket,
-  handler: (request: ControlRequest & { requestId?: string }) => Promise<void>,
-): (line: string) => void {
-  let queue: Promise<void> = Promise.resolve();
-  return (line: string) => {
-    let request: ControlRequest & { requestId?: string };
-    try {
-      request = JSON.parse(line);
-    } catch {
-      sendResponse(socket, { type: "error", message: "Invalid JSON" });
-      return;
-    }
-    const requestId = request.requestId;
-    queue = queue
-      .then(() => handler(request))
-      .catch((err) => {
-        const message = err instanceof Error ? err.message : String(err);
-        sendResponse(
-          socket,
-          { type: "error", message: `Internal error: ${message}` },
-          requestId,
-        );
-        log(`Error handling control message: ${message}`);
-      });
-  };
+function createControlHandler(socket: net.Socket): (line: string) => void {
+  return createSerializedHandler(
+    (req) => handleControlMessage(socket, req),
+    (requestId, err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      sendResponse(
+        socket,
+        { type: "error", message: `Internal error: ${message}` },
+        requestId,
+      );
+      log(`Error handling control message: ${message}`);
+    },
+    () => sendResponse(socket, { type: "error", message: "Invalid JSON" }),
+  );
 }
 
 // ── Server ──
@@ -453,18 +474,14 @@ function startServer(): void {
           }
         } else {
           connectionType = "control";
-          lineHandler = createSerializedHandler(socket, (req) =>
-            handleControlMessage(socket, req),
-          );
+          lineHandler = createControlHandler(socket);
           // Process this line as a control message (could be auth)
           lineHandler(line);
         }
       } catch {
         // Default to control
         connectionType = "control";
-        lineHandler = createSerializedHandler(socket, (l) =>
-          handleControlMessage(socket, l),
-        );
+        lineHandler = createControlHandler(socket);
         lineHandler(line);
       }
     });
@@ -479,6 +496,9 @@ function startServer(): void {
       // dropped ssh session) cannot leak processes.
       execRunners.get(socket)?.disposeAll();
       execRunners.delete(socket);
+      // Likewise for request/response execs still running for this socket.
+      for (const aborter of inFlightExecs.get(socket) ?? []) aborter.abort();
+      inFlightExecs.delete(socket);
     });
 
     socket.on("error", (err) => {

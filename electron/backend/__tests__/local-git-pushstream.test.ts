@@ -24,7 +24,7 @@ import { LocalGitBackend } from "../local-git";
 type StreamCb = {
   onStdout?: (chunk: string) => void;
   onStderr?: (chunk: string) => void;
-  onExit: (result: { exitCode: number | null }) => void;
+  onExit: (result: { exitCode: number | null; error?: string }) => void;
 };
 
 function makeFakeExec() {
@@ -36,7 +36,7 @@ function makeFakeExec() {
     (
       _cmd: string,
       _args: string[],
-      _opts: { cwd?: string; env?: NodeJS.ProcessEnv },
+      _opts: { cwd?: string; env?: Record<string, string> },
       cb: StreamCb,
     ) => {
       capturedCb = cb;
@@ -56,6 +56,8 @@ function makeFakeExec() {
     cancel,
     emitStderr: (chunk: string) => capturedCb?.onStderr?.(chunk),
     emitExit: (exitCode: number | null) => capturedCb?.onExit({ exitCode }),
+    emitError: (error: string) =>
+      capturedCb?.onExit({ exitCode: null, error }),
   };
 }
 
@@ -123,8 +125,12 @@ describe("LocalGitBackend.pushStream", () => {
         env: Record<string, string>;
       };
       expect(opts.cwd).toBe("/repo");
-      expect(opts.env.GIT_TERMINAL_PROMPT).toBe("0");
-      expect(opts.env.GIT_ASKPASS).toBe("/bin/true");
+      // Overrides only: the Exec merges them onto its own base env, so the
+      // caller must not ship its whole process.env (wrong for a remote Exec).
+      expect(opts.env).toEqual({
+        GIT_TERMINAL_PROMPT: "0",
+        GIT_ASKPASS: "/bin/true",
+      });
     });
   });
 
@@ -212,20 +218,30 @@ describe("LocalGitBackend.pushStream", () => {
 
   describe("spawn / runtime errors", () => {
     it("calls onDone with the error message when the exec stream errors", () => {
+      const onLine = vi.fn();
       const onDone = vi.fn();
-      backend.pushStream(
-        "/repo",
-        { branch: "main" },
-        { onLine: vi.fn(), onDone },
-      );
+      backend.pushStream("/repo", { branch: "main" }, { onLine, onDone });
 
-      fake.emitStderr("ENOENT: git not found");
-      fake.emitExit(null);
+      fake.emitError("spawn git ENOENT");
 
       expect(onDone).toHaveBeenCalledWith({
         exitCode: null,
-        stderr: "ENOENT: git not found",
+        stderr: "spawn git ENOENT",
       });
+      // The spawn error is not push progress.
+      expect(onLine).not.toHaveBeenCalled();
+    });
+
+    it("reports only the error, not partial stderr, when the stream errors", () => {
+      const onLine = vi.fn();
+      const onDone = vi.fn();
+      backend.pushStream("/repo", { branch: "main" }, { onLine, onDone });
+
+      fake.emitStderr("partial");
+      fake.emitError("boom");
+
+      expect(onLine).not.toHaveBeenCalled();
+      expect(onDone).toHaveBeenCalledWith({ exitCode: null, stderr: "boom" });
     });
 
     it("does not double-fire onDone when exit fires twice", () => {

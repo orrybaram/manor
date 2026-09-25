@@ -20,6 +20,11 @@ import type {
 import { TERMINAL_HOST_PROTOCOL } from "./types";
 import type { HostTransport } from "./transport";
 import { LocalTransport } from "./transport-local";
+import {
+  EXIT_DRAIN_GRACE_MS,
+  KILL_ESCALATION_MS,
+  normalizeTimeout,
+} from "./exec-runner";
 
 /**
  * The wire protocol a handshake reply reports. A daemon old enough not to
@@ -61,6 +66,30 @@ export function isDaemonStale(
 /** Per-request timeout for control requests that do not name their own. */
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 
+/** Client-side timeout for `readFile` (up to 10 MiB, possibly over ssh). */
+const READ_FILE_TIMEOUT_MS = 30_000;
+
+/** Slack on top of the daemon's own exec deadline, for transport latency. */
+const EXEC_RESPONSE_MARGIN_MS = 10_000;
+
+/**
+ * How long the client waits for an `exec` reply: strictly longer than the
+ * daemon takes to time the command out, kill it, and answer — so a slow
+ * command surfaces as the daemon's timed-out result, not as a client timeout
+ * that tears down the connection. `null` when the daemon applies no timeout.
+ */
+function execClientTimeoutMs(timeout: number | undefined): number | null {
+  const serverTimeout = normalizeTimeout(timeout);
+  if (serverTimeout === null) return null;
+  return Math.min(
+    serverTimeout +
+      KILL_ESCALATION_MS +
+      EXIT_DRAIN_GRACE_MS +
+      EXEC_RESPONSE_MARGIN_MS,
+    2 ** 31 - 1,
+  );
+}
+
 type StreamEventHandler = (event: StreamEvent) => void;
 
 export class TerminalHostClient {
@@ -73,12 +102,14 @@ export class TerminalHostClient {
     {
       resolve: (resp: ControlResponse) => void;
       reject: (err: Error) => void;
-      timeout: ReturnType<typeof setTimeout>;
+      timeout: ReturnType<typeof setTimeout> | undefined;
     }
   >();
   private requestIdCounter = 0;
-  /** Serializes control requests so only one is in-flight at a time,
-   *  preventing FIFO response mismatch from concurrent callers. */
+  /** Serializes ordinary control requests so only one is in flight at a
+   *  time — terminal operations depend on the daemon seeing them in order.
+   *  `exec`/`readFile` bypass it (see `requestConcurrent`); responses are
+   *  matched by `requestId`, so they may arrive in any order. */
   private requestMutex: Promise<void> = Promise.resolve();
   private controlBuffer = "";
   private streamBuffer = "";
@@ -567,6 +598,58 @@ export class TerminalHostClient {
     }
   }
 
+  /**
+   * Run a command on the daemon's host and collect its output. Resolves with
+   * the exit code whatever it is; rejects only if the daemon could not be
+   * asked. Does not wait behind other control requests, and does not hold
+   * them up.
+   */
+  async exec(
+    cmd: string,
+    args: string[],
+    opts: { cwd?: string; timeout?: number; maxBuffer?: number } = {},
+  ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+    await this.ensureConnected();
+    const resp = await this.requestConcurrent(
+      {
+        type: "exec",
+        cmd,
+        args,
+        cwd: opts.cwd,
+        timeout: opts.timeout,
+        maxBuffer: opts.maxBuffer,
+      },
+      execClientTimeoutMs(opts.timeout),
+    );
+    if (resp.type === "execResult") {
+      return {
+        stdout: resp.stdout,
+        stderr: resp.stderr,
+        exitCode: resp.exitCode,
+      };
+    }
+    throw new Error(
+      resp.type === "error"
+        ? resp.message
+        : `unexpected response type: ${resp.type}`,
+    );
+  }
+
+  /** Read a UTF-8 file (at most 10 MiB) on the daemon's host. */
+  async readFile(filePath: string): Promise<string> {
+    await this.ensureConnected();
+    const resp = await this.requestConcurrent(
+      { type: "readFile", path: filePath },
+      READ_FILE_TIMEOUT_MS,
+    );
+    if (resp.type === "fileContents") return resp.contents;
+    throw new Error(
+      resp.type === "error"
+        ? resp.message
+        : `unexpected response type: ${resp.type}`,
+    );
+  }
+
   // ── Internal ──
 
   private async ensureConnected(): Promise<void> {
@@ -585,13 +668,22 @@ export class TerminalHostClient {
       for (const line of lines) {
         if (!line.trim()) continue;
         try {
-          const resp = JSON.parse(line) as ControlResponse;
-          // Mutex guarantees at most one pending request
-          const firstKey = this.pendingRequests.keys().next().value;
-          if (firstKey !== undefined) {
-            const pending = this.pendingRequests.get(firstKey)!;
-            this.pendingRequests.delete(firstKey);
-            clearTimeout(pending.timeout);
+          const resp = JSON.parse(line) as ControlResponse & {
+            requestId?: string;
+          };
+          // Match by requestId: exec/readFile replies can overtake others.
+          // A reply without one (e.g. "Invalid JSON") goes to the oldest.
+          const key =
+            resp.requestId !== undefined &&
+            this.pendingRequests.has(resp.requestId)
+              ? resp.requestId
+              : resp.requestId === undefined
+                ? this.pendingRequests.keys().next().value
+                : undefined;
+          if (key !== undefined) {
+            const pending = this.pendingRequests.get(key)!;
+            this.pendingRequests.delete(key);
+            if (pending.timeout) clearTimeout(pending.timeout);
             pending.resolve(resp);
           }
         } catch {
@@ -653,9 +745,22 @@ export class TerminalHostClient {
     return result;
   }
 
+  /**
+   * Send a request without queueing behind the mutex. Only for request types
+   * the daemon answers out of order (`exec`, `readFile`); anything else
+   * relies on the daemon seeing requests in order. `timeoutMs: null` waits
+   * until the reply or a disconnect.
+   */
+  private requestConcurrent(
+    req: Extract<ControlRequest, { type: "exec" | "readFile" }>,
+    timeoutMs: number | null,
+  ): Promise<ControlResponse> {
+    return this.doRequest(req, timeoutMs);
+  }
+
   private doRequest(
     req: ControlRequest,
-    timeoutMs: number,
+    timeoutMs: number | null,
   ): Promise<ControlResponse> {
     return new Promise((resolve, reject) => {
       if (!this.controlSocket?.writable) {
@@ -665,11 +770,14 @@ export class TerminalHostClient {
 
       const requestId = String(++this.requestIdCounter);
 
-      const timeout = setTimeout(() => {
-        this.pendingRequests.delete(requestId);
-        reject(new Error(`Request timed out: ${req.type}`));
-        this.cleanup();
-      }, timeoutMs);
+      const timeout =
+        timeoutMs === null
+          ? undefined
+          : setTimeout(() => {
+              this.pendingRequests.delete(requestId);
+              reject(new Error(`Request timed out: ${req.type}`));
+              this.cleanup();
+            }, timeoutMs);
 
       this.pendingRequests.set(requestId, { resolve, reject, timeout });
       this.controlSocket.write(
@@ -711,7 +819,7 @@ export class TerminalHostClient {
 
     // Reject pending requests
     for (const [, req] of this.pendingRequests) {
-      clearTimeout(req.timeout);
+      if (req.timeout) clearTimeout(req.timeout);
       req.reject(new Error("Disconnected"));
     }
     this.pendingRequests.clear();

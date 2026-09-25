@@ -240,6 +240,21 @@ class TestDaemon {
       case "ping":
         this.send(socket, { type: "pong" }, requestId);
         break;
+      case "exec": {
+        // Answers after `args[0]` ms — out of order with anything sent in
+        // the meantime, the way the real daemon answers a slow exec.
+        const delayMs = Number(req.args[0] ?? 0);
+        setTimeout(
+          () =>
+            this.send(
+              socket,
+              { type: "execResult", stdout: req.cmd, stderr: "", exitCode: 0 },
+              requestId,
+            ),
+          delayMs,
+        );
+        break;
+      }
       case "handshake":
         // Echo the client's version so it does not decide we are stale and
         // respawn us. `protocol` is omitted when playing an older daemon.
@@ -693,6 +708,40 @@ describe("TerminalHostClient", () => {
 
       // Reset state so disconnect doesn't error
       (client as any).connected = false;
+    });
+  });
+
+  describe("exec", () => {
+    it("answers ping and resize while a long exec is in flight", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+
+      const execResult = client.exec("slow-cmd", ["600"]);
+      const started = Date.now();
+      expect(await client.ping()).toBe(true);
+      await client.resize("no-such-session", 80, 24);
+      // Neither waited behind the exec.
+      expect(Date.now() - started).toBeLessThan(500);
+
+      await expect(execResult).resolves.toEqual({
+        stdout: "slow-cmd",
+        stderr: "",
+        exitCode: 0,
+      });
+      client.disconnect();
+    });
+
+    it("matches overlapping exec replies to their callers by requestId", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+
+      const [slow, fast] = await Promise.all([
+        client.exec("slow", ["300"]),
+        client.exec("fast", ["0"]),
+      ]);
+      expect(slow.stdout).toBe("slow");
+      expect(fast.stdout).toBe("fast");
+      client.disconnect();
     });
   });
 

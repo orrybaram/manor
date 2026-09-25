@@ -79,10 +79,9 @@ describe("setPaneAgentStatus", () => {
 
     const stateAfterFirst = useAppStore.getState().paneAgentStatus;
 
-    // Set same status+kind again
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("thinking"));
+    // Set same status+kind again (a fresh object with the same `since` —
+    // makeAgentState would read Date.now() again and flake across a ms tick)
+    useAppStore.getState().setPaneAgentStatus("pane-1", { ...agent });
 
     // Should be the exact same object reference (zustand skips update)
     expect(useAppStore.getState().paneAgentStatus).toBe(stateAfterFirst);

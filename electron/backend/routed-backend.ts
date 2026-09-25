@@ -69,11 +69,11 @@ export class RoutedBackend implements WorkspaceBackend {
     const byPath = (cwd: string) => registry.get(hostForPath(cwd));
 
     this.pty = {
-      createOrAttach: async (sessionId, cwd, cols, rows, shellArgs) => {
+      createOrAttach: async (sessionId, cwd, cols, rows, shellArgs, env) => {
         const hostId = registry.hostForSession(sessionId) ?? hostForPath(cwd);
         const result = await registry
           .get(hostId)
-          .pty.createOrAttach(sessionId, cwd, cols, rows, shellArgs);
+          .pty.createOrAttach(sessionId, cwd, cols, rows, shellArgs, env);
         registry.noteSession(sessionId, hostId);
         return result;
       },

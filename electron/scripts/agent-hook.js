@@ -55,28 +55,58 @@ function readInput(argv, stdin) {
 }
 
 /**
- * Resolve the hook port: prefer ~/.manor/hook-port (always fresh),
- * fall back to MANOR_HOOK_PORT env var.
- *
- * Keep in sync with hookPortFile() in electron/paths.ts.
+ * Header carrying the hook listener's token. Keep in sync with
+ * HOOK_TOKEN_HEADER in electron/terminal-host/hook-listener.ts.
  */
-function resolvePort(env, homeDir) {
-  const portFile = path.join(homeDir, ".manor", "hook-port");
+const HOOK_TOKEN_HEADER = "x-manor-hook-token";
+
+/**
+ * Read a hook port file: the port on the first line and, for a remote
+ * daemon's listener, its token on the second. Manor desktop's file holds
+ * just the port. Returns null if the file is missing or has no valid port.
+ */
+function readPortFile(portFile) {
+  let raw;
   try {
-    const raw = fs.readFileSync(portFile, "utf-8").trim();
-    if (raw) {
-      const n = parseInt(raw, 10);
-      if (!isNaN(n) && n > 0) return n;
-    }
+    raw = fs.readFileSync(portFile, "utf-8");
   } catch {
-    // File missing or unreadable — fall through to env.
+    return null;
   }
+  const lines = raw.split("\n");
+  const first = (lines[0] || "").trim();
+  if (!first) return null;
+  const n = parseInt(first, 10);
+  if (isNaN(n) || n <= 0) return null;
+  const token = (lines[1] || "").trim();
+  return { port: n, token: token || null };
+}
+
+/**
+ * Resolve where to send the hook: the port file named by
+ * MANOR_HOOK_PORT_FILE (set in a remote Manor daemon's panes), else
+ * ~/.manor/hook-port (Manor desktop's, always fresh), falling back to the
+ * MANOR_HOOK_PORT env var. Returns `{ port, token }` (token null when the
+ * listener wants none) or null.
+ *
+ * Keep in sync with hookPortFile() / remoteHookPortFile() in electron/paths.ts.
+ */
+function resolveHookTarget(env, homeDir) {
+  const portFile =
+    env.MANOR_HOOK_PORT_FILE || path.join(homeDir, ".manor", "hook-port");
+  const fromFile = readPortFile(portFile);
+  if (fromFile) return fromFile;
   const envPort = env.MANOR_HOOK_PORT;
   if (envPort) {
     const n = parseInt(envPort, 10);
-    if (!isNaN(n) && n > 0) return n;
+    if (!isNaN(n) && n > 0) return { port: n, token: null };
   }
   return null;
+}
+
+/** The port half of `resolveHookTarget`. */
+function resolvePort(env, homeDir) {
+  const target = resolveHookTarget(env, homeDir);
+  return target ? target.port : null;
 }
 
 /**
@@ -189,8 +219,8 @@ async function main(opts) {
       return;
     }
 
-    const port = resolvePort(env, homeDir);
-    if (!port) {
+    const target = resolveHookTarget(env, homeDir);
+    if (!target) {
       stderr.write(
         "[manor-hook] no hook port available (no port file, no env)\n",
       );
@@ -209,7 +239,7 @@ async function main(opts) {
     const notificationKind =
       eventType === "Notification" ? extractNotificationKind(payload) : null;
 
-    const url = buildUrl(port, {
+    const url = buildUrl(target.port, {
       paneId,
       eventType,
       kind,
@@ -222,6 +252,9 @@ async function main(opts) {
     try {
       await fetchFn(url, {
         method: "GET",
+        ...(target.token
+          ? { headers: { [HOOK_TOKEN_HEADER]: target.token } }
+          : {}),
         signal: AbortSignal.timeout(2000),
       });
     } catch (err) {
@@ -241,6 +274,7 @@ module.exports = {
   main,
   readInput,
   resolvePort,
+  resolveHookTarget,
   buildUrl,
   extractNotificationKind,
 };

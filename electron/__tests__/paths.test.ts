@@ -222,6 +222,27 @@ describe("electron/paths", () => {
       expect(paths.hookPortFile()).toBe(path.join(homeRoot(), "hook-port"));
     });
 
+    it("the remote daemon namespace shares nothing with the local one", () => {
+      const remote = path.join(homeRoot(), "remote");
+      expect(paths.remoteNamespaceDir()).toBe(remote);
+      expect(paths.daemonDir("remote")).toBe(path.join(remote, "daemon"));
+      expect(paths.daemonSocketFile("remote")).toBe(
+        path.join(remote, "daemon", "terminal-host.sock"),
+      );
+      expect(paths.daemonTokenFile("remote")).toBe(
+        path.join(remote, "daemon", "terminal-host.token"),
+      );
+      expect(paths.daemonPidFile("remote")).toBe(
+        path.join(remote, "daemon", "terminal-host.pid"),
+      );
+      expect(paths.daemonLogFile("remote")).toBe(
+        path.join(remote, "daemon", "terminal-host.log"),
+      );
+      expect(paths.hookJournalFile()).toBe(path.join(remote, "daemon", "hook-journal.ndjson"));
+      expect(paths.remoteHookPortFile()).toBe(path.join(remote, "hook-port"));
+      expect(paths.daemonLogFile()).toBe(path.join(homeRoot(), "daemon", "terminal-host.log"));
+    });
+
     it("hooksDir", () => {
       expect(paths.hooksDir()).toBe(path.join(homeRoot(), "hooks"));
     });
@@ -318,6 +339,9 @@ describe("electron/paths", () => {
         paths.daemonPidFile,
         paths.daemonTokenFile,
         paths.hookPortFile,
+        paths.remoteHookPortFile,
+        paths.remoteNamespaceDir,
+        paths.hookJournalFile,
         paths.hooksDir,
         paths.hookScriptPath,
         paths.webviewServerPortFile,

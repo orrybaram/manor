@@ -7,17 +7,15 @@ import { LayoutPersistence } from "./terminal-host/layout-persistence";
 import { ProjectManager } from "./persistence";
 import { ThemeManager } from "./theme";
 import { PortScanner } from "./ports";
+import { RemoteForwards } from "./remote-forwards";
 import { BranchWatcher } from "./branch-watcher";
 import { DiffWatcher } from "./diff-watcher";
 import { GitHubManager } from "./github";
 import { LinearManager } from "./linear";
-import { ShellManager } from "./shell";
 import { homeWorkspaceDir } from "./paths";
-import {
-  AgentHookServer,
-  ensureHookScript,
-  registerAllAgents,
-} from "./agent-hooks";
+import { AgentHookServer } from "./agent-hooks";
+import { NotificationCoalescer, type HookCursor } from "./backend/hook-feed";
+import { bootstrapHost } from "./terminal-host/bootstrap-host";
 import { createHookRelay, SWEEP_INTERVAL_MS } from "./hook-relay";
 import { ensureManorCli } from "./manor-cli-install";
 import { AgentManager, type AgentInfo } from "./agent-persistence";
@@ -31,6 +29,13 @@ import type { AgentStatus, StreamEvent } from "./terminal-host/types";
 import { initAutoUpdater, checkForUpdates } from "./updater";
 import { portlessManager } from "./portless";
 import { LocalBackend } from "./backend/local-backend";
+import {
+  BackendRegistry,
+  isRemoteSessionLoss,
+  type HostStatus,
+} from "./backend/registry";
+import { trackHostBusy } from "./backend/host-busy";
+import { RoutedBackend } from "./backend/routed-backend";
 import { PrewarmManager } from "./prewarm-manager";
 import { RemoteDeviceStore } from "./remote-control/devices";
 import { RemoteControlServer } from "./remote-control/server";
@@ -67,6 +72,26 @@ import * as processesIpc from "./ipc/processes";
 import * as windowIpc from "./ipc/window";
 import * as remoteControlIpc from "./ipc/remote-control";
 import * as menuIpc from "./ipc/menu";
+import * as hostsIpc from "./ipc/hosts";
+import { notifyProjectsChanged } from "./renderer-bridge";
+
+/**
+ * Manor's version. `app.getVersion()` in an unpackaged app launched on a bare
+ * main.js (E2E, some dev setups) is Electron's own version, so read the repo's
+ * package.json there instead. Remote hosts are version-matched against it.
+ */
+function manorVersion(): string {
+  if (app.isPackaged) return app.getVersion();
+  try {
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf-8"),
+    ) as { version?: unknown };
+    if (typeof pkg.version === "string" && pkg.version) return pkg.version;
+  } catch {
+    // fall through
+  }
+  return app.getVersion();
+}
 
 // Extract stream event handler for testability
 export function handleStreamEvent(
@@ -229,18 +254,59 @@ export function initApp(devTitle: string | null): void {
 
   // Managers
   const client = new TerminalHostClient();
-  const backend = new LocalBackend(client);
+  // Every host's backend, "local" always among them (ADR-160 §6). Remote
+  // hosts come from projects.json below and connect lazily, off the launch
+  // path; with none registered everything routes to the local backend.
+  const backendRegistry = new BackendRegistry({
+    local: new LocalBackend(client),
+    version: app.getVersion(),
+    remoteVersion: manorVersion(),
+    // Where each remote host's hook journal was read up to (ADR-178 §2).
+    // Only read once hosts are registered, after projectManager exists.
+    hookSeqStore: {
+      get: (hostId): HookCursor | null => projectManager.getHostHookCursor(hostId),
+      set: (hostId, cursor): void => projectManager.setHostHookCursor(hostId, cursor),
+    },
+  });
   const layoutPersistence = new LayoutPersistence();
-  const projectManager = new ProjectManager(backend.git);
+  const projectManager = new ProjectManager(
+    (hostId) => backendRegistry.get(hostId).git,
+    undefined,
+    (hostId) => backendRegistry.get(hostId).shell,
+  );
+  for (const { hostId, spec } of projectManager.getHosts()) {
+    backendRegistry.register(hostId, spec);
+  }
+  // Keep-awake (ADR-178 §1): a host with a working agent tells its provider,
+  // so an auto-sleeping box never sleeps mid-task. No-op for ssh hosts.
+  trackHostBusy(backendRegistry);
+  const hostForPath = (p: string) => projectManager.hostIdForPath(p);
+  // The one backend IPC handlers and control routes see: routes each pane,
+  // cwd and pid to the host that owns it.
+  const backend = new RoutedBackend(backendRegistry, hostForPath);
   const themeManager = new ThemeManager();
-  const portScanner = new PortScanner(backend.ports);
-  const branchWatcher = new BranchWatcher();
-  const diffWatcher = new DiffWatcher(backend.git);
+  const portScanner = new PortScanner(backend.ports, hostForPath);
+  // Remote dev servers opened from Manor go through these (ADR-178 §5).
+  const remoteForwards = new RemoteForwards(backendRegistry);
+  const branchWatcher = new BranchWatcher(backend.git, hostForPath);
+  const diffWatcher = new DiffWatcher(backend.git, hostForPath);
   const githubManager = new GitHubManager();
   const linearManager = new LinearManager();
 
-  const prewarmManager = new PrewarmManager(client, process.env.HOME || "/");
+  const prewarmManager = new PrewarmManager(client, process.env.HOME || "/", hostForPath);
   const agentHookServer = new AgentHookServer();
+  // Remote hosts' hooks take the same path as local ones (ADR-178 §2).
+  // Replayed hooks hold their notifications until the catch-up finishes, so
+  // a night's worth of hooks is one banner per agent, not hundreds.
+  const notificationCoalescer = new NotificationCoalescer(maybeSendNotification);
+  backendRegistry.setHookSink({
+    ingest: (payload, { hostId, replay }) => {
+      const ingest = () => agentHookServer.ingestHookPayload(payload, { hostId });
+      if (replay) notificationCoalescer.hold(hostId, ingest);
+      else ingest();
+    },
+    replayFinished: (hostId) => notificationCoalescer.flush(hostId),
+  });
   // PreferencesManager must be constructed before AgentManager so we can pass
   // the user's configured retention into the prune step.
   const preferencesManager = new PreferencesManager();
@@ -353,11 +419,15 @@ export function initApp(devTitle: string | null): void {
     });
   }
 
-  // Ensure shell integration and agent hooks are set up
-  ShellManager.setupZdotdir();
-  ensureHookScript();
+  // Ensure shell integration and agent hooks are set up — the same bootstrap
+  // a remote daemon runs on its own host (ADR-160 ticket 10). A connector
+  // that skips registration (e.g. a config it couldn't safely parse) is
+  // reported here, not thrown — one agent's bad config must never abort
+  // local startup.
+  for (const warning of bootstrapHost().warnings) {
+    console.warn(`[app-lifecycle] bootstrap: ${warning}`);
+  }
   ensureManorCli();
-  registerAllAgents();
   // The Home surface's harness runs in ~/.manor/home. Create it once here
   // instead of on every new session's launch command.
   fs.mkdirSync(homeWorkspaceDir(), { recursive: true });
@@ -368,7 +438,31 @@ export function initApp(devTitle: string | null): void {
   // Set up stream event handler — broadcast events to every live renderer
   // window. A detached window hosting a terminal pane must receive its `pty:*`
   // stream events; windows that don't own the pane ignore them harmlessly.
-  backend.pty.onEvent((event: StreamEvent) => {
+  // Events arrive tagged with their host. The registry has already used the
+  // tag to record which host owns the session (so pane calls route back to
+  // it) and dropped any event for a session another host owns; the pane
+  // channels themselves stay keyed by pane id, which is unique across hosts.
+  // The renderer's project list is fetched before a remote host connects, so
+  // its workspaces fall back to the main path until the next `getProjects()`.
+  // Tell it to refetch the moment any host reaches "connected" rather than
+  // waiting on some unrelated mutation to trigger it (ADR-160 ticket 9
+  // follow-up).
+  const lastHostStatus = new Map<string, HostStatus>();
+  backendRegistry.onStatusChange((hosts) => {
+    for (const host of hosts) {
+      const prev = lastHostStatus.get(host.hostId);
+      lastHostStatus.set(host.hostId, host.status);
+      if (host.status === "connected" && prev !== "connected") {
+        notifyProjectsChanged();
+      }
+    }
+  });
+
+  backendRegistry.onEvent((hostId: string, event: StreamEvent) => {
+    // A remote pane whose session a daemon restart took is not closed like
+    // one whose shell exited: the renderer recovers it when the host's
+    // `hosts:reconnected` arrives (ADR-178 §6).
+    if (isRemoteSessionLoss(hostId, event)) return;
     for (const win of getRendererWindows()) {
       // Check that the main frame is still available (avoids "Render frame was
       // disposed" errors during window reload/close).
@@ -406,10 +500,12 @@ export function initApp(devTitle: string | null): void {
     getRendererWindows,
     registerDetachedWindow,
     backend,
+    backendRegistry,
     layoutPersistence,
     projectManager,
     themeManager,
     portScanner,
+    remoteForwards,
     branchWatcher,
     diffWatcher,
     githubManager,
@@ -466,6 +562,7 @@ export function initApp(devTitle: string | null): void {
   windowIpc.register(ipcDeps);
   remoteControlIpc.register(ipcDeps);
   menuIpc.register(ipcDeps);
+  hostsIpc.register(ipcDeps);
 
   // ── App lifecycle ──
   app.whenReady().then(async () => {
@@ -501,6 +598,9 @@ export function initApp(devTitle: string | null): void {
     // to PTY sessions (which need MANOR_HOOK_PORT for hook scripts).
     await agentHookServer.start();
     process.env.MANOR_HOOK_PORT = String(agentHookServer.hookPort);
+    // Only remote-namespace panes set this; if Manor was launched from one,
+    // local panes would otherwise send hooks to the remote daemon's listener.
+    delete process.env.MANOR_HOOK_PORT_FILE;
 
     await webviewServer.start();
     await portlessManager.start();
@@ -512,6 +612,13 @@ export function initApp(devTitle: string | null): void {
       await backend.connect({ version: app.getVersion() });
     } catch (err) {
       console.error("Failed to connect to terminal host daemon:", err);
+    }
+
+    // Remote hosts connect in the background — an ssh handshake and a host
+    // bootstrap can take a minute, and launch must not wait for it. Only
+    // hosts a project lives on; the rest connect when first used.
+    for (const hostId of projectManager.remoteHostIdsInUse()) {
+      if (backendRegistry.has(hostId)) backendRegistry.connectInBackground(hostId);
     }
 
     // Pre-warm a terminal session for instant new-agent
@@ -541,7 +648,7 @@ export function initApp(devTitle: string | null): void {
       unseenRespondedAgents,
       unseenInputAgents,
       broadcastAgent,
-      maybeSendNotification,
+      maybeSendNotification: notificationCoalescer.send,
       onHookEvent: (event, effects, ctx) =>
         statsStore.observeHookEvent(
           event,
@@ -593,7 +700,10 @@ export function initApp(devTitle: string | null): void {
     void remoteControl.shutdown();
     portlessManager.stop();
     prewarmManager.dispose().catch(() => {});
+    // Takes down the ssh children; remote sessions keep running on their hosts.
+    void backendRegistry.disconnectAll();
     killAllActivePushes();
     statsStore.flushNow();
+    projectManager.flushHostHookSeqs();
   });
 }

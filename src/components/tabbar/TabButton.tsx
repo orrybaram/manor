@@ -9,6 +9,12 @@ import { Button } from "../ui/Button/Button";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { useShallow } from "zustand/react/shallow";
 import { useAppStore } from "../../store/app-store";
+import { useHostStore, selectHost } from "../../store/host-store";
+import {
+  usePaneHostStore,
+  selectTabRemoteHostId,
+} from "../../store/pane-host-store";
+import type { PaneNode } from "../../store/pane-tree";
 import { countTabsInWindow, trackHandoff } from "../../lib/window-handoff";
 import { useKeybinding } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
@@ -17,8 +23,30 @@ import {
   isContextMenuKey,
   openContextMenuFromKeyboard,
 } from "../../lib/keyboard-context-menu";
+import { REMOTE_HOST_BADGE_STYLE } from "../../lib/tab-styles";
 import { TabAgentDot } from "./TabAgentDot";
 import styles from "./TabBar/TabBar.module.css";
+
+/**
+ * The remote host a tab's panes actually run on — label and whether it's
+ * connected — or `null` for the overwhelmingly common all-local tab. Keyed on
+ * the tab's own pane tree, never the active workspace, so switching
+ * workspaces re-renders no tab: both stores stay untouched for local panes
+ * and every selector here returns a primitive.
+ */
+function useTabRemoteHost(
+  rootNode: PaneNode,
+): { label: string; connected: boolean } | null {
+  const hostId = usePaneHostStore(selectTabRemoteHostId(rootNode));
+  const label = useHostStore((s) => {
+    if (!hostId) return null;
+    return selectHost(hostId)(s)?.spec?.target ?? hostId;
+  });
+  const connected = useHostStore(
+    (s) => !!hostId && selectHost(hostId)(s)?.status === "connected",
+  );
+  return label ? { label, connected } : null;
+}
 
 /** The tab bar's own tabs, in DOM order, within the tab holding `from`. */
 function allTabs(from: HTMLElement): HTMLElement[] {
@@ -111,6 +139,8 @@ function shortenTitle(title: string): string {
 
 type TabButtonProps = {
   tabId: string;
+  /** The tab's pane tree — the remote-host badge is derived from its panes. */
+  rootNode: PaneNode;
   isActive: boolean;
   isPinned: boolean;
   canClose: boolean;
@@ -127,7 +157,7 @@ type TabButtonProps = {
 };
 
 export function TabButton(props: TabButtonProps) {
-  const { tabId, isActive, isPinned, canClose, isDragging, isDropTarget, draggable, onSelect, onClose, onTogglePin, onDragStart, onDrag, onDragEnd, buttonRef } = props;
+  const { tabId, rootNode, isActive, isPinned, canClose, isDragging, isDropTarget, draggable, onSelect, onClose, onTogglePin, onDragStart, onDrag, onDragEnd, buttonRef } = props;
 
   const title = useTabTitle(tabId);
   const { contentType, favicon, audioPlaying, audioMuted, focusedPaneId } = useAppStore(useShallow((s) => {
@@ -175,6 +205,7 @@ export function TabButton(props: TabButtonProps) {
     return Object.keys(layout.panels).length;
   });
   const [faviconError, setFaviconError] = useState(false);
+  const remoteHost = useTabRemoteHost(rootNode);
   const isBrowser = contentType === "browser";
   const isDiff = contentType === "diff";
   const contentTypeClass = isDiff ? styles.tabDiff : isBrowser ? styles.tabBrowser : styles.tabTerminal;
@@ -228,6 +259,23 @@ export function TabButton(props: TabButtonProps) {
           <span className={styles.tabTitle} data-testid="tab-title">
             {isPinned ? shortenTitle(title) : title}
           </span>
+          {remoteHost && !isPinned && (
+            <Tooltip label={`Running on ${remoteHost.label}`}>
+              <span
+                className={styles.tabRemoteHostBadge}
+                style={{
+                  ...REMOTE_HOST_BADGE_STYLE,
+                  background: remoteHost.connected
+                    ? "var(--surface-hover)"
+                    : "var(--yellow)",
+                  color: remoteHost.connected ? "var(--text-dim)" : "#000",
+                }}
+                data-testid="tab-remote-host-badge"
+              >
+                {remoteHost.label}
+              </span>
+            </Tooltip>
+          )}
           {(audioPlaying || audioMuted) && (
             <Tooltip label={audioMuted ? "Unmute Tab" : "Mute Tab"}>
               <Button

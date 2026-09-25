@@ -7,18 +7,24 @@
  * 2. Starts an HTTP server on a random port
  * 3. PTY sessions get MANOR_HOOK_PORT env var so hooks can call back
  * 4. Hook script (curl) → HTTP server → IPC to renderer
+ *
+ * Remote hosts (ADR-178 §2) never reach this server: their daemon journals
+ * hooks itself, and the host's hook feed hands each one to
+ * `ingestHookPayload`, the same path the HTTP handler takes.
  */
 
 import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { getAllConnectors } from "./agent-connectors";
-import { hookScriptPath, hookScriptJsPath, hookPortFile } from "./paths";
+import { hookPortFile } from "./paths";
 import {
   type AgentHookEvent,
+  hookRequestParams,
   parseAgentHookEvent,
 } from "./agent-hook-events";
+import type { HookPayload } from "./terminal-host/types";
+import { LOCAL_HOST_ID } from "./backend/types";
 
 /**
  * Atomically write the port number to the hook port file.
@@ -30,6 +36,10 @@ function writePortFileAtomic(port: number): void {
   const tmp = `${HOOK_PORT_FILE}.tmp`;
   fs.writeFileSync(tmp, String(port));
   fs.renameSync(tmp, HOOK_PORT_FILE);
+}
+
+function fromHost(ctx: { hostId: string }): string {
+  return ctx.hostId === LOCAL_HOST_ID ? "" : ` from ${ctx.hostId}`;
 }
 
 export type RelayFn = (event: AgentHookEvent) => void;
@@ -59,53 +69,61 @@ export class AgentHookServer {
     }
   }
 
+  /**
+   * Feed one hook into the relay — the single entry point for hooks from
+   * every host (ADR-178 §2). The local HTTP server calls it for each request;
+   * a remote host's hook feed calls it for each journaled entry, replayed or
+   * live. `payload` is the hook request's query parameters.
+   *
+   * Returns what became of it: `relayed` (or queued until `setRelay`),
+   * `dropped` (well-formed but not relayed), or `rejected` (malformed).
+   */
+  ingestHookPayload(
+    payload: URLSearchParams | HookPayload,
+    ctx: { hostId: string },
+  ): "relayed" | "dropped" | "rejected" {
+    const params =
+      payload instanceof URLSearchParams ? payload : new URLSearchParams(payload);
+    const result = parseAgentHookEvent(params);
+    if (!result.ok) {
+      if (result.action === "reject") {
+        console.warn(`[agent-hooks] rejecting hook${fromHost(ctx)}: ${result.reason}`);
+        return "rejected";
+      }
+      console.debug(`[agent-hooks] dropping hook${fromHost(ctx)}: ${result.reason}`);
+      return "dropped";
+    }
+    const event = result.event;
+    console.debug(
+      `[agent-status] hook ${ctx.hostId === LOCAL_HOST_ID ? "HTTP" : `from ${ctx.hostId}`}: paneId=${event.paneId} event=${event.type} kind=${event.agentKind} sessionId=${event.sessionId} → status=${event.status}`,
+    );
+
+    if (this.relayFn) {
+      this.relayFn(event);
+    } else if (this.pending.length < AgentHookServer.MAX_PENDING) {
+      this.pending.push(event);
+    } else {
+      console.warn(
+        `[agent-hooks] dropping hook event (queue full): paneId=${event.paneId} event=${event.type}`,
+      );
+    }
+    return "relayed";
+  }
+
   /** Start the HTTP server on a random port */
   async start(): Promise<void> {
     this.server = http.createServer((req, res) => {
-      if (!req.url) {
+      const params = hookRequestParams(req.url);
+      if (!params) {
         res.writeHead(404);
         res.end();
         return;
       }
-
-      const url = new URL(req.url, `http://127.0.0.1`);
-
-      if (url.pathname !== "/hook/event") {
-        res.writeHead(404);
+      if (this.ingestHookPayload(params, { hostId: LOCAL_HOST_ID }) === "rejected") {
+        res.writeHead(400);
         res.end();
         return;
       }
-
-      const result = parseAgentHookEvent(url.searchParams);
-
-      if (!result.ok) {
-        if (result.action === "reject") {
-          console.warn(`[agent-hooks] rejecting hook: ${result.reason}`);
-          res.writeHead(400);
-          res.end();
-        } else {
-          console.debug(`[agent-hooks] dropping hook: ${result.reason}`);
-          res.writeHead(200);
-          res.end("ok");
-        }
-        return;
-      }
-
-      const event = result.event;
-      console.debug(
-        `[agent-status] hook HTTP: paneId=${event.paneId} event=${event.type} kind=${event.agentKind} sessionId=${event.sessionId} → status=${event.status}`,
-      );
-
-      if (this.relayFn) {
-        this.relayFn(event);
-      } else if (this.pending.length < AgentHookServer.MAX_PENDING) {
-        this.pending.push(event);
-      } else {
-        console.warn(
-          `[agent-hooks] dropping hook event (queue full): paneId=${event.paneId} event=${event.type}`,
-        );
-      }
-
       res.writeHead(200);
       res.end("ok");
     });
@@ -122,11 +140,17 @@ export class AgentHookServer {
     });
   }
 
+  /**
+   * Stop listening, and remove the port file only if it still names this
+   * server — another Manor instance may have written its own port since.
+   */
   stop(): void {
     this.server?.close();
     this.server = null;
     try {
-      fs.unlinkSync(HOOK_PORT_FILE);
+      if (this.port && fs.readFileSync(HOOK_PORT_FILE, "utf-8").trim() === String(this.port)) {
+        fs.unlinkSync(HOOK_PORT_FILE);
+      }
     } catch {
       // File may not exist; ignore
     }
@@ -134,72 +158,13 @@ export class AgentHookServer {
 }
 
 // ── Hook Script & Registration ──
+//
+// The hook scripts and connector registration live in the Electron-free
+// bootstrap module so the terminal-host daemon can run them on its own host.
 
-export const HOOK_SCRIPT_PATH = hookScriptPath();
-export const HOOK_SCRIPT_JS_PATH = hookScriptJsPath();
+export {
+  ensureHookScript,
+  registerAllAgents,
+} from "./terminal-host/bootstrap-host";
 
 const HOOK_PORT_FILE = hookPortFile();
-
-/**
- * Resolve the path to the bundled agent-hook.js source. In packaged
- * builds the asar archive isn't readable by plain Node when invoked
- * via `node /path/to/agent-hook.js`, so we point at the unpacked copy
- * extracted by electron-builder's asarUnpack. Mirrors the MCP-server
- * pattern below in registerAllAgents().
- */
-function bundledAgentHookJsPath(): string {
-  return path
-    .join(__dirname, "agent-hook.js")
-    .replace("app.asar", "app.asar.unpacked");
-}
-
-/**
- * Bash wrapper that exec's the Node script with stdin and any args
- * forwarded. Two reasons we keep a wrapper rather than registering
- * `node /path/...` directly with the agent CLIs:
- *   1. Backward compat: existing user configs already point at .sh.
- *   2. Lets us evolve the JS path/argv without rewriting agent configs.
- */
-const HOOK_SCRIPT = `#!/bin/bash
-# Manor agent hook — thin shim that delegates to the Node implementation.
-# The real logic lives in notify.js next to this file.
-exec node "$(dirname "$0")/notify.js" "$@"
-`;
-
-/**
- * Ensure both hook scripts exist on disk: the bash wrapper agents
- * register against, and the Node script that does the real work.
- */
-export function ensureHookScript(): void {
-  const dir = path.dirname(HOOK_SCRIPT_PATH);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(HOOK_SCRIPT_PATH, HOOK_SCRIPT, { mode: 0o755 });
-
-  // Copy the bundled JS implementation alongside the wrapper. In
-  // unit tests this module runs directly from source (vitest loads
-  // agent-hooks.ts) and the bundled file doesn't exist; fall back to
-  // the source under electron/scripts/.
-  const jsSrc = bundledAgentHookJsPath();
-  let jsContent: string;
-  try {
-    jsContent = fs.readFileSync(jsSrc, "utf-8");
-  } catch {
-    const devSrc = path.join(__dirname, "scripts", "agent-hook.js");
-    jsContent = fs.readFileSync(devSrc, "utf-8");
-  }
-  fs.writeFileSync(HOOK_SCRIPT_JS_PATH, jsContent, { mode: 0o755 });
-}
-
-/** Register hooks and MCP for all known agent connectors */
-export function registerAllAgents(): void {
-  // In packaged builds, the asar archive is not readable by plain Node.js,
-  // so we point to the unpacked copy extracted by electron-builder's asarUnpack.
-  const mcpServerScriptPath = path
-    .join(__dirname, "mcp-webview-server.js")
-    .replace("app.asar", "app.asar.unpacked");
-
-  for (const connector of getAllConnectors()) {
-    connector.registerHooks(HOOK_SCRIPT_PATH);
-    connector.registerMcp(mcpServerScriptPath);
-  }
-}

@@ -1,6 +1,6 @@
 ---
 title: Widen consumers from LocalBackend to WorkspaceBackend
-status: todo
+status: done
 priority: high
 assignee: haiku
 blocked_by: []

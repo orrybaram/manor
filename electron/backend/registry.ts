@@ -1,0 +1,1001 @@
+/**
+ * BackendRegistry — every host Manor runs workspaces on, keyed by hostId
+ * (ADR-160 §6).
+ *
+ * `"local"` is always present and is the `LocalBackend` Manor has always
+ * had; remote hosts are registered from their persisted `HostSpec` and
+ * connected lazily, in the background, never on the launch path.
+ *
+ * The registry owns three things callers should not have to think about:
+ *
+ * - **Status.** Each host is `disconnected` → `connecting` → `connected`,
+ *   and a remote one moves to `reconnecting` / `error` as its backend
+ *   reports `hostDisconnected` / `hostFailed`. `list()` exposes it (with the
+ *   failure's reason, code and message), `onStatusChange` announces it.
+ * - **Gating.** `get(hostId)` for a remote host hands out a view that waits
+ *   for the connection before a pty call, and fails fast — kicking off a
+ *   background connect — before a git, shell or ports call. Pollers
+ *   therefore never sit on a host that is not there, and one unreachable
+ *   host cannot stall the others. The local view is an ungated Proxy over
+ *   the `LocalBackend` that calls every method straight through, so a
+ *   local-only setup behaves exactly as before.
+ * - **Stream events.** A `TerminalHostClient` takes one event handler, so
+ *   the registry is the only subscriber on every backend and re-publishes
+ *   each event with the hostId it came from. It also remembers which host
+ *   owns each session, which is how pane operations find their way back.
+ *   Pane ids are `pane-<uuid>`, unique across hosts; an event naming a
+ *   session another host owns is dropped rather than delivered twice.
+ *
+ * - **Agent hooks** (ADR-178 §2). A remote daemon journals its host's agent
+ *   hooks and streams them as `hookEvent`s. Those never reach `onEvent`
+ *   listeners: each remote host has a `HostHookFeed` that replays the
+ *   journal after every (re)connect, then feeds live events, in order, to
+ *   the `HookSink` (`setHookSink`), remembering its position per host in
+ *   the `HookSeqStore`. Before each replay it records the host's sessions,
+ *   so status relayed for a replayed hook reaches that host's daemon.
+ *
+ * - **Away and back** (ADR-178 §6). When a remote host comes back after a
+ *   drop, the registry waits for its hook replay, lists the sessions its
+ *   daemon still has, and only then announces `onHostResumed` — so panes
+ *   reattach (resnapshot) with their agents' status already right, and
+ *   panes whose sessions are gone (the daemon restarted) can be recovered.
+ *   The `exit` the client synthesizes for such a session (`lost`) is not a
+ *   shell exit; `isRemoteSessionLoss` tells the two apart.
+ *
+ * A remote host is built from its spec in two steps (ADR-178 §1): a
+ * `HostProvider` (how the box is started and reached), then a backend riding
+ * the provider's transport. The registry asks the provider to bring the box
+ * up before each explicit connect, and relays the keep-awake hint
+ * (`updateBusy`) to it.
+ */
+
+import { createProvider } from "./providers";
+import {
+  HostHookFeed,
+  memoryHookSeqStore,
+  type HookSeqStore,
+  type HookSink,
+} from "./hook-feed";
+import type { HostProvider } from "./providers/types";
+import { RemoteBackend, classifyHostFailure } from "./remote-backend";
+import type { BootstrapProgress } from "./remote-bootstrap";
+import {
+  LOCAL_HOST_ID,
+  type GitBackend,
+  type HostConnectionEvent,
+  type HostFailure,
+  type HostSpec,
+  type StreamEvent,
+  type WorkspaceBackend,
+} from "./types";
+
+export type HostStatus =
+  | "disconnected"
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "error";
+
+export interface HostStatusInfo {
+  hostId: string;
+  /** How the host is reached; null for the local host. */
+  spec: HostSpec | null;
+  status: HostStatus;
+  /** Why the host is in `error`, suitable for display. */
+  error?: string;
+  /**
+   * Set with `error` when it is a failure retrying cannot fix (bad
+   * credentials, host key, no Node on the box) — see `HostFailure`.
+   */
+  failure?: HostFailure;
+  /** Latest bootstrap progress line while `connecting`. */
+  progress?: string;
+  /** While `reconnecting`: the delay before the next attempt, if known. */
+  retryInMs?: number | null;
+  /**
+   * While `reconnecting`: when (epoch ms, this machine's clock) the next
+   * attempt is due, for a countdown. Set alongside a known `retryInMs`.
+   */
+  retryAt?: number;
+  /**
+   * Non-blocking issues the last successful bootstrap reported (e.g. an
+   * agent config on the remote it could not safely parse). Cleared by the
+   * next `connect()`; never fails the connection.
+   */
+  warnings?: string[];
+}
+
+type HostState = Omit<HostStatusInfo, "hostId" | "spec">;
+
+/**
+ * How long a reconnect waits for the host's hook replay before announcing
+ * `onHostResumed` anyway. Panes stay frozen until then, so a replay that is
+ * slow (a huge journal) or retrying must not hold them for long.
+ */
+const RESUME_REPLAY_WAIT_MS = 5_000;
+
+/**
+ * Whether `event` is a remote session the client reported gone because the
+ * daemon no longer had it after a reconnect — the daemon restarted or the
+ * box rebooted — rather than a shell that exited. The pane of such a session
+ * is recovered (ADR-178 §6), not closed. On the local host the same event
+ * still closes the pane (ADR-169): there is nothing to recover it on.
+ */
+export function isRemoteSessionLoss(hostId: string, event: StreamEvent): boolean {
+  return hostId !== LOCAL_HOST_ID && event.type === "exit" && event.lost === true;
+}
+
+/** A host is not in a state to serve the call; see `status`. */
+export class HostUnavailableError extends Error {
+  constructor(
+    readonly hostId: string,
+    readonly status: HostStatus | "unknown",
+    detail?: string,
+  ) {
+    super(
+      `Host "${hostId}" is ${status === "unknown" ? "not registered" : status}${
+        detail ? `: ${detail}` : ""
+      }`,
+    );
+    this.name = "HostUnavailableError";
+  }
+}
+
+/** Builds a remote host's provider from its spec. */
+export type HostProviderFactory = (
+  hostId: string,
+  spec: HostSpec,
+  opts: { onBootstrapProgress: (progress: BootstrapProgress) => void },
+) => HostProvider;
+
+export type RemoteBackendFactory = (
+  hostId: string,
+  spec: HostSpec,
+  opts: {
+    version?: string;
+    /** The host's provider; the backend rides `provider.transport()`. */
+    provider: HostProvider;
+    onBootstrapWarning: (warnings: string[]) => void;
+  },
+) => WorkspaceBackend;
+
+const defaultCreateProvider: HostProviderFactory = (_hostId, spec, opts) =>
+  createProvider(spec, opts);
+
+/** A `RemoteBackend` over the provider's transport. */
+const createRemoteBackend: RemoteBackendFactory = (_hostId, spec, opts) =>
+  new RemoteBackend({
+    target: spec.target,
+    version: opts.version,
+    transport: opts.provider.transport(),
+    onBootstrapWarning: opts.onBootstrapWarning,
+  });
+
+export interface BackendRegistryOptions {
+  /** The backend for this machine. */
+  local: WorkspaceBackend;
+  /** App version handed to every `connect()`. */
+  version?: string;
+  /**
+   * Manor's own version for remote hosts: it names the manor-host package
+   * bootstrap installs and is what the remote daemon reports back. Wins over
+   * `version`/`setVersion()`, which in an unpackaged app is Electron's version.
+   */
+  remoteVersion?: string;
+  /** Builds a remote host's backend. Defaults to `RemoteBackend`. For tests. */
+  createRemote?: RemoteBackendFactory;
+  /** Builds a remote host's provider. Defaults to `createProvider`. For tests. */
+  createProvider?: HostProviderFactory;
+  /** Each remote host's last ingested hook seq. Defaults to in-memory. */
+  hookSeqStore?: HookSeqStore;
+  /** Retry delay for a failed hook replay (see `HostHookFeed`). For tests. */
+  hookReplayRetryDelayMs?: (attempt: number) => number;
+}
+
+interface HostEntry {
+  hostId: string;
+  spec: HostSpec | null;
+  /** Null for the local host. */
+  provider: HostProvider | null;
+  backend: WorkspaceBackend;
+  view: WorkspaceBackend;
+  state: HostState;
+  connecting: Promise<void> | null;
+  /**
+   * Bumped by every connect attempt and every `disconnect()`. An attempt
+   * only touches state while it still holds the current value, so a
+   * disconnect during an in-flight connect is not overwritten by it.
+   */
+  attempt: number;
+  /**
+   * Whether a git/shell/ports call may start a background connect. Cleared
+   * by an explicit `disconnect()` so a poller does not undo it.
+   */
+  autoConnect: boolean;
+  /** The last keep-awake hint handed to the provider (see `updateBusy`). */
+  busy: boolean;
+  /** Null for the local host, and for a backend that cannot replay hooks. */
+  hookFeed: HostHookFeed | null;
+  /**
+   * Bumped by every host event, so an `onHostResumed` announcement still
+   * waiting on its replay is dropped when the host drops again meanwhile.
+   */
+  resumeToken: number;
+}
+
+type HostEventListener = (hostId: string, event: HostConnectionEvent) => void;
+type StreamEventListener = (hostId: string, event: StreamEvent) => void;
+type StatusListener = (hosts: HostStatusInfo[]) => void;
+type ResumedListener = (hostId: string, sessionIds: string[]) => void;
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function sameSpec(a: HostSpec | null, b: HostSpec | null): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+export class BackendRegistry {
+  private readonly hosts = new Map<string, HostEntry>();
+  private readonly unknownViews = new Map<string, WorkspaceBackend>();
+  /** Which host owns each session we have seen created, listed or streaming. */
+  private readonly sessionHosts = new Map<string, string>();
+  private readonly eventListeners = new Set<StreamEventListener>();
+  private readonly hostEventListeners = new Set<HostEventListener>();
+  private readonly statusListeners = new Set<StatusListener>();
+  private readonly resumedListeners = new Set<ResumedListener>();
+  private readonly createRemote: RemoteBackendFactory;
+  private readonly createProvider: HostProviderFactory;
+  private readonly hookSeqStore: HookSeqStore;
+  private readonly hookReplayRetryDelayMs?: (attempt: number) => number;
+  private hookSink: HookSink | null = null;
+  private version: string | undefined;
+  private readonly remoteVersion: string | undefined;
+
+  constructor(opts: BackendRegistryOptions) {
+    this.version = opts.version;
+    this.remoteVersion = opts.remoteVersion;
+    this.hookSeqStore = opts.hookSeqStore ?? memoryHookSeqStore();
+    this.hookReplayRetryDelayMs = opts.hookReplayRetryDelayMs;
+    this.createRemote = opts.createRemote ?? createRemoteBackend;
+    this.createProvider = opts.createProvider ?? defaultCreateProvider;
+    this.add(LOCAL_HOST_ID, null, null, opts.local);
+  }
+
+  // ── Hosts ──
+
+  /**
+   * The backend for `hostId`. Local: the local backend itself. Remote: a
+   * gated view (see the header). Unregistered: a backend whose every call
+   * fails with `HostUnavailableError`, so a project pointing at a host that
+   * was removed degrades instead of throwing synchronously.
+   */
+  get(hostId: string): WorkspaceBackend {
+    const entry = this.hosts.get(hostId);
+    if (entry) return entry.view;
+    let view = this.unknownViews.get(hostId);
+    if (!view) {
+      view = unavailableBackend(hostId);
+      this.unknownViews.set(hostId, view);
+    }
+    return view;
+  }
+
+  has(hostId: string): boolean {
+    return this.hosts.has(hostId);
+  }
+
+  /** A remote host's provider; undefined for the local host or an unknown one. */
+  provider(hostId: string): HostProvider | undefined {
+    return this.hosts.get(hostId)?.provider ?? undefined;
+  }
+
+  /**
+   * Add a remote host. Registering the same spec again is a no-op; a
+   * different spec replaces the host (the old connection is dropped).
+   * Does not connect.
+   */
+  register(hostId: string, spec: HostSpec): void {
+    if (hostId === LOCAL_HOST_ID) {
+      throw new Error(`"${LOCAL_HOST_ID}" is reserved for this machine`);
+    }
+    const existing = this.hosts.get(hostId);
+    if (existing && sameSpec(existing.spec, spec)) return;
+    const provider = this.createProvider(hostId, spec, {
+      onBootstrapProgress: (progress) => {
+        const entry = this.hosts.get(hostId);
+        if (entry?.provider !== provider || entry.state.status !== "connecting") return;
+        this.setState(entry, { status: "connecting", progress: progress.message });
+      },
+    });
+    const backend = this.createRemote(hostId, spec, {
+      version: this.hostVersion(),
+      provider,
+      onBootstrapWarning: (warnings) => {
+        const entry = this.hosts.get(hostId);
+        if (entry?.backend !== backend) return;
+        this.setState(entry, {
+          ...entry.state,
+          warnings: warnings.length > 0 ? warnings : undefined,
+        });
+      },
+    });
+    this.add(hostId, spec, provider, backend);
+    if (existing) {
+      // Agents on the host did not stop because its spec changed.
+      if (existing.busy) this.updateBusy(hostId, true);
+      this.dropBackend(existing);
+    }
+  }
+
+  /** Remove a remote host and drop its connection. */
+  async unregister(hostId: string): Promise<void> {
+    if (hostId === LOCAL_HOST_ID) {
+      throw new Error(`"${LOCAL_HOST_ID}" cannot be unregistered`);
+    }
+    const entry = this.hosts.get(hostId);
+    if (!entry) return;
+    this.hosts.delete(hostId);
+    this.emitStatus();
+    await this.dropBackend(entry);
+  }
+
+  /** Every host and its connection status, local first. */
+  list(): HostStatusInfo[] {
+    return Array.from(this.hosts.values(), (entry) => ({
+      hostId: entry.hostId,
+      spec: entry.spec,
+      ...entry.state,
+    }));
+  }
+
+  status(hostId: string): HostStatus | undefined {
+    return this.hosts.get(hostId)?.state.status;
+  }
+
+  /** Registered remote host ids, in registration order. */
+  remoteHostIds(): string[] {
+    return Array.from(this.hosts.keys()).filter((id) => id !== LOCAL_HOST_ID);
+  }
+
+  /** The version remote hosts are bootstrapped and handshaken against. */
+  private hostVersion(): string | undefined {
+    return this.remoteVersion ?? this.version;
+  }
+
+  setVersion(version: string): void {
+    this.version = version;
+  }
+
+  // ── Connecting ──
+
+  /**
+   * Connect `hostId` if it is not already. Concurrent callers share one
+   * attempt. Rejects with the connect error, which `list()` also reports.
+   * Always tries — including after `error` — so this is the retry.
+   */
+  async ensureConnected(hostId: string): Promise<void> {
+    const entry = this.hosts.get(hostId);
+    if (!entry) throw new HostUnavailableError(hostId, "unknown");
+    entry.autoConnect = true;
+    if (entry.state.status === "connected") return;
+    if (!entry.connecting) {
+      const token = ++entry.attempt;
+      const attempt = this.connect(entry, token).finally(() => {
+        if (entry.connecting === attempt) entry.connecting = null;
+      });
+      entry.connecting = attempt;
+    }
+    return entry.connecting;
+  }
+
+  /**
+   * The user's "Retry now". A host its backend is already reconnecting
+   * attempts at once instead of waiting out the backoff; any other host that
+   * is not connected gets a fresh `connect()` (`connectInBackground`).
+   *
+   * A reconnecting backend whose loop has no wait to cut short is mid-attempt
+   * already: that is left alone. A second `connect()` alongside the loop's
+   * own attempt would race it for the same host.
+   */
+  retryNow(hostId: string): void {
+    const entry = this.hosts.get(hostId);
+    if (entry?.state.status === "reconnecting") {
+      entry.backend.retryNow?.();
+      return;
+    }
+    this.connectInBackground(hostId);
+  }
+
+  /** `ensureConnected` without waiting; failures land in `list()`. */
+  connectInBackground(hostId: string): void {
+    this.ensureConnected(hostId).catch(() => {
+      // Reported through status.
+    });
+  }
+
+  /** Drop a remote host's connection. Its remote sessions keep running. */
+  async disconnect(hostId: string): Promise<void> {
+    const entry = this.hosts.get(hostId);
+    if (!entry || hostId === LOCAL_HOST_ID) return;
+    entry.autoConnect = false;
+    entry.connecting = null;
+    // Invalidate any in-flight connect so it cannot land after this.
+    entry.attempt++;
+    entry.hookFeed?.pause();
+    this.setState(entry, { status: "disconnected" });
+    await this.disposeProvider(entry);
+    await entry.backend.disconnect();
+  }
+
+  /** Drop every remote connection (app quit). */
+  async disconnectAll(): Promise<void> {
+    await Promise.allSettled(this.remoteHostIds().map((id) => this.disconnect(id)));
+  }
+
+  // ── Keep-awake ──
+
+  /**
+   * Whether any agent on `hostId` is working (ADR-178 §1 keep-awake rule).
+   * Handed to the provider's `setBusy` only when it changes, so callers may
+   * report the same value as often as they like. No-op for the local host.
+   */
+  updateBusy(hostId: string, busy: boolean): void {
+    const entry = this.hosts.get(hostId);
+    if (!entry?.provider || entry.busy === busy) return;
+    entry.busy = busy;
+    try {
+      entry.provider.setBusy?.(busy);
+    } catch (err) {
+      console.warn(`[backend-registry] setBusy on ${hostId} failed:`, err);
+    }
+  }
+
+  // ── Sessions ──
+
+  /** The host a session lives on, if the registry has seen it. */
+  hostForSession(sessionId: string): string | undefined {
+    return this.sessionHosts.get(sessionId);
+  }
+
+  noteSession(sessionId: string, hostId: string): void {
+    this.sessionHosts.set(sessionId, hostId);
+  }
+
+  forgetSession(sessionId: string): void {
+    this.sessionHosts.delete(sessionId);
+  }
+
+  // ── Events ──
+
+  /**
+   * Where remote hosts' agent hooks go (ADR-178 §2). Hosts already connected
+   * catch up from their journals now; the rest do on connect.
+   */
+  setHookSink(sink: HookSink): void {
+    this.hookSink = sink;
+    for (const entry of this.hosts.values()) {
+      if (entry.state.status === "connected") void entry.hookFeed?.catchUp();
+    }
+  }
+
+  /** Stream events from every host, tagged with the host they came from. */
+  onEvent(handler: StreamEventListener): () => void {
+    this.eventListeners.add(handler);
+    return () => this.eventListeners.delete(handler);
+  }
+
+  /** Connection loss / recovery / failure on any remote host. */
+  onHostEvent(handler: HostEventListener): () => void {
+    this.hostEventListeners.add(handler);
+    return () => this.hostEventListeners.delete(handler);
+  }
+
+  /**
+   * A remote host came back after a drop and its hook replay is done (or
+   * took too long). `sessionIds` are every session its daemon has now: a
+   * pane the app had on that host whose session is not among them was lost
+   * (the daemon restarted); the rest should reattach, having missed output.
+   */
+  onHostResumed(handler: ResumedListener): () => void {
+    this.resumedListeners.add(handler);
+    return () => this.resumedListeners.delete(handler);
+  }
+
+  /** Called with the full `list()` whenever any host's status changes. */
+  onStatusChange(handler: StatusListener): () => void {
+    this.statusListeners.add(handler);
+    return () => this.statusListeners.delete(handler);
+  }
+
+  // ── Internals ──
+
+  private add(
+    hostId: string,
+    spec: HostSpec | null,
+    provider: HostProvider | null,
+    backend: WorkspaceBackend,
+  ): void {
+    const entry: HostEntry = {
+      hostId,
+      spec,
+      provider,
+      backend,
+      view: backend,
+      state: { status: "disconnected" },
+      connecting: null,
+      attempt: 0,
+      autoConnect: true,
+      busy: false,
+      hookFeed: null,
+      resumeToken: 0,
+    };
+    const replay = backend.pty.replayHooks?.bind(backend.pty);
+    if (hostId !== LOCAL_HOST_ID && replay) {
+      entry.hookFeed = new HostHookFeed({
+        hostId,
+        replay,
+        store: this.hookSeqStore,
+        sink: () => this.hookSink,
+        // Replayed hooks relay status to their pane's session through
+        // `RoutedBackend`, which routes by session owner. Right after launch
+        // no remote session is known yet, so without this the relay would
+        // fall through to the local daemon.
+        beforeCatchUp: () => this.noteHostSessions(entry),
+        ...(this.hookReplayRetryDelayMs
+          ? { retryDelayMs: this.hookReplayRetryDelayMs }
+          : {}),
+      });
+    }
+    entry.view = this.makeView(entry);
+    this.hosts.set(hostId, entry);
+
+    backend.pty.onEvent((event) => {
+      if (this.hosts.get(hostId) !== entry) return;
+      if (event.type === "hookEvent") {
+        entry.hookFeed?.onLiveEvent(event.seq, event.payload);
+        return;
+      }
+      this.dispatchStreamEvent(hostId, event);
+    });
+    backend.onHostEvent((event) => {
+      if (this.hosts.get(hostId) !== entry) return;
+      this.handleHostEvent(entry, event);
+    });
+    this.emitStatus();
+  }
+
+  /**
+   * Record every session `entry`'s daemon reports as that host's, leaving
+   * sessions another host already owns alone (as `dispatchStreamEvent` does).
+   */
+  private async noteHostSessions(entry: HostEntry): Promise<void> {
+    const sessions = await entry.backend.pty.listSessions();
+    if (this.hosts.get(entry.hostId) !== entry) return;
+    for (const { sessionId } of sessions) {
+      if (!this.sessionHosts.has(sessionId)) this.sessionHosts.set(sessionId, entry.hostId);
+    }
+  }
+
+  private async dropBackend(entry: HostEntry): Promise<void> {
+    entry.hookFeed?.pause();
+    await this.disposeProvider(entry);
+    try {
+      await entry.backend.disconnect();
+    } catch (err) {
+      console.warn(`[backend-registry] disconnecting ${entry.hostId} failed:`, err);
+    }
+  }
+
+  /** Release the provider's own resources (port forwards); never throws. */
+  private async disposeProvider(entry: HostEntry): Promise<void> {
+    try {
+      await entry.provider?.dispose();
+    } catch (err) {
+      console.warn(`[backend-registry] disposing ${entry.hostId}'s provider failed:`, err);
+    }
+  }
+
+  private async connect(entry: HostEntry, token: number): Promise<void> {
+    const current = () =>
+      this.hosts.get(entry.hostId) === entry && entry.attempt === token;
+    // A disconnect (or replacing / removing the host) cancelled this attempt.
+    const superseded = () =>
+      new HostUnavailableError(
+        entry.hostId,
+        this.hosts.get(entry.hostId) === entry ? entry.state.status : "unknown",
+        "connect was cancelled",
+      );
+    this.setState(entry, { status: "connecting" });
+    try {
+      // Start or resume the box before opening the transport to it.
+      if (entry.provider) {
+        await entry.provider.ensureUp();
+        if (!current()) throw superseded();
+      }
+      const version =
+        entry.hostId === LOCAL_HOST_ID ? this.version : this.hostVersion();
+      await entry.backend.connect(version ? { version } : undefined);
+    } catch (err) {
+      if (!current()) throw superseded();
+      const failure = classifyHostFailure(err);
+      this.setState(entry, {
+        status: "error",
+        error: failure?.message ?? errorMessage(err),
+        ...(failure ? { failure } : {}),
+      });
+      throw err;
+    }
+    // Resolving now would hand a pty call a client that was disposed.
+    if (!current()) throw superseded();
+    // A bootstrap warning may have landed on `entry.state` while this attempt
+    // was still "connecting" (see `onBootstrapWarning` above) — carry it
+    // forward rather than letting this transition drop it.
+    this.setState(entry, {
+      status: "connected",
+      ...(entry.state.warnings ? { warnings: entry.state.warnings } : {}),
+    });
+    void entry.hookFeed?.catchUp();
+  }
+
+  private handleHostEvent(entry: HostEntry, event: HostConnectionEvent): void {
+    for (const sessionId of event.sessionIds) {
+      this.sessionHosts.set(sessionId, entry.hostId);
+    }
+    const token = ++entry.resumeToken;
+    switch (event.type) {
+      // Auto-reconnect doesn't rerun bootstrap, so nothing would re-report
+      // its warnings — carry them across the blip (connected → reconnecting →
+      // connected), as `connect()` does across "connecting".
+      case "hostDisconnected":
+        entry.hookFeed?.pause();
+        this.setState(entry, {
+          status: "reconnecting",
+          retryInMs: event.retryInMs,
+          ...(event.retryInMs != null ? { retryAt: Date.now() + event.retryInMs } : {}),
+          ...(entry.state.warnings ? { warnings: entry.state.warnings } : {}),
+        });
+        break;
+      case "hostRetrying":
+        // Only a still-reconnecting host has an attempt to count down to.
+        if (entry.state.status !== "reconnecting") break;
+        this.setState(entry, {
+          ...entry.state,
+          retryInMs: event.retryInMs,
+          retryAt: Date.now() + event.retryInMs,
+        });
+        break;
+      case "hostReconnected": {
+        this.setState(entry, {
+          status: "connected",
+          ...(entry.state.warnings ? { warnings: entry.state.warnings } : {}),
+        });
+        // Panes reattach only once the replay is in, so their agent dots
+        // are right on first paint (ADR-178 §6).
+        const replayed = entry.hookFeed?.catchUp() ?? Promise.resolve();
+        void this.announceResumed(entry, token, replayed);
+        break;
+      }
+      case "hostFailed": {
+        const failure: HostFailure = {
+          reason: event.reason,
+          message: event.message,
+          ...(event.code !== undefined ? { code: event.code } : {}),
+        };
+        entry.hookFeed?.pause();
+        this.setState(entry, { status: "error", error: event.message, failure });
+        break;
+      }
+    }
+    for (const listener of this.hostEventListeners) {
+      try {
+        listener(entry.hostId, event);
+      } catch (err) {
+        console.error("[backend-registry] host event listener threw:", err);
+      }
+    }
+  }
+
+  /**
+   * Tell `onHostResumed` listeners `entry` is back, once its hook replay has
+   * settled (bounded by `RESUME_REPLAY_WAIT_MS`) and its daemon has said
+   * which sessions it still has. Dropped if the host moves on meanwhile; a
+   * failed listing is dropped too — the connection went again, and the next
+   * reconnect announces.
+   */
+  private async announceResumed(
+    entry: HostEntry,
+    token: number,
+    replayed: Promise<void>,
+  ): Promise<void> {
+    const current = () =>
+      this.hosts.get(entry.hostId) === entry &&
+      entry.resumeToken === token &&
+      entry.state.status === "connected";
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      replayed,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, RESUME_REPLAY_WAIT_MS);
+      }),
+    ]);
+    clearTimeout(timer);
+    if (!current()) return;
+    let sessionIds: string[];
+    try {
+      const sessions = await entry.backend.pty.listSessions();
+      sessionIds = sessions.map((s) => s.sessionId);
+    } catch (err) {
+      console.warn(
+        `[backend-registry] listing ${entry.hostId}'s sessions after reconnect failed:`,
+        errorMessage(err),
+      );
+      return;
+    }
+    if (!current()) return;
+    for (const sessionId of sessionIds) {
+      if (!this.sessionHosts.has(sessionId)) this.sessionHosts.set(sessionId, entry.hostId);
+    }
+    for (const listener of this.resumedListeners) {
+      try {
+        listener(entry.hostId, sessionIds);
+      } catch (err) {
+        console.error("[backend-registry] host resumed listener threw:", err);
+      }
+    }
+  }
+
+  private dispatchStreamEvent(hostId: string, event: StreamEvent): void {
+    if ("sessionId" in event) {
+      const owner = this.sessionHosts.get(event.sessionId);
+      if (owner !== undefined && owner !== hostId) {
+        console.warn(
+          `[backend-registry] dropping ${event.type} for ${event.sessionId} from ${hostId}; it belongs to ${owner}`,
+        );
+        return;
+      }
+      // A remote session lost to a daemon restart keeps its host: its pane
+      // is recreated there, not wherever its project points now.
+      if (event.type === "exit" && !isRemoteSessionLoss(hostId, event)) {
+        this.sessionHosts.delete(event.sessionId);
+      }
+      else if (owner === undefined) this.sessionHosts.set(event.sessionId, hostId);
+    }
+    for (const listener of this.eventListeners) {
+      try {
+        listener(hostId, event);
+      } catch (err) {
+        console.error("[backend-registry] stream event listener threw:", err);
+      }
+    }
+  }
+
+  private setState(entry: HostEntry, state: HostState): void {
+    if (JSON.stringify(entry.state) === JSON.stringify(state)) return;
+    entry.state = state;
+    if (this.hosts.get(entry.hostId) === entry) this.emitStatus();
+  }
+
+  private emitStatus(): void {
+    if (this.statusListeners.size === 0) return;
+    const hosts = this.list();
+    for (const listener of this.statusListeners) {
+      try {
+        listener(hosts);
+      } catch (err) {
+        console.error("[backend-registry] status listener threw:", err);
+      }
+    }
+  }
+
+  /** Wait for the connection (connecting it if need be) before a pty call. */
+  private async ptyGate(entry: HostEntry): Promise<void> {
+    if (this.hosts.get(entry.hostId) !== entry) {
+      throw new HostUnavailableError(entry.hostId, "unknown");
+    }
+    switch (entry.state.status) {
+      case "connected":
+        return;
+      case "reconnecting":
+        // The client is already retrying; let it decide what to do with the call.
+        return;
+      case "error":
+        throw new HostUnavailableError(entry.hostId, "error", entry.state.error);
+      case "disconnected":
+      case "connecting":
+        await this.ensureConnected(entry.hostId);
+    }
+  }
+
+  /**
+   * Fail fast unless connected, before a git / shell / ports call. Those
+   * are what pollers make, and a poller must not wait out an ssh handshake.
+   */
+  private async execGate(entry: HostEntry): Promise<void> {
+    if (this.hosts.get(entry.hostId) !== entry) {
+      throw new HostUnavailableError(entry.hostId, "unknown");
+    }
+    const { status, error } = entry.state;
+    if (status === "connected") return;
+    if (status === "disconnected" && entry.autoConnect) {
+      this.connectInBackground(entry.hostId);
+    }
+    throw new HostUnavailableError(entry.hostId, status, error);
+  }
+
+  private makeView(entry: HostEntry): WorkspaceBackend {
+    const { hostId, backend } = entry;
+    const isLocal = hostId === LOCAL_HOST_ID;
+    const ptyGate = isLocal ? null : () => this.ptyGate(entry);
+    const execGate = isLocal ? null : () => this.execGate(entry);
+    return {
+      pty: gated(backend.pty, ptyGate, {
+        // Fire-and-forget: nothing to await, and the client drops writes
+        // for a session it is not connected to.
+        write: null,
+        relayAgentHook: null,
+        // The registry is the backend's one subscriber (the client keeps a
+        // single handler); per-host subscribers go through it.
+        onEvent: (handler: (event: StreamEvent) => void) => {
+          this.onEvent((from, event) => {
+            if (from === hostId) handler(event);
+          });
+        },
+      }),
+      git: gated(backend.git, execGate, {
+        pushStream: execGate
+          ? deferredPushStream(backend.git, execGate)
+          : null,
+        cloneStream: execGate
+          ? deferredCloneStream(backend.git, execGate)
+          : null,
+      }),
+      shell: gated(backend.shell, execGate, {}),
+      ports: gated(backend.ports, execGate, {}),
+      connect: () => this.ensureConnected(hostId),
+      disconnect: () => this.disconnect(hostId),
+      onHostEvent: (handler) => {
+        this.onHostEvent((from, event) => {
+          if (from === hostId) handler(event);
+        });
+      },
+    };
+  }
+}
+
+/**
+ * Wrap every method of `target` so it awaits `gate` first. `overrides` maps
+ * a method to a replacement, or to null to call it straight through. A null
+ * gate calls everything straight through (the local host).
+ */
+function gated<T extends object>(
+  target: T,
+  gate: (() => Promise<void>) | null,
+  overrides: Record<string, unknown>,
+): T {
+  return new Proxy(target, {
+    get(obj, prop, receiver) {
+      if (typeof prop === "string" && prop in overrides) {
+        const override = overrides[prop];
+        if (override !== null) return override;
+      }
+      const value: unknown = Reflect.get(obj, prop, receiver);
+      if (typeof value !== "function") return value;
+      const fn = value as (...args: unknown[]) => unknown;
+      if (!gate || (typeof prop === "string" && prop in overrides)) {
+        return (...args: unknown[]) => fn.apply(obj, args);
+      }
+      return async (...args: unknown[]) => {
+        await gate();
+        return fn.apply(obj, args);
+      };
+    },
+  });
+}
+
+/** `pushStream` is synchronous, so the gate runs before the push starts. */
+function deferredPushStream(
+  git: GitBackend,
+  gate: () => Promise<void>,
+): GitBackend["pushStream"] {
+  return (cwd, opts, callbacks) => {
+    let cancelled = false;
+    let inner: { cancel: () => void } | null = null;
+    gate().then(
+      () => {
+        if (cancelled) {
+          callbacks.onDone({ exitCode: null, stderr: "" });
+          return;
+        }
+        inner = git.pushStream(cwd, opts, callbacks);
+      },
+      (err: unknown) => {
+        callbacks.onDone({ exitCode: null, stderr: errorMessage(err) });
+      },
+    );
+    return {
+      cancel: () => {
+        cancelled = true;
+        inner?.cancel();
+      },
+    };
+  };
+}
+
+/** `cloneStream` is synchronous, so the gate runs before the clone starts. */
+function deferredCloneStream(
+  git: GitBackend,
+  gate: () => Promise<void>,
+): GitBackend["cloneStream"] {
+  return (repoUrl, targetDir, callbacks) => {
+    let cancelled = false;
+    let inner: { cancel: () => void } | null = null;
+    gate().then(
+      () => {
+        if (cancelled) {
+          callbacks.onDone({ exitCode: null, stderr: "" });
+          return;
+        }
+        inner = git.cloneStream(repoUrl, targetDir, callbacks);
+      },
+      (err: unknown) => {
+        callbacks.onDone({ exitCode: null, stderr: errorMessage(err) });
+      },
+    );
+    return {
+      cancel: () => {
+        cancelled = true;
+        inner?.cancel();
+      },
+    };
+  };
+}
+
+/** The backend of a host nobody registered: every call fails. */
+function unavailableBackend(hostId: string): WorkspaceBackend {
+  const fail = async (): Promise<never> => {
+    throw new HostUnavailableError(hostId, "unknown");
+  };
+  const failing = <T extends object>(overrides: Record<string, unknown>): T =>
+    new Proxy({} as T, {
+      get(_obj, prop) {
+        if (typeof prop === "string" && prop in overrides) return overrides[prop];
+        // Not thenable: a Proxy answering `then` would look like a promise.
+        if (prop === "then") return undefined;
+        return fail;
+      },
+    });
+  return {
+    pty: failing({ write: () => {}, relayAgentHook: () => {}, onEvent: () => {} }),
+    git: failing({
+      pushStream: (
+        _cwd: string,
+        _opts: unknown,
+        callbacks: Parameters<GitBackend["pushStream"]>[2],
+      ) => {
+        callbacks.onDone({
+          exitCode: null,
+          stderr: new HostUnavailableError(hostId, "unknown").message,
+        });
+        return { cancel: () => {} };
+      },
+      cloneStream: (
+        _repoUrl: string,
+        _targetDir: string,
+        callbacks: Parameters<GitBackend["cloneStream"]>[2],
+      ) => {
+        callbacks.onDone({
+          exitCode: null,
+          stderr: new HostUnavailableError(hostId, "unknown").message,
+        });
+        return { cancel: () => {} };
+      },
+    }),
+    shell: failing({}),
+    ports: failing({}),
+    connect: fail,
+    disconnect: async () => {},
+    onHostEvent: () => {},
+  };
+}

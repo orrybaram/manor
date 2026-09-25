@@ -36,10 +36,8 @@ const agentHook = require("../scripts/agent-hook.js") as {
 
 type FakeStderr = { write: (chunk: string) => boolean; lines: string[] };
 type FakeStdout = { write: (chunk: string) => boolean; lines: string[] };
-type FakeFetch = (
-  url: string,
-  init?: { signal?: AbortSignal },
-) => Promise<{ ok: boolean }>;
+type FetchInit = { signal?: AbortSignal; headers?: Record<string, string> };
+type FakeFetch = (url: string, init?: FetchInit) => Promise<{ ok: boolean }>;
 type MainOpts = {
   argv?: string[];
   stdin?: NodeJS.ReadableStream;
@@ -79,9 +77,9 @@ function makeStdout(): FakeStdout {
 
 function makeFetch(): {
   fn: FakeFetch;
-  calls: { url: string; init?: { signal?: AbortSignal } }[];
+  calls: { url: string; init?: FetchInit }[];
 } {
-  const calls: { url: string; init?: { signal?: AbortSignal } }[] = [];
+  const calls: { url: string; init?: FetchInit }[] = [];
   const fn: FakeFetch = (url, init) => {
     calls.push({ url, init });
     return Promise.resolve({ ok: true });
@@ -233,6 +231,63 @@ describe("agent-hook.js — main()", () => {
 
     const url = new URL(calls[0]!.url);
     expect(url.port).toBe("55555");
+  });
+
+  it("sends no token header to Manor desktop's port-only file", async () => {
+    fs.mkdirSync(path.join(tmpDir, ".manor"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, ".manor", "hook-port"), "55555");
+    const { fn: fetchFn, calls } = makeFetch();
+    await agentHook.main({
+      argv: ["node", "agent-hook.js"],
+      stdin: makeStdin(JSON.stringify({ hook_event_name: "Stop" })),
+      env: { MANOR_PANE_ID: "p" },
+      homeDir: tmpDir,
+      fetch: fetchFn,
+      stderr: makeStderr(),
+    });
+    expect(calls[0]!.init?.headers).toBeUndefined();
+  });
+
+  it("uses MANOR_HOOK_PORT_FILE over ~/.manor/hook-port, sending its token", async () => {
+    // A remote Manor daemon's pane on a box that also runs Manor desktop.
+    fs.mkdirSync(path.join(tmpDir, ".manor", "remote"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, ".manor", "hook-port"), "55555");
+    const remoteFile = path.join(tmpDir, ".manor", "remote", "hook-port");
+    fs.writeFileSync(remoteFile, "44444\nsecret-token\n");
+    const { fn: fetchFn, calls } = makeFetch();
+
+    await agentHook.main({
+      argv: ["node", "agent-hook.js"],
+      stdin: makeStdin(JSON.stringify({ hook_event_name: "Stop" })),
+      env: { MANOR_PANE_ID: "p", MANOR_HOOK_PORT: "11111", MANOR_HOOK_PORT_FILE: remoteFile },
+      homeDir: tmpDir,
+      fetch: fetchFn,
+      stderr: makeStderr(),
+    });
+
+    expect(new URL(calls[0]!.url).port).toBe("44444");
+    expect(calls[0]!.init?.headers).toEqual({ "x-manor-hook-token": "secret-token" });
+  });
+
+  it("never falls back to Manor desktop's port file when MANOR_HOOK_PORT_FILE is missing", async () => {
+    fs.mkdirSync(path.join(tmpDir, ".manor"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, ".manor", "hook-port"), "55555");
+    const { fn: fetchFn, calls } = makeFetch();
+
+    await agentHook.main({
+      argv: ["node", "agent-hook.js"],
+      stdin: makeStdin(JSON.stringify({ hook_event_name: "Stop" })),
+      env: {
+        MANOR_PANE_ID: "p",
+        MANOR_HOOK_PORT: "11111",
+        MANOR_HOOK_PORT_FILE: path.join(tmpDir, "gone"),
+      },
+      homeDir: tmpDir,
+      fetch: fetchFn,
+      stderr: makeStderr(),
+    });
+
+    expect(new URL(calls[0]!.url).port).toBe("11111");
   });
 
   it("falls back to MANOR_HOOK_PORT env when ~/.manor/hook-port is absent", async () => {

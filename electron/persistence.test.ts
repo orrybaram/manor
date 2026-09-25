@@ -8,8 +8,13 @@ import {
   isFolderDescendant,
   normalizeSidebarOrder,
   spliceFolderOut,
+  validateRepoUrl,
+  validateRemoteDir,
+  normalizeOriginUrl,
 } from "./persistence";
-import type { GitBackend } from "./backend/types";
+import type { GitBackend, ShellBackend } from "./backend/types";
+import { worktreesDir } from "./paths";
+import { toDirSlug } from "./branch-name";
 
 vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
@@ -1234,5 +1239,856 @@ describe("ProjectManager", () => {
       ).length;
       expect(callsAfterSecond).toBe(callsAfterFirst);
     });
+  });
+});
+
+describe("ProjectManager hosts (ADR-160)", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = path.join(os.tmpdir(), `manor-hosts-test-${crypto.randomUUID()}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function gitNamed(name: string): GitBackend {
+    return {
+      exec: vi.fn(async () => {
+        throw new Error("no origin");
+      }),
+      worktreeList: vi.fn(async (cwd: string) => [
+        { path: cwd, branch: name, isMain: true },
+      ]),
+    } as unknown as GitBackend;
+  }
+
+  it("reads a project persisted without hostId as local, with no migration", async () => {
+    fs.writeFileSync(
+      path.join(tmpDir, "projects.json"),
+      JSON.stringify({
+        projects: [
+          {
+            id: "p1",
+            name: "Old",
+            path: "/tmp/old",
+            selectedWorkspaceIndex: 0,
+            workspaces: [],
+            defaultBranch: "main",
+            defaultRunCommand: null,
+            worktreePath: null,
+          },
+        ],
+        selectedProjectIndex: 0,
+      }),
+    );
+    const resolver = vi.fn((hostId: string) => gitNamed(hostId));
+    const mgr = new ProjectManager(resolver, tmpDir);
+
+    const [project] = await mgr.getProjects();
+    expect(project.hostId).toBe("local");
+    expect(project.backendType).toBe("local");
+    expect(mgr.getProjectHostId("p1")).toBe("local");
+    expect(mgr.getHosts()).toEqual([]);
+    expect(new Set(resolver.mock.calls.map(([id]) => id))).toEqual(new Set(["local"]));
+  });
+
+  it("does not write hostId for a local project", async () => {
+    const mgr = new ProjectManager(gitNamed("local"), tmpDir);
+    await mgr.addProject("Local", "/tmp/local");
+    const saved = JSON.parse(fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8"));
+    expect(saved.projects[0]).not.toHaveProperty("hostId");
+    expect(saved).not.toHaveProperty("hosts");
+  });
+
+  it("routes a remote project's git through its host and persists the host", async () => {
+    const gits = new Map<string, GitBackend>();
+    const resolver = (hostId: string) => {
+      if (!gits.has(hostId)) gits.set(hostId, gitNamed(hostId));
+      return gits.get(hostId)!;
+    };
+    const mgr = new ProjectManager(resolver, tmpDir);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    const project = await mgr.addProject("Remote", "/home/me/app", "box");
+
+    expect(project.hostId).toBe("box");
+    expect(project.workspaces[0].branch).toBe("box");
+    expect(gits.get("box")!.worktreeList).toHaveBeenCalledWith("/home/me/app");
+    expect(gits.has("local")).toBe(false);
+
+    const reloaded = new ProjectManager(resolver, tmpDir);
+    expect(reloaded.getHosts()).toEqual([
+      { hostId: "box", spec: { kind: "ssh", target: "me@box" } },
+    ]);
+    const [info] = await reloaded.getProjects();
+    expect(info.hostId).toBe("box");
+    expect(info.backendType).toBe("remote");
+    expect(reloaded.remoteHostIdsInUse()).toEqual(["box"]);
+  });
+
+  it("keeps extra per-host fields when a host's spec is replaced", () => {
+    fs.writeFileSync(
+      path.join(tmpDir, "projects.json"),
+      JSON.stringify({
+        projects: [],
+        selectedProjectIndex: 0,
+        hosts: { box: { spec: { kind: "ssh", target: "old" }, lastHookSeq: 42 } },
+      }),
+    );
+    const mgr = new ProjectManager(gitNamed("local"), tmpDir);
+    mgr.saveHost("box", { kind: "ssh", target: "new" });
+    const saved = JSON.parse(fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8"));
+    expect(saved.hosts.box).toEqual({ spec: { kind: "ssh", target: "new" }, lastHookSeq: 42 });
+    expect(() => mgr.saveHost("local", { kind: "ssh", target: "x" })).toThrow();
+  });
+
+  it("records each host's hook cursor, debounced, and flushes it on demand", () => {
+    const mgr = new ProjectManager(gitNamed("local"), tmpDir);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    // Never met: null, not 0, so the hook feed can tell first contact apart.
+    expect(mgr.getHostHookCursor("box")).toBeNull();
+    mgr.setHostHookCursor("box", { seq: 7, epoch: "e1" });
+    expect(mgr.getHostHookCursor("box")).toEqual({ seq: 7, epoch: "e1" });
+    // Unknown hosts are ignored rather than created.
+    mgr.setHostHookCursor("ghost", { seq: 3, epoch: null });
+    expect(mgr.getHostHookCursor("ghost")).toBeNull();
+
+    const read = () =>
+      JSON.parse(fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8")).hosts.box;
+    expect(read().lastHookSeq).toBeUndefined();
+    mgr.flushHostHookSeqs();
+    expect(read()).toEqual({
+      spec: { kind: "ssh", target: "me@box" },
+      lastHookSeq: 7,
+      hookJournalEpoch: "e1",
+    });
+    expect(new ProjectManager(gitNamed("local"), tmpDir).getHostHookCursor("box")).toEqual({
+      seq: 7,
+      epoch: "e1",
+    });
+
+    // A seq stored before epochs existed reads back with a null epoch.
+    mgr.setHostHookCursor("box", { seq: 0, epoch: null });
+    mgr.flushHostHookSeqs();
+    expect(read()).toEqual({ spec: { kind: "ssh", target: "me@box" }, lastHookSeq: 0 });
+    expect(mgr.getHostHookCursor("box")).toEqual({ seq: 0, epoch: null });
+  });
+
+  it("does not route a local project's worktrees to a same-named remote project", () => {
+    const project = (id: string, extra: Record<string, unknown>) => ({
+      id,
+      name: "App",
+      selectedWorkspaceIndex: 0,
+      workspaces: [],
+      defaultBranch: "main",
+      defaultRunCommand: null,
+      worktreePath: null,
+      ...extra,
+    });
+    fs.writeFileSync(
+      path.join(tmpDir, "projects.json"),
+      JSON.stringify({
+        // The remote project comes first, so a tie would have gone to it.
+        projects: [
+          project("r1", { path: "/home/me/app", hostId: "box" }),
+          project("l1", { path: "/Users/me/app" }),
+          project("r2", {
+            name: "Other",
+            path: "/home/me/other",
+            hostId: "box",
+            worktreePath: "/home/me/other-trees",
+          }),
+          project("r3", { name: "Shared", path: "/srv/shared", hostId: "box" }),
+          project("l3", { name: "Shared", path: "/srv/shared" }),
+        ],
+        selectedProjectIndex: 0,
+        hosts: { box: { spec: { kind: "ssh", target: "me@box" } } },
+      }),
+    );
+    const mgr = new ProjectManager((hostId) => gitNamed(hostId), tmpDir);
+
+    // The default worktree root is this machine's; it belongs to local only.
+    expect(mgr.hostIdForPath(path.join(worktreesDir(), toDirSlug("App"), "feature"))).toBe("local");
+    // An explicit worktree root on a remote project still counts.
+    expect(mgr.hostIdForPath("/home/me/other-trees/feature")).toBe("box");
+    // Equally close local and remote roots: local wins.
+    expect(mgr.hostIdForPath("/srv/shared/src")).toBe("local");
+    expect(mgr.hostIdForPath("/home/me/app/src")).toBe("box");
+  });
+
+  it("resolves a path to the host of the project containing it", async () => {
+    const mgr = new ProjectManager((hostId) => gitNamed(hostId), tmpDir);
+    await mgr.addProject("Local", "/Users/me/app");
+    // No remote project yet: everything is local.
+    expect(mgr.hostIdForPath("/home/me/app/src")).toBe("local");
+
+    await mgr.addProject("Remote", "/home/me/app", "box");
+    expect(mgr.hostIdForPath("/home/me/app")).toBe("box");
+    expect(mgr.hostIdForPath("/home/me/app/src")).toBe("box");
+    expect(mgr.hostIdForPath("/home/me/app2")).toBe("local");
+    expect(mgr.hostIdForPath("/Users/me/app/src")).toBe("local");
+    expect(mgr.hostIdForPath("/somewhere/else")).toBe("local");
+  });
+});
+
+describe("ProjectManager host-relative paths (ADR-178)", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = path.join(os.tmpdir(), `manor-host-paths-test-${crypto.randomUUID()}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function fullGit(): GitBackend {
+    return {
+      exec: vi.fn(async () => ""),
+      worktreeList: vi.fn(async () => []),
+      worktreeAdd: vi.fn(async () => {}),
+      worktreeRemove: vi.fn(async () => {}),
+    } as unknown as GitBackend;
+  }
+
+  /** A fake remote `ShellBackend`: `home` for `homeDir`, `files` for `cat`/`test -e`. */
+  function fakeShell(
+    home: string,
+    opts: { files?: Record<string, string> } = {},
+  ): ShellBackend & { execCalls: Array<[string, string[], unknown]> } {
+    const files = opts.files ?? {};
+    const execCalls: Array<[string, string[], unknown]> = [];
+    return {
+      execCalls,
+      which: vi.fn(async () => null),
+      homeDir: vi.fn(async () => home),
+      exec: vi.fn(async (cmd: string, args: string[], execOpts?: unknown) => {
+        execCalls.push([cmd, args, execOpts]);
+        if (cmd === "cat") {
+          const filePath = args[0];
+          if (filePath in files) return files[filePath];
+          throw new Error(`no such file: ${filePath}`);
+        }
+        if (cmd === "test" && args[0] === "-e") {
+          const filePath = args[1];
+          if (filePath in files) return "";
+          throw new Error(`missing: ${filePath}`);
+        }
+        if (cmd === "sh" && args[0] === "-c") {
+          return "";
+        }
+        throw new Error(`fakeShell: unexpected exec ${cmd} ${args.join(" ")}`);
+      }),
+    } as unknown as ShellBackend & { execCalls: Array<[string, string[], unknown]> };
+  }
+
+  it("resolves a remote project's default worktree root against the host's home", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    const project = await mgr.addProject("Remote App", "/srv/app", "box");
+
+    const results = await mgr.createWorkspacesFromIssues(project.id, [
+      { number: 1, title: "feature", url: "https://example.com/1" },
+    ]);
+
+    expect(shell.homeDir).toHaveBeenCalled();
+    expect(results[0].worktreePath).toBe(
+      "/home/remoteuser/.manor/worktrees/remote-app/feature",
+    );
+  });
+
+  it("expands a leading ~ in project.worktreePath against the remote host's home", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    const project = await mgr.addProject("Remote App", "/srv/app", "box");
+    await mgr.updateProject(project.id, { worktreePath: "~/custom-trees" });
+
+    const results = await mgr.createWorkspacesFromIssues(project.id, [
+      { number: 1, title: "feature", url: "https://example.com/1" },
+    ]);
+
+    expect(results[0].worktreePath).toBe("/home/remoteuser/custom-trees/feature");
+  });
+
+  it("does not call the remote host for a local project's home", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    const project = await mgr.addProject("Local App", "/tmp/local-app");
+
+    const results = await mgr.createWorkspacesFromIssues(project.id, [
+      { number: 1, title: "feature", url: "https://example.com/1" },
+    ]);
+
+    expect(results[0].worktreePath).toBe(
+      path.join(worktreesDir(), toDirSlug("Local App"), "feature"),
+    );
+    expect(shell.homeDir).not.toHaveBeenCalled();
+  });
+
+  it("runs the teardown script through the host's shell, not local execAsync", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    const project = await mgr.addProject("Remote App", "/srv/app", "box");
+    await mgr.updateProject(project.id, {
+      worktreeTeardownScript: "docker compose down",
+    });
+
+    await mgr.removeWorktree(project.id, "/home/remoteuser/.manor/worktrees/remote-app/feature");
+
+    expect(shell.execCalls).toContainEqual([
+      "sh",
+      ["-c", "docker compose down"],
+      { cwd: "/home/remoteuser/.manor/worktrees/remote-app/feature", timeout: 10 * 60 * 1000 },
+    ]);
+  });
+
+  it("checks whether a remote worktree still exists through the host's shell, not local fs", async () => {
+    const git = fullGit();
+    (git.worktreeRemove as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("worktree remove failed"),
+    );
+    const shell = fakeShell("/home/remoteuser", {
+      files: { "/home/remoteuser/.manor/worktrees/remote-app/feature": "" },
+    });
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    const project = await mgr.addProject("Remote App", "/srv/app", "box");
+
+    // The directory still exists on the box (per the fake shell's `test -e`)
+    // — that must surface as a real failure, not be silently swallowed.
+    await expect(
+      mgr.removeWorktree(project.id, "/home/remoteuser/.manor/worktrees/remote-app/feature"),
+    ).rejects.toThrow(/Failed to remove worktree/);
+
+    expect(shell.execCalls).toContainEqual([
+      "test",
+      ["-e", "/home/remoteuser/.manor/worktrees/remote-app/feature"],
+      undefined,
+    ]);
+  });
+
+  it("reads package.json and lockfile presence through the host's shell for a remote project", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser", {
+      files: {
+        "/srv/app/package.json": JSON.stringify({
+          scripts: { build: "tsc", test: "vitest" },
+        }),
+        "/srv/app/pnpm-lock.yaml": "",
+      },
+    });
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+
+    const project = await mgr.addProject("Remote App", "/srv/app", "box");
+
+    expect(project.commands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "build", command: "pnpm run build" }),
+        expect.objectContaining({ name: "test", command: "pnpm run test" }),
+      ]),
+    );
+  });
+
+  it("includes a remote project's default worktree root in hostIdForPath once its home is known", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    await mgr.addProject("Remote App", "/srv/app", "box");
+
+    // Home is not known synchronously yet — the default root is skipped.
+    expect(mgr.hostIdForPath("/home/remoteuser/.manor/worktrees/remote-app/feature")).toBe(
+      "local",
+    );
+
+    // getProjects() warms every remote host's home in the background.
+    await mgr.getProjects();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mgr.hostIdForPath("/home/remoteuser/.manor/worktrees/remote-app/feature")).toBe(
+      "box",
+    );
+  });
+
+  it("keeps local worktree resolution byte-identical with no shell resolver supplied", async () => {
+    const git = fullGit();
+    const mgr = new ProjectManager(() => git, tmpDir);
+    const project = await mgr.addProject("Local App", "/tmp/local-app-2");
+
+    const results = await mgr.createWorkspacesFromIssues(project.id, [
+      { number: 1, title: "feature", url: "https://example.com/1" },
+    ]);
+
+    expect(results[0].worktreePath).toBe(
+      path.join(worktreesDir(), toDirSlug("Local App"), "feature"),
+    );
+  });
+
+  it("keeps the local teardown script's original 30s timeout, not the remote's 10min one", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/someone");
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    const project = await mgr.addProject("Local App", "/tmp/local-app-3");
+    await mgr.updateProject(project.id, { worktreeTeardownScript: "rm -rf tmp" });
+
+    await mgr.removeWorktree(project.id, "/tmp/local-app-3-worktree");
+
+    expect(shell.execCalls).toContainEqual([
+      "sh",
+      ["-c", "rm -rf tmp"],
+      { cwd: "/tmp/local-app-3-worktree", timeout: 30000 },
+    ]);
+  });
+
+  it("rejects an empty or root remote home and does not cache the failure", async () => {
+    const git = fullGit();
+    let home = "";
+    const shell = fakeShell("");
+    shell.homeDir = vi.fn(async () => home);
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    const project = await mgr.addProject("Remote App", "/srv/app", "box");
+
+    await expect(
+      mgr.updateProject(project.id, { worktreePath: "~/custom-trees" }),
+    ).rejects.toThrow(/absolute path/);
+
+    home = "/";
+    await expect(
+      mgr.updateProject(project.id, { worktreePath: "~/custom-trees" }),
+    ).rejects.toThrow(/absolute path/);
+
+    // A valid home on a later call is not blocked by an earlier failure.
+    home = "/home/remoteuser";
+    const updated = await mgr.updateProject(project.id, { worktreePath: "~/custom-trees" });
+    expect(updated?.worktreePath).toBe("/home/remoteuser/custom-trees");
+  });
+
+  it("saves an absolute worktreePath without asking an unreachable host for its home", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    shell.homeDir = vi.fn(async () => {
+      throw new Error("host unreachable");
+    });
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    const project = await mgr.addProject("Remote App", "/srv/app", "box");
+
+    const updated = await mgr.updateProject(project.id, {
+      worktreePath: "/srv/custom-trees",
+    });
+
+    expect(updated?.worktreePath).toBe("/srv/custom-trees");
+    expect(shell.homeDir).not.toHaveBeenCalled();
+  });
+
+  it("clears the cached home directory when a host's spec is replaced with saveHost", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    await mgr.addProject("Remote App", "/srv/app", "box");
+
+    await mgr.getProjects();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mgr.hostIdForPath("/home/remoteuser/.manor/worktrees/remote-app/feature")).toBe(
+      "box",
+    );
+
+    // The host moved to a different machine with a different home. Replacing
+    // its spec must drop the stale cached home, so routing does not keep
+    // using the old machine's path until it is re-resolved.
+    mgr.saveHost("box", { kind: "ssh", target: "me@new-box" });
+    expect(mgr.hostIdForPath("/home/remoteuser/.manor/worktrees/remote-app/feature")).toBe(
+      "local",
+    );
+  });
+
+  it("never drops the leading slash when joining an absolute worktree root (remoteJoin)", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    const project = await mgr.addProject("Remote App", "/srv/app", "box");
+    await mgr.updateProject(project.id, { worktreePath: "/" });
+
+    const results = await mgr.createWorkspacesFromIssues(project.id, [
+      { number: 1, title: "feature", url: "https://example.com/1" },
+    ]);
+
+    expect(results[0].worktreePath).toBe("/feature");
+  });
+
+  it("clears the cached home directory when a host is removed", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    await mgr.addProject("Remote App", "/srv/app", "box");
+
+    await mgr.getProjects();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mgr.hostIdForPath("/home/remoteuser/.manor/worktrees/remote-app/feature")).toBe(
+      "box",
+    );
+
+    mgr.removeHost("box");
+    expect(mgr.hostIdForPath("/home/remoteuser/.manor/worktrees/remote-app/feature")).toBe(
+      "local",
+    );
+  });
+});
+
+describe("validateRepoUrl (ADR-178 ticket 5)", () => {
+  it.each([
+    "https://github.com/org/repo.git",
+    "https://github.com/org/repo",
+    "ssh://git@github.com/org/repo.git",
+    "git@github.com:org/repo.git",
+  ])("accepts %s", (url) => {
+    expect(() => validateRepoUrl(url)).not.toThrow();
+  });
+
+  it.each([
+    "",
+    "not a url",
+    "file:///etc/passwd",
+    "https://github.com/org/repo.git; rm -rf /",
+    "-oProxyCommand=whoami",
+    // scp-style user part starting with `-` — otherwise a valid-looking
+    // remote that `git clone` could misread as an option (ADR-178 ticket 5
+    // review).
+    "-oProxyCommand=whoami@github.com:org/repo.git",
+  ])("rejects %s", (url) => {
+    expect(() => validateRepoUrl(url)).toThrow();
+  });
+});
+
+describe("validateRemoteDir (ADR-178 ticket 5)", () => {
+  it.each(["/srv/app", "~/code/repo", "~", "/home/user/my-app_2"])(
+    "accepts %s",
+    (dir) => {
+      expect(() => validateRemoteDir(dir)).not.toThrow();
+    },
+  );
+
+  it.each([
+    "",
+    "relative/path",
+    "/srv/app; rm -rf /",
+    "/srv/$(whoami)",
+    "/srv/app\ninjected",
+    "../escape",
+  ])("rejects %s", (dir) => {
+    expect(() => validateRemoteDir(dir)).toThrow();
+  });
+});
+
+describe("normalizeOriginUrl (ADR-178 ticket 5 review)", () => {
+  it("treats git@host:path, ssh://git@host/path and https://host/path as the same identity", () => {
+    const forms = [
+      "git@github.com:org/repo.git",
+      "ssh://git@github.com/org/repo.git",
+      "https://github.com/org/repo.git",
+      "https://github.com/org/repo",
+      "https://github.com/org/repo/",
+    ];
+    const normalized = forms.map(normalizeOriginUrl);
+    expect(new Set(normalized).size).toBe(1);
+  });
+
+  it("is case-insensitive on the host", () => {
+    expect(normalizeOriginUrl("https://GitHub.com/org/repo.git")).toBe(
+      normalizeOriginUrl("https://github.com/org/repo.git"),
+    );
+  });
+
+  it("ignores an embedded user and a port", () => {
+    expect(normalizeOriginUrl("https://me@github.com:443/org/repo.git")).toBe(
+      normalizeOriginUrl("https://github.com/org/repo.git"),
+    );
+  });
+
+  it("treats different repos as different identities", () => {
+    expect(normalizeOriginUrl("git@github.com:org/repo-a.git")).not.toBe(
+      normalizeOriginUrl("git@github.com:org/repo-b.git"),
+    );
+  });
+});
+
+describe("ProjectManager.addRemoteProject (ADR-178 ticket 5)", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = path.join(
+      os.tmpdir(),
+      `manor-addremote-test-${crypto.randomUUID()}`,
+    );
+    fs.mkdirSync(tmpDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  type FakeGit = GitBackend & {
+    cloneStream: ReturnType<typeof vi.fn>;
+    cloneCalls: Array<[string, string]>;
+  };
+
+  /** A fake remote `GitBackend` whose `cloneStream` clone succeeds by default. */
+  function fakeGit(opts: {
+    onDone?: { exitCode: number | null; stderr: string };
+    lines?: string[];
+    remoteOrigins?: Record<string, string>;
+  } = {}): FakeGit {
+    const cloneCalls: Array<[string, string]> = [];
+    const remoteOrigins = opts.remoteOrigins ?? {};
+    return {
+      exec: vi.fn(async (cwd: string, args: string[]) => {
+        if (
+          args[0] === "config" &&
+          args[1] === "--get" &&
+          args[2] === "remote.origin.url"
+        ) {
+          if (cwd in remoteOrigins) return remoteOrigins[cwd];
+          throw new Error("no such remote");
+        }
+        throw new Error(`unstubbed git: ${args.join(" ")}`);
+      }),
+      worktreeList: vi.fn(async () => []),
+      cloneCalls,
+      cloneStream: vi.fn(
+        (repoUrl: string, targetDir: string, callbacks: {
+          onLine: (line: string) => void;
+          onDone: (r: { exitCode: number | null; stderr: string }) => void;
+        }) => {
+          cloneCalls.push([repoUrl, targetDir]);
+          for (const line of opts.lines ?? ["Cloning into..."]) {
+            callbacks.onLine(line);
+          }
+          callbacks.onDone(opts.onDone ?? { exitCode: 0, stderr: "" });
+          return { cancel: vi.fn() };
+        },
+      ),
+    } as unknown as FakeGit;
+  }
+
+  /** A fake remote `ShellBackend` with a fake filesystem for existing-dir checks. */
+  function fakeShell(
+    home: string,
+    dirs: Record<string, string[] | null> = {},
+  ): ShellBackend {
+    return {
+      which: vi.fn(async () => null),
+      homeDir: vi.fn(async () => home),
+      exec: vi.fn(async (cmd: string, args: string[]) => {
+        if (cmd === "test" && args[0] === "-e") {
+          const dir = args[1];
+          if (dir in dirs) return "";
+          throw new Error(`missing: ${dir}`);
+        }
+        if (cmd === "sh" && args[0] === "-c") {
+          const script = args[1];
+          const match = /ls -A (.+)$/.exec(script);
+          const dir = match ? match[1].replace(/^'|'$/g, "") : "";
+          const entries = dirs[dir] ?? [];
+          return entries.join("\n");
+        }
+        throw new Error(`fakeShell: unexpected exec ${cmd} ${args.join(" ")}`);
+      }),
+    } as unknown as ShellBackend;
+  }
+
+  it("rejects a project on the local host", async () => {
+    const mgr = new ProjectManager(() => fakeGit(), tmpDir, () => fakeShell("/home/u"));
+    await expect(
+      mgr.addRemoteProject({
+        hostId: "local",
+        repoUrl: "https://github.com/org/repo.git",
+        remoteDir: "/srv/app",
+        name: "App",
+      }),
+    ).rejects.toThrow(/remote host/);
+  });
+
+  it("rejects an invalid repo URL before touching the host", async () => {
+    const git = fakeGit();
+    const mgr = new ProjectManager(() => git, tmpDir, () => fakeShell("/home/u"));
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    await expect(
+      mgr.addRemoteProject({
+        hostId: "box",
+        repoUrl: "not a url",
+        remoteDir: "/srv/app",
+        name: "App",
+      }),
+    ).rejects.toThrow(/Repo URL/);
+    expect(git.cloneStream).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid remote directory before touching the host", async () => {
+    const git = fakeGit();
+    const mgr = new ProjectManager(() => git, tmpDir, () => fakeShell("/home/u"));
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    await expect(
+      mgr.addRemoteProject({
+        hostId: "box",
+        repoUrl: "https://github.com/org/repo.git",
+        remoteDir: "relative/path",
+        name: "App",
+      }),
+    ).rejects.toThrow(/Remote directory/);
+    expect(git.cloneStream).not.toHaveBeenCalled();
+  });
+
+  it("clones into the expanded ~/-relative directory and adds the project", async () => {
+    const git = fakeGit();
+    const shell = fakeShell("/home/remoteuser");
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+
+    const project = await mgr.addRemoteProject({
+      hostId: "box",
+      repoUrl: "https://github.com/org/repo.git",
+      remoteDir: "~/code/repo",
+      name: "Repo",
+    });
+
+    expect(git.cloneCalls).toEqual([
+      ["https://github.com/org/repo.git", "/home/remoteuser/code/repo"],
+    ]);
+    expect(project.path).toBe("/home/remoteuser/code/repo");
+    expect(project.hostId).toBe("box");
+  });
+
+  it("refuses a non-empty target directory that isn't already this repo", async () => {
+    const git = fakeGit();
+    const shell = fakeShell("/home/remoteuser", {
+      "/srv/app": ["some-file"],
+    });
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+
+    await expect(
+      mgr.addRemoteProject({
+        hostId: "box",
+        repoUrl: "https://github.com/org/repo.git",
+        remoteDir: "/srv/app",
+        name: "App",
+      }),
+    ).rejects.toThrow(/already exists and is not empty/);
+    expect(git.cloneStream).not.toHaveBeenCalled();
+  });
+
+  it("adopts a directory that is already a clone of the same repo, without cloning again", async () => {
+    const git = fakeGit({
+      remoteOrigins: { "/srv/app": "https://github.com/org/repo.git" },
+    });
+    const shell = fakeShell("/home/remoteuser", { "/srv/app": ["package.json"] });
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+
+    const project = await mgr.addRemoteProject({
+      hostId: "box",
+      repoUrl: "https://github.com/org/repo.git",
+      remoteDir: "/srv/app",
+      name: "App",
+    });
+
+    expect(git.cloneStream).not.toHaveBeenCalled();
+    expect(project.path).toBe("/srv/app");
+  });
+
+  it("adopts a directory whose origin is the same repo in a different URL form (scp vs. https)", async () => {
+    const git = fakeGit({
+      // The checkout's `origin` is scp-style; the user typed https.
+      remoteOrigins: { "/srv/app": "git@github.com:org/repo.git" },
+    });
+    const shell = fakeShell("/home/remoteuser", { "/srv/app": ["package.json"] });
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+
+    const project = await mgr.addRemoteProject({
+      hostId: "box",
+      repoUrl: "https://github.com/org/repo.git",
+      remoteDir: "/srv/app",
+      name: "App",
+    });
+
+    expect(git.cloneStream).not.toHaveBeenCalled();
+    expect(project.path).toBe("/srv/app");
+  });
+
+  it("adopting an existing clone twice returns the same project instead of a duplicate", async () => {
+    const git = fakeGit({
+      remoteOrigins: { "/srv/app": "https://github.com/org/repo.git" },
+    });
+    const shell = fakeShell("/home/remoteuser", { "/srv/app": ["package.json"] });
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+
+    const first = await mgr.addRemoteProject({
+      hostId: "box",
+      repoUrl: "https://github.com/org/repo.git",
+      remoteDir: "/srv/app",
+      name: "App",
+    });
+    const second = await mgr.addRemoteProject({
+      hostId: "box",
+      repoUrl: "https://github.com/org/repo.git",
+      remoteDir: "/srv/app",
+      name: "App",
+    });
+
+    expect(second.id).toBe(first.id);
+    const projects = await mgr.getProjects();
+    expect(projects.filter((p) => p.path === "/srv/app")).toHaveLength(1);
+  });
+
+  it("clones into an empty existing directory", async () => {
+    const git = fakeGit();
+    const shell = fakeShell("/home/remoteuser", { "/srv/app": [] });
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+
+    await mgr.addRemoteProject({
+      hostId: "box",
+      repoUrl: "https://github.com/org/repo.git",
+      remoteDir: "/srv/app",
+      name: "App",
+    });
+
+    expect(git.cloneCalls).toEqual([["https://github.com/org/repo.git", "/srv/app"]]);
+  });
+
+  it("rejects and never adds the project when the clone fails", async () => {
+    const git = fakeGit({ onDone: { exitCode: 128, stderr: "fatal: could not read from remote" } });
+    const shell = fakeShell("/home/remoteuser");
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+
+    await expect(
+      mgr.addRemoteProject({
+        hostId: "box",
+        repoUrl: "https://github.com/org/repo.git",
+        remoteDir: "/srv/app",
+        name: "App",
+      }),
+    ).rejects.toThrow(/could not read from remote/);
+
+    const projects = await mgr.getProjects();
+    expect(projects).toHaveLength(0);
   });
 });

@@ -99,7 +99,7 @@ export async function startNewAgent(
   const activeWorkspacePath = useAppStore.getState().activeWorkspacePath;
   const command = resolveWorkspaceCommand(activeWorkspacePath);
   const prewarmed = prewarm
-    ? await window.electronAPI.pty.consumePrewarmed()
+    ? await window.electronAPI.pty.consumePrewarmed(activeWorkspacePath)
     : null;
   if (activeWorkspacePath && !prewarmed?.commandInjected) {
     useAppStore

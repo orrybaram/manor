@@ -79,7 +79,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     reset: (paneId: string, cwd: string | null, cols: number, rows: number) =>
       ipcRenderer.invoke("pty:reset", paneId, cwd, cols, rows),
     detach: (paneId: string) => ipcRenderer.invoke("pty:detach", paneId),
-    consumePrewarmed: () => ipcRenderer.invoke("pty:consumePrewarmed"),
+    consumePrewarmed: (cwd: string | null) =>
+      ipcRenderer.invoke("pty:consumePrewarmed", cwd),
     updatePrewarmCwd: (
       cwd: string,
       agentCommand?: string | null,
@@ -288,8 +289,41 @@ contextBridge.exposeInMainWorld("electronAPI", {
           teamKey: string;
         }>;
         color: string | null;
+        hostId: string;
       }>,
     ) => ipcRenderer.invoke("projects:update", projectId, updates),
+    // ADR-178 ticket 5: clone a repo onto a remote host, then add it as a
+    // project there. Progress arrives on the same "worktree:setup-progress"
+    // channel `onWorktreeSetupProgress` already subscribes to, step "clone".
+    addRemote: (opts: {
+      hostId: string;
+      repoUrl: string;
+      remoteDir: string;
+      name: string;
+    }) => ipcRenderer.invoke("projects:addRemote", opts),
+  },
+
+  hosts: {
+    list: () => ipcRenderer.invoke("hosts:list"),
+    add: (target: string) => ipcRenderer.invoke("hosts:add", target),
+    remove: (hostId: string) => ipcRenderer.invoke("hosts:remove", hostId),
+    retryConnect: (hostId: string) =>
+      ipcRenderer.invoke("hosts:retryConnect", hostId),
+    onStatusChanged: (callback: (hosts: unknown) => void) =>
+      onChannel<unknown>("hosts:statusChanged", callback),
+    // ADR-178 §6: a remote host is back and its hooks replayed; `sessionIds`
+    // are every session its daemon still has.
+    onReconnected: (
+      callback: (info: { hostId: string; sessionIds: string[] }) => void,
+    ) =>
+      onChannel<{ hostId: string; sessionIds: string[] }>(
+        "hosts:reconnected",
+        callback,
+      ),
+    // ADR-178 ticket 5: the four checks in ADR-178 §4's table, run through
+    // the host's own backend.
+    healthCheck: (hostId: string, projectPath: string) =>
+      ipcRenderer.invoke("hosts:healthCheck", hostId, projectPath),
   },
 
   theme: {
@@ -318,6 +352,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ) => ipcRenderer.invoke("ports:updateWorkspaceMetadata", meta),
     killPort: (pid: number) => ipcRenderer.invoke("ports:killPort", pid),
     scanNow: () => ipcRenderer.invoke("ports:scanNow"),
+    resolveUrl: (url: string, hostId: string) =>
+      ipcRenderer.invoke("ports:resolveUrl", url, hostId),
+    remoteUrl: (url: string, hostId: string) =>
+      ipcRenderer.invoke("ports:remoteUrl", url, hostId),
+    publicUrl: (hostId: string, port: number) =>
+      ipcRenderer.invoke("ports:publicUrl", hostId, port),
     onChange: (callback: (ports: unknown[]) => void) =>
       onChannel("ports-changed", callback),
   },
@@ -650,8 +690,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.send("app-command-result", result),
 
   webview: {
-    register: (paneId: string, webContentsId: number) =>
-      ipcRenderer.invoke("webview:register", paneId, webContentsId),
+    register: (paneId: string, webContentsId: number, remoteHostId?: string | null) =>
+      ipcRenderer.invoke("webview:register", paneId, webContentsId, remoteHostId ?? null),
     unregister: (paneId: string) =>
       ipcRenderer.invoke("webview:unregister", paneId),
     startPicker: (paneId: string) =>

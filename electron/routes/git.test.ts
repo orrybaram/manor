@@ -71,6 +71,11 @@ function makeGit() {
       callbacks.onDone({ exitCode: 0, stderr: "" });
       return { cancel: () => record("pushStream:cancel", []) };
     },
+    cloneStream(repoUrl, targetDir, callbacks) {
+      record("cloneStream", [repoUrl, targetDir]);
+      callbacks.onDone({ exitCode: 0, stderr: "" });
+      return { cancel: () => record("cloneStream:cancel", []) };
+    },
     async getFullDiff(cwd, defaultBranch) {
       record("getFullDiff", [cwd, defaultBranch]);
       return "full diff";
@@ -88,6 +93,9 @@ function makeGit() {
     },
     async worktreeAdd() {},
     async worktreeRemove() {},
+    async currentBranch() {
+      return null;
+    },
   };
   return { git, calls };
 }

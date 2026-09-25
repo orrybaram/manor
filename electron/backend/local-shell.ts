@@ -1,10 +1,60 @@
+import os from "node:os";
 import type { ShellBackend } from "./types";
-import { execFileAsync } from "./exec";
+import { localExec, type Exec } from "./exec";
+
+/**
+ * Facts about the machine a `LocalShellBackend` runs on that are not
+ * commands — split out the same way `PortsHost` is (see `local-ports.ts`),
+ * so a remote host answers `homeDir` about *its* machine instead of this
+ * one.
+ */
+export interface ShellHost {
+  homeDir(): Promise<string>;
+}
+
+const localShellHost: ShellHost = {
+  async homeDir() {
+    return os.homedir();
+  },
+};
+
+/**
+ * A `ShellHost` answered through an `Exec` — for a machine this process is
+ * not running on. `homeDir` is asked once per host and cached.
+ */
+export function execShellHost(execImpl: Exec): ShellHost {
+  let home: Promise<string> | null = null;
+  return {
+    homeDir() {
+      home ??= execImpl
+        .file("sh", ["-c", 'printf %s "$HOME"'])
+        .then(({ stdout }) => {
+          const trimmed = stdout.trim();
+          if (!trimmed.startsWith("/") || trimmed === "/") {
+            throw new Error(
+              `Remote $HOME must be an absolute path other than "/" (got ${JSON.stringify(trimmed)})`,
+            );
+          }
+          return trimmed;
+        })
+        .catch((err: unknown) => {
+          home = null; // retry next call, don't cache the failure
+          throw err;
+        });
+      return home;
+    },
+  };
+}
 
 export class LocalShellBackend implements ShellBackend {
+  constructor(
+    private readonly execImpl: Exec = localExec,
+    private readonly host: ShellHost = localShellHost,
+  ) {}
+
   async which(bin: string): Promise<string | null> {
     try {
-      const { stdout } = await execFileAsync("which", [bin]);
+      const { stdout } = await this.execImpl.file("which", [bin]);
       const result = stdout.trim();
       return result.length > 0 ? result : null;
     } catch {
@@ -17,10 +67,14 @@ export class LocalShellBackend implements ShellBackend {
     args: string[],
     opts?: { cwd?: string; timeout?: number },
   ): Promise<string> {
-    const { stdout } = await execFileAsync(cmd, args, {
+    const { stdout } = await this.execImpl.file(cmd, args, {
       cwd: opts?.cwd,
       timeout: opts?.timeout,
     });
     return stdout;
+  }
+
+  async homeDir(): Promise<string> {
+    return this.host.homeDir();
   }
 }

@@ -1,6 +1,6 @@
 ---
 title: SshTransport — bridge the daemon protocol over ssh
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: [3, 4]
@@ -21,7 +21,7 @@ control both ends in-process.
   `bridgeHello` line from stdout before returning a `Duplex` over the child's
   stdin/stdout. Cache the token from the preamble for `authToken()`.
 - **ControlMaster**: write a Manor-owned throwaway ssh config directory (0700) holding
-  `ControlMaster auto`, `ControlPath <dir>/ctl`, `ControlPersist 60`, `ServerAliveInterval 30`,
+  `ControlMaster auto`, `ControlPath <dir>/%C`, `ControlPersist 60`, `ServerAliveInterval 30`,
   `ServerAliveCountMax 3`, and pass it with `-F`. Both connections then share one TCP
   session. Remove the directory on `dispose()`.
 - **Hook reverse forward**: when `opts.hookForward` is set, add

@@ -18,11 +18,15 @@ import { Duplex, type Readable, type Writable } from "node:stream";
 import type { HostTransport } from "./transport";
 import {
   SshAuthError,
+  SshHostKeyError,
   assertValidTarget,
   buildControlArgs,
+  buildResolveConfigArgs,
   buildSshArgs,
   createManagedSshConfig,
+  isHostKeyError,
   isRemoteAuthError,
+  parseControlPath,
   remoteBridgeCommand,
   remoteRestartCommand,
   removeManagedSshConfig,
@@ -222,9 +226,24 @@ export class SshTransport implements HostTransport {
     return this.config?.configPath ?? null;
   }
 
-  /** The ControlMaster socket, or null before first use. */
-  get controlPath(): string | null {
-    return this.config?.controlPath ?? null;
+  /**
+   * The ControlMaster socket for this target, as ssh expands the managed
+   * config's `<dir>/%C` pattern (via `ssh -G`), or null before first use or
+   * if ssh cannot say. Only needed to hand the socket to something other than
+   * ssh — `ssh -F <configPath> -O …` (see `buildControlArgs`) finds it itself.
+   */
+  async resolveControlPath(): Promise<string | null> {
+    const config = this.config;
+    if (!config) return null;
+    const child = this.spawnFn("ssh", buildResolveConfigArgs(config.configPath, this.target));
+    this.track(child);
+    let out = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      out += chunk.toString("utf-8");
+    });
+    child.stdin?.end();
+    const code = await this.waitForExit(child, CONTROL_EXIT_TIMEOUT_MS).catch(() => null);
+    return code === 0 ? parseControlPath(out) : null;
   }
 
   /** The daemon version the last `bridgeHello` reported. */
@@ -299,6 +318,8 @@ export class SshTransport implements HostTransport {
 
     return new Promise<Duplex>((resolve, reject) => {
       let buffered = Buffer.alloc(0);
+      /** Every byte read before the hello, including lines already skipped. */
+      let preambleBytes = 0;
       let settled = false;
 
       const finish = (err: Error | null, duplex?: Duplex): void => {
@@ -323,7 +344,11 @@ export class SshTransport implements HostTransport {
           const line = buffered.subarray(0, nl).toString("utf-8").trim();
           buffered = buffered.subarray(nl + 1);
           const hello = parseHello(line);
-          if (!hello) continue;
+          if (!hello) {
+            preambleBytes += nl + 1;
+            if (preambleBytes > MAX_PREAMBLE_BYTES) break;
+            continue;
+          }
           this.token = hello.token;
           this._daemonVersion = hello.daemonVersion;
           stdout.pause();
@@ -331,7 +356,7 @@ export class SshTransport implements HostTransport {
           finish(null, new SshChildDuplex(child, stdin, stdout, buffered));
           return;
         }
-        if (buffered.length > MAX_PREAMBLE_BYTES) {
+        if (preambleBytes + buffered.length > MAX_PREAMBLE_BYTES) {
           finish(
             new Error(
               `manor-host on ${this.target} did not announce itself (no bridgeHello in the first ${MAX_PREAMBLE_BYTES} bytes)`,
@@ -366,6 +391,7 @@ export class SshTransport implements HostTransport {
   /** Translate an ssh child that exited before its hello into a useful error. */
   private exitError(code: number | null, stderr: string): Error {
     if (isRemoteAuthError(stderr)) return new SshAuthError(this.target, stderr);
+    if (isHostKeyError(stderr)) return new SshHostKeyError(this.target, stderr);
     const detail = stderr.trim();
     return new Error(
       `ssh to ${this.target} exited (code ${code ?? "unknown"}) before manor-host answered` +
@@ -394,6 +420,9 @@ export class SshTransport implements HostTransport {
     const code = await this.waitForExit(child, opts.timeoutMs ?? this.handshakeTimeoutMs);
     if (code === 255 && isRemoteAuthError(stderr)) {
       throw new SshAuthError(this.target, stderr);
+    }
+    if (code === 255 && isHostKeyError(stderr)) {
+      throw new SshHostKeyError(this.target, stderr);
     }
     return { code, stdout, stderr };
   }

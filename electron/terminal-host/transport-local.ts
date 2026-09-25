@@ -16,6 +16,29 @@ import type { HostTransport } from "./transport";
 
 const MANOR_DIR = manorHomeDir();
 
+/** Past this size the daemon log is rotated to `.log.1` at the next spawn. */
+const MAX_DAEMON_LOG_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Open the daemon's log for appending, first rotating it (one generation) if
+ * it has grown past `MAX_DAEMON_LOG_BYTES`. Returns an fd for the child's
+ * stderr, or "ignore" if the log cannot be opened.
+ */
+function openDaemonLog(logPath: string): number | "ignore" {
+  try {
+    if (fs.statSync(logPath).size > MAX_DAEMON_LOG_BYTES) {
+      fs.renameSync(logPath, `${logPath}.1`);
+    }
+  } catch {
+    // No log yet.
+  }
+  try {
+    return fs.openSync(logPath, "a", 0o600);
+  } catch {
+    return "ignore";
+  }
+}
+
 export class LocalTransport implements HostTransport {
   private daemonProcess: ChildProcess | null = null;
   private _migratedOldDaemons = false;
@@ -34,6 +57,10 @@ export class LocalTransport implements HostTransport {
 
   private get PID_PATH(): string {
     return path.join(this.daemonDir, "terminal-host.pid");
+  }
+
+  private get LOG_PATH(): string {
+    return path.join(this.daemonDir, "terminal-host.log");
   }
 
   async ensureRunning(version?: string): Promise<void> {
@@ -162,11 +189,20 @@ export class LocalTransport implements HostTransport {
       env.MANOR_VERSION = version;
     }
 
-    this.daemonProcess = spawn(process.execPath, [daemonScript], {
-      env,
-      stdio: ["ignore", "ignore", "inherit"],
-      detached: true,
-    });
+    // The daemon's stderr goes to a log file, never to ours. It is detached
+    // and outlives us: inheriting our stderr would, under `remote-bridge`,
+    // hold the ssh channel open forever, and once that channel went away the
+    // daemon's next log line would hit EPIPE.
+    const logFd = openDaemonLog(this.LOG_PATH);
+    try {
+      this.daemonProcess = spawn(process.execPath, [daemonScript], {
+        env,
+        stdio: ["ignore", "ignore", logFd],
+        detached: true,
+      });
+    } finally {
+      if (typeof logFd === "number") fs.closeSync(logFd);
+    }
 
     this.daemonProcess.unref();
 

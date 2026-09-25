@@ -162,7 +162,13 @@ export class TerminalHostClient {
     if (this.connected) return;
     if (this.connectPromise) return this.connectPromise;
 
-    this.connectPromise = this.doConnect();
+    // A failed attempt may have opened the control socket before failing
+    // (e.g. on the stream socket). Tear it down here, or the next attempt
+    // would overwrite it while it is still open.
+    this.connectPromise = this.doConnect().catch((err: unknown) => {
+      this.cleanup();
+      throw err;
+    });
     try {
       await this.connectPromise;
     } finally {
@@ -359,6 +365,16 @@ export class TerminalHostClient {
   disconnect(): void {
     this.wanted.clear();
     this.cleanup();
+  }
+
+  /**
+   * Disconnect and release whatever the transport holds (for `SshTransport`,
+   * its ssh children and ControlMaster). Does not stop the daemon. The client
+   * should not be reused afterwards.
+   */
+  async dispose(): Promise<void> {
+    this.disconnect();
+    await this.transport.dispose();
   }
 
   /** Create a new session or attach to existing one */
@@ -695,13 +711,15 @@ export class TerminalHostClient {
     socket.on("error", () => {
       // Connection failures surface from the transport; once connected, an
       // error here means the daemon went away.
-      if (this.connected) {
+      if (this.connected && socket === this.controlSocket) {
         this.handleDisconnect();
       }
     });
 
     socket.on("close", () => {
-      this.handleDisconnect();
+      // A socket from an earlier, abandoned attempt must not tear down the
+      // connection that replaced it.
+      if (socket === this.controlSocket) this.handleDisconnect();
     });
   }
 
@@ -730,7 +748,7 @@ export class TerminalHostClient {
     });
 
     socket.on("close", () => {
-      this.handleDisconnect();
+      if (socket === this.streamSocket) this.handleDisconnect();
     });
   }
 

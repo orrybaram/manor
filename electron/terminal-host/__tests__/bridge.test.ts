@@ -11,6 +11,11 @@ import type { HostTransport } from "../transport";
  *  instead of spawning anything, so the bridge is exercised against a real
  *  temp-dir daemon without touching the real `~/.manor/daemon`. */
 class FakeTransport implements HostTransport {
+  /** Every control socket handed out, so tests can drop them. */
+  readonly sockets: net.Socket[] = [];
+  /** Set to make `connectControl` fail, as though the daemon were unreachable. */
+  refuse = false;
+
   constructor(private readonly daemon: E2EDaemon) {}
 
   async ensureRunning(): Promise<void> {
@@ -22,10 +27,12 @@ class FakeTransport implements HostTransport {
   }
 
   connectControl(): Promise<Duplex> {
+    if (this.refuse) return Promise.reject(new Error("ECONNREFUSED"));
     return new Promise((resolve, reject) => {
       const socket = net.createConnection(this.daemon.socketPath, () =>
         resolve(socket),
       );
+      this.sockets.push(socket);
       socket.on("error", reject);
     });
   }
@@ -155,6 +162,66 @@ describe("runRemoteBridge", () => {
       new FakeTransport(daemon),
     );
     await lines.next(); // bridgeHello
+
+    stdin.end();
+    expect(await bridgeDone).toBe(0);
+  });
+
+  it("ends the pump, and stdout, once the daemon socket closes", async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    const lines = readLines(stdout);
+    const transport = new FakeTransport(daemon);
+
+    const bridgeDone = runRemoteBridge({ stdin, stdout, stderr }, transport);
+    await lines.next(); // bridgeHello
+
+    const stdoutEnded = new Promise<void>((r) => stdout.once("end", () => r()));
+    transport.sockets[0].destroy();
+    expect(await bridgeDone).toBe(0);
+    await stdoutEnded;
+    // stdin is released so a real process is free to exit.
+    expect(stdin.destroyed).toBe(true);
+  });
+
+  it("writes no hello when the daemon cannot be reached", async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    const written: Buffer[] = [];
+    stdout.on("data", (c: Buffer) => written.push(c));
+    const transport = new FakeTransport(daemon);
+    transport.refuse = true;
+
+    await expect(
+      runRemoteBridge({ stdin, stdout, stderr }, transport),
+    ).rejects.toThrow("ECONNREFUSED");
+    expect(Buffer.concat(written).length).toBe(0);
+  });
+
+  it("keeps a burst of replies intact and in order through a small-buffered stdout", async () => {
+    const stdin = new PassThrough();
+    // A tiny highWaterMark forces the pump to wait on drain repeatedly.
+    const stdout = new PassThrough({ highWaterMark: 1024 });
+    const stderr = new PassThrough();
+    const lines = readLines(stdout);
+
+    const bridgeDone = runRemoteBridge(
+      { stdin, stdout, stderr },
+      new FakeTransport(daemon),
+    );
+    await lines.next(); // bridgeHello
+
+    stdin.write(JSON.stringify({ type: "auth", token: daemon.authToken }) + "\n");
+    expect(JSON.parse(await lines.next())).toEqual({ type: "authOk" });
+    const burst = 200;
+    for (let i = 0; i < burst; i++) {
+      stdin.write(JSON.stringify({ type: "ping" }) + "\n");
+    }
+    for (let i = 0; i < burst; i++) {
+      expect(JSON.parse(await lines.next())).toEqual({ type: "pong" });
+    }
 
     stdin.end();
     expect(await bridgeDone).toBe(0);

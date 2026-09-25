@@ -7,6 +7,8 @@ import {
   DETECT_COMMAND,
   HOST_VERSION_COMMAND,
   NODE_CHECK_COMMAND,
+  NODE_SEARCH_COMMAND,
+  TOOLCHAIN_CHECK_COMMAND,
   RemoteBootstrapError,
   buildInstallCommands,
   compareVersions,
@@ -14,7 +16,9 @@ import {
   hostTarballPath,
   normalizeVersion,
   parseRemotePlatform,
+  parseNodeCandidates,
   parseVersion,
+  pickNode,
   remoteHostEnsurer,
   renderLauncherShim,
   type BootstrapProgress,
@@ -23,6 +27,17 @@ import type {
   RemoteExecOptions,
   RemoteExecResult,
 } from "../../terminal-host/transport-ssh";
+import { remoteShellCommand } from "../../terminal-host/ssh-config";
+
+/** Login shells installed here, to run remote snippets the way sshd would. */
+const LOGIN_SHELLS = ["sh", "bash", "zsh", "fish", "tcsh"].filter((sh) => {
+  try {
+    execFileSync("sh", ["-c", `command -v ${sh}`], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+});
 
 const ok = (stdout = ""): RemoteExecResult => ({ code: 0, stdout, stderr: "" });
 const fail = (code: number, stderr = ""): RemoteExecResult => ({ code, stdout: "", stderr });
@@ -117,6 +132,28 @@ describe("buildInstallCommands", () => {
     }
   });
 
+  it("keeps every snippet runnable through the login-shell wrapper", () => {
+    for (const cmd of [
+      cmds.prepare,
+      cmds.stream,
+      cmds.install,
+      cmds.commit,
+      cmds.cleanup,
+      DETECT_COMMAND,
+      NODE_CHECK_COMMAND,
+      NODE_SEARCH_COMMAND,
+      TOOLCHAIN_CHECK_COMMAND,
+      HOST_VERSION_COMMAND,
+    ]) {
+      expect(() => remoteShellCommand(cmd)).not.toThrow();
+    }
+  });
+
+  it("runs npm under a remote timeout when one is available", () => {
+    expect(cmds.install).toContain('if command -v timeout >/dev/null 2>&1; then T="timeout 570"; fi');
+    expect(cmds.install).toContain('$T "$NPM" install');
+  });
+
   it("installs production deps with the checked node's npm and proves node-pty loads", () => {
     expect(cmds.install).toContain(`cd ${staging}`);
     expect(cmds.install).toContain("/opt/node/bin/npm");
@@ -147,11 +184,14 @@ describe("buildInstallCommands", () => {
 
   // Run the real snippets against a scratch $HOME with sh, so quoting and
   // the rename dance are exercised rather than just pattern-matched.
-  it("prepare → stream → commit produces a working layout under sh", () => {
+  it.each(LOGIN_SHELLS)("prepare → stream → commit produces a working layout (login shell %s)", (loginShell) => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "bootstrap-home-"));
     try {
       const run = (cmd: string, input?: Buffer) =>
-        execFileSync("sh", ["-c", cmd], { env: { ...process.env, HOME: home }, input });
+        execFileSync(loginShell, ["-c", remoteShellCommand(cmd)], {
+          env: { ...process.env, HOME: home },
+          input,
+        });
 
       // A previous install that must be replaced.
       fs.mkdirSync(path.join(home, ".manor", "host"), { recursive: true });
@@ -177,6 +217,100 @@ describe("buildInstallCommands", () => {
       expect(fs.statSync(shimPath).mode & 0o777).toBe(0o755);
       expect(fs.readFileSync(shimPath, "utf-8")).toBe(
         renderLauncherShim("1.2.3", process.execPath),
+      );
+      // The install lock is released.
+      expect(fs.existsSync(path.join(home, ".manor", ".host-install.lock"))).toBe(false);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("commit breaks a stale install lock", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "bootstrap-home-"));
+    try {
+      const run = (cmd: string) =>
+        execFileSync("sh", ["-c", cmd], { env: { ...process.env, HOME: home } });
+      const lock = path.join(home, ".manor", ".host-install.lock");
+      fs.mkdirSync(lock, { recursive: true });
+      const old = new Date(Date.now() - 10 * 60_000);
+      fs.utimesSync(lock, old, old);
+
+      const c = buildInstallCommands("1.2.3", process.execPath, "t2");
+      run(c.prepare);
+      run(c.commit);
+      expect(fs.existsSync(path.join(home, ".manor", "host"))).toBe(true);
+      expect(fs.existsSync(lock)).toBe(false);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("commit fails rather than nest staging while another install holds the lock", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "bootstrap-home-"));
+    try {
+      const lock = path.join(home, ".manor", ".host-install.lock");
+      fs.mkdirSync(lock, { recursive: true });
+      // Shrink the wait so the test does not sit out the real 45s.
+      const c = buildInstallCommands("1.2.3", process.execPath, "t3");
+      const commit = c.commit.replace(/-ge \d+/, "-ge 1");
+      execFileSync("sh", ["-c", c.prepare], { env: { ...process.env, HOME: home } });
+      expect(() =>
+        execFileSync("sh", ["-c", commit], {
+          env: { ...process.env, HOME: home },
+          stdio: "pipe",
+        }),
+      ).toThrow(/another Manor host install/);
+      expect(fs.existsSync(path.join(home, ".manor", "host"))).toBe(false);
+      expect(fs.existsSync(lock)).toBe(true);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("node discovery", () => {
+  it("parses candidate lines and ignores rc noise", () => {
+    const out = [
+      "Welcome to box!",
+      "__MANOR_NODE__ login v22.3.0 /home/me/.nvm/versions/node/v22.3.0/bin/node",
+      "__MANOR_NODE__ nvm v22.3.0 /home/me/.nvm/versions/node/v22.3.0/bin/node",
+      "__MANOR_NODE__ common  /usr/local/bin/node",
+      "__MANOR_NODE__ fnm v20.1.0 /home/me/My Apps/fnm/node",
+    ].join("\n");
+    const found = parseNodeCandidates(out);
+    expect(found.map((c) => [c.source, c.path])).toEqual([
+      ["login", "/home/me/.nvm/versions/node/v22.3.0/bin/node"],
+      ["common", "/usr/local/bin/node"],
+      ["fnm", "/home/me/My Apps/fnm/node"],
+    ]);
+    expect(found[1].version).toBeNull();
+  });
+
+  it("prefers the login shell's node, else the newest new-enough one", () => {
+    const c = (source: string, v: string, p: string) =>
+      parseNodeCandidates(`__MANOR_NODE__ ${source} ${v} ${p}`)[0];
+    expect(
+      pickNode([c("nvm", "v24.0.0", "/a"), c("login", "v20.5.0", "/b")])?.path,
+    ).toBe("/b");
+    expect(
+      pickNode([c("login", "v18.0.0", "/a"), c("nvm", "v20.0.0", "/b"), c("nvm", "v9.0.0", "/c"), c("nvm", "v22.1.0", "/d")])
+        ?.path,
+    ).toBe("/d");
+    expect(pickNode([c("nvm", "v18.0.0", "/a")])).toBeNull();
+  });
+
+  it.each(LOGIN_SHELLS)("the search snippet runs and finds a node under login shell %s", (loginShell) => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "bootstrap-home-"));
+    try {
+      const bin = path.join(home, ".nvm", "versions", "node", "v99.0.0", "bin");
+      fs.mkdirSync(bin, { recursive: true });
+      fs.writeFileSync(path.join(bin, "node"), "#!/bin/sh\necho v99.0.0\n", { mode: 0o755 });
+      const out = execFileSync(loginShell, ["-c", remoteShellCommand(NODE_SEARCH_COMMAND)], {
+        encoding: "utf-8",
+        env: { PATH: "/usr/bin:/bin", HOME: home, SHELL: "/bin/sh" },
+      });
+      expect(parseNodeCandidates(out)).toContainEqual(
+        expect.objectContaining({ source: "nvm", path: path.join(bin, "node") }),
       );
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
@@ -212,12 +346,13 @@ describe("ensureRemoteHost", () => {
       DETECT_COMMAND,
       NODE_CHECK_COMMAND,
       HOST_VERSION_COMMAND,
+      TOOLCHAIN_CHECK_COMMAND,
       cmds.prepare,
       cmds.stream,
       cmds.install,
       cmds.commit,
     ]);
-    expect(calls[4].opts?.stdin).toBe(TARBALL);
+    expect(calls[5].opts?.stdin).toBe(TARBALL);
     expect(progress.map((p) => p.phase)).toEqual([
       "detect",
       "check-node",
@@ -293,15 +428,57 @@ describe("ensureRemoteHost", () => {
     expect(err.message).toMatch(/Node\.js 20 or newer is required on me@box/);
   });
 
-  it("names the Node requirement when node is too old", async () => {
+  it("names the Node requirement when node is too old everywhere", async () => {
     const { exec, calls } = fakeSsh([
       [DETECT_COMMAND, ok("Darwin arm64\n")],
       [NODE_CHECK_COMMAND, ok("/usr/bin/node\nv18.19.0\n")],
+      [NODE_SEARCH_COMMAND, ok("__MANOR_NODE__ nvm v16.0.0 /home/me/.nvm/versions/node/v16.0.0/bin/node\n")],
     ]);
     const err = await ensureRemoteHost("me@box", "0.13.2", exec, baseOpts).catch((e) => e);
     expect(err.code).toBe("node-too-old");
     expect(err.message).toMatch(/Node\.js 20 or newer is required on me@box; found 18\.19\.0/);
-    expect(calls).toHaveLength(2);
+    expect(calls.map((c) => c.command)).toEqual([
+      DETECT_COMMAND,
+      NODE_CHECK_COMMAND,
+      NODE_SEARCH_COMMAND,
+    ]);
+  });
+
+  it("falls back to the login shell / version managers when node is not on the ssh PATH", async () => {
+    const nvmNode = "/home/me/.nvm/versions/node/v22.1.0/bin/node";
+    const { exec, calls } = fakeSsh([
+      [DETECT_COMMAND, ok("Linux x86_64\n")],
+      [NODE_CHECK_COMMAND, fail(127)],
+      [NODE_SEARCH_COMMAND, ok(`rc noise\n__MANOR_NODE__ login v22.1.0 ${nvmNode}\n`)],
+      [HOST_VERSION_COMMAND, fail(127)],
+    ]);
+    await ensureRemoteHost("me@box", "0.13.2", exec, baseOpts);
+    const commit = calls.find((c) => c.command.includes("mv -f"))!.command;
+    // The shim pins the node that was found.
+    expect(commit).toContain(`exec ${nvmNode}`);
+  });
+
+  it("fails with toolchain-missing before touching anything when node-pty cannot build", async () => {
+    const { exec, calls } = fakeSsh([
+      ...HEALTHY,
+      [HOST_VERSION_COMMAND, fail(127)],
+      [TOOLCHAIN_CHECK_COMMAND, ok("__MANOR_MISSING__ make\n__MANOR_MISSING__ c++\n")],
+    ]);
+    const err = await ensureRemoteHost("me@box", "0.13.2", exec, baseOpts).catch((e) => e);
+    expect(err).toBeInstanceOf(RemoteBootstrapError);
+    expect(err.code).toBe("toolchain-missing");
+    expect(err.message).toContain("make, c++ are missing");
+    expect(calls.some((c) => c.command.includes("mkdir -p"))).toBe(false);
+  });
+
+  it("skips the toolchain check where node-pty ships a prebuild", async () => {
+    const { exec, calls } = fakeSsh([
+      [DETECT_COMMAND, ok("Darwin arm64\n")],
+      [NODE_CHECK_COMMAND, ok("/opt/homebrew/bin/node\nv22.0.0\n")],
+      [HOST_VERSION_COMMAND, fail(127)],
+    ]);
+    await ensureRemoteHost("me@box", "0.13.2", exec, baseOpts);
+    expect(calls.some((c) => c.command === TOOLCHAIN_CHECK_COMMAND)).toBe(false);
   });
 
   it("reports a missing tarball clearly", async () => {

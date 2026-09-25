@@ -20,7 +20,10 @@
  *                               absolute node path, then execs the daemon entry
  *
  * Every step runs through an injected `RemoteExec`, so all of the decision
- * logic is testable without an sshd.
+ * logic is testable without an sshd. Snippets here are POSIX sh, single-line
+ * and backslash-free: `SshTransport` runs each one as `exec sh -c '…'` so the
+ * remote login shell (fish, tcsh, …) never has to parse it (see
+ * `remoteShellCommand`).
  */
 
 import * as crypto from "node:crypto";
@@ -37,6 +40,20 @@ export const MIN_NODE_MAJOR = 20;
 
 /** npm install of node-pty may compile from source; give it room. */
 const INSTALL_TIMEOUT_MS = 10 * 60_000;
+/**
+ * The remote `timeout` wrapped around npm fires this much before our ssh
+ * timeout, so a stuck install is stopped *on the remote* (killing the local
+ * ssh does not stop a command running without a pty).
+ */
+const REMOTE_TIMEOUT_MARGIN_S = 30;
+/** Searching login-shell rc files and version managers for node. */
+const NODE_SEARCH_TIMEOUT_MS = 60_000;
+/** The commit step may wait up to ~45s for a concurrent install's lock. */
+const COMMIT_TIMEOUT_MS = 2 * 60_000;
+/** How long the commit step waits for another install's lock. */
+const INSTALL_LOCK_WAIT_S = 45;
+/** A lock older than this (minutes) is left over from a dead install. */
+const INSTALL_LOCK_STALE_MIN = 2;
 /** Transfer of a sub-megabyte tarball; generous for slow links. */
 const STREAM_TIMEOUT_MS = 2 * 60_000;
 /** Tail of remote stderr quoted in errors. */
@@ -51,6 +68,7 @@ export type RemoteBootstrapErrorCode =
   | "unsupported-platform"
   | "node-missing"
   | "node-too-old"
+  | "toolchain-missing"
   | "tarball-missing"
   | "install-failed";
 
@@ -163,6 +181,43 @@ export const DETECT_COMMAND = "uname -sm";
 /** Prints node's absolute path, then its version. */
 export const NODE_CHECK_COMMAND = "command -v node && node --version";
 
+/** Prefix of each candidate line `NODE_SEARCH_COMMAND` prints. */
+const NODE_CANDIDATE = "__MANOR_NODE__";
+/** Marks where the login shell's own output starts, past any rc-file noise. */
+const LOGIN_SHELL_MARK = "__MANOR_BEGIN__";
+
+/**
+ * The fallback when `node` is not on a plain ssh session's PATH (or is too
+ * old there): ask the user's login shell, which sources the rc files that
+ * set up nvm/fnm/Homebrew, and look in the places those put node. Prints one
+ * `__MANOR_NODE__ <source> <version> <path>` line per executable found.
+ */
+export const NODE_SEARCH_COMMAND = [
+  `emit() { case "$2" in /*) if [ -x "$2" ]; then printf '${NODE_CANDIDATE} %s %s %s\\n' "$1" "$("$2" --version 2>/dev/null)" "$2"; fi;; esac; }`,
+  'T=; if command -v timeout >/dev/null 2>&1; then T="timeout 20"; fi',
+  `if [ -n "$SHELL" ]; then emit login "$($T "$SHELL" -lic 'echo ${LOGIN_SHELL_MARK}; command -v node' </dev/null 2>/dev/null | sed -n '/${LOGIN_SHELL_MARK}/,$p' | grep '^/' | head -n 1)"; fi`,
+  'for n in "$HOME"/.nvm/versions/node/*/bin/node; do emit nvm "$n"; done',
+  'for n in "$HOME"/.local/share/fnm/node-versions/*/installation/bin/node "$HOME/Library/Application Support/fnm/node-versions/"*/installation/bin/node "$HOME"/.fnm/node-versions/*/installation/bin/node; do emit fnm "$n"; done',
+  "for n in /opt/homebrew/bin/node /usr/local/bin/node /usr/bin/node; do emit common \"$n\"; done",
+  "true",
+].join("; ");
+
+/** Prefix of each line `TOOLCHAIN_CHECK_COMMAND` prints for a missing tool. */
+const MISSING_TOOL = "__MANOR_MISSING__";
+
+/** What node-gyp needs to build node-pty from source. Prints what is missing. */
+export const TOOLCHAIN_CHECK_COMMAND = [
+  `for t in python3 make; do command -v "$t" >/dev/null 2>&1 || echo "${MISSING_TOOL} $t"; done`,
+  `command -v c++ >/dev/null 2>&1 || command -v g++ >/dev/null 2>&1 || echo "${MISSING_TOOL} c++"`,
+].join("; ");
+
+/**
+ * Platforms node-pty ships a prebuilt binary for (its npm package carries
+ * `prebuilds/<os>-<arch>`), so `npm install` needs no compiler there. Linux
+ * has none and always builds from source.
+ */
+const NODE_PTY_PREBUILT = new Set(["darwin-x64", "darwin-arm64"]);
+
 export const HOST_VERSION_COMMAND = `${HOST_BIN} --version 2>/dev/null`;
 
 /** The launcher shim written to `~/.manor/bin/manor-host`. */
@@ -204,8 +259,14 @@ export function buildInstallCommands(
     throw new Error(`Invalid staging id: ${JSON.stringify(stagingId)}`);
   }
   const staging = `"$HOME/.manor/.host-staging-${stagingId}"`;
+  const lock = `"$HOME/.manor/.host-install.lock"`;
   const npm = shellQuote(path.posix.join(path.posix.dirname(nodePath), "npm"));
-  const shim = renderLauncherShim(version, nodePath);
+  // One printf argument per line: snippets must stay single-line (see top).
+  const [shebang, ...shimBody] = renderLauncherShim(version, nodePath)
+    .replace(/\n$/, "")
+    .split("\n");
+  if (shebang !== "#!/bin/sh") throw new Error(`Unexpected shim shebang: ${shebang}`);
+  const installTimeoutS = INSTALL_TIMEOUT_MS / 1000 - REMOTE_TIMEOUT_MARGIN_S;
 
   return {
     prepare: [
@@ -224,19 +285,32 @@ export function buildInstallCommands(
       `if [ -x ${npm} ]; then NPM=${npm}; else NPM=npm; fi`,
       // Put that node first so npm's install scripts (node-gyp) use it too.
       `PATH=${shellQuote(path.posix.dirname(nodePath))}:"$PATH"; export PATH`,
-      '"$NPM" install --omit=dev --no-audit --no-fund --no-package-lock',
+      // Stop npm (and the compiler under it) on the remote if it overruns;
+      // our ssh timeout alone would leave it running there.
+      `T=; if command -v timeout >/dev/null 2>&1; then T="timeout ${installTimeoutS}"; fi`,
+      '$T "$NPM" install --omit=dev --no-audit --no-fund --no-package-lock',
       `${shellQuote(nodePath)} -e 'require("node-pty")'`,
     ].join("; "),
 
     // Two renames rather than one (POSIX `mv` cannot replace a non-empty
-    // dir), with the old install restored if the second fails.
+    // dir), with the old install restored if the second fails. Serialized
+    // with a mkdir lock: two installs committing at once could otherwise
+    // move one staging dir *into* the host/ the other just put in place.
     commit: [
       "set -e",
+      "i=0",
+      `while ! mkdir ${lock} 2>/dev/null; do` +
+        ` if [ -n "$(find ${lock} -maxdepth 0 -mmin +${INSTALL_LOCK_STALE_MIN} 2>/dev/null)" ]; then rm -rf ${lock}; continue; fi;` +
+        ` i=$((i+1)); if [ "$i" -ge ${INSTALL_LOCK_WAIT_S} ]; then echo "another Manor host install is still running on this machine" >&2; exit 1; fi;` +
+        " sleep 1; done",
+      `trap 'rmdir ${lock} 2>/dev/null || true' EXIT`,
       `rm -rf ${MANOR}/host.old`,
       `if [ -d ${HOST_DIR} ]; then mv ${HOST_DIR} ${MANOR}/host.old; fi`,
       `if ! mv ${staging} ${HOST_DIR}; then` +
         ` if [ -d ${MANOR}/host.old ]; then mv ${MANOR}/host.old ${HOST_DIR}; fi; exit 1; fi`,
-      `printf '%s' ${shellQuote(shim)} > ${HOST_BIN}.tmp.$$`,
+      // The shebang is spelled with an octal escape: csh expands `!/…` as
+      // history even inside single quotes.
+      `{ printf '#\\041/bin/sh\\n'; printf '%s\\n' ${shimBody.map(shellQuote).join(" ")}; } > ${HOST_BIN}.tmp.$$`,
       `chmod 0755 ${HOST_BIN}.tmp.$$`,
       `mv -f ${HOST_BIN}.tmp.$$ ${HOST_BIN}`,
       `rm -rf ${MANOR}/host.old`,
@@ -307,7 +381,7 @@ export async function ensureRemoteHost(
         detail(uname),
     );
   }
-  parseRemotePlatform(target, uname.stdout);
+  const platform = parseRemotePlatform(target, uname.stdout);
 
   // 2. Node
   report("check-node", `Checking Node.js on ${target}…`);
@@ -323,6 +397,9 @@ export async function ensureRemoteHost(
 
   // 4. Install
   report("install", `Installing Manor host ${version} on ${target}…`);
+  if (!NODE_PTY_PREBUILT.has(`${platform.os}-${platform.arch}`)) {
+    await checkToolchain(target, ssh);
+  }
   const tarball = await (opts.loadTarball ?? readTarball)(version);
   const stagingId = opts.stagingId?.() ?? crypto.randomBytes(6).toString("hex");
   const cmds = buildInstallCommands(version, nodePath, stagingId);
@@ -336,35 +413,114 @@ export async function ensureRemoteHost(
     await ssh(cmds.cleanup).catch(() => {});
     throw err;
   }
-  await step(target, "commit", ssh(cmds.commit));
+  await step(target, "commit", ssh(cmds.commit, { timeoutMs: COMMIT_TIMEOUT_MS }));
 
   report("done", `Manor host ${version} is ready on ${target}`);
   return { installed: true, version };
 }
 
-/** Returns node's absolute path, or throws an actionable error. */
+interface NodeCandidate {
+  source: string;
+  path: string;
+  version: SemVer | null;
+  versionText: string;
+}
+
+/** Parse `NODE_SEARCH_COMMAND` output, ignoring anything that is not a candidate line. */
+export function parseNodeCandidates(output: string): NodeCandidate[] {
+  const found: NodeCandidate[] = [];
+  const seen = new Set<string>();
+  for (const raw of output.split(/\r?\n/)) {
+    const m = new RegExp(`^${NODE_CANDIDATE} (\\S+) (\\S*) (/.*)$`).exec(raw.trim());
+    if (!m || seen.has(m[3])) continue;
+    seen.add(m[3]);
+    found.push({ source: m[1], versionText: m[2], version: parseVersion(m[2]), path: m[3] });
+  }
+  return found;
+}
+
+function isNewEnough(c: NodeCandidate): boolean {
+  return !!c.version && c.version.major >= MIN_NODE_MAJOR;
+}
+
+/**
+ * The node to use: the login shell's (the user's own default) if it is new
+ * enough, otherwise the newest new-enough one found anywhere.
+ */
+export function pickNode(candidates: NodeCandidate[]): NodeCandidate | null {
+  const login = candidates.find((c) => c.source === "login" && isNewEnough(c));
+  if (login) return login;
+  const usable = candidates.filter(isNewEnough);
+  usable.sort((a, b) => compareVersions(b.version!, a.version!));
+  return usable[0] ?? null;
+}
+
+/**
+ * Returns an absolute path to a node >= MIN_NODE_MAJOR, or throws an
+ * actionable error. Tries the plain ssh PATH first; if that has no node or
+ * an old one, searches the login shell and the usual version-manager and
+ * Homebrew locations.
+ */
 async function checkNode(target: string, ssh: RemoteExec): Promise<string> {
   const res = await ssh(NODE_CHECK_COMMAND);
   const lines = res.stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const versionLine = lines[lines.length - 1] ?? "";
-  const nodePath = lines[lines.length - 2] ?? "";
-  const parsed = parseVersion(versionLine);
-  if (res.code !== 0 || !parsed || !nodePath.startsWith("/")) {
-    throw new RemoteBootstrapError(
-      "node-missing",
-      `Node.js ${MIN_NODE_MAJOR} or newer is required on ${target}, but \`node\` was not found ` +
-        "on the PATH of a non-interactive ssh session. Install Node.js there " +
-        "(and make sure it is on PATH for `ssh <host> node --version`), then try again.",
-    );
-  }
-  if (parsed.major < MIN_NODE_MAJOR) {
+  const pathLine = lines[lines.length - 2] ?? "";
+  const onPath: NodeCandidate | null =
+    res.code === 0 && pathLine.startsWith("/")
+      ? {
+          source: "path",
+          path: pathLine,
+          versionText: versionLine,
+          version: parseVersion(versionLine),
+        }
+      : null;
+  if (onPath && isNewEnough(onPath)) return onPath.path;
+
+  const search = await ssh(NODE_SEARCH_COMMAND, { timeoutMs: NODE_SEARCH_TIMEOUT_MS }).catch(
+    () => null,
+  );
+  const candidates = [
+    ...(onPath ? [onPath] : []),
+    ...parseNodeCandidates(search?.stdout ?? ""),
+  ];
+  const picked = pickNode(candidates);
+  if (picked) return picked.path;
+
+  const newestOld = candidates
+    .filter((c) => c.version)
+    .sort((a, b) => compareVersions(b.version!, a.version!))[0];
+  if (newestOld) {
     throw new RemoteBootstrapError(
       "node-too-old",
-      `Node.js ${MIN_NODE_MAJOR} or newer is required on ${target}; found ${normalizeVersion(versionLine)} ` +
-        `at ${nodePath}. Upgrade Node.js there, then try again.`,
+      `Node.js ${MIN_NODE_MAJOR} or newer is required on ${target}; found ${normalizeVersion(newestOld.versionText)} ` +
+        `at ${newestOld.path}. Upgrade Node.js there, then try again.`,
     );
   }
-  return nodePath;
+  throw new RemoteBootstrapError(
+    "node-missing",
+    `Node.js ${MIN_NODE_MAJOR} or newer is required on ${target}, but no \`node\` was found ` +
+      "on the ssh PATH, in your login shell, or in the usual nvm/fnm/Homebrew locations. " +
+      "Install Node.js there, then try again.",
+  );
+}
+
+/** Fail before touching anything if node-pty will have to compile and cannot. */
+async function checkToolchain(target: string, ssh: RemoteExec): Promise<void> {
+  const res = await ssh(TOOLCHAIN_CHECK_COMMAND);
+  const missing = res.stdout
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith(`${MISSING_TOOL} `))
+    .map((l) => l.slice(MISSING_TOOL.length + 1));
+  if (missing.length > 0) {
+    throw new RemoteBootstrapError(
+      "toolchain-missing",
+      `Installing Manor host on ${target} needs a build toolchain to compile node-pty, ` +
+        `but ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} missing. ` +
+        "Install them (e.g. `apt install python3 make g++` or `dnf install python3 make gcc-c++`), then try again.",
+    );
+  }
 }
 
 async function step(

@@ -1,6 +1,6 @@
 ---
 title: RemoteBackend implementing WorkspaceBackend over the bridge
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: [2, 5, 7]

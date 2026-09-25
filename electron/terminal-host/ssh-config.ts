@@ -20,11 +20,44 @@ const SHELL_SAFE = /^[A-Za-z0-9@%_+=:,./-]+$/;
 /**
  * Quote `value` for a POSIX shell. Values made only of alphanumerics and
  * `@%_+=:,./-` pass through untouched; anything else is single-quoted, with
- * embedded `'` written as `'\''`.
+ * embedded `'` written as `'"'"'`.
+ *
+ * That spelling (rather than the usual `'\''`) keeps the result free of
+ * backslashes, so quoting it a second time — see `remoteShellCommand` —
+ * still reads the same in fish and csh, whose single quotes treat `\'` as an
+ * escape.
  */
 export function shellQuote(value: string): string {
   if (value !== "" && SHELL_SAFE.test(value)) return value;
-  return `'${value.replace(/'/g, `'\\''`)}'`;
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+/**
+ * Wrap a POSIX `sh` snippet so it runs under `sh` whatever the remote user's
+ * login shell is. sshd hands the remote command to that shell (`$SHELL -c`),
+ * and fish or tcsh would choke on `if …; then`, `$(…)`, `2>/dev/null` and
+ * friends.
+ *
+ * Every login shell we care about (sh, bash, zsh, fish, csh/tcsh) agrees on
+ * `exec`, on single quotes, and on a `"'"` between them, as long as the
+ * quoted text holds no newline (csh rejects it), no backslash followed by
+ * `\` or `'` (fish unescapes those inside single quotes), and no `!` that
+ * csh would read as a history reference (it does so even inside single
+ * quotes; `! ` with a space is safe). Snippets are checked for all three.
+ */
+export function remoteShellCommand(snippet: string): string {
+  if (
+    /[\r\n]/.test(snippet) ||
+    /\\[\\']/.test(snippet) ||
+    /![^\s=(]/.test(snippet)
+  ) {
+    throw new Error(
+      "Remote shell snippets must be single-line and must not contain \\\\, \\' or " +
+        "a `!` history reference (they have to survive the login shell's quoting): " +
+        JSON.stringify(snippet),
+    );
+  }
+  return `exec sh -c ${shellQuote(snippet)}`;
 }
 
 // ── Managed config directory ──
@@ -34,18 +67,38 @@ export interface ManagedSshConfig {
   dir: string;
   /** The config file passed with `-F`. */
   configPath: string;
-  /** The ControlMaster socket both bridge connections share. */
+  /**
+   * The ControlPath *pattern* (`<dir>/%C`) — ssh expands `%C` to a hash of
+   * the local host, remote host, port, user and jump host, so each hop of a
+   * ProxyJump chain gets its own master. See `SshTransport.resolveControlPath`
+   * for the expanded path.
+   */
   controlPath: string;
 }
 
+/** `%C` expands to 40 hex digits. */
+const CONTROL_HASH_LEN = 40;
+/** ssh creates the socket as `<path>.<16 random chars>` and renames it. */
+const CONTROL_TEMP_SUFFIX_LEN = 17;
+/** `mkdtemp`'s `manor-ssh-XXXXXX`, plus the separators around it. */
+const MANAGED_DIR_NAME_LEN = "/manor-ssh-XXXXXX/".length;
+/** Unix socket paths are capped at 104 bytes on macOS (108 on Linux). */
+const MAX_SOCKET_PATH = 103;
+
 /**
- * Base directory for the managed config. ControlPath is a unix socket, and
- * ssh appends a ~17-character suffix while creating it; macOS caps socket
- * paths at 104 bytes and its `os.tmpdir()` is already ~50, so use the short
- * `/tmp` there.
+ * Base directory for the managed config. The ControlMaster socket lives
+ * inside it, so the whole socket path — hash and ssh's temporary suffix
+ * included — has to fit under the unix socket limit. macOS's `os.tmpdir()`
+ * is already ~50 bytes; fall back to the short `/tmp` whenever it is too long.
  */
 function defaultBaseDir(): string {
-  return process.platform === "darwin" ? "/tmp" : os.tmpdir();
+  const budget =
+    MAX_SOCKET_PATH -
+    MANAGED_DIR_NAME_LEN -
+    CONTROL_HASH_LEN -
+    CONTROL_TEMP_SUFFIX_LEN;
+  const tmp = os.tmpdir();
+  return tmp.length <= budget ? tmp : "/tmp";
 }
 
 /**
@@ -78,7 +131,7 @@ export function createManagedSshConfig(
 ): ManagedSshConfig {
   const dir = fs.mkdtempSync(path.join(baseDir, "manor-ssh-"));
   fs.chmodSync(dir, 0o700);
-  const controlPath = path.join(dir, "ctl");
+  const controlPath = path.join(dir, "%C");
   const configPath = path.join(dir, "config");
   fs.writeFileSync(configPath, renderSshConfig(controlPath), { mode: 0o600 });
   return { dir, configPath, controlPath };
@@ -96,12 +149,21 @@ export function removeManagedSshConfig(config: ManagedSshConfig): void {
 // ── Argument construction ──
 
 /**
- * Reject targets ssh would parse as an option. Everything else is handed to
- * ssh as its own argv entry (never through a local shell), so it needs no
- * quoting there.
+ * `[user@]host[:port]`-ish targets — alias names, IPv4/IPv6 (bracketed or
+ * not, with a `%zone`), user names with dots and dashes — optionally in the
+ * `ssh://user@host:port` form.
+ */
+const VALID_TARGET = /^(?:ssh:\/\/)?[A-Za-z0-9._@:[\]%-]+$/;
+
+/**
+ * Accept only targets made of the characters a host alias, user@host or
+ * ssh:// URI can contain, and never one ssh would parse as an option. The
+ * target is handed to ssh as its own argv entry (never through a local
+ * shell), so the allowlist is about ssh's own parsing, not quoting.
  */
 export function assertValidTarget(target: string): void {
-  if (!target || target.startsWith("-") || /\s/.test(target)) {
+  const bare = target.replace(/^ssh:\/\//, "");
+  if (!VALID_TARGET.test(target) || bare === "" || bare.startsWith("-")) {
     throw new Error(`Invalid ssh target: ${JSON.stringify(target)}`);
   }
 }
@@ -121,24 +183,49 @@ export function remoteRestartCommand(): string {
   return `exec ${REMOTE_HOST_BIN} restart`;
 }
 
-/** `ssh -F <config> -T <target> <remoteCommand>` */
+/**
+ * `ssh -F <config> -T <target> 'exec sh -c <snippet>'` — `snippet` is POSIX
+ * sh and runs under `sh` whatever the remote login shell is (see
+ * `remoteShellCommand`).
+ */
 export function buildSshArgs(
   configPath: string,
   target: string,
-  remoteCommand: string,
+  snippet: string,
 ): string[] {
   assertValidTarget(target);
-  return ["-F", configPath, "-T", target, remoteCommand];
+  return ["-F", configPath, "-T", target, remoteShellCommand(snippet)];
 }
 
-/** `ssh -F <config> -O <op> <target>` — talk to the ControlMaster itself. */
+/**
+ * `ssh -F <config> -O <op> [forward options] <target>` — talk to the
+ * ControlMaster itself. Passing the managed config lets ssh expand the `%C`
+ * in its ControlPath to the same socket the master created. For `forward`
+ * and `cancel`, `forwardArgs` names the forward (e.g. `["-L", "8080:localhost:80"]`).
+ */
 export function buildControlArgs(
   configPath: string,
   target: string,
-  op: "check" | "exit",
+  op: "check" | "exit" | "forward" | "cancel",
+  forwardArgs: string[] = [],
 ): string[] {
   assertValidTarget(target);
-  return ["-F", configPath, "-O", op, target];
+  return ["-F", configPath, "-O", op, ...forwardArgs, target];
+}
+
+/** `ssh -F <config> -G <target>` — print the effective config for `target`. */
+export function buildResolveConfigArgs(configPath: string, target: string): string[] {
+  assertValidTarget(target);
+  return ["-F", configPath, "-G", target];
+}
+
+/** Pull the expanded `controlpath` out of `ssh -G` output. */
+export function parseControlPath(sshG: string): string | null {
+  for (const line of sshG.split(/\r?\n/)) {
+    const m = /^controlpath\s+(.+)$/i.exec(line.trim());
+    if (m && m[1] !== "none") return m[1];
+  }
+  return null;
 }
 
 // ── Failure recognition ──
@@ -151,6 +238,37 @@ export function isRemoteAuthError(stderr: string): boolean {
       stderr.includes("(keyboard-interactive") ||
       stderr.includes("(password"))
   );
+}
+
+/** ssh refused the host because its key is unknown (or changed) and BatchMode forbids asking. */
+export function isHostKeyError(stderr: string): boolean {
+  return (
+    stderr.includes("Host key verification failed") ||
+    stderr.includes("REMOTE HOST IDENTIFICATION HAS CHANGED")
+  );
+}
+
+/**
+ * ssh would not connect to `target` because it does not (yet) trust the host
+ * key. Manor runs ssh with BatchMode, so it cannot show the "are you sure you
+ * want to continue connecting" prompt; the user has to accept the key once
+ * from a terminal.
+ */
+export class SshHostKeyError extends Error {
+  constructor(
+    readonly target: string,
+    readonly stderr: string,
+  ) {
+    super(
+      stderr.includes("REMOTE HOST IDENTIFICATION HAS CHANGED")
+        ? `The host key for ${target} has changed since you last connected. ` +
+            "If that is expected, remove the old key with `ssh-keygen -R <host>` " +
+            `and then ssh to ${target} once from a terminal to accept the new one.`
+        : `${target}'s host key is not trusted yet. ssh to ${target} once from a ` +
+            "terminal to accept its host key, then try again.",
+    );
+    this.name = "SshHostKeyError";
+  }
 }
 
 /** ssh could not authenticate to `target`; the message says what to try. */

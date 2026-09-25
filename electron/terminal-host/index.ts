@@ -26,7 +26,7 @@ import {
   daemonTokenFile,
   daemonPidFile,
 } from "../paths";
-import { runRemoteBridge } from "./bridge";
+import { runRemoteBridgeProcess } from "./bridge";
 import { LocalTransport } from "./transport-local";
 import { ExecRunner, runExec } from "./exec-runner";
 import { createSerializedHandler } from "./control-queue";
@@ -70,7 +70,11 @@ const MAX_READ_FILE_BYTES = 10 * 1024 * 1024;
 
 function log(msg: string): void {
   const ts = new Date().toISOString();
-  process.stderr.write(`[terminal-host ${ts}] ${msg}\n`);
+  try {
+    process.stderr.write(`[terminal-host ${ts}] ${msg}\n`);
+  } catch {
+    // stderr is gone (see installDaemonSignalHandlers); logging is best-effort.
+  }
 }
 
 // ── Setup ──
@@ -323,6 +327,22 @@ async function handleControlMessage(
       );
       break;
     }
+
+    default: {
+      // A newer client asking for something this daemon does not know. Answer
+      // rather than stay silent, or the client waits out its timeout and then
+      // drops the whole connection.
+      const unknownType = (request as { type?: unknown }).type;
+      sendResponse(
+        socket,
+        {
+          type: "error",
+          message: `unknown request type: ${String(unknownType)}`,
+        },
+        requestId,
+      );
+      break;
+    }
   }
 }
 
@@ -545,6 +565,12 @@ function installDaemonSignalHandlers(): void {
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 
+  // The daemon is detached and outlives whoever started it. If its stdio
+  // ends up on a pipe that later closes, a write must not surface as an
+  // uncaughtException — that would shut down every session.
+  process.stdout.on("error", () => {});
+  process.stderr.on("error", () => {});
+
   process.on("uncaughtException", (err) => {
     if (handlingUncaught) {
       process.stderr.write(
@@ -593,7 +619,7 @@ async function main(): Promise<void> {
       // Informational only — control and stream share one socket path today.
       process.stderr.write("[terminal-host] remote-bridge: stream mode\n");
     }
-    process.exitCode = await runRemoteBridge();
+    await runRemoteBridgeProcess();
     return;
   }
 

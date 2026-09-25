@@ -5,12 +5,19 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { SshTransport, type SshChild } from "../transport-ssh";
+import { execFileSync } from "node:child_process";
 import {
   SshAuthError,
+  SshHostKeyError,
+  assertValidTarget,
+  buildControlArgs,
   buildSshArgs,
   createManagedSshConfig,
+  isHostKeyError,
   isRemoteAuthError,
+  parseControlPath,
   remoteBridgeCommand,
+  remoteShellCommand,
   renderSshConfig,
   shellQuote,
 } from "../ssh-config";
@@ -74,7 +81,40 @@ describe("shellQuote", () => {
     expect(shellQuote("has space")).toBe("'has space'");
     expect(shellQuote("$HOME")).toBe("'$HOME'");
     expect(shellQuote("")).toBe("''");
-    expect(shellQuote("it's")).toBe("'it'\\''s'");
+    expect(shellQuote("it's")).toBe(`'it'"'"'s'`);
+  });
+});
+
+describe("remoteShellCommand", () => {
+  // A snippet exercising what the bootstrap relies on: quotes inside quotes,
+  // $(...), redirections, if/then, and a literal `\n` for printf.
+  const snippet =
+    `x=$(printf '%s\\n' ${shellQuote("it's $HOME")}); ` +
+    `if [ -n "$x" ]; then printf '%s|' "$x"; fi 2>/dev/null`;
+
+  const shells = ["sh", "bash", "zsh", "fish", "tcsh", "csh"].filter((sh) => {
+    try {
+      execFileSync("sh", ["-c", `command -v ${sh}`], { stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  it.each(shells)("runs the snippet under sh when the login shell is %s", (loginShell) => {
+    const out = execFileSync(loginShell, ["-c", remoteShellCommand(snippet)], {
+      encoding: "utf-8",
+      env: { ...process.env, HOME: "/home/x" },
+    });
+    expect(out).toBe("it's $HOME|");
+  });
+
+  it("rejects snippets the login shell would mangle", () => {
+    expect(() => remoteShellCommand("a\nb")).toThrow(/single-line/);
+    expect(() => remoteShellCommand("echo \\\\")).toThrow(/single-line/);
+    expect(() => remoteShellCommand("echo 'a\\'")).toThrow(/single-line/);
+    expect(() => remoteShellCommand("echo '#!/bin/sh'")).toThrow(/history reference/);
+    expect(() => remoteShellCommand("if ! true; then :; fi")).not.toThrow();
   });
 });
 
@@ -85,7 +125,7 @@ describe("ssh argument construction", () => {
       "/cfg/config",
       "-T",
       "me@box",
-      'exec "$HOME/.manor/bin/manor-host" remote-bridge',
+      `exec sh -c 'exec "$HOME/.manor/bin/manor-host" remote-bridge'`,
     ]);
     expect(remoteBridgeCommand(true)).toBe(
       'exec "$HOME/.manor/bin/manor-host" remote-bridge --stream',
@@ -96,6 +136,47 @@ describe("ssh argument construction", () => {
     expect(() => buildSshArgs("/c", "-oProxyCommand=evil", "x")).toThrow(/Invalid ssh target/);
     expect(() => new SshTransport("")).toThrow(/Invalid ssh target/);
     expect(() => new SshTransport("a b")).toThrow(/Invalid ssh target/);
+    expect(() => assertValidTarget("ssh://-oProxyCommand=evil")).toThrow(/Invalid ssh target/);
+  });
+
+  it.each([
+    "box",
+    "me@box.example.com",
+    "first.last@10.0.0.1",
+    "me@[fe80::1%en0]:2222",
+    "fe80::1",
+    "ssh://me@box:2222",
+    "my-alias_2",
+  ])("accepts target %j", (target) => {
+    expect(() => assertValidTarget(target)).not.toThrow();
+  });
+
+  it.each(["box;rm -rf /", "box\n", "$(whoami)@box", "a'b", "ssh://", "me@box/path", "a\tb"])(
+    "rejects target %j",
+    (target) => {
+      expect(() => assertValidTarget(target)).toThrow(/Invalid ssh target/);
+    },
+  );
+
+  it("builds ControlMaster operations against the managed config", () => {
+    expect(buildControlArgs("/c", "box", "exit")).toEqual(["-F", "/c", "-O", "exit", "box"]);
+    expect(buildControlArgs("/c", "box", "forward", ["-L", "8080:localhost:80"])).toEqual([
+      "-F",
+      "/c",
+      "-O",
+      "forward",
+      "-L",
+      "8080:localhost:80",
+      "box",
+    ]);
+  });
+
+  it("reads the expanded ControlPath from ssh -G output", () => {
+    expect(
+      parseControlPath("user me\nhostname box\ncontrolpath /tmp/manor-ssh-a/0123abcd\nport 22\n"),
+    ).toBe("/tmp/manor-ssh-a/0123abcd");
+    expect(parseControlPath("controlpath none\n")).toBeNull();
+    expect(parseControlPath("user me\n")).toBeNull();
   });
 
   it("does not add a reverse forward", () => {
@@ -104,20 +185,28 @@ describe("ssh argument construction", () => {
   });
 
   it("renders a ControlMaster config ahead of the user's own", () => {
-    const text = renderSshConfig("/tmp/x/ctl");
+    const text = renderSshConfig("/tmp/x/%C");
     const lines = text.split("\n").map((l) => l.trim());
     for (const expected of [
       "ControlMaster auto",
-      "ControlPath /tmp/x/ctl",
+      "ControlPath /tmp/x/%C",
       "ControlPersist 60",
       "ServerAliveInterval 30",
       "ServerAliveCountMax 3",
     ]) {
       expect(lines).toContain(expected);
     }
-    expect(lines.indexOf("ControlPath /tmp/x/ctl")).toBeLessThan(
+    expect(lines.indexOf("ControlPath /tmp/x/%C")).toBeLessThan(
       lines.indexOf("Include ~/.ssh/config"),
     );
+  });
+});
+
+describe("isHostKeyError", () => {
+  it("matches an unknown or changed host key", () => {
+    expect(isHostKeyError("No ED25519 host key is known for box and you have requested strict checking.\r\nHost key verification failed.\r\n")).toBe(true);
+    expect(isHostKeyError("@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @")).toBe(true);
+    expect(isHostKeyError("Permission denied (publickey).")).toBe(false);
   });
 });
 
@@ -160,17 +249,42 @@ describe("SshTransport", () => {
     expect(new SshTransport("box").handshakeTimeoutMs).toBe(60_000);
   });
 
-  it("writes a 0700 managed config dir and exposes the ControlMaster path", async () => {
+  it("writes a 0700 managed config dir with a per-host ControlPath", async () => {
     const { transport } = makeTransport();
-    expect(transport.controlPath).toBeNull();
+    expect(transport.configPath).toBeNull();
     await transport.ensureRunning("1.2.3");
     const config = transport.managedConfig();
     expect(fs.statSync(config.dir).mode & 0o777).toBe(0o700);
-    expect(transport.controlPath).toBe(path.join(config.dir, "ctl"));
+    // %C, not a fixed name: with ProxyJump the jump host's ssh reads this
+    // config too, and a fixed path would let its master capture the socket.
+    expect(config.controlPath).toBe(path.join(config.dir, "%C"));
     expect(transport.configPath).toBe(config.configPath);
     expect(fs.readFileSync(config.configPath, "utf-8")).toContain(
       `ControlPath ${config.controlPath}`,
     );
+  });
+
+  it("keeps the default ControlMaster socket path under the unix limit", () => {
+    const config = createManagedSshConfig();
+    try {
+      // 40-char %C hash plus ssh's 17-char temporary suffix.
+      expect(path.join(config.dir, "x".repeat(40)).length + 17).toBeLessThan(104);
+    } finally {
+      fs.rmSync(config.dir, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves the expanded ControlMaster socket with ssh -G", async () => {
+    const { transport, children } = makeTransport();
+    expect(await transport.resolveControlPath()).toBeNull();
+    transport.managedConfig();
+    const resolving = transport.resolveControlPath();
+    const child = await nextChild(children, 0);
+    expect(child.args).toEqual(["-F", transport.configPath, "-G", "me@box"]);
+    child.stdout.write("user me\ncontrolpath /tmp/manor-ssh-x/abc123\n");
+    await new Promise((r) => setImmediate(r));
+    child.exit(0);
+    expect(await resolving).toBe("/tmp/manor-ssh-x/abc123");
   });
 
   it("delegates ensureRunning to the injected bootstrap", async () => {
@@ -191,7 +305,7 @@ describe("SshTransport", () => {
       transport.configPath,
       "-T",
       "me@box",
-      'exec "$HOME/.manor/bin/manor-host" remote-bridge',
+      `exec sh -c 'exec "$HOME/.manor/bin/manor-host" remote-bridge'`,
     ]);
 
     // Hello and the first protocol bytes arrive in one chunk, preceded by rc noise.
@@ -216,7 +330,7 @@ describe("SshTransport", () => {
     const pending = transport.connectStream();
     const child = await nextChild(children, 0);
     expect(child.args[child.args.length - 1]).toBe(
-      'exec "$HOME/.manor/bin/manor-host" remote-bridge --stream',
+      `exec sh -c 'exec "$HOME/.manor/bin/manor-host" remote-bridge --stream'`,
     );
     const line = hello("tok-2");
     child.stdout.write(line.slice(0, 10));
@@ -237,6 +351,41 @@ describe("SshTransport", () => {
     expect(err).toBeInstanceOf(SshAuthError);
     expect((err as Error).message).toContain("ssh me@box");
     expect((err as Error).message).toContain("ssh-add");
+  });
+
+  it("tells the user to accept an unknown host key from a terminal", async () => {
+    const { transport, children } = makeTransport();
+    const pending = transport.connectControl();
+    const child = await nextChild(children, 0);
+    child.stderr.write("Host key verification failed.\r\n");
+    await new Promise((r) => setImmediate(r));
+    child.exit(255);
+
+    const err = await pending.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SshHostKeyError);
+    expect((err as Error).message).toContain(
+      "ssh to me@box once from a terminal to accept its host key",
+    );
+  });
+
+  it("exec translates host key failures", async () => {
+    const { transport, children } = makeTransport();
+    const running = transport.exec("true");
+    const child = await nextChild(children, 0);
+    child.stderr.write("Host key verification failed.\n");
+    await new Promise((r) => setImmediate(r));
+    child.exit(255);
+    await expect(running).rejects.toBeInstanceOf(SshHostKeyError);
+  });
+
+  it("gives up once 64KB of pre-hello noise has gone by, even in short lines", async () => {
+    const { transport, children } = makeTransport();
+    const pending = transport.connectControl();
+    const child = await nextChild(children, 0);
+    const noise = "motd line\n".repeat(1024); // ~10KB per write, all complete lines
+    for (let i = 0; i < 7; i++) child.stdout.write(noise);
+    await expect(pending).rejects.toThrow(/did not announce itself/);
+    expect(child.killed).toBe(true);
   });
 
   it("reports other early exits with ssh's stderr", async () => {
@@ -289,7 +438,7 @@ describe("SshTransport", () => {
     await disposing;
 
     expect(fs.existsSync(dir)).toBe(false);
-    expect(transport.controlPath).toBeNull();
+    expect(transport.configPath).toBeNull();
   });
 
   it("restart runs `manor-host restart` on the remote", async () => {
@@ -301,7 +450,7 @@ describe("SshTransport", () => {
       transport.configPath,
       "-T",
       "me@box",
-      'exec "$HOME/.manor/bin/manor-host" restart',
+      `exec sh -c 'exec "$HOME/.manor/bin/manor-host" restart'`,
     ]);
     child.exit(0);
     await restarting;

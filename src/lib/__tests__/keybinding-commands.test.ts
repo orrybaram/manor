@@ -224,6 +224,12 @@ describe("startNewAgent", () => {
 
     await startNewAgent({ prewarm: true });
 
+    // The prewarmed session is consumed for the active workspace's cwd, so
+    // the main process can reject a stale (e.g. wrong-host) prewarm.
+    expect(
+      window.electronAPI.pty.consumePrewarmed,
+    ).toHaveBeenCalledWith(WS_PATH);
+
     // The command already ran in the prewarmed session — don't queue it again.
     expect(
       useAppStore.getState().pendingStartupCommands[WS_PATH],

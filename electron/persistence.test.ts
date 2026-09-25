@@ -1549,6 +1549,31 @@ describe("ProjectManager host-relative paths (ADR-178)", () => {
     ]);
   });
 
+  it("checks whether a remote worktree still exists through the host's shell, not local fs", async () => {
+    const git = fullGit();
+    (git.worktreeRemove as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("worktree remove failed"),
+    );
+    const shell = fakeShell("/home/remoteuser", {
+      files: { "/home/remoteuser/.manor/worktrees/remote-app/feature": "" },
+    });
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    const project = await mgr.addProject("Remote App", "/srv/app", "box");
+
+    // The directory still exists on the box (per the fake shell's `test -e`)
+    // — that must surface as a real failure, not be silently swallowed.
+    await expect(
+      mgr.removeWorktree(project.id, "/home/remoteuser/.manor/worktrees/remote-app/feature"),
+    ).rejects.toThrow(/Failed to remove worktree/);
+
+    expect(shell.execCalls).toContainEqual([
+      "test",
+      ["-e", "/home/remoteuser/.manor/worktrees/remote-app/feature"],
+      undefined,
+    ]);
+  });
+
   it("reads package.json and lockfile presence through the host's shell for a remote project", async () => {
     const git = fullGit();
     const shell = fakeShell("/home/remoteuser", {

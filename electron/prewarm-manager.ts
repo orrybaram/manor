@@ -99,12 +99,23 @@ export class PrewarmManager {
   }
 
   /**
-   * Consume the prewarmed session.
-   * Returns the pre-generated paneId and whether the agent command was already
-   * injected, or null if no session is ready.
+   * Consume the prewarmed session for `cwd` (already resolved via
+   * `resolveSpawnCwd`, matching `updateCwd`'s caller).
+   *
+   * Returns the pre-generated paneId and whether the agent command was
+   * already injected, or null if no session is ready — including when it was
+   * warmed for a different cwd. That guards a race: the user switches to a
+   * remote workspace and opens a tab before `pty:updatePrewarmCwd` lands, so
+   * without this check the remote tab would adopt a shell warmed for the
+   * previous (local) cwd.
    */
-  consume(): { paneId: string; commandInjected: boolean } | null {
-    if (this.state !== "ready" || !this.prewarmPaneId) {
+  consume(cwd: string): { paneId: string; commandInjected: boolean } | null {
+    if (
+      this.state !== "ready" ||
+      !this.prewarmPaneId ||
+      cwd !== this.currentCwd ||
+      this.hostForPath(cwd) !== LOCAL_HOST_ID
+    ) {
       return null;
     }
 

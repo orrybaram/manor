@@ -177,4 +177,28 @@ describe("LocalGitBackend", () => {
       expect(after).toHaveLength(1);
     });
   });
+
+  describe("currentBranch", () => {
+    it("returns the checked-out branch name", async () => {
+      expect(await backend.currentBranch(tmpDir)).toBe("main");
+    });
+
+    it("falls back to a 7-char short SHA on detached HEAD, matching the local fs read", async () => {
+      const sha = git(tmpDir, "rev-parse", "HEAD").trim();
+      git(tmpDir, "checkout", sha);
+
+      const branch = await backend.currentBranch(tmpDir);
+      expect(branch).toBe(sha.slice(0, 7));
+      expect(branch).toHaveLength(7);
+    });
+
+    it("returns null for a non-repo path", async () => {
+      const nonRepo = await mkdtemp(path.join(os.tmpdir(), "manor-non-repo-"));
+      try {
+        expect(await backend.currentBranch(nonRepo)).toBeNull();
+      } finally {
+        await rm(nonRepo, { recursive: true, force: true });
+      }
+    });
+  });
 });

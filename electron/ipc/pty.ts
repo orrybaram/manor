@@ -200,8 +200,9 @@ export function register(deps: IpcDeps): void {
     }
   });
 
-  ipcMain.handle("pty:consumePrewarmed", () => {
-    return deps.prewarmManager?.consume() ?? null;
+  ipcMain.handle("pty:consumePrewarmed", (_event, cwd: string | null) => {
+    if (cwd !== null) assertString(cwd, "cwd");
+    return deps.prewarmManager?.consume(resolveSpawnCwd(cwd)) ?? null;
   });
 
   ipcMain.handle("pty:updatePrewarmCwd", async (_event, cwd: string, agentCommand?: string | null, agentKind?: string | null) => {

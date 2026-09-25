@@ -380,7 +380,7 @@ export interface ElectronAPI {
       hostId?: string;
     }>;
     detach: (paneId: string) => Promise<void>;
-    consumePrewarmed: () => Promise<{
+    consumePrewarmed: (cwd: string | null) => Promise<{
       paneId: string;
       commandInjected: boolean;
     } | null>;

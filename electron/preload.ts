@@ -79,7 +79,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     reset: (paneId: string, cwd: string | null, cols: number, rows: number) =>
       ipcRenderer.invoke("pty:reset", paneId, cwd, cols, rows),
     detach: (paneId: string) => ipcRenderer.invoke("pty:detach", paneId),
-    consumePrewarmed: () => ipcRenderer.invoke("pty:consumePrewarmed"),
+    consumePrewarmed: (cwd: string | null) =>
+      ipcRenderer.invoke("pty:consumePrewarmed", cwd),
     updatePrewarmCwd: (
       cwd: string,
       agentCommand?: string | null,

@@ -78,10 +78,17 @@ export class BranchWatcher {
 
   start(window: BrowserWindow, paths: string[]): void {
     this.stop();
-    this.lastBranches = {};
     this.hostBranches = new Map();
 
     const groups = groupPathsByHost(paths, this.hostForPath);
+
+    if (groups.size === 0) {
+      // No open workspaces — emit once so the renderer clears out any
+      // branches left over from before, matching the old single-host
+      // watcher's behavior on an empty path list.
+      this.emitIfChanged(window);
+      return;
+    }
 
     for (const [hostId, hostPaths] of groups) {
       const isLocal = hostId === LOCAL_HOST_ID;

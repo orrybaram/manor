@@ -342,13 +342,15 @@ export class LocalGitBackend implements GitBackend {
       const branch = stdout.trim();
       if (branch && branch !== "HEAD") return branch;
 
-      // Detached HEAD — fall back to a short SHA.
+      // Detached HEAD — fall back to a short SHA, sliced to 7 chars to match
+      // the local fs-based read in `readLocalBranch`/`readBranchSync`.
       const { stdout: sha } = await this.execGit(
         repoPath,
-        ["rev-parse", "--short", "HEAD"],
+        ["rev-parse", "HEAD"],
         { timeout: 5000 },
       );
-      return sha.trim() || null;
+      const trimmed = sha.trim();
+      return trimmed ? trimmed.slice(0, 7) : null;
     } catch {
       return null;
     }

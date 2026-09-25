@@ -14,7 +14,13 @@ import * as crypto from "node:crypto";
 import { TerminalHost } from "./terminal-host";
 import { TERMINAL_HOST_PROTOCOL } from "./types";
 import type { ControlRequest, ControlResponse, StreamCommand } from "./types";
-import { daemonDir, daemonSocketFile, daemonTokenFile, daemonPidFile } from "../paths";
+import {
+  daemonDir,
+  daemonSocketFile,
+  daemonTokenFile,
+  daemonPidFile,
+} from "../paths";
+import { runRemoteBridge } from "./bridge";
 
 const DAEMON_DIR = daemonDir();
 const SOCKET_PATH = daemonSocketFile();
@@ -68,7 +74,11 @@ async function handleControlMessage(
 
   // Auth check (except for auth request itself)
   if (request.type !== "auth" && !authenticatedSockets.has(socket)) {
-    sendResponse(socket, { type: "error", message: "Not authenticated" }, requestId);
+    sendResponse(
+      socket,
+      { type: "error", message: "Not authenticated" },
+      requestId,
+    );
     return;
   }
 
@@ -77,9 +87,17 @@ async function handleControlMessage(
       const expected = readToken();
       if (request.token === expected) {
         authenticatedSockets.add(socket);
-        sendResponse(socket, { type: "authOk", version: daemonVersion }, requestId);
+        sendResponse(
+          socket,
+          { type: "authOk", version: daemonVersion },
+          requestId,
+        );
       } else {
-        sendResponse(socket, { type: "error", message: "Invalid token" }, requestId);
+        sendResponse(
+          socket,
+          { type: "error", message: "Invalid token" },
+          requestId,
+        );
       }
       break;
     }
@@ -98,10 +116,14 @@ async function handleControlMessage(
         sendResponse(socket, { type: "created", session }, requestId);
       } catch (err) {
         log(`Failed to create session ${request.sessionId}: ${err}`);
-        sendResponse(socket, {
-          type: "error",
-          message: `Create failed: ${err instanceof Error ? err.message : String(err)}`,
-        }, requestId);
+        sendResponse(
+          socket,
+          {
+            type: "error",
+            message: `Create failed: ${err instanceof Error ? err.message : String(err)}`,
+          },
+          requestId,
+        );
       }
       break;
     }
@@ -143,7 +165,11 @@ async function handleControlMessage(
       if (ok) {
         sendResponse(socket, { type: "writeQueued" }, requestId);
       } else {
-        sendResponse(socket, { type: "error", message: `Session ${request.sessionId} not found` }, requestId);
+        sendResponse(
+          socket,
+          { type: "error", message: `Session ${request.sessionId} not found` },
+          requestId,
+        );
       }
       break;
     }
@@ -291,90 +317,100 @@ function createSerializedHandler(
       return;
     }
     const requestId = request.requestId;
-    queue = queue.then(() => handler(request)).catch((err) => {
-      const message = err instanceof Error ? err.message : String(err);
-      sendResponse(socket, { type: "error", message: `Internal error: ${message}` }, requestId);
-      log(`Error handling control message: ${message}`);
-    });
+    queue = queue
+      .then(() => handler(request))
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        sendResponse(
+          socket,
+          { type: "error", message: `Internal error: ${message}` },
+          requestId,
+        );
+        log(`Error handling control message: ${message}`);
+      });
   };
 }
 
 // ── Server ──
 
-setup();
+let server: net.Server | null = null;
 
-const server = net.createServer((socket) => {
-  log("Client connected");
+function startServer(): void {
+  setup();
 
-  // First line determines connection type: {"connectionType":"control"} or {"connectionType":"stream"}
-  let connectionType: "control" | "stream" | null = null;
-  let lineHandler: ((line: string) => void) | null = null;
+  server = net.createServer((socket) => {
+    log("Client connected");
 
-  const initialParser = createLineParser((line) => {
-    if (connectionType !== null) {
-      lineHandler?.(line);
-      return;
-    }
+    // First line determines connection type: {"connectionType":"control"} or {"connectionType":"stream"}
+    let connectionType: "control" | "stream" | null = null;
+    let lineHandler: ((line: string) => void) | null = null;
 
-    try {
-      const msg = JSON.parse(line);
-      if (msg.connectionType === "stream") {
-        connectionType = "stream";
-        lineHandler = (l) => handleStreamMessage(socket, l);
-        // Re-authenticate stream sockets using the auth in the init message
-        if (msg.token) {
-          const expected = readToken();
-          if (msg.token === expected) {
-            authenticatedSockets.add(socket);
+    const initialParser = createLineParser((line) => {
+      if (connectionType !== null) {
+        lineHandler?.(line);
+        return;
+      }
+
+      try {
+        const msg = JSON.parse(line);
+        if (msg.connectionType === "stream") {
+          connectionType = "stream";
+          lineHandler = (l) => handleStreamMessage(socket, l);
+          // Re-authenticate stream sockets using the auth in the init message
+          if (msg.token) {
+            const expected = readToken();
+            if (msg.token === expected) {
+              authenticatedSockets.add(socket);
+            }
           }
+        } else {
+          connectionType = "control";
+          lineHandler = createSerializedHandler(socket, (req) =>
+            handleControlMessage(socket, req),
+          );
+          // Process this line as a control message (could be auth)
+          lineHandler(line);
         }
-      } else {
+      } catch {
+        // Default to control
         connectionType = "control";
-        lineHandler = createSerializedHandler(socket, (req) =>
-          handleControlMessage(socket, req),
+        lineHandler = createSerializedHandler(socket, (l) =>
+          handleControlMessage(socket, l),
         );
-        // Process this line as a control message (could be auth)
         lineHandler(line);
       }
+    });
+
+    socket.on("data", initialParser);
+
+    socket.on("close", () => {
+      log("Client disconnected");
+      host.detachAllFromSocket(socket);
+      streamSockets.delete(socket);
+    });
+
+    socket.on("error", (err) => {
+      log(`Socket error: ${err.message}`);
+    });
+  });
+
+  server.listen(SOCKET_PATH, () => {
+    log(`Listening on ${SOCKET_PATH}`);
+    // Make socket accessible
+    try {
+      fs.chmodSync(SOCKET_PATH, 0o600);
     } catch {
-      // Default to control
-      connectionType = "control";
-      lineHandler = createSerializedHandler(socket, (l) =>
-        handleControlMessage(socket, l),
-      );
-      lineHandler(line);
+      // ignore
     }
   });
-
-  socket.on("data", initialParser);
-
-  socket.on("close", () => {
-    log("Client disconnected");
-    host.detachAllFromSocket(socket);
-    streamSockets.delete(socket);
-  });
-
-  socket.on("error", (err) => {
-    log(`Socket error: ${err.message}`);
-  });
-});
-
-server.listen(SOCKET_PATH, () => {
-  log(`Listening on ${SOCKET_PATH}`);
-  // Make socket accessible
-  try {
-    fs.chmodSync(SOCKET_PATH, 0o600);
-  } catch {
-    // ignore
-  }
-});
+}
 
 // ── Graceful shutdown ──
 
 function shutdown(): void {
   log("Shutting down...");
   host.disposeAll();
-  server.close();
+  server?.close();
   try {
     fs.unlinkSync(SOCKET_PATH);
   } catch {
@@ -388,24 +424,65 @@ function shutdown(): void {
   process.exit(0);
 }
 
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
-
 // Log uncaught exceptions and exit — a broken daemon should restart rather
 // than spin at 100% CPU. The guard prevents recursive exceptions (e.g. if
 // err.stack itself throws) from causing an infinite exception loop.
 let handlingUncaught = false;
-process.on("uncaughtException", (err) => {
-  if (handlingUncaught) {
-    process.stderr.write("[terminal-host] recursive uncaughtException — exiting\n");
-    process.exit(1);
+
+function installDaemonSignalHandlers(): void {
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+
+  process.on("uncaughtException", (err) => {
+    if (handlingUncaught) {
+      process.stderr.write(
+        "[terminal-host] recursive uncaughtException — exiting\n",
+      );
+      process.exit(1);
+    }
+    handlingUncaught = true;
+    try {
+      log(`Uncaught exception: ${err?.message ?? err}\n${err?.stack ?? ""}`);
+    } catch {
+      process.stderr.write("[terminal-host] uncaughtException handler threw\n");
+    }
+    // Clean up and exit so the client can spawn a fresh daemon
+    shutdown();
+  });
+}
+
+// ── Entry point ──
+//
+// `manor-host` (this same compiled bundle) plays three roles depending on
+// argv:
+//   - `--version` reports the version the bootstrap step (ADR-160 ticket 6)
+//     compares against `app.getVersion()`.
+//   - `remote-bridge [--stream]` is the far end of an ssh stdio bridge: it
+//     never opens the socket server itself, it only makes sure a daemon is
+//     running on this box and pumps stdin/stdout against that daemon's
+//     control socket. Signal handlers that tear down *this* box's daemon
+//     would be wrong here, since this process did not spawn it — see
+//     `bridge.ts`.
+//   - Anything else (the normal case: no argv) starts the daemon itself.
+async function main(): Promise<void> {
+  const [mode, ...rest] = process.argv.slice(2);
+
+  if (mode === "--version") {
+    process.stdout.write(`${process.env.MANOR_VERSION ?? "unknown"}\n`);
+    return;
   }
-  handlingUncaught = true;
-  try {
-    log(`Uncaught exception: ${err?.message ?? err}\n${err?.stack ?? ""}`);
-  } catch {
-    process.stderr.write("[terminal-host] uncaughtException handler threw\n");
+
+  if (mode === "remote-bridge") {
+    if (rest.includes("--stream")) {
+      // Informational only — control and stream share one socket path today.
+      process.stderr.write("[terminal-host] remote-bridge: stream mode\n");
+    }
+    process.exitCode = await runRemoteBridge();
+    return;
   }
-  // Clean up and exit so the client can spawn a fresh daemon
-  shutdown();
-});
+
+  installDaemonSignalHandlers();
+  startServer();
+}
+
+void main();

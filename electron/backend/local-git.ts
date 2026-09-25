@@ -1,5 +1,4 @@
 import path from "node:path";
-import { execFileSync } from "node:child_process";
 import type { GitBackend, WorktreeInfo } from "./types";
 import { localExec, type Exec, type ExecError } from "./exec";
 
@@ -86,29 +85,68 @@ export class LocalGitBackend implements GitBackend {
       onDone: (result: { exitCode: number | null; stderr: string }) => void;
     },
   ): { cancel: () => void } {
-    // Resolve branch synchronously before spawning if not provided. We use
-    // execFileSync directly (not this.exec, and not the async execGit
-    // helper) because pushStream must return its cancel handle synchronously
-    // to the caller. This is load-bearing as sync; a remote Exec cannot
-    // satisfy it, so RemoteBackend will need its own handling (ticket 8).
-    let resolvedBranch: string;
+    // `pushStream` must hand back its cancel handle synchronously, but
+    // resolving the branch is a command like any other and must go through
+    // the injected Exec (for a remote host it runs on the remote). So the
+    // handle is bound lazily: cancel before the push starts just means the
+    // push never starts; cancel after forwards to the push's own handle.
+    let cancelled = false;
+    let finished = false;
+    let pushHandle: { cancel: () => void } | null = null;
+
+    const done = (result: { exitCode: number | null; stderr: string }) => {
+      if (finished) return;
+      finished = true;
+      callbacks.onDone(result);
+    };
+
+    const start = (resolvedBranch: string) => {
+      if (finished) return;
+      pushHandle = this.startPush(cwd, opts, resolvedBranch, callbacks.onLine, done);
+    };
+
     if (opts.branch) {
-      resolvedBranch = opts.branch;
+      start(opts.branch);
     } else {
-      try {
-        const out = execFileSync(
-          "git",
-          ["rev-parse", "--abbrev-ref", "HEAD"],
-          { cwd, encoding: "utf-8", timeout: 10000 },
+      this.execImpl
+        .file("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+          cwd,
+          timeout: 10000,
+        })
+        .then(
+          ({ stdout }) => {
+            if (cancelled) return;
+            start(stdout.trim());
+          },
+          (err: unknown) => {
+            if (cancelled) return;
+            const message = err instanceof Error ? err.message : String(err);
+            done({ exitCode: null, stderr: message });
+          },
         );
-        resolvedBranch = out.toString().trim();
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        callbacks.onDone({ exitCode: null, stderr: message });
-        return { cancel: () => {} };
-      }
     }
 
+    return {
+      cancel: () => {
+        if (pushHandle) {
+          pushHandle.cancel();
+          return;
+        }
+        if (cancelled || finished) return;
+        cancelled = true;
+        // Nothing was spawned; report it the way a killed push reports.
+        done({ exitCode: null, stderr: "" });
+      },
+    };
+  }
+
+  private startPush(
+    cwd: string,
+    opts: { remote?: string; setUpstream?: boolean },
+    resolvedBranch: string,
+    onLine: (line: string) => void,
+    onDone: (result: { exitCode: number | null; stderr: string }) => void,
+  ): { cancel: () => void } {
     const args: string[] = ["push"];
     if (opts.setUpstream) args.push("--set-upstream");
     args.push(opts.remote ?? "origin");
@@ -137,7 +175,7 @@ export class LocalGitBackend implements GitBackend {
           // Last element is the trailing partial line (possibly empty).
           pending = parts.pop() ?? "";
           for (const line of parts) {
-            callbacks.onLine(line);
+            onLine(line);
           }
         },
         onExit: ({ exitCode, error }) => {
@@ -146,14 +184,14 @@ export class LocalGitBackend implements GitBackend {
           if (error !== undefined) {
             // The push never ran (e.g. git missing): report the reason as the
             // whole of stderr, without flushing it as a progress line.
-            callbacks.onDone({ exitCode: null, stderr: error });
+            onDone({ exitCode: null, stderr: error });
             return;
           }
           if (pending.length > 0) {
-            callbacks.onLine(pending);
+            onLine(pending);
             pending = "";
           }
-          callbacks.onDone({ exitCode, stderr: stderrFull });
+          onDone({ exitCode, stderr: stderrFull });
         },
       },
     );

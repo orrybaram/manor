@@ -1,5 +1,5 @@
 import type { TerminalHostClient } from "../terminal-host/client";
-import type { WorkspaceBackend } from "./types";
+import type { HostConnectionEventHandler, WorkspaceBackend } from "./types";
 import { LocalPtyBackend } from "./local-pty";
 import { LocalGitBackend } from "./local-git";
 import { LocalShellBackend } from "./local-shell";
@@ -29,5 +29,12 @@ export class LocalBackend implements WorkspaceBackend {
   }
 
   async disconnect(): Promise<void> {}
+
+  /**
+   * The local daemon's connection is recovered (or given up on) by the
+   * client itself and reported through `exit` stream events, so there is
+   * nothing host-level to report.
+   */
+  onHostEvent(_handler: HostConnectionEventHandler): void {}
 
 }

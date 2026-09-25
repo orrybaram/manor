@@ -92,6 +92,46 @@ function execClientTimeoutMs(timeout: number | undefined): number | null {
 
 type StreamEventHandler = (event: StreamEvent) => void;
 
+/**
+ * How long to wait before reconnect attempt `attempt` (0-based) after the
+ * connection drops unexpectedly, or `null` to give up — at which point every
+ * wanted session is reported as exited.
+ */
+export type ReconnectPolicy = (attempt: number) => number | null;
+
+/**
+ * Observes unexpected connection loss and recovery. Never called for an
+ * intentional `disconnect()`/`dispose()`.
+ */
+export interface ConnectionListener {
+  /**
+   * The connection dropped while connected. `sessionIds` are the sessions
+   * the app is subscribed to; their output stops until a reconnect.
+   */
+  onLost?(info: { sessionIds: string[] }): void;
+  /**
+   * The reconnect loop got the connection back. `sessionIds` are the
+   * sessions that survived and were re-subscribed — anything they printed
+   * while disconnected was not delivered, so a consumer should resnapshot
+   * them (`getSnapshot`).
+   */
+  onReconnected?(info: { sessionIds: string[]; attempts: number }): void;
+}
+
+/** Callbacks for one `execStream`, mirroring `Exec.stream` in backend/exec.ts. */
+export interface ExecStreamCallbacks {
+  onStdout?: (chunk: string) => void;
+  onStderr?: (chunk: string) => void;
+  onExit: (result: { exitCode: number | null; error?: string }) => void;
+}
+
+interface ExecStreamEntry {
+  callbacks: ExecStreamCallbacks;
+  /** True once the `execStream` command was written to the stream socket. */
+  started: boolean;
+  finish: (result: { exitCode: number | null; error?: string }) => void;
+}
+
 export class TerminalHostClient {
   private controlSocket: Duplex | null = null;
   private streamSocket: Duplex | null = null;
@@ -135,6 +175,19 @@ export class TerminalHostClient {
   /** Backoff between reconnect attempts after an unexpected disconnect.
    *  Overridable so tests do not have to wait it out. */
   private reconnectDelaysMs: number[] = [250, 1_000, 2_000];
+  /** Replaces `reconnectDelaysMs` when set (see `setReconnectPolicy`). */
+  private reconnectPolicy: ReconnectPolicy | null = null;
+  private connectionListener: ConnectionListener | null = null;
+  /**
+   * Bumped by every intentional `disconnect()`, so a reconnect loop started
+   * before it stops instead of reconnecting behind the caller's back.
+   */
+  private generation = 0;
+  /** Wakes a reconnect loop sleeping between attempts (on `disconnect()`). */
+  private wakeReconnect: (() => void) | null = null;
+  /** Live `execStream`s by execId; their events never reach `eventHandler`. */
+  private execStreams = new Map<string, ExecStreamEntry>();
+  private execIdCounter = 0;
 
   private readonly transport: HostTransport;
 
@@ -150,6 +203,20 @@ export class TerminalHostClient {
 
   setVersion(version: string): void {
     this.clientVersion = version;
+  }
+
+  /**
+   * Replace the default reconnect schedule (three quick attempts, then give
+   * up). A remote host uses an unbounded capped backoff instead: its sessions
+   * outlive the connection, so giving up would close panes that are fine.
+   */
+  setReconnectPolicy(policy: ReconnectPolicy): void {
+    this.reconnectPolicy = policy;
+  }
+
+  /** Observe unexpected connection loss and recovery. */
+  setConnectionListener(listener: ConnectionListener | null): void {
+    this.connectionListener = listener;
   }
 
   /** Set a handler for stream events (data, exit, cwd, error) */
@@ -241,14 +308,24 @@ export class TerminalHostClient {
   private async reconnectAfterLoss(): Promise<void> {
     if (this.reconnecting) return;
     this.reconnecting = true;
+    const generation = this.generation;
     try {
-      for (let attempt = 0; attempt < this.reconnectDelaysMs.length; attempt++) {
-        await new Promise<void>((r) => setTimeout(r, this.reconnectDelaysMs[attempt]));
+      for (let attempt = 0; ; attempt++) {
+        const delay = this.reconnectDelay(attempt);
+        if (delay === null) break;
+        await this.sleepBeforeReconnect(delay);
+        // disconnect() was called while we slept: the caller is done with us.
+        if (generation !== this.generation) return;
         try {
           await this.connect();
+          if (generation !== this.generation) return;
           console.warn(
             `[terminal-host] reconnected to daemon after unexpected disconnect (attempt ${attempt + 1})`,
           );
+          this.notifyListener("onReconnected", {
+            sessionIds: [...this.wanted],
+            attempts: attempt + 1,
+          });
           return;
         } catch (err) {
           console.warn(
@@ -267,6 +344,44 @@ export class TerminalHostClient {
       }
     } finally {
       this.reconnecting = false;
+    }
+  }
+
+  private reconnectDelay(attempt: number): number | null {
+    if (this.reconnectPolicy) return this.reconnectPolicy(attempt);
+    return this.reconnectDelaysMs[attempt] ?? null;
+  }
+
+  /** Wait `ms`, or less if `disconnect()` is called meanwhile. */
+  private sleepBeforeReconnect(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const timer: { id?: ReturnType<typeof setTimeout> } = {};
+      const done = (): void => {
+        clearTimeout(timer.id);
+        if (this.wakeReconnect === done) this.wakeReconnect = null;
+        resolve();
+      };
+      timer.id = setTimeout(done, ms);
+      this.wakeReconnect = done;
+    });
+  }
+
+  /** Call a connection-listener hook without letting it throw into us. */
+  private notifyListener(
+    ...call:
+      | ["onLost", Parameters<NonNullable<ConnectionListener["onLost"]>>[0]]
+      | [
+          "onReconnected",
+          Parameters<NonNullable<ConnectionListener["onReconnected"]>>[0],
+        ]
+  ): void {
+    const listener = this.connectionListener;
+    if (!listener) return;
+    try {
+      if (call[0] === "onLost") listener.onLost?.(call[1]);
+      else listener.onReconnected?.(call[1]);
+    } catch (err) {
+      console.error(`[terminal-host] connection listener ${call[0]} threw:`, err);
     }
   }
 
@@ -363,6 +478,8 @@ export class TerminalHostClient {
    * so a later connect must not re-subscribe or report them as exited.
    */
   disconnect(): void {
+    this.generation++;
+    this.wakeReconnect?.();
     this.wanted.clear();
     this.cleanup();
   }
@@ -666,7 +783,107 @@ export class TerminalHostClient {
     );
   }
 
+  /**
+   * Bootstrap the daemon's host for agent hooks (ADR-160 ticket 10).
+   * Resolves `false` when the daemon predates the request and answered
+   * `unknown request type`; throws on any other failure.
+   */
+  async bootstrap(): Promise<boolean> {
+    await this.ensureConnected();
+    const resp = await this.request({ type: "bootstrap" });
+    if (resp.type !== "error") return true;
+    if (resp.message.startsWith("unknown request type")) return false;
+    throw new Error(`bootstrap failed: ${resp.message}`);
+  }
+
+  /**
+   * Run a command on the daemon's host and stream its output (the daemon's
+   * `execStream`). Returns synchronously; the command is sent once the
+   * client is connected. `env` holds overrides merged onto the daemon's own
+   * environment. `onExit` fires exactly once — with `error` set when the
+   * client could not start the command or lost the connection while it ran
+   * (the daemon kills a disconnected socket's children).
+   *
+   * The daemon reports its own spawn failures as a stderr chunk followed by
+   * a `null` exit code, so those arrive through `onStderr`, not `error`.
+   */
+  execStream(
+    cmd: string,
+    args: string[],
+    opts: { cwd?: string; env?: Record<string, string> },
+    callbacks: ExecStreamCallbacks,
+  ): { cancel: () => void } {
+    const execId = `exec-${++this.execIdCounter}`;
+    let done = false;
+    const entry: ExecStreamEntry = {
+      callbacks,
+      started: false,
+      finish: (result) => {
+        if (done) return;
+        done = true;
+        this.execStreams.delete(execId);
+        callbacks.onExit(result);
+      },
+    };
+    this.execStreams.set(execId, entry);
+
+    this.ensureConnected().then(
+      () => {
+        if (done) return;
+        if (!this.streamSocket?.writable) {
+          entry.finish({ exitCode: null, error: "Disconnected" });
+          return;
+        }
+        entry.started = true;
+        this.streamWrite({
+          type: "execStream",
+          execId,
+          cmd,
+          args,
+          ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
+          ...(opts.env ? { env: opts.env } : {}),
+        });
+      },
+      (err: unknown) => {
+        entry.finish({
+          exitCode: null,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      },
+    );
+
+    return {
+      cancel: () => {
+        if (done) return;
+        if (!entry.started) {
+          // Never reached the daemon: nothing to kill, report it as killed.
+          entry.finish({ exitCode: null });
+          return;
+        }
+        // The daemon answers with an `execExit` once the child is gone.
+        this.streamWrite({ type: "execCancel", execId });
+      },
+    };
+  }
+
   // ── Internal ──
+
+  /** Route an exec stream event to its `execStream` caller. */
+  private dispatchExecEvent(event: StreamEvent): boolean {
+    if (
+      event.type !== "execStdout" &&
+      event.type !== "execStderr" &&
+      event.type !== "execExit"
+    ) {
+      return false;
+    }
+    const entry = this.execStreams.get(event.execId);
+    if (!entry) return true;
+    if (event.type === "execExit") entry.finish({ exitCode: event.exitCode });
+    else if (event.type === "execStdout") entry.callbacks.onStdout?.(event.data);
+    else entry.callbacks.onStderr?.(event.data);
+    return true;
+  }
 
   private async ensureConnected(): Promise<void> {
     if (!this.connected) {
@@ -736,7 +953,7 @@ export class TerminalHostClient {
         if (!line.trim()) continue;
         try {
           const event = JSON.parse(line) as StreamEvent;
-          this.eventHandler?.(event);
+          if (!this.dispatchExecEvent(event)) this.eventHandler?.(event);
         } catch {
           // invalid JSON, skip
         }
@@ -819,6 +1036,7 @@ export class TerminalHostClient {
     if (!this.connected) return;
     this.cleanup();
     console.warn("[terminal-host] lost connection to daemon; reconnecting");
+    this.notifyListener("onLost", { sessionIds: [...this.wanted] });
     void this.reconnectAfterLoss();
   }
 
@@ -841,5 +1059,16 @@ export class TerminalHostClient {
       req.reject(new Error("Disconnected"));
     }
     this.pendingRequests.clear();
+
+    // The daemon kills a closed stream socket's exec children, so every
+    // stream already sent is over — say so rather than leave it hanging.
+    for (const entry of [...this.execStreams.values()]) {
+      if (entry.started) {
+        entry.finish({
+          exitCode: null,
+          error: "Lost connection to the terminal host",
+        });
+      }
+    }
   }
 }

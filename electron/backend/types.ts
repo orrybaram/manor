@@ -133,6 +133,26 @@ export interface WorktreeInfo {
   isMain: boolean;
 }
 
+// ── Host connection events ──
+
+/**
+ * The connection to a backend's host dropped or came back. Not a
+ * `StreamEvent`: those come from the daemon, and these are about losing it.
+ *
+ * - `hostDisconnected` — the transport died (for a remote host, the ssh
+ *   child exited). `sessionIds` stop producing output; reconnect attempts
+ *   follow, the next one after `retryInMs`.
+ * - `hostReconnected` — the connection is back. `sessionIds` are the
+ *   sessions that survived; whatever they printed during the gap was not
+ *   delivered, so the renderer must resnapshot them via `getSnapshot`.
+ *   Sessions that did not survive get an ordinary `exit` stream event.
+ */
+export type HostConnectionEvent =
+  | { type: "hostDisconnected"; sessionIds: string[]; retryInMs: number | null }
+  | { type: "hostReconnected"; sessionIds: string[] };
+
+export type HostConnectionEventHandler = (event: HostConnectionEvent) => void;
+
 // ── Workspace Backend (aggregate) ──
 
 export interface WorkspaceBackend {
@@ -143,4 +163,7 @@ export interface WorkspaceBackend {
 
   connect(opts?: { version?: string }): Promise<void>;
   disconnect(): Promise<void>;
+
+  /** Observe loss and recovery of the host connection (see `HostConnectionEvent`). */
+  onHostEvent(handler: HostConnectionEventHandler): void;
 }

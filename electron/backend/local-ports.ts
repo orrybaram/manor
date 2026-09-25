@@ -2,11 +2,79 @@ import os from "node:os";
 import type { ActivePort, PortsBackend } from "./types";
 import { localExec, type Exec } from "./exec";
 
+/**
+ * Facts about the machine being scanned that are not commands. Split out so
+ * a remote host answers them about *its* machine: the uid whose listeners
+ * count, the home directory never attributed to a workspace, and how to
+ * signal a pid (a pid from a remote scan must never be killed locally).
+ */
+export interface PortsHost {
+  uid(): Promise<number>;
+  homeDir(): Promise<string>;
+  kill(pid: number): Promise<void>;
+}
+
+const localPortsHost: PortsHost = {
+  async uid() {
+    return process.getuid?.() ?? 0;
+  },
+  async homeDir() {
+    return os.homedir();
+  },
+  async kill(pid) {
+    process.kill(pid, "SIGTERM");
+  },
+};
+
+/**
+ * A `PortsHost` answered through an `Exec` — for a machine this process is
+ * not running on. `uid` and `homeDir` are asked once and cached.
+ */
+export function execPortsHost(execImpl: Exec): PortsHost {
+  let uid: Promise<number> | null = null;
+  let home: Promise<string> | null = null;
+  return {
+    uid() {
+      uid ??= execImpl.file("id", ["-u"], { timeout: 5000 }).then(
+        ({ stdout }) => parseInt(stdout.trim(), 10) || 0,
+        (err: unknown) => {
+          uid = null; // retry next scan
+          throw err;
+        },
+      );
+      return uid;
+    },
+    homeDir() {
+      home ??= execImpl
+        .file("printenv", ["HOME"], { timeout: 5000 })
+        .then(
+          ({ stdout }) => stdout.trim(),
+          (err: unknown) => {
+            home = null;
+            throw err;
+          },
+        );
+      return home;
+    },
+    async kill(pid) {
+      await execImpl.file("kill", ["-TERM", String(pid)], { timeout: 5000 });
+    },
+  };
+}
+
 export class LocalPortsBackend implements PortsBackend {
-  constructor(private readonly execImpl: Exec = localExec) {}
+  constructor(
+    private readonly execImpl: Exec = localExec,
+    private readonly host: PortsHost = localPortsHost,
+  ) {}
 
   async scan(workspacePaths: string[]): Promise<ActivePort[]> {
-    const uid = process.getuid?.() ?? 0;
+    let uid: number;
+    try {
+      uid = await this.host.uid();
+    } catch {
+      return [];
+    }
 
     let output: string;
     try {
@@ -25,7 +93,7 @@ export class LocalPortsBackend implements PortsBackend {
     if (workspacePaths.length > 0 && results.length > 0) {
       const pids = results.map((p) => p.pid);
       const cwds = await this.cwdsByPid(pids);
-      const home = os.homedir();
+      const home = await this.host.homeDir().catch(() => null);
 
       for (const port of results) {
         const cwd = cwds.get(port.pid);
@@ -46,7 +114,7 @@ export class LocalPortsBackend implements PortsBackend {
   }
 
   async kill(pid: number): Promise<void> {
-    process.kill(pid, "SIGTERM");
+    await this.host.kill(pid);
   }
 
   private parseLsofPorts(output: string): ActivePort[] {

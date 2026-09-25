@@ -121,7 +121,13 @@ export type ControlRequest =
       maxBuffer?: number;
     }
   /** Read a UTF-8 file of at most 10 MiB. Also answered out of order. */
-  | { type: "readFile"; path: string };
+  | { type: "readFile"; path: string }
+  /**
+   * Set the daemon's own host up for agent hooks (ADR-160 ticket 10). Sent by
+   * `RemoteBackend` after connecting; a daemon that predates it answers
+   * `error: unknown request type: bootstrap`, which callers tolerate.
+   */
+  | { type: "bootstrap" };
 
 export type ControlResponse =
   | { type: "authOk"; version?: string }

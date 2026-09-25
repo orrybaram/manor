@@ -1229,9 +1229,15 @@ export class ProjectManager {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[ProjectManager] git worktree remove failed:", message);
 
-      // Check if the directory is actually gone (e.g. already removed externally)
-      const { existsSync } = await import("fs");
-      if (existsSync(worktreePath)) {
+      // Check if the directory is actually gone (e.g. already removed
+      // externally), through the project's host (ADR-178 §3) — a remote
+      // worktree lives on the box, not on this machine.
+      const hostId = project.hostId ?? LOCAL_HOST_ID;
+      const stillExists =
+        hostId === LOCAL_HOST_ID
+          ? fs.existsSync(worktreePath)
+          : await this.remoteFileExists(this.shellForHost(hostId), worktreePath);
+      if (stillExists) {
         // Directory still exists — this is a real failure, surface it
         throw new Error(`Failed to remove worktree: ${message}`, { cause: err });
       }

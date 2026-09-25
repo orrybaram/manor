@@ -332,6 +332,28 @@ export class LocalGitBackend implements GitBackend {
     await this.execGit(cwd, args, { timeout: 300_000 });
   }
 
+  async currentBranch(repoPath: string): Promise<string | null> {
+    try {
+      const { stdout } = await this.execGit(
+        repoPath,
+        ["rev-parse", "--abbrev-ref", "HEAD"],
+        { timeout: 5000 },
+      );
+      const branch = stdout.trim();
+      if (branch && branch !== "HEAD") return branch;
+
+      // Detached HEAD — fall back to a short SHA.
+      const { stdout: sha } = await this.execGit(
+        repoPath,
+        ["rev-parse", "--short", "HEAD"],
+        { timeout: 5000 },
+      );
+      return sha.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
   /** Build a synthetic diff for untracked files. */
   private async buildUntrackedDiff(cwd: string): Promise<string> {
     try {

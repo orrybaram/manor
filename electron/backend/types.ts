@@ -109,6 +109,13 @@ export interface GitBackend {
   ): Promise<void>;
 
   worktreeRemove(cwd: string, path: string, force?: boolean): Promise<void>;
+
+  /**
+   * The current branch at `repoPath` (a repo or worktree root), or a short
+   * SHA for a detached HEAD. `null` if it cannot be determined (not a repo,
+   * unborn branch, etc.) — ADR-178 §3.
+   */
+  currentBranch(repoPath: string): Promise<string | null>;
 }
 
 // ── Shell Backend ──

@@ -6,7 +6,14 @@ import { resolveSpawnCwd } from "../paths";
 import { LOCAL_HOST_ID } from "../backend/types";
 import type { IpcDeps } from "./types";
 
-/** Read git branch synchronously from a repo or worktree root. */
+/**
+ * Read git branch synchronously from a repo or worktree root, for this
+ * machine's own checkout only. Its one caller (`main.ts`) reads
+ * `process.cwd()` — Manor's own source tree — before `app.whenReady()`, so
+ * before any `BackendRegistry` exists and always on this machine; it is
+ * intentionally not routed through the backend (ADR-178 §3 concerns
+ * *projects*' branches, read by `BranchWatcher`, not Manor's own repo).
+ */
 export function readBranchSync(repoPath: string): string | null {
   try {
     const gitPath = path.join(repoPath, ".git");

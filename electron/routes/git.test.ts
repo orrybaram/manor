@@ -88,6 +88,9 @@ function makeGit() {
     },
     async worktreeAdd() {},
     async worktreeRemove() {},
+    async currentBranch() {
+      return null;
+    },
   };
   return { git, calls };
 }

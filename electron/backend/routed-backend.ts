@@ -121,6 +121,7 @@ export class RoutedBackend implements WorkspaceBackend {
         byPath(cwd).git.worktreeAdd(cwd, path, branch, opts),
       worktreeRemove: (cwd, path, force) =>
         byPath(cwd).git.worktreeRemove(cwd, path, force),
+      currentBranch: (cwd) => byPath(cwd).git.currentBranch(cwd),
     };
 
     this.shell = {

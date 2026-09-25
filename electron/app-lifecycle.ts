@@ -262,12 +262,12 @@ export function initApp(devTitle: string | null): void {
   const backend = new RoutedBackend(backendRegistry, hostForPath);
   const themeManager = new ThemeManager();
   const portScanner = new PortScanner(backend.ports, hostForPath);
-  const branchWatcher = new BranchWatcher();
+  const branchWatcher = new BranchWatcher(backend.git, hostForPath);
   const diffWatcher = new DiffWatcher(backend.git, hostForPath);
   const githubManager = new GitHubManager();
   const linearManager = new LinearManager();
 
-  const prewarmManager = new PrewarmManager(client, process.env.HOME || "/");
+  const prewarmManager = new PrewarmManager(client, process.env.HOME || "/", hostForPath);
   const agentHookServer = new AgentHookServer();
   // Remote hosts' hooks take the same path as local ones (ADR-178 §2).
   // Replayed hooks hold their notifications until the catch-up finishes, so

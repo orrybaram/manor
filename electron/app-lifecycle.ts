@@ -28,6 +28,7 @@ import { initAutoUpdater, checkForUpdates } from "./updater";
 import { portlessManager } from "./portless";
 import { LocalBackend } from "./backend/local-backend";
 import { BackendRegistry, type HostStatus } from "./backend/registry";
+import { trackHostBusy } from "./backend/host-busy";
 import { RoutedBackend } from "./backend/routed-backend";
 import { PrewarmManager } from "./prewarm-manager";
 import { RemoteDeviceStore } from "./remote-control/devices";
@@ -241,6 +242,9 @@ export function initApp(devTitle: string | null): void {
   for (const { hostId, spec } of projectManager.getHosts()) {
     backendRegistry.register(hostId, spec);
   }
+  // Keep-awake (ADR-178 §1): a host with a working agent tells its provider,
+  // so an auto-sleeping box never sleeps mid-task. No-op for ssh hosts.
+  trackHostBusy(backendRegistry);
   const hostForPath = (p: string) => projectManager.hostIdForPath(p);
   // The one backend IPC handlers and control routes see: routes each pane,
   // cwd and pid to the host that owns it.

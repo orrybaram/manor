@@ -1,6 +1,6 @@
 ---
 title: HostProvider seam and SshHostProvider
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: []

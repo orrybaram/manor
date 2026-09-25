@@ -25,8 +25,16 @@
  *   owns each session, which is how pane operations find their way back.
  *   Pane ids are `pane-<uuid>`, unique across hosts; an event naming a
  *   session another host owns is dropped rather than delivered twice.
+ *
+ * A remote host is built from its spec in two steps (ADR-178 §1): a
+ * `HostProvider` (how the box is started and reached), then a backend riding
+ * the provider's transport. The registry asks the provider to bring the box
+ * up before each explicit connect, and relays the keep-awake hint
+ * (`updateBusy`) to it.
  */
 
+import { createProvider } from "./providers";
+import type { HostProvider } from "./providers/types";
 import { RemoteBackend, classifyHostFailure } from "./remote-backend";
 import type { BootstrapProgress } from "./remote-bootstrap";
 import {
@@ -88,22 +96,33 @@ export class HostUnavailableError extends Error {
   }
 }
 
+/** Builds a remote host's provider from its spec. */
+export type HostProviderFactory = (
+  hostId: string,
+  spec: HostSpec,
+  opts: { onBootstrapProgress: (progress: BootstrapProgress) => void },
+) => HostProvider;
+
 export type RemoteBackendFactory = (
   hostId: string,
   spec: HostSpec,
   opts: {
     version?: string;
-    onBootstrapProgress: (progress: BootstrapProgress) => void;
+    /** The host's provider; the backend rides `provider.transport()`. */
+    provider: HostProvider;
     onBootstrapWarning: (warnings: string[]) => void;
   },
 ) => WorkspaceBackend;
 
-/** `RemoteBackend` builds its own `SshTransport` with the remote-host ensurer. */
+const defaultCreateProvider: HostProviderFactory = (_hostId, spec, opts) =>
+  createProvider(spec, opts);
+
+/** A `RemoteBackend` over the provider's transport. */
 const createRemoteBackend: RemoteBackendFactory = (_hostId, spec, opts) =>
   new RemoteBackend({
     target: spec.target,
     version: opts.version,
-    onBootstrapProgress: opts.onBootstrapProgress,
+    transport: opts.provider.transport(),
     onBootstrapWarning: opts.onBootstrapWarning,
   });
 
@@ -114,11 +133,15 @@ export interface BackendRegistryOptions {
   version?: string;
   /** Builds a remote host's backend. Defaults to `RemoteBackend`. For tests. */
   createRemote?: RemoteBackendFactory;
+  /** Builds a remote host's provider. Defaults to `createProvider`. For tests. */
+  createProvider?: HostProviderFactory;
 }
 
 interface HostEntry {
   hostId: string;
   spec: HostSpec | null;
+  /** Null for the local host. */
+  provider: HostProvider | null;
   backend: WorkspaceBackend;
   view: WorkspaceBackend;
   state: HostState;
@@ -134,6 +157,8 @@ interface HostEntry {
    * by an explicit `disconnect()` so a poller does not undo it.
    */
   autoConnect: boolean;
+  /** The last keep-awake hint handed to the provider (see `updateBusy`). */
+  busy: boolean;
 }
 
 type HostEventListener = (hostId: string, event: HostConnectionEvent) => void;
@@ -157,12 +182,14 @@ export class BackendRegistry {
   private readonly hostEventListeners = new Set<HostEventListener>();
   private readonly statusListeners = new Set<StatusListener>();
   private readonly createRemote: RemoteBackendFactory;
+  private readonly createProvider: HostProviderFactory;
   private version: string | undefined;
 
   constructor(opts: BackendRegistryOptions) {
     this.version = opts.version;
     this.createRemote = opts.createRemote ?? createRemoteBackend;
-    this.add(LOCAL_HOST_ID, null, opts.local);
+    this.createProvider = opts.createProvider ?? defaultCreateProvider;
+    this.add(LOCAL_HOST_ID, null, null, opts.local);
   }
 
   // ── Hosts ──
@@ -188,6 +215,11 @@ export class BackendRegistry {
     return this.hosts.has(hostId);
   }
 
+  /** A remote host's provider; undefined for the local host or an unknown one. */
+  provider(hostId: string): HostProvider | undefined {
+    return this.hosts.get(hostId)?.provider ?? undefined;
+  }
+
   /**
    * Add a remote host. Registering the same spec again is a no-op; a
    * different spec replaces the host (the old connection is dropped).
@@ -199,13 +231,16 @@ export class BackendRegistry {
     }
     const existing = this.hosts.get(hostId);
     if (existing && sameSpec(existing.spec, spec)) return;
-    const backend = this.createRemote(hostId, spec, {
-      version: this.version,
+    const provider = this.createProvider(hostId, spec, {
       onBootstrapProgress: (progress) => {
         const entry = this.hosts.get(hostId);
-        if (entry?.backend !== backend || entry.state.status !== "connecting") return;
+        if (entry?.provider !== provider || entry.state.status !== "connecting") return;
         this.setState(entry, { status: "connecting", progress: progress.message });
       },
+    });
+    const backend = this.createRemote(hostId, spec, {
+      version: this.version,
+      provider,
       onBootstrapWarning: (warnings) => {
         const entry = this.hosts.get(hostId);
         if (entry?.backend !== backend) return;
@@ -215,8 +250,12 @@ export class BackendRegistry {
         });
       },
     });
-    this.add(hostId, spec, backend);
-    if (existing) this.dropBackend(existing);
+    this.add(hostId, spec, provider, backend);
+    if (existing) {
+      // Agents on the host did not stop because its spec changed.
+      if (existing.busy) this.updateBusy(hostId, true);
+      this.dropBackend(existing);
+    }
   }
 
   /** Remove a remote host and drop its connection. */
@@ -291,12 +330,31 @@ export class BackendRegistry {
     // Invalidate any in-flight connect so it cannot land after this.
     entry.attempt++;
     this.setState(entry, { status: "disconnected" });
+    await this.disposeProvider(entry);
     await entry.backend.disconnect();
   }
 
   /** Drop every remote connection (app quit). */
   async disconnectAll(): Promise<void> {
     await Promise.allSettled(this.remoteHostIds().map((id) => this.disconnect(id)));
+  }
+
+  // ── Keep-awake ──
+
+  /**
+   * Whether any agent on `hostId` is working (ADR-178 §1 keep-awake rule).
+   * Handed to the provider's `setBusy` only when it changes, so callers may
+   * report the same value as often as they like. No-op for the local host.
+   */
+  updateBusy(hostId: string, busy: boolean): void {
+    const entry = this.hosts.get(hostId);
+    if (!entry?.provider || entry.busy === busy) return;
+    entry.busy = busy;
+    try {
+      entry.provider.setBusy?.(busy);
+    } catch (err) {
+      console.warn(`[backend-registry] setBusy on ${hostId} failed:`, err);
+    }
   }
 
   // ── Sessions ──
@@ -336,16 +394,23 @@ export class BackendRegistry {
 
   // ── Internals ──
 
-  private add(hostId: string, spec: HostSpec | null, backend: WorkspaceBackend): void {
+  private add(
+    hostId: string,
+    spec: HostSpec | null,
+    provider: HostProvider | null,
+    backend: WorkspaceBackend,
+  ): void {
     const entry: HostEntry = {
       hostId,
       spec,
+      provider,
       backend,
       view: backend,
       state: { status: "disconnected" },
       connecting: null,
       attempt: 0,
       autoConnect: true,
+      busy: false,
     };
     entry.view = this.makeView(entry);
     this.hosts.set(hostId, entry);
@@ -362,10 +427,20 @@ export class BackendRegistry {
   }
 
   private async dropBackend(entry: HostEntry): Promise<void> {
+    await this.disposeProvider(entry);
     try {
       await entry.backend.disconnect();
     } catch (err) {
       console.warn(`[backend-registry] disconnecting ${entry.hostId} failed:`, err);
+    }
+  }
+
+  /** Release the provider's own resources (port forwards); never throws. */
+  private async disposeProvider(entry: HostEntry): Promise<void> {
+    try {
+      await entry.provider?.dispose();
+    } catch (err) {
+      console.warn(`[backend-registry] disposing ${entry.hostId}'s provider failed:`, err);
     }
   }
 
@@ -381,6 +456,11 @@ export class BackendRegistry {
       );
     this.setState(entry, { status: "connecting" });
     try {
+      // Start or resume the box before opening the transport to it.
+      if (entry.provider) {
+        await entry.provider.ensureUp();
+        if (!current()) throw superseded();
+      }
       await entry.backend.connect(
         this.version ? { version: this.version } : undefined,
       );

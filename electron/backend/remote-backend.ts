@@ -7,7 +7,8 @@
  * `TerminalHostClient` riding an `SshTransport`, and the other three get an
  * `Exec` that runs their commands on the remote daemon. The only things that
  * are genuinely remote-specific live here: bootstrapping the host and the
- * reconnect policy.
+ * reconnect policy. The transport comes from the host's `HostProvider`
+ * (ADR-178 §1); for an ssh box that is an `SshTransport`.
  */
 
 import {
@@ -15,18 +16,13 @@ import {
   type ReconnectPolicy,
 } from "../terminal-host/client";
 import type { HostTransport } from "../terminal-host/transport";
-import { SshTransport } from "../terminal-host/transport-ssh";
 import { SshAuthError, SshHostKeyError } from "../terminal-host/ssh-config";
 import { LocalPtyBackend } from "./local-pty";
 import { LocalGitBackend } from "./local-git";
 import { LocalShellBackend } from "./local-shell";
 import { LocalPortsBackend, execPortsHost } from "./local-ports";
 import { createRemoteExec } from "./remote-exec";
-import {
-  RemoteBootstrapError,
-  remoteHostEnsurer,
-  type BootstrapProgress,
-} from "./remote-bootstrap";
+import { RemoteBootstrapError } from "./remote-bootstrap";
 import type {
   HostConnectionEvent,
   HostConnectionEventHandler,
@@ -67,8 +63,6 @@ export interface RemoteBackendOptions {
   target: string;
   /** App version; the remote host is installed/upgraded to match. */
   version?: string;
-  /** Bootstrap progress (platform detection, install) for a status line. */
-  onBootstrapProgress?: (progress: BootstrapProgress) => void;
   /**
    * Non-fatal warnings from the agent-hook bootstrap (ticket 7), e.g. an
    * agent config on the remote that was skipped rather than risk corrupting
@@ -76,10 +70,10 @@ export interface RemoteBackendOptions {
    */
   onBootstrapWarning?: (warnings: string[]) => void;
   /**
-   * Replaces the `SshTransport` (whose `ensureRunning` bootstraps the
-   * remote host). For tests.
+   * How the daemon is reached — the host provider's transport. For ssh, an
+   * `SshTransport` whose `ensureRunning` bootstraps the remote host.
    */
-  transport?: HostTransport;
+  transport: HostTransport;
   /** Replaces `remoteReconnectDelayMs`. For tests. */
   reconnectDelayMs?: ReconnectPolicy;
 }
@@ -103,15 +97,7 @@ export class RemoteBackend implements WorkspaceBackend {
     this.target = opts.target;
     this.reconnectDelayMs = opts.reconnectDelayMs ?? remoteReconnectDelayMs;
     this.onBootstrapWarning = opts.onBootstrapWarning;
-    const transport = (this.transport =
-      opts.transport ??
-      new SshTransport(opts.target, {
-        // Runs inside every client connect, before the bridge is opened —
-        // so connect() installs or upgrades manor-host first.
-        ensureRemoteHost: remoteHostEnsurer({
-          onProgress: opts.onBootstrapProgress,
-        }),
-      }));
+    const transport = (this.transport = opts.transport);
 
     this.client = new TerminalHostClient(opts.version, transport);
     this.client.setReconnectPolicy(this.reconnectDelayMs, {

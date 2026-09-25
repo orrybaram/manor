@@ -13,6 +13,8 @@ import type {
   WorkspaceBackend,
 } from "../types";
 import { SshAuthError } from "../../terminal-host/ssh-config";
+import type { HostProvider } from "../providers/types";
+import { trackHostBusy } from "../host-busy";
 
 /** A WorkspaceBackend whose every call is a spy, plus handles to drive it. */
 function fakeBackend(name: string) {
@@ -66,25 +68,57 @@ function fakeBackend(name: string) {
   };
 }
 
+/** A HostProvider whose every call is a spy. */
+function fakeProvider() {
+  const provider = {
+    kind: "ssh" as const,
+    capabilities: { autoSleep: true, persistsMemory: false, previewUrls: false },
+    ensureUp: vi.fn(async () => {}),
+    status: vi.fn(async () => "up" as const),
+    transport: vi.fn(() => {
+      throw new Error("fake provider has no transport");
+    }),
+    forwardPort: vi.fn(async () => ({ localPort: 1, dispose: vi.fn() })),
+    setBusy: vi.fn(),
+    dispose: vi.fn(async () => {}),
+  };
+  return provider;
+}
+
+/**
+ * `ensureConnected` asks the provider to bring the box up before it calls the
+ * backend's `connect`, so that call lands a tick later.
+ */
+async function connectStarted(remote: ReturnType<typeof fakeBackend>, times = 1) {
+  await vi.waitFor(() => expect(remote.raw.connect).toHaveBeenCalledTimes(times));
+}
+
 function setup() {
   const local = fakeBackend("local");
   const remotes = new Map<string, ReturnType<typeof fakeBackend>>();
+  const providers = new Map<string, ReturnType<typeof fakeProvider>>();
   const progress = new Map<string, (message: string) => void>();
   const warn = new Map<string, (warnings: string[]) => void>();
   const registry = new BackendRegistry({
     local: local.backend,
     version: "1.2.3",
-    createRemote: (hostId, _spec: HostSpec, opts) => {
-      const fake = fakeBackend(hostId);
-      remotes.set(hostId, fake);
+    createProvider: (hostId, _spec: HostSpec, opts) => {
+      const provider = fakeProvider();
+      providers.set(hostId, provider);
       progress.set(hostId, (message) =>
         opts.onBootstrapProgress({ phase: "install", target: hostId, message }),
       );
+      return provider as unknown as HostProvider;
+    },
+    createRemote: (hostId, _spec: HostSpec, opts) => {
+      const fake = fakeBackend(hostId);
+      remotes.set(hostId, fake);
+      expect(opts.provider).toBe(providers.get(hostId));
       warn.set(hostId, opts.onBootstrapWarning);
       return fake.backend;
     },
   });
-  return { registry, local, remotes, progress, warn };
+  return { registry, local, remotes, providers, progress, warn };
 }
 
 const box: HostSpec = { kind: "ssh", target: "me@box" };
@@ -136,6 +170,7 @@ describe("BackendRegistry", () => {
     );
     const connecting = registry.ensureConnected("box");
     expect(registry.status("box")).toBe("connecting");
+    await connectStarted(remotes.get("box")!);
     progress.get("box")!("Installing manor-host…");
     expect(registry.list()[1]).toMatchObject({
       status: "connecting",
@@ -281,6 +316,7 @@ describe("BackendRegistry", () => {
     );
     const connecting = registry.ensureConnected("box");
     expect(registry.status("box")).toBe("connecting");
+    await connectStarted(remote);
 
     await registry.disconnect("box");
     expect(registry.status("box")).toBe("disconnected");
@@ -300,6 +336,7 @@ describe("BackendRegistry", () => {
       () => new Promise<void>((_resolve, reject) => (failConnect = reject)),
     );
     const connecting = registry.ensureConnected("box");
+    await connectStarted(remote);
 
     await registry.disconnect("box");
     // Disposing the client makes the in-flight connect reject.
@@ -322,6 +359,7 @@ describe("BackendRegistry", () => {
       () => new Promise<void>((_resolve, reject) => (failFirst = reject)),
     );
     const first = registry.ensureConnected("box");
+    await connectStarted(remote);
     await registry.disconnect("box");
     await registry.ensureConnected("box");
     expect(registry.status("box")).toBe("connected");
@@ -363,9 +401,128 @@ describe("BackendRegistry", () => {
     registry.register("box", box);
     const old = remotes.get("box")!;
     registry.register("box", { kind: "ssh", target: "me@other" });
-    expect(old.raw.disconnect).toHaveBeenCalled();
+    // The provider's forwards are cancelled first, then the backend dropped.
+    await vi.waitFor(() => expect(old.raw.disconnect).toHaveBeenCalled());
     old.hostEvent({ type: "hostReconnected", sessionIds: [] });
     expect(registry.status("box")).toBe("disconnected");
+  });
+});
+
+describe("BackendRegistry providers", () => {
+  it("brings the box up before connecting its backend", async () => {
+    const { registry, remotes, providers } = setup();
+    registry.register("box", box);
+    const order: string[] = [];
+    providers.get("box")!.ensureUp.mockImplementation(async () => {
+      order.push("ensureUp");
+    });
+    remotes.get("box")!.raw.connect.mockImplementation(async () => {
+      order.push("connect");
+    });
+    await registry.ensureConnected("box");
+    expect(order).toEqual(["ensureUp", "connect"]);
+    expect(registry.provider("box")).toBe(providers.get("box"));
+    expect(registry.provider("local")).toBeUndefined();
+  });
+
+  it("reports a failed ensureUp as a connect error without connecting", async () => {
+    const { registry, remotes, providers } = setup();
+    registry.register("box", box);
+    providers.get("box")!.ensureUp.mockRejectedValue(new Error("box will not start"));
+    await expect(registry.ensureConnected("box")).rejects.toThrow("box will not start");
+    expect(remotes.get("box")!.raw.connect).not.toHaveBeenCalled();
+    expect(registry.status("box")).toBe("error");
+  });
+
+  it("does not connect if a disconnect lands while the box is coming up", async () => {
+    const { registry, remotes, providers } = setup();
+    registry.register("box", box);
+    let up!: () => void;
+    providers.get("box")!.ensureUp.mockImplementation(
+      () => new Promise<void>((resolve) => (up = resolve)),
+    );
+    const connecting = registry.ensureConnected("box");
+    await vi.waitFor(() => expect(up).toBeDefined());
+    await registry.disconnect("box");
+    up();
+    await expect(connecting).rejects.toBeInstanceOf(HostUnavailableError);
+    expect(remotes.get("box")!.raw.connect).not.toHaveBeenCalled();
+  });
+
+  it("disposes the provider on disconnect, replace and unregister", async () => {
+    const { registry, providers } = setup();
+    registry.register("box", box);
+    const first = providers.get("box")!;
+    await registry.disconnect("box");
+    expect(first.dispose).toHaveBeenCalledTimes(1);
+    registry.register("box", { kind: "ssh", target: "me@other" });
+    await vi.waitFor(() => expect(first.dispose).toHaveBeenCalledTimes(2));
+    const second = providers.get("box")!;
+    await registry.unregister("box");
+    expect(second.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("hands setBusy to the provider only when busy changes", () => {
+    const { registry, providers } = setup();
+    registry.register("box", box);
+    const provider = providers.get("box")!;
+    registry.updateBusy("box", false);
+    expect(provider.setBusy).not.toHaveBeenCalled();
+    registry.updateBusy("box", true);
+    registry.updateBusy("box", true);
+    registry.updateBusy("box", false);
+    expect(provider.setBusy.mock.calls).toEqual([[true], [false]]);
+    // No provider for the local host, and unknown hosts are ignored.
+    expect(() => registry.updateBusy("local", true)).not.toThrow();
+    expect(() => registry.updateBusy("ghost", true)).not.toThrow();
+  });
+
+  it("carries busy over to the provider of a replaced host", () => {
+    const { registry, providers } = setup();
+    registry.register("box", box);
+    registry.updateBusy("box", true);
+    registry.register("box", { kind: "ssh", target: "me@other" });
+    expect(providers.get("box")!.setBusy.mock.calls).toEqual([[true]]);
+  });
+});
+
+describe("trackHostBusy", () => {
+  const agent = (status: string) =>
+    ({ kind: "claude", status, processName: null, since: 0, title: null }) as const;
+  const agentStatus = (sessionId: string, status: string): StreamEvent =>
+    ({ type: "agentStatus", sessionId, agent: agent(status) }) as unknown as StreamEvent;
+
+  it("marks a host busy while any of its panes has an active agent", () => {
+    const { registry, remotes, providers } = setup();
+    registry.register("box", box);
+    registry.register("other", { kind: "ssh", target: "me@other" });
+    trackHostBusy(registry);
+    const remote = remotes.get("box")!;
+    const provider = providers.get("box")!;
+
+    remote.stream(agentStatus("pane-1", "idle"));
+    expect(provider.setBusy).not.toHaveBeenCalled();
+    remote.stream(agentStatus("pane-1", "thinking"));
+    remote.stream(agentStatus("pane-2", "working"));
+    expect(provider.setBusy.mock.calls).toEqual([[true]]);
+    // One pane going idle leaves the host busy.
+    remote.stream(agentStatus("pane-1", "complete"));
+    expect(provider.setBusy.mock.calls).toEqual([[true]]);
+    // The last busy pane exiting makes it idle.
+    remote.stream({ type: "exit", sessionId: "pane-2", exitCode: 0 });
+    expect(provider.setBusy.mock.calls).toEqual([[true], [false]]);
+    remote.stream(agentStatus("pane-1", "requires_input"));
+    expect(provider.setBusy.mock.calls).toEqual([[true], [false], [true]]);
+    // Other hosts are unaffected.
+    expect(providers.get("other")!.setBusy).not.toHaveBeenCalled();
+  });
+
+  it("ignores local panes", () => {
+    const { registry, local, providers } = setup();
+    registry.register("box", box);
+    trackHostBusy(registry);
+    local.stream(agentStatus("pane-9", "working"));
+    expect(providers.get("box")!.setBusy).not.toHaveBeenCalled();
   });
 });
 

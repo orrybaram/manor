@@ -62,6 +62,38 @@ export function register(deps: IpcDeps): void {
     },
   );
 
+  // ADR-179: clone (or adopt) an existing project's repo onto a remote host
+  // and point the same project record at it.
+  ipcMain.handle(
+    "projects:moveToHost",
+    async (
+      _event,
+      projectId: string,
+      opts: { hostId: string; repoUrl: string; remoteDir: string },
+    ) => {
+      assertString(projectId, "projectId");
+      assertString(opts?.hostId, "hostId");
+      assertString(opts?.repoUrl, "repoUrl");
+      assertString(opts?.remoteDir, "remoteDir");
+      assertKnownHostId(opts.hostId);
+      if (opts.hostId === LOCAL_HOST_ID) {
+        throw new Error("A remote host is required.");
+      }
+      await backendRegistry.ensureConnected(opts.hostId);
+      return projectManager.moveProjectToHost(projectId, opts);
+    },
+  );
+
+  ipcMain.handle("projects:getOriginUrl", (_event, projectId: string) => {
+    assertString(projectId, "projectId");
+    return projectManager.getOriginUrl(projectId);
+  });
+
+  ipcMain.handle("projects:pathExists", (_event, projectId: string) => {
+    assertString(projectId, "projectId");
+    return projectManager.projectPathExists(projectId);
+  });
+
   ipcMain.handle(
     "hosts:healthCheck",
     async (_event, hostId: string, projectPath: string) => {
@@ -215,8 +247,36 @@ export function register(deps: IpcDeps): void {
       if (updates.hostId !== undefined) {
         assertString(updates.hostId, "hostId");
         assertKnownHostId(updates.hostId);
+        const targetHostId = updates.hostId;
+        if (targetHostId !== projectManager.getProjectHostId(projectId)) {
+          return assertPathOnHost(projectId, targetHostId).then(() =>
+            projectManager.updateProject(projectId, updates),
+          );
+        }
       }
       return projectManager.updateProject(projectId, updates);
     },
   );
+
+  /**
+   * ADR-179 guard: a bare host switch keeps the project's `path`, so it only
+   * works when the repo really is at that path on the target host. Refuse it
+   * otherwise, rather than leaving a project whose terminals can't `chdir`.
+   */
+  async function assertPathOnHost(projectId: string, hostId: string): Promise<void> {
+    const projectPath = projectManager.getProjectPath(projectId);
+    if (projectPath === null) return;
+    if (hostId !== LOCAL_HOST_ID) {
+      await backendRegistry.ensureConnected(hostId);
+    }
+    if (await projectManager.pathExistsOnHost(hostId, projectPath)) return;
+    const label =
+      hostId === LOCAL_HOST_ID
+        ? "this Mac"
+        : (projectManager.getHosts().find((h) => h.hostId === hostId)?.spec.target ??
+          hostId);
+    throw new Error(
+      `Project path "${projectPath}" does not exist on ${label}. Clone it onto the host instead.`,
+    );
+  }
 }

@@ -432,6 +432,11 @@ interface ProjectState {
     remoteDir: string;
     name: string;
   }) => Promise<ProjectInfo>;
+  /** ADR-179: clone an existing project onto a remote host, keeping its record. */
+  moveProjectToHost: (
+    projectId: string,
+    opts: { hostId: string; repoUrl: string; remoteDir: string },
+  ) => Promise<ProjectInfo>;
   removeProject: (projectId: string) => Promise<void>;
   selectProject: (index: number) => void;
   selectWorkspace: (projectId: string, workspaceIndex: number) => void;
@@ -573,6 +578,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       selectedProjectIndex: s.projects.length,
     }));
     return project;
+  },
+
+  moveProjectToHost: async (projectId, opts) => {
+    const updated = await window.electronAPI.projects.moveToHost(projectId, opts);
+    set((s) => ({
+      projects: s.projects.map((p) => (p.id === projectId ? updated : p)),
+    }));
+    return updated;
   },
 
   removeProject: async (projectId: string) => {

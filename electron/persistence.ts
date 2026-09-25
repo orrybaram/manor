@@ -384,6 +384,20 @@ export function isFolderDescendant(
   return false;
 }
 
+/**
+ * Move `record[from]` to `record[to]` (overwriting), leaving it unchanged
+ * when `record` is absent or has no `from` entry.
+ */
+function rekeyRecord<T>(
+  record: Record<string, T> | undefined,
+  from: string,
+  to: string,
+): void {
+  if (!record || !Object.prototype.hasOwnProperty.call(record, from)) return;
+  record[to] = record[from];
+  delete record[from];
+}
+
 /** How long `setHostHookCursor` batches writes. */
 const HOOK_SEQ_SAVE_DEBOUNCE_MS = 1_000;
 
@@ -899,16 +913,146 @@ export class ProjectManager {
     name: string;
   }): Promise<ProjectInfo> {
     const { hostId, name } = opts;
-    const repoUrl = opts.repoUrl.trim();
-    const remoteDirInput = opts.remoteDir.trim();
     if (hostId === LOCAL_HOST_ID) {
       throw new Error("addRemoteProject requires a remote host.");
     }
-    validateRepoUrl(repoUrl);
-    validateRemoteDir(remoteDirInput);
+    const targetDir = await this.prepareRemoteClone(
+      hostId,
+      opts.repoUrl,
+      opts.remoteDir,
+    );
+    // Adopting an existing clone must not create a second project record
+    // for the same host+path — return the one Manor already has instead
+    // (ADR-178 ticket 5 review).
+    const existing = this.findProjectAt(hostId, targetDir);
+    if (existing) return this.buildProjectInfo(existing);
+    return this.addProject(name, targetDir, hostId);
+  }
 
-    const shell = this.shellForHost(hostId);
-    const git = this.gitForHost(hostId);
+  /**
+   * Move an existing project onto a remote host by cloning (or adopting) its
+   * repo there, keeping the same project record (ADR-179): id, name, colour,
+   * commands, agent settings and Linear associations all survive. The main
+   * workspace's per-path settings follow it to the new path; an absolute
+   * worktree root from the old machine is dropped.
+   */
+  async moveProjectToHost(
+    projectId: string,
+    opts: { hostId: string; repoUrl: string; remoteDir: string },
+  ): Promise<ProjectInfo> {
+    const { hostId } = opts;
+    if (hostId === LOCAL_HOST_ID) {
+      throw new Error("moveProjectToHost requires a remote host.");
+    }
+    const project = this.findProject(projectId);
+    if (!project) throw new Error(`Unknown project "${projectId}".`);
+
+    // Resolve the target before cloning so a directory another project
+    // already owns is refused without touching the host's filesystem.
+    validateRepoUrl(opts.repoUrl.trim());
+    const plannedDir = await this.resolveRemoteDir(hostId, opts.remoteDir);
+    const owner = this.findProjectAt(hostId, plannedDir);
+    if (owner && owner.id !== projectId) {
+      throw new Error(
+        `"${plannedDir}" on this host already belongs to project "${owner.name}".`,
+      );
+    }
+
+    const targetDir = await this.prepareRemoteClone(
+      hostId,
+      opts.repoUrl,
+      opts.remoteDir,
+    );
+    const oldPath = project.path;
+
+    const detected = await this.detectDefaultBranch(
+      this.gitForHost(hostId),
+      targetDir,
+    );
+    project.hostId = hostId;
+    project.path = targetDir;
+    if (detected) project.defaultBranch = detected;
+
+    if (oldPath !== targetDir) {
+      rekeyRecord(project.workspaceNames, oldPath, targetDir);
+      rekeyRecord(project.workspaceIssues, oldPath, targetDir);
+      rekeyRecord(project.workspaceHidden, oldPath, targetDir);
+      rekeyRecord(project.workspaceFolderIds, oldPath, targetDir);
+      if (project.workspaceOrder) {
+        project.workspaceOrder = project.workspaceOrder.map((key) =>
+          key === oldPath ? targetDir : key,
+        );
+      }
+    }
+    // An absolute worktree root names a directory on the old machine; null
+    // falls back to `<hostHome>/.manor/worktrees/<slug>` (ADR-178 §3). A
+    // `~` root is host-relative, so it still means something on the host.
+    if (project.worktreePath && !project.worktreePath.startsWith("~")) {
+      project.worktreePath = null;
+    }
+    // Workspace paths from the old host would otherwise route
+    // `hostIdForPath` until the next `buildProjectInfo` replaces them.
+    this.knownWorkspacePaths.delete(projectId);
+
+    this.saveState();
+    return this.buildProjectInfo(project);
+  }
+
+  /**
+   * The project's `origin` URL, as its current host's git reports it, or
+   * null on any failure. Pre-fills the repo URL when moving it to a host.
+   */
+  async getOriginUrl(projectId: string): Promise<string | null> {
+    const project = this.findProject(projectId);
+    if (!project) return null;
+    try {
+      const out = await this.gitFor(project).exec(project.path, [
+        "remote",
+        "get-url",
+        "origin",
+      ]);
+      const url = out.trim();
+      return url === "" ? null : url;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Whether the project's `path` exists on the host it lives on. */
+  async projectPathExists(projectId: string): Promise<boolean> {
+    const project = this.findProject(projectId);
+    if (!project) return false;
+    return this.pathExistsOnHost(project.hostId ?? LOCAL_HOST_ID, project.path);
+  }
+
+  /** Whether `p` exists on `hostId`'s filesystem. */
+  async pathExistsOnHost(hostId: string, p: string): Promise<boolean> {
+    if (hostId === LOCAL_HOST_ID) return fs.existsSync(p);
+    return this.remoteFileExists(this.shellForHost(hostId), p);
+  }
+
+  /** The project's root path, or null for an unknown project. */
+  getProjectPath(projectId: string): string | null {
+    return this.findProject(projectId)?.path ?? null;
+  }
+
+  /** The project that lives at `dir` on `hostId`, if any. */
+  private findProjectAt(hostId: string, dir: string): PersistedProject | undefined {
+    return this.state.projects.find(
+      (p) => p.path === dir && (p.hostId ?? LOCAL_HOST_ID) === hostId,
+    );
+  }
+
+  /**
+   * Validate a user-supplied remote directory and resolve it to an absolute
+   * path on `hostId`, expanding `~` against the host's home.
+   */
+  private async resolveRemoteDir(
+    hostId: string,
+    remoteDir: string,
+  ): Promise<string> {
+    const remoteDirInput = remoteDir.trim();
+    validateRemoteDir(remoteDirInput);
     const home = await this.homeDirFor(hostId);
     const targetDir = expandHome(remoteDirInput, home);
     if (!targetDir.startsWith("/") || targetDir === "/") {
@@ -916,19 +1060,32 @@ export class ProjectManager {
         `Remote directory must resolve to an absolute path other than "/" (got ${JSON.stringify(targetDir)}).`,
       );
     }
+    return targetDir;
+  }
+
+  /**
+   * Get `repoUrl` checked out at `remoteDir` on `hostId` and return the
+   * absolute directory. A directory that is already a clone of `repoUrl` is
+   * adopted as-is; any other non-empty directory is refused; otherwise it is
+   * cloned, with progress on `worktree:setup-progress` (step `"clone"`).
+   * A failed clone rejects with git's own message.
+   */
+  private async prepareRemoteClone(
+    hostId: string,
+    repoUrlInput: string,
+    remoteDir: string,
+  ): Promise<string> {
+    const repoUrl = repoUrlInput.trim();
+    validateRepoUrl(repoUrl);
+
+    const shell = this.shellForHost(hostId);
+    const git = this.gitForHost(hostId);
+    const targetDir = await this.resolveRemoteDir(hostId, remoteDir);
 
     const state = await this.remoteDirState(shell, targetDir);
     if (state === "nonempty") {
-      const alreadyCloned = await this.remoteDirIsCloneOf(git, targetDir, repoUrl);
-      if (alreadyCloned) {
-        // Adopting an existing clone must not create a second project
-        // record for the same host+path — return the one Manor already
-        // has instead (ADR-178 ticket 5 review).
-        const existing = this.state.projects.find(
-          (p) => p.path === targetDir && (p.hostId ?? LOCAL_HOST_ID) === hostId,
-        );
-        if (existing) return this.buildProjectInfo(existing);
-        return this.addProject(name, targetDir, hostId);
+      if (await this.remoteDirIsCloneOf(git, targetDir, repoUrl)) {
+        return targetDir;
       }
       throw new Error(
         `"${targetDir}" already exists and is not empty. Choose an empty ` +
@@ -948,8 +1105,7 @@ export class ProjectManager {
       throw err;
     }
     this.emitSetupProgress("clone", "done");
-
-    return this.addProject(name, targetDir, hostId);
+    return targetDir;
   }
 
   /** Whether `dir` is missing, exists and is empty, or exists with contents. */

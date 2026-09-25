@@ -301,6 +301,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
       remoteDir: string;
       name: string;
     }) => ipcRenderer.invoke("projects:addRemote", opts),
+    // ADR-179: clone an existing project onto a remote host and point it
+    // there. Progress arrives on "worktree:setup-progress", step "clone".
+    moveToHost: (
+      projectId: string,
+      opts: { hostId: string; repoUrl: string; remoteDir: string },
+    ) => ipcRenderer.invoke("projects:moveToHost", projectId, opts),
+    getOriginUrl: (projectId: string) =>
+      ipcRenderer.invoke("projects:getOriginUrl", projectId),
+    pathExists: (projectId: string) =>
+      ipcRenderer.invoke("projects:pathExists", projectId),
   },
 
   hosts: {

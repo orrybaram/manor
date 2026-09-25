@@ -532,6 +532,15 @@ export interface ElectronAPI {
       remoteDir: string;
       name: string;
     }) => Promise<import("./store/project-store").ProjectInfo>;
+    /** ADR-179: clone an existing project onto a remote host, keeping its record. */
+    moveToHost: (
+      projectId: string,
+      opts: { hostId: string; repoUrl: string; remoteDir: string },
+    ) => Promise<import("./store/project-store").ProjectInfo>;
+    /** The project's `origin` URL via its current host's git, or null. */
+    getOriginUrl: (projectId: string) => Promise<string | null>;
+    /** Whether the project's path exists on the host it lives on. */
+    pathExists: (projectId: string) => Promise<boolean>;
   };
 
   hosts: {

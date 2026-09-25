@@ -1,6 +1,6 @@
 ---
 title: SshTransport — bridge the daemon protocol over ssh
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: [3, 4]

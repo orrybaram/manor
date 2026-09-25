@@ -58,6 +58,9 @@ export function isDaemonStale(
   return daemonProtocolOf(response) < TERMINAL_HOST_PROTOCOL;
 }
 
+/** Per-request timeout for control requests that do not name their own. */
+const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
+
 type StreamEventHandler = (event: StreamEvent) => void;
 
 export class TerminalHostClient {
@@ -103,6 +106,11 @@ export class TerminalHostClient {
   private reconnectDelaysMs: number[] = [250, 1_000, 2_000];
 
   private readonly transport: HostTransport;
+
+  /** Timeout for auth + handshake; the transport decides (see `HostTransport`). */
+  private get handshakeTimeoutMs(): number {
+    return this.transport.handshakeTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  }
 
   constructor(version?: string, transport: HostTransport = new LocalTransport()) {
     this.clientVersion = version;
@@ -234,7 +242,10 @@ export class TerminalHostClient {
 
     // Authenticate
     let token = await this.transport.authToken();
-    const authResp = await this.request({ type: "auth", token });
+    const authResp = await this.request(
+      { type: "auth", token },
+      this.handshakeTimeoutMs,
+    );
     if (authResp.type !== "authOk") {
       throw new Error(
         `Auth failed: ${authResp.type === "error" ? authResp.message : "unknown"}`,
@@ -258,7 +269,10 @@ export class TerminalHostClient {
     // for development, where the version is constant across rebuilds and a
     // daemon can outlive the protocol it was built against by days.
     const clientVer = this.clientVersion ?? "unknown";
-    const hsResp = await this.request({ type: "handshake", clientVersion: clientVer });
+    const hsResp = await this.request(
+      { type: "handshake", clientVersion: clientVer },
+      this.handshakeTimeoutMs,
+    );
     this.daemonProtocol = daemonProtocolOf(hsResp);
     if (isDaemonStale(hsResp, clientVer)) {
       // Stale daemon — replace it
@@ -267,7 +281,10 @@ export class TerminalHostClient {
       // Reconnect to the fresh daemon
       await this.connectControlSocket();
       token = await this.transport.authToken();
-      const authResp2 = await this.request({ type: "auth", token });
+      const authResp2 = await this.request(
+        { type: "auth", token },
+        this.handshakeTimeoutMs,
+      );
       if (authResp2.type !== "authOk") {
         throw new Error(
           `Auth failed after daemon respawn: ${authResp2.type === "error" ? authResp2.message : "unknown"}`,
@@ -627,7 +644,7 @@ export class TerminalHostClient {
 
   private request(
     req: ControlRequest,
-    timeoutMs = 10_000,
+    timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
   ): Promise<ControlResponse> {
     const result = this.requestMutex.then(() =>
       this.doRequest(req, timeoutMs),

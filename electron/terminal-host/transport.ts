@@ -13,6 +13,14 @@ import type { Duplex } from "node:stream";
 
 export interface HostTransport {
   /**
+   * How long the client waits for its auth and handshake replies. A remote
+   * transport pays for cold TCP, key exchange and ssh auth inside that
+   * window, so it needs far longer than a local socket. Absent means the
+   * client's default request timeout.
+   */
+  readonly handshakeTimeoutMs?: number;
+
+  /**
    * Make sure a daemon is running and accepting connections, starting one if
    * not. `version` is the client's app version, handed to a daemon started
    * here so it can report it in the handshake.

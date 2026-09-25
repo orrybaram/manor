@@ -1,10 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import X from "lucide-react/dist/esm/icons/x";
-import Loader2 from "lucide-react/dist/esm/icons/loader-2";
-import CheckCircle2 from "lucide-react/dist/esm/icons/check-circle-2";
-import XCircle from "lucide-react/dist/esm/icons/x-circle";
-import HelpCircle from "lucide-react/dist/esm/icons/help-circle";
 import { useProjectStore } from "../../../store/project-store";
 import { useAppStore } from "../../../store/app-store";
 import { useHostStore } from "../../../store/host-store";
@@ -15,6 +11,8 @@ import { Input } from "../../ui/Input";
 import { SearchableSelect } from "../../ui/SearchableSelect";
 import { ToggleGroup } from "../../ui/ToggleGroup";
 import { Row, Stack } from "../../ui/Layout/Layout";
+import { CloneProgressLog } from "../../hosts/CloneProgressLog";
+import { HealthCheckList } from "../../hosts/HealthCheckList";
 import styles from "./AddProjectDialog.module.css";
 
 type Mode = "local" | "remote";
@@ -317,63 +315,16 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
               </>
             )}
 
-            {remoteStep === "cloning" && (
-              <Stack gap="sm">
-                <Row gap="xs" align="center">
-                  <Loader2 size={14} className={styles.spinner} />
-                  <span>Cloning…</span>
-                </Row>
-                <div className={styles.progressLog} data-testid="clone-progress-log">
-                  {progressLines.slice(-8).map((line, i) => (
-                    <div key={i} className={styles.progressLine}>
-                      {line}
-                    </div>
-                  ))}
-                </div>
-              </Stack>
-            )}
+            {remoteStep === "cloning" && <CloneProgressLog lines={progressLines} />}
 
             {remoteStep === "health" && (
               <Stack gap="sm">
-                <Row align="center" justify="space-between">
-                  <span className={styles.fieldLabel}>Host health check</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={checksRunning || !projectPath}
-                    onClick={() => hostId && projectPath && runHealthChecks(hostId, projectPath)}
-                  >
-                    {checksRunning ? "Checking…" : "Re-run checks"}
-                  </Button>
-                </Row>
-                <Stack gap="xs" data-testid="health-check-list">
-                  {(checks ?? []).map((check) => (
-                    <Row key={check.id} align="center" justify="space-between" gap="sm">
-                      <Row align="center" gap="xs">
-                        {check.status === "unknown" ? (
-                          <HelpCircle size={14} className={styles.unknown} />
-                        ) : check.ok ? (
-                          <CheckCircle2 size={14} className={styles.ok} />
-                        ) : (
-                          <XCircle size={14} className={styles.fail} />
-                        )}
-                        <Stack gap="2xs">
-                          <span>{check.label}</span>
-                          <span className={styles.fieldHint}>{check.detail}</span>
-                        </Stack>
-                      </Row>
-                      {!check.ok && check.fixCommand && (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => handleFixInTerminal(check)}
-                        >
-                          Fix in terminal
-                        </Button>
-                      )}
-                    </Row>
-                  ))}
-                </Stack>
+                <HealthCheckList
+                  checks={checks}
+                  running={checksRunning}
+                  onRerun={() => hostId && projectPath && runHealthChecks(hostId, projectPath)}
+                  onFix={handleFixInTerminal}
+                />
                 <Row justify="flex-end">
                   <Button variant="primary" onClick={handleDone}>
                     Done

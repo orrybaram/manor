@@ -1,6 +1,6 @@
 ---
 title: CloneToHostDialog and Project Settings host section wiring
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

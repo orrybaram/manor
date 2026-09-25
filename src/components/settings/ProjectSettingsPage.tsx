@@ -1,4 +1,4 @@
-import { useRef, useCallback, useState, useMemo } from "react";
+import { useRef, useCallback, useEffect, useState, useMemo } from "react";
 import Check from "lucide-react/dist/esm/icons/check";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import Plus from "lucide-react/dist/esm/icons/plus";
@@ -18,6 +18,7 @@ import { useListKeyboardNav } from "../../hooks/useListKeyboardNav";
 import { useThemeStore, type Theme } from "../../store/theme-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { LinearProjectSection } from "./LinearProjectSection";
+import { CloneToHostDialog } from "./CloneToHostDialog/CloneToHostDialog";
 import { DEFAULT_AGENT_COMMAND } from "../../agent-defaults";
 import { PROJECT_COLORS } from "../../project-colors";
 import { Input, Textarea } from "../ui/Input";
@@ -304,10 +305,38 @@ function ProjectHostSection(props: ProjectHostSectionProps) {
   const [pendingChange, setPendingChange] = useState<PendingHostChange | null>(
     null,
   );
+  /** The host id `CloneToHostDialog` is open for, or null when it is closed. */
+  const [cloneDialogHostId, setCloneDialogHostId] = useState<string | null>(
+    null,
+  );
+  const [pathMissing, setPathMissing] = useState(false);
   const targetInputRef = useRef<HTMLInputElement>(null);
 
   const currentHostId = project.hostId ?? LOCAL_HOST_ID;
   const currentHost = useHostStore(selectHost(currentHostId));
+
+  // `projects:pathExists` doesn't connect to the host first — it
+  // returns false while disconnected, which would otherwise flash a false
+  // "not found" warning. Only trust it once the host reports connected, and
+  // re-check whenever that happens (mount, path/host change, reconnect).
+  useEffect(() => {
+    if (currentHostId === LOCAL_HOST_ID || currentHost?.status !== "connected") {
+      setPathMissing(false);
+      return;
+    }
+    let cancelled = false;
+    window.electronAPI.projects
+      .pathExists(project.id)
+      .then((exists) => {
+        if (!cancelled) setPathMissing(!exists);
+      })
+      .catch(() => {
+        /* leave the previous state — the host status line already covers errors */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [project.id, project.path, currentHostId, currentHost?.status]);
 
   const options = useMemo(() => {
     const remote = hosts
@@ -331,28 +360,35 @@ function ProjectHostSection(props: ProjectHostSectionProps) {
     [project.id, updateProject],
   );
 
-  const addAndSwitchHost = useCallback(
+  const addAndOpenCloneDialog = useCallback(
     (target: string) => {
       setAddError(null);
       addHost(target)
         .then(({ hostId }) => {
           setAdding(false);
           setTargetInput("");
-          switchHost(hostId);
+          setCloneDialogHostId(hostId);
         })
         .catch((err: unknown) => {
           setAddError(errorMessage(err));
         });
     },
-    [addHost, switchHost],
+    [addHost],
   );
 
   const performHostChange = useCallback(
     (change: PendingHostChange) => {
-      if (change.kind === "switch") switchHost(change.hostId);
-      else addAndSwitchHost(change.target);
+      if (change.kind === "switch") {
+        // Local stays a plain host switch, which goes through the ADR-179
+        // guard; a remote host opens the clone dialog instead of switching
+        // straight away, so the project's path is always valid there first.
+        if (change.hostId === LOCAL_HOST_ID) switchHost(change.hostId);
+        else setCloneDialogHostId(change.hostId);
+      } else {
+        addAndOpenCloneDialog(change.target);
+      }
     },
-    [switchHost, addAndSwitchHost],
+    [switchHost, addAndOpenCloneDialog],
   );
 
   // Confirm BEFORE anything happens — in particular before `addHost`, so
@@ -434,6 +470,20 @@ function ProjectHostSection(props: ProjectHostSectionProps) {
           )}
         </Row>
       )}
+      {pathMissing && (
+        <Row gap="xs" align="center">
+          <span className={styles.fieldHint} style={{ color: "var(--yellow)" }}>
+            Repository not found on this host
+          </span>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setCloneDialogHostId(currentHostId)}
+          >
+            Clone onto host…
+          </Button>
+        </Row>
+      )}
       {adding && (
         <Stack gap="xs">
           <Input
@@ -479,7 +529,11 @@ function ProjectHostSection(props: ProjectHostSectionProps) {
           "existing terminals keep running where they are, and new ones will " +
           "start on the new host."
         }
-        confirmLabel={pendingChange?.kind === "add" ? "Connect and switch" : "Switch host"}
+        confirmLabel={
+          pendingChange?.kind === "switch" && pendingChange.hostId === LOCAL_HOST_ID
+            ? "Switch host"
+            : "Continue"
+        }
         onConfirm={() => {
           const change = pendingChange;
           setPendingChange(null);
@@ -487,6 +541,14 @@ function ProjectHostSection(props: ProjectHostSectionProps) {
         }}
         onCancel={() => setPendingChange(null)}
       />
+      {cloneDialogHostId && (
+        <CloneToHostDialog
+          open
+          project={project}
+          hostId={cloneDialogHostId}
+          onClose={() => setCloneDialogHostId(null)}
+        />
+      )}
     </Stack>
   );
 }

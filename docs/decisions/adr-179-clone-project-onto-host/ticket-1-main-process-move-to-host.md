@@ -1,6 +1,6 @@
 ---
 title: Main-process moveProjectToHost, origin URL, path check and host-switch guard
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: []

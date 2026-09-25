@@ -565,10 +565,10 @@ describe("RoutedBackend", () => {
     await backend.pty.createOrAttach("pane-r", "/remote/app", 80, 24);
     await backend.pty.createOrAttach("pane-l", "/Users/me/app", 80, 24);
     expect(remote.raw.pty.createOrAttach).toHaveBeenCalledWith(
-      "pane-r", "/remote/app", 80, 24, undefined,
+      "pane-r", "/remote/app", 80, 24, undefined, undefined,
     );
     expect(local.raw.pty.createOrAttach).toHaveBeenCalledWith(
-      "pane-l", "/Users/me/app", 80, 24, undefined,
+      "pane-l", "/Users/me/app", 80, 24, undefined, undefined,
     );
 
     backend.pty.write("pane-r", "ls\n");
@@ -643,7 +643,7 @@ describe("RoutedBackend", () => {
     await backend.ports.scan(["/a", "/b"]);
     await backend.shell.which("git");
     expect(local.raw.pty.createOrAttach).toHaveBeenCalledWith(
-      "pane-1", "/anywhere", 80, 24, undefined,
+      "pane-1", "/anywhere", 80, 24, undefined, undefined,
     );
     expect(local.raw.ports.scan).toHaveBeenCalledWith(["/a", "/b"]);
     expect(local.raw.shell.which).toHaveBeenCalledWith("git");

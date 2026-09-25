@@ -140,11 +140,17 @@ export class AgentHookServer {
     });
   }
 
+  /**
+   * Stop listening, and remove the port file only if it still names this
+   * server — another Manor instance may have written its own port since.
+   */
   stop(): void {
     this.server?.close();
     this.server = null;
     try {
-      fs.unlinkSync(HOOK_PORT_FILE);
+      if (this.port && fs.readFileSync(HOOK_PORT_FILE, "utf-8").trim() === String(this.port)) {
+        fs.unlinkSync(HOOK_PORT_FILE);
+      }
     } catch {
       // File may not exist; ignore
     }

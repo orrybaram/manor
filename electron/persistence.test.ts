@@ -1341,22 +1341,36 @@ describe("ProjectManager hosts (ADR-160)", () => {
     expect(() => mgr.saveHost("local", { kind: "ssh", target: "x" })).toThrow();
   });
 
-  it("records each host's last hook seq, debounced, and flushes it on demand", () => {
+  it("records each host's hook cursor, debounced, and flushes it on demand", () => {
     const mgr = new ProjectManager(gitNamed("local"), tmpDir);
     mgr.saveHost("box", { kind: "ssh", target: "me@box" });
-    expect(mgr.getHostHookSeq("box")).toBe(0);
-    mgr.setHostHookSeq("box", 7);
-    expect(mgr.getHostHookSeq("box")).toBe(7);
+    // Never met: null, not 0, so the hook feed can tell first contact apart.
+    expect(mgr.getHostHookCursor("box")).toBeNull();
+    mgr.setHostHookCursor("box", { seq: 7, epoch: "e1" });
+    expect(mgr.getHostHookCursor("box")).toEqual({ seq: 7, epoch: "e1" });
     // Unknown hosts are ignored rather than created.
-    mgr.setHostHookSeq("ghost", 3);
-    expect(mgr.getHostHookSeq("ghost")).toBe(0);
+    mgr.setHostHookCursor("ghost", { seq: 3, epoch: null });
+    expect(mgr.getHostHookCursor("ghost")).toBeNull();
 
     const read = () =>
       JSON.parse(fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8")).hosts.box;
     expect(read().lastHookSeq).toBeUndefined();
     mgr.flushHostHookSeqs();
-    expect(read()).toEqual({ spec: { kind: "ssh", target: "me@box" }, lastHookSeq: 7 });
-    expect(new ProjectManager(gitNamed("local"), tmpDir).getHostHookSeq("box")).toBe(7);
+    expect(read()).toEqual({
+      spec: { kind: "ssh", target: "me@box" },
+      lastHookSeq: 7,
+      hookJournalEpoch: "e1",
+    });
+    expect(new ProjectManager(gitNamed("local"), tmpDir).getHostHookCursor("box")).toEqual({
+      seq: 7,
+      epoch: "e1",
+    });
+
+    // A seq stored before epochs existed reads back with a null epoch.
+    mgr.setHostHookCursor("box", { seq: 0, epoch: null });
+    mgr.flushHostHookSeqs();
+    expect(read()).toEqual({ spec: { kind: "ssh", target: "me@box" }, lastHookSeq: 0 });
+    expect(mgr.getHostHookCursor("box")).toEqual({ seq: 0, epoch: null });
   });
 
   it("does not route a local project's worktrees to a same-named remote project", () => {

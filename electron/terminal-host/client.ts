@@ -16,7 +16,7 @@ import type {
   TerminalSnapshot,
   AgentStatus,
   AgentKind,
-  HookJournalEntry,
+  HookReplay,
 } from "./types";
 import { TERMINAL_HOST_PROTOCOL } from "./types";
 import type { HostTransport } from "./transport";
@@ -945,15 +945,25 @@ export class TerminalHostClient {
 
   /**
    * Hook journal entries after `sinceSeq` from the daemon (ADR-178 §2), or
-   * `null` when the daemon predates `replayHooks` and has no journal.
+   * `null` when the daemon predates `replayHooks` and has no journal. With
+   * `headOnly`, just the journal's position (no entries).
    */
   async replayHooks(
     sinceSeq: number,
-  ): Promise<{ entries: HookJournalEntry[]; lastSeq: number } | null> {
+    opts: { headOnly?: boolean } = {},
+  ): Promise<HookReplay | null> {
     await this.ensureConnected();
-    const resp = await this.request({ type: "replayHooks", sinceSeq });
+    const resp = await this.request({
+      type: "replayHooks",
+      sinceSeq,
+      ...(opts.headOnly ? { headOnly: true } : {}),
+    });
     if (resp.type === "hookReplay") {
-      return { entries: resp.entries, lastSeq: resp.lastSeq };
+      return {
+        entries: opts.headOnly ? [] : resp.entries,
+        lastSeq: resp.lastSeq,
+        ...(resp.epoch ? { epoch: resp.epoch } : {}),
+      };
     }
     if (resp.type === "error") {
       if (resp.message.startsWith("unknown request type")) return null;

@@ -134,4 +134,72 @@ describe("HookJournal", () => {
     expect(journal.since(0)).toEqual([]);
     expect(fs.existsSync(file)).toBe(true);
   });
+  it("keeps its epoch across restarts, and a recreated journal gets a new one", () => {
+    const first = new HookJournal(file, { now: clock });
+    first.open();
+    expect(first.epoch).toMatch(/^[0-9a-f]{16}$/);
+    first.append(payload(1));
+
+    const second = new HookJournal(file, { now: clock });
+    second.open();
+    expect(second.epoch).toBe(first.epoch);
+
+    fs.rmSync(file);
+    const recreated = new HookJournal(file, { now: clock });
+    recreated.open();
+    expect(recreated.epoch).not.toBe(first.epoch);
+    expect(recreated.lastSeq).toBe(0);
+  });
+
+  it("gives a journal from before epochs one, and keeps it", () => {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(
+      file,
+      [{ seq: 2, receivedAt: now }, { seq: 3, receivedAt: now, payload: payload(3) }]
+        .map((r) => JSON.stringify(r) + "\n")
+        .join(""),
+    );
+    const first = new HookJournal(file, { now: clock });
+    first.open();
+    expect(first.lastSeq).toBe(3);
+    const second = new HookJournal(file, { now: clock });
+    second.open();
+    expect(second.epoch).toBe(first.epoch);
+  });
+
+  it("trims a torn last line when open()'s compaction fails, so the next append starts clean", () => {
+    const first = new HookJournal(file, { now: clock });
+    first.open();
+    first.append(payload(1));
+    fs.appendFileSync(file, '{"seq":2,"receivedAt":1000000,"payl');
+
+    // The tmp path is a directory: the rewrite fails and the file is left as is.
+    fs.mkdirSync(`${file}.tmp`);
+    const logs: string[] = [];
+    const second = new HookJournal(file, { now: clock, log: (m) => logs.push(m) });
+    second.open();
+    expect(logs.some((m) => m.includes("compaction failed"))).toBe(true);
+    expect(second.append(payload(2)).seq).toBe(2);
+    expect(second.epoch).toBe(first.epoch);
+
+    fs.rmdirSync(`${file}.tmp`);
+    const third = new HookJournal(file, { now: clock });
+    third.open();
+    expect(third.lastSeq).toBe(2);
+    expect(third.since(0).map((e) => e.payload)).toEqual([payload(1), payload(2)]);
+    expect(third.epoch).toBe(first.epoch);
+  });
+
+  it("persists a newly minted epoch even when open()'s compaction fails", () => {
+    fs.mkdirSync(`${file}.tmp`, { recursive: true });
+    const first = new HookJournal(file, { now: clock });
+    first.open();
+    first.append(payload(1));
+    fs.rmdirSync(`${file}.tmp`);
+
+    const second = new HookJournal(file, { now: clock });
+    second.open();
+    expect(second.epoch).toBe(first.epoch);
+    expect(second.lastSeq).toBe(1);
+  });
 });

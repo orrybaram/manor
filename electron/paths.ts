@@ -94,38 +94,69 @@ export function recordingsDir(): string {
 
 // ── Home-dir (~/.manor) getters — each has an external reader, do not move ──
 
-export function daemonDir(): string {
-  return path.join(manorHomeDir(), "daemon");
-}
-
-export function daemonSocketFile(): string {
-  return path.join(daemonDir(), "terminal-host.sock");
-}
-
-export function daemonPidFile(): string {
-  return path.join(daemonDir(), "terminal-host.pid");
-}
-
-export function daemonTokenFile(): string {
-  return path.join(daemonDir(), "terminal-host.token");
-}
-
 /**
- * Present when this daemon serves remote clients (ADR-178 §2): written by the
- * daemon's `bootstrap` request, read at daemon start so a daemon restarted on
- * the box re-enables its hook listener without waiting for a client.
+ * Which daemon a path belongs to (ADR-178 §2). A machine can run two
+ * terminal-host daemons side by side, and they must never share state:
+ *
+ *   - `local`  — the one Manor desktop spawns for its own panes, under
+ *                ~/.manor/daemon/, with the desktop's hook server behind
+ *                ~/.manor/hook-port.
+ *   - `remote` — the one `manor-host remote-bridge` spawns for a Manor on
+ *                another machine, under ~/.manor/remote/. It journals the
+ *                box's agent hooks behind its own listener and port file.
+ *
+ * Keeping them apart is what makes `ssh localhost`, or a box that also runs
+ * Manor desktop, safe: neither daemon can see the other's socket, token or
+ * hook port.
  */
-export function daemonRemoteModeFile(): string {
-  return path.join(daemonDir(), "remote-mode");
+export type DaemonNamespace = "local" | "remote";
+
+/** Root of everything the `remote` daemon namespace owns. */
+export function remoteNamespaceDir(): string {
+  return path.join(manorHomeDir(), "remote");
+}
+
+export function daemonDir(namespace: DaemonNamespace = "local"): string {
+  return namespace === "remote"
+    ? path.join(remoteNamespaceDir(), "daemon")
+    : path.join(manorHomeDir(), "daemon");
+}
+
+export function daemonSocketFile(namespace: DaemonNamespace = "local"): string {
+  return path.join(daemonDir(namespace), "terminal-host.sock");
+}
+
+export function daemonPidFile(namespace: DaemonNamespace = "local"): string {
+  return path.join(daemonDir(namespace), "terminal-host.pid");
+}
+
+export function daemonTokenFile(namespace: DaemonNamespace = "local"): string {
+  return path.join(daemonDir(namespace), "terminal-host.token");
+}
+
+export function daemonLogFile(namespace: DaemonNamespace = "local"): string {
+  return path.join(daemonDir(namespace), "terminal-host.log");
 }
 
 /** The remote daemon's hook journal (ADR-178 §2). NDJSON, mode 0600. */
 export function hookJournalFile(): string {
-  return path.join(daemonDir(), "hook-journal.ndjson");
+  return path.join(daemonDir("remote"), "hook-journal.ndjson");
 }
 
+/**
+ * Manor desktop's hook server port (a bare port number). Read by the hook
+ * script when `MANOR_HOOK_PORT_FILE` is unset.
+ */
 export function hookPortFile(): string {
   return path.join(manorHomeDir(), "hook-port");
+}
+
+/**
+ * The remote daemon's hook listener: `<port>\n<token>`, mode 0600. Remote
+ * PTYs get its path as `MANOR_HOOK_PORT_FILE`.
+ */
+export function remoteHookPortFile(): string {
+  return path.join(remoteNamespaceDir(), "hook-port");
 }
 
 export function hooksDir(): string {

@@ -187,11 +187,15 @@ interface PersistedHost {
   spec: HostSpec;
   /**
    * The last seq of this host's hook journal Electron main has ingested
-   * (ADR-178 §2). Absent until the first hook arrives. Kept when the spec
-   * changes (a new address is usually the same box); if it is a different
-   * box, its journal will be behind this and the hook feed starts over.
+   * (ADR-178 §2). Absent until the journal is first met — then the hook
+   * feed starts at the journal's head instead of replaying its history.
+   * Kept when the spec changes (a new address is usually the same box); if
+   * it is a different box, its journal has a different `hookJournalEpoch`
+   * and the hook feed starts over.
    */
   lastHookSeq?: number;
+  /** The epoch of the journal `lastHookSeq` counts in (ADR-178 §2). */
+  hookJournalEpoch?: string;
 }
 
 interface PersistedState {
@@ -309,7 +313,7 @@ export function isFolderDescendant(
   return false;
 }
 
-/** How long `setHostHookSeq` batches writes. */
+/** How long `setHostHookCursor` batches writes. */
 const HOOK_SEQ_SAVE_DEBOUNCE_MS = 1_000;
 
 export class ProjectManager {
@@ -330,7 +334,7 @@ export class ProjectManager {
    * before this cache existed.
    */
   private hostHomeDirs = new Map<string, string>();
-  /** Pending debounced write from `setHostHookSeq`. */
+  /** Pending debounced write from `setHostHookCursor`. */
   private hookSeqSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
@@ -409,9 +413,14 @@ export class ProjectManager {
     this.saveState();
   }
 
-  /** The last hook-journal seq ingested from `hostId` (0 if none). */
-  getHostHookSeq(hostId: string): number {
-    return this.state.hosts?.[hostId]?.lastHookSeq ?? 0;
+  /**
+   * How far into which hook journal `hostId`'s hooks have been ingested, or
+   * null if its journal has never been met.
+   */
+  getHostHookCursor(hostId: string): { seq: number; epoch: string | null } | null {
+    const host = this.state.hosts?.[hostId];
+    if (host?.lastHookSeq === undefined) return null;
+    return { seq: host.lastHookSeq, epoch: host.hookJournalEpoch ?? null };
   }
 
   /**
@@ -421,10 +430,14 @@ export class ProjectManager {
    * second's hooks are replayed once more on the next launch — into a fresh
    * relay, with notifications coalesced.
    */
-  setHostHookSeq(hostId: string, seq: number): void {
+  setHostHookCursor(hostId: string, cursor: { seq: number; epoch: string | null }): void {
     const host = this.state.hosts?.[hostId];
-    if (!host || host.lastHookSeq === seq) return;
-    host.lastHookSeq = seq;
+    if (!host) return;
+    const epoch = cursor.epoch ?? undefined;
+    if (host.lastHookSeq === cursor.seq && host.hookJournalEpoch === epoch) return;
+    host.lastHookSeq = cursor.seq;
+    if (epoch === undefined) delete host.hookJournalEpoch;
+    else host.hookJournalEpoch = epoch;
     if (this.hookSeqSaveTimer) return;
     this.hookSeqSaveTimer = setTimeout(() => {
       this.hookSeqSaveTimer = null;
@@ -433,7 +446,7 @@ export class ProjectManager {
     this.hookSeqSaveTimer.unref?.();
   }
 
-  /** Write a pending `setHostHookSeq` now. */
+  /** Write a pending `setHostHookCursor` now. */
   flushHostHookSeqs(): void {
     if (!this.hookSeqSaveTimer) return;
     clearTimeout(this.hookSeqSaveTimer);

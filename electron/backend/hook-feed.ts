@@ -3,13 +3,15 @@
  * main, in order, exactly once (ADR-178 §2).
  *
  * The remote daemon journals every hook with a consecutive `seq` and
- * broadcasts it live as a `hookEvent`. Main remembers the last `seq` it
- * ingested per host (`HookSeqStore`, persisted in projects.json). On every
- * (re)connect the feed:
+ * broadcasts it live as a `hookEvent`. Main remembers, per host, the last
+ * `seq` it ingested and the journal's `epoch` (`HookSeqStore`, persisted in
+ * projects.json). On every (re)connect the feed:
  *
  *   1. holds live `hookEvent`s,
- *   2. asks the daemon for everything after `lastSeq` and ingests it,
- *   3. drains the held events, skipping any `seq <= lastSeq` (they were in
+ *   2. records the host's sessions (`beforeCatchUp`), so what the replayed
+ *      hooks cause is routed to the host they came from,
+ *   3. asks the daemon for everything after `lastSeq` and ingests it,
+ *   4. drains the held events, skipping any `seq <= lastSeq` (they were in
  *      the replay too),
  *
  * and only then goes live. Order matters: the hook relay's late-active guard
@@ -21,19 +23,34 @@
  * by `replayFinished`, which is how notifications get coalesced — see
  * `NotificationCoalescer`.
  *
+ * The first time the feed meets a host's journal (nothing stored), it does
+ * not replay it: that history — days of SessionStarts for agents long gone —
+ * predates this app knowing the host, and replaying it would conjure phantom
+ * agents. It fast-forwards to the journal's head instead.
+ *
  * When the journal no longer has everything after `lastSeq` (compacted past
  * it while the laptop was away), the feed replays what is there, logs the
- * gap, and moves on. When the daemon's seq is *behind* `lastSeq`, the journal
- * was reset (box reinstalled, file deleted); the feed starts over from 0.
+ * gap, and moves on. When the journal's epoch differs from the stored one
+ * (or, for a journal without epochs, its seq is *behind* `lastSeq`), it was
+ * recreated (box reinstalled, file deleted) and holds only hooks from after
+ * that; the feed replays all of it.
  */
 
 import type { AgentInfo } from "../agent-persistence";
-import type { AgentStatus, HookJournalEntry, HookPayload } from "../terminal-host/types";
+import type { AgentStatus, HookPayload, HookReplay } from "../terminal-host/types";
 
-/** Where each host's last ingested seq is kept. */
+/** How far into which journal a host's hooks have been ingested. */
+export interface HookCursor {
+  seq: number;
+  /** The journal's epoch; null if it had none (or we never learned it). */
+  epoch: string | null;
+}
+
+/** Where each host's cursor is kept. */
 export interface HookSeqStore {
-  get(hostId: string): number;
-  set(hostId: string, seq: number): void;
+  /** Null when this host's journal has never been met. */
+  get(hostId: string): HookCursor | null;
+  set(hostId: string, cursor: HookCursor): void;
 }
 
 /** Where a host's hooks go — `AgentHookServer.ingestHookPayload` in the app. */
@@ -45,7 +62,8 @@ export interface HookSink {
 
 type ReplaySource = (
   sinceSeq: number,
-) => Promise<{ entries: HookJournalEntry[]; lastSeq: number } | null>;
+  opts?: { headOnly?: boolean },
+) => Promise<HookReplay | null>;
 
 export interface HostHookFeedOptions {
   hostId: string;
@@ -54,6 +72,12 @@ export interface HostHookFeedOptions {
   store: HookSeqStore;
   /** Read at each catch-up; null means "not wired yet", and the feed waits. */
   sink: () => HookSink | null;
+  /**
+   * Run before each catch-up's replay — the registry records the host's
+   * sessions here so effects of replayed hooks route to this host. A
+   * failure is logged and the catch-up goes ahead.
+   */
+  beforeCatchUp?: () => Promise<void>;
   /** Delay before retrying a failed replay; defaults to 1s doubling to 30s. */
   retryDelayMs?: (attempt: number) => number;
 }
@@ -70,7 +94,7 @@ function errorMessage(err: unknown): string {
 }
 
 export class HostHookFeed {
-  private lastSeq: number;
+  private cursor: HookCursor | null;
   /**
    * `idle` — not caught up (never connected, disconnected, or waiting to
    * retry); live events are held. `replaying` — a catch-up is running; live
@@ -89,13 +113,17 @@ export class HostHookFeed {
   private readonly retryDelayMs: (attempt: number) => number;
 
   constructor(private readonly opts: HostHookFeedOptions) {
-    this.lastSeq = opts.store.get(opts.hostId);
+    this.cursor = opts.store.get(opts.hostId);
     this.retryDelayMs = opts.retryDelayMs ?? defaultRetryDelayMs;
   }
 
-  /** The last seq ingested. */
+  /** The last seq ingested (0 before the journal was first met). */
   get seq(): number {
-    return this.lastSeq;
+    return this.cursor?.seq ?? 0;
+  }
+
+  private get lastSeq(): number {
+    return this.seq;
   }
 
   /** A `hookEvent` from the host's daemon. */
@@ -147,16 +175,41 @@ export class HostHookFeed {
 
   private async runCatchUp(generation: number, sink: HookSink): Promise<void> {
     const { hostId } = this.opts;
-    let result: Awaited<ReturnType<ReplaySource>>;
+    let result: HookReplay | null;
     try {
-      result = await this.opts.replay(this.lastSeq);
-      if (generation !== this.generation) return;
-      if (result && result.lastSeq < this.lastSeq) {
-        console.warn(
-          `[hook-feed] ${hostId}: journal is at seq ${result.lastSeq}, behind our ${this.lastSeq}; it was reset — replaying it from the start`,
-        );
-        this.setLastSeq(0);
-        result = await this.opts.replay(0);
+      if (this.opts.beforeCatchUp) {
+        try {
+          await this.opts.beforeCatchUp();
+        } catch (err) {
+          console.warn(`[hook-feed] ${hostId}: beforeCatchUp failed (${errorMessage(err)}); replaying anyway`);
+        }
+        if (generation !== this.generation) return;
+      }
+      const cursor = this.cursor;
+      if (cursor === null) {
+        result = await this.opts.replay(0, { headOnly: true });
+        if (generation !== this.generation) return;
+        if (result) {
+          console.info(
+            `[hook-feed] ${hostId}: first contact with its hook journal; starting at seq ${result.lastSeq} without replaying its history`,
+          );
+          this.setCursor({ seq: result.lastSeq, epoch: result.epoch ?? null });
+          // A daemon that predates `headOnly` sends entries anyway.
+          result = { ...result, entries: [] };
+        }
+      } else {
+        result = await this.opts.replay(cursor.seq);
+        if (generation !== this.generation) return;
+        if (result && isReset(cursor, result)) {
+          console.warn(
+            `[hook-feed] ${hostId}: hook journal was recreated (epoch ${cursor.epoch ?? "?"} → ${result.epoch ?? "?"}, seq ${cursor.seq} → ${result.lastSeq}); replaying it from the start`,
+          );
+          this.setCursor({ seq: 0, epoch: result.epoch ?? null });
+          result = await this.opts.replay(0);
+        } else if (result?.epoch && cursor.epoch !== result.epoch) {
+          // Stored before epochs existed: adopt this journal's.
+          this.setCursor({ seq: cursor.seq, epoch: result.epoch });
+        }
       }
     } catch (err) {
       if (generation !== this.generation) return;
@@ -231,8 +284,12 @@ export class HostHookFeed {
   }
 
   private setLastSeq(seq: number): void {
-    this.lastSeq = seq;
-    this.opts.store.set(this.opts.hostId, seq);
+    this.setCursor({ seq, epoch: this.cursor?.epoch ?? null });
+  }
+
+  private setCursor(cursor: HookCursor): void {
+    this.cursor = cursor;
+    this.opts.store.set(this.opts.hostId, cursor);
   }
 
   private clearRetry(): void {
@@ -241,12 +298,22 @@ export class HostHookFeed {
   }
 }
 
+/**
+ * Whether `replay` comes from a different journal than `cursor` was
+ * recorded against: a different epoch, or — when either side has none — a
+ * head behind the cursor.
+ */
+function isReset(cursor: HookCursor, replay: HookReplay): boolean {
+  if (cursor.epoch && replay.epoch) return cursor.epoch !== replay.epoch;
+  return replay.lastSeq < cursor.seq;
+}
+
 /** In-memory `HookSeqStore`, for a registry with nowhere to persist. */
 export function memoryHookSeqStore(): HookSeqStore {
-  const seqs = new Map<string, number>();
+  const cursors = new Map<string, HookCursor>();
   return {
-    get: (hostId) => seqs.get(hostId) ?? 0,
-    set: (hostId, seq) => void seqs.set(hostId, seq),
+    get: (hostId) => cursors.get(hostId) ?? null,
+    set: (hostId, cursor) => void cursors.set(hostId, cursor),
   };
 }
 

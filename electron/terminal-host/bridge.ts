@@ -4,7 +4,9 @@
  *
  * Invoked as `manor-host remote-bridge` on the far side of an ssh connection.
  * It makes sure a daemon is running on *this* machine (reusing the same
- * spawn/detect path a local client uses), announces itself with a one-line
+ * spawn/detect path a local client uses, but in the `remote` daemon namespace
+ * — ~/.manor/remote/daemon/ — so it never touches a Manor desktop daemon
+ * that may also run here, e.g. over `ssh localhost`), announces itself with a one-line
  * NDJSON preamble on stdout, then pumps stdin/stdout transparently against
  * the daemon's control socket. `SshTransport` (client side, a later ticket)
  * reads that preamble and hands the rest of the connection to
@@ -64,7 +66,7 @@ export async function runRemoteBridge(
     stdout: process.stdout,
     stderr: process.stderr,
   },
-  transport: HostTransport = new LocalTransport(),
+  transport: HostTransport = new LocalTransport({ namespace: "remote" }),
 ): Promise<number> {
   const log = (msg: string): void => {
     try {
@@ -96,7 +98,7 @@ export async function runRemoteBridge(
  * line) if the daemon could not be reached.
  */
 export async function runRemoteBridgeProcess(
-  transport: HostTransport = new LocalTransport(),
+  transport: HostTransport = new LocalTransport({ namespace: "remote" }),
 ): Promise<never> {
   let code = 1;
   try {

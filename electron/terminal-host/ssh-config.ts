@@ -175,9 +175,10 @@ export function remoteBridgeCommand(stream: boolean): string {
 
 /**
  * The remote command that replaces a stale daemon: `manor-host restart`
- * SIGTERMs it and clears its socket and pid file (resolving the daemon
- * directory exactly as a local client does), so the next `remote-bridge`
- * starts a fresh one.
+ * SIGTERMs the box's remote-namespace daemon (~/.manor/remote/daemon/, the
+ * one `remote-bridge` spawns) and clears its socket and pid file, so the next
+ * `remote-bridge` starts a fresh one. A Manor desktop daemon on the same box
+ * is never touched.
  */
 export function remoteRestartCommand(): string {
   return `exec ${REMOTE_HOST_BIN} restart`;

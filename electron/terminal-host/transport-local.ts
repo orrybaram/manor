@@ -2,7 +2,9 @@
  * LocalTransport — reaches the terminal-host daemon on this machine.
  *
  * - Spawns the daemon as a detached child process if it is not running
- * - Connects over the unix socket in ~/.manor/daemon/
+ * - Connects over the unix socket in its namespace's daemon directory
+ *   (~/.manor/daemon/ for Manor desktop, ~/.manor/remote/daemon/ for
+ *   `manor-host remote-bridge` — see `DaemonNamespace` in electron/paths.ts)
  * - Reads the auth token from the 0600 token file beside it
  */
 
@@ -11,7 +13,15 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Duplex } from "node:stream";
 import { spawn, type ChildProcess } from "node:child_process";
-import { manorHomeDir } from "../paths";
+import {
+  daemonDir,
+  daemonLogFile,
+  daemonPidFile,
+  daemonSocketFile,
+  daemonTokenFile,
+  manorHomeDir,
+  type DaemonNamespace,
+} from "../paths";
 import type { HostTransport } from "./transport";
 
 const MANOR_DIR = manorHomeDir();
@@ -39,28 +49,41 @@ function openDaemonLog(logPath: string): number | "ignore" {
   }
 }
 
+export interface LocalTransportOptions {
+  /**
+   * Which of this machine's daemons to reach (and spawn). Defaults to
+   * `local`, Manor desktop's own; `manor-host remote-bridge` uses `remote`.
+   */
+  namespace?: DaemonNamespace;
+}
+
 export class LocalTransport implements HostTransport {
   private daemonProcess: ChildProcess | null = null;
   private _migratedOldDaemons = false;
+  private readonly namespace: DaemonNamespace;
+
+  constructor(opts: LocalTransportOptions = {}) {
+    this.namespace = opts.namespace ?? "local";
+  }
 
   private get daemonDir(): string {
-    return path.join(MANOR_DIR, "daemon");
+    return daemonDir(this.namespace);
   }
 
   private get SOCKET_PATH(): string {
-    return path.join(this.daemonDir, "terminal-host.sock");
+    return daemonSocketFile(this.namespace);
   }
 
   private get TOKEN_PATH(): string {
-    return path.join(this.daemonDir, "terminal-host.token");
+    return daemonTokenFile(this.namespace);
   }
 
   private get PID_PATH(): string {
-    return path.join(this.daemonDir, "terminal-host.pid");
+    return daemonPidFile(this.namespace);
   }
 
   private get LOG_PATH(): string {
-    return path.join(this.daemonDir, "terminal-host.log");
+    return daemonLogFile(this.namespace);
   }
 
   async ensureRunning(version?: string): Promise<void> {
@@ -150,6 +173,9 @@ export class LocalTransport implements HostTransport {
    */
   private async migrateOldDaemons(): Promise<void> {
     if (this._migratedOldDaemons) return;
+    // The versioned scheme predates the remote namespace; only a local
+    // client may have left daemons there.
+    if (this.namespace !== "local") return;
     this._migratedOldDaemons = true;
     const legacyDaemonsDir = path.join(MANOR_DIR, "daemons");
     try {
@@ -170,7 +196,7 @@ export class LocalTransport implements HostTransport {
   }
 
   private async spawnDaemon(version?: string): Promise<void> {
-    fs.mkdirSync(this.daemonDir, { recursive: true });
+    fs.mkdirSync(this.daemonDir, { recursive: true, mode: 0o700 });
 
     // Clean up stale socket so waitForSocket waits for the NEW daemon's socket
     try {
@@ -195,7 +221,12 @@ export class LocalTransport implements HostTransport {
     // daemon's next log line would hit EPIPE.
     const logFd = openDaemonLog(this.LOG_PATH);
     try {
-      this.daemonProcess = spawn(process.execPath, [daemonScript], {
+      // The daemon resolves its own paths from this argv (see index.ts).
+      const args =
+        this.namespace === "local"
+          ? [daemonScript]
+          : [daemonScript, "--namespace", this.namespace];
+      this.daemonProcess = spawn(process.execPath, args, {
         env,
         stdio: ["ignore", "ignore", logFd],
         detached: true,

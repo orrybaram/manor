@@ -13,7 +13,7 @@ import { GitHubManager } from "./github";
 import { LinearManager } from "./linear";
 import { homeWorkspaceDir } from "./paths";
 import { AgentHookServer } from "./agent-hooks";
-import { NotificationCoalescer } from "./backend/hook-feed";
+import { NotificationCoalescer, type HookCursor } from "./backend/hook-feed";
 import { bootstrapHost } from "./terminal-host/bootstrap-host";
 import { createHookRelay, SWEEP_INTERVAL_MS } from "./hook-relay";
 import { ensureManorCli } from "./manor-cli-install";
@@ -240,8 +240,8 @@ export function initApp(devTitle: string | null): void {
     // Where each remote host's hook journal was read up to (ADR-178 §2).
     // Only read once hosts are registered, after projectManager exists.
     hookSeqStore: {
-      get: (hostId): number => projectManager.getHostHookSeq(hostId),
-      set: (hostId, seq): void => projectManager.setHostHookSeq(hostId, seq),
+      get: (hostId): HookCursor | null => projectManager.getHostHookCursor(hostId),
+      set: (hostId, cursor): void => projectManager.setHostHookCursor(hostId, cursor),
     },
   });
   const layoutPersistence = new LayoutPersistence();

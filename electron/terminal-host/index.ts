@@ -20,14 +20,15 @@ import type {
   StreamCommand,
   StreamEvent,
 } from "./types";
+import * as path from "node:path";
 import {
   daemonDir,
   daemonSocketFile,
   daemonTokenFile,
   daemonPidFile,
-  daemonRemoteModeFile,
   hookJournalFile,
-  hookPortFile,
+  remoteHookPortFile,
+  type DaemonNamespace,
 } from "../paths";
 import { runRemoteBridgeProcess } from "./bridge";
 import { LocalTransport } from "./transport-local";
@@ -37,10 +38,28 @@ import { bootstrapHost } from "./bootstrap-host";
 import { HookJournal } from "./hook-journal";
 import { HookListener } from "./hook-listener";
 
-const DAEMON_DIR = daemonDir();
-const SOCKET_PATH = daemonSocketFile();
-const TOKEN_PATH = daemonTokenFile();
-const PID_PATH = daemonPidFile();
+/**
+ * Which of this machine's daemons this process is (see `DaemonNamespace` in
+ * electron/paths.ts): `local` for Manor desktop, `remote` when spawned by
+ * `manor-host remote-bridge`. Set once in `main()` before `startServer()`;
+ * every path below derives from it.
+ */
+let namespace: DaemonNamespace = "local";
+let DAEMON_DIR = daemonDir(namespace);
+let SOCKET_PATH = daemonSocketFile(namespace);
+let TOKEN_PATH = daemonTokenFile(namespace);
+let PID_PATH = daemonPidFile(namespace);
+
+function setNamespace(ns: DaemonNamespace): void {
+  namespace = ns;
+  DAEMON_DIR = daemonDir(ns);
+  SOCKET_PATH = daemonSocketFile(ns);
+  TOKEN_PATH = daemonTokenFile(ns);
+  PID_PATH = daemonPidFile(ns);
+}
+
+/** Env a remote daemon's hook listener owns; `updateEnv` never overrides it. */
+const HOOK_ENV_KEYS = new Set(["MANOR_HOOK_PORT", "MANOR_HOOK_PORT_FILE"]);
 
 const daemonVersion = process.env.MANOR_VERSION;
 
@@ -91,25 +110,25 @@ function getHookJournal(): HookJournal {
 }
 
 /**
- * Remote mode (ADR-178 §2): this daemon serves clients on another machine,
- * so it owns the host's agent hooks — a loopback listener whose port is
- * this host's `hook-port` and the `MANOR_HOOK_PORT` of every PTY spawned
- * from here on, journaling what it receives for replay.
+ * Remote mode (ADR-178 §2): a daemon in the `remote` namespace serves
+ * clients on another machine, so it owns the host's agent hooks — a
+ * loopback listener published in the remote namespace's own port file
+ * (`remoteHookPortFile()`, which every PTY spawned from here on gets as
+ * `MANOR_HOOK_PORT_FILE`), journaling what it receives for replay.
  *
- * Turned on by the `bootstrap` request (only `RemoteBackend` sends it) and
- * remembered in `daemonRemoteModeFile()`, so a daemon restarted on the box
- * (after a crash or a reboot) turns it back on at startup, before any
- * client reconnects. A local daemon never sees `bootstrap` and never listens.
+ * Started at daemon startup, so a daemon restarted on the box (after a crash
+ * or a reboot) journals before any client reconnects; `bootstrap` just
+ * reports the port. A `local` daemon — Manor desktop's — never listens: its
+ * hooks go to the desktop's own `AgentHookServer` via ~/.manor/hook-port.
  */
 async function enableRemoteMode(): Promise<number> {
-  const flagFile = daemonRemoteModeFile();
-  if (!fs.existsSync(flagFile)) {
-    fs.writeFileSync(flagFile, `${new Date().toISOString()}\n`, { mode: 0o600 });
+  if (namespace !== "remote") {
+    throw new Error("only a remote-namespace daemon journals agent hooks");
   }
   if (!hookListener) {
     hookListener = new HookListener({
       journal: getHookJournal(),
-      portFile: hookPortFile(),
+      portFile: remoteHookPortFile(),
       log,
       onEntry: (entry) => {
         const event: StreamEvent = {
@@ -141,7 +160,18 @@ function log(msg: string): void {
 // ── Setup ──
 
 function setup(): void {
-  fs.mkdirSync(DAEMON_DIR, { recursive: true });
+  fs.mkdirSync(DAEMON_DIR, { recursive: true, mode: 0o700 });
+
+  if (namespace === "local") {
+    // Before the remote namespace existed, a remote-bridge daemon shared this
+    // directory and left a flag here that turned hook journaling on. A local
+    // daemon never journals, so the flag is only ever stale.
+    try {
+      fs.unlinkSync(path.join(DAEMON_DIR, "remote-mode"));
+    } catch {
+      // Not there — the normal case.
+    }
+  }
 
   // Generate auth token
   const token = crypto.randomBytes(32).toString("hex");
@@ -310,9 +340,9 @@ async function handleControlMessage(
       // This is needed when the Electron app restarts (new hook port, etc.)
       // but reconnects to an existing daemon.
       for (const [key, value] of Object.entries(request.env)) {
-        // In remote mode the hook port is this daemon's own listener; a
+        // In remote mode the hook endpoint is this daemon's own listener; a
         // client's value names a port on *its* machine (ADR-178 §2).
-        if (key === "MANOR_HOOK_PORT" && hookListener) continue;
+        if (namespace === "remote" && HOOK_ENV_KEYS.has(key)) continue;
         process.env[key] = value;
       }
       sendResponse(socket, { type: "envUpdated" }, requestId);
@@ -417,13 +447,26 @@ async function handleControlMessage(
     }
 
     case "replayHooks": {
+      if (namespace !== "remote") {
+        // Manor desktop's daemon has no journal; answer as a daemon that
+        // predates `replayHooks` would, which callers read as "no journal".
+        sendResponse(
+          socket,
+          { type: "error", message: "unknown request type: replayHooks" },
+          requestId,
+        );
+        break;
+      }
       const journal = getHookJournal();
       sendResponse(
         socket,
         {
           type: "hookReplay",
-          entries: journal.since(Number(request.sinceSeq) || 0),
+          entries: request.headOnly
+            ? []
+            : journal.since(Number(request.sinceSeq) || 0),
           lastSeq: journal.lastSeq,
+          epoch: journal.epoch,
         },
         requestId,
       );
@@ -655,7 +698,7 @@ function startServer(): void {
     }
   });
 
-  if (fs.existsSync(daemonRemoteModeFile())) {
+  if (namespace === "remote") {
     enableRemoteMode().catch((err: unknown) => {
       log(`hook listener failed to start: ${err instanceof Error ? err.message : String(err)}`);
     });
@@ -724,17 +767,21 @@ function installDaemonSignalHandlers(): void {
 //     compares against `app.getVersion()`.
 //   - `remote-bridge [--stream]` is the far end of an ssh stdio bridge: it
 //     never opens the socket server itself, it only makes sure a daemon is
-//     running on this box and pumps stdin/stdout against that daemon's
-//     control socket. Signal handlers that tear down *this* box's daemon
+//     running on this box — in the `remote` namespace (~/.manor/remote/),
+//     never Manor desktop's ~/.manor/daemon/ — and pumps stdin/stdout
+//     against that daemon's control socket. Signal handlers that tear down *this* box's daemon
 //     would be wrong here, since this process did not spawn it — see
 //     `bridge.ts`.
-//   - `restart` stops this box's daemon and clears its socket and pid file,
+//   - `restart` stops this box's remote-namespace daemon and clears its
+//     socket and pid file (Manor desktop's daemon, if any, is left alone),
 //     using the same path logic as a local client (`LocalTransport.stop`).
 //     The next `remote-bridge` spawns the replacement. `SshTransport.restart`
 //     runs this over ssh when the handshake reports a version mismatch.
-//   - Anything else (the normal case: no argv) starts the daemon itself.
+//   - Anything else (the normal case: no argv) starts the daemon itself, in
+//     the `local` namespace unless argv has `--namespace remote`.
 async function main(): Promise<void> {
-  const [mode, ...rest] = process.argv.slice(2);
+  const argv = process.argv.slice(2);
+  const [mode, ...rest] = argv;
 
   if (mode === "--version") {
     process.stdout.write(`${process.env.MANOR_VERSION ?? "unknown"}\n`);
@@ -746,14 +793,18 @@ async function main(): Promise<void> {
       // Informational only — control and stream share one socket path today.
       process.stderr.write("[terminal-host] remote-bridge: stream mode\n");
     }
-    await runRemoteBridgeProcess();
+    await runRemoteBridgeProcess(new LocalTransport({ namespace: "remote" }));
     return;
   }
 
   if (mode === "restart") {
-    await new LocalTransport().stop();
+    await new LocalTransport({ namespace: "remote" }).stop();
     return;
   }
+
+  // `LocalTransport` spawns a remote-namespace daemon with `--namespace remote`.
+  const nsIndex = argv.indexOf("--namespace");
+  if (nsIndex >= 0 && argv[nsIndex + 1] === "remote") setNamespace("remote");
 
   installDaemonSignalHandlers();
   startServer();

@@ -134,8 +134,30 @@ export type ControlRequest =
    * Hook journal entries after `sinceSeq` (ADR-178 §2). Answered with
    * `hookReplay`. A daemon that predates it answers `error: unknown request
    * type: replayHooks`, which callers treat as "no journal".
+   *
+   * `headOnly` asks for the journal's position (`lastSeq`, `epoch`) without
+   * any entries — how a client meeting a journal for the first time starts
+   * from "now" instead of replaying its whole history. A daemon that
+   * predates it sends entries anyway; callers ignore them.
    */
-  | { type: "replayHooks"; sinceSeq: number };
+  | { type: "replayHooks"; sinceSeq: number; headOnly?: boolean };
+
+/**
+ * A remote daemon's answer to `replayHooks` (ADR-178 §2): journal entries
+ * with `seq > sinceSeq`, oldest first, and the journal's highest seq.
+ * `lastSeq` may exceed the last entry's seq (and entries may start after
+ * `sinceSeq + 1`) when compaction dropped what was asked for.
+ */
+export interface HookReplay {
+  entries: HookJournalEntry[];
+  lastSeq: number;
+  /**
+   * The journal's identity (see `HookJournal.epoch`). A different epoch than
+   * last time means the journal was recreated. Absent from daemons that
+   * predate it.
+   */
+  epoch?: string;
+}
 
 /**
  * One agent-hook request as the hook script sent it: the query parameters of
@@ -206,12 +228,8 @@ export type ControlResponse =
        */
       hookPort?: number;
     }
-  /**
-   * Journal entries with `seq > sinceSeq`, oldest first, and the journal's
-   * highest seq. `lastSeq` may exceed the last entry's seq (and entries may
-   * start after `sinceSeq + 1`) when compaction dropped what was asked for.
-   */
-  | { type: "hookReplay"; entries: HookJournalEntry[]; lastSeq: number };
+  /** See `HookReplay`. */
+  | ({ type: "hookReplay" } & HookReplay);
 
 // ── Agent status types ──
 

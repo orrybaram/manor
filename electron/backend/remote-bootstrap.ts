@@ -18,6 +18,13 @@
  *   .host-staging-<id>/         an install in progress; renamed to host/
  *   bin/manor-host              launcher shim: pins MANOR_VERSION and the
  *                               absolute node path, then execs the daemon entry
+ *   remote/daemon/              the daemon `manor-host remote-bridge` spawns:
+ *                               socket, token, pid, log, hook journal
+ *   remote/hook-port            its hook listener's `<port>\n<token>`
+ *
+ * Nothing here touches ~/.manor/daemon/ or ~/.manor/hook-port, which belong
+ * to a Manor desktop that may also run on the box (or be this very machine,
+ * over `ssh localhost`).
  *
  * Every step runs through an injected `RemoteExec`, so all of the decision
  * logic is testable without an sshd. Snippets here are POSIX sh, single-line

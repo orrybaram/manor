@@ -82,3 +82,47 @@ events; coalesced notifications.
   triggers a catch-up rather than out-of-order ingest; a journal behind `lastHookSeq`
   is treated as reset (replay from 0). `lastHookSeq` is persisted in projects.json,
   debounced 1s, flushed on quit.
+
+### Review fixes
+
+- **Own daemon namespace.** `remote-bridge` (and `manor-host restart`) now use
+  `LocalTransport({ namespace: "remote" })`: the daemon lives in
+  `~/.manor/remote/daemon/` (socket, token, pid, log, journal) and is spawned
+  with `--namespace remote`; its listener publishes `~/.manor/remote/hook-port`.
+  A Manor desktop daemon on the same box (or `ssh localhost`) keeps
+  `~/.manor/daemon/` and `~/.manor/hook-port` to itself. Remote mode is implied
+  by the namespace (the listener starts at daemon startup; `bootstrap` just
+  reports the port), so the `remote-mode` flag is gone; a local daemon deletes
+  a stale `~/.manor/daemon/remote-mode` on start and answers `replayHooks` as
+  a daemon without a journal. Paths: `DaemonNamespace`, `daemonDir(ns)` & co.,
+  `remoteNamespaceDir`, `remoteHookPortFile`, `daemonLogFile` in `paths.ts`.
+- **Hook script endpoint.** The listener sets `MANOR_HOOK_PORT_FILE` (plus
+  `MANOR_HOOK_PORT`) in the daemon env. `agent-hook.js` (and the pi extension)
+  read `MANOR_HOOK_PORT_FILE` if set, else `~/.manor/hook-port`, else
+  `MANOR_HOOK_PORT` — unchanged for local panes. A remote pane never falls
+  back to the desktop's port file.
+- **Listener token.** The remote port file is `<port>\n<token>` (0600, dir
+  0700); the script sends the token as `x-manor-hook-token`, and the listener
+  answers 403 without it. The local port file format and `AgentHookServer`
+  are unchanged, except that `AgentHookServer.stop()` now only unlinks the
+  port file if it still names its own port.
+- **Cursor with epoch; first contact.** The journal mints a random `epoch` on
+  creation, kept in the watermark line; `hookReplay` carries it and
+  `replayHooks` takes `headOnly`. Main stores `{ seq, epoch }` per host
+  (`lastHookSeq` + `hookJournalEpoch` in projects.json; `HookSeqStore.get`
+  returns null for a never-met journal). First contact fast-forwards to the
+  journal head without ingesting (no phantom agents from old SessionStarts).
+  An epoch mismatch (or, without epochs, a head behind the cursor) is a
+  recreated journal, which holds only post-reset hooks: replay it all. A
+  cursor from before epochs adopts the journal's epoch.
+- **Routing replayed hooks.** Before each catch-up the registry lists the
+  host's sessions and records ownership of any not already owned, so
+  `RelayAgentHook` effects of replayed hooks route to the remote daemon on a
+  fresh launch instead of falling back to local.
+- **Torn line after failed compaction.** If `open()`'s rewrite fails, the
+  journal truncates the file to its last newline (or, if that fails too,
+  starts the next append with a newline), and appends a watermark so a newly
+  minted epoch survives.
+- Not handled: a daemon from before this change already running in
+  `~/.manor/daemon/` on a dev box keeps running until killed; the new
+  `restart` only stops the remote-namespace daemon.

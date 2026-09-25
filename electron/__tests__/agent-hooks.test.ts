@@ -142,6 +142,20 @@ describe("AgentHookServer", () => {
       ).rejects.toThrow();
     });
 
+    it("stop() removes its own port file but not one naming another server", async () => {
+      const portFilePath = path.join(process.env.HOME || os.homedir(), ".manor", "hook-port");
+      server.stop();
+      expect(fs.existsSync(portFilePath)).toBe(false);
+
+      await server.start();
+      // Another Manor instance took over the port file since.
+      fs.writeFileSync(portFilePath, "9");
+      server.stop();
+      expect(fs.readFileSync(portFilePath, "utf-8")).toBe("9");
+      fs.unlinkSync(portFilePath);
+      await server.start();
+    });
+
     it("supports multiple start/stop cycles", async () => {
       server.stop();
 

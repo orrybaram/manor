@@ -31,7 +31,8 @@
  *   listeners: each remote host has a `HostHookFeed` that replays the
  *   journal after every (re)connect, then feeds live events, in order, to
  *   the `HookSink` (`setHookSink`), remembering its position per host in
- *   the `HookSeqStore`.
+ *   the `HookSeqStore`. Before each replay it records the host's sessions,
+ *   so status relayed for a replayed hook reaches that host's daemon.
  *
  * A remote host is built from its spec in two steps (ADR-178 §1): a
  * `HostProvider` (how the box is started and reached), then a backend riding
@@ -456,6 +457,11 @@ export class BackendRegistry {
         replay,
         store: this.hookSeqStore,
         sink: () => this.hookSink,
+        // Replayed hooks relay status to their pane's session through
+        // `RoutedBackend`, which routes by session owner. Right after launch
+        // no remote session is known yet, so without this the relay would
+        // fall through to the local daemon.
+        beforeCatchUp: () => this.noteHostSessions(entry),
         ...(this.hookReplayRetryDelayMs
           ? { retryDelayMs: this.hookReplayRetryDelayMs }
           : {}),
@@ -477,6 +483,18 @@ export class BackendRegistry {
       this.handleHostEvent(entry, event);
     });
     this.emitStatus();
+  }
+
+  /**
+   * Record every session `entry`'s daemon reports as that host's, leaving
+   * sessions another host already owns alone (as `dispatchStreamEvent` does).
+   */
+  private async noteHostSessions(entry: HostEntry): Promise<void> {
+    const sessions = await entry.backend.pty.listSessions();
+    if (this.hosts.get(entry.hostId) !== entry) return;
+    for (const { sessionId } of sessions) {
+      if (!this.sessionHosts.has(sessionId)) this.sessionHosts.set(sessionId, entry.hostId);
+    }
   }
 
   private async dropBackend(entry: HostEntry): Promise<void> {

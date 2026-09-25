@@ -640,8 +640,11 @@ describe("BackendRegistry — remote agent hooks (ADR-178 §2)", () => {
       createProvider: () => fakeProvider() as unknown as HostProvider,
       createRemote: () => remote.backend,
       hookSeqStore: {
-        get: (hostId) => seqs.get(hostId) ?? 0,
-        set: (hostId, seq) => void seqs.set(hostId, seq),
+        get: (hostId) => {
+          const seq = seqs.get(hostId);
+          return seq === undefined ? null : { seq, epoch: null };
+        },
+        set: (hostId, cursor) => void seqs.set(hostId, cursor.seq),
       },
     });
     const ingested: Array<{ hostId: string; tag: string; replay: boolean }> = [];
@@ -649,7 +652,7 @@ describe("BackendRegistry — remote agent hooks (ADR-178 §2)", () => {
       ingest: (payload, ctx) => ingested.push({ hostId: ctx.hostId, tag: payload.tag, replay: ctx.replay }),
     });
     registry.register("box", box);
-    return { registry, remote, replayHooks, seqs, ingested };
+    return { registry, local, remote, replayHooks, seqs, ingested };
   }
 
   it("replays the journal on connect, then feeds live hookEvents without re-publishing them", async () => {
@@ -684,5 +687,42 @@ describe("BackendRegistry — remote agent hooks (ADR-178 §2)", () => {
     remote.hostEvent({ type: "hostReconnected", sessionIds: [] });
     await vi.waitFor(() => expect(ingested.map((i) => i.tag)).toEqual(["1", "2", "3"]));
     expect(replayHooks).toHaveBeenLastCalledWith(1);
+  });
+  it("records the host's sessions before replaying, so replayed hooks relay to the remote daemon", async () => {
+    const local = fakeBackend("local");
+    const remote = fakeBackend("box");
+    const order: string[] = [];
+    remote.raw.pty.listSessions.mockImplementation(async () => {
+      order.push("listSessions");
+      return [{ sessionId: "pane-remote" }];
+    });
+    (remote.raw.pty as Record<string, unknown>).replayHooks = vi.fn(async () => {
+      order.push("replayHooks");
+      return {
+        entries: [{ seq: 1, receivedAt: 0, payload: { paneId: "pane-remote" } }],
+        lastSeq: 1,
+      };
+    });
+    const registry = new BackendRegistry({
+      local: local.backend,
+      createProvider: () => fakeProvider() as unknown as HostProvider,
+      createRemote: () => remote.backend,
+      hookSeqStore: { get: () => ({ seq: 0, epoch: null }), set: () => {} },
+    });
+    const routed = new RoutedBackend(registry, () => "local");
+    // What the hook relay does for each ingested hook: relay status by pane.
+    registry.setHookSink({
+      ingest: (payload) => routed.pty.relayAgentHook(payload.paneId, "working", "claude"),
+    });
+    registry.register("box", box);
+
+    // A fresh launch: nothing has been created or attached on the box yet.
+    expect(registry.hostForSession("pane-remote")).toBeUndefined();
+    await registry.ensureConnected("box");
+    await vi.waitFor(() => expect(remote.raw.pty.relayAgentHook).toHaveBeenCalled());
+
+    expect(order).toEqual(["listSessions", "replayHooks"]);
+    expect(remote.raw.pty.relayAgentHook).toHaveBeenCalledWith("pane-remote", "working", "claude");
+    expect(local.raw.pty.relayAgentHook).not.toHaveBeenCalled();
   });
 });

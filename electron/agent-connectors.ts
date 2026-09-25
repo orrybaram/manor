@@ -490,16 +490,21 @@ export class PiConnector implements AgentConnector {
  */
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
-const HOOK_PORT_FILE = process.env.HOME + "/.manor/hook-port";
+// A remote Manor daemon's panes name their own port file (port, then token).
+const HOOK_PORT_FILE =
+  process.env.MANOR_HOOK_PORT_FILE || process.env.HOME + "/.manor/hook-port";
 
 async function sendHook(eventType: string, sessionId?: string): Promise<void> {
   const paneId = process.env.MANOR_PANE_ID;
   if (!paneId) return;
 
   let port: string | undefined;
+  let token: string | undefined;
   try {
     const fs = await import("node:fs");
-    port = fs.readFileSync(HOOK_PORT_FILE, "utf-8").trim();
+    const [portLine, tokenLine] = fs.readFileSync(HOOK_PORT_FILE, "utf-8").split("\\n");
+    port = portLine?.trim();
+    token = tokenLine?.trim() || undefined;
   } catch {
     port = process.env.MANOR_HOOK_PORT;
   }
@@ -517,6 +522,7 @@ async function sendHook(eventType: string, sessionId?: string): Promise<void> {
   try {
     await fetch(url.toString(), {
       method: "GET",
+      ...(token ? { headers: { "x-manor-hook-token": token } } : {}),
       signal: AbortSignal.timeout(2000),
     });
   } catch {

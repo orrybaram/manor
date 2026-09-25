@@ -23,12 +23,19 @@ import type {
 export type StreamEventHandler = (event: StreamEvent) => void;
 
 export interface PtyBackend {
+  /**
+   * Create a new session, or attach to an existing one for `sessionId`.
+   *
+   * `env` is only applied when a fresh session is spawned — reattaching to
+   * an already-running session leaves its environment untouched.
+   */
   createOrAttach(
     sessionId: string,
     cwd: string,
     cols: number,
     rows: number,
     shellArgs?: string[],
+    env?: Record<string, string>,
   ): Promise<{ session: SessionInfo; snapshot: TerminalSnapshot | null }>;
 
   write(sessionId: string, data: string): void;

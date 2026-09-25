@@ -127,6 +127,9 @@ export class RoutedBackend implements WorkspaceBackend {
       which: (bin) => local().shell.which(bin),
       exec: (cmd, args, opts) =>
         (opts?.cwd ? byPath(opts.cwd) : local()).shell.exec(cmd, args, opts),
+      // No cwd to route by; callers that need a specific host's home
+      // (ProjectManager, ADR-178 §3) go through the registry directly.
+      homeDir: () => local().shell.homeDir(),
     };
 
     this.ports = {

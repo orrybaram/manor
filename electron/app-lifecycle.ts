@@ -238,7 +238,11 @@ export function initApp(devTitle: string | null): void {
     version: app.getVersion(),
   });
   const layoutPersistence = new LayoutPersistence();
-  const projectManager = new ProjectManager((hostId) => backendRegistry.get(hostId).git);
+  const projectManager = new ProjectManager(
+    (hostId) => backendRegistry.get(hostId).git,
+    undefined,
+    (hostId) => backendRegistry.get(hostId).shell,
+  );
   for (const { hostId, spec } of projectManager.getHosts()) {
     backendRegistry.register(hostId, spec);
   }

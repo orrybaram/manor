@@ -2,8 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
-import { exec } from "node:child_process";
-import { promisify } from "node:util";
 import { BrowserWindow } from "electron";
 
 import type { LinearAssociation, LinkedIssue } from "./linear";
@@ -11,17 +9,26 @@ import {
   LOCAL_HOST_ID,
   type GitBackend,
   type HostSpec,
+  type ShellBackend,
 } from "./backend/types";
+import { LocalShellBackend } from "./backend/local-shell";
 import { manorDataDir, worktreesDir } from "./paths";
 import { sanitizeBranchName, toDirSlug } from "./branch-name";
 
-const execAsync = promisify(exec);
-
-function expandHome(p: string): string {
+/** Expands a leading `~` in `p` against `home` (a specific host's home dir). */
+function expandHome(p: string, home: string): string {
   if (p.startsWith("~/") || p === "~") {
-    return path.join(os.homedir(), p.slice(1));
+    return path.join(home, p.slice(1));
   }
   return p;
+}
+
+/** Joins path segments with `/`, for paths on a host that is not this machine. */
+function remoteJoin(...parts: string[]): string {
+  return parts
+    .map((part, i) => (i === 0 ? part.replace(/\/+$/, "") : part.replace(/^\/+|\/+$/g, "")))
+    .filter((part) => part.length > 0)
+    .join("/");
 }
 
 export interface CustomCommand {
@@ -188,6 +195,9 @@ interface PersistedState {
 /** Resolves the git backend for a host (see `BackendRegistry.get`). */
 export type GitResolver = (hostId: string) => GitBackend;
 
+/** Resolves the shell backend for a host (see `BackendRegistry.get`). */
+export type ShellResolver = (hostId: string) => ShellBackend;
+
 /** True when `p` is `root` or lies beneath it. */
 function isWithinPath(p: string, root: string): boolean {
   if (p === root) return true;
@@ -294,25 +304,65 @@ export class ProjectManager {
   private state: PersistedState;
   private dataDir: string;
   private gitForHost: GitResolver;
+  private shellForHost: ShellResolver;
   private resyncDone = false;
   /**
    * Workspace paths git last reported per project id. Worktrees may live
    * outside the project's worktree directory, so `hostIdForPath` needs them.
    */
   private knownWorkspacePaths = new Map<string, string[]>();
+  /**
+   * Each remote host's home directory, once asked (ADR-178 §3). `hostIdForPath`
+   * reads this synchronously to know a remote project's default worktree
+   * root; a host not yet in here is treated as unknown there, the same as
+   * before this cache existed.
+   */
+  private hostHomeDirs = new Map<string, string>();
 
   /**
-   * `git` is either one backend for every project (local-only callers and
-   * tests) or a resolver from a project's hostId to its host's backend.
+   * `git`/`shell` are either one backend for every project (local-only
+   * callers and tests) or a resolver from a project's hostId to its host's
+   * backend. `shell` defaults to this machine's, so existing local-only
+   * callers need not supply one.
    */
-  constructor(git: GitBackend | GitResolver, dataDir?: string) {
+  constructor(
+    git: GitBackend | GitResolver,
+    dataDir?: string,
+    shell: ShellBackend | ShellResolver = new LocalShellBackend(),
+  ) {
     this.gitForHost = typeof git === "function" ? git : () => git;
+    this.shellForHost = typeof shell === "function" ? shell : () => shell;
     this.dataDir = dataDir ?? manorDataDir();
     this.state = this.loadState();
   }
 
   private gitFor(project: PersistedProject): GitBackend {
     return this.gitForHost(project.hostId ?? LOCAL_HOST_ID);
+  }
+
+  /**
+   * The home directory of `hostId`'s machine. Local: `os.homedir()`, always
+   * (no host call). Remote: asked of the host's shell backend, which caches
+   * it (see `execShellHost`); also cached here so `hostIdForPath` can read
+   * it back synchronously.
+   */
+  private async homeDirFor(hostId: string): Promise<string> {
+    if (hostId === LOCAL_HOST_ID) return os.homedir();
+    const home = await this.shellForHost(hostId).homeDir();
+    this.hostHomeDirs.set(hostId, home);
+    return home;
+  }
+
+  /** Best-effort: warms `hostHomeDirs` for every remote host in use. */
+  private warmRemoteHomeDirs(): void {
+    for (const hostId of this.remoteHostIdsInUse()) {
+      this.homeDirFor(hostId).catch((err: unknown) => {
+        console.error(
+          `[ProjectManager] failed to resolve home directory for ${hostId}:`,
+          err instanceof Error ? err.message : err,
+        );
+      });
+    }
   }
 
   // ── Hosts ──
@@ -364,10 +414,10 @@ export class ProjectManager {
    * a remote host — are local. When a local and a remote root match equally
    * closely, local wins.
    *
-   * A remote project's worktree directory counts only when it was set
-   * explicitly: the default one is derived from this machine's worktrees
-   * directory, so a local project with the same name would share it.
-   * (ADR-178 defines host-relative worktree roots.)
+   * A remote project's worktree directory (default or explicit, expanding
+   * `~` against the host's home — ADR-178 §3) counts only once that host's
+   * home directory is known (see `hostHomeDirs`); until then it is skipped,
+   * the same as before host-relative roots existed.
    */
   hostIdForPath(p: string): string {
     const projects = this.state.projects;
@@ -379,9 +429,10 @@ export class ProjectManager {
     for (const project of projects) {
       const hostId = project.hostId ?? LOCAL_HOST_ID;
       const isRemote = hostId !== LOCAL_HOST_ID;
+      const base = this.syncWorktreeBaseDir(project, hostId);
       const roots = [
         project.path,
-        ...(isRemote && !project.worktreePath ? [] : [this.worktreeBaseDir(project)]),
+        ...(base != null ? [base] : []),
         ...(this.knownWorkspacePaths.get(project.id) ?? []),
       ];
       for (const root of roots) {
@@ -395,6 +446,30 @@ export class ProjectManager {
       }
     }
     return best;
+  }
+
+  /**
+   * Synchronous counterpart to `worktreeBaseDir`, for `hostIdForPath`: uses
+   * `hostHomeDirs`' cached value instead of asking the host, and returns
+   * null when a remote host's home isn't known yet (an explicit worktree
+   * root that doesn't start with `~` needs no home, so it is never null).
+   */
+  private syncWorktreeBaseDir(
+    project: PersistedProject,
+    hostId: string,
+  ): string | null {
+    if (project.worktreePath) {
+      if (!project.worktreePath.startsWith("~")) return project.worktreePath;
+      const home = hostId === LOCAL_HOST_ID ? os.homedir() : this.hostHomeDirs.get(hostId);
+      return home !== undefined ? expandHome(project.worktreePath, home) : null;
+    }
+    if (hostId === LOCAL_HOST_ID) {
+      return path.join(worktreesDir(), toDirSlug(project.name));
+    }
+    const home = this.hostHomeDirs.get(hostId);
+    return home !== undefined
+      ? remoteJoin(home, ".manor", "worktrees", toDirSlug(project.name))
+      : null;
   }
 
   private projectsFilePath(): string {
@@ -433,6 +508,7 @@ export class ProjectManager {
     if (!this.resyncDone) {
       this.resyncDone = true;
       await this.resyncDefaultBranches();
+      this.warmRemoteHomeDirs();
     }
     return Promise.all(
       this.state.projects.map((p) => this.buildProjectInfo(p)),
@@ -567,19 +643,49 @@ export class ProjectManager {
       ...(hostId !== LOCAL_HOST_ID ? { hostId } : {}),
     };
 
-    // Seed commands from package.json if present. Only locally: a remote
-    // project's package.json is not on this filesystem (ADR-178 reads it
-    // through the host's exec).
-    const packageJsonPath = path.join(projectPath, "package.json");
-    if (hostId === LOCAL_HOST_ID && fs.existsSync(packageJsonPath)) {
+    // Seed commands from package.json if present, reading it through the
+    // project's host (ADR-178 §3): locally, plain `fs`; remotely, the
+    // host's shell exec, since a remote project's package.json is not on
+    // this filesystem.
+    if (hostId === LOCAL_HOST_ID) {
+      const packageJsonPath = path.join(projectPath, "package.json");
+      if (fs.existsSync(packageJsonPath)) {
+        try {
+          const packageJson = JSON.parse(
+            fs.readFileSync(packageJsonPath, "utf-8"),
+          );
+          if (packageJson.scripts && typeof packageJson.scripts === "object") {
+            const runner = fs.existsSync(path.join(projectPath, "pnpm-lock.yaml"))
+              ? "pnpm run"
+              : fs.existsSync(path.join(projectPath, "yarn.lock"))
+                ? "yarn"
+                : "npm run";
+            project.commands = Object.keys(packageJson.scripts).map(
+              (scriptName) => ({
+                id: crypto.randomUUID(),
+                name: scriptName,
+                command: `${runner} ${scriptName}`,
+              }),
+            );
+          }
+        } catch (err) {
+          console.error(
+            "[ProjectManager] failed to read package.json:",
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }
+    } else {
       try {
-        const packageJson = JSON.parse(
-          fs.readFileSync(packageJsonPath, "utf-8"),
-        );
-        if (packageJson.scripts && typeof packageJson.scripts === "object") {
-          const runner = fs.existsSync(path.join(projectPath, "pnpm-lock.yaml"))
+        const shell = this.shellForHost(hostId);
+        const packageJson = await this.readRemotePackageJson(shell, projectPath);
+        if (packageJson?.scripts && typeof packageJson.scripts === "object") {
+          const runner = (await this.remoteFileExists(
+            shell,
+            remoteJoin(projectPath, "pnpm-lock.yaml"),
+          ))
             ? "pnpm run"
-            : fs.existsSync(path.join(projectPath, "yarn.lock"))
+            : (await this.remoteFileExists(shell, remoteJoin(projectPath, "yarn.lock")))
               ? "yarn"
               : "npm run";
           project.commands = Object.keys(packageJson.scripts).map(
@@ -592,7 +698,9 @@ export class ProjectManager {
         }
       } catch (err) {
         console.error(
-          "[ProjectManager] failed to read package.json:",
+          "[ProjectManager] failed to read package.json on",
+          hostId,
+          ":",
           err instanceof Error ? err.message : err,
         );
       }
@@ -839,7 +947,11 @@ export class ProjectManager {
     const project = this.findProject(projectId);
     if (!project) return null;
     if (updates.worktreePath) {
-      updates.worktreePath = expandHome(updates.worktreePath);
+      const hostId = project.hostId ?? LOCAL_HOST_ID;
+      updates.worktreePath = expandHome(
+        updates.worktreePath,
+        await this.homeDirFor(hostId),
+      );
     }
     Object.assign(project, updates);
     this.saveState();
@@ -1018,14 +1130,17 @@ export class ProjectManager {
       }
     }
 
-    // Run worktree teardown script before removal
+    // Run worktree teardown script before removal, through the project's
+    // host (ADR-178 §3) — a generous timeout since teardown (e.g. `docker
+    // compose down`) can run well past a daemon's default exec timeout.
     if (project.worktreeTeardownScript) {
       progress("Running teardown script…");
       try {
-        await execAsync(project.worktreeTeardownScript, {
-          cwd: worktreePath,
-          timeout: 30000,
-        });
+        await this.shellForHost(project.hostId ?? LOCAL_HOST_ID).exec(
+          "sh",
+          ["-c", project.worktreeTeardownScript],
+          { cwd: worktreePath, timeout: 10 * 60 * 1000 },
+        );
       } catch (err) {
         console.error(
           "[ProjectManager] worktree teardown script failed:",
@@ -1286,19 +1401,69 @@ export class ProjectManager {
   }
 
   /**
+   * `package.json` at `projectPath` on a remote host, read through its shell
+   * exec (`cat`). Null when it does not exist or does not parse as an
+   * object — same as `addProject`'s local `fs.existsSync` + try/catch.
+   */
+  private async readRemotePackageJson(
+    shell: ShellBackend,
+    projectPath: string,
+  ): Promise<{ scripts?: unknown } | null> {
+    try {
+      const stdout = await shell.exec("cat", [remoteJoin(projectPath, "package.json")]);
+      const parsed = JSON.parse(stdout);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Whether `filePath` exists on a remote host, via `test -e`. */
+  private async remoteFileExists(shell: ShellBackend, filePath: string): Promise<boolean> {
+    try {
+      await shell.exec("test", ["-e", filePath]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * The deterministic filesystem path a worktree named `name` would occupy in
    * this project. Single source of truth for both `createWorktree` and callers
    * that need to know the path a worktree will be created at.
+   *
+   * Asks the project's host for its home directory (ADR-178 §3) — for a
+   * remote project, this fails loudly if the host is unreachable rather
+   * than falling back to a local path.
    */
-  private worktreePathFor(project: PersistedProject, name: string): string {
-    return path.join(this.worktreeBaseDir(project), toDirSlug(name));
+  private async worktreePathFor(
+    project: PersistedProject,
+    name: string,
+  ): Promise<string> {
+    const base = await this.worktreeBaseDir(project);
+    const hostId = project.hostId ?? LOCAL_HOST_ID;
+    return hostId === LOCAL_HOST_ID
+      ? path.join(base, toDirSlug(name))
+      : remoteJoin(base, toDirSlug(name));
   }
 
-  /** The directory this project's worktrees are created in. */
-  private worktreeBaseDir(project: PersistedProject): string {
+  /**
+   * The directory this project's worktrees are created in: `<hostHome>/
+   * .manor/worktrees/<slug>` by default, or `project.worktreePath` (with a
+   * leading `~` expanded against the host's home) when set.
+   */
+  private async worktreeBaseDir(project: PersistedProject): Promise<string> {
+    const hostId = project.hostId ?? LOCAL_HOST_ID;
+    if (hostId === LOCAL_HOST_ID) {
+      return project.worktreePath
+        ? expandHome(project.worktreePath, os.homedir())
+        : path.join(worktreesDir(), toDirSlug(project.name));
+    }
+    const home = await this.homeDirFor(hostId);
     return project.worktreePath
-      ? expandHome(project.worktreePath)
-      : path.join(worktreesDir(), toDirSlug(project.name));
+      ? expandHome(project.worktreePath, home)
+      : remoteJoin(home, ".manor", "worktrees", toDirSlug(project.name));
   }
 
   /**
@@ -1333,7 +1498,7 @@ export class ProjectManager {
           url: seed.url,
         };
         const name = toDirSlug(seed.title) || "issue-" + seed.number;
-        const worktreePath = this.worktreePathFor(project, name);
+        const worktreePath = await this.worktreePathFor(project, name);
         await this.createWorktree(
           projectId,
           name,
@@ -1361,7 +1526,7 @@ export class ProjectManager {
     if (!project) return null;
 
     const branchName = sanitizeBranchName(branch || name);
-    const worktreePath = this.worktreePathFor(project, name);
+    const worktreePath = await this.worktreePathFor(project, name);
 
     // Prune stale worktree entries (e.g. leftover from a previous failed creation)
     this.emitSetupProgress("prune", "in-progress");
@@ -1500,7 +1665,7 @@ export class ProjectManager {
       );
     }
 
-    const worktreePath = this.worktreePathFor(project, name);
+    const worktreePath = await this.worktreePathFor(project, name);
 
     // Prune stale worktree entries
     try {

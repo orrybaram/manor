@@ -9,7 +9,7 @@ import {
   normalizeSidebarOrder,
   spliceFolderOut,
 } from "./persistence";
-import type { GitBackend } from "./backend/types";
+import type { GitBackend, ShellBackend } from "./backend/types";
 import { worktreesDir } from "./paths";
 import { toDirSlug } from "./branch-name";
 
@@ -1395,5 +1395,183 @@ describe("ProjectManager hosts (ADR-160)", () => {
     expect(mgr.hostIdForPath("/home/me/app2")).toBe("local");
     expect(mgr.hostIdForPath("/Users/me/app/src")).toBe("local");
     expect(mgr.hostIdForPath("/somewhere/else")).toBe("local");
+  });
+});
+
+describe("ProjectManager host-relative paths (ADR-178)", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = path.join(os.tmpdir(), `manor-host-paths-test-${crypto.randomUUID()}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function fullGit(): GitBackend {
+    return {
+      exec: vi.fn(async () => ""),
+      worktreeList: vi.fn(async () => []),
+      worktreeAdd: vi.fn(async () => {}),
+      worktreeRemove: vi.fn(async () => {}),
+    } as unknown as GitBackend;
+  }
+
+  /** A fake remote `ShellBackend`: `home` for `homeDir`, `files` for `cat`/`test -e`. */
+  function fakeShell(
+    home: string,
+    opts: { files?: Record<string, string> } = {},
+  ): ShellBackend & { execCalls: Array<[string, string[], unknown]> } {
+    const files = opts.files ?? {};
+    const execCalls: Array<[string, string[], unknown]> = [];
+    return {
+      execCalls,
+      which: vi.fn(async () => null),
+      homeDir: vi.fn(async () => home),
+      exec: vi.fn(async (cmd: string, args: string[], execOpts?: unknown) => {
+        execCalls.push([cmd, args, execOpts]);
+        if (cmd === "cat") {
+          const filePath = args[0];
+          if (filePath in files) return files[filePath];
+          throw new Error(`no such file: ${filePath}`);
+        }
+        if (cmd === "test" && args[0] === "-e") {
+          const filePath = args[1];
+          if (filePath in files) return "";
+          throw new Error(`missing: ${filePath}`);
+        }
+        if (cmd === "sh" && args[0] === "-c") {
+          return "";
+        }
+        throw new Error(`fakeShell: unexpected exec ${cmd} ${args.join(" ")}`);
+      }),
+    } as unknown as ShellBackend & { execCalls: Array<[string, string[], unknown]> };
+  }
+
+  it("resolves a remote project's default worktree root against the host's home", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    const project = await mgr.addProject("Remote App", "/srv/app", "box");
+
+    const results = await mgr.createWorkspacesFromIssues(project.id, [
+      { number: 1, title: "feature", url: "https://example.com/1" },
+    ]);
+
+    expect(shell.homeDir).toHaveBeenCalled();
+    expect(results[0].worktreePath).toBe(
+      "/home/remoteuser/.manor/worktrees/remote-app/feature",
+    );
+  });
+
+  it("expands a leading ~ in project.worktreePath against the remote host's home", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    const project = await mgr.addProject("Remote App", "/srv/app", "box");
+    await mgr.updateProject(project.id, { worktreePath: "~/custom-trees" });
+
+    const results = await mgr.createWorkspacesFromIssues(project.id, [
+      { number: 1, title: "feature", url: "https://example.com/1" },
+    ]);
+
+    expect(results[0].worktreePath).toBe("/home/remoteuser/custom-trees/feature");
+  });
+
+  it("does not call the remote host for a local project's home", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    const project = await mgr.addProject("Local App", "/tmp/local-app");
+
+    const results = await mgr.createWorkspacesFromIssues(project.id, [
+      { number: 1, title: "feature", url: "https://example.com/1" },
+    ]);
+
+    expect(results[0].worktreePath).toBe(
+      path.join(worktreesDir(), toDirSlug("Local App"), "feature"),
+    );
+    expect(shell.homeDir).not.toHaveBeenCalled();
+  });
+
+  it("runs the teardown script through the host's shell, not local execAsync", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    const project = await mgr.addProject("Remote App", "/srv/app", "box");
+    await mgr.updateProject(project.id, {
+      worktreeTeardownScript: "docker compose down",
+    });
+
+    await mgr.removeWorktree(project.id, "/home/remoteuser/.manor/worktrees/remote-app/feature");
+
+    expect(shell.execCalls).toContainEqual([
+      "sh",
+      ["-c", "docker compose down"],
+      { cwd: "/home/remoteuser/.manor/worktrees/remote-app/feature", timeout: 10 * 60 * 1000 },
+    ]);
+  });
+
+  it("reads package.json and lockfile presence through the host's shell for a remote project", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser", {
+      files: {
+        "/srv/app/package.json": JSON.stringify({
+          scripts: { build: "tsc", test: "vitest" },
+        }),
+        "/srv/app/pnpm-lock.yaml": "",
+      },
+    });
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+
+    const project = await mgr.addProject("Remote App", "/srv/app", "box");
+
+    expect(project.commands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "build", command: "pnpm run build" }),
+        expect.objectContaining({ name: "test", command: "pnpm run test" }),
+      ]),
+    );
+  });
+
+  it("includes a remote project's default worktree root in hostIdForPath once its home is known", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    await mgr.addProject("Remote App", "/srv/app", "box");
+
+    // Home is not known synchronously yet — the default root is skipped.
+    expect(mgr.hostIdForPath("/home/remoteuser/.manor/worktrees/remote-app/feature")).toBe(
+      "local",
+    );
+
+    // getProjects() warms every remote host's home in the background.
+    await mgr.getProjects();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mgr.hostIdForPath("/home/remoteuser/.manor/worktrees/remote-app/feature")).toBe(
+      "box",
+    );
+  });
+
+  it("keeps local worktree resolution byte-identical with no shell resolver supplied", async () => {
+    const git = fullGit();
+    const mgr = new ProjectManager(() => git, tmpDir);
+    const project = await mgr.addProject("Local App", "/tmp/local-app-2");
+
+    const results = await mgr.createWorkspacesFromIssues(project.id, [
+      { number: 1, title: "feature", url: "https://example.com/1" },
+    ]);
+
+    expect(results[0].worktreePath).toBe(
+      path.join(worktreesDir(), toDirSlug("Local App"), "feature"),
+    );
   });
 });

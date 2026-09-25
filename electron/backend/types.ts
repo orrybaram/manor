@@ -107,6 +107,12 @@ export interface ShellBackend {
 
   /** Execute a command and return stdout. */
   exec(cmd: string, args: string[], opts?: { cwd?: string; timeout?: number }): Promise<string>;
+
+  /**
+   * The home directory on the machine this backend runs commands on (ADR-178
+   * §3). Local: `os.homedir()`. Remote: asked of the host and cached.
+   */
+  homeDir(): Promise<string>;
 }
 
 // ── Ports Backend ──

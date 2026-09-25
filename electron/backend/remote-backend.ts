@@ -19,7 +19,7 @@ import type { HostTransport } from "../terminal-host/transport";
 import { SshAuthError, SshHostKeyError } from "../terminal-host/ssh-config";
 import { LocalPtyBackend } from "./local-pty";
 import { LocalGitBackend } from "./local-git";
-import { LocalShellBackend } from "./local-shell";
+import { LocalShellBackend, execShellHost } from "./local-shell";
 import { LocalPortsBackend, execPortsHost } from "./local-ports";
 import { createRemoteExec } from "./remote-exec";
 import { RemoteBootstrapError } from "./remote-bootstrap";
@@ -123,7 +123,7 @@ export class RemoteBackend implements WorkspaceBackend {
     const exec = createRemoteExec(this.client);
     this.pty = new LocalPtyBackend(this.client);
     this.git = new LocalGitBackend(exec);
-    this.shell = new LocalShellBackend(exec);
+    this.shell = new LocalShellBackend(exec, execShellHost(exec));
     this.ports = new LocalPortsBackend(exec, execPortsHost(exec));
   }
 

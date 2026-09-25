@@ -1,6 +1,6 @@
 ---
 title: Host-relative paths in ProjectManager
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

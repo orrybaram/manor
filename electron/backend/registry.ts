@@ -34,6 +34,14 @@
  *   the `HookSeqStore`. Before each replay it records the host's sessions,
  *   so status relayed for a replayed hook reaches that host's daemon.
  *
+ * - **Away and back** (ADR-178 §6). When a remote host comes back after a
+ *   drop, the registry waits for its hook replay, lists the sessions its
+ *   daemon still has, and only then announces `onHostResumed` — so panes
+ *   reattach (resnapshot) with their agents' status already right, and
+ *   panes whose sessions are gone (the daemon restarted) can be recovered.
+ *   The `exit` the client synthesizes for such a session (`lost`) is not a
+ *   shell exit; `isRemoteSessionLoss` tells the two apart.
+ *
  * A remote host is built from its spec in two steps (ADR-178 §1): a
  * `HostProvider` (how the box is started and reached), then a backend riding
  * the provider's transport. The registry asks the provider to bring the box
@@ -85,6 +93,11 @@ export interface HostStatusInfo {
   /** While `reconnecting`: the delay before the next attempt, if known. */
   retryInMs?: number | null;
   /**
+   * While `reconnecting`: when (epoch ms, this machine's clock) the next
+   * attempt is due, for a countdown. Set alongside a known `retryInMs`.
+   */
+  retryAt?: number;
+  /**
    * Non-blocking issues the last successful bootstrap reported (e.g. an
    * agent config on the remote it could not safely parse). Cleared by the
    * next `connect()`; never fails the connection.
@@ -93,6 +106,24 @@ export interface HostStatusInfo {
 }
 
 type HostState = Omit<HostStatusInfo, "hostId" | "spec">;
+
+/**
+ * How long a reconnect waits for the host's hook replay before announcing
+ * `onHostResumed` anyway. Panes stay frozen until then, so a replay that is
+ * slow (a huge journal) or retrying must not hold them for long.
+ */
+const RESUME_REPLAY_WAIT_MS = 5_000;
+
+/**
+ * Whether `event` is a remote session the client reported gone because the
+ * daemon no longer had it after a reconnect — the daemon restarted or the
+ * box rebooted — rather than a shell that exited. The pane of such a session
+ * is recovered (ADR-178 §6), not closed. On the local host the same event
+ * still closes the pane (ADR-169): there is nothing to recover it on.
+ */
+export function isRemoteSessionLoss(hostId: string, event: StreamEvent): boolean {
+  return hostId !== LOCAL_HOST_ID && event.type === "exit" && event.lost === true;
+}
 
 /** A host is not in a state to serve the call; see `status`. */
 export class HostUnavailableError extends Error {
@@ -179,11 +210,17 @@ interface HostEntry {
   busy: boolean;
   /** Null for the local host, and for a backend that cannot replay hooks. */
   hookFeed: HostHookFeed | null;
+  /**
+   * Bumped by every host event, so an `onHostResumed` announcement still
+   * waiting on its replay is dropped when the host drops again meanwhile.
+   */
+  resumeToken: number;
 }
 
 type HostEventListener = (hostId: string, event: HostConnectionEvent) => void;
 type StreamEventListener = (hostId: string, event: StreamEvent) => void;
 type StatusListener = (hosts: HostStatusInfo[]) => void;
+type ResumedListener = (hostId: string, sessionIds: string[]) => void;
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -201,6 +238,7 @@ export class BackendRegistry {
   private readonly eventListeners = new Set<StreamEventListener>();
   private readonly hostEventListeners = new Set<HostEventListener>();
   private readonly statusListeners = new Set<StatusListener>();
+  private readonly resumedListeners = new Set<ResumedListener>();
   private readonly createRemote: RemoteBackendFactory;
   private readonly createProvider: HostProviderFactory;
   private readonly hookSeqStore: HookSeqStore;
@@ -339,6 +377,17 @@ export class BackendRegistry {
     return entry.connecting;
   }
 
+  /**
+   * The user's "Retry now". A host its backend is already reconnecting
+   * attempts at once instead of waiting out the backoff; any other host that
+   * is not connected gets a fresh `connect()` (`connectInBackground`).
+   */
+  retryNow(hostId: string): void {
+    const entry = this.hosts.get(hostId);
+    if (entry?.state.status === "reconnecting" && entry.backend.retryNow?.()) return;
+    this.connectInBackground(hostId);
+  }
+
   /** `ensureConnected` without waiting; failures land in `list()`. */
   connectInBackground(hostId: string): void {
     this.ensureConnected(hostId).catch(() => {
@@ -407,7 +456,7 @@ export class BackendRegistry {
   setHookSink(sink: HookSink): void {
     this.hookSink = sink;
     for (const entry of this.hosts.values()) {
-      if (entry.state.status === "connected") entry.hookFeed?.catchUp();
+      if (entry.state.status === "connected") void entry.hookFeed?.catchUp();
     }
   }
 
@@ -421,6 +470,17 @@ export class BackendRegistry {
   onHostEvent(handler: HostEventListener): () => void {
     this.hostEventListeners.add(handler);
     return () => this.hostEventListeners.delete(handler);
+  }
+
+  /**
+   * A remote host came back after a drop and its hook replay is done (or
+   * took too long). `sessionIds` are every session its daemon has now: a
+   * pane the app had on that host whose session is not among them was lost
+   * (the daemon restarted); the rest should reattach, having missed output.
+   */
+  onHostResumed(handler: ResumedListener): () => void {
+    this.resumedListeners.add(handler);
+    return () => this.resumedListeners.delete(handler);
   }
 
   /** Called with the full `list()` whenever any host's status changes. */
@@ -449,6 +509,7 @@ export class BackendRegistry {
       autoConnect: true,
       busy: false,
       hookFeed: null,
+      resumeToken: 0,
     };
     const replay = backend.pty.replayHooks?.bind(backend.pty);
     if (hostId !== LOCAL_HOST_ID && replay) {
@@ -555,13 +616,14 @@ export class BackendRegistry {
       status: "connected",
       ...(entry.state.warnings ? { warnings: entry.state.warnings } : {}),
     });
-    entry.hookFeed?.catchUp();
+    void entry.hookFeed?.catchUp();
   }
 
   private handleHostEvent(entry: HostEntry, event: HostConnectionEvent): void {
     for (const sessionId of event.sessionIds) {
       this.sessionHosts.set(sessionId, entry.hostId);
     }
+    const token = ++entry.resumeToken;
     switch (event.type) {
       // Auto-reconnect doesn't rerun bootstrap, so nothing would re-report
       // its warnings — carry them across the blip (connected → reconnecting →
@@ -571,16 +633,30 @@ export class BackendRegistry {
         this.setState(entry, {
           status: "reconnecting",
           retryInMs: event.retryInMs,
+          ...(event.retryInMs != null ? { retryAt: Date.now() + event.retryInMs } : {}),
           ...(entry.state.warnings ? { warnings: entry.state.warnings } : {}),
         });
         break;
-      case "hostReconnected":
+      case "hostRetrying":
+        // Only a still-reconnecting host has an attempt to count down to.
+        if (entry.state.status !== "reconnecting") break;
+        this.setState(entry, {
+          ...entry.state,
+          retryInMs: event.retryInMs,
+          retryAt: Date.now() + event.retryInMs,
+        });
+        break;
+      case "hostReconnected": {
         this.setState(entry, {
           status: "connected",
           ...(entry.state.warnings ? { warnings: entry.state.warnings } : {}),
         });
-        entry.hookFeed?.catchUp();
+        // Panes reattach only once the replay is in, so their agent dots
+        // are right on first paint (ADR-178 §6).
+        const replayed = entry.hookFeed?.catchUp() ?? Promise.resolve();
+        void this.announceResumed(entry, token, replayed);
         break;
+      }
       case "hostFailed": {
         const failure: HostFailure = {
           reason: event.reason,
@@ -601,6 +677,55 @@ export class BackendRegistry {
     }
   }
 
+  /**
+   * Tell `onHostResumed` listeners `entry` is back, once its hook replay has
+   * settled (bounded by `RESUME_REPLAY_WAIT_MS`) and its daemon has said
+   * which sessions it still has. Dropped if the host moves on meanwhile; a
+   * failed listing is dropped too — the connection went again, and the next
+   * reconnect announces.
+   */
+  private async announceResumed(
+    entry: HostEntry,
+    token: number,
+    replayed: Promise<void>,
+  ): Promise<void> {
+    const current = () =>
+      this.hosts.get(entry.hostId) === entry &&
+      entry.resumeToken === token &&
+      entry.state.status === "connected";
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      replayed,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, RESUME_REPLAY_WAIT_MS);
+      }),
+    ]);
+    clearTimeout(timer);
+    if (!current()) return;
+    let sessionIds: string[];
+    try {
+      const sessions = await entry.backend.pty.listSessions();
+      sessionIds = sessions.map((s) => s.sessionId);
+    } catch (err) {
+      console.warn(
+        `[backend-registry] listing ${entry.hostId}'s sessions after reconnect failed:`,
+        errorMessage(err),
+      );
+      return;
+    }
+    if (!current()) return;
+    for (const sessionId of sessionIds) {
+      if (!this.sessionHosts.has(sessionId)) this.sessionHosts.set(sessionId, entry.hostId);
+    }
+    for (const listener of this.resumedListeners) {
+      try {
+        listener(entry.hostId, sessionIds);
+      } catch (err) {
+        console.error("[backend-registry] host resumed listener threw:", err);
+      }
+    }
+  }
+
   private dispatchStreamEvent(hostId: string, event: StreamEvent): void {
     if ("sessionId" in event) {
       const owner = this.sessionHosts.get(event.sessionId);
@@ -610,7 +735,11 @@ export class BackendRegistry {
         );
         return;
       }
-      if (event.type === "exit") this.sessionHosts.delete(event.sessionId);
+      // A remote session lost to a daemon restart keeps its host: its pane
+      // is recreated there, not wherever its project points now.
+      if (event.type === "exit" && !isRemoteSessionLoss(hostId, event)) {
+        this.sessionHosts.delete(event.sessionId);
+      }
       else if (owner === undefined) this.sessionHosts.set(event.sessionId, hostId);
     }
     for (const listener of this.eventListeners) {

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 const handlers: Map<string, (...args: unknown[]) => unknown> = new Map();
 const statusListeners: Array<(hosts: unknown[]) => void> = [];
+const resumedListeners: Array<(hostId: string, sessionIds: string[]) => void> = [];
 
 vi.mock("electron", () => ({
   ipcMain: {
@@ -20,6 +21,11 @@ function makeDeps() {
     register: vi.fn(),
     unregister: vi.fn().mockResolvedValue(undefined),
     connectInBackground: vi.fn(),
+    retryNow: vi.fn(),
+    onHostResumed: vi.fn((cb: (hostId: string, sessionIds: string[]) => void) => {
+      resumedListeners.push(cb);
+      return () => {};
+    }),
     onStatusChange: vi.fn((cb: (hosts: unknown[]) => void) => {
       statusListeners.push(cb);
       return () => {};
@@ -130,12 +136,12 @@ describe("hosts:retryConnect", () => {
     statusListeners.length = 0;
   });
 
-  it("kicks off a background connect for the given host", () => {
+  it("retries the given host now (the registry decides wake-vs-connect)", () => {
     const { deps, backendRegistry } = makeDeps();
     register(deps as never);
     const handler = handlers.get("hosts:retryConnect")!;
     handler(null, "box");
-    expect(backendRegistry.connectInBackground).toHaveBeenCalledWith("box");
+    expect(backendRegistry.retryNow).toHaveBeenCalledWith("box");
   });
 });
 
@@ -157,5 +163,27 @@ describe("hosts:statusChanged broadcast", () => {
 
     expect(send).toHaveBeenCalledWith("hosts:statusChanged", hosts);
     expect(backendRegistry.onStatusChange).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("hosts:reconnected broadcast", () => {
+  beforeEach(() => {
+    handlers.clear();
+    resumedListeners.length = 0;
+  });
+
+  it("tells every live renderer window which sessions a resumed host still has", () => {
+    const send = vi.fn();
+    const win = { webContents: { mainFrame: {}, send } };
+    const { deps } = makeDeps();
+    deps.getRendererWindows = () => [win as never];
+    register(deps as never);
+
+    for (const listener of resumedListeners) listener("box", ["pane-1"]);
+
+    expect(send).toHaveBeenCalledWith("hosts:reconnected", {
+      hostId: "box",
+      sessionIds: ["pane-1"],
+    });
   });
 });

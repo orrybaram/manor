@@ -117,6 +117,12 @@ export class RemoteBackend implements WorkspaceBackend {
           sessionIds,
           retryInMs: this.reconnectDelayMs(0),
         }),
+      // Attempt 0's delay went out with `hostDisconnected`; each later one
+      // is announced so the UI's "retrying in Ns" follows the backoff.
+      onRetryScheduled: ({ attempt, delayMs }) => {
+        if (attempt === 0) return;
+        this.emitHostEvent({ type: "hostRetrying", sessionIds: [], retryInMs: delayMs });
+      },
       onReconnected: ({ sessionIds }) =>
         this.emitHostEvent({ type: "hostReconnected", sessionIds }),
       onFailed: ({ error, sessionIds }) => {
@@ -166,6 +172,11 @@ export class RemoteBackend implements WorkspaceBackend {
 
   onHostEvent(handler: HostConnectionEventHandler): void {
     this.hostEventHandlers.add(handler);
+  }
+
+  /** "Retry now": skip the rest of the reconnect loop's current wait. */
+  retryNow(): boolean {
+    return this.client.retryReconnectNow();
   }
 
   /**

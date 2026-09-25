@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   BackendRegistry,
   HostUnavailableError,
+  isRemoteSessionLoss,
   type HostStatusInfo,
 } from "../registry";
 import { RoutedBackend } from "../routed-backend";
@@ -724,5 +725,130 @@ describe("BackendRegistry — remote agent hooks (ADR-178 §2)", () => {
     expect(order).toEqual(["listSessions", "replayHooks"]);
     expect(remote.raw.pty.relayAgentHook).toHaveBeenCalledWith("pane-remote", "working", "claude");
     expect(local.raw.pty.relayAgentHook).not.toHaveBeenCalled();
+  });
+});
+
+describe("BackendRegistry — away and back (ADR-178 §6)", () => {
+  it("tells a remote session lost to a daemon restart apart from a shell exit", () => {
+    const lost = { type: "exit" as const, sessionId: "p", exitCode: -1, lost: true as const };
+    const exited = { type: "exit" as const, sessionId: "p", exitCode: 0 };
+    expect(isRemoteSessionLoss("box", lost)).toBe(true);
+    expect(isRemoteSessionLoss("box", exited)).toBe(false);
+    // The local daemon's loss still closes panes (ADR-169).
+    expect(isRemoteSessionLoss("local", lost)).toBe(false);
+  });
+
+  it("keeps a lost remote session's host, so its pane is recreated there", async () => {
+    const { registry, remotes } = setup();
+    registry.register("box", box);
+    await registry.ensureConnected("box");
+    const listener = vi.fn();
+    registry.onEvent(listener);
+    remotes.get("box")!.stream({ type: "data", sessionId: "pane-a", data: "x" });
+    remotes.get("box")!.stream({ type: "exit", sessionId: "pane-a", exitCode: -1, lost: true });
+    expect(registry.hostForSession("pane-a")).toBe("box");
+    // Still published: host-busy clears the pane's busy flag on it.
+    expect(listener).toHaveBeenLastCalledWith("box", expect.objectContaining({ lost: true }));
+
+    remotes.get("box")!.stream({ type: "data", sessionId: "pane-b", data: "x" });
+    remotes.get("box")!.stream({ type: "exit", sessionId: "pane-b", exitCode: 0 });
+    expect(registry.hostForSession("pane-b")).toBeUndefined();
+  });
+
+  function resumeSetup() {
+    const local = fakeBackend("local");
+    const remote = fakeBackend("box");
+    const order: string[] = [];
+    let releaseReplay: (() => void) | null = null;
+    (remote.raw.pty as Record<string, unknown>).replayHooks = vi.fn(async () => {
+      order.push("replay-start");
+      await new Promise<void>((resolve) => {
+        releaseReplay = resolve;
+      });
+      order.push("replay-done");
+      return { entries: [], lastSeq: 0 };
+    });
+    const registry = new BackendRegistry({
+      local: local.backend,
+      createProvider: () => fakeProvider() as unknown as HostProvider,
+      createRemote: () => remote.backend,
+      hookSeqStore: { get: () => ({ seq: 0, epoch: null }), set: () => {} },
+    });
+    registry.setHookSink({ ingest: () => {} });
+    registry.register("box", box);
+    const resumed: Array<{ hostId: string; sessionIds: string[] }> = [];
+    registry.onHostResumed((hostId, sessionIds) => {
+      order.push("resumed");
+      resumed.push({ hostId, sessionIds });
+    });
+    return { registry, remote, order, resumed, release: () => releaseReplay?.() };
+  }
+
+  it("announces a resumed host only after its hook replay, with every live session", async () => {
+    const { registry, remote, order, resumed, release } = resumeSetup();
+    await registry.ensureConnected("box");
+    await vi.waitFor(() => expect(order).toContain("replay-start"));
+    release();
+    await vi.waitFor(() => expect(order).toContain("replay-done"));
+    order.length = 0;
+    // The initial connect is not a reconnect: nothing to reattach.
+    expect(resumed).toEqual([]);
+
+    remote.raw.pty.listSessions.mockResolvedValue([{ sessionId: "pane-a" }]);
+    remote.hostEvent({ type: "hostDisconnected", sessionIds: ["pane-a", "pane-b"], retryInMs: 1000 });
+    remote.hostEvent({ type: "hostReconnected", sessionIds: ["pane-a"] });
+    await vi.waitFor(() => expect(order).toContain("replay-start"));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(resumed).toEqual([]);
+
+    release();
+    await vi.waitFor(() => expect(resumed).toHaveLength(1));
+    expect(order).toEqual(["replay-start", "replay-done", "resumed"]);
+    expect(resumed[0]).toEqual({ hostId: "box", sessionIds: ["pane-a"] });
+  });
+
+  it("drops the announcement when the host drops again before its replay is in", async () => {
+    const { registry, remote, resumed, release } = resumeSetup();
+    await registry.ensureConnected("box");
+    release();
+    remote.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
+    remote.hostEvent({ type: "hostReconnected", sessionIds: [] });
+    remote.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
+    release();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(resumed).toEqual([]);
+  });
+
+  it("counts down to each reconnect attempt", async () => {
+    const { registry, remotes } = setup();
+    registry.register("box", box);
+    await registry.ensureConnected("box");
+    const before = Date.now();
+    remotes.get("box")!.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
+    const first = registry.list().find((h) => h.hostId === "box")!;
+    expect(first.retryAt).toBeGreaterThanOrEqual(before + 1000);
+    remotes.get("box")!.hostEvent({ type: "hostRetrying", sessionIds: [], retryInMs: 30_000 });
+    const next = registry.list().find((h) => h.hostId === "box")!;
+    expect(next).toMatchObject({ status: "reconnecting", retryInMs: 30_000 });
+    expect(next.retryAt).toBeGreaterThanOrEqual(before + 30_000);
+  });
+
+  it("Retry now wakes a reconnecting backend instead of starting a second connect", async () => {
+    const { registry, remotes } = setup();
+    registry.register("box", box);
+    await registry.ensureConnected("box");
+    const remote = remotes.get("box")!;
+    const retryNow = vi.fn(() => true);
+    (remote.raw as Record<string, unknown>).retryNow = retryNow;
+    remote.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
+
+    registry.retryNow("box");
+    expect(retryNow).toHaveBeenCalledTimes(1);
+    expect(remote.raw.connect).toHaveBeenCalledTimes(1);
+
+    // A host in error has no loop to wake: it connects afresh.
+    remote.hostEvent({ type: "hostFailed", sessionIds: [], reason: "auth", message: "denied" });
+    registry.retryNow("box");
+    await connectStarted(remote, 2);
   });
 });

@@ -4,6 +4,7 @@ import { portlessManager } from "../portless";
 import {
   isRemoteCandidateUrl,
   remoteFormOfUrl,
+  remotePortUnknown,
   resolveRemotePortUrl,
 } from "../remote-forwards";
 import { LOCAL_HOST_ID } from "../backend/types";
@@ -161,13 +162,30 @@ export function register(deps: IpcDeps): void {
     timeoutMs?: number,
   ): Promise<string> {
     if (hostId === LOCAL_HOST_ID || !isRemoteCandidateUrl(url)) return url;
+    let rescanned = false;
     for (;;) {
       const state = await whenHostReady(hostId, timeoutMs);
       if (state === "gone") return url;
       if (state === "timeout") {
         throw new Error(`Remote host "${hostId}" is not connected`);
       }
-      const remotePorts = latestPorts.filter((p) => p.hostId === hostId);
+      let remotePorts = latestPorts.filter((p) => p.hostId === hostId);
+      // A port the last poll did not see may be a dev server that started
+      // since (an agent navigating right after launching it). Scan the host
+      // once, now, before deciding the URL means this machine.
+      if (
+        !rescanned &&
+        remotePortUnknown(url, remotePorts, (localPort) =>
+          remoteForwards.remotePortFor(hostId, localPort),
+        )
+      ) {
+        rescanned = true;
+        const fresh = await portScanner.scanHost(hostId);
+        if (fresh) {
+          enrichPorts(fresh);
+          remotePorts = latestPorts.filter((p) => p.hostId === hostId);
+        }
+      }
       try {
         return await resolveRemotePortUrl(
           url,

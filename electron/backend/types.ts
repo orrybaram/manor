@@ -192,16 +192,19 @@ export interface WorktreeInfo {
  * - `hostDisconnected` — the transport died (for a remote host, the ssh
  *   child exited). `sessionIds` stop producing output; reconnect attempts
  *   follow, the next one after `retryInMs`.
+ * - `hostRetrying` — a reconnect attempt failed; the next one is in
+ *   `retryInMs`. `sessionIds` is empty (nothing changed about them).
  * - `hostReconnected` — the connection is back. `sessionIds` are the
  *   sessions that survived; whatever they printed during the gap was not
  *   delivered, so the renderer must resnapshot them via `getSnapshot`.
- *   Sessions that did not survive get an ordinary `exit` stream event.
+ *   Sessions that did not survive get an `exit` stream event marked `lost`.
  * - `hostFailed` — reconnecting hit a failure retrying will not fix (see
  *   `HostFailure`), so it stopped. `sessionIds` are still wanted; a later
  *   `connect()` retries, and on success `hostReconnected` follows.
  */
 export type HostConnectionEvent =
   | { type: "hostDisconnected"; sessionIds: string[]; retryInMs: number | null }
+  | { type: "hostRetrying"; sessionIds: string[]; retryInMs: number }
   | { type: "hostReconnected"; sessionIds: string[] }
   | ({ type: "hostFailed"; sessionIds: string[] } & HostFailure);
 
@@ -249,4 +252,11 @@ export interface WorkspaceBackend {
 
   /** Observe loss and recovery of the host connection (see `HostConnectionEvent`). */
   onHostEvent(handler: HostConnectionEventHandler): void;
+
+  /**
+   * While reconnecting on its own: attempt now instead of waiting out the
+   * backoff. Returns false if there is no wait to cut short. Optional — a
+   * backend that does not reconnect by itself has nothing to hurry.
+   */
+  retryNow?(): boolean;
 }

@@ -38,6 +38,7 @@ import { registerBrowserPane, unregisterBrowserPane } from "../../lib/browser-pa
 import { useProjectStore } from "../../store/project-store";
 import { remoteHostIdForWorkspace } from "../../lib/hosts";
 import { useMountEffect } from "../../hooks/useMountEffect";
+import { usePaneReattachStore } from "../../store/pane-reattach-store";
 
 import styles from "./PaneLayout/PaneLayout.module.css";
 import browserStyles from "./BrowserPane/BrowserPane.module.css";
@@ -70,6 +71,9 @@ export function LeafPane(props: LeafPaneProps) {
     contentType === "browser" ? remoteHostIdForWorkspace(s.projects, workspacePath) : null,
   );
   const recordingStartedAt = useAppStore((s) => s.paneRecordingStartedAt[paneId]);
+  // Bumped when this pane's remote host comes back, to remount its terminal
+  // and create/attach its session again (ADR-178 §6). 0 for every local pane.
+  const reattachEpoch = usePaneReattachStore((s) => s.epochByPane[paneId] ?? 0);
 
   const focusPane = useAppStore((s) => s.focusPane);
   const splitPane = useAppStore((s) => s.splitPane);
@@ -644,7 +648,11 @@ export function LeafPane(props: LeafPaneProps) {
             />
           </PaneContextMenu>
         ) : (
-          <TerminalPane paneId={paneId} cwd={paneCwd || workspacePath} />
+          <TerminalPane
+            key={reattachEpoch}
+            paneId={paneId}
+            cwd={paneCwd || workspacePath}
+          />
         )}
       </div>
       {showDropZone && <PaneDropZone paneId={paneId} />}

@@ -496,3 +496,50 @@ describe("replay through the real ingest path", () => {
     expect(notify.mock.calls[notify.mock.calls.length - 1]?.[2]).toBe("requires_input");
   });
 });
+
+describe("HostHookFeed.catchUp settling (ADR-178 §6)", () => {
+  it("settles once the catch-up is live, not before", async () => {
+    const { replay, calls } = deferredReplay();
+    const { sink } = recordingSink();
+    const feed = new HostHookFeed({ hostId: HOST, replay, store: seededStore(0), sink: () => sink });
+    let settled = false;
+    const done = feed.catchUp().then(() => {
+      settled = true;
+    });
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    calls[0].resolve({ entries: entries(1, 2), lastSeq: 2 });
+    await done;
+    expect(feed.seq).toBe(2);
+  });
+
+  it("settles on a failed replay (a retry is scheduled) and on pause", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { replay, calls } = deferredReplay();
+    const { sink } = recordingSink();
+    const feed = new HostHookFeed({
+      hostId: HOST,
+      replay,
+      store: seededStore(0),
+      sink: () => sink,
+      retryDelayMs: () => 60_000,
+    });
+    const failed = feed.catchUp();
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    calls[0].reject(new Error("boom"));
+    await expect(failed).resolves.toBeUndefined();
+
+    const paused = feed.catchUp();
+    feed.pause();
+    await expect(paused).resolves.toBeUndefined();
+    warn.mockRestore();
+  });
+
+  it("settles at once with no sink", async () => {
+    const { replay } = deferredReplay();
+    const feed = new HostHookFeed({ hostId: HOST, replay, store: seededStore(0), sink: () => null });
+    await expect(feed.catchUp()).resolves.toBeUndefined();
+    expect(replay).not.toHaveBeenCalled();
+  });
+});

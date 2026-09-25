@@ -125,6 +125,31 @@ export class PortScanner {
     });
   }
 
+  /**
+   * Scan `hostId` right away, outside the poller's cadence, and record the
+   * result as its latest. Resolves with every host's latest ports (this one
+   * fresh), or null when the host has no open workspaces or cannot answer.
+   * For a URL naming a port a remote dev server opened since the last poll
+   * (ADR-178 §5).
+   */
+  async scanHost(hostId: string): Promise<ActivePort[] | null> {
+    const groups = this.groups();
+    const paths = groups.get(hostId);
+    if (!paths) return null;
+    let ports: ActivePort[];
+    try {
+      ports = await this.backend.scan(paths);
+    } catch (err) {
+      if (!(err instanceof HostUnavailableError)) {
+        console.error(`[PortScanner] scan on ${hostId} failed:`, err);
+      }
+      return null;
+    }
+    this.hostPorts.set(hostId, ports);
+    this.emitHostScanned(hostId);
+    return Array.from(groups.keys()).flatMap((id) => this.hostPorts.get(id) ?? []);
+  }
+
   private emitHostScanned(hostId: string): void {
     for (const listener of this.hostScanListeners) {
       try {

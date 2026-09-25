@@ -374,6 +374,35 @@ export async function resolveRemotePortUrl(
 }
 
 /**
+ * Whether `resolveRemotePortUrl` would leave `url` untouched only because
+ * the host's latest scan does not know its port — a loopback URL whose port
+ * neither the scan nor any forward accounts for, or a `.localhost` URL no
+ * scanned port claims. The server may have started since the last poll, so
+ * such a URL is worth one immediate rescan before it is treated as this
+ * machine's.
+ */
+export function remotePortUnknown(
+  url: string,
+  remotePorts: readonly ActivePort[],
+  forwardedRemotePort?: (localPort: number) => number | undefined,
+): boolean {
+  const parsed = parseHttpUrl(url);
+  if (!parsed) return false;
+  const hostname = parsed.hostname.toLowerCase();
+  if (LOOPBACK_HOSTS.has(hostname)) {
+    const port = urlPort(parsed);
+    if (remotePorts.some((p) => p.port === port)) return false;
+    return forwardedRemotePort?.(port) === undefined;
+  }
+  if (hostname.endsWith(".localhost")) {
+    return !remotePorts.some(
+      (p) => p.hostname !== null && p.hostname.toLowerCase() === parsed.host.toLowerCase(),
+    );
+  }
+  return false;
+}
+
+/**
  * The URL a remote pane should remember and show for `url`, the address it
  * actually loaded: a loopback URL on a forward's local port becomes
  * `localhost:<remote port>` — the address that means something on the box

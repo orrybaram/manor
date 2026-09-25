@@ -29,7 +29,11 @@ import type { AgentStatus, StreamEvent } from "./terminal-host/types";
 import { initAutoUpdater, checkForUpdates } from "./updater";
 import { portlessManager } from "./portless";
 import { LocalBackend } from "./backend/local-backend";
-import { BackendRegistry, type HostStatus } from "./backend/registry";
+import {
+  BackendRegistry,
+  isRemoteSessionLoss,
+  type HostStatus,
+} from "./backend/registry";
 import { trackHostBusy } from "./backend/host-busy";
 import { RoutedBackend } from "./backend/routed-backend";
 import { PrewarmManager } from "./prewarm-manager";
@@ -435,7 +439,11 @@ export function initApp(devTitle: string | null): void {
     }
   });
 
-  backendRegistry.onEvent((_hostId: string, event: StreamEvent) => {
+  backendRegistry.onEvent((hostId: string, event: StreamEvent) => {
+    // A remote pane whose session a daemon restart took is not closed like
+    // one whose shell exited: the renderer recovers it when the host's
+    // `hosts:reconnected` arrives (ADR-178 §6).
+    if (isRemoteSessionLoss(hostId, event)) return;
     for (const win of getRendererWindows()) {
       // Check that the main frame is still available (avoids "Render frame was
       // disposed" errors during window reload/close).

@@ -255,7 +255,13 @@ export interface AgentState {
 
 export type StreamEvent =
   | { type: "data"; sessionId: string; data: string; seq?: StreamPosition }
-  | { type: "exit"; sessionId: string; exitCode: number }
+  /**
+   * The session is gone. `lost` marks one the client synthesized because the
+   * daemon no longer has it after a reconnect (the daemon restarted, the box
+   * rebooted) — not a shell that exited. A remote pane keeps such a session's
+   * pane and recovers it (ADR-178 §6); the local host closes it (ADR-169).
+   */
+  | { type: "exit"; sessionId: string; exitCode: number; lost?: true }
   | { type: "cwd"; sessionId: string; cwd: string }
   | { type: "error"; sessionId: string; message: string }
   | { type: "agentStatus"; sessionId: string; agent: AgentState }

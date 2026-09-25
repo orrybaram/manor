@@ -1,6 +1,6 @@
 ---
 title: Disconnected state, reconnect and resume after remote restart
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [3]

@@ -3,6 +3,7 @@ import {
   RemoteForwards,
   isRemoteCandidateUrl,
   remoteFormOfUrl,
+  remotePortUnknown,
   resolveRemotePortUrl,
   type ForwardHosts,
 } from "../remote-forwards";
@@ -419,5 +420,21 @@ describe("isRemoteCandidateUrl", () => {
     expect(isRemoteCandidateUrl("https://example.com/")).toBe(false);
     expect(isRemoteCandidateUrl("file:///tmp/x")).toBe(false);
     expect(isRemoteCandidateUrl("nope")).toBe(false);
+  });
+});
+
+describe("remotePortUnknown", () => {
+  const ports = [
+    { port: 3000, hostname: "app.localhost:1355" },
+  ] as unknown as ActivePort[];
+
+  it("is true only for loopback / .localhost URLs neither the scan nor a forward knows", () => {
+    expect(remotePortUnknown("http://localhost:3000/", ports)).toBe(false);
+    expect(remotePortUnknown("http://localhost:5173/", ports)).toBe(true);
+    expect(remotePortUnknown("http://127.0.0.1:60001/", ports, (p) => (p === 60001 ? 3000 : undefined))).toBe(false);
+    expect(remotePortUnknown("http://app.localhost:1355/", ports)).toBe(false);
+    expect(remotePortUnknown("http://other.localhost:1355/", ports)).toBe(true);
+    expect(remotePortUnknown("https://example.com/", ports)).toBe(false);
+    expect(remotePortUnknown("not a url", ports)).toBe(false);
   });
 });

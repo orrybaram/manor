@@ -4,13 +4,27 @@
 
 import { useCallback, useRef } from "react";
 import { usePaneHostStore } from "../store/pane-host-store";
+import { useHostStore } from "../store/host-store";
+import { isPaneInputBlocked } from "../lib/host-status";
 
 export function useTerminalConnection(paneId: string) {
   const paneIdRef = useRef(paneId);
   paneIdRef.current = paneId;
 
   const write = useCallback((data: string) => {
-    window.electronAPI.pty.write(paneIdRef.current, data);
+    const paneId = paneIdRef.current;
+    // Read-only while the pane's remote host is away (ADR-178 §6): input is
+    // dropped, not queued for a shell that may be gone by the time it lands.
+    if (
+      isPaneInputBlocked(
+        paneId,
+        usePaneHostStore.getState().remoteHostByPane,
+        useHostStore.getState().hosts,
+      )
+    ) {
+      return;
+    }
+    window.electronAPI.pty.write(paneId, data);
   }, []);
 
   const resize = useCallback((cols: number, rows: number) => {

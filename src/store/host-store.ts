@@ -27,6 +27,8 @@ export interface HostStatusInfo {
   failure?: HostFailure;
   progress?: string;
   retryInMs?: number | null;
+  /** Epoch ms the next reconnect attempt is due, while `reconnecting`. */
+  retryAt?: number;
   warnings?: string[];
 }
 

@@ -311,6 +311,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("hosts:retryConnect", hostId),
     onStatusChanged: (callback: (hosts: unknown) => void) =>
       onChannel<unknown>("hosts:statusChanged", callback),
+    // ADR-178 §6: a remote host is back and its hooks replayed; `sessionIds`
+    // are every session its daemon still has.
+    onReconnected: (
+      callback: (info: { hostId: string; sessionIds: string[] }) => void,
+    ) =>
+      onChannel<{ hostId: string; sessionIds: string[] }>(
+        "hosts:reconnected",
+        callback,
+      ),
     // ADR-178 ticket 5: the four checks in ADR-178 §4's table, run through
     // the host's own backend.
     healthCheck: (hostId: string, projectPath: string) =>

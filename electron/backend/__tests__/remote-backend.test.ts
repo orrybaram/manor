@@ -589,9 +589,14 @@ describe("RemoteBackend", () => {
       transport.unreachable = false;
       await vi.advanceTimersByTimeAsync(1);
       expect(transport.controlConnects - connectsBefore).toBe(3);
-      await waitForFake(() => hostEvents.length > 1);
-      // The session survived: re-subscribed, and flagged for a resnapshot.
-      expect(hostEvents[1]).toEqual({ type: "hostReconnected", sessionIds: ["s1"] });
+      await waitForFake(() => hostEvents.some((e) => e.type === "hostReconnected"));
+      // Each attempt after the first announced its delay, for the countdown.
+      expect(hostEvents.slice(1)).toEqual([
+        { type: "hostRetrying", sessionIds: [], retryInMs: 2_000 },
+        { type: "hostRetrying", sessionIds: [], retryInMs: 4_000 },
+        // The session survived: re-subscribed, and flagged for a resnapshot.
+        { type: "hostReconnected", sessionIds: ["s1"] },
+      ]);
       await waitForFake(() => subscribes() === 3);
       warn.mockRestore();
     });
@@ -608,10 +613,13 @@ describe("RemoteBackend", () => {
       // The first reconnect gets as far as listing sessions, then ssh dies.
       daemon.dropOnListSessions = 1;
       daemon.dropConnections();
-      await waitFor(() => hostEvents.length > 1, "hostReconnected");
+      await waitFor(
+        () => hostEvents.some((e) => e.type === "hostReconnected"),
+        "hostReconnected",
+      );
       expect(daemon.dropOnListSessions).toBe(0);
       // Reported once: the second drop happened inside the loop.
-      expect(hostEvents).toEqual([
+      expect(hostEvents.filter((e) => e.type !== "hostRetrying")).toEqual([
         { type: "hostDisconnected", sessionIds: ["s1"], retryInMs: 5 },
         { type: "hostReconnected", sessionIds: ["s1"] },
       ]);
@@ -667,6 +675,55 @@ describe("RemoteBackend", () => {
       },
     );
 
+    it("reports a session the restarted daemon no longer has as lost, not exited", async () => {
+      const { backend, daemon, hostEvents } = setup({ reconnectDelayMs: () => 5 });
+      current = backend;
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const ptyEvents: Array<{ type: string }> = [];
+      backend.pty.onEvent((e) => ptyEvents.push(e));
+      await backend.connect();
+      await backend.pty.createOrAttach("s1", "/srv/repo", 80, 24);
+      await backend.pty.createOrAttach("s2", "/srv/repo", 80, 24);
+
+      // The box rebooted: the daemon that answers has only s2.
+      daemon.sessions.delete("s1");
+      daemon.dropConnections();
+      await waitFor(
+        () => hostEvents.some((e) => e.type === "hostReconnected"),
+        "hostReconnected",
+      );
+      await waitFor(() => ptyEvents.some((e) => e.type === "exit"), "exit");
+      expect(ptyEvents.filter((e) => e.type === "exit")).toEqual([
+        { type: "exit", sessionId: "s1", exitCode: -1, lost: true },
+      ]);
+      expect(hostEvents.find((e) => e.type === "hostReconnected")).toEqual({
+        type: "hostReconnected",
+        sessionIds: ["s2"],
+      });
+      warn.mockRestore();
+    });
+
+    it("Retry now cuts the backoff short", async () => {
+      const { backend, daemon, transport, hostEvents } = setup({
+        reconnectDelayMs: () => 60_000,
+      });
+      current = backend;
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      await backend.connect();
+      expect(backend.retryNow()).toBe(false); // nothing to hurry
+      const before = transport.controlConnects;
+      daemon.dropConnections();
+      await waitFor(() => hostEvents.length > 0, "hostDisconnected");
+      await new Promise((r) => setTimeout(r, 10));
+      expect(transport.controlConnects - before).toBe(0);
+      expect(backend.retryNow()).toBe(true);
+      await waitFor(
+        () => hostEvents.some((e) => e.type === "hostReconnected"),
+        "hostReconnected",
+      );
+      warn.mockRestore();
+    });
+
     it("keeps retrying transient failures", async () => {
       const { backend, daemon, transport, hostEvents } = setup({ reconnectDelayMs: () => 5 });
       current = backend;
@@ -681,10 +738,12 @@ describe("RemoteBackend", () => {
         () => transport.ensureRunning.mock.calls.length - before >= 4,
         "several attempts",
       );
-      expect(hostEvents.map((e) => e.type)).toEqual(["hostDisconnected"]);
+      const types = () =>
+        hostEvents.map((e) => e.type).filter((t) => t !== "hostRetrying");
+      expect(types()).toEqual(["hostDisconnected"]);
       transport.ensureRunning.mockImplementation(async () => {});
-      await waitFor(() => hostEvents.length > 1, "hostReconnected");
-      expect(hostEvents[1].type).toBe("hostReconnected");
+      await waitFor(() => types().length > 1, "hostReconnected");
+      expect(types()[1]).toBe("hostReconnected");
       warn.mockRestore();
     });
 

@@ -25,6 +25,7 @@ import type { StreamPosition } from "../electron.d";
 import { resolveHomeAdapter } from "../lib/harness";
 import { useTerminalConnection } from "./useTerminalConnection";
 import { usePaneHostStore } from "../store/pane-host-store";
+import { consumeReattach } from "../store/pane-reattach-store";
 import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
 import { useTerminalResize } from "./useTerminalResize";
@@ -153,6 +154,10 @@ export function useTerminalLifecycle(
     // If this pane was recently closed and is being restored, cancel the
     // pending kill so the daemon session stays alive for reattach.
     cancelPtyKill(paneId);
+
+    // Remounted because its remote host came back (ADR-178 §6), not opened
+    // by the user: it must not take focus from wherever the user is now.
+    const reattached = consumeReattach(paneId);
 
     const t = new Terminal(
       terminalOptions({
@@ -449,7 +454,9 @@ export function useTerminalLifecycle(
     // User input → PTY
     const dataDisposable = t.onData(write);
 
-    t.focus();
+    // A reattached pane only takes focus back if it had it: its old xterm,
+    // focused, was just unmounted from under the user's cursor.
+    if (!reattached || (isFocusedPane && !isNavRegionFocused())) t.focus();
 
     return () => {
       disposed = true;

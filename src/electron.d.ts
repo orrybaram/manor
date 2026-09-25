@@ -538,6 +538,14 @@ export interface ElectronAPI {
     onStatusChanged: (
       callback: (hosts: import("./store/host-store").HostStatusInfo[]) => void,
     ) => () => void;
+    /**
+     * ADR-178 §6: a remote host came back from a drop and its hooks have
+     * replayed. `sessionIds` are every session its daemon still has — a pane
+     * on that host not among them lost its session to a daemon restart.
+     */
+    onReconnected: (
+      callback: (info: { hostId: string; sessionIds: string[] }) => void,
+    ) => () => void;
     /** ADR-178 ticket 5: the ADR-178 §4 checks, run through the host itself. */
     healthCheck: (
       hostId: string,

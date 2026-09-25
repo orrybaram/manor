@@ -140,7 +140,15 @@ function makeDeps(
         .mockImplementation(async () =>
           scanned.map((p, i) => ({ ...p, pid: i + 1 })),
         ),
+      /** An immediate scan of one host: every host's latest ports. */
+      scanHost: vi
+        .fn()
+        .mockImplementation(async (_hostId: string) =>
+          scanned.map((p, i) => ({ ...p, pid: i + 1 })),
+        ),
     },
+    /** The scan result, mutable so a test can start a server "later". */
+    scanned,
     backend: { ports: { kill: vi.fn() } },
     mainWindow: null,
     workspaceMeta,
@@ -290,6 +298,26 @@ describe("remote ports", () => {
     // This machine never rewrites.
     expect(await resolve("http://localhost:3000/", "local")).toBe("http://localhost:3000/");
     expect(deps.remoteForwards.ensure).toHaveBeenCalledTimes(1);
+  });
+
+  it("scans the host once more for a port its last scan did not report", async () => {
+    const deps = makeDeps([], [...remoteScan]);
+    register(deps as never);
+    await scan();
+    const resolve = (url: string) =>
+      handlers.get("ports:resolveUrl")!({} as never, url, "box");
+
+    // A dev server started since the last poll: found by the rescan.
+    deps.scanned.push({ port: 5173, workspacePath: "/srv/repo", hostId: "box" });
+    expect(await resolve("http://localhost:5173/")).toBe("http://127.0.0.1:55173/");
+    expect(deps.portScanner.scanHost).toHaveBeenCalledTimes(1);
+    expect(deps.portScanner.scanHost).toHaveBeenCalledWith("box");
+
+    // A known port needs no rescan; an unknown one gets exactly one.
+    await resolve("http://localhost:3000/");
+    expect(deps.portScanner.scanHost).toHaveBeenCalledTimes(1);
+    expect(await resolve("http://localhost:4000/")).toBe("http://localhost:4000/");
+    expect(deps.portScanner.scanHost).toHaveBeenCalledTimes(2);
   });
 
   it("hands the URL back unchanged when the forward cannot be made", async () => {

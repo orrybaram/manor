@@ -34,6 +34,20 @@ export function register(deps: IpcDeps): void {
     }
   });
 
+  // A remote host came back from a drop, its hooks replayed: every renderer
+  // reattaches its panes there and recovers the ones whose sessions are gone
+  // (ADR-178 §6). Each window acts only on the panes it has.
+  backendRegistry.onHostResumed((hostId, sessionIds) => {
+    for (const win of getRendererWindows()) {
+      try {
+        if (!win.webContents.mainFrame) continue;
+      } catch {
+        continue;
+      }
+      win.webContents.send("hosts:reconnected", { hostId, sessionIds });
+    }
+  });
+
   ipcMain.handle("hosts:list", () => backendRegistry.list());
 
   ipcMain.handle("hosts:add", (_event, target: unknown) => {
@@ -71,6 +85,6 @@ export function register(deps: IpcDeps): void {
 
   ipcMain.handle("hosts:retryConnect", (_event, hostId: unknown) => {
     assertString(hostId, "hosts:retryConnect.hostId");
-    backendRegistry.connectInBackground(hostId);
+    backendRegistry.retryNow(hostId);
   });
 }

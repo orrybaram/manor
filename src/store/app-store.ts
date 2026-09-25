@@ -379,6 +379,12 @@ export interface AppState {
   // Startup commands
   setPendingStartupCommand: (workspacePath: string, command: string) => void;
   consumePendingStartupCommand: (workspacePath: string) => string | null;
+  /**
+   * Queue `command` to run in `paneId` once its shell is ready — for a pane
+   * that already exists and is about to (re)create its session, e.g. one
+   * recovered after its remote host restarted (ADR-178 §6).
+   */
+  setPendingPaneCommand: (paneId: string, command: string) => void;
   consumePendingPaneCommand: (paneId: string) => string | null;
   /** Text a new pane on `paneId` should have typed (not run) once ready. */
   setPendingTypedText: (paneId: string, text: string) => void;
@@ -2346,6 +2352,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     return cmd;
   },
+
+  setPendingPaneCommand: (paneId: string, command: string) =>
+    set((state) => ({
+      pendingPaneCommands: { ...state.pendingPaneCommands, [paneId]: command },
+    })),
 
   consumePendingPaneCommand: (paneId: string) => {
     const cmd = get().pendingPaneCommands[paneId] ?? null;

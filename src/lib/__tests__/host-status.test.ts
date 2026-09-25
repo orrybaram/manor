@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { describeHostStatus } from "../host-status";
+import {
+  describeHostOffline,
+  describeHostStatus,
+  isPaneInputBlocked,
+  secondsUntilRetry,
+} from "../host-status";
 import type { HostStatusInfo } from "../../store/host-store";
 
 function host(overrides: Partial<HostStatusInfo>): HostStatusInfo {
@@ -95,5 +100,64 @@ describe("describeHostStatus", () => {
   it("shows disconnected for a host nobody has connected yet", () => {
     const display = describeHostStatus(host({ status: "disconnected" }));
     expect(display).toEqual({ label: "Disconnected", tone: "pending" });
+  });
+});
+
+describe("describeHostOffline (ADR-178 §6)", () => {
+  it("shows nothing for a connected or unknown host", () => {
+    expect(describeHostOffline(host({ status: "connected" }))).toBeNull();
+    expect(describeHostOffline(undefined)).toBeNull();
+  });
+
+  it("reads a routine drop as reconnecting, retryable", () => {
+    expect(describeHostOffline(host({ status: "reconnecting" }))).toEqual({
+      badge: "Disconnected — reconnecting",
+      banner: "Disconnected from me@box — reconnecting",
+      canRetry: true,
+    });
+  });
+
+  it("offers no retry while a connect is already running", () => {
+    expect(describeHostOffline(host({ status: "connecting" }))?.canRetry).toBe(false);
+  });
+
+  it("names a failure and carries its actionable message", () => {
+    const display = describeHostOffline(
+      host({ status: "error", error: "run ssh-add", failure: { reason: "auth", message: "run ssh-add" } }),
+    );
+    expect(display).toMatchObject({
+      badge: "Disconnected",
+      banner: "Authentication failed — me@box",
+      detail: "run ssh-add",
+      canRetry: true,
+    });
+  });
+});
+
+describe("secondsUntilRetry", () => {
+  it("counts down to the next attempt while reconnecting", () => {
+    const h = host({ status: "reconnecting", retryInMs: 8000, retryAt: 10_000 });
+    expect(secondsUntilRetry(h, 2_000)).toBe(8);
+    expect(secondsUntilRetry(h, 9_100)).toBe(1);
+    expect(secondsUntilRetry(h, 12_000)).toBe(0);
+  });
+
+  it("is null without a scheduled attempt", () => {
+    expect(secondsUntilRetry(host({ status: "reconnecting" }), 0)).toBeNull();
+    expect(secondsUntilRetry(host({ status: "error", retryAt: 5 }), 0)).toBeNull();
+  });
+});
+
+describe("isPaneInputBlocked", () => {
+  const hosts = [host({ status: "reconnecting" }), host({ hostId: "up", status: "connected" })];
+
+  it("drops input for a pane whose remote host is away", () => {
+    expect(isPaneInputBlocked("p1", { p1: "box" }, hosts)).toBe(true);
+  });
+
+  it("lets input through for local panes, connected hosts and unreported hosts", () => {
+    expect(isPaneInputBlocked("p1", {}, hosts)).toBe(false);
+    expect(isPaneInputBlocked("p1", { p1: "up" }, hosts)).toBe(false);
+    expect(isPaneInputBlocked("p1", { p1: "unknown" }, hosts)).toBe(false);
   });
 });

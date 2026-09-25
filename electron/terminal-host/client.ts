@@ -128,6 +128,11 @@ export interface ConnectionListener {
    * connect re-subscribes them and reports `onReconnected`.
    */
   onFailed?(info: { error: unknown; sessionIds: string[]; attempts: number }): void;
+  /**
+   * The reconnect loop is about to wait `delayMs` before attempt `attempt`
+   * (0-based). Attempt 0's delay is the one `onLost` precedes.
+   */
+  onRetryScheduled?(info: { attempt: number; delayMs: number }): void;
 }
 
 /** Callbacks for one `execStream`, mirroring `Exec.stream` in backend/exec.ts. */
@@ -371,7 +376,7 @@ export class TerminalHostClient {
     // connect() or reconnect loop that is still in progress.
     queueMicrotask(() => {
       try {
-        handler({ type: "exit", sessionId, exitCode: -1 });
+        handler({ type: "exit", sessionId, exitCode: -1, lost: true });
       } catch (err) {
         console.error("[terminal-host] exit handler threw:", err);
       }
@@ -393,6 +398,7 @@ export class TerminalHostClient {
       for (let attempt = 0; ; attempt++) {
         const delay = this.reconnectDelay(attempt);
         if (delay === null) break;
+        this.notifyListener("onRetryScheduled", { attempt, delayMs: delay });
         await this.sleepBeforeReconnect(delay);
         // disconnect() was called while we slept: the caller is done with us.
         if (generation !== this.generation) return;
@@ -458,6 +464,17 @@ export class TerminalHostClient {
     return this.reconnectDelaysMs[attempt] ?? null;
   }
 
+  /**
+   * Cut the reconnect loop's current wait short and attempt now ("Retry
+   * now"). Returns false when the loop is not waiting — not reconnecting,
+   * or mid-attempt — so the caller can fall back to `connect()`.
+   */
+  retryReconnectNow(): boolean {
+    if (!this.reconnecting || !this.wakeReconnect) return false;
+    this.wakeReconnect();
+    return true;
+  }
+
   /** Wait `ms`, or less if `disconnect()` is called meanwhile. */
   private sleepBeforeReconnect(ms: number): Promise<void> {
     return new Promise<void>((resolve) => {
@@ -481,13 +498,18 @@ export class TerminalHostClient {
           Parameters<NonNullable<ConnectionListener["onReconnected"]>>[0],
         ]
       | ["onFailed", Parameters<NonNullable<ConnectionListener["onFailed"]>>[0]]
+      | [
+          "onRetryScheduled",
+          Parameters<NonNullable<ConnectionListener["onRetryScheduled"]>>[0],
+        ]
   ): void {
     const listener = this.connectionListener;
     if (!listener) return;
     try {
       if (call[0] === "onLost") listener.onLost?.(call[1]);
       else if (call[0] === "onReconnected") listener.onReconnected?.(call[1]);
-      else listener.onFailed?.(call[1]);
+      else if (call[0] === "onFailed") listener.onFailed?.(call[1]);
+      else listener.onRetryScheduled?.(call[1]);
     } catch (err) {
       console.error(`[terminal-host] connection listener ${call[0]} threw:`, err);
     }

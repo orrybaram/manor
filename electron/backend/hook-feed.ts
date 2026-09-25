@@ -110,6 +110,8 @@ export class HostHookFeed {
   private generation = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private retryAttempt = 0;
+  /** Callers of `catchUp` waiting for the catch-up in progress to settle. */
+  private settleWaiters: Array<() => void> = [];
   private readonly retryDelayMs: (attempt: number) => number;
 
   constructor(private readonly opts: HostHookFeedOptions) {
@@ -138,27 +140,47 @@ export class HostHookFeed {
         `[hook-feed] ${this.opts.hostId}: live hook seq ${seq} after ${this.lastSeq}; catching up from the journal`,
       );
       this.hold(seq, payload);
-      this.catchUp();
+      void this.catchUp();
       return;
     }
     this.hold(seq, payload);
   }
 
-  /** The host is connected: catch up from the journal, then go live. */
-  catchUp(): void {
+  /**
+   * The host is connected: catch up from the journal, then go live.
+   *
+   * The promise settles (never rejects) once this catch-up is over: the feed
+   * went live, its replay failed (a retry is scheduled — nobody should wait
+   * on that), or it was paused. With no sink yet it settles at once. The
+   * registry waits on it so panes reattach after replayed hooks have set
+   * their agents' status (ADR-178 §6).
+   */
+  catchUp(): Promise<void> {
+    const settled = new Promise<void>((resolve) => this.settleWaiters.push(resolve));
     if (this.mode === "replaying") {
       this.rerun = true;
-      return;
+      return settled;
     }
     this.clearRetry();
     const sink = this.opts.sink();
-    if (!sink) return;
+    if (!sink) {
+      this.settle();
+      return settled;
+    }
     this.mode = "replaying";
     void this.runCatchUp(++this.generation, sink);
+    return settled;
+  }
+
+  private settle(): void {
+    const waiters = this.settleWaiters;
+    this.settleWaiters = [];
+    for (const resolve of waiters) resolve();
   }
 
   /** The host went away. Held events are dropped — the journal has them. */
   pause(): void {
+    this.settle();
     this.generation++;
     this.clearRetry();
     this.mode = "idle";
@@ -220,8 +242,9 @@ export class HostHookFeed {
       this.mode = "idle";
       this.retryTimer = setTimeout(() => {
         this.retryTimer = null;
-        this.catchUp();
+        void this.catchUp();
       }, delay);
+      this.settle();
       return;
     }
     if (generation !== this.generation) return;
@@ -262,9 +285,10 @@ export class HostHookFeed {
     } catch (err) {
       console.error(`[hook-feed] ${hostId}: replayFinished threw:`, err);
     }
+    this.settle();
     if (gap || this.rerun) {
       this.rerun = false;
-      this.catchUp();
+      void this.catchUp();
     }
   }
 

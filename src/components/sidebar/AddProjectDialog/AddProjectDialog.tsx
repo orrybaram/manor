@@ -4,9 +4,11 @@ import X from "lucide-react/dist/esm/icons/x";
 import Loader2 from "lucide-react/dist/esm/icons/loader-2";
 import CheckCircle2 from "lucide-react/dist/esm/icons/check-circle-2";
 import XCircle from "lucide-react/dist/esm/icons/x-circle";
+import HelpCircle from "lucide-react/dist/esm/icons/help-circle";
 import { useProjectStore } from "../../../store/project-store";
 import { useAppStore } from "../../../store/app-store";
 import { useHostStore } from "../../../store/host-store";
+import { addErrorToast } from "../../../store/toast-store";
 import { LOCAL_HOST_ID, type HealthCheckResult } from "../../../lib/hosts";
 import { Button } from "../../ui/Button/Button";
 import { Input } from "../../ui/Input";
@@ -100,11 +102,18 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
   );
 
   const handleAddLocal = useCallback(async () => {
+    // The local flow opens a folder picker and then `ProjectSetupWizard` —
+    // both would otherwise render underneath this Radix dialog while it
+    // waits for `onAddLocal` to resolve. Close it first so the picker and
+    // wizard are on top (ADR-178 ticket 5 review); an error surfaces as a
+    // toast instead of inline, since the dialog is already gone.
+    onClose();
+    reset();
     setAddingLocal(true);
     try {
       await onAddLocal();
-      onClose();
-      reset();
+    } catch (err) {
+      addErrorToast("add-local-project", "Failed to add project", err);
     } finally {
       setAddingLocal(false);
     }
@@ -179,8 +188,13 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
       if (!ws) return;
       useAppStore.getState().setActiveWorkspace(ws.path);
       useAppStore.getState().addTerminalTabWithTypedText(check.fixCommand);
+      // The terminal tab renders behind this dialog otherwise (ADR-178
+      // ticket 5 review) — close it so the user lands where the command was
+      // typed.
+      onClose();
+      reset();
     },
-    [projectId, projectPath],
+    [projectId, projectPath, onClose, reset],
   );
 
   const handleDone = useCallback(() => {
@@ -196,7 +210,7 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
           <Row align="center" justify="space-between" className={styles.header}>
             <Dialog.Title className={styles.title}>Add Project</Dialog.Title>
             <Dialog.Close asChild>
-              <Button variant="ghost" size="sm">
+              <Button variant="ghost" size="sm" aria-label="Close">
                 <X size={14} />
               </Button>
             </Dialog.Close>
@@ -231,8 +245,11 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
                 ) : (
                   <Stack gap="sm">
                     <Stack>
-                      <label className={styles.fieldLabel}>Host</label>
+                      <label className={styles.fieldLabel} htmlFor="add-project-host">
+                        Host
+                      </label>
                       <SearchableSelect
+                        id="add-project-host"
                         value={hostId}
                         onChange={setHostId}
                         options={remoteHostOptions}
@@ -241,8 +258,11 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
                       />
                     </Stack>
                     <Stack>
-                      <label className={styles.fieldLabel}>Repo URL</label>
+                      <label className={styles.fieldLabel} htmlFor="add-project-repo-url">
+                        Repo URL
+                      </label>
                       <Input
+                        id="add-project-repo-url"
                         value={repoUrl}
                         onChange={(e) => {
                           setRepoUrl(e.target.value);
@@ -252,16 +272,22 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
                       />
                     </Stack>
                     <Stack>
-                      <label className={styles.fieldLabel}>Remote directory</label>
+                      <label className={styles.fieldLabel} htmlFor="add-project-remote-dir">
+                        Remote directory
+                      </label>
                       <Input
+                        id="add-project-remote-dir"
                         value={remoteDir}
                         onChange={(e) => setRemoteDir(e.target.value)}
                         placeholder="~/code/repo"
                       />
                     </Stack>
                     <Stack>
-                      <label className={styles.fieldLabel}>Name</label>
+                      <label className={styles.fieldLabel} htmlFor="add-project-name">
+                        Name
+                      </label>
                       <Input
+                        id="add-project-name"
                         value={name}
                         onChange={(e) => {
                           setName(e.target.value);
@@ -324,7 +350,9 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
                   {(checks ?? []).map((check) => (
                     <Row key={check.id} align="center" justify="space-between" gap="sm">
                       <Row align="center" gap="xs">
-                        {check.ok ? (
+                        {check.status === "unknown" ? (
+                          <HelpCircle size={14} className={styles.unknown} />
+                        ) : check.ok ? (
                           <CheckCircle2 size={14} className={styles.ok} />
                         ) : (
                           <XCircle size={14} className={styles.fail} />

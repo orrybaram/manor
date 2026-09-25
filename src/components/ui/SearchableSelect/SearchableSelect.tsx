@@ -19,6 +19,8 @@ type SearchableSelectProps = {
   loading?: boolean;
   emptyMessage?: string;
   "data-testid"?: string;
+  /** Set on the trigger button, so a `<label htmlFor>` can point at it. */
+  id?: string;
 };
 
 const LISTBOX_ID = "searchable-select-listbox";
@@ -34,6 +36,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
     loading = false,
     emptyMessage = "No results",
     "data-testid": dataTestId,
+    id,
   } = props;
 
   const [open, setOpen] = useState(false);
@@ -121,6 +124,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
     <Popover.Root open={open} onOpenChange={handleOpenChange}>
       <Popover.Trigger asChild>
         <button
+          id={id}
           className={styles.trigger}
           style={{ maxWidth }}
           role="combobox"

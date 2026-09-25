@@ -201,4 +201,55 @@ describe("LocalGitBackend", () => {
       }
     });
   });
+
+  describe("cloneStream", () => {
+    it("clones a real repo end to end", async () => {
+      const targetDir = path.join(await mkdtemp(path.join(os.tmpdir(), "manor-clone-")), "repo");
+      await new Promise<void>((resolve, reject) => {
+        backend.cloneStream(tmpDir, targetDir, {
+          onLine: () => {},
+          onDone: ({ exitCode, stderr }) => {
+            if (exitCode === 0) resolve();
+            else reject(new Error(stderr));
+          },
+        });
+      });
+      try {
+        const clonedLog = await new LocalGitBackend().exec(targetDir, ["log", "--oneline"]);
+        expect(clonedLog).toContain("initial");
+      } finally {
+        await rm(targetDir, { recursive: true, force: true });
+      }
+    });
+
+    it(
+      "puts `--` before the repo URL and target dir, so a value starting " +
+        "with `-` cannot be misread as a git option (ADR-178 ticket 5 review)",
+      async () => {
+        const calls: Array<{ args: string[] }> = [];
+        const fakeExecImpl = {
+          stream: (_cmd: string, args: string[], _opts: unknown, cb: { onExit: (r: { exitCode: number | null }) => void }) => {
+            calls.push({ args });
+            cb.onExit({ exitCode: 0 });
+            return { cancel: () => {} };
+          },
+        };
+        const fakeBackend = new LocalGitBackend(fakeExecImpl as never);
+        await new Promise<void>((resolve) => {
+          fakeBackend.cloneStream("-oProxyCommand=whoami", "/tmp/target", {
+            onLine: () => {},
+            onDone: () => resolve(),
+          });
+        });
+        expect(calls).toHaveLength(1);
+        const args = calls[0].args;
+        const dashDashIndex = args.indexOf("--");
+        expect(dashDashIndex).toBeGreaterThan(-1);
+        expect(args.slice(dashDashIndex + 1)).toEqual([
+          "-oProxyCommand=whoami",
+          "/tmp/target",
+        ]);
+      },
+    );
+  });
 });

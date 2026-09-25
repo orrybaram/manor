@@ -77,6 +77,11 @@
   flex-shrink: 0;
 }
 
+.unknown {
+  color: var(--yellow, #eab308);
+  flex-shrink: 0;
+}
+
 .spinner {
   animation: spin 0.6s linear infinite;
 }

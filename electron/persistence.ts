@@ -44,9 +44,18 @@ function remoteJoin(...parts: string[]): string {
 const REPO_URL_PATTERN =
   /^(?:https:\/\/[A-Za-z0-9._-]+(?::\d+)?\/[\w.\-~/]+(?:\.git)?|ssh:\/\/[\w.-]+@[A-Za-z0-9._-]+(?::\d+)?\/[\w.\-~/]+(?:\.git)?|[\w.-]+@[A-Za-z0-9._-]+:[\w.\-~/]+(?:\.git)?)$/;
 
-/** Throws unless `url` is an `https://`, `ssh://` or scp-style git remote. */
+/**
+ * Throws unless `url` is an `https://`, `ssh://` or scp-style git remote.
+ *
+ * The scp form (`user@host:path`) allows `-` in its user part, which would
+ * otherwise let a URL like `-oProxyCommand=…@host:path` be handed to `git
+ * clone` and misread as an option rather than a positional argument.
+ * Requiring the first character to be alphanumeric closes that off for
+ * every accepted form (the `https://`/`ssh://` schemes already start
+ * alphanumeric, so this only tightens the scp form).
+ */
 export function validateRepoUrl(url: string): void {
-  if (!REPO_URL_PATTERN.test(url)) {
+  if (!/^[A-Za-z0-9]/.test(url) || !REPO_URL_PATTERN.test(url)) {
     throw new Error(
       "Repo URL must be an https://, ssh://, or git@host:path git remote.",
     );
@@ -71,6 +80,28 @@ export function validateRemoteDir(dir: string): void {
         "letters, numbers and @%_+=:,./-",
     );
   }
+}
+
+/**
+ * A repo's identity as `host/path`, so `git@host:path`, `ssh://git@host/path`
+ * and `https://host/path` (ADR-178 ticket 5 review) compare equal even
+ * though `git remote get-url origin` and a user-typed repo URL rarely agree
+ * on form. Strips scheme, user, port and a trailing `.git`/`/`; case-folds,
+ * since host names are case-insensitive.
+ */
+export function normalizeOriginUrl(url: string): string {
+  let rest = url.trim().replace(/\.git$/i, "").replace(/\/+$/, "");
+  if (/^https?:\/\//i.test(rest)) {
+    rest = rest.replace(/^https?:\/\//i, "");
+  } else if (/^ssh:\/\//i.test(rest)) {
+    rest = rest.replace(/^ssh:\/\//i, "");
+  } else {
+    // scp-style `user@host:path` — turn the `:` before the path into `/`.
+    rest = rest.replace(/^([^@/]+@[^@/:]+):/, "$1/");
+  }
+  // Drop a leading `user@`, then a `:port` right after the host.
+  rest = rest.replace(/^[^@/]+@/, "").replace(/^([^/:]+):\d+/, "$1");
+  return rest.toLowerCase();
 }
 
 export interface CustomCommand {
@@ -890,6 +921,13 @@ export class ProjectManager {
     if (state === "nonempty") {
       const alreadyCloned = await this.remoteDirIsCloneOf(git, targetDir, repoUrl);
       if (alreadyCloned) {
+        // Adopting an existing clone must not create a second project
+        // record for the same host+path — return the one Manor already
+        // has instead (ADR-178 ticket 5 review).
+        const existing = this.state.projects.find(
+          (p) => p.path === targetDir && (p.hostId ?? LOCAL_HOST_ID) === hostId,
+        );
+        if (existing) return this.buildProjectInfo(existing);
         return this.addProject(name, targetDir, hostId);
       }
       throw new Error(
@@ -938,7 +976,7 @@ export class ProjectManager {
   ): Promise<boolean> {
     try {
       const out = await git.exec(dir, ["remote", "get-url", "origin"]);
-      return out.trim() === repoUrl;
+      return normalizeOriginUrl(out.trim()) === normalizeOriginUrl(repoUrl);
     } catch {
       return false;
     }

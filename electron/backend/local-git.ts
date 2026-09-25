@@ -211,7 +211,7 @@ export class LocalGitBackend implements GitBackend {
 
     return this.execImpl.stream(
       "git",
-      ["clone", "--progress", repoUrl, targetDir],
+      ["clone", "--progress", "--", repoUrl, targetDir],
       {
         // Overrides only — the Exec merges them onto its own base env.
         // A missing credential must fail fast rather than hang waiting for

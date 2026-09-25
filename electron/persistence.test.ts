@@ -10,6 +10,7 @@ import {
   spliceFolderOut,
   validateRepoUrl,
   validateRemoteDir,
+  normalizeOriginUrl,
 } from "./persistence";
 import type { GitBackend, ShellBackend } from "./backend/types";
 import { worktreesDir } from "./paths";
@@ -1765,6 +1766,10 @@ describe("validateRepoUrl (ADR-178 ticket 5)", () => {
     "file:///etc/passwd",
     "https://github.com/org/repo.git; rm -rf /",
     "-oProxyCommand=whoami",
+    // scp-style user part starting with `-` — otherwise a valid-looking
+    // remote that `git clone` could misread as an option (ADR-178 ticket 5
+    // review).
+    "-oProxyCommand=whoami@github.com:org/repo.git",
   ])("rejects %s", (url) => {
     expect(() => validateRepoUrl(url)).toThrow();
   });
@@ -1787,6 +1792,38 @@ describe("validateRemoteDir (ADR-178 ticket 5)", () => {
     "../escape",
   ])("rejects %s", (dir) => {
     expect(() => validateRemoteDir(dir)).toThrow();
+  });
+});
+
+describe("normalizeOriginUrl (ADR-178 ticket 5 review)", () => {
+  it("treats git@host:path, ssh://git@host/path and https://host/path as the same identity", () => {
+    const forms = [
+      "git@github.com:org/repo.git",
+      "ssh://git@github.com/org/repo.git",
+      "https://github.com/org/repo.git",
+      "https://github.com/org/repo",
+      "https://github.com/org/repo/",
+    ];
+    const normalized = forms.map(normalizeOriginUrl);
+    expect(new Set(normalized).size).toBe(1);
+  });
+
+  it("is case-insensitive on the host", () => {
+    expect(normalizeOriginUrl("https://GitHub.com/org/repo.git")).toBe(
+      normalizeOriginUrl("https://github.com/org/repo.git"),
+    );
+  });
+
+  it("ignores an embedded user and a port", () => {
+    expect(normalizeOriginUrl("https://me@github.com:443/org/repo.git")).toBe(
+      normalizeOriginUrl("https://github.com/org/repo.git"),
+    );
+  });
+
+  it("treats different repos as different identities", () => {
+    expect(normalizeOriginUrl("git@github.com:org/repo-a.git")).not.toBe(
+      normalizeOriginUrl("git@github.com:org/repo-b.git"),
+    );
   });
 });
 
@@ -1968,6 +2005,52 @@ describe("ProjectManager.addRemoteProject (ADR-178 ticket 5)", () => {
 
     expect(git.cloneStream).not.toHaveBeenCalled();
     expect(project.path).toBe("/srv/app");
+  });
+
+  it("adopts a directory whose origin is the same repo in a different URL form (scp vs. https)", async () => {
+    const git = fakeGit({
+      // The checkout's `origin` is scp-style; the user typed https.
+      remoteOrigins: { "/srv/app": "git@github.com:org/repo.git" },
+    });
+    const shell = fakeShell("/home/remoteuser", { "/srv/app": ["package.json"] });
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+
+    const project = await mgr.addRemoteProject({
+      hostId: "box",
+      repoUrl: "https://github.com/org/repo.git",
+      remoteDir: "/srv/app",
+      name: "App",
+    });
+
+    expect(git.cloneStream).not.toHaveBeenCalled();
+    expect(project.path).toBe("/srv/app");
+  });
+
+  it("adopting an existing clone twice returns the same project instead of a duplicate", async () => {
+    const git = fakeGit({
+      remoteOrigins: { "/srv/app": "https://github.com/org/repo.git" },
+    });
+    const shell = fakeShell("/home/remoteuser", { "/srv/app": ["package.json"] });
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+
+    const first = await mgr.addRemoteProject({
+      hostId: "box",
+      repoUrl: "https://github.com/org/repo.git",
+      remoteDir: "/srv/app",
+      name: "App",
+    });
+    const second = await mgr.addRemoteProject({
+      hostId: "box",
+      repoUrl: "https://github.com/org/repo.git",
+      remoteDir: "/srv/app",
+      name: "App",
+    });
+
+    expect(second.id).toBe(first.id);
+    const projects = await mgr.getProjects();
+    expect(projects.filter((p) => p.path === "/srv/app")).toHaveLength(1);
   });
 
   it("clones into an empty existing directory", async () => {

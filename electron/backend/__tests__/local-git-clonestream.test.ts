@@ -65,7 +65,7 @@ describe("LocalGitBackend.cloneStream", () => {
     backend = new LocalGitBackend(fake.exec);
   });
 
-  it("runs `git clone --progress <repoUrl> <targetDir>`", () => {
+  it("runs `git clone --progress -- <repoUrl> <targetDir>`", () => {
     backend.cloneStream("git@github.com:org/repo.git", "/home/user/repo", {
       onLine: vi.fn(),
       onDone: vi.fn(),
@@ -74,9 +74,12 @@ describe("LocalGitBackend.cloneStream", () => {
     expect(fake.streamMock).toHaveBeenCalledOnce();
     const [cmd, args] = fake.streamMock.mock.calls[0];
     expect(cmd).toBe("git");
+    // `--` keeps a repo URL that starts with `-` from being misread as a
+    // git option (ADR-178 ticket 5 review).
     expect(args).toEqual([
       "clone",
       "--progress",
+      "--",
       "git@github.com:org/repo.git",
       "/home/user/repo",
     ]);

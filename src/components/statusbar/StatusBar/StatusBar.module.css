@@ -138,6 +138,36 @@
   background: var(--danger, #c74e39);
 }
 
+/* ── Host connection indicator (ADR-160) ── */
+
+.hostBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  background: var(--surface-hover, #2a2a2a);
+  color: var(--text-dim);
+  font-size: 9px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.05em;
+}
+
+.hostBadgePending {
+  color: var(--yellow, #d29922);
+}
+
+.hostBadgeError {
+  background: var(--danger, #c74e39);
+  color: #fff;
+}
+
+.hostBadgeWarn {
+  color: var(--yellow, #d29922);
+}
+
 /* ── Usage stats segment (ADR-168) ── */
 
 /* Doubled selector so these win over the Button `link` variant's colour and

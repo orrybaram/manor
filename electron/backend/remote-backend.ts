@@ -70,6 +70,12 @@ export interface RemoteBackendOptions {
   /** Bootstrap progress (platform detection, install) for a status line. */
   onBootstrapProgress?: (progress: BootstrapProgress) => void;
   /**
+   * Non-fatal warnings from the agent-hook bootstrap (ticket 7), e.g. an
+   * agent config on the remote that was skipped rather than risk corrupting
+   * it. Called only when there is at least one.
+   */
+  onBootstrapWarning?: (warnings: string[]) => void;
+  /**
    * Replaces the `SshTransport` (whose `ensureRunning` bootstraps the
    * remote host). For tests.
    */
@@ -88,6 +94,7 @@ export class RemoteBackend implements WorkspaceBackend {
   private readonly client: TerminalHostClient;
   private readonly transport: HostTransport;
   private readonly reconnectDelayMs: ReconnectPolicy;
+  private readonly onBootstrapWarning?: (warnings: string[]) => void;
   /** The `disconnect()` in progress, which a `connect()` must wait out. */
   private disconnecting: Promise<void> | null = null;
   private readonly hostEventHandlers = new Set<HostConnectionEventHandler>();
@@ -95,6 +102,7 @@ export class RemoteBackend implements WorkspaceBackend {
   constructor(opts: RemoteBackendOptions) {
     this.target = opts.target;
     this.reconnectDelayMs = opts.reconnectDelayMs ?? remoteReconnectDelayMs;
+    this.onBootstrapWarning = opts.onBootstrapWarning;
     const transport = (this.transport =
       opts.transport ??
       new SshTransport(opts.target, {
@@ -185,6 +193,9 @@ export class RemoteBackend implements WorkspaceBackend {
       } else {
         for (const warning of result.warnings) {
           console.warn(`[remote-backend] bootstrap on ${this.target}: ${warning}`);
+        }
+        if (result.warnings.length > 0) {
+          this.onBootstrapWarning?.(result.warnings);
         }
       }
     } catch (err) {

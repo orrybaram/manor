@@ -27,7 +27,7 @@ import type { AgentStatus, StreamEvent } from "./terminal-host/types";
 import { initAutoUpdater, checkForUpdates } from "./updater";
 import { portlessManager } from "./portless";
 import { LocalBackend } from "./backend/local-backend";
-import { BackendRegistry } from "./backend/registry";
+import { BackendRegistry, type HostStatus } from "./backend/registry";
 import { RoutedBackend } from "./backend/routed-backend";
 import { PrewarmManager } from "./prewarm-manager";
 import { RemoteDeviceStore } from "./remote-control/devices";
@@ -65,6 +65,8 @@ import * as processesIpc from "./ipc/processes";
 import * as windowIpc from "./ipc/window";
 import * as remoteControlIpc from "./ipc/remote-control";
 import * as menuIpc from "./ipc/menu";
+import * as hostsIpc from "./ipc/hosts";
+import { notifyProjectsChanged } from "./renderer-bridge";
 
 // Extract stream event handler for testability
 export function handleStreamEvent(
@@ -387,6 +389,22 @@ export function initApp(devTitle: string | null): void {
   // tag to record which host owns the session (so pane calls route back to
   // it) and dropped any event for a session another host owns; the pane
   // channels themselves stay keyed by pane id, which is unique across hosts.
+  // The renderer's project list is fetched before a remote host connects, so
+  // its workspaces fall back to the main path until the next `getProjects()`.
+  // Tell it to refetch the moment any host reaches "connected" rather than
+  // waiting on some unrelated mutation to trigger it (ADR-160 ticket 9
+  // follow-up).
+  const lastHostStatus = new Map<string, HostStatus>();
+  backendRegistry.onStatusChange((hosts) => {
+    for (const host of hosts) {
+      const prev = lastHostStatus.get(host.hostId);
+      lastHostStatus.set(host.hostId, host.status);
+      if (host.status === "connected" && prev !== "connected") {
+        notifyProjectsChanged();
+      }
+    }
+  });
+
   backendRegistry.onEvent((_hostId: string, event: StreamEvent) => {
     for (const win of getRendererWindows()) {
       // Check that the main frame is still available (avoids "Render frame was
@@ -486,6 +504,7 @@ export function initApp(devTitle: string | null): void {
   windowIpc.register(ipcDeps);
   remoteControlIpc.register(ipcDeps);
   menuIpc.register(ipcDeps);
+  hostsIpc.register(ipcDeps);
 
   // ── App lifecycle ──
   app.whenReady().then(async () => {

@@ -70,6 +70,7 @@ function setup() {
   const local = fakeBackend("local");
   const remotes = new Map<string, ReturnType<typeof fakeBackend>>();
   const progress = new Map<string, (message: string) => void>();
+  const warn = new Map<string, (warnings: string[]) => void>();
   const registry = new BackendRegistry({
     local: local.backend,
     version: "1.2.3",
@@ -79,10 +80,11 @@ function setup() {
       progress.set(hostId, (message) =>
         opts.onBootstrapProgress({ phase: "install", target: hostId, message }),
       );
+      warn.set(hostId, opts.onBootstrapWarning);
       return fake.backend;
     },
   });
-  return { registry, local, remotes, progress };
+  return { registry, local, remotes, progress, warn };
 }
 
 const box: HostSpec = { kind: "ssh", target: "me@box" };
@@ -192,6 +194,24 @@ describe("BackendRegistry", () => {
     // ensureConnected is the retry.
     await registry.ensureConnected("box");
     expect(registry.status("box")).toBe("connected");
+  });
+
+  it("carries a bootstrap warning reported mid-connect through to the connected state", async () => {
+    const { registry, warn } = setup();
+    registry.register("box", box);
+    const connecting = registry.ensureConnected("box");
+    // The warning arrives while still "connecting" (bootstrapHost runs near
+    // the end of RemoteBackend.connect(), before it resolves).
+    warn.get("box")!(["skipped an unparseable agent config"]);
+    expect(registry.list()[1]).toMatchObject({
+      status: "connecting",
+      warnings: ["skipped an unparseable agent config"],
+    });
+    await connecting;
+    expect(registry.list()[1]).toMatchObject({
+      status: "connected",
+      warnings: ["skipped an unparseable agent config"],
+    });
   });
 
   it("fails git fast on a host that is not connected, and connects it in the background", async () => {

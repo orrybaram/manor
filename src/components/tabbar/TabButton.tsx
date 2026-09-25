@@ -9,6 +9,9 @@ import { Button } from "../ui/Button/Button";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { useShallow } from "zustand/react/shallow";
 import { useAppStore } from "../../store/app-store";
+import { useProjectStore } from "../../store/project-store";
+import { useHostStore, selectHost } from "../../store/host-store";
+import { LOCAL_HOST_ID } from "../../lib/hosts";
 import { countTabsInWindow, trackHandoff } from "../../lib/window-handoff";
 import { useKeybinding } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
@@ -17,8 +20,24 @@ import {
   isContextMenuKey,
   openContextMenuFromKeyboard,
 } from "../../lib/keyboard-context-menu";
+import { REMOTE_HOST_BADGE_STYLE } from "../../lib/tab-styles";
 import { TabAgentDot } from "./TabAgentDot";
 import styles from "./TabBar/TabBar.module.css";
+
+/**
+ * The host id of the project the active workspace belongs to, or `null` for
+ * `"local"` — a tab needs no host badge in the overwhelmingly common case.
+ */
+function useActiveWorkspaceHostId(): string | null {
+  const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
+  return useProjectStore((s) => {
+    const project = s.projects.find((p) =>
+      p.workspaces.some((w) => w.path === activeWorkspacePath),
+    );
+    const hostId = project?.hostId ?? LOCAL_HOST_ID;
+    return hostId === LOCAL_HOST_ID ? null : hostId;
+  });
+}
 
 /** The tab bar's own tabs, in DOM order, within the tab holding `from`. */
 function allTabs(from: HTMLElement): HTMLElement[] {
@@ -175,6 +194,11 @@ export function TabButton(props: TabButtonProps) {
     return Object.keys(layout.panels).length;
   });
   const [faviconError, setFaviconError] = useState(false);
+  const remoteHostId = useActiveWorkspaceHostId();
+  const remoteHost = useHostStore(selectHost(remoteHostId ?? undefined));
+  const remoteHostLabel = remoteHostId
+    ? remoteHost?.spec?.target ?? remoteHostId
+    : null;
   const isBrowser = contentType === "browser";
   const isDiff = contentType === "diff";
   const contentTypeClass = isDiff ? styles.tabDiff : isBrowser ? styles.tabBrowser : styles.tabTerminal;
@@ -228,6 +252,25 @@ export function TabButton(props: TabButtonProps) {
           <span className={styles.tabTitle} data-testid="tab-title">
             {isPinned ? shortenTitle(title) : title}
           </span>
+          {remoteHostLabel && !isPinned && (
+            <Tooltip label={`Running on ${remoteHostLabel}`}>
+              <span
+                className={styles.tabRemoteHostBadge}
+                style={{
+                  ...REMOTE_HOST_BADGE_STYLE,
+                  background:
+                    remoteHost?.status === "connected"
+                      ? "var(--surface-hover)"
+                      : "var(--yellow)",
+                  color:
+                    remoteHost?.status === "connected" ? "var(--text-dim)" : "#000",
+                }}
+                data-testid="tab-remote-host-badge"
+              >
+                {remoteHostLabel}
+              </span>
+            </Tooltip>
+          )}
           {(audioPlaying || audioMuted) && (
             <Tooltip label={audioMuted ? "Unmute Tab" : "Mute Tab"}>
               <Button

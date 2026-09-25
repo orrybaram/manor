@@ -126,6 +126,7 @@ export type ProjectUpdatableFields = Partial<
     | "themeName"
     | "setupComplete"
     | "portlessEnabled"
+    | "hostId"
   >
 >;
 

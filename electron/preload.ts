@@ -288,8 +288,19 @@ contextBridge.exposeInMainWorld("electronAPI", {
           teamKey: string;
         }>;
         color: string | null;
+        hostId: string;
       }>,
     ) => ipcRenderer.invoke("projects:update", projectId, updates),
+  },
+
+  hosts: {
+    list: () => ipcRenderer.invoke("hosts:list"),
+    add: (target: string) => ipcRenderer.invoke("hosts:add", target),
+    remove: (hostId: string) => ipcRenderer.invoke("hosts:remove", hostId),
+    retryConnect: (hostId: string) =>
+      ipcRenderer.invoke("hosts:retryConnect", hostId),
+    onStatusChanged: (callback: (hosts: unknown) => void) =>
+      onChannel<unknown>("hosts:statusChanged", callback),
   },
 
   theme: {

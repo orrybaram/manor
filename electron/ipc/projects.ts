@@ -2,10 +2,20 @@ import { ipcMain } from "electron";
 import { assertString } from "../ipc-validate";
 import type { ProjectUpdatableFields } from "../persistence";
 import type { LinkedIssue } from "../linear";
+import { LOCAL_HOST_ID } from "../backend/types";
 import type { IpcDeps } from "./types";
 
 export function register(deps: IpcDeps): void {
   const { projectManager, statsStore } = deps;
+
+  /** `hostId` must name this machine or a host the user has registered. */
+  function assertKnownHostId(hostId: string): void {
+    if (hostId === LOCAL_HOST_ID) return;
+    const known = projectManager.getHosts().some((h) => h.hostId === hostId);
+    if (!known) {
+      throw new Error(`Unknown host "${hostId}".`);
+    }
+  }
 
   ipcMain.handle("projects:getAll", () => {
     return projectManager.getProjects();
@@ -168,6 +178,10 @@ export function register(deps: IpcDeps): void {
       projectId: string,
       updates: ProjectUpdatableFields,
     ) => {
+      if (updates.hostId !== undefined) {
+        assertString(updates.hostId, "hostId");
+        assertKnownHostId(updates.hostId);
+      }
       return projectManager.updateProject(projectId, updates);
     },
   );

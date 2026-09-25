@@ -375,6 +375,9 @@ export interface ProjectInfo {
   setupComplete: boolean;
   /** Whether dev-server ports get `.localhost` preview hostnames. Defaults to true. */
   portlessEnabled: boolean;
+  backendType?: "local" | "remote";
+  /** The host this project's paths, git and terminals live on (ADR-160). */
+  hostId?: string;
   folders: WorkspaceFolder[];
   /**
    * Normalized, depth-first order of workspace paths and folder ids — the
@@ -402,6 +405,7 @@ export type ProjectUpdatableFields = Partial<
     | "themeName"
     | "setupComplete"
     | "portlessEnabled"
+    | "hostId"
   >
 >;
 

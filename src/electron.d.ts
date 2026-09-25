@@ -508,6 +508,21 @@ export interface ElectronAPI {
     ) => Promise<import("./store/project-store").ProjectInfo | null>;
   };
 
+  hosts: {
+    list: () => Promise<import("./store/host-store").HostStatusInfo[]>;
+    add: (
+      target: string,
+    ) => Promise<{
+      hostId: string;
+      spec: import("./store/host-store").HostSpec;
+    }>;
+    remove: (hostId: string) => Promise<void>;
+    retryConnect: (hostId: string) => Promise<void>;
+    onStatusChanged: (
+      callback: (hosts: import("./store/host-store").HostStatusInfo[]) => void,
+    ) => () => void;
+  };
+
   theme: {
     get: () => Promise<import("./store/theme-store").Theme>;
     setSelected: (name: string) => Promise<import("./store/theme-store").Theme>;

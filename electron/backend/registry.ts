@@ -62,6 +62,12 @@ export interface HostStatusInfo {
   progress?: string;
   /** While `reconnecting`: the delay before the next attempt, if known. */
   retryInMs?: number | null;
+  /**
+   * Non-blocking issues the last successful bootstrap reported (e.g. an
+   * agent config on the remote it could not safely parse). Cleared by the
+   * next `connect()`; never fails the connection.
+   */
+  warnings?: string[];
 }
 
 type HostState = Omit<HostStatusInfo, "hostId" | "spec">;
@@ -88,6 +94,7 @@ export type RemoteBackendFactory = (
   opts: {
     version?: string;
     onBootstrapProgress: (progress: BootstrapProgress) => void;
+    onBootstrapWarning: (warnings: string[]) => void;
   },
 ) => WorkspaceBackend;
 
@@ -97,6 +104,7 @@ const createRemoteBackend: RemoteBackendFactory = (_hostId, spec, opts) =>
     target: spec.target,
     version: opts.version,
     onBootstrapProgress: opts.onBootstrapProgress,
+    onBootstrapWarning: opts.onBootstrapWarning,
   });
 
 export interface BackendRegistryOptions {
@@ -197,6 +205,14 @@ export class BackendRegistry {
         const entry = this.hosts.get(hostId);
         if (entry?.backend !== backend || entry.state.status !== "connecting") return;
         this.setState(entry, { status: "connecting", progress: progress.message });
+      },
+      onBootstrapWarning: (warnings) => {
+        const entry = this.hosts.get(hostId);
+        if (entry?.backend !== backend) return;
+        this.setState(entry, {
+          ...entry.state,
+          warnings: warnings.length > 0 ? warnings : undefined,
+        });
       },
     });
     this.add(hostId, spec, backend);
@@ -380,7 +396,13 @@ export class BackendRegistry {
     }
     // Resolving now would hand a pty call a client that was disposed.
     if (!current()) throw superseded();
-    this.setState(entry, { status: "connected" });
+    // A bootstrap warning may have landed on `entry.state` while this attempt
+    // was still "connecting" (see `onBootstrapWarning` above) — carry it
+    // forward rather than letting this transition drop it.
+    this.setState(entry, {
+      status: "connected",
+      ...(entry.state.warnings ? { warnings: entry.state.warnings } : {}),
+    });
   }
 
   private handleHostEvent(entry: HostEntry, event: HostConnectionEvent): void {

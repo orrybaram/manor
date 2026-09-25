@@ -359,6 +359,8 @@ export interface ElectronAPI {
       snapshotSeq?: StreamPosition;
       error?: string;
       prewarmed?: boolean;
+      /** The host the session actually runs on (ADR-160); absent from older mains. */
+      hostId?: string;
     }>;
     write: (paneId: string, data: string) => Promise<void>;
     /** Resolves once the pty is actually at that size, not merely told to be. */
@@ -374,6 +376,8 @@ export interface ElectronAPI {
       snapshot?: string | null;
       error?: string;
       prewarmed?: boolean;
+      /** The host the fresh session runs on (ADR-160). */
+      hostId?: string;
     }>;
     detach: (paneId: string) => Promise<void>;
     consumePrewarmed: () => Promise<{

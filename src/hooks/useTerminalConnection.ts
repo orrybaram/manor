@@ -3,6 +3,7 @@
  */
 
 import { useCallback, useRef } from "react";
+import { usePaneHostStore } from "../store/pane-host-store";
 
 export function useTerminalConnection(paneId: string) {
   const paneIdRef = useRef(paneId);
@@ -18,7 +19,14 @@ export function useTerminalConnection(paneId: string) {
 
   const create = useCallback(
     (cwd: string | null, cols: number, rows: number, agentKind?: string | null) => {
-      return window.electronAPI.pty.create(paneIdRef.current, cwd, cols, rows, agentKind);
+      const paneId = paneIdRef.current;
+      return window.electronAPI.pty
+        .create(paneId, cwd, cols, rows, agentKind)
+        .then((result) => {
+          // Badge the tab from where the session really runs (ADR-160).
+          if (result.ok) usePaneHostStore.getState().setPaneHost(paneId, result.hostId);
+          return result;
+        });
     },
     [],
   );
@@ -26,6 +34,7 @@ export function useTerminalConnection(paneId: string) {
   /** Kill the PTY session in the daemon (user explicitly closed pane) */
   const close = useCallback(() => {
     window.electronAPI.pty.close(paneIdRef.current);
+    usePaneHostStore.getState().forgetPane(paneIdRef.current);
   }, []);
 
   /** Detach from the PTY session without killing it (effect cleanup / app quit) */

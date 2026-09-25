@@ -61,8 +61,12 @@ export function register(deps: IpcDeps): void {
         `This host is still used by a project. Move the project to another host before removing it.`,
       );
     }
-    await backendRegistry.unregister(hostId);
+    // Forget the host synchronously, before the first await: the in-use check
+    // above and this removal must be atomic with respect to a concurrent
+    // `projects:update` pointing a project at this host, which would
+    // otherwise slip in while the registry disconnects.
     projectManager.removeHost(hostId);
+    await backendRegistry.unregister(hostId);
   });
 
   ipcMain.handle("hosts:retryConnect", (_event, hostId: unknown) => {

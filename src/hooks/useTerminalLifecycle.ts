@@ -24,6 +24,7 @@ import { isNavRegionFocused } from "../lib/focus-regions";
 import type { StreamPosition } from "../electron.d";
 import { resolveHomeAdapter } from "../lib/harness";
 import { useTerminalConnection } from "./useTerminalConnection";
+import { usePaneHostStore } from "../store/pane-host-store";
 import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
 import { useTerminalResize } from "./useTerminalResize";
@@ -45,6 +46,7 @@ function schedulePtyKill(paneId: string) {
   const timer = setTimeout(() => {
     pendingKillTimers.delete(paneId);
     window.electronAPI.pty.close(paneId);
+    usePaneHostStore.getState().forgetPane(paneId);
   }, CLOSE_GRACE_MS);
   pendingKillTimers.set(paneId, timer);
 }
@@ -464,6 +466,9 @@ export function useTerminalLifecycle(
       );
       if (!result.ok) {
         setPtyError(result.error ?? "Failed to create terminal session");
+      } else {
+        // A reset spawns on the project's current host, which may differ.
+        usePaneHostStore.getState().setPaneHost(paneId, result.hostId);
       }
     } finally {
       // Keep suppressing exit events briefly — the old session's exit

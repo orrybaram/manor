@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { assertString, assertPositiveInt } from "../ipc-validate";
 import { resolveSpawnCwd } from "../paths";
+import { LOCAL_HOST_ID } from "../backend/types";
 import type { IpcDeps } from "./types";
 
 /** Read git branch synchronously from a repo or worktree root. */
@@ -44,7 +45,12 @@ function validatePtyArgs(paneId: string, cwd: string | null, cols: number, rows:
 }
 
 export function register(deps: IpcDeps): void {
-  const { backend } = deps;
+  const { backend, backendRegistry } = deps;
+  // The host a pane's session actually runs on — not its project's current
+  // host, which may have changed since (ADR-160). The renderer badges a tab
+  // from this, so a pane that predates a project move keeps its true host.
+  const hostOf = (paneId: string): string =>
+    backendRegistry.hostForSession(paneId) ?? LOCAL_HOST_ID;
 
   ipcMain.handle(
     "pty:create",
@@ -80,6 +86,7 @@ export function register(deps: IpcDeps): void {
           // or when an older daemon does not report one.
           snapshotSeq: result.snapshot?.seq,
           prewarmed: result.snapshot !== null,
+          hostId: hostOf(paneId),
         };
       } catch (err) {
         console.error(`Failed to create/attach PTY for ${paneId}:`, err);
@@ -155,7 +162,12 @@ export function register(deps: IpcDeps): void {
             paneId, resolvedCwd, cols, rows,
           );
           if (!result.snapshot) {
-            return { ok: true, snapshot: null, prewarmed: false };
+            return {
+              ok: true,
+              snapshot: null,
+              prewarmed: false,
+              hostId: hostOf(paneId),
+            };
           }
 
           // Reattached to old (dying) session — detach and retry.

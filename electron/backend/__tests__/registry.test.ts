@@ -214,6 +214,26 @@ describe("BackendRegistry", () => {
     });
   });
 
+  it("keeps bootstrap warnings across an auto-reconnect blip", async () => {
+    const { registry, warn, remotes } = setup();
+    registry.register("box", box);
+    const connecting = registry.ensureConnected("box");
+    warn.get("box")!(["skipped an unparseable agent config"]);
+    await connecting;
+
+    const remote = remotes.get("box")!;
+    remote.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
+    expect(registry.list()[1]).toMatchObject({
+      status: "reconnecting",
+      warnings: ["skipped an unparseable agent config"],
+    });
+    remote.hostEvent({ type: "hostReconnected", sessionIds: [] });
+    expect(registry.list()[1]).toMatchObject({
+      status: "connected",
+      warnings: ["skipped an unparseable agent config"],
+    });
+  });
+
   it("fails git fast on a host that is not connected, and connects it in the background", async () => {
     const { registry, remotes } = setup();
     registry.register("box", box);

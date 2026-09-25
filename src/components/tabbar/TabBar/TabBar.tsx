@@ -588,6 +588,7 @@ export function TabBar(props: TabBarProps) {
                 <TabButton
                   key={tab.id}
                   tabId={tab.id}
+                  rootNode={tab.rootNode}
                   isActive={tab.id === selectedTabId}
                   isPinned={isPinned}
                   canClose={true}

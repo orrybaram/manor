@@ -105,6 +105,23 @@ describe("hosts:remove", () => {
     expect(backendRegistry.unregister).toHaveBeenCalledWith("box");
     expect(projectManager.removeHost).toHaveBeenCalledWith("box");
   });
+  it("forgets the host before awaiting the registry disconnect", async () => {
+    const { deps, backendRegistry, projectManager } = makeDeps();
+    let finishUnregister!: () => void;
+    backendRegistry.unregister.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (finishUnregister = resolve)),
+    );
+    register(deps as never);
+    const handler = handlers.get("hosts:remove")!;
+    const removing = handler(null, "box") as Promise<void>;
+
+    // Still disconnecting, but the host is already gone from persistence —
+    // a concurrent projects:update can no longer point a project at it.
+    expect(projectManager.removeHost).toHaveBeenCalledWith("box");
+    finishUnregister();
+    await removing;
+    expect(backendRegistry.unregister).toHaveBeenCalledWith("box");
+  });
 });
 
 describe("hosts:retryConnect", () => {

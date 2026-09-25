@@ -4,6 +4,7 @@ import { useProjectStore } from "../../../store/project-store";
 import { useHostStore, selectHost } from "../../../store/host-store";
 import { describeHostStatus } from "../../../lib/host-status";
 import { LOCAL_HOST_ID } from "../../../lib/hosts";
+import { Button } from "../../ui/Button/Button";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import styles from "./StatusBar.module.css";
 
@@ -12,9 +13,10 @@ import styles from "./StatusBar.module.css";
  *
  * Mirrors `RemoteExposureIndicator`: nothing at all when the active
  * project's workspace lives on this machine, so it costs nothing in the
- * (still overwhelmingly common) local case. When it does render, clicking it
- * retries the connection — the same action the project settings host field
- * offers, just reachable without leaving the workspace.
+ * (still overwhelmingly common) local case. While the host is not connected,
+ * clicking it retries the connection — the same action the project settings
+ * host field offers, just reachable without leaving the workspace. Once
+ * connected (with or without warnings) it is a plain, non-interactive badge.
  */
 export function HostStatusIndicator() {
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
@@ -40,16 +42,38 @@ export function HostStatusIndicator() {
           ? styles.hostBadgePending
           : "";
 
+  // Connected — even with bootstrap warnings — has nothing to retry.
+  const canRetry = display.tone === "error" || display.tone === "pending";
+  const content = (
+    <>
+      <Server size={10} />
+      <span>{display.label.toUpperCase()}</span>
+    </>
+  );
+
+  if (!canRetry) {
+    return (
+      <Tooltip label={`${target}: ${label}`} side="top">
+        <span
+          className={`${styles.hostBadge} ${toneClass}`}
+          aria-label={`Host ${target}: ${label}`}
+        >
+          {content}
+        </span>
+      </Tooltip>
+    );
+  }
+
   return (
     <Tooltip label={`${target}: ${label}. Click to retry.`} side="top">
-      <button
-        className={`${styles.hostBadge} ${toneClass}`}
+      <Button
+        variant="link"
+        className={`${styles.hostBadge} ${styles.hostBadgeButton} ${toneClass}`}
         onClick={() => void retryConnect(hostId)}
-        aria-label={`Host ${target}: ${label}`}
+        aria-label={`Retry connecting to ${target}: ${label}`}
       >
-        <Server size={10} />
-        <span>{display.label.toUpperCase()}</span>
-      </button>
+        {content}
+      </Button>
     </Tooltip>
   );
 }

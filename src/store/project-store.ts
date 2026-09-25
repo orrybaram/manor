@@ -1088,16 +1088,35 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   updateProject: async (projectId: string, updates: ProjectUpdatableFields) => {
+    const previous = get().projects.find((p) => p.id === projectId);
     // Optimistic update: apply changes immediately for instant UI feedback
     set((s) => ({
       projects: s.projects.map((p) =>
         p.id === projectId ? { ...p, ...updates } : p,
       ),
     }));
-    const updated = await window.electronAPI.projects.update(
-      projectId,
-      updates,
-    );
+    let updated: ProjectInfo | null;
+    try {
+      updated = await window.electronAPI.projects.update(projectId, updates);
+    } catch (err) {
+      // Main refused (e.g. an unknown hostId): undo the optimistic change —
+      // but only the fields still holding this call's values, so a newer
+      // update that landed meanwhile isn't clobbered — then let the caller
+      // surface the error.
+      if (previous) {
+        set((s) => ({
+          projects: s.projects.map((p) => {
+            if (p.id !== projectId) return p;
+            const undo: Partial<ProjectInfo> = {};
+            for (const key of Object.keys(updates) as (keyof ProjectUpdatableFields)[]) {
+              if (p[key] === updates[key]) Object.assign(undo, { [key]: previous[key] });
+            }
+            return { ...p, ...undo };
+          }),
+        }));
+      }
+      throw err;
+    }
     if (updated) {
       set((s) => ({
         projects: s.projects.map((p) => (p.id === projectId ? updated : p)),

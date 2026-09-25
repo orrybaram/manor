@@ -25,6 +25,7 @@ import { Switch } from "../ui/Switch/Switch";
 import { Button } from "../ui/Button/Button";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { SearchableSelect } from "../ui/SearchableSelect/SearchableSelect";
+import { ConfirmDialog } from "../ui/ConfirmDialog/ConfirmDialog";
 import { Stack, Row } from "../ui/Layout/Layout";
 import { SectionTitle } from "./SectionTitle";
 import styles from "./SettingsModal/SettingsModal.module.css";
@@ -267,6 +268,15 @@ function projectHasOpenPanes(
   });
 }
 
+/** A host change waiting on the "this project has open panes" confirm. */
+type PendingHostChange =
+  | { kind: "switch"; hostId: string }
+  | { kind: "add"; target: string };
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 type ProjectHostSectionProps = {
   project: ProjectInfo;
 };
@@ -290,6 +300,10 @@ function ProjectHostSection(props: ProjectHostSectionProps) {
   const [adding, setAdding] = useState(false);
   const [targetInput, setTargetInput] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+  const [pendingChange, setPendingChange] = useState<PendingHostChange | null>(
+    null,
+  );
   const targetInputRef = useRef<HTMLInputElement>(null);
 
   const currentHostId = project.hostId ?? LOCAL_HOST_ID;
@@ -306,20 +320,52 @@ function ProjectHostSection(props: ProjectHostSectionProps) {
     ];
   }, [hosts]);
 
-  const applyHostChange = useCallback(
+  const switchHost = useCallback(
     (hostId: string) => {
-      if (hostId === currentHostId) return;
-      if (projectHasOpenPanes(project, workspaceLayouts)) {
-        const ok = window.confirm(
-          "This project has open panes. Switching its host does not move them — " +
-            "existing terminals keep running where they are, and new ones will start " +
-            "on the new host. Continue?",
-        );
-        if (!ok) return;
-      }
-      updateProject(project.id, { hostId });
+      setSwitchError(null);
+      // The store rolls its optimistic update back if main refuses.
+      updateProject(project.id, { hostId }).catch((err: unknown) => {
+        setSwitchError(errorMessage(err));
+      });
     },
-    [currentHostId, project, updateProject, workspaceLayouts],
+    [project.id, updateProject],
+  );
+
+  const addAndSwitchHost = useCallback(
+    (target: string) => {
+      setAddError(null);
+      addHost(target)
+        .then(({ hostId }) => {
+          setAdding(false);
+          setTargetInput("");
+          switchHost(hostId);
+        })
+        .catch((err: unknown) => {
+          setAddError(errorMessage(err));
+        });
+    },
+    [addHost, switchHost],
+  );
+
+  const performHostChange = useCallback(
+    (change: PendingHostChange) => {
+      if (change.kind === "switch") switchHost(change.hostId);
+      else addAndSwitchHost(change.target);
+    },
+    [switchHost, addAndSwitchHost],
+  );
+
+  // Confirm BEFORE anything happens — in particular before `addHost`, so
+  // cancelling never leaves a registered host reconnecting in the background.
+  const requestHostChange = useCallback(
+    (change: PendingHostChange) => {
+      if (projectHasOpenPanes(project, workspaceLayouts)) {
+        setPendingChange(change);
+        return;
+      }
+      performHostChange(change);
+    },
+    [performHostChange, project, workspaceLayouts],
   );
 
   const handleSelect = useCallback(
@@ -330,25 +376,17 @@ function ProjectHostSection(props: ProjectHostSectionProps) {
         requestAnimationFrame(() => targetInputRef.current?.focus());
         return;
       }
-      applyHostChange(value);
+      if (value === currentHostId) return;
+      requestHostChange({ kind: "switch", hostId: value });
     },
-    [applyHostChange],
+    [currentHostId, requestHostChange],
   );
 
   const handleAddHost = useCallback(() => {
     const target = targetInput.trim();
     if (!target) return;
-    setAddError(null);
-    addHost(target)
-      .then(({ hostId }) => {
-        setAdding(false);
-        setTargetInput("");
-        applyHostChange(hostId);
-      })
-      .catch((err: unknown) => {
-        setAddError(err instanceof Error ? err.message : String(err));
-      });
-  }, [addHost, applyHostChange, targetInput]);
+    requestHostChange({ kind: "add", target });
+  }, [requestHostChange, targetInput]);
 
   const display = currentHost ? describeHostStatus(currentHost) : null;
 
@@ -362,6 +400,11 @@ function ProjectHostSection(props: ProjectHostSectionProps) {
         options={options}
         maxWidth={320}
       />
+      {switchError && (
+        <div className={styles.fieldHint} style={{ color: "var(--red)" }}>
+          Couldn't switch host: {switchError}
+        </div>
+      )}
       {display && currentHostId !== LOCAL_HOST_ID && (
         <Row gap="xs" align="center">
           <span
@@ -428,6 +471,22 @@ function ProjectHostSection(props: ProjectHostSectionProps) {
         The machine this project's files, git and terminals live on. Moving it
         does not move existing worktrees or panes.
       </div>
+      <ConfirmDialog
+        open={pendingChange !== null}
+        title="Switch this project's host?"
+        description={
+          "This project has open panes. Switching its host does not move them — " +
+          "existing terminals keep running where they are, and new ones will " +
+          "start on the new host."
+        }
+        confirmLabel={pendingChange?.kind === "add" ? "Connect and switch" : "Switch host"}
+        onConfirm={() => {
+          const change = pendingChange;
+          setPendingChange(null);
+          if (change) performHostChange(change);
+        }}
+        onCancel={() => setPendingChange(null)}
+      />
     </Stack>
   );
 }

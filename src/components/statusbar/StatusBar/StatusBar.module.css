@@ -140,31 +140,37 @@
 
 /* ── Host connection indicator (ADR-160) ── */
 
-.hostBadge {
+/* Doubled selectors so these win over the Button `link` variant's colour,
+   padding and underline without an !important (see .statsSegment). */
+.hostBadge.hostBadge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   padding: 1px 6px;
   border: none;
   border-radius: 3px;
-  cursor: pointer;
   background: var(--surface-hover, #2a2a2a);
   color: var(--text-dim);
   font-size: 9px;
   font-family: var(--font-mono);
   letter-spacing: 0.05em;
+  text-decoration: none;
 }
 
-.hostBadgePending {
+.hostBadgeButton.hostBadgeButton {
+  cursor: pointer;
+}
+
+.hostBadgePending.hostBadgePending {
   color: var(--yellow, #d29922);
 }
 
-.hostBadgeError {
+.hostBadgeError.hostBadgeError {
   background: var(--danger, #c74e39);
   color: #fff;
 }
 
-.hostBadgeWarn {
+.hostBadgeWarn.hostBadgeWarn {
   color: var(--yellow, #d29922);
 }
 

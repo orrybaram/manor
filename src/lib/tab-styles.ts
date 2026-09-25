@@ -28,8 +28,8 @@ export const TAB_HIDDEN_STYLE: React.CSSProperties = {
 };
 
 /**
- * A small pill naming the host a tab's workspace runs on (ADR-160 ticket 11
- * §5). Shown only for a remote workspace — a local one gets no badge at all,
+ * A small pill naming the host a tab's panes actually run on (ADR-160 ticket
+ * 11 §5). Shown only for a remote pane — a local one gets no badge at all,
  * so this costs nothing in the overwhelmingly common case.
  */
 export const REMOTE_HOST_BADGE_STYLE: React.CSSProperties = {

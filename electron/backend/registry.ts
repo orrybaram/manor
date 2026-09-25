@@ -410,11 +410,21 @@ export class BackendRegistry {
       this.sessionHosts.set(sessionId, entry.hostId);
     }
     switch (event.type) {
+      // Auto-reconnect doesn't rerun bootstrap, so nothing would re-report
+      // its warnings — carry them across the blip (connected → reconnecting →
+      // connected), as `connect()` does across "connecting".
       case "hostDisconnected":
-        this.setState(entry, { status: "reconnecting", retryInMs: event.retryInMs });
+        this.setState(entry, {
+          status: "reconnecting",
+          retryInMs: event.retryInMs,
+          ...(entry.state.warnings ? { warnings: entry.state.warnings } : {}),
+        });
         break;
       case "hostReconnected":
-        this.setState(entry, { status: "connected" });
+        this.setState(entry, {
+          status: "connected",
+          ...(entry.state.warnings ? { warnings: entry.state.warnings } : {}),
+        });
         break;
       case "hostFailed": {
         const failure: HostFailure = {

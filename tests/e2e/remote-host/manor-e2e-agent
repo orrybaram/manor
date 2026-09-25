@@ -1,0 +1,46 @@
+#!/bin/sh
+# A stand-in agent CLI for the remote-host E2E suite, installed on the remote
+# box at ~/.manor-e2e/bin/manor-e2e-agent (see helpers/remote-host.ts).
+#
+# Like tests/e2e/helpers/fake-agent.sh it reports its lifecycle through the
+# hook protocol — but through the *real* hook script the remote daemon's
+# bootstrap installed (~/.manor/hooks/notify.sh), so the hook reaches the
+# remote daemon's listener and journal (ADR-178 §2), exactly as a real
+# agent's would.
+#
+#   manor-e2e-agent               start a session: SessionStart, UserPromptSubmit
+#   manor-e2e-agent --session ID  the same, with a session id the test chose
+#   manor-e2e-agent --resume ID   what Manor types to resume session ID after
+#                                 the remote daemon restarted (ADR-178 §6);
+#                                 appends ID to ~/.manor-e2e/resumed.log
+#
+# Then it echoes input lines until killed, so the pane stays in the agent.
+
+set -u
+state="$HOME/.manor-e2e"
+mkdir -p "$state"
+
+if [ "${1:-}" = "--resume" ] && [ -n "${2:-}" ]; then
+  sid="$2"
+  printf '%s\n' "$sid" >> "$state/resumed.log"
+  printf 'manor-e2e-agent resumed %s\n' "$sid"
+elif [ "${1:-}" = "--session" ] && [ -n "${2:-}" ]; then
+  sid="$2"
+  printf 'manor-e2e-agent started %s\n' "$sid"
+else
+  sid="e2e-agent-$$"
+  printf 'manor-e2e-agent started %s\n' "$sid"
+fi
+
+hook() {
+  printf '{"hook_event_name":"%s","session_id":"%s"}' "$1" "$sid" \
+    | "$HOME/.manor/hooks/notify.sh" >/dev/null 2>&1 || true
+}
+
+hook SessionStart
+hook UserPromptSubmit
+printf 'manor-e2e-agent working\n'
+
+while IFS= read -r line; do
+  printf 'received: %s\n' "$line"
+done

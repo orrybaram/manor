@@ -1,6 +1,6 @@
 ---
 title: Remote projects docs and laptop-closed E2E
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [3, 5, 6, 7]
@@ -23,3 +23,11 @@ blocked_by: [3, 5, 6, 7]
 ## Files to touch
 - `docs/remote-projects.md` — new.
 - `e2e/` — laptop-closed and remote-restart scenarios (next to ADR-160's sshd harness).
+
+## Outcome
+
+- Docs went into `docs/remote-hosts.md` (shared with ADR-160 ticket 12) rather than a
+  separate `docs/remote-projects.md`.
+- The "laptop closed" and "remote restart" scenarios live in
+  `tests/e2e/remote-host.spec.ts`; hooks are fired deterministically over a side-channel
+  ssh alias while the app's alias is blocked, rather than on a timer.

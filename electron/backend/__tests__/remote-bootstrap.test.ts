@@ -161,6 +161,15 @@ describe("buildInstallCommands", () => {
     expect(cmds.install).toContain(`/opt/node/bin/node -e 'require("node-pty")'`);
   });
 
+  it("restores the exec bit on node-pty's prebuilt spawn-helper", () => {
+    expect(cmds.install).toContain(
+      'for f in node_modules/node-pty/prebuilds/*/spawn-helper; do if [ -f "$f" ]; then chmod 755 "$f"; fi; done',
+    );
+    expect(cmds.install.indexOf("spawn-helper")).toBeLessThan(
+      cmds.install.indexOf('require("node-pty")'),
+    );
+  });
+
   it("commits by renaming staging into place and writing a 0755 shim", () => {
     expect(cmds.commit).toContain(`mv ${staging} "$HOME/.manor/host"`);
     expect(cmds.commit).toContain('chmod 0755 "$HOME/.manor/bin/manor-host".tmp.$$');

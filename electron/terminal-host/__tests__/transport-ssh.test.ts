@@ -200,6 +200,23 @@ describe("ssh argument construction", () => {
       lines.indexOf("Include ~/.ssh/config"),
     );
   });
+
+  it("includes nothing extra unless the E2E test config is given", () => {
+    const text = renderSshConfig("/tmp/x/%C", undefined);
+    expect(text.match(/Include/g)).toHaveLength(2);
+  });
+
+  it("includes the E2E test config ahead of the user's own", () => {
+    const lines = renderSshConfig("/tmp/x/%C", "/tmp/e2e/ssh_config")
+      .split("\n")
+      .map((l) => l.trim());
+    expect(lines.indexOf("Include /tmp/e2e/ssh_config")).toBeGreaterThan(-1);
+    expect(lines.indexOf("Include /tmp/e2e/ssh_config")).toBeLessThan(
+      lines.indexOf("Include ~/.ssh/config"),
+    );
+    expect(() => renderSshConfig("/tmp/x/%C", "relative/config")).toThrow();
+    expect(() => renderSshConfig("/tmp/x/%C", "/tmp/with space")).toThrow();
+  });
 });
 
 describe("isHostKeyError", () => {

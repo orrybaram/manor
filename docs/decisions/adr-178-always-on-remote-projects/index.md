@@ -230,4 +230,10 @@ so does this.
 Prerequisite: ADR-160 tickets 1–9 and 11. ADR-160 ticket 10 is amended by ticket 3
 below (bootstrap kept, reverse forward dropped).
 
+Ticket 8 landed its docs in `docs/remote-hosts.md` (one doc for ADR-160 and this
+ADR, not a separate `docs/remote-projects.md`). The E2E harness is a private
+unprivileged sshd on macOS plus a Linux container mode
+(`scripts/test-remote-e2e.mjs [--docker]`); ADR-160 ticket 12's reverse-hook
+bullet is covered by the hook-journal scenarios instead.
+
 <div data-type="database" data-path="." data-view="board"></div>

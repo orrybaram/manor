@@ -107,8 +107,17 @@ function defaultBaseDir(): string {
  * them: host aliases, users, keys and proxies from `~/.ssh/config` still
  * apply, but they cannot redirect the ControlMaster socket we rely on.
  * (`-F` otherwise suppresses both the user and system config files.)
+ *
+ * `testConfig` is a TEST-ONLY hook (defaults to `$MANOR_E2E_SSH_CONFIG`): an
+ * extra config file included ahead of the user's, so the real-sshd E2E suite
+ * (scripts/test-remote-e2e.mjs) can define its `manor-e2e` host alias without
+ * touching ~/.ssh/config. Unset in normal use, which leaves the config
+ * exactly as before.
  */
-export function renderSshConfig(controlPath: string): string {
+export function renderSshConfig(
+  controlPath: string,
+  testConfig: string | undefined = process.env.MANOR_E2E_SSH_CONFIG,
+): string {
   return [
     "# Written by Manor for its remote host bridge. Safe to delete.",
     "Host *",
@@ -119,10 +128,21 @@ export function renderSshConfig(controlPath: string): string {
     "  ServerAliveCountMax 3",
     // No tty to prompt on: fail fast rather than hang waiting for a password.
     "  BatchMode yes",
+    ...(testConfig ? [`  Include ${testIncludePath(testConfig)}`] : []),
     "  Include ~/.ssh/config",
     "  Include /etc/ssh/ssh_config",
     "",
   ].join("\n");
+}
+
+/** Validate the test-only include: an absolute path ssh can read unquoted-safe. */
+function testIncludePath(file: string): string {
+  if (!path.isAbsolute(file) || /[\s"'\\]/.test(file)) {
+    throw new Error(
+      `MANOR_E2E_SSH_CONFIG must be an absolute path without spaces or quotes: ${JSON.stringify(file)}`,
+    );
+  }
+  return file;
 }
 
 /** Create a fresh 0700 config directory with its config file inside. */

@@ -115,9 +115,17 @@ export async function launchApp(
   // anything reading MANOR_* before the pty layer overrides it talks to the
   // wrong app. Drop the lot: the launched app is meant to know nothing but
   // `tempHome`.
+  //
+  // The one exception is MANOR_E2E_SSH_CONFIG: the remote-host suite's ssh
+  // config (scripts/test-remote-e2e.mjs), which Manor's managed ssh config
+  // includes as a test-only hook. It points at nothing outside the run.
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(rest)) {
     if (value === undefined) continue;
+    if (key === "MANOR_E2E_SSH_CONFIG") {
+      env[key] = value;
+      continue;
+    }
     if (key.startsWith("MANOR_") || key === "ZDOTDIR") continue;
     env[key] = value;
   }

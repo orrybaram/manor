@@ -1,0 +1,21 @@
+#!/bin/sh
+# Fire one agent hook for a remote pane from outside it, through the real hook
+# script and the remote daemon's listener — installed on the remote box at
+# ~/.manor-e2e/bin/fire-hook (see helpers/remote-host.ts).
+#
+#   fire-hook PANE_ID EVENT_NAME SESSION_ID
+#
+# The E2E suite runs this over its side-channel ssh alias while the app's own
+# connection is down: the remote daemon journals the hook, and the app must
+# replay it on reconnect (ADR-178 §2). The env is what a pane's own processes
+# would carry: MANOR_PANE_ID, and the listener's port file.
+
+set -eu
+pane="$1"
+event="$2"
+sid="$3"
+
+printf '{"hook_event_name":"%s","session_id":"%s"}' "$event" "$sid" \
+  | MANOR_PANE_ID="$pane" \
+    MANOR_HOOK_PORT_FILE="$HOME/.manor/remote/hook-port" \
+    "$HOME/.manor/hooks/notify.sh" >/dev/null

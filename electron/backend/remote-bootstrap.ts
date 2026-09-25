@@ -312,6 +312,10 @@ export function buildInstallCommands(
       // our ssh timeout alone would leave it running there.
       `T=; if command -v timeout >/dev/null 2>&1; then T="timeout ${installTimeoutS}"; fi`,
       '$T "$NPM" install --omit=dev --no-audit --no-fund --no-package-lock',
+      // node-pty's prebuilt `spawn-helper` (macOS) is unpacked without its
+      // exec bit, and every pty spawn then fails with posix_spawnp. Found by
+      // the real-sshd E2E suite (ADR-160 ticket 12).
+      'for f in node_modules/node-pty/prebuilds/*/spawn-helper; do if [ -f "$f" ]; then chmod 755 "$f"; fi; done',
       `${shellQuote(nodePath)} -e 'require("node-pty")'`,
     ].join("; "),
 

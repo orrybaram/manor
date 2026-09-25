@@ -82,13 +82,13 @@ describe("SshHostProvider", () => {
     const forward = await provider.forwardPort(3000);
     expect(forward.localPort).toBe(54321);
     expect(calls).toEqual([
-      ["-F", configPath, "-O", "forward", "-L", "54321:127.0.0.1:3000", "me@box"],
+      ["-F", configPath, "-O", "forward", "-L", "127.0.0.1:54321:127.0.0.1:3000", "me@box"],
     ]);
 
     forward.dispose();
     await vi.waitFor(() => expect(calls).toHaveLength(2));
     expect(calls[1]).toEqual([
-      "-F", configPath, "-O", "cancel", "-L", "54321:127.0.0.1:3000", "me@box",
+      "-F", configPath, "-O", "cancel", "-L", "127.0.0.1:54321:127.0.0.1:3000", "me@box",
     ]);
     // A second dispose does not cancel twice.
     forward.dispose();
@@ -108,9 +108,21 @@ describe("SshHostProvider", () => {
     await provider.forwardPort(5173);
     await provider.dispose();
     expect(calls.slice(2).map((args) => args.slice(3, 6))).toEqual([
-      ["cancel", "-L", "40000:127.0.0.1:3000"],
-      ["cancel", "-L", "40001:127.0.0.1:5173"],
+      ["cancel", "-L", "127.0.0.1:40000:127.0.0.1:3000"],
+      ["cancel", "-L", "127.0.0.1:40001:127.0.0.1:5173"],
     ]);
+  });
+
+  it("cancels its own forward when disposed mid-call", async () => {
+    transport.managedConfig();
+    const provider = makeProvider();
+    const pending = provider.forwardPort(3000);
+    await provider.dispose();
+    await expect(pending).rejects.toThrow(/provider disposed/);
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    expect(calls.map((args) => args[3])).toEqual(["forward", "cancel"]);
+    // The next forward, after dispose, still works.
+    await expect(provider.forwardPort(3000)).resolves.toMatchObject({ localPort: 54321 });
   });
 
   it("refuses to forward before the transport has connected", async () => {
@@ -150,7 +162,7 @@ describe("SshHostProvider", () => {
 
 describe("forwardSpec", () => {
   it("binds loopback to the box's loopback", () => {
-    expect(forwardSpec(8080, 3000)).toEqual(["-L", "8080:127.0.0.1:3000"]);
+    expect(forwardSpec(8080, 3000)).toEqual(["-L", "127.0.0.1:8080:127.0.0.1:3000"]);
   });
 });
 

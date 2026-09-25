@@ -46,9 +46,13 @@ function findFreeLocalPort(): Promise<number> {
   });
 }
 
-/** The `-L` spec for a forward: `<local>` on loopback to `<remote>` on the box's loopback. */
+/**
+ * The `-L` spec for a forward: `<local>` on loopback to `<remote>` on the box's
+ * loopback. The local bind address is explicit so a user's `GatewayPorts yes`
+ * (pulled in via the included ~/.ssh/config) can't expose the forward to the LAN.
+ */
 export function forwardSpec(localPort: number, remotePort: number): string[] {
-  return ["-L", `${localPort}:127.0.0.1:${remotePort}`];
+  return ["-L", `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`];
 }
 
 function assertPort(port: number, label: string): void {
@@ -81,6 +85,8 @@ export class SshHostProvider implements HostProvider {
   private readonly findFreePort: () => Promise<number>;
   /** Live forwards, keyed by their local port. */
   private readonly forwards = new Map<number, { remotePort: number; configPath: string }>();
+  /** Bumped by dispose(); a forwardPort() that straddles it cancels its own forward. */
+  private generation = 0;
 
   constructor(
     readonly target: string,
@@ -127,11 +133,30 @@ export class SshHostProvider implements HostProvider {
     if (!configPath) {
       throw new Error(`Cannot forward port ${remotePort}: not connected to ${this.target}`);
     }
+    const generation = this.generation;
     const localPort = await this.findFreePort();
     assertPort(localPort, "local");
-    const { code, stderr } = await this.runControl(
-      buildControlArgs(configPath, this.target, "forward", forwardSpec(localPort, remotePort)),
+    const cancelArgs = buildControlArgs(
+      configPath,
+      this.target,
+      "cancel",
+      forwardSpec(localPort, remotePort),
     );
+    let result: { code: number | null; stderr: string };
+    try {
+      result = await this.runControl(
+        buildControlArgs(configPath, this.target, "forward", forwardSpec(localPort, remotePort)),
+      );
+    } catch (err) {
+      // A timeout may fire after ssh already set the forward up.
+      this.runControl(cancelArgs).catch(() => {});
+      throw err;
+    }
+    const { code, stderr } = result;
+    if (generation !== this.generation) {
+      if (code === 0) this.runControl(cancelArgs).catch(() => {});
+      throw new Error(`Port forward to ${this.target} was cancelled: provider disposed`);
+    }
     if (code !== 0) {
       const detail = stderr.trim();
       throw new Error(
@@ -152,6 +177,7 @@ export class SshHostProvider implements HostProvider {
 
   /** Cancel every forward. The transport (and its master) is left alone. */
   async dispose(): Promise<void> {
+    this.generation++;
     await Promise.allSettled(
       Array.from(this.forwards.keys(), (localPort) => this.cancelForward(localPort)),
     );

@@ -108,7 +108,11 @@ implements `forwardPort` with `ssh -O forward -L` on the existing ControlMaster.
 
 **Keep-awake rule**, defined now and exercised by the first managed provider: the
 registry calls `setBusy(true)` while any pane on that host has an agent in an active
-status, and `setBusy(false)` after all are idle. Hosts never sleep mid-task.
+status, and `setBusy(false)` after all are idle. Hosts never sleep mid-task. An agent
+waiting on a permission prompt (`requires_input`) counts as busy: under disk-only
+persistence, sleeping would kill the waiting agent, and an overnight prompt is exactly
+what the user expects to find still waiting in the morning. A managed provider may add
+its own idle cap on top if cost demands it.
 
 ### 2. Hook journal on the remote daemon
 

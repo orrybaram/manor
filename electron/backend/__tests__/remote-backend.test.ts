@@ -54,6 +54,8 @@ class FakeDaemon {
   readonly control: Json[] = [];
   /** Every stream command after the stream preamble. */
   readonly stream: Json[] = [];
+  /** The `env` of every `updateEnv`, including the one each connect sends. */
+  readonly envUpdates: Record<string, string>[] = [];
   /** Sessions `listSessions` reports as alive. */
   readonly sessions = new Set<string>();
   /** Answer for `exec` requests. */
@@ -63,10 +65,7 @@ class FakeDaemon {
     stderr: "",
     exitCode: 0,
   });
-  bootstrapReply: ControlResponse = {
-    type: "error",
-    message: "unknown request type: bootstrap",
-  };
+  bootstrapReply: ControlResponse = { type: "bootstrapped", agents: [] };
   /** Drop every connection instead of answering the next N `listSessions`. */
   dropOnListSessions = 0;
   private streamSocket: Duplex | null = null;
@@ -120,6 +119,7 @@ class FakeDaemon {
           protocol: TERMINAL_HOST_PROTOCOL,
         });
       case "updateEnv":
+        this.envUpdates.push(msg.env as Record<string, string>);
         return reply({ type: "envUpdated" });
     }
     this.control.push(msg);
@@ -224,13 +224,30 @@ afterEach(async () => {
 
 describe("RemoteBackend", () => {
   describe("connect / disconnect", () => {
-    it("ensures the host, connects, then bootstraps — tolerating an old daemon", async () => {
+    it("ensures the host, connects, then bootstraps", async () => {
       const { backend, transport, daemon } = setup();
       current = backend;
+      daemon.bootstrapReply = { type: "bootstrapped", agents: ["claude", "codex"] };
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       await backend.connect();
 
       expect(transport.ensureRunning).toHaveBeenCalledWith("1.2.3");
       expect(daemon.control.map((r) => r.type)).toEqual(["bootstrap"]);
+      expect(warn).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    it("tolerates a daemon that predates bootstrap, with a warning", async () => {
+      const { backend, daemon } = setup();
+      current = backend;
+      daemon.bootstrapReply = { type: "error", message: "unknown request type: bootstrap" };
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      await expect(backend.connect()).resolves.toBeUndefined();
+      expect(daemon.control.map((r) => r.type)).toEqual(["bootstrap"]);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("does not support bootstrap"),
+      );
+      warn.mockRestore();
     });
 
     it("does not fail connect when bootstrap errors", async () => {
@@ -288,6 +305,23 @@ describe("RemoteBackend", () => {
       await backend.connect();
       expect(transport.reset).toHaveBeenCalledTimes(2);
       expect(daemon.control.map((r) => r.type)).toEqual(["bootstrap", "bootstrap"]);
+    });
+  });
+
+  describe("updateEnv", () => {
+    it("sends the env to the daemon, and again on every reconnect", async () => {
+      const { backend, daemon } = setup({ reconnectDelayMs: () => 0 });
+      current = backend;
+      await backend.connect();
+
+      await backend.pty.updateEnv({ MANOR_TEST_VAR: "one" });
+      expect(daemon.envUpdates[daemon.envUpdates.length - 1]).toEqual({ MANOR_TEST_VAR: "one" });
+
+      // A reconnect (possibly to a respawned daemon) carries it along.
+      const before = daemon.envUpdates.length;
+      daemon.dropConnections();
+      await waitFor(() => daemon.envUpdates.length > before, "reconnect env push");
+      expect(daemon.envUpdates[daemon.envUpdates.length - 1]).toMatchObject({ MANOR_TEST_VAR: "one" });
     });
   });
 

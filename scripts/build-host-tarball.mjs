@@ -6,6 +6,8 @@
  * Contents, nested under `package/` like `npm pack` output:
  *   terminal-host-index.js   the daemon bundle (also the `manor-host` CLI)
  *   pty-subprocess.js        spawned by the daemon, found via __dirname
+ *   agent-hook.js            copied to ~/.manor/hooks/notify.js by the daemon's
+ *                            `bootstrap` request (ADR-160 ticket 10)
  *   package.json             generated; pins the bundles' externals at the
  *                            versions in the root package.json
  *
@@ -23,8 +25,8 @@ import path from "node:path";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const OUT_DIR = path.join(ROOT, "dist-electron");
-const BUNDLES = ["terminal-host-index.js", "pty-subprocess.js"];
-/** The externals of the two bundles (see vite.config.ts). */
+const BUNDLES = ["terminal-host-index.js", "pty-subprocess.js", "agent-hook.js"];
+/** The externals of the daemon bundles (see vite.config.ts); agent-hook.js has none. */
 const RUNTIME_DEPS = ["node-pty", "@xterm/headless", "@xterm/addon-serialize", "tree-kill"];
 const MIN_NODE = ">=20";
 
@@ -50,6 +52,16 @@ for (const dep of RUNTIME_DEPS) {
 for (const bundle of BUNDLES) {
   if (!fs.existsSync(path.join(OUT_DIR, bundle))) {
     die(`dist-electron/${bundle} is missing — run \`pnpm build\` (or \`vite build\`) first`);
+  }
+}
+
+// A remote host has no Electron: a bundle that requires it would die at load
+// time there while working fine on the laptop. (vite-plugin-electron leaves
+// `electron` external, so any import of it survives as a require call.)
+for (const bundle of BUNDLES) {
+  const source = fs.readFileSync(path.join(OUT_DIR, bundle), "utf-8");
+  if (/require\(\s*["']electron["']\s*\)/.test(source)) {
+    die(`dist-electron/${bundle} requires "electron" — the manor-host bundles must stay Electron-free`);
   }
 }
 

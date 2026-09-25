@@ -30,6 +30,7 @@ import { runRemoteBridgeProcess } from "./bridge";
 import { LocalTransport } from "./transport-local";
 import { ExecRunner, runExec } from "./exec-runner";
 import { createSerializedHandler } from "./control-queue";
+import { bootstrapHost } from "./bootstrap-host";
 
 const DAEMON_DIR = daemonDir();
 const SOCKET_PATH = daemonSocketFile();
@@ -307,6 +308,26 @@ async function handleControlMessage(
             type: "error",
             message: `readFile failed: ${err instanceof Error ? err.message : String(err)}`,
           },
+          requestId,
+        );
+      }
+      break;
+    }
+
+    case "bootstrap": {
+      // Set this host up for Manor shells and agent hooks, against the
+      // daemon's own filesystem. MCP registration is skipped: the MCP webview
+      // server talks to Electron's webview server, which is not on this host.
+      try {
+        const { agents } = bootstrapHost({ mcpServerScriptPath: null });
+        log(`bootstrap: registered agents ${agents.join(", ")}`);
+        sendResponse(socket, { type: "bootstrapped", agents }, requestId);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log(`bootstrap failed: ${message}`);
+        sendResponse(
+          socket,
+          { type: "error", message },
           requestId,
         );
       }

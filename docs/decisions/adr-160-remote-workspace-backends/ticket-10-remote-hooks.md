@@ -1,6 +1,6 @@
 ---
 title: Remote agent hooks — reverse forward, env, and daemon bootstrap
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [5, 9]

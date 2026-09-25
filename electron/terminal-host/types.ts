@@ -123,9 +123,11 @@ export type ControlRequest =
   /** Read a UTF-8 file of at most 10 MiB. Also answered out of order. */
   | { type: "readFile"; path: string }
   /**
-   * Set the daemon's own host up for agent hooks (ADR-160 ticket 10). Sent by
-   * `RemoteBackend` after connecting; a daemon that predates it answers
-   * `error: unknown request type: bootstrap`, which callers tolerate.
+   * Set the daemon's own host up for shell integration and agent hooks
+   * (ADR-160 ticket 10): zdotdir, hook scripts, agent connector registration.
+   * Answered with `bootstrapped`. Sent by `RemoteBackend` after connecting; a
+   * daemon that predates it answers `error: unknown request type: bootstrap`,
+   * which callers tolerate.
    */
   | { type: "bootstrap" };
 
@@ -164,7 +166,9 @@ export type ControlResponse =
       stderr: string;
       exitCode: number | null;
     }
-  | { type: "fileContents"; contents: string };
+  | { type: "fileContents"; contents: string }
+  /** `bootstrap` succeeded; `agents` lists the connectors registered. */
+  | { type: "bootstrapped"; agents: string[] };
 
 // ── Agent status types ──
 

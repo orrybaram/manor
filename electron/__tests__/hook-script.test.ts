@@ -10,7 +10,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { HOOK_SCRIPT_PATH, ensureHookScript } from "../agent-hooks";
+import { ensureHookScript } from "../agent-hooks";
 
 // ── Helpers ──
 
@@ -45,6 +45,11 @@ function waitMs(ms: number): Promise<void> {
 }
 
 // ── Suite ──
+
+/** Resolved per call: ensureHookScript writes under whatever HOME is now. */
+function hookScript(): string {
+  return path.join(process.env.HOME!, ".manor", "hooks", "notify.sh");
+}
 
 describe("hook script (notify.sh) — toolUseId forwarding", () => {
   let tmpDir: string;
@@ -81,7 +86,7 @@ describe("hook script (notify.sh) — toolUseId forwarding", () => {
       tool_use_id: "tool-xyz",
     });
 
-    spawnSync("bash", [HOOK_SCRIPT_PATH], {
+    spawnSync("bash", [hookScript()], {
       input: payload,
       env: {
         ...process.env,
@@ -115,7 +120,7 @@ describe("hook script (notify.sh) — toolUseId forwarding", () => {
       session_id: "sess-123",
     });
 
-    spawnSync("bash", [HOOK_SCRIPT_PATH], {
+    spawnSync("bash", [hookScript()], {
       input: payload,
       env: {
         ...process.env,

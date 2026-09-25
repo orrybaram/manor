@@ -13,8 +13,7 @@ import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { getAllConnectors } from "./agent-connectors";
-import { hookScriptPath, hookScriptJsPath, hookPortFile } from "./paths";
+import { hookPortFile } from "./paths";
 import {
   type AgentHookEvent,
   parseAgentHookEvent,
@@ -134,72 +133,13 @@ export class AgentHookServer {
 }
 
 // ── Hook Script & Registration ──
+//
+// The hook scripts and connector registration live in the Electron-free
+// bootstrap module so the terminal-host daemon can run them on its own host.
 
-export const HOOK_SCRIPT_PATH = hookScriptPath();
-export const HOOK_SCRIPT_JS_PATH = hookScriptJsPath();
+export {
+  ensureHookScript,
+  registerAllAgents,
+} from "./terminal-host/bootstrap-host";
 
 const HOOK_PORT_FILE = hookPortFile();
-
-/**
- * Resolve the path to the bundled agent-hook.js source. In packaged
- * builds the asar archive isn't readable by plain Node when invoked
- * via `node /path/to/agent-hook.js`, so we point at the unpacked copy
- * extracted by electron-builder's asarUnpack. Mirrors the MCP-server
- * pattern below in registerAllAgents().
- */
-function bundledAgentHookJsPath(): string {
-  return path
-    .join(__dirname, "agent-hook.js")
-    .replace("app.asar", "app.asar.unpacked");
-}
-
-/**
- * Bash wrapper that exec's the Node script with stdin and any args
- * forwarded. Two reasons we keep a wrapper rather than registering
- * `node /path/...` directly with the agent CLIs:
- *   1. Backward compat: existing user configs already point at .sh.
- *   2. Lets us evolve the JS path/argv without rewriting agent configs.
- */
-const HOOK_SCRIPT = `#!/bin/bash
-# Manor agent hook — thin shim that delegates to the Node implementation.
-# The real logic lives in notify.js next to this file.
-exec node "$(dirname "$0")/notify.js" "$@"
-`;
-
-/**
- * Ensure both hook scripts exist on disk: the bash wrapper agents
- * register against, and the Node script that does the real work.
- */
-export function ensureHookScript(): void {
-  const dir = path.dirname(HOOK_SCRIPT_PATH);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(HOOK_SCRIPT_PATH, HOOK_SCRIPT, { mode: 0o755 });
-
-  // Copy the bundled JS implementation alongside the wrapper. In
-  // unit tests this module runs directly from source (vitest loads
-  // agent-hooks.ts) and the bundled file doesn't exist; fall back to
-  // the source under electron/scripts/.
-  const jsSrc = bundledAgentHookJsPath();
-  let jsContent: string;
-  try {
-    jsContent = fs.readFileSync(jsSrc, "utf-8");
-  } catch {
-    const devSrc = path.join(__dirname, "scripts", "agent-hook.js");
-    jsContent = fs.readFileSync(devSrc, "utf-8");
-  }
-  fs.writeFileSync(HOOK_SCRIPT_JS_PATH, jsContent, { mode: 0o755 });
-}
-
-/** Register hooks and MCP for all known agent connectors */
-export function registerAllAgents(): void {
-  // In packaged builds, the asar archive is not readable by plain Node.js,
-  // so we point to the unpacked copy extracted by electron-builder's asarUnpack.
-  const mcpServerScriptPath = path
-    .join(__dirname, "mcp-webview-server.js")
-    .replace("app.asar", "app.asar.unpacked");
-
-  for (const connector of getAllConnectors()) {
-    connector.registerHooks(HOOK_SCRIPT_PATH);
-    connector.registerMcp(mcpServerScriptPath);
-  }
-}

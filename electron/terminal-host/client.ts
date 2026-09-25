@@ -166,6 +166,8 @@ export class TerminalHostClient {
   private streamBuffer = "";
   private eventHandler: StreamEventHandler | null = null;
   private clientVersion: string | undefined;
+  /** Env set through `updateEnv`, re-sent to the daemon on every connect. */
+  private envOverrides: Record<string, string> = {};
   /**
    * Wire protocol the connected daemon speaks; 0 means it is old enough not to
    * report one. Re-read on every connect, since reconnecting can land on a
@@ -568,6 +570,8 @@ export class TerminalHostClient {
         envUpdate[key] = process.env[key]!;
       }
     }
+    // Explicit `updateEnv` values win over the inherited ones.
+    Object.assign(envUpdate, this.envOverrides);
     if (Object.keys(envUpdate).length > 0) {
       await this.request({ type: "updateEnv", env: envUpdate });
       stillWanted();
@@ -893,16 +897,36 @@ export class TerminalHostClient {
   }
 
   /**
-   * Bootstrap the daemon's host for agent hooks (ADR-160 ticket 10).
-   * Resolves `false` when the daemon predates the request and answered
-   * `unknown request type`; throws on any other failure.
+   * Bootstrap the daemon's host for shell integration and agent hooks
+   * (ADR-160 ticket 10). Resolves the agent kinds the daemon registered, or
+   * `null` when the daemon predates the request and answered `unknown
+   * request type`; throws on any other failure.
    */
-  async bootstrap(): Promise<boolean> {
+  async bootstrap(): Promise<string[] | null> {
     await this.ensureConnected();
     const resp = await this.request({ type: "bootstrap" });
-    if (resp.type !== "error") return true;
-    if (resp.message.startsWith("unknown request type")) return false;
-    throw new Error(`bootstrap failed: ${resp.message}`);
+    if (resp.type === "bootstrapped") return resp.agents;
+    if (resp.type === "error") {
+      if (resp.message.startsWith("unknown request type")) return null;
+      throw new Error(`bootstrap failed: ${resp.message}`);
+    }
+    throw new Error(`bootstrap failed: unexpected response type: ${resp.type}`);
+  }
+
+  /**
+   * Set environment variables on the daemon so PTY sessions spawned from now
+   * on inherit them. Remembered, and pushed again on every (re)connect, so a
+   * respawned daemon gets them too. Sessions already running keep their env.
+   */
+  async updateEnv(env: Record<string, string>): Promise<void> {
+    Object.assign(this.envOverrides, env);
+    await this.ensureConnected();
+    const resp = await this.request({ type: "updateEnv", env });
+    if (resp.type !== "envUpdated") {
+      throw new Error(
+        `updateEnv failed: ${resp.type === "error" ? resp.message : `unexpected response type: ${resp.type}`}`,
+      );
+    }
   }
 
   /**

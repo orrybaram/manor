@@ -170,14 +170,19 @@ export class RemoteBackend implements WorkspaceBackend {
   }
 
   /**
-   * The `bootstrap` request arrives with ticket 10. Until then the daemon
-   * answers "unknown request type", and a daemon that fails to bootstrap
-   * still serves terminals — agent status is what suffers, not the host —
-   * so neither is allowed to fail the connect.
+   * A daemon older than the `bootstrap` request answers "unknown request
+   * type", and a daemon that fails to bootstrap still serves terminals —
+   * agent status is what suffers, not the host — so neither is allowed to
+   * fail the connect.
    */
   private async bootstrapHost(): Promise<void> {
     try {
-      await this.client.bootstrap();
+      const agents = await this.client.bootstrap();
+      if (agents === null) {
+        console.warn(
+          `[remote-backend] manor-host on ${this.target} does not support bootstrap; agent hooks are not set up there`,
+        );
+      }
     } catch (err) {
       console.warn(
         `[remote-backend] bootstrap on ${this.target} failed: ${

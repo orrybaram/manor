@@ -59,8 +59,13 @@ export class LocalPtyBackend implements PtyBackend {
     this.client.onEvent(handler);
   }
 
-  async updateEnv(_env: Record<string, string>): Promise<void> {
-    // no-op: TerminalHostClient pushes env during connect()
+  /**
+   * Set env on the daemon for PTYs spawned from now on. The client also
+   * re-sends these on reconnect, alongside the inherited `MANOR_*` ports it
+   * pushes during connect().
+   */
+  async updateEnv(env: Record<string, string>): Promise<void> {
+    await this.client.updateEnv(env);
   }
 
   relayAgentHook(

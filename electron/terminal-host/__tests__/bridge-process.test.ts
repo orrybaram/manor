@@ -44,15 +44,29 @@ beforeAll(async () => {
       emptyOutDir: true,
       minify: false,
       // The same externals as the release bundle (vite.config.ts); the
-      // child resolves them through NODE_PATH.
+      // child resolves them through NODE_PATH. `electron` is external too, as
+      // vite-plugin-electron makes it, so an import of it shows up as a
+      // `require("electron")` the Electron-free check below can see.
       rollupOptions: {
-        external: ["node-pty", "tree-kill", "@xterm/headless", "@xterm/addon-serialize"],
+        external: [
+          "node-pty",
+          "tree-kill",
+          "@xterm/headless",
+          "@xterm/addon-serialize",
+          "electron",
+        ],
         output: { format: "cjs", entryFileNames: "terminal-host-index.js" },
       },
     },
     ssr: { noExternal: true, target: "node" },
   });
   bundle = path.join(bundleDir, "terminal-host-index.js");
+  // The manor-host tarball ships agent-hook.js next to the daemon bundle
+  // (scripts/build-host-tarball.mjs); `bootstrap` copies it into ~/.manor/hooks.
+  fs.copyFileSync(
+    path.join(REPO_ROOT, "electron/scripts/agent-hook.js"),
+    path.join(bundleDir, "agent-hook.js"),
+  );
 }, 120_000);
 
 afterAll(() => {
@@ -176,6 +190,61 @@ describe("manor-host remote-bridge (real process)", () => {
 
     // stdin is still open: only the daemon going away can end the bridge.
     expect(await withTimeout(exitOf(child), 10_000, "bridge exit")).toBe(0);
+  }, 60_000);
+
+  it("the daemon bundle is Electron-free", () => {
+    // A remote host has no Electron; one stray import and the daemon dies at
+    // load time there while working fine on the laptop.
+    const source = fs.readFileSync(bundle, "utf-8");
+    expect(source).not.toMatch(/require\(\s*["']electron["']\s*\)/);
+    expect(source).not.toMatch(/from\s*["']electron["']/);
+  });
+
+  it("bootstraps its own host: zdotdir, hook scripts, agent configs", async () => {
+    home = fs.mkdtempSync(path.join(TMP_BASE, "mbh-"));
+    const child = spawn(process.execPath, [bundle, "remote-bridge"], {
+      env: childEnv(home),
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    bridge = child;
+    const nextLine = lineReader(child);
+
+    const hello = JSON.parse(await withTimeout(nextLine(), 15_000, "bridgeHello"));
+    child.stdin!.write(
+      JSON.stringify({ type: "auth", token: hello.token, requestId: "1" }) + "\n",
+    );
+    expect(JSON.parse(await withTimeout(nextLine(), 5_000, "authOk")).type).toBe("authOk");
+
+    child.stdin!.write(JSON.stringify({ type: "bootstrap", requestId: "2" }) + "\n");
+    const resp = JSON.parse(await withTimeout(nextLine(), 10_000, "bootstrapped"));
+    expect(resp).toMatchObject({ type: "bootstrapped", requestId: "2" });
+    expect(resp.agents).toEqual(expect.arrayContaining(["claude", "codex"]));
+
+    // Hook scripts, with the real Node implementation next to the wrapper.
+    const hooksDir = path.join(home, ".manor", "hooks");
+    const notifySh = path.join(hooksDir, "notify.sh");
+    expect(fs.readFileSync(notifySh, "utf-8")).toContain('exec node "$(dirname "$0")/notify.js"');
+    expect(fs.statSync(notifySh).mode & 0o111).not.toBe(0);
+    expect(fs.readFileSync(path.join(hooksDir, "notify.js"), "utf-8")).toBe(
+      fs.readFileSync(path.join(REPO_ROOT, "electron/scripts/agent-hook.js"), "utf-8"),
+    );
+
+    // The zdotdir every daemon-spawned shell starts in.
+    const dataDir =
+      process.platform === "darwin"
+        ? path.join(home, "Library", "Application Support", "Manor")
+        : path.join(home, ".local", "share", "Manor");
+    expect(fs.readFileSync(path.join(dataDir, "zdotdir", ".zshrc"), "utf-8")).toContain(
+      "__manor_osc7_precmd",
+    );
+
+    // Agent configs point at this host's hook script...
+    const claudeSettings = JSON.parse(
+      fs.readFileSync(path.join(home, ".claude", "settings.json"), "utf-8"),
+    );
+    expect(JSON.stringify(claudeSettings.hooks.Stop)).toContain(notifySh);
+    // ...but no MCP server: the webview server it talks to is on the laptop.
+    expect(fs.existsSync(path.join(home, ".claude.json"))).toBe(false);
   }, 60_000);
 
   it("exits non-zero without a hello when no daemon can be started", async () => {

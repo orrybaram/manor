@@ -11,13 +11,9 @@ import { BranchWatcher } from "./branch-watcher";
 import { DiffWatcher } from "./diff-watcher";
 import { GitHubManager } from "./github";
 import { LinearManager } from "./linear";
-import { ShellManager } from "./shell";
 import { homeWorkspaceDir } from "./paths";
-import {
-  AgentHookServer,
-  ensureHookScript,
-  registerAllAgents,
-} from "./agent-hooks";
+import { AgentHookServer } from "./agent-hooks";
+import { bootstrapHost } from "./terminal-host/bootstrap-host";
 import { createHookRelay, SWEEP_INTERVAL_MS } from "./hook-relay";
 import { ensureManorCli } from "./manor-cli-install";
 import { AgentManager, type AgentInfo } from "./agent-persistence";
@@ -368,11 +364,10 @@ export function initApp(devTitle: string | null): void {
     });
   }
 
-  // Ensure shell integration and agent hooks are set up
-  ShellManager.setupZdotdir();
-  ensureHookScript();
+  // Ensure shell integration and agent hooks are set up — the same bootstrap
+  // a remote daemon runs on its own host (ADR-160 ticket 10).
+  bootstrapHost();
   ensureManorCli();
-  registerAllAgents();
   // The Home surface's harness runs in ~/.manor/home. Create it once here
   // instead of on every new session's launch command.
   fs.mkdirSync(homeWorkspaceDir(), { recursive: true });

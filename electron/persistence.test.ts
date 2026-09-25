@@ -1574,4 +1574,118 @@ describe("ProjectManager host-relative paths (ADR-178)", () => {
       path.join(worktreesDir(), toDirSlug("Local App"), "feature"),
     );
   });
+
+  it("keeps the local teardown script's original 30s timeout, not the remote's 10min one", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/someone");
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    const project = await mgr.addProject("Local App", "/tmp/local-app-3");
+    await mgr.updateProject(project.id, { worktreeTeardownScript: "rm -rf tmp" });
+
+    await mgr.removeWorktree(project.id, "/tmp/local-app-3-worktree");
+
+    expect(shell.execCalls).toContainEqual([
+      "sh",
+      ["-c", "rm -rf tmp"],
+      { cwd: "/tmp/local-app-3-worktree", timeout: 30000 },
+    ]);
+  });
+
+  it("rejects an empty or root remote home and does not cache the failure", async () => {
+    const git = fullGit();
+    let home = "";
+    const shell = fakeShell("");
+    shell.homeDir = vi.fn(async () => home);
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    const project = await mgr.addProject("Remote App", "/srv/app", "box");
+
+    await expect(
+      mgr.updateProject(project.id, { worktreePath: "~/custom-trees" }),
+    ).rejects.toThrow(/absolute path/);
+
+    home = "/";
+    await expect(
+      mgr.updateProject(project.id, { worktreePath: "~/custom-trees" }),
+    ).rejects.toThrow(/absolute path/);
+
+    // A valid home on a later call is not blocked by an earlier failure.
+    home = "/home/remoteuser";
+    const updated = await mgr.updateProject(project.id, { worktreePath: "~/custom-trees" });
+    expect(updated?.worktreePath).toBe("/home/remoteuser/custom-trees");
+  });
+
+  it("saves an absolute worktreePath without asking an unreachable host for its home", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    shell.homeDir = vi.fn(async () => {
+      throw new Error("host unreachable");
+    });
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    const project = await mgr.addProject("Remote App", "/srv/app", "box");
+
+    const updated = await mgr.updateProject(project.id, {
+      worktreePath: "/srv/custom-trees",
+    });
+
+    expect(updated?.worktreePath).toBe("/srv/custom-trees");
+    expect(shell.homeDir).not.toHaveBeenCalled();
+  });
+
+  it("clears the cached home directory when a host's spec is replaced with saveHost", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    await mgr.addProject("Remote App", "/srv/app", "box");
+
+    await mgr.getProjects();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mgr.hostIdForPath("/home/remoteuser/.manor/worktrees/remote-app/feature")).toBe(
+      "box",
+    );
+
+    // The host moved to a different machine with a different home. Replacing
+    // its spec must drop the stale cached home, so routing does not keep
+    // using the old machine's path until it is re-resolved.
+    mgr.saveHost("box", { kind: "ssh", target: "me@new-box" });
+    expect(mgr.hostIdForPath("/home/remoteuser/.manor/worktrees/remote-app/feature")).toBe(
+      "local",
+    );
+  });
+
+  it("never drops the leading slash when joining an absolute worktree root (remoteJoin)", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    const project = await mgr.addProject("Remote App", "/srv/app", "box");
+    await mgr.updateProject(project.id, { worktreePath: "/" });
+
+    const results = await mgr.createWorkspacesFromIssues(project.id, [
+      { number: 1, title: "feature", url: "https://example.com/1" },
+    ]);
+
+    expect(results[0].worktreePath).toBe("/feature");
+  });
+
+  it("clears the cached home directory when a host is removed", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    await mgr.addProject("Remote App", "/srv/app", "box");
+
+    await mgr.getProjects();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mgr.hostIdForPath("/home/remoteuser/.manor/worktrees/remote-app/feature")).toBe(
+      "box",
+    );
+
+    mgr.removeHost("box");
+    expect(mgr.hostIdForPath("/home/remoteuser/.manor/worktrees/remote-app/feature")).toBe(
+      "local",
+    );
+  });
 });

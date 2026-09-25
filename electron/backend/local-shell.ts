@@ -26,13 +26,21 @@ export function execShellHost(execImpl: Exec): ShellHost {
   let home: Promise<string> | null = null;
   return {
     homeDir() {
-      home ??= execImpl.file("sh", ["-c", 'printf %s "$HOME"']).then(
-        ({ stdout }) => stdout.trim(),
-        (err: unknown) => {
-          home = null; // retry next call
+      home ??= execImpl
+        .file("sh", ["-c", 'printf %s "$HOME"'])
+        .then(({ stdout }) => {
+          const trimmed = stdout.trim();
+          if (!trimmed.startsWith("/") || trimmed === "/") {
+            throw new Error(
+              `Remote $HOME must be an absolute path other than "/" (got ${JSON.stringify(trimmed)})`,
+            );
+          }
+          return trimmed;
+        })
+        .catch((err: unknown) => {
+          home = null; // retry next call, don't cache the failure
           throw err;
-        },
-      );
+        });
       return home;
     },
   };

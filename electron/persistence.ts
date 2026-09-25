@@ -25,10 +25,12 @@ function expandHome(p: string, home: string): string {
 
 /** Joins path segments with `/`, for paths on a host that is not this machine. */
 function remoteJoin(...parts: string[]): string {
-  return parts
+  const isAbsolute = parts[0]?.startsWith("/") ?? false;
+  const joined = parts
     .map((part, i) => (i === 0 ? part.replace(/\/+$/, "") : part.replace(/^\/+|\/+$/g, "")))
     .filter((part) => part.length > 0)
     .join("/");
+  return isAbsolute && !joined.startsWith("/") ? `/${joined}` : joined;
 }
 
 export interface CustomCommand {
@@ -349,6 +351,11 @@ export class ProjectManager {
   private async homeDirFor(hostId: string): Promise<string> {
     if (hostId === LOCAL_HOST_ID) return os.homedir();
     const home = await this.shellForHost(hostId).homeDir();
+    if (!home.startsWith("/") || home === "/") {
+      throw new Error(
+        `Remote $HOME for host "${hostId}" must be an absolute path other than "/" (got ${JSON.stringify(home)})`,
+      );
+    }
     this.hostHomeDirs.set(hostId, home);
     return home;
   }
@@ -382,6 +389,11 @@ export class ProjectManager {
     }
     if (!this.state.hosts) this.state.hosts = {};
     this.state.hosts[hostId] = { ...this.state.hosts[hostId], spec };
+    // The host may now be reachable at a different address (or machine)
+    // with a different home directory — drop the stale cache so
+    // `hostIdForPath` re-resolves it instead of routing against the old
+    // value.
+    this.hostHomeDirs.delete(hostId);
     this.saveState();
   }
 
@@ -389,6 +401,7 @@ export class ProjectManager {
   removeHost(hostId: string): void {
     if (!this.state.hosts?.[hostId]) return;
     delete this.state.hosts[hostId];
+    this.hostHomeDirs.delete(hostId);
     this.saveState();
   }
 
@@ -946,7 +959,7 @@ export class ProjectManager {
   ): Promise<ProjectInfo | null> {
     const project = this.findProject(projectId);
     if (!project) return null;
-    if (updates.worktreePath) {
+    if (updates.worktreePath?.startsWith("~")) {
       const hostId = project.hostId ?? LOCAL_HOST_ID;
       updates.worktreePath = expandHome(
         updates.worktreePath,
@@ -1131,15 +1144,18 @@ export class ProjectManager {
     }
 
     // Run worktree teardown script before removal, through the project's
-    // host (ADR-178 §3) — a generous timeout since teardown (e.g. `docker
-    // compose down`) can run well past a daemon's default exec timeout.
+    // host (ADR-178 §3). Remote hosts get a generous timeout since teardown
+    // (e.g. `docker compose down`) can run well past a daemon's default exec
+    // timeout; local keeps its original, tighter timeout.
     if (project.worktreeTeardownScript) {
       progress("Running teardown script…");
+      const hostId = project.hostId ?? LOCAL_HOST_ID;
+      const timeout = hostId === LOCAL_HOST_ID ? 30000 : 10 * 60 * 1000;
       try {
-        await this.shellForHost(project.hostId ?? LOCAL_HOST_ID).exec(
+        await this.shellForHost(hostId).exec(
           "sh",
           ["-c", project.worktreeTeardownScript],
-          { cwd: worktreePath, timeout: 10 * 60 * 1000 },
+          { cwd: worktreePath, timeout },
         );
       } catch (err) {
         console.error(

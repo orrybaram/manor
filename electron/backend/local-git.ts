@@ -197,6 +197,61 @@ export class LocalGitBackend implements GitBackend {
     );
   }
 
+  cloneStream(
+    repoUrl: string,
+    targetDir: string,
+    callbacks: {
+      onLine: (line: string) => void;
+      onDone: (result: { exitCode: number | null; stderr: string }) => void;
+    },
+  ): { cancel: () => void } {
+    let pending = "";
+    let stderrFull = "";
+    let exited = false;
+
+    return this.execImpl.stream(
+      "git",
+      ["clone", "--progress", repoUrl, targetDir],
+      {
+        // Overrides only — the Exec merges them onto its own base env.
+        // A missing credential must fail fast rather than hang waiting for
+        // a prompt Manor cannot answer (ADR-178 §4).
+        env: {
+          GIT_TERMINAL_PROMPT: "0",
+          GIT_ASKPASS: "/bin/true",
+        },
+      },
+      {
+        onStderr: (chunk: string) => {
+          stderrFull += chunk;
+          pending += chunk;
+          // git's clone progress uses `\r` to redraw a line in place, not
+          // `\n` — split on either so "Receiving objects: NN%" updates are
+          // delivered as they come instead of buffered until the newline
+          // that never arrives until the phase changes.
+          const parts = pending.split(/\r\n|\r|\n/);
+          pending = parts.pop() ?? "";
+          for (const line of parts) {
+            if (line.length > 0) callbacks.onLine(line);
+          }
+        },
+        onExit: ({ exitCode, error }) => {
+          if (exited) return;
+          exited = true;
+          if (error !== undefined) {
+            callbacks.onDone({ exitCode: null, stderr: error });
+            return;
+          }
+          if (pending.length > 0) {
+            callbacks.onLine(pending);
+            pending = "";
+          }
+          callbacks.onDone({ exitCode, stderr: stderrFull });
+        },
+      },
+    );
+  }
+
   async getFullDiff(
     cwd: string,
     defaultBranch: string,

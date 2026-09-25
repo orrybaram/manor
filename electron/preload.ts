@@ -292,6 +292,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
         hostId: string;
       }>,
     ) => ipcRenderer.invoke("projects:update", projectId, updates),
+    // ADR-178 ticket 5: clone a repo onto a remote host, then add it as a
+    // project there. Progress arrives on the same "worktree:setup-progress"
+    // channel `onWorktreeSetupProgress` already subscribes to, step "clone".
+    addRemote: (opts: {
+      hostId: string;
+      repoUrl: string;
+      remoteDir: string;
+      name: string;
+    }) => ipcRenderer.invoke("projects:addRemote", opts),
   },
 
   hosts: {
@@ -302,6 +311,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("hosts:retryConnect", hostId),
     onStatusChanged: (callback: (hosts: unknown) => void) =>
       onChannel<unknown>("hosts:statusChanged", callback),
+    // ADR-178 ticket 5: the four checks in ADR-178 §4's table, run through
+    // the host's own backend.
+    healthCheck: (hostId: string, projectPath: string) =>
+      ipcRenderer.invoke("hosts:healthCheck", hostId, projectPath),
   },
 
   theme: {

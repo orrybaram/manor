@@ -698,6 +698,9 @@ export class BackendRegistry {
         pushStream: execGate
           ? deferredPushStream(backend.git, execGate)
           : null,
+        cloneStream: execGate
+          ? deferredCloneStream(backend.git, execGate)
+          : null,
       }),
       shell: gated(backend.shell, execGate, {}),
       ports: gated(backend.ports, execGate, {}),
@@ -771,6 +774,35 @@ function deferredPushStream(
   };
 }
 
+/** `cloneStream` is synchronous, so the gate runs before the clone starts. */
+function deferredCloneStream(
+  git: GitBackend,
+  gate: () => Promise<void>,
+): GitBackend["cloneStream"] {
+  return (repoUrl, targetDir, callbacks) => {
+    let cancelled = false;
+    let inner: { cancel: () => void } | null = null;
+    gate().then(
+      () => {
+        if (cancelled) {
+          callbacks.onDone({ exitCode: null, stderr: "" });
+          return;
+        }
+        inner = git.cloneStream(repoUrl, targetDir, callbacks);
+      },
+      (err: unknown) => {
+        callbacks.onDone({ exitCode: null, stderr: errorMessage(err) });
+      },
+    );
+    return {
+      cancel: () => {
+        cancelled = true;
+        inner?.cancel();
+      },
+    };
+  };
+}
+
 /** The backend of a host nobody registered: every call fails. */
 function unavailableBackend(hostId: string): WorkspaceBackend {
   const fail = async (): Promise<never> => {
@@ -792,6 +824,17 @@ function unavailableBackend(hostId: string): WorkspaceBackend {
         _cwd: string,
         _opts: unknown,
         callbacks: Parameters<GitBackend["pushStream"]>[2],
+      ) => {
+        callbacks.onDone({
+          exitCode: null,
+          stderr: new HostUnavailableError(hostId, "unknown").message,
+        });
+        return { cancel: () => {} };
+      },
+      cloneStream: (
+        _repoUrl: string,
+        _targetDir: string,
+        callbacks: Parameters<GitBackend["cloneStream"]>[2],
       ) => {
         callbacks.onDone({
           exitCode: null,

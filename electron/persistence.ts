@@ -14,6 +14,7 @@ import {
 import { LocalShellBackend } from "./backend/local-shell";
 import { manorDataDir, worktreesDir } from "./paths";
 import { sanitizeBranchName, toDirSlug } from "./branch-name";
+import { shellQuote } from "./terminal-host/ssh-config";
 
 /** Expands a leading `~` in `p` against `home` (a specific host's home dir). */
 function expandHome(p: string, home: string): string {
@@ -31,6 +32,45 @@ function remoteJoin(...parts: string[]): string {
     .filter((part) => part.length > 0)
     .join("/");
   return isAbsolute && !joined.startsWith("/") ? `/${joined}` : joined;
+}
+
+/**
+ * `https://…`, `ssh://user@host/…` or scp-style `git@host:path` — the three
+ * forms git itself accepts as a clone source. Deliberately conservative: a
+ * URL is handed to `git clone` as its own argv entry (never through a local
+ * shell), but a target this loose still needs to look like a git remote
+ * before Manor spends a network round-trip and a directory on it.
+ */
+const REPO_URL_PATTERN =
+  /^(?:https:\/\/[A-Za-z0-9._-]+(?::\d+)?\/[\w.\-~/]+(?:\.git)?|ssh:\/\/[\w.-]+@[A-Za-z0-9._-]+(?::\d+)?\/[\w.\-~/]+(?:\.git)?|[\w.-]+@[A-Za-z0-9._-]+:[\w.\-~/]+(?:\.git)?)$/;
+
+/** Throws unless `url` is an `https://`, `ssh://` or scp-style git remote. */
+export function validateRepoUrl(url: string): void {
+  if (!REPO_URL_PATTERN.test(url)) {
+    throw new Error(
+      "Repo URL must be an https://, ssh://, or git@host:path git remote.",
+    );
+  }
+}
+
+/**
+ * An absolute path or one starting with `~/`, made only of characters a
+ * POSIX path can hold without needing shell quoting on the far side
+ * (letters, digits and `@%_+=:,./-`). Manor passes it through `git clone`'s
+ * own argv, never a shell, but the allowlist keeps it from ever looking
+ * like a flag or containing a character that would surprise `ls`/`test`
+ * when Manor checks whether it already exists.
+ */
+const REMOTE_DIR_PATTERN = /^(?:~|~\/[\w@%+=:,./-]*|\/[\w@%+=:,./-]*)$/;
+
+/** Throws unless `dir` is an absolute path or `~/`-relative, shell-safe path. */
+export function validateRemoteDir(dir: string): void {
+  if (!REMOTE_DIR_PATTERN.test(dir)) {
+    throw new Error(
+      "Remote directory must be an absolute path or start with ~/, using only " +
+        "letters, numbers and @%_+=:,./-",
+    );
+  }
 }
 
 export interface CustomCommand {
@@ -806,6 +846,150 @@ export class ProjectManager {
       folders: [],
       sidebarOrder: [],
     };
+  }
+
+  /** How long a clone may run before Manor gives up and cancels it. */
+  private static readonly CLONE_TIMEOUT_MS = 10 * 60 * 1000;
+
+  /**
+   * Create a project on a remote host by cloning it there first (ADR-178
+   * ticket 5): `git clone --progress` through the host's backend, with
+   * progress on the `worktree:setup-progress` channel (step `"clone"`), then
+   * the normal `addProject` path.
+   *
+   * If `remoteDir` already exists and is a clone of `repoUrl`, cloning is
+   * skipped and the existing checkout is adopted instead of clobbered. Any
+   * other non-empty directory is refused.
+   */
+  async addRemoteProject(opts: {
+    hostId: string;
+    repoUrl: string;
+    remoteDir: string;
+    name: string;
+  }): Promise<ProjectInfo> {
+    const { hostId, name } = opts;
+    const repoUrl = opts.repoUrl.trim();
+    const remoteDirInput = opts.remoteDir.trim();
+    if (hostId === LOCAL_HOST_ID) {
+      throw new Error("addRemoteProject requires a remote host.");
+    }
+    validateRepoUrl(repoUrl);
+    validateRemoteDir(remoteDirInput);
+
+    const shell = this.shellForHost(hostId);
+    const git = this.gitForHost(hostId);
+    const home = await this.homeDirFor(hostId);
+    const targetDir = expandHome(remoteDirInput, home);
+    if (!targetDir.startsWith("/") || targetDir === "/") {
+      throw new Error(
+        `Remote directory must resolve to an absolute path other than "/" (got ${JSON.stringify(targetDir)}).`,
+      );
+    }
+
+    const state = await this.remoteDirState(shell, targetDir);
+    if (state === "nonempty") {
+      const alreadyCloned = await this.remoteDirIsCloneOf(git, targetDir, repoUrl);
+      if (alreadyCloned) {
+        return this.addProject(name, targetDir, hostId);
+      }
+      throw new Error(
+        `"${targetDir}" already exists and is not empty. Choose an empty ` +
+          "directory, or one that is already a clone of this repository.",
+      );
+    }
+
+    this.emitSetupProgress("clone", "in-progress");
+    try {
+      await this.cloneWithProgress(git, repoUrl, targetDir);
+    } catch (err) {
+      this.emitSetupProgress(
+        "clone",
+        "error",
+        err instanceof Error ? err.message : String(err),
+      );
+      throw err;
+    }
+    this.emitSetupProgress("clone", "done");
+
+    return this.addProject(name, targetDir, hostId);
+  }
+
+  /** Whether `dir` is missing, exists and is empty, or exists with contents. */
+  private async remoteDirState(
+    shell: ShellBackend,
+    dir: string,
+  ): Promise<"missing" | "empty" | "nonempty"> {
+    if (!(await this.remoteFileExists(shell, dir))) return "missing";
+    try {
+      const out = await shell.exec("sh", ["-c", `ls -A ${shellQuote(dir)}`]);
+      return out.trim() === "" ? "empty" : "nonempty";
+    } catch {
+      // `ls -A` on a plain file (not a directory) fails — treat it as
+      // occupied rather than guessing at its contents.
+      return "nonempty";
+    }
+  }
+
+  /** Whether `dir` is already a git checkout whose `origin` is `repoUrl`. */
+  private async remoteDirIsCloneOf(
+    git: GitBackend,
+    dir: string,
+    repoUrl: string,
+  ): Promise<boolean> {
+    try {
+      const out = await git.exec(dir, ["remote", "get-url", "origin"]);
+      return out.trim() === repoUrl;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * `git clone --progress` through `git.cloneStream`, forwarding every
+   * progress line to the `worktree:setup-progress` channel and enforcing
+   * `CLONE_TIMEOUT_MS` — a stalled clone (e.g. waiting on a credential
+   * prompt `GIT_TERMINAL_PROMPT=0` should have refused) must not hang the
+   * onboarding flow forever.
+   */
+  private cloneWithProgress(
+    git: GitBackend,
+    repoUrl: string,
+    targetDir: string,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      // `handle` isn't available until `cloneStream` returns, but the
+      // timeout has to exist before then so a fake/synchronous backend
+      // calling `onDone` immediately still has something to `clearTimeout`.
+      let handle: { cancel: () => void } | null = null;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        handle?.cancel();
+        reject(
+          new Error(
+            `git clone timed out after ${ProjectManager.CLONE_TIMEOUT_MS / 1000}s`,
+          ),
+        );
+      }, ProjectManager.CLONE_TIMEOUT_MS);
+      handle = git.cloneStream(repoUrl, targetDir, {
+        onLine: (line) => {
+          this.emitSetupProgress("clone", "in-progress", line);
+        },
+        onDone: ({ exitCode, stderr }) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          if (exitCode === 0) {
+            resolve();
+          } else {
+            reject(
+              new Error(stderr.trim() || `git clone exited with code ${exitCode}`),
+            );
+          }
+        },
+      });
+    });
   }
 
   removeProject(projectId: string): void {

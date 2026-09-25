@@ -1,6 +1,6 @@
 ---
 title: Add project on a host — clone and health check
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2]

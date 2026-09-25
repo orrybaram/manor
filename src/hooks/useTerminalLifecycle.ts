@@ -269,6 +269,22 @@ export function useTerminalLifecycle(
       const fallback = setTimeout(send, 3000);
     };
 
+    // Same as `sendOnShellReady`, but types `text` into the shell without
+    // submitting it (ADR-178 ticket 5's "fix in terminal" — the user reviews
+    // a health-check fix-it command before running it, so it must sit in the
+    // buffer rather than execute).
+    const typeOnShellReady = (text: string) => {
+      let sent = false;
+      const send = () => {
+        if (sent || disposed) return;
+        sent = true;
+        clearTimeout(fallback);
+        write(text);
+      };
+      onShellReady(send);
+      const fallback = setTimeout(send, 3000);
+    };
+
     // Derive agentKind from the project's agent command so MANOR_AGENT_KIND
     // is set in the PTY env for connector-aware spawns.
     const agentKindForCreate: string | null = (() => {
@@ -357,6 +373,11 @@ export function useTerminalLifecycle(
               ? store.consumePendingStartupCommand(wsPath)
               : null;
           const pendingCmd = paneCmd || startupCmd;
+          // Text to type but not submit (ADR-178 ticket 5's "fix in
+          // terminal") only applies when there is no command to run.
+          const pendingTypedText = !pendingCmd
+            ? store.consumePendingTypedText(paneId)
+            : null;
           if (pendingCmd) {
             // `prewarmed` only means the daemon session already existed — NOT
             // that its shell has reached a prompt. React StrictMode (dev)
@@ -381,6 +402,13 @@ export function useTerminalLifecycle(
               // output is too early: the shell may still be sourcing .zshrc,
               // and ZLE discards buffered input when it initializes.
               sendOnShellReady(pendingCmd);
+            }
+          } else if (pendingTypedText) {
+            const shellReady = !!useAppStore.getState().paneCwd[paneId];
+            if (result.prewarmed && shellReady) {
+              write(pendingTypedText);
+            } else {
+              typeOnShellReady(pendingTypedText);
             }
           } else if (!result.snapshot) {
             // No pending command and no warm-restore snapshot → cold or fresh session.

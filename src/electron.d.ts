@@ -510,6 +510,13 @@ export interface ElectronAPI {
       projectId: string,
       updates: import("./store/project-store").ProjectUpdatableFields,
     ) => Promise<import("./store/project-store").ProjectInfo | null>;
+    /** ADR-178 ticket 5: clone a repo onto a remote host, then add it. */
+    addRemote: (opts: {
+      hostId: string;
+      repoUrl: string;
+      remoteDir: string;
+      name: string;
+    }) => Promise<import("./store/project-store").ProjectInfo>;
   };
 
   hosts: {
@@ -525,6 +532,11 @@ export interface ElectronAPI {
     onStatusChanged: (
       callback: (hosts: import("./store/host-store").HostStatusInfo[]) => void,
     ) => () => void;
+    /** ADR-178 ticket 5: the ADR-178 §4 checks, run through the host itself. */
+    healthCheck: (
+      hostId: string,
+      projectPath: string,
+    ) => Promise<import("./lib/hosts").HealthCheckResult[]>;
   };
 
   theme: {

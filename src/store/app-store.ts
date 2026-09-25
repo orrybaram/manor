@@ -229,6 +229,12 @@ export interface AppState {
   pendingStartupCommands: Record<string, string>;
   /** Pending startup commands keyed by pane ID (for split-with-agent) */
   pendingPaneCommands: Record<string, string>;
+  /**
+   * Text to type into a pane once its shell is ready, WITHOUT submitting it
+   * (no trailing Enter) — e.g. a health-check fix-it command the user should
+   * review before running (ADR-178 ticket 5). Keyed by pane ID.
+   */
+  pendingTypedTexts: Record<string, string>;
   /** Pane ID awaiting close confirmation (when agent is active) */
   pendingCloseConfirmPaneId: string | null;
   /** Tab ID awaiting close confirmation (when agent is active in a pane) */
@@ -260,6 +266,14 @@ export interface AppState {
    */
   addTab: (adoptPaneId?: string) => { tabId: string; paneId: string } | null;
   addTerminalTab: (command: string) => { tabId: string; paneId: string } | null;
+  /**
+   * Like `addTerminalTab`, but types `text` into the new pane without
+   * submitting it (ADR-178 ticket 5's "fix in terminal" — a health-check
+   * fix-it command the user reviews before running).
+   */
+  addTerminalTabWithTypedText: (
+    text: string,
+  ) => { tabId: string; paneId: string } | null;
   addBrowserTab: (
     url: string,
     opts?: { background?: boolean },
@@ -366,6 +380,9 @@ export interface AppState {
   setPendingStartupCommand: (workspacePath: string, command: string) => void;
   consumePendingStartupCommand: (workspacePath: string) => string | null;
   consumePendingPaneCommand: (paneId: string) => string | null;
+  /** Text a new pane on `paneId` should have typed (not run) once ready. */
+  setPendingTypedText: (paneId: string, text: string) => void;
+  consumePendingTypedText: (paneId: string) => string | null;
 
   // Workspace cleanup
   removeWorkspaceLayout: (workspacePath: string) => void;
@@ -648,6 +665,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   closedPaneStack: [],
   pendingStartupCommands: {},
   pendingPaneCommands: {},
+  pendingTypedTexts: {},
   pendingCloseConfirmPaneId: null,
   pendingCloseConfirmTabId: null,
   worktreeSetupState: {},
@@ -829,6 +847,27 @@ export const useAppStore = create<AppState>((set, get) => ({
       pendingPaneCommands: {
         ...state.pendingPaneCommands,
         [tabPaneId]: command,
+      },
+    });
+    return { tabId: tab.id, paneId: tabPaneId };
+  },
+
+  addTerminalTabWithTypedText: (text: string) => {
+    const ctx = getActivePanelContext(get());
+    if (!ctx) return null;
+    const { path, layout, panel } = ctx;
+    const tab = createTab();
+    const tabPaneId = tab.focusedPaneId;
+    const state = get();
+    set({
+      ...updatePanel(state, path, layout, panel.id, (p) => ({
+        ...p,
+        tabs: [...p.tabs, tab],
+        selectedTabId: tab.id,
+      })),
+      pendingTypedTexts: {
+        ...state.pendingTypedTexts,
+        [tabPaneId]: text,
       },
     });
     return { tabId: tab.id, paneId: tabPaneId };
@@ -2317,6 +2356,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     }
     return cmd;
+  },
+
+  setPendingTypedText: (paneId: string, text: string) =>
+    set((state) => ({
+      pendingTypedTexts: { ...state.pendingTypedTexts, [paneId]: text },
+    })),
+
+  consumePendingTypedText: (paneId: string) => {
+    const text = get().pendingTypedTexts[paneId] ?? null;
+    if (text) {
+      set((state) => {
+        const { [paneId]: _, ...rest } = state.pendingTypedTexts;
+        return { pendingTypedTexts: rest };
+      });
+    }
+    return text;
   },
 
   removeWorkspaceLayout: (workspacePath: string) =>

@@ -425,6 +425,13 @@ interface ProjectState {
   loadProjects: () => Promise<void>;
   addProject: (name: string, path: string) => Promise<void>;
   addProjectFromDirectory: () => Promise<void>;
+  /** ADR-178 ticket 5: clone a repo onto a remote host, then add it. */
+  addRemoteProject: (opts: {
+    hostId: string;
+    repoUrl: string;
+    remoteDir: string;
+    name: string;
+  }) => Promise<ProjectInfo>;
   removeProject: (projectId: string) => Promise<void>;
   selectProject: (index: number) => void;
   selectWorkspace: (projectId: string, workspaceIndex: number) => void;
@@ -557,6 +564,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const name = selected.split("/").pop() || "Untitled";
       await get().addProject(name, selected);
     }
+  },
+
+  addRemoteProject: async (opts) => {
+    const project = await window.electronAPI.projects.addRemote(opts);
+    set((s) => ({
+      projects: [...s.projects, project],
+      selectedProjectIndex: s.projects.length,
+    }));
+    return project;
   },
 
   removeProject: async (projectId: string) => {

@@ -112,6 +112,11 @@ export class RoutedBackend implements WorkspaceBackend {
       stash: (cwd, files) => byPath(cwd).git.stash(cwd, files),
       pushStream: (cwd, opts, callbacks) =>
         byPath(cwd).git.pushStream(cwd, opts, callbacks),
+      // `targetDir` doesn't exist yet (that's the point of cloning into it),
+      // so route by its host the same way `hostForPath` routes any other
+      // not-yet-known path under a project's root.
+      cloneStream: (repoUrl, targetDir, callbacks) =>
+        byPath(targetDir).git.cloneStream(repoUrl, targetDir, callbacks),
       getFullDiff: (cwd, defaultBranch) =>
         byPath(cwd).git.getFullDiff(cwd, defaultBranch),
       getLocalDiff: (cwd) => byPath(cwd).git.getLocalDiff(cwd),

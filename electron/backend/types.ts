@@ -93,6 +93,22 @@ export interface GitBackend {
     },
   ): { cancel: () => void };
 
+  /**
+   * `git clone --progress <repoUrl> <targetDir>` (ADR-178 ticket 5).
+   * `targetDir` must not exist yet, or must be empty — the caller checks
+   * that before calling. `onLine` gets each progress line git writes to
+   * stderr during a clone; mirrors `pushStream`'s shape so both stream
+   * through the same gate in `BackendRegistry`.
+   */
+  cloneStream(
+    repoUrl: string,
+    targetDir: string,
+    callbacks: {
+      onLine: (line: string) => void;
+      onDone: (result: { exitCode: number | null; stderr: string }) => void;
+    },
+  ): { cancel: () => void };
+
   getFullDiff(cwd: string, defaultBranch: string): Promise<string | null>;
 
   getLocalDiff(cwd: string): Promise<string | null>;

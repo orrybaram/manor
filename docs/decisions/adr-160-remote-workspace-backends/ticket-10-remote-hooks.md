@@ -8,6 +8,13 @@ blocked_by: [5, 9]
 
 # Remote agent hooks — reverse forward, env, and daemon bootstrap
 
+> **Amended by ADR-178.** Implement **only step 3 (Bootstrap)** here, plus the
+> `LocalPtyBackend.updateEnv` fix from step 2 (implement it, but do not wire
+> `MANOR_HOOK_PORT` from main). Steps 1, 2 (the reverse forward) and 4 (its diagnostic)
+> are replaced by ADR-178 ticket 3, which gives the remote daemon its own hook listener
+> and journal so events fired while the laptop is closed are not lost. Do not add
+> `-R` to `SshTransport`.
+
 Agent status (working / blocked / idle) comes from agent CLIs POSTing to
 `AgentHookServer`, an HTTP server in Electron main whose port is handed to PTYs as
 `MANOR_HOOK_PORT` (`app-lifecycle.ts:412-414`). A remote agent cannot reach that port,

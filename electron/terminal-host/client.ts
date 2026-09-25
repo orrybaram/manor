@@ -1,15 +1,13 @@
 /**
  * TerminalHostClient — used by the Electron main process to communicate with the daemon.
  *
- * - Spawns daemon if not running
+ * - Reaches the daemon through a HostTransport (LocalTransport by default),
+ *   which spawns it if it is not running
  * - Control socket: request/response (NDJSON)
  * - Stream socket: fire-and-forget writes + event subscription
  */
 
-import * as net from "node:net";
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { spawn, type ChildProcess } from "node:child_process";
+import type { Duplex } from "node:stream";
 import type {
   ControlRequest,
   ControlResponse,
@@ -20,7 +18,8 @@ import type {
   AgentKind,
 } from "./types";
 import { TERMINAL_HOST_PROTOCOL } from "./types";
-import { manorHomeDir } from "../paths";
+import type { HostTransport } from "./transport";
+import { LocalTransport } from "./transport-local";
 
 /**
  * The wire protocol a handshake reply reports. A daemon old enough not to
@@ -59,13 +58,11 @@ export function isDaemonStale(
   return daemonProtocolOf(response) < TERMINAL_HOST_PROTOCOL;
 }
 
-const MANOR_DIR = manorHomeDir();
-
 type StreamEventHandler = (event: StreamEvent) => void;
 
 export class TerminalHostClient {
-  private controlSocket: net.Socket | null = null;
-  private streamSocket: net.Socket | null = null;
+  private controlSocket: Duplex | null = null;
+  private streamSocket: Duplex | null = null;
   private connected = false;
   private connectPromise: Promise<void> | null = null;
   private pendingRequests = new Map<
@@ -83,7 +80,6 @@ export class TerminalHostClient {
   private controlBuffer = "";
   private streamBuffer = "";
   private eventHandler: StreamEventHandler | null = null;
-  private daemonProcess: ChildProcess | null = null;
   private clientVersion: string | undefined;
   /**
    * Wire protocol the connected daemon speaks; 0 means it is old enough not to
@@ -91,7 +87,6 @@ export class TerminalHostClient {
    * different daemon.
    */
   private daemonProtocol = 0;
-  private _migratedOldDaemons = false;
   /**
    * Sessions the app wants a stream subscription for. Filled by
    * `createOrAttach`, emptied by `kill`/`detach`. Deliberately survives
@@ -107,28 +102,15 @@ export class TerminalHostClient {
    *  Overridable so tests do not have to wait it out. */
   private reconnectDelaysMs: number[] = [250, 1_000, 2_000];
 
-  constructor(version?: string) {
+  private readonly transport: HostTransport;
+
+  constructor(version?: string, transport: HostTransport = new LocalTransport()) {
     this.clientVersion = version;
+    this.transport = transport;
   }
 
   setVersion(version: string): void {
     this.clientVersion = version;
-  }
-
-  private get daemonDir(): string {
-    return path.join(MANOR_DIR, "daemon");
-  }
-
-  private get SOCKET_PATH(): string {
-    return path.join(this.daemonDir, "terminal-host.sock");
-  }
-
-  private get TOKEN_PATH(): string {
-    return path.join(this.daemonDir, "terminal-host.token");
-  }
-
-  private get PID_PATH(): string {
-    return path.join(this.daemonDir, "terminal-host.pid");
   }
 
   /** Set a handler for stream events (data, exit, cwd, error) */
@@ -244,19 +226,14 @@ export class TerminalHostClient {
   }
 
   private async doConnect(): Promise<void> {
-    // One-time cleanup of old versioned daemons from the previous path scheme
-    await this.migrateOldDaemons();
-
-    // Check if daemon is running
-    if (!this.isDaemonRunning()) {
-      await this.spawnDaemon();
-    }
+    // Make sure a daemon is there to talk to, starting one if necessary
+    await this.transport.ensureRunning(this.clientVersion);
 
     // Connect control socket
     await this.connectControlSocket();
 
     // Authenticate
-    let token = fs.readFileSync(this.TOKEN_PATH, "utf-8").trim();
+    let token = await this.transport.authToken();
     const authResp = await this.request({ type: "auth", token });
     if (authResp.type !== "authOk") {
       throw new Error(
@@ -286,10 +263,10 @@ export class TerminalHostClient {
     if (isDaemonStale(hsResp, clientVer)) {
       // Stale daemon — replace it
       this.cleanup();
-      await this.killAndRespawn();
+      await this.transport.restart(this.clientVersion);
       // Reconnect to the fresh daemon
       await this.connectControlSocket();
-      token = fs.readFileSync(this.TOKEN_PATH, "utf-8").trim();
+      token = await this.transport.authToken();
       const authResp2 = await this.request({ type: "auth", token });
       if (authResp2.type !== "authOk") {
         throw new Error(
@@ -581,182 +558,70 @@ export class TerminalHostClient {
     }
   }
 
-  private isDaemonRunning(): boolean {
-    try {
-      const pid = parseInt(fs.readFileSync(this.PID_PATH, "utf-8").trim(), 10);
-      process.kill(pid, 0); // Check if process exists
-      // Also check socket exists
-      return fs.existsSync(this.SOCKET_PATH);
-    } catch {
-      return false;
-    }
-  }
-
-  private async killDaemonByPid(): Promise<void> {
-    try {
-      const pid = parseInt(fs.readFileSync(this.PID_PATH, "utf-8").trim(), 10);
-      process.kill(pid, "SIGTERM");
-    } catch {
-      // PID file missing or process already gone — ignore
-    }
-  }
-
-  /** Kill the current daemon and spawn a fresh replacement. */
-  private async killAndRespawn(): Promise<void> {
-    await this.killDaemonByPid();
-    // Grace period for the process to exit and release the socket
-    await new Promise<void>((r) => setTimeout(r, 500));
-    try { fs.unlinkSync(this.SOCKET_PATH); } catch { /* already gone */ }
-    try { fs.unlinkSync(this.PID_PATH); } catch { /* already gone */ }
-    await this.spawnDaemon();
-  }
-
-  /**
-   * One-time migration: SIGTERM any leftover daemons from the old versioned
-   * path scheme (~/.manor/daemons/{version}/). Runs once per process lifetime.
-   */
-  private async migrateOldDaemons(): Promise<void> {
-    if (this._migratedOldDaemons) return;
-    this._migratedOldDaemons = true;
-    const legacyDaemonsDir = path.join(MANOR_DIR, "daemons");
-    try {
-      const entries = fs.readdirSync(legacyDaemonsDir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const pidFile = path.join(legacyDaemonsDir, entry.name, "terminal-host.pid");
+  private async connectControlSocket(): Promise<void> {
+    const socket = await this.transport.connectControl();
+    this.controlSocket = socket;
+    socket.on("data", (chunk: Buffer) => {
+      this.controlBuffer += chunk.toString("utf-8");
+      const lines = this.controlBuffer.split("\n");
+      this.controlBuffer = lines.pop()!;
+      for (const line of lines) {
+        if (!line.trim()) continue;
         try {
-          const pid = parseInt(fs.readFileSync(pidFile, "utf-8").trim(), 10);
-          if (!isNaN(pid)) process.kill(pid, "SIGTERM");
+          const resp = JSON.parse(line) as ControlResponse;
+          // Mutex guarantees at most one pending request
+          const firstKey = this.pendingRequests.keys().next().value;
+          if (firstKey !== undefined) {
+            const pending = this.pendingRequests.get(firstKey)!;
+            this.pendingRequests.delete(firstKey);
+            clearTimeout(pending.timeout);
+            pending.resolve(resp);
+          }
         } catch {
-          // PID file missing or process already gone — skip
+          // invalid JSON, skip
         }
       }
-    } catch {
-      // Legacy directory doesn't exist — nothing to migrate
-    }
-  }
-
-  private async spawnDaemon(): Promise<void> {
-    fs.mkdirSync(this.daemonDir, { recursive: true });
-
-    // Clean up stale socket so waitForSocket waits for the NEW daemon's socket
-    try {
-      fs.unlinkSync(this.SOCKET_PATH);
-    } catch {
-      // doesn't exist
-    }
-
-    const daemonScript = path.join(__dirname, "terminal-host-index.js");
-
-    const env: Record<string, string | undefined> = {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: "1",
-    };
-    if (this.clientVersion) {
-      env.MANOR_VERSION = this.clientVersion;
-    }
-
-    this.daemonProcess = spawn(process.execPath, [daemonScript], {
-      env,
-      stdio: ["ignore", "ignore", "inherit"],
-      detached: true,
     });
 
-    this.daemonProcess.unref();
-
-    // Wait for socket to appear
-    await this.waitForSocket(5000);
-  }
-
-  private async waitForSocket(timeoutMs: number): Promise<void> {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      if (fs.existsSync(this.SOCKET_PATH)) {
-        // Small extra delay for the server to be ready
-        await new Promise((r) => setTimeout(r, 100));
-        return;
-      }
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    throw new Error(
-      "Daemon failed to start: socket not created within timeout",
-    );
-  }
-
-  private connectControlSocket(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.controlSocket = net.createConnection(this.SOCKET_PATH, () => {
-        resolve();
-      });
-
-      this.controlSocket.on("data", (chunk) => {
-        this.controlBuffer += chunk.toString("utf-8");
-        const lines = this.controlBuffer.split("\n");
-        this.controlBuffer = lines.pop()!;
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const resp = JSON.parse(line) as ControlResponse;
-            // Mutex guarantees at most one pending request
-            const firstKey = this.pendingRequests.keys().next().value;
-            if (firstKey !== undefined) {
-              const pending = this.pendingRequests.get(firstKey)!;
-              this.pendingRequests.delete(firstKey);
-              clearTimeout(pending.timeout);
-              pending.resolve(resp);
-            }
-          } catch {
-            // invalid JSON, skip
-          }
-        }
-      });
-
-      this.controlSocket.on("error", (err) => {
-        if (!this.connected) {
-          reject(err);
-        } else {
-          this.handleDisconnect();
-        }
-      });
-
-      this.controlSocket.on("close", () => {
+    socket.on("error", () => {
+      // Connection failures surface from the transport; once connected, an
+      // error here means the daemon went away.
+      if (this.connected) {
         this.handleDisconnect();
-      });
+      }
+    });
+
+    socket.on("close", () => {
+      this.handleDisconnect();
     });
   }
 
-  private connectStreamSocket(token: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.streamSocket = net.createConnection(this.SOCKET_PATH, () => {
-        // Send init message identifying this as a stream connection
-        this.streamSocket!.write(
-          JSON.stringify({ connectionType: "stream", token }) + "\n",
-        );
-        resolve();
-      });
-
-      this.streamSocket.on("data", (chunk) => {
-        this.streamBuffer += chunk.toString("utf-8");
-        const lines = this.streamBuffer.split("\n");
-        this.streamBuffer = lines.pop()!;
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const event = JSON.parse(line) as StreamEvent;
-            this.eventHandler?.(event);
-          } catch {
-            // invalid JSON, skip
-          }
+  private async connectStreamSocket(token: string): Promise<void> {
+    const socket = await this.transport.connectStream();
+    this.streamSocket = socket;
+    // Send init message identifying this as a stream connection
+    socket.write(JSON.stringify({ connectionType: "stream", token }) + "\n");
+    socket.on("data", (chunk: Buffer) => {
+      this.streamBuffer += chunk.toString("utf-8");
+      const lines = this.streamBuffer.split("\n");
+      this.streamBuffer = lines.pop()!;
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const event = JSON.parse(line) as StreamEvent;
+          this.eventHandler?.(event);
+        } catch {
+          // invalid JSON, skip
         }
-      });
+      }
+    });
 
-      this.streamSocket.on("error", (err) => {
-        if (!this.connected) reject(err);
-      });
+    socket.on("error", () => {
+      // Errors are followed by `close`, which is where loss is handled.
+    });
 
-      this.streamSocket.on("close", () => {
-        this.handleDisconnect();
-      });
+    socket.on("close", () => {
+      this.handleDisconnect();
     });
   }
 

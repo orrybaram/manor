@@ -29,6 +29,9 @@ vi.mock("../shell", () => ({
 import { TerminalHost } from "./terminal-host";
 import type { ControlRequest, ControlResponse } from "./types";
 import { TerminalHostClient, isDaemonStale, daemonProtocolOf } from "./client";
+import type { HostTransport } from "./transport";
+import { LocalTransport } from "./transport-local";
+import type { Duplex } from "node:stream";
 import { TERMINAL_HOST_PROTOCOL } from "./types";
 
 // ── Test daemon (same as daemon.integration.test.ts but with error handling fix) ──
@@ -291,91 +294,34 @@ class TestDaemon {
 
 // ── Helper to create a TerminalHostClient wired to a test daemon ──
 
+/** A transport that reaches the test daemon instead of ~/.manor/daemon. */
+class TestTransport implements HostTransport {
+  constructor(private daemon: TestDaemon) {}
+  async ensureRunning(): Promise<void> {}
+  async restart(): Promise<void> {}
+  connectControl(): Promise<Duplex> {
+    return this.connect();
+  }
+  connectStream(): Promise<Duplex> {
+    return this.connect();
+  }
+  async authToken(): Promise<string> {
+    return fs.readFileSync(this.daemon.tokenPath, "utf-8").trim();
+  }
+  async dispose(): Promise<void> {}
+  private connect(): Promise<Duplex> {
+    return new Promise((resolve, reject) => {
+      const socket = net.createConnection(this.daemon.socketPath, () =>
+        resolve(socket),
+      );
+      socket.on("error", reject);
+    });
+  }
+}
+
 function createTestClient(daemon: TestDaemon): TerminalHostClient {
-  const client = new TerminalHostClient();
-  // Patch the private paths and daemon-spawning to point at our test daemon
-  (client as any).isDaemonRunning = () => true;
-  (client as any).spawnDaemon = () => Promise.resolve();
-
-  const socketPath = daemon.socketPath;
+  const client = new TerminalHostClient(undefined, new TestTransport(daemon));
   const tokenPath = daemon.tokenPath;
-
-  const _origConnectControl = (client as any).connectControlSocket.bind(client);
-  (client as any).connectControlSocket = () => {
-    // Override SOCKET_PATH temporarily
-    return new Promise<void>((resolve, reject) => {
-      const socket = net.createConnection(socketPath, () => resolve());
-      (client as any).controlSocket = socket;
-
-      socket.on("data", (chunk: Buffer) => {
-        let buf: string = (client as any).controlBuffer;
-        buf += chunk.toString("utf-8");
-        const lines = buf.split("\n");
-        (client as any).controlBuffer = lines.pop()!;
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const resp = JSON.parse(line);
-            const pendingMap = (client as any).pendingRequests as Map<string, any>;
-            const firstKey = pendingMap.keys().next().value;
-            if (firstKey !== undefined) {
-              const pending = pendingMap.get(firstKey)!;
-              pendingMap.delete(firstKey);
-              clearTimeout(pending.timeout);
-              pending.resolve(resp);
-            }
-          } catch {}
-        }
-      });
-
-      socket.on("error", (err: Error) => {
-        if (!(client as any).connected) {
-          reject(err);
-        } else {
-          (client as any).handleDisconnect();
-        }
-      });
-
-      socket.on("close", () => {
-        (client as any).handleDisconnect();
-      });
-    });
-  };
-
-  // Patch connectStreamSocket similarly
-  (client as any).connectStreamSocket = (token: string) => {
-    return new Promise<void>((resolve, reject) => {
-      const socket = net.createConnection(socketPath, () => {
-        socket.write(
-          JSON.stringify({ connectionType: "stream", token }) + "\n",
-        );
-        resolve();
-      });
-      (client as any).streamSocket = socket;
-
-      socket.on("data", (chunk: Buffer) => {
-        let buf: string = (client as any).streamBuffer;
-        buf += chunk.toString("utf-8");
-        const lines = buf.split("\n");
-        (client as any).streamBuffer = lines.pop()!;
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const event = JSON.parse(line);
-            (client as any).eventHandler?.(event);
-          } catch {}
-        }
-      });
-
-      socket.on("error", (err: Error) => {
-        if (!(client as any).connected) reject(err);
-      });
-
-      socket.on("close", () => {
-        (client as any).handleDisconnect();
-      });
-    });
-  };
 
   // Patch the request method to read the test token
   const origRequest = (client as any).request.bind(client);
@@ -909,9 +855,9 @@ describe("TerminalHostClient", () => {
 
   describe("daemonDir (ADR-116)", () => {
     it("uses a fixed path independent of app version", () => {
-      const clientA = new TerminalHostClient("1.0.0");
-      const clientB = new TerminalHostClient("9.9.9");
-      const clientC = new TerminalHostClient();
+      const clientA = new LocalTransport();
+      const clientB = new LocalTransport();
+      const clientC = new LocalTransport();
 
       const dirA = (clientA as any).daemonDir as string;
       const dirB = (clientB as any).daemonDir as string;
@@ -951,7 +897,7 @@ describe("TerminalHostClient", () => {
         fs.writeFileSync(path.join(v1Dir, "terminal-host.pid"), "11111");
         fs.writeFileSync(path.join(v2Dir, "terminal-host.pid"), "22222");
 
-        const client = new TerminalHostClient("3.0.0");
+        const client = new LocalTransport();
         // Point client at the temp dir via the private MANOR_DIR getter
         (client as any).migrateOldDaemonsDir = legacyRoot;
 
@@ -980,7 +926,7 @@ describe("TerminalHostClient", () => {
     });
 
     it("runs only once per client instance", async () => {
-      const client = new TerminalHostClient();
+      const client = new LocalTransport();
       let callCount = 0;
 
       // Replace the method with a counter

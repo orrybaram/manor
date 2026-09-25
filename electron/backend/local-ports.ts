@@ -1,14 +1,16 @@
 import os from "node:os";
 import type { ActivePort, PortsBackend } from "./types";
-import { execFileAsync } from "./exec";
+import { localExec, type Exec } from "./exec";
 
 export class LocalPortsBackend implements PortsBackend {
+  constructor(private readonly execImpl: Exec = localExec) {}
+
   async scan(workspacePaths: string[]): Promise<ActivePort[]> {
     const uid = process.getuid?.() ?? 0;
 
     let output: string;
     try {
-      const { stdout } = await execFileAsync(
+      const { stdout } = await this.execImpl.file(
         "/usr/sbin/lsof",
         ["-a", "-iTCP", "-sTCP:LISTEN", "-nP", "-F", "pcn", "-u", String(uid)],
         { timeout: 5000 },
@@ -94,7 +96,7 @@ export class LocalPortsBackend implements PortsBackend {
     const pidList = pids.join(",");
     let output: string;
     try {
-      const { stdout } = await execFileAsync(
+      const { stdout } = await this.execImpl.file(
         "/usr/sbin/lsof",
         ["-a", "-p", pidList, "-d", "cwd", "-nP", "-F", "pn"],
         { timeout: 5000 },

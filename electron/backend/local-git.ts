@@ -1,16 +1,17 @@
-import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import type { GitBackend, WorktreeInfo } from "./types";
-import { execFileAsync } from "./exec";
+import { localExec, type Exec } from "./exec";
 
 export class LocalGitBackend implements GitBackend {
+  constructor(private readonly execImpl: Exec = localExec) {}
+
   private async execGit(
     cwd: string,
     args: string[],
     opts?: { timeout?: number; maxBuffer?: number },
   ): Promise<{ stdout: string; stderr: string }> {
-    return execFileAsync("git", args, {
+    return this.execImpl.file("git", args, {
       cwd,
       timeout: opts?.timeout ?? 30000,
       maxBuffer: opts?.maxBuffer,
@@ -86,8 +87,10 @@ export class LocalGitBackend implements GitBackend {
     },
   ): { cancel: () => void } {
     // Resolve branch synchronously before spawning if not provided. We use
-    // execFileSync (not the existing async execGit helper) because pushStream
-    // must return its cancel handle synchronously to the caller.
+    // execFileSync directly (not this.exec, and not the async execGit
+    // helper) because pushStream must return its cancel handle synchronously
+    // to the caller. This is load-bearing as sync; a remote Exec cannot
+    // satisfy it, so RemoteBackend will need its own handling (ticket 8).
     let resolvedBranch: string;
     if (opts.branch) {
       resolvedBranch = opts.branch;
@@ -111,60 +114,43 @@ export class LocalGitBackend implements GitBackend {
     args.push(opts.remote ?? "origin");
     args.push(resolvedBranch);
 
-    const child = spawn("git", args, {
-      cwd,
-      env: {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: "0",
-        GIT_ASKPASS: "/bin/true",
-      },
-    });
-
     let pending = "";
     let stderrFull = "";
     let exited = false;
 
-    if (child.stderr) {
-      child.stderr.setEncoding("utf-8");
-      child.stderr.on("data", (chunk: string) => {
-        stderrFull += chunk;
-        pending += chunk;
-        const parts = pending.split("\n");
-        // Last element is the trailing partial line (possibly empty).
-        pending = parts.pop() ?? "";
-        for (const line of parts) {
-          callbacks.onLine(line);
-        }
-      });
-    }
-
-    child.on("error", (err: Error) => {
-      if (exited) return;
-      exited = true;
-      callbacks.onDone({ exitCode: null, stderr: err.message });
-    });
-
-    // Use "close" (not "exit") to ensure stdio streams are flushed.
-    child.on("close", (code: number | null) => {
-      if (exited) return;
-      exited = true;
-      if (pending.length > 0) {
-        callbacks.onLine(pending);
-        pending = "";
-      }
-      callbacks.onDone({ exitCode: code, stderr: stderrFull });
-    });
-
-    return {
-      cancel: () => {
-        if (exited) return;
-        try {
-          child.kill("SIGTERM");
-        } catch {
-          /* already exited or signal failed — caller does not care */
-        }
+    return this.execImpl.stream(
+      "git",
+      args,
+      {
+        cwd,
+        env: {
+          ...process.env,
+          GIT_TERMINAL_PROMPT: "0",
+          GIT_ASKPASS: "/bin/true",
+        },
       },
-    };
+      {
+        onStderr: (chunk: string) => {
+          stderrFull += chunk;
+          pending += chunk;
+          const parts = pending.split("\n");
+          // Last element is the trailing partial line (possibly empty).
+          pending = parts.pop() ?? "";
+          for (const line of parts) {
+            callbacks.onLine(line);
+          }
+        },
+        onExit: ({ exitCode }) => {
+          if (exited) return;
+          exited = true;
+          if (pending.length > 0) {
+            callbacks.onLine(pending);
+            pending = "";
+          }
+          callbacks.onDone({ exitCode, stderr: stderrFull });
+        },
+      },
+    );
   }
 
   async getFullDiff(
@@ -315,7 +301,10 @@ export class LocalGitBackend implements GitBackend {
       const diffs = await Promise.all(
         untrackedFiles.map(async (filePath) => {
           try {
-            const content = await readFile(path.join(cwd, filePath), "utf-8");
+            const content = await this.execImpl.readFile(
+              path.join(cwd, filePath),
+              "utf-8",
+            );
             const lines = content.split("\n");
             if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
             const hunk = `@@ -0,0 +1,${lines.length} @@`;

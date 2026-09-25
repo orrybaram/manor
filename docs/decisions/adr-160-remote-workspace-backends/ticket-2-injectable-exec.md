@@ -1,6 +1,6 @@
 ---
 title: Make git/shell/ports backends take an injectable Exec
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

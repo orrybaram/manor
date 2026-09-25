@@ -433,7 +433,7 @@ describe("RemoteBackend", () => {
       current = backend;
       daemon.execReply = (req) => ({
         type: "execResult",
-        stdout: req.cmd === "id" ? "1001\n" : "",
+        stdout: req.cmd === "id" ? "1001\n" : req.cmd === "uname" ? "Darwin\n" : "",
         stderr: "",
         exitCode: 0,
       });
@@ -453,6 +453,28 @@ describe("RemoteBackend", () => {
       ]);
       expect(killSpy).not.toHaveBeenCalled();
       killSpy.mockRestore();
+    });
+
+    it("scans a Linux box with ss, asking uname once", async () => {
+      const { backend, daemon } = setup();
+      current = backend;
+      daemon.execReply = (req) => ({
+        type: "execResult",
+        stdout: req.cmd === "id" ? "1001\n" : req.cmd === "uname" ? "Linux\n" : "",
+        stderr: "",
+        exitCode: 0,
+      });
+      await backend.connect();
+
+      await backend.ports.scan(["/srv/repo"]);
+      await backend.ports.scan(["/srv/repo"]);
+
+      const execs = daemon.control
+        .filter((r) => r.type === "exec")
+        .map((r) => [r.cmd, r.args]);
+      expect(execs.filter(([cmd]) => cmd === "uname")).toEqual([["uname", ["-s"]]]);
+      expect(execs.filter(([cmd]) => cmd === "ss")).toHaveLength(2);
+      expect(execs.some(([cmd]) => cmd === "/usr/sbin/lsof" || cmd === "lsof")).toBe(false);
     });
 
     it("never scans as root when the remote uid is unparseable", async () => {

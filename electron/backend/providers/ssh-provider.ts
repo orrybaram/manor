@@ -46,6 +46,18 @@ function findFreeLocalPort(): Promise<number> {
   });
 }
 
+/** Whether `port` on loopback can be bound right now. Racy, like the above. */
+function isLocalPortFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.unref();
+    server.once("error", () => resolve(false));
+    server.listen(port, "127.0.0.1", () => {
+      server.close(() => resolve(true));
+    });
+  });
+}
+
 /**
  * The `-L` spec for a forward: `<local>` on loopback to `<remote>` on the box's
  * loopback. The local bind address is explicit so a user's `GatewayPorts yes`
@@ -70,6 +82,8 @@ export interface SshHostProviderOptions {
   spawn?: SshSpawn;
   /** Picks the local end of a forward. For tests. */
   findFreePort?: () => Promise<number>;
+  /** Whether a preferred local port is free. For tests. */
+  isPortFree?: (port: number) => Promise<boolean>;
 }
 
 export class SshHostProvider implements HostProvider {
@@ -83,6 +97,7 @@ export class SshHostProvider implements HostProvider {
   private readonly sshTransport: SshTransport;
   private readonly spawnFn: SshSpawn;
   private readonly findFreePort: () => Promise<number>;
+  private readonly isPortFree: (port: number) => Promise<boolean>;
   /** Live forwards, keyed by their local port. */
   private readonly forwards = new Map<number, { remotePort: number; configPath: string }>();
   /** Bumped by dispose(); a forwardPort() that straddles it cancels its own forward. */
@@ -101,6 +116,7 @@ export class SshHostProvider implements HostProvider {
       });
     this.spawnFn = opts.spawn ?? defaultSpawn;
     this.findFreePort = opts.findFreePort ?? findFreeLocalPort;
+    this.isPortFree = opts.isPortFree ?? isLocalPortFree;
   }
 
   /** A BYO box is always on; there is nothing to start. */
@@ -127,14 +143,26 @@ export class SshHostProvider implements HostProvider {
     return this.sshTransport;
   }
 
-  async forwardPort(remotePort: number): Promise<PortForward> {
+  async forwardPort(
+    remotePort: number,
+    opts?: { preferredLocalPort?: number },
+  ): Promise<PortForward> {
     assertPort(remotePort, "remote");
     const configPath = this.sshTransport.configPath;
     if (!configPath) {
       throw new Error(`Cannot forward port ${remotePort}: not connected to ${this.target}`);
     }
     const generation = this.generation;
-    const localPort = await this.findFreePort();
+    const preferred = opts?.preferredLocalPort;
+    const localPort =
+      preferred !== undefined &&
+      Number.isInteger(preferred) &&
+      preferred > 0 &&
+      preferred <= 65535 &&
+      !this.forwards.has(preferred) &&
+      (await this.isPortFree(preferred))
+        ? preferred
+        : await this.findFreePort();
     assertPort(localPort, "local");
     const cancelArgs = buildControlArgs(
       configPath,

@@ -39,8 +39,15 @@ export interface HostProvider {
   status(): Promise<HostProviderStatus>;
   /** The transport a `TerminalHostClient` uses to reach the box's daemon. */
   transport(): HostTransport;
-  /** Make `remotePort` on the box reachable at a local port. */
-  forwardPort(remotePort: number): Promise<PortForward>;
+  /**
+   * Make `remotePort` on the box reachable at a local port. With
+   * `preferredLocalPort`, that port is used when it is free (so a forward
+   * recreated after a reconnect keeps its URL); otherwise any free one.
+   */
+  forwardPort(
+    remotePort: number,
+    opts?: { preferredLocalPort?: number },
+  ): Promise<PortForward>;
   /** A public URL for `remotePort`, where `capabilities.previewUrls`. */
   previewUrl?(remotePort: number): Promise<string>;
   /**

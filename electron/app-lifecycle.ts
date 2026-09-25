@@ -7,6 +7,7 @@ import { LayoutPersistence } from "./terminal-host/layout-persistence";
 import { ProjectManager } from "./persistence";
 import { ThemeManager } from "./theme";
 import { PortScanner } from "./ports";
+import { RemoteForwards } from "./remote-forwards";
 import { BranchWatcher } from "./branch-watcher";
 import { DiffWatcher } from "./diff-watcher";
 import { GitHubManager } from "./github";
@@ -262,6 +263,8 @@ export function initApp(devTitle: string | null): void {
   const backend = new RoutedBackend(backendRegistry, hostForPath);
   const themeManager = new ThemeManager();
   const portScanner = new PortScanner(backend.ports, hostForPath);
+  // Remote dev servers opened from Manor go through these (ADR-178 §5).
+  const remoteForwards = new RemoteForwards(backendRegistry);
   const branchWatcher = new BranchWatcher(backend.git, hostForPath);
   const diffWatcher = new DiffWatcher(backend.git, hostForPath);
   const githubManager = new GitHubManager();
@@ -475,6 +478,7 @@ export function initApp(devTitle: string | null): void {
     projectManager,
     themeManager,
     portScanner,
+    remoteForwards,
     branchWatcher,
     diffWatcher,
     githubManager,

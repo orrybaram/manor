@@ -36,6 +36,7 @@ vi.mock("../portless", () => ({
 
 vi.mock("../ipc-validate", () => ({
   assertPositiveInt: vi.fn(),
+  assertString: vi.fn(),
   assertStringArray: vi.fn(),
 }));
 
@@ -58,11 +59,28 @@ function meta(overrides: Partial<WorkspaceMeta> = {}): WorkspaceMeta {
 /** `scanNow` returns fresh objects per scan, as the real scanner does. */
 function makeDeps(
   workspaceMeta: WorkspaceMeta[],
-  scanned: { port: number; workspacePath: string }[] = [
+  scanned: { port: number; workspacePath: string; hostId?: string }[] = [
     { port: 3000, workspacePath: "/repo" },
   ],
+  forwarded: Map<string, number> = new Map(),
 ) {
+  const changeListeners: (() => void)[] = [];
   return {
+    backendRegistry: { provider: () => undefined },
+    /** Live forwards keyed `${hostId}:${remotePort}`. */
+    remoteForwards: {
+      localPort: (hostId: string, port: number) => forwarded.get(`${hostId}:${port}`),
+      ensure: vi.fn(async (hostId: string, port: number) => {
+        const local = 50000 + port;
+        forwarded.set(`${hostId}:${port}`, local);
+        for (const l of changeListeners) l();
+        return local;
+      }),
+      onChange: (listener: () => void) => {
+        changeListeners.push(listener);
+        return () => {};
+      },
+    },
     portScanner: {
       start: vi.fn(),
       stop: vi.fn(),
@@ -162,5 +180,75 @@ describe("portless per-project gate", () => {
     expect(updateRoutes).toHaveBeenLastCalledWith([
       { hostname: "acme.localhost", port: 3000 },
     ]);
+  });
+});
+
+describe("remote ports", () => {
+  beforeEach(() => {
+    handlers.clear();
+    updateRoutes.mockClear();
+  });
+
+  const remoteScan = [
+    { port: 3000, workspacePath: "/repo", hostId: "box" },
+    { port: 4000, workspacePath: "/local" },
+  ];
+
+  it("routes a remote port only once it is forwarded, then to the forward", async () => {
+    const deps = makeDeps(
+      [meta(), meta({ path: "/local", projectName: "loc" })],
+      remoteScan,
+    );
+    register(deps as never);
+
+    const ports = await scan();
+    // The hostname is shown either way; the route waits for the forward.
+    expect(ports.find((p) => p.port === 3000)!.hostname).toBe("acme.localhost:7999");
+    expect(updateRoutes).toHaveBeenLastCalledWith([
+      { hostname: "loc.localhost", port: 4000 },
+    ]);
+
+    // Opening the portless URL makes the forward, which re-routes.
+    const url = await handlers.get("ports:resolveUrl")!(
+      {} as never,
+      "http://acme.localhost:7999/",
+      "box",
+    );
+    expect(url).toBe("http://acme.localhost:7999/");
+    expect(deps.remoteForwards.ensure).toHaveBeenCalledWith("box", 3000);
+    expect(updateRoutes).toHaveBeenLastCalledWith([
+      { hostname: "acme.localhost", port: 53000 },
+      { hostname: "loc.localhost", port: 4000 },
+    ]);
+  });
+
+  it("rewrites a reported remote port to its forward, and nothing else", async () => {
+    const deps = makeDeps([], remoteScan);
+    register(deps as never);
+    await scan();
+    const resolve = (url: string, hostId: string) =>
+      handlers.get("ports:resolveUrl")!({} as never, url, hostId);
+
+    expect(await resolve("http://localhost:3000/app?x=1", "box")).toBe(
+      "http://localhost:53000/app?x=1",
+    );
+    // Not reported by that host's scan: may be this machine's.
+    expect(await resolve("http://localhost:4000/", "box")).toBe("http://localhost:4000/");
+    // This machine never rewrites.
+    expect(await resolve("http://localhost:3000/", "local")).toBe("http://localhost:3000/");
+    expect(deps.remoteForwards.ensure).toHaveBeenCalledTimes(1);
+  });
+
+  it("hands the URL back unchanged when the forward cannot be made", async () => {
+    const deps = makeDeps([], remoteScan);
+    deps.remoteForwards.ensure.mockRejectedValueOnce(new Error("not connected"));
+    register(deps as never);
+    await scan();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(
+      await handlers.get("ports:resolveUrl")!({} as never, "http://localhost:3000/", "box"),
+    ).toBe("http://localhost:3000/");
+    warn.mockRestore();
   });
 });

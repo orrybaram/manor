@@ -6,6 +6,7 @@ import { useBrowserHistoryStore, type HistoryEntry } from "../../../store/browse
 import { useDragOverlayStore, selectIsDragActive } from "../../../store/drag-overlay-store";
 import type { PickedElementResult } from "../../../electron.d";
 import { onUiRequest } from "../../../utils/ui-request";
+import { isLocalhostHttpUrl } from "../../../lib/hosts";
 
 import styles from "./BrowserPane.module.css";
 
@@ -92,6 +93,12 @@ export interface BrowserPaneRef {
 type BrowserPaneProps = {
   paneId: string;
   initialUrl: string;
+  /**
+   * The remote host this pane's workspace lives on, or null for this
+   * machine. A `localhost:<port>` URL for a port that host reports goes
+   * through a port forward (ADR-178 §5).
+   */
+  remoteHostId?: string | null;
   onNavStateChange?: (state: BrowserPaneNavState) => void;
 };
 
@@ -124,7 +131,9 @@ const WEBVIEW_ALLOW_POPUPS: any = { allowpopups: "true" };
 
 export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
   function BrowserPane(props: BrowserPaneProps, ref) {
-    const { paneId, initialUrl, onNavStateChange } = props;
+    const { paneId, initialUrl, remoteHostId = null, onNavStateChange } = props;
+    const remoteHostIdRef = useRef(remoteHostId);
+    remoteHostIdRef.current = remoteHostId;
 
     const webviewRef = useRef<WebviewElement>(null);
     const [url, setUrl] = useState(initialUrl === "about:blank" ? "" : initialUrl);
@@ -200,11 +209,24 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
           resolved = `https://www.google.com/search?q=${encodeURIComponent(resolved)}`;
         }
       }
-      wv.src = resolved;
-      setUrl(resolved);
-      setSuggestions([]);
-      setHighlightIndex(-1);
-      fireNavStateChange({ url: resolved, suggestions: [], highlightIndex: -1 });
+      const load = (target: string) => {
+        wv.src = target;
+        setUrl(target);
+        setSuggestions([]);
+        setHighlightIndex(-1);
+        fireNavStateChange({ url: target, suggestions: [], highlightIndex: -1 });
+      };
+      // In a remote workspace, `localhost:<port>` may mean a dev server on
+      // the box; main swaps in the port forward's local port when the
+      // host's scan reports that port, and hands anything else back as is.
+      const hostId = remoteHostIdRef.current;
+      if (hostId && isLocalhostHttpUrl(resolved)) {
+        window.electronAPI.ports
+          .resolveUrl(resolved, hostId)
+          .then(load, () => load(resolved));
+        return;
+      }
+      load(resolved);
     }, [fireNavStateChange]);
 
     // URL input handlers — kept here so url/nav state management stays in BrowserPane.
@@ -368,6 +390,19 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       const wv = webviewRef.current;
       if (!wv) return;
 
+      // A tab opened on `localhost:<port>` in a remote workspace (e.g. by an
+      // agent on the box) is moved onto the port's forward once main has it.
+      const initialHostId = remoteHostIdRef.current;
+      let initialResolveCancelled = false;
+      if (initialHostId && isLocalhostHttpUrl(initialUrl)) {
+        window.electronAPI.ports.resolveUrl(initialUrl, initialHostId).then(
+          (target) => {
+            if (!initialResolveCancelled && target !== initialUrl) navigateTo(target);
+          },
+          () => {},
+        );
+      }
+
       const onNavigate = (e: Event) => {
         const nav = e as WebviewNavigateEvent;
         if (nav.isMainFrame === false) return;
@@ -524,6 +559,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       );
 
       return () => {
+        initialResolveCancelled = true;
         wv.removeEventListener("did-navigate", onNavigate);
         wv.removeEventListener("did-navigate-in-page", onNavigate);
         wv.removeEventListener("page-title-updated", onTitleUpdate);

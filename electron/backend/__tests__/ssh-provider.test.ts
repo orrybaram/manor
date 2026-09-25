@@ -96,6 +96,25 @@ describe("SshHostProvider", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("uses a preferred local port when it is free, any free one otherwise", async () => {
+    transport.managedConfig();
+    const free = new Set([41000]);
+    const provider = new SshHostProvider("me@box", {
+      transport,
+      spawn,
+      findFreePort: async () => 54321,
+      isPortFree: async (port) => free.has(port),
+    });
+    const kept = await provider.forwardPort(3000, { preferredLocalPort: 41000 });
+    expect(kept.localPort).toBe(41000);
+    // Taken by our own live forward — never reused, even if the OS says free.
+    const clash = await provider.forwardPort(4000, { preferredLocalPort: 41000 });
+    expect(clash.localPort).toBe(54321);
+    const busy = await provider.forwardPort(5000, { preferredLocalPort: 42000 });
+    expect(busy.localPort).toBe(54321);
+    expect(calls[0]).toContain("127.0.0.1:41000:127.0.0.1:3000");
+  });
+
   it("cancels every live forward on dispose", async () => {
     transport.managedConfig();
     let next = 40000;

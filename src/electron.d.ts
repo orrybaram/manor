@@ -213,6 +213,10 @@ export interface ActivePort {
   pid: number;
   workspacePath: string | null;
   hostname: string | null;
+  /** The remote host the port is listening on; absent for this machine. */
+  hostId?: string;
+  /** "Copy public URL" is available (the host's provider has `previewUrl`). */
+  canCopyPublicUrl?: boolean;
 }
 
 export interface ManorProcessInfo {
@@ -578,6 +582,15 @@ export interface ElectronAPI {
     ) => Promise<void>;
     killPort: (pid: number) => Promise<void>;
     scanNow: () => Promise<ActivePort[]>;
+    /**
+     * The URL to load for `url` opened in `hostId`'s context (a port's host,
+     * or the opening pane's workspace's). A `localhost:<port>` URL for a port
+     * that remote host's scan reports becomes its forwarded local port
+     * (ADR-178 §5); anything else comes back unchanged.
+     */
+    resolveUrl: (url: string, hostId: string) => Promise<string>;
+    /** A public URL for a remote port, or null when its provider has none. */
+    publicUrl: (hostId: string, port: number) => Promise<string | null>;
     onChange: (callback: (ports: ActivePort[]) => void) => () => void;
   };
 

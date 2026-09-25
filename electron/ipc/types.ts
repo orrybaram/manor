@@ -5,6 +5,7 @@ import type { LayoutPersistence } from "../terminal-host/layout-persistence";
 import type { ProjectManager } from "../persistence";
 import type { ThemeManager } from "../theme";
 import type { PortScanner } from "../ports";
+import type { RemoteForwards } from "../remote-forwards";
 import type { BranchWatcher } from "../branch-watcher";
 import type { DiffWatcher } from "../diff-watcher";
 import type { GitHubManager } from "../github";
@@ -47,6 +48,8 @@ export interface IpcDeps {
   projectManager: ProjectManager;
   themeManager: ThemeManager;
   portScanner: PortScanner;
+  /** Port forwards to remote projects' dev servers (ADR-178 §5). */
+  remoteForwards: RemoteForwards;
   branchWatcher: BranchWatcher;
   diffWatcher: DiffWatcher;
   githubManager: GitHubManager;

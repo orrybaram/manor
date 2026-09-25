@@ -35,6 +35,8 @@ import { countPanesInWindow, trackHandoff } from "../../lib/window-handoff";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { Row } from "../ui/Layout/Layout";
 import { registerBrowserPane, unregisterBrowserPane } from "../../lib/browser-pane-registry";
+import { useProjectStore } from "../../store/project-store";
+import { remoteHostIdForWorkspace } from "../../lib/hosts";
 import { useMountEffect } from "../../hooks/useMountEffect";
 
 import styles from "./PaneLayout/PaneLayout.module.css";
@@ -61,6 +63,12 @@ export function LeafPane(props: LeafPaneProps) {
   const paneCwd = useAppStore((s) => s.paneCwd[paneId]);
   const contentType = useAppStore((s) => s.paneContentType[paneId]);
   const paneUrl = useAppStore((s) => s.paneUrl[paneId]);
+  // A browser pane of a remote workspace reaches that host's dev servers
+  // through port forwards (ADR-178 §5). Null — and a stable primitive, so
+  // local-only users never re-render on it — for this machine.
+  const remoteHostId = useProjectStore((s) =>
+    contentType === "browser" ? remoteHostIdForWorkspace(s.projects, workspacePath) : null,
+  );
   const recordingStartedAt = useAppStore((s) => s.paneRecordingStartedAt[paneId]);
 
   const focusPane = useAppStore((s) => s.focusPane);
@@ -631,6 +639,7 @@ export function LeafPane(props: LeafPaneProps) {
               ref={browserRef}
               paneId={paneId}
               initialUrl={paneUrl ?? "about:blank"}
+              remoteHostId={remoteHostId}
               onNavStateChange={handleNavStateChange}
             />
           </PaneContextMenu>

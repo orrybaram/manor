@@ -146,10 +146,27 @@ export interface WorktreeInfo {
  *   sessions that survived; whatever they printed during the gap was not
  *   delivered, so the renderer must resnapshot them via `getSnapshot`.
  *   Sessions that did not survive get an ordinary `exit` stream event.
+ * - `hostFailed` — reconnecting hit a failure retrying will not fix (see
+ *   `HostFailure`), so it stopped. `sessionIds` are still wanted; a later
+ *   `connect()` retries, and on success `hostReconnected` follows.
  */
 export type HostConnectionEvent =
   | { type: "hostDisconnected"; sessionIds: string[]; retryInMs: number | null }
-  | { type: "hostReconnected"; sessionIds: string[] };
+  | { type: "hostReconnected"; sessionIds: string[] }
+  | ({ type: "hostFailed"; sessionIds: string[] } & HostFailure);
+
+/**
+ * Why a host cannot be reached until the user does something:
+ * - `auth` — ssh could not authenticate.
+ * - `host-key` — the host key is unknown or has changed.
+ * - `bootstrap` — the host cannot run the daemon (`code` says why: e.g.
+ *   `node-missing`, `unsupported-platform`, `install-failed`).
+ */
+export interface HostFailure {
+  reason: "auth" | "host-key" | "bootstrap";
+  code?: string;
+  message: string;
+}
 
 export type HostConnectionEventHandler = (event: HostConnectionEvent) => void;
 

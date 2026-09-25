@@ -201,6 +201,12 @@ export class SshTransport implements HostTransport {
   private token: string | null = null;
   private _daemonVersion: string | null = null;
   private readonly children = new Set<SshChild>();
+  /**
+   * Set by `dispose()`, cleared only by `reset()`. While set nothing may
+   * spawn ssh — otherwise a connect still in flight when the transport was
+   * disposed would quietly recreate the config and a fresh ControlMaster.
+   */
+  private disposed = false;
 
   constructor(
     readonly target: string,
@@ -215,10 +221,21 @@ export class SshTransport implements HostTransport {
 
   // ── ControlMaster accessors (for port forwarding on the shared session) ──
 
-  /** The managed ssh config, created on first use. */
+  /** The managed ssh config, created on first use. Throws once disposed. */
   managedConfig(): ManagedSshConfig {
+    if (this.disposed) {
+      throw new Error(`ssh transport to ${this.target} has been disposed`);
+    }
     if (!this.config) this.config = createManagedSshConfig(this.configBaseDir);
     return this.config;
+  }
+
+  /**
+   * Make a disposed transport usable again. The next connection starts from
+   * scratch: a new managed config and a new ControlMaster.
+   */
+  reset(): void {
+    this.disposed = false;
   }
 
   /** The config file passed with `-F`, or null before first use. */
@@ -265,11 +282,11 @@ export class SshTransport implements HostTransport {
     if (code !== 0) throw this.exitError(code, stderr);
   }
 
-  connectControl(): Promise<Duplex> {
+  async connectControl(): Promise<Duplex> {
     return this.openBridge(false);
   }
 
-  connectStream(): Promise<Duplex> {
+  async connectStream(): Promise<Duplex> {
     return this.openBridge(true);
   }
 
@@ -281,6 +298,7 @@ export class SshTransport implements HostTransport {
   }
 
   async dispose(): Promise<void> {
+    this.disposed = true;
     for (const child of this.children) child.kill("SIGTERM");
     this.children.clear();
     const config = this.config;

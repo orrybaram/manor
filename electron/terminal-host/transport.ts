@@ -43,6 +43,13 @@ export interface HostTransport {
   /** The token the daemon expects in `auth` and the stream preamble. */
   authToken(): Promise<string>;
 
-  /** Release anything the transport holds. Does not stop the daemon. */
+  /**
+   * Release anything the transport holds. Does not stop the daemon. A
+   * transport that can be reused afterwards refuses to reconnect until
+   * `reset()` is called.
+   */
   dispose(): Promise<void>;
+
+  /** Allow connecting again after `dispose()`. Absent: not reusable. */
+  reset?(): void;
 }

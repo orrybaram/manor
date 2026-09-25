@@ -418,6 +418,29 @@ describe("ensureRemoteHost", () => {
     expect(calls).toHaveLength(1);
   });
 
+  it.each([
+    ["detecting the platform", [[DETECT_COMMAND, fail(255, "Connection reset by peer")]]],
+    ["checking node", [[DETECT_COMMAND, ok("Linux x86_64\n")], [NODE_CHECK_COMMAND, fail(255)]]],
+    [
+      "searching for node",
+      [
+        [DETECT_COMMAND, ok("Linux x86_64\n")],
+        [NODE_CHECK_COMMAND, fail(127)],
+        [NODE_SEARCH_COMMAND, fail(255, "Broken pipe")],
+      ],
+    ],
+    ["installing", [...HEALTHY, [HOST_VERSION_COMMAND, fail(127)], ["mkdir -p", fail(255)]]],
+  ] as Array<[string, Array<[string, RemoteExecResult]>]>)(
+    "treats ssh exiting 255 while %s as a lost connection, not a host problem",
+    async (_label, responses) => {
+      const { exec } = fakeSsh(responses);
+      const err = await ensureRemoteHost("me@box", "0.13.2", exec, baseOpts).catch((e) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err).not.toBeInstanceOf(RemoteBootstrapError);
+      expect(err.message).toMatch(/ssh to me@box failed while bootstrapping \(exit 255/);
+    },
+  );
+
   it("names the Node requirement when node is missing", async () => {
     const { exec } = fakeSsh([
       [DETECT_COMMAND, ok("Linux x86_64\n")],

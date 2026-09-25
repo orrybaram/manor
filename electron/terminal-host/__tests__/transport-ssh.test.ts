@@ -441,6 +441,30 @@ describe("SshTransport", () => {
     expect(transport.configPath).toBeNull();
   });
 
+  it("refuses to spawn ssh or recreate its config once disposed, until reset", async () => {
+    const { transport, children } = makeTransport();
+    await transport.dispose(); // never used: no ControlMaster to close
+    expect(children).toHaveLength(0);
+
+    await expect(transport.connectControl()).rejects.toThrow(/has been disposed/);
+    await expect(transport.connectStream()).rejects.toThrow(/has been disposed/);
+    await expect(transport.exec("true")).rejects.toThrow(/has been disposed/);
+    await expect(transport.ensureRunning("1.0.0")).rejects.toThrow(/has been disposed/);
+    expect(() => transport.managedConfig()).toThrow(/has been disposed/);
+    expect(children).toHaveLength(0);
+    expect(transport.configPath).toBeNull();
+
+    transport.reset();
+    const pending = transport.connectControl();
+    const child = await nextChild(children, 0);
+    expect(transport.configPath).not.toBeNull();
+    child.stdout.write(hello("t"));
+    (await pending).destroy();
+    const disposing = transport.dispose();
+    (await nextChild(children, 1)).exit(0);
+    await disposing;
+  });
+
   it("restart runs `manor-host restart` on the remote", async () => {
     const { transport, children } = makeTransport();
     const restarting = transport.restart();

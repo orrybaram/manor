@@ -16,15 +16,21 @@ import {
 } from "../terminal-host/client";
 import type { HostTransport } from "../terminal-host/transport";
 import { SshTransport } from "../terminal-host/transport-ssh";
+import { SshAuthError, SshHostKeyError } from "../terminal-host/ssh-config";
 import { LocalPtyBackend } from "./local-pty";
 import { LocalGitBackend } from "./local-git";
 import { LocalShellBackend } from "./local-shell";
 import { LocalPortsBackend, execPortsHost } from "./local-ports";
 import { createRemoteExec } from "./remote-exec";
-import { remoteHostEnsurer, type BootstrapProgress } from "./remote-bootstrap";
+import {
+  RemoteBootstrapError,
+  remoteHostEnsurer,
+  type BootstrapProgress,
+} from "./remote-bootstrap";
 import type {
   HostConnectionEvent,
   HostConnectionEventHandler,
+  HostFailure,
   WorkspaceBackend,
 } from "./types";
 
@@ -40,6 +46,20 @@ const RECONNECT_CAP_MS = 30_000;
  */
 export function remoteReconnectDelayMs(attempt: number): number {
   return Math.min(RECONNECT_BASE_MS * 2 ** attempt, RECONNECT_CAP_MS);
+}
+
+/**
+ * A connect error that retrying cannot fix — the user has to act (fix their
+ * keys, accept a host key, install Node) — or null for anything that may be
+ * the network and is worth retrying.
+ */
+export function classifyHostFailure(err: unknown): HostFailure | null {
+  if (err instanceof SshAuthError) return { reason: "auth", message: err.message };
+  if (err instanceof SshHostKeyError) return { reason: "host-key", message: err.message };
+  if (err instanceof RemoteBootstrapError) {
+    return { reason: "bootstrap", code: err.code, message: err.message };
+  }
+  return null;
 }
 
 export interface RemoteBackendOptions {
@@ -66,13 +86,16 @@ export class RemoteBackend implements WorkspaceBackend {
   readonly target: string;
 
   private readonly client: TerminalHostClient;
+  private readonly transport: HostTransport;
   private readonly reconnectDelayMs: ReconnectPolicy;
+  /** The `disconnect()` in progress, which a `connect()` must wait out. */
+  private disconnecting: Promise<void> | null = null;
   private readonly hostEventHandlers = new Set<HostConnectionEventHandler>();
 
   constructor(opts: RemoteBackendOptions) {
     this.target = opts.target;
     this.reconnectDelayMs = opts.reconnectDelayMs ?? remoteReconnectDelayMs;
-    const transport =
+    const transport = (this.transport =
       opts.transport ??
       new SshTransport(opts.target, {
         // Runs inside every client connect, before the bridge is opened —
@@ -80,10 +103,14 @@ export class RemoteBackend implements WorkspaceBackend {
         ensureRemoteHost: remoteHostEnsurer({
           onProgress: opts.onBootstrapProgress,
         }),
-      });
+      }));
 
     this.client = new TerminalHostClient(opts.version, transport);
-    this.client.setReconnectPolicy(this.reconnectDelayMs);
+    this.client.setReconnectPolicy(this.reconnectDelayMs, {
+      // Retrying bad credentials or a host without Node every 30s forever
+      // only re-runs the bootstrap; stop and tell the user instead.
+      isPermanentFailure: (err) => classifyHostFailure(err) !== null,
+    });
     this.client.setConnectionListener({
       onLost: ({ sessionIds }) =>
         this.emitHostEvent({
@@ -93,6 +120,10 @@ export class RemoteBackend implements WorkspaceBackend {
         }),
       onReconnected: ({ sessionIds }) =>
         this.emitHostEvent({ type: "hostReconnected", sessionIds }),
+      onFailed: ({ error, sessionIds }) => {
+        const failure = classifyHostFailure(error);
+        if (failure) this.emitHostEvent({ type: "hostFailed", sessionIds, ...failure });
+      },
     });
 
     const exec = createRemoteExec(this.client);
@@ -106,9 +137,15 @@ export class RemoteBackend implements WorkspaceBackend {
    * Make sure the remote has a matching `manor-host` (the transport's
    * `ensureRunning`, ticket 6), connect the client through the ssh bridge,
    * then ask the daemon to bootstrap agent hooks on its own filesystem.
+   * Also the way to retry after `hostFailed`, and to reconnect after
+   * `disconnect()`.
    */
   async connect(opts?: { version?: string }): Promise<void> {
     if (opts?.version) this.client.setVersion(opts.version);
+    // A disposed transport refuses to spawn ssh (so a connect racing a
+    // disconnect cannot resurrect it); only an explicit connect revives it.
+    await this.disconnecting;
+    this.transport.reset?.();
     await this.pty.ensureConnected();
     await this.bootstrapHost();
   }
@@ -119,7 +156,13 @@ export class RemoteBackend implements WorkspaceBackend {
    * sessions keep running. A later `connect()` starts over.
    */
   async disconnect(): Promise<void> {
-    await this.client.dispose();
+    const done = this.client.dispose();
+    this.disconnecting = done;
+    try {
+      await done;
+    } finally {
+      if (this.disconnecting === done) this.disconnecting = null;
+    }
   }
 
   onHostEvent(handler: HostConnectionEventHandler): void {

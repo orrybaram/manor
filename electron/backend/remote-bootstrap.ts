@@ -82,6 +82,22 @@ export class RemoteBootstrapError extends Error {
   }
 }
 
+/**
+ * ssh itself failed (exit 255: unreachable, connection dropped) partway
+ * through the bootstrap. Deliberately not a `RemoteBootstrapError`: those
+ * describe the host and will not fix themselves, while this is the network
+ * and a reconnect may well succeed.
+ */
+class SshSessionError extends Error {
+  constructor(target: string, command: string, res: RemoteExecResult) {
+    super(
+      `ssh to ${target} failed while bootstrapping (exit 255 running \`${command.split("\n")[0].slice(0, 80)}\`)` +
+        detail(res),
+    );
+    this.name = "SshSessionError";
+  }
+}
+
 // ── Progress ──
 
 export type BootstrapPhase =
@@ -363,9 +379,17 @@ export interface EnsureRemoteHostResult {
 export async function ensureRemoteHost(
   target: string,
   appVersion: string,
-  ssh: RemoteExec,
+  rawSsh: RemoteExec,
   opts: EnsureRemoteHostOptions = {},
 ): Promise<EnsureRemoteHostResult> {
+  // ssh exits 255 for its own failures. Surface those as such, rather than
+  // letting a dropped connection read as "unsupported platform" or "node
+  // missing" — the caller retries the one and gives up on the other.
+  const ssh: RemoteExec = async (command, execOpts) => {
+    const res = await rawSsh(command, execOpts);
+    if (res.code === 255) throw new SshSessionError(target, command, res);
+    return res;
+  };
   const report = (phase: BootstrapPhase, message: string): void => {
     opts.onProgress?.({ phase, target, message });
   };
@@ -478,7 +502,10 @@ async function checkNode(target: string, ssh: RemoteExec): Promise<string> {
   if (onPath && isNewEnough(onPath)) return onPath.path;
 
   const search = await ssh(NODE_SEARCH_COMMAND, { timeoutMs: NODE_SEARCH_TIMEOUT_MS }).catch(
-    () => null,
+    (err: unknown) => {
+      if (err instanceof SshSessionError) throw err;
+      return null;
+    },
   );
   const candidates = [
     ...(onPath ? [onPath] : []),

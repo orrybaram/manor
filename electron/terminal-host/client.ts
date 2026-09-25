@@ -92,6 +92,10 @@ function execClientTimeoutMs(timeout: number | undefined): number | null {
 
 type StreamEventHandler = (event: StreamEvent) => void;
 
+function disconnectedWhileConnecting(): Error {
+  return new Error("Disconnected while connecting");
+}
+
 /**
  * How long to wait before reconnect attempt `attempt` (0-based) after the
  * connection drops unexpectedly, or `null` to give up — at which point every
@@ -116,6 +120,13 @@ export interface ConnectionListener {
    * them (`getSnapshot`).
    */
   onReconnected?(info: { sessionIds: string[]; attempts: number }): void;
+  /**
+   * The reconnect loop stopped on an error the reconnect policy classed as
+   * permanent (see `setReconnectPolicy`). Nothing retries until something
+   * calls `connect()` again; the sessions stay wanted, so a successful
+   * connect re-subscribes them and reports `onReconnected`.
+   */
+  onFailed?(info: { error: unknown; sessionIds: string[]; attempts: number }): void;
 }
 
 /** Callbacks for one `execStream`, mirroring `Exec.stream` in backend/exec.ts. */
@@ -177,12 +188,21 @@ export class TerminalHostClient {
   private reconnectDelaysMs: number[] = [250, 1_000, 2_000];
   /** Replaces `reconnectDelaysMs` when set (see `setReconnectPolicy`). */
   private reconnectPolicy: ReconnectPolicy | null = null;
+  /** Errors the reconnect loop must not retry (see `setReconnectPolicy`). */
+  private isPermanentFailure: ((err: unknown) => boolean) | null = null;
+  /**
+   * The reconnect loop stopped on a permanent failure with sessions still
+   * wanted. The next successful connect reports them via `onReconnected`.
+   */
+  private recoveryPending = false;
   private connectionListener: ConnectionListener | null = null;
   /**
    * Bumped by every intentional `disconnect()`, so a reconnect loop started
    * before it stops instead of reconnecting behind the caller's back.
    */
   private generation = 0;
+  /** The `generation` the in-flight `connectPromise` was started under. */
+  private connectGeneration = 0;
   /** Wakes a reconnect loop sleeping between attempts (on `disconnect()`). */
   private wakeReconnect: (() => void) | null = null;
   /** Live `execStream`s by execId; their events never reach `eventHandler`. */
@@ -209,9 +229,18 @@ export class TerminalHostClient {
    * Replace the default reconnect schedule (three quick attempts, then give
    * up). A remote host uses an unbounded capped backoff instead: its sessions
    * outlive the connection, so giving up would close panes that are fine.
+   *
+   * `isPermanentFailure` marks errors no amount of retrying will fix (bad
+   * credentials, a changed host key, a host that cannot run the daemon). On
+   * one the loop stops and reports `onFailed` instead of retrying, and —
+   * unlike running out of attempts — does not report sessions as exited.
    */
-  setReconnectPolicy(policy: ReconnectPolicy): void {
+  setReconnectPolicy(
+    policy: ReconnectPolicy,
+    opts: { isPermanentFailure?: (err: unknown) => boolean } = {},
+  ): void {
     this.reconnectPolicy = policy;
+    this.isPermanentFailure = opts.isPermanentFailure ?? null;
   }
 
   /** Observe unexpected connection loss and recovery. */
@@ -226,20 +255,32 @@ export class TerminalHostClient {
 
   /** Connect to the daemon, spawning it if necessary */
   async connect(): Promise<void> {
-    if (this.connected) return;
-    if (this.connectPromise) return this.connectPromise;
+    for (;;) {
+      if (this.connected) return;
+      const pending = this.connectPromise;
+      if (!pending) break;
+      if (this.connectGeneration === this.generation) return pending;
+      // An attempt from before a `disconnect()` is still unwinding. It will
+      // fail at its next await; let it, so it cannot tear down ours.
+      await pending.catch(() => {});
+    }
 
+    const generation = this.generation;
     // A failed attempt may have opened the control socket before failing
     // (e.g. on the stream socket). Tear it down here, or the next attempt
-    // would overwrite it while it is still open.
-    this.connectPromise = this.doConnect().catch((err: unknown) => {
-      this.cleanup();
+    // would overwrite it while it is still open. A superseded attempt has
+    // already cleaned up after itself (see `doConnect`), and must not touch
+    // what a newer one may have opened since.
+    const attempt = this.doConnect(generation).catch((err: unknown) => {
+      if (generation === this.generation) this.cleanup();
       throw err;
     });
+    this.connectPromise = attempt;
+    this.connectGeneration = generation;
     try {
-      await this.connectPromise;
+      await attempt;
     } finally {
-      this.connectPromise = null;
+      if (this.connectPromise === attempt) this.connectPromise = null;
     }
 
     // Every (re)connect ends by squaring the daemon's session table with what
@@ -247,6 +288,15 @@ export class TerminalHostClient {
     // also covers the stale-daemon respawn inside `doConnect()` and any
     // alternative connect path.
     await this.reconcileSubscriptions();
+    if (generation !== this.generation) throw disconnectedWhileConnecting();
+
+    if (this.recoveryPending && this.connected && !this.reconnecting) {
+      this.recoveryPending = false;
+      this.notifyListener("onReconnected", {
+        sessionIds: [...this.wanted],
+        attempts: 1,
+      });
+    }
   }
 
   /**
@@ -262,7 +312,14 @@ export class TerminalHostClient {
     if (this.wanted.size === 0) return;
     let alive: Set<string>;
     try {
-      alive = new Set((await this.listSessions()).map((s) => s.sessionId));
+      // Straight to the wire, not `listSessions()`: if the connection is
+      // already gone that would start a nested connect behind the caller's
+      // back. The caller sees `connected` false and deals with it.
+      const resp = await this.request({ type: "listSessions" });
+      if (resp.type !== "sessions") {
+        throw new Error(`unexpected response type: ${resp.type}`);
+      }
+      alive = new Set(resp.sessions.map((s) => s.sessionId));
     } catch (err) {
       // The connection died again mid-reconcile. The wanted set is intact, so
       // the next successful connect will pick this up.
@@ -318,16 +375,42 @@ export class TerminalHostClient {
         if (generation !== this.generation) return;
         try {
           await this.connect();
+          // disconnect() landed after connect() finished. It already tore
+          // down what connect() opened (sockets opened under an older
+          // generation never outlive a disconnect — see `doConnect`).
           if (generation !== this.generation) return;
+          // The connection dropped again while re-subscribing. connect()
+          // swallows that (the session list is best-effort), and the loss
+          // handler deferred to this loop — so this loop must go round again,
+          // or nothing ever re-subscribes those sessions.
+          if (!this.connected) {
+            throw new Error("connection lost while re-subscribing sessions");
+          }
           console.warn(
             `[terminal-host] reconnected to daemon after unexpected disconnect (attempt ${attempt + 1})`,
           );
+          this.recoveryPending = false;
           this.notifyListener("onReconnected", {
             sessionIds: [...this.wanted],
             attempts: attempt + 1,
           });
           return;
         } catch (err) {
+          if (generation !== this.generation) return;
+          if (this.isPermanentFailure?.(err)) {
+            console.error(
+              `[terminal-host] reconnect attempt ${attempt + 1} failed permanently; not retrying: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
+            this.recoveryPending = this.wanted.size > 0;
+            this.notifyListener("onFailed", {
+              error: err,
+              sessionIds: [...this.wanted],
+              attempts: attempt + 1,
+            });
+            return;
+          }
           console.warn(
             `[terminal-host] reconnect attempt ${attempt + 1} failed: ${
               err instanceof Error ? err.message : String(err)
@@ -374,30 +457,48 @@ export class TerminalHostClient {
           "onReconnected",
           Parameters<NonNullable<ConnectionListener["onReconnected"]>>[0],
         ]
+      | ["onFailed", Parameters<NonNullable<ConnectionListener["onFailed"]>>[0]]
   ): void {
     const listener = this.connectionListener;
     if (!listener) return;
     try {
       if (call[0] === "onLost") listener.onLost?.(call[1]);
-      else listener.onReconnected?.(call[1]);
+      else if (call[0] === "onReconnected") listener.onReconnected?.(call[1]);
+      else listener.onFailed?.(call[1]);
     } catch (err) {
       console.error(`[terminal-host] connection listener ${call[0]} threw:`, err);
     }
   }
 
-  private async doConnect(): Promise<void> {
+  /**
+   * Open and authenticate both sockets. `generation` is the one `connect()`
+   * started under: a `disconnect()` at any await point below bumps it, and
+   * the attempt then closes whatever it opened and fails rather than leave
+   * the client connected behind the caller's back.
+   */
+  private async doConnect(generation: number): Promise<void> {
+    const stillWanted = (): void => {
+      if (generation === this.generation) return;
+      this.cleanup();
+      throw disconnectedWhileConnecting();
+    };
+
     // Make sure a daemon is there to talk to, starting one if necessary
     await this.transport.ensureRunning(this.clientVersion);
+    stillWanted();
 
     // Connect control socket
     await this.connectControlSocket();
+    stillWanted();
 
     // Authenticate
     let token = await this.transport.authToken();
+    stillWanted();
     const authResp = await this.request(
       { type: "auth", token },
       this.handshakeTimeoutMs,
     );
+    stillWanted();
     if (authResp.type !== "authOk") {
       throw new Error(
         `Auth failed: ${authResp.type === "error" ? authResp.message : "unknown"}`,
@@ -425,18 +526,23 @@ export class TerminalHostClient {
       { type: "handshake", clientVersion: clientVer },
       this.handshakeTimeoutMs,
     );
+    stillWanted();
     this.daemonProtocol = daemonProtocolOf(hsResp);
     if (isDaemonStale(hsResp, clientVer)) {
       // Stale daemon — replace it
       this.cleanup();
       await this.transport.restart(this.clientVersion);
+      stillWanted();
       // Reconnect to the fresh daemon
       await this.connectControlSocket();
+      stillWanted();
       token = await this.transport.authToken();
+      stillWanted();
       const authResp2 = await this.request(
         { type: "auth", token },
         this.handshakeTimeoutMs,
       );
+      stillWanted();
       if (authResp2.type !== "authOk") {
         throw new Error(
           `Auth failed after daemon respawn: ${authResp2.type === "error" ? authResp2.message : "unknown"}`,
@@ -464,10 +570,12 @@ export class TerminalHostClient {
     }
     if (Object.keys(envUpdate).length > 0) {
       await this.request({ type: "updateEnv", env: envUpdate });
+      stillWanted();
     }
 
     // Connect stream socket
     await this.connectStreamSocket(token);
+    stillWanted();
 
     this.connected = true;
   }
@@ -481,6 +589,7 @@ export class TerminalHostClient {
     this.generation++;
     this.wakeReconnect?.();
     this.wanted.clear();
+    this.recoveryPending = false;
     this.cleanup();
   }
 
@@ -1036,7 +1145,11 @@ export class TerminalHostClient {
     if (!this.connected) return;
     this.cleanup();
     console.warn("[terminal-host] lost connection to daemon; reconnecting");
-    this.notifyListener("onLost", { sessionIds: [...this.wanted] });
+    // Mid-loop (the connection died while being re-established) the loss
+    // was already reported, and the running loop carries on retrying.
+    if (!this.reconnecting) {
+      this.notifyListener("onLost", { sessionIds: [...this.wanted] });
+    }
     void this.reconnectAfterLoss();
   }
 

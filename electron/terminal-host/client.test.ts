@@ -1067,9 +1067,9 @@ describe("TerminalHostClient", () => {
       // Track how many times doConnect is actually called
       let connectCount = 0;
       const origDoConnect = (client as any).doConnect.bind(client);
-      (client as any).doConnect = async () => {
+      (client as any).doConnect = async (generation: number) => {
         connectCount++;
-        return origDoConnect();
+        return origDoConnect(generation);
       };
 
       // Launch two connects concurrently

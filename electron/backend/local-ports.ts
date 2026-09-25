@@ -36,7 +36,16 @@ export function execPortsHost(execImpl: Exec): PortsHost {
   return {
     uid() {
       uid ??= execImpl.file("id", ["-u"], { timeout: 5000 }).then(
-        ({ stdout }) => parseInt(stdout.trim(), 10) || 0,
+        ({ stdout }) => {
+          // Never fall back to 0: that would scan root's listeners.
+          const text = stdout.trim();
+          const parsed = /^\d+$/.test(text) ? Number(text) : NaN;
+          if (!Number.isSafeInteger(parsed)) {
+            uid = null; // retry next scan
+            throw new Error(`\`id -u\` printed an unparseable uid: ${JSON.stringify(text)}`);
+          }
+          return parsed;
+        },
         (err: unknown) => {
           uid = null; // retry next scan
           throw err;

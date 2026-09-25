@@ -15,6 +15,8 @@ import {
 } from "../../terminal-host/types";
 import { RemoteBackend, remoteReconnectDelayMs } from "../remote-backend";
 import type { HostConnectionEvent } from "../types";
+import { SshAuthError } from "../../terminal-host/ssh-config";
+import { RemoteBootstrapError } from "../remote-bootstrap";
 
 type Json = Record<string, unknown> & { type: string };
 
@@ -65,6 +67,8 @@ class FakeDaemon {
     type: "error",
     message: "unknown request type: bootstrap",
   };
+  /** Drop every connection instead of answering the next N `listSessions`. */
+  dropOnListSessions = 0;
   private streamSocket: Duplex | null = null;
   /** Client ends of every open connection, so a test can "kill ssh". */
   readonly clientEnds: Duplex[] = [];
@@ -127,6 +131,10 @@ class FakeDaemon {
       case "bootstrap":
         return reply(this.bootstrapReply);
       case "listSessions":
+        if (this.dropOnListSessions > 0) {
+          this.dropOnListSessions--;
+          return this.dropConnections();
+        }
         return reply({
           type: "sessions",
           sessions: [...this.sessions].map((sessionId) => ({
@@ -164,6 +172,9 @@ class FakeTransport implements HostTransport {
   ensureRunning = vi.fn(async (_version?: string) => {});
   restart = vi.fn(async () => {});
   dispose = vi.fn(async () => {});
+  reset = vi.fn(() => {});
+  /** When set, `connectStream` waits for it before answering. */
+  streamGate: Promise<void> | null = null;
   /** Makes `connectControl` refuse, as a dead host would. */
   unreachable = false;
   controlConnects = 0;
@@ -174,6 +185,7 @@ class FakeTransport implements HostTransport {
     return this.daemon.accept(true);
   }
   async connectStream(): Promise<Duplex> {
+    await this.streamGate;
     return this.daemon.accept(false);
   }
   async authToken(): Promise<string> {
@@ -236,6 +248,46 @@ describe("RemoteBackend", () => {
       await backend.connect();
       await backend.disconnect();
       expect(transport.dispose).toHaveBeenCalledOnce();
+    });
+
+    it("a disconnect during ensureRunning stops the connect before it opens anything", async () => {
+      const { backend, transport } = setup();
+      let release!: () => void;
+      transport.ensureRunning.mockImplementationOnce(
+        () => new Promise<void>((r) => (release = r)),
+      );
+      const connecting = backend.connect();
+      await waitFor(() => transport.ensureRunning.mock.calls.length > 0, "ensureRunning");
+      await backend.disconnect();
+      release();
+      await expect(connecting).rejects.toThrow("Disconnected while connecting");
+      expect(transport.controlConnects).toBe(0);
+    });
+
+    it("a disconnect while the stream socket opens closes both sockets", async () => {
+      const { backend, transport, daemon } = setup();
+      let release!: () => void;
+      transport.streamGate = new Promise<void>((r) => (release = r));
+      const connecting = backend.connect();
+      await waitFor(() => transport.controlConnects > 0, "control socket");
+      await backend.disconnect();
+      release();
+      await expect(connecting).rejects.toThrow("Disconnected while connecting");
+      expect(daemon.clientEnds).toHaveLength(2);
+      expect(daemon.clientEnds.every((end) => end.destroyed)).toBe(true);
+      // Nothing talks to the daemon behind the caller's back.
+      expect(daemon.control).toEqual([]);
+    });
+
+    it("connect after disconnect resets the transport and connects again", async () => {
+      const { backend, transport, daemon } = setup();
+      current = backend;
+      await backend.connect();
+      await backend.disconnect();
+      expect(transport.reset).toHaveBeenCalledTimes(1);
+      await backend.connect();
+      expect(transport.reset).toHaveBeenCalledTimes(2);
+      expect(daemon.control.map((r) => r.type)).toEqual(["bootstrap", "bootstrap"]);
     });
   });
 
@@ -368,6 +420,20 @@ describe("RemoteBackend", () => {
       expect(killSpy).not.toHaveBeenCalled();
       killSpy.mockRestore();
     });
+
+    it("never scans as root when the remote uid is unparseable", async () => {
+      const { backend, daemon } = setup();
+      current = backend;
+      daemon.execReply = (req) => ({
+        type: "execResult",
+        stdout: req.cmd === "id" ? "id: cannot find name for user ID\n" : "",
+        stderr: "",
+        exitCode: 0,
+      });
+      await backend.connect();
+      expect(await backend.ports.scan([])).toEqual([]);
+      expect(daemon.control.some((r) => r.cmd === "/usr/sbin/lsof")).toBe(false);
+    });
   });
 
   describe("exec streams", () => {
@@ -471,6 +537,98 @@ describe("RemoteBackend", () => {
       // The session survived: re-subscribed, and flagged for a resnapshot.
       expect(hostEvents[1]).toEqual({ type: "hostReconnected", sessionIds: ["s1"] });
       await waitForFake(() => subscribes() === 3);
+      warn.mockRestore();
+    });
+
+    it("keeps retrying when the connection drops again while re-subscribing", async () => {
+      const { backend, daemon, hostEvents } = setup({ reconnectDelayMs: () => 5 });
+      current = backend;
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      await backend.connect();
+      await backend.pty.createOrAttach("s1", "/srv/repo", 80, 24);
+      const subscribes = () => daemon.stream.filter((c) => c.type === "subscribe").length;
+      await waitFor(() => subscribes() === 2, "initial subscribes");
+
+      // The first reconnect gets as far as listing sessions, then ssh dies.
+      daemon.dropOnListSessions = 1;
+      daemon.dropConnections();
+      await waitFor(() => hostEvents.length > 1, "hostReconnected");
+      expect(daemon.dropOnListSessions).toBe(0);
+      // Reported once: the second drop happened inside the loop.
+      expect(hostEvents).toEqual([
+        { type: "hostDisconnected", sessionIds: ["s1"], retryInMs: 5 },
+        { type: "hostReconnected", sessionIds: ["s1"] },
+      ]);
+      await waitFor(() => subscribes() === 3, "re-subscribed");
+      warn.mockRestore();
+    });
+
+    it.each([
+      [
+        "auth",
+        () => new SshAuthError("user@box", "Permission denied (publickey)."),
+        { reason: "auth" },
+      ],
+      [
+        "bootstrap",
+        () => new RemoteBootstrapError("node-missing", "Node.js 20 or newer is required"),
+        { reason: "bootstrap", code: "node-missing" },
+      ],
+    ] as const)(
+      "stops on a permanent %s failure, emits hostFailed, and recovers on an explicit connect",
+      async (_label, makeError, expected) => {
+        const { backend, daemon, transport, hostEvents } = setup({ reconnectDelayMs: () => 5 });
+        current = backend;
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const error = vi.spyOn(console, "error").mockImplementation(() => {});
+        await backend.connect();
+        await backend.pty.createOrAttach("s1", "/srv/repo", 80, 24);
+        const ensures = () => transport.ensureRunning.mock.calls.length;
+        const before = ensures();
+
+        transport.ensureRunning.mockImplementation(async () => {
+          throw makeError();
+        });
+        daemon.dropConnections();
+        await waitFor(() => hostEvents.some((e) => e.type === "hostFailed"), "hostFailed");
+        expect(hostEvents[1]).toMatchObject({
+          type: "hostFailed",
+          sessionIds: ["s1"],
+          ...expected,
+        });
+        expect(ensures() - before).toBe(1);
+        await new Promise((r) => setTimeout(r, 50));
+        expect(ensures() - before).toBe(1); // no retry loop
+
+        // The session was not reported as exited, and an explicit connect
+        // brings it back.
+        transport.ensureRunning.mockImplementation(async () => {});
+        await backend.connect();
+        expect(hostEvents[2]).toEqual({ type: "hostReconnected", sessionIds: ["s1"] });
+        expect(hostEvents).toHaveLength(3);
+        warn.mockRestore();
+        error.mockRestore();
+      },
+    );
+
+    it("keeps retrying transient failures", async () => {
+      const { backend, daemon, transport, hostEvents } = setup({ reconnectDelayMs: () => 5 });
+      current = backend;
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      await backend.connect();
+      const before = transport.ensureRunning.mock.calls.length;
+      transport.ensureRunning.mockImplementation(async () => {
+        throw new Error("ssh to user@box failed while bootstrapping (exit 255)");
+      });
+      daemon.dropConnections();
+      await waitFor(
+        () => transport.ensureRunning.mock.calls.length - before >= 4,
+        "several attempts",
+      );
+      expect(hostEvents.map((e) => e.type)).toEqual(["hostDisconnected"]);
+      transport.ensureRunning.mockImplementation(async () => {});
+      await waitFor(() => hostEvents.length > 1, "hostReconnected");
+      expect(hostEvents[1].type).toBe("hostReconnected");
       warn.mockRestore();
     });
 

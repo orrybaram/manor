@@ -105,7 +105,16 @@ export type ControlRequest =
   | { type: "ping" }
   | { type: "updateEnv"; env: Record<string, string> }
   | { type: "disposeDead" }
-  | { type: "handshake"; clientVersion: string };
+  | { type: "handshake"; clientVersion: string }
+  | {
+      type: "exec";
+      cmd: string;
+      args: string[];
+      cwd?: string;
+      timeout?: number;
+      maxBuffer?: number;
+    }
+  | { type: "readFile"; path: string };
 
 export type ControlResponse =
   | { type: "authOk"; version?: string }
@@ -135,7 +144,14 @@ export type ControlResponse =
       /** Absent from daemons older than TERMINAL_HOST_PROTOCOL 1. */
       protocol?: number;
     }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | {
+      type: "execResult";
+      stdout: string;
+      stderr: string;
+      exitCode: number | null;
+    }
+  | { type: "fileContents"; contents: string };
 
 // ── Agent status types ──
 
@@ -170,7 +186,9 @@ export type StreamEvent =
    * byte before this event was produced at the old size, every byte after it at
    * the new one. Clients resize their emulator here.
    */
-  | { type: "resized"; sessionId: string; cols: number; rows: number };
+  | { type: "resized"; sessionId: string; cols: number; rows: number }
+  | { type: "execStdout" | "execStderr"; execId: string; data: string }
+  | { type: "execExit"; execId: string; exitCode: number | null };
 
 // ── Stream socket commands (client → daemon, fire-and-forget) ──
 
@@ -183,7 +201,15 @@ export type StreamCommand =
       sessionId: string;
       status: AgentStatus;
       kind: AgentKind;
-    };
+    }
+  | {
+      type: "execStream";
+      execId: string;
+      cmd: string;
+      args: string[];
+      cwd?: string;
+    }
+  | { type: "execCancel"; execId: string };
 
 // ── PTY Subprocess spawn payload ──
 

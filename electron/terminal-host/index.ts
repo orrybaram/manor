@@ -11,9 +11,15 @@ import "./xterm-env-polyfill";
 import * as net from "node:net";
 import * as fs from "node:fs";
 import * as crypto from "node:crypto";
+import { readFile as fsReadFile } from "node:fs/promises";
 import { TerminalHost } from "./terminal-host";
 import { TERMINAL_HOST_PROTOCOL } from "./types";
-import type { ControlRequest, ControlResponse, StreamCommand } from "./types";
+import type {
+  ControlRequest,
+  ControlResponse,
+  StreamCommand,
+  StreamEvent,
+} from "./types";
 import {
   daemonDir,
   daemonSocketFile,
@@ -22,6 +28,7 @@ import {
 } from "../paths";
 import { runRemoteBridge } from "./bridge";
 import { LocalTransport } from "./transport-local";
+import { ExecRunner, runExec } from "./exec-runner";
 
 const DAEMON_DIR = daemonDir();
 const SOCKET_PATH = daemonSocketFile();
@@ -35,6 +42,19 @@ const authenticatedSockets = new WeakSet<net.Socket>();
 
 // Map of stream sockets that are subscribed to sessions
 const streamSockets = new Set<net.Socket>();
+
+// Per-stream-socket execId → child bookkeeping for execStream/execCancel.
+// Keyed by socket so a dropped connection kills exactly its own children.
+const execRunners = new Map<net.Socket, ExecRunner>();
+
+function getExecRunner(socket: net.Socket): ExecRunner {
+  let runner = execRunners.get(socket);
+  if (!runner) {
+    runner = new ExecRunner();
+    execRunners.set(socket, runner);
+  }
+  return runner;
+}
 
 function log(msg: string): void {
   const ts = new Date().toISOString();
@@ -219,6 +239,43 @@ async function handleControlMessage(
       break;
     }
 
+    case "exec": {
+      log(`exec: ${request.cmd}`);
+      const result = await runExec(request.cmd, request.args, {
+        cwd: request.cwd,
+        timeout: request.timeout,
+        maxBuffer: request.maxBuffer,
+      });
+      sendResponse(
+        socket,
+        {
+          type: "execResult",
+          stdout: result.stdout,
+          stderr: result.stderr,
+          exitCode: result.exitCode,
+        },
+        requestId,
+      );
+      break;
+    }
+
+    case "readFile": {
+      try {
+        const contents = await fsReadFile(request.path, "utf-8");
+        sendResponse(socket, { type: "fileContents", contents }, requestId);
+      } catch (err) {
+        sendResponse(
+          socket,
+          {
+            type: "error",
+            message: `readFile failed: ${err instanceof Error ? err.message : String(err)}`,
+          },
+          requestId,
+        );
+      }
+      break;
+    }
+
     case "handshake": {
       // Client sends its app version; daemon replies with its own.
       // Version mismatch causes the client to kill and respawn the daemon.
@@ -266,6 +323,36 @@ async function handleStreamMessage(
       );
       host.setAgentHookStatus(command.sessionId, command.status, command.kind);
       break;
+    case "execStream": {
+      log(`execStream: ${command.cmd}`);
+      const runner = getExecRunner(socket);
+      runner.start(
+        command.execId,
+        command.cmd,
+        command.args,
+        { cwd: command.cwd },
+        {
+          onStdout: (execId, data) =>
+            sendStreamEvent(socket, { type: "execStdout", execId, data }),
+          onStderr: (execId, data) =>
+            sendStreamEvent(socket, { type: "execStderr", execId, data }),
+          onExit: (execId, exitCode) =>
+            sendStreamEvent(socket, { type: "execExit", execId, exitCode }),
+        },
+      );
+      break;
+    }
+    case "execCancel":
+      execRunners.get(socket)?.cancel(command.execId);
+      break;
+  }
+}
+
+function sendStreamEvent(socket: net.Socket, event: StreamEvent): void {
+  try {
+    socket.write(JSON.stringify(event) + "\n");
+  } catch {
+    // socket may be closed
   }
 }
 
@@ -388,6 +475,10 @@ function startServer(): void {
       log("Client disconnected");
       host.detachAllFromSocket(socket);
       streamSockets.delete(socket);
+      // Kill any live execStream children so a dropped connection (e.g. a
+      // dropped ssh session) cannot leak processes.
+      execRunners.get(socket)?.disposeAll();
+      execRunners.delete(socket);
     });
 
     socket.on("error", (err) => {

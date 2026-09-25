@@ -1,6 +1,6 @@
 ---
 title: Add exec and execStream control requests to the daemon
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2]

@@ -365,8 +365,17 @@ export interface ElectronAPI {
       snapshotSeq?: StreamPosition;
       error?: string;
       prewarmed?: boolean;
-      /** The host the session actually runs on (ADR-160); absent from older mains. */
+      /**
+       * The host the session actually runs on (ADR-160); absent from older
+       * mains. On a `hostUnavailable` failure, the host the pane awaits.
+       */
       hostId?: string;
+      /**
+       * The create failed because the pane's remote host is not connected
+       * (ADR-178 §6): not a broken terminal — it is created once the host
+       * is back.
+       */
+      hostUnavailable?: boolean;
     }>;
     write: (paneId: string, data: string) => Promise<void>;
     /** Resolves once the pty is actually at that size, not merely told to be. */

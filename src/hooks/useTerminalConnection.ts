@@ -3,7 +3,9 @@
  */
 
 import { useCallback, useRef } from "react";
-import { usePaneHostStore } from "../store/pane-host-store";
+import { awaitPaneHost, usePaneHostStore } from "../store/pane-host-store";
+import { useProjectStore } from "../store/project-store";
+import { remoteHostIdForWorkspace } from "../lib/hosts";
 import { useHostStore } from "../store/host-store";
 import { isPaneInputBlocked } from "../lib/host-status";
 
@@ -34,11 +36,25 @@ export function useTerminalConnection(paneId: string) {
   const create = useCallback(
     (cwd: string | null, cols: number, rows: number, agentKind?: string | null) => {
       const paneId = paneIdRef.current;
+      // A pane of a remote project whose host is not known yet is assumed to
+      // run there until create says otherwise, so a slow connect (the app
+      // launched while the host is down) shows the host's banner meanwhile.
+      if (cwd && !(paneId in usePaneHostStore.getState().remoteHostByPane)) {
+        const projectHost = remoteHostIdForWorkspace(
+          useProjectStore.getState().projects,
+          cwd,
+        );
+        if (projectHost) usePaneHostStore.getState().setPaneHost(paneId, projectHost);
+      }
       return window.electronAPI.pty
         .create(paneId, cwd, cols, rows, agentKind)
         .then((result) => {
           // Badge the tab from where the session really runs (ADR-160).
           if (result.ok) usePaneHostStore.getState().setPaneHost(paneId, result.hostId);
+          // Its remote host is away (ADR-178 §6): wait for it, not an error.
+          else if (result.hostUnavailable && result.hostId) {
+            awaitPaneHost(paneId, result.hostId);
+          }
           return result;
         });
     },

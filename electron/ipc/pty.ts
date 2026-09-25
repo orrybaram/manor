@@ -59,6 +59,20 @@ export function register(deps: IpcDeps): void {
   const hostOf = (paneId: string): string =>
     backendRegistry.hostForSession(paneId) ?? LOCAL_HOST_ID;
 
+  /**
+   * The remote host `paneId` would run on, when that host is registered but
+   * not connected — so a create that just failed failed for want of the
+   * host. Null for a local pane, a connected host, or an unregistered one.
+   */
+  const unavailableHostFor = (paneId: string, cwd: string): string | null => {
+    const hostId =
+      backendRegistry.hostForSession(paneId) ??
+      deps.projectManager.hostIdForPath(cwd);
+    if (hostId === LOCAL_HOST_ID) return null;
+    const status = backendRegistry.status(hostId);
+    return status !== undefined && status !== "connected" ? hostId : null;
+  };
+
   ipcMain.handle(
     "pty:create",
     async (
@@ -96,11 +110,16 @@ export function register(deps: IpcDeps): void {
           hostId: hostOf(paneId),
         };
       } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        // A remote host that is not connected is not a broken terminal
+        // (ADR-178 §6): the renderer shows the host's offline banner and
+        // creates the pane once the host is back.
+        const awaitedHost = unavailableHostFor(paneId, resolvedCwd);
+        if (awaitedHost) {
+          return { ok: false, error, hostUnavailable: true, hostId: awaitedHost };
+        }
         console.error(`Failed to create/attach PTY for ${paneId}:`, err);
-        return {
-          ok: false,
-          error: err instanceof Error ? err.message : String(err),
-        };
+        return { ok: false, error };
       }
     },
   );

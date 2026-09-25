@@ -26,6 +26,9 @@ import { resolveHomeAdapter } from "../lib/harness";
 import { useTerminalConnection } from "./useTerminalConnection";
 import { usePaneHostStore } from "../store/pane-host-store";
 import { consumeReattach } from "../store/pane-reattach-store";
+import { useHostStore } from "../store/host-store";
+import { isPaneInputBlocked } from "../lib/host-status";
+import { shouldRequeuePaneCommand, windowPaneIds } from "../lib/remote-recovery";
 import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
 import { useTerminalResize } from "./useTerminalResize";
@@ -256,12 +259,27 @@ export function useTerminalLifecycle(
       else cwdPending = fn;
     };
 
+    // A pane command this mount took from the queue and has not written
+    // yet. Should the mount go first — a remote pane remounted because its
+    // host dropped again mid-recovery — it goes back on the queue for the
+    // next mount rather than being lost (ADR-178 §6).
+    let unsentPaneCommand: string | null = null;
+    const hostAway = () =>
+      isPaneInputBlocked(
+        paneId,
+        usePaneHostStore.getState().remoteHostByPane,
+        useHostStore.getState().hosts,
+      );
+
     // Send `cmd` once: either when the shell prompt is ready (CWD event) or
-    // after a 3s fallback, whichever comes first.
-    const sendOnShellReady = (cmd: string) => {
+    // after a 3s fallback, whichever comes first. Not while the pane's
+    // remote host is away — the write would be dropped (see
+    // `useTerminalConnection`); the command stays unsent instead.
+    const sendOnShellReady = (cmd: string, onSent?: () => void) => {
       let sent = false;
       const send = () => {
         if (sent || disposed) return;
+        if (hostAway()) return;
         sent = true;
         clearTimeout(fallback);
         // Submit with a carriage return (\r) — that's what an Enter keypress
@@ -269,6 +287,7 @@ export function useTerminalLifecycle(
         // not reliably bound to accept-line, so the command would sit in the
         // buffer un-submitted.
         write(cmd + "\r");
+        onSent?.();
       };
       onShellReady(send);
       const fallback = setTimeout(send, 3000);
@@ -320,8 +339,13 @@ export function useTerminalLifecycle(
         snapshotSeq?: StreamPosition;
         error?: string;
         prewarmed?: boolean;
+        hostUnavailable?: boolean;
       }) => {
         if (disposed) return;
+        // The pane's remote host is away: its banner says so, and the pane
+        // is created once the host is back (useRemoteRecovery) — not the
+        // "terminal failed to start" dialog.
+        if (!result.ok && result.hostUnavailable) return;
         if (!result.ok) {
           setPtyError(
             result.error ?? "Failed to create terminal session",
@@ -399,14 +423,19 @@ export function useTerminalLifecycle(
             if (result.prewarmed && shellReady) {
               // Shell is already at a prompt — write immediately.
               // Submit with \r (Enter); \n is not reliably accept-line in zsh.
-              write(pendingCmd + "\r");
+              // Unless the pane's remote host is away, which would drop it.
+              if (paneCmd && hostAway()) unsentPaneCommand = paneCmd;
+              else write(pendingCmd + "\r");
             } else {
               // Cold start (or a freshly-spawned session mislabelled as
               // prewarmed) — wait for the shell prompt (CWD/OSC 7 event from
               // the precmd hook) before sending the command. Sending on first
               // output is too early: the shell may still be sourcing .zshrc,
               // and ZLE discards buffered input when it initializes.
-              sendOnShellReady(pendingCmd);
+              if (paneCmd) unsentPaneCommand = paneCmd;
+              sendOnShellReady(pendingCmd, () => {
+                unsentPaneCommand = null;
+              });
             }
           } else if (pendingTypedText) {
             const shellReady = !!useAppStore.getState().paneCwd[paneId];
@@ -475,7 +504,19 @@ export function useTerminalLifecycle(
       // Always detach (keep the PTY alive in the daemon).
       // If the user explicitly closed the pane, schedule a delayed kill
       // so they can undo within the grace period.
-      const { closedPaneIds } = useAppStore.getState();
+      const app = useAppStore.getState();
+      const { closedPaneIds } = app;
+      if (
+        unsentPaneCommand !== null &&
+        shouldRequeuePaneCommand(paneId, {
+          remoteHostByPane: usePaneHostStore.getState().remoteHostByPane,
+          windowPaneIds: windowPaneIds(app.workspaceLayouts),
+          closedPaneIds,
+          pendingPaneCommands: app.pendingPaneCommands,
+        })
+      ) {
+        app.setPendingPaneCommand(paneId, unsentPaneCommand);
+      }
       detach();
       if (closedPaneIds.has(paneId)) {
         closedPaneIds.delete(paneId);

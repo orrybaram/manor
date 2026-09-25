@@ -4,8 +4,11 @@ import {
   planHostResume,
   recoverHostPanes,
   restartNotice,
+  shouldRequeuePaneCommand,
+  windowPaneIds,
   type RecoveryEffects,
 } from "../remote-recovery";
+import type { WorkspaceLayout } from "../../store/app-store";
 import type { AgentInfo } from "../../electron.d";
 
 function agent(overrides: Partial<AgentInfo>): AgentInfo {
@@ -44,6 +47,56 @@ describe("planHostResume", () => {
   it("has nothing to do for a host this window has no panes on", () => {
     expect(planHostResume("box", { a: "other" }, [])).toEqual({ reattach: [], lost: [] });
   });
+
+  it("ignores recorded panes that are not this window's (moved out, or closing)", () => {
+    const plan = planHostResume(
+      "box",
+      { a: "box", moved: "box", closing: "box" },
+      ["a"],
+      (paneId) => paneId === "a",
+    );
+    expect(plan).toEqual({ reattach: ["a"], lost: [] });
+  });
+});
+
+describe("windowPaneIds", () => {
+  it("collects every pane of every tab of every workspace layout", () => {
+    const layout = (panes: string[][]): WorkspaceLayout =>
+      ({
+        panels: Object.fromEntries(
+          panes.map((tabPanes, i) => [
+            `panel-${i}`,
+            {
+              tabs: tabPanes.map((paneId) => ({ rootNode: { type: "leaf", paneId } })),
+            },
+          ]),
+        ),
+      }) as unknown as WorkspaceLayout;
+    const ids = windowPaneIds({ "/a": layout([["a1", "a2"], ["a3"]]), "/b": layout([["b1"]]) });
+    expect([...ids].sort()).toEqual(["a1", "a2", "a3", "b1"]);
+  });
+});
+
+describe("shouldRequeuePaneCommand", () => {
+  const base = {
+    remoteHostByPane: { p: "box" },
+    windowPaneIds: new Set(["p"]),
+    closedPaneIds: new Set<string>(),
+    pendingPaneCommands: {},
+  };
+
+  it("requeues a remote pane's unsent command while it is still this window's", () => {
+    expect(shouldRequeuePaneCommand("p", base)).toBe(true);
+  });
+
+  it("never for a local pane, one moved away or closing, or over a newer command", () => {
+    expect(shouldRequeuePaneCommand("p", { ...base, remoteHostByPane: {} })).toBe(false);
+    expect(shouldRequeuePaneCommand("p", { ...base, windowPaneIds: new Set() })).toBe(false);
+    expect(shouldRequeuePaneCommand("p", { ...base, closedPaneIds: new Set(["p"]) })).toBe(false);
+    expect(
+      shouldRequeuePaneCommand("p", { ...base, pendingPaneCommands: { p: "newer" } }),
+    ).toBe(false);
+  });
 });
 
 describe("agentToResume", () => {
@@ -76,6 +129,7 @@ describe("recoverHostPanes", () => {
         "p-lost-shell": "box",
         "p-other": "other",
       }),
+      includePane: () => true,
       getActiveAgents: vi.fn(async () => [agent({})]),
       markResumed: vi.fn(async () => null),
       buildResumeCommand: vi.fn(async () => "claude --resume sess-1"),
@@ -135,5 +189,39 @@ describe("recoverHostPanes", () => {
     expect(fx.setPendingPaneCommand).not.toHaveBeenCalled();
     expect(fx.reattach).toHaveBeenLastCalledWith(["p-lost-agent", "p-lost-shell"]);
     warn.mockRestore();
+  });
+
+  it("only recovers panes that are this window's", async () => {
+    const { fx } = effects({ includePane: (paneId) => paneId !== "p-lost-agent" });
+    const plan = await recoverHostPanes("box", ["p-alive"], fx);
+    expect(plan.lost).toEqual(["p-lost-shell"]);
+    expect(fx.setPendingPaneCommand).not.toHaveBeenCalled();
+  });
+
+  it("re-reads agent status just before queueing, skipping an agent that ended meanwhile", async () => {
+    const getActiveAgents = vi
+      .fn<RecoveryEffects["getActiveAgents"]>()
+      .mockResolvedValueOnce([agent({})])
+      // A late hook replay ended it while the resume command was being built.
+      .mockResolvedValueOnce([]);
+    const { fx } = effects({ getActiveAgents });
+    await recoverHostPanes("box", ["p-alive"], fx);
+    expect(getActiveAgents).toHaveBeenCalledTimes(2);
+    expect(fx.setPendingPaneCommand).not.toHaveBeenCalled();
+    // The pane still comes back, as a bare shell.
+    expect(fx.reattach).toHaveBeenLastCalledWith(["p-lost-agent", "p-lost-shell"]);
+  });
+
+  it("queues on the first answer if the re-read fails", async () => {
+    const getActiveAgents = vi
+      .fn<RecoveryEffects["getActiveAgents"]>()
+      .mockResolvedValueOnce([agent({})])
+      .mockRejectedValueOnce(new Error("ipc down"));
+    const { fx } = effects({ getActiveAgents });
+    await recoverHostPanes("box", ["p-alive"], fx);
+    expect(fx.setPendingPaneCommand).toHaveBeenCalledWith(
+      "p-lost-agent",
+      "claude --resume sess-1",
+    );
   });
 });

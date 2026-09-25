@@ -846,6 +846,14 @@ describe("BackendRegistry — away and back (ADR-178 §6)", () => {
     expect(retryNow).toHaveBeenCalledTimes(1);
     expect(remote.raw.connect).toHaveBeenCalledTimes(1);
 
+    // Mid-attempt the loop has no wait to cut short; the attempt it is
+    // making is left alone rather than raced by a second connect.
+    retryNow.mockReturnValue(false);
+    registry.retryNow("box");
+    expect(retryNow).toHaveBeenCalledTimes(2);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(remote.raw.connect).toHaveBeenCalledTimes(1);
+
     // A host in error has no loop to wake: it connects afresh.
     remote.hostEvent({ type: "hostFailed", sessionIds: [], reason: "auth", message: "denied" });
     registry.retryNow("box");

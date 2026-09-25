@@ -205,20 +205,20 @@ describe("runHealthChecks", () => {
       bins: { claude: "/usr/bin/claude", codex: "/usr/bin/codex", gh: "/usr/bin/gh" },
       claudeLoggedIn: true,
     });
-    const originalExec = shell.exec;
-    (shell.exec as unknown as { mockImplementation: (fn: unknown) => void }).mockImplementation(
-      async (cmd: string, args: string[], execOpts?: unknown) => {
-        order.push(`start:${cmd}`);
-        const result = await (originalExec as unknown as (
-          c: string,
-          a: string[],
-          o?: unknown,
-        ) => Promise<string>)(cmd, args, execOpts);
-        order.push(`end:${cmd}`);
-        return result;
-      },
-    );
-    await runHealthChecks(shell, git, "/repo");
+    // Wrap the fake's implementation, not the mock itself: the mock calls
+    // whatever implementation it currently has, so calling it from inside
+    // its replacement would recurse until the stack overflows.
+    const execMock = vi.mocked(shell.exec);
+    const fakeExec = execMock.getMockImplementation()!;
+    execMock.mockImplementation(async (cmd, args, execOpts) => {
+      order.push(`start:${cmd}`);
+      const result = await fakeExec(cmd, args, execOpts);
+      order.push(`end:${cmd}`);
+      return result;
+    });
+    const results = await runHealthChecks(shell, git, "/repo");
+    // The probes really ran (a broken wrapper would fail every check quietly).
+    expect(results.find((r) => r.id === "gh")?.ok).toBe(true);
     // Every check's probe must have started before any of them finished —
     // a serial implementation would interleave start/end pairs one at a time.
     const firstEnd = order.indexOf(order.find((e) => e.startsWith("end:")) ?? "");

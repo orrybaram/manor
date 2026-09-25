@@ -381,10 +381,17 @@ export class BackendRegistry {
    * The user's "Retry now". A host its backend is already reconnecting
    * attempts at once instead of waiting out the backoff; any other host that
    * is not connected gets a fresh `connect()` (`connectInBackground`).
+   *
+   * A reconnecting backend whose loop has no wait to cut short is mid-attempt
+   * already: that is left alone. A second `connect()` alongside the loop's
+   * own attempt would race it for the same host.
    */
   retryNow(hostId: string): void {
     const entry = this.hosts.get(hostId);
-    if (entry?.state.status === "reconnecting" && entry.backend.retryNow?.()) return;
+    if (entry?.state.status === "reconnecting") {
+      entry.backend.retryNow?.();
+      return;
+    }
     this.connectInBackground(hostId);
   }
 

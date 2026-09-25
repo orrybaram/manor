@@ -21,6 +21,8 @@
  */
 
 import type { AgentInfo } from "../electron.d";
+import type { WorkspaceLayout } from "../store/app-store";
+import { allPaneIds } from "../store/pane-tree";
 
 export interface HostResumePlan {
   /** Panes whose sessions survived: resnapshot. */
@@ -29,19 +31,38 @@ export interface HostResumePlan {
   lost: string[];
 }
 
+/** Every pane in this window's layouts, across all its workspaces. */
+export function windowPaneIds(
+  workspaceLayouts: Readonly<Record<string, WorkspaceLayout>>,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const layout of Object.values(workspaceLayouts)) {
+    for (const panel of Object.values(layout.panels)) {
+      for (const tab of panel.tabs) {
+        for (const paneId of allPaneIds(tab.rootNode)) ids.add(paneId);
+      }
+    }
+  }
+  return ids;
+}
+
 /**
  * Split this window's panes on `hostId` by whether the host still has their
- * session. A pane's session id is its pane id.
+ * session. A pane's session id is its pane id. Only panes `include` accepts
+ * count — a pane recorded here that has since moved to another window, or
+ * been closed and is waiting out its kill grace, is not this window's to
+ * recover.
  */
 export function planHostResume(
   hostId: string,
   remoteHostByPane: Readonly<Record<string, string>>,
   aliveSessionIds: readonly string[],
+  include: (paneId: string) => boolean = () => true,
 ): HostResumePlan {
   const alive = new Set(aliveSessionIds);
   const plan: HostResumePlan = { reattach: [], lost: [] };
   for (const [paneId, paneHostId] of Object.entries(remoteHostByPane)) {
-    if (paneHostId !== hostId) continue;
+    if (paneHostId !== hostId || !include(paneId)) continue;
     if (alive.has(paneId)) plan.reattach.push(paneId);
     else plan.lost.push(paneId);
   }
@@ -73,6 +94,9 @@ export function restartNotice(resumed: number): string {
 export interface RecoveryEffects {
   /** This window's remote panes and the host each runs on. */
   remoteHostByPane: () => Readonly<Record<string, string>>;
+  /** Whether a recorded pane is this window's to recover (see `planHostResume`). */
+  includePane: (paneId: string) => boolean;
+  /** Fresh from main on every call: the agents still active. */
   getActiveAgents: () => Promise<AgentInfo[]>;
   markResumed: (agentId: string) => Promise<unknown>;
   buildResumeCommand: (agentId: string) => Promise<string | null>;
@@ -93,7 +117,12 @@ export async function recoverHostPanes(
   aliveSessionIds: readonly string[],
   effects: RecoveryEffects,
 ): Promise<HostResumePlan> {
-  const plan = planHostResume(hostId, effects.remoteHostByPane(), aliveSessionIds);
+  const plan = planHostResume(
+    hostId,
+    effects.remoteHostByPane(),
+    aliveSessionIds,
+    effects.includePane,
+  );
   if (plan.reattach.length > 0) effects.reattach(plan.reattach);
   if (plan.lost.length === 0) return plan;
 
@@ -103,10 +132,10 @@ export async function recoverHostPanes(
   } catch (err) {
     console.warn("[remote-recovery] could not list agents; resuming bare shells:", err);
   }
-  await Promise.all(
+  const commands = await Promise.all(
     plan.lost.map(async (paneId) => {
       const agent = agentToResume(paneId, agents);
-      if (!agent) return;
+      if (!agent) return null;
       // Marked first, as on relaunch, so the pane's own cold-start check
       // cannot launch it a second time.
       void effects.markResumed(agent.id).catch(() => {});
@@ -117,10 +146,52 @@ export async function recoverHostPanes(
         // Fall back to relaunching the bare command.
       }
       command ??= agent.agentCommand;
-      if (command) effects.setPendingPaneCommand(paneId, command);
+      return command ? { paneId, agentId: agent.id, command } : null;
     }),
   );
+  const toQueue = commands.filter((c) => c !== null);
+  if (toQueue.length > 0) {
+    // Ask again right before queueing: the replay that settled before the
+    // host was announced is bounded, and a hook arriving since may have
+    // ended one of these agents — resuming it would start a finished agent
+    // over. If the answer cannot be had, go with the first one.
+    let stillActive: Set<string> | null = null;
+    try {
+      const fresh = await effects.getActiveAgents();
+      stillActive = new Set(fresh.filter((a) => a.status === "active").map((a) => a.id));
+    } catch {
+      // Keep the first answer.
+    }
+    for (const { paneId, agentId, command } of toQueue) {
+      if (stillActive && !stillActive.has(agentId)) continue;
+      effects.setPendingPaneCommand(paneId, command);
+    }
+  }
   effects.reattach(plan.lost);
   effects.notify(restartNotice(plan.lost.length));
   return plan;
+}
+
+/**
+ * Whether a command a mount of `paneId` took from the queue but never wrote
+ * — it unmounted first, say because its host dropped again mid-recovery and
+ * the pane was remounted — goes back on the queue for the next mount. Only
+ * for a remote pane still in this window and not being closed, and never
+ * over a command queued since.
+ */
+export function shouldRequeuePaneCommand(
+  paneId: string,
+  state: {
+    remoteHostByPane: Readonly<Record<string, string>>;
+    windowPaneIds: ReadonlySet<string>;
+    closedPaneIds: ReadonlySet<string>;
+    pendingPaneCommands: Readonly<Record<string, string>>;
+  },
+): boolean {
+  return (
+    paneId in state.remoteHostByPane &&
+    state.windowPaneIds.has(paneId) &&
+    !state.closedPaneIds.has(paneId) &&
+    !(paneId in state.pendingPaneCommands)
+  );
 }

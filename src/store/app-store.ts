@@ -38,6 +38,7 @@ import type { Location } from "./navigation-history-store";
 import type { DetachedTabPayload } from "./detach-types";
 import { isHomePath } from "../lib/home-path";
 import { useProjectStore } from "./project-store";
+import { usePaneHostStore } from "./pane-host-store";
 
 export interface ClosedPaneSnapshot {
   kind: "pane";
@@ -3030,6 +3031,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         // Terminal (default): detach releases the daemon session, keeping it alive.
         window.electronAPI.pty.detach(pid);
       }
+      // The pane is the destination window's now: this one must not badge
+      // it, or plan to recover it when its remote host comes back.
+      usePaneHostStore.getState().forgetPane(pid);
     }
 
     set((s) => {
@@ -3060,7 +3064,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       const newPaneUrl = { ...s.paneUrl };
       const newPickedElement = { ...s.panePickedElement };
       const newPendingCommands = { ...s.pendingPaneCommands };
+      const newPendingTypedTexts = { ...s.pendingTypedTexts };
       for (const pid of paneIds) {
+        delete newPendingTypedTexts[pid];
         delete newCwd[pid];
         delete newTitle[pid];
         delete newAgentStatus[pid];
@@ -3084,6 +3090,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneUrl: newPaneUrl,
         panePickedElement: newPickedElement,
         pendingPaneCommands: newPendingCommands,
+        pendingTypedTexts: newPendingTypedTexts,
       };
 
       // Collapse an emptied panel exactly the way closeTab does.
@@ -3205,6 +3212,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Terminal (default): detach releases the daemon session, keeping it alive.
       window.electronAPI.pty.detach(paneId);
     }
+    // The pane is the destination window's now: this one must not badge it,
+    // or plan to recover it when its remote host comes back.
+    usePaneHostStore.getState().forgetPane(paneId);
 
     set((s) => {
       const currentCtx = getActiveLayoutContext(s);
@@ -3216,19 +3226,28 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       const remaining = removePane(tab.rootNode, paneId);
 
+      // A command queued for the pane here (e.g. a remote agent's resume)
+      // must not be typed into it should it ever come back to this window.
+      const { [paneId]: _cmd, ...pendingPaneCommands } = s.pendingPaneCommands;
+      const { [paneId]: _text, ...pendingTypedTexts } = s.pendingTypedTexts;
+
       // Pane was one of several — collapse the split and keep the tab.
       if (remaining) {
         const ids = allPaneIds(remaining);
         const newFocused =
           tab.focusedPaneId === paneId ? ids[0] : tab.focusedPaneId;
-        return updatePanel(s, path, layout, panel.id, (p) => ({
-          ...p,
-          tabs: p.tabs.map((t) =>
-            t.id === tab.id
-              ? { ...t, rootNode: remaining, focusedPaneId: newFocused }
-              : t,
-          ),
-        }));
+        return {
+          pendingPaneCommands,
+          pendingTypedTexts,
+          ...updatePanel(s, path, layout, panel.id, (p) => ({
+            ...p,
+            tabs: p.tabs.map((t) =>
+              t.id === tab.id
+                ? { ...t, rootNode: remaining, focusedPaneId: newFocused }
+                : t,
+            ),
+          })),
+        };
       }
 
       // Pane was the tab's sole leaf — remove the whole tab exactly as
@@ -3251,7 +3270,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       const newAudioMuted = { ...s.paneAudioMuted };
       const newPaneUrl = { ...s.paneUrl };
       const newPickedElement = { ...s.panePickedElement };
-      const newPendingCommands = { ...s.pendingPaneCommands };
       delete newCwd[paneId];
       delete newTitle[paneId];
       delete newAgentStatus[paneId];
@@ -3261,7 +3279,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       delete newAudioMuted[paneId];
       delete newPaneUrl[paneId];
       delete newPickedElement[paneId];
-      delete newPendingCommands[paneId];
 
       const sideMaps = {
         paneCwd: newCwd,
@@ -3273,7 +3290,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneAudioMuted: newAudioMuted,
         paneUrl: newPaneUrl,
         panePickedElement: newPickedElement,
-        pendingPaneCommands: newPendingCommands,
+        pendingPaneCommands,
+        pendingTypedTexts,
       };
 
       // Collapse an emptied panel exactly the way removeDetachedTabLocally does.

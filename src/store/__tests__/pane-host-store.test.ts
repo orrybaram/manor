@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { usePaneHostStore, selectTabRemoteHostId } from "../pane-host-store";
+import {
+  awaitPaneHost,
+  isAwaitingHost,
+  selectTabRemoteHostId,
+  takePanesAwaitingHost,
+  usePaneHostStore,
+} from "../pane-host-store";
 import type { PaneNode } from "../pane-tree";
 
 const leaf = (paneId: string): PaneNode => ({ type: "leaf", paneId });
@@ -64,5 +70,38 @@ describe("pane-host-store", () => {
     setPaneHost("pane-a", "box");
     forgetPane("pane-a");
     expect(selectTabRemoteHostId(leaf("pane-a"))(usePaneHostStore.getState())).toBeNull();
+  });
+});
+
+describe("panes awaiting their host (ADR-178 §6)", () => {
+  beforeEach(() => {
+    usePaneHostStore.setState({ remoteHostByPane: {} });
+    takePanesAwaitingHost("box");
+    takePanesAwaitingHost("other");
+  });
+
+  it("records the awaited host, so the pane banners as that host's", () => {
+    awaitPaneHost("p", "box");
+    expect(isAwaitingHost("p")).toBe(true);
+    expect(usePaneHostStore.getState().remoteHostByPane).toEqual({ p: "box" });
+  });
+
+  it("hands over the panes waiting for a host, once", () => {
+    awaitPaneHost("a", "box");
+    awaitPaneHost("b", "box");
+    awaitPaneHost("c", "other");
+    expect(takePanesAwaitingHost("box", (id) => id !== "b")).toEqual(["a"]);
+    expect(takePanesAwaitingHost("box")).toEqual(["b"]);
+    expect(takePanesAwaitingHost("box")).toEqual([]);
+    expect(isAwaitingHost("c")).toBe(true);
+  });
+
+  it("stops waiting once the pane has a session, or is forgotten", () => {
+    awaitPaneHost("a", "box");
+    awaitPaneHost("b", "box");
+    usePaneHostStore.getState().setPaneHost("a", "box");
+    usePaneHostStore.getState().forgetPane("b");
+    expect(isAwaitingHost("a")).toBe(false);
+    expect(isAwaitingHost("b")).toBe(false);
   });
 });

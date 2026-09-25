@@ -467,7 +467,7 @@ export class TerminalHostClient {
   /**
    * Cut the reconnect loop's current wait short and attempt now ("Retry
    * now"). Returns false when the loop is not waiting — not reconnecting,
-   * or mid-attempt — so the caller can fall back to `connect()`.
+   * or mid-attempt already.
    */
   retryReconnectNow(): boolean {
     if (!this.reconnecting || !this.wakeReconnect) return false;

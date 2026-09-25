@@ -215,7 +215,7 @@ describe("SshTransport", () => {
     const { transport, children } = makeTransport();
     const pending = transport.connectStream();
     const child = await nextChild(children, 0);
-    expect(child.args.at(-1)).toBe(
+    expect(child.args[child.args.length - 1]).toBe(
       'exec "$HOME/.manor/bin/manor-host" remote-bridge --stream',
     );
     const line = hello("tok-2");

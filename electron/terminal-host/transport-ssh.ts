@@ -40,7 +40,11 @@ export interface SshChild {
     event: "close" | "exit",
     listener: (code: number | null, signal: NodeJS.Signals | null) => void,
   ): this;
-  off(event: "error" | "close" | "exit", listener: (...args: never[]) => void): this;
+  off(event: "error", listener: (err: Error) => void): this;
+  off(
+    event: "close" | "exit",
+    listener: (code: number | null, signal: NodeJS.Signals | null) => void,
+  ): this;
 }
 
 export type SshSpawn = (command: string, args: string[]) => SshChild;

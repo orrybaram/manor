@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { RemoteForwards, resolveRemotePortUrl, type ForwardHosts } from "../remote-forwards";
+import {
+  RemoteForwards,
+  isRemoteCandidateUrl,
+  remoteFormOfUrl,
+  resolveRemotePortUrl,
+  type ForwardHosts,
+} from "../remote-forwards";
 import type { HostProvider, PortForward } from "../backend/providers/types";
 import type { HostStatus, HostStatusInfo } from "../backend/registry";
 import type { ActivePort } from "../backend/types";
@@ -8,7 +14,7 @@ import type { ActivePort } from "../backend/types";
 function fakeProvider(opts: { taken?: Set<number> } = {}) {
   let next = 60000;
   const live = new Map<number, number>(); // localPort -> remotePort
-  const calls: { remotePort: number; preferredLocalPort?: number }[] = [];
+  const calls: { remotePort: number; preferredLocalPort?: number; remoteHost?: string }[] = [];
   let fail: Error | null = null;
   let hold: Promise<void> | null = null;
   const provider = {
@@ -22,9 +28,13 @@ function fakeProvider(opts: { taken?: Set<number> } = {}) {
     dispose: async () => {},
     async forwardPort(
       remotePort: number,
-      o?: { preferredLocalPort?: number },
+      o?: { preferredLocalPort?: number; remoteHost?: string },
     ): Promise<PortForward> {
-      calls.push({ remotePort, preferredLocalPort: o?.preferredLocalPort });
+      calls.push(
+        o?.remoteHost
+          ? { remotePort, preferredLocalPort: o?.preferredLocalPort, remoteHost: o.remoteHost }
+          : { remotePort, preferredLocalPort: o?.preferredLocalPort },
+      );
       if (hold) await hold;
       if (fail) throw fail;
       const preferred = o?.preferredLocalPort;
@@ -75,6 +85,10 @@ function fakeRegistry() {
       const existing = hosts.get(hostId);
       hosts.set(hostId, { status, provider: provider ?? existing!.provider });
       emit();
+    },
+    /** Replace a host's provider without announcing it. */
+    swapProviderSilently(hostId: string, provider: HostProvider) {
+      hosts.get(hostId)!.provider = provider;
     },
     remove(hostId: string) {
       hosts.delete(hostId);
@@ -208,6 +222,83 @@ describe("RemoteForwards", () => {
     expect(forwards.localPort("box", 3000)).toBe(60000);
   });
 
+  it("only retries forwards of the host whose status changed", async () => {
+    const other = fakeProvider();
+    reg.set("other", "connected", other.provider);
+    await forwards.ensure("box", 3000);
+    reg.set("box", "reconnecting");
+    box.failWith(new Error("ssh said no"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      reg.set("box", "connected");
+      await flush();
+      expect(box.calls).toHaveLength(2); // the one failed retry
+      box.failWith(null);
+
+      // Churn on another host leaves box's missing forward alone…
+      reg.set("other", "reconnecting");
+      reg.set("other", "connected");
+      await flush();
+      expect(box.calls).toHaveLength(2);
+      expect(forwards.localPort("box", 3000)).toBeUndefined();
+
+      // …while box coming back retries it.
+      reg.set("box", "reconnecting");
+      reg.set("box", "connected");
+      await flush();
+      expect(box.calls).toHaveLength(3);
+      expect(forwards.localPort("box", 3000)).toBe(60000);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("drops a replaced provider's forward before ensure makes a new one", async () => {
+    await forwards.ensure("box", 3000);
+    const replacement = fakeProvider();
+    // The provider changes before any status event reaches the forwards.
+    reg.swapProviderSilently("box", replacement.provider);
+    expect(await forwards.ensure("box", 3000)).toBe(60000);
+    expect(box.live.size).toBe(0); // the old provider's forward was disposed
+    expect(replacement.live.size).toBe(1);
+  });
+
+  it("forwards to [::1] when told the port listens only there, and moves when that changes", async () => {
+    await forwards.ensure("box", 3000, { remoteHost: "::1" });
+    expect(box.calls[0]).toEqual({ remotePort: 3000, preferredLocalPort: undefined, remoteHost: "::1" });
+    // Without opts, what was said before stands.
+    await forwards.ensure("box", 3000);
+    expect(box.calls).toHaveLength(1);
+    // The server moved to 127.0.0.1: the old forward is replaced.
+    await forwards.ensure("box", 3000, {});
+    expect(box.calls).toHaveLength(2);
+    expect(box.calls[1]).toEqual({ remotePort: 3000, preferredLocalPort: 60000 });
+    expect(box.live.size).toBe(1);
+  });
+
+  it("traces local ports, current and past, back to their remote port", async () => {
+    const taken = new Set<number>();
+    const box2 = fakeProvider({ taken });
+    reg.set("box2", "connected", box2.provider);
+    await forwards.ensure("box2", 3000);
+    expect(forwards.remotePortFor("box2", 60000)).toBe(3000);
+    expect(forwards.remotePortFor("box", 60000)).toBeUndefined();
+    expect(forwards.remotePortFor("box2", 12345)).toBeUndefined();
+
+    // A reconnect moves the forward; the old local port still traces back.
+    reg.set("box2", "disconnected");
+    taken.add(60000);
+    reg.set("box2", "connected");
+    await flush();
+    expect(forwards.localPort("box2", 3000)).toBe(60001);
+    expect(forwards.remotePortFor("box2", 60000)).toBe(3000);
+    expect(forwards.remotePortFor("box2", 60001)).toBe(3000);
+
+    // Unregistering forgets them.
+    reg.remove("box2");
+    expect(forwards.remotePortFor("box2", 60001)).toBeUndefined();
+  });
+
   it("dispose drops every forward and stops listening", async () => {
     await forwards.ensure("box", 3000);
     forwards.dispose();
@@ -231,15 +322,31 @@ describe("resolveRemotePortUrl", () => {
   beforeEach(() => ensure.mockClear());
 
   it("rewrites loopback URLs of reported ports, keeping path, query and hash", async () => {
+    // Always onto 127.0.0.1, where the forward listens.
     expect(await resolveRemotePortUrl("http://localhost:3000/a/b?q=1#h", remote, ensure)).toBe(
-      "http://localhost:43000/a/b?q=1#h",
+      "http://127.0.0.1:43000/a/b?q=1#h",
     );
     expect(await resolveRemotePortUrl("http://127.0.0.1:3000", remote, ensure)).toBe(
       "http://127.0.0.1:43000/",
     );
     expect(await resolveRemotePortUrl("http://[::1]:3000/", remote, ensure)).toBe(
-      "http://[::1]:43000/",
+      "http://127.0.0.1:43000/",
     );
+    expect(ensure).toHaveBeenCalledWith(3000, remote[0]);
+  });
+
+  it("re-resolves a URL still holding a forward's (old) local port", async () => {
+    const traced = (local: number) => (local === 60000 ? 3000 : undefined);
+    expect(
+      await resolveRemotePortUrl("http://127.0.0.1:60000/x", remote, ensure, traced),
+    ).toBe("http://127.0.0.1:43000/x");
+    expect(ensure).toHaveBeenCalledWith(3000, remote[0]);
+    // A remote port the scan no longer reports still maps, without a scan entry.
+    const gone = (local: number) => (local === 60001 ? 9999 : undefined);
+    expect(await resolveRemotePortUrl("http://localhost:60001/", remote, ensure, gone)).toBe(
+      "http://127.0.0.1:49999/",
+    );
+    expect(ensure).toHaveBeenLastCalledWith(9999, undefined);
   });
 
   it("leaves ports the scan did not report alone", async () => {
@@ -269,7 +376,7 @@ describe("resolveRemotePortUrl", () => {
     expect(
       await resolveRemotePortUrl("http://web.acme.localhost:1355/x", remote, ensure),
     ).toBe("http://web.acme.localhost:1355/x");
-    expect(ensure).toHaveBeenCalledWith(5173);
+    expect(ensure).toHaveBeenCalledWith(5173, remote[1]);
   });
 
   it("propagates a forward failure", async () => {
@@ -278,5 +385,39 @@ describe("resolveRemotePortUrl", () => {
         throw new Error("down");
       }),
     ).rejects.toThrow("down");
+  });
+});
+
+describe("remoteFormOfUrl", () => {
+  const traced = (local: number) => (local === 60000 ? 3000 : undefined);
+
+  it("maps a forwarded URL back to the box's localhost", () => {
+    expect(remoteFormOfUrl("http://127.0.0.1:60000/a?b=1#c", traced)).toBe(
+      "http://localhost:3000/a?b=1#c",
+    );
+    expect(remoteFormOfUrl("http://localhost:60000/", traced)).toBe("http://localhost:3000/");
+  });
+
+  it("leaves everything else alone", () => {
+    for (const url of [
+      "http://127.0.0.1:8080/",
+      "https://example.com:60000/",
+      "about:blank",
+      "not a url",
+    ]) {
+      expect(remoteFormOfUrl(url, traced)).toBe(url);
+    }
+  });
+});
+
+describe("isRemoteCandidateUrl", () => {
+  it("accepts loopback and portless URLs only", () => {
+    expect(isRemoteCandidateUrl("http://localhost:3000/")).toBe(true);
+    expect(isRemoteCandidateUrl("https://127.0.0.1/")).toBe(true);
+    expect(isRemoteCandidateUrl("http://[::1]:3000/")).toBe(true);
+    expect(isRemoteCandidateUrl("http://web.acme.localhost:1355/")).toBe(true);
+    expect(isRemoteCandidateUrl("https://example.com/")).toBe(false);
+    expect(isRemoteCandidateUrl("file:///tmp/x")).toBe(false);
+    expect(isRemoteCandidateUrl("nope")).toBe(false);
   });
 });

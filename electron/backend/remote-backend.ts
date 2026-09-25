@@ -129,7 +129,7 @@ export class RemoteBackend implements WorkspaceBackend {
     this.pty = new LocalPtyBackend(this.client);
     this.git = new LocalGitBackend(exec);
     this.shell = new LocalShellBackend(exec, execShellHost(exec));
-    this.ports = new LocalPortsBackend(exec, execPortsHost(exec));
+    this.ports = new LocalPortsBackend(exec, execPortsHost(exec), opts.target);
   }
 
   /**

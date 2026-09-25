@@ -60,12 +60,21 @@ function isLocalPortFree(port: number): Promise<boolean> {
 
 /**
  * The `-L` spec for a forward: `<local>` on loopback to `<remote>` on the box's
- * loopback. The local bind address is explicit so a user's `GatewayPorts yes`
- * (pulled in via the included ~/.ssh/config) can't expose the forward to the LAN.
+ * loopback — 127.0.0.1, or `::1` for a server listening only there. The local
+ * bind address is explicit so a user's `GatewayPorts yes` (pulled in via the
+ * included ~/.ssh/config) can't expose the forward to the LAN.
  */
-export function forwardSpec(localPort: number, remotePort: number): string[] {
-  return ["-L", `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`];
+export function forwardSpec(
+  localPort: number,
+  remotePort: number,
+  remoteHost: RemoteLoopback = "127.0.0.1",
+): string[] {
+  const host = remoteHost === "::1" ? "[::1]" : "127.0.0.1";
+  return ["-L", `127.0.0.1:${localPort}:${host}:${remotePort}`];
 }
+
+/** The box addresses a forward may target: only ever its loopback. */
+type RemoteLoopback = "127.0.0.1" | "::1";
 
 function assertPort(port: number, label: string): void {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -99,7 +108,10 @@ export class SshHostProvider implements HostProvider {
   private readonly findFreePort: () => Promise<number>;
   private readonly isPortFree: (port: number) => Promise<boolean>;
   /** Live forwards, keyed by their local port. */
-  private readonly forwards = new Map<number, { remotePort: number; configPath: string }>();
+  private readonly forwards = new Map<
+    number,
+    { remotePort: number; remoteHost: RemoteLoopback; configPath: string }
+  >();
   /** Bumped by dispose(); a forwardPort() that straddles it cancels its own forward. */
   private generation = 0;
 
@@ -145,9 +157,12 @@ export class SshHostProvider implements HostProvider {
 
   async forwardPort(
     remotePort: number,
-    opts?: { preferredLocalPort?: number },
+    opts?: { preferredLocalPort?: number; remoteHost?: string },
   ): Promise<PortForward> {
     assertPort(remotePort, "remote");
+    // Anything but the IPv6 loopback targets 127.0.0.1: a forward never
+    // reaches past the box's loopback.
+    const remoteHost: RemoteLoopback = opts?.remoteHost === "::1" ? "::1" : "127.0.0.1";
     const configPath = this.sshTransport.configPath;
     if (!configPath) {
       throw new Error(`Cannot forward port ${remotePort}: not connected to ${this.target}`);
@@ -168,12 +183,17 @@ export class SshHostProvider implements HostProvider {
       configPath,
       this.target,
       "cancel",
-      forwardSpec(localPort, remotePort),
+      forwardSpec(localPort, remotePort, remoteHost),
     );
     let result: { code: number | null; stderr: string };
     try {
       result = await this.runControl(
-        buildControlArgs(configPath, this.target, "forward", forwardSpec(localPort, remotePort)),
+        buildControlArgs(
+          configPath,
+          this.target,
+          "forward",
+          forwardSpec(localPort, remotePort, remoteHost),
+        ),
       );
     } catch (err) {
       // A timeout may fire after ssh already set the forward up.
@@ -192,7 +212,7 @@ export class SshHostProvider implements HostProvider {
           (detail ? `: ${detail}` : ` (exit ${code ?? "unknown"})`),
       );
     }
-    this.forwards.set(localPort, { remotePort, configPath });
+    this.forwards.set(localPort, { remotePort, remoteHost, configPath });
     return {
       localPort,
       dispose: () => {
@@ -222,7 +242,7 @@ export class SshHostProvider implements HostProvider {
         forward.configPath,
         this.target,
         "cancel",
-        forwardSpec(localPort, forward.remotePort),
+        forwardSpec(localPort, forward.remotePort, forward.remoteHost),
       ),
     );
   }

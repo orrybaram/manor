@@ -43,10 +43,12 @@ export interface HostProvider {
    * Make `remotePort` on the box reachable at a local port. With
    * `preferredLocalPort`, that port is used when it is free (so a forward
    * recreated after a reconnect keeps its URL); otherwise any free one.
+   * `remoteHost` is the box's loopback address to reach — `"::1"` for a
+   * server listening only there; 127.0.0.1 otherwise.
    */
   forwardPort(
     remotePort: number,
-    opts?: { preferredLocalPort?: number },
+    opts?: { preferredLocalPort?: number; remoteHost?: string },
   ): Promise<PortForward>;
   /** A public URL for `remotePort`, where `capabilities.previewUrls`. */
   previewUrl?(remotePort: number): Promise<string>;

@@ -65,3 +65,30 @@ forward cache lifecycle with a fake provider.
 - **Public URL:** `canCopyPublicUrl` is set on a port only when its host's
   provider has `previewUrl` (ssh has none, so the menu item stays hidden).
 
+
+## Review fixes
+
+- **Remote browser tabs survive restarts and port-changing reconnects.** A
+  remote pane remembers (layout, history, URL bar) the box's own
+  `localhost:<remote port>` URL; the webview's `src` follows the forwarded
+  URL it actually loaded (`ports:remoteUrl` maps a loaded URL back).
+  `RemoteForwards` keeps every local port a forward has had →
+  (host, remote port), so a URL still on an old local port is re-resolved.
+  `ports:resolveUrl` waits until the host is connected *and* scanned
+  (`PortScanner.hasScanned` / `onHostScanned`) before resolving a loopback
+  URL; the pane shows "Waiting for <host>…" instead of loading the port on
+  this machine. When the host reconnects, a remote pane re-resolves its URL
+  and moves if the forward moved.
+- Rewritten URLs use `127.0.0.1` (where the forward listens). Ports a scan
+  sees only on `[::1]` carry `loopbackHost: "::1"` and are forwarded to the
+  box's `[::1]`.
+- `ss -ltnp` (no `-H`, which iproute2 < 4.13 rejects; an "invalid option"
+  failure also falls back to lsof). The uid filter runs only as root (non-root
+  `ss` only names our own processes), uses `stat -c "%n %u" /proc/<pid>…`
+  (BusyBox has no `ps -o uid=`), and runs before collapsing to one pid per port.
+  No `ss` and no `lsof`: one warning per host.
+- `ensure()` drops a forward (or creation) from a replaced provider first; status
+  events retry only the hosts whose status or provider changed.
+- An agent's `POST /webview/:id/navigate` in a remote pane goes through the same
+  rewrite: the renderer passes the pane's host on `webview:register`; main waits
+  up to 15s for the host, then answers 503.

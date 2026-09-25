@@ -151,6 +151,48 @@ describe("PortScanner per host", () => {
     scanner.stop();
   });
 
+  it("reports which hosts have been scanned, after the scan is published", async () => {
+    vi.useFakeTimers();
+    let remoteUp = false;
+    const ports = {
+      scan: vi.fn(async (paths: string[]) => {
+        if (paths[0].startsWith("/remote")) {
+          if (!remoteUp) throw new HostUnavailableError("box", "connecting");
+          return [];
+        }
+        return [port(1, "/local/app")];
+      }),
+      kill: vi.fn(),
+    } as unknown as PortsBackend;
+    const scanner = new PortScanner(ports, hostForPath);
+    scanner.updateWorkspacePaths(["/local/app", "/remote/app"]);
+    const { window } = fakeWindow();
+    const published: ActivePort[][] = [];
+    const scanned: string[] = [];
+    scanner.onHostScanned((hostId) => {
+      scanned.push(hostId);
+      // Listeners see the enriched scan already published.
+      expect(published.length).toBeGreaterThan(0);
+    });
+
+    scanner.start(window, (merged) => {
+      published.push(merged);
+      return merged;
+    });
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(scanner.hasScanned("local")).toBe(true);
+    // An unavailable host has not been scanned…
+    expect(scanner.hasScanned("box")).toBe(false);
+    expect(scanned).toEqual(["local"]);
+
+    // …until a scan of it succeeds, even one with no ports.
+    remoteUp = true;
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(scanner.hasScanned("box")).toBe(true);
+    expect(scanned).toContain("box");
+    scanner.stop();
+  });
+
   it("keeps a remote host's last ports, without logging, while it is unavailable", async () => {
     vi.useFakeTimers();
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});

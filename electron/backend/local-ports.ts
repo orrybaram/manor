@@ -108,10 +108,59 @@ const DARWIN_LSOF = "/usr/sbin/lsof";
 /** Anywhere else lsof lives wherever the distro put it. */
 const PATH_LSOF = "lsof";
 
-/** One listener as `ss -ltnp` reports it, before workspace matching. */
-export function parseSsListeners(output: string): ActivePort[] {
-  const results: ActivePort[] = [];
-  const seenPorts = new Set<number>();
+/** One listening socket, before listeners are collapsed to one per port. */
+interface ListenSocket {
+  port: number;
+  processName: string;
+  pid: number;
+  /** The local address as printed, e.g. `127.0.0.1`, `[::1]`, `*`. */
+  address: string;
+}
+
+/** An IPv6 loopback address as `ss` or `lsof` prints it. */
+function isIpv6Loopback(address: string): boolean {
+  return address === "[::1]" || address === "::1";
+}
+
+/**
+ * One `ActivePort` per port, the first socket's pid winning (as lsof lists
+ * them). A port every one of whose sockets is bound to `[::1]` only is
+ * marked with `loopbackHost: "::1"`: a forward to the box's 127.0.0.1 would
+ * not reach it (ADR-178 §5).
+ */
+function collapseListeners(sockets: ListenSocket[]): ActivePort[] {
+  const byPort = new Map<number, { port: ActivePort; v6Only: boolean }>();
+  for (const socket of sockets) {
+    const v6 = isIpv6Loopback(socket.address);
+    const seen = byPort.get(socket.port);
+    if (seen) {
+      seen.v6Only &&= v6;
+      continue;
+    }
+    byPort.set(socket.port, {
+      port: {
+        port: socket.port,
+        processName: socket.processName,
+        pid: socket.pid,
+        workspacePath: null,
+        hostname: null,
+      },
+      v6Only: v6,
+    });
+  }
+  return Array.from(byPort.values(), ({ port, v6Only }) => {
+    if (v6Only) port.loopbackHost = "::1";
+    return port;
+  });
+}
+
+/**
+ * Every listening socket `ss -ltnp` reports with a process, one entry per
+ * socket (not yet one per port). The header line, if this `ss` prints one,
+ * has no `addr:port` token and is skipped.
+ */
+function parseSsSockets(output: string): ListenSocket[] {
+  const results: ListenSocket[] = [];
   const userRe = /\("((?:[^"\\]|\\.)*)",pid=(\d+),fd=\d+\)/g;
 
   for (const line of output.split("\n")) {
@@ -122,8 +171,9 @@ export function parseSsListeners(output: string): ActivePort[] {
     // this indifferent to whether this `ss` prints the State column.
     const local = tokens.find((t) => /:\d+$/.test(t));
     if (!local) continue;
-    const port = parseInt(local.slice(local.lastIndexOf(":") + 1), 10);
-    if (!Number.isInteger(port) || port <= 0 || seenPorts.has(port)) continue;
+    const colon = local.lastIndexOf(":");
+    const port = parseInt(local.slice(colon + 1), 10);
+    if (!Number.isInteger(port) || port <= 0) continue;
 
     // Without `users:(…)` this socket belongs to a process `ss` may not
     // look into (another user's) — never ours to report.
@@ -133,24 +183,30 @@ export function parseSsListeners(output: string): ActivePort[] {
     const pid = parseInt(user[2], 10);
     if (!pid) continue;
 
-    seenPorts.add(port);
     results.push({
       port,
       processName: user[1].replace(/\\(.)/g, "$1"),
       pid,
-      workspacePath: null,
-      hostname: null,
+      address: local.slice(0, colon),
     });
   }
 
   return results;
 }
 
-/** Parse `ps -o pid=,uid=` output into uid by pid. */
-export function parsePsUids(output: string): Map<number, number> {
+/** Listeners as `ss -ltnp` reports them, one per port, before workspace matching. */
+export function parseSsListeners(output: string): ActivePort[] {
+  return collapseListeners(parseSsSockets(output));
+}
+
+/**
+ * Parse `stat -c "%n %u" /proc/<pid>…` output into uid by pid. `stat` is
+ * used rather than `ps -o uid=`, which BusyBox's `ps` does not support.
+ */
+export function parseStatUids(output: string): Map<number, number> {
   const result = new Map<number, number>();
   for (const line of output.split("\n")) {
-    const match = /^\s*(\d+)\s+(\d+)\s*$/.exec(line);
+    const match = /^\s*\/proc\/(\d+)\s+(\d+)\s*$/.exec(line);
     if (match) result.set(Number(match[1]), Number(match[2]));
   }
   return result;
@@ -163,6 +219,19 @@ function isMissingCommand(err: unknown): boolean {
   // The remote daemon reports a spawn failure as a null exit code with
   // the spawn error in stderr (see `remote-exec.ts`).
   return code === null && typeof stderr === "string" && /ENOENT/.test(stderr);
+}
+
+/**
+ * An `ss` too old for the options given (e.g. iproute2 before 4.13 has no
+ * `-H`) — no better than a missing one.
+ */
+function isUnusableSs(err: unknown): boolean {
+  if (isMissingCommand(err)) return true;
+  const { stderr } = (err ?? {}) as Partial<ExecError>;
+  return (
+    typeof stderr === "string" &&
+    /invalid option|unrecognized option|illegal option/i.test(stderr)
+  );
 }
 
 /** The stdout a command produced, even when it exited non-zero. */
@@ -179,14 +248,18 @@ async function stdoutEvenOnFailure(
 
 export class LocalPortsBackend implements PortsBackend {
   /**
-   * Set once `ss` turns out not to be installed on a Linux host; from then
+   * Set once `ss` turns out not to be installed (or too old) on a Linux host; from then
    * on that host is scanned with `lsof` on PATH. Per backend, i.e. per Exec.
    */
   private ssMissing = false;
+  /** Set once "no ss, no lsof" has been logged, so it is logged once. */
+  private warnedNoScanner = false;
 
   constructor(
     private readonly execImpl: Exec = localExec,
     private readonly host: PortsHost = localPortsHost,
+    /** Names the scanned machine in warnings. */
+    private readonly label: string = "this machine",
   ) {}
 
   async scan(workspacePaths: string[]): Promise<ActivePort[]> {
@@ -253,42 +326,63 @@ export class LocalPortsBackend implements PortsBackend {
         { timeout: 5000 },
       );
       return this.parseLsofPorts(stdout);
-    } catch {
+    } catch (err) {
+      if (isMissingCommand(err) && !this.warnedNoScanner) {
+        this.warnedNoScanner = true;
+        console.warn(
+          `[ports] neither ss nor lsof is available on ${this.label}; ` +
+            "its dev servers will not be detected",
+        );
+      }
       return [];
     }
   }
 
   /**
-   * Listeners owned by `uid`, by `ss`. `ss` has no uid filter and, run as
-   * root, shows every user's processes, so pids are checked against `uid`.
-   * `"missing"` when `ss` is not installed.
+   * Listeners owned by `uid`, by `ss`. `-H` (no header) is not passed:
+   * iproute2 before 4.13 rejects it, and the parser skips the header
+   * anyway. `"missing"` when `ss` is not installed or too old to run.
+   *
+   * Run as anyone but root, `ss` only names the processes of its own user
+   * (it cannot look into anyone else's `/proc/<pid>/fd`), so every socket
+   * with a process is ours. Run as root it names everyone's, so each pid's
+   * uid is checked — before collapsing to one pid per port, so another
+   * user's socket on the same port cannot hide ours.
    */
   private async scanSs(uid: number): Promise<ActivePort[] | "missing"> {
     let output: string;
     try {
-      const { stdout } = await this.execImpl.file("ss", ["-ltnpH"], {
+      const { stdout } = await this.execImpl.file("ss", ["-ltnp"], {
         timeout: 5000,
       });
       output = stdout;
     } catch (err) {
-      return isMissingCommand(err) ? "missing" : [];
+      return isUnusableSs(err) ? "missing" : [];
     }
-    const listeners = parseSsListeners(output);
-    if (listeners.length === 0) return [];
-    const uids = await this.uidsByPid(listeners.map((p) => p.pid));
-    return listeners.filter((p) => uids.get(p.pid) === uid);
+    let sockets = parseSsSockets(output);
+    if (sockets.length === 0) return [];
+    if (uid === 0) {
+      const uids = await this.uidsByPid(sockets.map((s) => s.pid));
+      sockets = sockets.filter((s) => uids.get(s.pid) === uid);
+    }
+    return collapseListeners(sockets);
   }
 
-  /** Each pid's effective uid; a pid that is gone is simply absent. */
+  /**
+   * Each pid's uid, from its `/proc` entry's owner; a pid that is gone is
+   * simply absent. `stat` rather than `ps -o uid=`, which BusyBox lacks.
+   */
   private async uidsByPid(pids: number[]): Promise<Map<number, number>> {
-    // `ps` exits non-zero when some pid has exited meanwhile, yet still
+    // `stat` exits non-zero when some pid has exited meanwhile, yet still
     // prints the rest.
     const stdout = await stdoutEvenOnFailure(
-      this.execImpl.file("ps", ["-o", "pid=,uid=", "-p", pids.join(",")], {
-        timeout: 5000,
-      }),
+      this.execImpl.file(
+        "stat",
+        ["-c", "%n %u", ...Array.from(new Set(pids), (pid) => `/proc/${pid}`)],
+        { timeout: 5000 },
+      ),
     );
-    return parsePsUids(stdout);
+    return parseStatUids(stdout);
   }
 
   /** Each pid's cwd from `/proc/<pid>/cwd`; unreadable ones are skipped. */
@@ -313,8 +407,7 @@ export class LocalPortsBackend implements PortsBackend {
   }
 
   private parseLsofPorts(output: string): ActivePort[] {
-    const results: ActivePort[] = [];
-    const seenPorts = new Set<number>();
+    const sockets: ListenSocket[] = [];
     let currentPid = 0;
     let currentCmd = "";
 
@@ -334,14 +427,12 @@ export class LocalPortsBackend implements PortsBackend {
           const colonIdx = value.lastIndexOf(":");
           if (colonIdx >= 0) {
             const port = parseInt(value.slice(colonIdx + 1), 10);
-            if (!isNaN(port) && !seenPorts.has(port)) {
-              seenPorts.add(port);
-              results.push({
+            if (!isNaN(port)) {
+              sockets.push({
                 port,
                 processName: currentCmd,
                 pid: currentPid,
-                workspacePath: null,
-                hostname: null,
+                address: value.slice(0, colonIdx),
               });
             }
           }
@@ -350,7 +441,7 @@ export class LocalPortsBackend implements PortsBackend {
       }
     }
 
-    return results;
+    return collapseListeners(sockets);
   }
 
   private async cwdsByPid(

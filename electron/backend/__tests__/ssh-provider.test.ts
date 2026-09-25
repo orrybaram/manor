@@ -96,6 +96,24 @@ describe("SshHostProvider", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("forwards to the box's [::1] for a server listening only there, and cancels the same spec", async () => {
+    const { configPath } = transport.managedConfig();
+    const provider = makeProvider();
+    const forward = await provider.forwardPort(3000, { remoteHost: "::1" });
+    expect(calls[0]).toEqual([
+      "-F", configPath, "-O", "forward", "-L", "127.0.0.1:54321:[::1]:3000", "me@box",
+    ]);
+    forward.dispose();
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    expect(calls[1]).toContain("127.0.0.1:54321:[::1]:3000");
+  });
+
+  it("never forwards past the box's loopback, whatever remoteHost says", async () => {
+    transport.managedConfig();
+    await makeProvider().forwardPort(3000, { remoteHost: "10.0.0.5" });
+    expect(calls[0]).toContain("127.0.0.1:54321:127.0.0.1:3000");
+  });
+
   it("uses a preferred local port when it is free, any free one otherwise", async () => {
     transport.managedConfig();
     const free = new Set([41000]);
@@ -182,6 +200,10 @@ describe("SshHostProvider", () => {
 describe("forwardSpec", () => {
   it("binds loopback to the box's loopback", () => {
     expect(forwardSpec(8080, 3000)).toEqual(["-L", "127.0.0.1:8080:127.0.0.1:3000"]);
+  });
+
+  it("brackets the box's IPv6 loopback", () => {
+    expect(forwardSpec(8080, 3000, "::1")).toEqual(["-L", "127.0.0.1:8080:[::1]:3000"]);
   });
 });
 

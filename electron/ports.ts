@@ -19,6 +19,7 @@ export class PortScanner {
   /** Latest scan result per host. */
   private hostPorts = new Map<string, ActivePort[]>();
   private generation = 0;
+  private hostScanListeners = new Set<(hostId: string) => void>();
   private backend: PortsBackend;
   private hostForPath: HostForPath;
 
@@ -55,6 +56,8 @@ export class PortScanner {
                 (id) => this.hostPorts.get(id) ?? [],
               );
               const enriched = onScan ? onScan(merged) : merged;
+              // After onScan, so listeners see the enriched result.
+              this.emitHostScanned(hostId);
               if (JSON.stringify(enriched) !== JSON.stringify(this.lastPorts)) {
                 window.webContents.send("ports-changed", enriched);
                 this.lastPorts = enriched;
@@ -79,6 +82,17 @@ export class PortScanner {
       clearInterval(this.timer);
       this.timer = null;
     }
+  }
+
+  /** Whether `hostId` has been scanned successfully since its paths appeared. */
+  hasScanned(hostId: string): boolean {
+    return this.hostPorts.has(hostId);
+  }
+
+  /** Called after each successful scan of a host by the poller. */
+  onHostScanned(listener: (hostId: string) => void): () => void {
+    this.hostScanListeners.add(listener);
+    return () => this.hostScanListeners.delete(listener);
   }
 
   updateWorkspacePaths(paths: string[]): void {
@@ -109,6 +123,16 @@ export class PortScanner {
       if (r.status === "rejected") throw r.reason;
       return r.value;
     });
+  }
+
+  private emitHostScanned(hostId: string): void {
+    for (const listener of this.hostScanListeners) {
+      try {
+        listener(hostId);
+      } catch (err) {
+        console.error("[PortScanner] host-scan listener threw:", err);
+      }
+    }
   }
 
   /** Workspace paths by host; the local host even with no paths. */

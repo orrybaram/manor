@@ -162,6 +162,11 @@ export interface ActivePort {
   hostId?: string;
   /** The host's provider can hand out a public URL for it (`previewUrl`). */
   canCopyPublicUrl?: boolean;
+  /**
+   * `"::1"` when the port is listened on only at the IPv6 loopback, so a
+   * forward must target `[::1]` rather than 127.0.0.1 (ADR-178 §5).
+   */
+  loopbackHost?: "::1";
 }
 
 export interface PortsBackend {

@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   LocalPortsBackend,
   execPortsHost,
   parsePlatform,
-  parsePsUids,
+  parseStatUids,
   parseSsListeners,
   type PortsHost,
   type PortsPlatform,
@@ -71,6 +71,15 @@ describe("LocalPortsBackend", () => {
       expect(result[1].port).toBe(8000);
       expect(result[1].processName).toBe("python3");
       expect(result[1].pid).toBe(200);
+    });
+
+    it("marks a port lsof shows only at [::1]", () => {
+      const output = ["p100", "cnode", "n[::1]:3000", "n[::1]:3000", "n*:4000"].join("\n");
+      const result = parse()(output);
+      expect(result.map((p) => [p.port, p.loopbackHost])).toEqual([
+        [3000, "::1"],
+        [4000, undefined],
+      ]);
     });
 
     it("deduplicates ports", () => {
@@ -199,6 +208,24 @@ describe("parseSsListeners", () => {
     });
   });
 
+  it("marks a port listened on only at [::1], and only such a port", () => {
+    const ports = parseSsListeners(SS_FIXTURE);
+    expect(ports.find((p) => p.port === 6006)?.loopbackHost).toBe("::1");
+    expect(ports.filter((p) => p.loopbackHost).map((p) => p.port)).toEqual([6006]);
+    const both = [
+      'LISTEN 0 511 [::1]:3000 [::]:* users:(("node",pid=9,fd=19))',
+      'LISTEN 0 511 127.0.0.1:3000 0.0.0.0:* users:(("node",pid=9,fd=20))',
+    ].join("\n");
+    expect(parseSsListeners(both)[0].loopbackHost).toBeUndefined();
+  });
+
+  it("skips the header line of an ss run without -H", () => {
+    const out =
+      "State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process\n" +
+      'LISTEN 0 511 0.0.0.0:3000 0.0.0.0:* users:(("node",pid=9,fd=19))\n';
+    expect(parseSsListeners(out).map((p) => p.port)).toEqual([3000]);
+  });
+
   it("skips sockets whose process ss could not see (no users field)", () => {
     const ports = parseSsListeners(SS_FIXTURE);
     expect(ports.some((p) => p.port === 53)).toBe(false);
@@ -214,9 +241,9 @@ describe("parseSsListeners", () => {
   });
 });
 
-describe("parsePsUids", () => {
+describe("parseStatUids", () => {
   it("maps pid to uid, ignoring noise", () => {
-    expect(parsePsUids("  1234  1000\n 2000     0\ngarbage\n")).toEqual(
+    expect(parseStatUids("/proc/1234 1000\n/proc/2000 0\ngarbage\n")).toEqual(
       new Map([
         [1234, 1000],
         [2000, 0],
@@ -276,17 +303,9 @@ describe("LocalPortsBackend scanner selection", () => {
     ]);
   });
 
-  it("scans Linux with ss, keeps only our uid's pids, and reads cwds from /proc", async () => {
+  it("scans Linux with ss (no -H), trusts its users field as non-root, and reads cwds from /proc", async () => {
     const { exec, calls } = fakeExec((cmd, args) => {
       if (cmd === "ss") return SS_FIXTURE;
-      if (cmd === "ps") {
-        // 3000 belongs to another user (we are root-visible to it); 4000 has
-        // exited since the scan, so ps complains yet prints the rest.
-        return execError({
-          code: 1,
-          stdout: " 1234 1000\n 2000 1000\n 2001 1000\n 3000 1001\n    1    0\n",
-        });
-      }
       if (cmd === "readlink") {
         const pid = args[0].split("/")[2];
         if (pid === "1234") return "/home/me/proj/web\n";
@@ -302,18 +321,47 @@ describe("LocalPortsBackend scanner selection", () => {
       [3000, 1234, WS],
       [5173, 2000, WS],
     ]);
-    expect(calls[0]).toEqual({ cmd: "ss", args: ["-ltnpH"] });
-    expect(calls[1]).toEqual({ cmd: "ps", args: ["-o", "pid=,uid=", "-p", "1234,2000,3000,4000,1"] });
-    // Only pids that passed the uid filter have their cwd read.
-    expect(
-      calls.filter((c) => c.cmd === "readlink").map((c) => c.args[0]).sort(),
-    ).toEqual(["/proc/1234/cwd", "/proc/2000/cwd"]);
+    expect(calls[0]).toEqual({ cmd: "ss", args: ["-ltnp"] });
+    // Non-root ss only names our own processes: no uid lookup at all.
+    expect(calls.some((c) => c.cmd === "stat" || c.cmd === "ps")).toBe(false);
+  });
+
+  it("as root, keeps only root's pids by /proc owner, before collapsing to one per port", async () => {
+    const ss = [
+      // Another user's listener on 3000 is listed first; ours must still win.
+      'LISTEN 0 511 0.0.0.0:3000 0.0.0.0:* users:(("node",pid=3000,fd=3))',
+      'LISTEN 0 511    [::]:3000    [::]:* users:(("node",pid=1234,fd=20))',
+      'LISTEN 0 511 127.0.0.1:5173 0.0.0.0:* users:(("vite",pid=2000,fd=24))',
+      'LISTEN 0 511 127.0.0.1:8000 0.0.0.0:* users:(("py",pid=4000,fd=3))',
+    ].join("\n");
+    const { exec, calls } = fakeExec((cmd) => {
+      if (cmd === "ss") return ss;
+      if (cmd === "stat") {
+        // 4000 has exited since the scan: stat complains yet prints the rest.
+        return execError({
+          code: 1,
+          stdout: "/proc/3000 1001\n/proc/1234 0\n/proc/2000 0\n",
+        });
+      }
+      if (cmd === "readlink") return "/root/proj\n";
+      throw new Error(`unexpected ${cmd}`);
+    });
+    const backend = new LocalPortsBackend(exec, fakeHost("linux", 0, "/root"));
+    const ports = await backend.scan(["/root/proj"]);
+
+    expect(ports.map((p) => [p.port, p.pid])).toEqual([
+      [3000, 1234],
+      [5173, 2000],
+    ]);
+    expect(calls[1]).toEqual({
+      cmd: "stat",
+      args: ["-c", "%n %u", "/proc/3000", "/proc/1234", "/proc/2000", "/proc/4000"],
+    });
   });
 
   it("never attributes a port to the home directory", async () => {
     const { exec } = fakeExec((cmd) => {
       if (cmd === "ss") return 'LISTEN 0 511 0.0.0.0:3000 0.0.0.0:* users:(("node",pid=5,fd=1))';
-      if (cmd === "ps") return "5 1000\n";
       return "/home/me\n";
     });
     const backend = new LocalPortsBackend(exec, fakeHost("linux", 1000, "/home/me"));
@@ -344,6 +392,33 @@ describe("LocalPortsBackend scanner selection", () => {
     await backend.scan([WS]);
     expect(calls.filter((c) => c.cmd === "ss")).toHaveLength(1);
     expect(calls.filter((c) => c.cmd === "lsof")).toHaveLength(2);
+  });
+
+  it("falls back to lsof when ss is too old for its options", async () => {
+    const { exec, calls } = fakeExec((cmd) => {
+      if (cmd === "ss") return execError({ code: 255, stderr: "ss: invalid option -- 'H'" });
+      return "";
+    });
+    const backend = new LocalPortsBackend(exec, fakeHost("linux"));
+    await backend.scan([WS]);
+    await backend.scan([WS]);
+    expect(calls.filter((c) => c.cmd === "ss")).toHaveLength(1);
+    expect(calls.filter((c) => c.cmd === "lsof")).toHaveLength(2);
+  });
+
+  it("warns once per host when neither ss nor lsof is installed", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { exec } = fakeExec(() => execError({ code: "ENOENT" }));
+      const backend = new LocalPortsBackend(exec, fakeHost("linux"), "me@box");
+      expect(await backend.scan([WS])).toEqual([]);
+      expect(await backend.scan([WS])).toEqual([]);
+      expect(await backend.scan([WS])).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toContain("me@box");
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("keeps using ss after an ordinary ss failure", async () => {

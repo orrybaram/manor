@@ -345,6 +345,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     scanNow: () => ipcRenderer.invoke("ports:scanNow"),
     resolveUrl: (url: string, hostId: string) =>
       ipcRenderer.invoke("ports:resolveUrl", url, hostId),
+    remoteUrl: (url: string, hostId: string) =>
+      ipcRenderer.invoke("ports:remoteUrl", url, hostId),
     publicUrl: (hostId: string, port: number) =>
       ipcRenderer.invoke("ports:publicUrl", hostId, port),
     onChange: (callback: (ports: unknown[]) => void) =>
@@ -679,8 +681,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.send("app-command-result", result),
 
   webview: {
-    register: (paneId: string, webContentsId: number) =>
-      ipcRenderer.invoke("webview:register", paneId, webContentsId),
+    register: (paneId: string, webContentsId: number, remoteHostId?: string | null) =>
+      ipcRenderer.invoke("webview:register", paneId, webContentsId, remoteHostId ?? null),
     unregister: (paneId: string) =>
       ipcRenderer.invoke("webview:unregister", paneId),
     startPicker: (paneId: string) =>

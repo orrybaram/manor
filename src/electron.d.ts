@@ -217,6 +217,8 @@ export interface ActivePort {
   hostId?: string;
   /** "Copy public URL" is available (the host's provider has `previewUrl`). */
   canCopyPublicUrl?: boolean;
+  /** `"::1"` when listened on only at the IPv6 loopback. */
+  loopbackHost?: "::1";
 }
 
 export interface ManorProcessInfo {
@@ -589,6 +591,12 @@ export interface ElectronAPI {
      * (ADR-178 §5); anything else comes back unchanged.
      */
     resolveUrl: (url: string, hostId: string) => Promise<string>;
+    /**
+     * The inverse, for remembering and showing: a URL on one of `hostId`'s
+     * forwards becomes `localhost:<remote port>`; anything else comes back
+     * unchanged.
+     */
+    remoteUrl: (url: string, hostId: string) => Promise<string>;
     /** A public URL for a remote port, or null when its provider has none. */
     publicUrl: (hostId: string, port: number) => Promise<string | null>;
     onChange: (callback: (ports: ActivePort[]) => void) => () => void;
@@ -916,7 +924,15 @@ export interface ElectronAPI {
   }) => void;
 
   webview: {
-    register: (paneId: string, webContentsId: number) => Promise<void>;
+    /**
+     * `remoteHostId`: the remote host the pane's workspace lives on, so an
+     * agent's `navigate` to its `localhost:<port>` is forwarded (ADR-178 §5).
+     */
+    register: (
+      paneId: string,
+      webContentsId: number,
+      remoteHostId?: string | null,
+    ) => Promise<void>;
     unregister: (paneId: string) => Promise<void>;
     startPicker: (paneId: string) => Promise<void>;
     cancelPicker: (paneId: string) => Promise<void>;

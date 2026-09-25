@@ -324,10 +324,21 @@ export function register(deps: IpcDeps): void {
 
   ipcMain.handle(
     "webview:register",
-    (_event, paneId: string, webContentsId: number) => {
+    (
+      _event,
+      paneId: string,
+      webContentsId: number,
+      remoteHostId?: string | null,
+    ) => {
       assertString(paneId, "paneId");
       webviewRegistry.set(paneId, webContentsId);
       deps.webviewServer.attachConsoleListener(paneId);
+      // A remote workspace's pane: agent `navigate`s to the box's
+      // `localhost:<port>` go through its port forward (ADR-178 §5).
+      deps.webviewServer.setPaneHost(
+        paneId,
+        typeof remoteHostId === "string" && remoteHostId ? remoteHostId : null,
+      );
 
       const rendererWebContents = _event.sender;
       paneRenderers.set(paneId, rendererWebContents.id);
@@ -565,6 +576,7 @@ export function register(deps: IpcDeps): void {
     webviewPopupCleanup.get(paneId)?.();
     webviewPopupCleanup.delete(paneId);
     deps.webviewServer.detachConsoleListener(paneId);
+    deps.webviewServer.setPaneHost(paneId, null);
     webviewRegistry.delete(paneId);
     // The pane is going away, so nothing will ever produce another chunk for
     // it: flush what is queued and finalize, rather than orphan the file. No

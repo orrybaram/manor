@@ -298,6 +298,11 @@ test.describe("remote host", () => {
     // The box's daemon restarts (a reboot, or `manor-host restart`): every
     // PTY on it is gone, the session with it.
     onRemote('"$HOME/.manor/bin/manor-host" restart');
+    // The notice shows when recovery starts and auto-dismisses; watch for it
+    // now rather than after the resume lands (slower on Linux).
+    const notice = expect(
+      window.getByText(/Remote host restarted — 1 session resumed/),
+    ).toBeVisible({ timeout: 2 * STEP });
 
     // The pane is recovered on a fresh shell, and Manor types the resume
     // command the connector builds for the agent's session.
@@ -312,9 +317,7 @@ test.describe("remote host", () => {
       2 * STEP,
       500,
     );
-    await expect(window.getByText(/Remote host restarted — 1 session resumed/)).toBeVisible({
-      timeout: STEP,
-    });
+    await notice;
     await expect
       .poll(() => readSession(request, tempHome, paneId), { timeout: STEP })
       .toContain(`manor-e2e-agent resumed ${agentSession}`);

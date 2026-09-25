@@ -40,6 +40,9 @@ export function useRemoteRecovery() {
               id: `host-restarted-${hostId}`,
               message,
               status: "success",
+              // Lands as the user comes back to the laptop — give them time
+              // to see it.
+              duration: 10_000,
             }),
         });
       },

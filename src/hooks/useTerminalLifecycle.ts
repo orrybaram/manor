@@ -276,6 +276,9 @@ export function useTerminalLifecycle(
     // remote host is away — the write would be dropped (see
     // `useTerminalConnection`); the command stays unsent instead.
     const sendOnShellReady = (cmd: string, onSent?: () => void) => {
+      // Declared before `send` can run: onShellReady calls it synchronously
+      // when the CWD event already arrived.
+      let fallback: ReturnType<typeof setTimeout> | undefined;
       let sent = false;
       const send = () => {
         if (sent || disposed) return;
@@ -290,7 +293,7 @@ export function useTerminalLifecycle(
         onSent?.();
       };
       onShellReady(send);
-      const fallback = setTimeout(send, 3000);
+      if (!sent) fallback = setTimeout(send, 3000);
     };
 
     // Same as `sendOnShellReady`, but types `text` into the shell without
@@ -298,6 +301,9 @@ export function useTerminalLifecycle(
     // a health-check fix-it command before running it, so it must sit in the
     // buffer rather than execute).
     const typeOnShellReady = (text: string) => {
+      // Declared before `send` can run: onShellReady calls it synchronously
+      // when the CWD event already arrived.
+      let fallback: ReturnType<typeof setTimeout> | undefined;
       let sent = false;
       const send = () => {
         if (sent || disposed) return;
@@ -306,7 +312,7 @@ export function useTerminalLifecycle(
         write(text);
       };
       onShellReady(send);
-      const fallback = setTimeout(send, 3000);
+      if (!sent) fallback = setTimeout(send, 3000);
     };
 
     // Derive agentKind from the project's agent command so MANOR_AGENT_KIND

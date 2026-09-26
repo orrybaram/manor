@@ -3,7 +3,11 @@
  */
 
 import { useCallback, useRef } from "react";
-import { awaitPaneHost, usePaneHostStore } from "../store/pane-host-store";
+import {
+  paneRemoteHost,
+  remoteHostByPane,
+  useRemotePaneStore,
+} from "../store/remote-pane-store";
 import { useProjectStore } from "../store/project-store";
 import { remoteHostIdForWorkspace } from "../lib/hosts";
 import { useHostStore } from "../store/host-store";
@@ -23,8 +27,7 @@ export function useTerminalConnection(paneId: string) {
     // dropped, not queued for a shell that may be gone by the time it lands.
     if (
       isPaneInputBlocked(
-        paneId,
-        usePaneHostStore.getState().remoteHostByPane,
+        paneRemoteHost(useRemotePaneStore.getState(), paneId),
         useHostStore.getState().hosts,
       )
     ) {
@@ -45,7 +48,7 @@ export function useTerminalConnection(paneId: string) {
     const app = useAppStore.getState();
     if (
       shouldRequeuePaneCommand(paneId, {
-        remoteHostByPane: usePaneHostStore.getState().remoteHostByPane,
+        remoteHostByPane: remoteHostByPane(useRemotePaneStore.getState()),
         windowPaneIds: windowPaneIds(app.workspaceLayouts),
         closedPaneIds: app.closedPaneIds,
         pendingPaneCommands: app.pendingPaneCommands,
@@ -65,21 +68,22 @@ export function useTerminalConnection(paneId: string) {
       // A pane of a remote project whose host is not known yet is assumed to
       // run there until create says otherwise, so a slow connect (the app
       // launched while the host is down) shows the host's banner meanwhile.
-      if (cwd && !(paneId in usePaneHostStore.getState().remoteHostByPane)) {
+      const panes = useRemotePaneStore.getState();
+      if (cwd && !paneRemoteHost(panes, paneId)) {
         const projectHost = remoteHostIdForWorkspace(
           useProjectStore.getState().projects,
           cwd,
         );
-        if (projectHost) usePaneHostStore.getState().setPaneHost(paneId, projectHost);
+        if (projectHost) panes.setPaneHost(paneId, projectHost);
       }
       return window.electronAPI.pty
         .create(paneId, cwd, cols, rows, agentKind)
         .then((result: PtyCreateResult) => {
           // Badge the tab from where the session really runs (ADR-160).
-          if (result.ok) usePaneHostStore.getState().setPaneHost(paneId, result.hostId);
+          if (result.ok) useRemotePaneStore.getState().setPaneHost(paneId, result.hostId);
           // Its remote host is away (ADR-178 §6): wait for it, not an error.
           else if (result.reason === "host-unavailable") {
-            awaitPaneHost(paneId, result.hostId);
+            useRemotePaneStore.getState().awaitHost(paneId, result.hostId);
           }
           return result;
         });
@@ -90,7 +94,7 @@ export function useTerminalConnection(paneId: string) {
   /** Kill the PTY session in the daemon (user explicitly closed pane) */
   const close = useCallback(() => {
     window.electronAPI.pty.close(paneIdRef.current);
-    usePaneHostStore.getState().forgetPane(paneIdRef.current);
+    useRemotePaneStore.getState().forgetPane(paneIdRef.current);
   }, []);
 
   /** Detach from the PTY session without killing it (effect cleanup / app quit) */

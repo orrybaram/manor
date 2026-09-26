@@ -23,8 +23,7 @@ import { isHomePath } from "../lib/home";
 import { isNavRegionFocused } from "../lib/focus-regions";
 import { resolveHomeAdapter } from "../lib/harness";
 import { useTerminalConnection } from "./useTerminalConnection";
-import { usePaneHostStore } from "../store/pane-host-store";
-import { consumeReattach } from "../store/pane-reattach-store";
+import { useRemotePaneStore } from "../store/remote-pane-store";
 import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
 import { useTerminalResize } from "./useTerminalResize";
@@ -46,7 +45,7 @@ function schedulePtyKill(paneId: string) {
   const timer = setTimeout(() => {
     pendingKillTimers.delete(paneId);
     window.electronAPI.pty.close(paneId);
-    usePaneHostStore.getState().forgetPane(paneId);
+    useRemotePaneStore.getState().forgetPane(paneId);
   }, CLOSE_GRACE_MS);
   pendingKillTimers.set(paneId, timer);
 }
@@ -156,7 +155,7 @@ export function useTerminalLifecycle(
 
     // Remounted because its remote host came back (ADR-178 §6), not opened
     // by the user: it must not take focus from wherever the user is now.
-    const reattached = consumeReattach(paneId);
+    const reattached = useRemotePaneStore.getState().consumeReattach(paneId);
 
     const t = new Terminal(
       terminalOptions({
@@ -499,7 +498,7 @@ export function useTerminalLifecycle(
         setPtyError(result.error ?? "Failed to create terminal session");
       } else {
         // A reset spawns on the project's current host, which may differ.
-        usePaneHostStore.getState().setPaneHost(paneId, result.hostId);
+        useRemotePaneStore.getState().setPaneHost(paneId, result.hostId);
       }
     } finally {
       // Keep suppressing exit events briefly — the old session's exit

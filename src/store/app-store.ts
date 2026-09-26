@@ -38,7 +38,7 @@ import type { Location } from "./navigation-history-store";
 import type { DetachedTabPayload } from "./detach-types";
 import { isHomePath } from "../lib/home-path";
 import { useProjectStore } from "./project-store";
-import { usePaneHostStore } from "./pane-host-store";
+import { useRemotePaneStore } from "./remote-pane-store";
 
 /**
  * Text queued for a pane's shell (ADR-183). `submit` sends it with Enter;
@@ -3011,7 +3011,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       // The pane is the destination window's now: this one must not badge
       // it, or plan to recover it when its remote host comes back.
-      usePaneHostStore.getState().forgetPane(pid);
+      useRemotePaneStore.getState().forgetPane(pid);
     }
 
     set((s) => {
@@ -3189,7 +3189,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     // The pane is the destination window's now: this one must not badge it,
     // or plan to recover it when its remote host comes back.
-    usePaneHostStore.getState().forgetPane(paneId);
+    useRemotePaneStore.getState().forgetPane(paneId);
 
     set((s) => {
       const currentCtx = getActiveLayoutContext(s);

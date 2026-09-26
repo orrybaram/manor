@@ -1,4 +1,4 @@
-import { usePaneHostStore } from "../../../store/pane-host-store";
+import { paneRemoteHost, useRemotePaneStore } from "../../../store/remote-pane-store";
 import { HostIndicator } from "../../hosts/HostIndicator";
 import styles from "./HostOfflineBanner.module.css";
 
@@ -14,6 +14,6 @@ type HostOfflineBannerProps = {
  */
 export function HostOfflineBanner(props: HostOfflineBannerProps) {
   const { paneId } = props;
-  const hostId = usePaneHostStore((s) => s.remoteHostByPane[paneId]);
+  const hostId = useRemotePaneStore((s) => paneRemoteHost(s, paneId));
   return <HostIndicator hostId={hostId} variant="banner" className={styles.overlay} />;
 }

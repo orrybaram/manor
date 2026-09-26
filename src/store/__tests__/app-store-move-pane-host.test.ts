@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { useAppStore } from "../app-store";
 import type { WorkspaceLayout, Tab, Panel } from "../app-store";
-import { usePaneHostStore } from "../pane-host-store";
+import { remoteHostByPane, useRemotePaneStore } from "../remote-pane-store";
 
 const WS_PATH = "/test/workspace";
 
@@ -38,7 +38,9 @@ function setup(l: WorkspaceLayout) {
       "pane-2": { text: "keep", submit: false },
     },
   });
-  usePaneHostStore.setState({ remoteHostByPane: { "pane-1": "box", "pane-2": "box" } });
+  useRemotePaneStore.setState({ panes: {} });
+  useRemotePaneStore.getState().setPaneHost("pane-1", "box");
+  useRemotePaneStore.getState().setPaneHost("pane-2", "box");
 }
 
 describe("moving a pane out of a window", () => {
@@ -60,7 +62,7 @@ describe("moving a pane out of a window", () => {
   it("removeDetachedPaneLocally forgets the pane's host and queued input, even from a split", () => {
     setup(twoPanes);
     useAppStore.getState().removeDetachedPaneLocally("pane-1");
-    expect(usePaneHostStore.getState().remoteHostByPane).toEqual({ "pane-2": "box" });
+    expect(remoteHostByPane(useRemotePaneStore.getState())).toEqual({ "pane-2": "box" });
     expect(useAppStore.getState().pendingPaneCommands).toEqual({
       "pane-2": { text: "keep", submit: false },
     });
@@ -69,7 +71,7 @@ describe("moving a pane out of a window", () => {
   it("removeDetachedPaneLocally does the same for a tab's sole pane", () => {
     setup(layout({ type: "leaf", paneId: "pane-1" }));
     useAppStore.getState().removeDetachedPaneLocally("pane-1");
-    expect(usePaneHostStore.getState().remoteHostByPane).toEqual({ "pane-2": "box" });
+    expect(remoteHostByPane(useRemotePaneStore.getState())).toEqual({ "pane-2": "box" });
     expect(useAppStore.getState().pendingPaneCommands).toEqual({
       "pane-2": { text: "keep", submit: false },
     });
@@ -78,7 +80,7 @@ describe("moving a pane out of a window", () => {
   it("removeDetachedTabLocally forgets every pane of the tab", () => {
     setup(twoPanes);
     useAppStore.getState().removeDetachedTabLocally("tab-1");
-    expect(usePaneHostStore.getState().remoteHostByPane).toEqual({});
+    expect(remoteHostByPane(useRemotePaneStore.getState())).toEqual({});
     expect(useAppStore.getState().pendingPaneCommands).toEqual({});
   });
 });

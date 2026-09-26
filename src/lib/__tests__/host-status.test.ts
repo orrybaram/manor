@@ -130,12 +130,12 @@ describe("isPaneInputBlocked", () => {
   const hosts = [host({ status: "reconnecting" }), host({ hostId: "up", status: "connected" })];
 
   it("drops input for a pane whose remote host is away", () => {
-    expect(isPaneInputBlocked("p1", { p1: "box" }, hosts)).toBe(true);
+    expect(isPaneInputBlocked("box", hosts)).toBe(true);
   });
 
   it("lets input through for local panes, connected hosts and unreported hosts", () => {
-    expect(isPaneInputBlocked("p1", {}, hosts)).toBe(false);
-    expect(isPaneInputBlocked("p1", { p1: "up" }, hosts)).toBe(false);
-    expect(isPaneInputBlocked("p1", { p1: "unknown" }, hosts)).toBe(false);
+    expect(isPaneInputBlocked(undefined, hosts)).toBe(false);
+    expect(isPaneInputBlocked("up", hosts)).toBe(false);
+    expect(isPaneInputBlocked("unknown", hosts)).toBe(false);
   });
 });

@@ -139,18 +139,16 @@ export function secondsUntilRetry(
 }
 
 /**
- * Whether typing into `paneId` must be dropped: its session runs on a remote
- * host that is not connected (ADR-178 §6). Input is dropped, not queued —
- * keystrokes replayed into a shell minutes later, into whatever is then in
- * the foreground, would do more harm than losing them. A local pane, or one
- * on a host main has not reported yet, is never blocked.
+ * Whether typing into a pane on remote host `hostId` (undefined for a local
+ * pane) must be dropped: that host is not connected (ADR-178 §6). Input is
+ * dropped, not queued — keystrokes replayed into a shell minutes later, into
+ * whatever is then in the foreground, would do more harm than losing them.
+ * A local pane, or one on a host main has not reported yet, is never blocked.
  */
 export function isPaneInputBlocked(
-  paneId: string,
-  remoteHostByPane: Readonly<Record<string, string>>,
+  hostId: string | undefined,
   hosts: readonly HostStatusInfo[],
 ): boolean {
-  const hostId = remoteHostByPane[paneId];
   if (!hostId) return false;
   const host = hosts.find((h) => h.hostId === hostId);
   return host !== undefined && host.status !== "connected";

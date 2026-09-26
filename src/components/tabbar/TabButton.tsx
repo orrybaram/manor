@@ -10,9 +10,9 @@ import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { useShallow } from "zustand/react/shallow";
 import { useAppStore } from "../../store/app-store";
 import {
-  usePaneHostStore,
+  useRemotePaneStore,
   selectTabRemoteHostId,
-} from "../../store/pane-host-store";
+} from "../../store/remote-pane-store";
 import type { PaneNode } from "../../store/pane-tree";
 import { countTabsInWindow, trackHandoff } from "../../lib/window-handoff";
 import { useKeybinding } from "../../store/keybindings-store";
@@ -190,7 +190,7 @@ export function TabButton(props: TabButtonProps) {
     return Object.keys(layout.panels).length;
   });
   const [faviconError, setFaviconError] = useState(false);
-  const tabHostId = usePaneHostStore(selectTabRemoteHostId(rootNode));
+  const tabHostId = useRemotePaneStore(selectTabRemoteHostId(rootNode));
   const foreignHostId =
     tabHostId && tabHostId !== projectHostId ? tabHostId : null;
   const isBrowser = contentType === "browser";

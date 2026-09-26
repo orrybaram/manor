@@ -2,22 +2,19 @@ import { useCallback, useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import X from "lucide-react/dist/esm/icons/x";
 import { useProjectStore } from "../../../store/project-store";
-import { useAppStore } from "../../../store/app-store";
 import { useHostStore } from "../../../store/host-store";
 import { addErrorToast } from "../../../store/toast-store";
-import { LOCAL_HOST_ID, type HealthCheckResult } from "../../../lib/hosts";
-import { ipcErrorMessage } from "../../../lib/ipc-error";
+import { remoteHostOptions } from "../../../lib/hosts";
 import { Button } from "../../ui/Button/Button";
 import { Input } from "../../ui/Input";
 import { SearchableSelect } from "../../ui/SearchableSelect";
 import { ToggleGroup } from "../../ui/ToggleGroup";
 import { Row, Stack } from "../../ui/Layout/Layout";
-import { CloneProgressLog } from "../../hosts/CloneProgressLog";
-import { HealthCheckList } from "../../hosts/HealthCheckList";
-import styles from "./AddProjectDialog.module.css";
+import { useHostCloneFlow } from "../../hosts/useHostCloneFlow";
+import { HostCloneSteps, RepoUrlAndRemoteDirFields } from "../../hosts/HostCloneSteps";
+import styles from "../../hosts/HostCloneSteps.module.css";
 
 type Mode = "local" | "remote";
-type RemoteStep = "form" | "cloning" | "health";
 
 type AddProjectDialogProps = {
   open: boolean;
@@ -38,7 +35,9 @@ function nameFromRepoUrl(repoUrl: string): string {
 /**
  * "Add Project" now offers a choice: a local directory (the pre-ADR-178
  * flow) or a repo cloned onto a remote host, with clone progress and a
- * post-clone health check (ADR-178 ticket 5).
+ * post-clone health check (ADR-178 ticket 5). The remote flow's form →
+ * cloning → health state machine is shared with `CloneToHostDialog` via
+ * `useHostCloneFlow` (ADR-183 ticket 10).
  */
 export function AddProjectDialog(props: AddProjectDialogProps) {
   const { open, onClose, onAddLocal, onRemoteProjectAdded } = props;
@@ -49,26 +48,24 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
   const hosts = useHostStore((s) => s.hosts);
   const addRemoteProject = useProjectStore((s) => s.addRemoteProject);
 
-  const remoteHostOptions = useMemo(
-    () =>
-      hosts
-        .filter((h) => h.hostId !== LOCAL_HOST_ID)
-        .map((h) => ({ value: h.hostId, label: h.spec?.target ?? h.hostId })),
-    [hosts],
-  );
+  const options = useMemo(() => remoteHostOptions(hosts), [hosts]);
 
   const [hostId, setHostId] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
   const [remoteDir, setRemoteDir] = useState("");
   const [name, setName] = useState("");
   const [nameEdited, setNameEdited] = useState(false);
-  const [remoteStep, setRemoteStep] = useState<RemoteStep>("form");
-  const [progressLines, setProgressLines] = useState<string[]>([]);
-  const [remoteError, setRemoteError] = useState<string | null>(null);
-  const [projectId, setProjectId] = useState<string | null>(null);
-  const [projectPath, setProjectPath] = useState<string | null>(null);
-  const [checks, setChecks] = useState<HealthCheckResult[] | null>(null);
-  const [checksRunning, setChecksRunning] = useState(false);
+
+  const flow = useHostCloneFlow({
+    hostId,
+    run: () =>
+      addRemoteProject({
+        hostId,
+        repoUrl: repoUrl.trim(),
+        remoteDir: remoteDir.trim(),
+        name: name.trim() || nameFromRepoUrl(repoUrl),
+      }),
+  });
 
   const reset = useCallback(() => {
     setMode("local");
@@ -77,23 +74,17 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
     setRemoteDir("");
     setName("");
     setNameEdited(false);
-    setRemoteStep("form");
-    setProgressLines([]);
-    setRemoteError(null);
-    setProjectId(null);
-    setProjectPath(null);
-    setChecks(null);
-    setChecksRunning(false);
-  }, []);
+    flow.reset();
+  }, [flow]);
 
   const handleOpenChange = useCallback(
     (isOpen: boolean) => {
-      if (!isOpen && remoteStep !== "cloning") {
+      if (!isOpen && flow.step !== "cloning") {
         onClose();
         reset();
       }
     },
-    [onClose, reset, remoteStep],
+    [onClose, reset, flow.step],
   );
 
   const handleAddLocal = useCallback(async () => {
@@ -114,78 +105,22 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
     }
   }, [onAddLocal, onClose, reset]);
 
-  const runHealthChecks = useCallback(async (host: string, path: string) => {
-    setChecksRunning(true);
-    try {
-      const results = await window.electronAPI.hosts.healthCheck(host, path);
-      setChecks(results);
-    } catch (err) {
-      setRemoteError(ipcErrorMessage(err));
-    } finally {
-      setChecksRunning(false);
-    }
-  }, []);
-
   const handleClone = useCallback(async () => {
     if (!hostId || !repoUrl.trim() || !remoteDir.trim()) return;
-    const projectName = name.trim() || nameFromRepoUrl(repoUrl);
-    setRemoteError(null);
-    setProgressLines([]);
-    setRemoteStep("cloning");
-
-    const unsub = window.electronAPI.projects.onCloneProgress((event) => {
-      if (event.status === "error") {
-        setRemoteError(event.message ?? "Clone failed");
-        return;
-      }
-      if (event.message) setProgressLines((lines) => [...lines, event.message!]);
-    });
-
-    try {
-      const project = await addRemoteProject({
-        hostId,
-        repoUrl: repoUrl.trim(),
-        remoteDir: remoteDir.trim(),
-        name: projectName,
-      });
-      unsub();
-      setProjectId(project.id);
-      setProjectPath(project.path);
-      setRemoteStep("health");
-      onRemoteProjectAdded?.();
-      void runHealthChecks(hostId, project.path);
-    } catch (err) {
-      unsub();
-      setRemoteError(ipcErrorMessage(err));
-      setRemoteStep("form");
-    }
-  }, [
-    hostId,
-    repoUrl,
-    remoteDir,
-    name,
-    addRemoteProject,
-    runHealthChecks,
-    onRemoteProjectAdded,
-  ]);
+    const project = await flow.start();
+    if (project) onRemoteProjectAdded?.();
+  }, [hostId, repoUrl, remoteDir, flow, onRemoteProjectAdded]);
 
   const handleFixInTerminal = useCallback(
-    (check: HealthCheckResult) => {
-      if (!check.fixCommand || !projectId || !projectPath) return;
-      const project = useProjectStore
-        .getState()
-        .projects.find((p) => p.id === projectId);
-      const ws = project?.workspaces.find((w) => w.isMain) ?? project?.workspaces[0];
-      if (!ws) return;
-      useAppStore.getState().setActiveWorkspace(ws.path);
-      useAppStore.getState().addTerminalTabWithTypedText(check.fixCommand);
+    (check: Parameters<typeof flow.fix>[0]) => {
+      flow.fix(check);
       // The terminal tab renders behind this dialog otherwise (ADR-178
       // ticket 5 review) — close it so the user lands where the command was
       // typed.
       onClose();
       reset();
     },
-    [projectId, projectPath, onClose, reset],
+    [flow, onClose, reset],
   );
 
   const handleDone = useCallback(() => {
@@ -207,7 +142,7 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
             </Dialog.Close>
           </Row>
           <Stack className={styles.body}>
-            {remoteStep === "form" && (
+            {flow.step === "form" && (
               <>
                 <ToggleGroup
                   value={mode}
@@ -243,36 +178,21 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
                         id="add-project-host"
                         value={hostId}
                         onChange={setHostId}
-                        options={remoteHostOptions}
+                        options={options}
                         emptyMessage="Add a host in Project Settings → Host first"
                         placeholder="Select a host…"
                       />
                     </Stack>
-                    <Stack>
-                      <label className={styles.fieldLabel} htmlFor="add-project-repo-url">
-                        Repo URL
-                      </label>
-                      <Input
-                        id="add-project-repo-url"
-                        value={repoUrl}
-                        onChange={(e) => {
-                          setRepoUrl(e.target.value);
-                          if (!nameEdited) setName(nameFromRepoUrl(e.target.value));
-                        }}
-                        placeholder="git@github.com:org/repo.git"
-                      />
-                    </Stack>
-                    <Stack>
-                      <label className={styles.fieldLabel} htmlFor="add-project-remote-dir">
-                        Remote directory
-                      </label>
-                      <Input
-                        id="add-project-remote-dir"
-                        value={remoteDir}
-                        onChange={(e) => setRemoteDir(e.target.value)}
-                        placeholder="~/code/repo"
-                      />
-                    </Stack>
+                    <RepoUrlAndRemoteDirFields
+                      idPrefix="add-project"
+                      repoUrl={repoUrl}
+                      onRepoUrlChange={(value) => {
+                        setRepoUrl(value);
+                        if (!nameEdited) setName(nameFromRepoUrl(value));
+                      }}
+                      remoteDir={remoteDir}
+                      onRemoteDirChange={setRemoteDir}
+                    />
                     <Stack>
                       <label className={styles.fieldLabel} htmlFor="add-project-name">
                         Name
@@ -290,7 +210,7 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
                     <div className={styles.fieldHint}>
                       Log in on the box — Manor doesn't copy your keys.
                     </div>
-                    {remoteError && <div className={styles.error}>{remoteError}</div>}
+                    {flow.error && <div className={styles.error}>{flow.error}</div>}
                     <Row gap="sm" justify="flex-end">
                       <Button variant="secondary" onClick={onClose}>
                         Cancel
@@ -308,22 +228,16 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
               </>
             )}
 
-            {remoteStep === "cloning" && <CloneProgressLog lines={progressLines} />}
-
-            {remoteStep === "health" && (
-              <Stack gap="sm">
-                <HealthCheckList
-                  checks={checks}
-                  running={checksRunning}
-                  onRerun={() => hostId && projectPath && runHealthChecks(hostId, projectPath)}
-                  onFix={handleFixInTerminal}
-                />
-                <Row justify="flex-end">
-                  <Button variant="primary" onClick={handleDone}>
-                    Done
-                  </Button>
-                </Row>
-              </Stack>
+            {(flow.step === "cloning" || flow.step === "health") && (
+              <HostCloneSteps
+                step={flow.step}
+                progressLines={flow.progressLines}
+                checks={flow.checks}
+                checksRunning={flow.checksRunning}
+                onRerun={flow.rerun}
+                onFix={handleFixInTerminal}
+                onDone={handleDone}
+              />
             )}
           </Stack>
         </Dialog.Content>

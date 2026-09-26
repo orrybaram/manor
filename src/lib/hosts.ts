@@ -21,6 +21,23 @@ export interface HealthCheckResult {
   fixCommand: string | null;
 }
 
+/** Whether `hostId` refers to a remote host — anything but `LOCAL_HOST_ID`. */
+export function isRemoteHost(hostId: string | null | undefined): boolean {
+  return !!hostId && hostId !== LOCAL_HOST_ID;
+}
+
+/**
+ * `{ value, label }` options for every remote host, for the searchable
+ * selects in `AddProjectDialog` and `ProjectHostSection` (ADR-183 ticket 10).
+ */
+export function remoteHostOptions(
+  hosts: readonly { hostId: string; spec?: { target?: string } | null }[],
+): { value: string; label: string }[] {
+  return hosts
+    .filter((h) => isRemoteHost(h.hostId))
+    .map((h) => ({ value: h.hostId, label: h.spec?.target ?? h.hostId }));
+}
+
 /**
  * The remote host `workspacePath` lives on — the `hostId` of the project
  * that has it as its root or one of its workspaces — or null when it is on

@@ -1,3 +1,9 @@
+/*
+ * Shared by `AddProjectDialog`'s remote flow and `CloneToHostDialog`
+ * (ADR-183 ticket 10) — the two dialogs were nearly identical copies of the
+ * same form/dialog chrome, merged here into one module.
+ */
+
 .overlay {
   position: fixed;
   inset: 0;
@@ -43,6 +49,11 @@
 
 .fieldHint {
   font-size: 11px;
+  color: var(--text-dim);
+}
+
+.fieldStatic {
+  font-size: 13px;
   color: var(--text-dim);
 }
 

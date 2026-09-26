@@ -72,3 +72,17 @@ export function isLocalhostHttpUrl(url: string): boolean {
     url,
   );
 }
+
+/**
+ * `url` — the box's own `localhost:<port>` URL — through its port forward
+ * on `hostId`, or `url` itself if main can't resolve one (ADR-178 §5).
+ * Shared by `PortBadge`'s `withResolvedUrl` and `useRemoteBrowserUrl`
+ * (ADR-183 ticket 10).
+ */
+export async function resolveUrlForHost(url: string, hostId: string): Promise<string> {
+  try {
+    return await window.electronAPI.ports.resolveUrl(url, hostId);
+  } catch {
+    return url;
+  }
+}

@@ -2,7 +2,7 @@ import { useCallback, useRef } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import { Link } from "../ui/Link/Link";
-import { isRemoteHost } from "../../lib/hosts";
+import { isRemoteHost, resolveUrlForHost } from "../../lib/hosts";
 import { useAppStore } from "../../store/app-store";
 import {
   isContextMenuKey,
@@ -33,7 +33,7 @@ export function PortBadge(props: PortBadgeProps) {
         open(url);
         return;
       }
-      window.electronAPI.ports.resolveUrl(url, hostId).then(open, () => open(url));
+      void resolveUrlForHost(url, hostId).then(open);
     },
     [url, hostId, isRemote],
   );

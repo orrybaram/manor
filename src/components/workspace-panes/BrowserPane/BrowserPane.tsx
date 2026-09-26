@@ -6,8 +6,7 @@ import { useBrowserHistoryStore, type HistoryEntry } from "../../../store/browse
 import { useDragOverlayStore, selectIsDragActive } from "../../../store/drag-overlay-store";
 import type { PickedElementResult } from "../../../electron.d";
 import { onUiRequest } from "../../../utils/ui-request";
-import { isLocalhostHttpUrl } from "../../../lib/hosts";
-import { useHostStore } from "../../../store/host-store";
+import { useRemoteBrowserUrl } from "../../../hooks/useRemoteBrowserUrl";
 import { HostIndicator } from "../../hosts/HostIndicator";
 
 import styles from "./BrowserPane.module.css";
@@ -21,11 +20,6 @@ interface WebviewElement extends HTMLElement {
   goForward(): void;
   reload(): void;
   getWebContentsId(): number;
-}
-
-interface WebviewNavigateEvent extends Event {
-  url: string;
-  isMainFrame: boolean;
 }
 
 interface WebviewTitleEvent extends Event {
@@ -131,54 +125,21 @@ function formatPickedElement(result: PickedElementResult): string {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const WEBVIEW_ALLOW_POPUPS: any = { allowpopups: "true" };
 
-/** Whether two URLs point at the same host and port. */
-function sameHost(a: string, b: string): boolean {
-  try {
-    return new URL(a).host === new URL(b).host;
-  } catch {
-    return a === b;
-  }
-}
-
 export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
   function BrowserPane(props: BrowserPaneProps, ref) {
     const { paneId, initialUrl, remoteHostId = null, onNavStateChange } = props;
-    const remoteHostIdRef = useRef(remoteHostId);
-    remoteHostIdRef.current = remoteHostId;
-
-    // ── Remote panes (ADR-178 §5) ──
-    //
-    // A pane of a remote workspace remembers and shows the box's own URL
-    // (`localhost:<remote port>`) but loads it through a port forward
-    // (`127.0.0.1:<local port>`), which only exists while the host is
-    // connected and whose local port may change. So a remote pane's webview
-    // `src` follows the URL actually loaded, never the remembered one, and
-    // a remembered loopback URL is not loaded until main has resolved it
-    // against the connected host — a "waiting for host" state until then,
-    // rather than a load of the same port on this machine.
-    const [deferInitialLoad] = useState(
-      () => remoteHostId !== null && isLocalhostHttpUrl(initialUrl),
-    );
-    const [loadedUrl, setLoadedUrl] = useState(deferInitialLoad ? "about:blank" : initialUrl);
-    const loadedUrlRef = useRef(loadedUrl);
-    loadedUrlRef.current = loadedUrl;
-    const [waitingForHost, setWaitingForHost] = useState(deferInitialLoad);
-    const waitingForHostRef = useRef(waitingForHost);
-    waitingForHostRef.current = waitingForHost;
-    /** Bumped per remote resolve; a stale answer is dropped. */
-    const resolveSeqRef = useRef(0);
-    /** Bumped per navigation; a stale remote-URL lookup is dropped. */
-    const navSeqRef = useRef(0);
-    const hostStatus = useHostStore((s) =>
-      remoteHostId ? (s.hosts.find((h) => h.hostId === remoteHostId)?.status ?? null) : null,
-    );
-    const hostLabel = useHostStore((s) =>
-      remoteHostId
-        ? (s.hosts.find((h) => h.hostId === remoteHostId)?.spec?.target ?? remoteHostId)
-        : null,
-    );
 
     const webviewRef = useRef<WebviewElement>(null);
+
+    // Remote panes (ADR-178 §5) load `localhost:<port>` URLs through a port
+    // forward rather than on this machine — everything about that lives in
+    // this hook (ADR-183 ticket 10).
+    const remoteBrowserUrl = useRemoteBrowserUrl({
+      paneId,
+      remoteHostId,
+      initialUrl,
+      webviewRef,
+    });
     const [url, setUrl] = useState(initialUrl === "about:blank" ? "" : initialUrl);
     const [isBlank, setIsBlank] = useState(initialUrl === "about:blank");
     const [isLoading, setIsLoading] = useState(false);
@@ -234,27 +195,6 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       }
     }, [fireNavStateChange]);
 
-    /**
-     * Load `remoteUrl` — the box's own `localhost:<port>` URL — through its
-     * port forward, once main has one; the pane waits for the host until
-     * then. The URL bar keeps showing `remoteUrl`.
-     */
-    const resolveRemote = useCallback((remoteUrl: string) => {
-      const hostId = remoteHostIdRef.current;
-      if (!hostId) return;
-      const seq = ++resolveSeqRef.current;
-      setWaitingForHost(true);
-      const load = (target: string) => {
-        if (seq !== resolveSeqRef.current) return;
-        setWaitingForHost(false);
-        const wv = webviewRef.current;
-        if (!wv) return;
-        wv.src = target;
-        setLoadedUrl(target);
-      };
-      window.electronAPI.ports.resolveUrl(remoteUrl, hostId).then(load, () => load(remoteUrl));
-    }, []);
-
     const navigateTo = useCallback((target: string) => {
       const wv = webviewRef.current;
       if (!wv) return;
@@ -278,19 +218,10 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       // In a remote workspace, `localhost:<port>` may mean a dev server on
       // the box; main swaps in the port forward's local port when the
       // host's scan reports that port, and hands anything else back as is.
-      if (remoteHostIdRef.current && isLocalhostHttpUrl(resolved)) {
-        setUrl(resolved);
-        fireNavStateChange({ url: resolved, suggestions: [], highlightIndex: -1 });
-        resolveRemote(resolved);
-        return;
-      }
-      resolveSeqRef.current++; // a pending remote resolve is superseded
-      setWaitingForHost(false);
-      wv.src = resolved;
-      if (remoteHostIdRef.current) setLoadedUrl(resolved);
+      remoteBrowserUrl.navigate(resolved);
       setUrl(resolved);
       fireNavStateChange({ url: resolved, suggestions: [], highlightIndex: -1 });
-    }, [fireNavStateChange, resolveRemote]);
+    }, [fireNavStateChange, remoteBrowserUrl]);
 
     // URL input handlers — kept here so url/nav state management stays in BrowserPane.
     // LeafPane will render the actual <input> and wire these up via the ref (ticket 2).
@@ -449,30 +380,8 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       onSuggestionMouseDown: handleSuggestionMouseDown,
     }), [paneId, navigateTo, fireNavStateChange, openFindBar, handleUrlChange, handleUrlKeyDown, handleUrlBlur, handleUrlFocus, handleSuggestionMouseDown]);
 
-    // A remote pane's forward dies with its host's connection, and may come
-    // back on another local port: once the host is connected again, the
-    // page is re-resolved and moved if its forward moved.
-    const prevHostStatusRef = useRef(hostStatus);
-    useEffect(() => {
-      const prev = prevHostStatusRef.current;
-      prevHostStatusRef.current = hostStatus;
-      if (hostStatus !== "connected" || prev === "connected" || prev === null) return;
-      if (waitingForHostRef.current) return; // main is already waiting on it
-      const hostId = remoteHostIdRef.current;
-      const remembered = useAppStore.getState().paneUrl[paneId];
-      if (!hostId || !remembered || !isLocalhostHttpUrl(remembered)) return;
-      const seq = ++resolveSeqRef.current;
-      window.electronAPI.ports.resolveUrl(remembered, hostId).then(
-        (target) => {
-          if (seq !== resolveSeqRef.current) return;
-          const wv = webviewRef.current;
-          if (!wv || sameHost(target, loadedUrlRef.current)) return;
-          wv.src = target;
-          setLoadedUrl(target);
-        },
-        () => {},
-      );
-    }, [hostStatus, paneId]);
+    const remoteHostIdRef = useRef(remoteHostId);
+    remoteHostIdRef.current = remoteHostId;
 
     useMountEffect(() => {
       const wv = webviewRef.current;
@@ -480,8 +389,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
 
       // A remembered (or agent-opened) `localhost:<port>` tab of a remote
       // workspace is loaded once main has resolved it against the host.
-      let skipBlank = deferInitialLoad;
-      if (deferInitialLoad) resolveRemote(initialUrl);
+      remoteBrowserUrl.resolveInitialLoad();
 
       /** Record `shown` — the URL as the pane remembers it — as the page. */
       const applyNavigation = (shown: string, actual: string) => {
@@ -497,34 +405,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         fireNavStateChange({ url: blank ? "" : shown, isBlank: blank, isSecure });
       };
 
-      const onNavigate = (e: Event) => {
-        const nav = e as WebviewNavigateEvent;
-        if (nav.isMainFrame === false) return;
-        const newUrl = nav.url;
-        const seq = ++navSeqRef.current;
-        const hostId = remoteHostIdRef.current;
-        if (!hostId) {
-          applyNavigation(newUrl, newUrl);
-          return;
-        }
-        // The placeholder a deferred remote tab sits on is not a page.
-        if (newUrl === "about:blank" && skipBlank) return;
-        skipBlank = false;
-        setLoadedUrl(newUrl);
-        if (!isLocalhostHttpUrl(newUrl)) {
-          applyNavigation(newUrl, newUrl);
-          return;
-        }
-        // Remember the box's URL, not the forward's: it outlives the forward.
-        window.electronAPI.ports.remoteUrl(newUrl, hostId).then(
-          (shown) => {
-            if (seq === navSeqRef.current) applyNavigation(shown, newUrl);
-          },
-          () => {
-            if (seq === navSeqRef.current) applyNavigation(newUrl, newUrl);
-          },
-        );
-      };
+      const onNavigate = (e: Event) => remoteBrowserUrl.onNavigate(e, applyNavigation);
 
       const onTitleUpdate = (e: Event) => {
         setPaneTitle(paneId, (e as WebviewTitleEvent).title);
@@ -667,8 +548,6 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       );
 
       return () => {
-        resolveSeqRef.current++;
-        navSeqRef.current++;
         wv.removeEventListener("did-navigate", onNavigate);
         wv.removeEventListener("did-navigate-in-page", onNavigate);
         wv.removeEventListener("page-title-updated", onTitleUpdate);
@@ -700,7 +579,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
             ref={webviewRef as React.RefObject<HTMLElement>}
             // A remote pane's src is the forwarded URL it loaded, never the
             // remembered box URL — that one would load on this machine.
-            src={remoteHostId ? loadedUrl : initialUrl}
+            src={remoteBrowserUrl.src}
             // allowpopups (string attr — see WEBVIEW_ALLOW_POPUPS) lets guest
             // window.open / target=_blank reach the native setWindowOpenHandler
             // in electron/ipc/webview.ts; without it the open is blocked before
@@ -712,9 +591,9 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
             variant="banner"
             className={styles.hostBanner}
           />
-          {waitingForHost ? (
+          {remoteBrowserUrl.waiting ? (
             <div className={styles.emptyState}>
-              Waiting for {hostLabel ?? "the remote host"}…
+              Waiting for {remoteBrowserUrl.hostLabel ?? "the remote host"}…
             </div>
           ) : (
             isBlank && <div className={styles.emptyState}>Enter a URL to get started</div>

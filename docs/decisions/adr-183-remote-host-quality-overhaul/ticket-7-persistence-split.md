@@ -1,6 +1,6 @@
 ---
 title: Split persistence.ts into electron/projects/ and use MachineFacts
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [6]
@@ -50,6 +50,12 @@ has picked up host records, path routing, remote cloning and host moves.
    - Normalize `hostId` in `loadState`, stripping local on save if byte-identical
      records matter. Make it required on `PersistedProject` and `ProjectInfo`,
      and delete the 15 `?? LOCAL_HOST_ID` re-defaults.
+
+5. **Ticket 6 follow-ups.**
+   - `ProjectManager` takes a per-host facts resolver: `backend.facts` via the registry, not only its shell resolver.
+   - Its `homeDirFor`, `remoteFileExists`, `readRemotePackageJson`, `worktreeBaseDir` and `syncWorktreeBaseDir` branches map onto `facts.homeDir`, `exists`, `readFile`, `join` and `defaultWorktreeRoot`.
+   - Drop the `posixJoin as remoteJoin` alias.
+   - `ExecGitBackend.buildUntrackedDiff` should join remote paths with `facts.join`, not the local `path.join`.
 
 No file under `electron/projects/` may exceed 600 lines. Run `pnpm build`,
 `electron/persistence.test.ts` (split it if that helps) and the

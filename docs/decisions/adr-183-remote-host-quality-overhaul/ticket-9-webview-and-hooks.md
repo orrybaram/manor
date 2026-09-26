@@ -1,6 +1,6 @@
 ---
 title: Split webview-server routes; unify hook ingest; atomic config writes
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [8]

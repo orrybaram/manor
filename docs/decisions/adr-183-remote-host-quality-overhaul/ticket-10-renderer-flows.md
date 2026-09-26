@@ -1,6 +1,6 @@
 ---
 title: Renderer — one clone flow, ProjectHostSection module, remote browser hook
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [9]

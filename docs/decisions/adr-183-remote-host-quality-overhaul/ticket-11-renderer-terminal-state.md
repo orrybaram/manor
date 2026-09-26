@@ -1,6 +1,6 @@
 ---
 title: Renderer — one pending-command queue, delivered writes, remote pane store
-status: todo
+status: in-progress
 priority: medium
 assignee: opus
 blocked_by: [10]

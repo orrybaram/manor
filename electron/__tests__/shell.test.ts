@@ -11,6 +11,7 @@ const zdotdir = path.join(tmpRoot, "zdotdir");
 
 vi.mock("../paths", () => ({
   shellZdotdir: () => zdotdir,
+  shellBashrc: () => path.join(tmpRoot, "bash", "bashrc"),
 }));
 
 import { ShellManager } from "../shell";
@@ -99,5 +100,29 @@ describe("ShellManager.realZdotdir — nested-launch sanitization", () => {
     process.env.ZDOTDIR = "/home/user/.config/zsh";
     process.env.HOME = "/home/user";
     expect(ShellManager.realZdotdir()).toBe("/home/user/.config/zsh");
+  });
+});
+
+describe("ShellManager.setupBashrc", () => {
+  beforeEach(() => {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("sources the user's ~/.bashrc, then appends OSC 7 prompt reporting once", () => {
+    const body = fs.readFileSync(ShellManager.setupBashrc(), "utf-8");
+    expect(body.indexOf('. "$HOME/.bashrc"')).toBeLessThan(body.indexOf("__manor_osc7_prompt()"));
+    expect(body).toContain("\\e]7;file://%s%s\\e\\\\");
+    // Appended after any existing prompt command, and guarded against re-adding.
+    expect(body).toContain('PROMPT_COMMAND="${PROMPT_COMMAND:+${PROMPT_COMMAND};}__manor_osc7_prompt"');
+    expect(body).toContain('*";__manor_osc7_prompt;"*) ;;');
+  });
+
+  it("is written by setupZdotdir too, so one bootstrap covers both shells", () => {
+    ShellManager.setupZdotdir();
+    expect(fs.existsSync(path.join(tmpRoot, "bash", "bashrc"))).toBe(true);
   });
 });

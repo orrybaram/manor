@@ -22,10 +22,8 @@ export const DEFAULT_TERMINAL_MODES: TerminalModes = {
 /**
  * Position in a session's output stream: the number of `data` events broadcast.
  *
- * Optional wherever it crosses the daemon↔app boundary — the daemon outlives
- * the app, so a new app can meet a daemon that predates ADR-159 and sends none.
- * Absent means "cannot tell what the snapshot covers", which is handled by
- * applying everything.
+ * Where it is absent, a client cannot tell what a snapshot covers and applies
+ * everything.
  */
 export type StreamPosition = number;
 
@@ -55,6 +53,38 @@ export type StreamPosition = number;
  *     the number is carrying the thing it exists to carry.
  */
 export const TERMINAL_HOST_PROTOCOL = 4;
+
+// ── Handshake ──
+
+/** The wire protocol a handshake reply reports; 0 when it reports none. */
+export function daemonProtocolOf(response: ControlResponse): number {
+  return response.type === "handshake" ? (response.protocol ?? 0) : 0;
+}
+
+/**
+ * Whether the daemon that sent `response` must be replaced before it can serve
+ * this client. Two independent reasons, and checking only the first is what
+ * let ADR-159's fix sit inert in a running app for days:
+ *
+ * - **Different app version** — the daemon binary is mismatched.
+ * - **Older wire protocol at the same app version** — two builds of one
+ *   release meet across a protocol bump. Serving a terminal we know is broken
+ *   is worse than replacing the daemon, even though replacing it ends live
+ *   sessions.
+ *
+ * In a released build the second reason is unreachable — a protocol bump ships
+ * inside a version bump, so the version check fires first. It exists for
+ * development, where the version is constant across rebuilds and a daemon can
+ * outlive the protocol it was built against by days.
+ */
+export function isDaemonStale(
+  response: ControlResponse,
+  clientVersion: string,
+): boolean {
+  if (response.type === "handshake" && response.daemonVersion !== clientVersion)
+    return true;
+  return daemonProtocolOf(response) < TERMINAL_HOST_PROTOCOL;
+}
 
 /** Serialized terminal snapshot for warm restore */
 export interface TerminalSnapshot {
@@ -152,8 +182,7 @@ export interface HookReplay {
   lastSeq: number;
   /**
    * The journal's identity (see `HookJournal.epoch`). A different epoch than
-   * last time means the journal was recreated. Absent from daemons that
-   * predate it.
+   * last time means the journal was recreated.
    */
   epoch?: string;
 }
@@ -199,7 +228,6 @@ export type ControlResponse =
   | {
       type: "handshake";
       daemonVersion: string;
-      /** Absent from daemons older than TERMINAL_HOST_PROTOCOL 1. */
       protocol?: number;
     }
   | { type: "error"; message: string }
@@ -261,6 +289,36 @@ type ResponseMap = ExhaustiveResponseMap<{
 export type ResponseFor<T extends ControlRequest["type"]> =
   | ResponseMap[T]
   | Reply<"error">;
+
+/** The replies that answer a request of type `T` successfully. */
+export type SuccessFor<T extends ControlRequest["type"]> = ResponseMap[T];
+
+/**
+ * `ResponseMap` at run time: the reply types each request succeeds with. The
+ * client checks replies against it, so a wrong one fails loudly rather than
+ * being read as something it is not.
+ */
+export const REPLY_TYPES = {
+  auth: ["authOk"],
+  create: ["created"],
+  attach: ["attached", "notFound"],
+  detach: ["detached"],
+  resize: ["resized"],
+  kill: ["killed"],
+  getSnapshot: ["snapshot", "notFound"],
+  listSessions: ["sessions"],
+  writeAfterReady: ["writeQueued"],
+  ping: ["pong"],
+  updateEnv: ["envUpdated"],
+  disposeDead: ["disposedDead"],
+  handshake: ["handshake"],
+  exec: ["execResult"],
+  readFile: ["fileContents"],
+  bootstrap: ["bootstrapped"],
+  replayHooks: ["hookReplay"],
+} as const satisfies {
+  [K in ControlRequest["type"]]: readonly SuccessFor<K>["type"][];
+};
 
 // ── ssh bridge preamble ──
 

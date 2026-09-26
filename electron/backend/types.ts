@@ -53,7 +53,8 @@ export interface PtyBackend {
 
   disposeDead(): Promise<void>;
 
-  onEvent(handler: StreamEventHandler): void;
+  /** Subscribe to the host's stream events. Returns an unsubscribe. */
+  onEvent(handler: StreamEventHandler): () => void;
 
   updateEnv(env: Record<string, string>): Promise<void>;
 
@@ -64,7 +65,7 @@ export interface PtyBackend {
   ): void;
   /**
    * The host daemon's hook journal after `sinceSeq` (ADR-178 §2); `null`
-   * when the daemon has no journal (it predates the request). Optional: only
+   * when the daemon has no journal. Optional: only
    * a remote host's hooks are journaled, and the registry calls this only
    * for remote hosts. `headOnly` returns the journal's position with no
    * entries.
@@ -255,8 +256,11 @@ export interface WorkspaceBackend {
   connect(opts?: { version?: string }): Promise<void>;
   disconnect(): Promise<void>;
 
-  /** Observe loss and recovery of the host connection (see `HostConnectionEvent`). */
-  onHostEvent(handler: HostConnectionEventHandler): void;
+  /**
+   * Observe loss and recovery of the host connection (see
+   * `HostConnectionEvent`). Returns an unsubscribe.
+   */
+  onHostEvent(handler: HostConnectionEventHandler): () => void;
 
   /**
    * While reconnecting on its own: attempt now instead of waiting out the

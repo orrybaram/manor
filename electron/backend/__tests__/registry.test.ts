@@ -35,6 +35,9 @@ function fakeBackend(name: string) {
       disposeDead: vi.fn(async () => {}),
       onEvent: vi.fn((handler: (event: StreamEvent) => void) => {
         streamHandler = handler;
+        return () => {
+          if (streamHandler === handler) streamHandler = null;
+        };
       }),
       updateEnv: vi.fn(async () => {}),
       relayAgentHook: vi.fn(),
@@ -56,6 +59,10 @@ function fakeBackend(name: string) {
     disconnect: vi.fn(async () => {}),
     onHostEvent: vi.fn((handler: (event: HostConnectionEvent) => void) => {
       hostHandlers.push(handler);
+      return () => {
+        const i = hostHandlers.indexOf(handler);
+        if (i >= 0) hostHandlers.splice(i, 1);
+      };
     }),
   };
   return {
@@ -65,6 +72,8 @@ function fakeBackend(name: string) {
     hostEvent: (event: HostConnectionEvent) => {
       for (const h of hostHandlers) h(event);
     },
+    /** Whether anything is still subscribed to this backend's events. */
+    listening: () => streamHandler !== null || hostHandlers.length > 0,
   };
 }
 
@@ -446,6 +455,19 @@ describe("BackendRegistry providers", () => {
     await registry.unregister("box");
     expect(second.dispose).toHaveBeenCalledTimes(1);
   });
+
+  it("unsubscribes from a replaced or unregistered backend's events", async () => {
+    const { registry, remotes } = setup();
+    registry.register("box", box);
+    const first = remotes.get("box")!;
+    expect(first.listening()).toBe(true);
+    registry.register("box", { kind: "ssh", target: "me@other" });
+    await vi.waitFor(() => expect(first.listening()).toBe(false));
+    const second = remotes.get("box")!;
+    expect(second.listening()).toBe(true);
+    await registry.unregister("box");
+    expect(second.listening()).toBe(false);
+  });
 });
 
 describe("RoutedBackend", () => {
@@ -456,6 +478,25 @@ describe("RoutedBackend", () => {
     const backend = new RoutedBackend(ctx.registry, hostForPath);
     return { ...ctx, backend, box: ctx.remotes.get("box")! };
   }
+
+  it("stops delivering stream and host events once unsubscribed", () => {
+    const { backend, box: remote } = routed();
+    const events: StreamEvent[] = [];
+    const hostEvents: HostConnectionEvent[] = [];
+    const offStream = backend.pty.onEvent((e) => events.push(e));
+    const offHost = backend.onHostEvent((e) => hostEvents.push(e));
+    const back: HostConnectionEvent = { type: "hostReconnected", sessionIds: [] };
+
+    remote.stream({ type: "data", sessionId: "pane-r", data: "a" });
+    remote.hostEvent(back);
+    offStream();
+    offHost();
+    remote.stream({ type: "data", sessionId: "pane-r", data: "b" });
+    remote.hostEvent(back);
+
+    expect(events).toEqual([{ type: "data", sessionId: "pane-r", data: "a" }]);
+    expect(hostEvents).toEqual([back]);
+  });
 
   it("creates a pane on the host its cwd belongs to, then routes the pane there", async () => {
     const { backend, local, box: remote } = routed();

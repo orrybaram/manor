@@ -219,6 +219,8 @@ interface HostEntry {
    * waiting on its replay is dropped when the host drops again meanwhile.
    */
   resumeToken: number;
+  /** Drops the registry's subscriptions to `backend`'s events. */
+  unsubscribe: () => void;
 }
 
 type HostEventListener = (hostId: string, event: HostConnectionEvent) => void;
@@ -503,6 +505,7 @@ export class BackendRegistry {
       autoConnect: true,
       hookFeed: null,
       resumeToken: 0,
+      unsubscribe: () => {},
     };
     const replay = backend.pty.replayHooks?.bind(backend.pty);
     if (hostId !== LOCAL_HOST_ID && replay) {
@@ -524,7 +527,7 @@ export class BackendRegistry {
     entry.view = this.makeView(entry);
     this.hosts.set(hostId, entry);
 
-    backend.pty.onEvent((event) => {
+    const offStream = backend.pty.onEvent((event) => {
       if (this.hosts.get(hostId) !== entry) return;
       if (event.type === "hookEvent") {
         entry.hookFeed?.onLiveEvent(event.seq, event.payload);
@@ -532,10 +535,14 @@ export class BackendRegistry {
       }
       this.dispatchStreamEvent(hostId, event);
     });
-    backend.onHostEvent((event) => {
+    const offHost = backend.onHostEvent((event) => {
       if (this.hosts.get(hostId) !== entry) return;
       this.handleHostEvent(entry, event);
     });
+    entry.unsubscribe = () => {
+      offStream();
+      offHost();
+    };
     this.emitStatus();
   }
 
@@ -552,6 +559,7 @@ export class BackendRegistry {
   }
 
   private async dropBackend(entry: HostEntry): Promise<void> {
+    entry.unsubscribe();
     entry.hookFeed?.pause();
     await this.disposeProvider(entry);
     try {
@@ -803,13 +811,7 @@ export class BackendRegistry {
         // for a session it is not connected to.
         write: null,
         relayAgentHook: null,
-        // The registry is the backend's one subscriber (the client keeps a
-        // single handler); per-host subscribers go through it.
-        onEvent: (handler: (event: StreamEvent) => void) => {
-          this.onEvent((from, event) => {
-            if (from === hostId) handler(event);
-          });
-        },
+        onEvent: null,
       }),
       git: gated(backend.git, execGate, {
         pushStream: execGate
@@ -823,11 +825,7 @@ export class BackendRegistry {
       ports: gated(backend.ports, execGate, {}),
       connect: () => this.ensureConnected(hostId),
       disconnect: () => this.disconnect(hostId),
-      onHostEvent: (handler) => {
-        this.onHostEvent((from, event) => {
-          if (from === hostId) handler(event);
-        });
-      },
+      onHostEvent: (handler) => backend.onHostEvent(handler),
     };
   }
 }
@@ -935,7 +933,7 @@ function unavailableBackend(hostId: string): WorkspaceBackend {
       },
     });
   return {
-    pty: failing({ write: () => {}, relayAgentHook: () => {}, onEvent: () => {} }),
+    pty: failing({ write: () => {}, relayAgentHook: () => {}, onEvent: () => () => {} }),
     git: failing({
       pushStream: (
         _cwd: string,
@@ -964,6 +962,6 @@ function unavailableBackend(hostId: string): WorkspaceBackend {
     ports: failing({}),
     connect: fail,
     disconnect: async () => {},
-    onHostEvent: () => {},
+    onHostEvent: () => () => {},
   };
 }

@@ -35,6 +35,8 @@ export class LocalBackend implements WorkspaceBackend {
    * client itself and reported through `exit` stream events, so there is
    * nothing host-level to report.
    */
-  onHostEvent(_handler: HostConnectionEventHandler): void {}
+  onHostEvent(_handler: HostConnectionEventHandler): () => void {
+    return () => {};
+  }
 
 }

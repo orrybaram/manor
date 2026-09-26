@@ -57,8 +57,8 @@ export class LocalPtyBackend implements PtyBackend {
     await this.client.disposeDead();
   }
 
-  onEvent(handler: StreamEventHandler): void {
-    this.client.onEvent(handler);
+  onEvent(handler: StreamEventHandler): () => void {
+    return this.client.onEvent(handler);
   }
 
   /**

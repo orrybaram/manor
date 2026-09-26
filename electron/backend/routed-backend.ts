@@ -95,9 +95,7 @@ export class RoutedBackend implements WorkspaceBackend {
       disposeDead: async () => {
         await this.acrossHosts((_hostId, backend) => backend.pty.disposeDead());
       },
-      onEvent: (handler) => {
-        registry.onEvent((_hostId, event) => handler(event));
-      },
+      onEvent: (handler) => registry.onEvent((_hostId, event) => handler(event)),
       updateEnv: (env) => local().pty.updateEnv(env),
       relayAgentHook: (sessionId, status, kind) =>
         bySession(sessionId).relayAgentHook(sessionId, status, kind),
@@ -163,8 +161,8 @@ export class RoutedBackend implements WorkspaceBackend {
     return this.registry.disconnectAll();
   }
 
-  onHostEvent(handler: HostConnectionEventHandler): void {
-    this.registry.onHostEvent((_hostId, event) => handler(event));
+  onHostEvent(handler: HostConnectionEventHandler): () => void {
+    return this.registry.onHostEvent((_hostId, event) => handler(event));
   }
 
   /**

@@ -168,8 +168,11 @@ export class RemoteBackend implements WorkspaceBackend {
     }
   }
 
-  onHostEvent(handler: HostConnectionEventHandler): void {
+  onHostEvent(handler: HostConnectionEventHandler): () => void {
     this.hostEventHandlers.add(handler);
+    return () => {
+      this.hostEventHandlers.delete(handler);
+    };
   }
 
   /** "Retry now": skip the rest of the reconnect loop's current wait. */

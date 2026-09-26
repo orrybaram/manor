@@ -37,7 +37,8 @@ Read `index.md`.
    - Use it for every write in `agent-connectors.ts`.
    - Make `ConfigReadResult` a union, `{ ok: true; data } | { ok: false; warning }`.
    - Log each warning once, at the caller, not also in `warnSkip`.
-5. **`ipc/agents.ts`.** Drop the `!deps.backendRegistry` check on a required
+5. **Finish "one `errorMessage` for main".** Ticket 1 added `electron/lib/errors.ts`. Replace the remaining inline `err instanceof Error ? err.message : String(err)` copies and local helpers, including `manor-cli.ts`, `diff-watcher.ts`, `terminal-host/exec-runner.ts`, `bridge.ts` (`describeError`), `client.ts`, `index.ts`, `hook-listener.ts`, `webview-server.ts`, `ipc/pty.ts`, `persistence.ts`/`electron/projects/*` and `agent-connectors.ts`. Keep any message wording a caller depends on.
+6. **`ipc/agents.ts`.** Drop the `!deps.backendRegistry` check on a required
    field and fix the tests to use typed fixtures instead.
 
 Run `pnpm build` and the related tests.

@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 import { RemoteControlController } from "../controller";
-import type { RemoteDeviceStore } from "../devices";
+import type { Capability, RemoteDeviceStore } from "../devices";
 import type { RemoteControlServer } from "../server";
 import type { TunnelManager, TunnelStatus } from "../tunnel";
 
@@ -68,13 +68,14 @@ function fakes() {
     }),
   };
 
-  const paired: Array<{ id: string; label: string; canSend: boolean }> = [];
+  const paired: Array<{ id: string; label: string; capability: Capability }> =
+    [];
   const deviceStore = {
-    pair: vi.fn((label: string, canSend: boolean) => {
+    pair: vi.fn((label: string, capability: Capability) => {
       const device = {
         id: `dev-${paired.length + 1}`,
         label,
-        canSend,
+        capability,
         createdAt: 0,
         lastSeenAt: null,
       };
@@ -175,23 +176,34 @@ describe("RemoteControlController", () => {
   it("builds a pairing URL from the live tunnel", async () => {
     await f.controller.setEnabled(true);
     await f.controller.startTunnel();
-    const result = f.controller.pair("Orry's phone", false);
+    const result = f.controller.pair("Orry's phone", "read");
     expect(result.pairingUrl).toBe(
       "https://studio.tail1234.ts.net/#raw-token-value",
     );
-    expect(result.device.canSend).toBe(false);
+    expect(result.device.capability).toBe("read");
+  });
+
+  it("sends a full-capability device to the web app, not the phone client", async () => {
+    await f.controller.setEnabled(true);
+    await f.controller.startTunnel();
+    expect(f.controller.pair("PC browser", "full").pairingUrl).toBe(
+      "https://studio.tail1234.ts.net/app#raw-token-value",
+    );
+    expect(f.controller.pair("phone", "send").pairingUrl).toBe(
+      "https://studio.tail1234.ts.net/#raw-token-value",
+    );
   });
 
   it("pairs without a tunnel but has no URL to offer", async () => {
     await f.controller.setEnabled(true);
-    expect(f.controller.pair("phone", false).pairingUrl).toBeNull();
+    expect(f.controller.pair("phone", "read").pairingUrl).toBeNull();
   });
 
   it("notifies listeners on every state change", async () => {
     const seen: boolean[] = [];
     f.controller.onChange((s) => seen.push(s.enabled));
     await f.controller.setEnabled(true);
-    f.controller.pair("phone", false);
+    f.controller.pair("phone", "read");
     f.controller.revoke("dev-1");
     await f.controller.setEnabled(false);
     expect(seen.length).toBeGreaterThanOrEqual(4);

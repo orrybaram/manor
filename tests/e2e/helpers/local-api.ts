@@ -126,17 +126,41 @@ async function visiblePaneIds(
   );
 }
 
+/** The `/sessions/read` response this suite cares about: text plus the grid it was drawn at. */
+export interface SessionRead {
+  text: string;
+  cols: number | null;
+  rows: number | null;
+}
+
+/**
+ * Rendered scrollback for an agent handle or a raw pane id, with the grid the
+ * daemon drew it at.
+ *
+ * `cols`/`rows` are what ADR-178's winsize-ownership tests need: the daemon
+ * hands them back on every read (see `agents.ts`'s `/sessions/read` handler),
+ * so a test can prove the desktop's grid never moved without going anywhere
+ * near the renderer that owns it.
+ */
+export async function readSessionMeta(
+  request: APIRequestContext,
+  tempHome: string,
+  target: string,
+): Promise<SessionRead> {
+  const res = await request.post(localApiUrl(tempHome, "/sessions/read"), {
+    data: { target, tailLines: 200 },
+  });
+  if (!res.ok()) throw new Error(`POST /sessions/read → ${res.status()}`);
+  return (await res.json()) as SessionRead;
+}
+
 /** Rendered scrollback for an agent handle or a raw pane id. */
 export async function readSession(
   request: APIRequestContext,
   tempHome: string,
   target: string,
 ): Promise<string> {
-  const res = await request.post(localApiUrl(tempHome, "/sessions/read"), {
-    data: { target, tailLines: 200 },
-  });
-  if (!res.ok()) throw new Error(`POST /sessions/read → ${res.status()}`);
-  return ((await res.json()) as { text: string }).text;
+  return (await readSessionMeta(request, tempHome, target)).text;
 }
 
 /**

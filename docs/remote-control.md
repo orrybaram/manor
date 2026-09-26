@@ -18,14 +18,14 @@ this on.
   printed in a session is readable by a paired device.
 
 That is not an implementation shortcoming that can be tightened later — reading
-session output *is* the feature. It is the reason the authentication story
+session output _is_ the feature. It is the reason the authentication story
 below has to be right rather than convenient.
 
 ## What a paired device can do
 
-Nothing, unless you check **Allow this device to send input** when you pair it.
-
-A device with that capability can do three things, all of them writes:
+Nothing, at the `read` tier (**Watch** in the pairing dialog) — the default.
+Pairing a device at `send` (**Reply**) grants three things, all of them
+writes:
 
 - **Type arbitrary text into a live shell**, which also interrupts whatever the
   agent was doing.
@@ -37,9 +37,9 @@ A device with that capability can do three things, all of them writes:
 - **Stop an agent** without saying anything to it, which ends the current turn
   and discards whatever was in flight.
 
-All three are off by default and set per device, so the phone you use to glance
-at statuses need not be the one that can act. Each one asks for a confirmation
-naming the session before anything happens.
+The tier is chosen per device at pairing, so the phone you use to glance at
+statuses need not be the one that can act. Each of the three above asks for a
+confirmation naming the session before anything happens.
 
 Every remote send and every remote stop is written to an append-only audit log
 in Manor's data directory (`remote-audit.jsonl`, mode 0600): timestamp, which
@@ -47,17 +47,30 @@ device, which session, which of the two actions, and the **length and SHA-256**
 of the text. The text itself is never recorded — an audit log that accumulated
 the things you typed would be a worse leak than the thing it audits.
 
-What is **not** on the remote surface at all: creating or deleting projects and
-workspaces, launching agents, splitting or closing panes, opening tabs, and
-anything to do with issues. Those routes are not "blocked" — they are absent
-from the table the remote listener dispatches against, so no mistake in an
-authentication check can reach them.
+What is **not** on a `read` or `send` device's surface at all: creating or
+deleting projects and workspaces, launching agents, splitting or closing
+panes, opening tabs, and anything to do with issues. Those routes are not
+"blocked" — they are absent from the table the remote listener dispatches
+against, so no mistake in an authentication check can reach them. That
+guarantee, and the allowlist it rests on, is what `read` and `send` _are_. It
+does not extend to the third tier.
+
+A device paired at `full` (**Everything**) gets none of that filtering.
+Authentication is the only boundary in front of it, and behind that boundary
+is the whole route table: it can do everything the desktop app can, including
+creating and removing projects and workspaces, launching agents, and every
+pane and tab mutation. Every mutating request from a `full` device still gets
+a line in the audit log — the route and what it targeted, never a body — but
+none of them waits on a `confirmed: true` the way a `send` device's writes do,
+because the desktop UI's own confirmation dialogs are already standing in
+front of every one of these actions. Say it plainly: a leaked `full` token is
+a leaked machine.
 
 ## The trust model
 
 **A separate listener.** Manor's existing local HTTP surface (used by the CLI
 and the `manor` MCP server) has no authentication and does not need any: it
-binds loopback, and loopback is its boundary. Remote control is a *second*
+binds loopback, and loopback is its boundary. Remote control is a _second_
 listener with its own route table and its own authentication, rather than a
 flag on the first one.
 
@@ -76,7 +89,7 @@ surprise this feature cannot afford.
 
 **Tailscale is preferred over cloudflared**, and the difference is not
 convenience. With `tailscale serve`, only devices on your tailnet can reach the
-address at all, so the pairing token is a *second* factor. With a Cloudflare
+address at all, so the pairing token is a _second_ factor. With a Cloudflare
 quick tunnel the address is public and the token is the only thing between the
 internet and your session output. Manor detects both and installs neither.
 
@@ -86,14 +99,41 @@ internet and your session output. Manor detects both and installs neither.
    still loopback-only.
 2. **Start a tunnel.** Manor names what becomes reachable, and which tool it
    will use, before it starts anything.
-3. **Pair a device.** Give it a name; leave *Allow this device to send input*
-   unchecked unless you need it. Manor shows a QR code and the link once —
-   scan it with the phone, or copy the link.
+3. **Pair a device.** Give it a name and a tier — **Watch** (`read`), **Reply**
+   (`send`), or **Everything** (`full`). Watch is the default and the one
+   pre-selected; picking Everything shows its own warning in place of the usual
+   hint: "This device can do anything the desktop app can, including removing
+   workspaces." Manor shows a QR code and the link once — scan it with the
+   phone, or copy the link.
 4. On the phone, the page stores the token and immediately strips it out of the
    address bar, so it does not linger in history or in a screenshot of the URL.
 
 The QR code is generated locally. No token is ever handed to a third-party
 image service.
+
+## The web app
+
+`/app` is the desktop app itself, served to a browser (ADR-178) — not a
+smaller mobile client, the same renderer that runs in the Electron window.
+Opening it needs a device paired at `full`; a `read` or `send` link opens only
+the lightweight page at `/` described above, no matter what URL you type.
+
+It reaches Manor over a WebSocket at `/ws`, authenticated by the same token in
+the same first frame the HTTP paths check, and closed on any device below
+`full` — a `read` or `send` token gets refused there, not handed a smaller
+version of the bridge.
+
+Between ADR-178's first and second slice, the web app is _read-and-type_, not
+read-and-arrange: you can watch and drive any session from a browser exactly
+as you would at the desk, but you cannot split a pane, open a tab, or create a
+workspace from it yet, and the handful of features with no browser equivalent
+(browser panes, detaching a window, the native app menu, opening a file in an
+editor) show a stated empty state instead of failing silently. That is a named
+intermediate state written down in the design, not a bug you found — see
+[ADR-178](decisions/adr-178-web-app-and-single-bridge/index.md).
+
+One more thing worth knowing about a browser tab open next to the desktop app:
+it shows the desktop's grid at the desktop's size and never resizes it.
 
 ## Knowing whether you are exposed
 
@@ -108,13 +148,13 @@ The tunnel also stops when Manor quits.
 
 A paired device can subscribe to Web Push, and gets a notification when a
 session goes to `requires_input` or `error`. This is the same signal that
-drives Manor's dock badge and desktop notifications, so muting *Agent needs
-input* in **Settings → Notifications** mutes the pushes too.
+drives Manor's dock badge and desktop notifications, so muting _Agent needs
+input_ in **Settings → Notifications** mutes the pushes too.
 
 **On an iPhone or iPad, add the page to your Home Screen first.** iOS gives
 notifications only to an installed web app — in a Safari tab there is no way to
-grant permission at all. Open the paired link, tap Share, then *Add to Home
-Screen*, and open Manor from the icon; the client says as much the first time it
+grant permission at all. Open the paired link, tap Share, then _Add to Home
+Screen_, and open Manor from the icon; the client says as much the first time it
 sees a phone that has not done it. On Android and desktop the page can subscribe
 from a tab. Either way the client asks with a button rather than a prompt on
 load, because Safari only honours the permission request inside a tap.
@@ -145,10 +185,13 @@ checking — without introducing another party to the trust model.
 ## What is knowingly not protected
 
 - **The app shell is served without authentication.** The pairing token arrives
-  in the URL *fragment*, which browsers never send to a server, so the page has
+  in the URL _fragment_, which browsers never send to a server, so the page has
   to load before it can authenticate. Anyone who finds your tunnel address gets
   the HTML, CSS, and JavaScript — and nothing else. Every route that reads or
-  changes anything requires the token.
+  changes anything requires the token. The `/app` bundle is the whole desktop
+  renderer, not the remote client's 16 KB — an unauthenticated visitor who
+  finds it gets a much larger map of what the machine can do than before,
+  though still no data.
 - **Scrollback is as sensitive as the sessions themselves.** See the top of
   this document.
 - **A hard crash could orphan the tunnel process.** Manor stops it on quit and
@@ -158,11 +201,11 @@ checking — without introducing another party to the trust model.
 
 ## Where things live
 
-| File | What |
-| --- | --- |
+| File                 | What                                                                               |
+| -------------------- | ---------------------------------------------------------------------------------- |
 | `remote-devices.enc` | Paired devices: label, token hash, capability, push subscription. Encrypted, 0600. |
-| `remote-audit.jsonl` | One line per remote send. No plaintext. 0600, size-rotated. |
-| `remote-vapid.enc` | Web Push signing key pair. Encrypted, 0600. |
+| `remote-audit.jsonl` | One line per remote send. No plaintext. 0600, size-rotated.                        |
+| `remote-vapid.enc`   | Web Push signing key pair. Encrypted, 0600.                                        |
 
 All three are in Manor's application data directory
 (`~/Library/Application Support/Manor` on macOS).

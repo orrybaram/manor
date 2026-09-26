@@ -32,8 +32,10 @@ import { initAutoUpdater, checkForUpdates } from "./updater";
 import { portlessManager } from "./portless";
 import { LocalBackend } from "./backend/local-backend";
 import { PrewarmManager } from "./prewarm-manager";
+import { releaseViewer } from "./pty-attachments";
 import { RemoteDeviceStore } from "./remote-control/devices";
 import { RemoteControlServer } from "./remote-control/server";
+import { WsBridgeServer } from "./remote-control/ws-bridge-server";
 import { TunnelManager } from "./remote-control/tunnel";
 import { RemoteControlController } from "./remote-control/controller";
 import { PushManager } from "./remote-control/push";
@@ -169,8 +171,15 @@ export function initApp(devTitle: string | null): void {
 
   function trackRendererWindow(win: BrowserWindow): void {
     rendererWindows.add(win);
+    // Read the id now: `closed` fires with a freed native window behind the
+    // wrapper, and `webContents` is not there to be asked by then.
+    const viewerId = win.webContents.id;
     win.on("closed", () => {
       rendererWindows.delete(win);
+      // A window that dies without unmounting its panes still let them go —
+      // otherwise every pane it held stays desktop-owned forever and a browser
+      // on the bridge follows a grid nothing is driving (ADR-178 D5).
+      releaseViewer(viewerId);
     });
   }
 
@@ -318,6 +327,13 @@ export function initApp(devTitle: string | null): void {
     () => safeStorage.isEncryptionAvailable(),
     remotePush,
   );
+  /**
+   * ADR-178's WebSocket bridge. Declared here and built below, once `ipcDeps`
+   * exists: its handler table runs against exactly that object, and the PTY
+   * forwarding below has to be able to see it before it is assigned.
+   */
+  let wsBridge: WsBridgeServer | null = null;
+
   const paneContextMap = new Map<
     string,
     {
@@ -369,6 +385,10 @@ export function initApp(devTitle: string | null): void {
   // window. A detached window hosting a terminal pane must receive its `pty:*`
   // stream events; windows that don't own the pane ignore them harmlessly.
   backend.pty.onEvent((event: StreamEvent) => {
+    // The daemon client holds one handler, so this is the only place a stream
+    // event can be observed — hence the bridge is fed from inside it rather
+    // than subscribing for itself and replacing what the windows use.
+    wsBridge?.handleStreamEvent(event);
     for (const win of getRendererWindows()) {
       // Check that the main frame is still available (avoids "Render frame was
       // disposed" errors during window reload/close).
@@ -431,6 +451,11 @@ export function initApp(devTitle: string | null): void {
       return appMenu;
     },
   };
+
+  // The web app's bridge (ADR-178 D8). Same deps the IPC handlers get, by
+  // design: one table of what this host can do, reachable two ways.
+  wsBridge = new WsBridgeServer(ipcDeps);
+  remoteControlServer.setBridge(wsBridge);
 
   // Give control routes (ADR-171) the same manager bag IPC handlers have.
   webviewServer.setControlDeps({
@@ -591,6 +616,9 @@ export function initApp(devTitle: string | null): void {
     // Takes the tunnel down first, then the listener. A tunnel must never
     // outlive the app that opened it.
     void remoteControl.shutdown();
+    // Bridge sockets die with the listener above; this also releases the
+    // renderer-broadcast sink so nothing publishes into a dead socket set.
+    wsBridge?.dispose();
     portlessManager.stop();
     prewarmManager.dispose().catch(() => {});
     killAllActivePushes();

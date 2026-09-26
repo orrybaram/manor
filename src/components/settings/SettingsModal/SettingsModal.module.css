@@ -897,19 +897,26 @@ button.keybindingActionBtn:hover:not(:disabled) {
   user-select: all;
 }
 
+/* The three-way tier picker and the one sentence that explains the choice. */
 .remoteCapabilityRow {
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
+  gap: 6px;
   font-size: 13px;
   color: var(--text-primary);
-  cursor: pointer;
   padding: 2px 0 4px;
 }
 
 .remoteCapabilityRow .fieldHint {
   display: block;
-  margin-top: 2px;
+  margin-top: 0;
+}
+
+/* The `full` tier states its blunt sentence in the same box as the other
+   irreversible warnings on this page, rather than as one more grey hint. */
+.remoteCapabilityRow .remoteWarning {
+  align-self: stretch;
 }
 
 .remoteDeviceList {

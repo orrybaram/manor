@@ -4,6 +4,8 @@
     "index.html",
     "src/remote-client/index.html",
     "src/remote-client/sw.ts",
+    "src/web.html",
+    "src/web-main.tsx",
     "electron/main.ts",
     "electron/preload.ts",
     "electron/terminal-host/index.ts",
@@ -26,6 +28,11 @@
   "ignoreDependencies": ["@electron/osx-sign"],
   "ignoreBinaries": ["afplay"],
   "vite": {
-    "config": ["vite.config.ts", "vite.remote.config.ts", "vitest.config.ts"]
+    "config": [
+      "vite.config.ts",
+      "vite.remote.config.ts",
+      "vite.web.config.ts",
+      "vitest.config.ts"
+    ]
   }
 }

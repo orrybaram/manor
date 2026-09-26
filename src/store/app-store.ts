@@ -38,6 +38,8 @@ import type { Location } from "./navigation-history-store";
 import type { DetachedTabPayload } from "./detach-types";
 import { isHomePath } from "../lib/home-path";
 import { useProjectStore } from "./project-store";
+import { BridgeUnavailableError } from "../web/ws-bridge";
+import { showBridgeUnavailableToastOnce } from "../lib/bridge-unavailable-toast";
 
 export interface ClosedPaneSnapshot {
   kind: "pane";
@@ -3403,7 +3405,29 @@ function flushLayoutSave(): void {
     activePanelId: layout.activePanelId,
   };
 
-  window.electronAPI?.layout.save(persisted);
+  window.electronAPI?.layout.save(persisted)?.catch(handleLayoutSaveRejection);
+}
+
+/**
+ * The web app can't persist a layout yet (ADR-178, slice 2 owns that). The
+ * bridge refuses every `layout.save` with the same `BridgeUnavailableError`,
+ * and this fires on every debounced save — so the shared once-per-session
+ * toast (`src/lib/bridge-unavailable-toast.ts`) lets only the first one
+ * reach the user; every save after that stays silent. The local mutation
+ * already happened before this was ever called; only the write to disk is
+ * refused. A thin wrapper rather than a direct `.catch(handleBridgeUnavailable(...))`
+ * because a real save failure here is logged, not rethrown — this runs off a
+ * debounce timer with nothing above it to catch a throw.
+ */
+export function handleLayoutSaveRejection(err: unknown): void {
+  if (!(err instanceof BridgeUnavailableError)) {
+    console.error("[layout] failed to save layout:", err);
+    return;
+  }
+  showBridgeUnavailableToastOnce(
+    "layout-save-unavailable",
+    "Layout changes aren't saved from the browser yet",
+  );
 }
 
 /** Debounced save of the active workspace's layout to disk */

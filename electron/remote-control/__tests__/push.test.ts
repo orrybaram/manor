@@ -58,7 +58,7 @@ describe("PushManager", () => {
   });
 
   function pairedWithPush(label = "phone") {
-    const { device } = devices.pair(label, false);
+    const { device } = devices.pair(label, "read");
     push.subscribe(device.id, SUBSCRIPTION);
     return device;
   }
@@ -110,7 +110,7 @@ describe("PushManager", () => {
   });
 
   it("sends nothing to a device that never subscribed", async () => {
-    devices.pair("silent", false);
+    devices.pair("silent", "read");
     expect(await push.notify(pushPayloadFor("requires_input", AGENT))).toBe(0);
     expect(send).not.toHaveBeenCalled();
   });

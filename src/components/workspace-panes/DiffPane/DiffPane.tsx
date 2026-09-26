@@ -36,10 +36,12 @@ import type { SelectionAnchor } from "./review-anchor";
 import type { DiffMode } from "./types";
 import styles from "./DiffPane.module.css";
 import { Button } from "../../ui/Button/Button";
+import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { openInEditor } from "../../../lib/editor";
 import { categorizePushError, type PushError } from "../../../lib/push-error";
 import { useToastStore } from "../../../store/toast-store";
 import { onUiRequest } from "../../../utils/ui-request";
+import { isWebApp } from "../../../lib/platform";
 
 export type DiffPaneRef = {
   toggleSearch: () => void;
@@ -606,26 +608,53 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       };
     }, []);
 
+    // ADR-178: `git.*` is not on the slice-1 bridge table, so Push and Commit
+    // would only ever round-trip to a `BridgeUnavailableError` (`runPush`
+    // still catches that as a fallback). Disabling with a reason said up
+    // front beats the same refusal arriving as a toast after every click.
+    const webApp = isWebApp();
+    const pushButton = (
+      <Button
+        variant="secondary"
+        onClick={handlePush}
+        disabled={pushing || webApp}
+      >
+        {pushing ? (
+          <span className={styles.pushSpinner} />
+        ) : (
+          <CloudUpload size={13} />
+        )}
+        {pushing ? "Pushing…" : "Push"}
+      </Button>
+    );
+    const commitButton = (
+      <Button
+        onClick={() => setCommitOpen(true)}
+        disabled={stagedFiles.size === 0 || webApp}
+        variant="primary"
+      >
+        <GitCommitVertical size={13} />
+        Commit
+      </Button>
+    );
     const topBar = (
       <div className={styles.topBar}>
         <ModeToggle diffMode={diffMode} onModeChange={handleModeChange} />
         <Row gap="xs" align="center" className={styles.actionGroup}>
-          <Button variant="secondary" onClick={handlePush} disabled={pushing}>
-            {pushing ? (
-              <span className={styles.pushSpinner} />
-            ) : (
-              <CloudUpload size={13} />
-            )}
-            {pushing ? "Pushing…" : "Push"}
-          </Button>
-          <Button
-            onClick={() => setCommitOpen(true)}
-            disabled={stagedFiles.size === 0}
-            variant="primary"
-          >
-            <GitCommitVertical size={13} />
-            Commit
-          </Button>
+          {webApp ? (
+            <Tooltip label="Git isn't available from the browser yet">
+              {pushButton}
+            </Tooltip>
+          ) : (
+            pushButton
+          )}
+          {webApp ? (
+            <Tooltip label="Git isn't available from the browser yet">
+              {commitButton}
+            </Tooltip>
+          ) : (
+            commitButton
+          )}
         </Row>
       </div>
     );

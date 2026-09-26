@@ -15,13 +15,15 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { terminalOptions } from "../terminal/config";
 import { createFileLinkProvider } from "../terminal/file-link-provider";
+import { openExternal } from "../lib/open-external";
+import { handleBridgeUnavailable } from "../lib/bridge-unavailable-toast";
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { usePreferencesStore } from "../store/preferences-store";
 import { getAgentKindForCommand } from "../agent-defaults";
 import { isHomePath } from "../lib/home";
 import { isNavRegionFocused } from "../lib/focus-regions";
-import type { StreamPosition } from "../electron.d";
+import type { PtyCreateResult } from "../electron.d";
 import { resolveHomeAdapter } from "../lib/harness";
 import { useTerminalConnection } from "./useTerminalConnection";
 import { useTerminalStream } from "./useTerminalStream";
@@ -68,7 +70,39 @@ export function useTerminalLifecycle(
   const [fitAddon, setFitAddon] = useState<FitAddon | null>(null);
   const [searchAddon, setSearchAddon] = useState<SearchAddon | null>(null);
   const [ptyError, setPtyError] = useState<string | null>(null);
+  /**
+   * The winsize owner's grid, when this viewer is not the owner (ADR-178 D5).
+   *
+   * Null until the create reply says otherwise, and null forever in the desktop
+   * app: `winsizeOwner` is the bridge's field and the preload path never sets
+   * it, so absent means owner. Held as one object so the identity a follower
+   * hands `useTerminalResize` is stable between renders.
+   */
+  const [follower, setFollower] = useState<{ cols: number; rows: number } | null>(
+    null,
+  );
   const termRef = useRef<Terminal | null>(null);
+  /**
+   * Read the winsize ownership off a create-shaped reply.
+   *
+   * Every field here is optional and absent on the desktop, so the one shape
+   * this has to get right is "said nothing" — which means this viewer owns the
+   * winsize and the hook behaves exactly as it did before ADR-178.
+   */
+  const applyWinsize = useCallback((result: PtyCreateResult) => {
+    const { winsizeOwner, cols, rows } = result;
+    if (winsizeOwner === false && cols && rows) {
+      // Same object back when the grid has not moved: this is the identity
+      // `useTerminalResize` re-runs its effect on.
+      setFollower((prev) =>
+        prev && prev.cols === cols && prev.rows === rows
+          ? prev
+          : { cols, rows },
+      );
+    } else {
+      setFollower(null);
+    }
+  }, []);
   const resettingRef = useRef(false);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { write, resize, create, detach } =
@@ -86,8 +120,8 @@ export function useTerminalLifecycle(
     resettingRef,
   );
 
-  // Auto-resize
-  useTerminalResize(containerRef, fitAddon, term, resize);
+  // Auto-resize — or, for a follower, auto-*fit*: see ADR-178 D5.
+  useTerminalResize(containerRef, fitAddon, term, resize, follower);
 
   // Auto-focus terminal when this pane becomes the focused pane of the active tab.
   // Uses a selector + useEffect so focus() runs after React commits DOM changes
@@ -157,7 +191,7 @@ export function useTerminalLifecycle(
         ...(theme ? { theme } : {}),
         linkHandler: {
           activate: (_event, text) => {
-            window.electronAPI.shell.openExternal(text);
+            openExternal(text);
           },
         },
       }),
@@ -199,7 +233,7 @@ export function useTerminalLifecycle(
     try {
       t.loadAddon(
         new WebLinksAddon((_event, url) => {
-          window.electronAPI.shell.openExternal(url);
+          openExternal(url);
         }),
       );
     } catch {
@@ -291,14 +325,9 @@ export function useTerminalLifecycle(
     const spawnCwd = cwd ?? null;
 
     create(spawnCwd, cols, rows, agentKindForCreate).then(
-      (result: {
-        ok: boolean;
-        snapshot?: string | null;
-        snapshotSeq?: StreamPosition;
-        error?: string;
-        prewarmed?: boolean;
-      }) => {
+      (result: PtyCreateResult) => {
         if (disposed) return;
+        applyWinsize(result);
         if (!result.ok) {
           setPtyError(
             result.error ?? "Failed to create terminal session",
@@ -322,12 +351,19 @@ export function useTerminalLifecycle(
               // The home has no owning project — associate the pane with
               // the sentinel workspace and the resolved harness command.
               const prefs = usePreferencesStore.getState().preferences;
-              window.electronAPI.agents.setPaneContext(paneId, {
-                projectId: "",
-                projectName: "Home",
-                workspacePath: cwd,
-                agentCommand: resolveHomeAdapter(prefs).launchCommand(),
-              });
+              window.electronAPI.agents
+                .setPaneContext(paneId, {
+                  projectId: "",
+                  projectName: "Home",
+                  workspacePath: cwd,
+                  agentCommand: resolveHomeAdapter(prefs).launchCommand(),
+                })
+                .catch(
+                  handleBridgeUnavailable(
+                    "agents-set-pane-context-unavailable",
+                    "Pane context isn't synced from the browser yet",
+                  ),
+                );
             } else {
               const projects = useProjectStore.getState().projects;
               const project = projects.find((p) =>
@@ -335,12 +371,19 @@ export function useTerminalLifecycle(
               );
 
               // Fire-and-forget call to set pane context
-              window.electronAPI.agents.setPaneContext(paneId, {
-                projectId: project?.id ?? "",
-                projectName: project?.name ?? "",
-                workspacePath: cwd,
-                agentCommand: project?.agentCommand ?? null,
-              });
+              window.electronAPI.agents
+                .setPaneContext(paneId, {
+                  projectId: project?.id ?? "",
+                  projectName: project?.name ?? "",
+                  workspacePath: cwd,
+                  agentCommand: project?.agentCommand ?? null,
+                })
+                .catch(
+                  handleBridgeUnavailable(
+                    "agents-set-pane-context-unavailable",
+                    "Pane context isn't synced from the browser yet",
+                  ),
+                );
             }
           }
 
@@ -462,6 +505,9 @@ export function useTerminalLifecycle(
         t.cols,
         t.rows,
       );
+      // Reset is create-shaped on the bridge too, and a pane the desktop holds
+      // is still the desktop's after one (ADR-178 D5).
+      applyWinsize(result);
       if (!result.ok) {
         setPtyError(result.error ?? "Failed to create terminal session");
       }
@@ -474,7 +520,7 @@ export function useTerminalLifecycle(
         resettingRef.current = false;
       }, 1_000);
     }
-  }, [paneId, cwd]);
+  }, [paneId, cwd, applyWinsize]);
 
-  return { term, fitAddon, searchAddon, ptyError, write, reset };
+  return { term, fitAddon, searchAddon, ptyError, write, reset, follower };
 }

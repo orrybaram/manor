@@ -15,6 +15,10 @@ pnpm exec playwright test tests/e2e/smoke.spec.ts
 # The remote-control flow, with a build first / without one
 pnpm test:e2e:remote
 pnpm e2e:remote
+
+# The web app, with a build first / without one
+pnpm test:e2e:web
+pnpm e2e:web
 ```
 
 `pnpm test:e2e` runs `pnpm build` first, which produces `dist-electron/main.js`
@@ -167,3 +171,25 @@ a race it would otherwise have to retry through.
   the phone loads.
 - **Push is not exercised.** Web Push needs a real push service, so the tests
   cover the live-stream path and leave the notification itself untested.
+
+## The web app (ADR-178)
+
+`web-app.spec.ts` proves slice 1's tracer bullet: a browser on a PC opens
+`/app`, pairs at `full`, and drives a live terminal over the WebSocket bridge
+— through the real listener, the real `dist-electron/web/` bundle and the real
+daemon, the same discipline as the remote-control harness above.
+
+The web app *is* the desktop renderer (ADR-178 D1), so once
+`helpers/phone.ts`'s `openWebApp` has loaded it, it shares the desktop's test
+ids and its "terminal draws into a WebGL canvas" problem — `paneText` in the
+spec reads a pane's grid through `window.__manorTerminals`
+(`src/lib/terminal-registry.ts`), the same seam
+`claude-resize-duplication.spec.ts` uses for the desktop window, because the
+browser page runs the identical component. `helpers/phone.ts` also exports the
+more general `openClient(url, { viewport })` that `openPhoneClient` and
+`openWebApp` are both built on, for anything future that needs a third shape.
+
+`terminal-follower` (`TerminalPane.tsx`) is the D5 affordance: it appears in
+the browser exactly when the desktop still has the pane mounted, and the
+spec's whole "the desktop owns the winsize" assertion is watching for it plus
+the daemon's `cols` refusing to move while the browser's own viewport does.

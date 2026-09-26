@@ -10,11 +10,45 @@ import {
 } from "../notifications";
 import { checkForUpdates, quitAndInstall } from "../updater";
 import { openInEditor } from "../editor";
+import { publishRendererBroadcast } from "../renderer-broadcast";
 import type { IpcDeps } from "./types";
 import {
   MAIN_WINDOW_KEYBINDINGS,
   type ForwardedCommandPayload,
 } from "../../src/lib/menu-commands";
+
+/**
+ * The two settings reads the web app needs at boot, lifted out of their
+ * `ipcMain.handle` wrappers so the ADR-178 WebSocket bridge calls the same
+ * code the desktop renderer does. `preferences.set` (below) joined them in
+ * ticket 9; `keybindingsSet`/`reset`/`resetAll` stay desktop-only.
+ */
+export function preferencesGetAll(deps: IpcDeps): unknown {
+  return deps.preferencesManager.getAll();
+}
+
+export function keybindingsGetAll(deps: IpcDeps): Record<string, string> {
+  return deps.keybindingsManager.getAll();
+}
+
+/**
+ * `preferences.set`, lifted the same way, for a `full` device (ADR-178
+ * ticket 9). This was off the slice-1 table for scope, not policy: D3 lets a
+ * `full` device write preferences, so theme, notifications and general
+ * toggles work from a browser instead of rejecting. `keybindings.set` stays
+ * off the table — ticket 6 made that page read-only on web.
+ */
+export function preferencesSet(
+  deps: IpcDeps,
+  key: string,
+  value: unknown,
+): void {
+  assertString(key, "key");
+  deps.preferencesManager.set(
+    key as keyof import("../preferences").AppPreferences,
+    value as never,
+  );
+}
 
 export function register(deps: IpcDeps): void {
   const { backend, preferencesManager, keybindingsManager } = deps;
@@ -118,17 +152,11 @@ export function register(deps: IpcDeps): void {
   });
 
   // ── Preferences ──
-  ipcMain.handle("preferences:getAll", () => {
-    return preferencesManager.getAll();
-  });
+  ipcMain.handle("preferences:getAll", () => preferencesGetAll(deps));
 
-  ipcMain.handle("preferences:set", (_event, key: string, value: unknown) => {
-    assertString(key, "key");
-    preferencesManager.set(
-      key as keyof import("../preferences").AppPreferences,
-      value as never,
-    );
-  });
+  ipcMain.handle("preferences:set", (_event, key: string, value: unknown) =>
+    preferencesSet(deps, key, value),
+  );
 
   ipcMain.handle("preferences:playSound", (_event, soundName: string) => {
     playNotificationSound(soundName);
@@ -169,7 +197,11 @@ export function register(deps: IpcDeps): void {
     },
   );
 
+  // `PreferencesManager.onChange` holds exactly one callback, so this is the
+  // only place a preferences change can be observed — hence the bridge sink
+  // here rather than a second subscription of its own.
   preferencesManager.onChange((prefs) => {
+    publishRendererBroadcast("preferences", "changed", prefs);
     const mw = getMainWindow();
     if (mw && !mw.isDestroyed() && !mw.webContents.isDestroyed()) {
       try {
@@ -181,9 +213,7 @@ export function register(deps: IpcDeps): void {
   });
 
   // ── Keybindings ──
-  ipcMain.handle("keybindings:getAll", () => {
-    return keybindingsManager.getAll();
-  });
+  ipcMain.handle("keybindings:getAll", () => keybindingsGetAll(deps));
 
   ipcMain.handle(
     "keybindings:set",
@@ -206,6 +236,7 @@ export function register(deps: IpcDeps): void {
   // Every window dispatches keybindings (popouts included), so every window
   // needs the edit.
   keybindingsManager.onChange((overrides) => {
+    publishRendererBroadcast("keybindings", "changed", overrides);
     for (const win of deps.getRendererWindows()) {
       if (win.isDestroyed() || win.webContents.isDestroyed()) continue;
       try {

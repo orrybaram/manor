@@ -11,6 +11,7 @@ import type { PreferencesManager } from "./preferences";
 import type { AgentInfo } from "./agent-persistence";
 import type { AgentStatus } from "./terminal-host/types";
 import type { StatCounter, StatsStore } from "./stats-store";
+import { publishRendererBroadcast } from "./renderer-broadcast";
 
 /** Mirrors `PrNotifyEventKind` in `src/utils/pr-notifications.ts`. */
 export type PrNotifyEventKind =
@@ -68,6 +69,13 @@ export function setStatsStore(store: StatsStore | null): void {
  */
 export function sendNotificationsUpdate(mainWindow: BrowserWindow | null): void {
   if (!notificationStore) return;
+  // Browser renderers (ADR-178) hear the same list on the same signal; the
+  // window check below is about `webContents`, and they have none.
+  publishRendererBroadcast(
+    "notifications",
+    "changed",
+    notificationStore.getAll(),
+  );
   if (
     !mainWindow ||
     mainWindow.isDestroyed() ||
@@ -148,6 +156,12 @@ export function sendAgentUpdate(
   agent: AgentInfo,
   preferencesManager: PreferencesManager,
 ): void {
+  publishRendererBroadcast(
+    "agents",
+    "updated",
+    agent,
+    getUnseenFlagsForAgent(agent.id),
+  );
   if (
     mainWindow &&
     !mainWindow.isDestroyed() &&

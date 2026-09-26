@@ -1,6 +1,7 @@
 import type { PrComment, PrInfo } from "../lib/pr-info";
 import type { AppPreferences } from "../electron.d";
 import { useToastStore } from "../store/toast-store";
+import { openExternal } from "../lib/open-external";
 
 export type PrNotifyEventKind =
   | "comment"
@@ -164,7 +165,7 @@ async function notifyPrEvent(
         : "success",
     action: {
       label: "View PR",
-      onClick: () => void window.electronAPI.shell.openExternal(url),
+      onClick: () => openExternal(url),
     },
   });
 }

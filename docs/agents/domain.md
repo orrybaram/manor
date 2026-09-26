@@ -4,7 +4,7 @@ How the engineering skills should consume this repo's domain documentation when 
 
 ## Before exploring, read these
 
-- **`CONTEXT.md`** at the repo root (not yet authored — proceed silently if absent).
+- **`CONTEXT.md`** at the repo root — the project glossary.
 - **`docs/decisions/`** — read ADRs that touch the area you're about to work in. (Note: this repo uses `docs/decisions/`, not the conventional `docs/adr/`.)
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The producer skill (`/grill-with-docs`) creates them lazily when terms or decisions actually get resolved.
@@ -15,7 +15,7 @@ Single-context repo:
 
 ```
 /
-├── CONTEXT.md                    ← not yet authored
+├── CONTEXT.md                    ← project glossary
 ├── docs/decisions/
 │   ├── adr-001-linear-issue-detail-subview/
 │   ├── adr-002-fix-fg-process-detection-hang/

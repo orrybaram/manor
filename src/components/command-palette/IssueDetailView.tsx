@@ -10,6 +10,7 @@ import { IssueDetailSkeleton } from "./IssueDetailSkeleton";
 import type { CommandPaletteProps } from "./types";
 import { Row, Stack } from "../ui/Layout/Layout";
 import { branchesEqual } from "../../utils/branch-name";
+import { openExternal } from "../../lib/open-external";
 import styles from "./CommandPalette.module.css";
 
 type IssueDetailViewProps = {
@@ -95,7 +96,7 @@ export function IssueDetailView(props: IssueDetailViewProps) {
 
   const handleOpenInBrowser = useCallback(
     (issue: LinearIssue) => {
-      window.electronAPI.shell.openExternal(issue.url);
+      openExternal(issue.url);
       onClose();
     },
     [onClose],

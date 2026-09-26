@@ -1,17 +1,23 @@
 /**
- * Serving the ADR-161 phone client off the remote-control listener.
+ * Serving the ADR-161 phone client and the ADR-178 web app off the
+ * remote-control listener.
  *
  * These bytes are the one part of the surface that is served **before**
  * authentication, and that is not an oversight: the pairing token arrives in
  * the URL *fragment*, which browsers never send to the server, so the page has
  * to load first and authenticate from JavaScript afterwards. What is served
- * here is the app shell — HTML, CSS, and a bundle — and no session data, no
+ * here is an app shell — HTML, CSS, and a bundle — and no session data, no
  * device list, and no token. Everything that reads state stays behind the auth
  * pipeline in `server.ts`.
  *
- * The CSP is the other half of that trade: `default-src 'none'` with `'self'`
- * for the bundle means a page holding a bearer token cannot be talked into
- * shipping it anywhere.
+ * Two shells, two directories, two CSPs. The remote client at `/` is the
+ * ADR-161 phone page: `default-src 'none'` with `'self'` for the bundle means
+ * a page holding a bearer token cannot be talked into shipping it anywhere.
+ * The web app at `/app` is the whole desktop renderer (ADR-178 D1) — it needs
+ * `'wasm-unsafe-eval'` for xterm's WASM addons, inline styles for
+ * CSS-in-component patterns already in `src/`, and a same-origin WebSocket for
+ * ticket 4's bridge — so it gets the narrowest policy that lets *that* bundle
+ * run, not the remote client's.
  */
 
 import fs from "node:fs";
@@ -29,6 +35,23 @@ const CSP = [
   "base-uri 'none'",
   "form-action 'none'",
   "frame-ancestors 'none'",
+].join("; ");
+
+/**
+ * The web app's CSP. Looser than the remote client's on purpose — it is the
+ * full desktop renderer, not a 16 KB page — but still locked to same-origin
+ * for everything: no CDN, no third-party script, no cross-origin fetch.
+ * `connect-src 'self'` covers same-origin `ws:`/`wss:` under CSP3 in both
+ * Chrome and Safari, so it does not need to be named separately.
+ */
+const WEB_CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
+  "style-src 'self' 'unsafe-inline'",
+  "connect-src 'self'",
+  "font-src 'self'",
+  "img-src 'self' data:",
+  "worker-src 'self'",
 ].join("; ");
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -49,6 +72,11 @@ export function defaultClientDir(): string | null {
   return typeof __dirname === "string" ? path.join(__dirname, "remote") : null;
 }
 
+/** Where `vite.web.config.ts` puts the built web app, relative to the bundle. */
+export function defaultWebDir(): string | null {
+  return typeof __dirname === "string" ? path.join(__dirname, "web") : null;
+}
+
 /**
  * Serve one static file, or return false so the caller falls through to the
  * authenticated pipeline.
@@ -57,15 +85,12 @@ export function defaultClientDir(): string | null {
  * inside `dir` — a check on the request string would have to anticipate every
  * encoding, and this one cannot be talked around.
  */
-export function serveClientAsset(
+function serveStaticFile(
   res: ServerResponse,
-  pathname: string,
-  dir: string | null,
+  dir: string,
+  relative: string,
+  csp: string,
 ): boolean {
-  if (!dir) return false;
-
-  const relative =
-    pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
   const resolved = path.resolve(dir, relative);
   const root = path.resolve(dir);
   if (resolved !== root && !resolved.startsWith(root + path.sep)) return false;
@@ -82,13 +107,13 @@ export function serveClientAsset(
   res.writeHead(200, {
     "Content-Type":
       CONTENT_TYPES[path.extname(resolved)] ?? "application/octet-stream",
-    "Content-Security-Policy": CSP,
+    "Content-Security-Policy": csp,
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
     // The bundle is content-hashed and may be pinned. The shell and the
     // service worker are not: both are fetched by a stable name, and a phone
-    // holding either for a year would keep running a client this build has
-    // replaced.
+    // (or browser) holding either for a year would keep running a build this
+    // one has replaced.
     "Cache-Control":
       resolved.endsWith(".html") || path.basename(resolved) === "sw.js"
         ? "no-store"
@@ -96,4 +121,36 @@ export function serveClientAsset(
   });
   res.end(contents);
   return true;
+}
+
+/** Serve the ADR-161 remote client, mounted at `/`. */
+export function serveClientAsset(
+  res: ServerResponse,
+  pathname: string,
+  dir: string | null,
+): boolean {
+  if (!dir) return false;
+  const relative =
+    pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
+  return serveStaticFile(res, dir, relative, CSP);
+}
+
+/**
+ * Serve the ADR-178 web app, mounted at `/app`.
+ *
+ * Only called for a pathname that *is* `/app` or starts with `/app/` — see
+ * `server.ts` — so the prefix is always present and is stripped before
+ * resolving against `dir`. `/app` and `/app/` both serve the shell, the way
+ * `/` does for the remote client above; `vite.web.config.ts` names its build
+ * `web.html` rather than `index.html`, so that is the file mapped to.
+ */
+export function serveWebAsset(
+  res: ServerResponse,
+  pathname: string,
+  dir: string | null,
+): boolean {
+  if (!dir) return false;
+  const rest = pathname.slice("/app".length).replace(/^\/+/, "");
+  const relative = rest === "" ? "web.html" : rest;
+  return serveStaticFile(res, dir, relative, WEB_CSP);
 }

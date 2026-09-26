@@ -13,8 +13,14 @@ export default defineConfig({
         vite: {
           build: {
             outDir: "dist-electron",
+            // `ws` joins the native modules here for a different reason than
+            // they are here: it is pure JS and *would* inline, but it reaches
+            // for optional native accelerators (`bufferutil`,
+            // `utf-8-validate`) through `require` in a try/catch, and an
+            // inlined copy turns that miss into a bundler resolution error
+            // (ADR-178 D8).
             rollupOptions: {
-              external: ["node-pty", "tree-kill"],
+              external: ["node-pty", "tree-kill", "ws"],
               output: {
                 format: "cjs",
               },

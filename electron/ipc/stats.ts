@@ -1,4 +1,5 @@
 import { ipcMain } from "electron";
+import { publishRendererBroadcast } from "../renderer-broadcast";
 import type { IpcDeps } from "./types";
 
 /**
@@ -11,6 +12,11 @@ import type { IpcDeps } from "./types";
  */
 export const BROADCAST_DEBOUNCE_MS = 1000;
 
+/** Lifted for the ADR-178 bridge; see `electron/remote-control/ws-handlers.ts`. */
+export function statsGetSummary(deps: IpcDeps): unknown {
+  return deps.statsStore.getSummary();
+}
+
 export function register(deps: IpcDeps): void {
   const { statsStore } = deps;
 
@@ -20,6 +26,7 @@ export function register(deps: IpcDeps): void {
     timer = setTimeout(() => {
       timer = null;
       const summary = statsStore.getSummary();
+      publishRendererBroadcast("stats", "changed", summary);
       for (const win of deps.getRendererWindows()) {
         if (win.isDestroyed() || win.webContents.isDestroyed()) continue;
         try {
@@ -33,7 +40,7 @@ export function register(deps: IpcDeps): void {
 
   statsStore.onChange(scheduleBroadcast);
 
-  ipcMain.handle("stats:getSummary", () => statsStore.getSummary());
+  ipcMain.handle("stats:getSummary", () => statsGetSummary(deps));
 
   ipcMain.handle("stats:reset", () => {
     statsStore.reset();

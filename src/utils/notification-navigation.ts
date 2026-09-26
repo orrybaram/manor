@@ -3,6 +3,7 @@ import { useNotificationStore } from "../store/notification-store";
 import { useAgentStore } from "../store/agent-store";
 import { navigateToAgent } from "./agent-navigation";
 import { requestPaletteView } from "./palette-request";
+import { openExternal } from "../lib/open-external";
 
 /**
  * Resolve a notification to wherever it points. The single destination for
@@ -26,7 +27,7 @@ export async function navigateToNotification(
   if (!target) return;
 
   if (target.type === "url") {
-    await window.electronAPI?.shell.openExternal(target.url);
+    openExternal(target.url);
     return;
   }
 

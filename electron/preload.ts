@@ -55,6 +55,11 @@ const detachedWindowId = detachedArg
 const isDetached = detachedWindowId !== null;
 
 contextBridge.exposeInMainWorld("electronAPI", {
+  // Which implementation of this interface answers (ADR-178 D8). The web
+  // bridge reports "web"; a component that has to hide a native-only action
+  // reads this rather than sniffing the user agent.
+  platform: "electron",
+
   env: {
     isPackaged,
   },
@@ -800,8 +805,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("remoteControl:refreshDetection"),
     setEnabled: (enabled: boolean) =>
       ipcRenderer.invoke("remoteControl:setEnabled", enabled),
-    pair: (label: string, canSend: boolean) =>
-      ipcRenderer.invoke("remoteControl:pair", label, canSend),
+    pair: (label: string, capability: "read" | "send" | "full") =>
+      ipcRenderer.invoke("remoteControl:pair", label, capability),
     revoke: (id: string) => ipcRenderer.invoke("remoteControl:revoke", id),
     startTunnel: (kind?: "tailscale" | "cloudflared") =>
       ipcRenderer.invoke("remoteControl:startTunnel", kind),

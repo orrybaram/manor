@@ -14,7 +14,8 @@ import {
 } from "./keybindings";
 import { cycleRegion, focusRegion } from "./focus-regions";
 import { requestUi } from "../utils/ui-request";
-import type { ForwardedCommandPayload } from "./menu-commands";
+import { commandAvailableOnWeb, type ForwardedCommandPayload } from "./menu-commands";
+import { isWebApp } from "./platform";
 
 /**
  * Keybinding commands that are meaningful in ANY window — the primary window
@@ -109,12 +110,35 @@ export async function startNewAgent(
   useAppStore.getState().addTab(prewarmed?.paneId);
 }
 
+/**
+ * Neutralize a command→action map's Electron-only entries into no-ops when
+ * running as the web app (ADR-178 ticket 6): `dispatchKeybinding` and
+ * `dispatchMenuCommand` both run whatever this returns, including a command a
+ * user has rebound onto a key `NATIVE_ONLY_COMMANDS` never expected — so the
+ * guard sits here, at the one place both dispatchers get their map, rather
+ * than in each command's own body. A command absent from `commandAvailableOnWeb`
+ * has nothing to do on the web (no dialog, no native menu, no detached
+ * window), so it running is a silently-dropped promise rejection waiting to
+ * happen, not a feature to keep working.
+ */
+export function guardHandlersForWeb<
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  T extends Record<string, (...args: any[]) => void>,
+>(handlers: T): T {
+  if (!isWebApp()) return handlers;
+  const guarded: Record<string, (...args: never[]) => void> = { ...handlers };
+  for (const id of Object.keys(guarded)) {
+    if (!commandAvailableOnWeb(id)) guarded[id] = () => {};
+  }
+  return guarded as T;
+}
+
 /** Build the window-agnostic half of the command→action map. */
 export function createSharedKeybindingHandlers(
   { prewarmNewAgent }: { prewarmNewAgent: boolean } = { prewarmNewAgent: false },
 ): Record<string, () => void> {
   const store = () => useAppStore.getState();
-  return {
+  return guardHandlersForWeb({
     "new-tab": () => store().addTab(),
     "new-agent": () => void startNewAgent({ prewarm: prewarmNewAgent }),
     "new-browser": () => store().addBrowserTab("about:blank"),
@@ -212,7 +236,7 @@ export function createSharedKeybindingHandlers(
         () => store().selectTabByGlobalIndex(i),
       ]),
     ),
-  };
+  });
 }
 
 /**

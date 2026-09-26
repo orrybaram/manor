@@ -12,4 +12,4 @@ Five canonical triage roles use default label strings (`needs-triage`, `needs-in
 
 ### Domain docs
 
-Single-context layout. ADRs live at `docs/decisions/` (not `docs/adr/`). `CONTEXT.md` not yet authored. See `docs/agents/domain.md`.
+Single-context layout. ADRs live at `docs/decisions/` (not `docs/adr/`). `CONTEXT.md` at the repo root is the glossary — use its terms. See `docs/agents/domain.md`.

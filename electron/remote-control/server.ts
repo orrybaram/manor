@@ -21,14 +21,18 @@
  *   4. `Origin`/`Host` agreement, as defence in depth only. This is a
  *      browser-enforced control and `curl` does not enforce it, so it is never
  *      the boundary;
- *   5. dispatch against `remoteRouteTable(routes, device.canSend)` — a table
- *      that never contained the dangerous routes in the first place.
+ *   5. dispatch against `remoteRouteTable(routes, device.capability)` — for
+ *      `read` and `send`, a table that never contained the dangerous routes in
+ *      the first place. For `full` (ADR-178 D3) it is the whole table, and
+ *      step 3 is the only boundary there is; every non-GET row is wrapped in
+ *      an audit line instead.
  *
  * It binds `127.0.0.1` even when enabled. Reaching it from outside is the
  * tunnel's job (`./tunnel.ts`), which is a separate, explicit user action.
  */
 
 import http from "node:http";
+import type { Duplex } from "node:stream";
 
 import { routes } from "../routes/index";
 import { dispatch } from "../routes/router";
@@ -40,18 +44,31 @@ import type {
   RouteContext,
 } from "../routes/types";
 import { remoteRouteTable, routeKey } from "./allowlist";
+import type { Capability } from "./devices";
 import { listenerRoutes } from "./listener-routes";
 import { hashText, RemoteAuditLog } from "./audit";
 import type { PushManager } from "./push";
 import { AuthRateLimiter } from "./rate-limit";
 import { SseHub } from "./sse";
-import { defaultClientDir, serveClientAsset } from "./static";
+import {
+  defaultClientDir,
+  defaultWebDir,
+  serveClientAsset,
+  serveWebAsset,
+} from "./static";
+import {
+  BRIDGE_PATH,
+  CLOSE_FORBIDDEN,
+  CLOSE_UNAUTHORIZED,
+  type BridgeAuthResult,
+  type WsBridgeServer,
+} from "./ws-bridge-server";
 
 /** What the listener needs of a device. `RemoteDeviceStore` satisfies it. */
 export interface AuthenticatedDevice {
   id: string;
   label: string;
-  canSend: boolean;
+  capability: Capability;
 }
 
 export interface DeviceVerifier {
@@ -78,10 +95,33 @@ const GUARDED_WRITE_ROUTES = new Set([
   LAUNCH_ROUTE,
 ]);
 
+/**
+ * Reads that happen to be POSTs.
+ *
+ * `guardWrites` decides what to audit by HTTP method, which is right for
+ * ~100 routes and wrong for this one: `POST /sessions/read` returns
+ * scrollback and changes nothing — it is a POST because the pane id and the
+ * line count belong in a body, not because it acts. A `full` device polling
+ * a terminal would otherwise write an audit line per poll, and a trail that
+ * is mostly reads is a trail nobody reads.
+ *
+ * Keep this set tiny and justify each row: everything in it is a non-GET that
+ * a `full` device performs with no record.
+ */
+const READ_ONLY_POSTS = new Set(["POST /sessions/read"]);
+
 const MAX_BODY_BYTES = 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
-/** No allowlisted route uses anything else, so nothing else gets past step 1. */
-const ALLOWED_METHODS = new Set(["GET", "POST"]);
+/**
+ * The three methods `Route` can declare. Anything else is not a route this
+ * machine has, whatever the tier, so it dies at step 1 — before authentication
+ * and before a body is read.
+ *
+ * `DELETE` is here for the `full` tier only (ADR-178). For `read` and `send`
+ * the table still contains no `DELETE` row, so such a request falls through to
+ * a 404: absent, as it always was, rather than the 405 this set used to give.
+ */
+const ALLOWED_METHODS = new Set(["GET", "POST", "DELETE"]);
 
 /**
  * The collaborators that have a sensible default. Named rather than positional
@@ -96,8 +136,20 @@ export interface RemoteControlServerOptions {
    * page at all (tests, and dev before a build).
    */
   clientDir?: string | null;
+  /**
+   * Built web-app directory (ADR-178), served at `/app`. Omit for the
+   * bundled one; pass `null` to serve no page at all (tests, and dev before
+   * a build).
+   */
+  webDir?: string | null;
   /** Null disables push entirely; the client then simply never subscribes. */
   push?: PushManager | null;
+  /**
+   * ADR-178's WebSocket bridge. Null (the default) means `/ws` does not
+   * upgrade at all — the desktop builds one in `app-lifecycle.ts` once
+   * `IpcDeps` exists, which is later than this constructor runs.
+   */
+  bridge?: WsBridgeServer | null;
 }
 
 export class RemoteControlServer {
@@ -108,7 +160,9 @@ export class RemoteControlServer {
   private readonly limiter: AuthRateLimiter;
   private readonly audit: RemoteAuditLog;
   private readonly clientDir: string | null;
+  private readonly webDir: string | null;
   private readonly push: PushManager | null;
+  private bridge: WsBridgeServer | null;
 
   constructor(
     private readonly getDeps: () => ControlDeps,
@@ -121,7 +175,20 @@ export class RemoteControlServer {
     // different thing from "not specified, use the built one".
     this.clientDir =
       options.clientDir === undefined ? defaultClientDir() : options.clientDir;
+    this.webDir =
+      options.webDir === undefined ? defaultWebDir() : options.webDir;
     this.push = options.push ?? null;
+    this.bridge = options.bridge ?? null;
+  }
+
+  /**
+   * Hand over the bridge. Separate from the constructor because `IpcDeps` —
+   * what the bridge's handler table runs against — is assembled after this
+   * server is built, and a lazily-captured reference to a `const` that does
+   * not exist yet is a temporal-dead-zone bug waiting for its first caller.
+   */
+  setBridge(bridge: WsBridgeServer | null): void {
+    this.bridge = bridge;
   }
 
   get running(): boolean {
@@ -132,9 +199,16 @@ export class RemoteControlServer {
     return this.port;
   }
 
-  /** Live SSE connections — the UI's "someone is watching" signal. */
+  /**
+   * Live connections — the UI's "someone is watching" signal.
+   *
+   * Both transports, because the question the settings page is asking is "is
+   * anyone looking at this machine", and a browser on the bridge (ADR-178) is
+   * looking harder than any SSE listener: counting only `hub` showed a paired
+   * laptop with the whole app open as zero watchers.
+   */
   get listenerCount(): number {
-    return this.hub.size;
+    return this.hub.size + (this.bridge?.size ?? 0);
   }
 
   async start(): Promise<{ port: number }> {
@@ -153,6 +227,9 @@ export class RemoteControlServer {
     });
     server.requestTimeout = REQUEST_TIMEOUT_MS;
     server.headersTimeout = REQUEST_TIMEOUT_MS;
+    server.on("upgrade", (req, socket, head) =>
+      this.handleUpgrade(req, socket, head as Buffer),
+    );
 
     this.limiter.start();
 
@@ -172,6 +249,8 @@ export class RemoteControlServer {
   /** Closes the listener *and* every open stream — an SSE socket holds it open. */
   async stop(): Promise<void> {
     this.hub.closeAll();
+    // A bridge socket holds the listener open exactly as an SSE response does.
+    this.bridge?.closeAll();
     this.limiter.stop();
     const server = this.server;
     this.server = null;
@@ -191,6 +270,68 @@ export class RemoteControlServer {
    */
   publishStatus(event: RemoteStatusEvent): void {
     this.hub.broadcast("status", event);
+  }
+
+  /**
+   * The `/ws` upgrade (ADR-178 D8).
+   *
+   * No token is read here, and none is expected: the URL is not a place to
+   * put one. What this does is the *pre*-authentication hygiene an upgrade
+   * still owes — the right path, the `Origin` agreement the HTTP pipeline
+   * makes at step 4 — and then hands the socket to the bridge with a closure
+   * that runs steps 2 and 3 against the first frame. Every other pathname is
+   * destroyed without a response: an upgrade to a path this server does not
+   * have should look like nothing at all.
+   */
+  private handleUpgrade(
+    req: http.IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+  ): void {
+    const bridge = this.bridge;
+    const url = req.url ? new URL(req.url, "http://127.0.0.1") : null;
+    if (!bridge || !url || url.pathname !== BRIDGE_PATH || !originAgrees(req)) {
+      socket.destroy();
+      return;
+    }
+    const source = req.socket.remoteAddress ?? "unknown";
+    bridge.handleUpgrade(req, socket, head, (token) =>
+      this.authenticateBridge(source, token),
+    );
+  }
+
+  /**
+   * Verify a `hello`, in the order the HTTP pipeline verifies a request:
+   * token first, backoff only if the token failed. The reasoning is the same
+   * one `rate-limit.ts` spells out — every caller through a tunnel shares the
+   * `127.0.0.1` bucket, so a backoff someone else earned must never be able
+   * to close a socket holding a valid token.
+   *
+   * The tier check comes last and is a *different* answer: 4403 says the
+   * token is real and this device is not allowed here, which is what lets the
+   * pairing UI tell the user to re-pair at `full` instead of guessing.
+   */
+  private authenticateBridge(
+    source: string,
+    token: unknown,
+  ): BridgeAuthResult {
+    const device = token === undefined ? null : this.devices.verify(token);
+    if (!device) {
+      if (this.limiter.retryAfterMs(source) > 0) {
+        return { ok: false, code: CLOSE_UNAUTHORIZED };
+      }
+      const delay = this.limiter.recordFailure(source);
+      console.warn(
+        `[remote-control] rejected bridge hello from ${source} ` +
+          `(${this.limiter.failureCount(source)} consecutive, backing off ${delay}ms)`,
+      );
+      return { ok: false, code: CLOSE_UNAUTHORIZED };
+    }
+    this.limiter.recordSuccess(source);
+    if (device.capability !== "full") {
+      return { ok: false, code: CLOSE_FORBIDDEN };
+    }
+    return { ok: true, device };
   }
 
   private async handle(
@@ -225,7 +366,7 @@ export class RemoteControlServer {
 
     const url = new URL(req.url, "http://127.0.0.1");
 
-    // ── 1b. The app shell, before auth and on purpose ──
+    // ── 1b. The app shells, before auth and on purpose ──
     // The pairing token rides in the URL fragment, which never reaches the
     // server, so the page has to load unauthenticated and present its token
     // from JavaScript. Only static files are reachable this way; see
@@ -233,6 +374,13 @@ export class RemoteControlServer {
     if (
       method === "GET" &&
       serveClientAsset(res, url.pathname, this.clientDir)
+    ) {
+      return;
+    }
+    if (
+      method === "GET" &&
+      (url.pathname === "/app" || url.pathname.startsWith("/app/")) &&
+      serveWebAsset(res, url.pathname, this.webDir)
     ) {
       return;
     }
@@ -307,7 +455,7 @@ export class RemoteControlServer {
 
     const table = [
       ...listenerRoutes({ device, push: this.push }),
-      ...this.guardWrites(remoteRouteTable(routes, device.canSend), device),
+      ...this.guardWrites(remoteRouteTable(routes, device.capability), device),
     ];
     const ownedPrefixes = new Set(table.map((r) => r.path.split("/")[1]));
 
@@ -337,12 +485,32 @@ export class RemoteControlServer {
    * local MCP path must keep working exactly as it does, so the confirmation
    * and the audit line are remote-only concerns and live here.
    *
-   * This is the *third* gate. The first is the table: a device without
-   * `canSend` never sees these routes at all, so nothing below is what stops
-   * it. `LAUNCH_ROUTE` gets a fourth — the workspace must be one the machine
-   * knows (ADR-177) — because it starts a process rather than typing at one.
+   * For a `send` device this is the *third* gate. The first is the table: a
+   * device without the send capability never sees these routes at all, so
+   * nothing below is what stops it. `LAUNCH_ROUTE` gets a fourth — the
+   * workspace must be one the machine knows (ADR-177) — because it starts a
+   * process rather than typing at one.
+   *
+   * For a `full` device there is no first gate to lean on: `remoteRouteTable`
+   * handed back the whole table. So the rule is the blunt one — every route
+   * whose method is not `GET` gets an audit line, and none of them asks for
+   * `confirmed`. Asking would be theatre: the thing calling these is the
+   * desktop app running in a browser, and its own confirmation dialogs already
+   * stand in front of every destructive action. What is owed instead is a
+   * record, and that is what this writes.
    */
   private guardWrites(table: Route[], device: AuthenticatedDevice): Route[] {
+    if (device.capability === "full") {
+      return table.map((route) =>
+        route.method === "GET" || READ_ONLY_POSTS.has(routeKey(route))
+          ? route
+          : {
+              ...route,
+              handler: (ctx: RouteContext) =>
+                this.fullTierWrite(routeKey(route), route, device, ctx),
+            },
+      );
+    }
     return table.map((route) => {
       const key = routeKey(route);
       return GUARDED_WRITE_ROUTES.has(key)
@@ -353,6 +521,78 @@ export class RemoteControlServer {
           }
         : route;
     });
+  }
+
+  /**
+   * Run a `full` device's write and record that it happened.
+   *
+   * Nothing is refused here — the tier's whole definition is that
+   * authentication was the boundary. The line names the route and what it was
+   * aimed at, and stops there: no text, no hash. Every one of the desktop's
+   * ~100 routes takes a differently shaped body, and an audit log that went
+   * fishing through all of them would eventually land on one carrying a
+   * credential. Only the two field names the remote surface already trusted
+   * (`target`, `workspacePath`) are read, and otherwise the target is whatever
+   * the path itself captured.
+   */
+  private async fullTierWrite(
+    key: string,
+    route: Route,
+    device: AuthenticatedDevice,
+    ctx: RouteContext,
+  ): Promise<void> {
+    const target = await this.fullTierTarget(ctx);
+
+    const line = (outcome: RemoteAuditEntryOutcome, status: number) =>
+      this.audit.append({
+        at: new Date().toISOString(),
+        deviceId: device.id,
+        deviceLabel: device.label,
+        tier: "full",
+        route: key,
+        target,
+        textLength: null,
+        textSha256: null,
+        interrupt: key === INTERRUPT_ROUTE,
+        outcome,
+        status,
+      });
+
+    let status = 0;
+    const json: Json = (s, b) => {
+      status = s;
+      ctx.json(s, b);
+    };
+
+    try {
+      await route.handler({ ...ctx, json });
+    } catch (err) {
+      line("failed", 500);
+      throw err;
+    }
+    line(outcomeFor(status), status);
+  }
+
+  /**
+   * What a `full` device's write was aimed at, for the audit line.
+   *
+   * Body first, path second: `POST /sessions/send` names its target in the
+   * body while `DELETE /panes/:paneId` names it in the path, and the line
+   * should read the same way for both. `readBody()` is memoized by
+   * `makeReadBody`, so the handler below still gets the same parse rather than
+   * a consumed socket — and a body that never arrives or does not parse costs
+   * the line its target, never the request.
+   */
+  private async fullTierTarget(ctx: RouteContext): Promise<string | null> {
+    try {
+      const body = await ctx.readBody();
+      if (typeof body.target === "string") return body.target;
+      if (typeof body.workspacePath === "string") return body.workspacePath;
+    } catch {
+      // Fall through to the path.
+    }
+    const captured = Object.values(ctx.params);
+    return captured.length > 0 ? captured.join("/") : null;
   }
 
   private async guardedWrite(
@@ -395,6 +635,7 @@ export class RemoteControlServer {
         at: new Date().toISOString(),
         deviceId: device.id,
         deviceLabel: device.label,
+        tier: "send",
         route: key,
         target,
         textLength: text === null ? null : text.length,
@@ -444,7 +685,7 @@ export class RemoteControlServer {
       line("failed", 500, "handler threw");
       throw err;
     }
-    line(status === 200 ? "sent" : "rejected", status);
+    line(outcomeFor(status), status);
   }
 
   /**
@@ -489,6 +730,15 @@ export class RemoteControlServer {
 }
 
 type RemoteAuditEntryOutcome = "sent" | "rejected" | "failed";
+
+/**
+ * How a completed handler reads in the trail. 2xx is the whole success range —
+ * the acting routes all answer 200, but a `full` device reaches rows that
+ * answer 201 or 204, and those are not rejections.
+ */
+function outcomeFor(status: number): RemoteAuditEntryOutcome {
+  return status >= 200 && status < 300 ? "sent" : "rejected";
+}
 
 /** The raw bearer token, or null. Never logged by any caller. */
 function bearerToken(req: http.IncomingMessage): string | null {

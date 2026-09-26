@@ -1,6 +1,6 @@
 ---
 title: Carry hostId with paths; one PerHostPoller
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [7]

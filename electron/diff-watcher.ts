@@ -1,6 +1,7 @@
 import type { BrowserWindow } from "electron";
 import { HostUnavailableError } from "./backend/host-view";
 import { PerHostPoller, type HostBackends, type HostPath } from "./per-host-poller";
+import { errorMessage } from "./lib/errors";
 
 export interface DiffStats {
   added: number;
@@ -126,7 +127,7 @@ export class DiffWatcher {
         return { added, removed };
       } catch (err) {
         if (err instanceof HostUnavailableError) throw err;
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errorMessage(err);
         // Directory isn't a git repo at all — ignore it completely and stop
         // scanning it on future ticks.
         if (msg.includes("not a git repository")) {

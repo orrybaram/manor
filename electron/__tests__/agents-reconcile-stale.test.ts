@@ -25,6 +25,7 @@ vi.mock("../ipc-validate", () => ({
 }));
 
 import { register } from "../ipc/agents";
+import { LOCAL_HOST_ID } from "../backend/types";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,12 @@ function makeAgent(
   };
 }
 
+/**
+ * An `IpcDeps`-shaped fixture (ADR-183): every field `ipc/agents.ts`
+ * reaches, including `projectManager`/`backendRegistry`, which
+ * `isAgentHostConnected` always dereferences now — rather than a bag the
+ * handler had to guard against being partial.
+ */
 function makeDeps(overrides: Record<string, unknown> = {}) {
   return {
     agentManager: {
@@ -60,6 +67,12 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
       pty: {
         listSessions: vi.fn().mockResolvedValue([]),
       },
+    },
+    projectManager: {
+      getProjectHostId: vi.fn().mockReturnValue(LOCAL_HOST_ID),
+    },
+    backendRegistry: {
+      status: vi.fn().mockReturnValue("connected"),
     },
     mainWindow: null,
     preferencesManager: {},

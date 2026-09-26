@@ -33,6 +33,7 @@ import { bootstrapHost, type BootstrapHostResult } from "./bootstrap-host";
 import { HookJournal } from "./hook-journal";
 import { HookListener } from "./hook-listener";
 import type { HookJournalEntry } from "./types";
+import { errorMessage } from "../lib/errors";
 
 export interface DaemonPaths {
   dir: string;
@@ -71,10 +72,6 @@ export interface DaemonRole {
 }
 
 type Log = (message: string) => void;
-
-function describe(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 function pathsFor(namespace: DaemonNamespace): DaemonPaths {
   return {
@@ -167,14 +164,14 @@ export function remoteRole(log: Log): DaemonRole {
       try {
         runBootstrap();
       } catch (err) {
-        log(`bootstrap failed: ${describe(err)}`);
+        log(`bootstrap failed: ${errorMessage(err)}`);
       }
       try {
         const opened = new HookJournal(hookJournalFile(), { log });
         opened.open();
         journal = opened;
       } catch (err) {
-        log(`hook journal could not be opened: ${describe(err)}`);
+        log(`hook journal could not be opened: ${errorMessage(err)}`);
         return;
       }
       // Published in the remote namespace's own port file, which every PTY
@@ -186,7 +183,7 @@ export function remoteRole(log: Log): DaemonRole {
         onEntry: (entry) => ctx.onHookEntry(entry),
       });
       startListener().catch((err: unknown) => {
-        log(`hook listener failed to start: ${describe(err)}`);
+        log(`hook listener failed to start: ${errorMessage(err)}`);
       });
     },
     acceptsEnvKey: (key) => !CLIENT_MACHINE_ENV_KEYS.has(key),
@@ -196,7 +193,7 @@ export function remoteRole(log: Log): DaemonRole {
       try {
         await startListener();
       } catch (err) {
-        report.warnings.push(`agent hook listener could not start: ${describe(err)}`);
+        report.warnings.push(`agent hook listener could not start: ${errorMessage(err)}`);
       }
       return report;
     },

@@ -21,6 +21,7 @@ import type { Duplex, Readable, Writable } from "node:stream";
 import { LocalTransport } from "./transport-local";
 import type { HostTransport } from "./transport";
 import type { BridgeHello } from "./types";
+import { errorMessage } from "../lib/errors";
 
 /** The stdio surface the bridge pumps. Injectable so tests do not need real pipes. */
 export interface BridgeIO {
@@ -35,10 +36,6 @@ function isEpipe(err: unknown): boolean {
     typeof err === "object" &&
     (err as { code?: string }).code === "EPIPE"
   );
-}
-
-function describeError(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 /**
@@ -95,7 +92,7 @@ export async function runRemoteBridgeProcess(
     code = await runRemoteBridge(undefined, transport);
   } catch (err) {
     try {
-      process.stderr.write(`[remote-bridge] ${describeError(err)}\n`);
+      process.stderr.write(`[remote-bridge] ${errorMessage(err)}\n`);
     } catch {
       // stderr is gone too.
     }
@@ -122,7 +119,7 @@ function pump(
     io.stdin.once("end", () => resolve());
     io.stdin.once("close", () => resolve());
     io.stdin.on("error", (err) => {
-      if (!isEpipe(err)) log(`stdin error: ${describeError(err)}`);
+      if (!isEpipe(err)) log(`stdin error: ${errorMessage(err)}`);
       resolve();
     });
   });
@@ -130,13 +127,13 @@ function pump(
   const socketToStdout = new Promise<void>((resolve) => {
     socket.once("close", () => resolve());
     socket.on("error", (err) => {
-      if (!isEpipe(err)) log(`socket error: ${describeError(err)}`);
+      if (!isEpipe(err)) log(`socket error: ${errorMessage(err)}`);
       resolve();
     });
   });
 
   io.stdout.on("error", (err) => {
-    if (!isEpipe(err)) log(`stdout error: ${describeError(err)}`);
+    if (!isEpipe(err)) log(`stdout error: ${errorMessage(err)}`);
   });
 
   io.stdin.pipe(socket);

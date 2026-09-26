@@ -37,8 +37,7 @@ function assertRendererAgentUpdate(updates: unknown): asserts updates is Record<
 
 /** Whether the host an agent's project lives on is connected (local always is). */
 function isAgentHostConnected(deps: IpcDeps, projectId: string | null): boolean {
-  // Absent in tests that build a partial deps bag; local-only then.
-  if (!deps.backendRegistry || !projectId) return true;
+  if (!projectId) return true;
   const hostId = deps.projectManager.getProjectHostId(projectId);
   return hostId === LOCAL_HOST_ID || deps.backendRegistry.status(hostId) === "connected";
 }

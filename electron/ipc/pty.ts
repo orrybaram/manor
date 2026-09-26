@@ -5,6 +5,7 @@ import { assertString, assertPositiveInt } from "../ipc-validate";
 import { resolveSpawnCwd } from "../paths";
 import { HostUnavailableError } from "../backend/host-view";
 import { LOCAL_HOST_ID } from "../backend/types";
+import { errorMessage } from "../lib/errors";
 import type { IpcDeps } from "./types";
 
 /**
@@ -96,7 +97,7 @@ export function register(deps: IpcDeps): void {
           hostId: result.hostId,
         };
       } catch (err) {
-        const error = err instanceof Error ? err.message : String(err);
+        const error = errorMessage(err);
         // A registered remote host that is not connected is not a broken
         // terminal (ADR-178 §6): the renderer shows the host's offline
         // banner and creates the pane once the host is back. A remote pty
@@ -191,7 +192,7 @@ export function register(deps: IpcDeps): void {
         console.error(`Failed to reset PTY for ${paneId}:`, err);
         return {
           ok: false,
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
         };
       }
     },

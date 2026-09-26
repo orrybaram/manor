@@ -23,6 +23,7 @@
 
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
+import { errorMessage } from "../lib/errors";
 
 /** Matches `ExecGitBackend.execGit`'s default. */
 export const DEFAULT_EXEC_TIMEOUT_MS = 30000;
@@ -224,7 +225,7 @@ export function runExec(
     } catch (err) {
       resolve({
         stdout: "",
-        stderr: err instanceof Error ? err.message : String(err),
+        stderr: errorMessage(err),
         exitCode: null,
       });
       return;
@@ -331,10 +332,7 @@ export class ExecRunner {
     try {
       child = spawnInGroup(cmd, args, opts);
     } catch (err) {
-      callbacks.onStderr(
-        execId,
-        err instanceof Error ? err.message : String(err),
-      );
+      callbacks.onStderr(execId, errorMessage(err));
       callbacks.onExit(execId, null);
       return;
     }

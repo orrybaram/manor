@@ -25,6 +25,7 @@ import { LocalTransport } from "./transport-local";
 import { ExecRunner, runExec } from "./exec-runner";
 import { createSerializedHandler } from "./control-queue";
 import { localRole, remoteRole, type DaemonRole } from "./daemon-role";
+import { errorMessage } from "../lib/errors";
 
 const daemonVersion = process.env.MANOR_VERSION;
 
@@ -38,10 +39,6 @@ function log(msg: string): void {
   } catch {
     // stderr is gone (see installDaemonSignalHandlers); logging is best-effort.
   }
-}
-
-function describeError(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 // ── Connections ──
@@ -165,7 +162,7 @@ async function handleControlMessage(
         return { type: "created", session };
       } catch (err) {
         log(`Failed to create session ${request.sessionId}: ${err}`);
-        return { type: "error", message: `Create failed: ${describeError(err)}` };
+        return { type: "error", message: `Create failed: ${errorMessage(err)}` };
       }
     }
 
@@ -259,7 +256,7 @@ async function handleControlMessage(
         const contents = await fsReadFile(request.path, "utf-8");
         return { type: "fileContents", contents };
       } catch (err) {
-        return { type: "error", message: `readFile failed: ${describeError(err)}` };
+        return { type: "error", message: `readFile failed: ${errorMessage(err)}` };
       }
     }
 
@@ -272,7 +269,7 @@ async function handleControlMessage(
           ...(warnings.length > 0 ? { warnings } : {}),
         };
       } catch (err) {
-        const message = describeError(err);
+        const message = errorMessage(err);
         log(`bootstrap failed: ${message}`);
         return { type: "error", message };
       }
@@ -427,7 +424,7 @@ function createControlHandler(d: Daemon, conn: Connection): (line: string) => vo
       sendResponse(socket, response, req.requestId);
     },
     (requestId, err) => {
-      const message = describeError(err);
+      const message = errorMessage(err);
       sendResponse(
         socket,
         { type: "error", message: `Internal error: ${message}` },

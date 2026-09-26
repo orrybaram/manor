@@ -1,6 +1,6 @@
 ---
 title: Split persistence.ts into electron/projects/ and use MachineFacts
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [6]

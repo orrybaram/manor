@@ -167,8 +167,6 @@ export interface ActivePort {
   hostname: string | null;
   /** The remote host the port is listening on; absent for this machine. */
   hostId?: string;
-  /** The host's provider can hand out a public URL for it (`previewUrl`). */
-  canCopyPublicUrl?: boolean;
   /**
    * `"::1"` when the port is listened on only at the IPv6 loopback, so a
    * forward must target `[::1]` rather than 127.0.0.1 (ADR-178 §5).

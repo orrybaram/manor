@@ -244,21 +244,6 @@ export function register(deps: IpcDeps): void {
       projectId: string,
       updates: ProjectUpdatableFields,
     ) => {
-      if (updates.hostId !== undefined) {
-        assertString(updates.hostId, "hostId");
-        assertKnownHostId(updates.hostId);
-        const targetHostId = updates.hostId;
-        if (targetHostId !== projectManager.getProjectHostId(projectId)) {
-          // A host change moves the project's path too (ADR-179), so it goes
-          // through `switchHost` rather than a bare field assignment.
-          const { hostId: _hostId, ...rest } = updates;
-          return switchHost(projectId, targetHostId).then((info) =>
-            Object.keys(rest).length > 0
-              ? projectManager.updateProject(projectId, rest)
-              : info,
-          );
-        }
-      }
       return projectManager.updateProject(projectId, updates);
     },
   );

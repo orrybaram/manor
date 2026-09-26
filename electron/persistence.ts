@@ -176,7 +176,6 @@ export interface ProjectInfo {
   setupComplete: boolean;
   /** Whether dev-server ports get `.localhost` preview hostnames. Defaults to true. */
   portlessEnabled: boolean;
-  backendType?: "local" | "remote";
   /**
    * The host this project's paths, git and terminals live on (ADR-160).
    * Always set by `ProjectManager` — `"local"` for every project persisted
@@ -206,7 +205,6 @@ export type ProjectUpdatableFields = Partial<
     | "themeName"
     | "setupComplete"
     | "portlessEnabled"
-    | "hostId"
   >
 >;
 
@@ -240,7 +238,6 @@ interface PersistedProject {
   themeName?: string | null;
   setupComplete?: boolean;
   portlessEnabled?: boolean;
-  backendType?: "local" | "remote";
   /**
    * The host the project lives on. Absent means `"local"`, so files written
    * before ADR-160 load unchanged.
@@ -542,14 +539,6 @@ export class ProjectManager {
     if (!this.hookSeqSaveTimer) return;
     clearTimeout(this.hookSeqSaveTimer);
     this.hookSeqSaveTimer = null;
-    this.saveState();
-  }
-
-  /** Forget a remote host. Projects still pointing at it keep their hostId. */
-  removeHost(hostId: string): void {
-    if (!this.state.hosts?.[hostId]) return;
-    delete this.state.hosts[hostId];
-    this.hostHomeDirs.delete(hostId);
     this.saveState();
   }
 
@@ -1542,10 +1531,6 @@ export class ProjectManager {
       themeName: p.themeName ?? null,
       setupComplete: p.setupComplete ?? true,
       portlessEnabled: p.portlessEnabled ?? true,
-      backendType:
-        (p.hostId ?? LOCAL_HOST_ID) !== LOCAL_HOST_ID
-          ? "remote"
-          : (p.backendType ?? "local"),
       hostId: p.hostId ?? LOCAL_HOST_ID,
       folders,
       sidebarOrder: normalizeSidebarOrder(

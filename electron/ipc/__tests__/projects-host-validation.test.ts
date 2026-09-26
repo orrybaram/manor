@@ -27,45 +27,12 @@ function makeDeps(opts: { currentHostId?: string; pathExists?: boolean } = {}) {
   return { projectManager, backendRegistry, statsStore: { record: vi.fn() } };
 }
 
-describe("projects:update hostId validation", () => {
+describe("projects:update", () => {
   beforeEach(() => {
     handlers.clear();
   });
 
-  it("accepts the local host", () => {
-    const deps = makeDeps();
-    register(deps as never);
-    const handler = handlers.get("projects:update")!;
-    handler(null, "p1", { hostId: LOCAL_HOST_ID });
-    expect(deps.projectManager.updateProject).toHaveBeenCalledWith("p1", {
-      hostId: LOCAL_HOST_ID,
-    });
-  });
-
-  it("accepts a registered remote host", async () => {
-    const deps = makeDeps();
-    register(deps as never);
-    const handler = handlers.get("projects:update")!;
-    await handler(null, "p1", { hostId: "box" });
-    expect(deps.projectManager.switchProjectHost).toHaveBeenCalledWith(
-      "p1",
-      "box",
-      undefined,
-      "me@box",
-    );
-  });
-
-  it("rejects a host id nobody registered", () => {
-    const deps = makeDeps();
-    register(deps as never);
-    const handler = handlers.get("projects:update")!;
-    expect(() => handler(null, "p1", { hostId: "no-such-host" })).toThrow(
-      /Unknown host/,
-    );
-    expect(deps.projectManager.updateProject).not.toHaveBeenCalled();
-  });
-
-  it("leaves other updates untouched when hostId is absent", () => {
+  it("passes updates straight through", () => {
     const deps = makeDeps();
     register(deps as never);
     const handler = handlers.get("projects:update")!;
@@ -73,63 +40,6 @@ describe("projects:update hostId validation", () => {
     expect(deps.projectManager.updateProject).toHaveBeenCalledWith("p1", {
       name: "Renamed",
     });
-  });
-});
-
-describe("projects:update host change (ADR-179)", () => {
-  beforeEach(() => {
-    handlers.clear();
-  });
-
-  it("connects to a remote target and switches through switchProjectHost", async () => {
-    const deps = makeDeps();
-    register(deps as never);
-    await handlers.get("projects:update")!(null, "p1", { hostId: "box" });
-    expect(deps.backendRegistry.ensureConnected).toHaveBeenCalledWith("box");
-    expect(deps.projectManager.switchProjectHost).toHaveBeenCalledWith(
-      "p1",
-      "box",
-      undefined,
-      "me@box",
-    );
-    expect(deps.projectManager.updateProject).not.toHaveBeenCalled();
-  });
-
-  it("applies the other fields after switching", async () => {
-    const deps = makeDeps();
-    register(deps as never);
-    await handlers.get("projects:update")!(null, "p1", { hostId: "box", name: "X" });
-    expect(deps.projectManager.updateProject).toHaveBeenCalledWith("p1", { name: "X" });
-  });
-
-  it("propagates a refused switch without applying anything", async () => {
-    const deps = makeDeps({ pathExists: false });
-    register(deps as never);
-    await expect(
-      handlers.get("projects:update")!(null, "p1", { hostId: "box" }) as Promise<unknown>,
-    ).rejects.toThrow(/does not exist/);
-    expect(deps.projectManager.updateProject).not.toHaveBeenCalled();
-  });
-
-  it('labels the local machine "this Mac" and skips connecting', async () => {
-    const deps = makeDeps({ currentHostId: "box" });
-    register(deps as never);
-    await handlers.get("projects:update")!(null, "p1", { hostId: LOCAL_HOST_ID });
-    expect(deps.backendRegistry.ensureConnected).not.toHaveBeenCalled();
-    expect(deps.projectManager.switchProjectHost).toHaveBeenCalledWith(
-      "p1",
-      LOCAL_HOST_ID,
-      undefined,
-      "this Mac",
-    );
-  });
-
-  it("skips the switch when the host does not change", async () => {
-    const deps = makeDeps({ currentHostId: "box" });
-    register(deps as never);
-    await handlers.get("projects:update")!(null, "p1", { hostId: "box" });
-    expect(deps.projectManager.switchProjectHost).not.toHaveBeenCalled();
-    expect(deps.projectManager.updateProject).toHaveBeenCalled();
   });
 });
 

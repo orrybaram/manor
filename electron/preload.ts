@@ -332,7 +332,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   hosts: {
     list: () => ipcRenderer.invoke("hosts:list"),
     add: (target: string) => ipcRenderer.invoke("hosts:add", target),
-    remove: (hostId: string) => ipcRenderer.invoke("hosts:remove", hostId),
     retryConnect: (hostId: string) =>
       ipcRenderer.invoke("hosts:retryConnect", hostId),
     onStatusChanged: (callback: (hosts: HostStatusInfo[]) => void) =>
@@ -382,8 +381,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("ports:resolveUrl", url, hostId),
     remoteUrl: (url: string, hostId: string) =>
       ipcRenderer.invoke("ports:remoteUrl", url, hostId),
-    publicUrl: (hostId: string, port: number) =>
-      ipcRenderer.invoke("ports:publicUrl", hostId, port),
     onChange: (callback: (ports: unknown[]) => void) =>
       onChannel("ports-changed", callback),
   },

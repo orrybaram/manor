@@ -34,14 +34,6 @@ export function register(deps: IpcDeps): void {
     const proxyPort = portlessManager.proxyPort;
     const routes: { hostname: string; port: number }[] = [];
     for (const port of ports) {
-      const provider = port.hostId
-        ? deps.backendRegistry.provider(port.hostId)
-        : undefined;
-      if (provider?.capabilities.previewUrls && provider.previewUrl) {
-        port.canCopyPublicUrl = true;
-      } else {
-        delete port.canCopyPublicUrl;
-      }
       const meta = workspaceMeta.find((m) => m.path === port.workspacePath);
       // portlessEnabled === false opts the project out — its ports keep the
       // plain `localhost:<port>` URL and contribute no proxy route.
@@ -241,18 +233,6 @@ export function register(deps: IpcDeps): void {
   // but gives up (503) rather than wait forever on an absent host.
   deps.webviewServer.setRemoteUrlResolver((url, hostId) =>
     resolveForHost(url, hostId, NAVIGATE_HOST_WAIT_MS),
-  );
-
-  /** A public URL for a remote port, where its host's provider offers one. */
-  ipcMain.handle(
-    "ports:publicUrl",
-    async (_event, hostId: string, port: number): Promise<string | null> => {
-      assertString(hostId, "hostId");
-      assertPositiveInt(port, "port");
-      const provider = deps.backendRegistry.provider(hostId);
-      if (!provider?.capabilities.previewUrls || !provider.previewUrl) return null;
-      return provider.previewUrl(port);
-    },
   );
 
   ipcMain.handle("ports:killPort", async (_event, pid: number) => {

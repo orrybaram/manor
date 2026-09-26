@@ -63,16 +63,10 @@ describe("SshHostProvider", () => {
     fs.rmSync(baseDir, { recursive: true, force: true });
   });
 
-  it("is an always-on box with no managed capabilities", async () => {
+  it("is an always-on box", () => {
     const provider = makeProvider();
     expect(provider.kind).toBe("ssh");
-    expect(provider.capabilities).toEqual({
-      autoSleep: false,
-      persistsMemory: false,
-      previewUrls: false,
-    });
     expect(provider.transport()).toBe(transport);
-    await expect(provider.ensureUp()).resolves.toBeUndefined();
     expect(spawn).not.toHaveBeenCalled();
   });
 
@@ -186,15 +180,6 @@ describe("SshHostProvider", () => {
     expect(calls).toHaveLength(1);
   });
 
-  it("maps the ControlMaster check to a status", async () => {
-    const provider = makeProvider();
-    await expect(provider.status()).resolves.toBe("unreachable");
-    const { configPath } = transport.managedConfig();
-    await expect(provider.status()).resolves.toBe("up");
-    expect(calls[0]).toEqual(["-F", configPath, "-O", "check", "me@box"]);
-    exitCode = 255;
-    await expect(provider.status()).resolves.toBe("unreachable");
-  });
 });
 
 describe("forwardSpec", () => {

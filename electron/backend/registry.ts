@@ -45,8 +45,7 @@
  * A remote host is built from its spec in two steps (ADR-178 §1): a
  * `HostProvider` (how the box is started and reached), then a backend riding
  * the provider's transport. The registry asks the provider to bring the box
- * up before each explicit connect, and relays the keep-awake hint
- * (`updateBusy`) to it.
+ * up before each explicit connect.
  */
 
 import { errorMessage } from "../lib/errors";
@@ -213,8 +212,6 @@ interface HostEntry {
    * by an explicit `disconnect()` so a poller does not undo it.
    */
   autoConnect: boolean;
-  /** The last keep-awake hint handed to the provider (see `updateBusy`). */
-  busy: boolean;
   /** Null for the local host, and for a backend that cannot replay hooks. */
   hookFeed: HostHookFeed | null;
   /**
@@ -320,8 +317,6 @@ export class BackendRegistry {
     });
     this.add(hostId, spec, provider, backend);
     if (existing) {
-      // Agents on the host did not stop because its spec changed.
-      if (existing.busy) this.updateBusy(hostId, true);
       this.dropBackend(existing);
     }
   }
@@ -431,24 +426,6 @@ export class BackendRegistry {
     await Promise.allSettled(this.remoteHostIds().map((id) => this.disconnect(id)));
   }
 
-  // ── Keep-awake ──
-
-  /**
-   * Whether any agent on `hostId` is working (ADR-178 §1 keep-awake rule).
-   * Handed to the provider's `setBusy` only when it changes, so callers may
-   * report the same value as often as they like. No-op for the local host.
-   */
-  updateBusy(hostId: string, busy: boolean): void {
-    const entry = this.hosts.get(hostId);
-    if (!entry?.provider || entry.busy === busy) return;
-    entry.busy = busy;
-    try {
-      entry.provider.setBusy?.(busy);
-    } catch (err) {
-      console.warn(`[backend-registry] setBusy on ${hostId} failed:`, err);
-    }
-  }
-
   // ── Sessions ──
 
   /** The host a session lives on, if the registry has seen it. */
@@ -524,7 +501,6 @@ export class BackendRegistry {
       connecting: null,
       attempt: 0,
       autoConnect: true,
-      busy: false,
       hookFeed: null,
       resumeToken: 0,
     };
@@ -606,11 +582,6 @@ export class BackendRegistry {
       );
     this.setState(entry, { status: "connecting" });
     try {
-      // Start or resume the box before opening the transport to it.
-      if (entry.provider) {
-        await entry.provider.ensureUp();
-        if (!current()) throw superseded();
-      }
       const version =
         entry.hostId === LOCAL_HOST_ID ? this.version : this.hostVersion();
       await entry.backend.connect(version ? { version } : undefined);

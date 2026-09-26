@@ -22,16 +22,16 @@ describe("updateProject rollback", () => {
     electronAPI.projects = originalProjects;
   });
 
-  it("restores the previous host when main refuses the update", async () => {
+  it("restores the previous value when main refuses the update", async () => {
     electronAPI.projects = {
-      update: vi.fn().mockRejectedValue(new Error("Unknown host")),
+      update: vi.fn().mockRejectedValue(new Error("write failed")),
     };
 
-    const pending = useProjectStore.getState().updateProject("p1", { hostId: "box" });
+    const pending = useProjectStore.getState().updateProject("p1", { name: "renamed" });
     // Optimistic: the UI moves immediately.
-    expect(project().hostId).toBe("box");
-    await expect(pending).rejects.toThrow("Unknown host");
-    expect(project().hostId).toBe("local");
+    expect(project().name).toBe("renamed");
+    await expect(pending).rejects.toThrow("write failed");
+    expect(project().name).toBe("app");
   });
 
   it("does not clobber a newer update that landed meanwhile", async () => {
@@ -45,10 +45,10 @@ describe("updateProject rollback", () => {
         .mockResolvedValueOnce(null),
     };
 
-    const first = useProjectStore.getState().updateProject("p1", { hostId: "box" });
-    await useProjectStore.getState().updateProject("p1", { hostId: "other" });
+    const first = useProjectStore.getState().updateProject("p1", { name: "first" });
+    await useProjectStore.getState().updateProject("p1", { name: "second" });
     reject(new Error("nope"));
     await expect(first).rejects.toThrow("nope");
-    expect(project().hostId).toBe("other");
+    expect(project().name).toBe("second");
   });
 });

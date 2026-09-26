@@ -48,18 +48,6 @@ export function PortBadge(props: PortBadgeProps) {
     [withResolvedUrl],
   );
 
-  const handleCopyPublicUrl = useCallback(() => {
-    if (!hostId) return;
-    window.electronAPI.ports
-      .publicUrl(hostId, port.port)
-      .then((publicUrl) => {
-        if (publicUrl) return window.electronAPI.clipboard.writeText(publicUrl);
-      })
-      .catch((err: unknown) => {
-        console.error("[PortBadge] copy public URL failed:", err);
-      });
-  }, [hostId, port.port]);
-
   const handleKillPort = useCallback(() => {
     window.electronAPI.ports.killPort(port.pid);
   }, [port.pid]);
@@ -150,14 +138,6 @@ export function PortBadge(props: PortBadgeProps) {
           >
             Open in Default Browser
           </ContextMenu.Item>
-          {port.canCopyPublicUrl && (
-            <ContextMenu.Item
-              className={styles.contextMenuItem}
-              onSelect={handleCopyPublicUrl}
-            >
-              Copy Public URL
-            </ContextMenu.Item>
-          )}
           <ContextMenu.Separator className={styles.contextMenuSeparator} />
           <ContextMenu.Item
             className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}

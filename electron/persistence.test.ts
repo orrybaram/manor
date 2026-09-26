@@ -1289,7 +1289,6 @@ describe("ProjectManager hosts (ADR-160)", () => {
 
     const [project] = await mgr.getProjects();
     expect(project.hostId).toBe("local");
-    expect(project.backendType).toBe("local");
     expect(mgr.getProjectHostId("p1")).toBe("local");
     expect(mgr.getHosts()).toEqual([]);
     expect(new Set(resolver.mock.calls.map(([id]) => id))).toEqual(new Set(["local"]));
@@ -1324,7 +1323,6 @@ describe("ProjectManager hosts (ADR-160)", () => {
     ]);
     const [info] = await reloaded.getProjects();
     expect(info.hostId).toBe("box");
-    expect(info.backendType).toBe("remote");
     expect(reloaded.remoteHostIdsInUse()).toEqual(["box"]);
   });
 
@@ -1730,24 +1728,6 @@ describe("ProjectManager host-relative paths (ADR-178)", () => {
     expect(results[0].worktreePath).toBe("/feature");
   });
 
-  it("clears the cached home directory when a host is removed", async () => {
-    const git = fullGit();
-    const shell = fakeShell("/home/remoteuser");
-    const mgr = new ProjectManager(() => git, tmpDir, () => shell);
-    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
-    await mgr.addProject("Remote App", "/srv/app", "box");
-
-    await mgr.getProjects();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(mgr.hostIdForPath("/home/remoteuser/.manor/worktrees/remote-app/feature")).toBe(
-      "box",
-    );
-
-    mgr.removeHost("box");
-    expect(mgr.hostIdForPath("/home/remoteuser/.manor/worktrees/remote-app/feature")).toBe(
-      "local",
-    );
-  });
 });
 
 describe("validateRepoUrl (ADR-178 ticket 5)", () => {

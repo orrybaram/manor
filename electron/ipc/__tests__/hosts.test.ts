@@ -13,7 +13,6 @@ vi.mock("electron", () => ({
 }));
 
 import { register } from "../hosts";
-import { LOCAL_HOST_ID } from "../../backend/types";
 
 function makeDeps() {
   const backendRegistry = {
@@ -33,7 +32,6 @@ function makeDeps() {
   };
   const projectManager = {
     saveHost: vi.fn(),
-    removeHost: vi.fn(),
     remoteHostIdsInUse: vi.fn().mockReturnValue([]),
     getHosts: vi.fn().mockReturnValue([]),
   };
@@ -78,55 +76,6 @@ describe("hosts:add", () => {
     expect(projectManager.saveHost).toHaveBeenCalledWith(result.hostId, result.spec);
     expect(backendRegistry.register).toHaveBeenCalledWith(result.hostId, result.spec);
     expect(backendRegistry.connectInBackground).toHaveBeenCalledWith(result.hostId);
-  });
-});
-
-describe("hosts:remove", () => {
-  beforeEach(() => {
-    handlers.clear();
-    statusListeners.length = 0;
-  });
-
-  it("refuses to remove the local host", async () => {
-    const { deps } = makeDeps();
-    register(deps as never);
-    const handler = handlers.get("hosts:remove")!;
-    await expect(handler(null, LOCAL_HOST_ID)).rejects.toThrow(/cannot be removed/);
-  });
-
-  it("refuses to remove a host a project still uses", async () => {
-    const { deps, projectManager } = makeDeps();
-    projectManager.remoteHostIdsInUse.mockReturnValue(["box"]);
-    register(deps as never);
-    const handler = handlers.get("hosts:remove")!;
-    await expect(handler(null, "box")).rejects.toThrow(/still used by a project/);
-  });
-
-  it("unregisters and forgets a host nothing uses", async () => {
-    const { deps, backendRegistry, projectManager } = makeDeps();
-    register(deps as never);
-    const handler = handlers.get("hosts:remove")!;
-    await handler(null, "box");
-
-    expect(backendRegistry.unregister).toHaveBeenCalledWith("box");
-    expect(projectManager.removeHost).toHaveBeenCalledWith("box");
-  });
-  it("forgets the host before awaiting the registry disconnect", async () => {
-    const { deps, backendRegistry, projectManager } = makeDeps();
-    let finishUnregister!: () => void;
-    backendRegistry.unregister.mockImplementationOnce(
-      () => new Promise<void>((resolve) => (finishUnregister = resolve)),
-    );
-    register(deps as never);
-    const handler = handlers.get("hosts:remove")!;
-    const removing = handler(null, "box") as Promise<void>;
-
-    // Still disconnecting, but the host is already gone from persistence —
-    // a concurrent projects:update can no longer point a project at it.
-    expect(projectManager.removeHost).toHaveBeenCalledWith("box");
-    finishUnregister();
-    await removing;
-    expect(backendRegistry.unregister).toHaveBeenCalledWith("box");
   });
 });
 

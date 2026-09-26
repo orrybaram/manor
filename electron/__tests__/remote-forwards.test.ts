@@ -20,9 +20,6 @@ function fakeProvider(opts: { taken?: Set<number> } = {}) {
   let hold: Promise<void> | null = null;
   const provider = {
     kind: "ssh" as const,
-    capabilities: { autoSleep: false, persistsMemory: false, previewUrls: false },
-    ensureUp: async () => {},
-    status: async () => "up" as const,
     transport: () => {
       throw new Error("not used");
     },

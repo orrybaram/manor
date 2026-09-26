@@ -215,8 +215,6 @@ export interface ActivePort {
   hostname: string | null;
   /** The remote host the port is listening on; absent for this machine. */
   hostId?: string;
-  /** "Copy public URL" is available (the host's provider has `previewUrl`). */
-  canCopyPublicUrl?: boolean;
   /** `"::1"` when listened on only at the IPv6 loopback. */
   loopbackHost?: "::1";
 }
@@ -570,7 +568,6 @@ export interface ElectronAPI {
       hostId: string;
       spec: import("./store/host-store").HostSpec;
     }>;
-    remove: (hostId: string) => Promise<void>;
     retryConnect: (hostId: string) => Promise<void>;
     onStatusChanged: (
       callback: (hosts: import("./store/host-store").HostStatusInfo[]) => void,
@@ -642,8 +639,6 @@ export interface ElectronAPI {
      * unchanged.
      */
     remoteUrl: (url: string, hostId: string) => Promise<string>;
-    /** A public URL for a remote port, or null when its provider has none. */
-    publicUrl: (hostId: string, port: number) => Promise<string | null>;
     onChange: (callback: (ports: ActivePort[]) => void) => () => void;
   };
 

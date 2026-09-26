@@ -43,10 +43,12 @@ type SettingsModalProps = {
   onClose: () => void;
   initialProjectId?: string | null;
   initialPage?: SettingsPageId | null;
+  /** A section to scroll to on open, e.g. `"project-host"`. */
+  initialSection?: string | null;
 };
 
 export function SettingsModal(props: SettingsModalProps) {
-  const { open, onClose, initialProjectId, initialPage } = props;
+  const { open, onClose, initialProjectId, initialPage, initialSection } = props;
 
   const { onCloseAutoFocus: restoreFocusOnClose } = useRestoreFocus(open);
 
@@ -76,7 +78,7 @@ export function SettingsModal(props: SettingsModalProps) {
     setProjectsExpanded(true);
     setQuery("");
     setHighlight(0);
-    setPendingJump(null);
+    setPendingJump(initialSection ? { id: initialSection, nonce: 0 } : null);
   }
   prevOpenRef.current = open;
 

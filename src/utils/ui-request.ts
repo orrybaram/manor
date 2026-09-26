@@ -21,7 +21,9 @@ export type UiRequest =
   | { type: "remove-project"; projectId: string }
   | { type: "open-notifications" }
   | { type: "pane-search"; paneId: string }
-  | { type: "ghosts" };
+  | { type: "ghosts" }
+  /** Open a project's settings, scrolled to `section` (a `data-settings-section` id). */
+  | { type: "open-project-settings"; projectId: string; section?: string };
 
 type Listener = (request: UiRequest) => void;
 

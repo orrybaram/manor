@@ -8,6 +8,7 @@ import type { PickedElementResult } from "../../../electron.d";
 import { onUiRequest } from "../../../utils/ui-request";
 import { isLocalhostHttpUrl } from "../../../lib/hosts";
 import { useHostStore } from "../../../store/host-store";
+import { HostIndicator } from "../../hosts/HostIndicator";
 
 import styles from "./BrowserPane.module.css";
 
@@ -705,6 +706,11 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
             // in electron/ipc/webview.ts; without it the open is blocked before
             // the handler ever runs.
             {...WEBVIEW_ALLOW_POPUPS}
+          />
+          <HostIndicator
+            hostId={remoteHostId}
+            variant="banner"
+            className={styles.hostBanner}
           />
           {waitingForHost ? (
             <div className={styles.emptyState}>

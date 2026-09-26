@@ -3,7 +3,6 @@ import Check from "lucide-react/dist/esm/icons/check";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import GripVertical from "lucide-react/dist/esm/icons/grip-vertical";
-import RotateCw from "lucide-react/dist/esm/icons/rotate-cw";
 import {
   useProjectStore,
   type ProjectInfo,
@@ -11,7 +10,8 @@ import {
 } from "../../store/project-store";
 import { useAppStore } from "../../store/app-store";
 import { useHostStore, selectHost } from "../../store/host-store";
-import { describeHostStatus } from "../../lib/host-status";
+import { useHostDisplay } from "../../hooks/useHostDisplay";
+import { HostIndicator } from "../hosts/HostIndicator";
 import { LOCAL_HOST_ID } from "../../lib/hosts";
 import { useListDrag } from "../../hooks/useListDrag";
 import { useListKeyboardNav } from "../../hooks/useListKeyboardNav";
@@ -24,7 +24,6 @@ import { PROJECT_COLORS } from "../../project-colors";
 import { Input, Textarea } from "../ui/Input";
 import { Switch } from "../ui/Switch/Switch";
 import { Button } from "../ui/Button/Button";
-import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { SearchableSelect } from "../ui/SearchableSelect/SearchableSelect";
 import { ConfirmDialog } from "../ui/ConfirmDialog/ConfirmDialog";
 import { Stack, Row } from "../ui/Layout/Layout";
@@ -275,7 +274,9 @@ type PendingHostChange =
   | { kind: "add"; target: string };
 
 function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  const message = err instanceof Error ? err.message : String(err);
+  // Drop Electron's "Error invoking remote method '…': Error: " wrapper.
+  return message.replace(/^Error invoking remote method '[^']*': (?:\w*Error: )?/, "");
 }
 
 type ProjectHostSectionProps = {
@@ -291,10 +292,9 @@ type ProjectHostSectionProps = {
 function ProjectHostSection(props: ProjectHostSectionProps) {
   const { project } = props;
 
-  const updateProject = useProjectStore((s) => s.updateProject);
+  const switchProjectHost = useProjectStore((s) => s.switchProjectHost);
   const hosts = useHostStore((s) => s.hosts);
   const addHost = useHostStore((s) => s.addHost);
-  const retryConnect = useHostStore((s) => s.retryConnect);
   const hostBusy = useHostStore((s) => s.busy);
   const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
 
@@ -302,6 +302,9 @@ function ProjectHostSection(props: ProjectHostSectionProps) {
   const [targetInput, setTargetInput] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
   const [switchError, setSwitchError] = useState<string | null>(null);
+  const [switchFailedHostId, setSwitchFailedHostId] = useState<string | null>(
+    null,
+  );
   const [pendingChange, setPendingChange] = useState<PendingHostChange | null>(
     null,
   );
@@ -319,11 +322,10 @@ function ProjectHostSection(props: ProjectHostSectionProps) {
   // returns false while disconnected, which would otherwise flash a false
   // "not found" warning. Only trust it once the host reports connected, and
   // re-check whenever that happens (mount, path/host change, reconnect).
+  const hostConnected =
+    currentHostId !== LOCAL_HOST_ID && currentHost?.status === "connected";
   useEffect(() => {
-    if (currentHostId === LOCAL_HOST_ID || currentHost?.status !== "connected") {
-      setPathMissing(false);
-      return;
-    }
+    if (!hostConnected) return;
     let cancelled = false;
     window.electronAPI.projects
       .pathExists(project.id)
@@ -336,7 +338,7 @@ function ProjectHostSection(props: ProjectHostSectionProps) {
     return () => {
       cancelled = true;
     };
-  }, [project.id, project.path, currentHostId, currentHost?.status]);
+  }, [project.id, project.path, hostConnected]);
 
   const options = useMemo(() => {
     const remote = hosts
@@ -349,16 +351,26 @@ function ProjectHostSection(props: ProjectHostSectionProps) {
     ];
   }, [hosts]);
 
+  // Main moves the project's path along with its host — to `path`, or the
+  // path it last had there — and refuses when that path is missing there.
   const switchHost = useCallback(
-    (hostId: string) => {
+    (hostId: string, path?: string) => {
       setSwitchError(null);
-      // The store rolls its optimistic update back if main refuses.
-      updateProject(project.id, { hostId }).catch((err: unknown) => {
+      setSwitchFailedHostId(null);
+      switchProjectHost(project.id, hostId, path).catch((err: unknown) => {
         setSwitchError(errorMessage(err));
+        setSwitchFailedHostId(hostId);
       });
     },
-    [project.id, updateProject],
+    [project.id, switchProjectHost],
   );
+
+  // No remembered local path (e.g. a project moved to a host before paths
+  // were remembered): let the user point it at a checkout on this Mac.
+  const chooseLocalFolder = useCallback(async () => {
+    const selected = await window.electronAPI.dialog.openDirectory();
+    if (selected) switchHost(LOCAL_HOST_ID, selected);
+  }, [switchHost]);
 
   const addAndOpenCloneDialog = useCallback(
     (target: string) => {
@@ -424,7 +436,7 @@ function ProjectHostSection(props: ProjectHostSectionProps) {
     requestHostChange({ kind: "add", target });
   }, [requestHostChange, targetInput]);
 
-  const display = currentHost ? describeHostStatus(currentHost) : null;
+  const display = useHostDisplay(currentHostId);
 
   return (
     <Stack gap="xs">
@@ -437,40 +449,42 @@ function ProjectHostSection(props: ProjectHostSectionProps) {
         maxWidth={320}
       />
       {switchError && (
-        <div className={styles.fieldHint} style={{ color: "var(--red)" }}>
-          Couldn't switch host: {switchError}
-        </div>
-      )}
-      {display && currentHostId !== LOCAL_HOST_ID && (
         <Row gap="xs" align="center">
-          <span
-            className={styles.fieldHint}
-            style={
-              display.tone === "error"
-                ? { color: "var(--red)" }
-                : display.tone === "warn" || display.tone === "pending"
-                  ? { color: "var(--yellow)" }
-                  : undefined
-            }
-          >
-            {display.label}
-            {display.detail ? ` — ${display.detail}` : ""}
+          <span className={styles.fieldHint} style={{ color: "var(--red)" }}>
+            Couldn't switch host: {switchError}
           </span>
-          {(display.tone === "error" || display.tone === "pending") && (
-            <Tooltip label="Retry connecting">
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label="Retry connecting"
-                onClick={() => retryConnect(currentHostId)}
-              >
-                <RotateCw size={12} />
-              </Button>
-            </Tooltip>
+          {switchFailedHostId === LOCAL_HOST_ID && (
+            <Button variant="secondary" size="sm" onClick={chooseLocalFolder}>
+              Choose local folder…
+            </Button>
           )}
         </Row>
       )}
-      {pathMissing && (
+      {display && (
+        <Stack gap="2xs">
+          <Row gap="xs" align="center">
+            <HostIndicator hostId={currentHostId} variant="chip" />
+            {!display.offline && (
+              <span className={styles.fieldHint}>{display.status}</span>
+            )}
+          </Row>
+          {display.detail && (
+            <span
+              className={styles.fieldHint}
+              style={
+                display.tone === "error"
+                  ? { color: "var(--red)" }
+                  : display.tone === "warn"
+                    ? { color: "var(--yellow)" }
+                    : undefined
+              }
+            >
+              {display.detail}
+            </span>
+          )}
+        </Stack>
+      )}
+      {pathMissing && hostConnected && (
         <Row gap="xs" align="center">
           <span className={styles.fieldHint} style={{ color: "var(--yellow)" }}>
             Repository not found on this host
@@ -519,15 +533,15 @@ function ProjectHostSection(props: ProjectHostSectionProps) {
       )}
       <div className={styles.fieldHint}>
         The machine this project's files, git and terminals live on. Moving it
-        does not move existing worktrees or panes.
+        does not move existing worktrees; their tabs close.
       </div>
       <ConfirmDialog
         open={pendingChange !== null}
         title="Switch this project's host?"
         description={
-          "This project has open panes. Switching its host does not move them — " +
-          "existing terminals keep running where they are, and new ones will " +
-          "start on the new host."
+          "This project has open tabs. Switching its host closes them and " +
+          "stops their terminals, including any running agents. New tabs " +
+          "open on the new host."
         }
         confirmLabel={
           pendingChange?.kind === "switch" && pendingChange.hostId === LOCAL_HOST_ID

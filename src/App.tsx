@@ -118,10 +118,12 @@ function App() {
     null,
   );
   const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
+  const [settingsSection, setSettingsSection] = useState<string | null>(null);
   const closeSettings = useCallback(() => {
     setSettingsOpen(false);
     setSettingsProjectId(null);
     setSettingsPage(null);
+    setSettingsSection(null);
     // Revert to the active surface's theme in case settings was previewing a
     // different theme. Home has no project override — it inherits the global
     // theme (null).
@@ -233,10 +235,14 @@ function App() {
   }, []);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const handleOpenFeedback = useCallback(() => setFeedbackOpen(true), []);
-  const handleOpenProjectSettings = useCallback((projectId: string) => {
-    setSettingsProjectId(projectId);
-    setSettingsOpen(true);
-  }, []);
+  const handleOpenProjectSettings = useCallback(
+    (projectId: string, section?: string) => {
+      setSettingsProjectId(projectId);
+      setSettingsSection(section ?? null);
+      setSettingsOpen(true);
+    },
+    [],
+  );
   const handleNewWorkspace = useCallback(
     (opts?: {
       projectId?: string;
@@ -285,8 +291,12 @@ function App() {
     () =>
       onUiRequest((request) => {
         if (request.type === "ghosts") triggerGhosts();
+        // Host indicators (sidebar cloud, status-bar chip) open the host section.
+        if (request.type === "open-project-settings") {
+          handleOpenProjectSettings(request.projectId, request.section);
+        }
       }),
-    [triggerGhosts],
+    [triggerGhosts, handleOpenProjectSettings],
   );
 
   const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
@@ -679,6 +689,7 @@ function App() {
           onClose={closeSettings}
           initialProjectId={settingsProjectId}
           initialPage={settingsPage}
+          initialSection={settingsSection}
         />
         <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
         <AgentsModal

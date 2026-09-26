@@ -107,6 +107,12 @@ export function TabBar(props: TabBarProps) {
     return selectActiveWorkspace(s);
   });
   const tabs = useMemo(() => panel?.tabs ?? [], [panel?.tabs]);
+  const layoutWorkspacePath = useAppStore((s) => workspacePath ?? s.activeWorkspacePath);
+  const projectHostId = useProjectStore(
+    (s) =>
+      s.projects.find((p) => p.workspaces.some((w) => w.path === layoutWorkspacePath))
+        ?.hostId,
+  );
   const selectedTabId = panel?.selectedTabId ?? null;
   const selectTab = useAppStore((s) => s.selectTab);
   const addTab = useAppStore((s) => s.addTab);
@@ -589,6 +595,7 @@ export function TabBar(props: TabBarProps) {
                   key={tab.id}
                   tabId={tab.id}
                   rootNode={tab.rootNode}
+                  projectHostId={projectHostId}
                   isActive={tab.id === selectedTabId}
                   isPinned={isPinned}
                   canClose={true}

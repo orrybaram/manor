@@ -1,6 +1,6 @@
 ---
 title: Split terminal-host client into focused modules
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [3]

@@ -258,7 +258,7 @@ export function initApp(devTitle: string | null): void {
   // path; with none registered everything routes to the local backend.
   const backendRegistry = new BackendRegistry({
     local: new LocalBackend(client),
-    version: app.getVersion(),
+    localVersion: app.getVersion(),
     remoteVersion: manorVersion(),
     // Where each remote host's hook journal was read up to (ADR-178 §2).
     // Only read once hosts are registered, after projectManager exists.
@@ -605,7 +605,7 @@ export function initApp(devTitle: string | null): void {
 
     // Connect to daemon (spawns if needed) — now has MANOR_HOOK_PORT in env
     try {
-      await backend.connect({ version: app.getVersion() });
+      await backend.connect();
     } catch (err) {
       console.error("Failed to connect to terminal host daemon:", err);
     }

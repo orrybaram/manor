@@ -57,7 +57,7 @@ export function register(deps: IpcDeps): void {
   // host, which may have changed since (ADR-160). The renderer badges a tab
   // from this, so a pane that predates a project move keeps its true host.
   const hostOf = (paneId: string): string =>
-    backendRegistry.hostForSession(paneId) ?? LOCAL_HOST_ID;
+    backendRegistry.sessions.ownerOf(paneId) ?? LOCAL_HOST_ID;
 
   /**
    * The remote host `paneId` would run on, when that host is registered but
@@ -66,7 +66,7 @@ export function register(deps: IpcDeps): void {
    */
   const unavailableHostFor = (paneId: string, cwd: string): string | null => {
     const hostId =
-      backendRegistry.hostForSession(paneId) ??
+      backendRegistry.sessions.ownerOf(paneId) ??
       deps.projectManager.hostIdForPath(cwd);
     if (hostId === LOCAL_HOST_ID) return null;
     const status = backendRegistry.status(hostId);

@@ -1,6 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { readFile as fsReadFile } from "node:fs/promises";
 import { promisify } from "node:util";
+import { errorMessage } from "../lib/errors";
 
 export const execFileAsync = promisify(execFile);
 
@@ -64,6 +65,55 @@ export interface Exec {
     },
   ): { cancel: () => void };
   readFile(path: string, encoding: "utf-8"): Promise<string>;
+}
+
+/** How a streamed command (a push, a clone) ended. */
+export interface StreamResult {
+  exitCode: number | null;
+  stderr: string;
+}
+
+/**
+ * The one "synchronous cancel handle over an async precondition" (ADR-183).
+ * Stream methods such as `pushStream` must hand back `{ cancel }` at once,
+ * but some can only start once `pre` settles (a branch lookup, a host gate).
+ *
+ * `start` runs with `pre`'s value and the `done` to report the stream's end
+ * through; `onDone` fires exactly once, whichever way it ends:
+ * - cancelled before `start` ran: at once, as a killed stream reports
+ *   (`exitCode: null`, empty stderr), and `start` never runs;
+ * - `pre` rejected: with its message as stderr;
+ * - otherwise: whenever the started stream calls `done`.
+ * A cancel after `start` is forwarded to the stream's own handle.
+ */
+export function streamAfter<T>(
+  pre: Promise<T>,
+  start: (value: T, done: (result: StreamResult) => void) => { cancel: () => void },
+  onDone: (result: StreamResult) => void,
+): { cancel: () => void } {
+  let finished = false;
+  let handle: { cancel: () => void } | null = null;
+  const done = (result: StreamResult) => {
+    if (finished) return;
+    finished = true;
+    onDone(result);
+  };
+  pre.then(
+    (value) => {
+      if (finished) return;
+      handle = start(value, done);
+    },
+    (err: unknown) => done({ exitCode: null, stderr: errorMessage(err) }),
+  );
+  return {
+    cancel: () => {
+      if (handle) {
+        handle.cancel();
+        return;
+      }
+      done({ exitCode: null, stderr: "" });
+    },
+  };
 }
 
 export const localExec: Exec = {

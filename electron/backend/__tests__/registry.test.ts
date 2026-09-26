@@ -10,8 +10,8 @@ import type {
   ActivePort,
   HostConnectionEvent,
   HostSpec,
+  RemoteHostBackend,
   StreamEvent,
-  WorkspaceBackend,
 } from "../types";
 import { SshAuthError } from "../../terminal-host/ssh-config";
 import type { HostProvider } from "../providers/types";
@@ -41,6 +41,7 @@ function fakeBackend(name: string) {
       }),
       updateEnv: vi.fn(async () => {}),
       relayAgentHook: vi.fn(),
+      replayHooks: vi.fn(async () => ({ entries: [], lastSeq: 0 })),
     },
     git: {
       exec: vi.fn(async () => `${name}-out`),
@@ -64,10 +65,11 @@ function fakeBackend(name: string) {
         if (i >= 0) hostHandlers.splice(i, 1);
       };
     }),
+    retryNow: vi.fn(() => false),
   };
   return {
     raw,
-    backend: raw as unknown as WorkspaceBackend,
+    backend: raw as unknown as RemoteHostBackend,
     stream: (event: StreamEvent) => streamHandler?.(event),
     hostEvent: (event: HostConnectionEvent) => {
       for (const h of hostHandlers) h(event);
@@ -103,7 +105,8 @@ function setup() {
   const warn = new Map<string, (warnings: string[]) => void>();
   const registry = new BackendRegistry({
     local: local.backend,
-    version: "1.2.3",
+    localVersion: "1.2.3",
+    remoteVersion: "0.1.0",
     createProvider: (hostId, _spec: HostSpec, opts) => {
       const provider = fakeProvider();
       providers.set(hostId, provider);
@@ -143,13 +146,13 @@ describe("BackendRegistry", () => {
     expect(registry.status("local")).toBe("connected");
   });
 
-  it("hands remote hosts remoteVersion, and local the app version, even after setVersion", async () => {
+  it("hands remote hosts remoteVersion, and local the app version", async () => {
     const local = fakeBackend("local");
     let remote: ReturnType<typeof fakeBackend> | undefined;
     let createdWith: string | undefined;
     const registry = new BackendRegistry({
       local: local.backend,
-      version: "35.7.5",
+      localVersion: "35.7.6",
       remoteVersion: "0.13.2",
       createProvider: () => fakeProvider() as unknown as HostProvider,
       createRemote: (hostId, _spec: HostSpec, opts) => {
@@ -158,7 +161,6 @@ describe("BackendRegistry", () => {
         return remote.backend;
       },
     });
-    registry.setVersion("35.7.6");
     registry.register("box", box);
     await registry.ensureConnected("box");
     await registry.ensureConnected("local");
@@ -209,7 +211,7 @@ describe("BackendRegistry", () => {
     const remote = remotes.get("box")!;
     remote.hostEvent({ type: "hostDisconnected", sessionIds: ["pane-a"], retryInMs: 1000 });
     expect(registry.list()[1]).toMatchObject({ status: "reconnecting", retryInMs: 1000 });
-    expect(registry.hostForSession("pane-a")).toBe("box");
+    expect(registry.sessions.ownerOf("pane-a")).toBe("box");
 
     remote.hostEvent({ type: "hostReconnected", sessionIds: ["pane-a"] });
     expect(registry.status("box")).toBe("connected");
@@ -419,7 +421,7 @@ describe("BackendRegistry", () => {
       ["box", { type: "data", sessionId: "pane-r", data: "hi" }],
       ["local", { type: "data", sessionId: "pane-l", data: "yo" }],
     ]);
-    expect(registry.hostForSession("pane-r")).toBe("box");
+    expect(registry.sessions.ownerOf("pane-r")).toBe("box");
   });
 
   it("ignores a replaced host's old backend", async () => {
@@ -543,7 +545,7 @@ describe("RoutedBackend", () => {
       "pane-l",
       "pane-r",
     ]);
-    expect(registry.hostForSession("pane-r")).toBe("box");
+    expect(registry.sessions.ownerOf("pane-r")).toBe("box");
 
     remote.raw.pty.listSessions.mockRejectedValueOnce(new Error("ssh died"));
     expect((await backend.pty.listSessions()).map((s) => s.sessionId)).toEqual(["pane-l"]);
@@ -575,7 +577,11 @@ describe("RoutedBackend", () => {
 
   it("with only the local host, passes every call straight to it", async () => {
     const local = fakeBackend("local");
-    const registry = new BackendRegistry({ local: local.backend });
+    const registry = new BackendRegistry({
+      local: local.backend,
+      localVersion: "1.2.3",
+      remoteVersion: "0.1.0",
+    });
     const backend = new RoutedBackend(registry, () => "local");
     await backend.pty.createOrAttach("pane-1", "/anywhere", 80, 24);
     await backend.ports.scan(["/a", "/b"]);
@@ -600,6 +606,8 @@ describe("BackendRegistry — remote agent hooks (ADR-178 §2)", () => {
     const seqs = new Map<string, number>([["box", 0]]);
     const registry = new BackendRegistry({
       local: local.backend,
+      localVersion: "1.2.3",
+      remoteVersion: "0.1.0",
       createProvider: () => fakeProvider() as unknown as HostProvider,
       createRemote: () => remote.backend,
       hookSeqStore: {
@@ -668,6 +676,8 @@ describe("BackendRegistry — remote agent hooks (ADR-178 §2)", () => {
     });
     const registry = new BackendRegistry({
       local: local.backend,
+      localVersion: "1.2.3",
+      remoteVersion: "0.1.0",
       createProvider: () => fakeProvider() as unknown as HostProvider,
       createRemote: () => remote.backend,
       hookSeqStore: { get: () => ({ seq: 0, epoch: null }), set: () => {} },
@@ -680,7 +690,7 @@ describe("BackendRegistry — remote agent hooks (ADR-178 §2)", () => {
     registry.register("box", box);
 
     // A fresh launch: nothing has been created or attached on the box yet.
-    expect(registry.hostForSession("pane-remote")).toBeUndefined();
+    expect(registry.sessions.ownerOf("pane-remote")).toBeUndefined();
     await registry.ensureConnected("box");
     await vi.waitFor(() => expect(remote.raw.pty.relayAgentHook).toHaveBeenCalled());
 
@@ -708,13 +718,13 @@ describe("BackendRegistry — away and back (ADR-178 §6)", () => {
     registry.onEvent(listener);
     remotes.get("box")!.stream({ type: "data", sessionId: "pane-a", data: "x" });
     remotes.get("box")!.stream({ type: "exit", sessionId: "pane-a", exitCode: -1, lost: true });
-    expect(registry.hostForSession("pane-a")).toBe("box");
+    expect(registry.sessions.ownerOf("pane-a")).toBe("box");
     // Still published: renderer-side listeners still need to hear it.
     expect(listener).toHaveBeenLastCalledWith("box", expect.objectContaining({ lost: true }));
 
     remotes.get("box")!.stream({ type: "data", sessionId: "pane-b", data: "x" });
     remotes.get("box")!.stream({ type: "exit", sessionId: "pane-b", exitCode: 0 });
-    expect(registry.hostForSession("pane-b")).toBeUndefined();
+    expect(registry.sessions.ownerOf("pane-b")).toBeUndefined();
   });
 
   function resumeSetup() {
@@ -732,6 +742,8 @@ describe("BackendRegistry — away and back (ADR-178 §6)", () => {
     });
     const registry = new BackendRegistry({
       local: local.backend,
+      localVersion: "1.2.3",
+      remoteVersion: "0.1.0",
       createProvider: () => fakeProvider() as unknown as HostProvider,
       createRemote: () => remote.backend,
       hookSeqStore: { get: () => ({ seq: 0, epoch: null }), set: () => {} },

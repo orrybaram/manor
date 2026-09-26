@@ -1,6 +1,6 @@
 import type { TerminalHostClient } from "../terminal-host/client";
 import type {
-  PtyBackend,
+  HookJournalPtyBackend,
   StreamEventHandler,
 } from "./types";
 import type {
@@ -11,7 +11,7 @@ import type {
   HookReplay,
 } from "../terminal-host/types";
 
-export class LocalPtyBackend implements PtyBackend {
+export class LocalPtyBackend implements HookJournalPtyBackend {
   private client: TerminalHostClient;
 
   constructor(client: TerminalHostClient) {
@@ -78,11 +78,11 @@ export class LocalPtyBackend implements PtyBackend {
     this.client.relayAgentHook(sessionId, status, kind);
   }
 
-  /** The daemon's hook journal after `sinceSeq` (see `PtyBackend.replayHooks`). */
+  /** The daemon's hook journal after `sinceSeq` (see `HookJournalPtyBackend.replayHooks`). */
   async replayHooks(
     sinceSeq: number,
     opts?: { headOnly?: boolean },
-  ): Promise<HookReplay | null> {
+  ): Promise<HookReplay> {
     return this.client.replayHooks(sinceSeq, opts);
   }
 

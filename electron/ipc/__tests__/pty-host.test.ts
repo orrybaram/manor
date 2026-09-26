@@ -19,7 +19,7 @@ function setup(sessionHosts: Record<string, string>) {
     },
   };
   const backendRegistry = {
-    hostForSession: vi.fn((id: string) => sessionHosts[id]),
+    sessions: { ownerOf: vi.fn((id: string) => sessionHosts[id]) },
   };
   register({ backend, backendRegistry } as never);
   return handlers.get("pty:create")!;
@@ -55,7 +55,7 @@ describe("pty:create on a remote host that is not connected (ADR-178 §6)", () =
       },
     };
     const backendRegistry = {
-      hostForSession: vi.fn((id: string) => opts.sessionHosts?.[id]),
+      sessions: { ownerOf: vi.fn((id: string) => opts.sessionHosts?.[id]) },
       status: vi.fn(() => opts.status),
     };
     const projectManager = { hostIdForPath: vi.fn(() => opts.pathHost) };

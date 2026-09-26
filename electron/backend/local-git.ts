@@ -1,7 +1,7 @@
 import path from "node:path";
 import { errorMessage } from "../lib/errors";
 import type { GitBackend, WorktreeInfo } from "./types";
-import { localExec, type Exec, type ExecError } from "./exec";
+import { localExec, streamAfter, type Exec, type ExecError, type StreamResult } from "./exec";
 
 export class LocalGitBackend implements GitBackend {
   constructor(private readonly execImpl: Exec = localExec) {}
@@ -83,85 +83,71 @@ export class LocalGitBackend implements GitBackend {
     opts: { remote?: string; branch?: string; setUpstream?: boolean },
     callbacks: {
       onLine: (line: string) => void;
-      onDone: (result: { exitCode: number | null; stderr: string }) => void;
+      onDone: (result: StreamResult) => void;
     },
   ): { cancel: () => void } {
-    // `pushStream` must hand back its cancel handle synchronously, but
-    // resolving the branch is a command like any other and must go through
-    // the injected Exec (for a remote host it runs on the remote). So the
-    // handle is bound lazily: cancel before the push starts just means the
-    // push never starts; cancel after forwards to the push's own handle.
-    let cancelled = false;
-    let finished = false;
-    let pushHandle: { cancel: () => void } | null = null;
-
-    const done = (result: { exitCode: number | null; stderr: string }) => {
-      if (finished) return;
-      finished = true;
-      callbacks.onDone(result);
+    const push = (branch: string, onDone: (result: StreamResult) => void) => {
+      const args: string[] = ["push"];
+      if (opts.setUpstream) args.push("--set-upstream");
+      args.push(opts.remote ?? "origin", branch);
+      // Push progress is newline-terminated.
+      return this.gitProgressStream(args, cwd, /\n/, callbacks.onLine, onDone);
     };
-
-    const start = (resolvedBranch: string) => {
-      if (finished) return;
-      pushHandle = this.startPush(cwd, opts, resolvedBranch, callbacks.onLine, done);
-    };
-
-    if (opts.branch) {
-      start(opts.branch);
-    } else {
-      this.execImpl
-        .file("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-          cwd,
-          timeout: 10000,
-        })
-        .then(
-          ({ stdout }) => {
-            if (cancelled) return;
-            start(stdout.trim());
-          },
-          (err: unknown) => {
-            if (cancelled) return;
-            done({ exitCode: null, stderr: errorMessage(err) });
-          },
-        );
-    }
-
-    return {
-      cancel: () => {
-        if (pushHandle) {
-          pushHandle.cancel();
-          return;
-        }
-        if (cancelled || finished) return;
-        cancelled = true;
-        // Nothing was spawned; report it the way a killed push reports.
-        done({ exitCode: null, stderr: "" });
-      },
-    };
+    if (opts.branch) return push(opts.branch, callbacks.onDone);
+    // Resolving the branch is a command like any other and must go through
+    // the injected Exec (for a remote host it runs on the remote).
+    const branch = this.execImpl
+      .file("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd, timeout: 10000 })
+      .then(({ stdout }) => stdout.trim());
+    return streamAfter(branch, push, callbacks.onDone);
   }
 
-  private startPush(
-    cwd: string,
-    opts: { remote?: string; setUpstream?: boolean },
-    resolvedBranch: string,
-    onLine: (line: string) => void,
-    onDone: (result: { exitCode: number | null; stderr: string }) => void,
+  cloneStream(
+    repoUrl: string,
+    targetDir: string,
+    callbacks: {
+      onLine: (line: string) => void;
+      onDone: (result: StreamResult) => void;
+    },
   ): { cancel: () => void } {
-    const args: string[] = ["push"];
-    if (opts.setUpstream) args.push("--set-upstream");
-    args.push(opts.remote ?? "origin");
-    args.push(resolvedBranch);
+    // git's clone progress uses `\r` to redraw a line in place, not `\n` —
+    // split on either so "Receiving objects: NN%" updates are delivered as
+    // they come instead of buffered until the phase changes.
+    return this.gitProgressStream(
+      ["clone", "--progress", "--", repoUrl, targetDir],
+      undefined,
+      /\r\n|\r|\n/,
+      (line) => {
+        if (line.length > 0) callbacks.onLine(line);
+      },
+      callbacks.onDone,
+    );
+  }
 
+  /**
+   * Run a git command whose progress goes to stderr, handing each line
+   * (split on `splitRe`) to `onLine` as it comes and the trailing partial
+   * line before `onDone`. A command that never ran (e.g. git missing)
+   * reports its reason as the whole of stderr, not as a progress line.
+   */
+  private gitProgressStream(
+    args: string[],
+    cwd: string | undefined,
+    splitRe: RegExp,
+    onLine: (line: string) => void,
+    onDone: (result: StreamResult) => void,
+  ): { cancel: () => void } {
     let pending = "";
     let stderrFull = "";
     let exited = false;
-
     return this.execImpl.stream(
       "git",
       args,
       {
-        cwd,
-        // Overrides only — the Exec merges them onto its own base env.
+        ...(cwd !== undefined ? { cwd } : {}),
+        // Overrides only — the Exec merges them onto its own base env. A
+        // missing credential must fail fast rather than hang waiting for a
+        // prompt Manor cannot answer (ADR-178 §4).
         env: {
           GIT_TERMINAL_PROMPT: "0",
           GIT_ASKPASS: "/bin/true",
@@ -171,19 +157,15 @@ export class LocalGitBackend implements GitBackend {
         onStderr: (chunk: string) => {
           stderrFull += chunk;
           pending += chunk;
-          const parts = pending.split("\n");
+          const parts = pending.split(splitRe);
           // Last element is the trailing partial line (possibly empty).
           pending = parts.pop() ?? "";
-          for (const line of parts) {
-            onLine(line);
-          }
+          for (const line of parts) onLine(line);
         },
         onExit: ({ exitCode, error }) => {
           if (exited) return;
           exited = true;
           if (error !== undefined) {
-            // The push never ran (e.g. git missing): report the reason as the
-            // whole of stderr, without flushing it as a progress line.
             onDone({ exitCode: null, stderr: error });
             return;
           }
@@ -192,61 +174,6 @@ export class LocalGitBackend implements GitBackend {
             pending = "";
           }
           onDone({ exitCode, stderr: stderrFull });
-        },
-      },
-    );
-  }
-
-  cloneStream(
-    repoUrl: string,
-    targetDir: string,
-    callbacks: {
-      onLine: (line: string) => void;
-      onDone: (result: { exitCode: number | null; stderr: string }) => void;
-    },
-  ): { cancel: () => void } {
-    let pending = "";
-    let stderrFull = "";
-    let exited = false;
-
-    return this.execImpl.stream(
-      "git",
-      ["clone", "--progress", "--", repoUrl, targetDir],
-      {
-        // Overrides only — the Exec merges them onto its own base env.
-        // A missing credential must fail fast rather than hang waiting for
-        // a prompt Manor cannot answer (ADR-178 §4).
-        env: {
-          GIT_TERMINAL_PROMPT: "0",
-          GIT_ASKPASS: "/bin/true",
-        },
-      },
-      {
-        onStderr: (chunk: string) => {
-          stderrFull += chunk;
-          pending += chunk;
-          // git's clone progress uses `\r` to redraw a line in place, not
-          // `\n` — split on either so "Receiving objects: NN%" updates are
-          // delivered as they come instead of buffered until the newline
-          // that never arrives until the phase changes.
-          const parts = pending.split(/\r\n|\r|\n/);
-          pending = parts.pop() ?? "";
-          for (const line of parts) {
-            if (line.length > 0) callbacks.onLine(line);
-          }
-        },
-        onExit: ({ exitCode, error }) => {
-          if (exited) return;
-          exited = true;
-          if (error !== undefined) {
-            callbacks.onDone({ exitCode: null, stderr: error });
-            return;
-          }
-          if (pending.length > 0) {
-            callbacks.onLine(pending);
-            pending = "";
-          }
-          callbacks.onDone({ exitCode, stderr: stderrFull });
         },
       },
     );

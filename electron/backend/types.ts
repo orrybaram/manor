@@ -63,17 +63,15 @@ export interface PtyBackend {
     status: AgentStatus,
     kind: AgentKind,
   ): void;
+}
+
+/** A remote host's pty backend: its daemon journals agent hooks (ADR-178 §2). */
+export interface HookJournalPtyBackend extends PtyBackend {
   /**
-   * The host daemon's hook journal after `sinceSeq` (ADR-178 §2); `null`
-   * when the daemon has no journal. Optional: only
-   * a remote host's hooks are journaled, and the registry calls this only
-   * for remote hosts. `headOnly` returns the journal's position with no
-   * entries.
+   * The host daemon's hook journal after `sinceSeq`. `headOnly` returns the
+   * journal's position with no entries.
    */
-  replayHooks?(
-    sinceSeq: number,
-    opts?: { headOnly?: boolean },
-  ): Promise<HookReplay | null>;
+  replayHooks(sinceSeq: number, opts?: { headOnly?: boolean }): Promise<HookReplay>;
 }
 
 // ── Git Backend ──
@@ -106,7 +104,7 @@ export interface GitBackend {
    * `targetDir` must not exist yet, or must be empty — the caller checks
    * that before calling. `onLine` gets each progress line git writes to
    * stderr during a clone; mirrors `pushStream`'s shape so both stream
-   * through the same gate in `BackendRegistry`.
+   * through the same gate in the registry's host view.
    */
   cloneStream(
     repoUrl: string,
@@ -255,6 +253,14 @@ export interface WorkspaceBackend {
 
   connect(opts?: { version?: string }): Promise<void>;
   disconnect(): Promise<void>;
+}
+
+/**
+ * A remote host's backend (ADR-160): it reconnects by itself and reports how
+ * that goes, and its daemon journals the host's agent hooks.
+ */
+export interface RemoteHostBackend extends WorkspaceBackend {
+  readonly pty: HookJournalPtyBackend;
 
   /**
    * Observe loss and recovery of the host connection (see
@@ -264,8 +270,7 @@ export interface WorkspaceBackend {
 
   /**
    * While reconnecting on its own: attempt now instead of waiting out the
-   * backoff. Returns false if there is no wait to cut short. Optional — a
-   * backend that does not reconnect by itself has nothing to hurry.
+   * backoff. Returns false if there is no wait to cut short.
    */
-  retryNow?(): boolean;
+  retryNow(): boolean;
 }

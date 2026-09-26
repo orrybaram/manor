@@ -24,11 +24,12 @@ import { LocalShellBackend, execShellHost } from "./local-shell";
 import { LocalPortsBackend, execPortsHost } from "./local-ports";
 import { createRemoteExec } from "./remote-exec";
 import { RemoteBootstrapError } from "./remote-bootstrap";
+import { Emitter } from "./emitter";
 import type {
   HostConnectionEvent,
   HostConnectionEventHandler,
   HostFailure,
-  WorkspaceBackend,
+  RemoteHostBackend,
 } from "./types";
 
 const RECONNECT_BASE_MS = 1_000;
@@ -79,7 +80,7 @@ export interface RemoteBackendOptions {
   reconnectDelayMs?: ReconnectPolicy;
 }
 
-export class RemoteBackend implements WorkspaceBackend {
+export class RemoteBackend implements RemoteHostBackend {
   readonly pty: LocalPtyBackend;
   readonly git: LocalGitBackend;
   readonly shell: LocalShellBackend;
@@ -92,7 +93,9 @@ export class RemoteBackend implements WorkspaceBackend {
   private readonly onBootstrapWarning?: (warnings: string[]) => void;
   /** The `disconnect()` in progress, which a `connect()` must wait out. */
   private disconnecting: Promise<void> | null = null;
-  private readonly hostEventHandlers = new Set<HostConnectionEventHandler>();
+  private readonly hostEvents = new Emitter<[HostConnectionEvent]>(
+    "[remote-backend] host event handler",
+  );
 
   constructor(opts: RemoteBackendOptions) {
     this.target = opts.target;
@@ -169,10 +172,7 @@ export class RemoteBackend implements WorkspaceBackend {
   }
 
   onHostEvent(handler: HostConnectionEventHandler): () => void {
-    this.hostEventHandlers.add(handler);
-    return () => {
-      this.hostEventHandlers.delete(handler);
-    };
+    return this.hostEvents.on(handler);
   }
 
   /** "Retry now": skip the rest of the reconnect loop's current wait. */
@@ -200,12 +200,6 @@ export class RemoteBackend implements WorkspaceBackend {
   }
 
   private emitHostEvent(event: HostConnectionEvent): void {
-    for (const handler of this.hostEventHandlers) {
-      try {
-        handler(event);
-      } catch (err) {
-        console.error("[remote-backend] host event handler threw:", err);
-      }
-    }
+    this.hostEvents.emit(event);
   }
 }

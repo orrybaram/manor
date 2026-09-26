@@ -27,7 +27,6 @@ function entries(from: number, to: number): HookJournalEntry[] {
   return out;
 }
 
-type ReplayResult = HookReplay | null;
 type ReplayOpts = { headOnly?: boolean };
 
 /** A replay source whose answers the test releases by hand. */
@@ -35,12 +34,12 @@ function deferredReplay() {
   const calls: Array<{
     sinceSeq: number;
     opts?: ReplayOpts;
-    resolve: (r: ReplayResult) => void;
+    resolve: (r: HookReplay) => void;
     reject: (e: Error) => void;
   }> = [];
   const replay = vi.fn(
     (sinceSeq: number, opts?: ReplayOpts) =>
-      new Promise<ReplayResult>((resolve, reject) => {
+      new Promise<HookReplay>((resolve, reject) => {
         calls.push({ sinceSeq, opts, resolve, reject });
       }),
   );
@@ -70,7 +69,7 @@ function makeFeed(opts: {
   /** Omit for a journal met before at seq 0; null for first contact. */
   lastSeq?: number | null;
   epoch?: string | null;
-  replay: (s: number, o?: ReplayOpts) => Promise<ReplayResult>;
+  replay: (s: number, o?: ReplayOpts) => Promise<HookReplay>;
   sink?: HookSink | null;
   retryDelayMs?: (a: number) => number;
   beforeCatchUp?: () => Promise<void>;
@@ -271,8 +270,7 @@ describe("HostHookFeed", () => {
     // Live hooks racing the head request: older ones are history, newer are not.
     feed.onLiveEvent(40, payload(40));
     feed.onLiveEvent(41, payload(41));
-    // A daemon that predates headOnly sends the whole journal anyway.
-    calls[0].resolve({ entries: entries(1, 40), lastSeq: 40, epoch: "e1" });
+    calls[0].resolve({ entries: [], lastSeq: 40, epoch: "e1" });
     await flush();
 
     expect(rec.tags()).toEqual([41]);
@@ -283,17 +281,6 @@ describe("HostHookFeed", () => {
     feed.pause();
     feed.catchUp();
     expect(calls[1]).toMatchObject({ sinceSeq: 41, opts: undefined });
-  });
-
-  it("stays on first contact when the daemon has no journal", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    const { replay, calls } = deferredReplay();
-    const rec = recordingSink();
-    const { feed, store } = makeFeed({ lastSeq: null, replay, sink: rec.sink });
-    feed.catchUp();
-    calls[0].resolve(null);
-    await flush();
-    expect(store.get(HOST)).toBeNull();
   });
 
   it("replays a recreated journal from the start even once it has passed lastHookSeq", async () => {
@@ -312,18 +299,6 @@ describe("HostHookFeed", () => {
     await flush();
     expect(rec.tags()).toEqual([1, 2, 3, 4, 5]);
     expect(store.get(HOST)).toEqual({ seq: 5, epoch: "new" });
-  });
-
-  it("adopts the journal's epoch when the stored cursor predates epochs", async () => {
-    const { replay, calls } = deferredReplay();
-    const rec = recordingSink();
-    const { feed, store } = makeFeed({ lastSeq: 2, replay, sink: rec.sink });
-    feed.catchUp();
-    calls[0].resolve({ entries: entries(3, 3), lastSeq: 3, epoch: "e1" });
-    await flush();
-    expect(calls).toHaveLength(1);
-    expect(rec.tags()).toEqual([3]);
-    expect(store.get(HOST)).toEqual({ seq: 3, epoch: "e1" });
   });
 
   it("runs beforeCatchUp before each replay, and replays even if it fails", async () => {

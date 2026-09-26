@@ -63,18 +63,19 @@ export class RoutedBackend implements WorkspaceBackend {
     private readonly registry: BackendRegistry,
     private readonly hostForPath: HostForPath,
   ) {
+    const { sessions } = registry;
     const local = () => registry.get(LOCAL_HOST_ID);
     const bySession = (sessionId: string) =>
-      registry.get(registry.hostForSession(sessionId) ?? LOCAL_HOST_ID).pty;
+      registry.get(sessions.ownerOf(sessionId) ?? LOCAL_HOST_ID).pty;
     const byPath = (cwd: string) => registry.get(hostForPath(cwd));
 
     this.pty = {
       createOrAttach: async (sessionId, cwd, cols, rows, shellArgs, env) => {
-        const hostId = registry.hostForSession(sessionId) ?? hostForPath(cwd);
+        const hostId = sessions.ownerOf(sessionId) ?? hostForPath(cwd);
         const result = await registry
           .get(hostId)
           .pty.createOrAttach(sessionId, cwd, cols, rows, shellArgs, env);
-        registry.noteSession(sessionId, hostId);
+        sessions.claim(sessionId, hostId);
         return result;
       },
       write: (sessionId, data) => bySession(sessionId).write(sessionId, data),
@@ -82,15 +83,15 @@ export class RoutedBackend implements WorkspaceBackend {
         bySession(sessionId).resize(sessionId, cols, rows),
       kill: async (sessionId) => {
         await bySession(sessionId).kill(sessionId);
-        registry.forgetSession(sessionId);
+        sessions.release(sessionId);
       },
       detach: (sessionId) => bySession(sessionId).detach(sessionId),
       getSnapshot: (sessionId) => bySession(sessionId).getSnapshot(sessionId),
       listSessions: () =>
         this.acrossHosts(async (hostId, backend) => {
-          const sessions = await backend.pty.listSessions();
-          for (const s of sessions) registry.noteSession(s.sessionId, hostId);
-          return sessions;
+          const listed = await backend.pty.listSessions();
+          for (const s of listed) sessions.claim(s.sessionId, hostId);
+          return listed;
         }).then((lists): SessionInfo[] => lists.flat()),
       disposeDead: async () => {
         await this.acrossHosts((_hostId, backend) => backend.pty.disposeDead());
@@ -152,8 +153,8 @@ export class RoutedBackend implements WorkspaceBackend {
     };
   }
 
-  connect(opts?: { version?: string }): Promise<void> {
-    if (opts?.version) this.registry.setVersion(opts.version);
+  /** Connect the local host; remote ones connect on their own (see the registry). */
+  connect(): Promise<void> {
     return this.registry.ensureConnected(LOCAL_HOST_ID);
   }
 

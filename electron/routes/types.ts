@@ -23,6 +23,29 @@ import type { PortScanner } from "../ports";
 import type { RemoteControlController } from "../remote-control/controller";
 import type { AgentHookServer } from "../agent-hooks";
 
+/** One buffered `console-message` from a webview's `WebContents`. */
+export interface ConsoleEntry {
+  timestamp: string;
+  level: "log" | "warn" | "error" | "info";
+  message: string;
+}
+
+/**
+ * Pane→`WebContents` resolution and buffered console logs, owned by
+ * `WebviewServer` (ADR-183). Structural, like `webviewServer` below, so
+ * `routes/` keeps no import edge back to its host module.
+ */
+export interface WebviewPaneAccess {
+  /** paneId → webContentsId, for `GET /webviews`. */
+  registry: ReadonlyMap<string, number>;
+  /** The pane's live `WebContents`, or why it can't be reached. */
+  getWebContents(
+    paneId: string,
+  ): { wc: Electron.WebContents } | { error: string; status: number };
+  /** Buffered `console-message` entries per pane, oldest first. */
+  consoleLogs: ReadonlyMap<string, ConsoleEntry[]>;
+}
+
 export interface ControlDeps {
   projectManager: ProjectManager | null;
   githubManager: GitHubManager | null;
@@ -44,6 +67,15 @@ export interface ControlDeps {
    * host module.
    */
   webviewServer: { serverPort: number | null } | null;
+  /** Pane inspection routes' access to `WebviewServer`'s pane registry. */
+  webviewPanes: WebviewPaneAccess | null;
+  /**
+   * The URL to actually load for a `navigate` in `paneId`'s webview: itself,
+   * or rewritten through the pane's host's port forward for a remote
+   * workspace (ADR-178 §5, ADR-183). Main-owned so `navigate` never races a
+   * setter installed as a side effect of another module's registration.
+   */
+  resolvePaneUrl: ((paneId: string, url: string) => Promise<string>) | null;
   getRendererWindows: (() => BrowserWindow[]) | null;
 }
 

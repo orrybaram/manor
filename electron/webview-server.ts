@@ -4,83 +4,47 @@
  *
  * Follows the same lifecycle pattern as AgentHookServer in agent-hooks.ts.
  * Listens on 127.0.0.1 only with a random port, written to a port file.
+ *
+ * Every route this server answers — including `/webviews`, `/recordings` and
+ * `/webview/:id/*`, once handled inline here — now lives in
+ * `electron/routes/webview.ts`, part of the same table `electron/routes/`
+ * dispatches for every other Manor-control route (ADR-183). This class keeps
+ * only what a route handler cannot own itself: the HTTP listener's lifecycle,
+ * console-message capture, and the pane→`WebContents` lookup those routes
+ * reach through `ControlDeps.webviewPanes`.
  */
 
 import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { webContents } from "electron";
-import { PICKER_SCRIPT } from "./picker-script";
-import { SYMBOLICATION_SCRIPT } from "./sourcemap-symbolication";
 import { webviewServerPortFile } from "./paths";
 import { handleControlRequest } from "./routes";
-import {
-  recordingManager,
-  startRendererRecording,
-  stopRecording,
-  getPaneRendererWebContents,
-} from "./ipc/webview";
-import type { StartRecordingResult } from "./recording-manager";
 import type { ProjectManager } from "./persistence";
 import type { GitHubManager } from "./github";
 import type { LinearManager } from "./linear";
 import type { LayoutPersistence } from "./terminal-host/layout-persistence";
 import type { AgentManager } from "./agent-persistence";
 import type { WorkspaceBackend } from "./backend/types";
-import type { ControlDeps } from "./routes/types";
-
-interface ConsoleEntry {
-  timestamp: string;
-  level: "log" | "warn" | "error" | "info";
-  message: string;
-}
+import type { ControlDeps, ConsoleEntry } from "./routes/types";
 
 const MAX_CONSOLE_ENTRIES = 200;
-
-/**
- * How long `/webview/:id/record/stop` waits for the renderer to confirm its
- * `MediaRecorder` flushed. Longer than `stopRendererRecording`'s 5s default —
- * flushing a large trailing chunk to a slow disk can take a moment, and this
- * is an explicit agent-initiated stop, not a background teardown.
- */
-const RECORD_STOP_TIMEOUT_MS = 15_000;
-
-/** Capture a cropped region of the webview, clamped to viewport bounds. */
-async function captureElementRegion(
-  wc: Electron.WebContents,
-  boundingBox: { x: number; y: number; width: number; height: number },
-): Promise<string> {
-  // Multiply by zoom factor for correct capture region
-  const zoomFactor = wc.getZoomFactor();
-
-  const rawX = boundingBox.x * zoomFactor;
-  const rawY = boundingBox.y * zoomFactor;
-  const rawW = boundingBox.width * zoomFactor;
-  const rawH = boundingBox.height * zoomFactor;
-
-  // Clamp origin to non-negative values
-  const x = Math.max(0, Math.round(rawX));
-  const y = Math.max(0, Math.round(rawY));
-  const width = Math.max(1, Math.round(rawW));
-  const height = Math.max(1, Math.round(rawH));
-
-  const image = await wc.capturePage({ x, y, width, height });
-  return image.toPNG().toString("base64");
-}
 
 const PORT_FILE = webviewServerPortFile();
 
 export class WebviewServer {
   private server: http.Server | null = null;
   private port = 0;
-  private registry: Map<string, number>; // paneId → webContentsId
+  /** paneId → webContentsId. Part of `ControlDeps.webviewPanes` (ADR-183). */
+  readonly registry: Map<string, number>;
   private projectManager: ProjectManager | null;
   private githubManager: GitHubManager | null;
   private linearManager: LinearManager | null;
   private layoutPersistence: LayoutPersistence | null;
   private agentManager: AgentManager | null;
   private backend: WorkspaceBackend | null;
-  private consoleLogs: Map<string, ConsoleEntry[]> = new Map();
+  /** paneId → buffered console entries. Part of `ControlDeps.webviewPanes`. */
+  readonly consoleLogs: Map<string, ConsoleEntry[]> = new Map();
   private consoleListeners: Map<string, () => void> = new Map(); // paneId → cleanup fn
   /**
    * The full manager bag routes need (ADR-171), set once via
@@ -90,11 +54,6 @@ export class WebviewServer {
    * `WebviewServer` (no setter call) keep working.
    */
   private controlDeps: Partial<ControlDeps> = {};
-  /** paneId → the remote host its workspace lives on (ADR-178 §5). */
-  private paneHosts = new Map<string, string>();
-  /** Maps a URL opened in a remote host's context to the one to load. */
-  private remoteUrlResolver: ((url: string, hostId: string) => Promise<string>) | null =
-    null;
 
   constructor(
     registry: Map<string, number>,
@@ -125,32 +84,6 @@ export class WebviewServer {
    */
   setControlDeps(deps: Partial<ControlDeps>): void {
     this.controlDeps = deps;
-  }
-
-  /**
-   * Record which remote host `paneId`'s workspace lives on — null for this
-   * machine — so a `navigate` to a remote dev server's `localhost:<port>`
-   * goes through its port forward.
-   */
-  setPaneHost(paneId: string, hostId: string | null): void {
-    if (hostId) this.paneHosts.set(paneId, hostId);
-    else this.paneHosts.delete(paneId);
-  }
-
-  /** Install the resolver `navigate` applies to a remote pane's URL. */
-  setRemoteUrlResolver(resolver: (url: string, hostId: string) => Promise<string>): void {
-    this.remoteUrlResolver = resolver;
-  }
-
-  /**
-   * The URL `navigate` loads for `url` in `paneId`: rewritten through the
-   * resolver for a pane of a remote workspace, as is otherwise. Rejects
-   * when the remote host cannot be reached in time.
-   */
-  async resolveNavigateUrl(paneId: string, url: string): Promise<string> {
-    const hostId = this.paneHosts.get(paneId);
-    if (!hostId || !this.remoteUrlResolver) return url;
-    return this.remoteUrlResolver(url, hostId);
   }
 
   /** Start the HTTP server on a random port */
@@ -252,8 +185,12 @@ export class WebviewServer {
     this.consoleLogs.delete(paneId);
   }
 
-  /** Look up and validate webContents for a paneId */
-  private getWebContents(
+  /**
+   * Look up and validate webContents for a paneId. Part of
+   * `ControlDeps.webviewPanes` (ADR-183): every `/webview/:paneId/*` route
+   * in `electron/routes/webview.ts` resolves through this.
+   */
+  getWebContents(
     paneId: string,
   ): { wc: Electron.WebContents } | { error: string; status: number } {
     const wcId = this.registry.get(paneId);
@@ -307,7 +244,7 @@ export class WebviewServer {
       });
     };
 
-    // ── Manor-control routes (/projects…, /agents) ──
+    // ── Manor-control routes (/projects…, /agents, /webview/:id/*…) ──
     //
     // The six constructor fields are the fallback; `this.controlDeps` (set
     // via `setControlDeps`) wins where both are present, and carries the
@@ -331,6 +268,8 @@ export class WebviewServer {
           // Always us: the server answering the request is the one
           // `GET /processes` has to report a port for.
           webviewServer: this,
+          webviewPanes: this,
+          resolvePaneUrl: null,
           getRendererWindows: null,
           ...this.controlDeps,
         },
@@ -343,673 +282,7 @@ export class WebviewServer {
       return;
     }
 
-    // ── GET /webviews ──
-    if (method === "GET" && url.pathname === "/webviews") {
-      const result: Array<{ paneId: string; url: string; title: string }> = [];
-      for (const [paneId] of this.registry) {
-        const lookup = this.getWebContents(paneId);
-        if ("wc" in lookup) {
-          result.push({
-            paneId,
-            url: lookup.wc.getURL(),
-            title: lookup.wc.getTitle(),
-          });
-        }
-      }
-      json(200, result);
-      return;
-    }
-
-    // ── GET /recordings ──
-    if (method === "GET" && url.pathname === "/recordings") {
-      json(200, recordingManager.list());
-      return;
-    }
-
-    // ── Route: /webview/:id/* ──
-    const webviewMatch = url.pathname.match(/^\/webview\/([^/]+)(?:\/(.*))?$/);
-    if (!webviewMatch) {
-      res.writeHead(404);
-      res.end();
-      return;
-    }
-
-    const paneId = decodeURIComponent(webviewMatch[1]);
-    const action = webviewMatch[2] ?? "";
-
-    const lookup = this.getWebContents(paneId);
-    if ("error" in lookup) {
-      json(lookup.status, { error: lookup.error });
-      return;
-    }
-    const { wc } = lookup;
-
-    try {
-      // ── POST /webview/:id/screenshot ──
-      if (method === "POST" && action === "screenshot") {
-        const image = await wc.capturePage();
-        json(200, { image: image.toPNG().toString("base64") });
-        return;
-      }
-
-      // ── POST /webview/:id/record/start ──
-      if (method === "POST" && action === "record/start") {
-        const body = await readBody();
-        const savePath = typeof body.path === "string" ? body.path : undefined;
-        const maxDurationSec =
-          typeof body.maxDurationSec === "number"
-            ? body.maxDurationSec
-            : undefined;
-        const keyframeIntervalSec =
-          typeof body.keyframeIntervalSec === "number"
-            ? body.keyframeIntervalSec
-            : undefined;
-
-        const rendererWc = getPaneRendererWebContents(paneId);
-        if (!rendererWc) {
-          json(503, {
-            error: "No renderer window is currently hosting this pane",
-          });
-          return;
-        }
-        const mediaSourceId = wc.getMediaSourceId(rendererWc);
-
-        let started: StartRecordingResult;
-        try {
-          started = recordingManager.start({
-            paneId,
-            path: savePath,
-            maxDurationSec,
-            keyframeIntervalSec,
-            capture: () =>
-              wc
-                .capturePage()
-                .then((image) => image.toPNG().toString("base64")),
-          });
-        } catch (err) {
-          json(409, {
-            error: String(err instanceof Error ? err.message : err),
-          });
-          return;
-        }
-
-        const renderResult = await startRendererRecording(
-          started.recordingId,
-          paneId,
-          mediaSourceId,
-        );
-        if (!renderResult.ok) {
-          // Roll back: a registered recording with no MediaRecorder behind it
-          // would sit collecting keyframes and never produce video.
-          await recordingManager.stop(started.recordingId);
-          fs.promises.unlink(started.path).catch(() => {
-            // Best-effort: the stream may not have flushed anything yet.
-          });
-          json(500, { error: renderResult.error });
-          return;
-        }
-
-        // Chromium throttles rendering for hidden/occluded contents, so a
-        // pane that is not the one currently in view may capture stalled or
-        // black frames.
-        const warning = rendererWc.isFocused()
-          ? undefined
-          : "Pane's window is not focused; capture may stall or produce black frames while backgrounded.";
-
-        json(200, {
-          recordingId: started.recordingId,
-          path: started.path,
-          ...(warning ? { warning } : {}),
-        });
-        return;
-      }
-
-      // ── POST /webview/:id/record/stop ──
-      if (method === "POST" && action === "record/stop") {
-        const body = await readBody();
-        const recordingId =
-          typeof body.recordingId === "string"
-            ? body.recordingId
-            : recordingManager.list().find((r) => r.paneId === paneId)
-                ?.recordingId;
-
-        if (!recordingId) {
-          json(404, { error: "No active recording for this pane" });
-          return;
-        }
-
-        const result = await stopRecording(recordingId, RECORD_STOP_TIMEOUT_MS);
-        if (!result) {
-          json(404, { error: `Unknown recordingId: ${recordingId}` });
-          return;
-        }
-
-        json(200, {
-          path: result.path,
-          durationMs: result.durationMs,
-          bytes: result.bytes,
-          keyframes: result.keyframes,
-          ...(result.alreadyStopped ? { alreadyStopped: true } : {}),
-        });
-        return;
-      }
-
-      // ── POST /webview/:id/execute-js ──
-      if (method === "POST" && action === "execute-js") {
-        const body = await readBody();
-        const code = body.code;
-        if (typeof code !== "string") {
-          json(400, { error: "Missing 'code' string in request body" });
-          return;
-        }
-        try {
-          const result = await wc.executeJavaScript(code);
-          json(200, { result });
-        } catch (err) {
-          json(400, { error: String(err) });
-        }
-        return;
-      }
-
-      // ── POST /webview/:id/dom ──
-      if (method === "POST" && action === "dom") {
-        const script = `
-          (function() {
-            function walk(node, depth) {
-              if (depth > 15) return '';
-              if (node.nodeType === 3) {
-                var text = node.textContent.trim();
-                return text ? text.slice(0, 200) : '';
-              }
-              if (node.nodeType !== 1) return '';
-              var tag = node.tagName.toLowerCase();
-              if (tag === 'script' || tag === 'style' || tag === 'svg') return '';
-              var attrs = '';
-              if (node.id) attrs += ' id="' + node.id + '"';
-              if (node.className && typeof node.className === 'string')
-                attrs += ' class="' + node.className.split(/\\s+/).slice(0, 5).join(' ') + '"';
-              var role = node.getAttribute('role');
-              if (role) attrs += ' role="' + role + '"';
-              var ariaLabel = node.getAttribute('aria-label');
-              if (ariaLabel) attrs += ' aria-label="' + ariaLabel + '"';
-              var href = node.getAttribute('href');
-              if (href) attrs += ' href="' + href.slice(0, 100) + '"';
-              var children = '';
-              for (var i = 0; i < node.childNodes.length; i++) {
-                children += walk(node.childNodes[i], depth + 1);
-              }
-              return '<' + tag + attrs + '>' + children + '</' + tag + '>';
-            }
-            return walk(document.body, 0);
-          })()
-        `;
-        const html = await wc.executeJavaScript(script);
-        json(200, { html });
-        return;
-      }
-
-      // ── POST /webview/:id/click ──
-      if (method === "POST" && action === "click") {
-        const body = await readBody();
-        let x: number;
-        let y: number;
-
-        if (typeof body.selector === "string") {
-          const rect = await wc.executeJavaScript(`
-            (function() {
-              var el = document.querySelector(${JSON.stringify(body.selector)});
-              if (!el) return null;
-              var r = el.getBoundingClientRect();
-              return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-            })()
-          `);
-          if (!rect) {
-            json(404, { error: "Element not found for selector" });
-            return;
-          }
-          x = Math.round(rect.x);
-          y = Math.round(rect.y);
-        } else if (typeof body.x === "number" && typeof body.y === "number") {
-          x = body.x;
-          y = body.y;
-        } else {
-          json(400, { error: "Provide 'selector' or 'x'/'y' coordinates" });
-          return;
-        }
-
-        wc.sendInputEvent({ type: "mouseDown", x, y, button: "left" });
-        wc.sendInputEvent({ type: "mouseUp", x, y, button: "left" });
-        json(200, { ok: true });
-        return;
-      }
-
-      // ── POST /webview/:id/type ──
-      if (method === "POST" && action === "type") {
-        const body = await readBody();
-        const text = body.text;
-        if (typeof text !== "string") {
-          json(400, { error: "Missing 'text' string in request body" });
-          return;
-        }
-
-        // If selector provided, click the element first
-        if (typeof body.selector === "string") {
-          const rect = await wc.executeJavaScript(`
-            (function() {
-              var el = document.querySelector(${JSON.stringify(body.selector)});
-              if (!el) return null;
-              var r = el.getBoundingClientRect();
-              return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-            })()
-          `);
-          if (!rect) {
-            json(404, { error: "Element not found for selector" });
-            return;
-          }
-          const cx = Math.round(rect.x);
-          const cy = Math.round(rect.y);
-          wc.sendInputEvent({
-            type: "mouseDown",
-            x: cx,
-            y: cy,
-            button: "left",
-          });
-          wc.sendInputEvent({ type: "mouseUp", x: cx, y: cy, button: "left" });
-        }
-
-        // Type each character
-        for (const char of text) {
-          wc.sendInputEvent({ type: "char", keyCode: char });
-        }
-        json(200, { ok: true });
-        return;
-      }
-
-      // ── POST /webview/:id/navigate ──
-      if (method === "POST" && action === "navigate") {
-        const body = await readBody();
-        const navUrl = body.url;
-        if (typeof navUrl !== "string") {
-          json(400, { error: "Missing 'url' string in request body" });
-          return;
-        }
-        let target: string;
-        try {
-          target = await this.resolveNavigateUrl(paneId, navUrl);
-        } catch (err) {
-          json(503, { error: err instanceof Error ? err.message : String(err) });
-          return;
-        }
-        await wc.loadURL(target);
-        json(200, { ok: true });
-        return;
-      }
-
-      // ── POST /webview/:id/zoom-in | zoom-out | zoom-reset ──
-      //
-      // Same clamps as the `webview:zoom-*` IPC handlers: Chromium's zoom
-      // level is logarithmic, so +/-0.5 is one notch and the bounds are the
-      // ones the zoom menu enforces.
-      if (method === "POST" && action === "zoom-in") {
-        wc.setZoomLevel(Math.min(wc.getZoomLevel() + 0.5, 5));
-        json(200, { zoomLevel: wc.getZoomLevel() });
-        return;
-      }
-
-      if (method === "POST" && action === "zoom-out") {
-        wc.setZoomLevel(Math.max(wc.getZoomLevel() - 0.5, -3));
-        json(200, { zoomLevel: wc.getZoomLevel() });
-        return;
-      }
-
-      if (method === "POST" && action === "zoom-reset") {
-        wc.setZoomLevel(0);
-        json(200, { zoomLevel: wc.getZoomLevel() });
-        return;
-      }
-
-      // ── POST /webview/:id/find ──
-      //
-      // Fire-and-forget, like the IPC handler: `findInPage` reports matches
-      // through a `found-in-page` event on the webview, which the renderer's
-      // find bar owns. This only drives the search.
-      if (method === "POST" && action === "find") {
-        const body = await readBody();
-        const query = body.query;
-        if (typeof query !== "string" || !query) {
-          json(400, { error: "Missing 'query' string in request body" });
-          return;
-        }
-        const options: Electron.FindInPageOptions = {};
-        if (typeof body.forward === "boolean") options.forward = body.forward;
-        if (typeof body.findNext === "boolean")
-          options.findNext = body.findNext;
-        wc.findInPage(query, options);
-        json(200, { ok: true });
-        return;
-      }
-
-      // ── POST /webview/:id/stop-find ──
-      if (method === "POST" && action === "stop-find") {
-        wc.stopFindInPage("clearSelection");
-        json(200, { ok: true });
-        return;
-      }
-
-      // ── POST /webview/:id/mute ──
-      if (method === "POST" && action === "mute") {
-        const body = await readBody();
-        if (typeof body.muted !== "boolean") {
-          json(400, { error: "Missing 'muted' boolean in request body" });
-          return;
-        }
-        wc.setAudioMuted(body.muted);
-        json(200, { muted: body.muted });
-        return;
-      }
-
-      // ── POST /webview/:id/stop ──
-      if (method === "POST" && action === "stop") {
-        wc.stop();
-        json(200, { ok: true });
-        return;
-      }
-
-      // ── GET /webview/:id/console-logs ──
-      if (method === "GET" && action === "console-logs") {
-        const entries = this.consoleLogs.get(paneId) ?? [];
-        json(200, entries);
-        return;
-      }
-
-      // ── GET /webview/:id/url ──
-      if (method === "GET" && action === "url") {
-        json(200, { url: wc.getURL() });
-        return;
-      }
-
-      // ── POST /webview/:id/pick-element ──
-      if (method === "POST" && action === "pick-element") {
-        const PICK_TIMEOUT_MS = 30_000;
-
-        const result = await new Promise<unknown>((resolve, reject) => {
-          let settled = false;
-
-          const timer = setTimeout(() => {
-            if (settled) return;
-            settled = true;
-            wc.off("console-message", listener);
-            reject(new Error("pick-element timed out after 30s"));
-          }, PICK_TIMEOUT_MS);
-
-          const listener = (
-            _event: Electron.Event,
-            _level: number,
-            message: string,
-          ) => {
-            if (settled) return;
-
-            if (message.startsWith("__MANOR_PICK__:")) {
-              settled = true;
-              clearTimeout(timer);
-              wc.off("console-message", listener);
-              try {
-                resolve(JSON.parse(message.slice("__MANOR_PICK__:".length)));
-              } catch {
-                reject(new Error("Failed to parse pick result JSON"));
-              }
-            } else if (message === "__MANOR_PICK_CANCEL__") {
-              settled = true;
-              clearTimeout(timer);
-              wc.off("console-message", listener);
-              resolve({ cancelled: true });
-            }
-          };
-
-          wc.on("console-message", listener);
-
-          // Inject the picker script; ignore return value
-          wc.executeJavaScript(PICKER_SCRIPT).catch((err: unknown) => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timer);
-            wc.off("console-message", listener);
-            reject(err);
-          });
-        });
-
-        // If the result has a bounding box, capture a cropped screenshot
-        if (
-          result !== null &&
-          typeof result === "object" &&
-          "boundingBox" in result &&
-          result.boundingBox !== null &&
-          typeof result.boundingBox === "object"
-        ) {
-          const bb = result.boundingBox as {
-            x: number;
-            y: number;
-            width: number;
-            height: number;
-          };
-          const screenshot = await captureElementRegion(wc, bb);
-          json(200, { ...result, screenshot });
-        } else {
-          json(200, result);
-        }
-        return;
-      }
-
-      // ── POST /webview/:id/element-context ──
-      if (method === "POST" && action === "element-context") {
-        const body = await readBody();
-        const selector = body.selector;
-        if (typeof selector !== "string") {
-          json(400, { error: "Missing 'selector' string in request body" });
-          return;
-        }
-
-        const extractScript =
-          SYMBOLICATION_SCRIPT +
-          "\n" +
-          `(async function() {
-          var el = document.querySelector(${JSON.stringify(selector)});
-          if (!el) return null;
-
-          function getSelectorPath(el) {
-            var parts = [];
-            var node = el;
-            while (node && node.nodeType === 1) {
-              var seg = node.tagName.toLowerCase();
-              if (node.id) {
-                seg += '#' + CSS.escape(node.id);
-                parts.unshift(seg);
-                break;
-              }
-              if (node.className && typeof node.className === 'string') {
-                var classes = node.className.trim().split(/\\s+/).slice(0, 3);
-                seg += classes.map(function(c) { return '.' + CSS.escape(c); }).join('');
-              }
-              var parent = node.parentElement;
-              if (parent) {
-                var siblings = Array.from(parent.children).filter(function(s) {
-                  return s.tagName === node.tagName;
-                });
-                if (siblings.length > 1) {
-                  var idx = siblings.indexOf(node) + 1;
-                  seg += ':nth-child(' + idx + ')';
-                }
-              }
-              parts.unshift(seg);
-              node = parent;
-            }
-            return parts.join(' > ');
-          }
-
-          function getComputedStyleSubset(el) {
-            var props = [
-              'color', 'background', 'font-size', 'font-family',
-              'padding', 'margin', 'display', 'position', 'width', 'height'
-            ];
-            var computed = window.getComputedStyle(el);
-            var result = {};
-            for (var i = 0; i < props.length; i++) {
-              result[props[i]] = computed.getPropertyValue(props[i]);
-            }
-            return result;
-          }
-
-          function getA11yAttributes(el) {
-            var attrs = {};
-            var names = ['role', 'aria-label', 'aria-level', 'tabindex'];
-            for (var i = 0; i < names.length; i++) {
-              var val = el.getAttribute(names[i]);
-              if (val != null) {
-                attrs[names[i]] = val;
-              }
-            }
-            return attrs;
-          }
-
-          /** Returns true if the fileName looks like a bundle path that needs symbolication */
-          function looksLikeBundlePath(fileName) {
-            if (!fileName || typeof fileName !== 'string') return false;
-            return /\\/_next\\//.test(fileName) || /\\/chunks\\//.test(fileName) || /\\.js$/.test(fileName);
-          }
-
-          /** Attempt to extract React fiber info (async — may symbolicate stack frames) */
-          async function getReactFiberInfo(el) {
-            var sym = window.__manor_symbolication__;
-
-            var fiberKey = Object.keys(el).find(function(k) {
-              return k.startsWith('__reactFiber$');
-            });
-            if (!fiberKey) return null;
-            var fiber = el[fiberKey];
-            if (!fiber) return null;
-            var components = [];
-            var node = fiber;
-            var maxDepth = 20;
-            while (node && maxDepth-- > 0) {
-              if (typeof node.type === 'function' || typeof node.type === 'object') {
-                var name = null;
-                if (typeof node.type === 'function') {
-                  name = node.type.displayName || node.type.name || null;
-                } else if (node.type && typeof node.type === 'object') {
-                  name = node.type.displayName || node.type.name || null;
-                }
-                if (name) {
-                  var entry = { name: name };
-                  if (node._debugSource) {
-                    var dsFileName = node._debugSource.fileName;
-                    var dsLineNumber = node._debugSource.lineNumber;
-                    // Try to symbolicate if the fileName looks like a bundle path
-                    if (sym && looksLikeBundlePath(dsFileName)) {
-                      try {
-                        var dsResult = await sym.symbolicateFrame(dsFileName, dsLineNumber, 1);
-                        if (dsResult) {
-                          dsFileName = dsResult.fileName;
-                          dsLineNumber = dsResult.lineNumber;
-                        }
-                      } catch (_e) { /* graceful fallback — keep original values */ }
-                    }
-                    entry.source = {
-                      fileName: sym ? sym.normalizeFileName(dsFileName) : dsFileName,
-                      lineNumber: dsLineNumber
-                    };
-                  } else if (node._debugStack) {
-                    try {
-                      var stackStr = typeof node._debugStack === 'string'
-                        ? node._debugStack
-                        : (node._debugStack.stack || String(node._debugStack));
-                      var frames = stackStr.split('\\n');
-                      var foundSource = false;
-                      for (var fi = 0; fi < frames.length && !foundSource; fi++) {
-                        var frame = frames[fi].trim();
-                        var m = frame.match(/\\((?:webpack:\\/\\/\\/|[a-z]+:\\/\\/[^/]+)?(\\/[^:)]+):(\\d+):(\\d+)\\)/) ||
-                                frame.match(/\\(([^:)][^:]*):(\\d+):(\\d+)\\)/);
-                        if (m) {
-                          var parsedFileName = m[1];
-                          var parsedLine = parseInt(m[2], 10);
-                          var parsedCol = parseInt(m[3], 10);
-                          // Attempt symbolication
-                          if (sym) {
-                            try {
-                              var symResult = await sym.symbolicateFrame(parsedFileName, parsedLine, parsedCol);
-                              if (symResult) {
-                                parsedFileName = symResult.fileName;
-                                parsedLine = symResult.lineNumber;
-                              }
-                            } catch (_e) { /* graceful fallback */ }
-                            var normalized = sym.normalizeFileName(parsedFileName);
-                            if (!sym.isSourceFile(normalized)) {
-                              // Skip this frame — not a user source file
-                              continue;
-                            }
-                            parsedFileName = normalized;
-                          }
-                          entry.source = {
-                            fileName: parsedFileName,
-                            lineNumber: parsedLine
-                          };
-                          foundSource = true;
-                        }
-                      }
-                    } catch (_e) { /* _debugStack shape unknown, skip */ }
-                  }
-                  components.push(entry);
-                }
-              }
-              node = node.return;
-            }
-            return components.length > 0 ? components : null;
-          }
-
-          var rect = el.getBoundingClientRect();
-          var result = {
-            outerHTML: el.outerHTML.slice(0, 2000),
-            selector: getSelectorPath(el),
-            computedStyles: getComputedStyleSubset(el),
-            boundingBox: {
-              x: rect.x,
-              y: rect.y,
-              width: rect.width,
-              height: rect.height
-            },
-            accessibility: getA11yAttributes(el)
-          };
-
-          var reactInfo = await getReactFiberInfo(el);
-          if (reactInfo) {
-            result.reactComponents = reactInfo;
-          }
-
-          return result;
-        })()`;
-
-        try {
-          const metadata = await wc.executeJavaScript(extractScript);
-          if (metadata === null) {
-            json(404, { error: "Element not found for selector" });
-          } else {
-            const screenshot = await captureElementRegion(
-              wc,
-              metadata.boundingBox,
-            );
-            json(200, { ...metadata, screenshot });
-          }
-        } catch (err) {
-          json(400, { error: String(err) });
-        }
-        return;
-      }
-
-      // Unknown action
-      res.writeHead(404);
-      res.end();
-    } catch (err) {
-      console.error(`[webview-server] Error handling ${action}:`, err);
-      json(500, { error: String(err) });
-    }
+    res.writeHead(404);
+    res.end();
   }
 }

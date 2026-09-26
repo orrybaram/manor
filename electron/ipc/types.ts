@@ -5,7 +5,7 @@ import type { LayoutPersistence } from "../terminal-host/layout-persistence";
 import type { ProjectManager } from "../persistence";
 import type { ThemeManager } from "../theme";
 import type { PortScanner } from "../ports";
-import type { RemoteForwards } from "../remote-forwards";
+import type { RemoteForwards, RemoteUrlResolver } from "../remote-forwards";
 import type { BranchWatcher } from "../branch-watcher";
 import type { DiffWatcher } from "../diff-watcher";
 import type { GitHubManager } from "../github";
@@ -50,6 +50,15 @@ export interface IpcDeps {
   portScanner: PortScanner;
   /** Port forwards to remote projects' dev servers (ADR-178 §5). */
   remoteForwards: RemoteForwards;
+  /**
+   * Turns a URL opened in a remote host's context into the one to load
+   * (ADR-178 §5). Built once in `app-lifecycle.ts` alongside `paneHosts` so
+   * `ControlDeps.resolvePaneUrl` exists before any IPC module registers
+   * (ADR-183) — `ports:resolveUrl` uses the same instance.
+   */
+  remoteUrlResolver: RemoteUrlResolver;
+  /** paneId → the remote host its workspace lives on (ADR-178 §5, ADR-183). */
+  paneHosts: Map<string, string>;
   branchWatcher: BranchWatcher;
   diffWatcher: DiffWatcher;
   githubManager: GitHubManager;

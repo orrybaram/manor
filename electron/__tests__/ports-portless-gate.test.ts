@@ -41,6 +41,7 @@ vi.mock("../ipc-validate", () => ({
 }));
 
 import { register } from "../ipc/ports";
+import { RemoteUrlResolver } from "../remote-forwards";
 import type { WorkspaceMeta } from "../ipc/types";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -80,7 +81,6 @@ function makeDeps(
   const statuses = new Map<string, string>([["box", "connected"]]);
   /** Hosts the poller has scanned. */
   const scannedHosts = new Set<string>(["box"]);
-  let urlResolver: ((url: string, hostId: string) => Promise<string>) | null = null;
   type Port = { port: number; workspacePath: string; hostId: string; pid: number };
   let enrich = (ports: Port[]) => ports;
   let results: Port[] = [];
@@ -90,15 +90,67 @@ function makeDeps(
     latest = enrich(results);
     return latest;
   };
-  return {
-    backendRegistry: {
-      provider: () => undefined,
-      status: (hostId: string) => statuses.get(hostId),
-      onStatusChange: (listener: () => void) => {
-        statusListeners.push(listener);
-        return () => {};
-      },
+
+  const backendRegistry = {
+    provider: () => undefined,
+    status: (hostId: string) => statuses.get(hostId),
+    onStatusChange: (listener: () => void) => {
+      statusListeners.push(listener);
+      return () => {};
     },
+  };
+  /** Live forwards keyed `${hostId}:${remotePort}`. */
+  const remoteForwards = {
+    localPort: (hostId: string, port: number) => forwarded.get(`${hostId}:${port}`),
+    remotePortFor: (hostId: string, localPort: number) => {
+      for (const [key, local] of forwarded) {
+        const [h, remote] = key.split(":");
+        if (h === hostId && local === localPort) return Number(remote);
+      }
+      return undefined;
+    },
+    ensure: vi.fn(async (hostId: string, port: number, _opts?: { remoteHost?: string }) => {
+      const local = 50000 + port;
+      forwarded.set(`${hostId}:${port}`, local);
+      for (const l of changeListeners) l();
+      return local;
+    }),
+    onChange: (listener: () => void) => {
+      changeListeners.push(listener);
+      return () => {};
+    },
+  };
+  const portScanner = {
+    start: vi.fn(),
+    stop: vi.fn(),
+    updateWorkspaces: vi.fn(),
+    setEnricher: (fn: (ports: Port[]) => Port[]) => {
+      enrich = fn;
+    },
+    refresh: () => {
+      latest = enrich(results);
+    },
+    latest: () => latest,
+    hasScanned: (hostId: string) => scannedHosts.has(hostId),
+    onHostScanned: (listener: (hostId: string) => void) => {
+      hostScanListeners.push(listener);
+      return () => {};
+    },
+    scanNow: vi.fn().mockImplementation(scanAndPublish),
+    /** An immediate scan of one host: every host's latest ports. */
+    scanHost: vi.fn().mockImplementation(async (_hostId: string) => scanAndPublish()),
+  };
+
+  // Built once here rather than by `ipc/ports.ts` (ADR-183 moved that
+  // construction to app-lifecycle.ts, alongside `paneHosts`).
+  const remoteUrlResolver = new RemoteUrlResolver(
+    portScanner as never,
+    backendRegistry as never,
+    remoteForwards as never,
+  );
+
+  return {
+    backendRegistry,
     /** Test controls for host readiness. */
     host: {
       setStatus(hostId: string, status: string | undefined) {
@@ -112,53 +164,9 @@ function makeDeps(
         if (scanned) for (const l of hostScanListeners) l(hostId);
       },
     },
-    webviewServer: {
-      setRemoteUrlResolver: (r: (url: string, hostId: string) => Promise<string>) => {
-        urlResolver = r;
-      },
-      resolve: (url: string, hostId: string) => urlResolver!(url, hostId),
-    },
-    /** Live forwards keyed `${hostId}:${remotePort}`. */
-    remoteForwards: {
-      localPort: (hostId: string, port: number) => forwarded.get(`${hostId}:${port}`),
-      remotePortFor: (hostId: string, localPort: number) => {
-        for (const [key, local] of forwarded) {
-          const [h, remote] = key.split(":");
-          if (h === hostId && local === localPort) return Number(remote);
-        }
-        return undefined;
-      },
-      ensure: vi.fn(async (hostId: string, port: number, _opts?: { remoteHost?: string }) => {
-        const local = 50000 + port;
-        forwarded.set(`${hostId}:${port}`, local);
-        for (const l of changeListeners) l();
-        return local;
-      }),
-      onChange: (listener: () => void) => {
-        changeListeners.push(listener);
-        return () => {};
-      },
-    },
-    portScanner: {
-      start: vi.fn(),
-      stop: vi.fn(),
-      updateWorkspaces: vi.fn(),
-      setEnricher: (fn: (ports: Port[]) => Port[]) => {
-        enrich = fn;
-      },
-      refresh: () => {
-        latest = enrich(results);
-      },
-      latest: () => latest,
-      hasScanned: (hostId: string) => scannedHosts.has(hostId),
-      onHostScanned: (listener: (hostId: string) => void) => {
-        hostScanListeners.push(listener);
-        return () => {};
-      },
-      scanNow: vi.fn().mockImplementation(scanAndPublish),
-      /** An immediate scan of one host: every host's latest ports. */
-      scanHost: vi.fn().mockImplementation(async (_hostId: string) => scanAndPublish()),
-    },
+    remoteUrlResolver,
+    remoteForwards,
+    portScanner,
     /** The scan result, mutable so a test can start a server "later". */
     scanned,
     backend: { ports: { kill: vi.fn() } },
@@ -427,17 +435,20 @@ describe("remote ports", () => {
   });
 
   it("gives an agent's navigate the same rewrite, bounded by a timeout", async () => {
+    // `resolvePaneUrl` (app-lifecycle.ts, ADR-183) calls this same
+    // `remoteUrlResolver` with a timeout; exercised directly here since that
+    // wiring no longer lives in `ipc/ports.ts`.
     const deps = makeDeps([], remoteScan);
     register(deps as never);
     await scan();
-    expect(await deps.webviewServer.resolve("http://localhost:3000/", "box")).toBe(
-      "http://127.0.0.1:53000/",
-    );
+    expect(
+      await deps.remoteUrlResolver.resolve("http://localhost:3000/", "box", 15_000),
+    ).toBe("http://127.0.0.1:53000/");
 
     vi.useFakeTimers();
     try {
       deps.host.setStatus("box", "disconnected");
-      const pending = deps.webviewServer.resolve("http://localhost:3000/", "box");
+      const pending = deps.remoteUrlResolver.resolve("http://localhost:3000/", "box", 15_000);
       const assertion = expect(pending).rejects.toThrow(/not connected/);
       await vi.advanceTimersByTimeAsync(15_000);
       await assertion;

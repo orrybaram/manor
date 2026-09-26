@@ -1,7 +1,7 @@
 import { ipcMain } from "electron";
 import type { ActivePort } from "../ports";
 import { portlessManager } from "../portless";
-import { RemoteUrlResolver, remoteFormOfUrl } from "../remote-forwards";
+import { remoteFormOfUrl } from "../remote-forwards";
 import { LOCAL_HOST_ID } from "../backend/types";
 import {
   assertHostPaths,
@@ -10,11 +10,8 @@ import {
 } from "../ipc-validate";
 import type { IpcDeps, WorkspaceMeta } from "./types";
 
-/** How long an agent's `navigate` waits for a remote host to come back. */
-const NAVIGATE_HOST_WAIT_MS = 15_000;
-
 export function register(deps: IpcDeps): void {
-  const { portScanner, backend, remoteForwards, backendRegistry } = deps;
+  const { portScanner, backend, remoteForwards, remoteUrlResolver } = deps;
 
   function getMainWindow() {
     return deps.mainWindow;
@@ -86,15 +83,18 @@ export function register(deps: IpcDeps): void {
   ipcMain.handle("ports:scanNow", () => portScanner.scanNow());
 
   // ── Resolving URLs opened in a remote host's context ──
-
-  const resolver = new RemoteUrlResolver(portScanner, backendRegistry, remoteForwards);
+  //
+  // `remoteUrlResolver` is built once in app-lifecycle.ts, alongside
+  // `paneHosts`, so `ControlDeps.resolvePaneUrl` (an agent's `navigate` in a
+  // remote pane) uses the very same instance without waiting for this
+  // module to register (ADR-183).
 
   ipcMain.handle(
     "ports:resolveUrl",
     async (_event, url: string, hostId: string): Promise<string> => {
       assertString(url, "url");
       assertString(hostId, "hostId");
-      return resolver.resolve(url, hostId);
+      return remoteUrlResolver.resolve(url, hostId);
     },
   );
 
@@ -113,12 +113,6 @@ export function register(deps: IpcDeps): void {
         remoteForwards.remotePortFor(hostId, localPort),
       );
     },
-  );
-
-  // An agent's `navigate` in a remote pane goes through the same rewrite,
-  // but gives up (503) rather than wait forever on an absent host.
-  deps.webviewServer.setRemoteUrlResolver((url, hostId) =>
-    resolver.resolve(url, hostId, NAVIGATE_HOST_WAIT_MS),
   );
 
   ipcMain.handle("ports:killPort", async (_event, pid: number) => {

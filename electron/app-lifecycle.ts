@@ -7,7 +7,7 @@ import { LayoutPersistence } from "./terminal-host/layout-persistence";
 import { ProjectManager } from "./persistence";
 import { ThemeManager } from "./theme";
 import { PortScanner } from "./ports";
-import { RemoteForwards } from "./remote-forwards";
+import { RemoteForwards, RemoteUrlResolver } from "./remote-forwards";
 import { BranchWatcher } from "./branch-watcher";
 import { DiffWatcher } from "./diff-watcher";
 import { GitHubManager } from "./github";
@@ -73,6 +73,9 @@ import * as remoteControlIpc from "./ipc/remote-control";
 import * as menuIpc from "./ipc/menu";
 import * as hostsIpc from "./ipc/hosts";
 import { notifyProjectsChanged } from "./renderer-bridge";
+
+/** How long an agent's `navigate` waits for a remote host to come back. */
+const NAVIGATE_HOST_WAIT_MS = 15_000;
 
 /**
  * Manor's version. `app.getVersion()` in an unpackaged app launched on a bare
@@ -286,6 +289,24 @@ export function initApp(devTitle: string | null): void {
   const portScanner = new PortScanner(backendRegistry);
   // Remote dev servers opened from Manor go through these (ADR-178 §5).
   const remoteForwards = new RemoteForwards(backendRegistry);
+  // Which host each pane's workspace lives on, and the resolver that turns a
+  // URL opened in that host's context into the one to load. Built here, once,
+  // so `resolvePaneUrl` below is wired into `ControlDeps` before any IPC
+  // module registers — no more racing a setter installed as a side effect of
+  // `ports.register` (ADR-183).
+  const paneHosts = new Map<string, string>();
+  const remoteUrlResolver = new RemoteUrlResolver(portScanner, backendRegistry, remoteForwards);
+  /**
+   * The URL to actually load for a `navigate` in `paneId`'s webview
+   * (`ControlDeps.resolvePaneUrl`): itself, or rewritten through the pane's
+   * host's port forward for a remote workspace (ADR-178 §5). Gives up
+   * (rejects) rather than wait forever on an absent host.
+   */
+  const resolvePaneUrl = async (paneId: string, url: string): Promise<string> => {
+    const hostId = paneHosts.get(paneId);
+    if (!hostId) return url;
+    return remoteUrlResolver.resolve(url, hostId, NAVIGATE_HOST_WAIT_MS);
+  };
   const branchWatcher = new BranchWatcher(backendRegistry);
   const diffWatcher = new DiffWatcher(backendRegistry);
   const githubManager = new GitHubManager();
@@ -361,6 +382,8 @@ export function initApp(devTitle: string | null): void {
       remoteControl,
       agentHookServer,
       webviewServer,
+      webviewPanes: webviewServer,
+      resolvePaneUrl,
       getRendererWindows,
     }),
     remoteDeviceStore,
@@ -504,6 +527,8 @@ export function initApp(devTitle: string | null): void {
     themeManager,
     portScanner,
     remoteForwards,
+    remoteUrlResolver,
+    paneHosts,
     branchWatcher,
     diffWatcher,
     githubManager,
@@ -542,6 +567,10 @@ export function initApp(devTitle: string | null): void {
     remoteControl: ipcDeps.remoteControl,
     agentHookServer: ipcDeps.agentHookServer,
     getRendererWindows: ipcDeps.getRendererWindows,
+    // Pane inspection routes' access to WebviewServer's own pane registry
+    // and console-log buffers (ADR-183) — always itself.
+    webviewPanes: webviewServer,
+    resolvePaneUrl,
   });
 
   ptyIpc.register(ipcDeps);

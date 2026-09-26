@@ -558,37 +558,35 @@ describe("WebviewServer", () => {
       );
     });
 
-    it("rewrites a remote pane's URL through the resolver (ADR-178 §5)", async () => {
-      const resolver = vi.fn(async (url: string, hostId: string) =>
-        url === "http://localhost:3000/" && hostId === "box"
+    it("rewrites a remote pane's URL through resolvePaneUrl (ADR-178 §5, ADR-183)", async () => {
+      const resolvePaneUrl = vi.fn(async (paneId: string, url: string) =>
+        paneId === "pane-1" && url === "http://localhost:3000/"
           ? "http://127.0.0.1:53000/"
           : url,
       );
-      server.setRemoteUrlResolver(resolver);
-      server.setPaneHost("pane-1", "box");
+      server.setControlDeps({ resolvePaneUrl });
 
       const res = await httpPost(server.serverPort, "/webview/pane-1/navigate", {
         url: "http://localhost:3000/",
       });
       expect(res.status).toBe(200);
       expect(mockWebContents.loadURL).toHaveBeenCalledWith("http://127.0.0.1:53000/");
-      expect(resolver).toHaveBeenCalledWith("http://localhost:3000/", "box");
+      expect(resolvePaneUrl).toHaveBeenCalledWith("pane-1", "http://localhost:3000/");
 
-      // A local pane — or one whose host was cleared — is never resolved.
-      server.setPaneHost("pane-1", null);
-      resolver.mockClear();
-      await httpPost(server.serverPort, "/webview/pane-1/navigate", {
+      // A pane resolvePaneUrl doesn't rewrite is loaded as is.
+      resolvePaneUrl.mockClear();
+      await httpPost(server.serverPort, "/webview/pane-2/navigate", {
         url: "http://localhost:3000/",
       });
-      expect(resolver).not.toHaveBeenCalled();
       expect(mockWebContents.loadURL).toHaveBeenLastCalledWith("http://localhost:3000/");
     });
 
     it("answers 503, loading nothing, when the remote host cannot be reached", async () => {
-      server.setRemoteUrlResolver(async () => {
-        throw new Error('Remote host "box" is not connected');
+      server.setControlDeps({
+        resolvePaneUrl: async () => {
+          throw new Error('Remote host "box" is not connected');
+        },
       });
-      server.setPaneHost("pane-1", "box");
       (mockWebContents.loadURL as Mock).mockClear();
 
       const res = await httpPost(server.serverPort, "/webview/pane-1/navigate", {

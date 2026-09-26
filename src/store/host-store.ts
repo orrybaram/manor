@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { ipcErrorMessage } from "../lib/ipc-error";
 
 /** Mirrors `HostSpec` in `electron/backend/types.ts`. */
 export type HostSpec = { kind: "ssh"; target: string };
@@ -88,7 +89,7 @@ export const useHostStore = create<HostState>((set) => {
         await reload();
         return result;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = ipcErrorMessage(err);
         set({ error: message });
         throw err;
       } finally {
@@ -102,7 +103,7 @@ export const useHostStore = create<HostState>((set) => {
         await window.electronAPI.hosts.remove(hostId);
         await reload();
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = ipcErrorMessage(err);
         set({ error: message });
         throw err;
       } finally {

@@ -36,6 +36,7 @@
  * that; the feed replays all of it.
  */
 
+import { errorMessage } from "../lib/errors";
 import type { AgentInfo } from "../agent-persistence";
 import type { AgentStatus, HookPayload, HookReplay } from "../terminal-host/types";
 
@@ -87,10 +88,6 @@ const MAX_HELD = 10_000;
 
 function defaultRetryDelayMs(attempt: number): number {
   return Math.min(1_000 * 2 ** attempt, 30_000);
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 export class HostHookFeed {

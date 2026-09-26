@@ -11,6 +11,7 @@
  * (ADR-178 §1); for an ssh box that is an `SshTransport`.
  */
 
+import { errorMessage } from "../lib/errors";
 import {
   TerminalHostClient,
   type ReconnectPolicy,
@@ -202,9 +203,7 @@ export class RemoteBackend implements WorkspaceBackend {
       }
     } catch (err) {
       console.warn(
-        `[remote-backend] bootstrap on ${this.target} failed: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
+        `[remote-backend] bootstrap on ${this.target} failed: ${errorMessage(err)}`,
       );
     }
   }

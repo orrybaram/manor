@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { useAppStore } from "./app-store";
 import { useToastStore } from "./toast-store";
 import { branchesEqual } from "../utils/branch-name";
+import { ipcErrorMessage } from "../lib/ipc-error";
 import {
   buildSidebarItems,
   folderParentsOf,
@@ -711,12 +712,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     } catch (err) {
       unsubProgress();
       useAppStore.getState().clearWorktreeSetup("__pending__");
-      const message = err instanceof Error ? err.message : String(err);
-      // Strip the verbose "Error invoking remote method" prefix
-      const detail = message.replace(
-        /^Error invoking remote method '[^']+': Error:\s*/i,
-        "",
-      );
+      const detail = ipcErrorMessage(err);
       useToastStore.getState().addToast({
         id: `worktree-error-${Date.now()}`,
         message: "Failed to create workspace",
@@ -828,8 +824,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     try {
       updated = await window.electronAPI.projects.convertMainToWorktree(projectId, name);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const detail = message.replace(/^Error invoking remote method '[^']+': Error:\s*/i, "");
+      const detail = ipcErrorMessage(err);
       useToastStore.getState().addToast({
         id: `convert-error-${Date.now()}`,
         message: "Failed to convert to workspace",

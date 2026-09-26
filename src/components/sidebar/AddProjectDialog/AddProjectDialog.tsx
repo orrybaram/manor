@@ -6,6 +6,7 @@ import { useAppStore } from "../../../store/app-store";
 import { useHostStore } from "../../../store/host-store";
 import { addErrorToast } from "../../../store/toast-store";
 import { LOCAL_HOST_ID, type HealthCheckResult } from "../../../lib/hosts";
+import { ipcErrorMessage } from "../../../lib/ipc-error";
 import { Button } from "../../ui/Button/Button";
 import { Input } from "../../ui/Input";
 import { SearchableSelect } from "../../ui/SearchableSelect";
@@ -26,10 +27,6 @@ type AddProjectDialogProps = {
   /** Called once the remote clone finishes and the project is added. */
   onRemoteProjectAdded?: () => void;
 };
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 /** Derive a project name from a repo URL's last path segment. */
 function nameFromRepoUrl(repoUrl: string): string {
@@ -123,7 +120,7 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
       const results = await window.electronAPI.hosts.healthCheck(host, path);
       setChecks(results);
     } catch (err) {
-      setRemoteError(errorMessage(err));
+      setRemoteError(ipcErrorMessage(err));
     } finally {
       setChecksRunning(false);
     }
@@ -136,17 +133,13 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
     setProgressLines([]);
     setRemoteStep("cloning");
 
-    const unsub = window.electronAPI.projects.onWorktreeSetupProgress(
-      (event) => {
-        const e = event as { step?: string; status?: string; message?: string };
-        if (e.step !== "clone") return;
-        if (e.status === "error") {
-          setRemoteError(e.message ?? "Clone failed");
-          return;
-        }
-        if (e.message) setProgressLines((lines) => [...lines, e.message!]);
-      },
-    );
+    const unsub = window.electronAPI.projects.onCloneProgress((event) => {
+      if (event.status === "error") {
+        setRemoteError(event.message ?? "Clone failed");
+        return;
+      }
+      if (event.message) setProgressLines((lines) => [...lines, event.message!]);
+    });
 
     try {
       const project = await addRemoteProject({
@@ -163,7 +156,7 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
       void runHealthChecks(hostId, project.path);
     } catch (err) {
       unsub();
-      setRemoteError(errorMessage(err));
+      setRemoteError(ipcErrorMessage(err));
       setRemoteStep("form");
     }
   }, [

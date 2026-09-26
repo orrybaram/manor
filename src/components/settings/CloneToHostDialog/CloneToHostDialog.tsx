@@ -5,6 +5,7 @@ import { useProjectStore, type ProjectInfo } from "../../../store/project-store"
 import { useAppStore } from "../../../store/app-store";
 import { useHostStore, selectHost } from "../../../store/host-store";
 import type { HealthCheckResult } from "../../../lib/hosts";
+import { ipcErrorMessage } from "../../../lib/ipc-error";
 import { toDirSlug } from "../../../utils/branch-name";
 import { Button } from "../../ui/Button/Button";
 import { Input } from "../../ui/Input";
@@ -23,10 +24,6 @@ type CloneToHostDialogProps = {
   /** Called once the project's record has been moved onto the host. */
   onMoved?: () => void;
 };
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 /**
  * Clone-onto-host flow for an EXISTING project (ADR-179), reusing the same
@@ -94,7 +91,7 @@ export function CloneToHostDialog(props: CloneToHostDialogProps) {
       const results = await window.electronAPI.hosts.healthCheck(host, path);
       setChecks(results);
     } catch (err) {
-      setError(errorMessage(err));
+      setError(ipcErrorMessage(err));
     } finally {
       setChecksRunning(false);
     }
@@ -106,17 +103,13 @@ export function CloneToHostDialog(props: CloneToHostDialogProps) {
     setProgressLines([]);
     setStep("cloning");
 
-    const unsub = window.electronAPI.projects.onWorktreeSetupProgress(
-      (event) => {
-        const e = event as { step?: string; status?: string; message?: string };
-        if (e.step !== "clone") return;
-        if (e.status === "error") {
-          setError(e.message ?? "Clone failed");
-          return;
-        }
-        if (e.message) setProgressLines((lines) => [...lines, e.message!]);
-      },
-    );
+    const unsub = window.electronAPI.projects.onCloneProgress((event) => {
+      if (event.status === "error") {
+        setError(event.message ?? "Clone failed");
+        return;
+      }
+      if (event.message) setProgressLines((lines) => [...lines, event.message!]);
+    });
 
     try {
       const updated = await moveProjectToHost(project.id, {
@@ -131,7 +124,7 @@ export function CloneToHostDialog(props: CloneToHostDialogProps) {
       void runHealthChecks(hostId, updated.path);
     } catch (err) {
       unsub();
-      setError(errorMessage(err));
+      setError(ipcErrorMessage(err));
       setStep("form");
     }
   }, [repoUrl, remoteDir, moveProjectToHost, project.id, hostId, onMoved, runHealthChecks]);

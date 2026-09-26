@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { EmojiInput, EmojiTextarea } from "../../../ui/EmojiAutocomplete";
 import { Button } from "../../../ui/Button/Button";
+import { ipcErrorMessage } from "../../../../lib/ipc-error";
 import styles from "./CommitModal.module.css";
 
 const FLAGS = [
@@ -73,11 +74,7 @@ export function CommitModal(props: CommitModalProps) {
       onOpenChange(false);
     } catch (err) {
       const raw = err instanceof Error ? err.message : "Commit failed";
-      const msg = raw.replace(
-        /^Error invoking remote method '[^']+': Error:\s*/i,
-        "",
-      );
-      setError(msg);
+      setError(ipcErrorMessage(raw));
       setStatusMessage(null);
     } finally {
       setSubmitting(false);

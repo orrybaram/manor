@@ -6,6 +6,7 @@ import type {
   MenuCommandPayload,
   MenuContext,
 } from "../src/lib/menu-commands";
+import type { HostStatusInfo } from "../src/store/host-store";
 
 interface WindowBounds {
   x: number;
@@ -165,6 +166,19 @@ contextBridge.exposeInMainWorld("electronAPI", {
       return () =>
         ipcRenderer.removeListener("worktree:setup-progress", handler);
     },
+    // ADR-180 ticket 1: clone progress has its own channel, separate from
+    // worktree setup — a clone and a worktree setup can be in flight at once
+    // and must not write into each other's state.
+    onCloneProgress: (
+      callback: (event: {
+        status: "in-progress" | "done" | "error";
+        message?: string;
+      }) => void,
+    ) =>
+      onChannel<{ status: "in-progress" | "done" | "error"; message?: string }>(
+        "projects:clone-progress",
+        callback,
+      ),
     canQuickMerge: (projectId: string, worktreePath: string) =>
       ipcRenderer.invoke("projects:canQuickMerge", projectId, worktreePath),
     quickMergeWorktree: (projectId: string, worktreePath: string) =>
@@ -293,8 +307,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       }>,
     ) => ipcRenderer.invoke("projects:update", projectId, updates),
     // ADR-178 ticket 5: clone a repo onto a remote host, then add it as a
-    // project there. Progress arrives on the same "worktree:setup-progress"
-    // channel `onWorktreeSetupProgress` already subscribes to, step "clone".
+    // project there. Progress arrives on "projects:clone-progress"
+    // (`onCloneProgress`).
     addRemote: (opts: {
       hostId: string;
       repoUrl: string;
@@ -302,7 +316,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       name: string;
     }) => ipcRenderer.invoke("projects:addRemote", opts),
     // ADR-179: clone an existing project onto a remote host and point it
-    // there. Progress arrives on "worktree:setup-progress", step "clone".
+    // there. Progress arrives on "projects:clone-progress" (`onCloneProgress`).
     moveToHost: (
       projectId: string,
       opts: { hostId: string; repoUrl: string; remoteDir: string },
@@ -321,8 +335,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     remove: (hostId: string) => ipcRenderer.invoke("hosts:remove", hostId),
     retryConnect: (hostId: string) =>
       ipcRenderer.invoke("hosts:retryConnect", hostId),
-    onStatusChanged: (callback: (hosts: unknown) => void) =>
-      onChannel<unknown>("hosts:statusChanged", callback),
+    onStatusChanged: (callback: (hosts: HostStatusInfo[]) => void) =>
+      onChannel<HostStatusInfo[]>("hosts:statusChanged", callback),
     // ADR-178 §6: a remote host is back and its hooks replayed; `sessionIds`
     // are every session its daemon still has.
     onReconnected: (

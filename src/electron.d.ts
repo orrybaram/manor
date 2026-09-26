@@ -458,6 +458,16 @@ export interface ElectronAPI {
         event: import("./store/project-store").SetupProgressEvent,
       ) => void,
     ) => () => void;
+    /**
+     * ADR-180 ticket 1: clone progress on its own channel, separate from
+     * worktree setup — used by `addRemote` and `moveToHost`.
+     */
+    onCloneProgress: (
+      callback: (event: {
+        status: "in-progress" | "done" | "error";
+        message?: string;
+      }) => void,
+    ) => () => void;
     canQuickMerge: (
       projectId: string,
       worktreePath: string,

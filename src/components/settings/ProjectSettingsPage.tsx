@@ -13,6 +13,7 @@ import { useHostStore, selectHost } from "../../store/host-store";
 import { useHostDisplay } from "../../hooks/useHostDisplay";
 import { HostIndicator } from "../hosts/HostIndicator";
 import { LOCAL_HOST_ID } from "../../lib/hosts";
+import { ipcErrorMessage } from "../../lib/ipc-error";
 import { useListDrag } from "../../hooks/useListDrag";
 import { useListKeyboardNav } from "../../hooks/useListKeyboardNav";
 import { useThemeStore, type Theme } from "../../store/theme-store";
@@ -273,12 +274,6 @@ type PendingHostChange =
   | { kind: "switch"; hostId: string }
   | { kind: "add"; target: string };
 
-function errorMessage(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
-  // Drop Electron's "Error invoking remote method '…': Error: " wrapper.
-  return message.replace(/^Error invoking remote method '[^']*': (?:\w*Error: )?/, "");
-}
-
 type ProjectHostSectionProps = {
   project: ProjectInfo;
 };
@@ -358,7 +353,7 @@ function ProjectHostSection(props: ProjectHostSectionProps) {
       setSwitchError(null);
       setSwitchFailedHostId(null);
       switchProjectHost(project.id, hostId, path).catch((err: unknown) => {
-        setSwitchError(errorMessage(err));
+        setSwitchError(ipcErrorMessage(err));
         setSwitchFailedHostId(hostId);
       });
     },
@@ -382,7 +377,7 @@ function ProjectHostSection(props: ProjectHostSectionProps) {
           setCloneDialogHostId(hostId);
         })
         .catch((err: unknown) => {
-          setAddError(errorMessage(err));
+          setAddError(ipcErrorMessage(err));
         });
     },
     [addHost],

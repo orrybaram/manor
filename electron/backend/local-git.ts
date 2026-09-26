@@ -1,4 +1,5 @@
 import path from "node:path";
+import { errorMessage } from "../lib/errors";
 import type { GitBackend, WorktreeInfo } from "./types";
 import { localExec, type Exec, type ExecError } from "./exec";
 
@@ -120,8 +121,7 @@ export class LocalGitBackend implements GitBackend {
           },
           (err: unknown) => {
             if (cancelled) return;
-            const message = err instanceof Error ? err.message : String(err);
-            done({ exitCode: null, stderr: message });
+            done({ exitCode: null, stderr: errorMessage(err) });
           },
         );
     }
@@ -453,10 +453,7 @@ export class LocalGitBackend implements GitBackend {
 function parseCommitError(err: unknown): string {
   // `Exec.file` rejects with an ExecError; see its doc in exec.ts.
   const execErr = err as Partial<ExecError> | null | undefined;
-  const raw =
-    execErr?.stderr ||
-    execErr?.stdout ||
-    (err instanceof Error ? err.message : String(err));
+  const raw = execErr?.stderr || execErr?.stdout || errorMessage(err);
 
   // Strip the "Command failed: git commit ..." prefix
   const stripped = raw.replace(/^Command failed:[^\n]*\n?/, "");

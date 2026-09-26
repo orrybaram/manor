@@ -49,6 +49,7 @@
  * (`updateBusy`) to it.
  */
 
+import { errorMessage } from "../lib/errors";
 import { createProvider } from "./providers";
 import {
   HostHookFeed,
@@ -227,10 +228,6 @@ type HostEventListener = (hostId: string, event: HostConnectionEvent) => void;
 type StreamEventListener = (hostId: string, event: StreamEvent) => void;
 type StatusListener = (hosts: HostStatusInfo[]) => void;
 type ResumedListener = (hostId: string, sessionIds: string[]) => void;
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 function sameSpec(a: HostSpec | null, b: HostSpec | null): boolean {
   return JSON.stringify(a) === JSON.stringify(b);

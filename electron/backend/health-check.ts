@@ -10,6 +10,7 @@
  * hanging check must not delay the others.
  */
 
+import { errorMessage } from "../lib/errors";
 import { shellQuote } from "../terminal-host/ssh-config";
 import type { GitBackend, ShellBackend } from "./types";
 
@@ -314,6 +315,3 @@ export async function runHealthChecks(
   ]);
 }
 
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}

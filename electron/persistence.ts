@@ -661,6 +661,17 @@ export class ProjectManager {
     }
   }
 
+  /** Clone progress on its own channel (ADR-180 ticket 1) — see `prepareRemoteClone`. */
+  private emitCloneProgress(
+    status: "in-progress" | "done" | "error",
+    message?: string,
+  ) {
+    const wins = BrowserWindow.getAllWindows();
+    for (const win of wins) {
+      win.webContents.send("projects:clone-progress", { status, message });
+    }
+  }
+
   private findProject(projectId: string): PersistedProject | undefined {
     return this.state.projects.find((p) => p.id === projectId);
   }
@@ -905,8 +916,8 @@ export class ProjectManager {
   /**
    * Create a project on a remote host by cloning it there first (ADR-178
    * ticket 5): `git clone --progress` through the host's backend, with
-   * progress on the `worktree:setup-progress` channel (step `"clone"`), then
-   * the normal `addProject` path.
+   * progress on its own `projects:clone-progress` channel (ADR-180 ticket 1),
+   * then the normal `addProject` path.
    *
    * If `remoteDir` already exists and is a clone of `repoUrl`, cloning is
    * skipped and the existing checkout is adopted instead of clobbered. Any
@@ -1129,7 +1140,7 @@ export class ProjectManager {
    * Get `repoUrl` checked out at `remoteDir` on `hostId` and return the
    * absolute directory. A directory that is already a clone of `repoUrl` is
    * adopted as-is; any other non-empty directory is refused; otherwise it is
-   * cloned, with progress on `worktree:setup-progress` (step `"clone"`).
+   * cloned, with progress on `projects:clone-progress`.
    * A failed clone rejects with git's own message.
    */
   private async prepareRemoteClone(
@@ -1155,18 +1166,17 @@ export class ProjectManager {
       );
     }
 
-    this.emitSetupProgress("clone", "in-progress");
+    this.emitCloneProgress("in-progress");
     try {
       await this.cloneWithProgress(git, repoUrl, targetDir);
     } catch (err) {
-      this.emitSetupProgress(
-        "clone",
+      this.emitCloneProgress(
         "error",
         err instanceof Error ? err.message : String(err),
       );
       throw err;
     }
-    this.emitSetupProgress("clone", "done");
+    this.emitCloneProgress("done");
     return targetDir;
   }
 
@@ -1204,7 +1214,7 @@ export class ProjectManager {
 
   /**
    * `git clone --progress` through `git.cloneStream`, forwarding every
-   * progress line to the `worktree:setup-progress` channel and enforcing
+   * progress line to the `projects:clone-progress` channel and enforcing
    * `CLONE_TIMEOUT_MS` — a stalled clone (e.g. waiting on a credential
    * prompt `GIT_TERMINAL_PROMPT=0` should have refused) must not hang the
    * onboarding flow forever.
@@ -1232,7 +1242,7 @@ export class ProjectManager {
       }, ProjectManager.CLONE_TIMEOUT_MS);
       handle = git.cloneStream(repoUrl, targetDir, {
         onLine: (line) => {
-          this.emitSetupProgress("clone", "in-progress", line);
+          this.emitCloneProgress("in-progress", line);
         },
         onDone: ({ exitCode, stderr }) => {
           if (settled) return;

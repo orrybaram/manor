@@ -2358,6 +2358,57 @@ describe("ProjectManager.moveProjectToHost (ADR-179)", () => {
     expect(p.hostId).toBeUndefined();
   });
 
+  it("switching back to local restores the path the project had there", async () => {
+    const localPath = path.join(tmpDir, "checkout");
+    fs.mkdirSync(localPath);
+    seed([], { path: localPath, workspaceNames: { [localPath]: "main" } });
+    const { git } = fakeGit();
+    const mgr = new ProjectManager(() => git, tmpDir, () => fakeShell("/home/u"));
+
+    await mgr.moveProjectToHost("p1", { hostId: "box", repoUrl: REPO, remoteDir: "/srv/app" });
+    expect(readPersisted().hostPaths).toEqual({ local: localPath });
+
+    const info = await mgr.switchProjectHost("p1", "local", undefined, "this Mac");
+    expect(info.path).toBe(localPath);
+    expect(info.hostId).toBe("local");
+    const p = readPersisted();
+    expect(p.hostId).toBeUndefined();
+    expect(p.workspaceNames).toEqual({ [localPath]: "main" });
+    expect(p.hostPaths).toEqual({ local: localPath, box: "/srv/app" });
+
+    // And back to the box again, without cloning.
+    const shell = fakeShell("/home/u", { "/srv/app": ["package.json"] });
+    const mgr2 = new ProjectManager(() => git, tmpDir, () => shell);
+    const back = await mgr2.switchProjectHost("p1", "box", undefined, "me@box");
+    expect(back.path).toBe("/srv/app");
+    expect(back.hostId).toBe("box");
+  });
+
+  it("switchProjectHost takes an explicit path over the remembered one", async () => {
+    const chosen = path.join(tmpDir, "chosen");
+    fs.mkdirSync(chosen);
+    seed([], { path: "/srv/app", hostId: "box" });
+    const { git } = fakeGit();
+    const mgr = new ProjectManager(() => git, tmpDir, () => fakeShell("/home/u"));
+
+    const info = await mgr.switchProjectHost("p1", "local", chosen, "this Mac");
+    expect(info.path).toBe(chosen);
+    expect(readPersisted().hostPaths).toEqual({ box: "/srv/app" });
+  });
+
+  it("switchProjectHost refuses a path missing on the target and changes nothing", async () => {
+    seed([], { path: "/srv/app", hostId: "box" });
+    const { git } = fakeGit();
+    const mgr = new ProjectManager(() => git, tmpDir, () => fakeShell("/home/u"));
+
+    await expect(
+      mgr.switchProjectHost("p1", "local", undefined, "this Mac"),
+    ).rejects.toThrow('Project path "/srv/app" does not exist on this Mac.');
+    const p = readPersisted();
+    expect(p.path).toBe("/srv/app");
+    expect(p.hostId).toBe("box");
+  });
+
   it("getOriginUrl reads origin through the project's host, null on failure", async () => {
     seed([
       {

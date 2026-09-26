@@ -18,8 +18,9 @@ function makeDeps(opts: { currentHostId?: string; pathExists?: boolean } = {}) {
     updateProject: vi.fn().mockResolvedValue(null),
     getHosts: vi.fn().mockReturnValue([{ hostId: "box", spec: { kind: "ssh", target: "me@box" } }]),
     getProjectHostId: vi.fn().mockReturnValue(opts.currentHostId ?? LOCAL_HOST_ID),
-    getProjectPath: vi.fn().mockReturnValue("/Users/me/Code/app"),
-    pathExistsOnHost: vi.fn().mockResolvedValue(opts.pathExists ?? true),
+    switchProjectHost: opts.pathExists === false
+      ? vi.fn().mockRejectedValue(new Error("does not exist"))
+      : vi.fn().mockResolvedValue({ id: "p1" }),
     moveProjectToHost: vi.fn().mockResolvedValue({ id: "p1" }),
   };
   const backendRegistry = { ensureConnected: vi.fn().mockResolvedValue(undefined) };
@@ -46,9 +47,12 @@ describe("projects:update hostId validation", () => {
     register(deps as never);
     const handler = handlers.get("projects:update")!;
     await handler(null, "p1", { hostId: "box" });
-    expect(deps.projectManager.updateProject).toHaveBeenCalledWith("p1", {
-      hostId: "box",
-    });
+    expect(deps.projectManager.switchProjectHost).toHaveBeenCalledWith(
+      "p1",
+      "box",
+      undefined,
+      "me@box",
+    );
   });
 
   it("rejects a host id nobody registered", () => {
@@ -72,50 +76,84 @@ describe("projects:update hostId validation", () => {
   });
 });
 
-describe("projects:update host-switch guard (ADR-179)", () => {
+describe("projects:update host change (ADR-179)", () => {
   beforeEach(() => {
     handlers.clear();
   });
 
-  it("connects to the target host and checks the path there before switching", async () => {
+  it("connects to a remote target and switches through switchProjectHost", async () => {
     const deps = makeDeps();
     register(deps as never);
     await handlers.get("projects:update")!(null, "p1", { hostId: "box" });
     expect(deps.backendRegistry.ensureConnected).toHaveBeenCalledWith("box");
-    expect(deps.projectManager.pathExistsOnHost).toHaveBeenCalledWith(
+    expect(deps.projectManager.switchProjectHost).toHaveBeenCalledWith(
+      "p1",
       "box",
-      "/Users/me/Code/app",
+      undefined,
+      "me@box",
     );
-    expect(deps.projectManager.updateProject).toHaveBeenCalled();
+    expect(deps.projectManager.updateProject).not.toHaveBeenCalled();
   });
 
-  it("refuses a switch to a host where the project path does not exist", async () => {
+  it("applies the other fields after switching", async () => {
+    const deps = makeDeps();
+    register(deps as never);
+    await handlers.get("projects:update")!(null, "p1", { hostId: "box", name: "X" });
+    expect(deps.projectManager.updateProject).toHaveBeenCalledWith("p1", { name: "X" });
+  });
+
+  it("propagates a refused switch without applying anything", async () => {
     const deps = makeDeps({ pathExists: false });
     register(deps as never);
     await expect(
       handlers.get("projects:update")!(null, "p1", { hostId: "box" }) as Promise<unknown>,
-    ).rejects.toThrow(
-      'Project path "/Users/me/Code/app" does not exist on me@box. Clone it onto the host instead.',
-    );
+    ).rejects.toThrow(/does not exist/);
     expect(deps.projectManager.updateProject).not.toHaveBeenCalled();
   });
 
-  it('names the local machine "this Mac" when switching back to local', async () => {
-    const deps = makeDeps({ currentHostId: "box", pathExists: false });
+  it('labels the local machine "this Mac" and skips connecting', async () => {
+    const deps = makeDeps({ currentHostId: "box" });
     register(deps as never);
-    await expect(
-      handlers.get("projects:update")!(null, "p1", { hostId: LOCAL_HOST_ID }) as Promise<unknown>,
-    ).rejects.toThrow(/does not exist on this Mac/);
+    await handlers.get("projects:update")!(null, "p1", { hostId: LOCAL_HOST_ID });
     expect(deps.backendRegistry.ensureConnected).not.toHaveBeenCalled();
-    expect(deps.projectManager.updateProject).not.toHaveBeenCalled();
+    expect(deps.projectManager.switchProjectHost).toHaveBeenCalledWith(
+      "p1",
+      LOCAL_HOST_ID,
+      undefined,
+      "this Mac",
+    );
   });
 
-  it("skips the check when the host does not change", async () => {
-    const deps = makeDeps({ currentHostId: "box", pathExists: false });
+  it("skips the switch when the host does not change", async () => {
+    const deps = makeDeps({ currentHostId: "box" });
     register(deps as never);
     await handlers.get("projects:update")!(null, "p1", { hostId: "box" });
-    expect(deps.projectManager.pathExistsOnHost).not.toHaveBeenCalled();
+    expect(deps.projectManager.switchProjectHost).not.toHaveBeenCalled();
     expect(deps.projectManager.updateProject).toHaveBeenCalled();
+  });
+});
+
+describe("projects:switchHost (ADR-179)", () => {
+  beforeEach(() => {
+    handlers.clear();
+  });
+
+  it("passes an explicit path through", async () => {
+    const deps = makeDeps({ currentHostId: "box" });
+    register(deps as never);
+    await handlers.get("projects:switchHost")!(null, "p1", LOCAL_HOST_ID, "/Users/me/Code/app");
+    expect(deps.projectManager.switchProjectHost).toHaveBeenCalledWith(
+      "p1",
+      LOCAL_HOST_ID,
+      "/Users/me/Code/app",
+      "this Mac",
+    );
+  });
+
+  it("rejects an unknown host", () => {
+    const deps = makeDeps();
+    register(deps as never);
+    expect(() => handlers.get("projects:switchHost")!(null, "p1", "nope")).toThrow(/Unknown host/);
   });
 });
 

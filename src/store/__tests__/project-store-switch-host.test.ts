@@ -1,0 +1,106 @@
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { useAppStore } from "../app-store";
+import { useProjectStore, type ProjectInfo } from "../project-store";
+
+// A host switch moves a project's checkout (ADR-179). The window used to
+// keep showing the old path — a workspace that no longer exists — and was
+// unusable until the user clicked back in. Now the old workspaces' tabs
+// close and the window moves to the new main workspace.
+
+vi.stubGlobal("window", {
+  ...globalThis.window,
+  electronAPI: {
+    projects: {
+      switchHost: vi.fn(),
+      moveToHost: vi.fn(),
+      selectWorkspace: vi.fn(),
+      select: vi.fn(),
+    },
+  },
+});
+
+const OLD = "/Users/me/Code/gary";
+const OLD_WT = "/Users/me/.manor/worktrees/gary/feat";
+const NEW = "/home/me/code/gary";
+
+function project(path: string, extraWorkspaces: string[] = [], hostId = "local"): ProjectInfo {
+  const ws = (p: string, isMain: boolean) => ({
+    path: p,
+    branch: isMain ? "main" : "feat",
+    isMain,
+    name: null,
+    linkedIssues: [],
+  });
+  return {
+    id: "p1",
+    name: "gary",
+    path,
+    hostId,
+    defaultBranch: "main",
+    workspaces: [ws(path, true), ...extraWorkspaces.map((p) => ws(p, false))],
+    selectedWorkspaceIndex: 0,
+    defaultRunCommand: null,
+    worktreePath: null,
+    worktreeStartScript: null,
+    worktreeTeardownScript: null,
+    linearAssociations: [],
+    color: null,
+    agentCommand: null,
+    commands: [],
+    themeName: null,
+    setupComplete: true,
+    portlessEnabled: true,
+    folders: [],
+    sidebarOrder: [],
+  };
+}
+
+describe("switchProjectHost", () => {
+  beforeEach(() => {
+    useProjectStore.setState({ projects: [project(OLD, [OLD_WT])], selectedProjectIndex: 0 });
+    useAppStore.setState({ workspaceLayouts: {}, activeWorkspacePath: null });
+    vi.clearAllMocks();
+  });
+
+  it("closes the old workspaces' tabs and shows the new main workspace", async () => {
+    useAppStore.getState().setActiveWorkspace(OLD_WT);
+    useAppStore.getState().setActiveWorkspace(OLD);
+    vi.mocked(window.electronAPI.projects.switchHost).mockResolvedValue(
+      project(NEW, [], "box"),
+    );
+
+    await useProjectStore.getState().switchProjectHost("p1", "box");
+
+    const app = useAppStore.getState();
+    expect(app.activeWorkspacePath).toBe(NEW);
+    expect(app.workspaceLayouts[OLD]).toBeUndefined();
+    expect(app.workspaceLayouts[OLD_WT]).toBeUndefined();
+  });
+
+  it("closes the old tabs without moving a window that shows another project", async () => {
+    useAppStore.getState().setActiveWorkspace(OLD);
+    useAppStore.getState().setActiveWorkspace("/elsewhere");
+    vi.mocked(window.electronAPI.projects.switchHost).mockResolvedValue(
+      project(NEW, [], "box"),
+    );
+
+    await useProjectStore.getState().switchProjectHost("p1", "box");
+
+    const app = useAppStore.getState();
+    expect(app.activeWorkspacePath).toBe("/elsewhere");
+    expect(app.workspaceLayouts[OLD]).toBeUndefined();
+  });
+
+  it("changes nothing when the switch is refused", async () => {
+    useAppStore.getState().setActiveWorkspace(OLD);
+    vi.mocked(window.electronAPI.projects.switchHost).mockRejectedValue(
+      new Error("does not exist"),
+    );
+
+    await expect(useProjectStore.getState().switchProjectHost("p1", "box")).rejects.toThrow();
+
+    const app = useAppStore.getState();
+    expect(app.activeWorkspacePath).toBe(OLD);
+    expect(app.workspaceLayouts[OLD]).toBeDefined();
+  });
+});

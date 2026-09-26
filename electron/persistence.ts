@@ -246,6 +246,12 @@ interface PersistedProject {
    * before ADR-160 load unchanged.
    */
   hostId?: string;
+  /**
+   * The root path this project last had on each host it has lived on, keyed
+   * by host id (ADR-179). Lets a move back to a host restore its path
+   * instead of keeping the current host's, which does not exist there.
+   */
+  hostPaths?: Record<string, string>;
 }
 
 /**
@@ -963,39 +969,99 @@ export class ProjectManager {
       opts.repoUrl,
       opts.remoteDir,
     );
+    await this.repointProject(project, hostId, targetDir);
+    this.saveState();
+    return this.buildProjectInfo(project);
+  }
+
+  /**
+   * Switch a project to `hostId` without cloning (ADR-179): to `path` when
+   * given, else the path it last had on that host, else its current path.
+   * Throws when that path does not exist on the host, so a switch can never
+   * leave a project whose terminals can't `chdir`. The caller connects a
+   * remote host first.
+   */
+  async switchProjectHost(
+    projectId: string,
+    hostId: string,
+    explicitPath?: string,
+    hostLabel: string = hostId,
+  ): Promise<ProjectInfo> {
+    const project = this.findProject(projectId);
+    if (!project) throw new Error(`Unknown project "${projectId}".`);
+    const currentHostId = project.hostId ?? LOCAL_HOST_ID;
+    const targetPath =
+      explicitPath ?? project.hostPaths?.[hostId] ?? project.path;
+    if (hostId === currentHostId && targetPath === project.path) {
+      return this.buildProjectInfo(project);
+    }
+    if (!(await this.pathExistsOnHost(hostId, targetPath))) {
+      throw new Error(
+        `Project path "${targetPath}" does not exist on ${hostLabel}.`,
+      );
+    }
+    const owner = this.findProjectAt(hostId, targetPath);
+    if (owner && owner.id !== projectId) {
+      throw new Error(
+        `"${targetPath}" on ${hostLabel} already belongs to project "${owner.name}".`,
+      );
+    }
+    await this.repointProject(project, hostId, targetPath);
+    this.saveState();
+    return this.buildProjectInfo(project);
+  }
+
+  /**
+   * Point `project` at `newPath` on `hostId`, remembering the path it is
+   * leaving in `hostPaths` and carrying the main workspace's per-path
+   * settings over to the new path. Does not save.
+   */
+  private async repointProject(
+    project: PersistedProject,
+    hostId: string,
+    newPath: string,
+  ): Promise<void> {
+    const oldHostId = project.hostId ?? LOCAL_HOST_ID;
     const oldPath = project.path;
 
     const detected = await this.detectDefaultBranch(
       this.gitForHost(hostId),
-      targetDir,
+      newPath,
     );
-    project.hostId = hostId;
-    project.path = targetDir;
+    project.hostPaths = { ...project.hostPaths, [oldHostId]: oldPath };
+    project.path = newPath;
+    if (hostId === LOCAL_HOST_ID) {
+      // Local projects carry no `hostId`, matching records from before hosts.
+      delete project.hostId;
+    } else {
+      project.hostId = hostId;
+    }
     if (detected) project.defaultBranch = detected;
 
-    if (oldPath !== targetDir) {
-      rekeyRecord(project.workspaceNames, oldPath, targetDir);
-      rekeyRecord(project.workspaceIssues, oldPath, targetDir);
-      rekeyRecord(project.workspaceHidden, oldPath, targetDir);
-      rekeyRecord(project.workspaceFolderIds, oldPath, targetDir);
+    if (oldPath !== newPath) {
+      rekeyRecord(project.workspaceNames, oldPath, newPath);
+      rekeyRecord(project.workspaceIssues, oldPath, newPath);
+      rekeyRecord(project.workspaceHidden, oldPath, newPath);
+      rekeyRecord(project.workspaceFolderIds, oldPath, newPath);
       if (project.workspaceOrder) {
         project.workspaceOrder = project.workspaceOrder.map((key) =>
-          key === oldPath ? targetDir : key,
+          key === oldPath ? newPath : key,
         );
       }
     }
     // An absolute worktree root names a directory on the old machine; null
-    // falls back to `<hostHome>/.manor/worktrees/<slug>` (ADR-178 §3). A
-    // `~` root is host-relative, so it still means something on the host.
-    if (project.worktreePath && !project.worktreePath.startsWith("~")) {
+    // falls back to the host's default (`<home>/.manor/worktrees/<slug>`,
+    // ADR-178 §3). A `~` root is host-relative, so it still means something.
+    if (
+      oldHostId !== hostId &&
+      project.worktreePath &&
+      !project.worktreePath.startsWith("~")
+    ) {
       project.worktreePath = null;
     }
     // Workspace paths from the old host would otherwise route
     // `hostIdForPath` until the next `buildProjectInfo` replaces them.
-    this.knownWorkspacePaths.delete(projectId);
-
-    this.saveState();
-    return this.buildProjectInfo(project);
+    this.knownWorkspacePaths.delete(project.id);
   }
 
   /**
@@ -1031,10 +1097,6 @@ export class ProjectManager {
     return this.remoteFileExists(this.shellForHost(hostId), p);
   }
 
-  /** The project's root path, or null for an unknown project. */
-  getProjectPath(projectId: string): string | null {
-    return this.findProject(projectId)?.path ?? null;
-  }
 
   /** The project that lives at `dir` on `hostId`, if any. */
   private findProjectAt(hostId: string, dir: string): PersistedProject | undefined {

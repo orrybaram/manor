@@ -311,6 +311,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("projects:getOriginUrl", projectId),
     pathExists: (projectId: string) =>
       ipcRenderer.invoke("projects:pathExists", projectId),
+    switchHost: (projectId: string, hostId: string, path?: string) =>
+      ipcRenderer.invoke("projects:switchHost", projectId, hostId, path),
   },
 
   hosts: {

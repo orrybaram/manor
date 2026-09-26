@@ -541,6 +541,15 @@ export interface ElectronAPI {
     getOriginUrl: (projectId: string) => Promise<string | null>;
     /** Whether the project's path exists on the host it lives on. */
     pathExists: (projectId: string) => Promise<boolean>;
+    /**
+     * ADR-179: switch a project to a host without cloning — to `path`, or
+     * the path it last had there. Rejects when that path is missing there.
+     */
+    switchHost: (
+      projectId: string,
+      hostId: string,
+      path?: string,
+    ) => Promise<import("./store/project-store").ProjectInfo>;
   };
 
   hosts: {

@@ -1,6 +1,6 @@
 ---
 title: Split BackendRegistry around a per-host HostConnection
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [4]

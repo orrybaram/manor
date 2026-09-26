@@ -1,6 +1,6 @@
 ---
 title: MachineFacts per host; rename Local* backends
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [5]
@@ -50,7 +50,12 @@ Read `index.md`. Model local as just another host.
      bootstrap wiring. If ticket 5's `HostConnection` already owns those, fold
      `RemoteBackend` into it.
 
-Run `pnpm build` and the `electron/backend` tests.
+5. **Ticket 5 follow-ups.**
+   - Pass the version once, in each backend's constructor. Make `RemoteBackendOptions.version` required, and remove `WorkspaceBackend.connect(opts?: { version })`'s version option.
+   - Delete `RoutedBackend.onHostEvent`, which has no production caller.
+   - Make `HookReplay.epoch`/`HookCursor.epoch` non-optional where every journal now has one, and simplify `isReset` accordingly. Keep tolerating a persisted cursor with a null epoch by treating it as "reset once".
+
+Run `npx tsc --noEmit -p` over all three tsconfigs (baseline 0/0/8), `pnpm build`, and the `electron/backend` tests.
 
 ## Files to touch
 - `electron/backend/machine-facts.ts` (new)

@@ -27,9 +27,10 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as http from "node:http";
-import * as path from "node:path";
 
 import { classifyHookRequest } from "../agent-hook-events";
+import { errorMessage } from "../lib/errors";
+import { writeFileAtomic } from "../lib/fs-atomic";
 import type { HookJournal } from "./hook-journal";
 import type { HookJournalEntry } from "./types";
 
@@ -51,11 +52,7 @@ export interface HookListenerOptions {
 }
 
 function writePortFileAtomic(file: string, port: number, token: string): void {
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  const tmp = `${file}.tmp`;
-  fs.writeFileSync(tmp, `${port}\n${token}\n`, { mode: 0o600 });
-  fs.chmodSync(tmp, 0o600);
-  fs.renameSync(tmp, file);
+  writeFileAtomic(file, `${port}\n${token}\n`, { mode: 0o600, dirMode: 0o700 });
 }
 
 function tokenMatches(header: string | string[] | undefined, token: string): boolean {
@@ -126,7 +123,7 @@ export class HookListener {
         try {
           this.opts.onEntry(entry);
         } catch (err) {
-          log(`hook listener: onEntry threw: ${err instanceof Error ? err.message : String(err)}`);
+          log(`hook listener: onEntry threw: ${errorMessage(err)}`);
         }
       }
       res.writeHead(200);
@@ -148,7 +145,7 @@ export class HookListener {
           try {
             writePortFileAtomic(this.opts.portFile, port, token);
           } catch (err) {
-            log(`hook listener: could not write port file: ${err instanceof Error ? err.message : String(err)}`);
+            log(`hook listener: could not write port file: ${errorMessage(err)}`);
           }
         }
         resolve(port);

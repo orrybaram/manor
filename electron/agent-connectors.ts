@@ -9,6 +9,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentKind } from "./terminal-host/types";
+import { errorMessage } from "./lib/errors";
+import { writeFileAtomic } from "./lib/fs-atomic";
 
 // ── Interface ──
 
@@ -59,25 +61,21 @@ function hasResumeToken(command: string, tokens: string[]): boolean {
   return tokens.some((tok) => args.includes(tok));
 }
 
-/** Result of a best-effort config read: either usable data, or a warning explaining why not. */
-interface ConfigReadResult<T> {
-  data: T;
-  /**
-   * Set when the file exists but could not be read or parsed — the caller
-   * must not write to `configPath` in this case, since doing so with `data`
-   * (an empty fallback) would silently replace content we could not
-   * understand rather than merge with it.
-   */
-  warning?: string;
-}
+/**
+ * Result of a best-effort config read: either usable data, or a warning
+ * explaining why not. A `warning` means the file exists but could not be
+ * read or parsed — the caller must not write to `configPath` in this case,
+ * since doing so with empty fallback data would silently replace content we
+ * could not understand rather than merge with it. Callers log the warning
+ * once, themselves (ADR-183) — this module never logs on their behalf.
+ */
+type ConfigReadResult<T> = { ok: true; data: T } | { ok: false; warning: string };
 
 /**
  * Read and JSON-parse a config file. A missing file is safe to treat as
  * `{}` (there's nothing to lose by creating it). Any other read error, or
  * invalid JSON, is NOT safe to treat as `{}` — that would silently wipe
- * whatever is actually there when we write our defaults back out. Those
- * cases return a warning and empty data; callers must check `warning` and
- * skip writing rather than using `data`.
+ * whatever is actually there when we write our defaults back out.
  */
 function readJsonConfig<T extends Record<string, unknown>>(
   configPath: string,
@@ -88,19 +86,19 @@ function readJsonConfig<T extends Record<string, unknown>>(
     text = fs.readFileSync(configPath, "utf-8");
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      return { data: {} as T };
+      return { ok: true, data: {} as T };
     }
     return {
-      data: {} as T,
-      warning: `skipped ${label}: could not read ${configPath}: ${errMessage(err)}`,
+      ok: false,
+      warning: `skipped ${label}: could not read ${configPath}: ${errorMessage(err)}`,
     };
   }
   try {
-    return { data: JSON.parse(text) as T };
+    return { ok: true, data: JSON.parse(text) as T };
   } catch (err) {
     return {
-      data: {} as T,
-      warning: `skipped ${label}: ${configPath} is not valid JSON (${errMessage(err)}); leaving it untouched`,
+      ok: false,
+      warning: `skipped ${label}: ${configPath} is not valid JSON (${errorMessage(err)}); leaving it untouched`,
     };
   }
 }
@@ -112,26 +110,18 @@ function readJsonConfig<T extends Record<string, unknown>>(
 function readTextConfig(
   configPath: string,
   label: string,
-): { content: string; warning?: string } {
+): ConfigReadResult<string> {
   try {
-    return { content: fs.readFileSync(configPath, "utf-8") };
+    return { ok: true, data: fs.readFileSync(configPath, "utf-8") };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      return { content: "" };
+      return { ok: true, data: "" };
     }
     return {
-      content: "",
-      warning: `skipped ${label}: could not read ${configPath}: ${errMessage(err)}`,
+      ok: false,
+      warning: `skipped ${label}: could not read ${configPath}: ${errorMessage(err)}`,
     };
   }
-}
-
-function errMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-function warnSkip(warning: string): void {
-  console.warn(`[agent-connectors] ${warning}`);
 }
 
 // ── Claude Code Connector ──
@@ -180,14 +170,15 @@ export class ClaudeConnector implements AgentConnector {
       "settings.json",
     );
 
-    const { data: settings, warning } = readJsonConfig<Record<string, unknown>>(
+    const result = readJsonConfig<Record<string, unknown>>(
       settingsPath,
       "Claude hook registration",
     );
-    if (warning) {
-      warnSkip(warning);
-      return [warning];
+    if (!result.ok) {
+      console.warn(`[agent-connectors] ${result.warning}`);
+      return [result.warning];
     }
+    const settings = result.data;
 
     const hooks = (settings.hooks ?? {}) as Record<string, unknown[]>;
     let modified = false;
@@ -220,8 +211,7 @@ export class ClaudeConnector implements AgentConnector {
 
     if (modified) {
       settings.hooks = hooks;
-      fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-      fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+      writeFileAtomic(settingsPath, JSON.stringify(settings, null, 2) + "\n");
     }
     return [];
   }
@@ -229,14 +219,15 @@ export class ClaudeConnector implements AgentConnector {
   registerMcp(mcpServerScriptPath: string): string[] {
     const configPath = path.join(process.env.HOME || "/tmp", ".claude.json");
 
-    const { data: config, warning } = readJsonConfig<Record<string, unknown>>(
+    const result = readJsonConfig<Record<string, unknown>>(
       configPath,
       "Claude MCP registration",
     );
-    if (warning) {
-      warnSkip(warning);
-      return [warning];
+    if (!result.ok) {
+      console.warn(`[agent-connectors] ${result.warning}`);
+      return [result.warning];
     }
+    const config = result.data;
 
     const mcpServers = (config.mcpServers ?? {}) as Record<
       string,
@@ -268,7 +259,7 @@ export class ClaudeConnector implements AgentConnector {
         env: {},
       };
       config.mcpServers = mcpServers;
-      fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+      writeFileAtomic(configPath, JSON.stringify(config, null, 2) + "\n");
     }
     return [];
   }
@@ -316,16 +307,17 @@ export class CodexConnector implements AgentConnector {
       "hooks.json",
     );
 
-    const { data: hooksFile, warning } = readJsonConfig<Record<string, unknown>>(
+    const result = readJsonConfig<Record<string, unknown>>(
       hooksPath,
       "Codex hook registration",
     );
-    if (warning) {
-      warnSkip(warning);
+    if (!result.ok) {
+      console.warn(`[agent-connectors] ${result.warning}`);
       // Still try the feature flag — it's a separate file, so an unreadable
       // hooks.json shouldn't also stop us updating config.toml.
-      return [warning, ...this._ensureCodexHooksFeatureFlag()];
+      return [result.warning, ...this._ensureCodexHooksFeatureFlag()];
     }
+    const hooksFile = result.data;
 
     const hooks = (hooksFile.hooks ?? {}) as Record<string, unknown[]>;
     let modified = false;
@@ -350,8 +342,7 @@ export class CodexConnector implements AgentConnector {
 
     if (modified) {
       hooksFile.hooks = hooks;
-      fs.mkdirSync(path.dirname(hooksPath), { recursive: true });
-      fs.writeFileSync(hooksPath, JSON.stringify(hooksFile, null, 2) + "\n");
+      writeFileAtomic(hooksPath, JSON.stringify(hooksFile, null, 2) + "\n");
     }
 
     // Ensure the codex_hooks feature flag is enabled in ~/.codex/config.toml
@@ -365,18 +356,17 @@ export class CodexConnector implements AgentConnector {
       "config.toml",
     );
 
-    const { content, warning } = readTextConfig(configPath, "Codex hooks feature flag");
-    if (warning) {
-      warnSkip(warning);
-      return [warning];
+    const result = readTextConfig(configPath, "Codex hooks feature flag");
+    if (!result.ok) {
+      console.warn(`[agent-connectors] ${result.warning}`);
+      return [result.warning];
     }
+    const content = result.data;
 
     // Check if codex_hooks = true is already present anywhere in the file
     if (/codex_hooks\s*=\s*true/.test(content)) {
       return [];
     }
-
-    fs.mkdirSync(path.dirname(configPath), { recursive: true });
 
     // If [features] section exists, append the flag after it
     if (content.includes("[features]")) {
@@ -385,11 +375,11 @@ export class CodexConnector implements AgentConnector {
         l.trim() === "[features]",
       );
       lines.splice(featuresIndex + 1, 0, "codex_hooks = true");
-      fs.writeFileSync(configPath, lines.join("\n"));
+      writeFileAtomic(configPath, lines.join("\n"));
     } else {
       // Append a new [features] section at the end
       const separator = content.length > 0 && !content.endsWith("\n") ? "\n" : "";
-      fs.writeFileSync(
+      writeFileAtomic(
         configPath,
         content + separator + "\n[features]\ncodex_hooks = true\n",
       );
@@ -404,15 +394,12 @@ export class CodexConnector implements AgentConnector {
       "config.toml",
     );
 
-    const { content: raw, warning } = readTextConfig(
-      configPath,
-      "Codex MCP registration",
-    );
-    if (warning) {
-      warnSkip(warning);
-      return [warning];
+    const result = readTextConfig(configPath, "Codex MCP registration");
+    if (!result.ok) {
+      console.warn(`[agent-connectors] ${result.warning}`);
+      return [result.warning];
     }
-    let content = raw;
+    let content = result.data;
 
     // Strip the pre-rename section from earlier versions (up to the next
     // top-level table header or end of file).
@@ -426,11 +413,9 @@ export class CodexConnector implements AgentConnector {
 
     // Already registered under the new name — persist any legacy strip and stop.
     if (content.includes("[mcp_servers.manor]")) {
-      if (hadLegacy) fs.writeFileSync(configPath, content);
+      if (hadLegacy) writeFileAtomic(configPath, content);
       return [];
     }
-
-    fs.mkdirSync(path.dirname(configPath), { recursive: true });
 
     const separator = content.length > 0 && !content.endsWith("\n") ? "\n" : "";
     const section = [
@@ -441,7 +426,7 @@ export class CodexConnector implements AgentConnector {
       "",
     ].join("\n");
 
-    fs.writeFileSync(configPath, content + separator + section);
+    writeFileAtomic(configPath, content + separator + section);
     return [];
   }
 }
@@ -480,8 +465,6 @@ export class PiConnector implements AgentConnector {
       "agent",
       "extensions",
     );
-
-    fs.mkdirSync(piHooksDir, { recursive: true });
 
     // Generate the pi extension that sends hooks to Manor
     const extensionContent = `/**
@@ -598,7 +581,7 @@ export default function (pi: ExtensionAPI) {
     }
 
     if (existingContent !== extensionContent) {
-      fs.writeFileSync(extensionPath, extensionContent);
+      writeFileAtomic(extensionPath, extensionContent);
     }
     return [];
   }

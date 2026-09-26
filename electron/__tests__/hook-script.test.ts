@@ -10,7 +10,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { ensureHookScript } from "../agent-hooks";
+import { ensureHookScript } from "../terminal-host/bootstrap-host";
 
 // ── Helpers ──
 

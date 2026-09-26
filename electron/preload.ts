@@ -166,7 +166,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       return () =>
         ipcRenderer.removeListener("worktree:setup-progress", handler);
     },
-    // ADR-180 ticket 1: clone progress has its own channel, separate from
+    // ADR-183 ticket 1: clone progress has its own channel, separate from
     // worktree setup — a clone and a worktree setup can be in flight at once
     // and must not write into each other's state.
     onCloneProgress: (

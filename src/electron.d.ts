@@ -457,7 +457,7 @@ export interface ElectronAPI {
       ) => void,
     ) => () => void;
     /**
-     * ADR-180 ticket 1: clone progress on its own channel, separate from
+     * ADR-183 ticket 1: clone progress on its own channel, separate from
      * worktree setup — used by `addRemote` and `moveToHost`.
      */
     onCloneProgress: (

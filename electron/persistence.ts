@@ -650,7 +650,7 @@ export class ProjectManager {
     }
   }
 
-  /** Clone progress on its own channel (ADR-180 ticket 1) — see `prepareRemoteClone`. */
+  /** Clone progress on its own channel (ADR-183 ticket 1) — see `prepareRemoteClone`. */
   private emitCloneProgress(
     status: "in-progress" | "done" | "error",
     message?: string,
@@ -905,7 +905,7 @@ export class ProjectManager {
   /**
    * Create a project on a remote host by cloning it there first (ADR-178
    * ticket 5): `git clone --progress` through the host's backend, with
-   * progress on its own `projects:clone-progress` channel (ADR-180 ticket 1),
+   * progress on its own `projects:clone-progress` channel (ADR-183 ticket 1),
    * then the normal `addProject` path.
    *
    * If `remoteDir` already exists and is a clone of `repoUrl`, cloning is

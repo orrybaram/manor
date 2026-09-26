@@ -263,6 +263,34 @@ export interface AgentState {
  */
 export type StreamPosition = number;
 
+/** What `pty.create` resolves to (ADR-183: one type for main and renderer). */
+export type PtyCreateResult =
+  | {
+      ok: true;
+      /**
+       * The host the session actually runs on (ADR-160) — not its project's
+       * current host, which may have changed since.
+       */
+      hostId: string;
+      /** The session's screen when it already existed; null for a fresh one. */
+      snapshot: string | null;
+      /** Stream position the snapshot reflects (ADR-159). */
+      snapshotSeq?: StreamPosition;
+      /** The session already existed — NOT that its shell reached a prompt. */
+      prewarmed: boolean;
+    }
+  | {
+      /**
+       * The pane's remote host is not connected (ADR-178 §6): not a broken
+       * terminal — it is created once `hostId` is back.
+       */
+      ok: false;
+      reason: "host-unavailable";
+      hostId: string;
+      error: string;
+    }
+  | { ok: false; reason: "error"; error: string };
+
 /** Layout persistence types (mirrored from electron/terminal-host/layout-persistence.ts) */
 export interface PersistedPaneSession {
   daemonSessionId: string;
@@ -357,24 +385,7 @@ export interface ElectronAPI {
       cols: number,
       rows: number,
       agentKind?: string | null,
-    ) => Promise<{
-      ok: boolean;
-      snapshot?: string | null;
-      snapshotSeq?: StreamPosition;
-      error?: string;
-      prewarmed?: boolean;
-      /**
-       * The host the session actually runs on (ADR-160); absent from older
-       * mains. On a `hostUnavailable` failure, the host the pane awaits.
-       */
-      hostId?: string;
-      /**
-       * The create failed because the pane's remote host is not connected
-       * (ADR-178 §6): not a broken terminal — it is created once the host
-       * is back.
-       */
-      hostUnavailable?: boolean;
-    }>;
+    ) => Promise<PtyCreateResult>;
     write: (paneId: string, data: string) => Promise<void>;
     /** Resolves once the pty is actually at that size, not merely told to be. */
     resize: (paneId: string, cols: number, rows: number) => Promise<void>;

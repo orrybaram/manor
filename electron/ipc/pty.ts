@@ -7,6 +7,7 @@ import { HostUnavailableError } from "../backend/host-view";
 import { LOCAL_HOST_ID } from "../backend/types";
 import { errorMessage } from "../lib/errors";
 import type { IpcDeps } from "./types";
+import type { PtyCreateResult } from "../../src/electron.d";
 
 /**
  * Read git branch synchronously from a repo or worktree root, for this
@@ -65,7 +66,7 @@ export function register(deps: IpcDeps): void {
       cols: number,
       rows: number,
       agentKind?: string | null,
-    ) => {
+    ): Promise<PtyCreateResult> => {
       const resolvedCwd = validatePtyArgs(paneId, cwd, cols, rows);
       const env: Record<string, string> | undefined = agentKind
         ? { MANOR_AGENT_KIND: agentKind }
@@ -104,10 +105,10 @@ export function register(deps: IpcDeps): void {
         // call rejects with `HostUnavailableError` whenever its host is away
         // (ADR-183); "unknown" is a host nobody registered.
         if (err instanceof HostUnavailableError && err.status !== "unknown") {
-          return { ok: false, error, hostUnavailable: true, hostId: err.hostId };
+          return { ok: false, reason: "host-unavailable", hostId: err.hostId, error };
         }
         console.error(`Failed to create/attach PTY for ${paneId}:`, err);
-        return { ok: false, error };
+        return { ok: false, reason: "error", error };
       }
     },
   );

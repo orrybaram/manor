@@ -56,7 +56,7 @@ describe("pty:create on a remote host that is not connected (ADR-178 §6)", () =
     vi.spyOn(console, "error").mockImplementation(() => {});
     const create = failing(new HostUnavailableError("box", "reconnecting"));
     const result = await create(null, "pane-a", "/remote/app", 80, 24);
-    expect(result).toMatchObject({ ok: false, hostUnavailable: true, hostId: "box" });
+    expect(result).toMatchObject({ ok: false, reason: "host-unavailable", hostId: "box" });
     expect(console.error).not.toHaveBeenCalled();
   });
 
@@ -67,7 +67,7 @@ describe("pty:create on a remote host that is not connected (ADR-178 §6)", () =
       const create = failing(err);
       const result = (await create(null, "pane-a", "/x", 80, 24)) as Record<string, unknown>;
       expect(result.ok).toBe(false);
-      expect(result.hostUnavailable).toBeUndefined();
+      expect(result.reason).toBe("error");
     }
   });
 });

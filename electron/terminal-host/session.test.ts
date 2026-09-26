@@ -579,20 +579,20 @@ describe("spawnArgsFor", () => {
   });
 
   it("starts plain bash with Manor's rcfile", () => {
-    expect(spawnArgsFor("/bin/bash", [], bashrc)).toEqual(["--rcfile", bashrc]);
+    expect(spawnArgsFor("/bin/bash", [], () => bashrc)).toEqual(["--rcfile", bashrc]);
   });
 
   it("leaves zsh and other shells alone", () => {
-    expect(spawnArgsFor("/bin/zsh", [], bashrc)).toEqual([]);
-    expect(spawnArgsFor("/usr/bin/fish", [], bashrc)).toEqual([]);
+    expect(spawnArgsFor("/bin/zsh", [], () => bashrc)).toEqual([]);
+    expect(spawnArgsFor("/usr/bin/fish", [], () => bashrc)).toEqual([]);
   });
 
   it("keeps explicit args", () => {
-    expect(spawnArgsFor("/bin/bash", ["-l"], bashrc)).toEqual(["-l"]);
+    expect(spawnArgsFor("/bin/bash", ["-l"], () => bashrc)).toEqual(["-l"]);
   });
 
   it("falls back to plain bash when the rcfile is missing", () => {
     fs.rmSync(bashrc);
-    expect(spawnArgsFor("/bin/bash", [], bashrc)).toEqual([]);
+    expect(spawnArgsFor("/bin/bash", [], () => bashrc)).toEqual([]);
   });
 });

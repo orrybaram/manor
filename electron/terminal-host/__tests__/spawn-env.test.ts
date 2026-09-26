@@ -31,6 +31,7 @@ vi.mock("../../shell", () => ({
   ShellManager: {
     zdotdirPath: () => "/tmp/manor-spawn-env-zdotdir",
     realZdotdir: () => "/tmp/manor-spawn-env-home",
+    bashrcPath: () => "/tmp/manor-spawn-env-bash/bashrc",
   },
 }));
 

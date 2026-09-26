@@ -47,9 +47,10 @@ import { DEFAULT_TERMINAL_MODES } from "./types";
 export function spawnArgsFor(
   shell: string,
   args: string[],
-  bashrc: string = ShellManager.bashrcPath(),
+  bashrcPath: () => string = () => ShellManager.bashrcPath(),
 ): string[] {
   if (args.length > 0 || path.basename(shell) !== "bash") return args;
+  const bashrc = bashrcPath();
   // `--rcfile` replaces ~/.bashrc, so a missing file would drop the user's rc
   // too — fall back to plain bash until the daemon's bootstrap writes it.
   if (!fs.existsSync(bashrc)) return args;

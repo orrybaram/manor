@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { shellZdotdir } from "./paths";
+import { shellBashrc, shellZdotdir } from "./paths";
 
 export class ShellManager {
   static zdotdirPath(): string {
@@ -72,6 +72,39 @@ precmd_functions+=(__manor_osc7_precmd)
       fs.writeFileSync(path.join(dir, name), body);
     }
 
+    this.setupBashrc();
     return dir;
+  }
+
+  static bashrcPath(): string {
+    return shellBashrc();
+  }
+
+  /**
+   * The bash counterpart of the zdotdir: sources the user's ~/.bashrc, then
+   * emits OSC 7 on each prompt. Without it a bash pane (the default shell on
+   * most Linux hosts) never reports reaching a prompt, so queued commands
+   * wait out the renderer's 3s fallback before they are typed.
+   */
+  static setupBashrc(): string {
+    const file = this.bashrcPath();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(
+      file,
+      `[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"
+
+# Emit OSC 7 (CWD reporting) on each prompt so Manor can track the working
+# directory. Appended, so a prompt command that reads $? still sees the last
+# command's status.
+__manor_osc7_prompt() {
+  printf '\\e]7;file://%s%s\\e\\\\' "\${HOSTNAME}" "\${PWD}"
+}
+case ";\${PROMPT_COMMAND};" in
+  *";__manor_osc7_prompt;"*) ;;
+  *) PROMPT_COMMAND="\${PROMPT_COMMAND:+\${PROMPT_COMMAND};}__manor_osc7_prompt" ;;
+esac
+`,
+    );
+    return file;
   }
 }

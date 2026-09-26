@@ -10,6 +10,7 @@
  */
 
 import { fork, type ChildProcess } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import type net from "node:net";
 import "./xterm-env-polyfill";
@@ -37,6 +38,23 @@ import type {
   AgentKind,
 } from "./types";
 import { DEFAULT_TERMINAL_MODES } from "./types";
+
+/**
+ * The argv for a pane's shell. A plain bash pane starts with Manor's rcfile
+ * (which sources ~/.bashrc and adds OSC 7 prompt reporting), the way zsh
+ * gets it through ZDOTDIR; explicit args and other shells pass through.
+ */
+export function spawnArgsFor(
+  shell: string,
+  args: string[],
+  bashrc: string = ShellManager.bashrcPath(),
+): string[] {
+  if (args.length > 0 || path.basename(shell) !== "bash") return args;
+  // `--rcfile` replaces ~/.bashrc, so a missing file would drop the user's rc
+  // too — fall back to plain bash until the daemon's bootstrap writes it.
+  if (!fs.existsSync(bashrc)) return args;
+  return ["--rcfile", bashrc];
+}
 
 /**
  * Build the environment for a user-facing PTY shell.
@@ -283,7 +301,7 @@ export class Session {
         // stale when this daemon outlives a code change.
         const spawnPayload: PtySpawnPayload = {
           shell,
-          args: this.pendingSpawnArgs,
+          args: spawnArgsFor(shell, this.pendingSpawnArgs),
           cwd: this.cwd || process.env.HOME || "/",
           cols: this.cols,
           rows: this.rows,

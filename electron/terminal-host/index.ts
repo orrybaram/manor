@@ -35,6 +35,7 @@ import { LocalTransport } from "./transport-local";
 import { ExecRunner, runExec } from "./exec-runner";
 import { createSerializedHandler } from "./control-queue";
 import { bootstrapHost } from "./bootstrap-host";
+import { ShellManager } from "../shell";
 import { HookJournal } from "./hook-journal";
 import { HookListener } from "./hook-listener";
 
@@ -699,6 +700,15 @@ function startServer(): void {
   });
 
   if (namespace === "remote") {
+    // Write the shell integration (zdotdir, bash rcfile) at startup rather
+    // than only on the `bootstrap` request: the client's auto-reconnect after
+    // a daemon restart doesn't re-send it, and a shell spawned before it runs
+    // would miss OSC 7 prompt reporting.
+    try {
+      ShellManager.setupZdotdir();
+    } catch (err) {
+      log(`shell integration setup failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
     enableRemoteMode().catch((err: unknown) => {
       log(`hook listener failed to start: ${err instanceof Error ? err.message : String(err)}`);
     });

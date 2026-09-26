@@ -17,6 +17,9 @@ import type {
   AgentKind,
   HookReplay,
 } from "../terminal-host/types";
+import type { MachineFacts } from "./machine-facts";
+
+export type { MachineFacts } from "./machine-facts";
 
 // ── Pty Backend ──
 
@@ -151,7 +154,7 @@ export interface ShellBackend {
 
   /**
    * The home directory on the machine this backend runs commands on (ADR-178
-   * §3). Local: `os.homedir()`. Remote: asked of the host and cached.
+   * §3): its `MachineFacts.homeDir` (ADR-183).
    */
   homeDir(): Promise<string>;
 }
@@ -250,8 +253,11 @@ export interface WorkspaceBackend {
   readonly git: GitBackend;
   readonly shell: ShellBackend;
   readonly ports: PortsBackend;
+  /** What the host's machine is: its OS, home, files (ADR-183). */
+  readonly facts: MachineFacts;
 
-  connect(opts?: { version?: string }): Promise<void>;
+  /** Connect to the host, at the version the backend was built with. */
+  connect(): Promise<void>;
   disconnect(): Promise<void>;
 }
 

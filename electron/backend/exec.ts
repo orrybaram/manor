@@ -9,7 +9,7 @@ export const execFileAsync = promisify(execFile);
  * The shape `Exec.file` rejects with when a command fails (non-zero exit,
  * spawn failure, timeout, or output past `maxBuffer`). This is what Node's
  * `execFile` rejects with, and callers depend on it — `parseCommitError` in
- * `local-git.ts` reads `stderr`/`stdout` off the rejection to explain a
+ * `exec-git.ts` reads `stderr`/`stdout` off the rejection to explain a
  * failed commit hook. Any non-local `Exec` (e.g. one routed through the
  * terminal-host daemon) must reject with an `Error` carrying these fields.
  */

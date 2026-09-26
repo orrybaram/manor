@@ -30,10 +30,10 @@
  *
  * When the journal no longer has everything after `lastSeq` (compacted past
  * it while the laptop was away), the feed replays what is there, logs the
- * gap, and moves on. When the journal's epoch differs from the stored one
- * (or, for a journal without epochs, its seq is *behind* `lastSeq`), it was
- * recreated (box reinstalled, file deleted) and holds only hooks from after
- * that; the feed replays all of it.
+ * gap, and moves on. When the journal's epoch differs from the stored one,
+ * it was recreated (box reinstalled, file deleted) and holds only hooks from
+ * after that; the feed replays all of it. A cursor persisted before journals
+ * had epochs counts as a different journal, once.
  */
 
 import { errorMessage } from "../lib/errors";
@@ -43,7 +43,10 @@ import type { AgentStatus, HookPayload, HookReplay } from "../terminal-host/type
 /** How far into which journal a host's hooks have been ingested. */
 export interface HookCursor {
   seq: number;
-  /** The journal's epoch; null if it had none (or we never learned it). */
+  /**
+   * The journal's epoch. Null only in a cursor persisted before journals had
+   * epochs, which the next catch-up treats as a reset (ADR-183).
+   */
   epoch: string | null;
 }
 
@@ -211,15 +214,15 @@ export class HostHookFeed {
         console.info(
           `[hook-feed] ${hostId}: first contact with its hook journal; starting at seq ${result.lastSeq} without replaying its history`,
         );
-        this.setCursor({ seq: result.lastSeq, epoch: result.epoch ?? null });
+        this.setCursor({ seq: result.lastSeq, epoch: result.epoch });
       } else {
         result = await this.opts.replay(cursor.seq);
         if (generation !== this.generation) return;
         if (isReset(cursor, result)) {
           console.warn(
-            `[hook-feed] ${hostId}: hook journal was recreated (epoch ${cursor.epoch ?? "?"} → ${result.epoch ?? "?"}, seq ${cursor.seq} → ${result.lastSeq}); replaying it from the start`,
+            `[hook-feed] ${hostId}: hook journal was recreated (epoch ${cursor.epoch ?? "?"} → ${result.epoch}, seq ${cursor.seq} → ${result.lastSeq}); replaying it from the start`,
           );
-          this.setCursor({ seq: 0, epoch: result.epoch ?? null });
+          this.setCursor({ seq: 0, epoch: result.epoch });
           result = await this.opts.replay(0);
         }
       }
@@ -310,12 +313,11 @@ export class HostHookFeed {
 
 /**
  * Whether `replay` comes from a different journal than `cursor` was
- * recorded against: a different epoch, or — when either side has none — a
- * head behind the cursor.
+ * recorded against. A cursor without an epoch (persisted before epochs)
+ * never matches, so it resets once and picks up the journal's epoch.
  */
 function isReset(cursor: HookCursor, replay: HookReplay): boolean {
-  if (cursor.epoch && replay.epoch) return cursor.epoch !== replay.epoch;
-  return replay.lastSeq < cursor.seq;
+  return cursor.epoch !== replay.epoch;
 }
 
 /** In-memory `HookSeqStore`, for a registry with nowhere to persist. */

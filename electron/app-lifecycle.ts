@@ -28,7 +28,7 @@ import { cleanAgentTitle } from "./title-utils";
 import type { AgentStatus, StreamEvent } from "./terminal-host/types";
 import { initAutoUpdater, checkForUpdates } from "./updater";
 import { portlessManager } from "./portless";
-import { LocalBackend } from "./backend/local-backend";
+import { createLocalBackend } from "./backend/host-backend";
 import {
   BackendRegistry,
   isRemoteSessionLoss,
@@ -252,13 +252,13 @@ export function initApp(devTitle: string | null): void {
   }
 
   // Managers
-  const client = new TerminalHostClient();
+  // The local daemon is handshaken against Electron's version.
+  const client = new TerminalHostClient(app.getVersion());
   // Every host's backend, "local" always among them (ADR-160 §6). Remote
   // hosts come from projects.json below and connect lazily, off the launch
   // path; with none registered everything routes to the local backend.
   const backendRegistry = new BackendRegistry({
-    local: new LocalBackend(client),
-    localVersion: app.getVersion(),
+    local: createLocalBackend(client),
     remoteVersion: manorVersion(),
     // Where each remote host's hook journal was read up to (ADR-178 §2).
     // Only read once hosts are registered, after projectManager exists.

@@ -1,5 +1,5 @@
 /**
- * Integration tests for LocalGitBackend.pushStream against a real bare repo.
+ * Integration tests for ExecGitBackend.pushStream against a real bare repo.
  *
  * These tests shell out to real git. Each test is hermetic — a fresh working
  * repo and bare repo are created in a temp dir per test, and cleaned up in
@@ -11,7 +11,7 @@ import { mkdtemp, writeFile, rm, realpath } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { execFileSync, execSync } from "node:child_process";
-import { LocalGitBackend } from "../local-git";
+import { ExecGitBackend } from "../exec-git";
 
 vi.setConfig({ testTimeout: 30000 });
 
@@ -23,7 +23,7 @@ function git(cwd: string, ...args: string[]): string {
 
 /**
  * Check for git availability once at module load time. If git isn't present
- * the whole suite is skipped (mirrors the pattern used in local-git.test.ts).
+ * the whole suite is skipped (mirrors the pattern used in exec-git.test.ts).
  */
 function isGitAvailable(): boolean {
   try {
@@ -38,7 +38,7 @@ function isGitAvailable(): boolean {
  * Wrap the callback-based pushStream API in a Promise so tests read naturally.
  */
 function runPush(
-  backend: LocalGitBackend,
+  backend: ExecGitBackend,
   cwd: string,
   opts: { remote?: string; branch?: string; setUpstream?: boolean },
 ): Promise<{ lines: string[]; exitCode: number | null; stderr: string }> & {
@@ -77,15 +77,15 @@ function runPush(
 // ── suite ────────────────────────────────────────────────────────────────────
 
 describe.skipIf(!isGitAvailable())(
-  "LocalGitBackend.pushStream (integration — real git)",
+  "ExecGitBackend.pushStream (integration — real git)",
   () => {
-    let backend: LocalGitBackend;
+    let backend: ExecGitBackend;
     let tmpDir: string;
     let workDir: string;
     let bareDir: string;
 
     beforeEach(async () => {
-      backend = new LocalGitBackend();
+      backend = new ExecGitBackend();
 
       tmpDir = await realpath(
         await mkdtemp(path.join(os.tmpdir(), "manor-push-integration-")),
@@ -216,7 +216,7 @@ describe.skipIf(!isGitAvailable())(
     //
     // Reliable cancellation in a local-bare-repo scenario is difficult because
     // local pushes complete in milliseconds. The unit tests in
-    // local-git-pushstream.test.ts already verify that cancel() sends SIGTERM.
+    // exec-git-pushstream.test.ts already verify that cancel() sends SIGTERM.
     // We provide a lightweight smoke-test here: start a push and call cancel()
     // immediately — onDone must still fire (possibly with exitCode 0 if push
     // completed before SIGTERM was delivered, or non-zero if it was cancelled).

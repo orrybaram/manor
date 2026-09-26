@@ -115,13 +115,9 @@ export class TerminalHostClient {
   }
 
   constructor(
-    private clientVersion?: string,
+    private readonly clientVersion?: string,
     private readonly transport: HostTransport = new LocalTransport(),
   ) {}
-
-  setVersion(version: string): void {
-    this.clientVersion = version;
-  }
 
   /**
    * Replace the default reconnect schedule (three quick attempts, then give
@@ -508,7 +504,7 @@ export class TerminalHostClient {
     const { entries, lastSeq, epoch } = await this.rpc.call({
       type: "replayHooks", sinceSeq, ...(opts.headOnly ? { headOnly: true } : {}),
     });
-    return { entries: opts.headOnly ? [] : entries, lastSeq, ...(epoch ? { epoch } : {}) };
+    return { entries: opts.headOnly ? [] : entries, lastSeq, epoch };
   }
 
   /**

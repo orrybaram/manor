@@ -41,7 +41,7 @@ function fakeBackend(name: string) {
       }),
       updateEnv: vi.fn(async () => {}),
       relayAgentHook: vi.fn(),
-      replayHooks: vi.fn(async () => ({ entries: [], lastSeq: 0 })),
+      replayHooks: vi.fn(async () => ({ entries: [], lastSeq: 0, epoch: "e0" })),
     },
     git: {
       exec: vi.fn(async () => `${name}-out`),
@@ -55,6 +55,10 @@ function fakeBackend(name: string) {
     ports: {
       scan: vi.fn(async (): Promise<ActivePort[]> => []),
       kill: vi.fn(async () => {}),
+    },
+    facts: {
+      homeDir: vi.fn(async () => `/home/${name}`),
+      join: vi.fn((...parts: string[]) => parts.join("/")),
     },
     connect: vi.fn(async () => {}),
     disconnect: vi.fn(async () => {}),
@@ -105,7 +109,6 @@ function setup() {
   const warn = new Map<string, (warnings: string[]) => void>();
   const registry = new BackendRegistry({
     local: local.backend,
-    localVersion: "1.2.3",
     remoteVersion: "0.1.0",
     createProvider: (hostId, _spec: HostSpec, opts) => {
       const provider = fakeProvider();
@@ -142,17 +145,16 @@ describe("BackendRegistry", () => {
     expect(local.raw.pty.write).toHaveBeenCalledWith("pane-1", "x");
 
     await registry.ensureConnected("local");
-    expect(local.raw.connect).toHaveBeenCalledWith({ version: "1.2.3" });
+    expect(local.raw.connect).toHaveBeenCalledWith();
     expect(registry.status("local")).toBe("connected");
   });
 
-  it("hands remote hosts remoteVersion, and local the app version", async () => {
+  it("hands remote hosts remoteVersion once, when their backend is built", async () => {
     const local = fakeBackend("local");
     let remote: ReturnType<typeof fakeBackend> | undefined;
     let createdWith: string | undefined;
     const registry = new BackendRegistry({
       local: local.backend,
-      localVersion: "35.7.6",
       remoteVersion: "0.13.2",
       createProvider: () => fakeProvider() as unknown as HostProvider,
       createRemote: (hostId, _spec: HostSpec, opts) => {
@@ -165,8 +167,8 @@ describe("BackendRegistry", () => {
     await registry.ensureConnected("box");
     await registry.ensureConnected("local");
     expect(createdWith).toBe("0.13.2");
-    expect(remote?.raw.connect).toHaveBeenCalledWith({ version: "0.13.2" });
-    expect(local.raw.connect).toHaveBeenCalledWith({ version: "35.7.6" });
+    expect(remote?.raw.connect).toHaveBeenCalledWith();
+    expect(local.raw.connect).toHaveBeenCalledWith();
   });
 
   it("fails every call on an unregistered host instead of throwing synchronously", async () => {
@@ -319,6 +321,23 @@ describe("BackendRegistry", () => {
     finishConnect();
     await vi.waitFor(() => expect(registry.status("box")).toBe("connected"));
     await expect(registry.get("box").git.exec("/r", [])).resolves.toBe("box-out");
+  });
+
+  it("gates a remote host's facts like its git calls, except the synchronous join", async () => {
+    const { registry, remotes } = setup();
+    registry.register("box", box);
+    const remote = remotes.get("box")!;
+    remote.raw.connect.mockImplementationOnce(() => new Promise<void>(() => {}));
+
+    const facts = registry.get("box").facts;
+    expect(facts.join("/a", "b")).toBe("/a/b");
+    await expect(facts.homeDir()).rejects.toBeInstanceOf(HostUnavailableError);
+    expect(remote.raw.facts.homeDir).not.toHaveBeenCalled();
+    // An unregistered host still joins, and fails everything else.
+    expect(registry.get("ghost").facts.join("/a", "b")).toBe("/a/b");
+    await expect(registry.get("ghost").facts.homeDir()).rejects.toBeInstanceOf(
+      HostUnavailableError,
+    );
   });
 
   it("does not reconnect a host the user disconnected just because a poller asked", async () => {
@@ -482,11 +501,11 @@ describe("RoutedBackend", () => {
   }
 
   it("stops delivering stream and host events once unsubscribed", () => {
-    const { backend, box: remote } = routed();
+    const { backend, registry, box: remote } = routed();
     const events: StreamEvent[] = [];
     const hostEvents: HostConnectionEvent[] = [];
     const offStream = backend.pty.onEvent((e) => events.push(e));
-    const offHost = backend.onHostEvent((e) => hostEvents.push(e));
+    const offHost = registry.onHostEvent((_hostId, e) => hostEvents.push(e));
     const back: HostConnectionEvent = { type: "hostReconnected", sessionIds: [] };
 
     remote.stream({ type: "data", sessionId: "pane-r", data: "a" });
@@ -579,7 +598,6 @@ describe("RoutedBackend", () => {
     const local = fakeBackend("local");
     const registry = new BackendRegistry({
       local: local.backend,
-      localVersion: "1.2.3",
       remoteVersion: "0.1.0",
     });
     const backend = new RoutedBackend(registry, () => "local");
@@ -601,19 +619,19 @@ describe("BackendRegistry — remote agent hooks (ADR-178 §2)", () => {
     const replayHooks = vi.fn(async (_sinceSeq: number) => ({
       entries: [{ seq: 1, receivedAt: 0, payload: { tag: "1" } }],
       lastSeq: 1,
+      epoch: "e0",
     }));
     (remote.raw.pty as Record<string, unknown>).replayHooks = replayHooks;
     const seqs = new Map<string, number>([["box", 0]]);
     const registry = new BackendRegistry({
       local: local.backend,
-      localVersion: "1.2.3",
       remoteVersion: "0.1.0",
       createProvider: () => fakeProvider() as unknown as HostProvider,
       createRemote: () => remote.backend,
       hookSeqStore: {
         get: (hostId) => {
           const seq = seqs.get(hostId);
-          return seq === undefined ? null : { seq, epoch: null };
+          return seq === undefined ? null : { seq, epoch: "e0" };
         },
         set: (hostId, cursor) => void seqs.set(hostId, cursor.seq),
       },
@@ -654,6 +672,7 @@ describe("BackendRegistry — remote agent hooks (ADR-178 §2)", () => {
     replayHooks.mockResolvedValueOnce({
       entries: [2, 3].map((seq) => ({ seq, receivedAt: 0, payload: { tag: String(seq) } })),
       lastSeq: 3,
+      epoch: "e0",
     });
     remote.hostEvent({ type: "hostReconnected", sessionIds: [] });
     await vi.waitFor(() => expect(ingested.map((i) => i.tag)).toEqual(["1", "2", "3"]));
@@ -672,15 +691,15 @@ describe("BackendRegistry — remote agent hooks (ADR-178 §2)", () => {
       return {
         entries: [{ seq: 1, receivedAt: 0, payload: { paneId: "pane-remote" } }],
         lastSeq: 1,
+        epoch: "e0",
       };
     });
     const registry = new BackendRegistry({
       local: local.backend,
-      localVersion: "1.2.3",
       remoteVersion: "0.1.0",
       createProvider: () => fakeProvider() as unknown as HostProvider,
       createRemote: () => remote.backend,
-      hookSeqStore: { get: () => ({ seq: 0, epoch: null }), set: () => {} },
+      hookSeqStore: { get: () => ({ seq: 0, epoch: "e0" }), set: () => {} },
     });
     const routed = new RoutedBackend(registry, () => "local");
     // What the hook relay does for each ingested hook: relay status by pane.
@@ -738,15 +757,14 @@ describe("BackendRegistry — away and back (ADR-178 §6)", () => {
         releaseReplay = resolve;
       });
       order.push("replay-done");
-      return { entries: [], lastSeq: 0 };
+      return { entries: [], lastSeq: 0, epoch: "e0" };
     });
     const registry = new BackendRegistry({
       local: local.backend,
-      localVersion: "1.2.3",
       remoteVersion: "0.1.0",
       createProvider: () => fakeProvider() as unknown as HostProvider,
       createRemote: () => remote.backend,
-      hookSeqStore: { get: () => ({ seq: 0, epoch: null }), set: () => {} },
+      hookSeqStore: { get: () => ({ seq: 0, epoch: "e0" }), set: () => {} },
     });
     registry.setHookSink({ ingest: () => {} });
     registry.register("box", box);

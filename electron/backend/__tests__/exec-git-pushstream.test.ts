@@ -8,7 +8,7 @@ import type { Exec } from "../exec";
 // on the remote). The mock makes any direct use fail loudly.
 
 vi.mock("node:child_process", () => ({
-  // exec.ts imports these at module scope (for `localExec`); local-git.ts
+  // exec.ts imports these at module scope (for `localExec`); exec-git.ts
   // imports `localExec` as a value even though this test injects a fake
   // `Exec`, so these must exist to avoid failing at import time.
   execFile: vi.fn(() => {
@@ -19,7 +19,7 @@ vi.mock("node:child_process", () => ({
   }),
 }));
 
-import { LocalGitBackend } from "../local-git";
+import { ExecGitBackend } from "../exec-git";
 
 type StreamCb = {
   onStdout?: (chunk: string) => void;
@@ -65,13 +65,13 @@ function makeFakeExec() {
   };
 }
 
-describe("LocalGitBackend.pushStream", () => {
-  let backend: LocalGitBackend;
+describe("ExecGitBackend.pushStream", () => {
+  let backend: ExecGitBackend;
   let fake: ReturnType<typeof makeFakeExec>;
 
   beforeEach(() => {
     fake = makeFakeExec();
-    backend = new LocalGitBackend(fake.exec);
+    backend = new ExecGitBackend(fake.exec);
     // Default: branch resolution returns "main".
     fake.fileMock.mockResolvedValue({ stdout: "main\n", stderr: "" });
   });

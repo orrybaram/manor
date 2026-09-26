@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
-import { LocalPtyBackend } from "./local-pty";
+import { DaemonPtyBackend } from "./daemon-pty";
 import type { TerminalHostClient } from "../terminal-host/client";
 
-describe("LocalPtyBackend", () => {
+describe("DaemonPtyBackend", () => {
   describe("createOrAttach", () => {
     it("forwards env to the underlying client on fresh spawn", async () => {
       const createOrAttach = vi.fn().mockResolvedValue({
@@ -10,7 +10,7 @@ describe("LocalPtyBackend", () => {
         snapshot: null,
       });
       const client = { createOrAttach } as unknown as TerminalHostClient;
-      const backend = new LocalPtyBackend(client);
+      const backend = new DaemonPtyBackend(client);
 
       const env = { MANOR_AGENT_KIND: "codex" };
       await backend.createOrAttach("p1", "/tmp", 80, 24, undefined, env);
@@ -31,7 +31,7 @@ describe("LocalPtyBackend", () => {
         snapshot: { screenAnsi: "", seq: 0 },
       });
       const client = { createOrAttach } as unknown as TerminalHostClient;
-      const backend = new LocalPtyBackend(client);
+      const backend = new DaemonPtyBackend(client);
 
       await backend.createOrAttach("p1", "/tmp", 80, 24);
 

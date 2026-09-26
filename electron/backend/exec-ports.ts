@@ -1,6 +1,6 @@
-import os from "node:os";
 import type { ActivePort, PortsBackend } from "./types";
 import { localExec, type Exec, type ExecError } from "./exec";
+import { localFacts, type MachineFacts } from "./machine-facts";
 
 /**
  * The OS family of a scanned machine, as far as picking a scanner goes:
@@ -15,92 +15,6 @@ export function parsePlatform(name: string): PortsPlatform {
   if (lower === "darwin") return "darwin";
   if (lower === "linux") return "linux";
   return "other";
-}
-
-/**
- * Facts about the machine being scanned that are not commands. Split out so
- * a remote host answers them about *its* machine: the uid whose listeners
- * count, the home directory never attributed to a workspace, and how to
- * signal a pid (a pid from a remote scan must never be killed locally), and
- * which OS it runs (which picks the scanner).
- */
-export interface PortsHost {
-  platform(): Promise<PortsPlatform>;
-  uid(): Promise<number>;
-  homeDir(): Promise<string>;
-  kill(pid: number): Promise<void>;
-}
-
-const localPortsHost: PortsHost = {
-  async platform() {
-    return parsePlatform(process.platform);
-  },
-  async uid() {
-    return process.getuid?.() ?? 0;
-  },
-  async homeDir() {
-    return os.homedir();
-  },
-  async kill(pid) {
-    process.kill(pid, "SIGTERM");
-  },
-};
-
-/**
- * A `PortsHost` answered through an `Exec` — for a machine this process is
- * not running on. `platform`, `uid` and `homeDir` are asked once and
- * cached (a failed answer is asked again next scan).
- */
-export function execPortsHost(execImpl: Exec): PortsHost {
-  let platform: Promise<PortsPlatform> | null = null;
-  let uid: Promise<number> | null = null;
-  let home: Promise<string> | null = null;
-  return {
-    platform() {
-      platform ??= execImpl.file("uname", ["-s"], { timeout: 5000 }).then(
-        ({ stdout }) => parsePlatform(stdout),
-        (err: unknown) => {
-          platform = null; // retry next scan
-          throw err;
-        },
-      );
-      return platform;
-    },
-    uid() {
-      uid ??= execImpl.file("id", ["-u"], { timeout: 5000 }).then(
-        ({ stdout }) => {
-          // Never fall back to 0: that would scan root's listeners.
-          const text = stdout.trim();
-          const parsed = /^\d+$/.test(text) ? Number(text) : NaN;
-          if (!Number.isSafeInteger(parsed)) {
-            uid = null; // retry next scan
-            throw new Error(`\`id -u\` printed an unparseable uid: ${JSON.stringify(text)}`);
-          }
-          return parsed;
-        },
-        (err: unknown) => {
-          uid = null; // retry next scan
-          throw err;
-        },
-      );
-      return uid;
-    },
-    homeDir() {
-      home ??= execImpl
-        .file("printenv", ["HOME"], { timeout: 5000 })
-        .then(
-          ({ stdout }) => stdout.trim(),
-          (err: unknown) => {
-            home = null;
-            throw err;
-          },
-        );
-      return home;
-    },
-    async kill(pid) {
-      await execImpl.file("kill", ["-TERM", String(pid)], { timeout: 5000 });
-    },
-  };
 }
 
 /** macOS ships lsof here; the path is fixed so a PATH shim cannot stand in. */
@@ -246,7 +160,14 @@ async function stdoutEvenOnFailure(
   }
 }
 
-export class LocalPortsBackend implements PortsBackend {
+/**
+ * Listening ports on whichever machine an `Exec` reaches (ADR-183). The uid
+ * whose listeners count, the home directory never attributed to a
+ * workspace, the OS (which picks the scanner) and how to signal a pid all
+ * come from that machine's `MachineFacts`, so a pid from a remote scan is
+ * never killed locally.
+ */
+export class ExecPortsBackend implements PortsBackend {
   /**
    * Set once `ss` turns out not to be installed (or too old) on a Linux host; from then
    * on that host is scanned with `lsof` on PATH. Per backend, i.e. per Exec.
@@ -257,7 +178,7 @@ export class LocalPortsBackend implements PortsBackend {
 
   constructor(
     private readonly execImpl: Exec = localExec,
-    private readonly host: PortsHost = localPortsHost,
+    private readonly facts: MachineFacts = localFacts(),
     /** Names the scanned machine in warnings. */
     private readonly label: string = "this machine",
   ) {}
@@ -266,8 +187,8 @@ export class LocalPortsBackend implements PortsBackend {
     let uid: number;
     let platform: PortsPlatform;
     try {
-      uid = await this.host.uid();
-      platform = await this.host.platform();
+      uid = await this.facts.uid();
+      platform = parsePlatform(await this.facts.platform());
     } catch {
       return [];
     }
@@ -293,7 +214,7 @@ export class LocalPortsBackend implements PortsBackend {
     if (workspacePaths.length > 0 && results.length > 0) {
       const pids = results.map((p) => p.pid);
       const cwds = await cwdsByPid(pids);
-      const home = await this.host.homeDir().catch(() => null);
+      const home = await this.facts.homeDir().catch(() => null);
 
       for (const port of results) {
         const cwd = cwds.get(port.pid);
@@ -314,7 +235,7 @@ export class LocalPortsBackend implements PortsBackend {
   }
 
   async kill(pid: number): Promise<void> {
-    await this.host.kill(pid);
+    await this.facts.kill(pid, "SIGTERM");
   }
 
   /** Listeners owned by `uid`, by lsof (which filters by uid itself). */

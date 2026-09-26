@@ -1,33 +1,32 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
-  LocalPortsBackend,
-  execPortsHost,
+  ExecPortsBackend,
   parsePlatform,
   parseStatUids,
   parseSsListeners,
-  type PortsHost,
   type PortsPlatform,
-} from "./local-ports";
+} from "./exec-ports";
 import type { Exec, ExecError } from "./exec";
+import { posixJoin, type MachineFacts } from "./machine-facts";
 
 // Access private methods for unit testing the parsers
-function getParseLsofPorts(backend: LocalPortsBackend) {
+function getParseLsofPorts(backend: ExecPortsBackend) {
   return (backend as any).parseLsofPorts.bind(backend) as (
     output: string,
-  ) => ReturnType<LocalPortsBackend["scan"]> extends Promise<infer T> ? T : never;
+  ) => ReturnType<ExecPortsBackend["scan"]> extends Promise<infer T> ? T : never;
 }
 
-function getCwdsByPid(backend: LocalPortsBackend) {
+function getCwdsByPid(backend: ExecPortsBackend) {
   return (backend as any).cwdsByPid.bind(backend) as (
     pids: number[],
   ) => Promise<Map<number, string>>;
 }
 
-describe("LocalPortsBackend", () => {
-  let backend: LocalPortsBackend;
+describe("ExecPortsBackend", () => {
+  let backend: ExecPortsBackend;
 
   beforeEach(() => {
-    backend = new LocalPortsBackend();
+    backend = new ExecPortsBackend();
   });
 
   describe("parseLsofPorts", () => {
@@ -168,12 +167,16 @@ function execError(fields: Partial<ExecError>): ExecError {
   }) as ExecError;
 }
 
-function fakeHost(platform: PortsPlatform, uid = 1000, home = "/home/me"): PortsHost {
+function fakeHost(platform: PortsPlatform, uid = 1000, home = "/home/me"): MachineFacts {
   return {
     platform: async () => platform,
     uid: async () => uid,
     homeDir: async () => home,
     kill: async () => {},
+    exists: async () => false,
+    readFile: async () => "",
+    join: posixJoin,
+    defaultWorktreeRoot: async (name) => posixJoin(home, ".manor", "worktrees", name),
   };
 }
 
@@ -261,27 +264,7 @@ describe("parsePlatform", () => {
   });
 });
 
-describe("execPortsHost platform detection", () => {
-  it("asks uname once and caches the answer", async () => {
-    const { exec, calls } = fakeExec(() => "Linux\n");
-    const host = execPortsHost(exec);
-    expect(await host.platform()).toBe("linux");
-    expect(await host.platform()).toBe("linux");
-    expect(calls).toEqual([{ cmd: "uname", args: ["-s"] }]);
-  });
-
-  it("asks again after a failure", async () => {
-    let fail = true;
-    const { exec, calls } = fakeExec(() => (fail ? execError({ code: null }) : "Darwin\n"));
-    const host = execPortsHost(exec);
-    await expect(host.platform()).rejects.toThrow();
-    fail = false;
-    expect(await host.platform()).toBe("darwin");
-    expect(calls).toHaveLength(2);
-  });
-});
-
-describe("LocalPortsBackend scanner selection", () => {
+describe("ExecPortsBackend scanner selection", () => {
   const WS = "/home/me/proj";
 
   it("scans macOS with /usr/sbin/lsof, exactly as before", async () => {
@@ -289,7 +272,7 @@ describe("LocalPortsBackend scanner selection", () => {
       if (args.includes("-iTCP")) return "p100\ncnode\nn*:3000\n";
       return "p100\nn/home/me/proj/app\n";
     });
-    const backend = new LocalPortsBackend(exec, fakeHost("darwin", 501));
+    const backend = new ExecPortsBackend(exec, fakeHost("darwin", 501));
     const ports = await backend.scan([WS]);
     expect(ports).toEqual([
       { port: 3000, processName: "node", pid: 100, workspacePath: WS, hostname: null },
@@ -314,7 +297,7 @@ describe("LocalPortsBackend scanner selection", () => {
       }
       throw new Error(`unexpected ${cmd}`);
     });
-    const backend = new LocalPortsBackend(exec, fakeHost("linux", 1000));
+    const backend = new ExecPortsBackend(exec, fakeHost("linux", 1000));
     const ports = await backend.scan([WS]);
 
     expect(ports.map((p) => [p.port, p.pid, p.workspacePath])).toEqual([
@@ -346,7 +329,7 @@ describe("LocalPortsBackend scanner selection", () => {
       if (cmd === "readlink") return "/root/proj\n";
       throw new Error(`unexpected ${cmd}`);
     });
-    const backend = new LocalPortsBackend(exec, fakeHost("linux", 0, "/root"));
+    const backend = new ExecPortsBackend(exec, fakeHost("linux", 0, "/root"));
     const ports = await backend.scan(["/root/proj"]);
 
     expect(ports.map((p) => [p.port, p.pid])).toEqual([
@@ -364,7 +347,7 @@ describe("LocalPortsBackend scanner selection", () => {
       if (cmd === "ss") return 'LISTEN 0 511 0.0.0.0:3000 0.0.0.0:* users:(("node",pid=5,fd=1))';
       return "/home/me\n";
     });
-    const backend = new LocalPortsBackend(exec, fakeHost("linux", 1000, "/home/me"));
+    const backend = new ExecPortsBackend(exec, fakeHost("linux", 1000, "/home/me"));
     expect(await backend.scan(["/home/me"])).toEqual([]);
   });
 
@@ -375,7 +358,7 @@ describe("LocalPortsBackend scanner selection", () => {
       if (cmd === "lsof") return "p7\nn/home/me/proj\n";
       throw new Error(`unexpected ${cmd}`);
     });
-    const backend = new LocalPortsBackend(exec, fakeHost("linux", 1000));
+    const backend = new ExecPortsBackend(exec, fakeHost("linux", 1000));
     expect((await backend.scan([WS])).map((p) => p.port)).toEqual([3000]);
     expect((await backend.scan([WS])).map((p) => p.port)).toEqual([3000]);
     expect(calls.filter((c) => c.cmd === "ss")).toHaveLength(1);
@@ -387,7 +370,7 @@ describe("LocalPortsBackend scanner selection", () => {
       if (cmd === "ss") return execError({ code: null, stderr: "spawn ss ENOENT" });
       return "";
     });
-    const backend = new LocalPortsBackend(exec, fakeHost("linux"));
+    const backend = new ExecPortsBackend(exec, fakeHost("linux"));
     await backend.scan([WS]);
     await backend.scan([WS]);
     expect(calls.filter((c) => c.cmd === "ss")).toHaveLength(1);
@@ -399,7 +382,7 @@ describe("LocalPortsBackend scanner selection", () => {
       if (cmd === "ss") return execError({ code: 255, stderr: "ss: invalid option -- 'H'" });
       return "";
     });
-    const backend = new LocalPortsBackend(exec, fakeHost("linux"));
+    const backend = new ExecPortsBackend(exec, fakeHost("linux"));
     await backend.scan([WS]);
     await backend.scan([WS]);
     expect(calls.filter((c) => c.cmd === "ss")).toHaveLength(1);
@@ -410,7 +393,7 @@ describe("LocalPortsBackend scanner selection", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       const { exec } = fakeExec(() => execError({ code: "ENOENT" }));
-      const backend = new LocalPortsBackend(exec, fakeHost("linux"), "me@box");
+      const backend = new ExecPortsBackend(exec, fakeHost("linux"), "me@box");
       expect(await backend.scan([WS])).toEqual([]);
       expect(await backend.scan([WS])).toEqual([]);
       expect(await backend.scan([WS])).toEqual([]);
@@ -426,7 +409,7 @@ describe("LocalPortsBackend scanner selection", () => {
       if (cmd === "ss") return execError({ code: 1, stderr: "Cannot open netlink socket" });
       return "";
     });
-    const backend = new LocalPortsBackend(exec, fakeHost("linux"));
+    const backend = new ExecPortsBackend(exec, fakeHost("linux"));
     expect(await backend.scan([WS])).toEqual([]);
     await backend.scan([WS]);
     expect(calls.map((c) => c.cmd)).toEqual(["ss", "ss"]);
@@ -434,7 +417,7 @@ describe("LocalPortsBackend scanner selection", () => {
 
   it("scans other platforms with lsof on PATH", async () => {
     const { exec, calls } = fakeExec(() => "");
-    const backend = new LocalPortsBackend(exec, fakeHost("other"));
+    const backend = new ExecPortsBackend(exec, fakeHost("other"));
     await backend.scan([WS]);
     expect(calls[0].cmd).toBe("lsof");
   });
@@ -442,7 +425,7 @@ describe("LocalPortsBackend scanner selection", () => {
   it("returns nothing when the platform cannot be told", async () => {
     const { exec, calls } = fakeExec(() => "");
     const host = { ...fakeHost("linux"), platform: async () => Promise.reject(new Error("down")) };
-    const backend = new LocalPortsBackend(exec, host);
+    const backend = new ExecPortsBackend(exec, host);
     expect(await backend.scan([WS])).toEqual([]);
     expect(calls).toEqual([]);
   });

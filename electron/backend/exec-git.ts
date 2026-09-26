@@ -3,7 +3,8 @@ import { errorMessage } from "../lib/errors";
 import type { GitBackend, WorktreeInfo } from "./types";
 import { localExec, streamAfter, type Exec, type ExecError, type StreamResult } from "./exec";
 
-export class LocalGitBackend implements GitBackend {
+/** Git run through an `Exec`, on whichever machine that reaches (ADR-183). */
+export class ExecGitBackend implements GitBackend {
   constructor(private readonly execImpl: Exec = localExec) {}
 
   private async execGit(

@@ -2,8 +2,8 @@
  * BackendRegistry — every host Manor runs workspaces on, keyed by hostId
  * (ADR-160 §6).
  *
- * `"local"` is always present and is the `LocalBackend` Manor has always
- * had; remote hosts are registered from their persisted `HostSpec` and
+ * `"local"` is always present and is this machine's backend
+ * (`createLocalBackend`); remote hosts are registered from their persisted `HostSpec` and
  * connected lazily, in the background, never on the launch path.
  *
  * Each host is a `HostConnection` (status, connecting, hook feed, reconnect
@@ -76,14 +76,16 @@ const createRemoteBackend: RemoteBackendFactory = (_hostId, spec, opts) =>
   });
 
 export interface BackendRegistryOptions {
-  /** The backend for this machine. */
+  /**
+   * The backend for this machine, built with the app version its daemon is
+   * handshaken against.
+   */
   local: WorkspaceBackend;
-  /** The app version the local daemon is handshaken against. */
-  localVersion: string;
   /**
    * Manor's own version for remote hosts: it names the manor-host package
    * bootstrap installs and is what the remote daemon reports back. In an
-   * unpackaged app this differs from `localVersion` (Electron's version).
+   * unpackaged app this differs from the local daemon's (Electron's
+   * version). Handed to each remote backend's constructor.
    */
   remoteVersion: string;
   /** Builds a remote host's backend. Defaults to `RemoteBackend`. For tests. */
@@ -128,7 +130,7 @@ export class BackendRegistry {
       hookSink: () => this.hookSink,
       hookReplayRetryDelayMs: opts.hookReplayRetryDelayMs,
     };
-    this.add(new HostConnection(LOCAL_HOST_ID, null, opts.local, opts.localVersion, this.ctx));
+    this.add(new HostConnection(LOCAL_HOST_ID, null, opts.local, this.ctx));
   }
 
   // ── Hosts ──
@@ -182,9 +184,7 @@ export class BackendRegistry {
       provider,
       onBootstrapWarning: (warnings) => built.conn?.reportWarnings(warnings),
     });
-    built.conn = new RemoteHostConnection(
-      hostId, spec, provider, backend, this.remoteVersion, this.ctx,
-    );
+    built.conn = new RemoteHostConnection(hostId, spec, provider, backend, this.ctx);
     this.add(built.conn);
     if (existing) void existing.dispose();
   }

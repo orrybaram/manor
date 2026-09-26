@@ -182,9 +182,9 @@ export interface HookReplay {
   lastSeq: number;
   /**
    * The journal's identity (see `HookJournal.epoch`). A different epoch than
-   * last time means the journal was recreated.
+   * last time means the journal was recreated. Every journal has one.
    */
-  epoch?: string;
+  epoch: string;
 }
 
 /**

@@ -11,7 +11,8 @@ import {
   type HostSpec,
   type ShellBackend,
 } from "./backend/types";
-import { LocalShellBackend } from "./backend/local-shell";
+import { ExecShellBackend } from "./backend/exec-shell";
+import { posixJoin as remoteJoin } from "./backend/machine-facts";
 import { manorDataDir, worktreesDir } from "./paths";
 import { sanitizeBranchName, toDirSlug } from "./branch-name";
 import { shellQuote } from "./terminal-host/ssh-config";
@@ -22,16 +23,6 @@ function expandHome(p: string, home: string): string {
     return path.join(home, p.slice(1));
   }
   return p;
-}
-
-/** Joins path segments with `/`, for paths on a host that is not this machine. */
-function remoteJoin(...parts: string[]): string {
-  const isAbsolute = parts[0]?.startsWith("/") ?? false;
-  const joined = parts
-    .map((part, i) => (i === 0 ? part.replace(/\/+$/, "") : part.replace(/^\/+|\/+$/g, "")))
-    .filter((part) => part.length > 0)
-    .join("/");
-  return isAbsolute && !joined.startsWith("/") ? `/${joined}` : joined;
 }
 
 /**
@@ -434,7 +425,7 @@ export class ProjectManager {
   constructor(
     git: GitBackend | GitResolver,
     dataDir?: string,
-    shell: ShellBackend | ShellResolver = new LocalShellBackend(),
+    shell: ShellBackend | ShellResolver = new ExecShellBackend(),
   ) {
     this.gitForHost = typeof git === "function" ? git : () => git;
     this.shellForHost = typeof shell === "function" ? shell : () => shell;
@@ -449,7 +440,7 @@ export class ProjectManager {
   /**
    * The home directory of `hostId`'s machine. Local: `os.homedir()`, always
    * (no host call). Remote: asked of the host's shell backend, which caches
-   * it (see `execShellHost`); also cached here so `hostIdForPath` can read
+   * it (see `execFacts`); also cached here so `hostIdForPath` can read
    * it back synchronously.
    */
   private async homeDirFor(hostId: string): Promise<string> {

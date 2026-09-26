@@ -12,7 +12,7 @@ vi.mock("node:child_process", () => ({
   }),
 }));
 
-import { LocalGitBackend } from "../local-git";
+import { ExecGitBackend } from "../exec-git";
 
 type StreamCb = {
   onStdout?: (chunk: string) => void;
@@ -56,13 +56,13 @@ function makeFakeExec() {
   };
 }
 
-describe("LocalGitBackend.cloneStream", () => {
-  let backend: LocalGitBackend;
+describe("ExecGitBackend.cloneStream", () => {
+  let backend: ExecGitBackend;
   let fake: ReturnType<typeof makeFakeExec>;
 
   beforeEach(() => {
     fake = makeFakeExec();
-    backend = new LocalGitBackend(fake.exec);
+    backend = new ExecGitBackend(fake.exec);
   });
 
   it("runs `git clone --progress -- <repoUrl> <targetDir>`", () => {

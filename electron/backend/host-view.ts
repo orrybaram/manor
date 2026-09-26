@@ -14,6 +14,7 @@
 
 import { streamAfter, type StreamResult } from "./exec";
 import type { HostConnection, HostStatus } from "./host-connection";
+import { posixJoin } from "./machine-facts";
 import type { GitBackend, WorkspaceBackend } from "./types";
 
 /** A host is not in a state to serve the call; see `status`. */
@@ -88,6 +89,9 @@ export function hostView(conn: HostConnection, gates: HostGates | null): Workspa
     }),
     shell: gated(backend.shell, exec, {}),
     ports: gated(backend.ports, exec, {}),
+    // Facts are asked through the host's exec, so they share its gate —
+    // except `join`, which is synchronous and asks nothing.
+    facts: gated(backend.facts, exec, { join: null }),
     connect: () => conn.ensureConnected(),
     disconnect: () => conn.disconnect(),
   };
@@ -176,6 +180,9 @@ export function unavailableBackend(hostId: string): WorkspaceBackend {
     git: failing({ pushStream: failStream, cloneStream: failStream }),
     shell: failing({}),
     ports: failing({}),
+    // Every remote host is POSIX (a Linux or macOS box), and joining a path
+    // asks the host nothing.
+    facts: failing({ join: posixJoin }),
     connect: fail,
     disconnect: async () => {},
   };

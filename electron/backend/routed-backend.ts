@@ -24,7 +24,7 @@ import {
   LOCAL_HOST_ID,
   type ActivePort,
   type GitBackend,
-  type HostConnectionEventHandler,
+  type MachineFacts,
   type PortsBackend,
   type PtyBackend,
   type SessionInfo,
@@ -55,6 +55,11 @@ export class RoutedBackend implements WorkspaceBackend {
   readonly git: GitBackend;
   readonly shell: ShellBackend;
   readonly ports: PortsBackend;
+  /**
+   * This machine's facts: like `shell.homeDir`, there is nothing to route
+   * by. Callers that need a specific host's go through the registry.
+   */
+  readonly facts: MachineFacts;
 
   /** Pids each host's latest port scan reported, for routing `kill`. */
   private readonly scannedPids = new Map<string, Set<number>>();
@@ -137,6 +142,8 @@ export class RoutedBackend implements WorkspaceBackend {
       homeDir: () => local().shell.homeDir(),
     };
 
+    this.facts = local().facts;
+
     this.ports = {
       scan: (workspacePaths) => this.scanPorts(workspacePaths),
       kill: (pid) => {
@@ -160,10 +167,6 @@ export class RoutedBackend implements WorkspaceBackend {
 
   disconnect(): Promise<void> {
     return this.registry.disconnectAll();
-  }
-
-  onHostEvent(handler: HostConnectionEventHandler): () => void {
-    return this.registry.onHostEvent((_hostId, event) => handler(event));
   }
 
   /**

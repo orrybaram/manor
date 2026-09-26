@@ -24,7 +24,7 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 
-/** Matches `LocalGitBackend.execGit`'s default. */
+/** Matches `ExecGitBackend.execGit`'s default. */
 export const DEFAULT_EXEC_TIMEOUT_MS = 30000;
 
 /** Output cap applied independently to stdout and stderr. */

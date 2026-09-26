@@ -134,8 +134,6 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
     readonly hostId: string,
     readonly spec: HostSpec | null,
     readonly backend: B,
-    /** Handed to every `backend.connect()`. */
-    private readonly version: string,
     protected readonly ctx: HostConnectionContext,
   ) {
     this.unsubscribes.push(backend.pty.onEvent((event) => this.onStreamEvent(event)));
@@ -271,7 +269,7 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
       );
     this.setState({ status: "connecting" }, "clear");
     try {
-      await this.backend.connect({ version: this.version });
+      await this.backend.connect();
     } catch (err) {
       if (!current()) throw superseded();
       const failure = classifyHostFailure(err);
@@ -315,10 +313,9 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
     spec: HostSpec,
     readonly provider: HostProvider,
     backend: RemoteHostBackend,
-    version: string,
     protected readonly ctx: RemoteHostContext,
   ) {
-    super(hostId, spec, backend, version, ctx);
+    super(hostId, spec, backend, ctx);
     this.hookFeed = new HostHookFeed({
       hostId,
       replay: backend.pty.replayHooks.bind(backend.pty),

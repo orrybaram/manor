@@ -11,7 +11,11 @@ import type {
   HookReplay,
 } from "../terminal-host/types";
 
-export class LocalPtyBackend implements HookJournalPtyBackend {
+/**
+ * Ptys on a terminal-host daemon, through its `TerminalHostClient` — the
+ * local daemon or a remote one alike (ADR-183).
+ */
+export class DaemonPtyBackend implements HookJournalPtyBackend {
   private client: TerminalHostClient;
 
   constructor(client: TerminalHostClient) {

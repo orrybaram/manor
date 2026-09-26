@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { LocalGitBackend } from "./local-git";
+import { ExecGitBackend } from "./exec-git";
 import { mkdtemp, writeFile, rm, realpath } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -9,12 +9,12 @@ function git(cwd: string, ...args: string[]) {
   return execFileSync("git", args, { cwd, encoding: "utf-8" });
 }
 
-describe("LocalGitBackend", () => {
-  let backend: LocalGitBackend;
+describe("ExecGitBackend", () => {
+  let backend: ExecGitBackend;
   let tmpDir: string;
 
   beforeEach(async () => {
-    backend = new LocalGitBackend();
+    backend = new ExecGitBackend();
     tmpDir = await realpath(await mkdtemp(path.join(os.tmpdir(), "manor-test-")));
     git(tmpDir, "init", "-b", "main");
     git(tmpDir, "config", "user.email", "test@test.com");
@@ -215,7 +215,7 @@ describe("LocalGitBackend", () => {
         });
       });
       try {
-        const clonedLog = await new LocalGitBackend().exec(targetDir, ["log", "--oneline"]);
+        const clonedLog = await new ExecGitBackend().exec(targetDir, ["log", "--oneline"]);
         expect(clonedLog).toContain("initial");
       } finally {
         await rm(targetDir, { recursive: true, force: true });
@@ -234,7 +234,7 @@ describe("LocalGitBackend", () => {
             return { cancel: () => {} };
           },
         };
-        const fakeBackend = new LocalGitBackend(fakeExecImpl as never);
+        const fakeBackend = new ExecGitBackend(fakeExecImpl as never);
         await new Promise<void>((resolve) => {
           fakeBackend.cloneStream("-oProxyCommand=whoami", "/tmp/target", {
             onLine: () => {},

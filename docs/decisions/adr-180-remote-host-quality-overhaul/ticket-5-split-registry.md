@@ -44,7 +44,8 @@ five jobs.
    `WorkspaceBackend`/`PtyBackend` and the no-op `onHostEvent` in
    `LocalBackend`. Build the hook feed and gates at registration, which removes
    the local/remote branches in `add` and `makeView`.
-8. **Merge git progress streams.** In `local-git.ts`, `startPush` and
+8. **Narrow `replayHooks`.** Ticket 3 made `client.replayHooks()` always return a `HookReplay`. Narrow `PtyBackend.replayHooks` / `ReplaySource` / `LocalPtyBackend.replayHooks` from `HookReplay | null` to `HookReplay`, and delete the `result === null` branch in `hook-feed.ts` and its test.
+9. **Merge git progress streams.** In `local-git.ts`, `startPush` and
    `cloneStream` duplicate the stderr line buffering and `onExit` handling.
    Merge them into one private `gitProgressStream(args, splitRe, cb)`.
 

@@ -1,6 +1,6 @@
 ---
 title: Daemon role object and typed protocol envelope
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [2]

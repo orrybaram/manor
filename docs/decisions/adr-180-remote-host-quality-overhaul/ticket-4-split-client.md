@@ -1,6 +1,6 @@
 ---
 title: Split terminal-host client into focused modules
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [3]
@@ -34,6 +34,8 @@ lines. Split it with no change in behaviour:
    client's) to return `() => void`. Update the callers that currently drop
    the handle: `registry.ts` views and `RoutedBackend.pty.onEvent`/`onHostEvent`.
    Delete any per-host view overrides that have no production caller.
+
+6. **Drop old-daemon comments.** Trim the comments that still describe tolerating old daemons ("Absent from daemons that predate it" on `HookReplay.epoch`, the handshake `protocol` field and similar). The version handshake replaces older daemons.
 
 `client.ts` must end up under 600 lines, and no new file over 500. Run
 `pnpm build` and the terminal-host tests.

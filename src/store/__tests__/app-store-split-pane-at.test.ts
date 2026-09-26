@@ -154,6 +154,9 @@ describe("splitPaneAt", () => {
     if (tab.rootNode.type !== "split") throw new Error("Expected split");
     expect(tab.rootNode.second).toEqual({ type: "leaf", paneId: newPane });
     expect(useAppStore.getState().paneContentType[newPane]).toBeUndefined();
-    expect(useAppStore.getState().pendingPaneCommands[newPane]).toBe("npm test");
+    expect(useAppStore.getState().pendingPaneCommands[newPane]).toEqual({
+      text: "npm test",
+      submit: true,
+    });
   });
 });

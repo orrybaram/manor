@@ -40,9 +40,7 @@ export function ConvertToSubmenu({ paneId }: { paneId: string }) {
                   } else {
                     // Switching from browser/diff — terminal will mount fresh
                     setPaneContentType(paneId, "terminal");
-                    useAppStore.setState((state) => ({
-                      pendingPaneCommands: { ...state.pendingPaneCommands, [paneId]: command },
-                    }));
+                    useAppStore.getState().setPendingPaneCommand(paneId, command);
                   }
                 } else {
                   setPaneContentType(paneId, type);

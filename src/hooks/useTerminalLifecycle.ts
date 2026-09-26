@@ -15,7 +15,7 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { terminalOptions } from "../terminal/config";
 import { createFileLinkProvider } from "../terminal/file-link-provider";
-import { useAppStore } from "../store/app-store";
+import { useAppStore, type PendingPaneCommand } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { usePreferencesStore } from "../store/preferences-store";
 import { getAgentKindForCommand } from "../agent-defaults";
@@ -263,7 +263,7 @@ export function useTerminalLifecycle(
     // yet. Should the mount go first — a remote pane remounted because its
     // host dropped again mid-recovery — it goes back on the queue for the
     // next mount rather than being lost (ADR-178 §6).
-    let unsentPaneCommand: string | null = null;
+    let unsentPaneCommand: PendingPaneCommand | null = null;
     const hostAway = () =>
       isPaneInputBlocked(
         paneId,
@@ -271,11 +271,23 @@ export function useTerminalLifecycle(
         useHostStore.getState().hosts,
       );
 
-    // Send `cmd` once: either when the shell prompt is ready (CWD event) or
+    // Submit with a carriage return (\r) — that's what an Enter keypress
+    // sends in xterm.js. Under zsh's raw-mode line editor, \n (Ctrl+J) is
+    // not reliably bound to accept-line, so the command would sit in the
+    // buffer un-submitted. Without `submit` the text is only typed, for the
+    // user to review (ADR-178 ticket 5's "fix in terminal").
+    const withEnter = (text: string, submit: boolean) =>
+      submit ? text + "\r" : text;
+
+    // Send `text` once: either when the shell prompt is ready (CWD event) or
     // after a 3s fallback, whichever comes first. Not while the pane's
     // remote host is away — the write would be dropped (see
-    // `useTerminalConnection`); the command stays unsent instead.
-    const sendOnShellReady = (cmd: string, onSent?: () => void) => {
+    // `useTerminalConnection`); the text stays unsent instead. One path for
+    // commands and typed text alike (ADR-183).
+    const sendOnShellReady = (
+      text: string,
+      { submit, onSent }: { submit: boolean; onSent?: () => void },
+    ) => {
       // Declared before `send` can run: onShellReady calls it synchronously
       // when the CWD event already arrived.
       let fallback: ReturnType<typeof setTimeout> | undefined;
@@ -285,31 +297,8 @@ export function useTerminalLifecycle(
         if (hostAway()) return;
         sent = true;
         clearTimeout(fallback);
-        // Submit with a carriage return (\r) — that's what an Enter keypress
-        // sends in xterm.js. Under zsh's raw-mode line editor, \n (Ctrl+J) is
-        // not reliably bound to accept-line, so the command would sit in the
-        // buffer un-submitted.
-        write(cmd + "\r");
+        write(withEnter(text, submit));
         onSent?.();
-      };
-      onShellReady(send);
-      if (!sent) fallback = setTimeout(send, 3000);
-    };
-
-    // Same as `sendOnShellReady`, but types `text` into the shell without
-    // submitting it (ADR-178 ticket 5's "fix in terminal" — the user reviews
-    // a health-check fix-it command before running it, so it must sit in the
-    // buffer rather than execute).
-    const typeOnShellReady = (text: string) => {
-      // Declared before `send` can run: onShellReady calls it synchronously
-      // when the CWD event already arrived.
-      let fallback: ReturnType<typeof setTimeout> | undefined;
-      let sent = false;
-      const send = () => {
-        if (sent || disposed) return;
-        sent = true;
-        clearTimeout(fallback);
-        write(text);
       };
       onShellReady(send);
       if (!sent) fallback = setTimeout(send, 3000);
@@ -407,12 +396,8 @@ export function useTerminalLifecycle(
             !paneCmd && wsPath && cwd === wsPath
               ? store.consumePendingStartupCommand(wsPath)
               : null;
-          const pendingCmd = paneCmd || startupCmd;
-          // Text to type but not submit (ADR-178 ticket 5's "fix in
-          // terminal") only applies when there is no command to run.
-          const pendingTypedText = !pendingCmd
-            ? store.consumePendingTypedText(paneId)
-            : null;
+          const pendingCmd: PendingPaneCommand | null =
+            paneCmd ?? (startupCmd ? { text: startupCmd, submit: true } : null);
           if (pendingCmd) {
             // `prewarmed` only means the daemon session already existed — NOT
             // that its shell has reached a prompt. React StrictMode (dev)
@@ -428,10 +413,9 @@ export function useTerminalLifecycle(
             const shellReady = !!useAppStore.getState().paneCwd[paneId];
             if (result.prewarmed && shellReady) {
               // Shell is already at a prompt — write immediately.
-              // Submit with \r (Enter); \n is not reliably accept-line in zsh.
               // Unless the pane's remote host is away, which would drop it.
               if (paneCmd && hostAway()) unsentPaneCommand = paneCmd;
-              else write(pendingCmd + "\r");
+              else write(withEnter(pendingCmd.text, pendingCmd.submit));
             } else {
               // Cold start (or a freshly-spawned session mislabelled as
               // prewarmed) — wait for the shell prompt (CWD/OSC 7 event from
@@ -439,16 +423,12 @@ export function useTerminalLifecycle(
               // output is too early: the shell may still be sourcing .zshrc,
               // and ZLE discards buffered input when it initializes.
               if (paneCmd) unsentPaneCommand = paneCmd;
-              sendOnShellReady(pendingCmd, () => {
-                unsentPaneCommand = null;
+              sendOnShellReady(pendingCmd.text, {
+                submit: pendingCmd.submit,
+                onSent: () => {
+                  unsentPaneCommand = null;
+                },
               });
-            }
-          } else if (pendingTypedText) {
-            const shellReady = !!useAppStore.getState().paneCwd[paneId];
-            if (result.prewarmed && shellReady) {
-              write(pendingTypedText);
-            } else {
-              typeOnShellReady(pendingTypedText);
             }
           } else if (!result.snapshot) {
             // No pending command and no warm-restore snapshot → cold or fresh session.
@@ -467,7 +447,7 @@ export function useTerminalLifecycle(
               // Resume the prior agent session if we can; otherwise relaunch the bare command.
               const resumeCmd = await window.electronAPI.agents.buildResumeCommand(resumeAgent.id);
               if (disposed) return;
-              sendOnShellReady(resumeCmd ?? resumeAgent.agentCommand!);
+              sendOnShellReady(resumeCmd ?? resumeAgent.agentCommand!, { submit: true });
             })();
           }
         }
@@ -521,7 +501,9 @@ export function useTerminalLifecycle(
           pendingPaneCommands: app.pendingPaneCommands,
         })
       ) {
-        app.setPendingPaneCommand(paneId, unsentPaneCommand);
+        app.setPendingPaneCommand(paneId, unsentPaneCommand.text, {
+          submit: unsentPaneCommand.submit,
+        });
       }
       detach();
       if (closedPaneIds.has(paneId)) {

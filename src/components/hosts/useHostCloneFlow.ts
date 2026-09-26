@@ -108,7 +108,7 @@ export function useHostCloneFlow(options: UseHostCloneFlowOptions): UseHostClone
       const ws = project.workspaces.find((w) => w.isMain) ?? project.workspaces[0];
       if (!ws) return;
       useAppStore.getState().setActiveWorkspace(ws.path);
-      useAppStore.getState().addTerminalTabWithTypedText(check.fixCommand);
+      useAppStore.getState().addTerminalTab(check.fixCommand, { submit: false });
     },
     [project],
   );

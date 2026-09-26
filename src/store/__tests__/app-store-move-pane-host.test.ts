@@ -33,8 +33,10 @@ function setup(l: WorkspaceLayout) {
     activeWorkspacePath: WS_PATH,
     workspaceLayouts: { [WS_PATH]: l },
     paneContentType: {},
-    pendingPaneCommands: { "pane-1": "claude --resume s", "pane-2": "keep" },
-    pendingTypedTexts: { "pane-1": "fix" },
+    pendingPaneCommands: {
+      "pane-1": { text: "claude --resume s", submit: true },
+      "pane-2": { text: "keep", submit: false },
+    },
   });
   usePaneHostStore.setState({ remoteHostByPane: { "pane-1": "box", "pane-2": "box" } });
 }
@@ -59,16 +61,18 @@ describe("moving a pane out of a window", () => {
     setup(twoPanes);
     useAppStore.getState().removeDetachedPaneLocally("pane-1");
     expect(usePaneHostStore.getState().remoteHostByPane).toEqual({ "pane-2": "box" });
-    expect(useAppStore.getState().pendingPaneCommands).toEqual({ "pane-2": "keep" });
-    expect(useAppStore.getState().pendingTypedTexts).toEqual({});
+    expect(useAppStore.getState().pendingPaneCommands).toEqual({
+      "pane-2": { text: "keep", submit: false },
+    });
   });
 
   it("removeDetachedPaneLocally does the same for a tab's sole pane", () => {
     setup(layout({ type: "leaf", paneId: "pane-1" }));
     useAppStore.getState().removeDetachedPaneLocally("pane-1");
     expect(usePaneHostStore.getState().remoteHostByPane).toEqual({ "pane-2": "box" });
-    expect(useAppStore.getState().pendingPaneCommands).toEqual({ "pane-2": "keep" });
-    expect(useAppStore.getState().pendingTypedTexts).toEqual({});
+    expect(useAppStore.getState().pendingPaneCommands).toEqual({
+      "pane-2": { text: "keep", submit: false },
+    });
   });
 
   it("removeDetachedTabLocally forgets every pane of the tab", () => {
@@ -76,6 +80,5 @@ describe("moving a pane out of a window", () => {
     useAppStore.getState().removeDetachedTabLocally("tab-1");
     expect(usePaneHostStore.getState().remoteHostByPane).toEqual({});
     expect(useAppStore.getState().pendingPaneCommands).toEqual({});
-    expect(useAppStore.getState().pendingTypedTexts).toEqual({});
   });
 });

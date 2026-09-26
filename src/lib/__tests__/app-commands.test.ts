@@ -250,7 +250,10 @@ describe("split-pane", () => {
     }) as { paneId: string };
 
     const state = useAppStore.getState();
-    expect(state.pendingPaneCommands[paneId]).toBe("pnpm dev");
+    expect(state.pendingPaneCommands[paneId]).toEqual({
+      text: "pnpm dev",
+      submit: true,
+    });
   });
 
   it("throws when a browser split also carries a command", () => {
@@ -333,7 +336,10 @@ describe("new-tab", () => {
       command: "pnpm dev",
     }) as { tabId: string; paneId: string };
 
-    expect(useAppStore.getState().pendingPaneCommands[paneId]).toBe("pnpm dev");
+    expect(useAppStore.getState().pendingPaneCommands[paneId]).toEqual({
+      text: "pnpm dev",
+      submit: true,
+    });
   });
 
   it("sets paneUrl for a browser tab", () => {

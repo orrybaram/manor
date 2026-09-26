@@ -40,6 +40,15 @@ import { isHomePath } from "../lib/home-path";
 import { useProjectStore } from "./project-store";
 import { usePaneHostStore } from "./pane-host-store";
 
+/**
+ * Text queued for a pane's shell (ADR-183). `submit` sends it with Enter;
+ * without, it is only typed, for the user to review and run.
+ */
+export interface PendingPaneCommand {
+  text: string;
+  submit: boolean;
+}
+
 export interface ClosedPaneSnapshot {
   kind: "pane";
   paneId: string;
@@ -228,14 +237,13 @@ export interface AppState {
   closedPaneStack: ClosedSnapshot[];
   /** Pending startup commands to run in new terminals (workspace path → script) */
   pendingStartupCommands: Record<string, string>;
-  /** Pending startup commands keyed by pane ID (for split-with-agent) */
-  pendingPaneCommands: Record<string, string>;
   /**
-   * Text to type into a pane once its shell is ready, WITHOUT submitting it
-   * (no trailing Enter) — e.g. a health-check fix-it command the user should
-   * review before running (ADR-178 ticket 5). Keyed by pane ID.
+   * Text to send into a pane once its shell is ready, keyed by pane ID — a
+   * split-with-agent command, a remote agent's resume, or (`submit: false`)
+   * a health-check fix-it command the user reviews before running. One queue
+   * for both (ADR-183), so closing and host-away treat them alike.
    */
-  pendingTypedTexts: Record<string, string>;
+  pendingPaneCommands: Record<string, PendingPaneCommand>;
   /** Pane ID awaiting close confirmation (when agent is active) */
   pendingCloseConfirmPaneId: string | null;
   /** Tab ID awaiting close confirmation (when agent is active in a pane) */
@@ -266,14 +274,14 @@ export interface AppState {
    * prewarmed under that ID; everything else lets the store mint one.
    */
   addTab: (adoptPaneId?: string) => { tabId: string; paneId: string } | null;
-  addTerminalTab: (command: string) => { tabId: string; paneId: string } | null;
   /**
-   * Like `addTerminalTab`, but types `text` into the new pane without
-   * submitting it (ADR-178 ticket 5's "fix in terminal" — a health-check
-   * fix-it command the user reviews before running).
+   * Open a terminal tab that runs `command` once its shell is ready. With
+   * `submit: false` the command is typed but not run (ADR-178 ticket 5's
+   * "fix in terminal" — the user reviews it first).
    */
-  addTerminalTabWithTypedText: (
-    text: string,
+  addTerminalTab: (
+    command: string,
+    opts?: { submit?: boolean },
   ) => { tabId: string; paneId: string } | null;
   addBrowserTab: (
     url: string,
@@ -385,11 +393,12 @@ export interface AppState {
    * that already exists and is about to (re)create its session, e.g. one
    * recovered after its remote host restarted (ADR-178 §6).
    */
-  setPendingPaneCommand: (paneId: string, command: string) => void;
-  consumePendingPaneCommand: (paneId: string) => string | null;
-  /** Text a new pane on `paneId` should have typed (not run) once ready. */
-  setPendingTypedText: (paneId: string, text: string) => void;
-  consumePendingTypedText: (paneId: string) => string | null;
+  setPendingPaneCommand: (
+    paneId: string,
+    command: string,
+    opts?: { submit?: boolean },
+  ) => void;
+  consumePendingPaneCommand: (paneId: string) => PendingPaneCommand | null;
 
   // Workspace cleanup
   removeWorkspaceLayout: (workspacePath: string) => void;
@@ -672,7 +681,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   closedPaneStack: [],
   pendingStartupCommands: {},
   pendingPaneCommands: {},
-  pendingTypedTexts: {},
   pendingCloseConfirmPaneId: null,
   pendingCloseConfirmTabId: null,
   worktreeSetupState: {},
@@ -838,7 +846,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     return { tabId: tab.id, paneId: tab.focusedPaneId };
   },
 
-  addTerminalTab: (command: string) => {
+  addTerminalTab: (command: string, opts?: { submit?: boolean }) => {
     const ctx = getActivePanelContext(get());
     if (!ctx) return null;
     const { path, layout, panel } = ctx;
@@ -853,28 +861,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       })),
       pendingPaneCommands: {
         ...state.pendingPaneCommands,
-        [tabPaneId]: command,
-      },
-    });
-    return { tabId: tab.id, paneId: tabPaneId };
-  },
-
-  addTerminalTabWithTypedText: (text: string) => {
-    const ctx = getActivePanelContext(get());
-    if (!ctx) return null;
-    const { path, layout, panel } = ctx;
-    const tab = createTab();
-    const tabPaneId = tab.focusedPaneId;
-    const state = get();
-    set({
-      ...updatePanel(state, path, layout, panel.id, (p) => ({
-        ...p,
-        tabs: [...p.tabs, tab],
-        selectedTabId: tab.id,
-      })),
-      pendingTypedTexts: {
-        ...state.pendingTypedTexts,
-        [tabPaneId]: text,
+        [tabPaneId]: { text: command, submit: opts?.submit ?? true },
       },
     });
     return { tabId: tab.id, paneId: tabPaneId };
@@ -1478,7 +1465,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       ...(paneCommand && {
         pendingPaneCommands: {
           ...state.pendingPaneCommands,
-          [newPane]: paneCommand,
+          [newPane]: { text: paneCommand, submit: true },
         },
       }),
     });
@@ -2354,9 +2341,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     return cmd;
   },
 
-  setPendingPaneCommand: (paneId: string, command: string) =>
+  setPendingPaneCommand: (
+    paneId: string,
+    command: string,
+    opts?: { submit?: boolean },
+  ) =>
     set((state) => ({
-      pendingPaneCommands: { ...state.pendingPaneCommands, [paneId]: command },
+      pendingPaneCommands: {
+        ...state.pendingPaneCommands,
+        [paneId]: { text: command, submit: opts?.submit ?? true },
+      },
     })),
 
   consumePendingPaneCommand: (paneId: string) => {
@@ -2368,22 +2362,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     }
     return cmd;
-  },
-
-  setPendingTypedText: (paneId: string, text: string) =>
-    set((state) => ({
-      pendingTypedTexts: { ...state.pendingTypedTexts, [paneId]: text },
-    })),
-
-  consumePendingTypedText: (paneId: string) => {
-    const text = get().pendingTypedTexts[paneId] ?? null;
-    if (text) {
-      set((state) => {
-        const { [paneId]: _, ...rest } = state.pendingTypedTexts;
-        return { pendingTypedTexts: rest };
-      });
-    }
-    return text;
   },
 
   removeWorkspaceLayout: (workspacePath: string) =>
@@ -3064,9 +3042,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const newPaneUrl = { ...s.paneUrl };
       const newPickedElement = { ...s.panePickedElement };
       const newPendingCommands = { ...s.pendingPaneCommands };
-      const newPendingTypedTexts = { ...s.pendingTypedTexts };
       for (const pid of paneIds) {
-        delete newPendingTypedTexts[pid];
         delete newCwd[pid];
         delete newTitle[pid];
         delete newAgentStatus[pid];
@@ -3090,7 +3066,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneUrl: newPaneUrl,
         panePickedElement: newPickedElement,
         pendingPaneCommands: newPendingCommands,
-        pendingTypedTexts: newPendingTypedTexts,
       };
 
       // Collapse an emptied panel exactly the way closeTab does.
@@ -3229,7 +3204,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       // A command queued for the pane here (e.g. a remote agent's resume)
       // must not be typed into it should it ever come back to this window.
       const { [paneId]: _cmd, ...pendingPaneCommands } = s.pendingPaneCommands;
-      const { [paneId]: _text, ...pendingTypedTexts } = s.pendingTypedTexts;
 
       // Pane was one of several — collapse the split and keep the tab.
       if (remaining) {
@@ -3238,7 +3212,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           tab.focusedPaneId === paneId ? ids[0] : tab.focusedPaneId;
         return {
           pendingPaneCommands,
-          pendingTypedTexts,
           ...updatePanel(s, path, layout, panel.id, (p) => ({
             ...p,
             tabs: p.tabs.map((t) =>
@@ -3291,7 +3264,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneUrl: newPaneUrl,
         panePickedElement: newPickedElement,
         pendingPaneCommands,
-        pendingTypedTexts,
       };
 
       // Collapse an emptied panel exactly the way removeDetachedTabLocally does.

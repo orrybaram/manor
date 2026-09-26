@@ -2,6 +2,7 @@ import { useCallback, useRef } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import { Link } from "../ui/Link/Link";
+import { LOCAL_HOST_ID } from "../../lib/hosts";
 import { useAppStore } from "../../store/app-store";
 import {
   isContextMenuKey,
@@ -25,15 +26,16 @@ export function PortBadge(props: PortBadgeProps) {
   // A remote host's port is reached through a port forward (ADR-178 §5):
   // main swaps in the forward's local port before the URL is opened.
   const hostId = port.hostId;
+  const isRemote = hostId !== LOCAL_HOST_ID;
   const withResolvedUrl = useCallback(
     (open: (target: string) => void) => {
-      if (!hostId) {
+      if (!isRemote) {
         open(url);
         return;
       }
       window.electronAPI.ports.resolveUrl(url, hostId).then(open, () => open(url));
     },
-    [url, hostId],
+    [url, hostId, isRemote],
   );
 
   const handleOpenInTab = useCallback(() => {
@@ -105,7 +107,7 @@ export function PortBadge(props: PortBadgeProps) {
             onClick={(e) => {
               e.stopPropagation();
               // The href is the port on the remote box; open its forward.
-              if (hostId) {
+              if (isRemote) {
                 e.preventDefault();
                 handleOpenExternal(e);
               }

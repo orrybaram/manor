@@ -80,14 +80,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
     reset: (paneId: string, cwd: string | null, cols: number, rows: number) =>
       ipcRenderer.invoke("pty:reset", paneId, cwd, cols, rows),
     detach: (paneId: string) => ipcRenderer.invoke("pty:detach", paneId),
-    consumePrewarmed: (cwd: string | null) =>
-      ipcRenderer.invoke("pty:consumePrewarmed", cwd),
+    consumePrewarmed: (cwd: string | null, hostId: string) =>
+      ipcRenderer.invoke("pty:consumePrewarmed", cwd, hostId),
     updatePrewarmCwd: (
       cwd: string,
+      hostId: string,
       agentCommand?: string | null,
       agentKind?: string | null,
     ) =>
-      ipcRenderer.invoke("pty:updatePrewarmCwd", cwd, agentCommand, agentKind),
+      ipcRenderer.invoke("pty:updatePrewarmCwd", cwd, hostId, agentCommand, agentKind),
     // Output carries its position in the session's stream (ADR-159) so the
     // renderer can drop what a warm-restore snapshot already covers. It is
     // undefined when an older daemon is on the other end.
@@ -364,8 +365,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   ports: {
     startScanner: () => ipcRenderer.invoke("ports:startScanner"),
     stopScanner: () => ipcRenderer.invoke("ports:stopScanner"),
-    updateWorkspacePaths: (paths: string[]) =>
-      ipcRenderer.invoke("ports:updateWorkspacePaths", paths),
+    updateWorkspaces: (workspaces: Array<{ path: string; hostId: string }>) =>
+      ipcRenderer.invoke("ports:updateWorkspaces", workspaces),
     updateWorkspaceMetadata: (
       meta: Array<{
         path: string;
@@ -396,15 +397,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
 
   branches: {
-    start: (paths: string[]) => ipcRenderer.invoke("branches:start", paths),
+    start: (workspaces: Array<{ path: string; hostId: string }>) =>
+      ipcRenderer.invoke("branches:start", workspaces),
     stop: () => ipcRenderer.invoke("branches:stop"),
     onChange: (callback: (branches: Record<string, string>) => void) =>
       onChannel("branches-changed", callback),
   },
 
   diffs: {
-    start: (workspaces: Record<string, string>) =>
-      ipcRenderer.invoke("diffs:start", workspaces),
+    start: (
+      workspaces: Array<{ path: string; hostId: string; defaultBranch: string }>,
+    ) => ipcRenderer.invoke("diffs:start", workspaces),
     stop: () => ipcRenderer.invoke("diffs:stop"),
     onChange: (
       callback: (

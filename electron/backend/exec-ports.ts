@@ -1,4 +1,4 @@
-import type { ActivePort, PortsBackend } from "./types";
+import type { ScannedPort, PortsBackend } from "./types";
 import { localExec, type Exec, type ExecError } from "./exec";
 import { localFacts, type MachineFacts } from "./machine-facts";
 
@@ -37,13 +37,13 @@ function isIpv6Loopback(address: string): boolean {
 }
 
 /**
- * One `ActivePort` per port, the first socket's pid winning (as lsof lists
+ * One `ScannedPort` per port, the first socket's pid winning (as lsof lists
  * them). A port every one of whose sockets is bound to `[::1]` only is
  * marked with `loopbackHost: "::1"`: a forward to the box's 127.0.0.1 would
  * not reach it (ADR-178 §5).
  */
-function collapseListeners(sockets: ListenSocket[]): ActivePort[] {
-  const byPort = new Map<number, { port: ActivePort; v6Only: boolean }>();
+function collapseListeners(sockets: ListenSocket[]): ScannedPort[] {
+  const byPort = new Map<number, { port: ScannedPort; v6Only: boolean }>();
   for (const socket of sockets) {
     const v6 = isIpv6Loopback(socket.address);
     const seen = byPort.get(socket.port);
@@ -109,7 +109,7 @@ function parseSsSockets(output: string): ListenSocket[] {
 }
 
 /** Listeners as `ss -ltnp` reports them, one per port, before workspace matching. */
-export function parseSsListeners(output: string): ActivePort[] {
+export function parseSsListeners(output: string): ScannedPort[] {
   return collapseListeners(parseSsSockets(output));
 }
 
@@ -183,7 +183,7 @@ export class ExecPortsBackend implements PortsBackend {
     private readonly label: string = "this machine",
   ) {}
 
-  async scan(workspacePaths: string[]): Promise<ActivePort[]> {
+  async scan(workspacePaths: string[]): Promise<ScannedPort[]> {
     let uid: number;
     let platform: PortsPlatform;
     try {
@@ -193,7 +193,7 @@ export class ExecPortsBackend implements PortsBackend {
       return [];
     }
 
-    let results: ActivePort[];
+    let results: ScannedPort[];
     let cwdsByPid: (pids: number[]) => Promise<Map<number, string>>;
     if (platform === "linux" && !this.ssMissing) {
       const ss = await this.scanSs(uid);
@@ -239,7 +239,7 @@ export class ExecPortsBackend implements PortsBackend {
   }
 
   /** Listeners owned by `uid`, by lsof (which filters by uid itself). */
-  private async scanLsof(lsof: string, uid: number): Promise<ActivePort[]> {
+  private async scanLsof(lsof: string, uid: number): Promise<ScannedPort[]> {
     try {
       const { stdout } = await this.execImpl.file(
         lsof,
@@ -270,7 +270,7 @@ export class ExecPortsBackend implements PortsBackend {
    * uid is checked — before collapsing to one pid per port, so another
    * user's socket on the same port cannot hide ours.
    */
-  private async scanSs(uid: number): Promise<ActivePort[] | "missing"> {
+  private async scanSs(uid: number): Promise<ScannedPort[] | "missing"> {
     let output: string;
     try {
       const { stdout } = await this.execImpl.file("ss", ["-ltnp"], {
@@ -327,7 +327,7 @@ export class ExecPortsBackend implements PortsBackend {
     return result;
   }
 
-  private parseLsofPorts(output: string): ActivePort[] {
+  private parseLsofPorts(output: string): ScannedPort[] {
     const sockets: ListenSocket[] = [];
     let currentPid = 0;
     let currentCmd = "";

@@ -12,6 +12,7 @@
  * A host nobody registered gets `unavailableBackend`, whose every call fails.
  */
 
+import { errorMessage } from "../lib/errors";
 import { streamAfter, type StreamResult } from "./exec";
 import type { HostConnection, HostStatus } from "./host-connection";
 import { posixJoin } from "./machine-facts";
@@ -36,6 +37,13 @@ export class HostUnavailableError extends Error {
 export interface HostGates {
   /** Awaited before a pty call. */
   pty: () => Promise<void>;
+  /**
+   * What a failed pty call (its gate included) rejects with: a
+   * `HostUnavailableError` whenever the host is not connected, so callers
+   * can tell "the host is away" from a broken terminal by type alone
+   * (ADR-183).
+   */
+  ptyFailure: (err: unknown) => unknown;
   /** Awaited before a git / shell / ports call. */
   exec: () => Promise<void>;
 }
@@ -59,6 +67,12 @@ export function hostGates(conn: HostConnection): HostGates {
           await conn.ensureConnected();
       }
     },
+    ptyFailure: (err) => {
+      if (err instanceof HostUnavailableError) return err;
+      if (conn.disposed) return new HostUnavailableError(conn.hostId, "unknown", errorMessage(err));
+      if (conn.status === "connected") return err;
+      return new HostUnavailableError(conn.hostId, conn.status, errorMessage(err));
+    },
     // Fail fast unless connected. Git, shell and ports calls are what
     // pollers make, and a poller must not wait out an ssh handshake.
     exec: async () => {
@@ -76,13 +90,18 @@ export function hostView(conn: HostConnection, gates: HostGates | null): Workspa
   const { backend } = conn;
   const exec = gates?.exec ?? null;
   return {
-    pty: gated(backend.pty, gates?.pty ?? null, {
-      // Fire-and-forget: nothing to await, and the client drops writes
-      // for a session it is not connected to.
-      write: null,
-      relayAgentHook: null,
-      onEvent: null,
-    }),
+    pty: gated(
+      backend.pty,
+      gates?.pty ?? null,
+      {
+        // Fire-and-forget: nothing to await, and the client drops writes
+        // for a session it is not connected to.
+        write: null,
+        relayAgentHook: null,
+        onEvent: null,
+      },
+      gates?.ptyFailure,
+    ),
     git: gated(backend.git, exec, {
       pushStream: exec ? deferredStream(backend.git, "pushStream", exec) : null,
       cloneStream: exec ? deferredStream(backend.git, "cloneStream", exec) : null,
@@ -100,12 +119,14 @@ export function hostView(conn: HostConnection, gates: HostGates | null): Workspa
 /**
  * Wrap every method of `target` so it awaits `gate` first. `overrides` maps
  * a method to a replacement, or to null to call it straight through. A null
- * gate calls everything straight through (the local host).
+ * gate calls everything straight through (the local host). A gated call
+ * that fails rejects with `failure(err)`, when given.
  */
 function gated<T extends object>(
   target: T,
   gate: (() => Promise<void>) | null,
   overrides: Record<string, unknown>,
+  failure?: (err: unknown) => unknown,
 ): T {
   return new Proxy(target, {
     get(obj, prop, receiver) {
@@ -120,8 +141,12 @@ function gated<T extends object>(
         return (...args: unknown[]) => fn.apply(obj, args);
       }
       return async (...args: unknown[]) => {
-        await gate();
-        return fn.apply(obj, args);
+        try {
+          await gate();
+          return await fn.apply(obj, args);
+        } catch (err) {
+          throw failure ? failure(err) : err;
+        }
       };
     },
   });

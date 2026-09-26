@@ -48,3 +48,29 @@ export function assertStringArray(
     }
   }
 }
+
+/**
+ * An array of `{ path, hostId }` entries (ADR-183), each also carrying
+ * string `extraKeys` when given.
+ */
+export function assertHostPaths<K extends string = never>(
+  value: unknown,
+  name: string,
+  extraKeys: readonly K[] = [],
+): asserts value is Array<{ path: string; hostId: string } & Record<K, string>> {
+  if (!Array.isArray(value)) {
+    throw new Error(`${name}: expected array, got ${typeof value}`);
+  }
+  for (let i = 0; i < value.length; i++) {
+    const entry: unknown = value[i];
+    if (typeof entry !== "object" || entry === null) {
+      throw new Error(`${name}[${i}]: expected object, got ${typeof entry}`);
+    }
+    for (const key of ["path", "hostId", ...extraKeys]) {
+      const field = (entry as Record<string, unknown>)[key];
+      if (typeof field !== "string") {
+        throw new Error(`${name}[${i}].${key}: expected string, got ${typeof field}`);
+      }
+    }
+  }
+}

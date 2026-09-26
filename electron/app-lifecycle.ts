@@ -273,20 +273,25 @@ export function initApp(devTitle: string | null): void {
   for (const { hostId, spec } of projectManager.getHosts()) {
     backendRegistry.register(hostId, spec);
   }
-  const hostForPath = (p: string) => projectManager.hostIdForPath(p);
   // The one backend IPC handlers and control routes see: routes each pane,
-  // cwd and pid to the host that owns it.
-  const backend = new RoutedBackend(backendRegistry, hostForPath);
+  // cwd and pid to the host that owns it. A bare cwd is the only thing whose
+  // host is inferred from its path (ADR-183); the pollers below are handed
+  // each workspace's host instead.
+  const backend = new RoutedBackend(
+    backendRegistry,
+    (p) => projectManager.hostIdForPath(p),
+    (pid) => portScanner.hostsListeningOn(pid),
+  );
   const themeManager = new ThemeManager();
-  const portScanner = new PortScanner(backend.ports, hostForPath);
+  const portScanner = new PortScanner(backendRegistry);
   // Remote dev servers opened from Manor go through these (ADR-178 §5).
   const remoteForwards = new RemoteForwards(backendRegistry);
-  const branchWatcher = new BranchWatcher(backend.git, hostForPath);
-  const diffWatcher = new DiffWatcher(backend.git, hostForPath);
+  const branchWatcher = new BranchWatcher(backendRegistry);
+  const diffWatcher = new DiffWatcher(backendRegistry);
   const githubManager = new GitHubManager();
   const linearManager = new LinearManager();
 
-  const prewarmManager = new PrewarmManager(client, process.env.HOME || "/", hostForPath);
+  const prewarmManager = new PrewarmManager(client, process.env.HOME || "/");
   const agentHookServer = new AgentHookServer();
   // Remote hosts' hooks take the same path as local ones (ADR-178 §2).
   // Replayed hooks hold their notifications until the catch-up finishes, so

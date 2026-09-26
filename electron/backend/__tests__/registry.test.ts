@@ -7,7 +7,7 @@ import {
 } from "../registry";
 import { RoutedBackend } from "../routed-backend";
 import type {
-  ActivePort,
+  ScannedPort,
   HostConnectionEvent,
   HostSpec,
   RemoteHostBackend,
@@ -53,7 +53,7 @@ function fakeBackend(name: string) {
       exec: vi.fn(async () => ""),
     },
     ports: {
-      scan: vi.fn(async (): Promise<ActivePort[]> => []),
+      scan: vi.fn(async (): Promise<ScannedPort[]> => []),
       kill: vi.fn(async () => {}),
     },
     facts: {
@@ -570,28 +570,55 @@ describe("RoutedBackend", () => {
     expect((await backend.pty.listSessions()).map((s) => s.sessionId)).toEqual(["pane-l"]);
   });
 
-  it("scans ports per host and kills a pid on the host that reported it", async () => {
-    const { backend, registry, local, box: remote } = routed();
-    await registry.ensureConnected("box");
-    const port = (pid: number): ActivePort => ({
-      port: 3000,
-      processName: "node",
-      pid,
-      workspacePath: null,
-      hostname: null,
-    });
-    local.raw.ports.scan.mockResolvedValue([port(1)]);
-    remote.raw.ports.scan.mockResolvedValue([port(2)]);
-
-    const ports = await backend.ports.scan(["/Users/me/app", "/remote/app"]);
-    expect(local.raw.ports.scan).toHaveBeenCalledWith(["/Users/me/app"]);
-    expect(remote.raw.ports.scan).toHaveBeenCalledWith(["/remote/app"]);
-    expect(ports).toEqual([port(1), { ...port(2), hostId: "box" }]);
+  it("kills a pid on the host whose latest scan reported it", async () => {
+    const ctx = setup();
+    ctx.registry.register("box", box);
+    const pidHosts: Record<number, string[]> = { 1: ["local"], 2: ["box"], 3: ["local", "box"] };
+    const backend = new RoutedBackend(
+      ctx.registry,
+      () => "local",
+      (pid) => pidHosts[pid] ?? [],
+    );
+    const remote = ctx.remotes.get("box")!;
+    await ctx.registry.ensureConnected("box");
 
     await backend.ports.kill(2);
     expect(remote.raw.ports.kill).toHaveBeenCalledWith(2);
     await backend.ports.kill(1);
-    expect(local.raw.ports.kill).toHaveBeenCalledWith(1);
+    expect(ctx.local.raw.ports.kill).toHaveBeenCalledWith(1);
+    // A pid no scan reported is this machine's, as every pid was before hosts.
+    await backend.ports.kill(4);
+    expect(ctx.local.raw.ports.kill).toHaveBeenCalledWith(4);
+    await expect(backend.ports.kill(3)).rejects.toThrow(/more than one host/);
+  });
+
+  it("reports the host createOrAttach used", async () => {
+    const { backend } = routed();
+    await expect(backend.pty.createOrAttach("pane-r", "/remote/app", 80, 24)).resolves.toMatchObject({
+      hostId: "box",
+    });
+    await expect(backend.pty.createOrAttach("pane-l", "/Users/me/app", 80, 24)).resolves.toMatchObject({
+      hostId: "local",
+    });
+  });
+
+  it("fails a pty call with HostUnavailableError only while its host is away (ADR-183)", async () => {
+    const { backend, registry, box: remote } = routed();
+    remote.raw.connect.mockRejectedValueOnce(new Error("ssh: connection refused"));
+    const away = await backend.pty
+      .createOrAttach("pane-r", "/remote/app", 80, 24)
+      .catch((e: unknown) => e);
+    expect(away).toBeInstanceOf(HostUnavailableError);
+    expect(away).toMatchObject({ hostId: "box", status: "error" });
+
+    // Once connected, a failure is the terminal's own.
+    await registry.ensureConnected("box");
+    remote.raw.pty.createOrAttach.mockRejectedValueOnce(new Error("spawn failed"));
+    const broken = await backend.pty
+      .createOrAttach("pane-r2", "/remote/app", 80, 24)
+      .catch((e: unknown) => e);
+    expect(broken).not.toBeInstanceOf(HostUnavailableError);
+    expect(broken).toMatchObject({ message: "spawn failed" });
   });
 
   it("with only the local host, passes every call straight to it", async () => {

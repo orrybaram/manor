@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { assertString, assertPositiveInt } from "../ipc-validate";
 import { resolveSpawnCwd } from "../paths";
+import { HostUnavailableError } from "../backend/host-view";
 import { LOCAL_HOST_ID } from "../backend/types";
 import type { IpcDeps } from "./types";
 
@@ -52,26 +53,7 @@ function validatePtyArgs(paneId: string, cwd: string | null, cols: number, rows:
 }
 
 export function register(deps: IpcDeps): void {
-  const { backend, backendRegistry } = deps;
-  // The host a pane's session actually runs on — not its project's current
-  // host, which may have changed since (ADR-160). The renderer badges a tab
-  // from this, so a pane that predates a project move keeps its true host.
-  const hostOf = (paneId: string): string =>
-    backendRegistry.sessions.ownerOf(paneId) ?? LOCAL_HOST_ID;
-
-  /**
-   * The remote host `paneId` would run on, when that host is registered but
-   * not connected — so a create that just failed failed for want of the
-   * host. Null for a local pane, a connected host, or an unregistered one.
-   */
-  const unavailableHostFor = (paneId: string, cwd: string): string | null => {
-    const hostId =
-      backendRegistry.sessions.ownerOf(paneId) ??
-      deps.projectManager.hostIdForPath(cwd);
-    if (hostId === LOCAL_HOST_ID) return null;
-    const status = backendRegistry.status(hostId);
-    return status !== undefined && status !== "connected" ? hostId : null;
-  };
+  const { backend } = deps;
 
   ipcMain.handle(
     "pty:create",
@@ -107,16 +89,21 @@ export function register(deps: IpcDeps): void {
           // or when an older daemon does not report one.
           snapshotSeq: result.snapshot?.seq,
           prewarmed: result.snapshot !== null,
-          hostId: hostOf(paneId),
+          // The host the session actually runs on — not its project's
+          // current host, which may have changed since (ADR-160). The
+          // renderer badges a tab from this, so a pane that predates a
+          // project move keeps its true host.
+          hostId: result.hostId,
         };
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
-        // A remote host that is not connected is not a broken terminal
-        // (ADR-178 §6): the renderer shows the host's offline banner and
-        // creates the pane once the host is back.
-        const awaitedHost = unavailableHostFor(paneId, resolvedCwd);
-        if (awaitedHost) {
-          return { ok: false, error, hostUnavailable: true, hostId: awaitedHost };
+        // A registered remote host that is not connected is not a broken
+        // terminal (ADR-178 §6): the renderer shows the host's offline
+        // banner and creates the pane once the host is back. A remote pty
+        // call rejects with `HostUnavailableError` whenever its host is away
+        // (ADR-183); "unknown" is a host nobody registered.
+        if (err instanceof HostUnavailableError && err.status !== "unknown") {
+          return { ok: false, error, hostUnavailable: true, hostId: err.hostId };
         }
         console.error(`Failed to create/attach PTY for ${paneId}:`, err);
         return { ok: false, error };
@@ -192,7 +179,7 @@ export function register(deps: IpcDeps): void {
               ok: true,
               snapshot: null,
               prewarmed: false,
-              hostId: hostOf(paneId),
+              hostId: result.hostId,
             };
           }
 
@@ -219,13 +206,28 @@ export function register(deps: IpcDeps): void {
     }
   });
 
-  ipcMain.handle("pty:consumePrewarmed", (_event, cwd: string | null) => {
-    if (cwd !== null) assertString(cwd, "cwd");
-    return deps.prewarmManager?.consume(resolveSpawnCwd(cwd)) ?? null;
-  });
+  // The renderer names the workspace's host alongside its cwd (ADR-183).
+  ipcMain.handle(
+    "pty:consumePrewarmed",
+    (_event, cwd: string | null, hostId: string = LOCAL_HOST_ID) => {
+      if (cwd !== null) assertString(cwd, "cwd");
+      assertString(hostId, "hostId");
+      return deps.prewarmManager?.consume(resolveSpawnCwd(cwd), hostId) ?? null;
+    },
+  );
 
-  ipcMain.handle("pty:updatePrewarmCwd", async (_event, cwd: string, agentCommand?: string | null, agentKind?: string | null) => {
-    assertString(cwd, "cwd");
-    await deps.prewarmManager?.updateCwd(resolveSpawnCwd(cwd), agentCommand, agentKind);
-  });
+  ipcMain.handle(
+    "pty:updatePrewarmCwd",
+    async (
+      _event,
+      cwd: string,
+      hostId: string,
+      agentCommand?: string | null,
+      agentKind?: string | null,
+    ) => {
+      assertString(cwd, "cwd");
+      assertString(hostId, "hostId");
+      await deps.prewarmManager?.updateCwd(resolveSpawnCwd(cwd), hostId, agentCommand, agentKind);
+    },
+  );
 }

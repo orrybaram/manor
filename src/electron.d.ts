@@ -213,8 +213,8 @@ export interface ActivePort {
   pid: number;
   workspacePath: string | null;
   hostname: string | null;
-  /** The remote host the port is listening on; absent for this machine. */
-  hostId?: string;
+  /** The host the port is listening on — `"local"` for this machine. */
+  hostId: string;
   /** `"::1"` when listened on only at the IPv6 loopback. */
   loopbackHost?: "::1";
 }
@@ -393,12 +393,14 @@ export interface ElectronAPI {
       hostId?: string;
     }>;
     detach: (paneId: string) => Promise<void>;
-    consumePrewarmed: (cwd: string | null) => Promise<{
+    /** `hostId` is the workspace's host; only a local one is ever prewarmed. */
+    consumePrewarmed: (cwd: string | null, hostId: string) => Promise<{
       paneId: string;
       commandInjected: boolean;
     } | null>;
     updatePrewarmCwd: (
       cwd: string,
+      hostId: string,
       agentCommand?: string | null,
       agentKind?: string | null,
     ) => Promise<void>;
@@ -614,7 +616,8 @@ export interface ElectronAPI {
   ports: {
     startScanner: () => Promise<void>;
     stopScanner: () => Promise<void>;
-    updateWorkspacePaths: (paths: string[]) => Promise<void>;
+    /** Every open workspace with its project's host (ADR-183). */
+    updateWorkspaces: (workspaces: Array<{ path: string; hostId: string }>) => Promise<void>;
     updateWorkspaceMetadata: (
       meta: Array<{
         path: string;
@@ -652,7 +655,7 @@ export interface ElectronAPI {
   };
 
   branches: {
-    start: (paths: string[]) => Promise<void>;
+    start: (workspaces: Array<{ path: string; hostId: string }>) => Promise<void>;
     stop: () => Promise<void>;
     onChange: (
       callback: (branches: Record<string, string>) => void,
@@ -660,7 +663,9 @@ export interface ElectronAPI {
   };
 
   diffs: {
-    start: (workspaces: Record<string, string>) => Promise<void>;
+    start: (
+      workspaces: Array<{ path: string; hostId: string; defaultBranch: string }>,
+    ) => Promise<void>;
     stop: () => Promise<void>;
     onChange: (
       callback: (

@@ -161,14 +161,13 @@ export interface ShellBackend {
 
 // ── Ports Backend ──
 
-export interface ActivePort {
+/** A listening port as one host's backend reports it. */
+export interface ScannedPort {
   port: number;
   processName: string;
   pid: number;
   workspacePath: string | null;
   hostname: string | null;
-  /** The remote host the port is listening on; absent for this machine. */
-  hostId?: string;
   /**
    * `"::1"` when the port is listened on only at the IPv6 loopback, so a
    * forward must target `[::1]` rather than 127.0.0.1 (ADR-178 §5).
@@ -176,8 +175,13 @@ export interface ActivePort {
   loopbackHost?: "::1";
 }
 
+/** A scanned port tagged with the host it listens on — `"local"` included (ADR-183). */
+export interface ActivePort extends ScannedPort {
+  hostId: string;
+}
+
 export interface PortsBackend {
-  scan(workspacePaths: string[]): Promise<ActivePort[]>;
+  scan(workspacePaths: string[]): Promise<ScannedPort[]>;
 
   kill(pid: number): Promise<void>;
 }

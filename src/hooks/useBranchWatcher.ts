@@ -6,20 +6,26 @@ export function useBranchWatcher() {
   const projects = useProjectStore((s) => s.projects);
   const updateWorkspaceBranch = useProjectStore((s) => s.updateWorkspaceBranch);
 
-  // Stabilize paths: only produce a new reference when the actual path values change.
-  // This prevents the watcher from restarting when branches update in the store.
-  const prevPathsRef = useRef<string[]>([]);
+  // Stabilize workspaces (each with its project's host, ADR-183): only
+  // produce a new reference when a path or host actually changes. This
+  // prevents the watcher from restarting when branches update in the store.
+  const prevPathsRef = useRef<Array<{ path: string; hostId: string }>>([]);
   const paths = (() => {
-    const next = projects.flatMap((p) => p.workspaces.map((ws) => ws.path));
+    const next = projects.flatMap((p) =>
+      p.workspaces.map((ws) => ({ path: ws.path, hostId: p.hostId })),
+    );
     const prev = prevPathsRef.current;
-    if (next.length === prev.length && next.every((p, i) => p === prev[i])) {
+    if (
+      next.length === prev.length &&
+      next.every((w, i) => w.path === prev[i].path && w.hostId === prev[i].hostId)
+    ) {
       return prev;
     }
     prevPathsRef.current = next;
     return next;
   })();
 
-  // Start/stop watcher when paths change
+  // Start/stop watcher when workspaces change
   useEffect(() => {
     if (paths.length > 0) {
       window.electronAPI.branches.start(paths);

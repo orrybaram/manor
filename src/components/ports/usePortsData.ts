@@ -19,10 +19,13 @@ export function usePortsData() {
   // Scanner setup: subscribe to store changes to detect when workspace paths change,
   // and restart the scanner accordingly.
   useMountEffect(() => {
-    const getPaths = () =>
+    // Each workspace travels with its project's host (ADR-183).
+    const getWorkspaces = () =>
       useProjectStore
         .getState()
-        .projects.flatMap((p) => p.workspaces.map((ws) => ws.path));
+        .projects.flatMap((p) =>
+          p.workspaces.map((ws) => ({ path: ws.path, hostId: p.hostId })),
+        );
 
     const getMeta = () =>
       useProjectStore.getState().projects.flatMap((p) =>
@@ -38,9 +41,9 @@ export function usePortsData() {
     let currentPathsKey = "";
     let currentMetaKey = "";
 
-    const setup = (paths: string[]) => {
-      if (paths.length > 0) {
-        window.electronAPI.ports.updateWorkspacePaths(paths);
+    const setup = (workspaces: Array<{ path: string; hostId: string }>) => {
+      if (workspaces.length > 0) {
+        window.electronAPI.ports.updateWorkspaces(workspaces);
         window.electronAPI.ports.updateWorkspaceMetadata(getMeta());
         window.electronAPI.ports.startScanner();
         window.electronAPI.ports.scanNow().then(setPorts);
@@ -48,21 +51,21 @@ export function usePortsData() {
     };
 
     // Initial setup
-    const initialPaths = getPaths();
-    currentPathsKey = initialPaths.join("\0");
+    const initialWorkspaces = getWorkspaces();
+    currentPathsKey = JSON.stringify(initialWorkspaces);
     currentMetaKey = JSON.stringify(getMeta());
-    setup(initialPaths);
+    setup(initialWorkspaces);
 
     // Re-setup when paths change; re-push metadata (and rescan, so hostnames
     // are recomputed) when only the metadata changed — e.g. the portless
     // toggle or a project rename.
     const unsub = useProjectStore.subscribe(() => {
-      const newPaths = getPaths();
-      const newKey = newPaths.join("\0");
+      const newWorkspaces = getWorkspaces();
+      const newKey = JSON.stringify(newWorkspaces);
       if (newKey !== currentPathsKey) {
         currentPathsKey = newKey;
         currentMetaKey = JSON.stringify(getMeta());
-        setup(newPaths);
+        setup(newWorkspaces);
         return;
       }
       const newMetaKey = JSON.stringify(getMeta());

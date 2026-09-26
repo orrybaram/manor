@@ -29,6 +29,7 @@ import {
   getPersistedActiveWorkspacePath,
 } from "./store/app-store";
 import { useProjectStore, runWorkspaceSetupScript } from "./store/project-store";
+import { LOCAL_HOST_ID } from "./lib/hosts";
 import { appCommandHandlers } from "./lib/app-commands";
 import { handleRecordingCommand } from "./lib/webview-recorder";
 import {
@@ -349,11 +350,18 @@ function App() {
   const activeWorkspaceCommand = isHomePath(activeWorkspacePath)
     ? homeLaunchCommand({ homeHarness, homeCustomCommand, homeCustomInterrupt })
     : activeProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
+  // The workspace's host travels with its path (ADR-183); Home is local.
+  const activeWorkspaceHostId = activeProject?.hostId ?? LOCAL_HOST_ID;
   useEffect(() => {
     if (!activeWorkspacePath) return;
     const prewarmKind = getAgentKindForCommand(activeWorkspaceCommand);
-    window.electronAPI.pty.updatePrewarmCwd(activeWorkspacePath, activeWorkspaceCommand, prewarmKind);
-  }, [activeWorkspacePath, activeWorkspaceCommand]);
+    window.electronAPI.pty.updatePrewarmCwd(
+      activeWorkspacePath,
+      activeWorkspaceHostId,
+      activeWorkspaceCommand,
+      prewarmKind,
+    );
+  }, [activeWorkspacePath, activeWorkspaceHostId, activeWorkspaceCommand]);
 
   // Projects mutated outside the renderer (MCP, CLI) — the store never saw the
   // result, so refetch it. Creating a workspace this way must show up in the

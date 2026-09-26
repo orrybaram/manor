@@ -35,9 +35,9 @@ vi.mock("../portless", () => ({
 }));
 
 vi.mock("../ipc-validate", () => ({
+  assertHostPaths: vi.fn(),
   assertPositiveInt: vi.fn(),
   assertString: vi.fn(),
-  assertStringArray: vi.fn(),
 }));
 
 import { register } from "../ipc/ports";
@@ -56,7 +56,11 @@ function meta(overrides: Partial<WorkspaceMeta> = {}): WorkspaceMeta {
   };
 }
 
-/** `scanNow` returns fresh objects per scan, as the real scanner does. */
+/**
+ * A scan returns fresh objects tagged with their host ("local" unless
+ * given), dressed by the enricher `ipc/ports` installs — as the real
+ * scanner does.
+ */
 function makeDeps(
   workspaceMeta: WorkspaceMeta[],
   scanned: {
@@ -77,6 +81,15 @@ function makeDeps(
   /** Hosts the poller has scanned. */
   const scannedHosts = new Set<string>(["box"]);
   let urlResolver: ((url: string, hostId: string) => Promise<string>) | null = null;
+  type Port = { port: number; workspacePath: string; hostId: string; pid: number };
+  let enrich = (ports: Port[]) => ports;
+  let results: Port[] = [];
+  let latest: Port[] = [];
+  const scanAndPublish = async () => {
+    results = scanned.map((p, i) => ({ ...p, hostId: p.hostId ?? "local", pid: i + 1 }));
+    latest = enrich(results);
+    return latest;
+  };
   return {
     backendRegistry: {
       provider: () => undefined,
@@ -129,23 +142,22 @@ function makeDeps(
     portScanner: {
       start: vi.fn(),
       stop: vi.fn(),
-      updateWorkspacePaths: vi.fn(),
+      updateWorkspaces: vi.fn(),
+      setEnricher: (fn: (ports: Port[]) => Port[]) => {
+        enrich = fn;
+      },
+      refresh: () => {
+        latest = enrich(results);
+      },
+      latest: () => latest,
       hasScanned: (hostId: string) => scannedHosts.has(hostId),
       onHostScanned: (listener: (hostId: string) => void) => {
         hostScanListeners.push(listener);
         return () => {};
       },
-      scanNow: vi
-        .fn()
-        .mockImplementation(async () =>
-          scanned.map((p, i) => ({ ...p, pid: i + 1 })),
-        ),
+      scanNow: vi.fn().mockImplementation(scanAndPublish),
       /** An immediate scan of one host: every host's latest ports. */
-      scanHost: vi
-        .fn()
-        .mockImplementation(async (_hostId: string) =>
-          scanned.map((p, i) => ({ ...p, pid: i + 1 })),
-        ),
+      scanHost: vi.fn().mockImplementation(async (_hostId: string) => scanAndPublish()),
     },
     /** The scan result, mutable so a test can start a server "later". */
     scanned,

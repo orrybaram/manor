@@ -1,5 +1,5 @@
 import { ipcMain } from "electron";
-import { assertString } from "../ipc-validate";
+import { assertHostPaths, assertString } from "../ipc-validate";
 import type { IpcDeps } from "./types";
 
 // Track in-flight pushes for cancellation, keyed by pushId (= workspace path).
@@ -20,8 +20,10 @@ export function register(deps: IpcDeps): void {
   }
 
   // ── Branch Watcher ──
-  ipcMain.handle("branches:start", (_event, paths: string[]) => {
-    branchWatcher.start(getMainWindow()!, paths);
+  // Workspaces arrive with their project's host (ADR-183).
+  ipcMain.handle("branches:start", (_event, workspaces: unknown) => {
+    assertHostPaths(workspaces, "workspaces");
+    branchWatcher.start(getMainWindow()!, workspaces);
   });
 
   ipcMain.handle("branches:stop", () => {
@@ -29,7 +31,8 @@ export function register(deps: IpcDeps): void {
   });
 
   // ── Diff Watcher ──
-  ipcMain.handle("diffs:start", (_event, workspaces: Record<string, string>) => {
+  ipcMain.handle("diffs:start", (_event, workspaces: unknown) => {
+    assertHostPaths(workspaces, "workspaces", ["defaultBranch"]);
     diffWatcher.start(getMainWindow()!, workspaces);
   });
 

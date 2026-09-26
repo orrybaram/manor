@@ -28,7 +28,11 @@ import {
   selectActiveWorkspace,
   getPersistedActiveWorkspacePath,
 } from "./store/app-store";
-import { useProjectStore, runWorkspaceSetupScript } from "./store/project-store";
+import {
+  useProjectStore,
+  runWorkspaceSetupScript,
+  type ProjectInfo,
+} from "./store/project-store";
 import { LOCAL_HOST_ID } from "./lib/hosts";
 import { appCommandHandlers } from "./lib/app-commands";
 import { handleRecordingCommand } from "./lib/webview-recorder";
@@ -212,17 +216,20 @@ function App() {
   const closeAddProjectDialog = useCallback(() => {
     setAddProjectDialogOpen(false);
   }, []);
-  const handleRemoteProjectAdded = useCallback(() => {
-    const newProjects = useProjectStore.getState().projects;
-    const newIndex = newProjects.length - 1;
-    const newProject = newProjects[newIndex];
-    if (newProject) {
-      selectProject(newIndex);
-      if (newProject.workspaces[0]) {
-        selectWorkspace(newProject.id, 0);
+  const handleRemoteProjectAdded = useCallback(
+    (project: ProjectInfo) => {
+      const newIndex = useProjectStore
+        .getState()
+        .projects.findIndex((p) => p.id === project.id);
+      if (newIndex >= 0) {
+        selectProject(newIndex);
+        if (project.workspaces[0]) {
+          selectWorkspace(project.id, 0);
+        }
       }
-    }
-  }, [selectProject, selectWorkspace]);
+    },
+    [selectProject, selectWorkspace],
+  );
 
   const handleDropFolder = useCallback(async (folderPath: string) => {
     const name = folderPath.split("/").pop() || "Untitled";

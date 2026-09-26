@@ -34,7 +34,7 @@ import {
 import { requestUi } from "../../utils/ui-request";
 import { focusRegionWhenReady } from "../../lib/focus-regions";
 import type { ActivePort } from "../../electron.d.ts";
-import { LOCAL_HOST_ID } from "../../lib/hosts";
+import { isRemoteHost } from "../../lib/hosts";
 import styles from "./CommandPalette.module.css";
 
 interface UseCommandsParams {
@@ -378,7 +378,7 @@ export function useCommands({
         : p.processName;
       return {
         id:
-          p.hostId !== LOCAL_HOST_ID ? `open-port-${p.hostId}-${p.port}` : `open-port-${p.port}`,
+          isRemoteHost(p.hostId) ? `open-port-${p.hostId}-${p.port}` : `open-port-${p.port}`,
         label: `Open Browser ${displayName}`,
         icon: <Globe size={14} />,
         keywords: [
@@ -396,7 +396,7 @@ export function useCommands({
         ],
         action: () => {
           // A remote host's port opens through its forward (ADR-178 §5).
-          if (p.hostId !== LOCAL_HOST_ID) {
+          if (isRemoteHost(p.hostId)) {
             window.electronAPI.ports
               .resolveUrl(url, p.hostId)
               .then(addBrowserTab, () => addBrowserTab(url));

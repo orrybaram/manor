@@ -35,7 +35,7 @@ import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import { HostIndicator } from "../hosts/HostIndicator";
-import { LOCAL_HOST_ID } from "../../lib/hosts";
+import { isRemoteHost } from "../../lib/hosts";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
@@ -863,15 +863,13 @@ export function ProjectItem(props: ProjectItemProps) {
             </span>
             <span
               className={`${styles.projectName} ${
-                project.hostId !== LOCAL_HOST_ID
-                  ? styles.projectNameRemote
-                  : ""
+                isRemoteHost(project.hostId) ? styles.projectNameRemote : ""
               }`}
               title={project.path}
             >
               {project.name}
             </span>
-            {project.hostId !== LOCAL_HOST_ID && (
+            {isRemoteHost(project.hostId) && (
               <span className={styles.remoteHostIconSlot}>
                 <HostIndicator hostId={project.hostId} variant="icon" projectId={project.id} />
               </span>

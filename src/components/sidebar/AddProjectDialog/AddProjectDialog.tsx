@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import X from "lucide-react/dist/esm/icons/x";
-import { useProjectStore } from "../../../store/project-store";
+import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
 import { useHostStore } from "../../../store/host-store";
 import { addErrorToast } from "../../../store/toast-store";
 import { remoteHostOptions } from "../../../lib/hosts";
@@ -22,7 +22,7 @@ type AddProjectDialogProps = {
   /** "This Mac" picks a directory and adds it; mirrors the old flow. */
   onAddLocal: () => Promise<void>;
   /** Called once the remote clone finishes and the project is added. */
-  onRemoteProjectAdded?: () => void;
+  onRemoteProjectAdded?: (project: ProjectInfo) => void;
 };
 
 /** Derive a project name from a repo URL's last path segment. */
@@ -108,7 +108,7 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
   const handleClone = useCallback(async () => {
     if (!hostId || !repoUrl.trim() || !remoteDir.trim()) return;
     const project = await flow.start();
-    if (project) onRemoteProjectAdded?.();
+    if (project) onRemoteProjectAdded?.(project);
   }, [hostId, repoUrl, remoteDir, flow, onRemoteProjectAdded]);
 
   const handleFixInTerminal = useCallback(

@@ -3,20 +3,10 @@ import { assertString } from "../ipc-validate";
 import type { ProjectUpdatableFields } from "../persistence";
 import type { LinkedIssue } from "../linear";
 import { LOCAL_HOST_ID } from "../backend/types";
-import { runHealthChecks } from "../backend/health-check";
 import type { IpcDeps } from "./types";
 
 export function register(deps: IpcDeps): void {
   const { projectManager, statsStore, backendRegistry } = deps;
-
-  /** `hostId` must name this machine or a host the user has registered. */
-  function assertKnownHostId(hostId: string): void {
-    if (hostId === LOCAL_HOST_ID) return;
-    const known = projectManager.getHosts().some((h) => h.hostId === hostId);
-    if (!known) {
-      throw new Error(`Unknown host "${hostId}".`);
-    }
-  }
 
   ipcMain.handle("projects:getAll", () => {
     return projectManager.getProjects();
@@ -50,10 +40,7 @@ export function register(deps: IpcDeps): void {
       assertString(opts?.repoUrl, "repoUrl");
       assertString(opts?.remoteDir, "remoteDir");
       assertString(opts?.name, "name");
-      assertKnownHostId(opts.hostId);
-      if (opts.hostId === LOCAL_HOST_ID) {
-        throw new Error("A remote host is required.");
-      }
+      projectManager.assertRemoteHost(opts.hostId);
       // Connect (and start the box, for a managed provider) before cloning —
       // a clone against a host that never got the chance to connect would
       // just fail with a confusing "unavailable" error.
@@ -75,10 +62,7 @@ export function register(deps: IpcDeps): void {
       assertString(opts?.hostId, "hostId");
       assertString(opts?.repoUrl, "repoUrl");
       assertString(opts?.remoteDir, "remoteDir");
-      assertKnownHostId(opts.hostId);
-      if (opts.hostId === LOCAL_HOST_ID) {
-        throw new Error("A remote host is required.");
-      }
+      projectManager.assertRemoteHost(opts.hostId);
       await backendRegistry.ensureConnected(opts.hostId);
       return projectManager.moveProjectToHost(projectId, opts);
     },
@@ -93,17 +77,6 @@ export function register(deps: IpcDeps): void {
     assertString(projectId, "projectId");
     return projectManager.projectPathExists(projectId);
   });
-
-  ipcMain.handle(
-    "hosts:healthCheck",
-    async (_event, hostId: string, projectPath: string) => {
-      assertString(hostId, "hostId");
-      assertString(projectPath, "projectPath");
-      assertKnownHostId(hostId);
-      const { shell, git } = backendRegistry.get(hostId);
-      return runHealthChecks(shell, git, projectPath);
-    },
-  );
 
   ipcMain.handle(
     "projects:selectWorkspace",
@@ -256,7 +229,7 @@ export function register(deps: IpcDeps): void {
       assertString(projectId, "projectId");
       assertString(hostId, "hostId");
       if (projectPath !== undefined) assertString(projectPath, "path");
-      assertKnownHostId(hostId);
+      projectManager.assertKnownHost(hostId);
       return switchHost(projectId, hostId, projectPath);
     },
   );
@@ -269,11 +242,6 @@ export function register(deps: IpcDeps): void {
     if (hostId !== LOCAL_HOST_ID) {
       await backendRegistry.ensureConnected(hostId);
     }
-    const label =
-      hostId === LOCAL_HOST_ID
-        ? "this Mac"
-        : (projectManager.getHosts().find((h) => h.hostId === hostId)?.spec.target ??
-          hostId);
-    return projectManager.switchProjectHost(projectId, hostId, projectPath, label);
+    return projectManager.switchProjectHost(projectId, hostId, projectPath);
   }
 }

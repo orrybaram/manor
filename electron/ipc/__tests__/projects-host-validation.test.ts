@@ -12,11 +12,22 @@ vi.mock("electron", () => ({
 
 import { register } from "../projects";
 import { LOCAL_HOST_ID } from "../../backend/types";
+import { HostRecords } from "../../projects/host-records";
+import type { StateStore } from "../../projects/state-store";
 
 function makeDeps(opts: { currentHostId?: string; pathExists?: boolean } = {}) {
+  // The real host rules, over one registered host "box".
+  const hosts = new HostRecords({
+    state: {
+      projects: [],
+      selectedProjectIndex: 0,
+      hosts: { box: { spec: { kind: "ssh", target: "me@box" } } },
+    },
+  } as unknown as StateStore);
   const projectManager = {
     updateProject: vi.fn().mockResolvedValue(null),
-    getHosts: vi.fn().mockReturnValue([{ hostId: "box", spec: { kind: "ssh", target: "me@box" } }]),
+    assertKnownHost: (hostId: string) => hosts.assertKnown(hostId),
+    assertRemoteHost: (hostId: string) => hosts.assertRemote(hostId),
     getProjectHostId: vi.fn().mockReturnValue(opts.currentHostId ?? LOCAL_HOST_ID),
     switchProjectHost: opts.pathExists === false
       ? vi.fn().mockRejectedValue(new Error("does not exist"))
@@ -56,7 +67,6 @@ describe("projects:switchHost (ADR-179)", () => {
       "p1",
       LOCAL_HOST_ID,
       "/Users/me/Code/app",
-      "this Mac",
     );
   });
 

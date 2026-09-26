@@ -3,7 +3,7 @@ import { isLocalhostHttpUrl, remoteHostIdForWorkspace } from "../hosts";
 
 describe("remoteHostIdForWorkspace", () => {
   const projects = [
-    { path: "/Users/me/app", workspaces: [{ path: "/Users/me/app" }] },
+    { path: "/Users/me/app", hostId: "local", workspaces: [{ path: "/Users/me/app" }] },
     {
       path: "/home/me/api",
       hostId: "box",

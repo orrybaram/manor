@@ -863,7 +863,7 @@ export function ProjectItem(props: ProjectItemProps) {
             </span>
             <span
               className={`${styles.projectName} ${
-                project.hostId && project.hostId !== LOCAL_HOST_ID
+                project.hostId !== LOCAL_HOST_ID
                   ? styles.projectNameRemote
                   : ""
               }`}
@@ -871,7 +871,7 @@ export function ProjectItem(props: ProjectItemProps) {
             >
               {project.name}
             </span>
-            {project.hostId && project.hostId !== LOCAL_HOST_ID && (
+            {project.hostId !== LOCAL_HOST_ID && (
               <span className={styles.remoteHostIconSlot}>
                 <HostIndicator hostId={project.hostId} variant="icon" projectId={project.id} />
               </span>

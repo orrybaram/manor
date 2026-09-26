@@ -310,7 +310,7 @@ function ProjectHostSection(props: ProjectHostSectionProps) {
   const [pathMissing, setPathMissing] = useState(false);
   const targetInputRef = useRef<HTMLInputElement>(null);
 
-  const currentHostId = project.hostId ?? LOCAL_HOST_ID;
+  const currentHostId = project.hostId;
   const currentHost = useHostStore(selectHost(currentHostId));
 
   // `projects:pathExists` doesn't connect to the host first — it

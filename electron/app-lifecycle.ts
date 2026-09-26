@@ -268,11 +268,8 @@ export function initApp(devTitle: string | null): void {
     },
   });
   const layoutPersistence = new LayoutPersistence();
-  const projectManager = new ProjectManager(
-    (hostId) => backendRegistry.get(hostId).git,
-    undefined,
-    (hostId) => backendRegistry.get(hostId).shell,
-  );
+  // Each project's git, shell and machine facts come from its host (ADR-183).
+  const projectManager = new ProjectManager((hostId) => backendRegistry.get(hostId));
   for (const { hostId, spec } of projectManager.getHosts()) {
     backendRegistry.register(hostId, spec);
   }

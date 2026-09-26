@@ -31,6 +31,9 @@ function makeDeps() {
     }),
   };
   const projectManager = {
+    assertKnownHost: vi.fn((hostId: string) => {
+      if (hostId !== "local" && hostId !== "box") throw new Error(`Unknown host "${hostId}".`);
+    }),
     saveHost: vi.fn(),
     remoteHostIdsInUse: vi.fn().mockReturnValue([]),
     getHosts: vi.fn().mockReturnValue([]),
@@ -134,5 +137,22 @@ describe("hosts:reconnected broadcast", () => {
       hostId: "box",
       sessionIds: ["pane-1"],
     });
+  });
+});
+
+describe("hosts:healthCheck", () => {
+  beforeEach(() => {
+    handlers.clear();
+  });
+
+  it("refuses a host that is not registered, before touching any backend", async () => {
+    const { deps, backendRegistry } = makeDeps();
+    const get = vi.fn();
+    Object.assign(backendRegistry, { get });
+    register(deps as never);
+    await expect(
+      handlers.get("hosts:healthCheck")!(null, "nope", "/srv/app") as Promise<unknown>,
+    ).rejects.toThrow(/Unknown host/);
+    expect(get).not.toHaveBeenCalled();
   });
 });

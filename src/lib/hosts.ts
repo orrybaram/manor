@@ -29,7 +29,7 @@ export interface HealthCheckResult {
 export function remoteHostIdForWorkspace(
   projects: readonly {
     path: string;
-    hostId?: string;
+    hostId: string;
     workspaces: readonly { path: string }[];
   }[],
   workspacePath: string | undefined,
@@ -40,7 +40,7 @@ export function remoteHostIdForWorkspace(
       project.path === workspacePath ||
       project.workspaces.some((w) => w.path === workspacePath)
     ) {
-      return project.hostId && project.hostId !== LOCAL_HOST_ID ? project.hostId : null;
+      return project.hostId !== LOCAL_HOST_ID ? project.hostId : null;
     }
   }
   return null;

@@ -376,8 +376,8 @@ export interface ProjectInfo {
   setupComplete: boolean;
   /** Whether dev-server ports get `.localhost` preview hostnames. Defaults to true. */
   portlessEnabled: boolean;
-  /** The host this project's paths, git and terminals live on (ADR-160). */
-  hostId?: string;
+  /** The host this project's paths, git and terminals live on (ADR-160); `"local"` for this machine. */
+  hostId: string;
   folders: WorkspaceFolder[];
   /**
    * Normalized, depth-first order of workspace paths and folder ids — the

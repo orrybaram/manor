@@ -33,7 +33,7 @@ export function createHostBackend(
 ): HostBackend {
   return {
     pty: new DaemonPtyBackend(client),
-    git: new ExecGitBackend(exec),
+    git: new ExecGitBackend(exec, facts),
     shell: new ExecShellBackend(exec, facts),
     ports: new ExecPortsBackend(exec, facts, opts.label),
     facts,

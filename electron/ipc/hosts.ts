@@ -1,6 +1,7 @@
 /**
  * IPC for remote hosts (ADR-160 ticket 11): listing every host and its
- * connection status, adding one, and retrying a stuck connection.
+ * connection status, adding one, retrying a stuck connection, and checking
+ * one's tools against a project (moved here from `ipc/projects.ts`, ADR-183).
  *
  * Thin by design: every decision about what a host's state means, and what
  * adding one does, lives in `BackendRegistry` and `ProjectManager`. This only
@@ -13,6 +14,7 @@ import { ipcMain } from "electron";
 import { assertString } from "../ipc-validate";
 import { assertValidTarget } from "../terminal-host/ssh-config";
 import type { HostStatusInfo } from "../backend/registry";
+import { runHealthChecks } from "../backend/health-check";
 import type { IpcDeps } from "./types";
 
 export function register(deps: IpcDeps): void {
@@ -67,4 +69,15 @@ export function register(deps: IpcDeps): void {
     assertString(hostId, "hosts:retryConnect.hostId");
     backendRegistry.retryNow(hostId);
   });
+
+  ipcMain.handle(
+    "hosts:healthCheck",
+    async (_event, hostId: unknown, projectPath: unknown) => {
+      assertString(hostId, "hosts:healthCheck.hostId");
+      assertString(projectPath, "hosts:healthCheck.projectPath");
+      projectManager.assertKnownHost(hostId);
+      const { shell, git } = backendRegistry.get(hostId);
+      return runHealthChecks(shell, git, projectPath);
+    },
+  );
 }

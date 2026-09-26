@@ -1,11 +1,15 @@
-import path from "node:path";
 import { errorMessage } from "../lib/errors";
 import type { GitBackend, WorktreeInfo } from "./types";
 import { localExec, streamAfter, type Exec, type ExecError, type StreamResult } from "./exec";
+import { localFacts, type MachineFacts } from "./machine-facts";
 
 /** Git run through an `Exec`, on whichever machine that reaches (ADR-183). */
 export class ExecGitBackend implements GitBackend {
-  constructor(private readonly execImpl: Exec = localExec) {}
+  constructor(
+    private readonly execImpl: Exec = localExec,
+    /** Joins paths the way the exec's machine does (ADR-183). */
+    private readonly facts: MachineFacts = localFacts(),
+  ) {}
 
   private async execGit(
     cwd: string,
@@ -353,7 +357,7 @@ export class ExecGitBackend implements GitBackend {
         untrackedFiles.map(async (filePath) => {
           try {
             const content = await this.execImpl.readFile(
-              path.join(cwd, filePath),
+              this.facts.join(cwd, filePath),
               "utf-8",
             );
             const lines = content.split("\n");

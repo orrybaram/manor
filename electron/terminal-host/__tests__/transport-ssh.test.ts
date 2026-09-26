@@ -68,8 +68,7 @@ async function nextChild(children: FakeChild[], index: number): Promise<FakeChil
   return children[index];
 }
 
-const hello = (token: string, daemonVersion: string | null = "1.2.3") =>
-  JSON.stringify({ type: "bridgeHello", token, daemonVersion }) + "\n";
+const hello = (token: string) => JSON.stringify({ type: "bridgeHello", token }) + "\n";
 
 describe("shellQuote", () => {
   it("passes allowlisted values through", () => {
@@ -119,17 +118,14 @@ describe("remoteShellCommand", () => {
 });
 
 describe("ssh argument construction", () => {
-  it("builds the bridge invocation for control and stream", () => {
-    expect(buildSshArgs("/cfg/config", "me@box", remoteBridgeCommand(false))).toEqual([
+  it("builds the bridge invocation", () => {
+    expect(buildSshArgs("/cfg/config", "me@box", remoteBridgeCommand())).toEqual([
       "-F",
       "/cfg/config",
       "-T",
       "me@box",
       `exec sh -c 'exec "$HOME/.manor/bin/manor-host" remote-bridge'`,
     ]);
-    expect(remoteBridgeCommand(true)).toBe(
-      'exec "$HOME/.manor/bin/manor-host" remote-bridge --stream',
-    );
   });
 
   it("rejects targets ssh would read as an option", () => {
@@ -180,7 +176,7 @@ describe("ssh argument construction", () => {
   });
 
   it("does not add a reverse forward", () => {
-    const args = buildSshArgs("/c", "box", remoteBridgeCommand(false));
+    const args = buildSshArgs("/c", "box", remoteBridgeCommand());
     expect(args).not.toContain("-R");
   });
 
@@ -329,7 +325,6 @@ describe("SshTransport", () => {
     child.stdout.write("Welcome to box\n" + hello("tok-1") + '{"type":"authOk"}\n');
     const duplex = await pending;
     expect(await transport.authToken()).toBe("tok-1");
-    expect(transport.daemonVersion).toBe("1.2.3");
 
     const received: string[] = [];
     duplex.on("data", (c: Buffer) => received.push(c.toString("utf-8")));
@@ -347,7 +342,7 @@ describe("SshTransport", () => {
     const pending = transport.connectStream();
     const child = await nextChild(children, 0);
     expect(child.args[child.args.length - 1]).toBe(
-      `exec sh -c 'exec "$HOME/.manor/bin/manor-host" remote-bridge --stream'`,
+      `exec sh -c 'exec "$HOME/.manor/bin/manor-host" remote-bridge'`,
     );
     const line = hello("tok-2");
     child.stdout.write(line.slice(0, 10));

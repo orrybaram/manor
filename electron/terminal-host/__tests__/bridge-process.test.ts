@@ -156,8 +156,7 @@ describe("manor-host remote-bridge (real process)", () => {
     const nextLine = lineReader(child);
 
     const hello = JSON.parse(await withTimeout(nextLine(), 15_000, "bridgeHello"));
-    expect(hello.type).toBe("bridgeHello");
-    expect(hello.daemonVersion).toBe("9.9.9-test");
+    expect(hello).toEqual({ type: "bridgeHello", token: expect.any(String) });
     expect(hello.token).toBe(
       fs.readFileSync(path.join(daemonDir(), "terminal-host.token"), "utf-8").trim(),
     );
@@ -217,6 +216,8 @@ describe("manor-host remote-bridge (real process)", () => {
       JSON.stringify({ type: "auth", token: hello.token, requestId: "1" }) + "\n",
     );
     expect(JSON.parse(await withTimeout(nextLine(), 5_000, "authOk")).type).toBe("authOk");
+    // The daemon bootstrapped at startup; the request only reports the result.
+    expect(fs.existsSync(path.join(home, ".manor", "hooks", "notify.sh"))).toBe(true);
 
     child.stdin!.write(JSON.stringify({ type: "bootstrap", requestId: "2" }) + "\n");
     const resp = JSON.parse(await withTimeout(nextLine(), 10_000, "bootstrapped"));
@@ -306,7 +307,8 @@ describe("manor-host remote-bridge (real process)", () => {
       expect(JSON.parse(await withTimeout(nextLine(), 5_000, "authOk")).type).toBe("authOk");
       send({ type: "bootstrap", requestId: "2" });
       const boot = JSON.parse(await withTimeout(nextLine(), 10_000, "bootstrapped"));
-      expect(boot.hookPort).toBeGreaterThan(0);
+      expect(boot).toMatchObject({ type: "bootstrapped", requestId: "2" });
+      expect(boot).not.toHaveProperty("hookPort");
 
       // Two daemons, two sockets, two tokens.
       expect(daemonPid()).not.toBe(localDaemon.pid);
@@ -323,7 +325,7 @@ describe("manor-host remote-bridge (real process)", () => {
       const [port, hookToken] = fs
         .readFileSync(path.join(manor, "remote", "hook-port"), "utf-8")
         .split("\n");
-      expect(Number(port)).toBe(boot.hookPort);
+      expect(Number(port)).toBeGreaterThan(0);
       expect(fs.existsSync(path.join(localDir, "hook-journal.ndjson"))).toBe(false);
 
       // A hook with the token is journaled and replayable; one without is not.

@@ -85,7 +85,6 @@ function readLines(stream: PassThrough): { next(): Promise<string> } {
 describe("runRemoteBridge", () => {
   let tmpDir: string;
   let daemon: E2EDaemon;
-  const originalVersion = process.env.MANOR_VERSION;
 
   beforeEach(async () => {
     tmpDir = makeTmpDir();
@@ -96,12 +95,9 @@ describe("runRemoteBridge", () => {
   afterEach(async () => {
     await daemon.stop();
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    process.env.MANOR_VERSION = originalVersion;
   });
 
   it("writes a bridgeHello preamble, then pumps a ping/pong round trip", async () => {
-    process.env.MANOR_VERSION = "1.2.3-test";
-
     const stdin = new PassThrough();
     const stdout = new PassThrough();
     const stderr = new PassThrough();
@@ -113,11 +109,7 @@ describe("runRemoteBridge", () => {
     );
 
     const hello = JSON.parse(await lines.next());
-    expect(hello).toEqual({
-      type: "bridgeHello",
-      token: daemon.authToken,
-      daemonVersion: "1.2.3-test",
-    });
+    expect(hello).toEqual({ type: "bridgeHello", token: daemon.authToken });
 
     stdin.write(
       JSON.stringify({ type: "auth", token: daemon.authToken }) + "\n",
@@ -129,26 +121,6 @@ describe("runRemoteBridge", () => {
 
     stdin.end();
     expect(await bridgeDone).toBe(0);
-  });
-
-  it("reports a null daemonVersion when MANOR_VERSION is unset", async () => {
-    delete process.env.MANOR_VERSION;
-
-    const stdin = new PassThrough();
-    const stdout = new PassThrough();
-    const stderr = new PassThrough();
-    const lines = readLines(stdout);
-
-    const bridgeDone = runRemoteBridge(
-      { stdin, stdout, stderr },
-      new FakeTransport(daemon),
-    );
-
-    const hello = JSON.parse(await lines.next());
-    expect(hello.daemonVersion).toBeNull();
-
-    stdin.end();
-    await bridgeDone;
   });
 
   it("ends the pump once stdin reaches EOF", async () => {

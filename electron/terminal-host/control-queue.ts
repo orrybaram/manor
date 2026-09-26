@@ -28,16 +28,24 @@ function isUnserializedRequest(type: ControlRequest["type"]): boolean {
 }
 
 /**
+ * The `requestId` of a line that did not parse as JSON, when one can still be
+ * read out of it — so even that error reply reaches the request it answers.
+ */
+export function recoverRequestId(line: string): string | undefined {
+  return /"requestId"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(line)?.[1];
+}
+
+/**
  * Build a line handler that parses each control request and runs `handler`
  * on it — serialized, except for the long-running types above.
  *
  * `onError` reports a handler that threw; `onInvalidJson` a line that did not
- * parse.
+ * parse, with its `requestId` if `recoverRequestId` found one.
  */
 export function createSerializedHandler(
   handler: (request: RequestWithId) => Promise<void>,
   onError: (requestId: string | undefined, err: unknown) => void,
-  onInvalidJson: () => void,
+  onInvalidJson: (requestId: string | undefined) => void,
 ): (line: string) => void {
   let queue: Promise<void> = Promise.resolve();
   return (line: string) => {
@@ -45,7 +53,7 @@ export function createSerializedHandler(
     try {
       request = JSON.parse(line);
     } catch {
-      onInvalidJson();
+      onInvalidJson(recoverRequestId(line));
       return;
     }
     const requestId = request.requestId;

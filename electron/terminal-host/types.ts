@@ -123,22 +123,21 @@ export type ControlRequest =
   /** Read a UTF-8 file of at most 10 MiB. Also answered out of order. */
   | { type: "readFile"; path: string }
   /**
-   * Set the daemon's own host up for shell integration and agent hooks
-   * (ADR-160 ticket 10): zdotdir, hook scripts, agent connector registration.
-   * Answered with `bootstrapped`. Sent by `RemoteBackend` after connecting; a
-   * daemon that predates it answers `error: unknown request type: bootstrap`,
-   * which callers tolerate.
+   * Report how the daemon's own host was set up for shell integration and
+   * agent hooks (ADR-160 ticket 10): zdotdir, hook scripts, agent connector
+   * registration. A remote daemon does that once at startup; this returns
+   * the cached result. Answered with `bootstrapped`. Sent by `RemoteBackend`
+   * after connecting.
    */
   | { type: "bootstrap" }
   /**
    * Hook journal entries after `sinceSeq` (ADR-178 §2). Answered with
-   * `hookReplay`. A daemon that predates it answers `error: unknown request
-   * type: replayHooks`, which callers treat as "no journal".
+   * `hookReplay`; a daemon without a journal (Manor desktop's) answers
+   * `error`.
    *
    * `headOnly` asks for the journal's position (`lastSeq`, `epoch`) without
    * any entries — how a client meeting a journal for the first time starts
-   * from "now" instead of replaying its whole history. A daemon that
-   * predates it sends entries anyway; callers ignore them.
+   * from "now" instead of replaying its whole history.
    */
   | { type: "replayHooks"; sinceSeq: number; headOnly?: boolean };
 
@@ -217,19 +216,76 @@ export type ControlResponse =
    * rather than risk clobbering a config the daemon couldn't safely parse
    * (e.g. unreadable or malformed JSON) — absent or empty means no issues.
    */
-  | {
-      type: "bootstrapped";
-      agents: string[];
-      warnings?: string[];
-      /**
-       * Port of the daemon's own hook listener, which `bootstrap` turns on
-       * (ADR-178 §2). Absent when it could not be started, or from daemons
-       * that predate it.
-       */
-      hookPort?: number;
-    }
+  | { type: "bootstrapped"; agents: string[]; warnings?: string[] }
   /** See `HookReplay`. */
   | ({ type: "hookReplay" } & HookReplay);
+
+/**
+ * A control message on the wire: the payload plus the id the client assigned
+ * the request. The daemon echoes the id on every reply — the client matches
+ * replies by it, since `exec`/`readFile` replies may overtake others. The
+ * only reply without one is an "Invalid JSON" error for a line whose id could
+ * not be recovered, and the client answers that by failing every pending
+ * request rather than guessing which one it was.
+ */
+export type Envelope<T> = T & { requestId: string };
+
+type Reply<T extends ControlResponse["type"]> = Extract<ControlResponse, { type: T }>;
+
+/** Fails to compile unless every request type has an entry. */
+type ExhaustiveResponseMap<
+  M extends Record<ControlRequest["type"], ControlResponse>,
+> = M;
+
+type ResponseMap = ExhaustiveResponseMap<{
+  auth: Reply<"authOk">;
+  create: Reply<"created">;
+  attach: Reply<"attached" | "notFound">;
+  detach: Reply<"detached">;
+  resize: Reply<"resized">;
+  kill: Reply<"killed">;
+  getSnapshot: Reply<"snapshot" | "notFound">;
+  listSessions: Reply<"sessions">;
+  writeAfterReady: Reply<"writeQueued">;
+  ping: Reply<"pong">;
+  updateEnv: Reply<"envUpdated">;
+  disposeDead: Reply<"disposedDead">;
+  handshake: Reply<"handshake">;
+  exec: Reply<"execResult">;
+  readFile: Reply<"fileContents">;
+  bootstrap: Reply<"bootstrapped">;
+  replayHooks: Reply<"hookReplay">;
+}>;
+
+/** The replies a request of type `T` can get: its own, or an `error`. */
+export type ResponseFor<T extends ControlRequest["type"]> =
+  | ResponseMap[T]
+  | Reply<"error">;
+
+// ── ssh bridge preamble ──
+
+/**
+ * The one-line JSON preamble `manor-host remote-bridge` writes to stdout
+ * before any protocol bytes (see bridge.ts), carrying the daemon's auth token.
+ * `SshTransport` strips it before handing the connection to the client.
+ */
+export interface BridgeHello {
+  type: "bridgeHello";
+  token: string;
+}
+
+/** `line` as a `BridgeHello`, or null for anything else (e.g. shell rc noise). */
+export function parseHello(line: string): BridgeHello | null {
+  try {
+    const value = JSON.parse(line) as Partial<BridgeHello> | null;
+    if (value && value.type === "bridgeHello" && typeof value.token === "string") {
+      return { type: "bridgeHello", token: value.token };
+    }
+  } catch {
+    // Not JSON.
+  }
+  return null;
+}
 
 // ── Agent status types ──
 

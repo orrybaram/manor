@@ -20,19 +20,13 @@
 import type { Duplex, Readable, Writable } from "node:stream";
 import { LocalTransport } from "./transport-local";
 import type { HostTransport } from "./transport";
+import type { BridgeHello } from "./types";
 
 /** The stdio surface the bridge pumps. Injectable so tests do not need real pipes. */
 export interface BridgeIO {
   stdin: Readable;
   stdout: Writable;
   stderr: Writable;
-}
-
-/** The one-line JSON preamble the bridge writes to stdout before pumping bytes. */
-interface BridgeHello {
-  type: "bridgeHello";
-  token: string;
-  daemonVersion: string | null;
 }
 
 function isEpipe(err: unknown): boolean {
@@ -80,11 +74,7 @@ export async function runRemoteBridge(
   const token = await transport.authToken();
   const socket = await transport.connectControl();
 
-  const hello: BridgeHello = {
-    type: "bridgeHello",
-    token,
-    daemonVersion: process.env.MANOR_VERSION ?? null,
-  };
+  const hello: BridgeHello = { type: "bridgeHello", token };
   io.stdout.write(JSON.stringify(hello) + "\n");
 
   const code = await pump(io, socket, log);

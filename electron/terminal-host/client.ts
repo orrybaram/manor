@@ -11,6 +11,8 @@ import type { Duplex } from "node:stream";
 import type {
   ControlRequest,
   ControlResponse,
+  Envelope,
+  ResponseFor,
   StreamEvent,
   SessionInfo,
   TerminalSnapshot,
@@ -91,6 +93,13 @@ function execClientTimeoutMs(timeout: number | undefined): number | null {
   );
 }
 
+/** This process's env pushed to the daemon on every connect. */
+const LOCAL_ENV_KEYS = [
+  "MANOR_HOOK_PORT",
+  "MANOR_WEBVIEW_PORT",
+  "MANOR_PORTLESS_PORT",
+] as const;
+
 type StreamEventHandler = (event: StreamEvent) => void;
 
 function disconnectedWhileConnecting(): Error {
@@ -147,18 +156,6 @@ interface ExecStreamEntry {
   /** True once the `execStream` command was written to the stream socket. */
   started: boolean;
   finish: (result: { exitCode: number | null; error?: string }) => void;
-}
-
-export interface TerminalHostClientOptions {
-  /**
-   * Push this process's `MANOR_HOOK_PORT`, `MANOR_WEBVIEW_PORT` and
-   * `MANOR_PORTLESS_PORT` to the daemon on every connect (default true).
-   * Those are ports on *this* machine; a remote daemon must not get them —
-   * its PTYs use the daemon's own hook listener (ADR-178 §2) — so
-   * `RemoteBackend` passes false. Explicit `updateEnv` values are still
-   * re-sent either way.
-   */
-  pushLocalEnv?: boolean;
 }
 
 export class TerminalHostClient {
@@ -236,17 +233,12 @@ export class TerminalHostClient {
     return this.transport.handshakeTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   }
 
-  /** See `TerminalHostClientOptions.pushLocalEnv`. */
-  private readonly pushLocalEnv: boolean;
-
   constructor(
     version?: string,
     transport: HostTransport = new LocalTransport(),
-    opts: TerminalHostClientOptions = {},
   ) {
     this.clientVersion = version;
     this.transport = transport;
-    this.pushLocalEnv = opts.pushLocalEnv ?? true;
   }
 
   setVersion(version: string): void {
@@ -602,13 +594,10 @@ export class TerminalHostClient {
 
     // Push current env vars to the daemon so new PTY sessions inherit fresh
     // values (e.g. MANOR_HOOK_PORT may have changed since the daemon spawned).
-    const envKeys = [
-      "MANOR_HOOK_PORT",
-      "MANOR_WEBVIEW_PORT",
-      "MANOR_PORTLESS_PORT",
-    ];
+    // These are ports on this machine; a remote daemon's role drops them
+    // (ADR-178 §2), so the client does not need to know which kind it has.
     const inherited: Record<string, string> = {};
-    for (const key of this.pushLocalEnv ? envKeys : []) {
+    for (const key of LOCAL_ENV_KEYS) {
       if (process.env[key]) {
         inherited[key] = process.env[key]!;
       }
@@ -724,13 +713,7 @@ export class TerminalHostClient {
         snapshotResp.type === "notFound" ||
         (this.daemonProtocol < 1 && snapshotResp.type === "error");
       if (!sessionIsAbsent) {
-        throw new Error(
-          `Snapshot failed for ${sessionId}: ${
-            snapshotResp.type === "error"
-              ? snapshotResp.message
-              : `unexpected response type: ${snapshotResp.type}`
-          }`,
-        );
+        throw new Error(`Snapshot failed for ${sessionId}: ${snapshotResp.message}`);
       }
 
       // Create new session
@@ -743,10 +726,8 @@ export class TerminalHostClient {
         shellArgs,
         ...(env ? { env } : {}),
       });
-      if (createResp.type !== "created") {
-        throw new Error(
-          `Create failed: ${createResp.type === "error" ? createResp.message : `unexpected response type: ${createResp.type}`}`,
-        );
+      if (createResp.type === "error") {
+        throw new Error(`Create failed: ${createResp.message}`);
       }
 
       // Subscribe for stream events immediately (no control socket attach needed)
@@ -790,11 +771,7 @@ export class TerminalHostClient {
       prewarmed,
       ...(env ? { env } : {}),
     });
-    if (resp.type !== "created") {
-      throw new Error(
-        `Create failed: ${resp.type === "error" ? resp.message : resp.type}`,
-      );
-    }
+    if (resp.type === "error") throw new Error(`Create failed: ${resp.message}`);
     return resp.session;
   }
 
@@ -922,11 +899,7 @@ export class TerminalHostClient {
         exitCode: resp.exitCode,
       };
     }
-    throw new Error(
-      resp.type === "error"
-        ? resp.message
-        : `unexpected response type: ${resp.type}`,
-    );
+    throw new Error(resp.message);
   }
 
   /** Read a UTF-8 file (at most 10 MiB) on the daemon's host. */
@@ -937,61 +910,43 @@ export class TerminalHostClient {
       READ_FILE_TIMEOUT_MS,
     );
     if (resp.type === "fileContents") return resp.contents;
-    throw new Error(
-      resp.type === "error"
-        ? resp.message
-        : `unexpected response type: ${resp.type}`,
-    );
+    throw new Error(resp.message);
   }
 
   /**
-   * Bootstrap the daemon's host for shell integration and agent hooks
-   * (ADR-160 ticket 10). Resolves the agent kinds the daemon registered
-   * (plus any warnings for connectors it skipped rather than risk
-   * clobbering a config it couldn't parse), or `null` when the daemon
-   * predates the request and answered `unknown request type`; throws on
-   * any other failure.
+   * How the daemon's host was set up for shell integration and agent hooks
+   * (ADR-160 ticket 10): the agent kinds it registered, plus any warnings
+   * for connectors it skipped rather than risk clobbering a config it
+   * couldn't parse. Throws if the daemon could not bootstrap.
    */
-  async bootstrap(): Promise<{ agents: string[]; warnings: string[] } | null> {
+  async bootstrap(): Promise<{ agents: string[]; warnings: string[] }> {
     await this.ensureConnected();
     const resp = await this.request({ type: "bootstrap" });
-    if (resp.type === "bootstrapped") {
-      return { agents: resp.agents, warnings: resp.warnings ?? [] };
-    }
-    if (resp.type === "error") {
-      if (resp.message.startsWith("unknown request type")) return null;
-      throw new Error(`bootstrap failed: ${resp.message}`);
-    }
-    throw new Error(`bootstrap failed: unexpected response type: ${resp.type}`);
+    if (resp.type === "error") throw new Error(`bootstrap failed: ${resp.message}`);
+    return { agents: resp.agents, warnings: resp.warnings ?? [] };
   }
 
   /**
-   * Hook journal entries after `sinceSeq` from the daemon (ADR-178 §2), or
-   * `null` when the daemon predates `replayHooks` and has no journal. With
-   * `headOnly`, just the journal's position (no entries).
+   * Hook journal entries after `sinceSeq` from the daemon (ADR-178 §2). With
+   * `headOnly`, just the journal's position (no entries). Throws if the
+   * daemon has no journal.
    */
   async replayHooks(
     sinceSeq: number,
     opts: { headOnly?: boolean } = {},
-  ): Promise<HookReplay | null> {
+  ): Promise<HookReplay> {
     await this.ensureConnected();
     const resp = await this.request({
       type: "replayHooks",
       sinceSeq,
       ...(opts.headOnly ? { headOnly: true } : {}),
     });
-    if (resp.type === "hookReplay") {
-      return {
-        entries: opts.headOnly ? [] : resp.entries,
-        lastSeq: resp.lastSeq,
-        ...(resp.epoch ? { epoch: resp.epoch } : {}),
-      };
-    }
-    if (resp.type === "error") {
-      if (resp.message.startsWith("unknown request type")) return null;
-      throw new Error(`replayHooks failed: ${resp.message}`);
-    }
-    throw new Error(`replayHooks failed: unexpected response type: ${resp.type}`);
+    if (resp.type === "error") throw new Error(`replayHooks failed: ${resp.message}`);
+    return {
+      entries: opts.headOnly ? [] : resp.entries,
+      lastSeq: resp.lastSeq,
+      ...(resp.epoch ? { epoch: resp.epoch } : {}),
+    };
   }
 
   /**
@@ -1003,11 +958,7 @@ export class TerminalHostClient {
     Object.assign(this.envOverrides, env);
     await this.ensureConnected();
     const resp = await this.request({ type: "updateEnv", env });
-    if (resp.type !== "envUpdated") {
-      throw new Error(
-        `updateEnv failed: ${resp.type === "error" ? resp.message : `unexpected response type: ${resp.type}`}`,
-      );
-    }
+    if (resp.type === "error") throw new Error(`updateEnv failed: ${resp.message}`);
   }
 
   /**
@@ -1114,28 +1065,13 @@ export class TerminalHostClient {
       this.controlBuffer = lines.pop()!;
       for (const line of lines) {
         if (!line.trim()) continue;
+        let resp: Partial<Envelope<ControlResponse>>;
         try {
-          const resp = JSON.parse(line) as ControlResponse & {
-            requestId?: string;
-          };
-          // Match by requestId: exec/readFile replies can overtake others.
-          // A reply without one (e.g. "Invalid JSON") goes to the oldest.
-          const key =
-            resp.requestId !== undefined &&
-            this.pendingRequests.has(resp.requestId)
-              ? resp.requestId
-              : resp.requestId === undefined
-                ? this.pendingRequests.keys().next().value
-                : undefined;
-          if (key !== undefined) {
-            const pending = this.pendingRequests.get(key)!;
-            this.pendingRequests.delete(key);
-            if (pending.timeout) clearTimeout(pending.timeout);
-            pending.resolve(resp);
-          }
+          resp = JSON.parse(line);
         } catch {
-          // invalid JSON, skip
+          continue; // invalid JSON, skip
         }
+        this.dispatchReply(resp);
       }
     });
 
@@ -1152,6 +1088,31 @@ export class TerminalHostClient {
       // connection that replaced it.
       if (socket === this.controlSocket) this.handleDisconnect();
     });
+  }
+
+  /**
+   * Hand a control reply to the request it answers, matched by `requestId`
+   * (exec/readFile replies can overtake others). A reply to a request that
+   * already timed out is dropped. A reply without an id — the daemon could
+   * not read one out of a garbled line — could answer any pending request,
+   * so every one of them fails rather than one getting the wrong answer.
+   */
+  private dispatchReply(resp: Partial<Envelope<ControlResponse>>): void {
+    if (resp.requestId === undefined) {
+      const detail = resp.type === "error" ? resp.message : `a ${resp.type} reply`;
+      for (const [id, pending] of [...this.pendingRequests]) {
+        this.pendingRequests.delete(id);
+        if (pending.timeout) clearTimeout(pending.timeout);
+        pending.reject(new Error(`Daemon reply without a requestId: ${detail}`));
+      }
+      return;
+    }
+    const pending = this.pendingRequests.get(resp.requestId);
+    if (!pending) return;
+    this.pendingRequests.delete(resp.requestId);
+    if (pending.timeout) clearTimeout(pending.timeout);
+    const { requestId: _requestId, ...reply } = resp;
+    pending.resolve(reply as ControlResponse);
   }
 
   private async connectStreamSocket(token: string): Promise<void> {
@@ -1183,10 +1144,10 @@ export class TerminalHostClient {
     });
   }
 
-  private request(
-    req: ControlRequest,
+  private request<R extends ControlRequest>(
+    req: R,
     timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
-  ): Promise<ControlResponse> {
+  ): Promise<ResponseFor<R["type"]>> {
     const result = this.requestMutex.then(() =>
       this.doRequest(req, timeoutMs),
     );
@@ -1200,18 +1161,17 @@ export class TerminalHostClient {
    * relies on the daemon seeing requests in order. `timeoutMs: null` waits
    * until the reply or a disconnect.
    */
-  private requestConcurrent(
-    req: Extract<ControlRequest, { type: "exec" | "readFile" }>,
-    timeoutMs: number | null,
-  ): Promise<ControlResponse> {
+  private requestConcurrent<
+    R extends Extract<ControlRequest, { type: "exec" | "readFile" }>,
+  >(req: R, timeoutMs: number | null): Promise<ResponseFor<R["type"]>> {
     return this.doRequest(req, timeoutMs);
   }
 
-  private doRequest(
-    req: ControlRequest,
+  private doRequest<R extends ControlRequest>(
+    req: R,
     timeoutMs: number | null,
-  ): Promise<ControlResponse> {
-    return new Promise((resolve, reject) => {
+  ): Promise<ResponseFor<R["type"]>> {
+    return new Promise<ControlResponse>((resolve, reject) => {
       if (!this.controlSocket?.writable) {
         reject(new Error("Control socket not writable"));
         return;
@@ -1229,10 +1189,10 @@ export class TerminalHostClient {
             }, timeoutMs);
 
       this.pendingRequests.set(requestId, { resolve, reject, timeout });
-      this.controlSocket.write(
-        JSON.stringify({ ...req, requestId }) + "\n",
-      );
-    });
+      const envelope: Envelope<R> = { ...req, requestId };
+      this.controlSocket.write(JSON.stringify(envelope) + "\n");
+      // The daemon answers a request of type `R` with `ResponseFor<R>`.
+    }) as Promise<ResponseFor<R["type"]>>;
   }
 
   private streamWrite(cmd: unknown): void {

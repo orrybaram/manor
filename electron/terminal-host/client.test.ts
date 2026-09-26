@@ -247,6 +247,11 @@ class TestDaemon {
         this.send(socket, { type: "envUpdated" }, requestId);
         break;
       case "exec": {
+        if (req.cmd === "no-id") {
+          // A reply the daemon could not attach a requestId to.
+          this.send(socket, { type: "error", message: "Invalid JSON" });
+          break;
+        }
         // Answers after `args[0]` ms — out of order with anything sent in
         // the meantime, the way the real daemon answers a slow exec.
         const delayMs = Number(req.args[0] ?? 0);
@@ -505,47 +510,9 @@ describe("TerminalHostClient", () => {
     });
   });
 
-  describe("pushLocalEnv", () => {
-    it("with pushLocalEnv: false, never sends this machine's MANOR_* ports (ADR-178 §2)", async () => {
-      const saved = {
-        hook: process.env.MANOR_HOOK_PORT,
-        webview: process.env.MANOR_WEBVIEW_PORT,
-        portless: process.env.MANOR_PORTLESS_PORT,
-      };
-      try {
-        process.env.MANOR_HOOK_PORT = "1111";
-        process.env.MANOR_WEBVIEW_PORT = "2222";
-        process.env.MANOR_PORTLESS_PORT = "3333";
-        const client = new TerminalHostClient(undefined, new TestTransport(daemon), {
-          pushLocalEnv: false,
-        });
-        await client.connect();
-        client.disconnect();
-        await client.connect();
-        for (const update of daemon.receivedEnvUpdates) {
-          expect(update).not.toHaveProperty("MANOR_HOOK_PORT");
-          expect(update).not.toHaveProperty("MANOR_WEBVIEW_PORT");
-          expect(update).not.toHaveProperty("MANOR_PORTLESS_PORT");
-        }
-        // Explicit updateEnv values are still sent, and re-sent on reconnect.
-        await client.updateEnv({ FOO: "bar" });
-        client.disconnect();
-        await client.connect();
-        expect(daemon.receivedEnvUpdates[daemon.receivedEnvUpdates.length - 1]).toEqual({ FOO: "bar" });
-        client.disconnect();
-      } finally {
-        for (const [key, value] of [
-          ["MANOR_HOOK_PORT", saved.hook],
-          ["MANOR_WEBVIEW_PORT", saved.webview],
-          ["MANOR_PORTLESS_PORT", saved.portless],
-        ] as const) {
-          if (value === undefined) delete process.env[key];
-          else process.env[key] = value;
-        }
-      }
-    });
-
-    it("by default pushes this machine's MANOR_* ports on connect", async () => {
+  describe("local env", () => {
+    // Every daemon gets them; a remote daemon's role drops them (daemon-role.ts).
+    it("pushes this machine's MANOR_* ports on connect", async () => {
       const saved = process.env.MANOR_HOOK_PORT;
       try {
         process.env.MANOR_HOOK_PORT = "4444";
@@ -884,6 +851,19 @@ describe("TerminalHostClient", () => {
       ]);
       expect(slow.stdout).toBe("slow");
       expect(fast.stdout).toBe("fast");
+      client.disconnect();
+    });
+
+    it("fails every pending request on a reply without a requestId", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+
+      const slow = client.exec("slow", ["300"]);
+      const garbled = client.exec("no-id", []);
+      await expect(garbled).rejects.toThrow(/without a requestId: Invalid JSON/);
+      await expect(slow).rejects.toThrow(/without a requestId/);
+      // The connection itself is fine.
+      expect(await client.ping()).toBe(true);
       client.disconnect();
     });
   });

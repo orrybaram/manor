@@ -16,6 +16,7 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { Duplex, type Readable, type Writable } from "node:stream";
 import type { HostTransport } from "./transport";
+import { parseHello } from "./types";
 import {
   SshAuthError,
   SshHostKeyError,
@@ -106,13 +107,6 @@ export interface SshTransportOptions {
   configBaseDir?: string;
 }
 
-/** The one-line JSON preamble `remote-bridge` writes before any protocol bytes. */
-interface BridgeHello {
-  type: "bridgeHello";
-  token: string;
-  daemonVersion: string | null;
-}
-
 const REMOTE_HANDSHAKE_TIMEOUT_MS = 60_000;
 /** Cap on bytes read hunting for the hello line (login-shell noise included). */
 const MAX_PREAMBLE_BYTES = 64 * 1024;
@@ -122,23 +116,6 @@ const CONTROL_EXIT_TIMEOUT_MS = 2_000;
 
 const defaultSpawn: SshSpawn = (command, args) =>
   nodeSpawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
-
-function parseHello(line: string): BridgeHello | null {
-  try {
-    const value = JSON.parse(line) as Partial<BridgeHello> | null;
-    if (value && value.type === "bridgeHello" && typeof value.token === "string") {
-      return {
-        type: "bridgeHello",
-        token: value.token,
-        daemonVersion:
-          typeof value.daemonVersion === "string" ? value.daemonVersion : null,
-      };
-    }
-  } catch {
-    // Not JSON — shell rc noise ahead of the preamble.
-  }
-  return null;
-}
 
 /**
  * A `Duplex` over an ssh child's stdin/stdout. Destroying it kills the child;
@@ -199,7 +176,6 @@ export class SshTransport implements HostTransport {
   private readonly configBaseDir: string | undefined;
   private config: ManagedSshConfig | null = null;
   private token: string | null = null;
-  private _daemonVersion: string | null = null;
   private readonly children = new Set<SshChild>();
   /**
    * Set by `dispose()`, cleared only by `reset()`. While set nothing may
@@ -263,11 +239,6 @@ export class SshTransport implements HostTransport {
     return code === 0 ? parseControlPath(out) : null;
   }
 
-  /** The daemon version the last `bridgeHello` reported. */
-  get daemonVersion(): string | null {
-    return this._daemonVersion;
-  }
-
   // ── HostTransport ──
 
   async ensureRunning(version?: string): Promise<void> {
@@ -283,11 +254,11 @@ export class SshTransport implements HostTransport {
   }
 
   async connectControl(): Promise<Duplex> {
-    return this.openBridge(false);
+    return this.openBridge();
   }
 
   async connectStream(): Promise<Duplex> {
-    return this.openBridge(true);
+    return this.openBridge();
   }
 
   async authToken(): Promise<string> {
@@ -316,11 +287,11 @@ export class SshTransport implements HostTransport {
   // ── Internal ──
 
   /** Spawn one `remote-bridge` connection and strip its hello line. */
-  private openBridge(stream: boolean): Promise<Duplex> {
+  private openBridge(): Promise<Duplex> {
     const { configPath } = this.managedConfig();
     const child = this.spawnFn(
       "ssh",
-      buildSshArgs(configPath, this.target, remoteBridgeCommand(stream)),
+      buildSshArgs(configPath, this.target, remoteBridgeCommand()),
     );
     this.track(child);
     const { stdin, stdout, stderr } = child;
@@ -368,7 +339,6 @@ export class SshTransport implements HostTransport {
             continue;
           }
           this.token = hello.token;
-          this._daemonVersion = hello.daemonVersion;
           stdout.pause();
           stdout.off("data", onData);
           finish(null, new SshChildDuplex(child, stdin, stdout, buffered));

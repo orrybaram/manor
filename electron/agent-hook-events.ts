@@ -6,8 +6,9 @@
  * in-process types: it validates required fields, gates Notification by
  * notificationKind, and stamps each variant with its derived AgentStatus.
  *
- * Downstream consumers (relay, AgentDetector seam) read `event.status`
- * directly; nothing else needs to know how `eventType` maps to status.
+ * The Status reconciler (ADR-184, `electron/agent-status/`) reads `event.status`
+ * directly as a `hook` Status signal; nothing else needs to know how
+ * `eventType` maps to status.
  */
 
 import type { AgentKind } from "./terminal-host/types";

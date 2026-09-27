@@ -48,3 +48,9 @@ Writing: new doc file (per above), and possibly small deletions in `agent-detect
 ## Notes
 
 Opus-assigned because the categorization needs careful reasoning about state-machine interactions. There is no test plan because the deliverable is a document, not behaviour change. If deletions happen as part of this ticket, they get the existing detector test coverage (whatever that is) plus a new test exercising the hookless-session path.
+
+**Superseded by ADR-184:** `AgentDetector` and `hook-relay.ts` are deleted outright rather than
+audited further; the daemon now only extracts Pane facts
+(`electron/terminal-host/pane-facts.ts`), and one Status reconciler in Electron main decides
+Agent status from hooks, Pane facts and ticks. See
+`docs/decisions/adr-184-agent-status-reconciler/`.

@@ -159,6 +159,10 @@ if (paneSession.lastAgentStatus &&
 **Risks:**
 - If process exit detection fails AND no SessionEnd hook fires, an agent entry could persist after Claude exits. Mitigated by the existing stale PID sweep (30s interval) which will call `transitionToGone()`.
 
+**Superseded by ADR-184:** there is no `complete` status. A finished turn is `responded`; an
+ended session is `idle`, and the Agent's lifecycle becomes `completed`. See
+`docs/decisions/adr-184-agent-status-reconciler/`.
+
 ## Tickets
 
 <div data-type="database" data-path="." data-view="board"></div>

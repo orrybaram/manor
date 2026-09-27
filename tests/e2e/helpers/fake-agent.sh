@@ -4,11 +4,12 @@
 # an agent.
 #
 # Manor does not learn about a session by watching a process: an agent CLI
-# reports its own lifecycle over the hook endpoint (electron/agent-hooks.ts),
-# and hook-relay-effects.ts turns those events into the AgentInfo rows that
-# GET /agents — and therefore the phone client — renders. So the cheapest honest
-# fake is a script that speaks the same hook protocol against $MANOR_HOOK_PORT,
-# using the $MANOR_PANE_ID the pty layer already put in its environment.
+# reports its own lifecycle over the hook endpoint (electron/agent-hook-events.ts),
+# and the Status reconciler (ADR-184, electron/agent-status/) turns those hook
+# events into the AgentInfo rows that GET /agents — and therefore the phone
+# client — renders. So the cheapest honest fake is a script that speaks the
+# same hook protocol against $MANOR_HOOK_PORT, using the $MANOR_PANE_ID the pty
+# layer already put in its environment.
 #
 # What it gives a test that a real agent could not: deterministic scrollback, a
 # session that parks in requires_input on purpose, and no network, API key, or
@@ -28,11 +29,10 @@ hook() {
     || true
 }
 
-# The window title becomes the agent name (see app-lifecycle.ts), which is what
-# the session list on the phone shows. A real agent CLI re-sets its title on
-# every turn, and the detector forgets the title at the start of one, so the
-# fake does the same — otherwise the second turn onwards reports no title at
-# all, which no real agent does.
+# The window title becomes the agent name (see app-lifecycle.ts's
+# `handleAgentStreamEvent`), which is what the session list on the phone
+# shows. A real agent CLI re-sets its title on every turn, so the fake does
+# the same.
 title="${1:-fake agent}"
 retitle() { printf '\033]0;%s\007' "$title"; }
 retitle
@@ -88,6 +88,22 @@ while IFS= read -r -n 1 char; do
       line=""
       hook Stop
       continue
+    fi
+    # "slow-hush" is "hush" with a pause before the Stop hook, so a test can
+    # observe the *thinking* status (raised by the UserPromptSubmit hook
+    # above) before it turns into responded — otherwise the two hooks land too
+    # close together to poll for the one in between.
+    if [ "$line" = "slow-hush" ]; then
+      sleep 1
+      line=""
+      hook Stop
+      continue
+    fi
+    # "exit" ends the session cleanly, the way a real agent CLI would when the
+    # user quits it: SessionEnd fires and the process exits, rather than a test
+    # having to kill the pty and go through the daemon's liveness fallback.
+    if [ "$line" = "exit" ]; then
+      break
     fi
     line=""
     hook Stop

@@ -20,3 +20,7 @@ Apply this hook inside `AgentDot` so all consumers benefit.
 
 - Smoother visual experience when agents rapidly switch between thinking/working
 - Tiny delay (up to 500ms) before the dot style updates between these two states — acceptable since both indicate "agent is active"
+
+**Superseded by ADR-184:** `useDebouncedAgentStatus` is deleted. The renderer displays what
+the Status reconciler publishes and does not re-derive or debounce it. See
+`docs/decisions/adr-184-agent-status-reconciler/`.

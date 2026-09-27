@@ -1,6 +1,6 @@
 ---
 title: Pure Status reconciler with a full transition table
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: []

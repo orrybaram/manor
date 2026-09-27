@@ -50,7 +50,7 @@ test.describe("agent status", () => {
     );
     await expect(row).toBeVisible({ timeout: 10_000 });
 
-    // "slow-hush" holds `thinking` (the UserPromptSubmit hook) for a second
+    // "slow-hush" holds `thinking` (the UserPromptSubmit hook) for five seconds
     // before its Stop hook parks the turn in `responded` — long enough to
     // observe both in turn, and both reasons as the dot's tooltip.
     await sendToSession(request, tempHome, session.id, FAKE_AGENT_SLOW_HUSH);
@@ -61,16 +61,17 @@ test.describe("agent status", () => {
     const spinner = row.locator('[title="Agent thinking"]');
     await expect(spinner).toBeVisible({ timeout: 5_000 });
     await spinner.hover();
-    await expect(window.getByText("UserPromptSubmit hook")).toBeVisible({
-      timeout: 5_000,
-    });
+    // The open tooltip's accessible copy (Radix renders the label twice: once
+    // to show, once as the `role="tooltip"` node screen readers announce).
+    const tooltip = window.getByRole("tooltip");
+    await expect(tooltip).toHaveText("UserPromptSubmit hook", { timeout: 5_000 });
 
     const dot = row.locator('[data-testid="agent-dot"]');
     await expect(dot).toHaveAttribute("data-status", "responded", {
       timeout: 10_000,
     });
     await dot.hover();
-    await expect(window.getByText("Stop hook")).toBeVisible({ timeout: 5_000 });
+    await expect(tooltip).toHaveText("Stop hook", { timeout: 5_000 });
   });
 
   test("agent exit parks the pane in idle and the agent completed", async ({
@@ -88,7 +89,8 @@ test.describe("agent status", () => {
     // "exit" ends the session the way a real agent CLI would when the user
     // quits it: a SessionEnd hook, then the process exits.
     await sendToSession(request, tempHome, session.id, FAKE_AGENT_EXIT);
-    await waitForAgentStatus(request, tempHome, session.id, "idle");
+    const ended = await waitForAgentStatus(request, tempHome, session.id, "idle");
+    expect(ended.status).toBe("completed");
 
     const row = window.locator(
       `[data-testid="sidebar-agent-row"][data-agent-id="${session.id}"]`,

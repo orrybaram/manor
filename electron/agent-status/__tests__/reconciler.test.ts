@@ -240,7 +240,7 @@ describe("reconcile — Group A: fresh pane (ported from ADR-139)", () => {
         reason: "UserPromptSubmit hook",
         agentKind: "claude",
       },
-      { kind: "CreateAgent", sessionId: "sess-1", paneId: PANE, agentKind: "claude", status: "thinking" },
+      { kind: "CreateAgent", sessionId: "sess-1", paneId: PANE, agentKind: "claude", status: "thinking", title: null },
     ]);
     expect(r.reason).toBe("UserPromptSubmit hook");
   });

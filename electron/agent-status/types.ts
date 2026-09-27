@@ -151,6 +151,12 @@ export type Effect =
       paneId: string;
       agentKind: AgentKind;
       status: ActiveAgentStatus;
+      /**
+       * The pane's last terminal title, from its **Pane facts**. The title is
+       * usually set before the first hook creates the **Agent**, and facts are
+       * only sent on change, so the new **Agent** is named from it here.
+       */
+      title: string | null;
     }
   | {
       kind: "PersistAgentStatus";

@@ -14,6 +14,7 @@
  */
 
 import type { AgentInfo } from "../agent-persistence";
+import { cleanAgentTitle } from "../title-utils";
 import type { AgentStatus as WireAgentStatus } from "../terminal-host/types";
 import type { AgentKind, AgentStatus, AgentStatusTransition, Effect } from "./types";
 
@@ -129,7 +130,9 @@ function applyCreateAgent(
   const paneContext = deps.getPaneContext(effect.paneId);
   let agent: AgentInfo | null = deps.agentManager.createAgent({
     agentSessionId: effect.sessionId,
-    name: null,
+    // Named from the pane's title at creation: the title usually lands before
+    // the first hook, and Pane facts only repeat it when it changes (ADR-184).
+    name: cleanAgentTitle(effect.title),
     status: "active",
     completedAt: null,
     projectId: paneContext?.projectId ?? null,

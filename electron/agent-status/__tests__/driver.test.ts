@@ -794,3 +794,28 @@ describe("driver — tick interval", () => {
     }
   });
 });
+
+// ── Naming from the terminal title ──
+
+describe("driver — a new Agent is named from the pane's title", () => {
+  it("uses the title the pane set before the first hook created the Agent", () => {
+    // Pane facts are only sent on change, and an agent CLI usually sets its
+    // title before its first hook — so the title is known before the Agent
+    // exists, and nothing re-sends it afterwards (ADR-184).
+    const t = build();
+    t.driver.signal("pane-1", {
+      type: "paneFacts",
+      facts: { foreground: { name: "claude", kind: "claude" }, title: "✳ fix the login bug", outputHint: null },
+    });
+    t.driver.hook(sessionStart({ sessionId: "s1" }));
+    t.driver.hook(permissionRequest({ sessionId: "s1" }));
+
+    expect(t.agentManager.getAgentBySessionId("s1")!.name).toBe("fix the login bug");
+  });
+
+  it("leaves the name empty when the pane has no usable title yet", () => {
+    const t = build();
+    t.driver.hook(userPromptSubmit({ sessionId: "s1" }));
+    expect(t.agentManager.getAgentBySessionId("s1")!.name).toBeNull();
+  });
+});

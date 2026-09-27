@@ -508,6 +508,7 @@ function reconcileRootHook(
           paneId: state.paneId,
           agentKind: event.agentKind,
           status: event.status,
+          title: state.lastFacts?.title ?? null,
         };
     return result(state, next, hookLabel, [effect]);
   }

@@ -545,6 +545,7 @@ describe("StatsStore", () => {
       paneId: "pane-1",
       agentKind: "claude",
       status: "thinking",
+      title: null,
     };
 
     function build(monoValues: number[] = [0]) {

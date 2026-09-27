@@ -123,6 +123,7 @@ const createAgentEffect = (sessionId = "sess-1"): Effect => ({
   paneId: "pane-1",
   agentKind: "claude",
   status: "thinking",
+  title: null,
 });
 
 describe("countBusyAgents", () => {

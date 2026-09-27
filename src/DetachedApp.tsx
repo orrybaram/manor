@@ -18,6 +18,7 @@ import { MAIN_WINDOW_KEYBINDINGS } from "./lib/menu-commands";
 import { dispatchMenuCommand } from "./lib/menu-handlers";
 import { countTabsInWindow, whenHandoffsIdle } from "./lib/window-handoff";
 import { useMountEffect } from "./hooks/useMountEffect";
+import { useRemoteRecovery } from "./hooks/useRemoteRecovery";
 import { allPaneIds } from "./store/pane-tree";
 import "./App.css";
 
@@ -41,6 +42,7 @@ export default function DetachedApp() {
   const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
   const hydrateDetachedTab = useAppStore((s) => s.hydrateDetachedTab);
   const [bootState, setBootState] = useState<BootState>("loading");
+  useRemoteRecovery();
 
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);

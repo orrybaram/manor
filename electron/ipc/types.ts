@@ -1,9 +1,11 @@
 import type { BrowserWindow } from "electron";
-import type { LocalBackend } from "../backend/local-backend";
+import type { WorkspaceBackend } from "../backend/types";
+import type { BackendRegistry } from "../backend/registry";
 import type { LayoutPersistence } from "../terminal-host/layout-persistence";
 import type { ProjectManager } from "../persistence";
 import type { ThemeManager } from "../theme";
 import type { PortScanner } from "../ports";
+import type { RemoteForwards } from "../remote-forwards";
 import type { BranchWatcher } from "../branch-watcher";
 import type { DiffWatcher } from "../diff-watcher";
 import type { GitHubManager } from "../github";
@@ -38,11 +40,16 @@ export interface IpcDeps {
    * is tracked for broadcast and reachable by its windowId.
    */
   registerDetachedWindow: (windowId: string, win: BrowserWindow) => void;
-  backend: LocalBackend;
+  /** Routes each pane, cwd and pid to its host (`RoutedBackend`). */
+  backend: WorkspaceBackend;
+  /** Every host and its connection status (ADR-160). */
+  backendRegistry: BackendRegistry;
   layoutPersistence: LayoutPersistence;
   projectManager: ProjectManager;
   themeManager: ThemeManager;
   portScanner: PortScanner;
+  /** Port forwards to remote projects' dev servers (ADR-178 §5). */
+  remoteForwards: RemoteForwards;
   branchWatcher: BranchWatcher;
   diffWatcher: DiffWatcher;
   githubManager: GitHubManager;

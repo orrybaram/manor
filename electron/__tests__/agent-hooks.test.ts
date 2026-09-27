@@ -142,6 +142,20 @@ describe("AgentHookServer", () => {
       ).rejects.toThrow();
     });
 
+    it("stop() removes its own port file but not one naming another server", async () => {
+      const portFilePath = path.join(process.env.HOME || os.homedir(), ".manor", "hook-port");
+      server.stop();
+      expect(fs.existsSync(portFilePath)).toBe(false);
+
+      await server.start();
+      // Another Manor instance took over the port file since.
+      fs.writeFileSync(portFilePath, "9");
+      server.stop();
+      expect(fs.readFileSync(portFilePath, "utf-8")).toBe("9");
+      fs.unlinkSync(portFilePath);
+      await server.start();
+    });
+
     it("supports multiple start/stop cycles", async () => {
       server.stop();
 
@@ -571,12 +585,15 @@ describe("ClaudeConnector.registerHooks", () => {
     expect(settings.foo).toBe(42);
   });
 
-  it("handles invalid JSON gracefully (overwrites)", () => {
-    fs.writeFileSync(settingsPath, "not valid json {{{");
-    freshConnector().registerHooks(hookScriptPath);
+  it("leaves malformed settings.json untouched and reports a skip (ADR-160 ticket 10 review)", () => {
+    const malformed = "not valid json {{{";
+    fs.writeFileSync(settingsPath, malformed);
+    const warnings = freshConnector().registerHooks(hookScriptPath);
 
-    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
-    expect(settings.hooks).toBeDefined();
+    // Must not silently wipe the user's file by treating it as `{}`.
+    expect(fs.readFileSync(settingsPath, "utf-8")).toBe(malformed);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/not valid JSON/);
   });
 
   it("registers all 12 event types", () => {
@@ -689,5 +706,51 @@ describe("ensureHookScript", () => {
     expect(content).toContain("MANOR_HOOK_PORT");
     expect(content).toContain("MANOR_AGENT_KIND");
     expect(content).toContain("hook_event_name");
+  });
+});
+
+describe("AgentHookServer.ingestHookPayload (ADR-178 §2)", () => {
+  it("relays a remote host's payload exactly as the HTTP path would", () => {
+    vi.spyOn(console, "debug").mockImplementation(() => {});
+    const server = new AgentHookServer();
+    const relay = vi.fn();
+    server.setRelay(relay);
+    const outcome = server.ingestHookPayload(
+      { paneId: "p1", eventType: "Stop", kind: "claude", sessionId: "s1" },
+      { hostId: "box" },
+    );
+    expect(outcome).toBe("relayed");
+    const parsed = parseAgentHookEvent(
+      new URLSearchParams({ paneId: "p1", eventType: "Stop", kind: "claude", sessionId: "s1" }),
+    );
+    expect(parsed.ok).toBe(true);
+    expect(relay).toHaveBeenCalledWith(parsed.ok ? parsed.event : null);
+  });
+
+  it("reports dropped and rejected payloads without relaying them", () => {
+    vi.spyOn(console, "debug").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const server = new AgentHookServer();
+    const relay = vi.fn();
+    server.setRelay(relay);
+    expect(
+      server.ingestHookPayload(
+        { paneId: "p1", eventType: "Notification", kind: "claude", notificationKind: "idle_prompt" },
+        { hostId: "box" },
+      ),
+    ).toBe("dropped");
+    expect(server.ingestHookPayload({ eventType: "Stop", kind: "claude" }, { hostId: "box" })).toBe(
+      "rejected",
+    );
+    expect(relay).not.toHaveBeenCalled();
+  });
+
+  it("queues a remote payload until the relay is set", () => {
+    vi.spyOn(console, "debug").mockImplementation(() => {});
+    const server = new AgentHookServer();
+    server.ingestHookPayload({ paneId: "p1", eventType: "Stop", kind: "claude" }, { hostId: "box" });
+    const relay = vi.fn();
+    server.setRelay(relay);
+    expect(relay).toHaveBeenCalledTimes(1);
   });
 });

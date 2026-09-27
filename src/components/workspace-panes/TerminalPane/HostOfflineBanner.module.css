@@ -1,0 +1,35 @@
+/* Slim, non-blocking banner over a terminal whose remote host is away
+   (ADR-178 §6). Sits over the top row rather than resizing the terminal, so
+   the pty is not sent a resize while it cannot receive one. */
+.banner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  background: var(--dim);
+  border-bottom: 1px solid var(--surface);
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.icon {
+  flex-shrink: 0;
+  color: var(--yellow, #d29922);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.retry {
+  flex-shrink: 0;
+}

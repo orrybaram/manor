@@ -18,6 +18,7 @@ import { ConvertToSubmenu } from "../ConvertToSubmenu";
 import { SplitWithSubmenu } from "../SplitWithSubmenu";
 import { PaneWindowMenuItems } from "../PaneWindowMenuItems";
 import { TerminalSearchBar } from "./TerminalSearchBar";
+import { HostOfflineBanner } from "./HostOfflineBanner";
 import { onUiRequest } from "../../../utils/ui-request";
 import styles from "./TerminalPane.module.css";
 
@@ -66,6 +67,7 @@ export function TerminalPane(props: TerminalPaneProps) {
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
         <div ref={containerRef} className={styles.container} data-testid="terminal-pane">
+          <HostOfflineBanner paneId={paneId} />
           {searchOpen && term && searchAddon && (
             <TerminalSearchBar
               term={term}

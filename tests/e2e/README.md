@@ -167,3 +167,30 @@ a race it would otherwise have to retry through.
   the phone loads.
 - **Push is not exercised.** Web Push needs a real push service, so the tests
   cover the live-stream path and leave the notification itself untested.
+
+## The remote-host harness (ADR-160 / ADR-178)
+
+`remote-host.spec.ts` runs against a real sshd and is skipped unless
+`MANOR_E2E_SSH=1`. Don't run it with bare `playwright test`. Use
+`scripts/test-remote-e2e.mjs`, which builds the app and the `manor-host`
+tarball, starts the sshd, runs the bridge-level vitest suite and this spec,
+and tears everything down:
+
+```bash
+pnpm test:e2e:remote-host          # private unprivileged sshd on this Mac
+pnpm test:e2e:remote-host:docker   # Linux container (tests/e2e/remote-host/)
+node scripts/test-remote-e2e.mjs --playwright-only --no-build -- --grep ports
+```
+
+- **`helpers/remote-host.ts`**: the side channel (`manor-e2e-direct`) for
+  setting up the box, seeding a bare repo reachable as
+  `https://manor-e2e.invalid/seed.git` (through a git `insteadOf`), blocking
+  the app's alias (`manor-e2e`) to simulate a closed lid, and killing the
+  app's ssh processes.
+- **`remote-host/manor-e2e-agent`** and **`remote-host/fire-hook`**: a stub
+  agent and a hook trigger that are installed on the box. Both go through the
+  box's real hook script, so hooks reach the remote daemon's listener and
+  journal.
+- The launched app keeps `MANOR_E2E_SSH_CONFIG` through the fixture's
+  `MANOR_*` scrub. Manor's managed ssh config includes that file ahead of
+  `~/.ssh/config` (a test-only hook). See `docs/remote-hosts.md#testing`.

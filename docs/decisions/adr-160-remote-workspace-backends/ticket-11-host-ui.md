@@ -1,6 +1,6 @@
 ---
 title: UI for adding and monitoring remote hosts
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [9]

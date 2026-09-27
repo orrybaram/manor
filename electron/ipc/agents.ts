@@ -9,6 +9,7 @@ import {
 } from "../notifications";
 import { killCounters } from "../stats-signals";
 import { cleanAgentTitle } from "../title-utils";
+import { LOCAL_HOST_ID } from "../backend/types";
 import type { IpcDeps } from "./types";
 
 const ALLOWED_RENDERER_TASK_FIELDS: ReadonlySet<string> = new Set([
@@ -32,6 +33,14 @@ function assertRendererAgentUpdate(updates: unknown): asserts updates is Record<
   if ("namePinned" in u && typeof u.namePinned !== "boolean") {
     throw new Error("agents:update: namePinned must be a boolean");
   }
+}
+
+/** Whether the host an agent's project lives on is connected (local always is). */
+function isAgentHostConnected(deps: IpcDeps, projectId: string | null): boolean {
+  // Absent in tests that build a partial deps bag; local-only then.
+  if (!deps.backendRegistry || !projectId) return true;
+  const hostId = deps.projectManager.getProjectHostId(projectId);
+  return hostId === LOCAL_HOST_ID || deps.backendRegistry.status(hostId) === "connected";
 }
 
 export function register(deps: IpcDeps): void {
@@ -204,6 +213,9 @@ export function register(deps: IpcDeps): void {
       if (agent.status !== "active") continue;
       if (!agent.paneId) continue;
       if (livePaneIds.has(agent.paneId)) continue;
+      // Sessions of a remote host that is not connected are missing from
+      // `listSessions` because nobody could ask, not because they ended.
+      if (!isAgentHostConnected(deps, agent.projectId)) continue;
       if (agent.lastAgentStatus === "responded") continue;
 
       const updated = agentManager.updateAgent(agent.id, {

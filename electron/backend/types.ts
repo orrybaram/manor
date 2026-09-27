@@ -15,6 +15,7 @@ import type {
   StreamEvent,
   AgentStatus,
   AgentKind,
+  HookReplay,
 } from "../terminal-host/types";
 
 // ── Pty Backend ──
@@ -22,12 +23,19 @@ import type {
 export type StreamEventHandler = (event: StreamEvent) => void;
 
 export interface PtyBackend {
+  /**
+   * Create a new session, or attach to an existing one for `sessionId`.
+   *
+   * `env` is only applied when a fresh session is spawned — reattaching to
+   * an already-running session leaves its environment untouched.
+   */
   createOrAttach(
     sessionId: string,
     cwd: string,
     cols: number,
     rows: number,
     shellArgs?: string[],
+    env?: Record<string, string>,
   ): Promise<{ session: SessionInfo; snapshot: TerminalSnapshot | null }>;
 
   write(sessionId: string, data: string): void;
@@ -54,6 +62,17 @@ export interface PtyBackend {
     status: AgentStatus,
     kind: AgentKind,
   ): void;
+  /**
+   * The host daemon's hook journal after `sinceSeq` (ADR-178 §2); `null`
+   * when the daemon has no journal (it predates the request). Optional: only
+   * a remote host's hooks are journaled, and the registry calls this only
+   * for remote hosts. `headOnly` returns the journal's position with no
+   * entries.
+   */
+  replayHooks?(
+    sinceSeq: number,
+    opts?: { headOnly?: boolean },
+  ): Promise<HookReplay | null>;
 }
 
 // ── Git Backend ──
@@ -81,6 +100,22 @@ export interface GitBackend {
     },
   ): { cancel: () => void };
 
+  /**
+   * `git clone --progress <repoUrl> <targetDir>` (ADR-178 ticket 5).
+   * `targetDir` must not exist yet, or must be empty — the caller checks
+   * that before calling. `onLine` gets each progress line git writes to
+   * stderr during a clone; mirrors `pushStream`'s shape so both stream
+   * through the same gate in `BackendRegistry`.
+   */
+  cloneStream(
+    repoUrl: string,
+    targetDir: string,
+    callbacks: {
+      onLine: (line: string) => void;
+      onDone: (result: { exitCode: number | null; stderr: string }) => void;
+    },
+  ): { cancel: () => void };
+
   getFullDiff(cwd: string, defaultBranch: string): Promise<string | null>;
 
   getLocalDiff(cwd: string): Promise<string | null>;
@@ -97,6 +132,13 @@ export interface GitBackend {
   ): Promise<void>;
 
   worktreeRemove(cwd: string, path: string, force?: boolean): Promise<void>;
+
+  /**
+   * The current branch at `repoPath` (a repo or worktree root), or a short
+   * SHA for a detached HEAD. `null` if it cannot be determined (not a repo,
+   * unborn branch, etc.) — ADR-178 §3.
+   */
+  currentBranch(repoPath: string): Promise<string | null>;
 }
 
 // ── Shell Backend ──
@@ -107,6 +149,12 @@ export interface ShellBackend {
 
   /** Execute a command and return stdout. */
   exec(cmd: string, args: string[], opts?: { cwd?: string; timeout?: number }): Promise<string>;
+
+  /**
+   * The home directory on the machine this backend runs commands on (ADR-178
+   * §3). Local: `os.homedir()`. Remote: asked of the host and cached.
+   */
+  homeDir(): Promise<string>;
 }
 
 // ── Ports Backend ──
@@ -117,6 +165,15 @@ export interface ActivePort {
   pid: number;
   workspacePath: string | null;
   hostname: string | null;
+  /** The remote host the port is listening on; absent for this machine. */
+  hostId?: string;
+  /** The host's provider can hand out a public URL for it (`previewUrl`). */
+  canCopyPublicUrl?: boolean;
+  /**
+   * `"::1"` when the port is listened on only at the IPv6 loopback, so a
+   * forward must target `[::1]` rather than 127.0.0.1 (ADR-178 §5).
+   */
+  loopbackHost?: "::1";
 }
 
 export interface PortsBackend {
@@ -133,6 +190,62 @@ export interface WorktreeInfo {
   isMain: boolean;
 }
 
+// ── Host connection events ──
+
+/**
+ * The connection to a backend's host dropped or came back. Not a
+ * `StreamEvent`: those come from the daemon, and these are about losing it.
+ *
+ * - `hostDisconnected` — the transport died (for a remote host, the ssh
+ *   child exited). `sessionIds` stop producing output; reconnect attempts
+ *   follow, the next one after `retryInMs`.
+ * - `hostRetrying` — a reconnect attempt failed; the next one is in
+ *   `retryInMs`. `sessionIds` is empty (nothing changed about them).
+ * - `hostReconnected` — the connection is back. `sessionIds` are the
+ *   sessions that survived; whatever they printed during the gap was not
+ *   delivered, so the renderer must resnapshot them via `getSnapshot`.
+ *   Sessions that did not survive get an `exit` stream event marked `lost`.
+ * - `hostFailed` — reconnecting hit a failure retrying will not fix (see
+ *   `HostFailure`), so it stopped. `sessionIds` are still wanted; a later
+ *   `connect()` retries, and on success `hostReconnected` follows.
+ */
+export type HostConnectionEvent =
+  | { type: "hostDisconnected"; sessionIds: string[]; retryInMs: number | null }
+  | { type: "hostRetrying"; sessionIds: string[]; retryInMs: number }
+  | { type: "hostReconnected"; sessionIds: string[] }
+  | ({ type: "hostFailed"; sessionIds: string[] } & HostFailure);
+
+/**
+ * Why a host cannot be reached until the user does something:
+ * - `auth` — ssh could not authenticate.
+ * - `host-key` — the host key is unknown or has changed.
+ * - `bootstrap` — the host cannot run the daemon (`code` says why: e.g.
+ *   `node-missing`, `unsupported-platform`, `install-failed`).
+ */
+export interface HostFailure {
+  reason: "auth" | "host-key" | "bootstrap";
+  code?: string;
+  message: string;
+}
+
+export type HostConnectionEventHandler = (event: HostConnectionEvent) => void;
+
+// ── Hosts ──
+
+/**
+ * The host every project without a `hostId` lives on: this machine, reached
+ * through the local terminal-host daemon.
+ */
+export const LOCAL_HOST_ID = "local";
+
+/**
+ * How to reach a remote host (ADR-160). Persisted per host in
+ * `projects.json`; a `BackendRegistry` turns it into a `WorkspaceBackend`.
+ * A discriminated union so other ways of reaching a box (ADR-178's managed
+ * providers) are additions, not a migration.
+ */
+export type HostSpec = { kind: "ssh"; target: string };
+
 // ── Workspace Backend (aggregate) ──
 
 export interface WorkspaceBackend {
@@ -143,4 +256,14 @@ export interface WorkspaceBackend {
 
   connect(opts?: { version?: string }): Promise<void>;
   disconnect(): Promise<void>;
+
+  /** Observe loss and recovery of the host connection (see `HostConnectionEvent`). */
+  onHostEvent(handler: HostConnectionEventHandler): void;
+
+  /**
+   * While reconnecting on its own: attempt now instead of waiting out the
+   * backoff. Returns false if there is no wait to cut short. Optional — a
+   * backend that does not reconnect by itself has nothing to hurry.
+   */
+  retryNow?(): boolean;
 }

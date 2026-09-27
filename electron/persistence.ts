@@ -2,22 +2,106 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
-import { exec } from "node:child_process";
-import { promisify } from "node:util";
 import { BrowserWindow } from "electron";
 
 import type { LinearAssociation, LinkedIssue } from "./linear";
-import type { GitBackend } from "./backend/types";
+import {
+  LOCAL_HOST_ID,
+  type GitBackend,
+  type HostSpec,
+  type ShellBackend,
+} from "./backend/types";
+import { LocalShellBackend } from "./backend/local-shell";
 import { manorDataDir, worktreesDir } from "./paths";
 import { sanitizeBranchName, toDirSlug } from "./branch-name";
+import { shellQuote } from "./terminal-host/ssh-config";
 
-const execAsync = promisify(exec);
-
-function expandHome(p: string): string {
+/** Expands a leading `~` in `p` against `home` (a specific host's home dir). */
+function expandHome(p: string, home: string): string {
   if (p.startsWith("~/") || p === "~") {
-    return path.join(os.homedir(), p.slice(1));
+    return path.join(home, p.slice(1));
   }
   return p;
+}
+
+/** Joins path segments with `/`, for paths on a host that is not this machine. */
+function remoteJoin(...parts: string[]): string {
+  const isAbsolute = parts[0]?.startsWith("/") ?? false;
+  const joined = parts
+    .map((part, i) => (i === 0 ? part.replace(/\/+$/, "") : part.replace(/^\/+|\/+$/g, "")))
+    .filter((part) => part.length > 0)
+    .join("/");
+  return isAbsolute && !joined.startsWith("/") ? `/${joined}` : joined;
+}
+
+/**
+ * `https://…`, `ssh://user@host/…` or scp-style `git@host:path` — the three
+ * forms git itself accepts as a clone source. Deliberately conservative: a
+ * URL is handed to `git clone` as its own argv entry (never through a local
+ * shell), but a target this loose still needs to look like a git remote
+ * before Manor spends a network round-trip and a directory on it.
+ */
+const REPO_URL_PATTERN =
+  /^(?:https:\/\/[A-Za-z0-9._-]+(?::\d+)?\/[\w.\-~/]+(?:\.git)?|ssh:\/\/[\w.-]+@[A-Za-z0-9._-]+(?::\d+)?\/[\w.\-~/]+(?:\.git)?|[\w.-]+@[A-Za-z0-9._-]+:[\w.\-~/]+(?:\.git)?)$/;
+
+/**
+ * Throws unless `url` is an `https://`, `ssh://` or scp-style git remote.
+ *
+ * The scp form (`user@host:path`) allows `-` in its user part, which would
+ * otherwise let a URL like `-oProxyCommand=…@host:path` be handed to `git
+ * clone` and misread as an option rather than a positional argument.
+ * Requiring the first character to be alphanumeric closes that off for
+ * every accepted form (the `https://`/`ssh://` schemes already start
+ * alphanumeric, so this only tightens the scp form).
+ */
+export function validateRepoUrl(url: string): void {
+  if (!/^[A-Za-z0-9]/.test(url) || !REPO_URL_PATTERN.test(url)) {
+    throw new Error(
+      "Repo URL must be an https://, ssh://, or git@host:path git remote.",
+    );
+  }
+}
+
+/**
+ * An absolute path or one starting with `~/`, made only of characters a
+ * POSIX path can hold without needing shell quoting on the far side
+ * (letters, digits and `@%_+=:,./-`). Manor passes it through `git clone`'s
+ * own argv, never a shell, but the allowlist keeps it from ever looking
+ * like a flag or containing a character that would surprise `ls`/`test`
+ * when Manor checks whether it already exists.
+ */
+const REMOTE_DIR_PATTERN = /^(?:~|~\/[\w@%+=:,./-]*|\/[\w@%+=:,./-]*)$/;
+
+/** Throws unless `dir` is an absolute path or `~/`-relative, shell-safe path. */
+export function validateRemoteDir(dir: string): void {
+  if (!REMOTE_DIR_PATTERN.test(dir)) {
+    throw new Error(
+      "Remote directory must be an absolute path or start with ~/, using only " +
+        "letters, numbers and @%_+=:,./-",
+    );
+  }
+}
+
+/**
+ * A repo's identity as `host/path`, so `git@host:path`, `ssh://git@host/path`
+ * and `https://host/path` (ADR-178 ticket 5 review) compare equal even
+ * though `git remote get-url origin` and a user-typed repo URL rarely agree
+ * on form. Strips scheme, user, port and a trailing `.git`/`/`; case-folds,
+ * since host names are case-insensitive.
+ */
+export function normalizeOriginUrl(url: string): string {
+  let rest = url.trim().replace(/\.git$/i, "").replace(/\/+$/, "");
+  if (/^https?:\/\//i.test(rest)) {
+    rest = rest.replace(/^https?:\/\//i, "");
+  } else if (/^ssh:\/\//i.test(rest)) {
+    rest = rest.replace(/^ssh:\/\//i, "");
+  } else {
+    // scp-style `user@host:path` — turn the `:` before the path into `/`.
+    rest = rest.replace(/^([^@/]+@[^@/:]+):/, "$1/");
+  }
+  // Drop a leading `user@`, then a `:port` right after the host.
+  rest = rest.replace(/^[^@/]+@/, "").replace(/^([^/:]+):\d+/, "$1");
+  return rest.toLowerCase();
 }
 
 export interface CustomCommand {
@@ -93,6 +177,12 @@ export interface ProjectInfo {
   /** Whether dev-server ports get `.localhost` preview hostnames. Defaults to true. */
   portlessEnabled: boolean;
   backendType?: "local" | "remote";
+  /**
+   * The host this project's paths, git and terminals live on (ADR-160).
+   * Always set by `ProjectManager` — `"local"` for every project persisted
+   * without one. Optional only so hand-built fixtures need not spell it.
+   */
+  hostId?: string;
   folders: WorkspaceFolder[];
   /**
    * Normalized, depth-first order of workspace paths and folder ids — the
@@ -116,6 +206,7 @@ export type ProjectUpdatableFields = Partial<
     | "themeName"
     | "setupComplete"
     | "portlessEnabled"
+    | "hostId"
   >
 >;
 
@@ -150,11 +241,52 @@ interface PersistedProject {
   setupComplete?: boolean;
   portlessEnabled?: boolean;
   backendType?: "local" | "remote";
+  /**
+   * The host the project lives on. Absent means `"local"`, so files written
+   * before ADR-160 load unchanged.
+   */
+  hostId?: string;
+}
+
+/**
+ * A registered remote host. A record rather than a bare spec so per-host
+ * state that is not part of how to reach it — ADR-178's provider settings
+ * and hook-replay position (`lastHookSeq`) — can sit beside `spec` without
+ * a migration.
+ */
+interface PersistedHost {
+  spec: HostSpec;
+  /**
+   * The last seq of this host's hook journal Electron main has ingested
+   * (ADR-178 §2). Absent until the journal is first met — then the hook
+   * feed starts at the journal's head instead of replaying its history.
+   * Kept when the spec changes (a new address is usually the same box); if
+   * it is a different box, its journal has a different `hookJournalEpoch`
+   * and the hook feed starts over.
+   */
+  lastHookSeq?: number;
+  /** The epoch of the journal `lastHookSeq` counts in (ADR-178 §2). */
+  hookJournalEpoch?: string;
 }
 
 interface PersistedState {
   projects: PersistedProject[];
   selectedProjectIndex: number;
+  /** Remote hosts by hostId. Absent in files written before ADR-160. */
+  hosts?: Record<string, PersistedHost>;
+}
+
+/** Resolves the git backend for a host (see `BackendRegistry.get`). */
+export type GitResolver = (hostId: string) => GitBackend;
+
+/** Resolves the shell backend for a host (see `BackendRegistry.get`). */
+export type ShellResolver = (hostId: string) => ShellBackend;
+
+/** True when `p` is `root` or lies beneath it. */
+function isWithinPath(p: string, root: string): boolean {
+  if (p === root) return true;
+  const prefix = root.endsWith("/") ? root : `${root}/`;
+  return p.startsWith(prefix);
 }
 
 /**
@@ -252,16 +384,233 @@ export function isFolderDescendant(
   return false;
 }
 
+/** How long `setHostHookCursor` batches writes. */
+const HOOK_SEQ_SAVE_DEBOUNCE_MS = 1_000;
+
 export class ProjectManager {
   private state: PersistedState;
   private dataDir: string;
-  private git: GitBackend;
+  private gitForHost: GitResolver;
+  private shellForHost: ShellResolver;
   private resyncDone = false;
+  /**
+   * Workspace paths git last reported per project id. Worktrees may live
+   * outside the project's worktree directory, so `hostIdForPath` needs them.
+   */
+  private knownWorkspacePaths = new Map<string, string[]>();
+  /**
+   * Each remote host's home directory, once asked (ADR-178 §3). `hostIdForPath`
+   * reads this synchronously to know a remote project's default worktree
+   * root; a host not yet in here is treated as unknown there, the same as
+   * before this cache existed.
+   */
+  private hostHomeDirs = new Map<string, string>();
+  /** Pending debounced write from `setHostHookCursor`. */
+  private hookSeqSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(git: GitBackend, dataDir?: string) {
-    this.git = git;
+  /**
+   * `git`/`shell` are either one backend for every project (local-only
+   * callers and tests) or a resolver from a project's hostId to its host's
+   * backend. `shell` defaults to this machine's, so existing local-only
+   * callers need not supply one.
+   */
+  constructor(
+    git: GitBackend | GitResolver,
+    dataDir?: string,
+    shell: ShellBackend | ShellResolver = new LocalShellBackend(),
+  ) {
+    this.gitForHost = typeof git === "function" ? git : () => git;
+    this.shellForHost = typeof shell === "function" ? shell : () => shell;
     this.dataDir = dataDir ?? manorDataDir();
     this.state = this.loadState();
+  }
+
+  private gitFor(project: PersistedProject): GitBackend {
+    return this.gitForHost(project.hostId ?? LOCAL_HOST_ID);
+  }
+
+  /**
+   * The home directory of `hostId`'s machine. Local: `os.homedir()`, always
+   * (no host call). Remote: asked of the host's shell backend, which caches
+   * it (see `execShellHost`); also cached here so `hostIdForPath` can read
+   * it back synchronously.
+   */
+  private async homeDirFor(hostId: string): Promise<string> {
+    if (hostId === LOCAL_HOST_ID) return os.homedir();
+    const home = await this.shellForHost(hostId).homeDir();
+    if (!home.startsWith("/") || home === "/") {
+      throw new Error(
+        `Remote $HOME for host "${hostId}" must be an absolute path other than "/" (got ${JSON.stringify(home)})`,
+      );
+    }
+    this.hostHomeDirs.set(hostId, home);
+    return home;
+  }
+
+  /** Best-effort: warms `hostHomeDirs` for every remote host in use. */
+  private warmRemoteHomeDirs(): void {
+    for (const hostId of this.remoteHostIdsInUse()) {
+      this.homeDirFor(hostId).catch((err: unknown) => {
+        console.error(
+          `[ProjectManager] failed to resolve home directory for ${hostId}:`,
+          err instanceof Error ? err.message : err,
+        );
+      });
+    }
+  }
+
+  // ── Hosts ──
+
+  /** Registered remote hosts, in the order they were added. */
+  getHosts(): Array<{ hostId: string; spec: HostSpec }> {
+    return Object.entries(this.state.hosts ?? {}).map(([hostId, host]) => ({
+      hostId,
+      spec: host.spec,
+    }));
+  }
+
+  /** Add a remote host, or replace how an existing one is reached. */
+  saveHost(hostId: string, spec: HostSpec): void {
+    if (hostId === LOCAL_HOST_ID) {
+      throw new Error(`"${LOCAL_HOST_ID}" is reserved for this machine`);
+    }
+    if (!this.state.hosts) this.state.hosts = {};
+    this.state.hosts[hostId] = { ...this.state.hosts[hostId], spec };
+    // The host may now be reachable at a different address (or machine)
+    // with a different home directory — drop the stale cache so
+    // `hostIdForPath` re-resolves it instead of routing against the old
+    // value.
+    this.hostHomeDirs.delete(hostId);
+    this.saveState();
+  }
+
+  /**
+   * How far into which hook journal `hostId`'s hooks have been ingested, or
+   * null if its journal has never been met.
+   */
+  getHostHookCursor(hostId: string): { seq: number; epoch: string | null } | null {
+    const host = this.state.hosts?.[hostId];
+    if (host?.lastHookSeq === undefined) return null;
+    return { seq: host.lastHookSeq, epoch: host.hookJournalEpoch ?? null };
+  }
+
+  /**
+   * Record the last hook-journal seq ingested from `hostId`. Hooks arrive in
+   * bursts (a replay can be thousands), so the write is debounced; call
+   * `flushHostHookSeqs` on quit. A seq lost to a crash means the last
+   * second's hooks are replayed once more on the next launch — into a fresh
+   * relay, with notifications coalesced.
+   */
+  setHostHookCursor(hostId: string, cursor: { seq: number; epoch: string | null }): void {
+    const host = this.state.hosts?.[hostId];
+    if (!host) return;
+    const epoch = cursor.epoch ?? undefined;
+    if (host.lastHookSeq === cursor.seq && host.hookJournalEpoch === epoch) return;
+    host.lastHookSeq = cursor.seq;
+    if (epoch === undefined) delete host.hookJournalEpoch;
+    else host.hookJournalEpoch = epoch;
+    if (this.hookSeqSaveTimer) return;
+    this.hookSeqSaveTimer = setTimeout(() => {
+      this.hookSeqSaveTimer = null;
+      this.saveState();
+    }, HOOK_SEQ_SAVE_DEBOUNCE_MS);
+    this.hookSeqSaveTimer.unref?.();
+  }
+
+  /** Write a pending `setHostHookCursor` now. */
+  flushHostHookSeqs(): void {
+    if (!this.hookSeqSaveTimer) return;
+    clearTimeout(this.hookSeqSaveTimer);
+    this.hookSeqSaveTimer = null;
+    this.saveState();
+  }
+
+  /** Forget a remote host. Projects still pointing at it keep their hostId. */
+  removeHost(hostId: string): void {
+    if (!this.state.hosts?.[hostId]) return;
+    delete this.state.hosts[hostId];
+    this.hostHomeDirs.delete(hostId);
+    this.saveState();
+  }
+
+  /** Remote hosts at least one project lives on. */
+  remoteHostIdsInUse(): string[] {
+    const ids = new Set<string>();
+    for (const project of this.state.projects) {
+      if (project.hostId && project.hostId !== LOCAL_HOST_ID) ids.add(project.hostId);
+    }
+    return Array.from(ids);
+  }
+
+  /** The host a project lives on; `"local"` for unknown projects. */
+  getProjectHostId(projectId: string | null | undefined): string {
+    if (!projectId) return LOCAL_HOST_ID;
+    return this.findProject(projectId)?.hostId ?? LOCAL_HOST_ID;
+  }
+
+  /**
+   * The host a filesystem path belongs to: the host of the project whose
+   * root, worktree directory, or known workspace contains it most closely.
+   * Paths outside every project — and every path, while no project lives on
+   * a remote host — are local. When a local and a remote root match equally
+   * closely, local wins.
+   *
+   * A remote project's worktree directory (default or explicit, expanding
+   * `~` against the host's home — ADR-178 §3) counts only once that host's
+   * home directory is known (see `hostHomeDirs`); until then it is skipped,
+   * the same as before host-relative roots existed.
+   */
+  hostIdForPath(p: string): string {
+    const projects = this.state.projects;
+    if (!projects.some((pr) => (pr.hostId ?? LOCAL_HOST_ID) !== LOCAL_HOST_ID)) {
+      return LOCAL_HOST_ID;
+    }
+    let bestLength = -1;
+    let best = LOCAL_HOST_ID;
+    for (const project of projects) {
+      const hostId = project.hostId ?? LOCAL_HOST_ID;
+      const isRemote = hostId !== LOCAL_HOST_ID;
+      const base = this.syncWorktreeBaseDir(project, hostId);
+      const roots = [
+        project.path,
+        ...(base != null ? [base] : []),
+        ...(this.knownWorkspacePaths.get(project.id) ?? []),
+      ];
+      for (const root of roots) {
+        if (!isWithinPath(p, root)) continue;
+        const closer = root.length > bestLength;
+        const tieToLocal = root.length === bestLength && !isRemote;
+        if (closer || tieToLocal) {
+          bestLength = root.length;
+          best = hostId;
+        }
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Synchronous counterpart to `worktreeBaseDir`, for `hostIdForPath`: uses
+   * `hostHomeDirs`' cached value instead of asking the host, and returns
+   * null when a remote host's home isn't known yet (an explicit worktree
+   * root that doesn't start with `~` needs no home, so it is never null).
+   */
+  private syncWorktreeBaseDir(
+    project: PersistedProject,
+    hostId: string,
+  ): string | null {
+    if (project.worktreePath) {
+      if (!project.worktreePath.startsWith("~")) return project.worktreePath;
+      const home = hostId === LOCAL_HOST_ID ? os.homedir() : this.hostHomeDirs.get(hostId);
+      return home !== undefined ? expandHome(project.worktreePath, home) : null;
+    }
+    if (hostId === LOCAL_HOST_ID) {
+      return path.join(worktreesDir(), toDirSlug(project.name));
+    }
+    const home = this.hostHomeDirs.get(hostId);
+    return home !== undefined
+      ? remoteJoin(home, ".manor", "worktrees", toDirSlug(project.name))
+      : null;
   }
 
   private projectsFilePath(): string {
@@ -300,6 +649,7 @@ export class ProjectManager {
     if (!this.resyncDone) {
       this.resyncDone = true;
       await this.resyncDefaultBranches();
+      this.warmRemoteHomeDirs();
     }
     return Promise.all(
       this.state.projects.map((p) => this.buildProjectInfo(p)),
@@ -319,9 +669,12 @@ export class ProjectManager {
    * LOCAL-ONLY: reads the symbolic ref for origin/HEAD with no network activity.
    * Returns the bare branch name (e.g. "main") or null on any failure.
    */
-  private async detectDefaultBranchLocal(repoPath: string): Promise<string | null> {
+  private async detectDefaultBranchLocal(
+    git: GitBackend,
+    repoPath: string,
+  ): Promise<string | null> {
     try {
-      const stdout = await this.git.exec(repoPath, [
+      const stdout = await git.exec(repoPath, [
         "symbolic-ref",
         "--short",
         "refs/remotes/origin/HEAD",
@@ -336,15 +689,18 @@ export class ProjectManager {
     }
   }
 
-  private async detectDefaultBranch(repoPath: string): Promise<string | null> {
+  private async detectDefaultBranch(
+    git: GitBackend,
+    repoPath: string,
+  ): Promise<string | null> {
     try {
       // Step 1: Read the local symbolic ref for origin/HEAD — no network needed.
-      const local = await this.detectDefaultBranchLocal(repoPath);
+      const local = await this.detectDefaultBranchLocal(git, repoPath);
       if (local) return local;
 
       // Step 1 failed — try to set the remote HEAD pointer (one network round-trip).
       try {
-        await this.git.exec(repoPath, ["remote", "set-head", "origin", "--auto"]);
+        await git.exec(repoPath, ["remote", "set-head", "origin", "--auto"]);
       } catch (setHeadErr) {
         console.error(
           "[ProjectManager] detectDefaultBranch: remote set-head failed:",
@@ -353,7 +709,7 @@ export class ProjectManager {
       }
 
       // Retry step 1 after set-head.
-      return await this.detectDefaultBranchLocal(repoPath);
+      return await this.detectDefaultBranchLocal(git, repoPath);
     } catch (err) {
       console.error(
         "[ProjectManager] detectDefaultBranch failed:",
@@ -372,7 +728,10 @@ export class ProjectManager {
     let changed = false;
     for (const project of this.state.projects) {
       try {
-        const detected = await this.detectDefaultBranchLocal(project.path);
+        const detected = await this.detectDefaultBranchLocal(
+          this.gitFor(project),
+          project.path,
+        );
         if (detected && detected !== project.defaultBranch) {
           project.defaultBranch = detected;
           changed = true;
@@ -391,9 +750,18 @@ export class ProjectManager {
     }
   }
 
-  async addProject(name: string, projectPath: string): Promise<ProjectInfo> {
+  /**
+   * `hostId` names the host `projectPath` lives on; omitted or `"local"`, it
+   * is this machine and nothing about the project records a host.
+   */
+  async addProject(
+    name: string,
+    projectPath: string,
+    hostId: string = LOCAL_HOST_ID,
+  ): Promise<ProjectInfo> {
     const id = crypto.randomUUID();
-    const detected = await this.detectDefaultBranch(projectPath);
+    const git = this.gitForHost(hostId);
+    const detected = await this.detectDefaultBranch(git, projectPath);
     const project: PersistedProject = {
       id,
       name,
@@ -411,19 +779,54 @@ export class ProjectManager {
       themeName: null,
       setupComplete: false,
       portlessEnabled: true,
+      // Written only for remote hosts, so a local project's record is
+      // byte-for-byte what it was before hosts existed.
+      ...(hostId !== LOCAL_HOST_ID ? { hostId } : {}),
     };
 
-    // Seed commands from package.json if present
-    const packageJsonPath = path.join(projectPath, "package.json");
-    if (fs.existsSync(packageJsonPath)) {
+    // Seed commands from package.json if present, reading it through the
+    // project's host (ADR-178 §3): locally, plain `fs`; remotely, the
+    // host's shell exec, since a remote project's package.json is not on
+    // this filesystem.
+    if (hostId === LOCAL_HOST_ID) {
+      const packageJsonPath = path.join(projectPath, "package.json");
+      if (fs.existsSync(packageJsonPath)) {
+        try {
+          const packageJson = JSON.parse(
+            fs.readFileSync(packageJsonPath, "utf-8"),
+          );
+          if (packageJson.scripts && typeof packageJson.scripts === "object") {
+            const runner = fs.existsSync(path.join(projectPath, "pnpm-lock.yaml"))
+              ? "pnpm run"
+              : fs.existsSync(path.join(projectPath, "yarn.lock"))
+                ? "yarn"
+                : "npm run";
+            project.commands = Object.keys(packageJson.scripts).map(
+              (scriptName) => ({
+                id: crypto.randomUUID(),
+                name: scriptName,
+                command: `${runner} ${scriptName}`,
+              }),
+            );
+          }
+        } catch (err) {
+          console.error(
+            "[ProjectManager] failed to read package.json:",
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }
+    } else {
       try {
-        const packageJson = JSON.parse(
-          fs.readFileSync(packageJsonPath, "utf-8"),
-        );
-        if (packageJson.scripts && typeof packageJson.scripts === "object") {
-          const runner = fs.existsSync(path.join(projectPath, "pnpm-lock.yaml"))
+        const shell = this.shellForHost(hostId);
+        const packageJson = await this.readRemotePackageJson(shell, projectPath);
+        if (packageJson?.scripts && typeof packageJson.scripts === "object") {
+          const runner = (await this.remoteFileExists(
+            shell,
+            remoteJoin(projectPath, "pnpm-lock.yaml"),
+          ))
             ? "pnpm run"
-            : fs.existsSync(path.join(projectPath, "yarn.lock"))
+            : (await this.remoteFileExists(shell, remoteJoin(projectPath, "yarn.lock")))
               ? "yarn"
               : "npm run";
           project.commands = Object.keys(packageJson.scripts).map(
@@ -436,7 +839,9 @@ export class ProjectManager {
         }
       } catch (err) {
         console.error(
-          "[ProjectManager] failed to read package.json:",
+          "[ProjectManager] failed to read package.json on",
+          hostId,
+          ":",
           err instanceof Error ? err.message : err,
         );
       }
@@ -446,7 +851,7 @@ export class ProjectManager {
     this.state.selectedProjectIndex = this.state.projects.length - 1;
     this.saveState();
 
-    const workspaces = (await listGitWorkspaces(this.git, projectPath)) ?? [
+    const workspaces = (await listGitWorkspaces(git, projectPath)) ?? [
       { path: projectPath, branch: "main", isMain: true, name: null },
     ];
 
@@ -468,9 +873,163 @@ export class ProjectManager {
       themeName: null,
       setupComplete: false,
       portlessEnabled: true,
+      hostId,
       folders: [],
       sidebarOrder: [],
     };
+  }
+
+  /** How long a clone may run before Manor gives up and cancels it. */
+  private static readonly CLONE_TIMEOUT_MS = 10 * 60 * 1000;
+
+  /**
+   * Create a project on a remote host by cloning it there first (ADR-178
+   * ticket 5): `git clone --progress` through the host's backend, with
+   * progress on the `worktree:setup-progress` channel (step `"clone"`), then
+   * the normal `addProject` path.
+   *
+   * If `remoteDir` already exists and is a clone of `repoUrl`, cloning is
+   * skipped and the existing checkout is adopted instead of clobbered. Any
+   * other non-empty directory is refused.
+   */
+  async addRemoteProject(opts: {
+    hostId: string;
+    repoUrl: string;
+    remoteDir: string;
+    name: string;
+  }): Promise<ProjectInfo> {
+    const { hostId, name } = opts;
+    const repoUrl = opts.repoUrl.trim();
+    const remoteDirInput = opts.remoteDir.trim();
+    if (hostId === LOCAL_HOST_ID) {
+      throw new Error("addRemoteProject requires a remote host.");
+    }
+    validateRepoUrl(repoUrl);
+    validateRemoteDir(remoteDirInput);
+
+    const shell = this.shellForHost(hostId);
+    const git = this.gitForHost(hostId);
+    const home = await this.homeDirFor(hostId);
+    const targetDir = expandHome(remoteDirInput, home);
+    if (!targetDir.startsWith("/") || targetDir === "/") {
+      throw new Error(
+        `Remote directory must resolve to an absolute path other than "/" (got ${JSON.stringify(targetDir)}).`,
+      );
+    }
+
+    const state = await this.remoteDirState(shell, targetDir);
+    if (state === "nonempty") {
+      const alreadyCloned = await this.remoteDirIsCloneOf(git, targetDir, repoUrl);
+      if (alreadyCloned) {
+        // Adopting an existing clone must not create a second project
+        // record for the same host+path — return the one Manor already
+        // has instead (ADR-178 ticket 5 review).
+        const existing = this.state.projects.find(
+          (p) => p.path === targetDir && (p.hostId ?? LOCAL_HOST_ID) === hostId,
+        );
+        if (existing) return this.buildProjectInfo(existing);
+        return this.addProject(name, targetDir, hostId);
+      }
+      throw new Error(
+        `"${targetDir}" already exists and is not empty. Choose an empty ` +
+          "directory, or one that is already a clone of this repository.",
+      );
+    }
+
+    this.emitSetupProgress("clone", "in-progress");
+    try {
+      await this.cloneWithProgress(git, repoUrl, targetDir);
+    } catch (err) {
+      this.emitSetupProgress(
+        "clone",
+        "error",
+        err instanceof Error ? err.message : String(err),
+      );
+      throw err;
+    }
+    this.emitSetupProgress("clone", "done");
+
+    return this.addProject(name, targetDir, hostId);
+  }
+
+  /** Whether `dir` is missing, exists and is empty, or exists with contents. */
+  private async remoteDirState(
+    shell: ShellBackend,
+    dir: string,
+  ): Promise<"missing" | "empty" | "nonempty"> {
+    if (!(await this.remoteFileExists(shell, dir))) return "missing";
+    try {
+      const out = await shell.exec("sh", ["-c", `ls -A ${shellQuote(dir)}`]);
+      return out.trim() === "" ? "empty" : "nonempty";
+    } catch {
+      // `ls -A` on a plain file (not a directory) fails — treat it as
+      // occupied rather than guessing at its contents.
+      return "nonempty";
+    }
+  }
+
+  /** Whether `dir` is already a git checkout whose `origin` is `repoUrl`. */
+  private async remoteDirIsCloneOf(
+    git: GitBackend,
+    dir: string,
+    repoUrl: string,
+  ): Promise<boolean> {
+    try {
+      // The stored URL, not `remote get-url`: that one applies the user's
+      // `url.<base>.insteadOf` rewrites, so it would never match `repoUrl`.
+      const out = await git.exec(dir, ["config", "--get", "remote.origin.url"]);
+      return normalizeOriginUrl(out.trim()) === normalizeOriginUrl(repoUrl);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * `git clone --progress` through `git.cloneStream`, forwarding every
+   * progress line to the `worktree:setup-progress` channel and enforcing
+   * `CLONE_TIMEOUT_MS` — a stalled clone (e.g. waiting on a credential
+   * prompt `GIT_TERMINAL_PROMPT=0` should have refused) must not hang the
+   * onboarding flow forever.
+   */
+  private cloneWithProgress(
+    git: GitBackend,
+    repoUrl: string,
+    targetDir: string,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      // `handle` isn't available until `cloneStream` returns, but the
+      // timeout has to exist before then so a fake/synchronous backend
+      // calling `onDone` immediately still has something to `clearTimeout`.
+      let handle: { cancel: () => void } | null = null;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        handle?.cancel();
+        reject(
+          new Error(
+            `git clone timed out after ${ProjectManager.CLONE_TIMEOUT_MS / 1000}s`,
+          ),
+        );
+      }, ProjectManager.CLONE_TIMEOUT_MS);
+      handle = git.cloneStream(repoUrl, targetDir, {
+        onLine: (line) => {
+          this.emitSetupProgress("clone", "in-progress", line);
+        },
+        onDone: ({ exitCode, stderr }) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          if (exitCode === 0) {
+            resolve();
+          } else {
+            reject(
+              new Error(stderr.trim() || `git clone exited with code ${exitCode}`),
+            );
+          }
+        },
+      });
+    });
   }
 
   removeProject(projectId: string): void {
@@ -681,8 +1240,12 @@ export class ProjectManager {
   ): Promise<ProjectInfo | null> {
     const project = this.findProject(projectId);
     if (!project) return null;
-    if (updates.worktreePath) {
-      updates.worktreePath = expandHome(updates.worktreePath);
+    if (updates.worktreePath?.startsWith("~")) {
+      const hostId = project.hostId ?? LOCAL_HOST_ID;
+      updates.worktreePath = expandHome(
+        updates.worktreePath,
+        await this.homeDirFor(hostId),
+      );
     }
     Object.assign(project, updates);
     this.saveState();
@@ -690,10 +1253,11 @@ export class ProjectManager {
   }
 
   private async buildProjectInfo(p: PersistedProject): Promise<ProjectInfo> {
-    const rawWorkspaces = (await listGitWorkspaces(this.git, p.path)) ?? [
+    const rawWorkspaces = (await listGitWorkspaces(this.gitFor(p), p.path)) ?? [
       { path: p.path, branch: p.defaultBranch, isMain: true, name: null },
     ];
     const rawWorkspacePaths = rawWorkspaces.map((ws) => ws.path);
+    this.knownWorkspacePaths.set(p.id, rawWorkspacePaths);
     // Apply persisted ordering
     const order = p.workspaceOrder;
     if (order && order.length > 0) {
@@ -750,7 +1314,11 @@ export class ProjectManager {
       themeName: p.themeName ?? null,
       setupComplete: p.setupComplete ?? true,
       portlessEnabled: p.portlessEnabled ?? true,
-      backendType: p.backendType ?? "local",
+      backendType:
+        (p.hostId ?? LOCAL_HOST_ID) !== LOCAL_HOST_ID
+          ? "remote"
+          : (p.backendType ?? "local"),
+      hostId: p.hostId ?? LOCAL_HOST_ID,
       folders,
       sidebarOrder: normalizeSidebarOrder(
         p.workspaceOrder,
@@ -845,7 +1413,7 @@ export class ProjectManager {
     if (deleteBranch) {
       progress("Detecting branch…");
       try {
-        const worktrees = await this.git.worktreeList(project.path);
+        const worktrees = await this.gitFor(project).worktreeList(project.path);
         const match = worktrees.find((wt) => wt.path === worktreePath);
         if (match) branchName = match.branch;
       } catch (err) {
@@ -856,14 +1424,20 @@ export class ProjectManager {
       }
     }
 
-    // Run worktree teardown script before removal
+    // Run worktree teardown script before removal, through the project's
+    // host (ADR-178 §3). Remote hosts get a generous timeout since teardown
+    // (e.g. `docker compose down`) can run well past a daemon's default exec
+    // timeout; local keeps its original, tighter timeout.
     if (project.worktreeTeardownScript) {
       progress("Running teardown script…");
+      const hostId = project.hostId ?? LOCAL_HOST_ID;
+      const timeout = hostId === LOCAL_HOST_ID ? 30000 : 10 * 60 * 1000;
       try {
-        await execAsync(project.worktreeTeardownScript, {
-          cwd: worktreePath,
-          timeout: 30000,
-        });
+        await this.shellForHost(hostId).exec(
+          "sh",
+          ["-c", project.worktreeTeardownScript],
+          { cwd: worktreePath, timeout },
+        );
       } catch (err) {
         console.error(
           "[ProjectManager] worktree teardown script failed:",
@@ -874,14 +1448,20 @@ export class ProjectManager {
 
     progress("Removing worktree files…");
     try {
-      await this.git.worktreeRemove(project.path, worktreePath, true);
+      await this.gitFor(project).worktreeRemove(project.path, worktreePath, true);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[ProjectManager] git worktree remove failed:", message);
 
-      // Check if the directory is actually gone (e.g. already removed externally)
-      const { existsSync } = await import("fs");
-      if (existsSync(worktreePath)) {
+      // Check if the directory is actually gone (e.g. already removed
+      // externally), through the project's host (ADR-178 §3) — a remote
+      // worktree lives on the box, not on this machine.
+      const hostId = project.hostId ?? LOCAL_HOST_ID;
+      const stillExists =
+        hostId === LOCAL_HOST_ID
+          ? fs.existsSync(worktreePath)
+          : await this.remoteFileExists(this.shellForHost(hostId), worktreePath);
+      if (stillExists) {
         // Directory still exists — this is a real failure, surface it
         throw new Error(`Failed to remove worktree: ${message}`, { cause: err });
       }
@@ -889,7 +1469,7 @@ export class ProjectManager {
       // Directory is gone — prune stale git metadata and continue
       progress("Pruning stale worktree entries…");
       try {
-        await this.git.exec(project.path, ["worktree", "prune"]);
+        await this.gitFor(project).exec(project.path, ["worktree", "prune"]);
       } catch (pruneErr) {
         console.error(
           "[ProjectManager] git worktree prune failed:",
@@ -917,7 +1497,7 @@ export class ProjectManager {
     if (deleteBranch && branchName) {
       progress("Deleting branch…");
       try {
-        await this.git.exec(project.path, ["branch", "-D", branchName]);
+        await this.gitFor(project).exec(project.path, ["branch", "-D", branchName]);
       } catch (err) {
         console.error(
           "[ProjectManager] git branch -D failed:",
@@ -941,7 +1521,7 @@ export class ProjectManager {
     // Detect branch name from worktree list
     let branchName: string | null = null;
     try {
-      const worktrees = await this.git.worktreeList(project.path);
+      const worktrees = await this.gitFor(project).worktreeList(project.path);
       const match = worktrees.find((wt) => wt.path === worktreePath);
       if (match) branchName = match.branch;
     } catch (err) {
@@ -953,7 +1533,7 @@ export class ProjectManager {
 
     // Check for uncommitted changes in source worktree
     try {
-      const stdout = await this.git.exec(worktreePath, ["status", "--porcelain"]);
+      const stdout = await this.gitFor(project).exec(worktreePath, ["status", "--porcelain"]);
       if (stdout.trim().length > 0) {
         return { canMerge: false, reason: "Uncommitted changes in workspace" };
       }
@@ -966,7 +1546,7 @@ export class ProjectManager {
 
     // Check for uncommitted changes in main worktree (merge target)
     try {
-      const stdout = await this.git.exec(project.path, ["status", "--porcelain"]);
+      const stdout = await this.gitFor(project).exec(project.path, ["status", "--porcelain"]);
       if (stdout.trim().length > 0) {
         return { canMerge: false, reason: "Uncommitted changes in main workspace" };
       }
@@ -980,7 +1560,7 @@ export class ProjectManager {
     // Check fast-forward eligibility
     if (branchName) {
       try {
-        await this.git.exec(project.path, [
+        await this.gitFor(project).exec(project.path, [
           "merge-base",
           "--is-ancestor",
           project.defaultBranch,
@@ -1011,7 +1591,7 @@ export class ProjectManager {
     // Detect branch name
     let branchName: string | null = null;
     try {
-      const worktrees = await this.git.worktreeList(project.path);
+      const worktrees = await this.gitFor(project).worktreeList(project.path);
       const match = worktrees.find((wt) => wt.path === worktreePath);
       if (match) branchName = match.branch;
     } catch (err) {
@@ -1028,7 +1608,7 @@ export class ProjectManager {
     }
 
     try {
-      await this.git.exec(project.path, ["merge", "--ff-only", branchName]);
+      await this.gitFor(project).exec(project.path, ["merge", "--ff-only", branchName]);
     } catch (err) {
       console.error(
         "[ProjectManager] quickMergeWorktree: git merge --ff-only failed:",
@@ -1045,7 +1625,7 @@ export class ProjectManager {
     if (!project) return [];
 
     try {
-      const stdout = await this.git.exec(project.path, [
+      const stdout = await this.gitFor(project).exec(project.path, [
         "for-each-ref",
         "--sort=-creatordate",
         "--format=%(refname:strip=2)",
@@ -1073,20 +1653,23 @@ export class ProjectManager {
 
     try {
       // Fetch latest remote refs so for-each-ref has up-to-date data
-      await this.git.exec(project.path, ["fetch", "origin", "--prune"]);
+      await this.gitFor(project).exec(project.path, ["fetch", "origin", "--prune"]);
 
       // Natural network touchpoint: refresh origin/HEAD (a plain fetch does NOT
       // update it) so an upstream default-branch rename is picked up here rather
       // than on every app launch, then resync this project's defaultBranch.
       // Best-effort — must never block branch listing. See ADR-144.
       try {
-        await this.git.exec(project.path, [
+        await this.gitFor(project).exec(project.path, [
           "remote",
           "set-head",
           "origin",
           "--auto",
         ]);
-        const detected = await this.detectDefaultBranchLocal(project.path);
+        const detected = await this.detectDefaultBranchLocal(
+          this.gitFor(project),
+          project.path,
+        );
         if (detected && detected !== project.defaultBranch) {
           project.defaultBranch = detected;
           this.saveState();
@@ -1098,7 +1681,7 @@ export class ProjectManager {
         );
       }
 
-      const stdout = await this.git.exec(project.path, [
+      const stdout = await this.gitFor(project).exec(project.path, [
         "for-each-ref",
         "--sort=-creatordate",
         "--format=%(refname:strip=3)",
@@ -1121,15 +1704,69 @@ export class ProjectManager {
   }
 
   /**
+   * `package.json` at `projectPath` on a remote host, read through its shell
+   * exec (`cat`). Null when it does not exist or does not parse as an
+   * object — same as `addProject`'s local `fs.existsSync` + try/catch.
+   */
+  private async readRemotePackageJson(
+    shell: ShellBackend,
+    projectPath: string,
+  ): Promise<{ scripts?: unknown } | null> {
+    try {
+      const stdout = await shell.exec("cat", [remoteJoin(projectPath, "package.json")]);
+      const parsed = JSON.parse(stdout);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Whether `filePath` exists on a remote host, via `test -e`. */
+  private async remoteFileExists(shell: ShellBackend, filePath: string): Promise<boolean> {
+    try {
+      await shell.exec("test", ["-e", filePath]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * The deterministic filesystem path a worktree named `name` would occupy in
    * this project. Single source of truth for both `createWorktree` and callers
    * that need to know the path a worktree will be created at.
+   *
+   * Asks the project's host for its home directory (ADR-178 §3) — for a
+   * remote project, this fails loudly if the host is unreachable rather
+   * than falling back to a local path.
    */
-  private worktreePathFor(project: PersistedProject, name: string): string {
-    const baseDir = project.worktreePath
-      ? expandHome(project.worktreePath)
-      : path.join(worktreesDir(), toDirSlug(project.name));
-    return path.join(baseDir, toDirSlug(name));
+  private async worktreePathFor(
+    project: PersistedProject,
+    name: string,
+  ): Promise<string> {
+    const base = await this.worktreeBaseDir(project);
+    const hostId = project.hostId ?? LOCAL_HOST_ID;
+    return hostId === LOCAL_HOST_ID
+      ? path.join(base, toDirSlug(name))
+      : remoteJoin(base, toDirSlug(name));
+  }
+
+  /**
+   * The directory this project's worktrees are created in: `<hostHome>/
+   * .manor/worktrees/<slug>` by default, or `project.worktreePath` (with a
+   * leading `~` expanded against the host's home) when set.
+   */
+  private async worktreeBaseDir(project: PersistedProject): Promise<string> {
+    const hostId = project.hostId ?? LOCAL_HOST_ID;
+    if (hostId === LOCAL_HOST_ID) {
+      return project.worktreePath
+        ? expandHome(project.worktreePath, os.homedir())
+        : path.join(worktreesDir(), toDirSlug(project.name));
+    }
+    const home = await this.homeDirFor(hostId);
+    return project.worktreePath
+      ? expandHome(project.worktreePath, home)
+      : remoteJoin(home, ".manor", "worktrees", toDirSlug(project.name));
   }
 
   /**
@@ -1164,7 +1801,7 @@ export class ProjectManager {
           url: seed.url,
         };
         const name = toDirSlug(seed.title) || "issue-" + seed.number;
-        const worktreePath = this.worktreePathFor(project, name);
+        const worktreePath = await this.worktreePathFor(project, name);
         await this.createWorktree(
           projectId,
           name,
@@ -1192,12 +1829,12 @@ export class ProjectManager {
     if (!project) return null;
 
     const branchName = sanitizeBranchName(branch || name);
-    const worktreePath = this.worktreePathFor(project, name);
+    const worktreePath = await this.worktreePathFor(project, name);
 
     // Prune stale worktree entries (e.g. leftover from a previous failed creation)
     this.emitSetupProgress("prune", "in-progress");
     try {
-      await this.git.exec(project.path, ["worktree", "prune"]);
+      await this.gitFor(project).exec(project.path, ["worktree", "prune"]);
     } catch (err) {
       console.error(
         "[ProjectManager] git worktree prune failed:",
@@ -1210,7 +1847,7 @@ export class ProjectManager {
     this.emitSetupProgress("fetch", "in-progress");
     if (branch) {
       try {
-        await this.git.exec(project.path, ["fetch", "origin", branchName]);
+        await this.gitFor(project).exec(project.path, ["fetch", "origin", branchName]);
       } catch (err) {
         console.error(
           "[ProjectManager] git fetch before checkout failed:",
@@ -1220,7 +1857,7 @@ export class ProjectManager {
     } else {
       // Creating a new branch — fetch origin so we base off the latest remote refs
       try {
-        await this.git.exec(project.path, ["fetch", "origin"]);
+        await this.gitFor(project).exec(project.path, ["fetch", "origin"]);
       } catch (err) {
         console.error(
           "[ProjectManager] git fetch origin before new worktree failed:",
@@ -1237,11 +1874,11 @@ export class ProjectManager {
       this.emitSetupProgress("create-worktree", "in-progress", `Checking out branch ${branchName}`);
       try {
         // Try checking out as a local branch first
-        await this.git.worktreeAdd(project.path, worktreePath, branchName);
+        await this.gitFor(project).worktreeAdd(project.path, worktreePath, branchName);
       } catch {
         // Local branch doesn't exist — create local tracking branch from remote
         try {
-          await this.git.worktreeAdd(project.path, worktreePath, branchName, {
+          await this.gitFor(project).worktreeAdd(project.path, worktreePath, branchName, {
             createBranch: true,
             startPoint: `origin/${branchName}`,
           });
@@ -1256,7 +1893,7 @@ export class ProjectManager {
     } else {
       this.emitSetupProgress("create-worktree", "in-progress", branch ? `Checking out branch ${branchName}` : `Creating new branch ${branchName} from ${defaultBranchRef}`);
       try {
-        await this.git.worktreeAdd(project.path, worktreePath, branchName, {
+        await this.gitFor(project).worktreeAdd(project.path, worktreePath, branchName, {
           createBranch: true,
           startPoint: defaultBranchRef,
         });
@@ -1267,12 +1904,12 @@ export class ProjectManager {
         );
         // Branch already exists — create worktree checking out the existing branch
         try {
-          await this.git.worktreeAdd(project.path, worktreePath, branchName);
+          await this.gitFor(project).worktreeAdd(project.path, worktreePath, branchName);
         } catch {
           // Neither new branch nor existing local branch — try remote tracking branch
           try {
-            await this.git.exec(project.path, ["fetch", "origin", branchName]);
-            await this.git.worktreeAdd(project.path, worktreePath, branchName, {
+            await this.gitFor(project).exec(project.path, ["fetch", "origin", branchName]);
+            await this.gitFor(project).worktreeAdd(project.path, worktreePath, branchName, {
               createBranch: true,
               startPoint: `origin/${branchName}`,
             });
@@ -1318,7 +1955,7 @@ export class ProjectManager {
     if (!project) return null;
 
     // Get the current branch of the main workspace
-    const branchOut = await this.git.exec(project.path, [
+    const branchOut = await this.gitFor(project).exec(project.path, [
       "rev-parse",
       "--abbrev-ref",
       "HEAD",
@@ -1331,11 +1968,11 @@ export class ProjectManager {
       );
     }
 
-    const worktreePath = this.worktreePathFor(project, name);
+    const worktreePath = await this.worktreePathFor(project, name);
 
     // Prune stale worktree entries
     try {
-      await this.git.exec(project.path, ["worktree", "prune"]);
+      await this.gitFor(project).exec(project.path, ["worktree", "prune"]);
     } catch (err) {
       console.error(
         "[ProjectManager] git worktree prune failed:",
@@ -1345,18 +1982,18 @@ export class ProjectManager {
 
     // Checkout the default branch first — the current branch must be
     // freed before git allows it to be checked out in a new worktree.
-    await this.git.exec(project.path, [
+    await this.gitFor(project).exec(project.path, [
       "checkout",
       project.defaultBranch || "main",
     ]);
 
     // Create a worktree for the branch we just freed
     try {
-      await this.git.worktreeAdd(project.path, worktreePath, currentBranch);
+      await this.gitFor(project).worktreeAdd(project.path, worktreePath, currentBranch);
     } catch (worktreeErr) {
       // Roll back: re-checkout the original branch so the user isn't stranded
       try {
-        await this.git.exec(project.path, ["checkout", currentBranch]);
+        await this.gitFor(project).exec(project.path, ["checkout", currentBranch]);
       } catch (rollbackErr) {
         console.error(
           "[ProjectManager] failed to roll back to original branch after worktree failure:",

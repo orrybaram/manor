@@ -1,10 +1,20 @@
 import { TerminalHostClient } from "./terminal-host/client";
 import crypto from "node:crypto";
+import { LOCAL_HOST_ID } from "./backend/types";
+import type { HostForPath } from "./backend/routed-backend";
 
 type PrewarmState = "idle" | "warming" | "ready";
 
+/**
+ * Prewarms a shell session in the background so opening a new pane can
+ * attach to one already booted. Local only (ADR-178 §3): prewarming a
+ * remote cwd would cost a round-trip to the box for a session the user may
+ * never open, so a remote cwd never gets a prewarmed session — `warm` is a
+ * no-op for it and `consume` never hands one out.
+ */
 export class PrewarmManager {
   private client: TerminalHostClient;
+  private hostForPath: HostForPath;
   private state: PrewarmState = "idle";
   private prewarmPaneId: string | null = null;
   private warmingPaneId: string | null = null;
@@ -15,9 +25,14 @@ export class PrewarmManager {
   private defaultCols = 80;
   private defaultRows = 24;
 
-  constructor(client: TerminalHostClient, defaultCwd: string) {
+  constructor(
+    client: TerminalHostClient,
+    defaultCwd: string,
+    hostForPath: HostForPath = () => LOCAL_HOST_ID,
+  ) {
     this.client = client;
     this.currentCwd = defaultCwd;
+    this.hostForPath = hostForPath;
   }
 
   /** Start warming a session in the background */
@@ -26,6 +41,12 @@ export class PrewarmManager {
     if (agentCommand !== undefined) this.currentAgentCommand = agentCommand;
     if (kind !== undefined) this.currentKind = kind;
     if (this.state === "warming") return;
+    if (this.hostForPath(this.currentCwd) !== LOCAL_HOST_ID) {
+      // Remote cwd — no prewarm. Drop anything already warmed for a
+      // previous (local) cwd so it isn't handed out for this one.
+      await this.dispose();
+      return;
+    }
 
     this.state = "warming";
     this.commandInjected = false;
@@ -78,12 +99,23 @@ export class PrewarmManager {
   }
 
   /**
-   * Consume the prewarmed session.
-   * Returns the pre-generated paneId and whether the agent command was already
-   * injected, or null if no session is ready.
+   * Consume the prewarmed session for `cwd` (already resolved via
+   * `resolveSpawnCwd`, matching `updateCwd`'s caller).
+   *
+   * Returns the pre-generated paneId and whether the agent command was
+   * already injected, or null if no session is ready — including when it was
+   * warmed for a different cwd. That guards a race: the user switches to a
+   * remote workspace and opens a tab before `pty:updatePrewarmCwd` lands, so
+   * without this check the remote tab would adopt a shell warmed for the
+   * previous (local) cwd.
    */
-  consume(): { paneId: string; commandInjected: boolean } | null {
-    if (this.state !== "ready" || !this.prewarmPaneId) {
+  consume(cwd: string): { paneId: string; commandInjected: boolean } | null {
+    if (
+      this.state !== "ready" ||
+      !this.prewarmPaneId ||
+      cwd !== this.currentCwd ||
+      this.hostForPath(cwd) !== LOCAL_HOST_ID
+    ) {
       return null;
     }
 

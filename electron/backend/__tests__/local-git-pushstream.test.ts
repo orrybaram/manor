@@ -1,67 +1,98 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { EventEmitter } from "node:events";
-import { PassThrough } from "node:stream";
+import type { Exec } from "../exec";
 
 // ── Mock node:child_process ──
 //
-// We need to control both `spawn` (for the actual push) and `execFileSync`
-// (for the synchronous branch resolution). The mock factory exposes them
-// so each test can program their behaviour individually.
-
-type FakeChild = EventEmitter & {
-  stderr: PassThrough;
-  stdout: PassThrough;
-  kill: ReturnType<typeof vi.fn>;
-  pid: number;
-};
-
-function makeFakeChild(): FakeChild {
-  const child = new EventEmitter() as FakeChild;
-  child.stderr = new PassThrough();
-  child.stdout = new PassThrough();
-  child.kill = vi.fn();
-  child.pid = 12345;
-  return child;
-}
-
-const spawnMock = vi.fn();
-const execFileSyncMock = vi.fn();
+// Nothing in `pushStream` may touch node:child_process — branch resolution
+// and the push both go through the injected `Exec` (a remote host runs them
+// on the remote). The mock makes any direct use fail loudly.
 
 vi.mock("node:child_process", () => ({
-  spawn: (...args: unknown[]) => spawnMock(...args),
-  execFileSync: (...args: unknown[]) => execFileSyncMock(...args),
-  // Keep execFile present for ./exec.ts (uses promisified execFile). Tests that
-  // need it can override; these tests don't exercise async execGit paths.
-  execFile: vi.fn(),
+  // exec.ts imports these at module scope (for `localExec`); local-git.ts
+  // imports `localExec` as a value even though this test injects a fake
+  // `Exec`, so these must exist to avoid failing at import time.
+  execFile: vi.fn(() => {
+    throw new Error("pushStream must not call execFile directly");
+  }),
+  spawn: vi.fn(() => {
+    throw new Error("pushStream must not call spawn directly");
+  }),
 }));
 
 import { LocalGitBackend } from "../local-git";
 
+type StreamCb = {
+  onStdout?: (chunk: string) => void;
+  onStderr?: (chunk: string) => void;
+  onExit: (result: { exitCode: number | null; error?: string }) => void;
+};
+
+function makeFakeExec() {
+  const cancel = vi.fn();
+  const streamMock = vi.fn();
+  let capturedCb: StreamCb | null = null;
+
+  streamMock.mockImplementation(
+    (
+      _cmd: string,
+      _args: string[],
+      _opts: { cwd?: string; env?: Record<string, string> },
+      cb: StreamCb,
+    ) => {
+      capturedCb = cb;
+      return { cancel };
+    },
+  );
+
+  // Branch resolution (`git rev-parse --abbrev-ref HEAD`).
+  const fileMock = vi.fn<Exec["file"]>();
+
+  const exec: Exec = {
+    file: fileMock,
+    stream: streamMock,
+    readFile: vi.fn(),
+  };
+
+  return {
+    exec,
+    fileMock,
+    streamMock,
+    cancel,
+    emitStderr: (chunk: string) => capturedCb?.onStderr?.(chunk),
+    emitExit: (exitCode: number | null) => capturedCb?.onExit({ exitCode }),
+    emitError: (error: string) =>
+      capturedCb?.onExit({ exitCode: null, error }),
+  };
+}
+
 describe("LocalGitBackend.pushStream", () => {
   let backend: LocalGitBackend;
-  let child: FakeChild;
+  let fake: ReturnType<typeof makeFakeExec>;
 
   beforeEach(() => {
-    backend = new LocalGitBackend();
-    child = makeFakeChild();
-    spawnMock.mockReset();
-    execFileSyncMock.mockReset();
-    spawnMock.mockReturnValue(child);
+    fake = makeFakeExec();
+    backend = new LocalGitBackend(fake.exec);
     // Default: branch resolution returns "main".
-    execFileSyncMock.mockReturnValue("main\n");
+    fake.fileMock.mockResolvedValue({ stdout: "main\n", stderr: "" });
   });
 
+  /** Let a pending branch resolution settle. */
+  const flush = () => new Promise<void>((r) => setTimeout(r, 0));
+
   describe("argument composition", () => {
-    it("uses default remote 'origin' and resolved branch", () => {
+    it("uses default remote 'origin' and resolved branch", async () => {
       backend.pushStream("/repo", {}, { onLine: vi.fn(), onDone: vi.fn() });
 
-      expect(execFileSyncMock).toHaveBeenCalledWith(
+      expect(fake.fileMock).toHaveBeenCalledWith(
         "git",
         ["rev-parse", "--abbrev-ref", "HEAD"],
-        expect.objectContaining({ cwd: "/repo", encoding: "utf-8" }),
+        expect.objectContaining({ cwd: "/repo" }),
       );
-      expect(spawnMock).toHaveBeenCalledOnce();
-      const [cmd, args] = spawnMock.mock.calls[0];
+      // The push waits for the branch.
+      expect(fake.streamMock).not.toHaveBeenCalled();
+      await flush();
+      expect(fake.streamMock).toHaveBeenCalledOnce();
+      const [cmd, args] = fake.streamMock.mock.calls[0];
       expect(cmd).toBe("git");
       expect(args).toEqual(["push", "origin", "main"]);
     });
@@ -73,8 +104,8 @@ describe("LocalGitBackend.pushStream", () => {
         { onLine: vi.fn(), onDone: vi.fn() },
       );
 
-      expect(execFileSyncMock).not.toHaveBeenCalled();
-      const [, args] = spawnMock.mock.calls[0];
+      expect(fake.fileMock).not.toHaveBeenCalled();
+      const [, args] = fake.streamMock.mock.calls[0];
       expect(args).toEqual(["push", "upstream", "feature"]);
     });
 
@@ -85,7 +116,7 @@ describe("LocalGitBackend.pushStream", () => {
         { onLine: vi.fn(), onDone: vi.fn() },
       );
 
-      const [, args] = spawnMock.mock.calls[0];
+      const [, args] = fake.streamMock.mock.calls[0];
       expect(args).toEqual(["push", "--set-upstream", "origin", "feature"]);
     });
   });
@@ -98,13 +129,17 @@ describe("LocalGitBackend.pushStream", () => {
         { onLine: vi.fn(), onDone: vi.fn() },
       );
 
-      const opts = spawnMock.mock.calls[0][2] as {
+      const opts = fake.streamMock.mock.calls[0][2] as {
         cwd: string;
         env: Record<string, string>;
       };
       expect(opts.cwd).toBe("/repo");
-      expect(opts.env.GIT_TERMINAL_PROMPT).toBe("0");
-      expect(opts.env.GIT_ASKPASS).toBe("/bin/true");
+      // Overrides only: the Exec merges them onto its own base env, so the
+      // caller must not ship its whole process.env (wrong for a remote Exec).
+      expect(opts.env).toEqual({
+        GIT_TERMINAL_PROMPT: "0",
+        GIT_ASKPASS: "/bin/true",
+      });
     });
   });
 
@@ -114,12 +149,12 @@ describe("LocalGitBackend.pushStream", () => {
       const onDone = vi.fn();
       backend.pushStream("/repo", { branch: "main" }, { onLine, onDone });
 
-      child.stderr.write("foo\nbar");
+      fake.emitStderr("foo\nbar");
       // No newline after 'bar' yet — only 'foo' should be flushed.
       expect(onLine).toHaveBeenCalledTimes(1);
       expect(onLine).toHaveBeenNthCalledWith(1, "foo");
 
-      child.stderr.write("\nbaz\n");
+      fake.emitStderr("\nbaz\n");
       // Now we expect 'bar' and 'baz' to flush.
       expect(onLine).toHaveBeenCalledTimes(3);
       expect(onLine).toHaveBeenNthCalledWith(2, "bar");
@@ -138,11 +173,11 @@ describe("LocalGitBackend.pushStream", () => {
 
       backend.pushStream("/repo", { branch: "main" }, { onLine, onDone });
 
-      child.stderr.write("partial");
+      fake.emitStderr("partial");
       // No newline — pending should hold it.
       expect(onLine).not.toHaveBeenCalled();
 
-      child.emit("close", 0);
+      fake.emitExit(0);
 
       expect(calls).toEqual(["line:partial", "done"]);
       expect(onDone).toHaveBeenCalledWith({ exitCode: 0, stderr: "partial" });
@@ -154,11 +189,11 @@ describe("LocalGitBackend.pushStream", () => {
 
       backend.pushStream("/repo", { branch: "main" }, { onLine, onDone });
 
-      child.stderr.write("done\n");
+      fake.emitStderr("done\n");
       expect(onLine).toHaveBeenCalledTimes(1);
       expect(onLine).toHaveBeenCalledWith("done");
 
-      child.emit("close", 0);
+      fake.emitExit(0);
       // Pending was empty, so no extra line should fire.
       expect(onLine).toHaveBeenCalledTimes(1);
       expect(onDone).toHaveBeenCalledWith({ exitCode: 0, stderr: "done\n" });
@@ -171,8 +206,8 @@ describe("LocalGitBackend.pushStream", () => {
         { branch: "main" },
         { onLine: vi.fn(), onDone },
       );
-      child.stderr.write("nope\n");
-      child.emit("close", 1);
+      fake.emitStderr("nope\n");
+      fake.emitExit(1);
       expect(onDone).toHaveBeenCalledWith({ exitCode: 1, stderr: "nope\n" });
     });
   });
@@ -186,56 +221,39 @@ describe("LocalGitBackend.pushStream", () => {
       );
 
       cancel();
-      expect(child.kill).toHaveBeenCalledTimes(1);
-      expect(child.kill).toHaveBeenCalledWith("SIGTERM");
-    });
-
-    it("is a no-op when called after close", () => {
-      const { cancel } = backend.pushStream(
-        "/repo",
-        { branch: "main" },
-        { onLine: vi.fn(), onDone: vi.fn() },
-      );
-
-      child.emit("close", 0);
-      cancel();
-      expect(child.kill).not.toHaveBeenCalled();
-    });
-
-    it("only calls kill once across multiple cancel invocations after exit", () => {
-      const { cancel } = backend.pushStream(
-        "/repo",
-        { branch: "main" },
-        { onLine: vi.fn(), onDone: vi.fn() },
-      );
-
-      cancel();
-      child.emit("close", null);
-      cancel();
-      cancel();
-
-      expect(child.kill).toHaveBeenCalledTimes(1);
+      expect(fake.cancel).toHaveBeenCalledTimes(1);
     });
   });
 
   describe("spawn / runtime errors", () => {
-    it("calls onDone with the error message when child emits 'error'", () => {
+    it("calls onDone with the error message when the exec stream errors", () => {
+      const onLine = vi.fn();
       const onDone = vi.fn();
-      backend.pushStream(
-        "/repo",
-        { branch: "main" },
-        { onLine: vi.fn(), onDone },
-      );
+      backend.pushStream("/repo", { branch: "main" }, { onLine, onDone });
 
-      child.emit("error", new Error("ENOENT: git not found"));
+      fake.emitError("spawn git ENOENT");
 
       expect(onDone).toHaveBeenCalledWith({
         exitCode: null,
-        stderr: "ENOENT: git not found",
+        stderr: "spawn git ENOENT",
       });
+      // The spawn error is not push progress.
+      expect(onLine).not.toHaveBeenCalled();
     });
 
-    it("does not double-fire onDone when error precedes close", () => {
+    it("reports only the error, not partial stderr, when the stream errors", () => {
+      const onLine = vi.fn();
+      const onDone = vi.fn();
+      backend.pushStream("/repo", { branch: "main" }, { onLine, onDone });
+
+      fake.emitStderr("partial");
+      fake.emitError("boom");
+
+      expect(onLine).not.toHaveBeenCalled();
+      expect(onDone).toHaveBeenCalledWith({ exitCode: null, stderr: "boom" });
+    });
+
+    it("does not double-fire onDone when exit fires twice", () => {
       const onDone = vi.fn();
       backend.pushStream(
         "/repo",
@@ -243,18 +261,16 @@ describe("LocalGitBackend.pushStream", () => {
         { onLine: vi.fn(), onDone },
       );
 
-      child.emit("error", new Error("boom"));
-      child.emit("close", null);
+      fake.emitExit(null);
+      fake.emitExit(null);
 
       expect(onDone).toHaveBeenCalledTimes(1);
     });
   });
 
   describe("branch resolution failure", () => {
-    it("invokes onDone with the error and returns a no-op cancel", () => {
-      execFileSyncMock.mockImplementation(() => {
-        throw new Error("not a git repository");
-      });
+    it("invokes onDone with the error and returns a no-op cancel", async () => {
+      fake.fileMock.mockRejectedValue(new Error("not a git repository"));
 
       const onDone = vi.fn();
       const { cancel } = backend.pushStream(
@@ -262,15 +278,53 @@ describe("LocalGitBackend.pushStream", () => {
         {},
         { onLine: vi.fn(), onDone },
       );
+      await flush();
 
       expect(onDone).toHaveBeenCalledWith({
         exitCode: null,
         stderr: "not a git repository",
       });
-      // No spawn should have happened.
-      expect(spawnMock).not.toHaveBeenCalled();
+      // No stream should have been started.
+      expect(fake.streamMock).not.toHaveBeenCalled();
       // Cancel must still be callable without error.
       expect(() => cancel()).not.toThrow();
+      expect(onDone).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("cancel before the branch resolves", () => {
+    it("never starts the push and reports a killed push once", async () => {
+      let resolveBranch!: (v: { stdout: string; stderr: string }) => void;
+      fake.fileMock.mockReturnValue(
+        new Promise((r) => {
+          resolveBranch = r;
+        }),
+      );
+      const onDone = vi.fn();
+      const { cancel } = backend.pushStream(
+        "/repo",
+        {},
+        { onLine: vi.fn(), onDone },
+      );
+
+      cancel();
+      expect(onDone).toHaveBeenCalledWith({ exitCode: null, stderr: "" });
+
+      resolveBranch({ stdout: "main\n", stderr: "" });
+      await flush();
+      expect(fake.streamMock).not.toHaveBeenCalled();
+      expect(onDone).toHaveBeenCalledTimes(1);
+    });
+
+    it("forwards cancel to the push once it has started", async () => {
+      const { cancel } = backend.pushStream(
+        "/repo",
+        {},
+        { onLine: vi.fn(), onDone: vi.fn() },
+      );
+      await flush();
+      cancel();
+      expect(fake.cancel).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -29,6 +29,9 @@ vi.mock("../shell", () => ({
 import { TerminalHost } from "./terminal-host";
 import type { ControlRequest, ControlResponse } from "./types";
 import { TerminalHostClient, isDaemonStale, daemonProtocolOf } from "./client";
+import type { HostTransport } from "./transport";
+import { LocalTransport } from "./transport-local";
+import type { Duplex } from "node:stream";
 import { TERMINAL_HOST_PROTOCOL } from "./types";
 
 // ── Test daemon (same as daemon.integration.test.ts but with error handling fix) ──
@@ -44,6 +47,8 @@ class TestDaemon {
   readonly pidPath: string;
   /** Every request seen, in order, as "control:type" / "stream:type". */
   readonly seen: string[] = [];
+  /** Every `env` payload received via `updateEnv`, in order. */
+  readonly receivedEnvUpdates: Record<string, string>[] = [];
   /** Set to make the next getSnapshot fail as though the daemon misbehaved. */
   failNextSnapshot = false;
   /** Behave like a daemon from before ADR-159: no protocol, no `notFound`. */
@@ -237,6 +242,25 @@ class TestDaemon {
       case "ping":
         this.send(socket, { type: "pong" }, requestId);
         break;
+      case "updateEnv":
+        this.receivedEnvUpdates.push(req.env);
+        this.send(socket, { type: "envUpdated" }, requestId);
+        break;
+      case "exec": {
+        // Answers after `args[0]` ms — out of order with anything sent in
+        // the meantime, the way the real daemon answers a slow exec.
+        const delayMs = Number(req.args[0] ?? 0);
+        setTimeout(
+          () =>
+            this.send(
+              socket,
+              { type: "execResult", stdout: req.cmd, stderr: "", exitCode: 0 },
+              requestId,
+            ),
+          delayMs,
+        );
+        break;
+      }
       case "handshake":
         // Echo the client's version so it does not decide we are stale and
         // respawn us. `protocol` is omitted when playing an older daemon.
@@ -247,7 +271,7 @@ class TestDaemon {
             : {
                 type: "handshake",
                 daemonVersion: req.clientVersion,
-                protocol: 1,
+                protocol: TERMINAL_HOST_PROTOCOL,
               },
           requestId,
         );
@@ -291,118 +315,54 @@ class TestDaemon {
 
 // ── Helper to create a TerminalHostClient wired to a test daemon ──
 
-function createTestClient(daemon: TestDaemon): TerminalHostClient {
-  const client = new TerminalHostClient();
-  // Patch the private paths and daemon-spawning to point at our test daemon
-  (client as any).isDaemonRunning = () => true;
-  (client as any).spawnDaemon = () => Promise.resolve();
-
-  const socketPath = daemon.socketPath;
-  const tokenPath = daemon.tokenPath;
-
-  const _origConnectControl = (client as any).connectControlSocket.bind(client);
-  (client as any).connectControlSocket = () => {
-    // Override SOCKET_PATH temporarily
-    return new Promise<void>((resolve, reject) => {
-      const socket = net.createConnection(socketPath, () => resolve());
-      (client as any).controlSocket = socket;
-
-      socket.on("data", (chunk: Buffer) => {
-        let buf: string = (client as any).controlBuffer;
-        buf += chunk.toString("utf-8");
-        const lines = buf.split("\n");
-        (client as any).controlBuffer = lines.pop()!;
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const resp = JSON.parse(line);
-            const pendingMap = (client as any).pendingRequests as Map<string, any>;
-            const firstKey = pendingMap.keys().next().value;
-            if (firstKey !== undefined) {
-              const pending = pendingMap.get(firstKey)!;
-              pendingMap.delete(firstKey);
-              clearTimeout(pending.timeout);
-              pending.resolve(resp);
-            }
-          } catch {}
-        }
-      });
-
-      socket.on("error", (err: Error) => {
-        if (!(client as any).connected) {
-          reject(err);
-        } else {
-          (client as any).handleDisconnect();
-        }
-      });
-
-      socket.on("close", () => {
-        (client as any).handleDisconnect();
-      });
-    });
-  };
-
-  // Patch connectStreamSocket similarly
-  (client as any).connectStreamSocket = (token: string) => {
-    return new Promise<void>((resolve, reject) => {
-      const socket = net.createConnection(socketPath, () => {
-        socket.write(
-          JSON.stringify({ connectionType: "stream", token }) + "\n",
-        );
-        resolve();
-      });
-      (client as any).streamSocket = socket;
-
-      socket.on("data", (chunk: Buffer) => {
-        let buf: string = (client as any).streamBuffer;
-        buf += chunk.toString("utf-8");
-        const lines = buf.split("\n");
-        (client as any).streamBuffer = lines.pop()!;
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const event = JSON.parse(line);
-            (client as any).eventHandler?.(event);
-          } catch {}
-        }
-      });
-
-      socket.on("error", (err: Error) => {
-        if (!(client as any).connected) reject(err);
-      });
-
-      socket.on("close", () => {
-        (client as any).handleDisconnect();
-      });
-    });
-  };
-
-  // Patch the request method to read the test token
-  const origRequest = (client as any).request.bind(client);
-  const _origDoConnect = (client as any).doConnect.bind(client);
-  (client as any).doConnect = async () => {
-    await (client as any).connectControlSocket();
-    const token = fs.readFileSync(tokenPath, "utf-8").trim();
-    const authResp = await origRequest({ type: "auth", token });
-    if (authResp.type !== "authOk") {
-      throw new Error(
-        `Auth failed: ${authResp.type === "error" ? authResp.message : "unknown"}`,
-      );
+/** A transport that reaches the test daemon instead of ~/.manor/daemon. */
+class TestTransport implements HostTransport {
+  restarts = 0;
+  disposed = 0;
+  /** Set to make the next `connectStream` fail. */
+  failNextStream = false;
+  constructor(private daemon: TestDaemon) {}
+  async ensureRunning(): Promise<void> {}
+  async restart(): Promise<void> {
+    // "Replace" the daemon: the fresh one speaks the current protocol.
+    this.restarts++;
+    this.daemon.legacyProtocol = false;
+  }
+  connectControl(): Promise<Duplex> {
+    return this.connect();
+  }
+  connectStream(): Promise<Duplex> {
+    if (this.failNextStream) {
+      this.failNextStream = false;
+      return Promise.reject(new Error("stream connect refused"));
     }
-    // Mirror the real doConnect's protocol negotiation — minus the kill and
-    // respawn on a version mismatch, which a test daemon never needs. Without
-    // this the client would treat every test daemon as pre-ADR-159.
-    const hsResp = await origRequest({
-      type: "handshake",
-      clientVersion: (client as any).clientVersion ?? "unknown",
+    return this.connect();
+  }
+  async authToken(): Promise<string> {
+    return fs.readFileSync(this.daemon.tokenPath, "utf-8").trim();
+  }
+  async dispose(): Promise<void> {
+    this.disposed++;
+  }
+  private connect(): Promise<Duplex> {
+    return new Promise((resolve, reject) => {
+      const socket = net.createConnection(this.daemon.socketPath, () =>
+        resolve(socket),
+      );
+      socket.on("error", reject);
     });
-    (client as any).daemonProtocol =
-      hsResp.type === "handshake" ? (hsResp.protocol ?? 0) : 0;
-    await (client as any).connectStreamSocket(token);
-    (client as any).connected = true;
-  };
+  }
+}
 
-  return client;
+/**
+ * A client wired to the test daemon. Runs the real `doConnect` — auth, version
+ * handshake and protocol negotiation — through `TestTransport`.
+ */
+function createTestClient(
+  daemon: TestDaemon,
+  transport: TestTransport = new TestTransport(daemon),
+): TerminalHostClient {
+  return new TerminalHostClient(undefined, transport);
 }
 
 // ── Tests ──
@@ -458,6 +418,145 @@ describe("TerminalHostClient", () => {
       await client.connect();
       expect(await client.ping()).toBe(true);
       client.disconnect();
+    });
+  });
+
+  describe("connect handshake", () => {
+    it("records the protocol the daemon reports", async () => {
+      const transport = new TestTransport(daemon);
+      const client = createTestClient(daemon, transport);
+      await client.connect();
+      expect((client as any).daemonProtocol).toBe(TERMINAL_HOST_PROTOCOL);
+      expect(transport.restarts).toBe(0);
+      client.disconnect();
+    });
+
+    it("restarts a daemon that speaks an older protocol, then reconnects", async () => {
+      daemon.legacyProtocol = true;
+      const transport = new TestTransport(daemon);
+      const client = createTestClient(daemon, transport);
+      await client.connect();
+
+      expect(transport.restarts).toBe(1);
+      expect((client as any).daemonProtocol).toBe(TERMINAL_HOST_PROTOCOL);
+      expect(await client.ping()).toBe(true);
+      client.disconnect();
+    });
+
+    it("closes a half-open attempt so it cannot disturb the next connection", async () => {
+      const transport = new TestTransport(daemon);
+      transport.failNextStream = true;
+      const client = createTestClient(daemon, transport);
+
+      const opened: Duplex[] = [];
+      const origConnectControl = transport.connectControl.bind(transport);
+      transport.connectControl = async () => {
+        const s = await origConnectControl();
+        opened.push(s);
+        return s;
+      };
+
+      await expect(client.connect()).rejects.toThrow("stream connect refused");
+      expect(opened).toHaveLength(1);
+      expect(opened[0].destroyed).toBe(true);
+      expect((client as any).controlSocket).toBeNull();
+
+      await client.connect();
+      expect(opened).toHaveLength(2);
+      // Let the first socket's close event land; it must not drop the new one.
+      await new Promise((r) => setTimeout(r, 50));
+      expect((client as any).connected).toBe(true);
+      expect(await client.ping()).toBe(true);
+      client.disconnect();
+    });
+
+    it("dispose releases the transport", async () => {
+      const transport = new TestTransport(daemon);
+      const client = createTestClient(daemon, transport);
+      await client.connect();
+      await client.dispose();
+      expect(transport.disposed).toBe(1);
+      expect((client as any).connected).toBe(false);
+    });
+
+    it("on reconnect, the live process.env MANOR_* port wins over a stale remembered override", async () => {
+      const originalPort = process.env.MANOR_HOOK_PORT;
+      try {
+        // A stale override remembered from before the port changed.
+        process.env.MANOR_HOOK_PORT = "1111";
+        const client = createTestClient(daemon);
+        await client.connect();
+        await client.updateEnv({ MANOR_HOOK_PORT: "1111" });
+
+        // The port moves (e.g. the hook server was recreated), then we
+        // reconnect — the daemon must see the new port, not the remembered one.
+        process.env.MANOR_HOOK_PORT = "2222";
+        client.disconnect();
+        await client.connect();
+
+        const updates = daemon.receivedEnvUpdates;
+        expect(updates.length).toBeGreaterThanOrEqual(2);
+        expect(updates[updates.length - 1].MANOR_HOOK_PORT).toBe("2222");
+        client.disconnect();
+      } finally {
+        if (originalPort === undefined) delete process.env.MANOR_HOOK_PORT;
+        else process.env.MANOR_HOOK_PORT = originalPort;
+      }
+    });
+  });
+
+  describe("pushLocalEnv", () => {
+    it("with pushLocalEnv: false, never sends this machine's MANOR_* ports (ADR-178 §2)", async () => {
+      const saved = {
+        hook: process.env.MANOR_HOOK_PORT,
+        webview: process.env.MANOR_WEBVIEW_PORT,
+        portless: process.env.MANOR_PORTLESS_PORT,
+      };
+      try {
+        process.env.MANOR_HOOK_PORT = "1111";
+        process.env.MANOR_WEBVIEW_PORT = "2222";
+        process.env.MANOR_PORTLESS_PORT = "3333";
+        const client = new TerminalHostClient(undefined, new TestTransport(daemon), {
+          pushLocalEnv: false,
+        });
+        await client.connect();
+        client.disconnect();
+        await client.connect();
+        for (const update of daemon.receivedEnvUpdates) {
+          expect(update).not.toHaveProperty("MANOR_HOOK_PORT");
+          expect(update).not.toHaveProperty("MANOR_WEBVIEW_PORT");
+          expect(update).not.toHaveProperty("MANOR_PORTLESS_PORT");
+        }
+        // Explicit updateEnv values are still sent, and re-sent on reconnect.
+        await client.updateEnv({ FOO: "bar" });
+        client.disconnect();
+        await client.connect();
+        expect(daemon.receivedEnvUpdates[daemon.receivedEnvUpdates.length - 1]).toEqual({ FOO: "bar" });
+        client.disconnect();
+      } finally {
+        for (const [key, value] of [
+          ["MANOR_HOOK_PORT", saved.hook],
+          ["MANOR_WEBVIEW_PORT", saved.webview],
+          ["MANOR_PORTLESS_PORT", saved.portless],
+        ] as const) {
+          if (value === undefined) delete process.env[key];
+          else process.env[key] = value;
+        }
+      }
+    });
+
+    it("by default pushes this machine's MANOR_* ports on connect", async () => {
+      const saved = process.env.MANOR_HOOK_PORT;
+      try {
+        process.env.MANOR_HOOK_PORT = "4444";
+        const client = createTestClient(daemon);
+        await client.connect();
+        expect(daemon.receivedEnvUpdates[daemon.receivedEnvUpdates.length - 1]?.MANOR_HOOK_PORT).toBe("4444");
+        client.disconnect();
+      } finally {
+        if (saved === undefined) delete process.env.MANOR_HOOK_PORT;
+        else process.env.MANOR_HOOK_PORT = saved;
+      }
     });
   });
 
@@ -596,9 +695,14 @@ describe("TerminalHostClient", () => {
       // The upgrade case that bit in practice: a daemon left running from an
       // earlier build of the same app version, so nothing replaces it, talking
       // to a client that now knows about `notFound`.
-      daemon.legacyProtocol = true;
+      //
+      // A same-version daemon on an older protocol is replaced on connect (see
+      // isDaemonStale), so reaching the degraded path takes connecting first
+      // and then playing the old daemon.
       const client = createTestClient(daemon);
       await client.connect();
+      daemon.legacyProtocol = true;
+      (client as any).daemonProtocol = 0;
 
       const result = await client.createOrAttach("pane-legacy", "/tmp", 80, 24);
 
@@ -747,6 +851,40 @@ describe("TerminalHostClient", () => {
 
       // Reset state so disconnect doesn't error
       (client as any).connected = false;
+    });
+  });
+
+  describe("exec", () => {
+    it("answers ping and resize while a long exec is in flight", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+
+      const execResult = client.exec("slow-cmd", ["600"]);
+      const started = Date.now();
+      expect(await client.ping()).toBe(true);
+      await client.resize("no-such-session", 80, 24);
+      // Neither waited behind the exec.
+      expect(Date.now() - started).toBeLessThan(500);
+
+      await expect(execResult).resolves.toEqual({
+        stdout: "slow-cmd",
+        stderr: "",
+        exitCode: 0,
+      });
+      client.disconnect();
+    });
+
+    it("matches overlapping exec replies to their callers by requestId", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+
+      const [slow, fast] = await Promise.all([
+        client.exec("slow", ["300"]),
+        client.exec("fast", ["0"]),
+      ]);
+      expect(slow.stdout).toBe("slow");
+      expect(fast.stdout).toBe("fast");
+      client.disconnect();
     });
   });
 
@@ -909,9 +1047,9 @@ describe("TerminalHostClient", () => {
 
   describe("daemonDir (ADR-116)", () => {
     it("uses a fixed path independent of app version", () => {
-      const clientA = new TerminalHostClient("1.0.0");
-      const clientB = new TerminalHostClient("9.9.9");
-      const clientC = new TerminalHostClient();
+      const clientA = new LocalTransport();
+      const clientB = new LocalTransport();
+      const clientC = new LocalTransport();
 
       const dirA = (clientA as any).daemonDir as string;
       const dirB = (clientB as any).daemonDir as string;
@@ -951,7 +1089,7 @@ describe("TerminalHostClient", () => {
         fs.writeFileSync(path.join(v1Dir, "terminal-host.pid"), "11111");
         fs.writeFileSync(path.join(v2Dir, "terminal-host.pid"), "22222");
 
-        const client = new TerminalHostClient("3.0.0");
+        const client = new LocalTransport();
         // Point client at the temp dir via the private MANOR_DIR getter
         (client as any).migrateOldDaemonsDir = legacyRoot;
 
@@ -980,7 +1118,7 @@ describe("TerminalHostClient", () => {
     });
 
     it("runs only once per client instance", async () => {
-      const client = new TerminalHostClient();
+      const client = new LocalTransport();
       let callCount = 0;
 
       // Replace the method with a counter
@@ -1012,9 +1150,9 @@ describe("TerminalHostClient", () => {
       // Track how many times doConnect is actually called
       let connectCount = 0;
       const origDoConnect = (client as any).doConnect.bind(client);
-      (client as any).doConnect = async () => {
+      (client as any).doConnect = async (generation: number) => {
         connectCount++;
-        return origDoConnect();
+        return origDoConnect(generation);
       };
 
       // Launch two connects concurrently

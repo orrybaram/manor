@@ -19,6 +19,7 @@ const CommandPalette = lazy(() => import("./components/command-palette/CommandPa
 const SettingsModal = lazy(() => import("./components/settings/SettingsModal/SettingsModal").then(m => ({ default: m.SettingsModal })));
 type SettingsPageId = import("./components/settings/SettingsModal/SettingsModal").SettingsPageId;
 const NewWorkspaceDialog = lazy(() => import("./components/sidebar/NewWorkspaceDialog/NewWorkspaceDialog").then(m => ({ default: m.NewWorkspaceDialog })));
+const AddProjectDialog = lazy(() => import("./components/sidebar/AddProjectDialog/AddProjectDialog").then(m => ({ default: m.AddProjectDialog })));
 const ProjectSetupWizard = lazy(() => import("./components/sidebar/ProjectSetupWizard/ProjectSetupWizard").then(m => ({ default: m.ProjectSetupWizard })));
 const AgentsModal = lazy(() => import("./components/sidebar/AgentsView/AgentsView").then(m => ({ default: m.AgentsModal })));
 const FeedbackModal = lazy(() => import("./components/statusbar/FeedbackModal/FeedbackModal").then(m => ({ default: m.FeedbackModal })));
@@ -47,6 +48,7 @@ import { usePreferencesStore } from "./store/preferences-store";
 import { useMountEffect } from "./hooks/useMountEffect";
 import { useMenuContextSync } from "./hooks/useMenuContextSync";
 import { useUpdaterToasts } from "./hooks/useUpdaterToasts";
+import { useRemoteRecovery } from "./hooks/useRemoteRecovery";
 import {
   useNavigationHistory,
   navigateBack,
@@ -99,6 +101,7 @@ function App() {
 
   useUpdaterToasts();
   useNavigationHistory();
+  useRemoteRecovery();
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteInitialView, setPaletteInitialView] = useState<PaletteView | undefined>();
@@ -189,7 +192,7 @@ function App() {
     }
   }, [selectProject, selectWorkspace]);
 
-  const handleAddProject = useCallback(async () => {
+  const handleAddLocalProject = useCallback(async () => {
     const selected = await window.electronAPI.dialog.openDirectory();
     if (selected) {
       const name = selected.split("/").pop() || "Untitled";
@@ -198,6 +201,25 @@ function App() {
       openWizardForLatestProject();
     }
   }, [addProject, openWizardForLatestProject]);
+
+  const [addProjectDialogOpen, setAddProjectDialogOpen] = useState(false);
+  const handleAddProject = useCallback(() => {
+    setAddProjectDialogOpen(true);
+  }, []);
+  const closeAddProjectDialog = useCallback(() => {
+    setAddProjectDialogOpen(false);
+  }, []);
+  const handleRemoteProjectAdded = useCallback(() => {
+    const newProjects = useProjectStore.getState().projects;
+    const newIndex = newProjects.length - 1;
+    const newProject = newProjects[newIndex];
+    if (newProject) {
+      selectProject(newIndex);
+      if (newProject.workspaces[0]) {
+        selectWorkspace(newProject.id, 0);
+      }
+    }
+  }, [selectProject, selectWorkspace]);
 
   const handleDropFolder = useCallback(async (folderPath: string) => {
     const name = folderPath.split("/").pop() || "Untitled";
@@ -663,6 +685,12 @@ function App() {
           open={agentsOpen}
           onClose={closeAgents}
           onResumeAgent={handleResumeAgent}
+        />
+        <AddProjectDialog
+          open={addProjectDialogOpen}
+          onClose={closeAddProjectDialog}
+          onAddLocal={handleAddLocalProject}
+          onRemoteProjectAdded={handleRemoteProjectAdded}
         />
         <NewWorkspaceDialog
           open={newWorkspaceOpen}

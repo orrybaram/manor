@@ -164,6 +164,11 @@ const PROJECT_SECTIONS: SettingsSection[] = [
     keywords: ["linear", "team", "issues"],
   },
   {
+    id: "project-host",
+    label: "Host",
+    keywords: ["host", "remote", "ssh", "machine", "server"],
+  },
+  {
     id: "project-agent",
     label: "Agent",
     keywords: ["agent", "command", "claude", "codex"],

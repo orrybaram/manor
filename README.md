@@ -114,6 +114,7 @@ Per-project themes with hundreds of options. Matches your Ghostty config automat
 - **Theming** — Per-project themes with hundreds of options; matches your Ghostty config automatically
 - **Command palette** — Quick access to projects, workspaces, and actions via `Cmd+K`
 - **Remote control** — Check on your agents from a phone, and get pushed a notification when one is blocked. Off by default; read [what it exposes](docs/remote-control.md) before turning it on
+- **Remote hosts** — Put a project on a box you reach over ssh; agents keep running when your laptop lid closes, and their status catches up when you come back. See [Remote hosts](docs/remote-hosts.md)
 
 <br />
 
@@ -191,6 +192,8 @@ pnpm test:e2e
 ```
 
 Runs a full `vite build` first; expect 30–60s per run. See `tests/e2e/README.md` for details on adding new tests.
+
+The remote-host suite runs against a real sshd and is skipped by default; see [Remote hosts → Testing](docs/remote-hosts.md#testing).
 
 <br />
 

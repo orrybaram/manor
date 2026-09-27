@@ -26,3 +26,20 @@ export const TAB_HIDDEN_STYLE: React.CSSProperties = {
   ...TAB_BASE_STYLE,
   visibility: "hidden",
 };
+
+/**
+ * A small pill naming the host a tab's panes actually run on (ADR-160 ticket
+ * 11 §5). Shown only for a remote pane — a local one gets no badge at all,
+ * so this costs nothing in the overwhelmingly common case.
+ */
+export const REMOTE_HOST_BADGE_STYLE: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  fontSize: 9,
+  lineHeight: 1,
+  padding: "1px 4px",
+  borderRadius: 3,
+  marginLeft: 4,
+  whiteSpace: "nowrap",
+  flexShrink: 0,
+};

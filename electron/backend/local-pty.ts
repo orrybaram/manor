@@ -8,6 +8,7 @@ import type {
   TerminalSnapshot,
   AgentStatus,
   AgentKind,
+  HookReplay,
 } from "../terminal-host/types";
 
 export class LocalPtyBackend implements PtyBackend {
@@ -23,8 +24,9 @@ export class LocalPtyBackend implements PtyBackend {
     cols: number,
     rows: number,
     shellArgs?: string[],
+    env?: Record<string, string>,
   ): Promise<{ session: SessionInfo; snapshot: TerminalSnapshot | null }> {
-    return this.client.createOrAttach(sessionId, cwd, cols, rows, shellArgs);
+    return this.client.createOrAttach(sessionId, cwd, cols, rows, shellArgs, env);
   }
 
   write(sessionId: string, data: string): void {
@@ -59,8 +61,13 @@ export class LocalPtyBackend implements PtyBackend {
     this.client.onEvent(handler);
   }
 
-  async updateEnv(_env: Record<string, string>): Promise<void> {
-    // no-op: TerminalHostClient pushes env during connect()
+  /**
+   * Set env on the daemon for PTYs spawned from now on. The client also
+   * re-sends these on reconnect, alongside the inherited `MANOR_*` ports it
+   * pushes during connect().
+   */
+  async updateEnv(env: Record<string, string>): Promise<void> {
+    await this.client.updateEnv(env);
   }
 
   relayAgentHook(
@@ -69,6 +76,14 @@ export class LocalPtyBackend implements PtyBackend {
     kind: AgentKind,
   ): void {
     this.client.relayAgentHook(sessionId, status, kind);
+  }
+
+  /** The daemon's hook journal after `sinceSeq` (see `PtyBackend.replayHooks`). */
+  async replayHooks(
+    sinceSeq: number,
+    opts?: { headOnly?: boolean },
+  ): Promise<HookReplay | null> {
+    return this.client.replayHooks(sinceSeq, opts);
   }
 
   /** Ensure the underlying client is connected to the daemon. */

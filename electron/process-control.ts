@@ -11,8 +11,7 @@
 import * as fs from "node:fs";
 import { portlessManager } from "./portless";
 import { killCounters } from "./stats-signals";
-import type { LocalBackend } from "./backend/local-backend";
-import type { ActivePort } from "./backend/types";
+import type { ActivePort, WorkspaceBackend } from "./backend/types";
 import type { AgentManager } from "./agent-persistence";
 import type { StatsStore } from "./stats-store";
 import type { PortScanner } from "./ports";
@@ -43,7 +42,7 @@ function isDaemonAlive(pid: number): boolean {
 }
 
 export interface ListProcessesDeps {
-  backend: LocalBackend;
+  backend: WorkspaceBackend;
   agentHookServer: { hookPort: number | null };
   webviewServer: { serverPort: number | null };
   portScanner: PortScanner;
@@ -115,7 +114,7 @@ export async function listProcesses({
 
 /** Body moved verbatim from `processes:cleanupDead`. */
 export async function cleanupDeadProcesses(
-  backend: LocalBackend,
+  backend: WorkspaceBackend,
 ): Promise<{ success: boolean }> {
   try {
     await backend.pty.disposeDead();
@@ -154,7 +153,7 @@ export async function restartPortless(): Promise<void> {
 }
 
 export interface KillAllProcessesDeps {
-  backend: LocalBackend;
+  backend: WorkspaceBackend;
   agentManager: AgentManager;
   statsStore: StatsStore;
   portScanner: PortScanner;

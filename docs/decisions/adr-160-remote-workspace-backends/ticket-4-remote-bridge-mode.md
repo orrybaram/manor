@@ -1,6 +1,6 @@
 ---
 title: Add remote-bridge mode to the daemon entry point
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

@@ -213,6 +213,12 @@ export interface ActivePort {
   pid: number;
   workspacePath: string | null;
   hostname: string | null;
+  /** The remote host the port is listening on; absent for this machine. */
+  hostId?: string;
+  /** "Copy public URL" is available (the host's provider has `previewUrl`). */
+  canCopyPublicUrl?: boolean;
+  /** `"::1"` when listened on only at the IPv6 loopback. */
+  loopbackHost?: "::1";
 }
 
 export interface ManorProcessInfo {
@@ -359,6 +365,17 @@ export interface ElectronAPI {
       snapshotSeq?: StreamPosition;
       error?: string;
       prewarmed?: boolean;
+      /**
+       * The host the session actually runs on (ADR-160); absent from older
+       * mains. On a `hostUnavailable` failure, the host the pane awaits.
+       */
+      hostId?: string;
+      /**
+       * The create failed because the pane's remote host is not connected
+       * (ADR-178 §6): not a broken terminal — it is created once the host
+       * is back.
+       */
+      hostUnavailable?: boolean;
     }>;
     write: (paneId: string, data: string) => Promise<void>;
     /** Resolves once the pty is actually at that size, not merely told to be. */
@@ -374,9 +391,11 @@ export interface ElectronAPI {
       snapshot?: string | null;
       error?: string;
       prewarmed?: boolean;
+      /** The host the fresh session runs on (ADR-160). */
+      hostId?: string;
     }>;
     detach: (paneId: string) => Promise<void>;
-    consumePrewarmed: () => Promise<{
+    consumePrewarmed: (cwd: string | null) => Promise<{
       paneId: string;
       commandInjected: boolean;
     } | null>;
@@ -506,6 +525,41 @@ export interface ElectronAPI {
       projectId: string,
       updates: import("./store/project-store").ProjectUpdatableFields,
     ) => Promise<import("./store/project-store").ProjectInfo | null>;
+    /** ADR-178 ticket 5: clone a repo onto a remote host, then add it. */
+    addRemote: (opts: {
+      hostId: string;
+      repoUrl: string;
+      remoteDir: string;
+      name: string;
+    }) => Promise<import("./store/project-store").ProjectInfo>;
+  };
+
+  hosts: {
+    list: () => Promise<import("./store/host-store").HostStatusInfo[]>;
+    add: (
+      target: string,
+    ) => Promise<{
+      hostId: string;
+      spec: import("./store/host-store").HostSpec;
+    }>;
+    remove: (hostId: string) => Promise<void>;
+    retryConnect: (hostId: string) => Promise<void>;
+    onStatusChanged: (
+      callback: (hosts: import("./store/host-store").HostStatusInfo[]) => void,
+    ) => () => void;
+    /**
+     * ADR-178 §6: a remote host came back from a drop and its hooks have
+     * replayed. `sessionIds` are every session its daemon still has — a pane
+     * on that host not among them lost its session to a daemon restart.
+     */
+    onReconnected: (
+      callback: (info: { hostId: string; sessionIds: string[] }) => void,
+    ) => () => void;
+    /** ADR-178 ticket 5: the ADR-178 §4 checks, run through the host itself. */
+    healthCheck: (
+      hostId: string,
+      projectPath: string,
+    ) => Promise<import("./lib/hosts").HealthCheckResult[]>;
   };
 
   theme: {
@@ -547,6 +601,21 @@ export interface ElectronAPI {
     ) => Promise<void>;
     killPort: (pid: number) => Promise<void>;
     scanNow: () => Promise<ActivePort[]>;
+    /**
+     * The URL to load for `url` opened in `hostId`'s context (a port's host,
+     * or the opening pane's workspace's). A `localhost:<port>` URL for a port
+     * that remote host's scan reports becomes its forwarded local port
+     * (ADR-178 §5); anything else comes back unchanged.
+     */
+    resolveUrl: (url: string, hostId: string) => Promise<string>;
+    /**
+     * The inverse, for remembering and showing: a URL on one of `hostId`'s
+     * forwards becomes `localhost:<remote port>`; anything else comes back
+     * unchanged.
+     */
+    remoteUrl: (url: string, hostId: string) => Promise<string>;
+    /** A public URL for a remote port, or null when its provider has none. */
+    publicUrl: (hostId: string, port: number) => Promise<string | null>;
     onChange: (callback: (ports: ActivePort[]) => void) => () => void;
   };
 
@@ -872,7 +941,15 @@ export interface ElectronAPI {
   }) => void;
 
   webview: {
-    register: (paneId: string, webContentsId: number) => Promise<void>;
+    /**
+     * `remoteHostId`: the remote host the pane's workspace lives on, so an
+     * agent's `navigate` to its `localhost:<port>` is forwarded (ADR-178 §5).
+     */
+    register: (
+      paneId: string,
+      webContentsId: number,
+      remoteHostId?: string | null,
+    ) => Promise<void>;
     unregister: (paneId: string) => Promise<void>;
     startPicker: (paneId: string) => Promise<void>;
     cancelPicker: (paneId: string) => Promise<void>;

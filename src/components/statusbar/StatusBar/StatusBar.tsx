@@ -10,6 +10,7 @@ import { hasJustUpdated } from "../../../lib/just-updated";
 import { FeedbackModal } from "../FeedbackModal/FeedbackModal";
 import { LinkedIssuesPopover } from "../LinkedIssuesPopover/LinkedIssuesPopover";
 import { RemoteExposureIndicator } from "./RemoteExposureIndicator";
+import { HostStatusIndicator } from "./HostStatusIndicator";
 import { Button } from "../../ui/Button/Button";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { useStatsStore, formatUnblockLatency } from "../../../store/stats-store";
@@ -206,6 +207,7 @@ export function StatusBar(props: StatusBarProps) {
         )}
       </div>
       <div className={styles.right}>
+        <HostStatusIndicator />
         <RemoteExposureIndicator />
         <StatsSegment onOpenStats={onOpenStats} />
         <button

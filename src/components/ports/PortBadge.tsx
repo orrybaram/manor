@@ -22,17 +22,43 @@ export function PortBadge(props: PortBadgeProps) {
     ? `http://${port.hostname}`
     : `http://localhost:${port.port}`;
 
+  // A remote host's port is reached through a port forward (ADR-178 §5):
+  // main swaps in the forward's local port before the URL is opened.
+  const hostId = port.hostId;
+  const withResolvedUrl = useCallback(
+    (open: (target: string) => void) => {
+      if (!hostId) {
+        open(url);
+        return;
+      }
+      window.electronAPI.ports.resolveUrl(url, hostId).then(open, () => open(url));
+    },
+    [url, hostId],
+  );
+
   const handleOpenInTab = useCallback(() => {
-    addBrowserTab(url);
-  }, [url, addBrowserTab]);
+    withResolvedUrl((target) => addBrowserTab(target));
+  }, [withResolvedUrl, addBrowserTab]);
 
   const handleOpenExternal = useCallback(
     (e: { stopPropagation: () => void }) => {
       e.stopPropagation();
-      window.electronAPI.shell.openExternal(url);
+      withResolvedUrl((target) => window.electronAPI.shell.openExternal(target));
     },
-    [url],
+    [withResolvedUrl],
   );
+
+  const handleCopyPublicUrl = useCallback(() => {
+    if (!hostId) return;
+    window.electronAPI.ports
+      .publicUrl(hostId, port.port)
+      .then((publicUrl) => {
+        if (publicUrl) return window.electronAPI.clipboard.writeText(publicUrl);
+      })
+      .catch((err: unknown) => {
+        console.error("[PortBadge] copy public URL failed:", err);
+      });
+  }, [hostId, port.port]);
 
   const handleKillPort = useCallback(() => {
     window.electronAPI.ports.killPort(port.pid);
@@ -88,7 +114,14 @@ export function PortBadge(props: PortBadgeProps) {
             variant="plain"
             href={url}
             aria-label="Open in default browser"
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              // The href is the port on the remote box; open its forward.
+              if (hostId) {
+                e.preventDefault();
+                handleOpenExternal(e);
+              }
+            }}
           >
             <ExternalLink size={12} className={styles.portOpen} />
           </Link>
@@ -117,6 +150,14 @@ export function PortBadge(props: PortBadgeProps) {
           >
             Open in Default Browser
           </ContextMenu.Item>
+          {port.canCopyPublicUrl && (
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              onSelect={handleCopyPublicUrl}
+            >
+              Copy Public URL
+            </ContextMenu.Item>
+          )}
           <ContextMenu.Separator className={styles.contextMenuSeparator} />
           <ContextMenu.Item
             className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}

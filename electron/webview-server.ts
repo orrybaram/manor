@@ -26,7 +26,7 @@ import type { GitHubManager } from "./github";
 import type { LinearManager } from "./linear";
 import type { LayoutPersistence } from "./terminal-host/layout-persistence";
 import type { AgentManager } from "./agent-persistence";
-import type { LocalBackend } from "./backend/local-backend";
+import type { WorkspaceBackend } from "./backend/types";
 import type { ControlDeps } from "./routes/types";
 
 interface ConsoleEntry {
@@ -79,7 +79,7 @@ export class WebviewServer {
   private linearManager: LinearManager | null;
   private layoutPersistence: LayoutPersistence | null;
   private agentManager: AgentManager | null;
-  private backend: LocalBackend | null;
+  private backend: WorkspaceBackend | null;
   private consoleLogs: Map<string, ConsoleEntry[]> = new Map();
   private consoleListeners: Map<string, () => void> = new Map(); // paneId → cleanup fn
   /**
@@ -90,6 +90,11 @@ export class WebviewServer {
    * `WebviewServer` (no setter call) keep working.
    */
   private controlDeps: Partial<ControlDeps> = {};
+  /** paneId → the remote host its workspace lives on (ADR-178 §5). */
+  private paneHosts = new Map<string, string>();
+  /** Maps a URL opened in a remote host's context to the one to load. */
+  private remoteUrlResolver: ((url: string, hostId: string) => Promise<string>) | null =
+    null;
 
   constructor(
     registry: Map<string, number>,
@@ -98,7 +103,7 @@ export class WebviewServer {
     linearManager?: LinearManager,
     layoutPersistence?: LayoutPersistence,
     agentManager?: AgentManager,
-    backend?: LocalBackend,
+    backend?: WorkspaceBackend,
   ) {
     this.registry = registry;
     this.projectManager = projectManager ?? null;
@@ -120,6 +125,32 @@ export class WebviewServer {
    */
   setControlDeps(deps: Partial<ControlDeps>): void {
     this.controlDeps = deps;
+  }
+
+  /**
+   * Record which remote host `paneId`'s workspace lives on — null for this
+   * machine — so a `navigate` to a remote dev server's `localhost:<port>`
+   * goes through its port forward.
+   */
+  setPaneHost(paneId: string, hostId: string | null): void {
+    if (hostId) this.paneHosts.set(paneId, hostId);
+    else this.paneHosts.delete(paneId);
+  }
+
+  /** Install the resolver `navigate` applies to a remote pane's URL. */
+  setRemoteUrlResolver(resolver: (url: string, hostId: string) => Promise<string>): void {
+    this.remoteUrlResolver = resolver;
+  }
+
+  /**
+   * The URL `navigate` loads for `url` in `paneId`: rewritten through the
+   * resolver for a pane of a remote workspace, as is otherwise. Rejects
+   * when the remote host cannot be reached in time.
+   */
+  async resolveNavigateUrl(paneId: string, url: string): Promise<string> {
+    const hostId = this.paneHosts.get(paneId);
+    if (!hostId || !this.remoteUrlResolver) return url;
+    return this.remoteUrlResolver(url, hostId);
   }
 
   /** Start the HTTP server on a random port */
@@ -602,7 +633,14 @@ export class WebviewServer {
           json(400, { error: "Missing 'url' string in request body" });
           return;
         }
-        await wc.loadURL(navUrl);
+        let target: string;
+        try {
+          target = await this.resolveNavigateUrl(paneId, navUrl);
+        } catch (err) {
+          json(503, { error: err instanceof Error ? err.message : String(err) });
+          return;
+        }
+        await wc.loadURL(target);
         json(200, { ok: true });
         return;
       }

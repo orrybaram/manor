@@ -14,7 +14,7 @@ import type { GitHubManager } from "../github";
 import type { LinearManager } from "../linear";
 import type { LayoutPersistence } from "../terminal-host/layout-persistence";
 import type { AgentManager } from "../agent-persistence";
-import type { LocalBackend } from "../backend/local-backend";
+import type { WorkspaceBackend } from "../backend/types";
 import type { NotificationStore } from "../notification-store";
 import type { StatsStore } from "../stats-store";
 import type { PreferencesManager } from "../preferences";
@@ -29,7 +29,7 @@ export interface ControlDeps {
   linearManager: LinearManager | null;
   layoutPersistence: LayoutPersistence | null;
   agentManager: AgentManager | null;
-  backend: LocalBackend | null;
+  backend: WorkspaceBackend | null;
   notificationStore: NotificationStore | null;
   statsStore: StatsStore | null;
   preferencesManager: PreferencesManager | null;

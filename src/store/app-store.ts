@@ -38,6 +38,7 @@ import type { Location } from "./navigation-history-store";
 import type { DetachedTabPayload } from "./detach-types";
 import { isHomePath } from "../lib/home-path";
 import { useProjectStore } from "./project-store";
+import { usePaneHostStore } from "./pane-host-store";
 
 export interface ClosedPaneSnapshot {
   kind: "pane";
@@ -229,6 +230,12 @@ export interface AppState {
   pendingStartupCommands: Record<string, string>;
   /** Pending startup commands keyed by pane ID (for split-with-agent) */
   pendingPaneCommands: Record<string, string>;
+  /**
+   * Text to type into a pane once its shell is ready, WITHOUT submitting it
+   * (no trailing Enter) — e.g. a health-check fix-it command the user should
+   * review before running (ADR-178 ticket 5). Keyed by pane ID.
+   */
+  pendingTypedTexts: Record<string, string>;
   /** Pane ID awaiting close confirmation (when agent is active) */
   pendingCloseConfirmPaneId: string | null;
   /** Tab ID awaiting close confirmation (when agent is active in a pane) */
@@ -260,6 +267,14 @@ export interface AppState {
    */
   addTab: (adoptPaneId?: string) => { tabId: string; paneId: string } | null;
   addTerminalTab: (command: string) => { tabId: string; paneId: string } | null;
+  /**
+   * Like `addTerminalTab`, but types `text` into the new pane without
+   * submitting it (ADR-178 ticket 5's "fix in terminal" — a health-check
+   * fix-it command the user reviews before running).
+   */
+  addTerminalTabWithTypedText: (
+    text: string,
+  ) => { tabId: string; paneId: string } | null;
   addBrowserTab: (
     url: string,
     opts?: { background?: boolean },
@@ -365,7 +380,16 @@ export interface AppState {
   // Startup commands
   setPendingStartupCommand: (workspacePath: string, command: string) => void;
   consumePendingStartupCommand: (workspacePath: string) => string | null;
+  /**
+   * Queue `command` to run in `paneId` once its shell is ready — for a pane
+   * that already exists and is about to (re)create its session, e.g. one
+   * recovered after its remote host restarted (ADR-178 §6).
+   */
+  setPendingPaneCommand: (paneId: string, command: string) => void;
   consumePendingPaneCommand: (paneId: string) => string | null;
+  /** Text a new pane on `paneId` should have typed (not run) once ready. */
+  setPendingTypedText: (paneId: string, text: string) => void;
+  consumePendingTypedText: (paneId: string) => string | null;
 
   // Workspace cleanup
   removeWorkspaceLayout: (workspacePath: string) => void;
@@ -648,6 +672,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   closedPaneStack: [],
   pendingStartupCommands: {},
   pendingPaneCommands: {},
+  pendingTypedTexts: {},
   pendingCloseConfirmPaneId: null,
   pendingCloseConfirmTabId: null,
   worktreeSetupState: {},
@@ -829,6 +854,27 @@ export const useAppStore = create<AppState>((set, get) => ({
       pendingPaneCommands: {
         ...state.pendingPaneCommands,
         [tabPaneId]: command,
+      },
+    });
+    return { tabId: tab.id, paneId: tabPaneId };
+  },
+
+  addTerminalTabWithTypedText: (text: string) => {
+    const ctx = getActivePanelContext(get());
+    if (!ctx) return null;
+    const { path, layout, panel } = ctx;
+    const tab = createTab();
+    const tabPaneId = tab.focusedPaneId;
+    const state = get();
+    set({
+      ...updatePanel(state, path, layout, panel.id, (p) => ({
+        ...p,
+        tabs: [...p.tabs, tab],
+        selectedTabId: tab.id,
+      })),
+      pendingTypedTexts: {
+        ...state.pendingTypedTexts,
+        [tabPaneId]: text,
       },
     });
     return { tabId: tab.id, paneId: tabPaneId };
@@ -2308,6 +2354,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     return cmd;
   },
 
+  setPendingPaneCommand: (paneId: string, command: string) =>
+    set((state) => ({
+      pendingPaneCommands: { ...state.pendingPaneCommands, [paneId]: command },
+    })),
+
   consumePendingPaneCommand: (paneId: string) => {
     const cmd = get().pendingPaneCommands[paneId] ?? null;
     if (cmd) {
@@ -2317,6 +2368,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     }
     return cmd;
+  },
+
+  setPendingTypedText: (paneId: string, text: string) =>
+    set((state) => ({
+      pendingTypedTexts: { ...state.pendingTypedTexts, [paneId]: text },
+    })),
+
+  consumePendingTypedText: (paneId: string) => {
+    const text = get().pendingTypedTexts[paneId] ?? null;
+    if (text) {
+      set((state) => {
+        const { [paneId]: _, ...rest } = state.pendingTypedTexts;
+        return { pendingTypedTexts: rest };
+      });
+    }
+    return text;
   },
 
   removeWorkspaceLayout: (workspacePath: string) =>
@@ -2964,6 +3031,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         // Terminal (default): detach releases the daemon session, keeping it alive.
         window.electronAPI.pty.detach(pid);
       }
+      // The pane is the destination window's now: this one must not badge
+      // it, or plan to recover it when its remote host comes back.
+      usePaneHostStore.getState().forgetPane(pid);
     }
 
     set((s) => {
@@ -2994,7 +3064,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       const newPaneUrl = { ...s.paneUrl };
       const newPickedElement = { ...s.panePickedElement };
       const newPendingCommands = { ...s.pendingPaneCommands };
+      const newPendingTypedTexts = { ...s.pendingTypedTexts };
       for (const pid of paneIds) {
+        delete newPendingTypedTexts[pid];
         delete newCwd[pid];
         delete newTitle[pid];
         delete newAgentStatus[pid];
@@ -3018,6 +3090,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneUrl: newPaneUrl,
         panePickedElement: newPickedElement,
         pendingPaneCommands: newPendingCommands,
+        pendingTypedTexts: newPendingTypedTexts,
       };
 
       // Collapse an emptied panel exactly the way closeTab does.
@@ -3139,6 +3212,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Terminal (default): detach releases the daemon session, keeping it alive.
       window.electronAPI.pty.detach(paneId);
     }
+    // The pane is the destination window's now: this one must not badge it,
+    // or plan to recover it when its remote host comes back.
+    usePaneHostStore.getState().forgetPane(paneId);
 
     set((s) => {
       const currentCtx = getActiveLayoutContext(s);
@@ -3150,19 +3226,28 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       const remaining = removePane(tab.rootNode, paneId);
 
+      // A command queued for the pane here (e.g. a remote agent's resume)
+      // must not be typed into it should it ever come back to this window.
+      const { [paneId]: _cmd, ...pendingPaneCommands } = s.pendingPaneCommands;
+      const { [paneId]: _text, ...pendingTypedTexts } = s.pendingTypedTexts;
+
       // Pane was one of several — collapse the split and keep the tab.
       if (remaining) {
         const ids = allPaneIds(remaining);
         const newFocused =
           tab.focusedPaneId === paneId ? ids[0] : tab.focusedPaneId;
-        return updatePanel(s, path, layout, panel.id, (p) => ({
-          ...p,
-          tabs: p.tabs.map((t) =>
-            t.id === tab.id
-              ? { ...t, rootNode: remaining, focusedPaneId: newFocused }
-              : t,
-          ),
-        }));
+        return {
+          pendingPaneCommands,
+          pendingTypedTexts,
+          ...updatePanel(s, path, layout, panel.id, (p) => ({
+            ...p,
+            tabs: p.tabs.map((t) =>
+              t.id === tab.id
+                ? { ...t, rootNode: remaining, focusedPaneId: newFocused }
+                : t,
+            ),
+          })),
+        };
       }
 
       // Pane was the tab's sole leaf — remove the whole tab exactly as
@@ -3185,7 +3270,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       const newAudioMuted = { ...s.paneAudioMuted };
       const newPaneUrl = { ...s.paneUrl };
       const newPickedElement = { ...s.panePickedElement };
-      const newPendingCommands = { ...s.pendingPaneCommands };
       delete newCwd[paneId];
       delete newTitle[paneId];
       delete newAgentStatus[paneId];
@@ -3195,7 +3279,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       delete newAudioMuted[paneId];
       delete newPaneUrl[paneId];
       delete newPickedElement[paneId];
-      delete newPendingCommands[paneId];
 
       const sideMaps = {
         paneCwd: newCwd,
@@ -3207,7 +3290,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneAudioMuted: newAudioMuted,
         paneUrl: newPaneUrl,
         panePickedElement: newPickedElement,
-        pendingPaneCommands: newPendingCommands,
+        pendingPaneCommands,
+        pendingTypedTexts,
       };
 
       // Collapse an emptied panel exactly the way removeDetachedTabLocally does.

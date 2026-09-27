@@ -1,6 +1,6 @@
 ---
 title: End-to-end test against a real sshd, plus docs
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [10, 11]
@@ -39,3 +39,12 @@ diagnose each failure mode. Link it from `README.md`.
   `scripts/test-daemon-e2e.mjs`).
 - `docs/remote-hosts.md` — new.
 - `README.md` — link the doc.
+
+## Outcome
+
+- The "reverse hook forward" bullet is obsolete (ADR-178 replaced the forward with the
+  remote daemon's hook listener and journal); the journal path is tested instead.
+- Harness: `scripts/test-remote-e2e.mjs` — a private unprivileged sshd on macOS (default)
+  or a Linux container (`--docker`, `tests/e2e/remote-host/Dockerfile`).
+- Bridge-level tests: `electron/terminal-host/__tests__/remote-ssh.e2e.test.ts`; UI
+  scenarios: `tests/e2e/remote-host.spec.ts`. Docs: `docs/remote-hosts.md`.

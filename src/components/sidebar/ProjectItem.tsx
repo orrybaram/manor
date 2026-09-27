@@ -34,6 +34,7 @@ import { useProjectAgentStatus } from "../../hooks/useProjectAgentStatus";
 import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
+import { HostOfflineBadge } from "./HostOfflineBadge";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
@@ -862,6 +863,7 @@ export function ProjectItem(props: ProjectItemProps) {
             <span className={styles.projectName} title={project.path}>
               {project.name}
             </span>
+            <HostOfflineBadge hostId={project.hostId} />
             {collapsed && projectIndicator && (
               <WorkspaceIndicatorDot indicator={projectIndicator} />
             )}

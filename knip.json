@@ -24,7 +24,7 @@
     "tests/**/*.ts"
   ],
   "ignoreDependencies": ["@electron/osx-sign"],
-  "ignoreBinaries": ["afplay"],
+  "ignoreBinaries": ["afplay", "pkill"],
   "vite": {
     "config": ["vite.config.ts", "vite.remote.config.ts", "vitest.config.ts"]
   }

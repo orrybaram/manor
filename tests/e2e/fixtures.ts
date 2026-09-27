@@ -115,9 +115,17 @@ export async function launchApp(
   // anything reading MANOR_* before the pty layer overrides it talks to the
   // wrong app. Drop the lot: the launched app is meant to know nothing but
   // `tempHome`.
+  //
+  // The one exception is MANOR_E2E_SSH_CONFIG: the remote-host suite's ssh
+  // config (scripts/test-remote-e2e.mjs), which Manor's managed ssh config
+  // includes as a test-only hook. It points at nothing outside the run.
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(rest)) {
     if (value === undefined) continue;
+    if (key === "MANOR_E2E_SSH_CONFIG") {
+      env[key] = value;
+      continue;
+    }
     if (key.startsWith("MANOR_") || key === "ZDOTDIR") continue;
     env[key] = value;
   }
@@ -284,6 +292,11 @@ export async function importSeededProject(
   }, seededProjectPath);
 
   await window.locator('[data-testid="import-project-button"]').click();
+  // Import opens the Add Project dialog (ADR-178); "On this Mac" is the
+  // default mode, and its button runs the (stubbed) folder picker.
+  const addDialog = window.getByTestId("add-project-dialog");
+  await expect(addDialog).toBeVisible({ timeout: 10_000 });
+  await addDialog.getByRole("button", { name: "Choose Folder…", exact: true }).click();
 
   const wizard = window.locator('[data-testid="project-setup-wizard"]');
   const skipButton = wizard.getByRole("button", { name: "Skip", exact: true });

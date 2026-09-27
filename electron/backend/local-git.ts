@@ -1,16 +1,16 @@
-import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { execFileSync, spawn } from "node:child_process";
 import type { GitBackend, WorktreeInfo } from "./types";
-import { execFileAsync } from "./exec";
+import { localExec, type Exec, type ExecError } from "./exec";
 
 export class LocalGitBackend implements GitBackend {
+  constructor(private readonly execImpl: Exec = localExec) {}
+
   private async execGit(
     cwd: string,
     args: string[],
     opts?: { timeout?: number; maxBuffer?: number },
   ): Promise<{ stdout: string; stderr: string }> {
-    return execFileAsync("git", args, {
+    return this.execImpl.file("git", args, {
       cwd,
       timeout: opts?.timeout ?? 30000,
       maxBuffer: opts?.maxBuffer,
@@ -85,86 +85,171 @@ export class LocalGitBackend implements GitBackend {
       onDone: (result: { exitCode: number | null; stderr: string }) => void;
     },
   ): { cancel: () => void } {
-    // Resolve branch synchronously before spawning if not provided. We use
-    // execFileSync (not the existing async execGit helper) because pushStream
-    // must return its cancel handle synchronously to the caller.
-    let resolvedBranch: string;
+    // `pushStream` must hand back its cancel handle synchronously, but
+    // resolving the branch is a command like any other and must go through
+    // the injected Exec (for a remote host it runs on the remote). So the
+    // handle is bound lazily: cancel before the push starts just means the
+    // push never starts; cancel after forwards to the push's own handle.
+    let cancelled = false;
+    let finished = false;
+    let pushHandle: { cancel: () => void } | null = null;
+
+    const done = (result: { exitCode: number | null; stderr: string }) => {
+      if (finished) return;
+      finished = true;
+      callbacks.onDone(result);
+    };
+
+    const start = (resolvedBranch: string) => {
+      if (finished) return;
+      pushHandle = this.startPush(cwd, opts, resolvedBranch, callbacks.onLine, done);
+    };
+
     if (opts.branch) {
-      resolvedBranch = opts.branch;
+      start(opts.branch);
     } else {
-      try {
-        const out = execFileSync(
-          "git",
-          ["rev-parse", "--abbrev-ref", "HEAD"],
-          { cwd, encoding: "utf-8", timeout: 10000 },
+      this.execImpl
+        .file("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+          cwd,
+          timeout: 10000,
+        })
+        .then(
+          ({ stdout }) => {
+            if (cancelled) return;
+            start(stdout.trim());
+          },
+          (err: unknown) => {
+            if (cancelled) return;
+            const message = err instanceof Error ? err.message : String(err);
+            done({ exitCode: null, stderr: message });
+          },
         );
-        resolvedBranch = out.toString().trim();
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        callbacks.onDone({ exitCode: null, stderr: message });
-        return { cancel: () => {} };
-      }
     }
 
+    return {
+      cancel: () => {
+        if (pushHandle) {
+          pushHandle.cancel();
+          return;
+        }
+        if (cancelled || finished) return;
+        cancelled = true;
+        // Nothing was spawned; report it the way a killed push reports.
+        done({ exitCode: null, stderr: "" });
+      },
+    };
+  }
+
+  private startPush(
+    cwd: string,
+    opts: { remote?: string; setUpstream?: boolean },
+    resolvedBranch: string,
+    onLine: (line: string) => void,
+    onDone: (result: { exitCode: number | null; stderr: string }) => void,
+  ): { cancel: () => void } {
     const args: string[] = ["push"];
     if (opts.setUpstream) args.push("--set-upstream");
     args.push(opts.remote ?? "origin");
     args.push(resolvedBranch);
 
-    const child = spawn("git", args, {
-      cwd,
-      env: {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: "0",
-        GIT_ASKPASS: "/bin/true",
-      },
-    });
-
     let pending = "";
     let stderrFull = "";
     let exited = false;
 
-    if (child.stderr) {
-      child.stderr.setEncoding("utf-8");
-      child.stderr.on("data", (chunk: string) => {
-        stderrFull += chunk;
-        pending += chunk;
-        const parts = pending.split("\n");
-        // Last element is the trailing partial line (possibly empty).
-        pending = parts.pop() ?? "";
-        for (const line of parts) {
-          callbacks.onLine(line);
-        }
-      });
-    }
-
-    child.on("error", (err: Error) => {
-      if (exited) return;
-      exited = true;
-      callbacks.onDone({ exitCode: null, stderr: err.message });
-    });
-
-    // Use "close" (not "exit") to ensure stdio streams are flushed.
-    child.on("close", (code: number | null) => {
-      if (exited) return;
-      exited = true;
-      if (pending.length > 0) {
-        callbacks.onLine(pending);
-        pending = "";
-      }
-      callbacks.onDone({ exitCode: code, stderr: stderrFull });
-    });
-
-    return {
-      cancel: () => {
-        if (exited) return;
-        try {
-          child.kill("SIGTERM");
-        } catch {
-          /* already exited or signal failed — caller does not care */
-        }
+    return this.execImpl.stream(
+      "git",
+      args,
+      {
+        cwd,
+        // Overrides only — the Exec merges them onto its own base env.
+        env: {
+          GIT_TERMINAL_PROMPT: "0",
+          GIT_ASKPASS: "/bin/true",
+        },
       },
-    };
+      {
+        onStderr: (chunk: string) => {
+          stderrFull += chunk;
+          pending += chunk;
+          const parts = pending.split("\n");
+          // Last element is the trailing partial line (possibly empty).
+          pending = parts.pop() ?? "";
+          for (const line of parts) {
+            onLine(line);
+          }
+        },
+        onExit: ({ exitCode, error }) => {
+          if (exited) return;
+          exited = true;
+          if (error !== undefined) {
+            // The push never ran (e.g. git missing): report the reason as the
+            // whole of stderr, without flushing it as a progress line.
+            onDone({ exitCode: null, stderr: error });
+            return;
+          }
+          if (pending.length > 0) {
+            onLine(pending);
+            pending = "";
+          }
+          onDone({ exitCode, stderr: stderrFull });
+        },
+      },
+    );
+  }
+
+  cloneStream(
+    repoUrl: string,
+    targetDir: string,
+    callbacks: {
+      onLine: (line: string) => void;
+      onDone: (result: { exitCode: number | null; stderr: string }) => void;
+    },
+  ): { cancel: () => void } {
+    let pending = "";
+    let stderrFull = "";
+    let exited = false;
+
+    return this.execImpl.stream(
+      "git",
+      ["clone", "--progress", "--", repoUrl, targetDir],
+      {
+        // Overrides only — the Exec merges them onto its own base env.
+        // A missing credential must fail fast rather than hang waiting for
+        // a prompt Manor cannot answer (ADR-178 §4).
+        env: {
+          GIT_TERMINAL_PROMPT: "0",
+          GIT_ASKPASS: "/bin/true",
+        },
+      },
+      {
+        onStderr: (chunk: string) => {
+          stderrFull += chunk;
+          pending += chunk;
+          // git's clone progress uses `\r` to redraw a line in place, not
+          // `\n` — split on either so "Receiving objects: NN%" updates are
+          // delivered as they come instead of buffered until the newline
+          // that never arrives until the phase changes.
+          const parts = pending.split(/\r\n|\r|\n/);
+          pending = parts.pop() ?? "";
+          for (const line of parts) {
+            if (line.length > 0) callbacks.onLine(line);
+          }
+        },
+        onExit: ({ exitCode, error }) => {
+          if (exited) return;
+          exited = true;
+          if (error !== undefined) {
+            callbacks.onDone({ exitCode: null, stderr: error });
+            return;
+          }
+          if (pending.length > 0) {
+            callbacks.onLine(pending);
+            pending = "";
+          }
+          callbacks.onDone({ exitCode, stderr: stderrFull });
+        },
+      },
+    );
   }
 
   async getFullDiff(
@@ -302,6 +387,30 @@ export class LocalGitBackend implements GitBackend {
     await this.execGit(cwd, args, { timeout: 300_000 });
   }
 
+  async currentBranch(repoPath: string): Promise<string | null> {
+    try {
+      const { stdout } = await this.execGit(
+        repoPath,
+        ["rev-parse", "--abbrev-ref", "HEAD"],
+        { timeout: 5000 },
+      );
+      const branch = stdout.trim();
+      if (branch && branch !== "HEAD") return branch;
+
+      // Detached HEAD — fall back to a short SHA, sliced to 7 chars to match
+      // the local fs-based read in `readLocalBranch`/`readBranchSync`.
+      const { stdout: sha } = await this.execGit(
+        repoPath,
+        ["rev-parse", "HEAD"],
+        { timeout: 5000 },
+      );
+      const trimmed = sha.trim();
+      return trimmed ? trimmed.slice(0, 7) : null;
+    } catch {
+      return null;
+    }
+  }
+
   /** Build a synthetic diff for untracked files. */
   private async buildUntrackedDiff(cwd: string): Promise<string> {
     try {
@@ -315,7 +424,10 @@ export class LocalGitBackend implements GitBackend {
       const diffs = await Promise.all(
         untrackedFiles.map(async (filePath) => {
           try {
-            const content = await readFile(path.join(cwd, filePath), "utf-8");
+            const content = await this.execImpl.readFile(
+              path.join(cwd, filePath),
+              "utf-8",
+            );
             const lines = content.split("\n");
             if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
             const hunk = `@@ -0,0 +1,${lines.length} @@`;
@@ -339,9 +451,11 @@ export class LocalGitBackend implements GitBackend {
  * Handles lint-staged output, husky hooks, and plain git errors.
  */
 function parseCommitError(err: unknown): string {
+  // `Exec.file` rejects with an ExecError; see its doc in exec.ts.
+  const execErr = err as Partial<ExecError> | null | undefined;
   const raw =
-    (err as { stderr?: string })?.stderr ||
-    (err as { stdout?: string })?.stdout ||
+    execErr?.stderr ||
+    execErr?.stdout ||
     (err instanceof Error ? err.message : String(err));
 
   // Strip the "Command failed: git commit ..." prefix

@@ -105,7 +105,75 @@ export type ControlRequest =
   | { type: "ping" }
   | { type: "updateEnv"; env: Record<string, string> }
   | { type: "disposeDead" }
-  | { type: "handshake"; clientVersion: string };
+  | { type: "handshake"; clientVersion: string }
+  /**
+   * Run a command to completion. Answered out of order relative to other
+   * requests on the socket — match the reply by `requestId`. `timeout` is in
+   * ms (default 30000; `0` means none); `maxBuffer` caps stdout and stderr
+   * each (default 10 MiB, at most 64 MiB) and truncates rather than failing.
+   */
+  | {
+      type: "exec";
+      cmd: string;
+      args: string[];
+      cwd?: string;
+      timeout?: number;
+      maxBuffer?: number;
+    }
+  /** Read a UTF-8 file of at most 10 MiB. Also answered out of order. */
+  | { type: "readFile"; path: string }
+  /**
+   * Set the daemon's own host up for shell integration and agent hooks
+   * (ADR-160 ticket 10): zdotdir, hook scripts, agent connector registration.
+   * Answered with `bootstrapped`. Sent by `RemoteBackend` after connecting; a
+   * daemon that predates it answers `error: unknown request type: bootstrap`,
+   * which callers tolerate.
+   */
+  | { type: "bootstrap" }
+  /**
+   * Hook journal entries after `sinceSeq` (ADR-178 §2). Answered with
+   * `hookReplay`. A daemon that predates it answers `error: unknown request
+   * type: replayHooks`, which callers treat as "no journal".
+   *
+   * `headOnly` asks for the journal's position (`lastSeq`, `epoch`) without
+   * any entries — how a client meeting a journal for the first time starts
+   * from "now" instead of replaying its whole history. A daemon that
+   * predates it sends entries anyway; callers ignore them.
+   */
+  | { type: "replayHooks"; sinceSeq: number; headOnly?: boolean };
+
+/**
+ * A remote daemon's answer to `replayHooks` (ADR-178 §2): journal entries
+ * with `seq > sinceSeq`, oldest first, and the journal's highest seq.
+ * `lastSeq` may exceed the last entry's seq (and entries may start after
+ * `sinceSeq + 1`) when compaction dropped what was asked for.
+ */
+export interface HookReplay {
+  entries: HookJournalEntry[];
+  lastSeq: number;
+  /**
+   * The journal's identity (see `HookJournal.epoch`). A different epoch than
+   * last time means the journal was recreated. Absent from daemons that
+   * predate it.
+   */
+  epoch?: string;
+}
+
+/**
+ * One agent-hook request as the hook script sent it: the query parameters of
+ * `GET /hook/event` (paneId, eventType, kind, sessionId, ...). Kept in wire
+ * form so the daemon journals exactly what Electron main would have parsed.
+ */
+export type HookPayload = Record<string, string>;
+
+/** One entry of a remote daemon's hook journal (ADR-178 §2). */
+export interface HookJournalEntry {
+  /** Monotonic across daemon restarts; consecutive, starting at 1. */
+  seq: number;
+  /** Wall-clock ms when the daemon received the hook. */
+  receivedAt: number;
+  payload: HookPayload;
+}
 
 export type ControlResponse =
   | { type: "authOk"; version?: string }
@@ -135,7 +203,33 @@ export type ControlResponse =
       /** Absent from daemons older than TERMINAL_HOST_PROTOCOL 1. */
       protocol?: number;
     }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | {
+      type: "execResult";
+      stdout: string;
+      stderr: string;
+      exitCode: number | null;
+    }
+  | { type: "fileContents"; contents: string }
+  /**
+   * `bootstrap` succeeded; `agents` lists the connectors registered.
+   * `warnings`, when present, lists connectors that skipped registration
+   * rather than risk clobbering a config the daemon couldn't safely parse
+   * (e.g. unreadable or malformed JSON) — absent or empty means no issues.
+   */
+  | {
+      type: "bootstrapped";
+      agents: string[];
+      warnings?: string[];
+      /**
+       * Port of the daemon's own hook listener, which `bootstrap` turns on
+       * (ADR-178 §2). Absent when it could not be started, or from daemons
+       * that predate it.
+       */
+      hookPort?: number;
+    }
+  /** See `HookReplay`. */
+  | ({ type: "hookReplay" } & HookReplay);
 
 // ── Agent status types ──
 
@@ -161,7 +255,13 @@ export interface AgentState {
 
 export type StreamEvent =
   | { type: "data"; sessionId: string; data: string; seq?: StreamPosition }
-  | { type: "exit"; sessionId: string; exitCode: number }
+  /**
+   * The session is gone. `lost` marks one the client synthesized because the
+   * daemon no longer has it after a reconnect (the daemon restarted, the box
+   * rebooted) — not a shell that exited. A remote pane keeps such a session's
+   * pane and recovers it (ADR-178 §6); the local host closes it (ADR-169).
+   */
+  | { type: "exit"; sessionId: string; exitCode: number; lost?: true }
   | { type: "cwd"; sessionId: string; cwd: string }
   | { type: "error"; sessionId: string; message: string }
   | { type: "agentStatus"; sessionId: string; agent: AgentState }
@@ -170,7 +270,14 @@ export type StreamEvent =
    * byte before this event was produced at the old size, every byte after it at
    * the new one. Clients resize their emulator here.
    */
-  | { type: "resized"; sessionId: string; cols: number; rows: number };
+  | { type: "resized"; sessionId: string; cols: number; rows: number }
+  | { type: "execStdout" | "execStderr"; execId: string; data: string }
+  | { type: "execExit"; execId: string; exitCode: number | null }
+  /**
+   * An agent hook the daemon's listener received and journaled (ADR-178 §2).
+   * Sent to every authenticated stream socket, subscribed or not.
+   */
+  | { type: "hookEvent"; seq: number; payload: HookPayload };
 
 // ── Stream socket commands (client → daemon, fire-and-forget) ──
 
@@ -183,7 +290,17 @@ export type StreamCommand =
       sessionId: string;
       status: AgentStatus;
       kind: AgentKind;
-    };
+    }
+  | {
+      type: "execStream";
+      execId: string;
+      cmd: string;
+      args: string[];
+      cwd?: string;
+      /** Overrides merged onto the daemon's own environment. */
+      env?: Record<string, string>;
+    }
+  | { type: "execCancel"; execId: string };
 
 // ── PTY Subprocess spawn payload ──
 

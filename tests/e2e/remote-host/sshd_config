@@ -1,0 +1,9 @@
+# Drop-in for the E2E container's sshd (see Dockerfile).
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+PermitRootLogin no
+AllowUsers manor
+# Port forwards (ADR-178 §5) ride the ControlMaster with `ssh -O forward -L`.
+AllowTcpForwarding yes
+UseDNS no

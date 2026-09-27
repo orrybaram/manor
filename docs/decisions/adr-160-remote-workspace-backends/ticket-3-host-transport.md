@@ -1,6 +1,6 @@
 ---
 title: Extract HostTransport from TerminalHostClient
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: []

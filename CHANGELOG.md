@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.14.1] - 2026-09-26
+
+### Fixes
+- Release builds now include the manor-host component, so features that depend on it work in the shipped app
+
 ## [0.14.0] - 2026-09-26
 
 ### Features

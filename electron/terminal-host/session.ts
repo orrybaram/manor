@@ -25,9 +25,6 @@ import {
 import { ShellManager } from "../shell";
 import { manorBinDir } from "../paths";
 import { ScrollbackWriter } from "./scrollback";
-import { AgentDetector } from "./agent-detector";
-import { OutputPatternMatcher } from "./output-pattern-matcher";
-import { TitleDetector, OscTitleParser } from "./title-detector";
 import { PaneFactsExtractor } from "./pane-facts";
 import type {
   TerminalSnapshot,
@@ -35,8 +32,6 @@ import type {
   SessionInfo,
   StreamEvent,
   PtySpawnPayload,
-  AgentStatus,
-  AgentKind,
   PaneFacts,
 } from "./types";
 import { DEFAULT_TERMINAL_MODES } from "./types";
@@ -150,17 +145,7 @@ export class Session {
   // Scrollback persistence
   private scrollbackWriter: ScrollbackWriter | null = null;
 
-  // Agent detection
-  private agentDetector: AgentDetector;
-
-  // Fallback detection
-  private outputMatcher: OutputPatternMatcher;
-  private titleDetector: TitleDetector;
-  private oscTitleParser: OscTitleParser;
-  private pidSweepTimer: ReturnType<typeof setInterval> | null = null;
-
-  // Pane facts (ADR-184 §3). Runs alongside the detector above until ADR-184
-  // ticket 4 removes it.
+  // Pane facts (ADR-184 §3): the daemon's only source of Status signals.
   private paneFacts: PaneFactsExtractor;
 
   // Pending writes queued before first output (for prewarmed command injection)
@@ -229,31 +214,11 @@ export class Session {
       this.scrollbackWriter.init({ sessionId, cols, rows, cwd });
     }
 
-    // Agent detection
-    this.agentDetector = new AgentDetector(sessionId);
-    this.agentDetector.onStatusChange = (state) => {
-      this.broadcastEvent({
-        type: "agentStatus",
-        sessionId: this.sessionId,
-        agent: state,
-      });
-    };
-
-    // Fallback detection
-    this.outputMatcher = new OutputPatternMatcher();
-    this.titleDetector = new TitleDetector();
-    this.oscTitleParser = new OscTitleParser();
-
     this.paneFacts = new PaneFactsExtractor({
       onChange: (facts) => {
         this.broadcastEvent({ type: "paneFacts", sessionId: this.sessionId, facts });
       },
     });
-
-    // Stale PID sweep every 30 seconds
-    this.pidSweepTimer = setInterval(() => {
-      this.agentDetector.sweepStalePids();
-    }, 30_000);
   }
 
   get alive(): boolean {
@@ -382,25 +347,6 @@ export class Session {
         // Pane facts: titles, output hints (ADR-184 §3)
         this.paneFacts.feedData(data);
 
-        // Parse OSC 0/2 for title-based fallback detection
-        const titles = this.oscTitleParser.parse(data);
-        if (titles.length > 0) {
-          const latestTitle = titles[titles.length - 1];
-          this.titleDetector.setTitle(latestTitle);
-          this.agentDetector.setTitle(latestTitle);
-          const titleStatus = this.titleDetector.detect();
-          if (titleStatus !== "unknown") {
-            this.agentDetector.setFallbackStatus(titleStatus);
-          }
-        }
-
-        // Output pattern fallback detection
-        this.outputMatcher.addData(data);
-        const patternStatus = this.outputMatcher.detect();
-        if (patternStatus !== null) {
-          this.agentDetector.setFallbackStatus(patternStatus);
-        }
-
         // Track terminal modes from escape sequences
         this.trackModes(data);
 
@@ -449,16 +395,10 @@ export class Session {
 
       case MSG.FGPROC: {
         const { name } = JSON.parse(payload.toString("utf-8")) as { name: string | null };
-        this.agentDetector.updateForegroundProcess(name);
         this.paneFacts.setForeground(name);
         break;
       }
     }
-  }
-
-  /** Called when a hook event arrives for this session */
-  setAgentHookStatus(status: AgentStatus, kind: AgentKind): void {
-    this.agentDetector.setStatus(status, kind);
   }
 
   /** Write terminal input to the subprocess */
@@ -590,11 +530,6 @@ export class Session {
     for (const pending of this.pendingResizes.splice(0)) {
       clearTimeout(pending.timer);
       pending.resolve();
-    }
-    this.agentDetector.dispose();
-    if (this.pidSweepTimer) {
-      clearInterval(this.pidSweepTimer);
-      this.pidSweepTimer = null;
     }
     this.scrollbackWriter?.end();
     this.scrollbackWriter?.dispose();
@@ -733,14 +668,8 @@ export class Session {
     if (data.includes("\x1b[?1l")) this.modes.applicationCursor = false;
 
     // Alt screen: CSI ?1049h (enable) / CSI ?1049l (disable)
-    if (data.includes("\x1b[?1049h")) {
-      this.modes.altScreen = true;
-      this.agentDetector.setAltScreen(true);
-    }
-    if (data.includes("\x1b[?1049l")) {
-      this.modes.altScreen = false;
-      this.agentDetector.setAltScreen(false);
-    }
+    if (data.includes("\x1b[?1049h")) this.modes.altScreen = true;
+    if (data.includes("\x1b[?1049l")) this.modes.altScreen = false;
 
     // Mouse tracking: CSI ?1000h (enable) / CSI ?1000l (disable)
     if (data.includes("\x1b[?1000h")) this.modes.mouseTracking = true;

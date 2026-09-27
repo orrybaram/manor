@@ -18,7 +18,6 @@ import { NotificationCoalescer, type HookCursor } from "./backend/hook-feed";
 import { bootstrapHost } from "./terminal-host/bootstrap-host";
 import { createAgentStatusDriver, type AgentStatusDriver } from "./agent-status/driver";
 import type { PaneStatusUpdate } from "./agent-status/effects";
-import type { Effect as LegacyRelayEffect } from "./hook-relay-transition";
 import { ensureManorCli } from "./manor-cli-install";
 import { AgentManager, type AgentInfo } from "./agent-persistence";
 import { NotificationStore } from "./notification-store";
@@ -137,8 +136,7 @@ export function handleStreamEvent(event: StreamEvent, window: BrowserWindow): vo
       case "error":
         window.webContents.send(`pty-error-${event.sessionId}`, event.message);
         break;
-      // ADR-184: `agentStatus` is ignored — the Status reconciler decides the
-      // Agent status and publishes it itself. `paneFacts` is main's alone.
+      // `paneFacts` is main's alone (ADR-184) — see `dispatchStreamEvent`.
     }
   } catch (err) {
     // Render frame disposed during window reload or close — safe to ignore
@@ -164,7 +162,6 @@ export interface AgentStreamDeps {
  *   terminal title (unless the user pinned one);
  * - `cwd` → the active Agent's cwd;
  * - `exit` → the pane's reconciler state is dropped.
- * `agentStatus` stream events are ignored for status purposes.
  */
 export function handleAgentStreamEvent(event: StreamEvent, deps: AgentStreamDeps): void {
   try {
@@ -207,8 +204,7 @@ export function handleAgentStreamEvent(event: StreamEvent, deps: AgentStreamDeps
  * What main does with one stream event from any host: its agent side once
  * (`handleAgentStreamEvent`), then the pane channels to every window. However
  * many windows are open, a signal reaches the Status reconciler once and its
- * effects are applied once (ADR-184). `paneFacts` and `agentStatus` never
- * reach a window.
+ * effects are applied once (ADR-184). `paneFacts` never reaches a window.
  */
 export function dispatchStreamEvent(
   event: StreamEvent,
@@ -216,7 +212,7 @@ export function dispatchStreamEvent(
   agentDeps: AgentStreamDeps,
 ): void {
   handleAgentStreamEvent(event, agentDeps);
-  if (event.type === "paneFacts" || event.type === "agentStatus") return;
+  if (event.type === "paneFacts") return;
   for (const win of windows) {
     // Check that the main frame is still available (avoids "Render frame was
     // disposed" errors during window reload/close).
@@ -579,20 +575,12 @@ export function initApp(devTitle: string | null): void {
       sendLegacyAgentState(update.paneId, update.status, update.kind, facts);
     },
     onHookEvent: (event, effects, { isRootSession, replacedRootSessionId }) => {
-      // The stats tap still reads ADR-139's effect shapes; translate the two
-      // it looks at (ADR-184 ticket 4 moves it onto the reconciler's).
-      const legacy: LegacyRelayEffect[] = [];
-      if (replacedRootSessionId) {
-        legacy.push({ kind: "DeleteSessionState", sessionId: replacedRootSessionId });
-      }
-      for (const effect of effects) {
-        if (effect.kind === "CreateAgent") legacy.push({ ...effect });
-      }
       statsStore.observeHookEvent(
         event,
-        legacy,
+        effects,
         countBusyAgents(agentManager.getActiveAgents()),
         isRootSession,
+        replacedRootSessionId,
       );
     },
   });

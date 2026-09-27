@@ -7,7 +7,7 @@ import {
   type HookSink,
 } from "../hook-feed";
 import { AgentHookServer } from "../../agent-hooks";
-import { createHookRelay } from "../../hook-relay";
+import { createAgentStatusDriver } from "../../agent-status/driver";
 import type { AgentInfo } from "../../agent-persistence";
 import type { HookJournalEntry, HookPayload, HookReplay } from "../../terminal-host/types";
 
@@ -419,8 +419,7 @@ describe("replay through the real ingest path", () => {
     const notify = vi.fn();
     const coalescer = new NotificationCoalescer(notify);
     const server = new AgentHookServer();
-    const { relay } = createHookRelay({
-      relayAgentHook: vi.fn(),
+    const driver = createAgentStatusDriver({
       agentManager: fakeAgentManager(),
       getPaneContext: () => ({
         projectId: "p",
@@ -432,8 +431,11 @@ describe("replay through the real ingest path", () => {
       unseenInputAgents: new Set(),
       broadcastAgent: vi.fn(),
       maybeSendNotification: coalescer.send,
+      publishPaneStatus: () => {},
     });
-    server.setRelay(relay);
+    server.setRelay((event) => {
+      driver.hook(event);
+    });
 
     const sink: HookSink = {
       ingest: (p, { hostId, replay }) => {

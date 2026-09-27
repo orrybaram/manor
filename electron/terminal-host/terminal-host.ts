@@ -8,13 +8,7 @@
 import type net from "node:net";
 import { Session } from "./session";
 import { SESSIONS_DIR } from "./scrollback";
-import type {
-  SessionInfo,
-  TerminalSnapshot,
-  AgentStatus,
-  AgentKind,
-  PaneFacts,
-} from "./types";
+import type { SessionInfo, TerminalSnapshot, PaneFacts } from "./types";
 
 export class TerminalHost {
   private sessions = new Map<string, Session>();
@@ -155,15 +149,6 @@ export class TerminalHost {
       session.dispose();
     }
     this.sessions.clear();
-  }
-
-  /** Relay a hook-driven agent status to a session's detector */
-  setAgentHookStatus(
-    sessionId: string,
-    status: AgentStatus,
-    kind: AgentKind,
-  ): void {
-    this.sessions.get(sessionId)?.setAgentHookStatus(status, kind);
   }
 
   /** Detach all clients from a specific socket (when a client disconnects) */

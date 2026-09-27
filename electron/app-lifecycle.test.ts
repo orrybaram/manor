@@ -368,19 +368,6 @@ describe("handleStreamEvent", () => {
       expect(broadcastAgent).not.toHaveBeenCalled();
     });
 
-    it("ignores the daemon's agentStatus events", () => {
-      const agent = createAgent({ name: null });
-      runEvent({
-        type: "agentStatus",
-        sessionId: agent.paneId!,
-        agent: { kind: null, status: "idle", processName: null, since: 0, title: "Some title" },
-      });
-
-      expect(agentStatus.signal).not.toHaveBeenCalled();
-      expect(agentManager.getAgentByPaneId(agent.paneId!)!.name).toBeNull();
-      expect(mockWindow.webContents.send).not.toHaveBeenCalled();
-    });
-
     it("drops the pane's reconciler state when its pty exits", () => {
       const paneId = `pane-${crypto.randomUUID()}`;
       runEvent({ type: "exit", sessionId: paneId, exitCode: 0 });

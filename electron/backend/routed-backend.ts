@@ -101,8 +101,6 @@ export class RoutedBackend implements WorkspaceBackend {
       },
       onEvent: (handler) => registry.onEvent((_hostId, event) => handler(event)),
       updateEnv: (env) => local().pty.updateEnv(env),
-      relayAgentHook: (sessionId, status, kind) =>
-        bySession(sessionId).relayAgentHook(sessionId, status, kind),
     };
 
     this.git = {

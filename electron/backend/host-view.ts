@@ -99,7 +99,6 @@ export function hostView(conn: HostConnection, gates: HostGates | null): Workspa
         // Fire-and-forget: nothing to await, and the client drops writes
         // for a session it is not connected to.
         write: null,
-        relayAgentHook: null,
         onEvent: null,
       },
       gates?.ptyFailure,
@@ -203,7 +202,7 @@ export function unavailableBackend(hostId: string): WorkspaceBackend {
     return { cancel: () => {} };
   };
   return {
-    pty: failing({ write: () => {}, relayAgentHook: () => {}, onEvent: () => () => {} }),
+    pty: failing({ write: () => {}, onEvent: () => () => {} }),
     git: failing({ pushStream: failStream, cloneStream: failStream }),
     shell: failing({}),
     ports: failing({}),

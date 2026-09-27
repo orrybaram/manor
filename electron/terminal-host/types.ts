@@ -55,8 +55,15 @@ export type StreamPosition = number;
  * 5 — a `paneFacts` stream event and a `getPaneFacts` request (ADR-184 §3).
  *     Main's Status reconciler reads Pane facts from them, and a protocol-4
  *     daemon sends neither.
+ *
+ * 6 — the `agentHook` stream command and the `agentStatus` stream event are
+ *     gone (ADR-184 ticket 4): the daemon's `AgentDetector` state machine is
+ *     deleted, and main's Status reconciler decides Agent status from Pane
+ *     facts and hooks alone. A protocol-5 daemon still accepts an `agentHook`
+ *     command main no longer sends, and a protocol-6 daemon never sends
+ *     `agentStatus`.
  */
-export const TERMINAL_HOST_PROTOCOL = 5;
+export const TERMINAL_HOST_PROTOCOL = 6;
 
 // ── Handshake ──
 
@@ -423,7 +430,6 @@ export type StreamEvent =
   | { type: "exit"; sessionId: string; exitCode: number; lost?: true }
   | { type: "cwd"; sessionId: string; cwd: string }
   | { type: "error"; sessionId: string; message: string }
-  | { type: "agentStatus"; sessionId: string; agent: AgentState }
   /** The session's Pane facts changed; `facts` is the whole new snapshot (ADR-184 §3). */
   | { type: "paneFacts"; sessionId: string; facts: PaneFacts }
   /**
@@ -446,12 +452,6 @@ export type StreamCommand =
   | { type: "write"; sessionId: string; data: string }
   | { type: "subscribe"; sessionId: string }
   | { type: "unsubscribe"; sessionId: string }
-  | {
-      type: "agentHook";
-      sessionId: string;
-      status: AgentStatus;
-      kind: AgentKind;
-    }
   | {
       type: "execStream";
       execId: string;

@@ -14,8 +14,6 @@ import type {
   SessionInfo,
   TerminalSnapshot,
   StreamEvent,
-  AgentStatus,
-  AgentKind,
   HookReplay,
   PaneFacts,
 } from "../terminal-host/types";
@@ -68,12 +66,6 @@ export interface PtyBackend {
   onEvent(handler: StreamEventHandler): () => void;
 
   updateEnv(env: Record<string, string>): Promise<void>;
-
-  relayAgentHook(
-    sessionId: string,
-    status: AgentStatus,
-    kind: AgentKind,
-  ): void;
 }
 
 /** A remote host's pty backend: its daemon journals agent hooks (ADR-178 §2). */

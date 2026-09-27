@@ -1,8 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   AGENT_COMMAND_PATTERNS,
+  OutputPatternMatcher,
   PaneFactsExtractor,
   agentKindForProcess,
+  stripAnsi,
 } from "../pane-facts";
 import type { PaneFacts } from "../types";
 
@@ -213,5 +215,205 @@ describe("PaneFactsExtractor (ADR-184)", () => {
       extractor.feedData("hello world\r\n");
       expect(emitted).toEqual([]);
     });
+  });
+});
+
+// ── OutputPatternMatcher (ported from output-pattern-matcher.test.ts, ADR-184 ticket 4) ──
+
+describe("OutputPatternMatcher", () => {
+  let matcher: OutputPatternMatcher;
+
+  beforeEach(() => {
+    matcher = new OutputPatternMatcher();
+  });
+
+  describe("busy patterns", () => {
+    it("detects 'ctrl+c to interrupt'", () => {
+      matcher.addData("ctrl+c to interrupt");
+      expect(matcher.detect()).toBe("thinking");
+    });
+
+    it("detects 'esc to interrupt'", () => {
+      matcher.addData("esc to interrupt");
+      expect(matcher.detect()).toBe("thinking");
+    });
+
+    it("detects braille spinner characters", () => {
+      matcher.addData("Loading ⡀ please wait");
+      expect(matcher.detect()).toBe("thinking");
+    });
+
+    it("detects whimsical action words pattern", () => {
+      matcher.addData("✢ Cerebrating... (53s, 749 tokens)");
+      expect(matcher.detect()).toBe("thinking");
+    });
+
+    it("detects whimsical pattern with different words", () => {
+      matcher.addData("Pondering... 120 tokens used");
+      expect(matcher.detect()).toBe("thinking");
+    });
+  });
+
+  describe("requires_input patterns", () => {
+    it("detects 'Yes, allow once'", () => {
+      matcher.addData("Yes, allow once");
+      expect(matcher.detect()).toBe("requires_input");
+    });
+
+    it("detects 'No, and tell Claude what to do differently'", () => {
+      matcher.addData("No, and tell Claude what to do differently");
+      expect(matcher.detect()).toBe("requires_input");
+    });
+
+    it("detects 'Do you trust the files in this folder?'", () => {
+      matcher.addData("Do you trust the files in this folder?");
+      expect(matcher.detect()).toBe("requires_input");
+    });
+
+    it("detects '(Y/n)' prompt", () => {
+      matcher.addData("Proceed with changes? (Y/n)");
+      expect(matcher.detect()).toBe("requires_input");
+    });
+
+    it("detects 'Continue?' prompt", () => {
+      matcher.addData("Continue?");
+      expect(matcher.detect()).toBe("requires_input");
+    });
+
+    it("detects 'Approve this plan?'", () => {
+      matcher.addData("Approve this plan?");
+      expect(matcher.detect()).toBe("requires_input");
+    });
+  });
+
+  describe("idle patterns", () => {
+    it("detects ❯ prompt", () => {
+      matcher.addData("❯");
+      expect(matcher.detect()).toBe("idle");
+    });
+
+    it("detects > prompt", () => {
+      matcher.addData(">");
+      expect(matcher.detect()).toBe("idle");
+    });
+
+    it("detects prompt with surrounding whitespace", () => {
+      matcher.addData("  ❯  ");
+      expect(matcher.detect()).toBe("idle");
+    });
+  });
+
+  describe("box-drawing filtering", () => {
+    it("skips lines starting with box-drawing characters", () => {
+      matcher.addData("│ ctrl+c to interrupt");
+      expect(matcher.detect()).toBe(null);
+    });
+
+    it("skips lines starting with ├", () => {
+      matcher.addData("├── some content");
+      expect(matcher.detect()).toBe(null);
+    });
+
+    it("skips lines starting with └", () => {
+      matcher.addData("└── end");
+      expect(matcher.detect()).toBe(null);
+    });
+
+    it("skips lines starting with ─", () => {
+      matcher.addData("──────────");
+      expect(matcher.detect()).toBe(null);
+    });
+  });
+
+  describe("ANSI stripping", () => {
+    it("strips ANSI codes before matching", () => {
+      matcher.addData("\x1b[32mctrl+c to interrupt\x1b[0m");
+      expect(matcher.detect()).toBe("thinking");
+    });
+
+    it("strips complex ANSI sequences", () => {
+      matcher.addData("\x1b[1;34m❯\x1b[0m");
+      expect(matcher.detect()).toBe("idle");
+    });
+  });
+
+  describe("false positive avoidance", () => {
+    it("returns null for normal shell output", () => {
+      matcher.addData("ls -la");
+      expect(matcher.detect()).toBe(null);
+    });
+
+    it("returns null for file listing output", () => {
+      matcher.addData("total 42");
+      matcher.addData("drwxr-xr-x  5 user staff  160 Jan  1 00:00 .");
+      expect(matcher.detect()).toBe(null);
+    });
+
+    it("returns null for Claude welcome banner", () => {
+      matcher.addData("Welcome to Claude Code!");
+      matcher.addData("Type your request below.");
+      expect(matcher.detect()).toBe(null);
+    });
+  });
+
+  describe("staleness (edge-triggered requires_input)", () => {
+    it("does not re-report a prompt that is only retained in the buffer", () => {
+      matcher.addData("❯ 1. Yes, allow once");
+      expect(matcher.detect()).toBe("requires_input");
+
+      matcher.addData("Running tool...");
+      expect(matcher.detect()).not.toBe("requires_input");
+    });
+
+    it("reports a prompt again when it is re-drawn", () => {
+      matcher.addData("❯ 1. Yes, allow once");
+      matcher.addData("Running tool...");
+      matcher.addData("❯ 1. Yes, allow once");
+      expect(matcher.detect()).toBe("requires_input");
+    });
+
+    it("a chunk with no usable lines does not re-assert a retained prompt", () => {
+      matcher.addData("Proceed with changes? (Y/n)");
+      expect(matcher.detect()).toBe("requires_input");
+
+      matcher.addData("\n\n");
+      expect(matcher.detect()).not.toBe("requires_input");
+    });
+
+    it("still reports busy state while a stale prompt sits in the buffer", () => {
+      matcher.addData("❯ 1. Yes, allow once");
+      matcher.addData("✢ Sprouting... (2m 21s, 9100 tokens)");
+      expect(matcher.detect()).toBe("thinking");
+    });
+  });
+
+  describe("prose false positives", () => {
+    it("ignores 'continue?' inside a sentence", () => {
+      matcher.addData("Tell me if you want me to continue? Not a prompt here.");
+      expect(matcher.detect()).toBe(null);
+    });
+  });
+
+  describe("ring buffer", () => {
+    it("maintains max 15 lines", () => {
+      for (let i = 0; i < 20; i++) {
+        matcher.addData(`line ${i}`);
+      }
+      expect(matcher.getBuffer().length).toBe(15);
+    });
+  });
+});
+
+describe("stripAnsi (ADR-184 ticket 4)", () => {
+  it("removes color codes", () => {
+    expect(stripAnsi("\x1b[31mred\x1b[0m")).toBe("red");
+  });
+
+  it("removes cursor movement", () => {
+    expect(stripAnsi("\x1b[2Ahello")).toBe("hello");
+  });
+
+  it("passes through plain text", () => {
+    expect(stripAnsi("hello world")).toBe("hello world");
   });
 });

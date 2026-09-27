@@ -8,7 +8,7 @@
  */
 
 import type { AgentHookEvent } from "./agent-hook-events";
-import type { Effect } from "./hook-relay-transition";
+import type { Effect } from "./agent-status/types";
 import type { StatCounter, StatGauge } from "./stats-store";
 
 /**
@@ -153,6 +153,12 @@ export function deltasForHookEvent(
      * so callers that cannot tell keep the old (count-everything) behaviour.
      */
     isRootSession?: boolean;
+    /**
+     * The root session a SessionStart just replaced, if any (ADR-184). Its
+     * pending block is dropped, same as the old relay's `DeleteSessionState`
+     * effect did.
+     */
+    replacedRootSessionId?: string | null;
   },
 ): StatDelta[] {
   // A pane can host more than one agent process: anything the agent itself
@@ -206,15 +212,16 @@ export function deltasForHookEvent(
     if (effect.kind === "CreateAgent") {
       deltas.push({ counter: "agentSessions", n: 1 });
       deltas.push({ gauge: "maxConcurrentAgents", value: ctx.activeAgentCount });
-    } else if (effect.kind === "DeleteSessionState") {
-      tracker.blockedAt.delete(effect.sessionId);
     }
   }
 
-  // A session that ended can never be unblocked; drop its pending wait so the
-  // map cannot grow without bound.
+  // A session that ended, or was just replaced as the pane's root, can never
+  // be unblocked; drop its pending wait so the map cannot grow without bound.
   if (event.type === "SessionEnd" && sessionId !== null) {
     tracker.blockedAt.delete(sessionId);
+  }
+  if (ctx.replacedRootSessionId) {
+    tracker.blockedAt.delete(ctx.replacedRootSessionId);
   }
 
   return deltas;

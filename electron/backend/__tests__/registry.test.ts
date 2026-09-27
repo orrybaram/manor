@@ -42,7 +42,6 @@ function fakeBackend(name: string) {
         };
       }),
       updateEnv: vi.fn(async () => {}),
-      relayAgentHook: vi.fn(),
       replayHooks: vi.fn(async () => ({ entries: [], lastSeq: 0, epoch: "e0" })),
     },
     git: {
@@ -543,10 +542,8 @@ describe("RoutedBackend", () => {
 
     backend.pty.write("pane-r", "ls\n");
     await backend.pty.resize("pane-r", 100, 30);
-    backend.pty.relayAgentHook("pane-r", "working", "claude");
     expect(remote.raw.pty.write).toHaveBeenCalledWith("pane-r", "ls\n");
     expect(remote.raw.pty.resize).toHaveBeenCalledWith("pane-r", 100, 30);
-    expect(remote.raw.pty.relayAgentHook).toHaveBeenCalledWith("pane-r", "working", "claude");
     expect(local.raw.pty.write).not.toHaveBeenCalled();
 
     // Unknown panes are local, as every pane was before hosts.
@@ -756,20 +753,20 @@ describe("BackendRegistry — remote agent hooks (ADR-178 §2)", () => {
       hookSeqStore: { get: () => ({ seq: 0, epoch: "e0" }), set: () => {} },
     });
     const routed = new RoutedBackend(registry, () => "local");
-    // What the hook relay does for each ingested hook: relay status by pane.
+    // What the hook relay does for each ingested hook: route by pane.
     registry.setHookSink({
-      ingest: (payload) => routed.pty.relayAgentHook(payload.paneId, "working", "claude"),
+      ingest: (payload) => routed.pty.write(payload.paneId, "hook"),
     });
     registry.register("box", box);
 
     // A fresh launch: nothing has been created or attached on the box yet.
     expect(registry.sessions.ownerOf("pane-remote")).toBeUndefined();
     await registry.ensureConnected("box");
-    await vi.waitFor(() => expect(remote.raw.pty.relayAgentHook).toHaveBeenCalled());
+    await vi.waitFor(() => expect(remote.raw.pty.write).toHaveBeenCalled());
 
     expect(order).toEqual(["listSessions", "replayHooks"]);
-    expect(remote.raw.pty.relayAgentHook).toHaveBeenCalledWith("pane-remote", "working", "claude");
-    expect(local.raw.pty.relayAgentHook).not.toHaveBeenCalled();
+    expect(remote.raw.pty.write).toHaveBeenCalledWith("pane-remote", "hook");
+    expect(local.raw.pty.write).not.toHaveBeenCalled();
   });
 });
 

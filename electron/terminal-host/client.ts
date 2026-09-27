@@ -11,8 +11,6 @@
 import type {
   SessionInfo,
   TerminalSnapshot,
-  AgentStatus,
-  AgentKind,
   HookReplay,
   PaneFacts,
 } from "./types";
@@ -386,14 +384,6 @@ export class TerminalHostClient {
   async writeAfterReady(sessionId: string, data: string): Promise<void> {
     await this.ensureConnected();
     await this.rpc.call({ type: "writeAfterReady", sessionId, data }, 2_000);
-  }
-
-  /** Relay an agent hook event to the daemon (fire-and-forget) */
-  relayAgentHook(sessionId: string, status: AgentStatus, kind: AgentKind): void {
-    console.debug(
-      `[agent-status] client relay: session=${sessionId} status=${status} kind=${kind}`,
-    );
-    this.stream.write({ type: "agentHook", sessionId, status, kind });
   }
 
   /**

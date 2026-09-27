@@ -506,18 +506,6 @@ describe("Session", () => {
       expect(events[1].facts.outputHint?.hint).toBe("requires_input");
       expect(session.getPaneFacts()).toEqual(events[1].facts);
     });
-
-    it("keeps the old agentStatus event alongside", () => {
-      const { socket, written } = mockSocket();
-      session.attachClient(socket);
-
-      pushFgFrame("claude");
-      session.setAgentHookStatus("thinking", "claude");
-
-      const types = written.map((line) => (JSON.parse(line) as StreamEvent).type);
-      expect(types).toContain("agentStatus");
-      expect(types).toContain("paneFacts");
-    });
   });
 });
 

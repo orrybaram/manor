@@ -6,8 +6,6 @@ import type {
 import type {
   SessionInfo,
   TerminalSnapshot,
-  AgentStatus,
-  AgentKind,
   HookReplay,
   PaneFacts,
 } from "../terminal-host/types";
@@ -77,14 +75,6 @@ export class DaemonPtyBackend implements HookJournalPtyBackend {
    */
   async updateEnv(env: Record<string, string>): Promise<void> {
     await this.client.updateEnv(env);
-  }
-
-  relayAgentHook(
-    sessionId: string,
-    status: AgentStatus,
-    kind: AgentKind,
-  ): void {
-    this.client.relayAgentHook(sessionId, status, kind);
   }
 
   /** The daemon's hook journal after `sinceSeq` (see `HookJournalPtyBackend.replayHooks`). */

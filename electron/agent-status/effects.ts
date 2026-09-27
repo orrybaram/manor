@@ -5,10 +5,10 @@
  * side effects: Agent persistence, unseen flags, notifications, broadcasts and
  * the pane's published Agent status.
  *
- * Ported from ADR-139's `hook-relay-effects.ts` (which stays in place, unused
- * by main, until ADR-184 ticket 4 deletes the old relay). The mutation order
- * inside each effect is load-bearing and is carried over unchanged — see the
- * per-transition order documented on `AgentStatusTransition` in `./types.ts`:
+ * Ported from ADR-139's `hook-relay-effects.ts` (deleted by ADR-184 ticket 4).
+ * The mutation order inside each effect is load-bearing and is carried over
+ * unchanged — see the per-transition order documented on
+ * `AgentStatusTransition` in `./types.ts`:
  *
  *   persist → unseen add/clear → notify → broadcast
  */

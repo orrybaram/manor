@@ -11,8 +11,8 @@
  *   time-based rule (held-Stop drain, stuck-working, orphan recovery);
  * - resyncs Pane facts after a host (re)connects (`resync`).
  *
- * Replaces `createHookRelay`'s interior (ADR-139), which stays in place,
- * unused by main, until ADR-184 ticket 4 deletes it.
+ * Replaces `createHookRelay`'s interior (ADR-139); the old relay was deleted
+ * by ADR-184 ticket 4.
  */
 
 import type { AgentHookEvent } from "../agent-hook-events";

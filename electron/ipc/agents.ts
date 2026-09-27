@@ -232,6 +232,10 @@ export function register(deps: IpcDeps): void {
       // `listSessions` because nobody could ask, not because they ended.
       if (!isAgentHostConnected(deps, agent.projectId)) continue;
       if (agent.lastAgentStatus === "responded") continue;
+      // Its pty was killed by a daemon replacement (ADR-185 §A): the pane is
+      // about to be cold-restored, which resumes the Agent. Abandoning it
+      // here would race that resume and win.
+      if (agentStatus.isPaneLossExpected(agent.paneId)) continue;
 
       // Its pane is gone: the same `user` signal as closing it (ADR-184).
       agentStatus.signal(agent.paneId, { type: "user", action: "abandon" });

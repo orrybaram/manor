@@ -60,6 +60,8 @@ export type RemoteBackendFactory = (
     /** The host's provider; the backend rides `provider.transport()`. */
     provider: HostProvider;
     onBootstrapWarning: (warnings: string[]) => void;
+    /** The host's daemon is about to be replaced (ADR-185 §A). */
+    onDaemonReplacing: (sessionIds: string[]) => void;
   },
 ) => RemoteHostBackend;
 
@@ -73,6 +75,7 @@ const createRemoteBackend: RemoteBackendFactory = (_hostId, spec, opts) =>
     version: opts.version,
     transport: opts.provider.transport(),
     onBootstrapWarning: opts.onBootstrapWarning,
+    onDaemonReplacing: opts.onDaemonReplacing,
   });
 
 export interface BackendRegistryOptions {
@@ -187,6 +190,7 @@ export class BackendRegistry {
       version: this.remoteVersion,
       provider,
       onBootstrapWarning: (warnings) => built.conn?.reportWarnings(warnings),
+      onDaemonReplacing: (sessionIds) => built.conn?.reportDaemonReplacing(sessionIds),
     });
     built.conn = new RemoteHostConnection(hostId, spec, provider, backend, this.ctx);
     this.add(built.conn);
@@ -302,6 +306,16 @@ export class BackendRegistry {
    */
   onDaemonReplacing(handler: (hostId: string, sessionIds: string[]) => void): () => void {
     return this.daemonReplacing.on(handler);
+  }
+
+  /**
+   * Report that `hostId`'s daemon is about to be replaced (see
+   * `onDaemonReplacing`). For the local host's client, which is built before
+   * the registry and so cannot be handed its connection the way a remote
+   * host's backend is in `register`. An unknown host is ignored.
+   */
+  reportDaemonReplacing(hostId: string, sessionIds: string[]): void {
+    this.hosts.get(hostId)?.reportDaemonReplacing(sessionIds);
   }
 
   /** Called with the full `list()` whenever any host's status changes. */

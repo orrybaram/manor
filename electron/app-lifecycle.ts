@@ -295,8 +295,13 @@ export function initApp(devTitle: string | null): void {
   }
 
   // Managers
-  // The local daemon is handshaken against Electron's version.
-  const client = new TerminalHostClient(app.getVersion());
+  // The local daemon is handshaken against Electron's version. A stale daemon
+  // it replaces reports the sessions it is about to kill through the
+  // registry, like a remote host's (ADR-185 §A); only ever called from
+  // `connect()`, long after `backendRegistry` exists.
+  const client = new TerminalHostClient(app.getVersion(), undefined, (sessionIds) =>
+    backendRegistry.reportDaemonReplacing(LOCAL_HOST_ID, sessionIds),
+  );
   // Every host's backend, "local" always among them (ADR-160 §6). Remote
   // hosts come from projects.json below and connect lazily, off the launch
   // path; with none registered everything routes to the local backend.
@@ -559,6 +564,16 @@ export function initApp(devTitle: string | null): void {
       console.debug(`[agent-status] resync of ${hostId} failed:`, err);
     }
   }
+
+  // A daemon about to be replaced (local or remote) kills every pty on it.
+  // Those Agents did not finish: their SessionEnd must not complete them, so
+  // the renderer's cold restore resumes them (ADR-185 §A). Subscribed before
+  // any `connect()` (the event fires inside it); a SessionEnd the hook server
+  // hears before `setRelay` below is queued and replayed after, still inside
+  // the window.
+  backendRegistry.onDaemonReplacing((_hostId, sessionIds) => {
+    agentStatusDriver.expectPaneLoss(sessionIds);
+  });
 
   // The local daemon's reconnects (its client's supervisor)...
   client.setConnectionListener({

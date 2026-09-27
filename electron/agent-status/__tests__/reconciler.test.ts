@@ -491,6 +491,59 @@ describe("reconcile — Group D: phase responded, late-active guard (ported from
   });
 });
 
+// ── H8a: SessionEnd during a daemon replacement (ADR-185 §A) ──
+
+describe("reconcile — H8a: SessionEnd inside an expected-loss window", () => {
+  it("mid-turn SessionEnd → no completion; pane idle, root dropped, kind cleared", () => {
+    const r = reconcile(
+      activePane(),
+      hook(ev("SessionEnd")),
+      ctx({ existingAgent: agent(), expectedPaneLoss: true }),
+    );
+    expect(persisted(r.effects)).toEqual([]);
+    expect(published(r.effects)).toEqual([
+      { kind: "PublishPaneStatus", paneId: PANE, status: "idle", reason: "SessionEnd hook", agentKind: null },
+    ]);
+    expect(r.state.rootSessionId).toBeNull();
+    expect(r.state.phase).toBe("none");
+    expect(r.state.hookDriven).toBe(false);
+    expect(r.state.kind).toBeNull();
+    expect(r.reason).toBe("SessionEnd hook during a daemon replacement: agent kept for resume");
+  });
+
+  it("responded SessionEnd → no completion", () => {
+    const r = reconcile(
+      respondedPane(),
+      hook(ev("SessionEnd")),
+      ctx({ existingAgent: respondedAgent(), expectedPaneLoss: true }),
+    );
+    expect(persisted(r.effects)).toEqual([]);
+    expect(r.status).toBe("idle");
+  });
+
+  it("held Stop still drains to responded, but is not completed", () => {
+    const r = reconcile(
+      pendingStopPane(),
+      hook(ev("SessionEnd")),
+      ctx({ existingAgent: agent(), expectedPaneLoss: true }),
+    );
+    expect(persisted(r.effects)).toEqual([respond()]);
+    expect(r.state.rootSessionId).toBeNull();
+    expect(r.status).toBe("idle");
+  });
+
+  it("expectedPaneLoss false → H8 as usual", () => {
+    const r = reconcile(
+      activePane(),
+      hook(ev("SessionEnd")),
+      ctx({ existingAgent: agent(), expectedPaneLoss: false }),
+    );
+    expect(persisted(r.effects)).toEqual([
+      { kind: "PersistAgentStatus", sessionId: "sess-1", transition: { to: "completed" } },
+    ]);
+  });
+});
+
 // ── Group E: no session id (ported + new) ──
 
 describe("reconcile — Group E: hook without a session id", () => {

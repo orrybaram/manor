@@ -31,6 +31,11 @@
  *  H7  Stop: held (pendingStop) while subagents are active, else responded.
  *  H8  SessionEnd: drains a held Stop, then completes; pane → idle, not
  *      hook-driven.
+ *  H8a SessionEnd during a daemon replacement (ADR-185 §A,
+ *      `ctx.expectedPaneLoss`): as H8 — the pane still resets and a held Stop
+ *      still drains — but the Agent is not completed. Its pty died because the
+ *      daemon was replaced, not because it finished; it stays `active` with its
+ *      pane, so the renderer's cold restore resumes it.
  *  H9  StopFailure → error.
  *
  * Pane facts (`reconcileFacts`)
@@ -542,14 +547,22 @@ function reconcileRootHook(
   }
 
   // H8 — SessionEnd: drain a held Stop so completion sees a responded Agent.
+  // H8a — inside a daemon replacement's expected-loss window the Agent is not
+  // completed: the session ended because its pty was killed, and the Agent
+  // must stay `active` to be resumed.
   if (event.type === "SessionEnd") {
     const effects: Effect[] = [];
     if (next.phase === "pendingStop") {
       effects.push({ kind: "PersistAgentStatus", sessionId, transition: { to: "responded" } });
     }
-    effects.push({ kind: "PersistAgentStatus", sessionId, transition: { to: "completed" } });
+    if (!ctx.expectedPaneLoss) {
+      effects.push({ kind: "PersistAgentStatus", sessionId, transition: { to: "completed" } });
+    }
+    const reason = ctx.expectedPaneLoss
+      ? "SessionEnd hook during a daemon replacement: agent kept for resume"
+      : "SessionEnd hook";
     const ended = { ...withStatus(withoutRoot(next), "idle", "SessionEnd hook"), kind: null };
-    return result(state, ended, "SessionEnd hook", effects);
+    return result(state, ended, reason, effects);
   }
 
   // H9 — StopFailure. Turn state is dropped; the root stays (as in ADR-139).

@@ -800,6 +800,86 @@ describe("driver — restores pane status from saved agents (main restart)", () 
   });
 });
 
+// ── Expected pane loss (ADR-185 §A) ──
+
+describe("driver — expected pane loss during a daemon replacement", () => {
+  let t: ReturnType<typeof build>;
+  beforeEach(() => {
+    t = build();
+  });
+
+  it("SessionEnd inside the window does not complete the Agent; the pane goes idle", () => {
+    t.driver.hook(preToolUse({ sessionId: "s1" }));
+    t.driver.expectPaneLoss(["pane-1"]);
+    t.driver.hook(sessionEnd({ sessionId: "s1" }));
+
+    const agent = t.agentManager.getAgentBySessionId("s1")!;
+    expect(agent.status).toBe("active");
+    expect(agent.paneId).toBe("pane-1");
+    expect(agent.completedAt).toBeNull();
+    const state = t.driver.getPaneState("pane-1")!;
+    expect(state.status).toBe("idle");
+    expect(state.rootSessionId).toBeNull();
+    expect(last(t.published)).toEqual(expect.objectContaining({ paneId: "pane-1", status: "idle" }));
+  });
+
+  it("the window survives the pty's exit (forgetPane) before the SessionEnd", () => {
+    t.driver.hook(preToolUse({ sessionId: "s1" }));
+    t.driver.hook(stop({ sessionId: "s1" }));
+    t.driver.expectPaneLoss(["pane-1"]);
+    t.driver.forgetPane("pane-1");
+    t.driver.hook(sessionEnd({ sessionId: "s1" }));
+    expect(t.agentManager.getAgentBySessionId("s1")!.status).toBe("active");
+  });
+
+  it("held Stop still drains to responded inside the window, without completing", () => {
+    t.driver.hook(userPromptSubmit({ sessionId: "s1" }));
+    t.driver.hook(subagentStart({ sessionId: "s1", toolUseId: "tool-a" }));
+    t.driver.hook(stop({ sessionId: "s1" }));
+    t.driver.expectPaneLoss(["pane-1"]);
+    t.driver.hook(sessionEnd({ sessionId: "s1" }));
+
+    const agent = t.agentManager.getAgentBySessionId("s1")!;
+    expect(agent.status).toBe("active");
+    expect(agent.lastAgentStatus).toBe("responded");
+    expect(t.unseenRespondedAgents.has(agent.id)).toBe(true);
+  });
+
+  it("SessionEnd after the TTL completes the Agent as usual", () => {
+    t.driver.hook(preToolUse({ sessionId: "s1" }));
+    t.driver.expectPaneLoss(["pane-1"], 5_000);
+    expect(t.driver.isPaneLossExpected("pane-1")).toBe(true);
+    t.advance(5_000);
+    expect(t.driver.isPaneLossExpected("pane-1")).toBe(false);
+    t.driver.hook(sessionEnd({ sessionId: "s1" }));
+    expect(t.agentManager.getAgentBySessionId("s1")!.status).toBe("completed");
+  });
+
+  it("defaults to a 60s window", () => {
+    t.driver.expectPaneLoss(["pane-1"]);
+    t.advance(59_999);
+    expect(t.driver.isPaneLossExpected("pane-1")).toBe(true);
+    t.advance(1);
+    expect(t.driver.isPaneLossExpected("pane-1")).toBe(false);
+  });
+
+  it("the pane's SessionStart ends the window, so a later SessionEnd completes", () => {
+    t.driver.expectPaneLoss(["pane-1"]);
+    t.driver.hook(sessionStart({ sessionId: "s2" }));
+    expect(t.driver.isPaneLossExpected("pane-1")).toBe(false);
+    t.driver.hook(userPromptSubmit({ sessionId: "s2" }));
+    t.driver.hook(sessionEnd({ sessionId: "s2" }));
+    expect(t.agentManager.getAgentBySessionId("s2")!.status).toBe("completed");
+  });
+
+  it("is per pane: another pane's SessionEnd still completes", () => {
+    t.driver.hook(preToolUse({ paneId: "pane-2", sessionId: "s2" }));
+    t.driver.expectPaneLoss(["pane-1"]);
+    t.driver.hook(sessionEnd({ paneId: "pane-2", sessionId: "s2" }));
+    expect(t.agentManager.getAgentBySessionId("s2")!.status).toBe("completed");
+  });
+});
+
 // ── Tick interval ──
 
 describe("driver — tick interval", () => {

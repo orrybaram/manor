@@ -9,7 +9,10 @@
  *   of renderer windows (the caller subscribes once, in main);
  * - runs one tick interval, on the old sweep cadence, that carries every
  *   time-based rule (held-Stop drain, stuck-working, orphan recovery);
- * - resyncs Pane facts after a host (re)connects (`resync`).
+ * - resyncs Pane facts after a host (re)connects (`resync`);
+ * - remembers which panes a daemon replacement is about to kill
+ *   (`expectPaneLoss`, ADR-185 §A), and tells the reconciler, so their Agents
+ *   are not completed by the SessionEnd that follows.
  *
  * Replaces `createHookRelay`'s interior (ADR-139); the old relay was deleted
  * by ADR-184 ticket 4.
@@ -30,6 +33,13 @@ import type {
 
 /** How often the tick runs (the old relay's `SWEEP_INTERVAL_MS`). */
 export const TICK_INTERVAL_MS = 10_000;
+
+/**
+ * How long a pane's expected-loss window lasts by default (ADR-185 §A): ample
+ * for the killed agent's SessionEnd hook to arrive (it takes well under a
+ * second), short enough that a later, genuine exit completes as usual.
+ */
+export const EXPECTED_PANE_LOSS_TTL_MS = 60_000;
 
 /** What a hook observer (the stats tap) learns about how a hook was treated. */
 export interface HookObservation {
@@ -85,6 +95,16 @@ export interface AgentStatusDriver extends AgentStatusSignals {
   ): Promise<void>;
   /** Drop a pane's state (its pty exited). */
   forgetPane(paneId: string): void;
+  /**
+   * These panes' ptys are about to die because their daemon is being replaced
+   * (ADR-185 §A). For `ttlMs` (default `EXPECTED_PANE_LOSS_TTL_MS`), or until
+   * the pane's next `SessionStart`, a `SessionEnd` resets the pane without
+   * completing its Agent (rule H8a), so the renderer's cold restore resumes it.
+   * Survives `forgetPane`: the pty's exit comes before the SessionEnd.
+   */
+  expectPaneLoss(paneIds: readonly string[], ttlMs?: number): void;
+  /** Whether the pane is inside an expected-loss window (see `expectPaneLoss`). */
+  isPaneLossExpected(paneId: string): boolean;
   /** The pane's current state, if the driver has seen a signal for it. */
   getPaneState(paneId: string): PaneAgentState | undefined;
   /**
@@ -112,6 +132,8 @@ export function createAgentStatusDriver(deps: AgentStatusDriverDeps): AgentStatu
   } = deps;
 
   const states = new Map<string, PaneAgentState>();
+  /** Expected-loss windows (ADR-185 §A): pane id → monotonic deadline. */
+  const expectedLoss = new Map<string, number>();
   let interval: ReturnType<typeof setInterval> | null = null;
 
   // Boot timestamps for the orphan rule's age clamp (ADR-132, as in the old
@@ -245,11 +267,29 @@ export function createAgentStatusDriver(deps: AgentStatusDriverDeps): AgentStatu
     return seeded;
   }
 
+  /**
+   * Whether `paneId` is inside its expected-loss window at `nowMs`. A window
+   * that has run out is dropped here.
+   */
+  function paneLossExpected(paneId: string, nowMs: number): boolean {
+    const deadline = expectedLoss.get(paneId);
+    if (deadline === undefined) return false;
+    if (nowMs < deadline) return true;
+    expectedLoss.delete(paneId);
+    return false;
+  }
+
   function signal(paneId: string, sig: StatusSignal): ReconcileResult {
     const nowMs = sig.type === "tick" ? sig.nowMs : monoClock();
+    // The pane's new session has started: its window is over, and the new
+    // session's own SessionEnd completes it as usual.
+    if (sig.type === "hook" && sig.event.type === "SessionStart" && expectedLoss.delete(paneId)) {
+      log(`[agent-status] pane=${paneId} expected-loss window ended by SessionStart`);
+    }
     const state = states.get(paneId) ?? seedFromSavedAgent(paneId, sig, nowMs);
     const existingAgent = existingAgentFor(state, sig);
     const ctx: ReconcileContext = { nowMs, existingAgent };
+    if (paneLossExpected(paneId, nowMs)) ctx.expectedPaneLoss = true;
     if (sig.type === "tick" && existingAgent) {
       ctx.existingAgentAgeMs = agentMonotonicAgeMs(existingAgent);
     }
@@ -279,6 +319,9 @@ export function createAgentStatusDriver(deps: AgentStatusDriverDeps): AgentStatu
   function tick(): void {
     const nowMs = monoClock();
     const covered = new Set<string>();
+
+    // Drop expected-loss windows that have run out.
+    for (const paneId of [...expectedLoss.keys()]) paneLossExpected(paneId, nowMs);
 
     for (const paneId of [...states.keys()]) {
       const state = states.get(paneId);
@@ -361,6 +404,17 @@ export function createAgentStatusDriver(deps: AgentStatusDriverDeps): AgentStatu
     forgetPane(paneId) {
       states.delete(paneId);
     },
+    expectPaneLoss(paneIds, ttlMs = EXPECTED_PANE_LOSS_TTL_MS) {
+      const deadline = monoClock() + ttlMs;
+      for (const paneId of paneIds) expectedLoss.set(paneId, deadline);
+      if (paneIds.length > 0) {
+        log(
+          `[agent-status] daemon replacing: expecting loss of ${paneIds.length} pane(s) ` +
+            `for ${ttlMs}ms: ${paneIds.join(",")}`,
+        );
+      }
+    },
+    isPaneLossExpected: (paneId) => paneLossExpected(paneId, monoClock()),
     getPaneState: (paneId) => states.get(paneId),
     getAllPaneStatuses() {
       const result: PaneStatusUpdate[] = [];

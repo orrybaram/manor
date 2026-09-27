@@ -28,7 +28,7 @@ function AgentRow({ agent, shouldPulse, onClose, onClick, onRename }: {
   onClick: () => void;
   onRename: (name: string) => void;
 }) {
-  const { title, status } = useAgentDisplay(agent);
+  const { title, status, reason } = useAgentDisplay(agent);
   const rename = useInlineRename(title, onRename, { emoji: true });
   const rowRef = useRef<HTMLDivElement | null>(null);
   // Set when the row's context menu was opened via the keyboard, so
@@ -67,7 +67,22 @@ function AgentRow({ agent, shouldPulse, onClose, onClick, onRename }: {
             }
           }}
         >
-          <AgentDot status={status} size="sidebar" pulse={shouldPulse} />
+          {agent.status === "completed" ? (
+            <Tooltip label="Completed">
+              <span
+                className={styles.lifecycleBadge}
+                data-testid="agent-lifecycle-badge"
+                data-lifecycle="completed"
+              />
+            </Tooltip>
+          ) : (
+            <AgentDot
+              status={status}
+              size="sidebar"
+              pulse={shouldPulse}
+              reason={reason}
+            />
+          )}
           {rename.editing ? (
             <>
               <input

@@ -7,15 +7,15 @@ import {
 } from "../registry";
 import { RoutedBackend } from "../routed-backend";
 import type {
-  ActivePort,
+  ScannedPort,
   HostConnectionEvent,
   HostSpec,
+  RemoteHostBackend,
   StreamEvent,
-  WorkspaceBackend,
+  PaneFacts,
 } from "../types";
 import { SshAuthError } from "../../terminal-host/ssh-config";
 import type { HostProvider } from "../providers/types";
-import { trackHostBusy } from "../host-busy";
 
 /** A WorkspaceBackend whose every call is a spy, plus handles to drive it. */
 function fakeBackend(name: string) {
@@ -32,13 +32,17 @@ function fakeBackend(name: string) {
       kill: vi.fn(async () => {}),
       detach: vi.fn(async () => {}),
       getSnapshot: vi.fn(async () => null),
+      getPaneFacts: vi.fn(async (): Promise<PaneFacts | null> => null),
       listSessions: vi.fn(async () => [] as Array<{ sessionId: string }>),
       disposeDead: vi.fn(async () => {}),
       onEvent: vi.fn((handler: (event: StreamEvent) => void) => {
         streamHandler = handler;
+        return () => {
+          if (streamHandler === handler) streamHandler = null;
+        };
       }),
       updateEnv: vi.fn(async () => {}),
-      relayAgentHook: vi.fn(),
+      replayHooks: vi.fn(async () => ({ entries: [], lastSeq: 0, epoch: "e0" })),
     },
     git: {
       exec: vi.fn(async () => `${name}-out`),
@@ -50,22 +54,33 @@ function fakeBackend(name: string) {
       exec: vi.fn(async () => ""),
     },
     ports: {
-      scan: vi.fn(async (): Promise<ActivePort[]> => []),
+      scan: vi.fn(async (): Promise<ScannedPort[]> => []),
       kill: vi.fn(async () => {}),
+    },
+    facts: {
+      homeDir: vi.fn(async () => `/home/${name}`),
+      join: vi.fn((...parts: string[]) => parts.join("/")),
     },
     connect: vi.fn(async () => {}),
     disconnect: vi.fn(async () => {}),
     onHostEvent: vi.fn((handler: (event: HostConnectionEvent) => void) => {
       hostHandlers.push(handler);
+      return () => {
+        const i = hostHandlers.indexOf(handler);
+        if (i >= 0) hostHandlers.splice(i, 1);
+      };
     }),
+    retryNow: vi.fn(() => false),
   };
   return {
     raw,
-    backend: raw as unknown as WorkspaceBackend,
+    backend: raw as unknown as RemoteHostBackend,
     stream: (event: StreamEvent) => streamHandler?.(event),
     hostEvent: (event: HostConnectionEvent) => {
       for (const h of hostHandlers) h(event);
     },
+    /** Whether anything is still subscribed to this backend's events. */
+    listening: () => streamHandler !== null || hostHandlers.length > 0,
   };
 }
 
@@ -73,23 +88,16 @@ function fakeBackend(name: string) {
 function fakeProvider() {
   const provider = {
     kind: "ssh" as const,
-    capabilities: { autoSleep: true, persistsMemory: false, previewUrls: false },
-    ensureUp: vi.fn(async () => {}),
-    status: vi.fn(async () => "up" as const),
     transport: vi.fn(() => {
       throw new Error("fake provider has no transport");
     }),
     forwardPort: vi.fn(async () => ({ localPort: 1, dispose: vi.fn() })),
-    setBusy: vi.fn(),
     dispose: vi.fn(async () => {}),
   };
   return provider;
 }
 
-/**
- * `ensureConnected` asks the provider to bring the box up before it calls the
- * backend's `connect`, so that call lands a tick later.
- */
+/** `ensureConnected` calls the backend's `connect`, which lands a tick later. */
 async function connectStarted(remote: ReturnType<typeof fakeBackend>, times = 1) {
   await vi.waitFor(() => expect(remote.raw.connect).toHaveBeenCalledTimes(times));
 }
@@ -102,7 +110,7 @@ function setup() {
   const warn = new Map<string, (warnings: string[]) => void>();
   const registry = new BackendRegistry({
     local: local.backend,
-    version: "1.2.3",
+    remoteVersion: "0.1.0",
     createProvider: (hostId, _spec: HostSpec, opts) => {
       const provider = fakeProvider();
       providers.set(hostId, provider);
@@ -138,17 +146,16 @@ describe("BackendRegistry", () => {
     expect(local.raw.pty.write).toHaveBeenCalledWith("pane-1", "x");
 
     await registry.ensureConnected("local");
-    expect(local.raw.connect).toHaveBeenCalledWith({ version: "1.2.3" });
+    expect(local.raw.connect).toHaveBeenCalledWith();
     expect(registry.status("local")).toBe("connected");
   });
 
-  it("hands remote hosts remoteVersion, and local the app version, even after setVersion", async () => {
+  it("hands remote hosts remoteVersion once, when their backend is built", async () => {
     const local = fakeBackend("local");
     let remote: ReturnType<typeof fakeBackend> | undefined;
     let createdWith: string | undefined;
     const registry = new BackendRegistry({
       local: local.backend,
-      version: "35.7.5",
       remoteVersion: "0.13.2",
       createProvider: () => fakeProvider() as unknown as HostProvider,
       createRemote: (hostId, _spec: HostSpec, opts) => {
@@ -157,13 +164,12 @@ describe("BackendRegistry", () => {
         return remote.backend;
       },
     });
-    registry.setVersion("35.7.6");
     registry.register("box", box);
     await registry.ensureConnected("box");
     await registry.ensureConnected("local");
     expect(createdWith).toBe("0.13.2");
-    expect(remote?.raw.connect).toHaveBeenCalledWith({ version: "0.13.2" });
-    expect(local.raw.connect).toHaveBeenCalledWith({ version: "35.7.6" });
+    expect(remote?.raw.connect).toHaveBeenCalledWith();
+    expect(local.raw.connect).toHaveBeenCalledWith();
   });
 
   it("fails every call on an unregistered host instead of throwing synchronously", async () => {
@@ -208,7 +214,7 @@ describe("BackendRegistry", () => {
     const remote = remotes.get("box")!;
     remote.hostEvent({ type: "hostDisconnected", sessionIds: ["pane-a"], retryInMs: 1000 });
     expect(registry.list()[1]).toMatchObject({ status: "reconnecting", retryInMs: 1000 });
-    expect(registry.hostForSession("pane-a")).toBe("box");
+    expect(registry.sessions.ownerOf("pane-a")).toBe("box");
 
     remote.hostEvent({ type: "hostReconnected", sessionIds: ["pane-a"] });
     expect(registry.status("box")).toBe("connected");
@@ -318,6 +324,23 @@ describe("BackendRegistry", () => {
     await expect(registry.get("box").git.exec("/r", [])).resolves.toBe("box-out");
   });
 
+  it("gates a remote host's facts like its git calls, except the synchronous join", async () => {
+    const { registry, remotes } = setup();
+    registry.register("box", box);
+    const remote = remotes.get("box")!;
+    remote.raw.connect.mockImplementationOnce(() => new Promise<void>(() => {}));
+
+    const facts = registry.get("box").facts;
+    expect(facts.join("/a", "b")).toBe("/a/b");
+    await expect(facts.homeDir()).rejects.toBeInstanceOf(HostUnavailableError);
+    expect(remote.raw.facts.homeDir).not.toHaveBeenCalled();
+    // An unregistered host still joins, and fails everything else.
+    expect(registry.get("ghost").facts.join("/a", "b")).toBe("/a/b");
+    await expect(registry.get("ghost").facts.homeDir()).rejects.toBeInstanceOf(
+      HostUnavailableError,
+    );
+  });
+
   it("does not reconnect a host the user disconnected just because a poller asked", async () => {
     const { registry, remotes } = setup();
     registry.register("box", box);
@@ -403,6 +426,15 @@ describe("BackendRegistry", () => {
     expect(remote.raw.pty.createOrAttach).toHaveBeenCalledWith("pane-1", "/r", 80, 24);
   });
 
+  it("waits for the connection before getPaneFacts, like any pty call (ADR-184)", async () => {
+    const { registry, remotes } = setup();
+    registry.register("box", box);
+    const remote = remotes.get("box")!;
+    await registry.get("box").pty.getPaneFacts("pane-1");
+    expect(remote.raw.connect).toHaveBeenCalledTimes(1);
+    expect(remote.raw.pty.getPaneFacts).toHaveBeenCalledWith("pane-1");
+  });
+
   it("tags stream events with their host and drops events for another host's session", () => {
     const { registry, local, remotes } = setup();
     registry.register("box", box);
@@ -418,7 +450,7 @@ describe("BackendRegistry", () => {
       ["box", { type: "data", sessionId: "pane-r", data: "hi" }],
       ["local", { type: "data", sessionId: "pane-l", data: "yo" }],
     ]);
-    expect(registry.hostForSession("pane-r")).toBe("box");
+    expect(registry.sessions.ownerOf("pane-r")).toBe("box");
   });
 
   it("ignores a replaced host's old backend", async () => {
@@ -434,44 +466,12 @@ describe("BackendRegistry", () => {
 });
 
 describe("BackendRegistry providers", () => {
-  it("brings the box up before connecting its backend", async () => {
-    const { registry, remotes, providers } = setup();
+  it("registers a provider per remote host, none for the local one", async () => {
+    const { registry, providers } = setup();
     registry.register("box", box);
-    const order: string[] = [];
-    providers.get("box")!.ensureUp.mockImplementation(async () => {
-      order.push("ensureUp");
-    });
-    remotes.get("box")!.raw.connect.mockImplementation(async () => {
-      order.push("connect");
-    });
     await registry.ensureConnected("box");
-    expect(order).toEqual(["ensureUp", "connect"]);
     expect(registry.provider("box")).toBe(providers.get("box"));
     expect(registry.provider("local")).toBeUndefined();
-  });
-
-  it("reports a failed ensureUp as a connect error without connecting", async () => {
-    const { registry, remotes, providers } = setup();
-    registry.register("box", box);
-    providers.get("box")!.ensureUp.mockRejectedValue(new Error("box will not start"));
-    await expect(registry.ensureConnected("box")).rejects.toThrow("box will not start");
-    expect(remotes.get("box")!.raw.connect).not.toHaveBeenCalled();
-    expect(registry.status("box")).toBe("error");
-  });
-
-  it("does not connect if a disconnect lands while the box is coming up", async () => {
-    const { registry, remotes, providers } = setup();
-    registry.register("box", box);
-    let up!: () => void;
-    providers.get("box")!.ensureUp.mockImplementation(
-      () => new Promise<void>((resolve) => (up = resolve)),
-    );
-    const connecting = registry.ensureConnected("box");
-    await vi.waitFor(() => expect(up).toBeDefined());
-    await registry.disconnect("box");
-    up();
-    await expect(connecting).rejects.toBeInstanceOf(HostUnavailableError);
-    expect(remotes.get("box")!.raw.connect).not.toHaveBeenCalled();
   });
 
   it("disposes the provider on disconnect, replace and unregister", async () => {
@@ -487,67 +487,17 @@ describe("BackendRegistry providers", () => {
     expect(second.dispose).toHaveBeenCalledTimes(1);
   });
 
-  it("hands setBusy to the provider only when busy changes", () => {
-    const { registry, providers } = setup();
+  it("unsubscribes from a replaced or unregistered backend's events", async () => {
+    const { registry, remotes } = setup();
     registry.register("box", box);
-    const provider = providers.get("box")!;
-    registry.updateBusy("box", false);
-    expect(provider.setBusy).not.toHaveBeenCalled();
-    registry.updateBusy("box", true);
-    registry.updateBusy("box", true);
-    registry.updateBusy("box", false);
-    expect(provider.setBusy.mock.calls).toEqual([[true], [false]]);
-    // No provider for the local host, and unknown hosts are ignored.
-    expect(() => registry.updateBusy("local", true)).not.toThrow();
-    expect(() => registry.updateBusy("ghost", true)).not.toThrow();
-  });
-
-  it("carries busy over to the provider of a replaced host", () => {
-    const { registry, providers } = setup();
-    registry.register("box", box);
-    registry.updateBusy("box", true);
+    const first = remotes.get("box")!;
+    expect(first.listening()).toBe(true);
     registry.register("box", { kind: "ssh", target: "me@other" });
-    expect(providers.get("box")!.setBusy.mock.calls).toEqual([[true]]);
-  });
-});
-
-describe("trackHostBusy", () => {
-  const agent = (status: string) =>
-    ({ kind: "claude", status, processName: null, since: 0, title: null }) as const;
-  const agentStatus = (sessionId: string, status: string): StreamEvent =>
-    ({ type: "agentStatus", sessionId, agent: agent(status) }) as unknown as StreamEvent;
-
-  it("marks a host busy while any of its panes has an active agent", () => {
-    const { registry, remotes, providers } = setup();
-    registry.register("box", box);
-    registry.register("other", { kind: "ssh", target: "me@other" });
-    trackHostBusy(registry);
-    const remote = remotes.get("box")!;
-    const provider = providers.get("box")!;
-
-    remote.stream(agentStatus("pane-1", "idle"));
-    expect(provider.setBusy).not.toHaveBeenCalled();
-    remote.stream(agentStatus("pane-1", "thinking"));
-    remote.stream(agentStatus("pane-2", "working"));
-    expect(provider.setBusy.mock.calls).toEqual([[true]]);
-    // One pane going idle leaves the host busy.
-    remote.stream(agentStatus("pane-1", "complete"));
-    expect(provider.setBusy.mock.calls).toEqual([[true]]);
-    // The last busy pane exiting makes it idle.
-    remote.stream({ type: "exit", sessionId: "pane-2", exitCode: 0 });
-    expect(provider.setBusy.mock.calls).toEqual([[true], [false]]);
-    remote.stream(agentStatus("pane-1", "requires_input"));
-    expect(provider.setBusy.mock.calls).toEqual([[true], [false], [true]]);
-    // Other hosts are unaffected.
-    expect(providers.get("other")!.setBusy).not.toHaveBeenCalled();
-  });
-
-  it("ignores local panes", () => {
-    const { registry, local, providers } = setup();
-    registry.register("box", box);
-    trackHostBusy(registry);
-    local.stream(agentStatus("pane-9", "working"));
-    expect(providers.get("box")!.setBusy).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(first.listening()).toBe(false));
+    const second = remotes.get("box")!;
+    expect(second.listening()).toBe(true);
+    await registry.unregister("box");
+    expect(second.listening()).toBe(false);
   });
 });
 
@@ -559,6 +509,25 @@ describe("RoutedBackend", () => {
     const backend = new RoutedBackend(ctx.registry, hostForPath);
     return { ...ctx, backend, box: ctx.remotes.get("box")! };
   }
+
+  it("stops delivering stream and host events once unsubscribed", () => {
+    const { backend, registry, box: remote } = routed();
+    const events: StreamEvent[] = [];
+    const hostEvents: HostConnectionEvent[] = [];
+    const offStream = backend.pty.onEvent((e) => events.push(e));
+    const offHost = registry.onHostEvent((_hostId, e) => hostEvents.push(e));
+    const back: HostConnectionEvent = { type: "hostReconnected", sessionIds: [] };
+
+    remote.stream({ type: "data", sessionId: "pane-r", data: "a" });
+    remote.hostEvent(back);
+    offStream();
+    offHost();
+    remote.stream({ type: "data", sessionId: "pane-r", data: "b" });
+    remote.hostEvent(back);
+
+    expect(events).toEqual([{ type: "data", sessionId: "pane-r", data: "a" }]);
+    expect(hostEvents).toEqual([back]);
+  });
 
   it("creates a pane on the host its cwd belongs to, then routes the pane there", async () => {
     const { backend, local, box: remote } = routed();
@@ -573,15 +542,29 @@ describe("RoutedBackend", () => {
 
     backend.pty.write("pane-r", "ls\n");
     await backend.pty.resize("pane-r", 100, 30);
-    backend.pty.relayAgentHook("pane-r", "working", "claude");
     expect(remote.raw.pty.write).toHaveBeenCalledWith("pane-r", "ls\n");
     expect(remote.raw.pty.resize).toHaveBeenCalledWith("pane-r", 100, 30);
-    expect(remote.raw.pty.relayAgentHook).toHaveBeenCalledWith("pane-r", "working", "claude");
     expect(local.raw.pty.write).not.toHaveBeenCalled();
 
     // Unknown panes are local, as every pane was before hosts.
     backend.pty.write("pane-x", "y");
     expect(local.raw.pty.write).toHaveBeenCalledWith("pane-x", "y");
+  });
+
+  it("routes getPaneFacts to the host that owns the pane (ADR-184)", async () => {
+    const { backend, local, box: remote } = routed();
+    const facts: PaneFacts = {
+      foreground: { name: "claude", kind: "claude" },
+      title: null,
+      outputHint: null,
+    };
+    remote.raw.pty.getPaneFacts.mockResolvedValueOnce(facts);
+    await backend.pty.createOrAttach("pane-r", "/remote/app", 80, 24);
+
+    await expect(backend.pty.getPaneFacts("pane-r")).resolves.toEqual(facts);
+    await expect(backend.pty.getPaneFacts("pane-x")).resolves.toBeNull();
+    expect(remote.raw.pty.getPaneFacts).toHaveBeenCalledWith("pane-r");
+    expect(local.raw.pty.getPaneFacts).toHaveBeenCalledWith("pane-x");
   });
 
   it("routes git by cwd", async () => {
@@ -605,39 +588,69 @@ describe("RoutedBackend", () => {
       "pane-l",
       "pane-r",
     ]);
-    expect(registry.hostForSession("pane-r")).toBe("box");
+    expect(registry.sessions.ownerOf("pane-r")).toBe("box");
 
     remote.raw.pty.listSessions.mockRejectedValueOnce(new Error("ssh died"));
     expect((await backend.pty.listSessions()).map((s) => s.sessionId)).toEqual(["pane-l"]);
   });
 
-  it("scans ports per host and kills a pid on the host that reported it", async () => {
-    const { backend, registry, local, box: remote } = routed();
-    await registry.ensureConnected("box");
-    const port = (pid: number): ActivePort => ({
-      port: 3000,
-      processName: "node",
-      pid,
-      workspacePath: null,
-      hostname: null,
-    });
-    local.raw.ports.scan.mockResolvedValue([port(1)]);
-    remote.raw.ports.scan.mockResolvedValue([port(2)]);
-
-    const ports = await backend.ports.scan(["/Users/me/app", "/remote/app"]);
-    expect(local.raw.ports.scan).toHaveBeenCalledWith(["/Users/me/app"]);
-    expect(remote.raw.ports.scan).toHaveBeenCalledWith(["/remote/app"]);
-    expect(ports).toEqual([port(1), { ...port(2), hostId: "box" }]);
+  it("kills a pid on the host whose latest scan reported it", async () => {
+    const ctx = setup();
+    ctx.registry.register("box", box);
+    const pidHosts: Record<number, string[]> = { 1: ["local"], 2: ["box"], 3: ["local", "box"] };
+    const backend = new RoutedBackend(
+      ctx.registry,
+      () => "local",
+      (pid) => pidHosts[pid] ?? [],
+    );
+    const remote = ctx.remotes.get("box")!;
+    await ctx.registry.ensureConnected("box");
 
     await backend.ports.kill(2);
     expect(remote.raw.ports.kill).toHaveBeenCalledWith(2);
     await backend.ports.kill(1);
-    expect(local.raw.ports.kill).toHaveBeenCalledWith(1);
+    expect(ctx.local.raw.ports.kill).toHaveBeenCalledWith(1);
+    // A pid no scan reported is this machine's, as every pid was before hosts.
+    await backend.ports.kill(4);
+    expect(ctx.local.raw.ports.kill).toHaveBeenCalledWith(4);
+    await expect(backend.ports.kill(3)).rejects.toThrow(/more than one host/);
+  });
+
+  it("reports the host createOrAttach used", async () => {
+    const { backend } = routed();
+    await expect(backend.pty.createOrAttach("pane-r", "/remote/app", 80, 24)).resolves.toMatchObject({
+      hostId: "box",
+    });
+    await expect(backend.pty.createOrAttach("pane-l", "/Users/me/app", 80, 24)).resolves.toMatchObject({
+      hostId: "local",
+    });
+  });
+
+  it("fails a pty call with HostUnavailableError only while its host is away (ADR-183)", async () => {
+    const { backend, registry, box: remote } = routed();
+    remote.raw.connect.mockRejectedValueOnce(new Error("ssh: connection refused"));
+    const away = await backend.pty
+      .createOrAttach("pane-r", "/remote/app", 80, 24)
+      .catch((e: unknown) => e);
+    expect(away).toBeInstanceOf(HostUnavailableError);
+    expect(away).toMatchObject({ hostId: "box", status: "error" });
+
+    // Once connected, a failure is the terminal's own.
+    await registry.ensureConnected("box");
+    remote.raw.pty.createOrAttach.mockRejectedValueOnce(new Error("spawn failed"));
+    const broken = await backend.pty
+      .createOrAttach("pane-r2", "/remote/app", 80, 24)
+      .catch((e: unknown) => e);
+    expect(broken).not.toBeInstanceOf(HostUnavailableError);
+    expect(broken).toMatchObject({ message: "spawn failed" });
   });
 
   it("with only the local host, passes every call straight to it", async () => {
     const local = fakeBackend("local");
-    const registry = new BackendRegistry({ local: local.backend });
+    const registry = new BackendRegistry({
+      local: local.backend,
+      remoteVersion: "0.1.0",
+    });
     const backend = new RoutedBackend(registry, () => "local");
     await backend.pty.createOrAttach("pane-1", "/anywhere", 80, 24);
     await backend.ports.scan(["/a", "/b"]);
@@ -657,17 +670,19 @@ describe("BackendRegistry — remote agent hooks (ADR-178 §2)", () => {
     const replayHooks = vi.fn(async (_sinceSeq: number) => ({
       entries: [{ seq: 1, receivedAt: 0, payload: { tag: "1" } }],
       lastSeq: 1,
+      epoch: "e0",
     }));
     (remote.raw.pty as Record<string, unknown>).replayHooks = replayHooks;
     const seqs = new Map<string, number>([["box", 0]]);
     const registry = new BackendRegistry({
       local: local.backend,
+      remoteVersion: "0.1.0",
       createProvider: () => fakeProvider() as unknown as HostProvider,
       createRemote: () => remote.backend,
       hookSeqStore: {
         get: (hostId) => {
           const seq = seqs.get(hostId);
-          return seq === undefined ? null : { seq, epoch: null };
+          return seq === undefined ? null : { seq, epoch: "e0" };
         },
         set: (hostId, cursor) => void seqs.set(hostId, cursor.seq),
       },
@@ -708,6 +723,7 @@ describe("BackendRegistry — remote agent hooks (ADR-178 §2)", () => {
     replayHooks.mockResolvedValueOnce({
       entries: [2, 3].map((seq) => ({ seq, receivedAt: 0, payload: { tag: String(seq) } })),
       lastSeq: 3,
+      epoch: "e0",
     });
     remote.hostEvent({ type: "hostReconnected", sessionIds: [] });
     await vi.waitFor(() => expect(ingested.map((i) => i.tag)).toEqual(["1", "2", "3"]));
@@ -726,29 +742,31 @@ describe("BackendRegistry — remote agent hooks (ADR-178 §2)", () => {
       return {
         entries: [{ seq: 1, receivedAt: 0, payload: { paneId: "pane-remote" } }],
         lastSeq: 1,
+        epoch: "e0",
       };
     });
     const registry = new BackendRegistry({
       local: local.backend,
+      remoteVersion: "0.1.0",
       createProvider: () => fakeProvider() as unknown as HostProvider,
       createRemote: () => remote.backend,
-      hookSeqStore: { get: () => ({ seq: 0, epoch: null }), set: () => {} },
+      hookSeqStore: { get: () => ({ seq: 0, epoch: "e0" }), set: () => {} },
     });
     const routed = new RoutedBackend(registry, () => "local");
-    // What the hook relay does for each ingested hook: relay status by pane.
+    // What the hook relay does for each ingested hook: route by pane.
     registry.setHookSink({
-      ingest: (payload) => routed.pty.relayAgentHook(payload.paneId, "working", "claude"),
+      ingest: (payload) => routed.pty.write(payload.paneId, "hook"),
     });
     registry.register("box", box);
 
     // A fresh launch: nothing has been created or attached on the box yet.
-    expect(registry.hostForSession("pane-remote")).toBeUndefined();
+    expect(registry.sessions.ownerOf("pane-remote")).toBeUndefined();
     await registry.ensureConnected("box");
-    await vi.waitFor(() => expect(remote.raw.pty.relayAgentHook).toHaveBeenCalled());
+    await vi.waitFor(() => expect(remote.raw.pty.write).toHaveBeenCalled());
 
     expect(order).toEqual(["listSessions", "replayHooks"]);
-    expect(remote.raw.pty.relayAgentHook).toHaveBeenCalledWith("pane-remote", "working", "claude");
-    expect(local.raw.pty.relayAgentHook).not.toHaveBeenCalled();
+    expect(remote.raw.pty.write).toHaveBeenCalledWith("pane-remote", "hook");
+    expect(local.raw.pty.write).not.toHaveBeenCalled();
   });
 });
 
@@ -770,13 +788,13 @@ describe("BackendRegistry — away and back (ADR-178 §6)", () => {
     registry.onEvent(listener);
     remotes.get("box")!.stream({ type: "data", sessionId: "pane-a", data: "x" });
     remotes.get("box")!.stream({ type: "exit", sessionId: "pane-a", exitCode: -1, lost: true });
-    expect(registry.hostForSession("pane-a")).toBe("box");
-    // Still published: host-busy clears the pane's busy flag on it.
+    expect(registry.sessions.ownerOf("pane-a")).toBe("box");
+    // Still published: renderer-side listeners still need to hear it.
     expect(listener).toHaveBeenLastCalledWith("box", expect.objectContaining({ lost: true }));
 
     remotes.get("box")!.stream({ type: "data", sessionId: "pane-b", data: "x" });
     remotes.get("box")!.stream({ type: "exit", sessionId: "pane-b", exitCode: 0 });
-    expect(registry.hostForSession("pane-b")).toBeUndefined();
+    expect(registry.sessions.ownerOf("pane-b")).toBeUndefined();
   });
 
   function resumeSetup() {
@@ -790,13 +808,14 @@ describe("BackendRegistry — away and back (ADR-178 §6)", () => {
         releaseReplay = resolve;
       });
       order.push("replay-done");
-      return { entries: [], lastSeq: 0 };
+      return { entries: [], lastSeq: 0, epoch: "e0" };
     });
     const registry = new BackendRegistry({
       local: local.backend,
+      remoteVersion: "0.1.0",
       createProvider: () => fakeProvider() as unknown as HostProvider,
       createRemote: () => remote.backend,
-      hookSeqStore: { get: () => ({ seq: 0, epoch: null }), set: () => {} },
+      hookSeqStore: { get: () => ({ seq: 0, epoch: "e0" }), set: () => {} },
     });
     registry.setHookSink({ ingest: () => {} });
     registry.register("box", box);

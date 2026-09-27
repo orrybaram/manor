@@ -10,14 +10,18 @@
  * hanging check must not delay the others.
  */
 
+import { errorMessage } from "../lib/errors";
 import { shellQuote } from "../terminal-host/ssh-config";
 import type { GitBackend, ShellBackend } from "./types";
 
 export type HealthCheckId = "origin" | "claude" | "codex" | "gh";
 
+export type HealthCheckStatus = "ok" | "fail" | "unknown";
+
 export interface HealthCheckResult {
   id: HealthCheckId;
   label: string;
+  /** Derived from `status`: `true` only for `"ok"`. */
   ok: boolean;
   /**
    * `"unknown"` is a neutral, unverified state — Manor could not confirm
@@ -25,13 +29,22 @@ export interface HealthCheckResult {
    * has no reliable non-interactive probe). It is not a red failure: `ok` is
    * `false` for it (nothing to show as a green check), but callers that
    * render tone should treat `"unknown"` as neutral, not `"fail"`.
-   * Absent (`undefined`) is `"ok"`/`"fail"` implied by `ok` itself, for
-   * results predating this field.
    */
-  status?: "ok" | "fail" | "unknown";
+  status: HealthCheckStatus;
   detail: string;
   /** Typed into a terminal on the host, never executed by Manor. */
   fixCommand: string | null;
+}
+
+/** Builds a `HealthCheckResult`, deriving `ok` from `status`. */
+function result(
+  id: HealthCheckId,
+  label: string,
+  status: HealthCheckStatus,
+  detail: string,
+  fixCommand: string | null,
+): HealthCheckResult {
+  return { id, label, ok: status === "ok", status, detail, fixCommand };
 }
 
 /** How long any single host probe (a `which`, a login-shell check, …) may run. */
@@ -145,16 +158,15 @@ async function checkOrigin(
       ],
       { timeout: ORIGIN_TIMEOUT_MS },
     );
-    return { id: "origin", label, ok: true, status: "ok", detail: "origin is reachable.", fixCommand: null };
+    return result("origin", label, "ok", "origin is reachable.", null);
   } catch (err) {
-    return {
-      id: "origin",
+    return result(
+      "origin",
       label,
-      ok: false,
-      status: "fail",
-      detail: `Could not reach origin: ${errorMessage(err)}`,
-      fixCommand: fixCommandForOrigin(url),
-    };
+      "fail",
+      `Could not reach origin: ${errorMessage(err)}`,
+      fixCommandForOrigin(url),
+    );
   }
 }
 
@@ -193,64 +205,52 @@ async function checkClaude(shell: ShellBackend): Promise<HealthCheckResult> {
   const label = "Claude CLI";
   const bin = await findCliOnHost(shell, "claude");
   if (!bin) {
-    return {
-      id: "claude",
+    return result(
+      "claude",
       label,
-      ok: false,
-      status: "fail",
-      detail: "The Claude CLI is not installed on this host.",
-      fixCommand: "curl -fsSL https://claude.ai/install.sh | bash",
-    };
+      "fail",
+      "The Claude CLI is not installed on this host.",
+      "curl -fsSL https://claude.ai/install.sh | bash",
+    );
   }
   const loggedIn = await claudeLooksLoggedIn(shell);
   if (loggedIn) {
-    return {
-      id: "claude",
-      label,
-      ok: true,
-      status: "ok",
-      detail: "Installed and logged in.",
-      fixCommand: null,
-    };
+    return result("claude", label, "ok", "Installed and logged in.", null);
   }
-  return {
-    id: "claude",
+  return result(
+    "claude",
     label,
-    ok: false,
-    status: "unknown",
-    detail:
-      "Installed, but Manor could not confirm it is logged in (checked the " +
+    "unknown",
+    "Installed, but Manor could not confirm it is logged in (checked the " +
       "credentials file, ANTHROPIC_API_KEY/CLAUDE_CODE_OAUTH_TOKEN, and the " +
       "Keychain). Run `claude` on the host to check.",
-    fixCommand: "claude",
-  };
+    "claude",
+  );
 }
 
 async function checkCodex(shell: ShellBackend): Promise<HealthCheckResult> {
   const label = "Codex CLI";
   const bin = await findCliOnHost(shell, "codex");
   if (!bin) {
-    return {
-      id: "codex",
+    return result(
+      "codex",
       label,
-      ok: false,
-      status: "fail",
-      detail: "The Codex CLI is not installed on this host.",
-      fixCommand: "codex login",
-    };
+      "fail",
+      "The Codex CLI is not installed on this host.",
+      "codex login",
+    );
   }
   try {
     await shell.exec("codex", ["--version"], { timeout: PROBE_TIMEOUT_MS });
-    return { id: "codex", label, ok: true, status: "ok", detail: "Installed.", fixCommand: null };
+    return result("codex", label, "ok", "Installed.", null);
   } catch (err) {
-    return {
-      id: "codex",
+    return result(
+      "codex",
       label,
-      ok: false,
-      status: "fail",
-      detail: `\`codex --version\` failed: ${errorMessage(err)}`,
-      fixCommand: "codex login",
-    };
+      "fail",
+      `\`codex --version\` failed: ${errorMessage(err)}`,
+      "codex login",
+    );
   }
 }
 
@@ -258,27 +258,25 @@ async function checkGh(shell: ShellBackend): Promise<HealthCheckResult> {
   const label = "GitHub CLI";
   const bin = await findCliOnHost(shell, "gh");
   if (!bin) {
-    return {
-      id: "gh",
+    return result(
+      "gh",
       label,
-      ok: false,
-      status: "fail",
-      detail: "The GitHub CLI is not installed on this host.",
-      fixCommand: "gh auth login",
-    };
+      "fail",
+      "The GitHub CLI is not installed on this host.",
+      "gh auth login",
+    );
   }
   try {
     await shell.exec("gh", ["auth", "status"], { timeout: PROBE_TIMEOUT_MS });
-    return { id: "gh", label, ok: true, status: "ok", detail: "Logged in.", fixCommand: null };
+    return result("gh", label, "ok", "Logged in.", null);
   } catch {
-    return {
-      id: "gh",
+    return result(
+      "gh",
       label,
-      ok: false,
-      status: "fail",
-      detail: "The GitHub CLI is installed but not logged in.",
-      fixCommand: "gh auth login",
-    };
+      "fail",
+      "The GitHub CLI is installed but not logged in.",
+      "gh auth login",
+    );
   }
 }
 
@@ -296,7 +294,7 @@ async function safely(
   try {
     return await check();
   } catch (err) {
-    return { id, label, ok: false, status: "fail", detail: errorMessage(err), fixCommand: null };
+    return result(id, label, "fail", errorMessage(err), null);
   }
 }
 
@@ -314,6 +312,3 @@ export async function runHealthChecks(
   ]);
 }
 
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}

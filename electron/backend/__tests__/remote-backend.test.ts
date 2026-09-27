@@ -237,19 +237,6 @@ describe("RemoteBackend", () => {
       warn.mockRestore();
     });
 
-    it("tolerates a daemon that predates bootstrap, with a warning", async () => {
-      const { backend, daemon } = setup();
-      current = backend;
-      daemon.bootstrapReply = { type: "error", message: "unknown request type: bootstrap" };
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      await expect(backend.connect()).resolves.toBeUndefined();
-      expect(daemon.control.map((r) => r.type)).toEqual(["bootstrap"]);
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining("does not support bootstrap"),
-      );
-      warn.mockRestore();
-    });
-
     it("does not fail connect when bootstrap errors", async () => {
       const { backend, daemon } = setup();
       current = backend;

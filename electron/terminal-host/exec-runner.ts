@@ -23,8 +23,9 @@
 
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
+import { errorMessage } from "../lib/errors";
 
-/** Matches `LocalGitBackend.execGit`'s default. */
+/** Matches `ExecGitBackend.execGit`'s default. */
 export const DEFAULT_EXEC_TIMEOUT_MS = 30000;
 
 /** Output cap applied independently to stdout and stderr. */
@@ -79,6 +80,27 @@ export function normalizeTimeout(timeout: number | undefined): number | null {
   }
   if (timeout <= 0) return null;
   return Math.min(timeout, MAX_TIMER_MS);
+}
+
+/** Slack on top of the daemon's own exec deadline, for transport latency. */
+const EXEC_RESPONSE_MARGIN_MS = 10_000;
+
+/**
+ * How long the client waits for an `exec` reply: strictly longer than the
+ * daemon takes to time the command out, kill it, and answer — so a slow
+ * command surfaces as the daemon's timed-out result, not as a client timeout
+ * that tears down the connection. `null` when the daemon applies no timeout.
+ */
+export function execReplyTimeoutMs(timeout: number | undefined): number | null {
+  const serverTimeout = normalizeTimeout(timeout);
+  if (serverTimeout === null) return null;
+  return Math.min(
+    serverTimeout +
+      KILL_ESCALATION_MS +
+      EXIT_DRAIN_GRACE_MS +
+      EXEC_RESPONSE_MARGIN_MS,
+    MAX_TIMER_MS,
+  );
 }
 
 /** Normalize a client-supplied `maxBuffer` to `[0, MAX_MAX_BUFFER]`. */
@@ -203,7 +225,7 @@ export function runExec(
     } catch (err) {
       resolve({
         stdout: "",
-        stderr: err instanceof Error ? err.message : String(err),
+        stderr: errorMessage(err),
         exitCode: null,
       });
       return;
@@ -310,10 +332,7 @@ export class ExecRunner {
     try {
       child = spawnInGroup(cmd, args, opts);
     } catch (err) {
-      callbacks.onStderr(
-        execId,
-        err instanceof Error ? err.message : String(err),
-      );
+      callbacks.onStderr(execId, errorMessage(err));
       callbacks.onExit(execId, null);
       return;
     }

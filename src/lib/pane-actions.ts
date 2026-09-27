@@ -70,10 +70,5 @@ export function convertFocusedPaneTo(contentType: PaneContentType): void {
     return;
   }
   state.setPaneContentType(focusedPaneId, "terminal");
-  useAppStore.setState((s) => ({
-    pendingPaneCommands: {
-      ...s.pendingPaneCommands,
-      [focusedPaneId]: command,
-    },
-  }));
+  state.setPendingPaneCommand(focusedPaneId, command);
 }

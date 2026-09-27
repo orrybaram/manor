@@ -1,0 +1,92 @@
+import type { TerminalHostClient } from "../terminal-host/client";
+import type {
+  HookJournalPtyBackend,
+  StreamEventHandler,
+} from "./types";
+import type {
+  SessionInfo,
+  TerminalSnapshot,
+  HookReplay,
+  PaneFacts,
+} from "../terminal-host/types";
+
+/**
+ * Ptys on a terminal-host daemon, through its `TerminalHostClient` — the
+ * local daemon or a remote one alike (ADR-183).
+ */
+export class DaemonPtyBackend implements HookJournalPtyBackend {
+  private client: TerminalHostClient;
+
+  constructor(client: TerminalHostClient) {
+    this.client = client;
+  }
+
+  async createOrAttach(
+    sessionId: string,
+    cwd: string,
+    cols: number,
+    rows: number,
+    shellArgs?: string[],
+    env?: Record<string, string>,
+  ): Promise<{ session: SessionInfo; snapshot: TerminalSnapshot | null }> {
+    return this.client.createOrAttach(sessionId, cwd, cols, rows, shellArgs, env);
+  }
+
+  write(sessionId: string, data: string): void {
+    this.client.writeNoAck(sessionId, data);
+  }
+
+  async resize(sessionId: string, cols: number, rows: number): Promise<void> {
+    await this.client.resize(sessionId, cols, rows);
+  }
+
+  async kill(sessionId: string): Promise<void> {
+    await this.client.kill(sessionId);
+  }
+
+  async detach(sessionId: string): Promise<void> {
+    await this.client.detach(sessionId);
+  }
+
+  async getSnapshot(sessionId: string): Promise<TerminalSnapshot | null> {
+    return this.client.getSnapshot(sessionId);
+  }
+
+  async getPaneFacts(sessionId: string): Promise<PaneFacts | null> {
+    return this.client.getPaneFacts(sessionId);
+  }
+
+  async listSessions(): Promise<SessionInfo[]> {
+    return this.client.listSessions();
+  }
+
+  async disposeDead(): Promise<void> {
+    await this.client.disposeDead();
+  }
+
+  onEvent(handler: StreamEventHandler): () => void {
+    return this.client.onEvent(handler);
+  }
+
+  /**
+   * Set env on the daemon for PTYs spawned from now on. The client also
+   * re-sends these on reconnect, alongside the inherited `MANOR_*` ports it
+   * pushes during connect().
+   */
+  async updateEnv(env: Record<string, string>): Promise<void> {
+    await this.client.updateEnv(env);
+  }
+
+  /** The daemon's hook journal after `sinceSeq` (see `HookJournalPtyBackend.replayHooks`). */
+  async replayHooks(
+    sinceSeq: number,
+    opts?: { headOnly?: boolean },
+  ): Promise<HookReplay> {
+    return this.client.replayHooks(sinceSeq, opts);
+  }
+
+  /** Ensure the underlying client is connected to the daemon. */
+  async ensureConnected(): Promise<void> {
+    await this.client.connect();
+  }
+}

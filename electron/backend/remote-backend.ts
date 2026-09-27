@@ -3,31 +3,36 @@
  * reached over ssh (ADR-160).
  *
  * Nothing here re-implements pty, git, shell or ports logic. It is the same
- * four backend classes `LocalBackend` uses; the pty backend gets a
- * `TerminalHostClient` riding an `SshTransport`, and the other three get an
- * `Exec` that runs their commands on the remote daemon. The only things that
+ * `createHostBackend` the local host is built with (ADR-183); the pty
+ * backend gets a `TerminalHostClient` riding an `SshTransport`, and the
+ * other three, and the host's `MachineFacts`, get an `Exec` that runs their
+ * commands on the remote daemon. The only things that
  * are genuinely remote-specific live here: bootstrapping the host and the
  * reconnect policy. The transport comes from the host's `HostProvider`
  * (ADR-178 §1); for an ssh box that is an `SshTransport`.
  */
 
+import { errorMessage } from "../lib/errors";
 import {
   TerminalHostClient,
   type ReconnectPolicy,
 } from "../terminal-host/client";
 import type { HostTransport } from "../terminal-host/transport";
 import { SshAuthError, SshHostKeyError } from "../terminal-host/ssh-config";
-import { LocalPtyBackend } from "./local-pty";
-import { LocalGitBackend } from "./local-git";
-import { LocalShellBackend, execShellHost } from "./local-shell";
-import { LocalPortsBackend, execPortsHost } from "./local-ports";
+import type { DaemonPtyBackend } from "./daemon-pty";
+import type { ExecGitBackend } from "./exec-git";
+import type { ExecShellBackend } from "./exec-shell";
+import type { ExecPortsBackend } from "./exec-ports";
+import { createHostBackend, type HostBackend } from "./host-backend";
+import { execFacts, type MachineFacts } from "./machine-facts";
 import { createRemoteExec } from "./remote-exec";
 import { RemoteBootstrapError } from "./remote-bootstrap";
+import { Emitter } from "./emitter";
 import type {
   HostConnectionEvent,
   HostConnectionEventHandler,
   HostFailure,
-  WorkspaceBackend,
+  RemoteHostBackend,
 } from "./types";
 
 const RECONNECT_BASE_MS = 1_000;
@@ -62,7 +67,7 @@ export interface RemoteBackendOptions {
   /** ssh destination, e.g. `user@box` or a `Host` alias from ~/.ssh/config. */
   target: string;
   /** App version; the remote host is installed/upgraded to match. */
-  version?: string;
+  version: string;
   /**
    * Non-fatal warnings from the agent-hook bootstrap (ticket 7), e.g. an
    * agent config on the remote that was skipped rather than risk corrupting
@@ -78,11 +83,12 @@ export interface RemoteBackendOptions {
   reconnectDelayMs?: ReconnectPolicy;
 }
 
-export class RemoteBackend implements WorkspaceBackend {
-  readonly pty: LocalPtyBackend;
-  readonly git: LocalGitBackend;
-  readonly shell: LocalShellBackend;
-  readonly ports: LocalPortsBackend;
+export class RemoteBackend implements RemoteHostBackend, HostBackend {
+  readonly pty: DaemonPtyBackend;
+  readonly git: ExecGitBackend;
+  readonly shell: ExecShellBackend;
+  readonly ports: ExecPortsBackend;
+  readonly facts: MachineFacts;
   readonly target: string;
 
   private readonly client: TerminalHostClient;
@@ -91,7 +97,9 @@ export class RemoteBackend implements WorkspaceBackend {
   private readonly onBootstrapWarning?: (warnings: string[]) => void;
   /** The `disconnect()` in progress, which a `connect()` must wait out. */
   private disconnecting: Promise<void> | null = null;
-  private readonly hostEventHandlers = new Set<HostConnectionEventHandler>();
+  private readonly hostEvents = new Emitter<[HostConnectionEvent]>(
+    "[remote-backend] host event handler",
+  );
 
   constructor(opts: RemoteBackendOptions) {
     this.target = opts.target;
@@ -99,12 +107,9 @@ export class RemoteBackend implements WorkspaceBackend {
     this.onBootstrapWarning = opts.onBootstrapWarning;
     const transport = (this.transport = opts.transport);
 
-    // The laptop's MANOR_* ports mean nothing on the box, and a pushed
-    // MANOR_HOOK_PORT would point remote agents away from the daemon's own
-    // hook listener (ADR-178 §2).
-    this.client = new TerminalHostClient(opts.version, transport, {
-      pushLocalEnv: false,
-    });
+    // The laptop's MANOR_* ports are pushed like to any daemon; the remote
+    // daemon's role drops them (ADR-178 §2).
+    this.client = new TerminalHostClient(opts.version, transport);
     this.client.setReconnectPolicy(this.reconnectDelayMs, {
       // Retrying bad credentials or a host without Node every 30s forever
       // only re-runs the bootstrap; stop and tell the user instead.
@@ -132,21 +137,24 @@ export class RemoteBackend implements WorkspaceBackend {
     });
 
     const exec = createRemoteExec(this.client);
-    this.pty = new LocalPtyBackend(this.client);
-    this.git = new LocalGitBackend(exec);
-    this.shell = new LocalShellBackend(exec, execShellHost(exec));
-    this.ports = new LocalPortsBackend(exec, execPortsHost(exec), opts.target);
+    const host = createHostBackend(this.client, exec, execFacts(exec), {
+      label: opts.target,
+    });
+    this.pty = host.pty;
+    this.git = host.git;
+    this.shell = host.shell;
+    this.ports = host.ports;
+    this.facts = host.facts;
   }
 
   /**
    * Make sure the remote has a matching `manor-host` (the transport's
    * `ensureRunning`, ticket 6), connect the client through the ssh bridge,
-   * then ask the daemon to bootstrap agent hooks on its own filesystem.
+   * then ask the daemon how bootstrapping its own filesystem went.
    * Also the way to retry after `hostFailed`, and to reconnect after
    * `disconnect()`.
    */
-  async connect(opts?: { version?: string }): Promise<void> {
-    if (opts?.version) this.client.setVersion(opts.version);
+  async connect(): Promise<void> {
     // A disposed transport refuses to spawn ssh (so a connect racing a
     // disconnect cannot resurrect it); only an explicit connect revives it.
     await this.disconnecting;
@@ -170,8 +178,8 @@ export class RemoteBackend implements WorkspaceBackend {
     }
   }
 
-  onHostEvent(handler: HostConnectionEventHandler): void {
-    this.hostEventHandlers.add(handler);
+  onHostEvent(handler: HostConnectionEventHandler): () => void {
+    return this.hostEvents.on(handler);
   }
 
   /** "Retry now": skip the rest of the reconnect loop's current wait. */
@@ -180,42 +188,25 @@ export class RemoteBackend implements WorkspaceBackend {
   }
 
   /**
-   * A daemon older than the `bootstrap` request answers "unknown request
-   * type", and a daemon that fails to bootstrap still serves terminals —
-   * agent status is what suffers, not the host — so neither is allowed to
-   * fail the connect.
+   * A daemon that failed to bootstrap still serves terminals — agent status
+   * is what suffers, not the host — so that is not allowed to fail the
+   * connect.
    */
   private async bootstrapHost(): Promise<void> {
     try {
-      const result = await this.client.bootstrap();
-      if (result === null) {
-        console.warn(
-          `[remote-backend] manor-host on ${this.target} does not support bootstrap; agent hooks are not set up there`,
-        );
-      } else {
-        for (const warning of result.warnings) {
-          console.warn(`[remote-backend] bootstrap on ${this.target}: ${warning}`);
-        }
-        if (result.warnings.length > 0) {
-          this.onBootstrapWarning?.(result.warnings);
-        }
+      const { warnings } = await this.client.bootstrap();
+      for (const warning of warnings) {
+        console.warn(`[remote-backend] bootstrap on ${this.target}: ${warning}`);
       }
+      if (warnings.length > 0) this.onBootstrapWarning?.(warnings);
     } catch (err) {
       console.warn(
-        `[remote-backend] bootstrap on ${this.target} failed: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
+        `[remote-backend] bootstrap on ${this.target} failed: ${errorMessage(err)}`,
       );
     }
   }
 
   private emitHostEvent(event: HostConnectionEvent): void {
-    for (const handler of this.hostEventHandlers) {
-      try {
-        handler(event);
-      } catch (err) {
-        console.error("[remote-backend] host event handler threw:", err);
-      }
-    }
+    this.hostEvents.emit(event);
   }
 }

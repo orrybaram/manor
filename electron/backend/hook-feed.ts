@@ -14,8 +14,9 @@
  *   4. drains the held events, skipping any `seq <= lastSeq` (they were in
  *      the replay too),
  *
- * and only then goes live. Order matters: the hook relay's late-active guard
- * (`hook-relay-transition.ts`) assumes events arrive in the order they fired.
+ * and only then goes live. Order matters: the Status reconciler's late-active
+ * guard (`agent-status/reconciler.ts`, ADR-184) assumes events arrive in the
+ * order they fired.
  * A live event that skips a seq means one went missing, so the feed goes
  * back to the journal rather than ingest out of order.
  *
@@ -30,19 +31,23 @@
  *
  * When the journal no longer has everything after `lastSeq` (compacted past
  * it while the laptop was away), the feed replays what is there, logs the
- * gap, and moves on. When the journal's epoch differs from the stored one
- * (or, for a journal without epochs, its seq is *behind* `lastSeq`), it was
- * recreated (box reinstalled, file deleted) and holds only hooks from after
- * that; the feed replays all of it.
+ * gap, and moves on. When the journal's epoch differs from the stored one,
+ * it was recreated (box reinstalled, file deleted) and holds only hooks from
+ * after that; the feed replays all of it. A cursor persisted before journals
+ * had epochs counts as a different journal, once.
  */
 
+import { errorMessage } from "../lib/errors";
 import type { AgentInfo } from "../agent-persistence";
 import type { AgentStatus, HookPayload, HookReplay } from "../terminal-host/types";
 
 /** How far into which journal a host's hooks have been ingested. */
 export interface HookCursor {
   seq: number;
-  /** The journal's epoch; null if it had none (or we never learned it). */
+  /**
+   * The journal's epoch. Null only in a cursor persisted before journals had
+   * epochs, which the next catch-up treats as a reset (ADR-183).
+   */
   epoch: string | null;
 }
 
@@ -63,7 +68,7 @@ export interface HookSink {
 type ReplaySource = (
   sinceSeq: number,
   opts?: { headOnly?: boolean },
-) => Promise<HookReplay | null>;
+) => Promise<HookReplay>;
 
 export interface HostHookFeedOptions {
   hostId: string;
@@ -87,10 +92,6 @@ const MAX_HELD = 10_000;
 
 function defaultRetryDelayMs(attempt: number): number {
   return Math.min(1_000 * 2 ** attempt, 30_000);
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 export class HostHookFeed {
@@ -197,7 +198,7 @@ export class HostHookFeed {
 
   private async runCatchUp(generation: number, sink: HookSink): Promise<void> {
     const { hostId } = this.opts;
-    let result: HookReplay | null;
+    let result: HookReplay;
     try {
       if (this.opts.beforeCatchUp) {
         try {
@@ -211,26 +212,19 @@ export class HostHookFeed {
       if (cursor === null) {
         result = await this.opts.replay(0, { headOnly: true });
         if (generation !== this.generation) return;
-        if (result) {
-          console.info(
-            `[hook-feed] ${hostId}: first contact with its hook journal; starting at seq ${result.lastSeq} without replaying its history`,
-          );
-          this.setCursor({ seq: result.lastSeq, epoch: result.epoch ?? null });
-          // A daemon that predates `headOnly` sends entries anyway.
-          result = { ...result, entries: [] };
-        }
+        console.info(
+          `[hook-feed] ${hostId}: first contact with its hook journal; starting at seq ${result.lastSeq} without replaying its history`,
+        );
+        this.setCursor({ seq: result.lastSeq, epoch: result.epoch });
       } else {
         result = await this.opts.replay(cursor.seq);
         if (generation !== this.generation) return;
-        if (result && isReset(cursor, result)) {
+        if (isReset(cursor, result)) {
           console.warn(
-            `[hook-feed] ${hostId}: hook journal was recreated (epoch ${cursor.epoch ?? "?"} → ${result.epoch ?? "?"}, seq ${cursor.seq} → ${result.lastSeq}); replaying it from the start`,
+            `[hook-feed] ${hostId}: hook journal was recreated (epoch ${cursor.epoch ?? "?"} → ${result.epoch}, seq ${cursor.seq} → ${result.lastSeq}); replaying it from the start`,
           );
-          this.setCursor({ seq: 0, epoch: result.epoch ?? null });
+          this.setCursor({ seq: 0, epoch: result.epoch });
           result = await this.opts.replay(0);
-        } else if (result?.epoch && cursor.epoch !== result.epoch) {
-          // Stored before epochs existed: adopt this journal's.
-          this.setCursor({ seq: cursor.seq, epoch: result.epoch });
         }
       }
     } catch (err) {
@@ -250,22 +244,18 @@ export class HostHookFeed {
     if (generation !== this.generation) return;
     this.retryAttempt = 0;
 
-    if (result === null) {
-      console.warn(`[hook-feed] ${hostId}: daemon has no hook journal; agent hooks there are not delivered`);
-    } else {
-      const first = result.entries.find((e) => e.seq > this.lastSeq);
-      const firstAvailable = first?.seq ?? result.lastSeq + 1;
-      if (firstAvailable > this.lastSeq + 1) {
-        console.warn(
-          `[hook-feed] ${hostId}: journal no longer has seq ${this.lastSeq + 1}–${firstAvailable - 1} (compacted); replaying what remains`,
-        );
-      }
-      for (const entry of result.entries) {
-        if (entry.seq <= this.lastSeq) continue;
-        this.ingest(entry.seq, entry.payload, true, sink);
-      }
-      if (result.lastSeq > this.lastSeq) this.setLastSeq(result.lastSeq);
+    const first = result.entries.find((e) => e.seq > this.lastSeq);
+    const firstAvailable = first?.seq ?? result.lastSeq + 1;
+    if (firstAvailable > this.lastSeq + 1) {
+      console.warn(
+        `[hook-feed] ${hostId}: journal no longer has seq ${this.lastSeq + 1}–${firstAvailable - 1} (compacted); replaying what remains`,
+      );
     }
+    for (const entry of result.entries) {
+      if (entry.seq <= this.lastSeq) continue;
+      this.ingest(entry.seq, entry.payload, true, sink);
+    }
+    if (result.lastSeq > this.lastSeq) this.setLastSeq(result.lastSeq);
 
     const held = this.held.sort((a, b) => a.seq - b.seq);
     this.held = [];
@@ -324,12 +314,11 @@ export class HostHookFeed {
 
 /**
  * Whether `replay` comes from a different journal than `cursor` was
- * recorded against: a different epoch, or — when either side has none — a
- * head behind the cursor.
+ * recorded against. A cursor without an epoch (persisted before epochs)
+ * never matches, so it resets once and picks up the journal's epoch.
  */
 function isReset(cursor: HookCursor, replay: HookReplay): boolean {
-  if (cursor.epoch && replay.epoch) return cursor.epoch !== replay.epoch;
-  return replay.lastSeq < cursor.seq;
+  return cursor.epoch !== replay.epoch;
 }
 
 /** In-memory `HookSeqStore`, for a registry with nowhere to persist. */
@@ -367,7 +356,7 @@ export class NotificationCoalescer {
 
   constructor(private readonly notify: NotifyFn) {}
 
-  /** The notification function to hand the hook relay. */
+  /** The notification function to hand the Status reconciler's driver (ADR-184). */
   readonly send: NotifyFn = (agent, prevStatus, newStatus) => {
     if (this.holdingFor === null) {
       this.notify(agent, prevStatus, newStatus);

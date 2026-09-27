@@ -22,10 +22,8 @@ export const DEFAULT_TERMINAL_MODES: TerminalModes = {
 /**
  * Position in a session's output stream: the number of `data` events broadcast.
  *
- * Optional wherever it crosses the daemon↔app boundary — the daemon outlives
- * the app, so a new app can meet a daemon that predates ADR-159 and sends none.
- * Absent means "cannot tell what the snapshot covers", which is handled by
- * applying everything.
+ * Where it is absent, a client cannot tell what a snapshot covers and applies
+ * everything.
  */
 export type StreamPosition = number;
 
@@ -53,8 +51,51 @@ export type StreamPosition = number;
  *     exactly the request that needs an answer — so it cannot serve this client
  *     correctly, however new its build looks. No wire *shape* changed here;
  *     the number is carrying the thing it exists to carry.
+ *
+ * 5 — a `paneFacts` stream event and a `getPaneFacts` request (ADR-184 §3).
+ *     Main's Status reconciler reads Pane facts from them, and a protocol-4
+ *     daemon sends neither.
+ *
+ * 6 — the `agentHook` stream command and the `agentStatus` stream event are
+ *     gone (ADR-184 ticket 4): the daemon's `AgentDetector` state machine is
+ *     deleted, and main's Status reconciler decides Agent status from Pane
+ *     facts and hooks alone. A protocol-5 daemon still accepts an `agentHook`
+ *     command main no longer sends, and a protocol-6 daemon never sends
+ *     `agentStatus`.
  */
-export const TERMINAL_HOST_PROTOCOL = 4;
+export const TERMINAL_HOST_PROTOCOL = 6;
+
+// ── Handshake ──
+
+/** The wire protocol a handshake reply reports; 0 when it reports none. */
+export function daemonProtocolOf(response: ControlResponse): number {
+  return response.type === "handshake" ? (response.protocol ?? 0) : 0;
+}
+
+/**
+ * Whether the daemon that sent `response` must be replaced before it can serve
+ * this client. Two independent reasons, and checking only the first is what
+ * let ADR-159's fix sit inert in a running app for days:
+ *
+ * - **Different app version** — the daemon binary is mismatched.
+ * - **Older wire protocol at the same app version** — two builds of one
+ *   release meet across a protocol bump. Serving a terminal we know is broken
+ *   is worse than replacing the daemon, even though replacing it ends live
+ *   sessions.
+ *
+ * In a released build the second reason is unreachable — a protocol bump ships
+ * inside a version bump, so the version check fires first. It exists for
+ * development, where the version is constant across rebuilds and a daemon can
+ * outlive the protocol it was built against by days.
+ */
+export function isDaemonStale(
+  response: ControlResponse,
+  clientVersion: string,
+): boolean {
+  if (response.type === "handshake" && response.daemonVersion !== clientVersion)
+    return true;
+  return daemonProtocolOf(response) < TERMINAL_HOST_PROTOCOL;
+}
 
 /** Serialized terminal snapshot for warm restore */
 export interface TerminalSnapshot {
@@ -123,24 +164,29 @@ export type ControlRequest =
   /** Read a UTF-8 file of at most 10 MiB. Also answered out of order. */
   | { type: "readFile"; path: string }
   /**
-   * Set the daemon's own host up for shell integration and agent hooks
-   * (ADR-160 ticket 10): zdotdir, hook scripts, agent connector registration.
-   * Answered with `bootstrapped`. Sent by `RemoteBackend` after connecting; a
-   * daemon that predates it answers `error: unknown request type: bootstrap`,
-   * which callers tolerate.
+   * Report how the daemon's own host was set up for shell integration and
+   * agent hooks (ADR-160 ticket 10): zdotdir, hook scripts, agent connector
+   * registration. A remote daemon does that once at startup; this returns
+   * the cached result. Answered with `bootstrapped`. Sent by `RemoteBackend`
+   * after connecting.
    */
   | { type: "bootstrap" }
   /**
    * Hook journal entries after `sinceSeq` (ADR-178 §2). Answered with
-   * `hookReplay`. A daemon that predates it answers `error: unknown request
-   * type: replayHooks`, which callers treat as "no journal".
+   * `hookReplay`; a daemon without a journal (Manor desktop's) answers
+   * `error`.
    *
    * `headOnly` asks for the journal's position (`lastSeq`, `epoch`) without
    * any entries — how a client meeting a journal for the first time starts
-   * from "now" instead of replaying its whole history. A daemon that
-   * predates it sends entries anyway; callers ignore them.
+   * from "now" instead of replaying its whole history.
    */
-  | { type: "replayHooks"; sinceSeq: number; headOnly?: boolean };
+  | { type: "replayHooks"; sinceSeq: number; headOnly?: boolean }
+  /**
+   * The session's current Pane facts (ADR-184 §3), so main can resync after a
+   * reconnect with nothing to replay. Answered with `paneFacts`; `facts` is
+   * null when the daemon has no such session.
+   */
+  | { type: "getPaneFacts"; sessionId: string };
 
 /**
  * A remote daemon's answer to `replayHooks` (ADR-178 §2): journal entries
@@ -153,10 +199,9 @@ export interface HookReplay {
   lastSeq: number;
   /**
    * The journal's identity (see `HookJournal.epoch`). A different epoch than
-   * last time means the journal was recreated. Absent from daemons that
-   * predate it.
+   * last time means the journal was recreated. Every journal has one.
    */
-  epoch?: string;
+  epoch: string;
 }
 
 /**
@@ -200,7 +245,6 @@ export type ControlResponse =
   | {
       type: "handshake";
       daemonVersion: string;
-      /** Absent from daemons older than TERMINAL_HOST_PROTOCOL 1. */
       protocol?: number;
     }
   | { type: "error"; message: string }
@@ -217,28 +261,126 @@ export type ControlResponse =
    * rather than risk clobbering a config the daemon couldn't safely parse
    * (e.g. unreadable or malformed JSON) — absent or empty means no issues.
    */
-  | {
-      type: "bootstrapped";
-      agents: string[];
-      warnings?: string[];
-      /**
-       * Port of the daemon's own hook listener, which `bootstrap` turns on
-       * (ADR-178 §2). Absent when it could not be started, or from daemons
-       * that predate it.
-       */
-      hookPort?: number;
-    }
+  | { type: "bootstrapped"; agents: string[]; warnings?: string[] }
   /** See `HookReplay`. */
-  | ({ type: "hookReplay" } & HookReplay);
+  | ({ type: "hookReplay" } & HookReplay)
+  /** See `getPaneFacts`. */
+  | { type: "paneFacts"; facts: PaneFacts | null };
+
+/**
+ * A control message on the wire: the payload plus the id the client assigned
+ * the request. The daemon echoes the id on every reply — the client matches
+ * replies by it, since `exec`/`readFile` replies may overtake others. The
+ * only reply without one is an "Invalid JSON" error for a line whose id could
+ * not be recovered, and the client answers that by failing every pending
+ * request rather than guessing which one it was.
+ */
+export type Envelope<T> = T & { requestId: string };
+
+type Reply<T extends ControlResponse["type"]> = Extract<ControlResponse, { type: T }>;
+
+/** Fails to compile unless every request type has an entry. */
+type ExhaustiveResponseMap<
+  M extends Record<ControlRequest["type"], ControlResponse>,
+> = M;
+
+type ResponseMap = ExhaustiveResponseMap<{
+  auth: Reply<"authOk">;
+  create: Reply<"created">;
+  attach: Reply<"attached" | "notFound">;
+  detach: Reply<"detached">;
+  resize: Reply<"resized">;
+  kill: Reply<"killed">;
+  getSnapshot: Reply<"snapshot" | "notFound">;
+  listSessions: Reply<"sessions">;
+  writeAfterReady: Reply<"writeQueued">;
+  ping: Reply<"pong">;
+  updateEnv: Reply<"envUpdated">;
+  disposeDead: Reply<"disposedDead">;
+  handshake: Reply<"handshake">;
+  exec: Reply<"execResult">;
+  readFile: Reply<"fileContents">;
+  bootstrap: Reply<"bootstrapped">;
+  replayHooks: Reply<"hookReplay">;
+  getPaneFacts: Reply<"paneFacts">;
+}>;
+
+/** The replies a request of type `T` can get: its own, or an `error`. */
+export type ResponseFor<T extends ControlRequest["type"]> =
+  | ResponseMap[T]
+  | Reply<"error">;
+
+/** The replies that answer a request of type `T` successfully. */
+export type SuccessFor<T extends ControlRequest["type"]> = ResponseMap[T];
+
+/**
+ * `ResponseMap` at run time: the reply types each request succeeds with. The
+ * client checks replies against it, so a wrong one fails loudly rather than
+ * being read as something it is not.
+ */
+export const REPLY_TYPES = {
+  auth: ["authOk"],
+  create: ["created"],
+  attach: ["attached", "notFound"],
+  detach: ["detached"],
+  resize: ["resized"],
+  kill: ["killed"],
+  getSnapshot: ["snapshot", "notFound"],
+  listSessions: ["sessions"],
+  writeAfterReady: ["writeQueued"],
+  ping: ["pong"],
+  updateEnv: ["envUpdated"],
+  disposeDead: ["disposedDead"],
+  handshake: ["handshake"],
+  exec: ["execResult"],
+  readFile: ["fileContents"],
+  bootstrap: ["bootstrapped"],
+  replayHooks: ["hookReplay"],
+  getPaneFacts: ["paneFacts"],
+} as const satisfies {
+  [K in ControlRequest["type"]]: readonly SuccessFor<K>["type"][];
+};
+
+// ── ssh bridge preamble ──
+
+/**
+ * The one-line JSON preamble `manor-host remote-bridge` writes to stdout
+ * before any protocol bytes (see bridge.ts), carrying the daemon's auth token.
+ * `SshTransport` strips it before handing the connection to the client.
+ */
+export interface BridgeHello {
+  type: "bridgeHello";
+  token: string;
+}
+
+/** `line` as a `BridgeHello`, or null for anything else (e.g. shell rc noise). */
+export function parseHello(line: string): BridgeHello | null {
+  try {
+    const value = JSON.parse(line) as Partial<BridgeHello> | null;
+    if (value && value.type === "bridgeHello" && typeof value.token === "string") {
+      return { type: "bridgeHello", token: value.token };
+    }
+  } catch {
+    // Not JSON.
+  }
+  return null;
+}
 
 // ── Agent status types ──
 
 export type AgentKind = "claude" | "opencode" | "codex" | "pi";
+
+/**
+ * The one live state shown for an Agent's pane (ADR-184). There is no
+ * `"complete"`: a finished turn is `responded`, an ended session is `idle`
+ * (and the Agent's lifecycle becomes `completed`). Mirrors `AgentStatus` in
+ * `src/electron.d.ts` — electron and the renderer sit in separate tsconfigs,
+ * so this can't just import it.
+ */
 export type AgentStatus =
   | "idle"
   | "thinking"
   | "working"
-  | "complete"
   | "requires_input"
   | "error"
   | "responded";
@@ -249,6 +391,37 @@ export interface AgentState {
   processName: string | null;
   since: number; // timestamp
   title: string | null;
+}
+
+// ── Pane facts (ADR-184 §3) ──
+
+/**
+ * What an output pattern suggests the pane is doing. A raw fact, not an Agent
+ * status: the Status reconciler decides what it means.
+ */
+export type OutputHint = "thinking" | "working" | "requires_input" | "idle";
+
+/**
+ * The daemon's latest snapshot of what it can see in a pane. A source of Status
+ * signals, never an Agent status (ADR-184 §3). Produced by the daemon's
+ * `PaneFactsExtractor` (`pane-facts.ts`) and consumed by the Status reconciler
+ * (`electron/agent-status`). Lives here so the daemon bundle and main share it
+ * without either pulling in the other's dependencies.
+ */
+export interface PaneFacts {
+  /**
+   * Foreground process, with its Agent kind when it is a known agent CLI;
+   * null when the shell itself is in the foreground.
+   */
+  foreground: { name: string; kind: AgentKind | null } | null;
+  /** Last terminal title (OSC 0/2), or null. */
+  title: string | null;
+  /**
+   * Last output hint and when it was seen (monotonic ms on the daemon's clock),
+   * or null. `at` changes for every new hint, so it identifies one: a consumer
+   * re-applies the hint only when `at` changes.
+   */
+  outputHint: { hint: OutputHint; at: number } | null;
 }
 
 // ── Stream socket event types ──
@@ -264,7 +437,8 @@ export type StreamEvent =
   | { type: "exit"; sessionId: string; exitCode: number; lost?: true }
   | { type: "cwd"; sessionId: string; cwd: string }
   | { type: "error"; sessionId: string; message: string }
-  | { type: "agentStatus"; sessionId: string; agent: AgentState }
+  /** The session's Pane facts changed; `facts` is the whole new snapshot (ADR-184 §3). */
+  | { type: "paneFacts"; sessionId: string; facts: PaneFacts }
   /**
    * The pty is at this size, and this is where in the stream it changed: every
    * byte before this event was produced at the old size, every byte after it at
@@ -285,12 +459,6 @@ export type StreamCommand =
   | { type: "write"; sessionId: string; data: string }
   | { type: "subscribe"; sessionId: string }
   | { type: "unsubscribe"; sessionId: string }
-  | {
-      type: "agentHook";
-      sessionId: string;
-      status: AgentStatus;
-      kind: AgentKind;
-    }
   | {
       type: "execStream";
       execId: string;

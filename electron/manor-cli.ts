@@ -11,6 +11,7 @@ import * as fs from "node:fs";
 
 import { createHttp } from "./mcp/http-client";
 import { runCli } from "./mcp/cli";
+import { errorMessage } from "./lib/errors";
 
 const io = {
   stdout: process.stdout,
@@ -21,6 +22,6 @@ const io = {
 runCli(process.argv.slice(2), createHttp(), io)
   .then((code) => process.exit(code))
   .catch((err) => {
-    console.error(err instanceof Error ? err.message : String(err));
+    console.error(errorMessage(err));
     process.exit(1);
   });

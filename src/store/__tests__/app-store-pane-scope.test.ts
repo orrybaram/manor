@@ -232,9 +232,10 @@ describe("tab actions return their IDs", () => {
     const created = useAppStore.getState().addTerminalTab("pnpm dev");
 
     expect(created).not.toBeNull();
-    expect(useAppStore.getState().pendingPaneCommands[created!.paneId]).toBe(
-      "pnpm dev",
-    );
+    expect(useAppStore.getState().pendingPaneCommands[created!.paneId]).toEqual({
+      text: "pnpm dev",
+      submit: true,
+    });
     expect(tabHolding(created!.paneId)?.tab.id).toBe(created!.tabId);
   });
 
@@ -253,6 +254,8 @@ describe("tab actions return their IDs", () => {
 // Part C — pendingPaneCommands does not outlive its pane
 // ---------------------------------------------------------------------------
 
+const run = (text: string) => ({ text, submit: true });
+
 describe("pendingPaneCommands pruning", () => {
   beforeEach(() => {
     setupStore(
@@ -270,7 +273,7 @@ describe("pendingPaneCommands pruning", () => {
         contentType: "agent",
         paneCommand: "pnpm test",
       })!;
-    expect(useAppStore.getState().pendingPaneCommands[newPane]).toBe("pnpm test");
+    expect(useAppStore.getState().pendingPaneCommands[newPane]).toEqual(run("pnpm test"));
 
     useAppStore.getState().closePaneById(newPane);
 
@@ -279,29 +282,29 @@ describe("pendingPaneCommands pruning", () => {
 
   it("keeps sibling panes' pending commands when one pane is closed", () => {
     useAppStore.setState({
-      pendingPaneCommands: { "pane-a1": "keep me", "pane-a2": "drop me" },
+      pendingPaneCommands: { "pane-a1": run("keep me"), "pane-a2": run("drop me") },
     });
 
     useAppStore.getState().closePaneById("pane-a2");
 
     expect(useAppStore.getState().pendingPaneCommands).toEqual({
-      "pane-a1": "keep me",
+      "pane-a1": run("keep me"),
     });
   });
 
   it("prunes pending commands for every pane in a closed tab", () => {
     useAppStore.setState({
       pendingPaneCommands: {
-        "pane-a1": "drop me",
-        "pane-a2": "drop me too",
-        "pane-b": "keep me",
+        "pane-a1": run("drop me"),
+        "pane-a2": run("drop me too"),
+        "pane-b": run("keep me"),
       },
     });
 
     useAppStore.getState().closeTab("tab-a");
 
     expect(useAppStore.getState().pendingPaneCommands).toEqual({
-      "pane-b": "keep me",
+      "pane-b": run("keep me"),
     });
   });
 });

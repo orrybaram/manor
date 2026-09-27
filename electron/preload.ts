@@ -6,6 +6,7 @@ import type {
   MenuCommandPayload,
   MenuContext,
 } from "../src/lib/menu-commands";
+import type { HostStatusInfo } from "../src/store/host-store";
 
 interface WindowBounds {
   x: number;
@@ -79,14 +80,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
     reset: (paneId: string, cwd: string | null, cols: number, rows: number) =>
       ipcRenderer.invoke("pty:reset", paneId, cwd, cols, rows),
     detach: (paneId: string) => ipcRenderer.invoke("pty:detach", paneId),
-    consumePrewarmed: (cwd: string | null) =>
-      ipcRenderer.invoke("pty:consumePrewarmed", cwd),
+    consumePrewarmed: (cwd: string | null, hostId: string) =>
+      ipcRenderer.invoke("pty:consumePrewarmed", cwd, hostId),
     updatePrewarmCwd: (
       cwd: string,
+      hostId: string,
       agentCommand?: string | null,
       agentKind?: string | null,
     ) =>
-      ipcRenderer.invoke("pty:updatePrewarmCwd", cwd, agentCommand, agentKind),
+      ipcRenderer.invoke("pty:updatePrewarmCwd", cwd, hostId, agentCommand, agentKind),
     // Output carries its position in the session's stream (ADR-159) so the
     // renderer can drop what a warm-restore snapshot already covers. It is
     // undefined when an older daemon is on the other end.
@@ -107,8 +109,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       onChannel(`pty-exit-${paneId}`, callback),
     onCwd: (paneId: string, callback: (cwd: string) => void) =>
       onChannel(`pty-cwd-${paneId}`, callback),
-    onAgentStatus: (paneId: string, callback: (agent: unknown) => void) =>
-      onChannel(`pty-agent-status-${paneId}`, callback),
     onError: (paneId: string, callback: (message: string) => void) =>
       onChannel(`pty-error-${paneId}`, callback),
     // Its own listener rather than `onChannel`, which forwards a single value:
@@ -165,6 +165,19 @@ contextBridge.exposeInMainWorld("electronAPI", {
       return () =>
         ipcRenderer.removeListener("worktree:setup-progress", handler);
     },
+    // ADR-183 ticket 1: clone progress has its own channel, separate from
+    // worktree setup — a clone and a worktree setup can be in flight at once
+    // and must not write into each other's state.
+    onCloneProgress: (
+      callback: (event: {
+        status: "in-progress" | "done" | "error";
+        message?: string;
+      }) => void,
+    ) =>
+      onChannel<{ status: "in-progress" | "done" | "error"; message?: string }>(
+        "projects:clone-progress",
+        callback,
+      ),
     canQuickMerge: (projectId: string, worktreePath: string) =>
       ipcRenderer.invoke("projects:canQuickMerge", projectId, worktreePath),
     quickMergeWorktree: (projectId: string, worktreePath: string) =>
@@ -293,24 +306,35 @@ contextBridge.exposeInMainWorld("electronAPI", {
       }>,
     ) => ipcRenderer.invoke("projects:update", projectId, updates),
     // ADR-178 ticket 5: clone a repo onto a remote host, then add it as a
-    // project there. Progress arrives on the same "worktree:setup-progress"
-    // channel `onWorktreeSetupProgress` already subscribes to, step "clone".
+    // project there. Progress arrives on "projects:clone-progress"
+    // (`onCloneProgress`).
     addRemote: (opts: {
       hostId: string;
       repoUrl: string;
       remoteDir: string;
       name: string;
     }) => ipcRenderer.invoke("projects:addRemote", opts),
+    // ADR-179: clone an existing project onto a remote host and point it
+    // there. Progress arrives on "projects:clone-progress" (`onCloneProgress`).
+    moveToHost: (
+      projectId: string,
+      opts: { hostId: string; repoUrl: string; remoteDir: string },
+    ) => ipcRenderer.invoke("projects:moveToHost", projectId, opts),
+    getOriginUrl: (projectId: string) =>
+      ipcRenderer.invoke("projects:getOriginUrl", projectId),
+    pathExists: (projectId: string) =>
+      ipcRenderer.invoke("projects:pathExists", projectId),
+    switchHost: (projectId: string, hostId: string, path?: string) =>
+      ipcRenderer.invoke("projects:switchHost", projectId, hostId, path),
   },
 
   hosts: {
     list: () => ipcRenderer.invoke("hosts:list"),
     add: (target: string) => ipcRenderer.invoke("hosts:add", target),
-    remove: (hostId: string) => ipcRenderer.invoke("hosts:remove", hostId),
     retryConnect: (hostId: string) =>
       ipcRenderer.invoke("hosts:retryConnect", hostId),
-    onStatusChanged: (callback: (hosts: unknown) => void) =>
-      onChannel<unknown>("hosts:statusChanged", callback),
+    onStatusChanged: (callback: (hosts: HostStatusInfo[]) => void) =>
+      onChannel<HostStatusInfo[]>("hosts:statusChanged", callback),
     // ADR-178 §6: a remote host is back and its hooks replayed; `sessionIds`
     // are every session its daemon still has.
     onReconnected: (
@@ -339,8 +363,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   ports: {
     startScanner: () => ipcRenderer.invoke("ports:startScanner"),
     stopScanner: () => ipcRenderer.invoke("ports:stopScanner"),
-    updateWorkspacePaths: (paths: string[]) =>
-      ipcRenderer.invoke("ports:updateWorkspacePaths", paths),
+    updateWorkspaces: (workspaces: Array<{ path: string; hostId: string }>) =>
+      ipcRenderer.invoke("ports:updateWorkspaces", workspaces),
     updateWorkspaceMetadata: (
       meta: Array<{
         path: string;
@@ -356,8 +380,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("ports:resolveUrl", url, hostId),
     remoteUrl: (url: string, hostId: string) =>
       ipcRenderer.invoke("ports:remoteUrl", url, hostId),
-    publicUrl: (hostId: string, port: number) =>
-      ipcRenderer.invoke("ports:publicUrl", hostId, port),
     onChange: (callback: (ports: unknown[]) => void) =>
       onChannel("ports-changed", callback),
   },
@@ -373,15 +395,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
 
   branches: {
-    start: (paths: string[]) => ipcRenderer.invoke("branches:start", paths),
+    start: (workspaces: Array<{ path: string; hostId: string }>) =>
+      ipcRenderer.invoke("branches:start", workspaces),
     stop: () => ipcRenderer.invoke("branches:stop"),
     onChange: (callback: (branches: Record<string, string>) => void) =>
       onChannel("branches-changed", callback),
   },
 
   diffs: {
-    start: (workspaces: Record<string, string>) =>
-      ipcRenderer.invoke("diffs:start", workspaces),
+    start: (
+      workspaces: Array<{ path: string; hostId: string; defaultBranch: string }>,
+    ) => ipcRenderer.invoke("diffs:start", workspaces),
     stop: () => ipcRenderer.invoke("diffs:stop"),
     onChange: (
       callback: (
@@ -590,6 +614,24 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.on("agent-updated", listener);
       return () => ipcRenderer.removeListener("agent-updated", listener);
     },
+    /**
+     * Every pane's Agent status as the Status reconciler publishes it
+     * (ADR-184 §4): `{ paneId, status, reason, kind }` on `agent-status`.
+     */
+    onStatus: (
+      callback: (update: {
+        paneId: string;
+        status: string;
+        reason: string;
+        kind: string | null;
+      }) => void,
+    ) => onChannel("agent-status", callback),
+    /**
+     * Every pane's currently published Agent status (ADR-184 ticket 5) — a
+     * window that starts (or reloads) after some panes' statuses were already
+     * published has nothing to replay otherwise.
+     */
+    getPaneStatuses: () => ipcRenderer.invoke("agents:getPaneStatuses"),
   },
 
   preferences: {

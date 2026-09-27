@@ -7,7 +7,7 @@ import * as crypto from "node:crypto";
 import { StatsStore } from "../stats-store";
 import type { PersistedStats } from "../stats-store";
 import type { AgentHookEvent } from "../agent-hook-events";
-import type { Effect } from "../hook-relay-transition";
+import type { Effect } from "../agent-status/types";
 
 /** Local-time epoch ms, so day bucketing is exercised in the app's own timezone. */
 function localMs(
@@ -545,6 +545,7 @@ describe("StatsStore", () => {
       paneId: "pane-1",
       agentKind: "claude",
       status: "thinking",
+      title: null,
     };
 
     function build(monoValues: number[] = [0]) {

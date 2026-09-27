@@ -17,6 +17,7 @@ import {
   type MessageType,
 } from "./pty-subprocess-ipc";
 import type { PtySpawnPayload } from "./types";
+import { AGENT_COMMAND_PATTERNS } from "./pane-facts";
 import treeKill from "tree-kill";
 
 const execFileAsync = promisify(execFile);
@@ -34,12 +35,6 @@ const JS_RUNTIMES = new Set(["node", "deno", "bun"]);
 // like "2.1.80". Detect these so we can fall back to child arg inspection.
 const VERSION_STRING_RE = /^\d+\.\d+/;
 
-// Patterns to match known agent CLIs in process command lines
-const AGENT_PATTERNS: Array<[RegExp, string]> = [
-  [/\bclaude\b/i, "claude"],
-  [/\bopencode\b/i, "opencode"],
-  [/\bcodex\b/i, "codex"],
-];
 
 /**
  * When the foreground process is a JS runtime (e.g. "node"), inspect the
@@ -119,7 +114,8 @@ async function detectAgentFromChildArgs(
 
     for (const line of result.trim().split("\n")) {
       if (!line.trim()) continue;
-      for (const [pattern, agent] of AGENT_PATTERNS) {
+      // One Agent kind table, shared with the Pane facts extractor (ADR-184).
+      for (const [pattern, agent] of AGENT_COMMAND_PATTERNS) {
         if (pattern.test(line)) {
           return agent;
         }

@@ -3,11 +3,16 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
-import { handleStreamEvent } from "./app-lifecycle";
+import {
+  dispatchStreamEvent,
+  handleAgentStreamEvent,
+  handleStreamEvent,
+} from "./app-lifecycle";
+import { createAgentStatusDriver } from "./agent-status/driver";
+import type { PaneStatusUpdate } from "./agent-status/effects";
 import { AgentManager } from "./agent-persistence";
-import { PreferencesManager } from "./preferences";
 import type { AgentInfo } from "./agent-persistence";
-import type { StreamEvent } from "./terminal-host/types";
+import type { PaneFacts, StreamEvent } from "./terminal-host/types";
 
 // Mock BrowserWindow
 const createMockBrowserWindow = () => {
@@ -24,14 +29,12 @@ const createMockBrowserWindow = () => {
 describe("handleStreamEvent", () => {
   let tmpDir: string;
   let agentManager: AgentManager;
-  let preferencesManager: PreferencesManager;
   let mockWindow: any;
 
   beforeEach(() => {
     tmpDir = path.join(os.tmpdir(), `manor-test-${crypto.randomUUID()}`);
     fs.mkdirSync(tmpDir, { recursive: true });
     agentManager = new AgentManager(tmpDir);
-    preferencesManager = new PreferencesManager(tmpDir);
     mockWindow = createMockBrowserWindow();
   });
 
@@ -39,6 +42,22 @@ describe("handleStreamEvent", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     vi.clearAllMocks();
   });
+
+  const broadcastAgent = vi.fn();
+  const agentStatus = { signal: vi.fn(), forgetPane: vi.fn() };
+
+  /**
+   * What main does with one stream event: the agent side once, then the
+   * per-window forwarding (ADR-184).
+   */
+  function runEvent(event: StreamEvent): void {
+    handleAgentStreamEvent(event, {
+      agentManager,
+      agentStatus: agentStatus as never,
+      broadcastAgent,
+    });
+    handleStreamEvent(event, mockWindow);
+  }
 
   function createAgent(
     overrides: Partial<Omit<AgentInfo, "id" | "createdAt" | "updatedAt" | "activatedAt">> = {},
@@ -72,7 +91,7 @@ describe("handleStreamEvent", () => {
         cwd: "/project/main/src",
       };
 
-      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
+      runEvent(event);
 
       // Verify webContents.send was called with the cwd event
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
@@ -85,12 +104,9 @@ describe("handleStreamEvent", () => {
       expect(updated).not.toBeNull();
       expect(updated!.cwd).toBe("/project/main/src");
 
-      // Verify agent-updated broadcast was sent
-      const agentUpdatedCalls = mockWindow.webContents.send.mock.calls.filter(
-        (call: any) => call[0] === "agent-updated",
-      );
-      expect(agentUpdatedCalls.length).toBe(1);
-      expect(agentUpdatedCalls[0][1].cwd).toBe("/project/main/src");
+      // Verify the agent update was broadcast (once, not per window)
+      expect(broadcastAgent).toHaveBeenCalledTimes(1);
+      expect(broadcastAgent.mock.calls[0][0].cwd).toBe("/project/main/src");
     });
 
     it("does not update agent when cwd matches existing agent cwd", () => {
@@ -103,7 +119,7 @@ describe("handleStreamEvent", () => {
         cwd: "/project/main",
       };
 
-      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
+      runEvent(event);
 
       // Verify webContents.send was called with the cwd event
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
@@ -112,10 +128,7 @@ describe("handleStreamEvent", () => {
       );
 
       // Verify agent-updated broadcast was NOT sent (no change)
-      const agentUpdatedCalls = mockWindow.webContents.send.mock.calls.filter(
-        (call: any) => call[0] === "agent-updated",
-      );
-      expect(agentUpdatedCalls.length).toBe(0);
+      expect(broadcastAgent).not.toHaveBeenCalled();
     });
 
     it("does not update a completed agent", () => {
@@ -128,7 +141,7 @@ describe("handleStreamEvent", () => {
         cwd: "/project/main/src",
       };
 
-      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
+      runEvent(event);
 
       // Verify webContents.send was called with the cwd event to renderer
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
@@ -141,10 +154,7 @@ describe("handleStreamEvent", () => {
       expect(updated!.cwd).toBe("/project/main");
 
       // Verify agent-updated broadcast was NOT sent
-      const agentUpdatedCalls = mockWindow.webContents.send.mock.calls.filter(
-        (call: any) => call[0] === "agent-updated",
-      );
-      expect(agentUpdatedCalls.length).toBe(0);
+      expect(broadcastAgent).not.toHaveBeenCalled();
     });
 
     it("does not update agent when there is no agent for the paneId", () => {
@@ -156,7 +166,7 @@ describe("handleStreamEvent", () => {
         cwd: "/project/main/src",
       };
 
-      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
+      runEvent(event);
 
       // Verify webContents.send was called with the cwd event to renderer
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
@@ -165,10 +175,7 @@ describe("handleStreamEvent", () => {
       );
 
       // Verify agent-updated broadcast was NOT sent
-      const agentUpdatedCalls = mockWindow.webContents.send.mock.calls.filter(
-        (call: any) => call[0] === "agent-updated",
-      );
-      expect(agentUpdatedCalls.length).toBe(0);
+      expect(broadcastAgent).not.toHaveBeenCalled();
     });
 
     it("forwards data events to renderer", () => {
@@ -181,7 +188,7 @@ describe("handleStreamEvent", () => {
         seq: 7,
       };
 
-      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
+      runEvent(event);
 
       // The seq rides along so the renderer can drop output a warm-restore
       // snapshot already covers (ADR-159).
@@ -202,7 +209,7 @@ describe("handleStreamEvent", () => {
         data: "hello",
       };
 
-      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
+      runEvent(event);
 
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
         `pty-output-${paneId}`,
@@ -220,7 +227,7 @@ describe("handleStreamEvent", () => {
         exitCode: 0,
       };
 
-      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
+      runEvent(event);
 
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
         `pty-exit-${paneId}`,
@@ -236,7 +243,7 @@ describe("handleStreamEvent", () => {
         message: "test error",
       };
 
-      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
+      runEvent(event);
 
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
         `pty-error-${paneId}`,
@@ -253,8 +260,8 @@ describe("handleStreamEvent", () => {
       let callCount = 0;
       mockWindow.webContents.send = vi.fn(() => {
         callCount++;
-        // Only throw on the second call (agent-updated broadcast), not on the pty-cwd broadcast
-        if (callCount === 2) {
+        // Throw on the pty-cwd forward: the agent side already ran
+        if (callCount === 1) {
           throw new Error("Render frame was disposed");
         }
       });
@@ -267,7 +274,7 @@ describe("handleStreamEvent", () => {
 
       // Should not throw
       expect(() => {
-        handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
+        runEvent(event);
       }).not.toThrow();
 
       // Agent should still be updated
@@ -289,7 +296,7 @@ describe("handleStreamEvent", () => {
         data: "test",
       };
 
-      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
+      runEvent(event);
 
       expect(errorSpy).toHaveBeenCalledWith(
         "Error in stream event handler:",
@@ -311,7 +318,7 @@ describe("handleStreamEvent", () => {
         cwd: "/project/main/nested/dir",
       };
 
-      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
+      runEvent(event);
 
       // Wait for debounced save
       await new Promise((r) => setTimeout(r, 600));
@@ -321,6 +328,108 @@ describe("handleStreamEvent", () => {
       const loaded = freshManager.getAgentByPaneId(paneId);
       expect(loaded).not.toBeNull();
       expect(loaded!.cwd).toBe("/project/main/nested/dir");
+    });
+  });
+
+  describe("agent side effects (ADR-184)", () => {
+    const facts = (title: string | null): PaneFacts => ({
+      foreground: { name: "claude", kind: "claude" },
+      title,
+      outputHint: null,
+    });
+
+    it("feeds paneFacts to the reconciler once and does not forward them", () => {
+      const paneId = `pane-${crypto.randomUUID()}`;
+      const event: StreamEvent = { type: "paneFacts", sessionId: paneId, facts: facts(null) };
+
+      runEvent(event);
+
+      expect(agentStatus.signal).toHaveBeenCalledTimes(1);
+      expect(agentStatus.signal).toHaveBeenCalledWith(paneId, {
+        type: "paneFacts",
+        facts: event.facts,
+      });
+      expect(mockWindow.webContents.send).not.toHaveBeenCalled();
+    });
+
+    it("renames the pane's agent from the facts' title", () => {
+      const agent = createAgent({ name: null });
+      runEvent({ type: "paneFacts", sessionId: agent.paneId!, facts: facts("⠋ Fix the bug") });
+
+      expect(agentManager.getAgentByPaneId(agent.paneId!)!.name).toBe("Fix the bug");
+      expect(broadcastAgent).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not rename an agent whose name the user pinned", () => {
+      const agent = createAgent({ name: "Mine", namePinned: true });
+      runEvent({ type: "paneFacts", sessionId: agent.paneId!, facts: facts("Other title") });
+
+      expect(agentManager.getAgentByPaneId(agent.paneId!)!.name).toBe("Mine");
+      expect(broadcastAgent).not.toHaveBeenCalled();
+    });
+
+    it("drops the pane's reconciler state when its pty exits", () => {
+      const paneId = `pane-${crypto.randomUUID()}`;
+      runEvent({ type: "exit", sessionId: paneId, exitCode: 0 });
+      expect(agentStatus.forgetPane).toHaveBeenCalledWith(paneId);
+    });
+  });
+
+  describe("dispatchStreamEvent with two windows (ADR-184)", () => {
+    it("applies one signal's effects once, however many windows are open", () => {
+      const agent = createAgent({ status: "active", lastAgentStatus: "working" });
+      const paneId = agent.paneId!;
+      const published: PaneStatusUpdate[] = [];
+      const notify = vi.fn();
+      const driver = createAgentStatusDriver({
+        agentManager,
+        getPaneContext: () => undefined,
+        unseenRespondedAgents: new Set(),
+        unseenInputAgents: new Set(),
+        broadcastAgent,
+        maybeSendNotification: notify,
+        publishPaneStatus: (update) => published.push(update),
+        log: () => {},
+      });
+      // The pane's root is mid-turn (a hook claimed it).
+      driver.hook({
+        type: "PreToolUse",
+        status: "working",
+        paneId,
+        sessionId: agent.agentSessionId,
+        agentKind: "claude",
+      });
+      published.length = 0;
+      broadcastAgent.mockClear();
+      notify.mockClear();
+
+      const windows = [createMockBrowserWindow(), createMockBrowserWindow()];
+      const deps = { agentManager, agentStatus: driver, broadcastAgent };
+      // The agent process exits: facts say so.
+      dispatchStreamEvent(
+        {
+          type: "paneFacts",
+          sessionId: paneId,
+          facts: { foreground: null, title: null, outputHint: null },
+        },
+        windows,
+        deps,
+      );
+
+      expect(published).toEqual([
+        { paneId, status: "idle", reason: "agent process exited", kind: null },
+      ]);
+      expect(notify).toHaveBeenCalledTimes(1);
+      expect(broadcastAgent).toHaveBeenCalledTimes(1);
+      expect(agentManager.getAgentByPaneId(paneId)!.lastAgentStatus).toBe("responded");
+      for (const win of windows) expect(win.webContents.send).not.toHaveBeenCalled();
+
+      // Pane channels still go to every window.
+      dispatchStreamEvent({ type: "cwd", sessionId: paneId, cwd: "/elsewhere" }, windows, deps);
+      for (const win of windows) {
+        expect(win.webContents.send).toHaveBeenCalledWith(`pty-cwd-${paneId}`, "/elsewhere");
+      }
+      expect(broadcastAgent).toHaveBeenCalledTimes(2); // the cwd update, once
     });
   });
 });

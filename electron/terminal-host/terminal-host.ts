@@ -8,12 +8,7 @@
 import type net from "node:net";
 import { Session } from "./session";
 import { SESSIONS_DIR } from "./scrollback";
-import type {
-  SessionInfo,
-  TerminalSnapshot,
-  AgentStatus,
-  AgentKind,
-} from "./types";
+import type { SessionInfo, TerminalSnapshot, PaneFacts } from "./types";
 
 export class TerminalHost {
   private sessions = new Map<string, Session>();
@@ -111,6 +106,11 @@ export class TerminalHost {
     return this.sessions.get(sessionId)?.getSnapshot() ?? null;
   }
 
+  /** A session's current Pane facts (ADR-184 §3); null when there is no such session. */
+  getPaneFacts(sessionId: string): PaneFacts | null {
+    return this.sessions.get(sessionId)?.getPaneFacts() ?? null;
+  }
+
   /** List all sessions (excludes prewarmed sessions) */
   listSessions(): SessionInfo[] {
     return Array.from(this.sessions.values())
@@ -149,15 +149,6 @@ export class TerminalHost {
       session.dispose();
     }
     this.sessions.clear();
-  }
-
-  /** Relay a hook-driven agent status to a session's detector */
-  setAgentHookStatus(
-    sessionId: string,
-    status: AgentStatus,
-    kind: AgentKind,
-  ): void {
-    this.sessions.get(sessionId)?.setAgentHookStatus(status, kind);
   }
 
   /** Detach all clients from a specific socket (when a client disconnects) */

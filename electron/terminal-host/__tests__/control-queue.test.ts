@@ -107,6 +107,13 @@ describe("createSerializedHandler", () => {
     const onInvalidJson = vi.fn();
     const handle = createSerializedHandler(vi.fn(), vi.fn(), onInvalidJson);
     handle("{not json");
-    expect(onInvalidJson).toHaveBeenCalledOnce();
+    expect(onInvalidJson).toHaveBeenCalledExactlyOnceWith(undefined);
+  });
+
+  it("recovers the requestId of an unparseable line when it can", () => {
+    const onInvalidJson = vi.fn();
+    const handle = createSerializedHandler(vi.fn(), vi.fn(), onInvalidJson);
+    handle('{"type":"ping","requestId":"42",');
+    expect(onInvalidJson).toHaveBeenCalledExactlyOnceWith("42");
   });
 });

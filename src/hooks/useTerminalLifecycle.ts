@@ -15,20 +15,15 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { terminalOptions } from "../terminal/config";
 import { createFileLinkProvider } from "../terminal/file-link-provider";
-import { useAppStore } from "../store/app-store";
+import { useAppStore, type PendingPaneCommand } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { usePreferencesStore } from "../store/preferences-store";
 import { getAgentKindForCommand } from "../agent-defaults";
 import { isHomePath } from "../lib/home";
 import { isNavRegionFocused } from "../lib/focus-regions";
-import type { StreamPosition } from "../electron.d";
 import { resolveHomeAdapter } from "../lib/harness";
 import { useTerminalConnection } from "./useTerminalConnection";
-import { usePaneHostStore } from "../store/pane-host-store";
-import { consumeReattach } from "../store/pane-reattach-store";
-import { useHostStore } from "../store/host-store";
-import { isPaneInputBlocked } from "../lib/host-status";
-import { shouldRequeuePaneCommand, windowPaneIds } from "../lib/remote-recovery";
+import { useRemotePaneStore } from "../store/remote-pane-store";
 import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
 import { useTerminalResize } from "./useTerminalResize";
@@ -50,7 +45,7 @@ function schedulePtyKill(paneId: string) {
   const timer = setTimeout(() => {
     pendingKillTimers.delete(paneId);
     window.electronAPI.pty.close(paneId);
-    usePaneHostStore.getState().forgetPane(paneId);
+    useRemotePaneStore.getState().forgetPane(paneId);
   }, CLOSE_GRACE_MS);
   pendingKillTimers.set(paneId, timer);
 }
@@ -77,7 +72,7 @@ export function useTerminalLifecycle(
   const termRef = useRef<Terminal | null>(null);
   const resettingRef = useRef(false);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { write, resize, create, detach } =
+  const { write, requeueUndelivered, resize, create, detach } =
     useTerminalConnection(paneId);
   const { attachHandler } = useTerminalHotkeys(onOpenSearch);
 
@@ -160,7 +155,7 @@ export function useTerminalLifecycle(
 
     // Remounted because its remote host came back (ADR-178 §6), not opened
     // by the user: it must not take focus from wherever the user is now.
-    const reattached = consumeReattach(paneId);
+    const reattached = useRemotePaneStore.getState().consumeReattach(paneId);
 
     const t = new Terminal(
       terminalOptions({
@@ -259,57 +254,39 @@ export function useTerminalLifecycle(
       else cwdPending = fn;
     };
 
-    // A pane command this mount took from the queue and has not written
-    // yet. Should the mount go first — a remote pane remounted because its
-    // host dropped again mid-recovery — it goes back on the queue for the
-    // next mount rather than being lost (ADR-178 §6).
-    let unsentPaneCommand: string | null = null;
-    const hostAway = () =>
-      isPaneInputBlocked(
-        paneId,
-        usePaneHostStore.getState().remoteHostByPane,
-        useHostStore.getState().hosts,
-      );
+    // A pane command this mount took from the queue and `write` has not
+    // delivered yet. Should the mount go first — a remote pane remounted
+    // because its host dropped again mid-recovery — it goes back on the
+    // queue for the next mount rather than being lost (ADR-178 §6).
+    let unsentPaneCommand: PendingPaneCommand | null = null;
 
-    // Send `cmd` once: either when the shell prompt is ready (CWD event) or
-    // after a 3s fallback, whichever comes first. Not while the pane's
-    // remote host is away — the write would be dropped (see
-    // `useTerminalConnection`); the command stays unsent instead.
-    const sendOnShellReady = (cmd: string, onSent?: () => void) => {
+    // Submit with a carriage return (\r) — that's what an Enter keypress
+    // sends in xterm.js. Under zsh's raw-mode line editor, \n (Ctrl+J) is
+    // not reliably bound to accept-line, so the command would sit in the
+    // buffer un-submitted. Without `submit` the text is only typed, for the
+    // user to review (ADR-178 ticket 5's "fix in terminal").
+    const withEnter = (text: string, submit: boolean) =>
+      submit ? text + "\r" : text;
+
+    // Send `text` once: either when the shell prompt is ready (CWD event) or
+    // after a 3s fallback, whichever comes first. A write the pane's away
+    // remote host drops (see `useTerminalConnection`) does not count: the
+    // text stays unsent instead. One path for commands and typed text alike
+    // (ADR-183).
+    const sendOnShellReady = (
+      text: string,
+      { submit, onSent }: { submit: boolean; onSent?: () => void },
+    ) => {
       // Declared before `send` can run: onShellReady calls it synchronously
       // when the CWD event already arrived.
       let fallback: ReturnType<typeof setTimeout> | undefined;
       let sent = false;
       const send = () => {
         if (sent || disposed) return;
-        if (hostAway()) return;
-        sent = true;
+        sent = write(withEnter(text, submit));
+        if (!sent) return;
         clearTimeout(fallback);
-        // Submit with a carriage return (\r) — that's what an Enter keypress
-        // sends in xterm.js. Under zsh's raw-mode line editor, \n (Ctrl+J) is
-        // not reliably bound to accept-line, so the command would sit in the
-        // buffer un-submitted.
-        write(cmd + "\r");
         onSent?.();
-      };
-      onShellReady(send);
-      if (!sent) fallback = setTimeout(send, 3000);
-    };
-
-    // Same as `sendOnShellReady`, but types `text` into the shell without
-    // submitting it (ADR-178 ticket 5's "fix in terminal" — the user reviews
-    // a health-check fix-it command before running it, so it must sit in the
-    // buffer rather than execute).
-    const typeOnShellReady = (text: string) => {
-      // Declared before `send` can run: onShellReady calls it synchronously
-      // when the CWD event already arrived.
-      let fallback: ReturnType<typeof setTimeout> | undefined;
-      let sent = false;
-      const send = () => {
-        if (sent || disposed) return;
-        sent = true;
-        clearTimeout(fallback);
-        write(text);
       };
       onShellReady(send);
       if (!sent) fallback = setTimeout(send, 3000);
@@ -339,137 +316,119 @@ export function useTerminalLifecycle(
     const spawnCwd = cwd ?? null;
 
     create(spawnCwd, cols, rows, agentKindForCreate).then(
-      (result: {
-        ok: boolean;
-        snapshot?: string | null;
-        snapshotSeq?: StreamPosition;
-        error?: string;
-        prewarmed?: boolean;
-        hostUnavailable?: boolean;
-      }) => {
+      (result) => {
         if (disposed) return;
-        // The pane's remote host is away: its banner says so, and the pane
-        // is created once the host is back (useRemoteRecovery) — not the
-        // "terminal failed to start" dialog.
-        if (!result.ok && result.hostUnavailable) return;
         if (!result.ok) {
-          setPtyError(
-            result.error ?? "Failed to create terminal session",
-          );
+          // "host-unavailable" is not a failure: the pane's remote host is
+          // away, its banner says so, and the pane is created once the host
+          // is back (useRemoteRecovery) — not the "terminal failed to start"
+          // dialog.
+          if (result.reason === "error") {
+            setPtyError(result.error || "Failed to create terminal session");
+          }
           return;
         }
-        if (result.ok) {
-          // Sync the terminal with the daemon and let output flow. Writing the
-          // snapshot and releasing the queue is one operation — split apart,
-          // the snapshot repeats bytes already on screen.
-          openRestored(
-            t,
-            result.snapshot
-              ? { ansi: result.snapshot, seq: result.snapshotSeq }
-              : null,
-          );
+        // Sync the terminal with the daemon and let output flow. Writing the
+        // snapshot and releasing the queue is one operation — split apart,
+        // the snapshot repeats bytes already on screen.
+        openRestored(
+          t,
+          result.snapshot
+            ? { ansi: result.snapshot, seq: result.snapshotSeq }
+            : null,
+        );
 
-          // Set pane context for agent association
-          if (cwd) {
-            if (isHomePath(cwd)) {
-              // The home has no owning project — associate the pane with
-              // the sentinel workspace and the resolved harness command.
-              const prefs = usePreferencesStore.getState().preferences;
-              window.electronAPI.agents.setPaneContext(paneId, {
-                projectId: "",
-                projectName: "Home",
-                workspacePath: cwd,
-                agentCommand: resolveHomeAdapter(prefs).launchCommand(),
-              });
-            } else {
-              const projects = useProjectStore.getState().projects;
-              const project = projects.find((p) =>
-                p.workspaces.some((ws) => ws.path === cwd),
-              );
+        // Set pane context for agent association
+        if (cwd) {
+          if (isHomePath(cwd)) {
+            // The home has no owning project — associate the pane with
+            // the sentinel workspace and the resolved harness command.
+            const prefs = usePreferencesStore.getState().preferences;
+            window.electronAPI.agents.setPaneContext(paneId, {
+              projectId: "",
+              projectName: "Home",
+              workspacePath: cwd,
+              agentCommand: resolveHomeAdapter(prefs).launchCommand(),
+            });
+          } else {
+            const projects = useProjectStore.getState().projects;
+            const project = projects.find((p) =>
+              p.workspaces.some((ws) => ws.path === cwd),
+            );
 
-              // Fire-and-forget call to set pane context
-              window.electronAPI.agents.setPaneContext(paneId, {
-                projectId: project?.id ?? "",
-                projectName: project?.name ?? "",
-                workspacePath: cwd,
-                agentCommand: project?.agentCommand ?? null,
-              });
-            }
+            // Fire-and-forget call to set pane context
+            window.electronAPI.agents.setPaneContext(paneId, {
+              projectId: project?.id ?? "",
+              projectName: project?.name ?? "",
+              workspacePath: cwd,
+              agentCommand: project?.agentCommand ?? null,
+            });
           }
+        }
 
-          // Check for pending startup command (e.g. worktree start script)
-          const store = useAppStore.getState();
-          const wsPath = store.activeWorkspacePath;
+        // Check for pending startup command (e.g. worktree start script)
+        const store = useAppStore.getState();
+        const wsPath = store.activeWorkspacePath;
 
-          // Pane-specific command (e.g. split-with-agent) takes priority
-          const paneCmd = store.consumePendingPaneCommand(paneId);
-          const startupCmd =
-            !paneCmd && wsPath && cwd === wsPath
-              ? store.consumePendingStartupCommand(wsPath)
-              : null;
-          const pendingCmd = paneCmd || startupCmd;
-          // Text to type but not submit (ADR-178 ticket 5's "fix in
-          // terminal") only applies when there is no command to run.
-          const pendingTypedText = !pendingCmd
-            ? store.consumePendingTypedText(paneId)
+        // Pane-specific command (e.g. split-with-agent) takes priority
+        const paneCmd = store.consumePendingPaneCommand(paneId);
+        const startupCmd =
+          !paneCmd && wsPath && cwd === wsPath
+            ? store.consumePendingStartupCommand(wsPath)
             : null;
-          if (pendingCmd) {
-            // `prewarmed` only means the daemon session already existed — NOT
-            // that its shell has reached a prompt. React StrictMode (dev)
-            // double-mounts the pane: the first mount spawns the shell, then
-            // the second mount's create() sees the session already exists and
-            // reports prewarmed=true even though the shell is still sourcing
-            // rc files (~30ms old). Writing then lands the command in a
-            // not-yet-initialized ZLE, so the trailing \r is swallowed and the
-            // command sits in the buffer unsubmitted. Only take the
-            // immediate-write shortcut once we've actually observed the shell
-            // reach a prompt — paneCwd is populated from its OSC 7 event and
-            // persists across the remount. Otherwise wait like a cold start.
-            const shellReady = !!useAppStore.getState().paneCwd[paneId];
-            if (result.prewarmed && shellReady) {
-              // Shell is already at a prompt — write immediately.
-              // Submit with \r (Enter); \n is not reliably accept-line in zsh.
-              // Unless the pane's remote host is away, which would drop it.
-              if (paneCmd && hostAway()) unsentPaneCommand = paneCmd;
-              else write(pendingCmd + "\r");
-            } else {
-              // Cold start (or a freshly-spawned session mislabelled as
-              // prewarmed) — wait for the shell prompt (CWD/OSC 7 event from
-              // the precmd hook) before sending the command. Sending on first
-              // output is too early: the shell may still be sourcing .zshrc,
-              // and ZLE discards buffered input when it initializes.
-              if (paneCmd) unsentPaneCommand = paneCmd;
-              sendOnShellReady(pendingCmd, () => {
+        const pendingCmd: PendingPaneCommand | null =
+          paneCmd ?? (startupCmd ? { text: startupCmd, submit: true } : null);
+        if (pendingCmd) {
+          // `prewarmed` only means the daemon session already existed — NOT
+          // that its shell has reached a prompt. React StrictMode (dev)
+          // double-mounts the pane: the first mount spawns the shell, then
+          // the second mount's create() sees the session already exists and
+          // reports prewarmed=true even though the shell is still sourcing
+          // rc files (~30ms old). Writing then lands the command in a
+          // not-yet-initialized ZLE, so the trailing \r is swallowed and the
+          // command sits in the buffer unsubmitted. Only take the
+          // immediate-write shortcut once we've actually observed the shell
+          // reach a prompt — paneCwd is populated from its OSC 7 event and
+          // persists across the remount. Otherwise wait like a cold start.
+          const shellReady = !!useAppStore.getState().paneCwd[paneId];
+          if (result.prewarmed && shellReady) {
+            // Shell is already at a prompt — write immediately. A pane
+            // command the away remote host dropped is kept for requeueing.
+            const delivered = write(withEnter(pendingCmd.text, pendingCmd.submit));
+            if (!delivered && paneCmd) unsentPaneCommand = paneCmd;
+          } else {
+            // Cold start (or a freshly-spawned session mislabelled as
+            // prewarmed) — wait for the shell prompt (CWD/OSC 7 event from
+            // the precmd hook) before sending the command. Sending on first
+            // output is too early: the shell may still be sourcing .zshrc,
+            // and ZLE discards buffered input when it initializes.
+            if (paneCmd) unsentPaneCommand = paneCmd;
+            sendOnShellReady(pendingCmd.text, {
+              submit: pendingCmd.submit,
+              onSent: () => {
                 unsentPaneCommand = null;
-              });
-            }
-          } else if (pendingTypedText) {
-            const shellReady = !!useAppStore.getState().paneCwd[paneId];
-            if (result.prewarmed && shellReady) {
-              write(pendingTypedText);
-            } else {
-              typeOnShellReady(pendingTypedText);
-            }
-          } else if (!result.snapshot) {
-            // No pending command and no warm-restore snapshot → cold or fresh session.
-            // Check for an active agent that was interrupted (e.g. version upgrade,
-            // app crash) and auto-relaunch its agent command.
-            void (async () => {
-              const activeAgents = await window.electronAPI.agents.getAll({ status: "active" });
-              const resumeAgent = activeAgents.find(
-                (t) => t.paneId === paneId && !t.resumedAt && t.agentCommand,
-              );
-              if (!resumeAgent || disposed) return;
-
-              // Mark resumed immediately to prevent double-launch on re-mount
-              void window.electronAPI.agents.markResumed(resumeAgent.id);
-
-              // Resume the prior agent session if we can; otherwise relaunch the bare command.
-              const resumeCmd = await window.electronAPI.agents.buildResumeCommand(resumeAgent.id);
-              if (disposed) return;
-              sendOnShellReady(resumeCmd ?? resumeAgent.agentCommand!);
-            })();
+              },
+            });
           }
+        } else if (!result.snapshot) {
+          // No pending command and no warm-restore snapshot → cold or fresh session.
+          // Check for an active agent that was interrupted (e.g. version upgrade,
+          // app crash) and auto-relaunch its agent command.
+          void (async () => {
+            const activeAgents = await window.electronAPI.agents.getAll({ status: "active" });
+            const resumeAgent = activeAgents.find(
+              (t) => t.paneId === paneId && !t.resumedAt && t.agentCommand,
+            );
+            if (!resumeAgent || disposed) return;
+
+            // Mark resumed immediately to prevent double-launch on re-mount
+            void window.electronAPI.agents.markResumed(resumeAgent.id);
+
+            // Resume the prior agent session if we can; otherwise relaunch the bare command.
+            const resumeCmd = await window.electronAPI.agents.buildResumeCommand(resumeAgent.id);
+            if (disposed) return;
+            sendOnShellReady(resumeCmd ?? resumeAgent.agentCommand!, { submit: true });
+          })();
         }
       },
       (err: unknown) => {
@@ -510,19 +469,8 @@ export function useTerminalLifecycle(
       // Always detach (keep the PTY alive in the daemon).
       // If the user explicitly closed the pane, schedule a delayed kill
       // so they can undo within the grace period.
-      const app = useAppStore.getState();
-      const { closedPaneIds } = app;
-      if (
-        unsentPaneCommand !== null &&
-        shouldRequeuePaneCommand(paneId, {
-          remoteHostByPane: usePaneHostStore.getState().remoteHostByPane,
-          windowPaneIds: windowPaneIds(app.workspaceLayouts),
-          closedPaneIds,
-          pendingPaneCommands: app.pendingPaneCommands,
-        })
-      ) {
-        app.setPendingPaneCommand(paneId, unsentPaneCommand);
-      }
+      if (unsentPaneCommand !== null) requeueUndelivered(unsentPaneCommand);
+      const { closedPaneIds } = useAppStore.getState();
       detach();
       if (closedPaneIds.has(paneId)) {
         closedPaneIds.delete(paneId);
@@ -550,7 +498,7 @@ export function useTerminalLifecycle(
         setPtyError(result.error ?? "Failed to create terminal session");
       } else {
         // A reset spawns on the project's current host, which may differ.
-        usePaneHostStore.getState().setPaneHost(paneId, result.hostId);
+        useRemotePaneStore.getState().setPaneHost(paneId, result.hostId);
       }
     } finally {
       // Keep suppressing exit events briefly — the old session's exit

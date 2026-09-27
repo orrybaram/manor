@@ -28,7 +28,12 @@ import {
   selectActiveWorkspace,
   getPersistedActiveWorkspacePath,
 } from "./store/app-store";
-import { useProjectStore, runWorkspaceSetupScript } from "./store/project-store";
+import {
+  useProjectStore,
+  runWorkspaceSetupScript,
+  type ProjectInfo,
+} from "./store/project-store";
+import { LOCAL_HOST_ID } from "./lib/hosts";
 import { appCommandHandlers } from "./lib/app-commands";
 import { handleRecordingCommand } from "./lib/webview-recorder";
 import {
@@ -118,10 +123,12 @@ function App() {
     null,
   );
   const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
+  const [settingsSection, setSettingsSection] = useState<string | null>(null);
   const closeSettings = useCallback(() => {
     setSettingsOpen(false);
     setSettingsProjectId(null);
     setSettingsPage(null);
+    setSettingsSection(null);
     // Revert to the active surface's theme in case settings was previewing a
     // different theme. Home has no project override — it inherits the global
     // theme (null).
@@ -209,17 +216,20 @@ function App() {
   const closeAddProjectDialog = useCallback(() => {
     setAddProjectDialogOpen(false);
   }, []);
-  const handleRemoteProjectAdded = useCallback(() => {
-    const newProjects = useProjectStore.getState().projects;
-    const newIndex = newProjects.length - 1;
-    const newProject = newProjects[newIndex];
-    if (newProject) {
-      selectProject(newIndex);
-      if (newProject.workspaces[0]) {
-        selectWorkspace(newProject.id, 0);
+  const handleRemoteProjectAdded = useCallback(
+    (project: ProjectInfo) => {
+      const newIndex = useProjectStore
+        .getState()
+        .projects.findIndex((p) => p.id === project.id);
+      if (newIndex >= 0) {
+        selectProject(newIndex);
+        if (project.workspaces[0]) {
+          selectWorkspace(project.id, 0);
+        }
       }
-    }
-  }, [selectProject, selectWorkspace]);
+    },
+    [selectProject, selectWorkspace],
+  );
 
   const handleDropFolder = useCallback(async (folderPath: string) => {
     const name = folderPath.split("/").pop() || "Untitled";
@@ -233,10 +243,14 @@ function App() {
   }, []);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const handleOpenFeedback = useCallback(() => setFeedbackOpen(true), []);
-  const handleOpenProjectSettings = useCallback((projectId: string) => {
-    setSettingsProjectId(projectId);
-    setSettingsOpen(true);
-  }, []);
+  const handleOpenProjectSettings = useCallback(
+    (projectId: string, section?: string) => {
+      setSettingsProjectId(projectId);
+      setSettingsSection(section ?? null);
+      setSettingsOpen(true);
+    },
+    [],
+  );
   const handleNewWorkspace = useCallback(
     (opts?: {
       projectId?: string;
@@ -285,8 +299,12 @@ function App() {
     () =>
       onUiRequest((request) => {
         if (request.type === "ghosts") triggerGhosts();
+        // Host indicators (sidebar cloud, status-bar chip) open the host section.
+        if (request.type === "open-project-settings") {
+          handleOpenProjectSettings(request.projectId, request.section);
+        }
       }),
-    [triggerGhosts],
+    [triggerGhosts, handleOpenProjectSettings],
   );
 
   const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
@@ -339,11 +357,18 @@ function App() {
   const activeWorkspaceCommand = isHomePath(activeWorkspacePath)
     ? homeLaunchCommand({ homeHarness, homeCustomCommand, homeCustomInterrupt })
     : activeProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
+  // The workspace's host travels with its path (ADR-183); Home is local.
+  const activeWorkspaceHostId = activeProject?.hostId ?? LOCAL_HOST_ID;
   useEffect(() => {
     if (!activeWorkspacePath) return;
     const prewarmKind = getAgentKindForCommand(activeWorkspaceCommand);
-    window.electronAPI.pty.updatePrewarmCwd(activeWorkspacePath, activeWorkspaceCommand, prewarmKind);
-  }, [activeWorkspacePath, activeWorkspaceCommand]);
+    window.electronAPI.pty.updatePrewarmCwd(
+      activeWorkspacePath,
+      activeWorkspaceHostId,
+      activeWorkspaceCommand,
+      prewarmKind,
+    );
+  }, [activeWorkspacePath, activeWorkspaceHostId, activeWorkspaceCommand]);
 
   // Projects mutated outside the renderer (MCP, CLI) — the store never saw the
   // result, so refetch it. Creating a workspace this way must show up in the
@@ -679,6 +704,7 @@ function App() {
           onClose={closeSettings}
           initialProjectId={settingsProjectId}
           initialPage={settingsPage}
+          initialSection={settingsSection}
         />
         <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
         <AgentsModal

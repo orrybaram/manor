@@ -48,10 +48,6 @@ describe("toWorkspaceIndicator", () => {
     expect(toWorkspaceIndicator("responded", false)).toBeNull();
   });
 
-  it("maps complete to null", () => {
-    expect(toWorkspaceIndicator("complete", true)).toBeNull();
-  });
-
   it("maps idle to null", () => {
     expect(toWorkspaceIndicator("idle", true)).toBeNull();
   });

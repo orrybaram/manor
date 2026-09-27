@@ -2,8 +2,7 @@ import { useMemo } from "react";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { useAgentStore } from "../store/agent-store";
 import { allPaneIds } from "../store/pane-tree";
-import { deriveStatus } from "./useAgentDisplay";
-import type { AgentInfo, AgentState, AgentStatus } from "../electron.d";
+import type { AgentInfo, AgentStatus, PaneAgentStatus } from "../electron.d";
 
 export const STATUS_PRIORITY: Record<AgentStatus, number> = {
   requires_input: 5,
@@ -11,12 +10,11 @@ export const STATUS_PRIORITY: Record<AgentStatus, number> = {
   thinking: 3,
   error: 2,
   responded: 1,
-  complete: 1,
   idle: 0,
 };
 
 export type PaneStatusDeps = {
-  paneAgentStatus: Record<string, AgentState | null | undefined>;
+  paneAgentStatus: Record<string, PaneAgentStatus | null | undefined>;
   agents: AgentInfo[];
   unseenRespondedAgentIds: Set<string>;
   unseenInputAgentIds: Set<string>;
@@ -48,17 +46,15 @@ export function pickBestPaneStatus(
 
   for (const id of paneIds) {
     const live = paneAgentStatus[id] ?? null;
-    const agent = agents.find((t) => t.paneId === id) ?? null;
 
-    const status: AgentStatus | null = agent
-      ? (deriveStatus(agent, live) ?? null)
-      : live && live.status !== "idle"
-        ? live.status
-        : null;
+    // The reconciler is the one decider of a pane's Agent status (ADR-184
+    // §4); no per-agent fallback synthesis here.
+    const status: AgentStatus | null =
+      live && live.status !== "idle" ? live.status : null;
 
     if (!status) continue;
     const p = STATUS_PRIORITY[status] ?? 0;
-    const agentId = agent?.id ?? null;
+    const agentId = agents.find((t) => t.paneId === id)?.id ?? null;
 
     if (
       p > bestPriority ||

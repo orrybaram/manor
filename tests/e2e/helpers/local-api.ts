@@ -55,6 +55,18 @@ function listAgents(
 }
 
 /**
+ * Every agent, whatever its lifecycle. A bare `GET /agents` lists only the
+ * *active* ones, so an agent that has `completed` drops out of it — any filter
+ * (here `offset=0`) switches the route to the full list.
+ */
+function listAllAgents(
+  request: APIRequestContext,
+  tempHome: string,
+): Promise<AgentSummary[]> {
+  return getJson<AgentSummary[]>(request, tempHome, "/agents?offset=0");
+}
+
+/**
  * Say something to a session through the app's own send path.
  *
  * Typing into the pane only works while the pane is on screen, and a test
@@ -83,7 +95,9 @@ export function waitForAgentStatus(
   return waitFor(
     `agent ${agentId} in ${status}`,
     async () => {
-      const agents = await listAgents(request, tempHome);
+      // All agents, not just active ones: an agent that ended reports `idle`
+      // with a `completed` lifecycle (ADR-184).
+      const agents = await listAllAgents(request, tempHome);
       return (
         agents.find((t) => t.id === agentId && t.lastAgentStatus === status) ??
         null

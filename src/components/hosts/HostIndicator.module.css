@@ -1,0 +1,123 @@
+/* One colour scale for every host indicator: dim while connected, yellow
+   while connecting or away, red when the host can't be reached. */
+.ok {
+  color: var(--text-dim);
+}
+
+.warn {
+  color: var(--yellow, #d29922);
+}
+
+.error {
+  color: var(--red, var(--danger));
+}
+
+.glyph {
+  flex-shrink: 0;
+}
+
+.busy .glyph {
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .busy .glyph {
+    animation: none;
+  }
+}
+
+/* ── icon ── */
+
+/* Doubled so a clickable icon (a `link` Button) stays a bare glyph. */
+.icon.icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: none;
+  background: none;
+  text-decoration: none;
+}
+
+.icon.clickable:hover,
+.chip.clickable:hover {
+  filter: brightness(1.35);
+}
+
+/* ── chip ── doubled selectors win over the Button `link` variant. */
+
+.chip.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 1px 6px;
+  border: none;
+  border-radius: 3px;
+  background: var(--surface-hover, #2a2a2a);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 16px;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.chip.warn {
+  background: color-mix(in srgb, var(--yellow, #d29922) 14%, transparent);
+}
+
+.chip.error {
+  background: color-mix(in srgb, var(--red, #c74e39) 16%, transparent);
+}
+
+.clickable.clickable {
+  cursor: pointer;
+}
+
+.target {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chip.ok .target {
+  color: var(--text-dim);
+}
+
+.state {
+  flex-shrink: 0;
+}
+
+/* ── banner ── */
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  background: color-mix(in srgb, var(--yellow, #d29922) 10%, var(--bg, #1e1e1e));
+  border-bottom: 1px solid var(--surface);
+  font-size: 11px;
+}
+
+.banner.error {
+  background: color-mix(in srgb, var(--red, #c74e39) 12%, var(--bg, #1e1e1e));
+}
+
+.bannerText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.retry {
+  flex-shrink: 0;
+  color: var(--text-primary);
+}

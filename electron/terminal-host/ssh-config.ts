@@ -189,8 +189,8 @@ export function assertValidTarget(target: string): void {
 }
 
 /** The remote command that starts a bridge connection. */
-export function remoteBridgeCommand(stream: boolean): string {
-  return `exec ${REMOTE_HOST_BIN} remote-bridge${stream ? " --stream" : ""}`;
+export function remoteBridgeCommand(): string {
+  return `exec ${REMOTE_HOST_BIN} remote-bridge`;
 }
 
 /**

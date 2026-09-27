@@ -32,6 +32,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+import { errorMessage } from "../lib/errors";
 import type { HookJournalEntry, HookPayload } from "./types";
 
 export const HOOK_JOURNAL_MAX_ENTRIES = 5_000;
@@ -80,10 +81,6 @@ function parseLine(line: string): HookJournalEntry | Watermark | null {
   }
   if (!record.payload || typeof record.payload !== "object") return null;
   return { seq: record.seq, receivedAt, payload: record.payload };
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 function isEntry(record: HookJournalEntry | Watermark): record is HookJournalEntry {

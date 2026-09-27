@@ -17,11 +17,13 @@
  * - When the host is unregistered its forwards are forgotten.
  *
  * Forwards are created lazily, never for a port nobody opened.
+ *
+ * `RemoteUrlResolver`, below, decides which URLs need one (ADR-183).
  */
 
 import type { HostProvider, PortForward } from "./backend/providers/types";
 import type { HostStatus, HostStatusInfo } from "./backend/registry";
-import type { ActivePort } from "./backend/types";
+import { LOCAL_HOST_ID, type ActivePort } from "./backend/types";
 
 /** The slice of `BackendRegistry` forwards need. */
 export interface ForwardHosts {
@@ -420,4 +422,143 @@ export function remoteFormOfUrl(
   parsed.hostname = "localhost";
   parsed.port = String(remotePort);
   return parsed.toString();
+}
+
+// ── Resolving URLs opened in a remote host's context ──
+
+/** The slice of `PortScanner` the resolver needs. */
+export interface ResolverPorts {
+  hasScanned(hostId: string): boolean;
+  onHostScanned(listener: (hostId: string) => void): () => void;
+  /** Every host's latest (enriched) ports. */
+  latest(): ActivePort[];
+  /** Scan one host now; every host's latest ports, or null if it cannot. */
+  scanHost(hostId: string): Promise<ActivePort[] | null>;
+}
+
+/** The slice of `BackendRegistry` the resolver needs. */
+export interface ResolverHosts {
+  status(hostId: string): HostStatus | undefined;
+  onStatusChange(handler: (hosts: HostStatusInfo[]) => void): () => void;
+}
+
+type Readiness = "ready" | "gone" | "waiting";
+
+/**
+ * Turns a URL opened in a host's context into the one to load (ADR-178 §5),
+ * built from the port scanner, the registry and the forwards (ADR-183). It
+ * reads ports straight from the scanner's latest result — there is no
+ * second cache of them.
+ */
+export class RemoteUrlResolver {
+  private readonly waiters = new Set<() => void>();
+  private readonly unsubscribes: Array<() => void>;
+
+  constructor(
+    private readonly ports: ResolverPorts,
+    private readonly hosts: ResolverHosts,
+    private readonly forwards: Pick<RemoteForwards, "ensure" | "remotePortFor">,
+  ) {
+    const poke = () => {
+      for (const waiter of Array.from(this.waiters)) waiter();
+    };
+    this.unsubscribes = [ports.onHostScanned(poke), hosts.onStatusChange(poke)];
+  }
+
+  /**
+   * The URL to actually load for `url`, opened in the context of `hostId` —
+   * a port's host (the port list) or the host of the workspace the opening
+   * browser pane belongs to. For a remote host, a `localhost:<port>` URL
+   * whose port that host's latest scan reports goes through a port forward,
+   * as does one still holding an old forward's local port; every other URL
+   * — including a loopback port the scan did not report, which may well be
+   * a server on this machine — and every URL on this machine is returned as
+   * is. So is a URL whose forward cannot be made while the host is
+   * connected.
+   *
+   * A loopback URL waits for the host to be connected and scanned (a pane
+   * restored at startup, or during a reconnect); with `timeoutMs` it
+   * rejects if that takes longer. A host that is unregistered meanwhile
+   * gets the URL back as is.
+   */
+  async resolve(url: string, hostId: string, timeoutMs?: number): Promise<string> {
+    if (hostId === LOCAL_HOST_ID || !isRemoteCandidateUrl(url)) return url;
+    const remotePortFor = (localPort: number) => this.forwards.remotePortFor(hostId, localPort);
+    const portsOf = (ports: readonly ActivePort[]) => ports.filter((p) => p.hostId === hostId);
+    let rescanned = false;
+    for (;;) {
+      const state = await this.whenHostReady(hostId, timeoutMs);
+      if (state === "gone") return url;
+      if (state === "timeout") {
+        throw new Error(`Remote host "${hostId}" is not connected`);
+      }
+      let remotePorts = portsOf(this.ports.latest());
+      // A port the last poll did not see may be a dev server that started
+      // since (an agent navigating right after launching it). Scan the host
+      // once, now, before deciding the URL means this machine.
+      if (!rescanned && remotePortUnknown(url, remotePorts, remotePortFor)) {
+        rescanned = true;
+        const fresh = await this.ports.scanHost(hostId);
+        if (fresh) remotePorts = portsOf(fresh);
+      }
+      try {
+        return await resolveRemotePortUrl(
+          url,
+          remotePorts,
+          (port, scanned) =>
+            this.forwards.ensure(
+              hostId,
+              port,
+              scanned ? { remoteHost: scanned.loopbackHost } : undefined,
+            ),
+          remotePortFor,
+        );
+      } catch (err) {
+        // The host dropped between becoming ready and the forward: wait for
+        // it to come back rather than load the URL on this machine.
+        if (this.hosts.status(hostId) !== "connected") continue;
+        console.warn(
+          `[remote-forwards] forwarding ${url} from ${hostId} failed:`,
+          err instanceof Error ? err.message : err,
+        );
+        return url;
+      }
+    }
+  }
+
+  /** Resolves once `hostId` is ready, is unregistered, or `timeoutMs` passes. */
+  whenHostReady(hostId: string, timeoutMs?: number): Promise<"ready" | "gone" | "timeout"> {
+    const now = this.readiness(hostId);
+    if (now !== "waiting") return Promise.resolve(now);
+    return new Promise((resolve) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const settle = (result: "ready" | "gone" | "timeout") => {
+        if (timer) clearTimeout(timer);
+        this.waiters.delete(waiter);
+        resolve(result);
+      };
+      const waiter = () => {
+        const state = this.readiness(hostId);
+        if (state !== "waiting") settle(state);
+      };
+      this.waiters.add(waiter);
+      if (timeoutMs !== undefined) timer = setTimeout(() => settle("timeout"), timeoutMs);
+    });
+  }
+
+  /** Stop following the scanner and the registry. */
+  dispose(): void {
+    for (const off of this.unsubscribes.splice(0)) off();
+  }
+
+  /**
+   * A remote host is ready to resolve URLs against once it is connected and
+   * has been scanned — before that its ports are unknown, and a
+   * `localhost:<port>` URL cannot be told apart from one on this machine.
+   */
+  private readiness(hostId: string): Readiness {
+    const status = this.hosts.status(hostId);
+    if (status === undefined) return "gone";
+    return status === "connected" && this.ports.hasScanned(hostId) ? "ready" : "waiting";
+  }
 }

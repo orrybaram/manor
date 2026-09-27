@@ -111,6 +111,8 @@ describe("RemoteControlServer", () => {
       remoteControl: null,
       agentHookServer: null,
       webviewServer: null,
+      webviewPanes: null,
+      resolvePaneUrl: null,
       getRendererWindows: null,
     };
     server = new RemoteControlServer(() => deps, devices, {

@@ -37,8 +37,7 @@ function assertRendererAgentUpdate(updates: unknown): asserts updates is Record<
 
 /** Whether the host an agent's project lives on is connected (local always is). */
 function isAgentHostConnected(deps: IpcDeps, projectId: string | null): boolean {
-  // Absent in tests that build a partial deps bag; local-only then.
-  if (!deps.backendRegistry || !projectId) return true;
+  if (!projectId) return true;
   const hostId = deps.projectManager.getProjectHostId(projectId);
   return hostId === LOCAL_HOST_ID || deps.backendRegistry.status(hostId) === "connected";
 }
@@ -52,6 +51,7 @@ export function register(deps: IpcDeps): void {
     preferencesManager,
     backend,
     statsStore,
+    agentStatus,
   } = deps;
 
   ipcMain.handle(
@@ -186,15 +186,30 @@ export function register(deps: IpcDeps): void {
     const agent = agentManager.getAgentByPaneId(paneId);
     if (!agent || agent.status !== "active") return;
     for (const counter of killCounters(agent)) statsStore.record(counter);
+    // The name is not status: it stays here. It is written before the signal
+    // so the reconciler's broadcast carries it.
     const nameUpdate = !agent.name && title ? cleanAgentTitle(title) : null;
-    const updated = agentManager.updateAgent(agent.id, {
-      status: "abandoned",
-      completedAt: new Date().toISOString(),
-      ...(nameUpdate ? { name: nameUpdate } : {}),
-    });
-    if (updated) {
-      sendAgentUpdate(deps.mainWindow, updated, preferencesManager);
+    const named = nameUpdate ? agentManager.updateAgent(agent.id, { name: nameUpdate }) : null;
+    // The lifecycle is the Status reconciler's to write (ADR-184): it moves
+    // the Agent to 'abandoned', broadcasts it, and resets the pane's status.
+    const result = agentStatus.signal(paneId, { type: "user", action: "abandon" });
+    const persisted = result.effects.some(
+      (e) => e.kind === "PersistAgentStatus" && e.sessionId === agent.agentSessionId,
+    );
+    // If the reconciler abandoned some other Agent, the rename still has to
+    // reach the renderer.
+    if (named && !persisted) {
+      sendAgentUpdate(deps.mainWindow, named, preferencesManager);
     }
+  });
+
+  /**
+   * Every pane's currently published Agent status (ADR-184 ticket 5). Called
+   * once on renderer startup — including a detached/popout window, or a
+   * reload — so it paints current dots instead of waiting on the next signal.
+   */
+  ipcMain.handle("agents:getPaneStatuses", () => {
+    return agentStatus.getAllPaneStatuses();
   });
 
   ipcMain.handle("agents:reconcileStale", async () => {
@@ -218,13 +233,8 @@ export function register(deps: IpcDeps): void {
       if (!isAgentHostConnected(deps, agent.projectId)) continue;
       if (agent.lastAgentStatus === "responded") continue;
 
-      const updated = agentManager.updateAgent(agent.id, {
-        status: "abandoned",
-        completedAt: new Date().toISOString(),
-      });
-      if (updated) {
-        sendAgentUpdate(deps.mainWindow, updated, preferencesManager);
-      }
+      // Its pane is gone: the same `user` signal as closing it (ADR-184).
+      agentStatus.signal(agent.paneId, { type: "user", action: "abandon" });
     }
   });
 }

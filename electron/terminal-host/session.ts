@@ -10,6 +10,7 @@
  */
 
 import { fork, type ChildProcess } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import type net from "node:net";
 import "./xterm-env-polyfill";
@@ -24,19 +25,34 @@ import {
 import { ShellManager } from "../shell";
 import { manorBinDir } from "../paths";
 import { ScrollbackWriter } from "./scrollback";
-import { AgentDetector } from "./agent-detector";
-import { OutputPatternMatcher } from "./output-pattern-matcher";
-import { TitleDetector, OscTitleParser } from "./title-detector";
+import { PaneFactsExtractor } from "./pane-facts";
 import type {
   TerminalSnapshot,
   TerminalModes,
   SessionInfo,
   StreamEvent,
   PtySpawnPayload,
-  AgentStatus,
-  AgentKind,
+  PaneFacts,
 } from "./types";
 import { DEFAULT_TERMINAL_MODES } from "./types";
+
+/**
+ * The argv for a pane's shell. A plain bash pane starts with Manor's rcfile
+ * (which sources ~/.bashrc and adds OSC 7 prompt reporting), the way zsh
+ * gets it through ZDOTDIR; explicit args and other shells pass through.
+ */
+export function spawnArgsFor(
+  shell: string,
+  args: string[],
+  bashrcPath: () => string = () => ShellManager.bashrcPath(),
+): string[] {
+  if (args.length > 0 || path.basename(shell) !== "bash") return args;
+  const bashrc = bashrcPath();
+  // `--rcfile` replaces ~/.bashrc, so a missing file would drop the user's rc
+  // too — fall back to plain bash until the daemon's bootstrap writes it.
+  if (!fs.existsSync(bashrc)) return args;
+  return ["--rcfile", bashrc];
+}
 
 /**
  * Build the environment for a user-facing PTY shell.
@@ -129,14 +145,8 @@ export class Session {
   // Scrollback persistence
   private scrollbackWriter: ScrollbackWriter | null = null;
 
-  // Agent detection
-  private agentDetector: AgentDetector;
-
-  // Fallback detection
-  private outputMatcher: OutputPatternMatcher;
-  private titleDetector: TitleDetector;
-  private oscTitleParser: OscTitleParser;
-  private pidSweepTimer: ReturnType<typeof setInterval> | null = null;
+  // Pane facts (ADR-184 §3): the daemon's only source of Status signals.
+  private paneFacts: PaneFactsExtractor;
 
   // Pending writes queued before first output (for prewarmed command injection)
   private pendingWrites: string[] = [];
@@ -204,29 +214,20 @@ export class Session {
       this.scrollbackWriter.init({ sessionId, cols, rows, cwd });
     }
 
-    // Agent detection
-    this.agentDetector = new AgentDetector(sessionId);
-    this.agentDetector.onStatusChange = (state) => {
-      this.broadcastEvent({
-        type: "agentStatus",
-        sessionId: this.sessionId,
-        agent: state,
-      });
-    };
-
-    // Fallback detection
-    this.outputMatcher = new OutputPatternMatcher();
-    this.titleDetector = new TitleDetector();
-    this.oscTitleParser = new OscTitleParser();
-
-    // Stale PID sweep every 30 seconds
-    this.pidSweepTimer = setInterval(() => {
-      this.agentDetector.sweepStalePids();
-    }, 30_000);
+    this.paneFacts = new PaneFactsExtractor({
+      onChange: (facts) => {
+        this.broadcastEvent({ type: "paneFacts", sessionId: this.sessionId, facts });
+      },
+    });
   }
 
   get alive(): boolean {
     return this._alive;
+  }
+
+  /** The session's current Pane facts (ADR-184 §3). */
+  getPaneFacts(): PaneFacts {
+    return this.paneFacts.facts;
   }
 
   get info(): SessionInfo {
@@ -283,7 +284,7 @@ export class Session {
         // stale when this daemon outlives a code change.
         const spawnPayload: PtySpawnPayload = {
           shell,
-          args: this.pendingSpawnArgs,
+          args: spawnArgsFor(shell, this.pendingSpawnArgs),
           cwd: this.cwd || process.env.HOME || "/",
           cols: this.cols,
           rows: this.rows,
@@ -343,24 +344,8 @@ export class Session {
         // Parse OSC 7 for CWD tracking
         this.parseOsc7(data);
 
-        // Parse OSC 0/2 for title-based fallback detection
-        const titles = this.oscTitleParser.parse(data);
-        if (titles.length > 0) {
-          const latestTitle = titles[titles.length - 1];
-          this.titleDetector.setTitle(latestTitle);
-          this.agentDetector.setTitle(latestTitle);
-          const titleStatus = this.titleDetector.detect();
-          if (titleStatus !== "unknown") {
-            this.agentDetector.setFallbackStatus(titleStatus);
-          }
-        }
-
-        // Output pattern fallback detection
-        this.outputMatcher.addData(data);
-        const patternStatus = this.outputMatcher.detect();
-        if (patternStatus !== null) {
-          this.agentDetector.setFallbackStatus(patternStatus);
-        }
+        // Pane facts: titles, output hints (ADR-184 §3)
+        this.paneFacts.feedData(data);
 
         // Track terminal modes from escape sequences
         this.trackModes(data);
@@ -409,16 +394,11 @@ export class Session {
       }
 
       case MSG.FGPROC: {
-        const { name } = JSON.parse(payload.toString("utf-8"));
-        this.agentDetector.updateForegroundProcess(name);
+        const { name } = JSON.parse(payload.toString("utf-8")) as { name: string | null };
+        this.paneFacts.setForeground(name);
         break;
       }
     }
-  }
-
-  /** Called when a hook event arrives for this session */
-  setAgentHookStatus(status: AgentStatus, kind: AgentKind): void {
-    this.agentDetector.setStatus(status, kind);
   }
 
   /** Write terminal input to the subprocess */
@@ -550,11 +530,6 @@ export class Session {
     for (const pending of this.pendingResizes.splice(0)) {
       clearTimeout(pending.timer);
       pending.resolve();
-    }
-    this.agentDetector.dispose();
-    if (this.pidSweepTimer) {
-      clearInterval(this.pidSweepTimer);
-      this.pidSweepTimer = null;
     }
     this.scrollbackWriter?.end();
     this.scrollbackWriter?.dispose();
@@ -693,14 +668,8 @@ export class Session {
     if (data.includes("\x1b[?1l")) this.modes.applicationCursor = false;
 
     // Alt screen: CSI ?1049h (enable) / CSI ?1049l (disable)
-    if (data.includes("\x1b[?1049h")) {
-      this.modes.altScreen = true;
-      this.agentDetector.setAltScreen(true);
-    }
-    if (data.includes("\x1b[?1049l")) {
-      this.modes.altScreen = false;
-      this.agentDetector.setAltScreen(false);
-    }
+    if (data.includes("\x1b[?1049h")) this.modes.altScreen = true;
+    if (data.includes("\x1b[?1049l")) this.modes.altScreen = false;
 
     // Mouse tracking: CSI ?1000h (enable) / CSI ?1000l (disable)
     if (data.includes("\x1b[?1000h")) this.modes.mouseTracking = true;

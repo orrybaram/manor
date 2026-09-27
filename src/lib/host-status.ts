@@ -1,115 +1,113 @@
 /**
- * Turns a `HostStatusInfo` into what the UI shows — the project settings host
- * field and the status-bar indicator both call this rather than each
- * inventing their own copy, so the four failure modes (ADR-160 ticket 11 §3)
- * stay distinguishable instead of collapsing into a generic "connection
- * failed".
+ * Turns a `HostStatusInfo` into what every host indicator shows — the
+ * sidebar icon, the status-bar chip, the pane banner and the project
+ * settings field all render through `HostIndicator`, which reads this, so
+ * the host has one icon, one colour scale and one vocabulary everywhere.
  *
  * Every actionable detail (the `ssh-add` hint, which tool is missing, the
  * `node scripts/build-host-tarball.mjs` hint, …) already lives in
  * `host.error` — it is the message `classifyHostFailure` produced server
- * side. This only picks the short label and the tone the detail is shown in.
+ * side. This only picks the short label and the tone the detail is shown in,
+ * keeping the failure modes (ADR-160 ticket 11 §3) distinguishable.
+ *
+ * Being away is a normal state, not an error (ADR-178 §6): a routine drop
+ * reads "reconnecting", in the warning tone, never "failed".
  */
 
 import type { HostStatusInfo } from "../store/host-store";
 
-export type HostStatusTone = "ok" | "pending" | "warn" | "error";
+export type HostTone = "ok" | "warn" | "error";
 
-export interface HostStatusDisplay {
-  label: string;
+export interface HostDisplay {
+  /** The ssh target, e.g. `wsl-box` — how the user named the host. */
+  target: string;
+  /** Anything but connected: the host's panes are read-only. */
+  offline: boolean;
+  /** Connecting for the first time or after a retry — shown pulsing. */
+  busy: boolean;
+  tone: HostTone;
+  /** Sentence-case state on its own: "Connected", "Reconnecting in 4s". */
+  status: string;
+  /** One line naming the host, for the pane banner. */
+  banner: string;
+  /** Longer explanation (the failure's actionable message), for a tooltip. */
   detail?: string;
-  tone: HostStatusTone;
+  /** Whether "Retry" means anything (not while a connect is running). */
+  canRetry: boolean;
 }
 
-function failureLabel(host: HostStatusInfo): string {
+function failureLabel(host: HostStatusInfo): string | null {
   switch (host.failure?.reason) {
     case "auth":
       return "Authentication failed";
     case "host-key":
       return "Host key not trusted";
     case "bootstrap":
-      return "Could not set up the remote host";
+      return "Couldn't set up the remote host";
     default:
-      // A dropped connection while auto-reconnecting settled into "error"
-      // (e.g. the daemon reported an unrecognized failure), rather than one
-      // of the three failure modes above.
-      return "Connection failed";
-  }
-}
-
-export function describeHostStatus(host: HostStatusInfo): HostStatusDisplay {
-  switch (host.status) {
-    case "connected":
-      return host.warnings && host.warnings.length > 0
-        ? { label: "Connected", detail: host.warnings.join(" "), tone: "warn" }
-        : { label: "Connected", tone: "ok" };
-    case "connecting":
-      return {
-        label: "Connecting…",
-        detail: host.progress,
-        tone: "pending",
-      };
-    case "reconnecting":
-      return {
-        label: "Reconnecting…",
-        detail:
-          host.retryInMs != null
-            ? `Retrying in ${Math.round(host.retryInMs / 1000)}s`
-            : "The connection dropped; retrying.",
-        tone: "pending",
-      };
-    case "error":
-      return { label: failureLabel(host), detail: host.error, tone: "error" };
-    case "disconnected":
-    default:
-      return { label: "Disconnected", tone: "pending" };
+      return null;
   }
 }
 
 /**
- * What a remote host that is not connected looks like on the things that
- * live on it (ADR-178 §6): the sidebar badge on its projects and the banner
- * over its panes. Null while connected — or unknown, e.g. before main has
- * reported hosts — when there is nothing to show.
- *
- * Being away is a normal state, not an error: nothing here is a toast, and
- * a routine drop reads "reconnecting", not "failed".
+ * The display for `host`; `now` drives the reconnect countdown. Undefined
+ * for a host main hasn't reported yet.
  */
-export interface HostOfflineDisplay {
-  /** Short, for the sidebar badge. */
-  badge: string;
-  /** One line for the pane banner. */
-  banner: string;
-  /** Longer explanation (the failure's actionable message), for a tooltip. */
-  detail?: string;
-  /** Whether "Retry now" means anything (not while a connect is running). */
-  canRetry: boolean;
-}
-
-export function describeHostOffline(
+export function describeHost(
   host: HostStatusInfo | undefined,
-): HostOfflineDisplay | null {
-  if (!host || host.status === "connected") return null;
+  now: number,
+): HostDisplay | undefined {
+  if (!host) return undefined;
   const target = host.spec?.target ?? host.hostId;
   switch (host.status) {
-    case "reconnecting":
+    case "connected": {
+      const warnings = host.warnings?.length ? host.warnings.join(" ") : undefined;
       return {
-        badge: "Disconnected — reconnecting",
-        banner: `Disconnected from ${target} — reconnecting`,
-        canRetry: true,
+        target,
+        offline: false,
+        busy: false,
+        tone: warnings ? "warn" : "ok",
+        status: warnings ? "Connected with warnings" : "Connected",
+        banner: `Connected to ${target}`,
+        ...(warnings ? { detail: warnings } : {}),
+        canRetry: false,
       };
+    }
     case "connecting":
       return {
-        badge: "Connecting…",
+        target,
+        offline: true,
+        busy: true,
+        tone: "warn",
+        status: "Connecting…",
         banner: `Connecting to ${target}…`,
         ...(host.progress ? { detail: host.progress } : {}),
         canRetry: false,
       };
-    case "error": {
-      const label = describeHostStatus(host).label;
+    case "reconnecting": {
+      const seconds = secondsUntilRetry(host, now);
+      const when = seconds !== null && seconds > 0 ? ` in ${seconds}s` : "…";
       return {
-        badge: "Disconnected",
-        banner: `${label} — ${target}`,
+        target,
+        offline: true,
+        busy: false,
+        tone: "warn",
+        status: `Reconnecting${when}`,
+        banner: `Reconnecting to ${target}${when}`,
+        canRetry: true,
+      };
+    }
+    case "error": {
+      const label = failureLabel(host);
+      return {
+        target,
+        offline: true,
+        busy: false,
+        tone: "error",
+        status: label ?? "Can't connect",
+        banner: label
+          ? `Can't connect to ${target}: ${label.charAt(0).toLowerCase()}${label.slice(1)}`
+          : `Can't connect to ${target}`,
         ...(host.error ? { detail: host.error } : {}),
         canRetry: true,
       };
@@ -117,7 +115,11 @@ export function describeHostOffline(
     case "disconnected":
     default:
       return {
-        badge: "Disconnected",
+        target,
+        offline: true,
+        busy: false,
+        tone: "warn",
+        status: "Disconnected",
         banner: `Disconnected from ${target}`,
         canRetry: true,
       };
@@ -137,18 +139,16 @@ export function secondsUntilRetry(
 }
 
 /**
- * Whether typing into `paneId` must be dropped: its session runs on a remote
- * host that is not connected (ADR-178 §6). Input is dropped, not queued —
- * keystrokes replayed into a shell minutes later, into whatever is then in
- * the foreground, would do more harm than losing them. A local pane, or one
- * on a host main has not reported yet, is never blocked.
+ * Whether typing into a pane on remote host `hostId` (undefined for a local
+ * pane) must be dropped: that host is not connected (ADR-178 §6). Input is
+ * dropped, not queued — keystrokes replayed into a shell minutes later, into
+ * whatever is then in the foreground, would do more harm than losing them.
+ * A local pane, or one on a host main has not reported yet, is never blocked.
  */
 export function isPaneInputBlocked(
-  paneId: string,
-  remoteHostByPane: Readonly<Record<string, string>>,
+  hostId: string | undefined,
   hosts: readonly HostStatusInfo[],
 ): boolean {
-  const hostId = remoteHostByPane[paneId];
   if (!hostId) return false;
   const host = hosts.find((h) => h.hostId === hostId);
   return host !== undefined && host.status !== "connected";

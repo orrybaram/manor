@@ -12,7 +12,7 @@ import {
 import { evaluateBadges, type BadgeDef } from "./stats-badges";
 
 import type { AgentHookEvent } from "./agent-hook-events";
-import type { Effect } from "./hook-relay-transition";
+import type { Effect } from "./agent-status/types";
 
 /**
  * Usage-stats persistence model (ADR-168).
@@ -363,26 +363,30 @@ export class StatsStore {
   }
 
   /**
-   * The hook-relay tap (ADR-168 §2). Turns one hook event and the effects the
-   * relay derived from it into counter deltas, applying all of them under a
-   * single commit.
+   * The Status reconciler's tap (ADR-184, was ADR-168 §2's hook-relay tap).
+   * Turns one hook event and the effects the reconciler derived from it into
+   * counter deltas, applying all of them under a single commit.
    *
    * `activeAgentCount` is sampled by the caller (`countBusyAgents` over
    * `agentManager.getActiveAgents()`) because this store must not reach into
    * agent persistence. `isRootSession` is false for events from the extra
    * agent processes a pane hosts, which are not counted at all.
+   * `replacedRootSessionId` is the root session a SessionStart just replaced,
+   * if any — its pending block is dropped so the map cannot grow unbounded.
    */
   observeHookEvent(
     event: AgentHookEvent,
     effects: readonly Effect[],
     activeAgentCount: number,
     isRootSession = true,
+    replacedRootSessionId: string | null = null,
   ): void {
     if (!this.isEnabled()) return;
     const deltas = deltasForHookEvent(event, effects, this.tracker, {
       monoNow: this.monoNow(),
       activeAgentCount,
       isRootSession,
+      replacedRootSessionId,
     });
     if (deltas.length === 0) return;
     for (const delta of deltas) this.applyDelta(delta);

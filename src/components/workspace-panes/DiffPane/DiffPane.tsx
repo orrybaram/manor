@@ -17,6 +17,7 @@ import GitCommitVertical from "lucide-react/dist/esm/icons/git-commit-vertical";
 import CloudUpload from "lucide-react/dist/esm/icons/cloud-upload";
 import MessageSquarePlus from "lucide-react/dist/esm/icons/message-square-plus";
 import { useProjectStore } from "../../../store/project-store";
+import { ipcErrorMessage } from "../../../lib/ipc-error";
 
 import { Stack, Row } from "../../ui/Layout/Layout";
 import { parseDiff } from "./parser";
@@ -498,13 +499,9 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             elapsedTimerRef.current = null;
           }
           setPushing(false);
-          const message = err instanceof Error ? err.message : String(err);
           updateToast(pushId, {
             status: "error",
-            message: message.replace(
-              /^Error invoking remote method '[^']+': Error:\s*/i,
-              "",
-            ),
+            message: ipcErrorMessage(err),
             persistent: true,
             action: undefined,
             detail: undefined,

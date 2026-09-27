@@ -17,12 +17,7 @@ export interface HarnessAdapter {
   isIdle(status: string | null): boolean;
 }
 
-const IDLE_STATUSES = new Set([
-  "requires_input",
-  "responded",
-  "complete",
-  "idle",
-]);
+const IDLE_STATUSES = new Set(["requires_input", "responded", "idle"]);
 
 function isIdleStatus(status: string | null): boolean {
   return status !== null && IDLE_STATUSES.has(status);

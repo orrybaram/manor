@@ -34,7 +34,8 @@ import { useProjectAgentStatus } from "../../hooks/useProjectAgentStatus";
 import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
-import { HostOfflineBadge } from "./HostOfflineBadge";
+import { HostIndicator } from "../hosts/HostIndicator";
+import { isRemoteHost } from "../../lib/hosts";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
@@ -860,10 +861,19 @@ export function ProjectItem(props: ProjectItemProps) {
             >
               <ChevronRight size={12} />
             </span>
-            <span className={styles.projectName} title={project.path}>
+            <span
+              className={`${styles.projectName} ${
+                isRemoteHost(project.hostId) ? styles.projectNameRemote : ""
+              }`}
+              title={project.path}
+            >
               {project.name}
             </span>
-            <HostOfflineBadge hostId={project.hostId} />
+            {isRemoteHost(project.hostId) && (
+              <span className={styles.remoteHostIconSlot}>
+                <HostIndicator hostId={project.hostId} variant="icon" projectId={project.id} />
+              </span>
+            )}
             {collapsed && projectIndicator && (
               <WorkspaceIndicatorDot indicator={projectIndicator} />
             )}

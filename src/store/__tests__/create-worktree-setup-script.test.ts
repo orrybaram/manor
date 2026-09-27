@@ -50,6 +50,7 @@ function makeProject(overrides: Partial<ProjectInfo> = {}): ProjectInfo {
     themeName: null,
     setupComplete: true,
     portlessEnabled: true,
+    hostId: "local",
     folders: [],
     sidebarOrder: [],
     ...overrides,

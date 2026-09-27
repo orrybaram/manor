@@ -25,6 +25,21 @@ export const FAKE_AGENT_ECHO = "received:";
 export const FAKE_AGENT_HUSH = "hush";
 
 /**
+ * Send this and the agent holds `thinking` (the UserPromptSubmit hook) for
+ * five seconds before its Stop hook parks it in `responded` — long enough for a
+ * test to observe the in-between status, which `FAKE_AGENT_HUSH`'s
+ * back-to-back hooks are too fast to poll for (ADR-184).
+ */
+export const FAKE_AGENT_SLOW_HUSH = "slow-hush";
+
+/**
+ * Send this and the agent ends its session cleanly: a SessionEnd hook fires
+ * and the process exits, the way a real agent CLI does when the user quits
+ * it.
+ */
+export const FAKE_AGENT_EXIT = "exit";
+
+/**
  * Send this and the agent draws two identical rows wider than a phone can
  * show without wrapping — ADR-177's fixture for "the grid is not reflowed".
  */

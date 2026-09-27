@@ -1,11 +1,12 @@
 /**
  * Manor-control HTTP routes — project/workspace management, GitHub issue
- * listing, batch issue→workspace fan-out, agent launching, and pane/tab
- * control.
+ * listing, batch issue→workspace fan-out, agent launching, pane/tab control,
+ * and webview inspection (ADR-183 folds `webview-server.ts`'s routes in
+ * here too, so there is one table and one dispatcher).
  *
- * Extracted from WebviewServer (which is about webview inspection) so each
- * module stays cohesive. Consumed by webview-server.ts, which owns the HTTP
- * listener and delegates any matching request here.
+ * Consumed by webview-server.ts, which owns the HTTP listener and delegates
+ * every request here; a request under none of `OWNED_PREFIXES` is the only
+ * thing it can still 404 on its own.
  *
  * This is the table of contents: the route table, the prefixes it answers
  * for (derived from the table, not hand-listed), and `handleControlRequest`.
@@ -24,6 +25,7 @@ import { issueRoutes } from "./issues";
 import { gitRoutes } from "./git";
 import { integrationRoutes } from "./integrations";
 import { systemRoutes } from "./system";
+import { webviewRoutes } from "./webview";
 
 /**
  * Every route this module serves, in match order. See `router.ts`'s header
@@ -41,6 +43,7 @@ export const routes: readonly Route[] = [
   ...gitRoutes,
   ...integrationRoutes,
   ...systemRoutes,
+  ...webviewRoutes,
 ];
 
 /**

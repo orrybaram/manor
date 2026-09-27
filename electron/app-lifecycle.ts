@@ -7,7 +7,7 @@ import { LayoutPersistence } from "./terminal-host/layout-persistence";
 import { ProjectManager } from "./persistence";
 import { ThemeManager } from "./theme";
 import { PortScanner } from "./ports";
-import { RemoteForwards } from "./remote-forwards";
+import { RemoteForwards, RemoteUrlResolver } from "./remote-forwards";
 import { BranchWatcher } from "./branch-watcher";
 import { DiffWatcher } from "./diff-watcher";
 import { GitHubManager } from "./github";
@@ -16,7 +16,8 @@ import { homeWorkspaceDir } from "./paths";
 import { AgentHookServer } from "./agent-hooks";
 import { NotificationCoalescer, type HookCursor } from "./backend/hook-feed";
 import { bootstrapHost } from "./terminal-host/bootstrap-host";
-import { createHookRelay, SWEEP_INTERVAL_MS } from "./hook-relay";
+import { createAgentStatusDriver, type AgentStatusDriver } from "./agent-status/driver";
+import type { PaneStatusUpdate } from "./agent-status/effects";
 import { ensureManorCli } from "./manor-cli-install";
 import { AgentManager, type AgentInfo } from "./agent-persistence";
 import { NotificationStore } from "./notification-store";
@@ -28,13 +29,13 @@ import { cleanAgentTitle } from "./title-utils";
 import type { AgentStatus, StreamEvent } from "./terminal-host/types";
 import { initAutoUpdater, checkForUpdates } from "./updater";
 import { portlessManager } from "./portless";
-import { LocalBackend } from "./backend/local-backend";
+import { createLocalBackend } from "./backend/host-backend";
+import { LOCAL_HOST_ID } from "./backend/types";
 import {
   BackendRegistry,
   isRemoteSessionLoss,
   type HostStatus,
 } from "./backend/registry";
-import { trackHostBusy } from "./backend/host-busy";
 import { RoutedBackend } from "./backend/routed-backend";
 import { PrewarmManager } from "./prewarm-manager";
 import { RemoteDeviceStore } from "./remote-control/devices";
@@ -75,6 +76,9 @@ import * as menuIpc from "./ipc/menu";
 import * as hostsIpc from "./ipc/hosts";
 import { notifyProjectsChanged } from "./renderer-bridge";
 
+/** How long an agent's `navigate` waits for a remote host to come back. */
+const NAVIGATE_HOST_WAIT_MS = 15_000;
+
 /**
  * Manor's version. `app.getVersion()` in an unpackaged app launched on a bare
  * main.js (E2E, some dev setups) is Electron's own version, so read the repo's
@@ -93,14 +97,12 @@ function manorVersion(): string {
   return app.getVersion();
 }
 
-// Extract stream event handler for testability
-export function handleStreamEvent(
-  event: StreamEvent,
-  window: BrowserWindow,
-  agentManager: AgentManager,
-  preferencesManager: PreferencesManager,
-  notifyAgentDetectorGone?: (sessionId: string) => void,
-): void {
+// Extract stream event handler for testability.
+//
+// Runs once per renderer window, so it only forwards pane channels. Anything
+// agent-related lives in `handleAgentStreamEvent`, which main runs once per
+// event (ADR-184).
+export function handleStreamEvent(event: StreamEvent, window: BrowserWindow): void {
   try {
     switch (event.type) {
       case "data":
@@ -124,54 +126,93 @@ export function handleStreamEvent(
         break;
       case "cwd":
         window.webContents.send(`pty-cwd-${event.sessionId}`, event.cwd);
-        // Update agent's cwd if active and differs from current
-        {
-          const agent = agentManager.getAgentByPaneId(event.sessionId);
-          if (agent && agent.status === "active" && agent.cwd !== event.cwd) {
-            const updated = agentManager.updateAgent(agent.id, {
-              cwd: event.cwd,
-            });
-            if (updated) {
-              sendAgentUpdate(window, updated, preferencesManager);
-            }
-          }
-        }
         break;
       case "error":
         window.webContents.send(`pty-error-${event.sessionId}`, event.message);
         break;
-      case "agentStatus": {
-        window.webContents.send(
-          `pty-agent-status-${event.sessionId}`,
-          event.agent,
-        );
-        // Update persisted agent name from agent title — unless the user
-        // pinned a name of their own, which the title sync must not clobber.
-        const cleaned = cleanAgentTitle(event.agent.title);
-        if (cleaned) {
-          const agent = agentManager.getAgentByPaneId(event.sessionId);
-          if (agent && !agent.namePinned && agent.name !== cleaned) {
-            const updated = agentManager.updateAgent(agent.id, {
-              name: cleaned,
-            });
-            if (updated) {
-              sendAgentUpdate(window, updated, preferencesManager);
-            }
-          }
-        }
-        if (event.agent.status === "idle" && event.agent.kind === null) {
-          if (notifyAgentDetectorGone) {
-            notifyAgentDetectorGone(event.sessionId);
-          }
-        }
-        break;
-      }
+      // `paneFacts` is main's alone (ADR-184) — see `dispatchStreamEvent`.
     }
   } catch (err) {
     // Render frame disposed during window reload or close — safe to ignore
     if (!(err instanceof Error) || !err.message.includes("disposed")) {
       console.error("Error in stream event handler:", err);
     }
+  }
+}
+
+export interface AgentStreamDeps {
+  agentManager: Pick<AgentManager, "getAgentByPaneId" | "updateAgent">;
+  agentStatus: Pick<AgentStatusDriver, "signal" | "forgetPane">;
+  /** Broadcast an updated Agent (and refresh the dock badge). */
+  broadcastAgent: (agent: AgentInfo) => void;
+}
+
+/**
+ * The agent-domain side of a stream event, run ONCE per event in main — not
+ * per window, as `handleStreamEvent` is (ADR-184):
+ * - `paneFacts` → a Status signal for the pane, and the Agent's name from the
+ *   terminal title (unless the user pinned one);
+ * - `cwd` → the active Agent's cwd;
+ * - `exit` → the pane's reconciler state is dropped.
+ */
+export function handleAgentStreamEvent(event: StreamEvent, deps: AgentStreamDeps): void {
+  try {
+    switch (event.type) {
+      case "paneFacts": {
+        deps.agentStatus.signal(event.sessionId, { type: "paneFacts", facts: event.facts });
+        // Update the persisted Agent name from the terminal title — unless the
+        // user pinned a name of their own, which the title sync must not
+        // clobber.
+        const cleaned = cleanAgentTitle(event.facts.title);
+        if (cleaned) {
+          const agent = deps.agentManager.getAgentByPaneId(event.sessionId);
+          if (agent && !agent.namePinned && agent.name !== cleaned) {
+            const updated = deps.agentManager.updateAgent(agent.id, { name: cleaned });
+            if (updated) deps.broadcastAgent(updated);
+          }
+        }
+        break;
+      }
+      case "cwd": {
+        // Update the agent's cwd if it is active and differs.
+        const agent = deps.agentManager.getAgentByPaneId(event.sessionId);
+        if (agent && agent.status === "active" && agent.cwd !== event.cwd) {
+          const updated = deps.agentManager.updateAgent(agent.id, { cwd: event.cwd });
+          if (updated) deps.broadcastAgent(updated);
+        }
+        break;
+      }
+      case "exit":
+        deps.agentStatus.forgetPane(event.sessionId);
+        break;
+    }
+  } catch (err) {
+    console.error("Error in agent stream event handler:", err);
+  }
+}
+
+/**
+ * What main does with one stream event from any host: its agent side once
+ * (`handleAgentStreamEvent`), then the pane channels to every window. However
+ * many windows are open, a signal reaches the Status reconciler once and its
+ * effects are applied once (ADR-184). `paneFacts` never reaches a window.
+ */
+export function dispatchStreamEvent(
+  event: StreamEvent,
+  windows: readonly BrowserWindow[],
+  agentDeps: AgentStreamDeps,
+): void {
+  handleAgentStreamEvent(event, agentDeps);
+  if (event.type === "paneFacts") return;
+  for (const win of windows) {
+    // Check that the main frame is still available (avoids "Render frame was
+    // disposed" errors during window reload/close).
+    try {
+      if (!win.webContents.mainFrame) continue;
+    } catch {
+      continue;
+    }
+    handleStreamEvent(event, win);
   }
 }
 
@@ -253,13 +294,13 @@ export function initApp(devTitle: string | null): void {
   }
 
   // Managers
-  const client = new TerminalHostClient();
+  // The local daemon is handshaken against Electron's version.
+  const client = new TerminalHostClient(app.getVersion());
   // Every host's backend, "local" always among them (ADR-160 §6). Remote
   // hosts come from projects.json below and connect lazily, off the launch
   // path; with none registered everything routes to the local backend.
   const backendRegistry = new BackendRegistry({
-    local: new LocalBackend(client),
-    version: app.getVersion(),
+    local: createLocalBackend(client),
     remoteVersion: manorVersion(),
     // Where each remote host's hook journal was read up to (ADR-178 §2).
     // Only read once hosts are registered, after projectManager exists.
@@ -269,31 +310,48 @@ export function initApp(devTitle: string | null): void {
     },
   });
   const layoutPersistence = new LayoutPersistence();
-  const projectManager = new ProjectManager(
-    (hostId) => backendRegistry.get(hostId).git,
-    undefined,
-    (hostId) => backendRegistry.get(hostId).shell,
-  );
+  // Each project's git, shell and machine facts come from its host (ADR-183).
+  const projectManager = new ProjectManager((hostId) => backendRegistry.get(hostId));
   for (const { hostId, spec } of projectManager.getHosts()) {
     backendRegistry.register(hostId, spec);
   }
-  // Keep-awake (ADR-178 §1): a host with a working agent tells its provider,
-  // so an auto-sleeping box never sleeps mid-task. No-op for ssh hosts.
-  trackHostBusy(backendRegistry);
-  const hostForPath = (p: string) => projectManager.hostIdForPath(p);
   // The one backend IPC handlers and control routes see: routes each pane,
-  // cwd and pid to the host that owns it.
-  const backend = new RoutedBackend(backendRegistry, hostForPath);
+  // cwd and pid to the host that owns it. A bare cwd is the only thing whose
+  // host is inferred from its path (ADR-183); the pollers below are handed
+  // each workspace's host instead.
+  const backend = new RoutedBackend(
+    backendRegistry,
+    (p) => projectManager.hostIdForPath(p),
+    (pid) => portScanner.hostsListeningOn(pid),
+  );
   const themeManager = new ThemeManager();
-  const portScanner = new PortScanner(backend.ports, hostForPath);
+  const portScanner = new PortScanner(backendRegistry);
   // Remote dev servers opened from Manor go through these (ADR-178 §5).
   const remoteForwards = new RemoteForwards(backendRegistry);
-  const branchWatcher = new BranchWatcher(backend.git, hostForPath);
-  const diffWatcher = new DiffWatcher(backend.git, hostForPath);
+  // Which host each pane's workspace lives on, and the resolver that turns a
+  // URL opened in that host's context into the one to load. Built here, once,
+  // so `resolvePaneUrl` below is wired into `ControlDeps` before any IPC
+  // module registers — no more racing a setter installed as a side effect of
+  // `ports.register` (ADR-183).
+  const paneHosts = new Map<string, string>();
+  const remoteUrlResolver = new RemoteUrlResolver(portScanner, backendRegistry, remoteForwards);
+  /**
+   * The URL to actually load for a `navigate` in `paneId`'s webview
+   * (`ControlDeps.resolvePaneUrl`): itself, or rewritten through the pane's
+   * host's port forward for a remote workspace (ADR-178 §5). Gives up
+   * (rejects) rather than wait forever on an absent host.
+   */
+  const resolvePaneUrl = async (paneId: string, url: string): Promise<string> => {
+    const hostId = paneHosts.get(paneId);
+    if (!hostId) return url;
+    return remoteUrlResolver.resolve(url, hostId, NAVIGATE_HOST_WAIT_MS);
+  };
+  const branchWatcher = new BranchWatcher(backendRegistry);
+  const diffWatcher = new DiffWatcher(backendRegistry);
   const githubManager = new GitHubManager();
   const linearManager = new LinearManager();
 
-  const prewarmManager = new PrewarmManager(client, process.env.HOME || "/", hostForPath);
+  const prewarmManager = new PrewarmManager(client, process.env.HOME || "/");
   const agentHookServer = new AgentHookServer();
   // Remote hosts' hooks take the same path as local ones (ADR-178 §2).
   // Replayed hooks hold their notifications until the catch-up finishes, so
@@ -362,7 +420,10 @@ export function initApp(devTitle: string | null): void {
       portScanner,
       remoteControl,
       agentHookServer,
+      agentStatus: agentStatusDriver,
       webviewServer,
+      webviewPanes: webviewServer,
+      resolvePaneUrl,
       getRendererWindows,
     }),
     remoteDeviceStore,
@@ -432,8 +493,74 @@ export function initApp(devTitle: string | null): void {
   // instead of on every new session's launch command.
   fs.mkdirSync(homeWorkspaceDir(), { recursive: true });
 
-  // Mutable reference to notifyAgentDetectorGone — will be set after hook relay is created
-  let notifyAgentDetectorGone: ((sessionId: string) => void) | undefined;
+  function broadcastAgent(agent: AgentInfo): void {
+    sendAgentUpdate(mainWindow, agent, preferencesManager);
+  }
+
+  /** Send to every live renderer window whose main frame is still there. */
+  function sendToRendererWindows(channel: string, ...args: unknown[]): void {
+    for (const win of getRendererWindows()) {
+      try {
+        if (!win.webContents.mainFrame) continue;
+        win.webContents.send(channel, ...args);
+      } catch {
+        // Render frame disposed during reload/close — safe to ignore.
+      }
+    }
+  }
+
+  // ── Agent status (ADR-184) ─────────────────────────────────────────────
+  // The Status reconciler's driver: the one decider of every pane's Agent
+  // status, and the only writer of Agents' lifecycle and last status. Built
+  // before the IPC handlers and routes that feed it user signals.
+
+  const agentStatusDriver: AgentStatusDriver = createAgentStatusDriver({
+    agentManager,
+    getPaneContext: (paneId) => paneContextMap.get(paneId),
+    unseenRespondedAgents,
+    unseenInputAgents,
+    broadcastAgent,
+    // Replayed remote hooks hold their notifications (ADR-178 §2).
+    maybeSendNotification: (agent, prevStatus, newStatus) =>
+      notificationCoalescer.send(agent, prevStatus, newStatus),
+    publishPaneStatus: (update: PaneStatusUpdate) => {
+      // One channel, every window, once per signal (ADR-184 §4).
+      sendToRendererWindows("agent-status", update);
+    },
+    onHookEvent: (event, effects, { isRootSession, replacedRootSessionId }) => {
+      statsStore.observeHookEvent(
+        event,
+        effects,
+        countBusyAgents(agentManager.getActiveAgents()),
+        isRootSession,
+        replacedRootSessionId,
+      );
+    },
+  });
+
+  /**
+   * Resync a host's panes after it (re)connects: the `paneFacts` stream has
+   * nothing to replay, so ask for each live session's current facts. Without
+   * `sessionIds`, every session the host has now.
+   */
+  async function resyncPaneFacts(hostId: string, sessionIds?: readonly string[]): Promise<void> {
+    try {
+      const pty = backendRegistry.get(hostId).pty;
+      const ids = sessionIds ?? (await pty.listSessions()).map((s) => s.sessionId);
+      await agentStatusDriver.resync(ids, (id) => pty.getPaneFacts(id));
+    } catch (err) {
+      console.debug(`[agent-status] resync of ${hostId} failed:`, err);
+    }
+  }
+
+  // The local daemon's reconnects (its client's supervisor)...
+  client.setConnectionListener({
+    onReconnected: ({ sessionIds }) => void resyncPaneFacts(LOCAL_HOST_ID, sessionIds),
+  });
+  // ...and remote hosts' (their `hostReconnected` carries the survivors).
+  backendRegistry.onHostEvent((hostId, event) => {
+    if (event.type === "hostReconnected") void resyncPaneFacts(hostId, event.sessionIds);
+  });
 
   // Set up stream event handler — broadcast events to every live renderer
   // window. A detached window hosting a terminal pane must receive its `pty:*`
@@ -454,6 +581,11 @@ export function initApp(devTitle: string | null): void {
       lastHostStatus.set(host.hostId, host.status);
       if (host.status === "connected" && prev !== "connected") {
         notifyProjectsChanged();
+        // A remote host's first connect (a reconnect is `hostReconnected`'s):
+        // its panes' facts may already say something (ADR-184).
+        if (host.hostId !== LOCAL_HOST_ID && prev !== "reconnecting") {
+          void resyncPaneFacts(host.hostId);
+        }
       }
     }
   });
@@ -463,22 +595,11 @@ export function initApp(devTitle: string | null): void {
     // one whose shell exited: the renderer recovers it when the host's
     // `hosts:reconnected` arrives (ADR-178 §6).
     if (isRemoteSessionLoss(hostId, event)) return;
-    for (const win of getRendererWindows()) {
-      // Check that the main frame is still available (avoids "Render frame was
-      // disposed" errors during window reload/close).
-      try {
-        if (!win.webContents.mainFrame) continue;
-      } catch {
-        continue;
-      }
-      handleStreamEvent(
-        event,
-        win,
-        agentManager,
-        preferencesManager,
-        notifyAgentDetectorGone,
-      );
-    }
+    dispatchStreamEvent(event, getRendererWindows(), {
+      agentManager,
+      agentStatus: agentStatusDriver,
+      broadcastAgent,
+    });
   });
 
   // ── Register all IPC handlers before window creation to avoid race conditions ──
@@ -506,12 +627,15 @@ export function initApp(devTitle: string | null): void {
     themeManager,
     portScanner,
     remoteForwards,
+    remoteUrlResolver,
+    paneHosts,
     branchWatcher,
     diffWatcher,
     githubManager,
     linearManager,
     agentHookServer,
     agentManager,
+    agentStatus: agentStatusDriver,
     notificationStore,
     statsStore,
     preferencesManager,
@@ -543,7 +667,12 @@ export function initApp(devTitle: string | null): void {
     portScanner: ipcDeps.portScanner,
     remoteControl: ipcDeps.remoteControl,
     agentHookServer: ipcDeps.agentHookServer,
+    agentStatus: agentStatusDriver,
     getRendererWindows: ipcDeps.getRendererWindows,
+    // Pane inspection routes' access to WebviewServer's own pane registry
+    // and console-log buffers (ADR-183) — always itself.
+    webviewPanes: webviewServer,
+    resolvePaneUrl,
   });
 
   ptyIpc.register(ipcDeps);
@@ -609,7 +738,7 @@ export function initApp(devTitle: string | null): void {
 
     // Connect to daemon (spawns if needed) — now has MANOR_HOOK_PORT in env
     try {
-      await backend.connect({ version: app.getVersion() });
+      await backend.connect();
     } catch (err) {
       console.error("Failed to connect to terminal host daemon:", err);
     }
@@ -624,51 +753,27 @@ export function initApp(devTitle: string | null): void {
     // Pre-warm a terminal session for instant new-agent
     prewarmManager.warm().catch(() => {});
 
-    // Set the relay callback now that the client is connected.
-    // Hook events route through the daemon's AgentDetector state machine.
-
-    function broadcastAgent(agent: AgentInfo): void {
-      sendAgentUpdate(mainWindow, agent, preferencesManager);
-    }
+    // The local daemon's panes may already have facts (a daemon that outlived
+    // the last app run): resync them now that it is connected (ADR-184).
+    void resyncPaneFacts(LOCAL_HOST_ID);
 
     // Update dock badge whenever preferences change (e.g. user toggles dockBadgeEnabled)
     preferencesManager.onChange(() => {
       updateDockBadge();
     });
 
-    const {
-      relay,
-      sweepStaleSessions,
-      notifyAgentDetectorGone: notifyAgentDetectorGoneFn,
-    } = createHookRelay({
-      relayAgentHook: (paneId, status, kind) =>
-        backend.pty.relayAgentHook(paneId, status, kind),
-      agentManager,
-      getPaneContext: (paneId) => paneContextMap.get(paneId),
-      unseenRespondedAgents,
-      unseenInputAgents,
-      broadcastAgent,
-      maybeSendNotification: notificationCoalescer.send,
-      onHookEvent: (event, effects, ctx) =>
-        statsStore.observeHookEvent(
-          event,
-          effects,
-          countBusyAgents(agentManager.getActiveAgents()),
-          ctx.isRootSession,
-        ),
+    // Every hook — local HTTP and remote hook-feed replay alike, through
+    // `ingestHookPayload` — is a Status signal for the reconciler (ADR-184).
+    // The daemon's AgentDetector no longer hears about hooks.
+    agentHookServer.setRelay((event) => {
+      agentStatusDriver.hook(event);
     });
 
-    // Now that the hook relay is created, set the notifyAgentDetectorGone reference
-    notifyAgentDetectorGone = notifyAgentDetectorGoneFn;
-
-    agentHookServer.setRelay(relay);
-
-    const staleStopSweep = setInterval(() => {
-      sweepStaleSessions();
-    }, SWEEP_INTERVAL_MS);
+    // One tick, on the old sweep cadence, carries every time-based rule.
+    agentStatusDriver.start();
 
     app.on("before-quit", () => {
-      clearInterval(staleStopSweep);
+      agentStatusDriver.stop();
     });
 
     // Reopen the PRIMARY window, not just "a" window: with a popout still open

@@ -31,12 +31,6 @@
   }
 }
 
-.dotComplete {
-  border-radius: 0;
-  background: none;
-  color: var(--green, #a6e3a1);
-}
-
 .dotResponded {
   background: var(--green, #a6e3a1);
   animation: pulse 2s ease-in-out infinite;
@@ -108,10 +102,6 @@
 }
 
 /* Check icon / hand emoji need auto sizing */
-.pane.dotComplete,
-.tab.dotComplete,
-.sidebar.dotComplete,
-.debug.dotComplete,
 .pane.dotRequiresInput,
 .tab.dotRequiresInput,
 .sidebar.dotRequiresInput,

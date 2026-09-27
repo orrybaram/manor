@@ -11,7 +11,7 @@ import {
   type StatDelta,
 } from "../stats-signals";
 import type { AgentHookEvent } from "../agent-hook-events";
-import type { Effect } from "../hook-relay-transition";
+import type { Effect } from "../agent-status/types";
 
 describe("stats-signals", () => {
   describe("KILL_STATUSES", () => {
@@ -123,6 +123,7 @@ const createAgentEffect = (sessionId = "sess-1"): Effect => ({
   paneId: "pane-1",
   agentKind: "claude",
   status: "thinking",
+  title: null,
 });
 
 describe("countBusyAgents", () => {
@@ -190,12 +191,14 @@ describe("deltasForHookEvent", () => {
       monoNow?: number;
       activeAgentCount?: number;
       isRootSession?: boolean;
+      replacedRootSessionId?: string | null;
     } = {},
   ): StatDelta[] {
     return deltasForHookEvent(event, opts.effects ?? [], tracker, {
       monoNow: opts.monoNow ?? 0,
       activeAgentCount: opts.activeAgentCount ?? 1,
       isRootSession: opts.isRootSession,
+      replacedRootSessionId: opts.replacedRootSessionId,
     });
   }
 
@@ -302,12 +305,11 @@ describe("deltasForHookEvent", () => {
       ]);
     });
 
-    it("drops the pending block on a DeleteSessionState effect", () => {
+    it("drops the pending block on a replaced root session", () => {
       run(makeEvent("Notification"), { monoNow: 0 });
-      const effects: Effect[] = [{ kind: "DeleteSessionState", sessionId: "sess-1" }];
-      expect(run(makeEvent("Stop"), { effects, monoNow: 50 })).toEqual([
-        { counter: "agentsResponded", n: 1 },
-      ]);
+      expect(
+        run(makeEvent("Stop"), { replacedRootSessionId: "sess-1", monoNow: 50 }),
+      ).toEqual([{ counter: "agentsResponded", n: 1 }]);
       expect(tracker.blockedAt.size).toBe(0);
     });
   });
@@ -356,9 +358,15 @@ describe("deltasForHookEvent", () => {
 
     it("ignores effects that carry no signal", () => {
       const effects: Effect[] = [
-        { kind: "RelayAgentHook", paneId: "pane-1", status: "working", agentKind: "claude" },
-        { kind: "SetPaneRoot", paneId: "pane-1", sessionId: "sess-1" },
-        { kind: "UpdateAgentActiveStatus", sessionId: "sess-1", status: "working" },
+        {
+          kind: "PublishPaneStatus",
+          paneId: "pane-1",
+          status: "working",
+          reason: "PreToolUse",
+          agentKind: "claude",
+        },
+        { kind: "PersistAgentStatus", sessionId: "sess-1", transition: { to: "active", status: "working" } },
+        { kind: "MarkSeen", agentId: "agent-1" },
       ];
       expect(run(makeEvent("PreToolUse"), { effects })).toEqual([
         { counter: "toolCalls", n: 1 },

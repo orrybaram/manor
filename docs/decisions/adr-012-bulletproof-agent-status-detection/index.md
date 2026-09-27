@@ -184,6 +184,11 @@ AgentDetector (state machine)
 - Hook priority over fallbacks must be carefully managed to avoid flicker
 - Must avoid false positives from pattern matching when hooks are working correctly
 
+**Superseded by ADR-184:** the detector state machine described here (`AgentDetector`) is
+deleted; the daemon now only extracts Pane facts (`electron/terminal-host/pane-facts.ts`),
+and one Status reconciler in Electron main decides Agent status. See
+`docs/decisions/adr-184-agent-status-reconciler/`.
+
 ## Tickets
 
 <div data-type="database" data-path="." data-view="board"></div>

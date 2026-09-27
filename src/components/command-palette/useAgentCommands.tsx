@@ -5,7 +5,7 @@ import { useAgentStore } from "../../store/agent-store";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { useAppStore } from "../../store/app-store";
 import { formatCombo } from "../../lib/keybindings";
-import { deriveStatus, resolveAgentTitle } from "../../hooks/useAgentDisplay";
+import { resolveAgentTitle } from "../../hooks/useAgentDisplay";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
 import type { AgentInfo } from "../../electron.d";
 import type { CommandItem } from "./types";
@@ -50,15 +50,14 @@ export function useAgentCommands({
 
     items.push(
       ...agents.filter((t) => t.status === "active").slice(0, 5).map((agent) => {
-        const liveAgent = agent.paneId ? paneAgentStatus[agent.paneId] ?? null : null;
-        const agentStatus = deriveStatus(agent, liveAgent);
+        const live = agent.paneId ? paneAgentStatus[agent.paneId] : undefined;
         const liveTitle = agent.paneId ? paneTitle[agent.paneId] ?? null : null;
         const label = resolveAgentTitle(agent, liveTitle);
         return {
           id: `agent-${agent.id}`,
           label,
           icon: (
-            <AgentDot status={agentStatus} size="sidebar" />
+            <AgentDot status={live?.status} size="sidebar" reason={live?.reason} />
           ),
           action: () => {
             onClose();

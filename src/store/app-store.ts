@@ -30,7 +30,8 @@ import type {
   PersistedPanel,
   PersistedTab,
   PersistedLayout,
-  AgentState,
+  PaneAgentStatus,
+  PaneAgentStatusUpdate,
   PickedElementResult,
 } from "../electron.d";
 import type { SetupStep, StepStatus } from "./project-store";
@@ -38,7 +39,16 @@ import type { Location } from "./navigation-history-store";
 import type { DetachedTabPayload } from "./detach-types";
 import { isHomePath } from "../lib/home-path";
 import { useProjectStore } from "./project-store";
-import { usePaneHostStore } from "./pane-host-store";
+import { useRemotePaneStore } from "./remote-pane-store";
+
+/**
+ * Text queued for a pane's shell (ADR-183). `submit` sends it with Enter;
+ * without, it is only typed, for the user to review and run.
+ */
+export interface PendingPaneCommand {
+  text: string;
+  submit: boolean;
+}
 
 export interface ClosedPaneSnapshot {
   kind: "pane";
@@ -211,7 +221,7 @@ export interface AppState {
   activeWorkspacePath: string | null;
   paneCwd: Record<string, string>;
   paneTitle: Record<string, string>;
-  paneAgentStatus: Record<string, AgentState>;
+  paneAgentStatus: Record<string, PaneAgentStatus>;
   paneContentType: Record<string, "terminal" | "browser" | "diff">;
   paneFavicon: Record<string, string>;
   paneAudioPlaying: Record<string, boolean>;
@@ -228,14 +238,13 @@ export interface AppState {
   closedPaneStack: ClosedSnapshot[];
   /** Pending startup commands to run in new terminals (workspace path → script) */
   pendingStartupCommands: Record<string, string>;
-  /** Pending startup commands keyed by pane ID (for split-with-agent) */
-  pendingPaneCommands: Record<string, string>;
   /**
-   * Text to type into a pane once its shell is ready, WITHOUT submitting it
-   * (no trailing Enter) — e.g. a health-check fix-it command the user should
-   * review before running (ADR-178 ticket 5). Keyed by pane ID.
+   * Text to send into a pane once its shell is ready, keyed by pane ID — a
+   * split-with-agent command, a remote agent's resume, or (`submit: false`)
+   * a health-check fix-it command the user reviews before running. One queue
+   * for both (ADR-183), so closing and host-away treat them alike.
    */
-  pendingTypedTexts: Record<string, string>;
+  pendingPaneCommands: Record<string, PendingPaneCommand>;
   /** Pane ID awaiting close confirmation (when agent is active) */
   pendingCloseConfirmPaneId: string | null;
   /** Tab ID awaiting close confirmation (when agent is active in a pane) */
@@ -266,14 +275,14 @@ export interface AppState {
    * prewarmed under that ID; everything else lets the store mint one.
    */
   addTab: (adoptPaneId?: string) => { tabId: string; paneId: string } | null;
-  addTerminalTab: (command: string) => { tabId: string; paneId: string } | null;
   /**
-   * Like `addTerminalTab`, but types `text` into the new pane without
-   * submitting it (ADR-178 ticket 5's "fix in terminal" — a health-check
-   * fix-it command the user reviews before running).
+   * Open a terminal tab that runs `command` once its shell is ready. With
+   * `submit: false` the command is typed but not run (ADR-178 ticket 5's
+   * "fix in terminal" — the user reviews it first).
    */
-  addTerminalTabWithTypedText: (
-    text: string,
+  addTerminalTab: (
+    command: string,
+    opts?: { submit?: boolean },
   ) => { tabId: string; paneId: string } | null;
   addBrowserTab: (
     url: string,
@@ -374,8 +383,11 @@ export interface AppState {
   // Browser URL tracking
   setPaneUrl: (paneId: string, url: string) => void;
 
-  // Agent status tracking
-  setPaneAgentStatus: (paneId: string, agent: AgentState) => void;
+  /**
+   * Store the pane's Agent status exactly as the Status reconciler published
+   * it (ADR-184 §4) — the renderer displays it, it does not re-derive it.
+   */
+  setPaneAgentStatus: (update: PaneAgentStatusUpdate) => void;
 
   // Startup commands
   setPendingStartupCommand: (workspacePath: string, command: string) => void;
@@ -385,11 +397,12 @@ export interface AppState {
    * that already exists and is about to (re)create its session, e.g. one
    * recovered after its remote host restarted (ADR-178 §6).
    */
-  setPendingPaneCommand: (paneId: string, command: string) => void;
-  consumePendingPaneCommand: (paneId: string) => string | null;
-  /** Text a new pane on `paneId` should have typed (not run) once ready. */
-  setPendingTypedText: (paneId: string, text: string) => void;
-  consumePendingTypedText: (paneId: string) => string | null;
+  setPendingPaneCommand: (
+    paneId: string,
+    command: string,
+    opts?: { submit?: boolean },
+  ) => void;
+  consumePendingPaneCommand: (paneId: string) => PendingPaneCommand | null;
 
   // Workspace cleanup
   removeWorkspaceLayout: (workspacePath: string) => void;
@@ -672,7 +685,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   closedPaneStack: [],
   pendingStartupCommands: {},
   pendingPaneCommands: {},
-  pendingTypedTexts: {},
   pendingCloseConfirmPaneId: null,
   pendingCloseConfirmTabId: null,
   worktreeSetupState: {},
@@ -687,7 +699,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         // and paneUrl from persisted data
         const cwds: Record<string, string> = {};
         const titles: Record<string, string> = {};
-        const agents: Record<string, AgentState> = {};
+        const agents: Record<string, PaneAgentStatus> = {};
         const contentTypes: Record<string, "terminal" | "browser" | "diff"> =
           {};
         const urls: Record<string, string> = {};
@@ -707,14 +719,11 @@ export const useAppStore = create<AppState>((set, get) => ({
               if (paneSession.lastTitle) {
                 titles[paneId] = paneSession.lastTitle;
               }
-              if (
-                paneSession.lastAgentStatus &&
-                !(
-                  paneSession.lastAgentStatus.status === "idle" &&
-                  paneSession.lastAgentStatus.kind === null
-                )
-              ) {
-                agents[paneId] = paneSession.lastAgentStatus as AgentState;
+              // A fresh `agents:getPaneStatuses` fetch on startup (ADR-184
+              // ticket 5) overrides this once it resolves; priming from the
+              // persisted layout just avoids a blank dot until then.
+              if (paneSession.lastAgentStatus) {
+                agents[paneId] = paneSession.lastAgentStatus;
               }
             }
             const extractLeafData = (node: PaneNode): void => {
@@ -838,7 +847,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     return { tabId: tab.id, paneId: tab.focusedPaneId };
   },
 
-  addTerminalTab: (command: string) => {
+  addTerminalTab: (command: string, opts?: { submit?: boolean }) => {
     const ctx = getActivePanelContext(get());
     if (!ctx) return null;
     const { path, layout, panel } = ctx;
@@ -853,28 +862,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       })),
       pendingPaneCommands: {
         ...state.pendingPaneCommands,
-        [tabPaneId]: command,
-      },
-    });
-    return { tabId: tab.id, paneId: tabPaneId };
-  },
-
-  addTerminalTabWithTypedText: (text: string) => {
-    const ctx = getActivePanelContext(get());
-    if (!ctx) return null;
-    const { path, layout, panel } = ctx;
-    const tab = createTab();
-    const tabPaneId = tab.focusedPaneId;
-    const state = get();
-    set({
-      ...updatePanel(state, path, layout, panel.id, (p) => ({
-        ...p,
-        tabs: [...p.tabs, tab],
-        selectedTabId: tab.id,
-      })),
-      pendingTypedTexts: {
-        ...state.pendingTypedTexts,
-        [tabPaneId]: text,
+        [tabPaneId]: { text: command, submit: opts?.submit ?? true },
       },
     });
     return { tabId: tab.id, paneId: tabPaneId };
@@ -1478,7 +1466,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       ...(paneCommand && {
         pendingPaneCommands: {
           ...state.pendingPaneCommands,
-          [newPane]: paneCommand,
+          [newPane]: { text: paneCommand, submit: true },
         },
       }),
     });
@@ -2311,28 +2299,18 @@ export const useAppStore = create<AppState>((set, get) => ({
         : {};
     }),
 
-  setPaneAgentStatus: (paneId: string, agent: AgentState) =>
+  setPaneAgentStatus: (update: PaneAgentStatusUpdate) =>
     set((state) => {
+      const { paneId, ...next } = update;
       const current = state.paneAgentStatus[paneId];
       if (
         current &&
-        current.status === agent.status &&
-        current.kind === agent.kind &&
-        current.since === agent.since &&
-        current.title === agent.title &&
-        current.processName === agent.processName
+        current.status === next.status &&
+        current.kind === next.kind &&
+        current.reason === next.reason
       )
         return state;
-      // Remove from store only when agent is truly gone (kind is null)
-      if (agent.status === "idle" && agent.kind === null) {
-        console.debug(`[agent-status] store: pane=${paneId} → REMOVED (gone)`);
-        const { [paneId]: _, ...rest } = state.paneAgentStatus;
-        return { paneAgentStatus: rest };
-      }
-      console.debug(
-        `[agent-status] store: pane=${paneId} → ${agent.kind}/${agent.status} (title=${agent.title})`,
-      );
-      return { paneAgentStatus: { ...state.paneAgentStatus, [paneId]: agent } };
+      return { paneAgentStatus: { ...state.paneAgentStatus, [paneId]: next } };
     }),
 
   setPendingStartupCommand: (workspacePath: string, command: string) =>
@@ -2354,9 +2332,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     return cmd;
   },
 
-  setPendingPaneCommand: (paneId: string, command: string) =>
+  setPendingPaneCommand: (
+    paneId: string,
+    command: string,
+    opts?: { submit?: boolean },
+  ) =>
     set((state) => ({
-      pendingPaneCommands: { ...state.pendingPaneCommands, [paneId]: command },
+      pendingPaneCommands: {
+        ...state.pendingPaneCommands,
+        [paneId]: { text: command, submit: opts?.submit ?? true },
+      },
     })),
 
   consumePendingPaneCommand: (paneId: string) => {
@@ -2368,22 +2353,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     }
     return cmd;
-  },
-
-  setPendingTypedText: (paneId: string, text: string) =>
-    set((state) => ({
-      pendingTypedTexts: { ...state.pendingTypedTexts, [paneId]: text },
-    })),
-
-  consumePendingTypedText: (paneId: string) => {
-    const text = get().pendingTypedTexts[paneId] ?? null;
-    if (text) {
-      set((state) => {
-        const { [paneId]: _, ...rest } = state.pendingTypedTexts;
-        return { pendingTypedTexts: rest };
-      });
-    }
-    return text;
   },
 
   removeWorkspaceLayout: (workspacePath: string) =>
@@ -3033,7 +3002,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       // The pane is the destination window's now: this one must not badge
       // it, or plan to recover it when its remote host comes back.
-      usePaneHostStore.getState().forgetPane(pid);
+      useRemotePaneStore.getState().forgetPane(pid);
     }
 
     set((s) => {
@@ -3064,9 +3033,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const newPaneUrl = { ...s.paneUrl };
       const newPickedElement = { ...s.panePickedElement };
       const newPendingCommands = { ...s.pendingPaneCommands };
-      const newPendingTypedTexts = { ...s.pendingTypedTexts };
       for (const pid of paneIds) {
-        delete newPendingTypedTexts[pid];
         delete newCwd[pid];
         delete newTitle[pid];
         delete newAgentStatus[pid];
@@ -3090,7 +3057,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneUrl: newPaneUrl,
         panePickedElement: newPickedElement,
         pendingPaneCommands: newPendingCommands,
-        pendingTypedTexts: newPendingTypedTexts,
       };
 
       // Collapse an emptied panel exactly the way closeTab does.
@@ -3214,7 +3180,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     // The pane is the destination window's now: this one must not badge it,
     // or plan to recover it when its remote host comes back.
-    usePaneHostStore.getState().forgetPane(paneId);
+    useRemotePaneStore.getState().forgetPane(paneId);
 
     set((s) => {
       const currentCtx = getActiveLayoutContext(s);
@@ -3229,7 +3195,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       // A command queued for the pane here (e.g. a remote agent's resume)
       // must not be typed into it should it ever come back to this window.
       const { [paneId]: _cmd, ...pendingPaneCommands } = s.pendingPaneCommands;
-      const { [paneId]: _text, ...pendingTypedTexts } = s.pendingTypedTexts;
 
       // Pane was one of several — collapse the split and keep the tab.
       if (remaining) {
@@ -3238,7 +3203,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           tab.focusedPaneId === paneId ? ids[0] : tab.focusedPaneId;
         return {
           pendingPaneCommands,
-          pendingTypedTexts,
           ...updatePanel(s, path, layout, panel.id, (p) => ({
             ...p,
             tabs: p.tabs.map((t) =>
@@ -3291,7 +3255,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneUrl: newPaneUrl,
         panePickedElement: newPickedElement,
         pendingPaneCommands,
-        pendingTypedTexts,
       };
 
       // Collapse an emptied panel exactly the way removeDetachedTabLocally does.
@@ -3456,7 +3419,7 @@ function flushLayoutSave(): void {
             daemonSessionId: string;
             lastCwd: string | null;
             lastTitle: string | null;
-            lastAgentStatus?: AgentState | null;
+            lastAgentStatus?: PaneAgentStatus | null;
           }
         > = {};
         for (const pid of paneIds) {
@@ -3498,6 +3461,39 @@ function saveActiveWorkspaceLayout(): void {
     flushLayoutSave();
   }, 500);
 }
+
+// ── Agent status (ADR-184 §4) ──
+//
+// Main's Status reconciler is the one decider of every pane's Agent status;
+// the renderer only displays what it publishes. `onStatus` keeps every
+// window's cache live; `getPaneStatuses` primes a window that starts (or a
+// detached/popout window that opens, or a reload) after some panes' statuses
+// were already published, with nothing to replay otherwise.
+window.electronAPI?.agents?.onStatus?.((update) => {
+  useAppStore.getState().setPaneAgentStatus(update);
+});
+
+void window.electronAPI?.agents
+  ?.getPaneStatuses?.()
+  ?.then((updates) => {
+    const primed: Record<string, PaneAgentStatus> = {};
+    for (const update of updates) {
+      primed[update.paneId] = {
+        status: update.status,
+        reason: update.reason,
+        kind: update.kind,
+      };
+    }
+    // A status published between store creation and this resolving is newer
+    // than the snapshot the fetch carried, and must win.
+    useAppStore.setState((s) => ({
+      paneAgentStatus: { ...primed, ...s.paneAgentStatus },
+    }));
+  })
+  ?.catch(() => {
+    // Older preload, or main not reachable yet — the live `onStatus` stream
+    // still keeps the cache correct from here on.
+  });
 
 // Subscribe to store changes and auto-save layout.
 //

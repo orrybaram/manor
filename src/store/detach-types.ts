@@ -1,5 +1,5 @@
 import type { PaneNode } from "./pane-tree";
-import type { AgentState, PickedElementResult } from "../electron.d";
+import type { PaneAgentStatus, PickedElementResult } from "../electron.d";
 
 /**
  * Serialized form of a single tab handed across the process boundary when a tab
@@ -24,7 +24,7 @@ export interface DetachedTabPayload {
     contentType: Record<string, "terminal" | "browser" | "diff">;
     url: Record<string, string | null>;
     favicon: Record<string, string | null>;
-    agentStatus: Record<string, AgentState | null>;
+    agentStatus: Record<string, PaneAgentStatus | null>;
     audioPlaying: Record<string, boolean>;
     audioMuted: Record<string, boolean>;
     pickedElement: Record<string, PickedElementResult | null>;

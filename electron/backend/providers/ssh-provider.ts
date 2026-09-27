@@ -1,10 +1,9 @@
 /**
  * SshHostProvider — a box the user brings, reached over ssh (ADR-178 §1).
  *
- * Wraps ADR-160's `SshTransport`. The box is assumed to be always on, so
- * `ensureUp` has nothing to do and there is no keep-awake. Port forwards ride
- * the transport's existing ControlMaster (`ssh -O forward`), so they cost no
- * new connection or authentication.
+ * Wraps ADR-160's `SshTransport`. The box is assumed to be always on. Port
+ * forwards ride the transport's existing ControlMaster (`ssh -O forward`), so
+ * they cost no new connection or authentication.
  */
 
 import { spawn as nodeSpawn } from "node:child_process";
@@ -16,12 +15,7 @@ import {
   type SshSpawn,
 } from "../../terminal-host/transport-ssh";
 import { remoteHostEnsurer, type BootstrapProgress } from "../remote-bootstrap";
-import type {
-  HostProvider,
-  HostProviderCapabilities,
-  HostProviderStatus,
-  PortForward,
-} from "./types";
+import type { HostProvider, PortForward } from "./types";
 
 const CONTROL_TIMEOUT_MS = 5_000;
 const MAX_STDERR_BYTES = 4 * 1024;
@@ -97,11 +91,6 @@ export interface SshHostProviderOptions {
 
 export class SshHostProvider implements HostProvider {
   readonly kind = "ssh" as const;
-  readonly capabilities: HostProviderCapabilities = {
-    autoSleep: false,
-    persistsMemory: false,
-    previewUrls: false,
-  };
 
   private readonly sshTransport: SshTransport;
   private readonly spawnFn: SshSpawn;
@@ -129,26 +118,6 @@ export class SshHostProvider implements HostProvider {
     this.spawnFn = opts.spawn ?? defaultSpawn;
     this.findFreePort = opts.findFreePort ?? findFreeLocalPort;
     this.isPortFree = opts.isPortFree ?? isLocalPortFree;
-  }
-
-  /** A BYO box is always on; there is nothing to start. */
-  async ensureUp(): Promise<void> {}
-
-  /**
-   * `up` while the ControlMaster answers `-O check`, `unreachable` otherwise
-   * (including before the first connect, when there is no master to ask).
-   */
-  async status(): Promise<HostProviderStatus> {
-    const configPath = this.sshTransport.configPath;
-    if (!configPath) return "unreachable";
-    try {
-      const { code } = await this.runControl(
-        buildControlArgs(configPath, this.target, "check"),
-      );
-      return code === 0 ? "up" : "unreachable";
-    } catch {
-      return "unreachable";
-    }
   }
 
   transport(): SshTransport {

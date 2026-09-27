@@ -22,6 +22,30 @@ import type { ThemeManager } from "../theme";
 import type { PortScanner } from "../ports";
 import type { RemoteControlController } from "../remote-control/controller";
 import type { AgentHookServer } from "../agent-hooks";
+import type { AgentStatusSignals } from "../agent-status/driver";
+
+/** One buffered `console-message` from a webview's `WebContents`. */
+export interface ConsoleEntry {
+  timestamp: string;
+  level: "log" | "warn" | "error" | "info";
+  message: string;
+}
+
+/**
+ * Pane→`WebContents` resolution and buffered console logs, owned by
+ * `WebviewServer` (ADR-183). Structural, like `webviewServer` below, so
+ * `routes/` keeps no import edge back to its host module.
+ */
+export interface WebviewPaneAccess {
+  /** paneId → webContentsId, for `GET /webviews`. */
+  registry: ReadonlyMap<string, number>;
+  /** The pane's live `WebContents`, or why it can't be reached. */
+  getWebContents(
+    paneId: string,
+  ): { wc: Electron.WebContents } | { error: string; status: number };
+  /** Buffered `console-message` entries per pane, oldest first. */
+  consoleLogs: ReadonlyMap<string, ConsoleEntry[]>;
+}
 
 export interface ControlDeps {
   projectManager: ProjectManager | null;
@@ -38,12 +62,27 @@ export interface ControlDeps {
   remoteControl: RemoteControlController | null;
   agentHookServer: AgentHookServer | null;
   /**
+   * The Status reconciler's driver (ADR-184): routes that change an Agent's
+   * lifecycle send it `user` signals instead of writing status. Optional so
+   * control-deps bags built without it (tests, older call sites) still type.
+   */
+  agentStatus?: AgentStatusSignals | null;
+  /**
    * The HTTP server serving this very request, reported by `GET /processes`
    * alongside the other internal servers. Structural rather than the
    * `WebviewServer` class so `routes/` keeps no import edge back to its own
    * host module.
    */
   webviewServer: { serverPort: number | null } | null;
+  /** Pane inspection routes' access to `WebviewServer`'s pane registry. */
+  webviewPanes: WebviewPaneAccess | null;
+  /**
+   * The URL to actually load for a `navigate` in `paneId`'s webview: itself,
+   * or rewritten through the pane's host's port forward for a remote
+   * workspace (ADR-178 §5, ADR-183). Main-owned so `navigate` never races a
+   * setter installed as a side effect of another module's registration.
+   */
+  resolvePaneUrl: ((paneId: string, url: string) => Promise<string>) | null;
   getRendererWindows: (() => BrowserWindow[]) | null;
 }
 

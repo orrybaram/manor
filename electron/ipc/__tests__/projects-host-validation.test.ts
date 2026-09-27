@@ -12,51 +12,38 @@ vi.mock("electron", () => ({
 
 import { register } from "../projects";
 import { LOCAL_HOST_ID } from "../../backend/types";
+import { HostRecords } from "../../projects/host-records";
+import type { StateStore } from "../../projects/state-store";
 
-function makeDeps() {
+function makeDeps(opts: { currentHostId?: string; pathExists?: boolean } = {}) {
+  // The real host rules, over one registered host "box".
+  const hosts = new HostRecords({
+    state: {
+      projects: [],
+      selectedProjectIndex: 0,
+      hosts: { box: { spec: { kind: "ssh", target: "me@box" } } },
+    },
+  } as unknown as StateStore);
   const projectManager = {
     updateProject: vi.fn().mockResolvedValue(null),
-    getHosts: vi.fn().mockReturnValue([{ hostId: "box", spec: { kind: "ssh", target: "me@box" } }]),
+    assertKnownHost: (hostId: string) => hosts.assertKnown(hostId),
+    assertRemoteHost: (hostId: string) => hosts.assertRemote(hostId),
+    getProjectHostId: vi.fn().mockReturnValue(opts.currentHostId ?? LOCAL_HOST_ID),
+    switchProjectHost: opts.pathExists === false
+      ? vi.fn().mockRejectedValue(new Error("does not exist"))
+      : vi.fn().mockResolvedValue({ id: "p1" }),
+    moveProjectToHost: vi.fn().mockResolvedValue({ id: "p1" }),
   };
-  return { projectManager, statsStore: { record: vi.fn() } };
+  const backendRegistry = { ensureConnected: vi.fn().mockResolvedValue(undefined) };
+  return { projectManager, backendRegistry, statsStore: { record: vi.fn() } };
 }
 
-describe("projects:update hostId validation", () => {
+describe("projects:update", () => {
   beforeEach(() => {
     handlers.clear();
   });
 
-  it("accepts the local host", () => {
-    const deps = makeDeps();
-    register(deps as never);
-    const handler = handlers.get("projects:update")!;
-    handler(null, "p1", { hostId: LOCAL_HOST_ID });
-    expect(deps.projectManager.updateProject).toHaveBeenCalledWith("p1", {
-      hostId: LOCAL_HOST_ID,
-    });
-  });
-
-  it("accepts a registered remote host", () => {
-    const deps = makeDeps();
-    register(deps as never);
-    const handler = handlers.get("projects:update")!;
-    handler(null, "p1", { hostId: "box" });
-    expect(deps.projectManager.updateProject).toHaveBeenCalledWith("p1", {
-      hostId: "box",
-    });
-  });
-
-  it("rejects a host id nobody registered", () => {
-    const deps = makeDeps();
-    register(deps as never);
-    const handler = handlers.get("projects:update")!;
-    expect(() => handler(null, "p1", { hostId: "no-such-host" })).toThrow(
-      /Unknown host/,
-    );
-    expect(deps.projectManager.updateProject).not.toHaveBeenCalled();
-  });
-
-  it("leaves other updates untouched when hostId is absent", () => {
+  it("passes updates straight through", () => {
     const deps = makeDeps();
     register(deps as never);
     const handler = handlers.get("projects:update")!;
@@ -64,5 +51,57 @@ describe("projects:update hostId validation", () => {
     expect(deps.projectManager.updateProject).toHaveBeenCalledWith("p1", {
       name: "Renamed",
     });
+  });
+});
+
+describe("projects:switchHost (ADR-179)", () => {
+  beforeEach(() => {
+    handlers.clear();
+  });
+
+  it("passes an explicit path through", async () => {
+    const deps = makeDeps({ currentHostId: "box" });
+    register(deps as never);
+    await handlers.get("projects:switchHost")!(null, "p1", LOCAL_HOST_ID, "/Users/me/Code/app");
+    expect(deps.projectManager.switchProjectHost).toHaveBeenCalledWith(
+      "p1",
+      LOCAL_HOST_ID,
+      "/Users/me/Code/app",
+    );
+  });
+
+  it("rejects an unknown host", () => {
+    const deps = makeDeps();
+    register(deps as never);
+    expect(() => handlers.get("projects:switchHost")!(null, "p1", "nope")).toThrow(/Unknown host/);
+  });
+});
+
+describe("projects:moveToHost (ADR-179)", () => {
+  beforeEach(() => {
+    handlers.clear();
+  });
+
+  const opts = { hostId: "box", repoUrl: "https://github.com/org/app.git", remoteDir: "~/code/app" };
+
+  it("connects to the host before moving the project", async () => {
+    const deps = makeDeps();
+    register(deps as never);
+    await handlers.get("projects:moveToHost")!(null, "p1", opts);
+    expect(deps.backendRegistry.ensureConnected).toHaveBeenCalledWith("box");
+    expect(deps.projectManager.moveProjectToHost).toHaveBeenCalledWith("p1", opts);
+  });
+
+  it("rejects the local host and unknown hosts", async () => {
+    const deps = makeDeps();
+    register(deps as never);
+    const handler = handlers.get("projects:moveToHost")!;
+    await expect(
+      handler(null, "p1", { ...opts, hostId: LOCAL_HOST_ID }) as Promise<unknown>,
+    ).rejects.toThrow(/remote host is required/);
+    await expect(
+      handler(null, "p1", { ...opts, hostId: "nope" }) as Promise<unknown>,
+    ).rejects.toThrow(/Unknown host/);
+    expect(deps.projectManager.moveProjectToHost).not.toHaveBeenCalled();
   });
 });

@@ -26,7 +26,7 @@ vi.mock("node:child_process", () => ({
   execFile: (...args: unknown[]) => execFileMock(...args),
 }));
 
-import { localExec } from "../exec";
+import { localExec, streamAfter } from "../exec";
 
 beforeEach(() => {
   spawnMock.mockReset();
@@ -127,5 +127,53 @@ describe("localExec.file", () => {
     // An explicit `maxBuffer: undefined` would disable execFile's 1 MiB cap.
     expect(opts).toEqual({ timeout: 5000 });
     expect("maxBuffer" in opts).toBe(false);
+  });
+});
+
+describe("streamAfter", () => {
+  const flush = () => new Promise<void>((r) => setTimeout(r, 0));
+
+  it("starts once the precondition resolves, reporting through done", async () => {
+    const onDone = vi.fn();
+    const start = vi.fn((value: string, done: (r: { exitCode: number | null; stderr: string }) => void) => {
+      done({ exitCode: 0, stderr: value });
+      done({ exitCode: 1, stderr: "again" });
+      return { cancel: vi.fn() };
+    });
+    streamAfter(Promise.resolve("main"), start, onDone);
+    expect(start).not.toHaveBeenCalled();
+    await flush();
+    expect(start).toHaveBeenCalledWith("main", expect.any(Function));
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(onDone).toHaveBeenCalledWith({ exitCode: 0, stderr: "main" });
+  });
+
+  it("reports a rejected precondition as stderr, without starting", async () => {
+    const onDone = vi.fn();
+    const start = vi.fn(() => ({ cancel: vi.fn() }));
+    streamAfter(Promise.reject(new Error("host is down")), start, onDone);
+    await flush();
+    expect(start).not.toHaveBeenCalled();
+    expect(onDone).toHaveBeenCalledWith({ exitCode: null, stderr: "host is down" });
+  });
+
+  it("cancelled before starting: reports a killed stream at once, and never starts", async () => {
+    const onDone = vi.fn();
+    const start = vi.fn(() => ({ cancel: vi.fn() }));
+    const { cancel } = streamAfter(Promise.resolve(1), start, onDone);
+    cancel();
+    expect(onDone).toHaveBeenCalledWith({ exitCode: null, stderr: "" });
+    await flush();
+    cancel();
+    expect(start).not.toHaveBeenCalled();
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("forwards a cancel once started", async () => {
+    const inner = vi.fn();
+    const { cancel } = streamAfter(Promise.resolve(1), () => ({ cancel: inner }), vi.fn());
+    await flush();
+    cancel();
+    expect(inner).toHaveBeenCalledTimes(1);
   });
 });

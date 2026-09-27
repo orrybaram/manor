@@ -562,12 +562,11 @@ describe("Metadata tracking", () => {
   });
 
   it("setPaneAgentStatus updates paneAgentStatus", () => {
-    useAppStore.getState().setPaneAgentStatus("pane-1", {
+    useAppStore.getState().setPaneAgentStatus({
+      paneId: "pane-1",
       kind: "claude",
       status: "thinking",
-      processName: "claude",
-      since: Date.now(),
-      title: null,
+      reason: "PreToolUse hook",
     });
     expect(useAppStore.getState().paneAgentStatus["pane-1"]?.status).toBe(
       "thinking",

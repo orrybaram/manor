@@ -79,7 +79,7 @@ function createHarness(): Harness {
       installed = result.installed;
     },
   });
-  const client = new TerminalHostClient(VERSION, transport, { pushLocalEnv: false });
+  const client = new TerminalHostClient(VERSION, transport);
   const h: Harness = {
     client,
     transport,
@@ -178,7 +178,7 @@ describe.skipIf(skipReason !== null)("remote host over a real sshd", () => {
       expect(onRemote('"$HOME/.manor/bin/manor-host" --version').stdout.trim()).toBe(VERSION);
       expect(await h.client.ping()).toBe(true);
       // The agent-hook bootstrap ran on the box, against the box's own home.
-      expect(await h.client.bootstrap()).not.toBeNull();
+      expect((await h.client.bootstrap()).agents).toContain("claude");
       onRemote('test -x "$HOME/.manor/hooks/notify.sh"');
     },
     BOOTSTRAP_TIMEOUT_MS,

@@ -651,7 +651,7 @@ describe("ensureHookScript", () => {
 
   async function freshImport() {
     const mod = await import(
-      `../agent-hooks?t=${Date.now()}-${crypto.randomUUID()}`
+      `../terminal-host/bootstrap-host?t=${Date.now()}-${crypto.randomUUID()}`
     );
     return mod;
   }

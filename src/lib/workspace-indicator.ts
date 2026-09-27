@@ -31,7 +31,6 @@ export function toWorkspaceIndicator(
       return { kind: "needs_you", pulse: false };
     case "responded":
       return pulse ? { kind: "done_unread", pulse: true } : null;
-    case "complete":
     case "idle":
     case null:
     case undefined:

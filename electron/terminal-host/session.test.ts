@@ -20,7 +20,9 @@ vi.mock("../shell", () => ({
 }));
 
 import os from "node:os";
-import { Session, buildShellEnv, prependManorBinDir } from "./session";
+import { Session, buildShellEnv, prependManorBinDir, spawnArgsFor } from "./session";
+import fs from "node:fs";
+import path from "node:path";
 import { manorBinDir } from "../paths";
 import type { StreamEvent } from "./types";
 
@@ -452,6 +454,59 @@ describe("Session", () => {
       expect(session.info.rows).toBe(40);
     });
   });
+
+  describe("Pane facts (ADR-184)", () => {
+    function paneFactsEvents(written: string[]) {
+      return written
+        .map((line) => JSON.parse(line) as StreamEvent)
+        .filter((event): event is Extract<StreamEvent, { type: "paneFacts" }> =>
+          event.type === "paneFacts",
+        );
+    }
+
+    function pushFgFrame(name: string | null): void {
+      (session as any).decoder.push(encodeJsonFrame(MSG.FGPROC, { name }));
+    }
+
+    it("starts with empty facts", () => {
+      expect(session.getPaneFacts()).toEqual({
+        foreground: null,
+        title: null,
+        outputHint: null,
+      });
+    });
+
+    it("emits paneFacts when the foreground process changes", () => {
+      const { socket, written } = mockSocket();
+      session.attachClient(socket);
+
+      pushFgFrame("claude");
+      pushFgFrame("claude");
+      pushFgFrame(null);
+
+      const events = paneFactsEvents(written);
+      expect(events.map((e) => e.facts.foreground)).toEqual([
+        { name: "claude", kind: "claude" },
+        null,
+      ]);
+      expect(events.every((e) => e.sessionId === "test-session")).toBe(true);
+    });
+
+    it("emits paneFacts from terminal output: title and output hint", () => {
+      const { socket, written } = mockSocket();
+      session.attachClient(socket);
+
+      pushDataFrame(session, "\x1b]0;my title\x07");
+      pushDataFrame(session, "plain output\r\n");
+      pushDataFrame(session, "Do you want to proceed? (y/n)\r\n");
+
+      const events = paneFactsEvents(written);
+      expect(events).toHaveLength(2);
+      expect(events[0].facts.title).toBe("my title");
+      expect(events[1].facts.outputHint?.hint).toBe("requires_input");
+      expect(session.getPaneFacts()).toEqual(events[1].facts);
+    });
+  });
 });
 
 describe("buildShellEnv", () => {
@@ -559,5 +614,38 @@ describe("prependManorBinDir", () => {
   it("handles an empty base PATH", () => {
     const result = prependManorBinDir("");
     expect(result).toBe(manorBinDir());
+  });
+});
+
+describe("spawnArgsFor", () => {
+  let dir: string;
+  let bashrc: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-bashrc-"));
+    bashrc = path.join(dir, "bashrc");
+    fs.writeFileSync(bashrc, "");
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("starts plain bash with Manor's rcfile", () => {
+    expect(spawnArgsFor("/bin/bash", [], () => bashrc)).toEqual(["--rcfile", bashrc]);
+  });
+
+  it("leaves zsh and other shells alone", () => {
+    expect(spawnArgsFor("/bin/zsh", [], () => bashrc)).toEqual([]);
+    expect(spawnArgsFor("/usr/bin/fish", [], () => bashrc)).toEqual([]);
+  });
+
+  it("keeps explicit args", () => {
+    expect(spawnArgsFor("/bin/bash", ["-l"], () => bashrc)).toEqual(["-l"]);
+  });
+
+  it("falls back to plain bash when the rcfile is missing", () => {
+    fs.rmSync(bashrc);
+    expect(spawnArgsFor("/bin/bash", [], () => bashrc)).toEqual([]);
   });
 });

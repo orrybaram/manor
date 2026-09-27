@@ -18,6 +18,7 @@
  *   the command or lost the connection mid-run.
  */
 
+import { errorMessage } from "../lib/errors";
 import type { TerminalHostClient } from "../terminal-host/client";
 import type { Exec, ExecError } from "./exec";
 
@@ -54,7 +55,7 @@ export function createRemoteExec(client: RemoteExecClient): Exec {
       } catch (err) {
         // The daemon could not be asked (connection lost, request timed out):
         // no output, and no exit code to report.
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         throw execError(
           cmd,
           args,

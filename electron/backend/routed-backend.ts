@@ -11,9 +11,14 @@
  *   created on, or for a new session the host its cwd belongs to (the
  *   host of the project containing it);
  * - git calls go to the host their cwd belongs to;
- * - `ports.scan` splits its paths by host, `ports.kill` goes to the host
- *   whose last scan reported the pid;
+ * - `ports.kill` goes to the host whose last scan reported the pid;
+ *   `ports.scan` is this machine's — `PortScanner` scans each host through
+ *   the registry itself (ADR-183);
  * - `shell.which` is always local (it answers "is this CLI installed here").
+ *
+ * A cwd here is a bare path from outside (a pty cwd, a git call from the
+ * renderer), so this is the one place a path's host is inferred (ADR-183);
+ * everything that knows a workspace's host passes it along instead.
  *
  * With no remote host registered every route ends at the local backend,
  * called with exactly the arguments it was called with before.
@@ -22,9 +27,8 @@
 import type { BackendRegistry } from "./registry";
 import {
   LOCAL_HOST_ID,
-  type ActivePort,
   type GitBackend,
-  type HostConnectionEventHandler,
+  type MachineFacts,
   type PortsBackend,
   type PtyBackend,
   type SessionInfo,
@@ -35,72 +39,68 @@ import {
 /** Resolves a filesystem path to the host it lives on. */
 export type HostForPath = (path: string) => string;
 
-/** Split `paths` by host, preserving order within and across hosts. */
-export function groupPathsByHost(
-  paths: readonly string[],
-  hostForPath: HostForPath,
-): Map<string, string[]> {
-  const groups = new Map<string, string[]>();
-  for (const p of paths) {
-    const hostId = hostForPath(p);
-    const group = groups.get(hostId);
-    if (group) group.push(p);
-    else groups.set(hostId, [p]);
-  }
-  return groups;
+/** The hosts whose latest port scan reported a pid (`PortScanner`). */
+export type PidHosts = (pid: number) => string[];
+
+/** A `PtyBackend` whose `createOrAttach` also says which host it used. */
+export interface RoutedPtyBackend extends PtyBackend {
+  createOrAttach(
+    ...args: Parameters<PtyBackend["createOrAttach"]>
+  ): Promise<Awaited<ReturnType<PtyBackend["createOrAttach"]>> & { hostId: string }>;
 }
 
 export class RoutedBackend implements WorkspaceBackend {
-  readonly pty: PtyBackend;
+  readonly pty: RoutedPtyBackend;
   readonly git: GitBackend;
   readonly shell: ShellBackend;
   readonly ports: PortsBackend;
-
-  /** Pids each host's latest port scan reported, for routing `kill`. */
-  private readonly scannedPids = new Map<string, Set<number>>();
+  /**
+   * This machine's facts: like `shell.homeDir`, there is nothing to route
+   * by. Callers that need a specific host's go through the registry.
+   */
+  readonly facts: MachineFacts;
 
   constructor(
     private readonly registry: BackendRegistry,
-    private readonly hostForPath: HostForPath,
+    hostForPath: HostForPath,
+    pidHosts: PidHosts = () => [],
   ) {
+    const { sessions } = registry;
     const local = () => registry.get(LOCAL_HOST_ID);
     const bySession = (sessionId: string) =>
-      registry.get(registry.hostForSession(sessionId) ?? LOCAL_HOST_ID).pty;
+      registry.get(sessions.ownerOf(sessionId) ?? LOCAL_HOST_ID).pty;
     const byPath = (cwd: string) => registry.get(hostForPath(cwd));
 
     this.pty = {
       createOrAttach: async (sessionId, cwd, cols, rows, shellArgs, env) => {
-        const hostId = registry.hostForSession(sessionId) ?? hostForPath(cwd);
+        const hostId = sessions.ownerOf(sessionId) ?? hostForPath(cwd);
         const result = await registry
           .get(hostId)
           .pty.createOrAttach(sessionId, cwd, cols, rows, shellArgs, env);
-        registry.noteSession(sessionId, hostId);
-        return result;
+        sessions.claim(sessionId, hostId);
+        return { ...result, hostId };
       },
       write: (sessionId, data) => bySession(sessionId).write(sessionId, data),
       resize: (sessionId, cols, rows) =>
         bySession(sessionId).resize(sessionId, cols, rows),
       kill: async (sessionId) => {
         await bySession(sessionId).kill(sessionId);
-        registry.forgetSession(sessionId);
+        sessions.release(sessionId);
       },
       detach: (sessionId) => bySession(sessionId).detach(sessionId),
       getSnapshot: (sessionId) => bySession(sessionId).getSnapshot(sessionId),
+      getPaneFacts: (sessionId) => bySession(sessionId).getPaneFacts(sessionId),
       listSessions: () =>
         this.acrossHosts(async (hostId, backend) => {
-          const sessions = await backend.pty.listSessions();
-          for (const s of sessions) registry.noteSession(s.sessionId, hostId);
-          return sessions;
+          const listed = await backend.pty.listSessions();
+          for (const s of listed) sessions.claim(s.sessionId, hostId);
+          return listed;
         }).then((lists): SessionInfo[] => lists.flat()),
       disposeDead: async () => {
         await this.acrossHosts((_hostId, backend) => backend.pty.disposeDead());
       },
-      onEvent: (handler) => {
-        registry.onEvent((_hostId, event) => handler(event));
-      },
+      onEvent: (handler) => registry.onEvent((_hostId, event) => handler(event)),
       updateEnv: (env) => local().pty.updateEnv(env),
-      relayAgentHook: (sessionId, status, kind) =>
-        bySession(sessionId).relayAgentHook(sessionId, status, kind),
     };
 
     this.git = {
@@ -138,12 +138,12 @@ export class RoutedBackend implements WorkspaceBackend {
       homeDir: () => local().shell.homeDir(),
     };
 
+    this.facts = local().facts;
+
     this.ports = {
-      scan: (workspacePaths) => this.scanPorts(workspacePaths),
+      scan: (workspacePaths) => local().ports.scan(workspacePaths),
       kill: (pid) => {
-        const owners = Array.from(this.scannedPids)
-          .filter(([, pids]) => pids.has(pid))
-          .map(([hostId]) => hostId);
+        const owners = pidHosts(pid);
         if (owners.length > 1) {
           return Promise.reject(
             new Error(`pid ${pid} is listening on more than one host (${owners.join(", ")})`),
@@ -154,17 +154,13 @@ export class RoutedBackend implements WorkspaceBackend {
     };
   }
 
-  connect(opts?: { version?: string }): Promise<void> {
-    if (opts?.version) this.registry.setVersion(opts.version);
+  /** Connect the local host; remote ones connect on their own (see the registry). */
+  connect(): Promise<void> {
     return this.registry.ensureConnected(LOCAL_HOST_ID);
   }
 
   disconnect(): Promise<void> {
     return this.registry.disconnectAll();
-  }
-
-  onHostEvent(handler: HostConnectionEventHandler): void {
-    this.registry.onHostEvent((_hostId, event) => handler(event));
   }
 
   /**
@@ -191,26 +187,5 @@ export class RoutedBackend implements WorkspaceBackend {
       else console.warn(`[routed-backend] ${hostIds[i]} failed:`, r.reason);
     });
     return results;
-  }
-
-  private async scanPorts(workspacePaths: string[]): Promise<ActivePort[]> {
-    const groups = groupPathsByHost(workspacePaths, this.hostForPath);
-    const hostIds = groups.size === 0 ? [LOCAL_HOST_ID] : Array.from(groups.keys());
-    const results = await Promise.allSettled(
-      hostIds.map(async (hostId) => {
-        const ports = await this.registry
-          .get(hostId)
-          .ports.scan(groups.get(hostId) ?? []);
-        this.scannedPids.set(hostId, new Set(ports.map((p) => p.pid)));
-        return hostId === LOCAL_HOST_ID ? ports : ports.map((p) => ({ ...p, hostId }));
-      }),
-    );
-    const merged: ActivePort[] = [];
-    results.forEach((r, i) => {
-      if (r.status === "fulfilled") merged.push(...r.value);
-      else if (hostIds[i] === LOCAL_HOST_ID || hostIds.length === 1) throw r.reason;
-      else console.warn(`[routed-backend] port scan on ${hostIds[i]} failed:`, r.reason);
-    });
-    return merged;
   }
 }

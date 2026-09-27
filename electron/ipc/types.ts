@@ -1,17 +1,18 @@
 import type { BrowserWindow } from "electron";
-import type { WorkspaceBackend } from "../backend/types";
+import type { RoutedBackend } from "../backend/routed-backend";
 import type { BackendRegistry } from "../backend/registry";
 import type { LayoutPersistence } from "../terminal-host/layout-persistence";
 import type { ProjectManager } from "../persistence";
 import type { ThemeManager } from "../theme";
 import type { PortScanner } from "../ports";
-import type { RemoteForwards } from "../remote-forwards";
+import type { RemoteForwards, RemoteUrlResolver } from "../remote-forwards";
 import type { BranchWatcher } from "../branch-watcher";
 import type { DiffWatcher } from "../diff-watcher";
 import type { GitHubManager } from "../github";
 import type { LinearManager } from "../linear";
 import type { AgentHookServer } from "../agent-hooks";
 import type { AgentManager } from "../agent-persistence";
+import type { AgentStatusDriver } from "../agent-status/driver";
 import type { NotificationStore } from "../notification-store";
 import type { StatsStore } from "../stats-store";
 import type { PreferencesManager } from "../preferences";
@@ -41,7 +42,7 @@ export interface IpcDeps {
    */
   registerDetachedWindow: (windowId: string, win: BrowserWindow) => void;
   /** Routes each pane, cwd and pid to its host (`RoutedBackend`). */
-  backend: WorkspaceBackend;
+  backend: RoutedBackend;
   /** Every host and its connection status (ADR-160). */
   backendRegistry: BackendRegistry;
   layoutPersistence: LayoutPersistence;
@@ -50,12 +51,26 @@ export interface IpcDeps {
   portScanner: PortScanner;
   /** Port forwards to remote projects' dev servers (ADR-178 §5). */
   remoteForwards: RemoteForwards;
+  /**
+   * Turns a URL opened in a remote host's context into the one to load
+   * (ADR-178 §5). Built once in `app-lifecycle.ts` alongside `paneHosts` so
+   * `ControlDeps.resolvePaneUrl` exists before any IPC module registers
+   * (ADR-183) — `ports:resolveUrl` uses the same instance.
+   */
+  remoteUrlResolver: RemoteUrlResolver;
+  /** paneId → the remote host its workspace lives on (ADR-178 §5, ADR-183). */
+  paneHosts: Map<string, string>;
   branchWatcher: BranchWatcher;
   diffWatcher: DiffWatcher;
   githubManager: GitHubManager;
   linearManager: LinearManager;
   agentHookServer: AgentHookServer;
   agentManager: AgentManager;
+  /**
+   * The Status reconciler's driver (ADR-184). User actions that change an
+   * Agent's lifecycle enter it as `user` signals; handlers never write status.
+   */
+  agentStatus: Pick<AgentStatusDriver, "signal" | "getPaneState" | "getAllPaneStatuses">;
   /** ADR-162's durable notification log. */
   notificationStore: NotificationStore;
   /** ADR-168 usage stats. */

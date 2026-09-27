@@ -88,6 +88,11 @@ export function shellZdotdir(): string {
   return path.join(manorDataDir(), "zdotdir");
 }
 
+/** The rcfile bash panes start with (`bash --rcfile`), beside the zdotdir. */
+export function shellBashrc(): string {
+  return path.join(manorDataDir(), "bash", "bashrc");
+}
+
 export function recordingsDir(): string {
   return path.join(manorDataDir(), "recordings");
 }

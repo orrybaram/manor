@@ -67,6 +67,7 @@ function makeProject(): ProjectInfo {
     themeName: null,
     setupComplete: true,
     portlessEnabled: true,
+    hostId: "local",
     folders: [],
     sidebarOrder: [],
   };

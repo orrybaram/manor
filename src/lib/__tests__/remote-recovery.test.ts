@@ -94,7 +94,7 @@ describe("shouldRequeuePaneCommand", () => {
     expect(shouldRequeuePaneCommand("p", { ...base, windowPaneIds: new Set() })).toBe(false);
     expect(shouldRequeuePaneCommand("p", { ...base, closedPaneIds: new Set(["p"]) })).toBe(false);
     expect(
-      shouldRequeuePaneCommand("p", { ...base, pendingPaneCommands: { p: "newer" } }),
+      shouldRequeuePaneCommand("p", { ...base, pendingPaneCommands: { p: { text: "newer", submit: true } } }),
     ).toBe(false);
   });
 });

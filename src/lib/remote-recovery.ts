@@ -21,7 +21,7 @@
  */
 
 import type { AgentInfo } from "../electron.d";
-import type { WorkspaceLayout } from "../store/app-store";
+import type { PendingPaneCommand, WorkspaceLayout } from "../store/app-store";
 import { allPaneIds } from "../store/pane-tree";
 
 export interface HostResumePlan {
@@ -185,7 +185,7 @@ export function shouldRequeuePaneCommand(
     remoteHostByPane: Readonly<Record<string, string>>;
     windowPaneIds: ReadonlySet<string>;
     closedPaneIds: ReadonlySet<string>;
-    pendingPaneCommands: Readonly<Record<string, string>>;
+    pendingPaneCommands: Readonly<Record<string, PendingPaneCommand>>;
   },
 ): boolean {
   return (

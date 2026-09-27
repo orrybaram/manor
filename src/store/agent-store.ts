@@ -217,7 +217,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       // title now rather than showing a generic label until then.
       const agent = get().agents.find((t) => t.id === agentId);
       const liveTitle = agent?.paneId
-        ? useAppStore.getState().paneAgentStatus[agent.paneId]?.title ?? null
+        ? useAppStore.getState().paneTitle[agent.paneId] ?? null
         : null;
       const updates = trimmed
         ? { name: trimmed, namePinned: true }

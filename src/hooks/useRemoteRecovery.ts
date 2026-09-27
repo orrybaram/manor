@@ -2,16 +2,11 @@ import { useMountEffect } from "./useMountEffect";
 import { recoverHostPanes, windowPaneIds } from "../lib/remote-recovery";
 import { useAppStore } from "../store/app-store";
 import { useHostStore } from "../store/host-store";
-import {
-  isAwaitingHost,
-  takePanesAwaitingHost,
-  usePaneHostStore,
-} from "../store/pane-host-store";
-import { usePaneReattachStore } from "../store/pane-reattach-store";
+import { remoteHostByPane, useRemotePaneStore } from "../store/remote-pane-store";
 import { useToastStore } from "../store/toast-store";
 
-const inThisWindow = (paneId: string) =>
-  windowPaneIds(useAppStore.getState().workspaceLayouts).has(paneId);
+/** This window's panes, as of now — computed once per event (ADR-183). */
+const thisWindowsPanes = () => windowPaneIds(useAppStore.getState().workspaceLayouts);
 
 /**
  * Recover this window's panes on a remote host each time it comes back from
@@ -23,18 +18,21 @@ export function useRemoteRecovery() {
   useMountEffect(() => {
     const unsubscribe = window.electronAPI?.hosts?.onReconnected?.(
       ({ hostId, sessionIds }) => {
+        const inThisWindow = thisWindowsPanes();
         void recoverHostPanes(hostId, sessionIds, {
-          remoteHostByPane: () => usePaneHostStore.getState().remoteHostByPane,
+          remoteHostByPane: () => remoteHostByPane(useRemotePaneStore.getState()),
           // A pane still waiting never had a session to lose: the host
           // connecting creates it (below).
-          includePane: (paneId) => inThisWindow(paneId) && !isAwaitingHost(paneId),
+          includePane: (paneId) =>
+            inThisWindow.has(paneId) &&
+            !useRemotePaneStore.getState().panes[paneId]?.awaiting,
           getActiveAgents: () => window.electronAPI.agents.getAll({ status: "active" }),
           markResumed: (agentId) => window.electronAPI.agents.markResumed(agentId),
           buildResumeCommand: (agentId) =>
             window.electronAPI.agents.buildResumeCommand(agentId),
           setPendingPaneCommand: (paneId, command) =>
             useAppStore.getState().setPendingPaneCommand(paneId, command),
-          reattach: (paneIds) => usePaneReattachStore.getState().reattach(paneIds),
+          reattach: (paneIds) => useRemotePaneStore.getState().reattach(paneIds),
           notify: (message) =>
             useToastStore.getState().addToast({
               id: `host-restarted-${hostId}`,
@@ -58,6 +56,7 @@ export function useRemoteRecovery() {
         .map((h) => h.hostId),
     );
     const unsubscribeHosts = useHostStore.subscribe(({ hosts }) => {
+      let inThisWindow: Set<string> | undefined;
       for (const host of hosts) {
         if (host.status !== "connected") {
           connected.delete(host.hostId);
@@ -65,8 +64,12 @@ export function useRemoteRecovery() {
         }
         if (connected.has(host.hostId)) continue;
         connected.add(host.hostId);
-        const panes = takePanesAwaitingHost(host.hostId, inThisWindow);
-        if (panes.length > 0) usePaneReattachStore.getState().reattach(panes);
+        const windowPanes = (inThisWindow ??= thisWindowsPanes());
+        const remotePanes = useRemotePaneStore.getState();
+        const panes = remotePanes.takePanesAwaitingHost(host.hostId, (paneId) =>
+          windowPanes.has(paneId),
+        );
+        if (panes.length > 0) remotePanes.reattach(panes);
       }
     });
 

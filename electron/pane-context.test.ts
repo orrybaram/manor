@@ -192,6 +192,7 @@ describe("pane-context", () => {
       themeName: null,
       setupComplete: true,
       portlessEnabled: true,
+      hostId: "local",
       folders: [],
       sidebarOrder: [],
       ...overrides,

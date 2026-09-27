@@ -15,16 +15,16 @@
 
 import * as http from "node:http";
 import * as fs from "node:fs";
-import * as path from "node:path";
 
 import { hookPortFile } from "./paths";
 import {
   type AgentHookEvent,
-  hookRequestParams,
+  classifyHookRequest,
   parseAgentHookEvent,
 } from "./agent-hook-events";
 import type { HookPayload } from "./terminal-host/types";
 import { LOCAL_HOST_ID } from "./backend/types";
+import { writeFileAtomic } from "./lib/fs-atomic";
 
 /**
  * Atomically write the port number to the hook port file.
@@ -32,10 +32,7 @@ import { LOCAL_HOST_ID } from "./backend/types";
  * preventing hook scripts from reading garbage if a write is interrupted.
  */
 function writePortFileAtomic(port: number): void {
-  fs.mkdirSync(path.dirname(HOOK_PORT_FILE), { recursive: true });
-  const tmp = `${HOOK_PORT_FILE}.tmp`;
-  fs.writeFileSync(tmp, String(port));
-  fs.renameSync(tmp, HOOK_PORT_FILE);
+  writeFileAtomic(HOOK_PORT_FILE, String(port));
 }
 
 function fromHost(ctx: { hostId: string }): string {
@@ -79,11 +76,10 @@ export class AgentHookServer {
    * `dropped` (well-formed but not relayed), or `rejected` (malformed).
    */
   ingestHookPayload(
-    payload: URLSearchParams | HookPayload,
+    payload: HookPayload,
     ctx: { hostId: string },
   ): "relayed" | "dropped" | "rejected" {
-    const params =
-      payload instanceof URLSearchParams ? payload : new URLSearchParams(payload);
+    const params = new URLSearchParams(payload);
     const result = parseAgentHookEvent(params);
     if (!result.ok) {
       if (result.action === "reject") {
@@ -113,16 +109,24 @@ export class AgentHookServer {
   /** Start the HTTP server on a random port */
   async start(): Promise<void> {
     this.server = http.createServer((req, res) => {
-      const params = hookRequestParams(req.url);
-      if (!params) {
+      // Same parser as the remote daemon's HookListener (ADR-183): both
+      // classify a request before either does anything with it.
+      const verdict = classifyHookRequest(req.url);
+      if (verdict.status === 404) {
         res.writeHead(404);
         res.end();
         return;
       }
-      if (this.ingestHookPayload(params, { hostId: LOCAL_HOST_ID }) === "rejected") {
+      if (verdict.status === 400) {
+        console.warn(`[agent-hooks] rejecting hook: ${verdict.reason}`);
         res.writeHead(400);
         res.end();
         return;
+      }
+      if (verdict.payload) {
+        this.ingestHookPayload(verdict.payload, { hostId: LOCAL_HOST_ID });
+      } else {
+        console.debug(`[agent-hooks] dropping hook: ${verdict.reason}`);
       }
       res.writeHead(200);
       res.end("ok");
@@ -156,15 +160,5 @@ export class AgentHookServer {
     }
   }
 }
-
-// ── Hook Script & Registration ──
-//
-// The hook scripts and connector registration live in the Electron-free
-// bootstrap module so the terminal-host daemon can run them on its own host.
-
-export {
-  ensureHookScript,
-  registerAllAgents,
-} from "./terminal-host/bootstrap-host";
 
 const HOOK_PORT_FILE = hookPortFile();

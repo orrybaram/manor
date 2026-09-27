@@ -8,13 +8,14 @@ export function useDiffWatcher() {
     (s) => s.updateWorkspaceDiffStats,
   );
 
-  // Build a stable map of workspacePath → defaultBranch
-  const prevMapRef = useRef<Record<string, string>>({});
+  // Build a stable map of workspacePath → { defaultBranch, hostId } — each
+  // workspace travels with its project's host (ADR-183).
+  const prevMapRef = useRef<Record<string, { defaultBranch: string; hostId: string }>>({});
   const workspaceMap = (() => {
-    const next: Record<string, string> = {};
+    const next: Record<string, { defaultBranch: string; hostId: string }> = {};
     for (const p of projects) {
       for (const ws of p.workspaces) {
-        next[ws.path] = p.defaultBranch;
+        next[ws.path] = { defaultBranch: p.defaultBranch, hostId: p.hostId };
       }
     }
     const prev = prevMapRef.current;
@@ -22,7 +23,11 @@ export function useDiffWatcher() {
     const nextKeys = Object.keys(next);
     if (
       prevKeys.length === nextKeys.length &&
-      nextKeys.every((k) => prev[k] === next[k])
+      nextKeys.every(
+        (k) =>
+          prev[k]?.defaultBranch === next[k].defaultBranch &&
+          prev[k]?.hostId === next[k].hostId,
+      )
     ) {
       return prev;
     }
@@ -32,8 +37,9 @@ export function useDiffWatcher() {
 
   // Start/stop watcher when workspaceMap changes
   useEffect(() => {
-    if (Object.keys(workspaceMap).length > 0) {
-      window.electronAPI.diffs.start(workspaceMap);
+    const workspaces = Object.entries(workspaceMap).map(([path, ws]) => ({ path, ...ws }));
+    if (workspaces.length > 0) {
+      window.electronAPI.diffs.start(workspaces);
     } else {
       window.electronAPI.diffs.stop();
     }

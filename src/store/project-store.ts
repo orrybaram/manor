@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { useAppStore } from "./app-store";
 import { useToastStore } from "./toast-store";
 import { branchesEqual } from "../utils/branch-name";
+import { ipcErrorMessage } from "../lib/ipc-error";
 import {
   buildSidebarItems,
   folderParentsOf,
@@ -375,9 +376,8 @@ export interface ProjectInfo {
   setupComplete: boolean;
   /** Whether dev-server ports get `.localhost` preview hostnames. Defaults to true. */
   portlessEnabled: boolean;
-  backendType?: "local" | "remote";
-  /** The host this project's paths, git and terminals live on (ADR-160). */
-  hostId?: string;
+  /** The host this project's paths, git and terminals live on (ADR-160); `"local"` for this machine. */
+  hostId: string;
   folders: WorkspaceFolder[];
   /**
    * Normalized, depth-first order of workspace paths and folder ids — the
@@ -405,7 +405,6 @@ export type ProjectUpdatableFields = Partial<
     | "themeName"
     | "setupComplete"
     | "portlessEnabled"
-    | "hostId"
   >
 >;
 
@@ -432,6 +431,20 @@ interface ProjectState {
     remoteDir: string;
     name: string;
   }) => Promise<ProjectInfo>;
+  /** ADR-179: clone an existing project onto a remote host, keeping its record. */
+  moveProjectToHost: (
+    projectId: string,
+    opts: { hostId: string; repoUrl: string; remoteDir: string },
+  ) => Promise<ProjectInfo>;
+  /**
+   * ADR-179: switch a project to a host without cloning — to `path`, or the
+   * path it last had there.
+   */
+  switchProjectHost: (
+    projectId: string,
+    hostId: string,
+    path?: string,
+  ) => Promise<ProjectInfo>;
   removeProject: (projectId: string) => Promise<void>;
   selectProject: (index: number) => void;
   selectWorkspace: (projectId: string, workspaceIndex: number) => void;
@@ -526,6 +539,29 @@ interface ProjectState {
   setFolderExpanded: (projectId: string, folderId: string) => void;
 }
 
+/**
+ * After a host switch (ADR-179) the project's workspaces live at new paths
+ * on the new host; the old ones — the previous checkout and its worktrees —
+ * are no longer part of it. Select the new main workspace if the window was
+ * showing one of them, then close their tabs, killing their terminals, so
+ * nothing is left running against a workspace that is gone.
+ */
+function closeWorkspacesLeftBehind(
+  previous: ProjectInfo,
+  updated: ProjectInfo,
+  selectWorkspace: (projectId: string, workspaceIndex: number) => void,
+): void {
+  const kept = new Set(updated.workspaces.map((ws) => ws.path));
+  const gone = previous.workspaces.map((ws) => ws.path).filter((p) => !kept.has(p));
+  if (gone.length === 0) return;
+  const app = useAppStore.getState();
+  if (app.activeWorkspacePath && gone.includes(app.activeWorkspacePath)) {
+    const mainIdx = updated.workspaces.findIndex((ws) => ws.path === updated.path);
+    selectWorkspace(updated.id, mainIdx >= 0 ? mainIdx : 0);
+  }
+  for (const path of gone) app.removeWorkspaceLayout(path);
+}
+
 export const useProjectStore = create<ProjectState>((set, get) => ({
   projects: [],
   selectedProjectIndex: 0,
@@ -573,6 +609,30 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       selectedProjectIndex: s.projects.length,
     }));
     return project;
+  },
+
+  moveProjectToHost: async (projectId, opts) => {
+    const previous = get().projects.find((p) => p.id === projectId);
+    const updated = await window.electronAPI.projects.moveToHost(projectId, opts);
+    set((s) => ({
+      projects: s.projects.map((p) => (p.id === projectId ? updated : p)),
+    }));
+    if (previous) closeWorkspacesLeftBehind(previous, updated, get().selectWorkspace);
+    return updated;
+  },
+
+  switchProjectHost: async (projectId, hostId, path) => {
+    const previous = get().projects.find((p) => p.id === projectId);
+    const updated = await window.electronAPI.projects.switchHost(
+      projectId,
+      hostId,
+      path,
+    );
+    set((s) => ({
+      projects: s.projects.map((p) => (p.id === projectId ? updated : p)),
+    }));
+    if (previous) closeWorkspacesLeftBehind(previous, updated, get().selectWorkspace);
+    return updated;
   },
 
   removeProject: async (projectId: string) => {
@@ -650,12 +710,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     } catch (err) {
       unsubProgress();
       useAppStore.getState().clearWorktreeSetup("__pending__");
-      const message = err instanceof Error ? err.message : String(err);
-      // Strip the verbose "Error invoking remote method" prefix
-      const detail = message.replace(
-        /^Error invoking remote method '[^']+': Error:\s*/i,
-        "",
-      );
+      const detail = ipcErrorMessage(err);
       useToastStore.getState().addToast({
         id: `worktree-error-${Date.now()}`,
         message: "Failed to create workspace",
@@ -767,8 +822,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     try {
       updated = await window.electronAPI.projects.convertMainToWorktree(projectId, name);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const detail = message.replace(/^Error invoking remote method '[^']+': Error:\s*/i, "");
+      const detail = ipcErrorMessage(err);
       useToastStore.getState().addToast({
         id: `convert-error-${Date.now()}`,
         message: "Failed to convert to workspace",

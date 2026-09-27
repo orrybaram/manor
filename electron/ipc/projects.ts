@@ -3,20 +3,10 @@ import { assertString } from "../ipc-validate";
 import type { ProjectUpdatableFields } from "../persistence";
 import type { LinkedIssue } from "../linear";
 import { LOCAL_HOST_ID } from "../backend/types";
-import { runHealthChecks } from "../backend/health-check";
 import type { IpcDeps } from "./types";
 
 export function register(deps: IpcDeps): void {
   const { projectManager, statsStore, backendRegistry } = deps;
-
-  /** `hostId` must name this machine or a host the user has registered. */
-  function assertKnownHostId(hostId: string): void {
-    if (hostId === LOCAL_HOST_ID) return;
-    const known = projectManager.getHosts().some((h) => h.hostId === hostId);
-    if (!known) {
-      throw new Error(`Unknown host "${hostId}".`);
-    }
-  }
 
   ipcMain.handle("projects:getAll", () => {
     return projectManager.getProjects();
@@ -50,10 +40,7 @@ export function register(deps: IpcDeps): void {
       assertString(opts?.repoUrl, "repoUrl");
       assertString(opts?.remoteDir, "remoteDir");
       assertString(opts?.name, "name");
-      assertKnownHostId(opts.hostId);
-      if (opts.hostId === LOCAL_HOST_ID) {
-        throw new Error("A remote host is required.");
-      }
+      projectManager.assertRemoteHost(opts.hostId);
       // Connect (and start the box, for a managed provider) before cloning —
       // a clone against a host that never got the chance to connect would
       // just fail with a confusing "unavailable" error.
@@ -62,16 +49,34 @@ export function register(deps: IpcDeps): void {
     },
   );
 
+  // ADR-179: clone (or adopt) an existing project's repo onto a remote host
+  // and point the same project record at it.
   ipcMain.handle(
-    "hosts:healthCheck",
-    async (_event, hostId: string, projectPath: string) => {
-      assertString(hostId, "hostId");
-      assertString(projectPath, "projectPath");
-      assertKnownHostId(hostId);
-      const { shell, git } = backendRegistry.get(hostId);
-      return runHealthChecks(shell, git, projectPath);
+    "projects:moveToHost",
+    async (
+      _event,
+      projectId: string,
+      opts: { hostId: string; repoUrl: string; remoteDir: string },
+    ) => {
+      assertString(projectId, "projectId");
+      assertString(opts?.hostId, "hostId");
+      assertString(opts?.repoUrl, "repoUrl");
+      assertString(opts?.remoteDir, "remoteDir");
+      projectManager.assertRemoteHost(opts.hostId);
+      await backendRegistry.ensureConnected(opts.hostId);
+      return projectManager.moveProjectToHost(projectId, opts);
     },
   );
+
+  ipcMain.handle("projects:getOriginUrl", (_event, projectId: string) => {
+    assertString(projectId, "projectId");
+    return projectManager.getOriginUrl(projectId);
+  });
+
+  ipcMain.handle("projects:pathExists", (_event, projectId: string) => {
+    assertString(projectId, "projectId");
+    return projectManager.projectPathExists(projectId);
+  });
 
   ipcMain.handle(
     "projects:selectWorkspace",
@@ -212,11 +217,31 @@ export function register(deps: IpcDeps): void {
       projectId: string,
       updates: ProjectUpdatableFields,
     ) => {
-      if (updates.hostId !== undefined) {
-        assertString(updates.hostId, "hostId");
-        assertKnownHostId(updates.hostId);
-      }
       return projectManager.updateProject(projectId, updates);
     },
   );
+
+  // ADR-179: switch a project to a host without cloning — to `path`, or the
+  // path it last had there. Refused when that path doesn't exist on the host.
+  ipcMain.handle(
+    "projects:switchHost",
+    (_event, projectId: string, hostId: string, projectPath?: string) => {
+      assertString(projectId, "projectId");
+      assertString(hostId, "hostId");
+      if (projectPath !== undefined) assertString(projectPath, "path");
+      projectManager.assertKnownHost(hostId);
+      return switchHost(projectId, hostId, projectPath);
+    },
+  );
+
+  async function switchHost(
+    projectId: string,
+    hostId: string,
+    projectPath?: string,
+  ) {
+    if (hostId !== LOCAL_HOST_ID) {
+      await backendRegistry.ensureConnected(hostId);
+    }
+    return projectManager.switchProjectHost(projectId, hostId, projectPath);
+  }
 }

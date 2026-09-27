@@ -7,11 +7,13 @@ import {
   type HookSink,
 } from "../hook-feed";
 import { AgentHookServer } from "../../agent-hooks";
-import { createHookRelay } from "../../hook-relay";
+import { createAgentStatusDriver } from "../../agent-status/driver";
 import type { AgentInfo } from "../../agent-persistence";
 import type { HookJournalEntry, HookPayload, HookReplay } from "../../terminal-host/types";
 
 const HOST = "box";
+/** The journal's epoch in tests that are not about epochs. */
+const EPOCH = "e0";
 
 function payload(seq: number): HookPayload {
   return { paneId: "pane-1", eventType: "PreToolUse", kind: "claude", tag: String(seq) };
@@ -27,7 +29,6 @@ function entries(from: number, to: number): HookJournalEntry[] {
   return out;
 }
 
-type ReplayResult = HookReplay | null;
 type ReplayOpts = { headOnly?: boolean };
 
 /** A replay source whose answers the test releases by hand. */
@@ -35,12 +36,12 @@ function deferredReplay() {
   const calls: Array<{
     sinceSeq: number;
     opts?: ReplayOpts;
-    resolve: (r: ReplayResult) => void;
+    resolve: (r: HookReplay) => void;
     reject: (e: Error) => void;
   }> = [];
   const replay = vi.fn(
     (sinceSeq: number, opts?: ReplayOpts) =>
-      new Promise<ReplayResult>((resolve, reject) => {
+      new Promise<HookReplay>((resolve, reject) => {
         calls.push({ sinceSeq, opts, resolve, reject });
       }),
   );
@@ -48,7 +49,7 @@ function deferredReplay() {
 }
 
 /** A store that has already met the host's journal, at `seq`. */
-function seededStore(seq = 0, epoch: string | null = null) {
+function seededStore(seq = 0, epoch: string | null = EPOCH) {
   const store = memoryHookSeqStore();
   store.set(HOST, { seq, epoch });
   return store;
@@ -69,14 +70,15 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 function makeFeed(opts: {
   /** Omit for a journal met before at seq 0; null for first contact. */
   lastSeq?: number | null;
+  /** The stored cursor's epoch; `EPOCH` if omitted, null for a legacy cursor. */
   epoch?: string | null;
-  replay: (s: number, o?: ReplayOpts) => Promise<ReplayResult>;
+  replay: (s: number, o?: ReplayOpts) => Promise<HookReplay>;
   sink?: HookSink | null;
   retryDelayMs?: (a: number) => number;
   beforeCatchUp?: () => Promise<void>;
 }) {
   const store =
-    opts.lastSeq === null ? memoryHookSeqStore() : seededStore(opts.lastSeq ?? 0, opts.epoch ?? null);
+    opts.lastSeq === null ? memoryHookSeqStore() : seededStore(opts.lastSeq ?? 0, opts.epoch === undefined ? EPOCH : opts.epoch);
   const feed = new HostHookFeed({
     hostId: HOST,
     replay: opts.replay,
@@ -109,7 +111,7 @@ describe("HostHookFeed", () => {
     feed.onLiveEvent(7, payload(7));
     expect(rec.ingested).toEqual([]);
 
-    calls[0].resolve({ entries: entries(3, 5), lastSeq: 5 });
+    calls[0].resolve({ entries: entries(3, 5), lastSeq: 5, epoch: EPOCH });
     await flush();
 
     expect(rec.tags()).toEqual([3, 4, 5, 6, 7]);
@@ -132,7 +134,7 @@ describe("HostHookFeed", () => {
     const { feed, store } = makeFeed({ lastSeq: 2, replay, sink: rec.sink });
 
     feed.catchUp();
-    calls[0].resolve({ entries: entries(10, 12), lastSeq: 12 });
+    calls[0].resolve({ entries: entries(10, 12), lastSeq: 12, epoch: EPOCH });
     await flush();
 
     expect(rec.tags()).toEqual([10, 11, 12]);
@@ -150,7 +152,7 @@ describe("HostHookFeed", () => {
     const { feed, store } = makeFeed({ lastSeq: 2, replay, sink: rec.sink });
 
     feed.catchUp();
-    calls[0].resolve({ entries: [], lastSeq: 9 });
+    calls[0].resolve({ entries: [], lastSeq: 9, epoch: EPOCH });
     await flush();
     expect(rec.tags()).toEqual([]);
     expect(store.get(HOST)?.seq).toBe(9);
@@ -158,20 +160,29 @@ describe("HostHookFeed", () => {
     expect(rec.tags()).toEqual([10]);
   });
 
-  it("starts over from 0 when the journal is behind lastHookSeq (it was reset)", async () => {
+  it("treats a cursor persisted before epochs as a reset, once", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const { replay, calls } = deferredReplay();
     const rec = recordingSink();
-    const { feed, store } = makeFeed({ lastSeq: 50, replay, sink: rec.sink });
+    const { feed, store } = makeFeed({ lastSeq: 50, epoch: null, replay, sink: rec.sink });
 
     feed.catchUp();
-    calls[0].resolve({ entries: [], lastSeq: 3 });
+    calls[0].resolve({ entries: [], lastSeq: 3, epoch: EPOCH });
     await flush();
     expect(calls[1].sinceSeq).toBe(0);
-    calls[1].resolve({ entries: entries(1, 3), lastSeq: 3 });
+    calls[1].resolve({ entries: entries(1, 3), lastSeq: 3, epoch: EPOCH });
     await flush();
     expect(rec.tags()).toEqual([1, 2, 3]);
-    expect(store.get(HOST)?.seq).toBe(3);
+    expect(store.get(HOST)).toEqual({ seq: 3, epoch: EPOCH });
+
+    // The cursor now carries the journal's epoch: the next catch-up does not reset.
+    feed.pause();
+    feed.catchUp();
+    expect(calls[2].sinceSeq).toBe(3);
+    calls[2].resolve({ entries: entries(4, 4), lastSeq: 4, epoch: EPOCH });
+    await flush();
+    expect(calls).toHaveLength(3);
+    expect(rec.tags()).toEqual([1, 2, 3, 4]);
   });
 
   it("goes back to the journal when a live event skips a seq", async () => {
@@ -181,7 +192,7 @@ describe("HostHookFeed", () => {
     const { feed } = makeFeed({ replay, sink: rec.sink });
 
     feed.catchUp();
-    calls[0].resolve({ entries: entries(1, 2), lastSeq: 2 });
+    calls[0].resolve({ entries: entries(1, 2), lastSeq: 2, epoch: EPOCH });
     await flush();
 
     // Seq 3 never arrived live.
@@ -189,7 +200,7 @@ describe("HostHookFeed", () => {
     expect(rec.tags()).toEqual([1, 2]);
     expect(calls[1].sinceSeq).toBe(2);
     feed.onLiveEvent(5, payload(5));
-    calls[1].resolve({ entries: entries(3, 4), lastSeq: 4 });
+    calls[1].resolve({ entries: entries(3, 4), lastSeq: 4, epoch: EPOCH });
     await flush();
     expect(rec.tags()).toEqual([1, 2, 3, 4, 5]);
   });
@@ -208,7 +219,7 @@ describe("HostHookFeed", () => {
     expect(calls).toHaveLength(2);
     feed.onLiveEvent(2, payload(2));
     expect(rec.tags()).toEqual([]);
-    calls[1].resolve({ entries: entries(1, 1), lastSeq: 1 });
+    calls[1].resolve({ entries: entries(1, 1), lastSeq: 1, epoch: EPOCH });
     await flush();
     expect(rec.tags()).toEqual([1, 2]);
   });
@@ -220,7 +231,7 @@ describe("HostHookFeed", () => {
 
     feed.catchUp();
     feed.pause();
-    calls[0].resolve({ entries: entries(1, 3), lastSeq: 3 });
+    calls[0].resolve({ entries: entries(1, 3), lastSeq: 3, epoch: EPOCH });
     await flush();
     expect(rec.tags()).toEqual([]);
     expect(store.get(HOST)?.seq).toBe(0);
@@ -237,7 +248,7 @@ describe("HostHookFeed", () => {
     expect(calls).toHaveLength(0);
     sink = rec.sink;
     feed.catchUp();
-    calls[0].resolve({ entries: entries(1, 1), lastSeq: 1 });
+    calls[0].resolve({ entries: entries(1, 1), lastSeq: 1, epoch: EPOCH });
     await flush();
     expect(rec.tags()).toEqual([1]);
   });
@@ -254,7 +265,7 @@ describe("HostHookFeed", () => {
     };
     const { feed, store } = makeFeed({ replay, sink });
     feed.catchUp();
-    calls[0].resolve({ entries: entries(1, 2), lastSeq: 2 });
+    calls[0].resolve({ entries: entries(1, 2), lastSeq: 2, epoch: EPOCH });
     await flush();
     expect(seen).toEqual(["1", "2"]);
     expect(store.get(HOST)?.seq).toBe(2);
@@ -271,8 +282,7 @@ describe("HostHookFeed", () => {
     // Live hooks racing the head request: older ones are history, newer are not.
     feed.onLiveEvent(40, payload(40));
     feed.onLiveEvent(41, payload(41));
-    // A daemon that predates headOnly sends the whole journal anyway.
-    calls[0].resolve({ entries: entries(1, 40), lastSeq: 40, epoch: "e1" });
+    calls[0].resolve({ entries: [], lastSeq: 40, epoch: "e1" });
     await flush();
 
     expect(rec.tags()).toEqual([41]);
@@ -283,17 +293,6 @@ describe("HostHookFeed", () => {
     feed.pause();
     feed.catchUp();
     expect(calls[1]).toMatchObject({ sinceSeq: 41, opts: undefined });
-  });
-
-  it("stays on first contact when the daemon has no journal", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    const { replay, calls } = deferredReplay();
-    const rec = recordingSink();
-    const { feed, store } = makeFeed({ lastSeq: null, replay, sink: rec.sink });
-    feed.catchUp();
-    calls[0].resolve(null);
-    await flush();
-    expect(store.get(HOST)).toBeNull();
   });
 
   it("replays a recreated journal from the start even once it has passed lastHookSeq", async () => {
@@ -312,18 +311,6 @@ describe("HostHookFeed", () => {
     await flush();
     expect(rec.tags()).toEqual([1, 2, 3, 4, 5]);
     expect(store.get(HOST)).toEqual({ seq: 5, epoch: "new" });
-  });
-
-  it("adopts the journal's epoch when the stored cursor predates epochs", async () => {
-    const { replay, calls } = deferredReplay();
-    const rec = recordingSink();
-    const { feed, store } = makeFeed({ lastSeq: 2, replay, sink: rec.sink });
-    feed.catchUp();
-    calls[0].resolve({ entries: entries(3, 3), lastSeq: 3, epoch: "e1" });
-    await flush();
-    expect(calls).toHaveLength(1);
-    expect(rec.tags()).toEqual([3]);
-    expect(store.get(HOST)).toEqual({ seq: 3, epoch: "e1" });
   });
 
   it("runs beforeCatchUp before each replay, and replays even if it fails", async () => {
@@ -346,7 +333,7 @@ describe("HostHookFeed", () => {
     feed.catchUp();
     await flush();
     expect(order).toEqual(["before", "replay"]);
-    calls[0].resolve({ entries: entries(1, 1), lastSeq: 1 });
+    calls[0].resolve({ entries: entries(1, 1), lastSeq: 1, epoch: EPOCH });
     await flush();
 
     fail = true;
@@ -354,7 +341,7 @@ describe("HostHookFeed", () => {
     feed.catchUp();
     await flush();
     expect(order).toEqual(["before", "replay", "before", "replay"]);
-    calls[1].resolve({ entries: entries(2, 2), lastSeq: 2 });
+    calls[1].resolve({ entries: entries(2, 2), lastSeq: 2, epoch: EPOCH });
     await flush();
     expect(rec.tags()).toEqual([1, 2]);
   });
@@ -432,8 +419,7 @@ describe("replay through the real ingest path", () => {
     const notify = vi.fn();
     const coalescer = new NotificationCoalescer(notify);
     const server = new AgentHookServer();
-    const { relay } = createHookRelay({
-      relayAgentHook: vi.fn(),
+    const driver = createAgentStatusDriver({
       agentManager: fakeAgentManager(),
       getPaneContext: () => ({
         projectId: "p",
@@ -445,8 +431,11 @@ describe("replay through the real ingest path", () => {
       unseenInputAgents: new Set(),
       broadcastAgent: vi.fn(),
       maybeSendNotification: coalescer.send,
+      publishPaneStatus: () => {},
     });
-    server.setRelay(relay);
+    server.setRelay((event) => {
+      driver.hook(event);
+    });
 
     const sink: HookSink = {
       ingest: (p, { hostId, replay }) => {
@@ -472,7 +461,7 @@ describe("replay through the real ingest path", () => {
 
     const feed = new HostHookFeed({
       hostId: HOST,
-      replay: async () => ({ entries: journal, lastSeq: journal.length }),
+      replay: async () => ({ entries: journal, lastSeq: journal.length, epoch: EPOCH }),
       store: seededStore(),
       sink: () => sink,
     });
@@ -509,7 +498,7 @@ describe("HostHookFeed.catchUp settling (ADR-178 §6)", () => {
     await vi.waitFor(() => expect(calls).toHaveLength(1));
     await Promise.resolve();
     expect(settled).toBe(false);
-    calls[0].resolve({ entries: entries(1, 2), lastSeq: 2 });
+    calls[0].resolve({ entries: entries(1, 2), lastSeq: 2, epoch: EPOCH });
     await done;
     expect(feed.seq).toBe(2);
   });

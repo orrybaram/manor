@@ -7,16 +7,19 @@ export type {
   AgentStatus,
   AgentKind,
   AgentState,
+  PaneFacts,
 } from "../terminal-host/types";
 
 import type {
   SessionInfo,
   TerminalSnapshot,
   StreamEvent,
-  AgentStatus,
-  AgentKind,
   HookReplay,
+  PaneFacts,
 } from "../terminal-host/types";
+import type { MachineFacts } from "./machine-facts";
+
+export type { MachineFacts } from "./machine-facts";
 
 // ── Pty Backend ──
 
@@ -49,30 +52,29 @@ export interface PtyBackend {
 
   getSnapshot(sessionId: string): Promise<TerminalSnapshot | null>;
 
+  /**
+   * A session's current Pane facts (ADR-184 §3), or null when the host has no
+   * such session. Main resyncs with it after a reconnect.
+   */
+  getPaneFacts(sessionId: string): Promise<PaneFacts | null>;
+
   listSessions(): Promise<SessionInfo[]>;
 
   disposeDead(): Promise<void>;
 
-  onEvent(handler: StreamEventHandler): void;
+  /** Subscribe to the host's stream events. Returns an unsubscribe. */
+  onEvent(handler: StreamEventHandler): () => void;
 
   updateEnv(env: Record<string, string>): Promise<void>;
+}
 
-  relayAgentHook(
-    sessionId: string,
-    status: AgentStatus,
-    kind: AgentKind,
-  ): void;
+/** A remote host's pty backend: its daemon journals agent hooks (ADR-178 §2). */
+export interface HookJournalPtyBackend extends PtyBackend {
   /**
-   * The host daemon's hook journal after `sinceSeq` (ADR-178 §2); `null`
-   * when the daemon has no journal (it predates the request). Optional: only
-   * a remote host's hooks are journaled, and the registry calls this only
-   * for remote hosts. `headOnly` returns the journal's position with no
-   * entries.
+   * The host daemon's hook journal after `sinceSeq`. `headOnly` returns the
+   * journal's position with no entries.
    */
-  replayHooks?(
-    sinceSeq: number,
-    opts?: { headOnly?: boolean },
-  ): Promise<HookReplay | null>;
+  replayHooks(sinceSeq: number, opts?: { headOnly?: boolean }): Promise<HookReplay>;
 }
 
 // ── Git Backend ──
@@ -105,7 +107,7 @@ export interface GitBackend {
    * `targetDir` must not exist yet, or must be empty — the caller checks
    * that before calling. `onLine` gets each progress line git writes to
    * stderr during a clone; mirrors `pushStream`'s shape so both stream
-   * through the same gate in `BackendRegistry`.
+   * through the same gate in the registry's host view.
    */
   cloneStream(
     repoUrl: string,
@@ -152,23 +154,20 @@ export interface ShellBackend {
 
   /**
    * The home directory on the machine this backend runs commands on (ADR-178
-   * §3). Local: `os.homedir()`. Remote: asked of the host and cached.
+   * §3): its `MachineFacts.homeDir` (ADR-183).
    */
   homeDir(): Promise<string>;
 }
 
 // ── Ports Backend ──
 
-export interface ActivePort {
+/** A listening port as one host's backend reports it. */
+export interface ScannedPort {
   port: number;
   processName: string;
   pid: number;
   workspacePath: string | null;
   hostname: string | null;
-  /** The remote host the port is listening on; absent for this machine. */
-  hostId?: string;
-  /** The host's provider can hand out a public URL for it (`previewUrl`). */
-  canCopyPublicUrl?: boolean;
   /**
    * `"::1"` when the port is listened on only at the IPv6 loopback, so a
    * forward must target `[::1]` rather than 127.0.0.1 (ADR-178 §5).
@@ -176,8 +175,13 @@ export interface ActivePort {
   loopbackHost?: "::1";
 }
 
+/** A scanned port tagged with the host it listens on — `"local"` included (ADR-183). */
+export interface ActivePort extends ScannedPort {
+  hostId: string;
+}
+
 export interface PortsBackend {
-  scan(workspacePaths: string[]): Promise<ActivePort[]>;
+  scan(workspacePaths: string[]): Promise<ScannedPort[]>;
 
   kill(pid: number): Promise<void>;
 }
@@ -253,17 +257,30 @@ export interface WorkspaceBackend {
   readonly git: GitBackend;
   readonly shell: ShellBackend;
   readonly ports: PortsBackend;
+  /** What the host's machine is: its OS, home, files (ADR-183). */
+  readonly facts: MachineFacts;
 
-  connect(opts?: { version?: string }): Promise<void>;
+  /** Connect to the host, at the version the backend was built with. */
+  connect(): Promise<void>;
   disconnect(): Promise<void>;
+}
 
-  /** Observe loss and recovery of the host connection (see `HostConnectionEvent`). */
-  onHostEvent(handler: HostConnectionEventHandler): void;
+/**
+ * A remote host's backend (ADR-160): it reconnects by itself and reports how
+ * that goes, and its daemon journals the host's agent hooks.
+ */
+export interface RemoteHostBackend extends WorkspaceBackend {
+  readonly pty: HookJournalPtyBackend;
+
+  /**
+   * Observe loss and recovery of the host connection (see
+   * `HostConnectionEvent`). Returns an unsubscribe.
+   */
+  onHostEvent(handler: HostConnectionEventHandler): () => void;
 
   /**
    * While reconnecting on its own: attempt now instead of waiting out the
-   * backoff. Returns false if there is no wait to cut short. Optional — a
-   * backend that does not reconnect by itself has nothing to hurry.
+   * backoff. Returns false if there is no wait to cut short.
    */
-  retryNow?(): boolean;
+  retryNow(): boolean;
 }

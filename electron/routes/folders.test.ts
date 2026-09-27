@@ -45,6 +45,7 @@ function makeProjectManager(projectId = "p1") {
           themeName: null,
           setupComplete: true,
           portlessEnabled: true,
+          hostId: "local",
           folders,
           sidebarOrder: [],
         },

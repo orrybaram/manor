@@ -28,7 +28,8 @@ vi.mock("../shell", () => ({
 
 import { TerminalHost } from "./terminal-host";
 import type { ControlRequest, ControlResponse } from "./types";
-import { TerminalHostClient, isDaemonStale, daemonProtocolOf } from "./client";
+import { isDaemonStale, daemonProtocolOf } from "./types";
+import { TerminalHostClient } from "./client";
 import type { HostTransport } from "./transport";
 import { LocalTransport } from "./transport-local";
 import type { Duplex } from "node:stream";
@@ -51,7 +52,8 @@ class TestDaemon {
   readonly receivedEnvUpdates: Record<string, string>[] = [];
   /** Set to make the next getSnapshot fail as though the daemon misbehaved. */
   failNextSnapshot = false;
-  /** Behave like a daemon from before ADR-159: no protocol, no `notFound`. */
+  /** Behave like a daemon from before ADR-159: no protocol, no `notFound`, so
+   *  the client must replace it. */
   legacyProtocol = false;
 
   constructor(dir: string) {
@@ -233,6 +235,14 @@ class TestDaemon {
         }
         break;
       }
+      case "getPaneFacts":
+        // Mirrors the daemon's handler (index.ts): null for an unknown session.
+        this.send(
+          socket,
+          { type: "paneFacts", facts: this.host.getPaneFacts(req.sessionId) },
+          requestId,
+        );
+        break;
       case "listSessions":
         this.send(socket, {
           type: "sessions",
@@ -247,6 +257,11 @@ class TestDaemon {
         this.send(socket, { type: "envUpdated" }, requestId);
         break;
       case "exec": {
+        if (req.cmd === "no-id") {
+          // A reply the daemon could not attach a requestId to.
+          this.send(socket, { type: "error", message: "Invalid JSON" });
+          break;
+        }
         // Answers after `args[0]` ms — out of order with anything sent in
         // the meantime, the way the real daemon answers a slow exec.
         const delayMs = Number(req.args[0] ?? 0);
@@ -422,11 +437,10 @@ describe("TerminalHostClient", () => {
   });
 
   describe("connect handshake", () => {
-    it("records the protocol the daemon reports", async () => {
+    it("keeps a daemon that speaks the current protocol", async () => {
       const transport = new TestTransport(daemon);
       const client = createTestClient(daemon, transport);
       await client.connect();
-      expect((client as any).daemonProtocol).toBe(TERMINAL_HOST_PROTOCOL);
       expect(transport.restarts).toBe(0);
       client.disconnect();
     });
@@ -438,7 +452,6 @@ describe("TerminalHostClient", () => {
       await client.connect();
 
       expect(transport.restarts).toBe(1);
-      expect((client as any).daemonProtocol).toBe(TERMINAL_HOST_PROTOCOL);
       expect(await client.ping()).toBe(true);
       client.disconnect();
     });
@@ -459,7 +472,7 @@ describe("TerminalHostClient", () => {
       await expect(client.connect()).rejects.toThrow("stream connect refused");
       expect(opened).toHaveLength(1);
       expect(opened[0].destroyed).toBe(true);
-      expect((client as any).controlSocket).toBeNull();
+      expect((client as any).rpc.socket).toBeNull();
 
       await client.connect();
       expect(opened).toHaveLength(2);
@@ -505,47 +518,9 @@ describe("TerminalHostClient", () => {
     });
   });
 
-  describe("pushLocalEnv", () => {
-    it("with pushLocalEnv: false, never sends this machine's MANOR_* ports (ADR-178 §2)", async () => {
-      const saved = {
-        hook: process.env.MANOR_HOOK_PORT,
-        webview: process.env.MANOR_WEBVIEW_PORT,
-        portless: process.env.MANOR_PORTLESS_PORT,
-      };
-      try {
-        process.env.MANOR_HOOK_PORT = "1111";
-        process.env.MANOR_WEBVIEW_PORT = "2222";
-        process.env.MANOR_PORTLESS_PORT = "3333";
-        const client = new TerminalHostClient(undefined, new TestTransport(daemon), {
-          pushLocalEnv: false,
-        });
-        await client.connect();
-        client.disconnect();
-        await client.connect();
-        for (const update of daemon.receivedEnvUpdates) {
-          expect(update).not.toHaveProperty("MANOR_HOOK_PORT");
-          expect(update).not.toHaveProperty("MANOR_WEBVIEW_PORT");
-          expect(update).not.toHaveProperty("MANOR_PORTLESS_PORT");
-        }
-        // Explicit updateEnv values are still sent, and re-sent on reconnect.
-        await client.updateEnv({ FOO: "bar" });
-        client.disconnect();
-        await client.connect();
-        expect(daemon.receivedEnvUpdates[daemon.receivedEnvUpdates.length - 1]).toEqual({ FOO: "bar" });
-        client.disconnect();
-      } finally {
-        for (const [key, value] of [
-          ["MANOR_HOOK_PORT", saved.hook],
-          ["MANOR_WEBVIEW_PORT", saved.webview],
-          ["MANOR_PORTLESS_PORT", saved.portless],
-        ] as const) {
-          if (value === undefined) delete process.env[key];
-          else process.env[key] = value;
-        }
-      }
-    });
-
-    it("by default pushes this machine's MANOR_* ports on connect", async () => {
+  describe("local env", () => {
+    // Every daemon gets them; a remote daemon's role drops them (daemon-role.ts).
+    it("pushes this machine's MANOR_* ports on connect", async () => {
       const saved = process.env.MANOR_HOOK_PORT;
       try {
         process.env.MANOR_HOOK_PORT = "4444";
@@ -580,8 +555,8 @@ describe("TerminalHostClient", () => {
       await client.connect();
       client.disconnect();
 
-      expect((client as any).controlSocket).toBeNull();
-      expect((client as any).streamSocket).toBeNull();
+      expect((client as any).rpc.socket).toBeNull();
+      expect((client as any).stream.socket).toBeNull();
       expect((client as any).connected).toBe(false);
     });
   });
@@ -592,16 +567,16 @@ describe("TerminalHostClient", () => {
       await client.connect();
 
       // Forcibly destroy the client's sockets to simulate daemon dropping connection
-      (client as any).controlSocket?.destroy();
-      (client as any).streamSocket?.destroy();
+      (client as any).rpc.socket?.destroy();
+      (client as any).stream.socket?.destroy();
 
       // Wait for close event to propagate
       await new Promise((r) => setTimeout(r, 200));
 
       expect((client as any).connected).toBe(false);
-      expect((client as any).controlSocket).toBeNull();
-      expect((client as any).streamSocket).toBeNull();
-      expect((client as any).pendingRequests).toHaveLength(0);
+      expect((client as any).rpc.socket).toBeNull();
+      expect((client as any).stream.socket).toBeNull();
+      expect((client as any).rpc.pending.size).toBe(0);
     });
   });
 
@@ -688,26 +663,6 @@ describe("TerminalHostClient", () => {
         client.createOrAttach("pane-1", "/tmp", 80, 24),
       ).rejects.toThrow(/socket exploded/);
       expect(daemon.seen).not.toContain("control:create");
-      client.disconnect();
-    });
-
-    it("still attaches to a daemon that predates the notFound reply", async () => {
-      // The upgrade case that bit in practice: a daemon left running from an
-      // earlier build of the same app version, so nothing replaces it, talking
-      // to a client that now knows about `notFound`.
-      //
-      // A same-version daemon on an older protocol is replaced on connect (see
-      // isDaemonStale), so reaching the degraded path takes connecting first
-      // and then playing the old daemon.
-      const client = createTestClient(daemon);
-      await client.connect();
-      daemon.legacyProtocol = true;
-      (client as any).daemonProtocol = 0;
-
-      const result = await client.createOrAttach("pane-legacy", "/tmp", 80, 24);
-
-      expect(result.session.sessionId).toBe("pane-legacy");
-      expect(result.snapshot).toBeNull();
       client.disconnect();
     });
 
@@ -841,11 +796,11 @@ describe("TerminalHostClient", () => {
       await client.connect();
 
       // Destroy the control socket to make it not writable
-      (client as any).controlSocket?.destroy();
-      (client as any).controlSocket = null;
+      const rpc = (client as any).rpc;
+      rpc.socket?.destroy();
+      rpc.socket = null;
 
-      const requestFn = (client as any).request.bind(client);
-      await expect(requestFn({ type: "ping" })).rejects.toThrow(
+      await expect(rpc.call({ type: "ping" })).rejects.toThrow(
         "Control socket not writable",
       );
 
@@ -886,6 +841,19 @@ describe("TerminalHostClient", () => {
       expect(fast.stdout).toBe("fast");
       client.disconnect();
     });
+
+    it("fails every pending request on a reply without a requestId", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+
+      const slow = client.exec("slow", ["300"]);
+      const garbled = client.exec("no-id", []);
+      await expect(garbled).rejects.toThrow(/without a requestId: Invalid JSON/);
+      await expect(slow).rejects.toThrow(/without a requestId/);
+      // The connection itself is fine.
+      expect(await client.ping()).toBe(true);
+      client.disconnect();
+    });
   });
 
   describe("stream events", () => {
@@ -916,6 +884,53 @@ describe("TerminalHostClient", () => {
     });
   });
 
+  describe("Pane facts (ADR-184)", () => {
+    it("getPaneFacts round-trips the session's current snapshot", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+      await client.createOrAttach("pane-1", "/tmp", 80, 24);
+
+      const session = (daemon.getHost() as any).sessions.get("pane-1");
+      session.decoder.push(encodeFrame(MSG.FGPROC, JSON.stringify({ name: "codex" })));
+      session.decoder.push(encodeFrame(MSG.DATA, "\x1b]2;working on it\x07"));
+
+      expect(await client.getPaneFacts("pane-1")).toEqual({
+        foreground: { name: "codex", kind: "codex" },
+        title: "working on it",
+        outputHint: null,
+      });
+      expect(daemon.seen).toContain("control:getPaneFacts");
+      client.disconnect();
+    });
+
+    it("getPaneFacts answers null for an unknown session", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+      expect(await client.getPaneFacts("nope")).toBeNull();
+      client.disconnect();
+    });
+
+    it("delivers paneFacts stream events", async () => {
+      const client = createTestClient(daemon);
+      const events: any[] = [];
+      client.onEvent((event) => events.push(event));
+      await client.connect();
+      await client.createOrAttach("pane-1", "/tmp", 80, 24);
+      await new Promise((r) => setTimeout(r, 100));
+
+      const session = (daemon.getHost() as any).sessions.get("pane-1");
+      session.decoder.push(encodeFrame(MSG.FGPROC, JSON.stringify({ name: "pi" })));
+      await new Promise((r) => setTimeout(r, 100));
+
+      expect(events).toContainEqual({
+        type: "paneFacts",
+        sessionId: "pane-1",
+        facts: { foreground: { name: "pi", kind: "pi" }, title: null, outputHint: null },
+      });
+      client.disconnect();
+    });
+  });
+
   describe("daemon loss (ADR-169)", () => {
     /** Wait until `pred()` holds, or fail after `timeoutMs`. */
     async function waitFor(
@@ -934,14 +949,14 @@ describe("TerminalHostClient", () => {
     /** A client that retries fast enough for a test to wait on. */
     function fastReconnectClient(): TerminalHostClient {
       const client = createTestClient(daemon);
-      (client as any).reconnectDelaysMs = [30, 60, 120];
+      client.setReconnectPolicy((attempt) => [30, 60, 120][attempt] ?? null);
       return client;
     }
 
     /** Kill the client's sockets from our side, as if the daemon had dropped them. */
     function dropSockets(client: TerminalHostClient): void {
-      (client as any).controlSocket?.destroy();
-      (client as any).streamSocket?.destroy();
+      (client as any).rpc.socket?.destroy();
+      (client as any).stream.socket?.destroy();
     }
 
     it("reports a session as exited when the daemon comes back without it", async () => {
@@ -1036,7 +1051,7 @@ describe("TerminalHostClient", () => {
           ),
         "exit for gone-1 and gone-2",
       );
-      expect((client as any).wanted.size).toBe(0);
+      expect((client as any).subscriptions.ids()).toEqual([]);
       expect((client as any).connected).toBe(false);
 
       // afterEach stops the daemon; it is already stopped, so restart it to

@@ -134,6 +134,10 @@ function relay(event: AgentHookEvent): void {
 - **Escape-hatch tension.** Sweeps and `notifyAgentDetectorGone` continue to mutate state directly. If a future sweep change re-introduces complex inline logic outside the FSM, the abstraction's value erodes. Mitigation: documented as out-of-scope here; sweeps in-scope for a future ADR if their complexity grows.
 - **Regression risk** during ticket 2 (rewiring). Mitigation: existing test suite is the safety net; ticket sequence runs sequentially with verification between tickets.
 
+**Superseded by ADR-184:** the sweeps and `notifyAgentDetectorGone` bridge flagged above as
+out-of-scope are folded into the Status reconciler's transition table, which also replaces
+`hook-relay.ts`/`hook-relay-transition.ts` themselves. See `docs/decisions/adr-184-agent-status-reconciler/`.
+
 ## Tickets
 
 <div data-type="database" data-path="." data-view="board"></div>

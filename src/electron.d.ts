@@ -213,10 +213,8 @@ export interface ActivePort {
   pid: number;
   workspacePath: string | null;
   hostname: string | null;
-  /** The remote host the port is listening on; absent for this machine. */
-  hostId?: string;
-  /** "Copy public URL" is available (the host's provider has `previewUrl`). */
-  canCopyPublicUrl?: boolean;
+  /** The host the port is listening on — `"local"` for this machine. */
+  hostId: string;
   /** `"::1"` when listened on only at the IPv6 loopback. */
   loopbackHost?: "::1";
 }
@@ -241,22 +239,39 @@ export interface ManorProcessInfo {
 }
 
 export type AgentKind = "claude" | "opencode" | "codex" | "pi";
+
+/**
+ * The one live state shown for an Agent's pane (ADR-184). There is no
+ * `"complete"`: a finished turn is `responded`, an ended session is `idle`
+ * (and the Agent's lifecycle becomes `completed`). The single declaration —
+ * `electron/terminal-host/types.ts` and the reconciler mirror or import it,
+ * since electron and the renderer sit in separate tsconfigs.
+ */
 export type AgentStatus =
   | "idle"
   | "thinking"
   | "working"
-  | "complete"
   | "requires_input"
   | "error"
   | "responded";
 
-export interface AgentState {
-  kind: AgentKind | null;
+/**
+ * One pane's Agent status as main's Status reconciler publishes it on the
+ * `agent-status` channel (ADR-184 §4). `reason` says why.
+ */
+export interface PaneAgentStatusUpdate {
+  paneId: string;
   status: AgentStatus;
-  processName: string | null;
-  since: number;
-  title: string | null;
+  reason: string;
+  kind: AgentKind | null;
 }
+
+/**
+ * The renderer's per-pane cache of `PaneAgentStatusUpdate` — the map key
+ * already carries `paneId`, so it is dropped here. The renderer displays this
+ * exactly as published; it never re-derives it (ADR-184 §4).
+ */
+export type PaneAgentStatus = Omit<PaneAgentStatusUpdate, "paneId">;
 
 /**
  * Position in a session's PTY output stream (mirrored from
@@ -265,12 +280,40 @@ export interface AgentState {
  */
 export type StreamPosition = number;
 
+/** What `pty.create` resolves to (ADR-183: one type for main and renderer). */
+export type PtyCreateResult =
+  | {
+      ok: true;
+      /**
+       * The host the session actually runs on (ADR-160) — not its project's
+       * current host, which may have changed since.
+       */
+      hostId: string;
+      /** The session's screen when it already existed; null for a fresh one. */
+      snapshot: string | null;
+      /** Stream position the snapshot reflects (ADR-159). */
+      snapshotSeq?: StreamPosition;
+      /** The session already existed — NOT that its shell reached a prompt. */
+      prewarmed: boolean;
+    }
+  | {
+      /**
+       * The pane's remote host is not connected (ADR-178 §6): not a broken
+       * terminal — it is created once `hostId` is back.
+       */
+      ok: false;
+      reason: "host-unavailable";
+      hostId: string;
+      error: string;
+    }
+  | { ok: false; reason: "error"; error: string };
+
 /** Layout persistence types (mirrored from electron/terminal-host/layout-persistence.ts) */
 export interface PersistedPaneSession {
   daemonSessionId: string;
   lastCwd: string | null;
   lastTitle: string | null;
-  lastAgentStatus?: AgentState | null;
+  lastAgentStatus?: PaneAgentStatus | null;
 }
 
 export interface PersistedTab {
@@ -359,24 +402,7 @@ export interface ElectronAPI {
       cols: number,
       rows: number,
       agentKind?: string | null,
-    ) => Promise<{
-      ok: boolean;
-      snapshot?: string | null;
-      snapshotSeq?: StreamPosition;
-      error?: string;
-      prewarmed?: boolean;
-      /**
-       * The host the session actually runs on (ADR-160); absent from older
-       * mains. On a `hostUnavailable` failure, the host the pane awaits.
-       */
-      hostId?: string;
-      /**
-       * The create failed because the pane's remote host is not connected
-       * (ADR-178 §6): not a broken terminal — it is created once the host
-       * is back.
-       */
-      hostUnavailable?: boolean;
-    }>;
+    ) => Promise<PtyCreateResult>;
     write: (paneId: string, data: string) => Promise<void>;
     /** Resolves once the pty is actually at that size, not merely told to be. */
     resize: (paneId: string, cols: number, rows: number) => Promise<void>;
@@ -395,12 +421,14 @@ export interface ElectronAPI {
       hostId?: string;
     }>;
     detach: (paneId: string) => Promise<void>;
-    consumePrewarmed: (cwd: string | null) => Promise<{
+    /** `hostId` is the workspace's host; only a local one is ever prewarmed. */
+    consumePrewarmed: (cwd: string | null, hostId: string) => Promise<{
       paneId: string;
       commandInjected: boolean;
     } | null>;
     updatePrewarmCwd: (
       cwd: string,
+      hostId: string,
       agentCommand?: string | null,
       agentKind?: string | null,
     ) => Promise<void>;
@@ -417,10 +445,6 @@ export interface ElectronAPI {
     onResized: (
       paneId: string,
       callback: (cols: number, rows: number) => void,
-    ) => () => void;
-    onAgentStatus: (
-      paneId: string,
-      callback: (agent: AgentState) => void,
     ) => () => void;
     onError: (
       paneId: string,
@@ -457,6 +481,16 @@ export interface ElectronAPI {
       callback: (
         event: import("./store/project-store").SetupProgressEvent,
       ) => void,
+    ) => () => void;
+    /**
+     * ADR-183 ticket 1: clone progress on its own channel, separate from
+     * worktree setup — used by `addRemote` and `moveToHost`.
+     */
+    onCloneProgress: (
+      callback: (event: {
+        status: "in-progress" | "done" | "error";
+        message?: string;
+      }) => void,
     ) => () => void;
     canQuickMerge: (
       projectId: string,
@@ -532,6 +566,24 @@ export interface ElectronAPI {
       remoteDir: string;
       name: string;
     }) => Promise<import("./store/project-store").ProjectInfo>;
+    /** ADR-179: clone an existing project onto a remote host, keeping its record. */
+    moveToHost: (
+      projectId: string,
+      opts: { hostId: string; repoUrl: string; remoteDir: string },
+    ) => Promise<import("./store/project-store").ProjectInfo>;
+    /** The project's `origin` URL via its current host's git, or null. */
+    getOriginUrl: (projectId: string) => Promise<string | null>;
+    /** Whether the project's path exists on the host it lives on. */
+    pathExists: (projectId: string) => Promise<boolean>;
+    /**
+     * ADR-179: switch a project to a host without cloning — to `path`, or
+     * the path it last had there. Rejects when that path is missing there.
+     */
+    switchHost: (
+      projectId: string,
+      hostId: string,
+      path?: string,
+    ) => Promise<import("./store/project-store").ProjectInfo>;
   };
 
   hosts: {
@@ -542,7 +594,6 @@ export interface ElectronAPI {
       hostId: string;
       spec: import("./store/host-store").HostSpec;
     }>;
-    remove: (hostId: string) => Promise<void>;
     retryConnect: (hostId: string) => Promise<void>;
     onStatusChanged: (
       callback: (hosts: import("./store/host-store").HostStatusInfo[]) => void,
@@ -589,7 +640,8 @@ export interface ElectronAPI {
   ports: {
     startScanner: () => Promise<void>;
     stopScanner: () => Promise<void>;
-    updateWorkspacePaths: (paths: string[]) => Promise<void>;
+    /** Every open workspace with its project's host (ADR-183). */
+    updateWorkspaces: (workspaces: Array<{ path: string; hostId: string }>) => Promise<void>;
     updateWorkspaceMetadata: (
       meta: Array<{
         path: string;
@@ -614,8 +666,6 @@ export interface ElectronAPI {
      * unchanged.
      */
     remoteUrl: (url: string, hostId: string) => Promise<string>;
-    /** A public URL for a remote port, or null when its provider has none. */
-    publicUrl: (hostId: string, port: number) => Promise<string | null>;
     onChange: (callback: (ports: ActivePort[]) => void) => () => void;
   };
 
@@ -629,7 +679,7 @@ export interface ElectronAPI {
   };
 
   branches: {
-    start: (paths: string[]) => Promise<void>;
+    start: (workspaces: Array<{ path: string; hostId: string }>) => Promise<void>;
     stop: () => Promise<void>;
     onChange: (
       callback: (branches: Record<string, string>) => void,
@@ -637,7 +687,9 @@ export interface ElectronAPI {
   };
 
   diffs: {
-    start: (workspaces: Record<string, string>) => Promise<void>;
+    start: (
+      workspaces: Array<{ path: string; hostId: string; defaultBranch: string }>,
+    ) => Promise<void>;
     stop: () => Promise<void>;
     onChange: (
       callback: (
@@ -838,6 +890,19 @@ export interface ElectronAPI {
         unseen: { responded: boolean; requires_input: boolean },
       ) => void,
     ) => () => void;
+    /**
+     * Subscribe to every pane's Agent status as the Status reconciler
+     * publishes it, with the reason for it (ADR-184 §4). Replaces
+     * `pty.onAgentStatus`, removed in ADR-184 ticket 5.
+     */
+    onStatus: (callback: (update: PaneAgentStatusUpdate) => void) => () => void;
+    /**
+     * Every pane's currently published Agent status (ADR-184 ticket 5).
+     * Fetched once on renderer startup — including a detached/popout window,
+     * or a reload — to prime a window that starts after some panes' statuses
+     * were already published, with nothing to replay.
+     */
+    getPaneStatuses: () => Promise<PaneAgentStatusUpdate[]>;
   };
 
   preferences: {

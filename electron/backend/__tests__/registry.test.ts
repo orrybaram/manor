@@ -6,6 +6,7 @@ import {
   type HostStatusInfo,
 } from "../registry";
 import { RoutedBackend } from "../routed-backend";
+import type { HostConnection } from "../host-connection";
 import type {
   ScannedPort,
   HostConnectionEvent,
@@ -901,5 +902,44 @@ describe("BackendRegistry — away and back (ADR-178 §6)", () => {
     remote.hostEvent({ type: "hostFailed", sessionIds: [], reason: "auth", message: "denied" });
     registry.retryNow("box");
     await connectStarted(remote, 2);
+  });
+
+  describe("daemon replacing (ADR-185 §A)", () => {
+    /** Every host's connection, keyed by hostId; not part of the public API. */
+    function connections(registry: BackendRegistry): Map<string, HostConnection> {
+      return (registry as unknown as { hosts: Map<string, HostConnection> }).hosts;
+    }
+
+    it("forwards a host's reportDaemonReplacing as a registry event", () => {
+      const { registry } = setup();
+      const seen: Array<{ hostId: string; sessionIds: string[] }> = [];
+      registry.onDaemonReplacing((hostId, sessionIds) => seen.push({ hostId, sessionIds }));
+
+      connections(registry).get("local")!.reportDaemonReplacing(["pane-1", "pane-2"]);
+
+      expect(seen).toEqual([{ hostId: "local", sessionIds: ["pane-1", "pane-2"] }]);
+    });
+
+    it("reports a remote host's daemon replacement too, tagged with its hostId", async () => {
+      const { registry } = setup();
+      registry.register("box", box);
+      const seen: Array<{ hostId: string; sessionIds: string[] }> = [];
+      registry.onDaemonReplacing((hostId, sessionIds) => seen.push({ hostId, sessionIds }));
+
+      connections(registry).get("box")!.reportDaemonReplacing(["pane-a"]);
+
+      expect(seen).toEqual([{ hostId: "box", sessionIds: ["pane-a"] }]);
+    });
+
+    it("stops delivering once unsubscribed", () => {
+      const { registry } = setup();
+      const seen: string[][] = [];
+      const off = registry.onDaemonReplacing((_hostId, sessionIds) => seen.push(sessionIds));
+      off();
+
+      connections(registry).get("local")!.reportDaemonReplacing(["pane-1"]);
+
+      expect(seen).toEqual([]);
+    });
   });
 });

@@ -1,6 +1,6 @@
 ---
 title: Signal which sessions a daemon replacement is about to kill
-status: todo
+status: review
 priority: high
 assignee: sonnet
 blocked_by: [1]

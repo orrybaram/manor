@@ -108,6 +108,9 @@ export class BackendRegistry {
   private readonly streamEvents = new Emitter<[string, StreamEvent]>(`${LOG} stream event listener`);
   private readonly hostEvents = new Emitter<[string, HostConnectionEvent]>(`${LOG} host event listener`);
   private readonly resumed = new Emitter<[string, string[]]>(`${LOG} host resumed listener`);
+  private readonly daemonReplacing = new Emitter<[string, string[]]>(
+    `${LOG} daemon replacing listener`,
+  );
   private readonly statusChanges = new Emitter<[HostStatusInfo[]]>(`${LOG} status listener`);
   private readonly createRemote: RemoteBackendFactory;
   private readonly createProvider: HostProviderFactory;
@@ -126,6 +129,7 @@ export class BackendRegistry {
       statusChanged: () => this.emitStatus(),
       hostEvents: this.hostEvents,
       resumed: this.resumed,
+      daemonReplacing: this.daemonReplacing,
       hookSeqStore: opts.hookSeqStore ?? memoryHookSeqStore(),
       hookSink: () => this.hookSink,
       hookReplayRetryDelayMs: opts.hookReplayRetryDelayMs,
@@ -287,6 +291,17 @@ export class BackendRegistry {
    */
   onHostResumed(handler: (hostId: string, sessionIds: string[]) => void): () => void {
     return this.resumed.on(handler);
+  }
+
+  /**
+   * A host's daemon is about to be replaced (ADR-185 §A) — a protocol bump,
+   * `kill_daemon`, a crash respawn — and `sessionIds` are its still-live
+   * sessions, about to be lost. Local and remote alike. Lets a listener tell
+   * the difference between an Agent's pty exiting because the Agent finished
+   * and one exiting because its daemon was swapped out from under it.
+   */
+  onDaemonReplacing(handler: (hostId: string, sessionIds: string[]) => void): () => void {
+    return this.daemonReplacing.on(handler);
   }
 
   /** Called with the full `list()` whenever any host's status changes. */

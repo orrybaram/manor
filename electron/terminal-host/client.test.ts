@@ -53,6 +53,8 @@ class TestDaemon {
   readonly receivedEnvUpdates: Record<string, string>[] = [];
   /** Set to make the next getSnapshot fail as though the daemon misbehaved. */
   failNextSnapshot = false;
+  /** Set to make the next `listSessions` fail, as a very old daemon might. */
+  failNextListSessions = false;
   /** Behave like a daemon from before ADR-159: no protocol, no `notFound`, so
    *  the client must replace it. */
   legacyProtocol = false;
@@ -245,6 +247,11 @@ class TestDaemon {
         );
         break;
       case "listSessions":
+        if (this.failNextListSessions) {
+          this.failNextListSessions = false;
+          this.send(socket, { type: "error", message: "listSessions unsupported" }, requestId);
+          break;
+        }
         this.send(socket, {
           type: "sessions",
           sessions: this.host.listSessions(),
@@ -379,8 +386,9 @@ class TestTransport implements HostTransport {
 function createTestClient(
   daemon: TestDaemon,
   transport: TestTransport = new TestTransport(daemon),
+  onDaemonReplacing?: (sessionIds: string[]) => void,
 ): TerminalHostClient {
-  return new TerminalHostClient(undefined, transport);
+  return new TerminalHostClient(undefined, transport, onDaemonReplacing);
 }
 
 // ── Tests ──
@@ -455,6 +463,59 @@ describe("TerminalHostClient", () => {
       await client.connect();
 
       expect(transport.restarts).toBe(1);
+      expect(await client.ping()).toBe(true);
+      client.disconnect();
+    });
+
+    it("reports a stale daemon's live sessions before replacing it (ADR-185 §A)", async () => {
+      const warmClient = createTestClient(daemon);
+      await warmClient.connect();
+      await warmClient.createOrAttach("pane-1", "/tmp", 80, 24);
+      await warmClient.createOrAttach("pane-2", "/tmp", 80, 24);
+      warmClient.disconnect();
+
+      daemon.legacyProtocol = true;
+      const transport = new TestTransport(daemon);
+      const reported: string[][] = [];
+      const client = createTestClient(daemon, transport, (ids) => reported.push(ids));
+      await client.connect();
+
+      expect(transport.restarts).toBe(1);
+      expect(reported).toEqual([["pane-1", "pane-2"]]);
+      client.disconnect();
+    });
+
+    it("never reports sessions when the daemon is not stale", async () => {
+      const warmClient = createTestClient(daemon);
+      await warmClient.connect();
+      await warmClient.createOrAttach("pane-1", "/tmp", 80, 24);
+      warmClient.disconnect();
+
+      const transport = new TestTransport(daemon);
+      const reported: string[][] = [];
+      const client = createTestClient(daemon, transport, (ids) => reported.push(ids));
+      await client.connect();
+
+      expect(transport.restarts).toBe(0);
+      expect(reported).toEqual([]);
+      client.disconnect();
+    });
+
+    it("still restarts when listing a stale daemon's sessions fails", async () => {
+      const warmClient = createTestClient(daemon);
+      await warmClient.connect();
+      await warmClient.createOrAttach("pane-1", "/tmp", 80, 24);
+      warmClient.disconnect();
+
+      daemon.legacyProtocol = true;
+      daemon.failNextListSessions = true;
+      const transport = new TestTransport(daemon);
+      const reported: string[][] = [];
+      const client = createTestClient(daemon, transport, (ids) => reported.push(ids));
+      await client.connect();
+
+      expect(transport.restarts).toBe(1);
+      expect(reported).toEqual([]);
       expect(await client.ping()).toBe(true);
       client.disconnect();
     });

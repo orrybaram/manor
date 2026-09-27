@@ -248,6 +248,18 @@ export type AgentStatus =
   | "error"
   | "responded";
 
+/**
+ * One pane's Agent status as main's Status reconciler publishes it on the
+ * `agent-status` channel (ADR-184 §4). There is no `complete`: a finished turn
+ * is `responded`, an ended session is `idle`. `reason` says why.
+ */
+export interface PaneAgentStatusUpdate {
+  paneId: string;
+  status: Exclude<AgentStatus, "complete">;
+  reason: string;
+  kind: AgentKind | null;
+}
+
 export interface AgentState {
   kind: AgentKind | null;
   status: AgentStatus;
@@ -877,6 +889,12 @@ export interface ElectronAPI {
         unseen: { responded: boolean; requires_input: boolean },
       ) => void,
     ) => () => void;
+    /**
+     * Subscribe to every pane's Agent status as the Status reconciler
+     * publishes it, with the reason for it (ADR-184 §4). Replaces
+     * `pty.onAgentStatus` in ADR-184 ticket 5.
+     */
+    onStatus: (callback: (update: PaneAgentStatusUpdate) => void) => () => void;
   };
 
   preferences: {

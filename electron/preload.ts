@@ -616,6 +616,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.on("agent-updated", listener);
       return () => ipcRenderer.removeListener("agent-updated", listener);
     },
+    /**
+     * Every pane's Agent status as the Status reconciler publishes it
+     * (ADR-184 §4): `{ paneId, status, reason, kind }` on `agent-status`.
+     */
+    onStatus: (
+      callback: (update: {
+        paneId: string;
+        status: string;
+        reason: string;
+        kind: string | null;
+      }) => void,
+    ) => onChannel("agent-status", callback),
   },
 
   preferences: {

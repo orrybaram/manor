@@ -47,6 +47,13 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
     statsStore: {
       record: vi.fn(),
     },
+    // The Status reconciler's driver (ADR-184). Reports that it persisted the
+    // abandon for the pane's agent, as the real one does for an active one.
+    agentStatus: {
+      signal: vi.fn(() => ({
+        effects: [{ kind: "PersistAgentStatus", sessionId: "s1", transition: { to: "abandoned" } }],
+      })),
+    },
     mainWindow: null,
     preferencesManager: {},
     paneContextMap: new Map(),
@@ -67,23 +74,22 @@ describe("agents:abandonForPane handler", () => {
     register(deps as never);
   });
 
-  it("marks the active agent for a pane as abandoned", () => {
+  it("sends the reconciler an abandon signal and writes no status itself", () => {
     deps.agentManager.getAgentByPaneId.mockReturnValue({
       id: "t1",
+      agentSessionId: "s1",
       status: "active",
     });
 
     const handler = handlers.get("agents:abandonForPane")!;
     handler({} as never, "pane-1");
 
-    expect(deps.agentManager.updateAgent).toHaveBeenCalledTimes(1);
-    expect(deps.agentManager.updateAgent).toHaveBeenCalledWith(
-      "t1",
-      expect.objectContaining({ status: "abandoned" }),
-    );
-    const [[, updates]] = (deps.agentManager.updateAgent as ReturnType<typeof vi.fn>).mock.calls;
-    expect(updates).toHaveProperty("completedAt");
-    expect(typeof updates.completedAt).toBe("string");
+    expect(deps.agentStatus.signal).toHaveBeenCalledTimes(1);
+    expect(deps.agentStatus.signal).toHaveBeenCalledWith("pane-1", {
+      type: "user",
+      action: "abandon",
+    });
+    expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
 
   it("does nothing if no agent for that pane", () => {
@@ -93,6 +99,7 @@ describe("agents:abandonForPane handler", () => {
     handler({} as never, "pane-99");
 
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
+    expect(deps.agentStatus.signal).not.toHaveBeenCalled();
   });
 
   it("does nothing if agent is not active", () => {
@@ -105,6 +112,7 @@ describe("agents:abandonForPane handler", () => {
     handler({} as never, "pane-1");
 
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
+    expect(deps.agentStatus.signal).not.toHaveBeenCalled();
   });
 
   it("sets agent name from title when agent has no name", () => {
@@ -117,10 +125,13 @@ describe("agents:abandonForPane handler", () => {
     const handler = handlers.get("agents:abandonForPane")!;
     handler({} as never, "pane-1", "Fix conversation naming after slash clear command ⠻");
 
-    expect(deps.agentManager.updateAgent).toHaveBeenCalledWith(
-      "t1",
-      expect.objectContaining({ name: "Fix conversation naming after slash clear command" }),
-    );
+    expect(deps.agentManager.updateAgent).toHaveBeenCalledWith("t1", {
+      name: "Fix conversation naming after slash clear command",
+    });
+    // The name is written before the signal, so its broadcast carries it.
+    const nameOrder = deps.agentManager.updateAgent.mock.invocationCallOrder[0];
+    const signalOrder = deps.agentStatus.signal.mock.invocationCallOrder[0];
+    expect(nameOrder).toBeLessThan(signalOrder);
   });
 
   it("preserves existing agent name when title is also provided", () => {
@@ -133,8 +144,7 @@ describe("agents:abandonForPane handler", () => {
     const handler = handlers.get("agents:abandonForPane")!;
     handler({} as never, "pane-1", "Some other title");
 
-    const [[, updates]] = (deps.agentManager.updateAgent as ReturnType<typeof vi.fn>).mock.calls;
-    expect(updates).not.toHaveProperty("name");
+    expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
 
   it("does not set name when title is a generic agent name", () => {
@@ -147,8 +157,7 @@ describe("agents:abandonForPane handler", () => {
     const handler = handlers.get("agents:abandonForPane")!;
     handler({} as never, "pane-1", "claude ⠋");
 
-    const [[, updates]] = (deps.agentManager.updateAgent as ReturnType<typeof vi.fn>).mock.calls;
-    expect(updates).not.toHaveProperty("name");
+    expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
 
   describe("agentsKilled stat", () => {

@@ -22,6 +22,7 @@ import type { ThemeManager } from "../theme";
 import type { PortScanner } from "../ports";
 import type { RemoteControlController } from "../remote-control/controller";
 import type { AgentHookServer } from "../agent-hooks";
+import type { AgentStatusSignals } from "../agent-status/driver";
 
 /** One buffered `console-message` from a webview's `WebContents`. */
 export interface ConsoleEntry {
@@ -60,6 +61,12 @@ export interface ControlDeps {
   portScanner: PortScanner | null;
   remoteControl: RemoteControlController | null;
   agentHookServer: AgentHookServer | null;
+  /**
+   * The Status reconciler's driver (ADR-184): routes that change an Agent's
+   * lifecycle send it `user` signals instead of writing status. Optional so
+   * control-deps bags built without it (tests, older call sites) still type.
+   */
+  agentStatus?: AgentStatusSignals | null;
   /**
    * The HTTP server serving this very request, reported by `GET /processes`
    * alongside the other internal servers. Structural rather than the

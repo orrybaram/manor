@@ -16,7 +16,9 @@ import { homeWorkspaceDir } from "./paths";
 import { AgentHookServer } from "./agent-hooks";
 import { NotificationCoalescer, type HookCursor } from "./backend/hook-feed";
 import { bootstrapHost } from "./terminal-host/bootstrap-host";
-import { createHookRelay, SWEEP_INTERVAL_MS } from "./hook-relay";
+import { createAgentStatusDriver, type AgentStatusDriver } from "./agent-status/driver";
+import type { PaneStatusUpdate } from "./agent-status/effects";
+import type { Effect as LegacyRelayEffect } from "./hook-relay-transition";
 import { ensureManorCli } from "./manor-cli-install";
 import { AgentManager, type AgentInfo } from "./agent-persistence";
 import { NotificationStore } from "./notification-store";
@@ -25,10 +27,17 @@ import { countBusyAgents } from "./stats-signals";
 import { PreferencesManager } from "./preferences";
 import { KeybindingsManager } from "./keybindings";
 import { cleanAgentTitle } from "./title-utils";
-import type { AgentStatus, StreamEvent } from "./terminal-host/types";
+import type {
+  AgentKind,
+  AgentState,
+  AgentStatus,
+  PaneFacts,
+  StreamEvent,
+} from "./terminal-host/types";
 import { initAutoUpdater, checkForUpdates } from "./updater";
 import { portlessManager } from "./portless";
 import { createLocalBackend } from "./backend/host-backend";
+import { LOCAL_HOST_ID } from "./backend/types";
 import {
   BackendRegistry,
   isRemoteSessionLoss,
@@ -95,14 +104,12 @@ function manorVersion(): string {
   return app.getVersion();
 }
 
-// Extract stream event handler for testability
-export function handleStreamEvent(
-  event: StreamEvent,
-  window: BrowserWindow,
-  agentManager: AgentManager,
-  preferencesManager: PreferencesManager,
-  notifyAgentDetectorGone?: (sessionId: string) => void,
-): void {
+// Extract stream event handler for testability.
+//
+// Runs once per renderer window, so it only forwards pane channels. Anything
+// agent-related lives in `handleAgentStreamEvent`, which main runs once per
+// event (ADR-184).
+export function handleStreamEvent(event: StreamEvent, window: BrowserWindow): void {
   try {
     switch (event.type) {
       case "data":
@@ -126,54 +133,73 @@ export function handleStreamEvent(
         break;
       case "cwd":
         window.webContents.send(`pty-cwd-${event.sessionId}`, event.cwd);
-        // Update agent's cwd if active and differs from current
-        {
-          const agent = agentManager.getAgentByPaneId(event.sessionId);
-          if (agent && agent.status === "active" && agent.cwd !== event.cwd) {
-            const updated = agentManager.updateAgent(agent.id, {
-              cwd: event.cwd,
-            });
-            if (updated) {
-              sendAgentUpdate(window, updated, preferencesManager);
-            }
-          }
-        }
         break;
       case "error":
         window.webContents.send(`pty-error-${event.sessionId}`, event.message);
         break;
-      case "agentStatus": {
-        window.webContents.send(
-          `pty-agent-status-${event.sessionId}`,
-          event.agent,
-        );
-        // Update persisted agent name from agent title — unless the user
-        // pinned a name of their own, which the title sync must not clobber.
-        const cleaned = cleanAgentTitle(event.agent.title);
-        if (cleaned) {
-          const agent = agentManager.getAgentByPaneId(event.sessionId);
-          if (agent && !agent.namePinned && agent.name !== cleaned) {
-            const updated = agentManager.updateAgent(agent.id, {
-              name: cleaned,
-            });
-            if (updated) {
-              sendAgentUpdate(window, updated, preferencesManager);
-            }
-          }
-        }
-        if (event.agent.status === "idle" && event.agent.kind === null) {
-          if (notifyAgentDetectorGone) {
-            notifyAgentDetectorGone(event.sessionId);
-          }
-        }
-        break;
-      }
+      // ADR-184: `agentStatus` is ignored — the Status reconciler decides the
+      // Agent status and publishes it itself. `paneFacts` is main's alone.
     }
   } catch (err) {
     // Render frame disposed during window reload or close — safe to ignore
     if (!(err instanceof Error) || !err.message.includes("disposed")) {
       console.error("Error in stream event handler:", err);
     }
+  }
+}
+
+export interface AgentStreamDeps {
+  agentManager: Pick<AgentManager, "getAgentByPaneId" | "updateAgent">;
+  agentStatus: Pick<AgentStatusDriver, "signal" | "forgetPane">;
+  /** Broadcast an updated Agent (and refresh the dock badge). */
+  broadcastAgent: (agent: AgentInfo) => void;
+  /** Called after a pane's facts were reconciled (the legacy status bridge). */
+  onPaneFactsReconciled?: (paneId: string) => void;
+}
+
+/**
+ * The agent-domain side of a stream event, run ONCE per event in main — not
+ * per window, as `handleStreamEvent` is (ADR-184):
+ * - `paneFacts` → a Status signal for the pane, and the Agent's name from the
+ *   terminal title (unless the user pinned one);
+ * - `cwd` → the active Agent's cwd;
+ * - `exit` → the pane's reconciler state is dropped.
+ * `agentStatus` stream events are ignored for status purposes.
+ */
+export function handleAgentStreamEvent(event: StreamEvent, deps: AgentStreamDeps): void {
+  try {
+    switch (event.type) {
+      case "paneFacts": {
+        deps.agentStatus.signal(event.sessionId, { type: "paneFacts", facts: event.facts });
+        deps.onPaneFactsReconciled?.(event.sessionId);
+        // Update the persisted Agent name from the terminal title — unless the
+        // user pinned a name of their own, which the title sync must not
+        // clobber.
+        const cleaned = cleanAgentTitle(event.facts.title);
+        if (cleaned) {
+          const agent = deps.agentManager.getAgentByPaneId(event.sessionId);
+          if (agent && !agent.namePinned && agent.name !== cleaned) {
+            const updated = deps.agentManager.updateAgent(agent.id, { name: cleaned });
+            if (updated) deps.broadcastAgent(updated);
+          }
+        }
+        break;
+      }
+      case "cwd": {
+        // Update the agent's cwd if it is active and differs.
+        const agent = deps.agentManager.getAgentByPaneId(event.sessionId);
+        if (agent && agent.status === "active" && agent.cwd !== event.cwd) {
+          const updated = deps.agentManager.updateAgent(agent.id, { cwd: event.cwd });
+          if (updated) deps.broadcastAgent(updated);
+        }
+        break;
+      }
+      case "exit":
+        deps.agentStatus.forgetPane(event.sessionId);
+        break;
+    }
+  } catch (err) {
+    console.error("Error in agent stream event handler:", err);
   }
 }
 
@@ -381,6 +407,7 @@ export function initApp(devTitle: string | null): void {
       portScanner,
       remoteControl,
       agentHookServer,
+      agentStatus: agentStatusDriver,
       webviewServer,
       webviewPanes: webviewServer,
       resolvePaneUrl,
@@ -453,8 +480,125 @@ export function initApp(devTitle: string | null): void {
   // instead of on every new session's launch command.
   fs.mkdirSync(homeWorkspaceDir(), { recursive: true });
 
-  // Mutable reference to notifyAgentDetectorGone — will be set after hook relay is created
-  let notifyAgentDetectorGone: ((sessionId: string) => void) | undefined;
+  function broadcastAgent(agent: AgentInfo): void {
+    sendAgentUpdate(mainWindow, agent, preferencesManager);
+  }
+
+  /** Send to every live renderer window whose main frame is still there. */
+  function sendToRendererWindows(channel: string, ...args: unknown[]): void {
+    for (const win of getRendererWindows()) {
+      try {
+        if (!win.webContents.mainFrame) continue;
+        win.webContents.send(channel, ...args);
+      } catch {
+        // Render frame disposed during reload/close — safe to ignore.
+      }
+    }
+  }
+
+  // ── Agent status (ADR-184) ─────────────────────────────────────────────
+  // The Status reconciler's driver: the one decider of every pane's Agent
+  // status, and the only writer of Agents' lifecycle and last status. Built
+  // before the IPC handlers and routes that feed it user signals.
+
+  /**
+   * Bridge to the renderer's old per-pane channel (`pty-agent-status-*`)
+   * until ADR-184 ticket 5 moves it to `agent-status`: the reconciler's
+   * status, with the title and process from the pane's facts. Replaces
+   * forwarding the daemon's `agentStatus` events, which main now ignores.
+   */
+  const legacyAgentStates = new Map<string, AgentState>();
+  function sendLegacyAgentState(
+    paneId: string,
+    status: AgentStatus,
+    kind: AgentKind | null,
+    facts: PaneFacts | null,
+  ): void {
+    const prev = legacyAgentStates.get(paneId);
+    const title = facts?.title ?? null;
+    const processName = facts?.foreground?.name ?? null;
+    if (
+      prev &&
+      prev.status === status &&
+      prev.kind === kind &&
+      prev.title === title &&
+      prev.processName === processName
+    ) {
+      return;
+    }
+    const next: AgentState = {
+      kind,
+      status,
+      processName,
+      title,
+      since: prev && prev.status === status ? prev.since : Date.now(),
+    };
+    legacyAgentStates.set(paneId, next);
+    sendToRendererWindows(`pty-agent-status-${paneId}`, next);
+  }
+
+  const agentStatusDriver: AgentStatusDriver = createAgentStatusDriver({
+    agentManager,
+    getPaneContext: (paneId) => paneContextMap.get(paneId),
+    unseenRespondedAgents,
+    unseenInputAgents,
+    broadcastAgent,
+    // Replayed remote hooks hold their notifications (ADR-178 §2).
+    maybeSendNotification: (agent, prevStatus, newStatus) =>
+      notificationCoalescer.send(agent, prevStatus, newStatus),
+    publishPaneStatus: (update: PaneStatusUpdate) => {
+      // One channel, every window, once per signal (ADR-184 §4).
+      sendToRendererWindows("agent-status", update);
+      const facts = agentStatusDriver.getPaneState(update.paneId)?.lastFacts ?? null;
+      sendLegacyAgentState(update.paneId, update.status, update.kind, facts);
+    },
+    onHookEvent: (event, effects, { isRootSession, replacedRootSessionId }) => {
+      // The stats tap still reads ADR-139's effect shapes; translate the two
+      // it looks at (ADR-184 ticket 4 moves it onto the reconciler's).
+      const legacy: LegacyRelayEffect[] = [];
+      if (replacedRootSessionId) {
+        legacy.push({ kind: "DeleteSessionState", sessionId: replacedRootSessionId });
+      }
+      for (const effect of effects) {
+        if (effect.kind === "CreateAgent") legacy.push({ ...effect });
+      }
+      statsStore.observeHookEvent(
+        event,
+        legacy,
+        countBusyAgents(agentManager.getActiveAgents()),
+        isRootSession,
+      );
+    },
+  });
+
+  function onPaneFactsReconciled(paneId: string): void {
+    const state = agentStatusDriver.getPaneState(paneId);
+    if (state) sendLegacyAgentState(paneId, state.status, state.kind, state.lastFacts);
+  }
+
+  /**
+   * Resync a host's panes after it (re)connects: the `paneFacts` stream has
+   * nothing to replay, so ask for each live session's current facts. Without
+   * `sessionIds`, every session the host has now.
+   */
+  async function resyncPaneFacts(hostId: string, sessionIds?: readonly string[]): Promise<void> {
+    try {
+      const pty = backendRegistry.get(hostId).pty;
+      const ids = sessionIds ?? (await pty.listSessions()).map((s) => s.sessionId);
+      await agentStatusDriver.resync(ids, (id) => pty.getPaneFacts(id));
+    } catch (err) {
+      console.debug(`[agent-status] resync of ${hostId} failed:`, err);
+    }
+  }
+
+  // The local daemon's reconnects (its client's supervisor)...
+  client.setConnectionListener({
+    onReconnected: ({ sessionIds }) => void resyncPaneFacts(LOCAL_HOST_ID, sessionIds),
+  });
+  // ...and remote hosts' (their `hostReconnected` carries the survivors).
+  backendRegistry.onHostEvent((hostId, event) => {
+    if (event.type === "hostReconnected") void resyncPaneFacts(hostId, event.sessionIds);
+  });
 
   // Set up stream event handler — broadcast events to every live renderer
   // window. A detached window hosting a terminal pane must receive its `pty:*`
@@ -475,6 +619,11 @@ export function initApp(devTitle: string | null): void {
       lastHostStatus.set(host.hostId, host.status);
       if (host.status === "connected" && prev !== "connected") {
         notifyProjectsChanged();
+        // A remote host's first connect (a reconnect is `hostReconnected`'s):
+        // its panes' facts may already say something (ADR-184).
+        if (host.hostId !== LOCAL_HOST_ID && prev !== "reconnecting") {
+          void resyncPaneFacts(host.hostId);
+        }
       }
     }
   });
@@ -484,6 +633,14 @@ export function initApp(devTitle: string | null): void {
     // one whose shell exited: the renderer recovers it when the host's
     // `hosts:reconnected` arrives (ADR-178 §6).
     if (isRemoteSessionLoss(hostId, event)) return;
+    // Agent side effects run once per event, not once per window (ADR-184).
+    handleAgentStreamEvent(event, {
+      agentManager,
+      agentStatus: agentStatusDriver,
+      broadcastAgent,
+      onPaneFactsReconciled,
+    });
+    if (event.type === "paneFacts" || event.type === "agentStatus") return;
     for (const win of getRendererWindows()) {
       // Check that the main frame is still available (avoids "Render frame was
       // disposed" errors during window reload/close).
@@ -492,13 +649,7 @@ export function initApp(devTitle: string | null): void {
       } catch {
         continue;
       }
-      handleStreamEvent(
-        event,
-        win,
-        agentManager,
-        preferencesManager,
-        notifyAgentDetectorGone,
-      );
+      handleStreamEvent(event, win);
     }
   });
 
@@ -535,6 +686,7 @@ export function initApp(devTitle: string | null): void {
     linearManager,
     agentHookServer,
     agentManager,
+    agentStatus: agentStatusDriver,
     notificationStore,
     statsStore,
     preferencesManager,
@@ -566,6 +718,7 @@ export function initApp(devTitle: string | null): void {
     portScanner: ipcDeps.portScanner,
     remoteControl: ipcDeps.remoteControl,
     agentHookServer: ipcDeps.agentHookServer,
+    agentStatus: agentStatusDriver,
     getRendererWindows: ipcDeps.getRendererWindows,
     // Pane inspection routes' access to WebviewServer's own pane registry
     // and console-log buffers (ADR-183) — always itself.
@@ -651,51 +804,27 @@ export function initApp(devTitle: string | null): void {
     // Pre-warm a terminal session for instant new-agent
     prewarmManager.warm().catch(() => {});
 
-    // Set the relay callback now that the client is connected.
-    // Hook events route through the daemon's AgentDetector state machine.
-
-    function broadcastAgent(agent: AgentInfo): void {
-      sendAgentUpdate(mainWindow, agent, preferencesManager);
-    }
+    // The local daemon's panes may already have facts (a daemon that outlived
+    // the last app run): resync them now that it is connected (ADR-184).
+    void resyncPaneFacts(LOCAL_HOST_ID);
 
     // Update dock badge whenever preferences change (e.g. user toggles dockBadgeEnabled)
     preferencesManager.onChange(() => {
       updateDockBadge();
     });
 
-    const {
-      relay,
-      sweepStaleSessions,
-      notifyAgentDetectorGone: notifyAgentDetectorGoneFn,
-    } = createHookRelay({
-      relayAgentHook: (paneId, status, kind) =>
-        backend.pty.relayAgentHook(paneId, status, kind),
-      agentManager,
-      getPaneContext: (paneId) => paneContextMap.get(paneId),
-      unseenRespondedAgents,
-      unseenInputAgents,
-      broadcastAgent,
-      maybeSendNotification: notificationCoalescer.send,
-      onHookEvent: (event, effects, ctx) =>
-        statsStore.observeHookEvent(
-          event,
-          effects,
-          countBusyAgents(agentManager.getActiveAgents()),
-          ctx.isRootSession,
-        ),
+    // Every hook — local HTTP and remote hook-feed replay alike, through
+    // `ingestHookPayload` — is a Status signal for the reconciler (ADR-184).
+    // The daemon's AgentDetector no longer hears about hooks.
+    agentHookServer.setRelay((event) => {
+      agentStatusDriver.hook(event);
     });
 
-    // Now that the hook relay is created, set the notifyAgentDetectorGone reference
-    notifyAgentDetectorGone = notifyAgentDetectorGoneFn;
-
-    agentHookServer.setRelay(relay);
-
-    const staleStopSweep = setInterval(() => {
-      sweepStaleSessions();
-    }, SWEEP_INTERVAL_MS);
+    // One tick, on the old sweep cadence, carries every time-based rule.
+    agentStatusDriver.start();
 
     app.on("before-quit", () => {
-      clearInterval(staleStopSweep);
+      agentStatusDriver.stop();
     });
 
     // Reopen the PRIMARY window, not just "a" window: with a popout still open

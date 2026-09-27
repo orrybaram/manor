@@ -74,6 +74,8 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
     backendRegistry: {
       status: vi.fn().mockReturnValue("connected"),
     },
+    // The Status reconciler's driver (ADR-184).
+    agentStatus: { signal: vi.fn(() => ({ effects: [] })) },
     mainWindow: null,
     preferencesManager: {},
     paneContextMap: new Map(),
@@ -94,7 +96,7 @@ describe("agents:reconcileStale handler", () => {
     register(deps as never);
   });
 
-  it("marks active agents with dead sessions as abandoned", async () => {
+  it("sends an abandon signal for active agents with dead sessions", async () => {
     deps.agentManager.getAllAgents.mockReturnValue([
       makeAgent({ id: "t1", status: "active", paneId: "pane-1" }), // dead
       makeAgent({ id: "t2", status: "active", paneId: "pane-2" }), // alive
@@ -105,14 +107,13 @@ describe("agents:reconcileStale handler", () => {
     const handler = handlers.get("agents:reconcileStale")!;
     await handler({} as never);
 
-    expect(deps.agentManager.updateAgent).toHaveBeenCalledTimes(1);
-    expect(deps.agentManager.updateAgent).toHaveBeenCalledWith(
-      "t1",
-      expect.objectContaining({ status: "abandoned" }),
-    );
-    const [[, updates]] = (deps.agentManager.updateAgent as ReturnType<typeof vi.fn>).mock.calls;
-    expect(updates).toHaveProperty("completedAt");
-    expect(typeof updates.completedAt).toBe("string");
+    // The reconciler writes the lifecycle (ADR-184); the handler does not.
+    expect(deps.agentStatus.signal).toHaveBeenCalledTimes(1);
+    expect(deps.agentStatus.signal).toHaveBeenCalledWith("pane-1", {
+      type: "user",
+      action: "abandon",
+    });
+    expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
 
   it("does nothing when daemon is unreachable", async () => {
@@ -123,6 +124,7 @@ describe("agents:reconcileStale handler", () => {
 
     expect(deps.agentManager.getAllAgents).not.toHaveBeenCalled();
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
+    expect(deps.agentStatus.signal).not.toHaveBeenCalled();
   });
 
   it("skips agents with null paneId", async () => {
@@ -135,6 +137,7 @@ describe("agents:reconcileStale handler", () => {
     await handler({} as never);
 
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
+    expect(deps.agentStatus.signal).not.toHaveBeenCalled();
   });
 
   it("skips non-active agents", async () => {
@@ -147,6 +150,7 @@ describe("agents:reconcileStale handler", () => {
     await handler({} as never);
 
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
+    expect(deps.agentStatus.signal).not.toHaveBeenCalled();
   });
 
   it("regression: does not abandon an agent when paneId is live but agentSessionId is not", async () => {
@@ -169,5 +173,6 @@ describe("agents:reconcileStale handler", () => {
 
     // paneId "pane-1" is live → agent must NOT be abandoned
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
+    expect(deps.agentStatus.signal).not.toHaveBeenCalled();
   });
 });

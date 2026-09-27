@@ -396,16 +396,11 @@ export const agentRoutes: Route[] = [
 
       await deps.backend.pty.kill(paneId);
 
-      // Mirrors `agents:abandonForPane` (`../ipc/agents.ts`): only an
-      // *active* session's record moves to 'abandoned' — a session that had
-      // already completed or errored keeps that outcome.
-      if (agent.status === "active") {
-        const updated = deps.agentManager.updateAgent(agent.id, {
-          status: "abandoned",
-          completedAt: new Date().toISOString(),
-        });
-        if (updated) broadcastAgentUpdate(updated);
-      }
+      // A `user` signal, as `agents:abandonForPane` sends (ADR-184): the
+      // Status reconciler moves only an *active* session's record to
+      // 'abandoned' — one that had already completed or errored keeps that
+      // outcome — broadcasts it, and resets the pane's Agent status.
+      deps.agentStatus?.signal(paneId, { type: "user", action: "end" });
 
       json(200, { ok: true, target: { id: agent.id, paneId } });
     },

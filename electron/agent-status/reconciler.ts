@@ -13,7 +13,9 @@
  *
  * Hook signals (`reconcileHook`)
  *  H1  Late-active guard (ADR-139): an active hook other than UserPromptSubmit /
- *      SessionStart for a session that has already responded is dropped.
+ *      SessionStart for a session that has already responded is dropped. The
+ *      pane's phase answers for its root session (so a `stalled` turn
+ *      resumes); the saved Agent answers for any other session.
  *  H2  SessionStart: claims the pane's root, or replaces it (the old root's
  *      in-progress turn is forced to responded). Status unchanged otherwise.
  *  H3  No session id: cannot be attributed. Ignored on a hook-driven pane;
@@ -42,7 +44,7 @@
  * Ticks (`reconcileTick`) — the old `sweepStaleSessions` branches
  *  T1  Held Stop drain (ADR-130): pending Stop and root quiet > STALE_STOP_MS.
  *  T2  Stuck-working (ADR-131): root turn quiet > STALE_ACTIVE_MS while the
- *      Agent is still active.
+ *      Agent is still active → `stalled`.
  *  T3  Orphan (ADR-132): the pane's Agent is stuck active but has no turn state,
  *      and is older than STALE_ACTIVE_MS.
  *
@@ -307,13 +309,16 @@ function reconcileHook(
   // H1 — late-active guard (ADR-139). Hook delivery is independent HTTP, so a
   // PreToolUse / PostToolUse can race in after Stop. Only UserPromptSubmit
   // starts the next turn; SessionStart is a lifecycle event (H2).
+  const alreadyResponded =
+    sessionId === state.rootSessionId
+      ? state.phase === "responded"
+      : existingAgent?.lastAgentStatus === "responded";
   if (
     sessionId &&
     isActiveStatus(event.status) &&
     type !== "UserPromptSubmit" &&
     type !== "SessionStart" &&
-    (existingAgent?.lastAgentStatus === "responded" ||
-      (sessionId === state.rootSessionId && state.phase === "responded"))
+    alreadyResponded
   ) {
     return result(state, state, `late ${hookLabel} after Stop ignored`);
   }
@@ -748,7 +753,7 @@ function reconcileTurnTick(
   ) {
     const reason = `no hook for ${Math.round(idle / 1000)}s (stuck-working recovery)`;
     const next = withStatus(
-      { ...state, phase: "responded", activeSubagents: new Set() },
+      { ...state, phase: "stalled", activeSubagents: new Set() },
       "responded",
       reason,
     );

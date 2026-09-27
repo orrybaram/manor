@@ -286,6 +286,31 @@ describe("driver — ticks replace the sweeps (ported)", () => {
     expect(last(t.published)!.reason).toMatch(/stuck-working recovery/);
   });
 
+  it("stuck-working: the root's next active hook resumes the turn (a long think, not a lost Stop)", () => {
+    t.driver.hook(userPromptSubmit({ sessionId: "s1" }));
+    t.advance(STALE_ACTIVE_MS + 1_000);
+    t.driver.tick();
+    expect(last(t.published)).toMatchObject({ status: "responded" });
+
+    t.driver.hook(preToolUse({ sessionId: "s1" }));
+    expect(last(t.published)).toMatchObject({ status: "working", reason: "PreToolUse hook" });
+    expect(t.agentManager.getAgentBySessionId("s1")!.lastAgentStatus).toBe("working");
+
+    // A real Stop ends it, and the late-active guard is back in force.
+    t.driver.hook(stop({ sessionId: "s1" }));
+    t.driver.hook(postToolUse({ sessionId: "s1" }));
+    expect(last(t.published)).toMatchObject({ status: "responded" });
+    expect(t.agentManager.getAgentBySessionId("s1")!.lastAgentStatus).toBe("responded");
+  });
+
+  it("stuck-working: a child's hook does not resume the root's turn", () => {
+    t.driver.hook(userPromptSubmit({ sessionId: "s1" }));
+    t.advance(STALE_ACTIVE_MS + 1_000);
+    t.driver.tick();
+    t.driver.hook(preToolUse({ sessionId: "child" }));
+    expect(t.driver.getPaneState("pane-1")!.status).toBe("responded");
+  });
+
   it("stuck-working does not fire for an agent already terminal, or with fresh activity", () => {
     t.driver.hook(preToolUse({ sessionId: "s1" }));
     t.driver.hook(stop({ sessionId: "s1" }));

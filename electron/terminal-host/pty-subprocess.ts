@@ -128,6 +128,31 @@ async function detectAgentFromChildArgs(
   return null;
 }
 
+/**
+ * The agent a JS-runtime / version-string foreground name last resolved to.
+ * The child-args lookup races short-lived children and times out under load,
+ * so it fails now and then while the agent still runs; reusing the last answer
+ * keeps the reported name from flapping between e.g. "claude" and "2.1.80".
+ * Cleared when the shell is back in front.
+ */
+let lastResolved: { fgName: string; agent: string } | null = null;
+
+/**
+ * The foreground name to report. On macOS, node-pty returns the binary name
+ * (e.g. "node") or the process title (e.g. "2.1.80" for Claude Code) rather
+ * than the CLI tool name, so for a JS runtime or a version string, the child
+ * processes' command lines name the agent.
+ */
+async function resolveFgName(fgName: string, shellPid: number): Promise<string> {
+  if (!JS_RUNTIMES.has(fgName) && !VERSION_STRING_RE.test(fgName)) return fgName;
+  const agent = await detectAgentFromChildArgs(shellPid);
+  if (agent) {
+    lastResolved = { fgName, agent };
+    return agent;
+  }
+  return lastResolved?.fgName === fgName ? lastResolved.agent : fgName;
+}
+
 // ── Output batching ──
 // Batch PTY output to reduce frame overhead on high-throughput output
 let outputBatch: Buffer[] = [];
@@ -252,19 +277,8 @@ function pollForegroundProcess(): void {
         // If the foreground process is the shell itself, report null
         const isShell =
           !basename || basename === shellBasename || KNOWN_SHELLS.has(basename);
-        let fgName = isShell ? null : basename;
-
-        // On macOS, node-pty returns the binary name (e.g. "node") or the
-        // process title (e.g. "2.1.80" for Claude Code) rather than the CLI
-        // tool name. When the foreground process is a JS runtime or a version
-        // string, inspect child process command lines to identify agents.
-        if (
-          fgName &&
-          (JS_RUNTIMES.has(fgName) || VERSION_STRING_RE.test(fgName))
-        ) {
-          const agent = await detectAgentFromChildArgs(ptyProcess.pid);
-          if (agent) fgName = agent;
-        }
+        if (isShell) lastResolved = null;
+        const fgName = isShell ? null : await resolveFgName(basename, ptyProcess.pid);
 
         // Only send if changed
         if (fgName !== lastFgProcName) {

@@ -63,8 +63,13 @@ export type StatusSignal =
  * `none` means the root session has no turn state: it has never sent an active
  * hook, or its state was dropped (StopFailure, replacement, session end). This
  * is what ADR-139 modelled as "no entry in sessionStateMap".
+ *
+ * `stalled` is a turn the stuck-working recovery (T2) ended because the root
+ * went quiet, not because it sent Stop. The pane shows responded, but the
+ * root's next active hook resumes the turn: it was a long think or a long
+ * reply, not a lost Stop.
  */
-export type TurnPhase = "none" | "active" | "pendingStop" | "responded";
+export type TurnPhase = "none" | "active" | "pendingStop" | "responded" | "stalled";
 
 /** The Status reconciler's state for one pane. Treated as immutable. */
 export interface PaneAgentState {

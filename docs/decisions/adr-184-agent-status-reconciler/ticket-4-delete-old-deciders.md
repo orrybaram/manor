@@ -1,6 +1,6 @@
 ---
 title: Delete the detector, relay state machine and their bridges
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [3]

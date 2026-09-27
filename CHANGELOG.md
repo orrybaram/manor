@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.14.0] - 2026-09-26
+
+### Features
+- Run projects on remote hosts over SSH, with terminals, git, and agents running on the remote machine
+- Add and monitor remote hosts from a new host management UI
+- Add a project on a remote host by cloning it or adopting an existing clone, with a health check
+- Manor installs its host service on remote machines and keeps its version in step with the app
+- Agent hooks work on remote hosts, and events that happen while you're disconnected are replayed when you reconnect
+- Remote projects show a Disconnected state, reconnect on their own, and resume sessions after the remote host restarts
+- Port scanning and port forwarding work for remote projects on Linux hosts
+- Start new agent sessions from your phone and pick which workspace they launch in
+- Phone remote view now shows the terminal row for row, the same as on desktop
+
+### Fixes
+- Restoring a saved layout no longer breaks when selection IDs are missing
+- Agent sessions now correctly detect the agent type, on both local and remote projects
+- A new session started from your phone now opens that session
+- Startup commands in new terminals no longer fail on a race
+- The remote host restart notice now stays on screen long enough to read
+- Remote port forwards only listen on localhost, and forwards are cleaned up properly when a project closes
+- Unreadable agent config files on remote hosts are no longer overwritten
+
 ## [0.13.2] - 2026-09-18
 
 ## Features

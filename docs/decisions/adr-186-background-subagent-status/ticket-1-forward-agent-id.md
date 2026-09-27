@@ -1,6 +1,6 @@
 ---
 title: Forward agent_id from the hook script and parse it on every event
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

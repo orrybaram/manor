@@ -91,7 +91,7 @@ jobs:
           security find-identity -v -p codesigning "$KEYCHAIN"
 
       - name: Build and publish
-        run: pnpm run build && pnpm exec electron-builder --publish always
+        run: pnpm run build && node scripts/build-host-tarball.mjs && pnpm exec electron-builder --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_ID: ${{ secrets.APPLE_ID }}

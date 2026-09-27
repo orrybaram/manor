@@ -123,6 +123,18 @@ export class ProjectManager {
     return Array.from(ids);
   }
 
+  /** Paths of the projects that live on this machine. */
+  localProjectPaths(): string[] {
+    return this.store.state.projects
+      .filter((p) => p.hostId === LOCAL_HOST_ID)
+      .map((p) => p.path);
+  }
+
+  /** Run `listener` after every write of `projects.json` — any project mutation. */
+  onStateSaved(listener: () => void): void {
+    this.store.onSave(listener);
+  }
+
   /** The host a project lives on; `"local"` for unknown projects. */
   getProjectHostId(projectId: string | null | undefined): string {
     if (!projectId) return LOCAL_HOST_ID;

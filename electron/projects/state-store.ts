@@ -11,6 +11,7 @@ import type { PersistedProject, PersistedState } from "./types";
 export class StateStore {
   readonly state: PersistedState;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly saveListeners: Array<() => void> = [];
 
   constructor(private readonly dataDir: string) {
     this.state = this.load();
@@ -57,6 +58,12 @@ export class StateStore {
         2,
       ),
     );
+    for (const listener of this.saveListeners) listener();
+  }
+
+  /** Run `listener` after every write. */
+  onSave(listener: () => void): void {
+    this.saveListeners.push(listener);
   }
 
   /** Write within `delayMs`, folding every call until then into one write. */

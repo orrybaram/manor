@@ -377,6 +377,15 @@ function App() {
     void loadProjects();
   }), [loadProjects]);
 
+  // Backstop for worktree changes main can't watch — a remote project's git
+  // lives on another machine. Coming back to the window is when a stale
+  // sidebar would be noticed.
+  useEffect(() => {
+    const onFocus = () => void loadProjects();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [loadProjects]);
+
   // A detached window sent its tab back to this primary window (ADR-156). Insert
   // it into the active panel; PTYs re-attach and webviews re-mount by paneId.
   useEffect(

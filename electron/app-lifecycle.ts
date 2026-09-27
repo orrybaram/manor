@@ -75,6 +75,7 @@ import * as remoteControlIpc from "./ipc/remote-control";
 import * as menuIpc from "./ipc/menu";
 import * as hostsIpc from "./ipc/hosts";
 import { notifyProjectsChanged } from "./renderer-bridge";
+import { WorktreeWatcher } from "./projects/worktree-watcher";
 
 /** How long an agent's `navigate` waits for a remote host to come back. */
 const NAVIGATE_HOST_WAIT_MS = 15_000;
@@ -315,6 +316,12 @@ export function initApp(devTitle: string | null): void {
   for (const { hostId, spec } of projectManager.getHosts()) {
     backendRegistry.register(hostId, spec);
   }
+  // Worktrees made or removed outside Manor (an agent's `git worktree add`)
+  // never pass through a route that notifies the renderer; watch for them.
+  const worktreeWatcher = new WorktreeWatcher(notifyProjectsChanged);
+  const syncWorktreeWatcher = () => worktreeWatcher.sync(projectManager.localProjectPaths());
+  syncWorktreeWatcher();
+  projectManager.onStateSaved(syncWorktreeWatcher);
   // The one backend IPC handlers and control routes see: routes each pane,
   // cwd and pid to the host that owns it. A bare cwd is the only thing whose
   // host is inferred from its path (ADR-183); the pollers below are handed
@@ -810,5 +817,6 @@ export function initApp(devTitle: string | null): void {
     killAllActivePushes();
     statsStore.flushNow();
     projectManager.flushHostHookSeqs();
+    worktreeWatcher.dispose();
   });
 }

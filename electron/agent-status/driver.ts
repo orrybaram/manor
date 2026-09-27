@@ -19,7 +19,7 @@ import type { AgentHookEvent } from "../agent-hook-events";
 import type { AgentInfo } from "../agent-persistence";
 import type { PaneFacts } from "../terminal-host/types";
 import { applyStatusEffects, type EffectApplierDeps } from "./effects";
-import { initialPaneState, reconcile } from "./reconciler";
+import { initialPaneState, reconcile, stateFromSavedAgent } from "./reconciler";
 import type {
   Effect,
   PaneAgentState,
@@ -196,9 +196,52 @@ export function createAgentStatusDriver(deps: AgentStatusDriverDeps): AgentStatu
     return { ...result, effects };
   }
 
+  /**
+   * A pane seen for the first time since main started, whose saved Agent is
+   * still active (a main restart while the daemon kept the agent running):
+   * restore its state from that Agent and publish it, before the signal is
+   * applied on top (ADR-184). Seeded for Pane facts (resync and the live
+   * stream), and for a hook only from that same session — a hook from any
+   * other session claims the pane afresh, as before.
+   */
+  function seedFromSavedAgent(paneId: string, sig: StatusSignal, nowMs: number): PaneAgentState {
+    const initial = initialPaneState(paneId);
+    if (sig.type !== "paneFacts" && sig.type !== "hook") return initial;
+    const agent = agentManager.getAgentByPaneId(paneId);
+    if (!agent) return initial;
+    if (sig.type === "hook" && sig.event.sessionId !== agent.agentSessionId) return initial;
+    const seeded = stateFromSavedAgent(paneId, agent, nowMs);
+    if (seeded.rootSessionId === null) return initial;
+    states.set(paneId, seeded);
+    log(
+      `[agent-status] pane=${paneId} restored from saved agent ${agent.id} → ${seeded.status}`,
+    );
+    if (seeded.status !== initial.status || seeded.kind !== initial.kind) {
+      applyStatusEffects(
+        [
+          {
+            kind: "PublishPaneStatus",
+            paneId,
+            status: seeded.status,
+            reason: seeded.statusReason,
+            agentKind: seeded.kind,
+          },
+        ],
+        {
+          ...deps,
+          publishPaneStatus: (update) => {
+            log(`[agent-status] publish pane=${update.paneId} ${update.status} (${update.reason})`);
+            deps.publishPaneStatus(update);
+          },
+        },
+      );
+    }
+    return seeded;
+  }
+
   function signal(paneId: string, sig: StatusSignal): ReconcileResult {
-    const state = states.get(paneId) ?? initialPaneState(paneId);
     const nowMs = sig.type === "tick" ? sig.nowMs : monoClock();
+    const state = states.get(paneId) ?? seedFromSavedAgent(paneId, sig, nowMs);
     const existingAgent = existingAgentFor(state, sig);
     const ctx: ReconcileContext = { nowMs, existingAgent };
     if (sig.type === "tick" && existingAgent) {

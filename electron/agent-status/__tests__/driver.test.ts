@@ -697,6 +697,84 @@ describe("driver — resync after a host (re)connects", () => {
   });
 });
 
+// ── Restore after a main restart ──
+
+describe("driver — restores pane status from saved agents (main restart)", () => {
+  it("a saved responded agent with claude still in the foreground shows responded after resync", async () => {
+    const t = build();
+    const saved = t.agentManager.seed({
+      agentSessionId: "s1",
+      paneId: "pane-1",
+      lastAgentStatus: "responded",
+    });
+
+    await t.driver.resync(["pane-1"], async () => facts({ name: "claude", kind: "claude" }));
+
+    expect(t.published).toEqual([
+      { paneId: "pane-1", status: "responded", reason: "restored from saved agent", kind: "claude" },
+    ]);
+    const state = t.driver.getPaneState("pane-1")!;
+    expect(state).toMatchObject({ status: "responded", rootSessionId: "s1", hookDriven: true });
+    // Nothing persisted: restoring is not a transition.
+    expect(t.maybeSendNotification).not.toHaveBeenCalled();
+    expect(t.agentManager.getAgentById(saved.id)!.lastAgentStatus).toBe("responded");
+  });
+
+  it("a saved active agent whose process is gone goes idle (agent process exited)", async () => {
+    const t = build();
+    const saved = t.agentManager.seed({
+      agentSessionId: "s1",
+      paneId: "pane-1",
+      lastAgentStatus: "working",
+    });
+
+    await t.driver.resync(["pane-1"], async () => facts({ name: "zsh", kind: null }));
+
+    expect(t.published.map((p) => [p.status, p.reason])).toEqual([
+      ["working", "restored from saved agent"],
+      ["idle", "agent process exited"],
+    ]);
+    // The old gone bridge: the stuck turn is persisted as responded.
+    expect(t.agentManager.getAgentById(saved.id)!.lastAgentStatus).toBe("responded");
+  });
+
+  it("the restored root's next turn is a root turn, not a child's", () => {
+    const t = build();
+    t.agentManager.seed({ agentSessionId: "s1", paneId: "pane-1", lastAgentStatus: "responded" });
+    t.driver.signal("pane-1", { type: "paneFacts", facts: facts({ name: "claude", kind: "claude" }) });
+    t.driver.hook(userPromptSubmit({ sessionId: "s1" }));
+    expect(t.agentManager.getAgentBySessionId("s1")!.lastAgentStatus).toBe("thinking");
+    expect(last(t.published)).toMatchObject({ status: "thinking" });
+  });
+
+  it("a restored mid-turn agent still gets the stuck-working recovery", () => {
+    const t = build();
+    t.agentManager.seed({ agentSessionId: "s1", paneId: "pane-1", lastAgentStatus: "working" });
+    t.driver.signal("pane-1", { type: "paneFacts", facts: facts({ name: "claude", kind: "claude" }) });
+    t.advance(STALE_ACTIVE_MS + 1_000);
+    t.driver.tick();
+    expect(t.agentManager.getAgentBySessionId("s1")!.lastAgentStatus).toBe("responded");
+  });
+
+  it("does not restore a finished agent, nor for a hook from another session", () => {
+    const t = build();
+    t.agentManager.seed({
+      agentSessionId: "s-done",
+      paneId: "pane-1",
+      status: "completed",
+      lastAgentStatus: "idle",
+    });
+    t.driver.signal("pane-1", { type: "paneFacts", facts: facts({ name: "zsh", kind: null }) });
+    expect(t.driver.getPaneState("pane-1")!.rootSessionId).toBeNull();
+
+    t.agentManager.seed({ agentSessionId: "s-old", paneId: "pane-2", lastAgentStatus: "responded" });
+    t.driver.hook(userPromptSubmit({ sessionId: "s-new", paneId: "pane-2" }));
+    // The new session claims the pane (and ADR-142 retires the old Agent).
+    expect(t.driver.getPaneState("pane-2")!.rootSessionId).toBe("s-new");
+    expect(t.agentManager.getAgentBySessionId("s-old")!.status).toBe("completed");
+  });
+});
+
 // ── Tick interval ──
 
 describe("driver — tick interval", () => {

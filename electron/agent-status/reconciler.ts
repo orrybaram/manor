@@ -160,6 +160,53 @@ export function initialPaneState(paneId: string): PaneAgentState {
   };
 }
 
+/** The reason published for a pane state seeded by `stateFromSavedAgent`. */
+export const RESTORED_REASON = "restored from saved agent";
+
+/**
+ * A pane's state rebuilt from its persisted Agent, for a pane the reconciler
+ * has no state for — e.g. after a main restart while the daemon (and the
+ * agent) kept running. Without it the pane would read idle until the next
+ * hook, and an agent waiting on the user would lose its responded dot.
+ *
+ * Only an `active` Agent with a session id is restored (it was created from
+ * hooks, so the pane is hook-driven); anything else yields
+ * `initialPaneState`. `lastHookAt` is `nowMs`, so the stuck-working rule (T2)
+ * gets a full window from the restore rather than firing at once. Facts
+ * applied on top still decide liveness (F1).
+ */
+export function stateFromSavedAgent(
+  paneId: string,
+  agent: AgentInfo | null,
+  nowMs: number,
+): PaneAgentState {
+  const initial = initialPaneState(paneId);
+  if (!agent || agent.status !== "active" || !agent.agentSessionId) return initial;
+  const sessionId = agent.agentSessionId;
+  const last = agent.lastAgentStatus;
+  const restored: PaneAgentState = {
+    ...initial,
+    rootSessionId: sessionId,
+    hookDriven: true,
+    kind: agent.agentKind,
+    lastHookAt: nowMs,
+  };
+  if (isActiveStatus(last)) {
+    return {
+      ...restored,
+      phase: "active",
+      status: last,
+      statusReason: RESTORED_REASON,
+      inputSessionId: last === "requires_input" ? sessionId : null,
+    };
+  }
+  if (last === "responded") {
+    return { ...restored, phase: "responded", status: "responded", statusReason: RESTORED_REASON };
+  }
+  // No turn state to restore (never active, or an unknown last status).
+  return { ...restored, statusReason: RESTORED_REASON };
+}
+
 /** Turn state cleared: what a pane looks like once its root session is gone. */
 function withoutRoot(state: PaneAgentState): PaneAgentState {
   return {

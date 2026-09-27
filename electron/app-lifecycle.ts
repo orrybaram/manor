@@ -203,6 +203,32 @@ export function handleAgentStreamEvent(event: StreamEvent, deps: AgentStreamDeps
   }
 }
 
+/**
+ * What main does with one stream event from any host: its agent side once
+ * (`handleAgentStreamEvent`), then the pane channels to every window. However
+ * many windows are open, a signal reaches the Status reconciler once and its
+ * effects are applied once (ADR-184). `paneFacts` and `agentStatus` never
+ * reach a window.
+ */
+export function dispatchStreamEvent(
+  event: StreamEvent,
+  windows: readonly BrowserWindow[],
+  agentDeps: AgentStreamDeps,
+): void {
+  handleAgentStreamEvent(event, agentDeps);
+  if (event.type === "paneFacts" || event.type === "agentStatus") return;
+  for (const win of windows) {
+    // Check that the main frame is still available (avoids "Render frame was
+    // disposed" errors during window reload/close).
+    try {
+      if (!win.webContents.mainFrame) continue;
+    } catch {
+      continue;
+    }
+    handleStreamEvent(event, win);
+  }
+}
+
 export function initApp(devTitle: string | null): void {
   // `mainWindow` is the PRIMARY renderer window. The `get mainWindow()` getter
   // on ipcDeps keeps returning it, so every existing handler is unaffected.
@@ -633,24 +659,12 @@ export function initApp(devTitle: string | null): void {
     // one whose shell exited: the renderer recovers it when the host's
     // `hosts:reconnected` arrives (ADR-178 §6).
     if (isRemoteSessionLoss(hostId, event)) return;
-    // Agent side effects run once per event, not once per window (ADR-184).
-    handleAgentStreamEvent(event, {
+    dispatchStreamEvent(event, getRendererWindows(), {
       agentManager,
       agentStatus: agentStatusDriver,
       broadcastAgent,
       onPaneFactsReconciled,
     });
-    if (event.type === "paneFacts" || event.type === "agentStatus") return;
-    for (const win of getRendererWindows()) {
-      // Check that the main frame is still available (avoids "Render frame was
-      // disposed" errors during window reload/close).
-      try {
-        if (!win.webContents.mainFrame) continue;
-      } catch {
-        continue;
-      }
-      handleStreamEvent(event, win);
-    }
   });
 
   // ── Register all IPC handlers before window creation to avoid race conditions ──

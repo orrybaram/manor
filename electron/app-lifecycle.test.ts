@@ -3,7 +3,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
-import { handleAgentStreamEvent, handleStreamEvent } from "./app-lifecycle";
+import {
+  dispatchStreamEvent,
+  handleAgentStreamEvent,
+  handleStreamEvent,
+} from "./app-lifecycle";
+import { createAgentStatusDriver } from "./agent-status/driver";
+import type { PaneStatusUpdate } from "./agent-status/effects";
 import { AgentManager } from "./agent-persistence";
 import type { AgentInfo } from "./agent-persistence";
 import type { PaneFacts, StreamEvent } from "./terminal-host/types";
@@ -379,6 +385,64 @@ describe("handleStreamEvent", () => {
       const paneId = `pane-${crypto.randomUUID()}`;
       runEvent({ type: "exit", sessionId: paneId, exitCode: 0 });
       expect(agentStatus.forgetPane).toHaveBeenCalledWith(paneId);
+    });
+  });
+
+  describe("dispatchStreamEvent with two windows (ADR-184)", () => {
+    it("applies one signal's effects once, however many windows are open", () => {
+      const agent = createAgent({ status: "active", lastAgentStatus: "working" });
+      const paneId = agent.paneId!;
+      const published: PaneStatusUpdate[] = [];
+      const notify = vi.fn();
+      const driver = createAgentStatusDriver({
+        agentManager,
+        getPaneContext: () => undefined,
+        unseenRespondedAgents: new Set(),
+        unseenInputAgents: new Set(),
+        broadcastAgent,
+        maybeSendNotification: notify,
+        publishPaneStatus: (update) => published.push(update),
+        log: () => {},
+      });
+      // The pane's root is mid-turn (a hook claimed it).
+      driver.hook({
+        type: "PreToolUse",
+        status: "working",
+        paneId,
+        sessionId: agent.agentSessionId,
+        agentKind: "claude",
+      });
+      published.length = 0;
+      broadcastAgent.mockClear();
+      notify.mockClear();
+
+      const windows = [createMockBrowserWindow(), createMockBrowserWindow()];
+      const deps = { agentManager, agentStatus: driver, broadcastAgent };
+      // The agent process exits: facts say so.
+      dispatchStreamEvent(
+        {
+          type: "paneFacts",
+          sessionId: paneId,
+          facts: { foreground: null, title: null, outputHint: null },
+        },
+        windows,
+        deps,
+      );
+
+      expect(published).toEqual([
+        { paneId, status: "idle", reason: "agent process exited", kind: null },
+      ]);
+      expect(notify).toHaveBeenCalledTimes(1);
+      expect(broadcastAgent).toHaveBeenCalledTimes(1);
+      expect(agentManager.getAgentByPaneId(paneId)!.lastAgentStatus).toBe("responded");
+      for (const win of windows) expect(win.webContents.send).not.toHaveBeenCalled();
+
+      // Pane channels still go to every window.
+      dispatchStreamEvent({ type: "cwd", sessionId: paneId, cwd: "/elsewhere" }, windows, deps);
+      for (const win of windows) {
+        expect(win.webContents.send).toHaveBeenCalledWith(`pty-cwd-${paneId}`, "/elsewhere");
+      }
+      expect(broadcastAgent).toHaveBeenCalledTimes(2); // the cwd update, once
     });
   });
 });

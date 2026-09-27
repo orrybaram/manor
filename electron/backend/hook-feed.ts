@@ -14,8 +14,9 @@
  *   4. drains the held events, skipping any `seq <= lastSeq` (they were in
  *      the replay too),
  *
- * and only then goes live. Order matters: the hook relay's late-active guard
- * (`hook-relay-transition.ts`) assumes events arrive in the order they fired.
+ * and only then goes live. Order matters: the Status reconciler's late-active
+ * guard (`agent-status/reconciler.ts`, ADR-184) assumes events arrive in the
+ * order they fired.
  * A live event that skips a seq means one went missing, so the feed goes
  * back to the journal rather than ingest out of order.
  *
@@ -355,7 +356,7 @@ export class NotificationCoalescer {
 
   constructor(private readonly notify: NotifyFn) {}
 
-  /** The notification function to hand the hook relay. */
+  /** The notification function to hand the Status reconciler's driver (ADR-184). */
   readonly send: NotifyFn = (agent, prevStatus, newStatus) => {
     if (this.holdingFor === null) {
       this.notify(agent, prevStatus, newStatus);

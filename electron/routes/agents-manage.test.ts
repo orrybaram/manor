@@ -313,3 +313,32 @@ describe("POST /agents", () => {
     );
   });
 });
+
+describe("POST /sessions/end (ADR-184)", () => {
+  const endRoute = findRoute("POST", "/sessions/end");
+
+  it("kills the pty, then sends the reconciler an `end` user signal instead of writing status", async () => {
+    const manager = agentManager({ id: "agent-1", paneId: "pane-1", status: "active" });
+    const order: string[] = [];
+    const kill = vi.fn(async () => {
+      order.push("kill");
+    });
+    const signal = vi.fn(() => {
+      order.push("signal");
+      return { effects: [] };
+    });
+    const res = await call(endRoute, {
+      deps: {
+        agentManager: manager as any,
+        backend: { pty: { kill } } as any,
+        agentStatus: { signal } as any,
+      },
+      body: { target: "agent-1" },
+    });
+
+    expect(res).toEqual({ status: 200, body: { ok: true, target: { id: "agent-1", paneId: "pane-1" } } });
+    expect(signal).toHaveBeenCalledWith("pane-1", { type: "user", action: "end" });
+    expect(order).toEqual(["kill", "signal"]);
+    expect(manager.updateAgent).not.toHaveBeenCalled();
+  });
+});

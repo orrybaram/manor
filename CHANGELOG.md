@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.14.2] - 2026-09-26
+
+### Features
+- Move a project to a different host from Project Settings, with a new Clone to Host dialog
+- Manor remembers each project's path on every host and follows the project when you switch hosts
+- One host indicator is now shown the same way everywhere in the UI
+- The agent status tooltip now shows why an agent has its current status, such as what it's thinking about
+- A pane now shows when a child agent session needs your input
+
+### Fixes
+- Bash panes now report their working directory, so new panes and splits open in the right folder
+- Bash startup settings are now only loaded in bash panes
+- Pane agent status is restored correctly after Manor restarts
+- A new agent is named from its pane's title as soon as it's created
+
+### Improvements
+- Agent status is more accurate and consistent, and the separate "complete" state has been removed
+- Remote hosts are more reliable: commands wait in a queue until they are delivered, and config files are saved safely
+- Remote pane and browser URL handling is more consistent across hosts
+- Error messages are clearer when working with remote hosts
+
 ## [0.14.1] - 2026-09-26
 
 ### Fixes

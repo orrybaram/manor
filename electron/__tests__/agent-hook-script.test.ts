@@ -28,6 +28,7 @@ const agentHook = require("../scripts/agent-hook.js") as {
       kind?: string;
       sessionId?: string | null;
       toolUseId?: string | null;
+      agentId?: string | null;
       notificationKind?: string | null;
     },
   ) => string | null;
@@ -137,6 +138,57 @@ describe("agent-hook.js — main()", () => {
     expect(url.searchParams.get("toolUseId")).toBe("tool-xyz");
     // No stderr noise on the happy path.
     expect(stderr.lines).toHaveLength(0);
+  });
+
+  it("issues a GET with agentId when payload includes agent_id (subagent hook)", async () => {
+    fs.mkdirSync(path.join(tmpDir, ".manor"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, ".manor", "hook-port"), "54322");
+
+    const { fn: fetchFn, calls } = makeFetch();
+
+    const payload = JSON.stringify({
+      hook_event_name: "SubagentStart",
+      session_id: "sess-abc",
+      agent_id: "agent-123",
+    });
+
+    await agentHook.main({
+      argv: ["node", "agent-hook.js"],
+      stdin: makeStdin(payload),
+      env: { MANOR_PANE_ID: "pane-1", MANOR_AGENT_KIND: "claude" },
+      homeDir: tmpDir,
+      fetch: fetchFn,
+      stderr: makeStderr(),
+    });
+
+    expect(calls).toHaveLength(1);
+    const url = new URL(calls[0]!.url);
+    expect(url.searchParams.get("agentId")).toBe("agent-123");
+  });
+
+  it("omits agentId when payload has no agent_id (root session hook)", async () => {
+    fs.mkdirSync(path.join(tmpDir, ".manor"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, ".manor", "hook-port"), "54323");
+
+    const { fn: fetchFn, calls } = makeFetch();
+
+    const payload = JSON.stringify({
+      hook_event_name: "Stop",
+      session_id: "sess-abc",
+    });
+
+    await agentHook.main({
+      argv: ["node", "agent-hook.js"],
+      stdin: makeStdin(payload),
+      env: { MANOR_PANE_ID: "pane-1", MANOR_AGENT_KIND: "claude" },
+      homeDir: tmpDir,
+      fetch: fetchFn,
+      stderr: makeStderr(),
+    });
+
+    expect(calls).toHaveLength(1);
+    const url = new URL(calls[0]!.url);
+    expect(url.searchParams.has("agentId")).toBe(false);
   });
 
   it("omits sessionId and toolUseId when not present in payload", async () => {
@@ -471,6 +523,28 @@ describe("agent-hook.js — buildUrl()", () => {
     const parsed = new URL(url!);
     expect(parsed.searchParams.get("paneId")).toBe("p&id=evil");
     expect(parsed.searchParams.get("sessionId")).toBe("x y/z");
+  });
+
+  it("includes agentId in URL when provided", () => {
+    const url = agentHook.buildUrl(1234, {
+      paneId: "p",
+      eventType: "SubagentStart",
+      agentId: "agent-123",
+    });
+    expect(url).toBeTruthy();
+    const parsed = new URL(url!);
+    expect(parsed.searchParams.get("agentId")).toBe("agent-123");
+  });
+
+  it("omits agentId when null", () => {
+    const url = agentHook.buildUrl(1234, {
+      paneId: "p",
+      eventType: "Stop",
+      agentId: null,
+    });
+    expect(url).toBeTruthy();
+    const parsed = new URL(url!);
+    expect(parsed.searchParams.has("agentId")).toBe(false);
   });
 
   it("includes notificationKind in URL when provided", () => {

@@ -398,6 +398,7 @@ describe("handleStreamEvent", () => {
         paneId,
         sessionId: agent.agentSessionId,
         agentKind: "claude",
+        agentId: null,
       });
       published.length = 0;
       broadcastAgent.mockClear();

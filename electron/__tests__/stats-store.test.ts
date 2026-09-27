@@ -522,6 +522,7 @@ describe("StatsStore", () => {
       paneId: "pane-1",
       sessionId: "sess-1",
       agentKind: "claude",
+      agentId: null,
       type: "UserPromptSubmit",
       status: "thinking",
     };
@@ -529,6 +530,7 @@ describe("StatsStore", () => {
       paneId: "pane-1",
       sessionId: "sess-1",
       agentKind: "claude",
+      agentId: null,
       type: "PermissionRequest",
       status: "requires_input",
     };
@@ -536,6 +538,7 @@ describe("StatsStore", () => {
       paneId: "pane-1",
       sessionId: "sess-1",
       agentKind: "claude",
+      agentId: null,
       type: "SessionStart",
       status: "thinking",
     };
@@ -608,6 +611,7 @@ describe("StatsStore", () => {
         paneId: "pane-1",
         sessionId: "sess-1",
         agentKind: "claude",
+        agentId: null,
         type: "PreToolUse",
         status: "working",
       };

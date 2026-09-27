@@ -108,7 +108,14 @@ function ev(
   sessionId: string | null = "sess-1",
   agentKind: AgentKind = "claude",
 ): AgentHookEvent {
-  return { paneId: PANE, sessionId, agentKind, type, status: STATUS_OF[type] } as AgentHookEvent;
+  return {
+    paneId: PANE,
+    sessionId,
+    agentKind,
+    agentId: null,
+    type,
+    status: STATUS_OF[type],
+  } as AgentHookEvent;
 }
 
 const subagentStart = (
@@ -118,6 +125,7 @@ const subagentStart = (
   paneId: PANE,
   sessionId,
   agentKind: "claude",
+  agentId: null,
   type: "SubagentStart",
   status: "working",
   toolUseId,
@@ -130,6 +138,7 @@ const subagentStop = (
   paneId: PANE,
   sessionId,
   agentKind: "claude",
+  agentId: null,
   type: "SubagentStop",
   status: "thinking",
   toolUseId,

@@ -171,6 +171,7 @@ const base = (i: BaseInput) => ({
   paneId: i.paneId ?? "pane-1",
   sessionId: i.sessionId,
   agentKind: i.agentKind ?? ("claude" as AgentKind),
+  agentId: null,
 });
 
 const sessionStart = (i: BaseInput): AgentHookEvent => ({ ...base(i), type: "SessionStart", status: "thinking" });

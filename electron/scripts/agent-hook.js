@@ -165,6 +165,7 @@ function buildUrl(port, params) {
   url.searchParams.set("kind", params.kind || "claude");
   if (params.sessionId) url.searchParams.set("sessionId", params.sessionId);
   if (params.toolUseId) url.searchParams.set("toolUseId", params.toolUseId);
+  if (params.agentId) url.searchParams.set("agentId", params.agentId);
   if (params.notificationKind)
     url.searchParams.set("notificationKind", params.notificationKind);
   return url.toString();
@@ -233,6 +234,8 @@ async function main(opts) {
       typeof payload.session_id === "string" ? payload.session_id : null;
     const toolUseId =
       typeof payload.tool_use_id === "string" ? payload.tool_use_id : null;
+    const agentId =
+      typeof payload.agent_id === "string" ? payload.agent_id : null;
 
     // For Notification events, extract the kind discriminator so the server can
     // decide whether to flip status (only permission-style notifications should).
@@ -245,6 +248,7 @@ async function main(opts) {
       kind,
       sessionId,
       toolUseId,
+      agentId,
       notificationKind,
     });
     if (!url) return;

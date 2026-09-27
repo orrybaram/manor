@@ -18,6 +18,12 @@ interface EventBase {
   paneId: string;
   sessionId: string | null;
   agentKind: AgentKind;
+  /**
+   * The subagent's id, present on every hook a subagent sends (including
+   * its own tool hooks) and null on the root session's own hooks. See
+   * ADR-186.
+   */
+  agentId: string | null;
 }
 
 export type AgentHookEvent =
@@ -72,6 +78,7 @@ export function parseAgentHookEvent(
   const sessionId = params.get("sessionId");
   const rawKind = params.get("kind");
   const toolUseId = params.get("toolUseId");
+  const agentId = params.get("agentId");
   const notificationKind = params.get("notificationKind");
 
   if (!paneId || !rawType) {
@@ -106,7 +113,7 @@ export function parseAgentHookEvent(
     };
   }
 
-  const base: EventBase = { paneId, sessionId, agentKind };
+  const base: EventBase = { paneId, sessionId, agentKind, agentId };
 
   switch (rawType) {
     case "SessionStart":

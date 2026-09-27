@@ -31,6 +31,21 @@ describe("prReadiness", () => {
     expect(prReadiness(pr)).toBe("blocked");
   });
 
+  it("returns blocked when the PR has merge conflicts", () => {
+    const pr = basePr({ hasConflicts: true });
+    expect(prReadiness(pr)).toBe("blocked");
+  });
+
+  it("returns blocked over ready and queued when the PR has merge conflicts", () => {
+    const pr = basePr({
+      hasConflicts: true,
+      reviewDecision: "APPROVED",
+      checks: { total: 2, passing: 2, failing: 0, pending: 0 },
+      queuedToMerge: true,
+    });
+    expect(prReadiness(pr)).toBe("blocked");
+  });
+
   it("returns blocked when there are unresolved threads on an open PR", () => {
     const pr = basePr({ unresolvedThreads: 2 });
     expect(prReadiness(pr)).toBe("blocked");

@@ -24,6 +24,7 @@ function toPrInfo(c: Case): PrInfo {
     checks,
     unresolvedThreads: c.unresolved ?? 0,
     queuedToMerge: c.autoMerge === true || c.inMergeQueue === true,
+    hasConflicts: c.state === "OPEN" && c.conflicting === true,
   };
 }
 

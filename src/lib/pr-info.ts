@@ -97,4 +97,10 @@ export interface PrInfo {
    * button. Absent on older payloads.
    */
   queuedToMerge?: boolean;
+  /**
+   * GitHub reports the branch as conflicting with its base: it cannot merge
+   * until someone resolves the conflicts. Only ever true for an open PR.
+   * Absent on older payloads.
+   */
+  hasConflicts?: boolean;
 }

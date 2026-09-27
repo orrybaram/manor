@@ -67,6 +67,7 @@ function prListJson(c: Case): string {
         ? { enabledAt: "2026-09-08T10:00:00Z" }
         : null,
       statusCheckRollup: c.rollup,
+      mergeable: c.conflicting ? "CONFLICTING" : "MERGEABLE",
     },
   ]);
 }
@@ -208,10 +209,10 @@ type Observed = {
 test("every PR badge state, rendered by the app", async ({ app, window }) => {
   test.setTimeout(240_000);
 
-  // Tall enough that all sixteen workspaces sit in the list at once, with no
+  // Tall enough that every workspace sit in the list at once, with no
   // scrollbar riding over the badges.
   await app.evaluate(({ BrowserWindow }) => {
-    BrowserWindow.getAllWindows()[0]?.setSize(1200, 1500);
+    BrowserWindow.getAllWindows()[0]?.setSize(1200, 1700);
   });
 
   // The badges only exist once the poll has answered for every branch.
@@ -273,6 +274,17 @@ test("every PR badge state, rendered by the app", async ({ app, window }) => {
     },
   });
 
+  // The popover behind a conflicting badge names the conflict first.
+  const conflictBadge = window.locator(
+    '[data-testid="workspace-item"][data-workspace-path$="/q-conflicts"] [data-readiness]',
+  );
+  await conflictBadge.hover();
+  const popover = window.getByRole("dialog");
+  await expect(popover.getByText("Merge conflicts")).toBeVisible({
+    timeout: 5_000,
+  });
+  const popoverShot = await popover.screenshot({ animations: "disabled" });
+
   // ---- assertions -------------------------------------------------------
   const reportRows: string[] = [];
   for (const c of CASES) {
@@ -293,6 +305,7 @@ test("every PR badge state, rendered by the app", async ({ app, window }) => {
   const out = path.join(os.homedir(), "Desktop");
   fs.mkdirSync(out, { recursive: true });
   fs.writeFileSync(path.join(out, "pr-badge-matrix.png"), sidebar);
+  fs.writeFileSync(path.join(out, "pr-badge-conflicts-popover.png"), popoverShot);
   fs.writeFileSync(
     path.join(out, "pr-badge-matrix.html"),
     reportHtml(reportRows, sidebar.toString("base64")),

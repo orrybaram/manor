@@ -5,6 +5,7 @@ import { Link } from "../ui/Link/Link";
 import GitPullRequest from "lucide-react/dist/esm/icons/git-pull-request";
 import GitMerge from "lucide-react/dist/esm/icons/git-merge";
 import GitPullRequestClosed from "lucide-react/dist/esm/icons/git-pull-request-closed";
+import GitMergeConflict from "lucide-react/dist/esm/icons/git-merge-conflict";
 import CircleCheck from "lucide-react/dist/esm/icons/circle-check";
 import CircleX from "lucide-react/dist/esm/icons/circle-x";
 import CircleDot from "lucide-react/dist/esm/icons/circle-dot";
@@ -273,7 +274,8 @@ export function PrPopover(props: PrPopoverProps) {
  * background answers in colour. The icon answers the follow-up: *what is it
  * waiting on?* It spins whenever the honest answer is "wait for a machine"
  * — a merge queue, or a CI run still going — and otherwise names the
- * blocker: a failing check, a reviewer, an unresolved thread.
+ * blocker: a merge conflict, a failing check, a reviewer, an unresolved
+ * thread.
  */
 function badgeIcon(
   pr: PrInfo,
@@ -291,6 +293,11 @@ function badgeIcon(
     // Mirrors the order `prReadiness` blocks on, so the icon names the same
     // reason the badge turned yellow.
     case "blocked":
+      // Conflicts first: until they are resolved the branch cannot merge,
+      // and CI results on it are moot anyway.
+      if (pr.hasConflicts) {
+        return { Icon: GitMergeConflict, spin: false, tone: styles.prIconBad };
+      }
       if (pr.checks && pr.checks.failing > 0) {
         return { Icon: CircleX, spin: false, tone: styles.prIconBad };
       }
@@ -317,7 +324,7 @@ function badgeIcon(
   }
 }
 
-/** The one-line verdicts: CI, review, unresolved threads. */
+/** The one-line verdicts: conflicts, CI, review, unresolved threads. */
 function SummaryRows(props: { pr: PrInfo }) {
   const { pr } = props;
 
@@ -394,6 +401,16 @@ function SummaryRows(props: { pr: PrInfo }) {
     );
   }
 
+  let conflictsElement: React.ReactNode = null;
+  if (pr.hasConflicts && pr.state === "open") {
+    conflictsElement = (
+      <div className={`${styles.prPopoverRow} ${styles.toneBad}`}>
+        <GitMergeConflict size={12} />
+        <span>Merge conflicts</span>
+      </div>
+    );
+  }
+
   let queuedElement: React.ReactNode = null;
   if (pr.queuedToMerge && pr.state === "open") {
     queuedElement = (
@@ -404,11 +421,18 @@ function SummaryRows(props: { pr: PrInfo }) {
     );
   }
 
-  if (!checksElement && !reviewElement && !commentsElement && !queuedElement)
+  if (
+    !conflictsElement &&
+    !checksElement &&
+    !reviewElement &&
+    !commentsElement &&
+    !queuedElement
+  )
     return null;
 
   return (
     <div className={styles.prPopoverSummary}>
+      {conflictsElement}
       {queuedElement}
       {checksElement}
       {reviewElement}

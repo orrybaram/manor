@@ -1,6 +1,6 @@
 ---
 title: Guard test that protocol changes bump the protocol constants
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

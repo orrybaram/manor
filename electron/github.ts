@@ -125,7 +125,7 @@ export class GitHubManager {
           "--state",
           "all",
           "--json",
-          "number,state,title,url,isDraft,additions,deletions,reviewDecision,statusCheckRollup,updatedAt,autoMergeRequest",
+          "number,state,title,url,isDraft,additions,deletions,reviewDecision,statusCheckRollup,updatedAt,autoMergeRequest,mergeable",
           "--limit",
           "1",
         ],
@@ -157,6 +157,12 @@ export class GitHubManager {
         pr.autoMergeRequest != null || isInMergeQueue === true;
 
       const state = (pr.state as string).toLowerCase();
+
+      // GitHub answers MERGEABLE, CONFLICTING, or UNKNOWN while it is still
+      // computing the test merge. Only a definite CONFLICTING counts: an
+      // UNKNOWN resolves on a later poll rather than flashing the badge.
+      const hasConflicts = state === "open" && pr.mergeable === "CONFLICTING";
+
       if (state === "merged" && this.onPrMerged) {
         try {
           this.onPrMerged(pr.url as string);
@@ -185,6 +191,7 @@ export class GitHubManager {
         recentComments,
         checkRuns,
         queuedToMerge,
+        hasConflicts,
       };
     } catch {
       return null;

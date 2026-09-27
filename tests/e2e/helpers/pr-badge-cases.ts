@@ -27,6 +27,8 @@ export type Case = {
   autoMerge?: boolean;
   inMergeQueue?: boolean;
   unresolved?: number;
+  /** GitHub reports `mergeable: CONFLICTING`. */
+  conflicting?: boolean;
   expect: { readiness: PrReadiness; icon: string; spin: boolean };
 };
 
@@ -189,7 +191,7 @@ export const CASES: Case[] = [
     rollup: [PASS],
     expect: {
       readiness: "review",
-      icon: "lucide-shield-question",
+      icon: "lucide-shield-question-mark",
       spin: false,
     },
   },
@@ -211,7 +213,7 @@ export const CASES: Case[] = [
     rollup: [],
     expect: {
       readiness: "review",
-      icon: "lucide-shield-question",
+      icon: "lucide-shield-question-mark",
       spin: false,
     },
   },
@@ -223,5 +225,34 @@ export const CASES: Case[] = [
     reviewDecision: "APPROVED",
     rollup: [SKIPPED],
     expect: { readiness: "ready", icon: "lucide-circle-check", spin: false },
+  },
+  {
+    branch: "q-conflicts",
+    note: "green and approved, but conflicts with its base",
+    number: 217,
+    state: "OPEN",
+    reviewDecision: "APPROVED",
+    rollup: [PASS, PASS2],
+    conflicting: true,
+    expect: {
+      readiness: "blocked",
+      icon: "lucide-git-merge-conflict",
+      spin: false,
+    },
+  },
+  {
+    branch: "r-conflicts-failing",
+    note: "conflicts and a failing check: the conflict is named",
+    number: 218,
+    state: "OPEN",
+    reviewDecision: null,
+    rollup: [FAIL],
+    conflicting: true,
+    autoMerge: true,
+    expect: {
+      readiness: "blocked",
+      icon: "lucide-git-merge-conflict",
+      spin: false,
+    },
   },
 ];

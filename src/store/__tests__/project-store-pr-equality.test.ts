@@ -51,6 +51,16 @@ describe("updateWorkspacePr", () => {
     expect(currentPr()?.queuedToMerge).toBe(true);
   });
 
+  // A base branch moving on can make a PR conflict without touching anything
+  // else the store compares.
+  it("stores a PR that only started conflicting", () => {
+    useProjectStore
+      .getState()
+      .updateWorkspacePr(WS_PATH, basePr({ hasConflicts: true }));
+
+    expect(currentPr()?.hasConflicts).toBe(true);
+  });
+
   it("skips an update that changes nothing", () => {
     const before = currentPr();
     useProjectStore.getState().updateWorkspacePr(WS_PATH, basePr());

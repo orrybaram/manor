@@ -23,6 +23,7 @@ export function prReadiness(pr: PrInfo): PrReadiness {
   }
 
   const isBlocked =
+    pr.hasConflicts === true ||
     (pr.checks != null && pr.checks.failing > 0) ||
     pr.reviewDecision === "CHANGES_REQUESTED" ||
     (pr.unresolvedThreads != null && pr.unresolvedThreads > 0);

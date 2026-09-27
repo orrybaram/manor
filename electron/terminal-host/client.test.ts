@@ -28,12 +28,13 @@ vi.mock("../shell", () => ({
 
 import { TerminalHost } from "./terminal-host";
 import type { ControlRequest, ControlResponse } from "./types";
-import { isDaemonStale, daemonProtocolOf } from "./types";
+import { isDaemonStale, daemonProtocolOf, daemonPtyProtocolOf } from "./types";
 import { TerminalHostClient } from "./client";
 import type { HostTransport } from "./transport";
 import { LocalTransport } from "./transport-local";
 import type { Duplex } from "node:stream";
 import { TERMINAL_HOST_PROTOCOL } from "./types";
+import { PTY_SUBPROCESS_PROTOCOL } from "./pty-subprocess-ipc";
 
 // ── Test daemon (same as daemon.integration.test.ts but with error handling fix) ──
 
@@ -52,6 +53,8 @@ class TestDaemon {
   readonly receivedEnvUpdates: Record<string, string>[] = [];
   /** Set to make the next getSnapshot fail as though the daemon misbehaved. */
   failNextSnapshot = false;
+  /** Set to make the next `listSessions` fail, as a very old daemon might. */
+  failNextListSessions = false;
   /** Behave like a daemon from before ADR-159: no protocol, no `notFound`, so
    *  the client must replace it. */
   legacyProtocol = false;
@@ -244,6 +247,11 @@ class TestDaemon {
         );
         break;
       case "listSessions":
+        if (this.failNextListSessions) {
+          this.failNextListSessions = false;
+          this.send(socket, { type: "error", message: "listSessions unsupported" }, requestId);
+          break;
+        }
         this.send(socket, {
           type: "sessions",
           sessions: this.host.listSessions(),
@@ -278,7 +286,8 @@ class TestDaemon {
       }
       case "handshake":
         // Echo the client's version so it does not decide we are stale and
-        // respawn us. `protocol` is omitted when playing an older daemon.
+        // respawn us. `protocol`/`ptyProtocol` are omitted when playing an
+        // older daemon (ADR-185 §B).
         this.send(
           socket,
           this.legacyProtocol
@@ -287,6 +296,7 @@ class TestDaemon {
                 type: "handshake",
                 daemonVersion: req.clientVersion,
                 protocol: TERMINAL_HOST_PROTOCOL,
+                ptyProtocol: PTY_SUBPROCESS_PROTOCOL,
               },
           requestId,
         );
@@ -376,8 +386,9 @@ class TestTransport implements HostTransport {
 function createTestClient(
   daemon: TestDaemon,
   transport: TestTransport = new TestTransport(daemon),
+  onDaemonReplacing?: (sessionIds: string[]) => void,
 ): TerminalHostClient {
-  return new TerminalHostClient(undefined, transport);
+  return new TerminalHostClient(undefined, transport, onDaemonReplacing);
 }
 
 // ── Tests ──
@@ -452,6 +463,59 @@ describe("TerminalHostClient", () => {
       await client.connect();
 
       expect(transport.restarts).toBe(1);
+      expect(await client.ping()).toBe(true);
+      client.disconnect();
+    });
+
+    it("reports a stale daemon's live sessions before replacing it (ADR-185 §A)", async () => {
+      const warmClient = createTestClient(daemon);
+      await warmClient.connect();
+      await warmClient.createOrAttach("pane-1", "/tmp", 80, 24);
+      await warmClient.createOrAttach("pane-2", "/tmp", 80, 24);
+      warmClient.disconnect();
+
+      daemon.legacyProtocol = true;
+      const transport = new TestTransport(daemon);
+      const reported: string[][] = [];
+      const client = createTestClient(daemon, transport, (ids) => reported.push(ids));
+      await client.connect();
+
+      expect(transport.restarts).toBe(1);
+      expect(reported).toEqual([["pane-1", "pane-2"]]);
+      client.disconnect();
+    });
+
+    it("never reports sessions when the daemon is not stale", async () => {
+      const warmClient = createTestClient(daemon);
+      await warmClient.connect();
+      await warmClient.createOrAttach("pane-1", "/tmp", 80, 24);
+      warmClient.disconnect();
+
+      const transport = new TestTransport(daemon);
+      const reported: string[][] = [];
+      const client = createTestClient(daemon, transport, (ids) => reported.push(ids));
+      await client.connect();
+
+      expect(transport.restarts).toBe(0);
+      expect(reported).toEqual([]);
+      client.disconnect();
+    });
+
+    it("still restarts when listing a stale daemon's sessions fails", async () => {
+      const warmClient = createTestClient(daemon);
+      await warmClient.connect();
+      await warmClient.createOrAttach("pane-1", "/tmp", 80, 24);
+      warmClient.disconnect();
+
+      daemon.legacyProtocol = true;
+      daemon.failNextListSessions = true;
+      const transport = new TestTransport(daemon);
+      const reported: string[][] = [];
+      const client = createTestClient(daemon, transport, (ids) => reported.push(ids));
+      await client.connect();
+
+      expect(transport.restarts).toBe(1);
+      expect(reported).toEqual([]);
       expect(await client.ping()).toBe(true);
       client.disconnect();
     });
@@ -1210,32 +1274,51 @@ describe("isDaemonStale", () => {
       type: "handshake",
       daemonVersion: CURRENT,
       protocol: TERMINAL_HOST_PROTOCOL,
+      ptyProtocol: PTY_SUBPROCESS_PROTOCOL,
       ...over,
     }) as ControlResponse;
 
-  it("keeps a daemon that matches on both version and protocol", () => {
-    expect(isDaemonStale(current(), CURRENT)).toBe(false);
+  it("keeps a daemon that matches on both protocols", () => {
+    expect(isDaemonStale(current())).toBe(false);
   });
 
-  it("replaces a daemon built from a different app version", () => {
-    expect(isDaemonStale(current({ daemonVersion: "0.6.4" }), CURRENT)).toBe(true);
+  // ADR-185 §B: the app version plays no part any more — a daemon outlives
+  // the app that spawned it, and a different `daemonVersion` alone is not a
+  // reason to replace it.
+  it("keeps a daemon built from a different app version, protocols matching", () => {
+    expect(isDaemonStale(current({ daemonVersion: "0.6.4" }))).toBe(false);
   });
 
-  // The regression this function exists for: two dev builds of one release meet
-  // across a protocol bump. The version check passes, so the pre-ADR-159 daemon
-  // survives, reports no `seq`, and every warm restore duplicates output again.
-  it("replaces a same-version daemon that speaks an older protocol", () => {
-    expect(isDaemonStale(current({ protocol: 0 }), CURRENT)).toBe(true);
+  it("replaces a daemon that speaks an older wire protocol", () => {
+    expect(isDaemonStale(current({ protocol: TERMINAL_HOST_PROTOCOL - 1 }))).toBe(
+      true,
+    );
   });
 
-  it("replaces a same-version daemon that omits the protocol entirely", () => {
-    const legacy = { type: "handshake", daemonVersion: CURRENT } as ControlResponse;
-    expect(isDaemonStale(legacy, CURRENT)).toBe(true);
+  it("replaces a daemon that speaks a newer wire protocol (a downgrade)", () => {
+    expect(isDaemonStale(current({ protocol: TERMINAL_HOST_PROTOCOL + 1 }))).toBe(
+      true,
+    );
+  });
+
+  it("replaces a daemon that omits ptyProtocol (built before ADR-185)", () => {
+    const legacy = {
+      type: "handshake",
+      daemonVersion: CURRENT,
+      protocol: TERMINAL_HOST_PROTOCOL,
+    } as ControlResponse;
+    expect(isDaemonStale(legacy)).toBe(true);
+  });
+
+  it("replaces a daemon whose ptyProtocol does not match", () => {
+    expect(
+      isDaemonStale(current({ ptyProtocol: PTY_SUBPROCESS_PROTOCOL + 1 })),
+    ).toBe(true);
   });
 
   it("replaces a daemon too old to answer the handshake at all", () => {
     const err = { type: "error", message: "Unknown request" } as ControlResponse;
-    expect(isDaemonStale(err, CURRENT)).toBe(true);
+    expect(isDaemonStale(err)).toBe(true);
   });
 });
 
@@ -1262,6 +1345,33 @@ describe("daemonProtocolOf", () => {
   it("reports 0 when the daemon could not answer the handshake", () => {
     expect(
       daemonProtocolOf({ type: "error", message: "nope" } as ControlResponse),
+    ).toBe(0);
+  });
+});
+
+describe("daemonPtyProtocolOf", () => {
+  it("reads the reported ptyProtocol", () => {
+    expect(
+      daemonPtyProtocolOf({
+        type: "handshake",
+        daemonVersion: "0.6.5",
+        ptyProtocol: 1,
+      } as ControlResponse),
+    ).toBe(1);
+  });
+
+  it("reports 0 for a handshake without a ptyProtocol field", () => {
+    expect(
+      daemonPtyProtocolOf({
+        type: "handshake",
+        daemonVersion: "0.6.5",
+      } as ControlResponse),
+    ).toBe(0);
+  });
+
+  it("reports 0 when the daemon could not answer the handshake", () => {
+    expect(
+      daemonPtyProtocolOf({ type: "error", message: "nope" } as ControlResponse),
     ).toBe(0);
   });
 });

@@ -75,7 +75,10 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
       status: vi.fn().mockReturnValue("connected"),
     },
     // The Status reconciler's driver (ADR-184).
-    agentStatus: { signal: vi.fn(() => ({ effects: [] })) },
+    agentStatus: {
+      signal: vi.fn(() => ({ effects: [] })),
+      isPaneLossExpected: vi.fn((_paneId: string) => false),
+    },
     mainWindow: null,
     preferencesManager: {},
     paneContextMap: new Map(),
@@ -114,6 +117,25 @@ describe("agents:reconcileStale handler", () => {
       action: "abandon",
     });
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
+  });
+
+  it("skips an agent whose pane a daemon replacement just killed (ADR-185 §A)", async () => {
+    deps.agentManager.getAllAgents.mockReturnValue([
+      makeAgent({ id: "t1", status: "active", paneId: "pane-1" }), // replaced
+      makeAgent({ id: "t2", status: "active", paneId: "pane-2" }), // dead
+    ]);
+    deps.backend.pty.listSessions.mockResolvedValue([]);
+    deps.agentStatus.isPaneLossExpected.mockImplementation((paneId) => paneId === "pane-1");
+
+    const handler = handlers.get("agents:reconcileStale")!;
+    await handler({} as never);
+
+    // Left active with its pane, for the cold restore to resume.
+    expect(deps.agentStatus.signal).toHaveBeenCalledTimes(1);
+    expect(deps.agentStatus.signal).toHaveBeenCalledWith("pane-2", {
+      type: "user",
+      action: "abandon",
+    });
   });
 
   it("does nothing when daemon is unreachable", async () => {

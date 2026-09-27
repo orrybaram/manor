@@ -6,6 +6,7 @@ import {
   type HostStatusInfo,
 } from "../registry";
 import { RoutedBackend } from "../routed-backend";
+import type { HostConnection } from "../host-connection";
 import type {
   ScannedPort,
   HostConnectionEvent,
@@ -108,6 +109,7 @@ function setup() {
   const providers = new Map<string, ReturnType<typeof fakeProvider>>();
   const progress = new Map<string, (message: string) => void>();
   const warn = new Map<string, (warnings: string[]) => void>();
+  const replacing = new Map<string, (sessionIds: string[]) => void>();
   const registry = new BackendRegistry({
     local: local.backend,
     remoteVersion: "0.1.0",
@@ -124,10 +126,11 @@ function setup() {
       remotes.set(hostId, fake);
       expect(opts.provider).toBe(providers.get(hostId));
       warn.set(hostId, opts.onBootstrapWarning);
+      replacing.set(hostId, opts.onDaemonReplacing);
       return fake.backend;
     },
   });
-  return { registry, local, remotes, providers, progress, warn };
+  return { registry, local, remotes, providers, progress, warn, replacing };
 }
 
 const box: HostSpec = { kind: "ssh", target: "me@box" };
@@ -901,5 +904,66 @@ describe("BackendRegistry — away and back (ADR-178 §6)", () => {
     remote.hostEvent({ type: "hostFailed", sessionIds: [], reason: "auth", message: "denied" });
     registry.retryNow("box");
     await connectStarted(remote, 2);
+  });
+
+  describe("daemon replacing (ADR-185 §A)", () => {
+    /** Every host's connection, keyed by hostId; not part of the public API. */
+    function connections(registry: BackendRegistry): Map<string, HostConnection> {
+      return (registry as unknown as { hosts: Map<string, HostConnection> }).hosts;
+    }
+
+    it("forwards a host's reportDaemonReplacing as a registry event", () => {
+      const { registry } = setup();
+      const seen: Array<{ hostId: string; sessionIds: string[] }> = [];
+      registry.onDaemonReplacing((hostId, sessionIds) => seen.push({ hostId, sessionIds }));
+
+      connections(registry).get("local")!.reportDaemonReplacing(["pane-1", "pane-2"]);
+
+      expect(seen).toEqual([{ hostId: "local", sessionIds: ["pane-1", "pane-2"] }]);
+    });
+
+    it("reports a remote host's daemon replacement too, tagged with its hostId", async () => {
+      const { registry } = setup();
+      registry.register("box", box);
+      const seen: Array<{ hostId: string; sessionIds: string[] }> = [];
+      registry.onDaemonReplacing((hostId, sessionIds) => seen.push({ hostId, sessionIds }));
+
+      connections(registry).get("box")!.reportDaemonReplacing(["pane-a"]);
+
+      expect(seen).toEqual([{ hostId: "box", sessionIds: ["pane-a"] }]);
+    });
+
+    it("routes a remote backend's onDaemonReplacing to its host's event", () => {
+      const { registry, replacing } = setup();
+      registry.register("box", box);
+      const seen: Array<{ hostId: string; sessionIds: string[] }> = [];
+      registry.onDaemonReplacing((hostId, sessionIds) => seen.push({ hostId, sessionIds }));
+
+      replacing.get("box")!(["pane-a", "pane-b"]);
+
+      expect(seen).toEqual([{ hostId: "box", sessionIds: ["pane-a", "pane-b"] }]);
+    });
+
+    it("reportDaemonReplacing reports for the named host, and ignores an unknown one", () => {
+      const { registry } = setup();
+      const seen: Array<{ hostId: string; sessionIds: string[] }> = [];
+      registry.onDaemonReplacing((hostId, sessionIds) => seen.push({ hostId, sessionIds }));
+
+      registry.reportDaemonReplacing("local", ["pane-1"]);
+      registry.reportDaemonReplacing("nowhere", ["pane-x"]);
+
+      expect(seen).toEqual([{ hostId: "local", sessionIds: ["pane-1"] }]);
+    });
+
+    it("stops delivering once unsubscribed", () => {
+      const { registry } = setup();
+      const seen: string[][] = [];
+      const off = registry.onDaemonReplacing((_hostId, sessionIds) => seen.push(sessionIds));
+      off();
+
+      connections(registry).get("local")!.reportDaemonReplacing(["pane-1"]);
+
+      expect(seen).toEqual([]);
+    });
   });
 });

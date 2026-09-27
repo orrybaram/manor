@@ -70,7 +70,10 @@ export interface IpcDeps {
    * The Status reconciler's driver (ADR-184). User actions that change an
    * Agent's lifecycle enter it as `user` signals; handlers never write status.
    */
-  agentStatus: Pick<AgentStatusDriver, "signal" | "getPaneState" | "getAllPaneStatuses">;
+  agentStatus: Pick<
+    AgentStatusDriver,
+    "signal" | "getPaneState" | "getAllPaneStatuses" | "isPaneLossExpected"
+  >;
   /** ADR-162's durable notification log. */
   notificationStore: NotificationStore;
   /** ADR-168 usage stats. */

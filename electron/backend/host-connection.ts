@@ -101,6 +101,13 @@ export interface HostConnectionContext {
   streamEvents: Emitter<[hostId: string, event: StreamEvent]>;
   /** Some host's status changed. */
   statusChanged: () => void;
+  /**
+   * A host's daemon is about to be replaced (a protocol bump, `kill_daemon`,
+   * a crash respawn — ADR-185 §A) and these are its still-live sessions.
+   * Local and remote alike: any host's daemon can be replaced, not only a
+   * remote one recovering from a drop. See `BackendRegistry.onDaemonReplacing`.
+   */
+  daemonReplacing: Emitter<[hostId: string, sessionIds: string[]]>;
 }
 
 export interface RemoteHostContext extends HostConnectionContext {
@@ -198,6 +205,18 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
   /** Catch up on the host's agent hooks; the local host has no journal. */
   catchUpHooks(): Promise<void> {
     return Promise.resolve();
+  }
+
+  /**
+   * This host's daemon is about to be replaced and `sessionIds` are what it
+   * is about to lose (ADR-185 §A). Whoever builds this host's client wires
+   * its `onDaemonReplacing` callback to this, the same way a remote host's
+   * connect events reach `onHostEvent` above. Forwarded as a registry event
+   * (`BackendRegistry.onDaemonReplacing`), modelled on how `resumed` is
+   * exposed.
+   */
+  reportDaemonReplacing(sessionIds: string[]): void {
+    this.ctx.daemonReplacing.emit(this.hostId, sessionIds);
   }
 
   /** The host was unregistered or replaced: let go of it for good. */

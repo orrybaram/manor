@@ -1,0 +1,10 @@
+{
+  "wire": {
+    "protocol": 6,
+    "hash": "4acc1c9764733de47f525942bb4f60981debe044d392f14fc0a81691c8c5609c"
+  },
+  "pty": {
+    "protocol": 1,
+    "hash": "6f610ea05644ac13d66cef8b78b28d72832be8b704ca7c33765dd6b45a0fc954"
+  }
+}

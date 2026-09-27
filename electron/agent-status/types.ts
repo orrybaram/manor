@@ -195,6 +195,12 @@ export interface ReconcileContext {
    * trip the orphan rule (ADR-132). Omitted → the orphan rule does not fire.
    */
   existingAgentAgeMs?: number;
+  /**
+   * The pane's daemon is being replaced and its pty loss is expected (ADR-185
+   * §A): a `SessionEnd` then resets the pane but does not complete the Agent
+   * (rule H8a). Omitted / false → the pane's session ends as usual.
+   */
+  expectedPaneLoss?: boolean;
 }
 
 export interface ReconcileResult {

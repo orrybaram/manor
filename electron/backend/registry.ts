@@ -60,6 +60,8 @@ export type RemoteBackendFactory = (
     /** The host's provider; the backend rides `provider.transport()`. */
     provider: HostProvider;
     onBootstrapWarning: (warnings: string[]) => void;
+    /** The host's daemon is about to be replaced (ADR-185 §A). */
+    onDaemonReplacing: (sessionIds: string[]) => void;
   },
 ) => RemoteHostBackend;
 
@@ -73,6 +75,7 @@ const createRemoteBackend: RemoteBackendFactory = (_hostId, spec, opts) =>
     version: opts.version,
     transport: opts.provider.transport(),
     onBootstrapWarning: opts.onBootstrapWarning,
+    onDaemonReplacing: opts.onDaemonReplacing,
   });
 
 export interface BackendRegistryOptions {
@@ -108,6 +111,9 @@ export class BackendRegistry {
   private readonly streamEvents = new Emitter<[string, StreamEvent]>(`${LOG} stream event listener`);
   private readonly hostEvents = new Emitter<[string, HostConnectionEvent]>(`${LOG} host event listener`);
   private readonly resumed = new Emitter<[string, string[]]>(`${LOG} host resumed listener`);
+  private readonly daemonReplacing = new Emitter<[string, string[]]>(
+    `${LOG} daemon replacing listener`,
+  );
   private readonly statusChanges = new Emitter<[HostStatusInfo[]]>(`${LOG} status listener`);
   private readonly createRemote: RemoteBackendFactory;
   private readonly createProvider: HostProviderFactory;
@@ -126,6 +132,7 @@ export class BackendRegistry {
       statusChanged: () => this.emitStatus(),
       hostEvents: this.hostEvents,
       resumed: this.resumed,
+      daemonReplacing: this.daemonReplacing,
       hookSeqStore: opts.hookSeqStore ?? memoryHookSeqStore(),
       hookSink: () => this.hookSink,
       hookReplayRetryDelayMs: opts.hookReplayRetryDelayMs,
@@ -183,6 +190,7 @@ export class BackendRegistry {
       version: this.remoteVersion,
       provider,
       onBootstrapWarning: (warnings) => built.conn?.reportWarnings(warnings),
+      onDaemonReplacing: (sessionIds) => built.conn?.reportDaemonReplacing(sessionIds),
     });
     built.conn = new RemoteHostConnection(hostId, spec, provider, backend, this.ctx);
     this.add(built.conn);
@@ -287,6 +295,27 @@ export class BackendRegistry {
    */
   onHostResumed(handler: (hostId: string, sessionIds: string[]) => void): () => void {
     return this.resumed.on(handler);
+  }
+
+  /**
+   * A host's daemon is about to be replaced (ADR-185 §A) — a protocol bump,
+   * `kill_daemon`, a crash respawn — and `sessionIds` are its still-live
+   * sessions, about to be lost. Local and remote alike. Lets a listener tell
+   * the difference between an Agent's pty exiting because the Agent finished
+   * and one exiting because its daemon was swapped out from under it.
+   */
+  onDaemonReplacing(handler: (hostId: string, sessionIds: string[]) => void): () => void {
+    return this.daemonReplacing.on(handler);
+  }
+
+  /**
+   * Report that `hostId`'s daemon is about to be replaced (see
+   * `onDaemonReplacing`). For the local host's client, which is built before
+   * the registry and so cannot be handed its connection the way a remote
+   * host's backend is in `register`. An unknown host is ignored.
+   */
+  reportDaemonReplacing(hostId: string, sessionIds: string[]): void {
+    this.hosts.get(hostId)?.reportDaemonReplacing(sessionIds);
   }
 
   /** Called with the full `list()` whenever any host's status changes. */

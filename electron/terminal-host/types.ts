@@ -1,3 +1,5 @@
+import { PTY_SUBPROCESS_PROTOCOL } from "./pty-subprocess-ipc";
+
 // ── Protocol types for Terminal Host daemon IPC ──
 
 /** Terminal modes tracked by the headless emulator */
@@ -32,9 +34,14 @@ export type StreamPosition = number;
  * confuse the other side.
  *
  * Separate from the app version on purpose. A daemon outlives the app that
- * spawned it and is only replaced when the *app version* differs, so two builds
- * of the same release can meet across a protocol change — which is exactly how
- * a client that required `notFound` met a daemon that only said `error`.
+ * spawned it, and is replaced only when it cannot serve this client — a wire
+ * protocol mismatch here, or a `PTY_SUBPROCESS_PROTOCOL` mismatch
+ * (`pty-subprocess-ipc.ts`) — never merely because the app version differs
+ * (ADR-185 §B). Most updates leave both protocols unchanged, so the same
+ * daemon keeps every session alive across them. Two builds can still meet
+ * across a protocol change (dev rebuilds, or the release that first ships
+ * this rule), which is exactly how a client that required `notFound` met a
+ * daemon that only said `error`.
  *
  * 1 — `notFound` replies, and `seq` on data events and snapshots (ADR-159).
  * 2 — `resized` replies only once the pty ioctl has landed, rather than as soon
@@ -73,28 +80,40 @@ export function daemonProtocolOf(response: ControlResponse): number {
 }
 
 /**
- * Whether the daemon that sent `response` must be replaced before it can serve
- * this client. Two independent reasons, and checking only the first is what
- * let ADR-159's fix sit inert in a running app for days:
- *
- * - **Different app version** — the daemon binary is mismatched.
- * - **Older wire protocol at the same app version** — two builds of one
- *   release meet across a protocol bump. Serving a terminal we know is broken
- *   is worse than replacing the daemon, even though replacing it ends live
- *   sessions.
- *
- * In a released build the second reason is unreachable — a protocol bump ships
- * inside a version bump, so the version check fires first. It exists for
- * development, where the version is constant across rebuilds and a daemon can
- * outlive the protocol it was built against by days.
+ * The pty-subprocess frame protocol (`pty-subprocess-ipc.ts`) a handshake
+ * reply reports the daemon forks against; 0 when it reports none (a daemon
+ * built before ADR-185).
  */
-export function isDaemonStale(
-  response: ControlResponse,
-  clientVersion: string,
-): boolean {
-  if (response.type === "handshake" && response.daemonVersion !== clientVersion)
-    return true;
-  return daemonProtocolOf(response) < TERMINAL_HOST_PROTOCOL;
+export function daemonPtyProtocolOf(response: ControlResponse): number {
+  return response.type === "handshake" ? (response.ptyProtocol ?? 0) : 0;
+}
+
+/**
+ * Whether the daemon that sent `response` must be replaced before it can serve
+ * this client: it did not answer the handshake at all, or either protocol it
+ * reports differs from this client's (ADR-185 §B). `daemonVersion` plays no
+ * part any more — a daemon outlives the app that spawned it, and what matters
+ * is only whether the two contracts it must honor (the wire protocol here,
+ * and the pty-subprocess frame protocol it forks new sessions against) still
+ * match this build.
+ *
+ * `!==`, not `<`: a downgrade meets the same rule as an upgrade, and a client
+ * that only checked for "older" would keep a daemon a downgrade left ahead of
+ * it, still speaking a protocol this build no longer understands.
+ *
+ * A missing `ptyProtocol` (a daemon built before this ADR) counts as stale,
+ * so the release that ships this rule replaces the daemon one last time —
+ * after that, most updates leave it running. This subsumes the old "same
+ * version, older protocol" case that development relied on: the version
+ * check is gone, so a protocol mismatch alone is now enough, in a dev rebuild
+ * or a release.
+ */
+export function isDaemonStale(response: ControlResponse): boolean {
+  if (response.type !== "handshake") return true;
+  return (
+    daemonProtocolOf(response) !== TERMINAL_HOST_PROTOCOL ||
+    daemonPtyProtocolOf(response) !== PTY_SUBPROCESS_PROTOCOL
+  );
 }
 
 /** Serialized terminal snapshot for warm restore */
@@ -246,6 +265,8 @@ export type ControlResponse =
       type: "handshake";
       daemonVersion: string;
       protocol?: number;
+      /** The pty-subprocess frame protocol this daemon forks sessions against. */
+      ptyProtocol?: number;
     }
   | { type: "error"; message: string }
   | {

@@ -75,6 +75,11 @@ export interface RemoteBackendOptions {
    */
   onBootstrapWarning?: (warnings: string[]) => void;
   /**
+   * The remote daemon is about to be replaced and these are its still-live
+   * sessions (ADR-185 §A). Handed to the host's `TerminalHostClient`.
+   */
+  onDaemonReplacing?: (sessionIds: string[]) => void;
+  /**
    * How the daemon is reached — the host provider's transport. For ssh, an
    * `SshTransport` whose `ensureRunning` bootstraps the remote host.
    */
@@ -109,7 +114,7 @@ export class RemoteBackend implements RemoteHostBackend, HostBackend {
 
     // The laptop's MANOR_* ports are pushed like to any daemon; the remote
     // daemon's role drops them (ADR-178 §2).
-    this.client = new TerminalHostClient(opts.version, transport);
+    this.client = new TerminalHostClient(opts.version, transport, opts.onDaemonReplacing);
     this.client.setReconnectPolicy(this.reconnectDelayMs, {
       // Retrying bad credentials or a host without Node every 30s forever
       // only re-runs the bootstrap; stop and tell the user instead.

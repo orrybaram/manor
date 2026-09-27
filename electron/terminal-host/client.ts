@@ -37,6 +37,13 @@ export type { ExecStreamCallbacks } from "./exec-stream-registry";
 /** Client-side timeout for `readFile` (up to 10 MiB, possibly over ssh). */
 const READ_FILE_TIMEOUT_MS = 30_000;
 
+/**
+ * Timeout for listing a stale daemon's sessions before replacing it
+ * (ADR-185 §A). Short on purpose: a daemon too old to answer at all must
+ * never hold up the restart it is about to get anyway.
+ */
+const STALE_DAEMON_SESSIONS_TIMEOUT_MS = 2_000;
+
 /** This process's env pushed to the daemon on every connect. */
 const LOCAL_ENV_KEYS = [
   "MANOR_HOOK_PORT",
@@ -116,6 +123,13 @@ export class TerminalHostClient {
   constructor(
     private readonly clientVersion?: string,
     private readonly transport: HostTransport = new LocalTransport(),
+    /**
+     * Reports the live sessions a stale daemon is about to lose, just before
+     * it is replaced (ADR-185 §A) — so the caller can tell its owner an
+     * Agent's pty exit is a daemon replacement, not the Agent finishing.
+     * Never called with an empty list.
+     */
+    private readonly onDaemonReplacing?: (sessionIds: string[]) => void,
   ) {}
 
   /**
@@ -203,15 +217,19 @@ export class TerminalHostClient {
     stillWanted();
     let token = await this.authenticate(stillWanted);
 
-    // Version handshake: replace the running daemon when it cannot serve this
-    // client (see `isDaemonStale`).
+    // Handshake: replace the running daemon when it cannot serve this client
+    // (see `isDaemonStale`) — a protocol mismatch, not merely a different app
+    // version (ADR-185 §B).
     const clientVer = this.clientVersion ?? "unknown";
     const hsResp = await this.rpc.request(
       { type: "handshake", clientVersion: clientVer },
       this.handshakeTimeoutMs,
     );
     stillWanted();
-    if (isDaemonStale(hsResp, clientVer)) {
+    if (isDaemonStale(hsResp)) {
+      const sessionIds = await this.staleDaemonSessions();
+      stillWanted();
+      if (sessionIds.length > 0) this.onDaemonReplacing?.(sessionIds);
       this.cleanup();
       await this.transport.restart(this.clientVersion);
       stillWanted();
@@ -228,6 +246,26 @@ export class TerminalHostClient {
     stillWanted();
 
     this.connected = true;
+  }
+
+  /**
+   * The stale daemon's live session ids, asked over the control socket
+   * that is about to be torn down (ADR-185 §A). A short timeout, and any
+   * failure at all, both mean an empty list: a daemon old enough to be
+   * replaced may not answer `listSessions` the way this client expects
+   * (or at all), and that must never block the restart it is already
+   * committed to.
+   */
+  private async staleDaemonSessions(): Promise<string[]> {
+    try {
+      const { sessions } = await this.rpc.call(
+        { type: "listSessions" },
+        STALE_DAEMON_SESSIONS_TIMEOUT_MS,
+      );
+      return sessions.filter((s) => s.alive).map((s) => s.sessionId);
+    } catch {
+      return [];
+    }
   }
 
   /**

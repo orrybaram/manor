@@ -90,6 +90,7 @@ function makeEvent(
     paneId: overrides.paneId ?? "pane-1",
     sessionId: overrides.sessionId === undefined ? "sess-1" : overrides.sessionId,
     agentKind: "claude" as const,
+    agentId: null,
   };
   switch (type) {
     case "SubagentStart":

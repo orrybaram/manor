@@ -14,6 +14,7 @@ import {
   reconcile,
   initialPaneState,
   STALE_STOP_MS,
+  STALE_SUBAGENT_MS,
   STALE_ACTIVE_MS,
   HOOK_DEBOUNCE_MS,
 } from "../reconciler";
@@ -108,7 +109,14 @@ function ev(
   sessionId: string | null = "sess-1",
   agentKind: AgentKind = "claude",
 ): AgentHookEvent {
-  return { paneId: PANE, sessionId, agentKind, type, status: STATUS_OF[type] } as AgentHookEvent;
+  return {
+    paneId: PANE,
+    sessionId,
+    agentKind,
+    agentId: null,
+    type,
+    status: STATUS_OF[type],
+  } as AgentHookEvent;
 }
 
 const subagentStart = (
@@ -118,6 +126,7 @@ const subagentStart = (
   paneId: PANE,
   sessionId,
   agentKind: "claude",
+  agentId: null,
   type: "SubagentStart",
   status: "working",
   toolUseId,
@@ -130,10 +139,17 @@ const subagentStop = (
   paneId: PANE,
   sessionId,
   agentKind: "claude",
+  agentId: null,
   type: "SubagentStop",
   status: "thinking",
   toolUseId,
 });
+
+/** A hook from a subagent (ADR-186): the root's session id plus an `agent_id`. */
+const fromSubagent = (event: AgentHookEvent, agentId: string): AgentHookEvent => ({ ...event, agentId });
+const subEv = (type: SimpleType, agentId = "a0bc"): AgentHookEvent => fromSubagent(ev(type), agentId);
+const subStart = (agentId = "a0bc"): AgentHookEvent => fromSubagent(subagentStart("sess-1", null), agentId);
+const subStop = (agentId = "a0bc"): AgentHookEvent => fromSubagent(subagentStop("sess-1", null), agentId);
 
 const hook = (event: AgentHookEvent): StatusSignal => ({ type: "hook", event });
 const tick = (nowMs: number): StatusSignal => ({ type: "tick", nowMs });
@@ -315,7 +331,7 @@ describe("reconcile — Group B: phase active (ported from ADR-139)", () => {
 
   it("SubagentStart → activeSubagents grows, Publish working + persist", () => {
     const r = reconcile(activePane(), hook(subagentStart("sess-1", "tool-a")), ctx({ existingAgent: agent() }));
-    expect(r.state.activeSubagents.has("tool-a")).toBe(true);
+    expect(r.state.activeSubagents.has("tool:tool-a")).toBe(true);
     expect(r.state.activeSubagents.size).toBe(1);
     expect(persisted(r.effects)).toEqual([
       { kind: "PersistAgentStatus", sessionId: "sess-1", transition: { to: "active", status: "working" } },
@@ -330,20 +346,21 @@ describe("reconcile — Group B: phase active (ported from ADR-139)", () => {
 
   it("SubagentStop with known toolUseId → set shrinks", () => {
     const r = reconcile(
-      activePane({ activeSubagents: new Set(["tool-a", "tool-b"]) }),
+      activePane({ activeSubagents: new Set(["tool:tool-a", "tool:tool-b"]) }),
       hook(subagentStop("sess-1", "tool-a")),
       ctx({ existingAgent: agent() }),
     );
-    expect([...r.state.activeSubagents]).toEqual(["tool-b"]);
+    expect([...r.state.activeSubagents]).toEqual(["tool:tool-b"]);
+    expect([...r.state.finishedSubagents]).toEqual(["tool:tool-a"]);
   });
 
   it("SubagentStop with unknown toolUseId → no-op on set", () => {
     const r = reconcile(
-      activePane({ activeSubagents: new Set(["tool-known"]) }),
+      activePane({ activeSubagents: new Set(["tool:tool-known"]) }),
       hook(subagentStop("sess-1", "tool-unknown")),
       ctx({ existingAgent: agent() }),
     );
-    expect([...r.state.activeSubagents]).toEqual(["tool-known"]);
+    expect([...r.state.activeSubagents]).toEqual(["tool:tool-known"]);
   });
 
   it("SubagentStop with null toolUseId → removes the first subagent", () => {
@@ -398,7 +415,7 @@ describe("reconcile — Group B: phase active (ported from ADR-139)", () => {
 describe("reconcile — Group C: phase pendingStop (ported from ADR-139)", () => {
   it("SubagentStop that empties the set → phase active, pendingStopAt kept for the tick drain", () => {
     const r = reconcile(
-      pendingStopPane({ activeSubagents: new Set(["tool-1"]), pendingStopAt: 500 }),
+      pendingStopPane({ activeSubagents: new Set(["tool:tool-1"]), pendingStopAt: 500 }),
       hook(subagentStop("sess-1", "tool-1")),
       ctx({ existingAgent: agent() }),
     );
@@ -727,7 +744,7 @@ describe("reconcile — invariants", () => {
     const r = reconcile(start, hook(subagentStart("sess-1", "tool-b")), ctx({ existingAgent: agent() }));
     expect(subs.size).toBe(1);
     expect(r.state.activeSubagents).not.toBe(subs);
-    expect([...r.state.activeSubagents]).toEqual(["tool-a", "tool-b"]);
+    expect([...r.state.activeSubagents]).toEqual(["tool-a", "tool:tool-b"]);
     expect(JSON.stringify({ ...start, activeSubagents: [...start.activeSubagents], children: [] })).toBe(snapshot);
   });
 
@@ -968,6 +985,16 @@ describe("reconcile — ticks", () => {
     expect(persisted(r.effects)).toEqual([respond()]);
   });
 
+  it("T2 waits STALE_SUBAGENT_MS while a foreground subagent keyed by agent_id runs (ADR-186)", () => {
+    const start = activePane({ status: "working", lastHookAt: 0, activeSubagents: new Set(["agent:a0bc"]) });
+    const c = ctx({ existingAgent: agent({ lastAgentStatus: "working" }) });
+    expect(reconcile(start, tick(STALE_ACTIVE_MS + 1), c).effects).toEqual([]);
+    expect(reconcile(start, tick(STALE_SUBAGENT_MS + 1), c).status).toBe("responded");
+
+    const fallback = activePane({ status: "working", lastHookAt: 0, activeSubagents: new Set(["__fallback_0"]) });
+    expect(reconcile(fallback, tick(STALE_ACTIVE_MS + 1), c).status).toBe("responded");
+  });
+
   it("T2 needs the root's Agent to be stuck active", () => {
     const start = activePane({ lastHookAt: 0 });
     const noAgent = reconcile(start, tick(STALE_ACTIVE_MS + 1), ctx());
@@ -1162,5 +1189,247 @@ describe("reconcile — sequence: opencode pane driven only by facts", () => {
     // Facts-only agents are never hook-driven and never persisted.
     expect(rs.every((r) => !r.state.hookDriven)).toBe(true);
     expect(rs.flatMap((r) => persisted(r.effects))).toEqual([]);
+  });
+});
+
+// ── ADR-186: background subagents ──
+
+const responds = (rs: ReconcileResult[]) =>
+  rs.flatMap((r) => r.effects).filter((e) => e.kind === "PersistAgentStatus" && e.transition.to === "responded");
+const publishedResponded = (rs: ReconcileResult[]) =>
+  rs.flatMap((r) => r.effects).filter((e) => e.kind === "PublishPaneStatus" && e.status === "responded");
+
+describe("reconcile — ADR-186: background subagents", () => {
+  it("captured background flow: pane stays working through a 20s quiet gap, one responded at the end", () => {
+    const rs = run([
+      { signal: hook(ev("UserPromptSubmit")), nowMs: 0 },
+      { signal: hook(ev("PreToolUse")), nowMs: 10 }, // tool=Agent
+      { signal: hook(ev("PostToolUse")), nowMs: 20 }, // tool=Agent (returns at once)
+      { signal: hook(subStart()), nowMs: 30 },
+      { signal: hook(ev("Stop")), nowMs: 40 }, // root turn ends; subagent still running
+      tick(40 + STALE_STOP_MS + 1),
+      tick(40 + 20_000),
+      { signal: hook(subEv("PreToolUse")), nowMs: 20_040 }, // tool=Bash
+      { signal: hook(subEv("PostToolUse")), nowMs: 20_050 },
+      { signal: hook(subStop()), nowMs: 20_060 },
+      { signal: hook(ev("UserPromptSubmit")), nowMs: 20_070 }, // Claude resumes to report
+      { signal: hook(ev("Stop")), nowMs: 20_080 },
+    ]);
+    expect(rs.map((r) => r.status)).toEqual([
+      "thinking",
+      "working",
+      "thinking",
+      "working",
+      "working",
+      "working",
+      "working",
+      "working",
+      "thinking",
+      "thinking",
+      "thinking",
+      "responded",
+    ]);
+    expect(rs.map((r) => r.state.phase)).toEqual([
+      "active",
+      "active",
+      "active",
+      "active",
+      "pendingStop",
+      "pendingStop",
+      "pendingStop",
+      "pendingStop",
+      "pendingStop",
+      "pendingStop",
+      "active",
+      "responded",
+    ]);
+    expect([...rs[3].state.activeSubagents]).toEqual(["agent:a0bc"]);
+    expect(rs[4].reason).toBe("Stop hook held: 1 subagent active");
+    expect(rs[5].reason).toBe("tick: no time-based rule due");
+    expect(rs[6].reason).toBe("tick: no time-based rule due");
+    expect(rs[9].state.activeSubagents.size).toBe(0);
+    expect([...rs[9].state.finishedSubagents]).toEqual(["agent:a0bc"]);
+    // The resumed turn is a new turn: the held Stop is gone.
+    expect(rs[10].state.pendingStopAt).toBeNull();
+    // Exactly one responded, and only at the end.
+    expect(responds(rs)).toEqual([respond()]);
+    expect(persisted(last(rs).effects)).toEqual([respond()]);
+    expect(publishedResponded(rs.slice(0, -1))).toEqual([]);
+    // The subagent's activity is persisted on the root's Agent.
+    expect(persisted(rs[7].effects)).toEqual([
+      { kind: "PersistAgentStatus", sessionId: "sess-1", transition: { to: "active", status: "working" } },
+    ]);
+  });
+
+  it("the resumed turn is not drained by T1 while it runs", () => {
+    const rs = run([
+      { signal: hook(ev("UserPromptSubmit")), nowMs: 0 },
+      { signal: hook(subStart()), nowMs: 10 },
+      { signal: hook(ev("Stop")), nowMs: 20 },
+      { signal: hook(subStop()), nowMs: 30_000 },
+      { signal: hook(ev("UserPromptSubmit")), nowMs: 30_010 },
+      tick(30_010 + STALE_STOP_MS + 1), // a long think in the resumed turn
+      { signal: hook(ev("Stop")), nowMs: 50_000 },
+    ]);
+    expect(rs[5].status).toBe("thinking");
+    expect(responds(rs)).toEqual([respond()]);
+    expect(last(rs).status).toBe("responded");
+  });
+
+  it("T1 does not drain after 20s when the active subagent has an agent id; drains after STALE_SUBAGENT_MS", () => {
+    const start = pendingStopPane({ activeSubagents: new Set(["agent:a0bc"]), lastHookAt: 0, pendingStopAt: 0 });
+    const quiet = reconcile(start, tick(20_000), ctx({ existingAgent: agent() }));
+    expect(quiet.effects).toEqual([]);
+    expect(quiet.state.phase).toBe("pendingStop");
+
+    const edge = reconcile(start, tick(STALE_SUBAGENT_MS), ctx({ existingAgent: agent() }));
+    expect(edge.effects).toEqual([]);
+
+    const r = reconcile(start, tick(STALE_SUBAGENT_MS + 1), ctx({ existingAgent: agent() }));
+    expect(r.status).toBe("responded");
+    expect(r.state.activeSubagents.size).toBe(0);
+    expect(persisted(r.effects)).toEqual([respond()]);
+    expect(r.reason).toMatch(/held Stop applied/);
+  });
+
+  for (const keys of [["tool:tool-1"], ["__fallback_0"], ["agent:a0bc", "__fallback_1"], []]) {
+    it(`T1 still drains after STALE_STOP_MS with keys ${JSON.stringify(keys)}`, () => {
+      const start = pendingStopPane({ activeSubagents: new Set(keys), lastHookAt: 0, pendingStopAt: 0 });
+      const r = reconcile(start, tick(STALE_STOP_MS + 1), ctx({ existingAgent: agent() }));
+      expect(r.status).toBe("responded");
+      expect(persisted(r.effects)).toEqual([respond()]);
+    });
+  }
+
+  it("Stop before SubagentStart (HTTP race): SubagentStart with an agent id reopens the turn", () => {
+    const rs = run([
+      { signal: hook(ev("UserPromptSubmit")), nowMs: 0 },
+      { signal: hook(ev("Stop")), nowMs: 10 },
+      { signal: hook(subStart()), nowMs: 20 },
+      tick(20 + STALE_STOP_MS + 1),
+      { signal: hook(subStop()), nowMs: 30_000 },
+      { signal: hook(ev("UserPromptSubmit")), nowMs: 30_010 },
+      { signal: hook(ev("Stop")), nowMs: 30_020 },
+    ]);
+    expect(rs[1].status).toBe("responded");
+    expect(rs[2].status).toBe("working");
+    expect(rs[2].state.phase).toBe("pendingStop");
+    expect(rs[2].state.pendingStopAt).toBe(20);
+    expect([...rs[2].state.activeSubagents]).toEqual(["agent:a0bc"]);
+    expect(rs[2].reason).toMatch(/turn reopened/);
+    expect(persisted(rs[2].effects)).toEqual([
+      { kind: "PersistAgentStatus", sessionId: "sess-1", transition: { to: "active", status: "working" } },
+    ]);
+    expect(rs[3].status).toBe("working");
+    expect(last(rs).status).toBe("responded");
+  });
+
+  it("activity from a subagent still tracked as active reopens a responded turn", () => {
+    const start = respondedPane({ activeSubagents: new Set(["agent:a0bc"]) });
+    const r = reconcile(start, hook(subEv("PreToolUse")), ctx({ existingAgent: respondedAgent(), nowMs: 77 }));
+    expect(r.state.phase).toBe("pendingStop");
+    expect(r.state.pendingStopAt).toBe(77);
+    expect(r.status).toBe("working");
+  });
+
+  it("a late PostToolUse from a finished subagent after the root Stop is dropped", () => {
+    const rs = run([
+      { signal: hook(ev("UserPromptSubmit")), nowMs: 0 },
+      { signal: hook(subStart()), nowMs: 10 },
+      { signal: hook(subStop()), nowMs: 20 },
+      { signal: hook(ev("Stop")), nowMs: 30 },
+      { signal: hook(subEv("PostToolUse")), nowMs: 40 },
+    ]);
+    expect(rs[3].status).toBe("responded");
+    const r = last(rs);
+    expect(r.status).toBe("responded");
+    expect(r.state.phase).toBe("responded");
+    expect(r.effects).toEqual([]);
+    expect(r.reason).toBe("late subagent PostToolUse hook after Stop ignored");
+  });
+
+  it("a late SubagentStart for a finished subagent does not reopen the turn", () => {
+    const start = respondedPane({ finishedSubagents: new Set(["agent:a0bc"]) });
+    const r = reconcile(start, hook(subStart()), ctx({ existingAgent: respondedAgent() }));
+    expect(r.state.phase).toBe("responded");
+    expect(r.effects).toEqual([]);
+  });
+
+  it("a subagent hook from an unknown agent id after Stop is dropped", () => {
+    const r = reconcile(respondedPane(), hook(subEv("PreToolUse", "zzz")), ctx({ existingAgent: respondedAgent() }));
+    expect(r.state.phase).toBe("responded");
+    expect(r.effects).toEqual([]);
+    expect(r.reason).toMatch(/late subagent PreToolUse hook after Stop ignored/);
+  });
+
+  it("a subagent PreToolUse during pendingStop leaves the phase at pendingStop", () => {
+    const start = pendingStopPane({ activeSubagents: new Set(["agent:a0bc"]), pendingStopAt: 5, lastHookAt: 5 });
+    const r = reconcile(start, hook(subEv("PreToolUse")), ctx({ existingAgent: agent(), nowMs: 900 }));
+    expect(r.state.phase).toBe("pendingStop");
+    expect(r.state.pendingStopAt).toBe(5);
+    expect(r.state.lastHookAt).toBe(900);
+    expect(r.status).toBe("working");
+    expect(persisted(r.effects)).toEqual([
+      { kind: "PersistAgentStatus", sessionId: "sess-1", transition: { to: "active", status: "working" } },
+    ]);
+  });
+
+  it("a subagent's permission prompt shows during a held Stop", () => {
+    const start = pendingStopPane({ activeSubagents: new Set(["agent:a0bc"]) });
+    const r = reconcile(start, hook(subEv("PermissionRequest")), ctx({ existingAgent: agent() }));
+    expect(r.status).toBe("requires_input");
+    expect(r.state.phase).toBe("pendingStop");
+  });
+
+  it("a root PreToolUse (no agent id) after Stop is still dropped (H1 unchanged)", () => {
+    const rs = run([
+      { signal: hook(ev("UserPromptSubmit")), nowMs: 0 },
+      { signal: hook(ev("Stop")), nowMs: 10 },
+      { signal: hook(ev("PreToolUse")), nowMs: 20 },
+    ]);
+    expect(last(rs).status).toBe("responded");
+    expect(last(rs).effects).toEqual([]);
+    expect(last(rs).reason).toBe("late PreToolUse hook after Stop ignored");
+  });
+
+  for (const type of ["Stop", "StopFailure", "SessionEnd"] as const) {
+    it(`a subagent ${type} never ends the root's turn`, () => {
+      const start = activePane({ lastHookAt: 1 });
+      const r = reconcile(start, hook(subEv(type)), ctx({ existingAgent: agent(), nowMs: 50 }));
+      expect(r.state.phase).toBe("active");
+      expect(r.status).toBe("thinking");
+      expect(r.effects).toEqual([]);
+      expect(r.state.lastHookAt).toBe(50);
+    });
+  }
+
+  it("subagent activity resumes a stalled turn", () => {
+    const start = activePane({ phase: "stalled", status: "responded" });
+    const r = reconcile(start, hook(subEv("PostToolUse")), ctx({ existingAgent: respondedAgent() }));
+    expect(r.state.phase).toBe("active");
+    expect(r.status).toBe("thinking");
+  });
+
+  it("foreground subagent flow: Stop after SubagentStop responds at once", () => {
+    const rs = run([
+      hook(ev("UserPromptSubmit")),
+      hook(ev("PreToolUse")),
+      hook(subStart("ae8b")),
+      hook(subEv("PreToolUse", "ae8b")),
+      hook(subEv("PostToolUse", "ae8b")),
+      hook(subStop("ae8b")),
+      hook(ev("PostToolUse")),
+      hook(ev("Stop")),
+    ]);
+    expect(rs.slice(0, -1).every((r) => r.state.phase === "active")).toBe(true);
+    expect(last(rs).status).toBe("responded");
+    expect(responds(rs)).toEqual([respond()]);
+  });
+
+  it("finishedSubagents is cleared with the rest of the turn state", () => {
+    const start = activePane({ finishedSubagents: new Set(["agent:x"]) });
+    expect(reconcile(start, hook(ev("StopFailure")), ctx({ existingAgent: agent() })).state.finishedSubagents.size).toBe(0);
+    expect(reconcile(start, hook(ev("SessionStart", "sess-2")), ctx()).state.finishedSubagents.size).toBe(0);
+    expect(reconcile(start, hook(ev("SessionEnd")), ctx({ existingAgent: agent() })).state.finishedSubagents.size).toBe(0);
   });
 });

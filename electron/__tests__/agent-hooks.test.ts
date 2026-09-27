@@ -243,6 +243,7 @@ describe("AgentHookServer", () => {
         paneId: "abc",
         sessionId: null,
         agentKind: "claude",
+        agentId: null,
       });
     });
 
@@ -272,6 +273,7 @@ describe("AgentHookServer", () => {
         paneId: "abc",
         sessionId: null,
         agentKind: "codex",
+        agentId: null,
       });
     });
 
@@ -292,6 +294,7 @@ describe("AgentHookServer", () => {
         paneId: "pane-1",
         sessionId: null,
         agentKind: "claude",
+        agentId: null,
       });
       expect(relayFn).toHaveBeenNthCalledWith(2, {
         type: "UserPromptSubmit",
@@ -299,6 +302,7 @@ describe("AgentHookServer", () => {
         paneId: "pane-2",
         sessionId: null,
         agentKind: "claude",
+        agentId: null,
       });
     });
 
@@ -336,6 +340,7 @@ describe("AgentHookServer", () => {
         paneId: "p1",
         sessionId: null,
         agentKind: "claude",
+        agentId: null,
         toolUseId: "abc123",
       });
     });
@@ -348,6 +353,38 @@ describe("AgentHookServer", () => {
       const mockRelay = relayFn as unknown as ReturnType<typeof vi.fn>;
       const [event] = mockRelay.mock.calls[0] as [AgentHookEvent];
       expect(event).not.toHaveProperty("toolUseId");
+    });
+  });
+
+  describe("agentId forwarding", () => {
+    it("parses agentId on SubagentStart when present in query", async () => {
+      await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=p1&eventType=SubagentStart&agentId=agent-123&kind=claude",
+      );
+      const mockRelay = relayFn as unknown as ReturnType<typeof vi.fn>;
+      const [event] = mockRelay.mock.calls[0] as [AgentHookEvent];
+      expect(event.agentId).toBe("agent-123");
+    });
+
+    it("parses agentId on PreToolUse when present in query", async () => {
+      await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=p1&eventType=PreToolUse&agentId=agent-123&kind=claude",
+      );
+      const mockRelay = relayFn as unknown as ReturnType<typeof vi.fn>;
+      const [event] = mockRelay.mock.calls[0] as [AgentHookEvent];
+      expect(event.agentId).toBe("agent-123");
+    });
+
+    it("agentId is null when absent from query", async () => {
+      await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=p1&eventType=PreToolUse&kind=claude",
+      );
+      const mockRelay = relayFn as unknown as ReturnType<typeof vi.fn>;
+      const [event] = mockRelay.mock.calls[0] as [AgentHookEvent];
+      expect(event.agentId).toBeNull();
     });
   });
 
@@ -364,6 +401,7 @@ describe("AgentHookServer", () => {
         paneId: "p1",
         sessionId: null,
         agentKind: "claude",
+        agentId: null,
       });
     });
 
@@ -397,6 +435,7 @@ describe("AgentHookServer", () => {
         paneId: "p1",
         sessionId: null,
         agentKind: "claude",
+        agentId: null,
       });
     });
 
@@ -414,6 +453,7 @@ describe("AgentHookServer", () => {
         paneId: "p1",
         sessionId: null,
         agentKind: "claude",
+        agentId: null,
       });
     });
   });

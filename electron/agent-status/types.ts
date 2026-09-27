@@ -81,8 +81,19 @@ export interface PaneAgentState {
   readonly phase: TurnPhase;
   /** True from the root session's first hook until it ends (ADR-184 §1). */
   readonly hookDriven: boolean;
-  /** Subagents (by toolUseId) the root has started and not yet stopped. */
+  /**
+   * Subagents the root has started and not yet stopped (ADR-186). Keys are
+   * tagged by what identifies them: `agent:<agent_id>` (exact pairing),
+   * `tool:<tool_use_id>`, or `__fallback_N` (paired by count). The held-Stop
+   * drain (T1) waits much longer when every key is an `agent:` key.
+   */
   readonly activeSubagents: ReadonlySet<string>;
+  /**
+   * Keys (same format as `activeSubagents`) of subagents that sent
+   * SubagentStop in this root's turn state, so a late hook from a finished
+   * subagent is recognised and cannot reopen a finished turn (ADR-186).
+   */
+  readonly finishedSubagents: ReadonlySet<string>;
   /** Monotonic ms of the root session's last hook, or null. */
   readonly lastHookAt: number | null;
   /** Monotonic ms when a Stop was first held for active subagents, or null. */

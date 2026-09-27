@@ -171,6 +171,7 @@ const base = (i: BaseInput) => ({
   paneId: i.paneId ?? "pane-1",
   sessionId: i.sessionId,
   agentKind: i.agentKind ?? ("claude" as AgentKind),
+  agentId: null,
 });
 
 const sessionStart = (i: BaseInput): AgentHookEvent => ({ ...base(i), type: "SessionStart", status: "thinking" });
@@ -228,7 +229,7 @@ describe("driver — subagent tracking (ported from the relay)", () => {
     t.driver.hook(userPromptSubmit({ sessionId: "s1" }));
     t.driver.hook(subagentStart({ sessionId: "s1", toolUseId: "tool-a" }));
     t.driver.hook(subagentStop({ sessionId: "s1", toolUseId: "tool-zzz" }));
-    expect(t.driver.getPaneState("pane-1")!.activeSubagents.has("tool-a")).toBe(true);
+    expect(t.driver.getPaneState("pane-1")!.activeSubagents.has("tool:tool-a")).toBe(true);
   });
 
   it("a null toolUseId on SubagentStart stores a synthesized fallback id", () => {

@@ -12,10 +12,19 @@
  * Rules, in the order they are checked (each is a row in the table below):
  *
  * Hook signals (`reconcileHook`)
+ *  H0  Subagent hook (ADR-186): a root-session hook with an `agent_id` (not
+ *      SessionStart). Stamps `lastHookAt`; never starts or ends the root's
+ *      turn and never changes its phase. SubagentStart / SubagentStop keep
+ *      `activeSubagents` / `finishedSubagents` (key `agent:<id>`). Active or
+ *      held turn: its activity shows and persists like a root active hook.
+ *      Stalled turn: resumes it. Responded / none: SubagentStart for an id not
+ *      finished, or activity from an id still active, reopens the turn as a
+ *      held Stop; anything else is dropped as late. Terminal hooks ignored.
  *  H1  Late-active guard (ADR-139): an active hook other than UserPromptSubmit /
  *      SessionStart for a session that has already responded is dropped. The
  *      pane's phase answers for its root session (so a `stalled` turn
- *      resumes); the saved Agent answers for any other session.
+ *      resumes); the saved Agent answers for any other session. Applies to
+ *      root hooks only (subagent hooks are H0).
  *  H2  SessionStart: claims the pane's root, or replaces it (the old root's
  *      in-progress turn is forced to responded). Status unchanged otherwise.
  *  H3  No session id: cannot be attributed. Ignored on a hook-driven pane;
@@ -26,9 +35,12 @@
  *      lowers only a prompt it raised itself. Never persists and never ends
  *      a turn.
  *  H5  Root session: first hook makes the pane hook-driven. SubagentStart /
- *      SubagentStop bookkeeping; active hook → create or update the Agent.
+ *      SubagentStop bookkeeping without an `agent_id` (key `tool:<id>`, else
+ *      `__fallback_N`); active hook → create or update the Agent.
+ *      UserPromptSubmit starts a new turn, so it clears a held Stop.
  *  H6  Terminal hook on a root that was never active is dropped (hasBeenActive).
- *  H7  Stop: held (pendingStop) while subagents are active, else responded.
+ *  H7  Stop: held (pendingStop) while subagents are active (only background
+ *      subagents outlive the root's Stop), else responded.
  *  H8  SessionEnd: drains a held Stop, then completes; pane → idle, not
  *      hook-driven.
  *  H8a SessionEnd during a daemon replacement (ADR-185 §A,
@@ -47,9 +59,12 @@
  *      for the matching Agent kind only, then the output hint.
  *
  * Ticks (`reconcileTick`) — the old `sweepStaleSessions` branches
- *  T1  Held Stop drain (ADR-130): pending Stop and root quiet > STALE_STOP_MS.
+ *  T1  Held Stop drain (ADR-130): pending Stop and root quiet > STALE_STOP_MS,
+ *      or > STALE_SUBAGENT_MS when every active subagent has an `agent:` key
+ *      (ADR-186: exact pairing, so a quiet background subagent is not lost).
  *  T2  Stuck-working (ADR-131): root turn quiet > STALE_ACTIVE_MS while the
- *      Agent is still active → `stalled`.
+ *      Agent is still active → `stalled` (STALE_SUBAGENT_MS while every active
+ *      subagent has an `agent:` key, ADR-186).
  *  T3  Orphan (ADR-132): the pane's Agent is stuck active but has no turn state,
  *      and is older than STALE_ACTIVE_MS.
  *
@@ -78,6 +93,12 @@ import type {
 
 /** A held Stop is forced after the root has been quiet this long (ADR-130). */
 export const STALE_STOP_MS = 15_000;
+/**
+ * A held Stop waiting only on subagents paired by `agent_id` is forced after
+ * this much quiet — a last resort for a lost SubagentStop (ADR-186). Longer
+ * than Bash's 10-minute maximum timeout, so one long command fits.
+ */
+export const STALE_SUBAGENT_MS = 15 * 60_000;
 /** An active turn is forced to responded after this much quiet (ADR-131). */
 export const STALE_ACTIVE_MS = 60_000;
 /** An orphaned active Agent is forced to responded at this age (ADR-132). */
@@ -156,6 +177,7 @@ export function initialPaneState(paneId: string): PaneAgentState {
     phase: "none",
     hookDriven: false,
     activeSubagents: new Set(),
+    finishedSubagents: new Set(),
     lastHookAt: null,
     pendingStopAt: null,
     lastUnattributedHookAt: null,
@@ -223,10 +245,63 @@ function withoutRoot(state: PaneAgentState): PaneAgentState {
     phase: "none",
     hookDriven: false,
     activeSubagents: new Set(),
+    finishedSubagents: new Set(),
     lastHookAt: null,
     pendingStopAt: null,
     inputSessionId: null,
   };
+}
+
+// ── Subagent keys (ADR-186) ──
+
+/**
+ * The `activeSubagents` key for a subagent: its `agent_id` when the hook has
+ * one (exact pairing), else its `tool_use_id`, else null (a `__fallback_N`
+ * placeholder is made on SubagentStart; SubagentStop removes one entry).
+ */
+function subagentKey(event: AgentHookEvent): string | null {
+  if (event.agentId) return `agent:${event.agentId}`;
+  if ((event.type === "SubagentStart" || event.type === "SubagentStop") && event.toolUseId) {
+    return `tool:${event.toolUseId}`;
+  }
+  return null;
+}
+
+/** Record a SubagentStart / SubagentStop in the turn state. */
+function withSubagentBookkeeping(
+  state: PaneAgentState,
+  event: AgentHookEvent,
+): PaneAgentState {
+  const key = subagentKey(event);
+  if (event.type === "SubagentStart") {
+    const subs = new Set(state.activeSubagents);
+    subs.add(key ?? `__fallback_${subs.size}`);
+    return { ...state, activeSubagents: subs };
+  }
+  if (event.type === "SubagentStop") {
+    const subs = new Set(state.activeSubagents);
+    let removed: string | undefined;
+    if (key !== null) {
+      removed = key;
+      subs.delete(key);
+    } else {
+      removed = subs.values().next().value;
+      if (removed !== undefined) subs.delete(removed);
+    }
+    const finished =
+      removed === undefined || state.finishedSubagents.has(removed)
+        ? state.finishedSubagents
+        : new Set([...state.finishedSubagents, removed]);
+    return { ...state, activeSubagents: subs, finishedSubagents: finished };
+  }
+  return state;
+}
+
+/** True when every active subagent is paired by a real `agent_id` (T1, T2). */
+function allSubagentsHaveAgentIds(subs: ReadonlySet<string>): boolean {
+  if (subs.size === 0) return false;
+  for (const key of subs) if (!key.startsWith("agent:")) return false;
+  return true;
 }
 
 /**
@@ -310,6 +385,19 @@ function reconcileHook(
   const { sessionId, type } = event;
   const { existingAgent, nowMs } = ctx;
   const hookLabel = `${type} hook`;
+
+  // H0 — subagent hook (ADR-186): a root-session hook that carries an
+  // `agent_id` came from a subagent. It never starts or ends the root's turn,
+  // so it is handled before the late-active guard and the root rules.
+  // SessionStart keeps its lifecycle rule (H2).
+  if (
+    sessionId &&
+    event.agentId !== null &&
+    type !== "SessionStart" &&
+    (state.rootSessionId === sessionId || state.rootSessionId === null)
+  ) {
+    return reconcileSubagentHook(state, event, sessionId, ctx);
+  }
 
   // H1 — late-active guard (ADR-139). Hook delivery is independent HTTP, so a
   // PreToolUse / PostToolUse can race in after Stop. Only UserPromptSubmit
@@ -448,6 +536,101 @@ function reconcileChildHook(
   return result(state, next, label);
 }
 
+/** An active root-session hook creates the Agent, or updates its status. */
+function activeHookEffect(
+  state: PaneAgentState,
+  agentKind: AgentKind,
+  status: ActiveAgentStatus,
+  sessionId: string,
+  existingAgent: AgentInfo | null,
+): Effect {
+  return existingAgent
+    ? { kind: "PersistAgentStatus", sessionId, transition: { to: "active", status } }
+    : {
+        kind: "CreateAgent",
+        sessionId,
+        paneId: state.paneId,
+        agentKind,
+        status,
+        title: state.lastFacts?.title ?? null,
+      };
+}
+
+/**
+ * H0 — a subagent hook (ADR-186): a hook for the root session that carries an
+ * `agent_id`. Subagents run inside the root session, so their hooks use its
+ * session id; only the root's own hooks (no `agent_id`) start or end a turn.
+ */
+function reconcileSubagentHook(
+  state: PaneAgentState,
+  event: AgentHookEvent,
+  sessionId: string,
+  ctx: ReconcileContext,
+): ReconcileResult {
+  const { existingAgent, nowMs } = ctx;
+  const label = `subagent ${event.type} hook`;
+  const key = subagentKey(event);
+
+  // Every subagent hook shows the root session is alive (feeds T1 / T2).
+  const stamped: PaneAgentState = { ...state, lastHookAt: nowMs };
+
+  // A subagent's terminal hook never ends the root's turn.
+  if (!isActiveStatus(event.status)) {
+    return result(state, stamped, `${label} ignored: only the root ends a turn`);
+  }
+  const status = event.status;
+
+  // Claim the root on first sight, as a root hook would (H5).
+  const claimed: PaneAgentState = {
+    ...stamped,
+    rootSessionId: sessionId,
+    hookDriven: true,
+    kind: event.agentKind,
+  };
+  const withActivity = (s: PaneAgentState): PaneAgentState => ({
+    ...withStatus(s, status, label, sessionId),
+    inputSessionId: status === "requires_input" ? sessionId : null,
+  });
+  const effects = (): Effect[] => [
+    activeHookEffect(state, event.agentKind, status, sessionId, existingAgent),
+  ];
+
+  // Turn in progress (active or held Stop): bookkeeping, and the subagent's
+  // activity shows and persists like a root active hook. The phase is left
+  // alone — a subagent's PreToolUse must not undo a held Stop.
+  if (state.phase === "active" || state.phase === "pendingStop") {
+    const next = withActivity(withSubagentBookkeeping(claimed, event));
+    return result(state, next, label, effects());
+  }
+
+  // A stalled turn (T2) never got its Stop: activity resumes it, as a root
+  // hook's would (H1 only guards `responded`). T2 dropped the subagent keys,
+  // so this cannot depend on them.
+  if (state.phase === "stalled") {
+    const next = withActivity({ ...withSubagentBookkeeping(claimed, event), phase: "active" });
+    return result(state, next, `${label}: stalled turn resumed`, effects());
+  }
+
+  // Turn not in progress (responded / none): a relaxed late-active
+  // guard. A SubagentStart for a subagent not yet finished (its Stop raced
+  // ahead over HTTP), or activity from a subagent still tracked as active,
+  // reopens the turn as a held Stop. Anything else is a late hook.
+  const reopens =
+    key !== null &&
+    (event.type === "SubagentStart"
+      ? !state.finishedSubagents.has(key)
+      : event.type !== "SubagentStop" && state.activeSubagents.has(key));
+  if (!reopens) {
+    return result(state, stamped, `late ${label} after Stop ignored`);
+  }
+  const reopened: PaneAgentState = {
+    ...withSubagentBookkeeping(claimed, event),
+    phase: "pendingStop",
+    pendingStopAt: nowMs,
+  };
+  return result(state, withActivity(reopened), `${label}: turn reopened for a running subagent`, effects());
+}
+
 function reconcileRootHook(
   state: PaneAgentState,
   event: AgentHookEvent,
@@ -479,48 +662,35 @@ function reconcileRootHook(
     lastHookAt: nowMs,
   };
   if (!hadTurn) {
-    next = { ...next, phase: "active", activeSubagents: new Set(), pendingStopAt: null };
+    next = {
+      ...next,
+      phase: "active",
+      activeSubagents: new Set(),
+      finishedSubagents: new Set(),
+      pendingStopAt: null,
+    };
   }
 
-  if (event.type === "SubagentStart") {
-    const subs = new Set(next.activeSubagents);
-    subs.add(event.toolUseId ?? `__fallback_${subs.size}`);
-    next = { ...next, activeSubagents: subs };
-  } else if (event.type === "SubagentStop") {
-    const subs = new Set(next.activeSubagents);
-    if (event.toolUseId) {
-      subs.delete(event.toolUseId);
-    } else {
-      const first = subs.values().next().value;
-      if (first !== undefined) subs.delete(first);
-    }
-    next = { ...next, activeSubagents: subs };
-  }
+  // SubagentStart / SubagentStop without an `agent_id` (older Claude Code):
+  // keyed by `tool:<tool_use_id>` or a `__fallback_N` placeholder.
+  next = withSubagentBookkeeping(next, event);
 
   // Active hook: the turn is in progress; create or update the Agent. A held
-  // Stop (`pendingStopAt`) is kept — T1 drains it once the root goes quiet.
+  // Stop (`pendingStopAt`) is kept — T1 drains it once the root goes quiet —
+  // except on UserPromptSubmit: a new turn starts, so the previous turn's held
+  // Stop is moot (ADR-186: the resume after background subagents finish must
+  // not be drained mid-turn).
   if (isActiveStatus(event.status)) {
+    if (event.type === "UserPromptSubmit") next = { ...next, pendingStopAt: null };
     // The root's own hook is authoritative: it also takes over (or clears)
     // ownership of a prompt a child raised.
     next = {
       ...withStatus({ ...next, phase: "active" }, event.status, hookLabel, sessionId),
       inputSessionId: event.status === "requires_input" ? sessionId : null,
     };
-    const effect: Effect = existingAgent
-      ? {
-          kind: "PersistAgentStatus",
-          sessionId,
-          transition: { to: "active", status: event.status },
-        }
-      : {
-          kind: "CreateAgent",
-          sessionId,
-          paneId: state.paneId,
-          agentKind: event.agentKind,
-          status: event.status,
-          title: state.lastFacts?.title ?? null,
-        };
-    return result(state, next, hookLabel, [effect]);
+    return result(state, next, hookLabel, [
+      activeHookEffect(state, event.agentKind, event.status, sessionId, existingAgent),
+    ]);
   }
 
   // H7 — Stop.
@@ -568,7 +738,13 @@ function reconcileRootHook(
   // H9 — StopFailure. Turn state is dropped; the root stays (as in ADR-139).
   if (event.type === "StopFailure") {
     next = withStatus(
-      { ...next, phase: "none", activeSubagents: new Set(), pendingStopAt: null },
+      {
+        ...next,
+        phase: "none",
+        activeSubagents: new Set(),
+        finishedSubagents: new Set(),
+        pendingStopAt: null,
+      },
       "error",
       "StopFailure hook",
     );
@@ -744,8 +920,16 @@ function reconcileTurnTick(
   idle: number,
   rootAgent: AgentInfo | null,
 ): ReconcileResult | null {
-  // T1 — held-Stop drain (ADR-130).
-  if (state.pendingStopAt !== null && idle > STALE_STOP_MS) {
+  // T1 — held-Stop drain (ADR-130). When every active subagent is paired by
+  // its `agent_id` the pairing is exact, so a quiet background subagent (a
+  // long command, a long think) is not mistaken for a lost SubagentStop: only
+  // STALE_SUBAGENT_MS drains it (ADR-186). Fallback / tool keys, or no
+  // subagents left (waiting on the resume UserPromptSubmit), keep the short
+  // STALE_STOP_MS.
+  const stopThreshold = allSubagentsHaveAgentIds(state.activeSubagents)
+    ? STALE_SUBAGENT_MS
+    : STALE_STOP_MS;
+  if (state.pendingStopAt !== null && idle > stopThreshold) {
     const reason = `held Stop applied after ${Math.round(idle / 1000)}s without a hook`;
     const next = withStatus(
       { ...state, phase: "responded", activeSubagents: new Set(), pendingStopAt: null },
@@ -757,10 +941,15 @@ function reconcileTurnTick(
     ]);
   }
 
-  // T2 — stuck-working safety net (ADR-131).
+  // T2 — stuck-working safety net (ADR-131). A foreground subagent paired by
+  // its `agent_id` can be quiet for minutes inside one tool call (a test run),
+  // so it gets the same STALE_SUBAGENT_MS window as T1 (ADR-186).
+  const activeThreshold = allSubagentsHaveAgentIds(state.activeSubagents)
+    ? STALE_SUBAGENT_MS
+    : STALE_ACTIVE_MS;
   if (
     state.phase === "active" &&
-    idle > STALE_ACTIVE_MS &&
+    idle > activeThreshold &&
     rootAgent &&
     isActiveStatus(rootAgent.lastAgentStatus)
   ) {

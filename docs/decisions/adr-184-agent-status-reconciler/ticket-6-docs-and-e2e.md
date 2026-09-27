@@ -1,6 +1,6 @@
 ---
 title: Docs, CONTEXT.md and end-to-end verification
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [5]

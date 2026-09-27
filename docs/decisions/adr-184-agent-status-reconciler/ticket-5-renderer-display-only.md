@@ -1,6 +1,6 @@
 ---
 title: Renderer displays published status + reason; drop complete
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [4]

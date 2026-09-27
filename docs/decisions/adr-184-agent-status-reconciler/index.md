@@ -85,7 +85,7 @@ A pure per-pane function:
 
 **Rules** each become a row in the transition table:
 - **Root and children.** A pane has one root session. A child session can raise the pane
-  to thinking or working while the root's turn is in progress. Only the root's own
+  to thinking, working or requires input while the root's turn is in progress. Only the root's own
   signals can end a turn (`responded`, `error`, `idle`).
 - **Hook-driven.** An **Agent** becomes hook-driven the first time its root session sends
   any hook, and stays that way until the session ends.
@@ -110,7 +110,7 @@ schedules the tick. It replaces `createHookRelay`'s interior. The effect applier
 ADR-139 is reused and extended.
 
 **Reason.** Every result carries a short `reason`, for example "Stop hook",
-"agent process exited" or "no hook for 10m (stuck-working recovery)". It is published with
+"agent process exited" or "no hook for 60s (stuck-working recovery)". It is published with
 the status, shown as the dot's tooltip, and written to the agent-status debug log.
 
 ### 2. The reconciler is the only writer of the persisted agent status

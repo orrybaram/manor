@@ -47,8 +47,9 @@ _Avoid_: detector, relay (those become signal sources/effects, not deciders)
 ## Relationships
 
 - A pane has at most one root **Agent** at a time; child sessions (subagents) belong to it.
-- A child session's activity may show as the pane's **Agent status** while the root's turn is in
-  progress, but only the root's own signals can end a turn (**responded**, **error**, **idle**).
+- A child session's activity (thinking, working, or requires input — e.g. a subagent's permission
+  prompt) may show as the pane's **Agent status** while the root's turn is in progress, but only the
+  root's own signals can end a turn (**responded**, **error**, **idle**).
 - The **Status reconciler** consumes many **Status signals** and emits one **Agent status** per pane.
 - The daemon produces **Status signals**; it does not decide **Agent status**.
 - Hook signals decide an **Agent**'s turn statuses. Daemon signals (foreground process, title,

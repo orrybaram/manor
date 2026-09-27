@@ -558,14 +558,78 @@ describe("reconcile — Group F: child sessions", () => {
   });
 
   it("child activity does not override the root's requires_input", () => {
-    const r = reconcile(activePane({ status: "requires_input" }), hook(ev("PreToolUse", "child-sess")), ctx());
+    const r = reconcile(
+      activePane({ status: "requires_input", inputSessionId: "sess-1" }),
+      hook(ev("PreToolUse", "child-sess")),
+      ctx(),
+    );
     expect(r.status).toBe("requires_input");
-    expect(r.reason).toMatch(/root is requires_input/);
+    expect(r.reason).toMatch(/another session requires input/);
   });
 
-  it("child requires_input is not shown", () => {
+  it("child requires_input raises the pane to requires_input, owned by the child", () => {
     const r = reconcile(activePane(), hook(ev("PermissionRequest", "child-sess")), ctx());
+    expect(r.status).toBe("requires_input");
+    expect(r.state.inputSessionId).toBe("child-sess");
+    expect(persisted(r.effects)).toEqual([]);
+    expect(r.effects).toEqual([
+      {
+        kind: "PublishPaneStatus",
+        paneId: PANE,
+        status: "requires_input",
+        reason: "child session PermissionRequest hook",
+        agentKind: "claude",
+      },
+    ]);
+  });
+
+  it("child requires_input also shows during a held Stop", () => {
+    const r = reconcile(pendingStopPane(), hook(ev("Notification", "child-sess")), ctx());
+    expect(r.status).toBe("requires_input");
+  });
+
+  it("child requires_input after the root responded is ignored", () => {
+    const r = reconcile(respondedPane(), hook(ev("PermissionRequest", "child-sess")), ctx());
+    expect(r.status).toBe("responded");
+  });
+
+  it("child requires_input while the root already requires input keeps the root as owner", () => {
+    const r = reconcile(
+      activePane({ status: "requires_input", inputSessionId: "sess-1" }),
+      hook(ev("PermissionRequest", "child-sess")),
+      ctx(),
+    );
+    expect(r.state.inputSessionId).toBe("sess-1");
+    expect(r.effects).toEqual([]);
+  });
+
+  it("the child that raised the prompt lowers it when it moves on", () => {
+    const r = reconcile(
+      activePane({ status: "requires_input", inputSessionId: "child-sess" }),
+      hook(ev("PostToolUse", "child-sess")),
+      ctx(),
+    );
     expect(r.status).toBe("thinking");
+    expect(r.state.inputSessionId).toBeNull();
+  });
+
+  it("another child cannot lower a child's prompt", () => {
+    const r = reconcile(
+      activePane({ status: "requires_input", inputSessionId: "child-a" }),
+      hook(ev("PreToolUse", "child-b")),
+      ctx(),
+    );
+    expect(r.status).toBe("requires_input");
+  });
+
+  it("a root hook takes over from a child's prompt", () => {
+    const r = reconcile(
+      activePane({ status: "requires_input", inputSessionId: "child-sess" }),
+      hook(ev("PostToolUse")),
+      ctx({ existingAgent: agent() }),
+    );
+    expect(r.status).toBe("thinking");
+    expect(r.state.inputSessionId).toBeNull();
   });
 
   it("child activity after the root responded does not reopen the turn", () => {
@@ -633,6 +697,7 @@ describe("reconcile — invariants", () => {
   it("PermissionRequest is an active status and persists requires_input", () => {
     const r = reconcile(activePane(), hook(ev("PermissionRequest")), ctx({ existingAgent: agent() }));
     expect(r.status).toBe("requires_input");
+    expect(r.state.inputSessionId).toBe("sess-1");
     expect(persisted(r.effects)).toEqual([
       { kind: "PersistAgentStatus", sessionId: "sess-1", transition: { to: "active", status: "requires_input" } },
     ]);
@@ -959,6 +1024,29 @@ describe("reconcile — sequences for the known divergences", () => {
     expect(rs[3].reason).toMatch(/only the root session ends a turn/);
     expect(last(rs).state.rootSessionId).toBe("root");
     expect(last(rs).state.children.has("child")).toBe(true);
+  });
+
+  it("a subagent's permission prompt is visible, clears when it moves on, and its Stop never ends the turn", () => {
+    const rs = run([
+      hook(ev("UserPromptSubmit", "root")),
+      hook(ev("PreToolUse", "child")),
+      hook(ev("PermissionRequest", "child")),
+      hook(ev("PreToolUse", "child")),
+      hook(ev("Stop", "child")),
+      hook(ev("Stop", "root")),
+    ]);
+    expect(rs.map((r) => r.status)).toEqual([
+      "thinking",
+      "working",
+      "requires_input",
+      "working",
+      "working",
+      "responded",
+    ]);
+    expect(rs[2].reason).toBe("child session PermissionRequest hook");
+    expect(rs[4].reason).toMatch(/only the root session ends a turn/);
+    // The child's prompt is never persisted on the root's Agent.
+    expect(rs.slice(1, 5).flatMap((r) => persisted(r.effects))).toEqual([]);
   });
 
   it("title '✳ Done' on a hook-driven pane does not change the status", () => {

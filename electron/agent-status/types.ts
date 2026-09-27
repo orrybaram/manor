@@ -118,6 +118,13 @@ export interface PaneAgentState {
   readonly status: AgentStatus;
   /** Why the pane has its current Agent status (published with it). */
   readonly statusReason: string;
+  /**
+   * The session whose hook put the pane in `requires_input` (the root or a
+   * child), or null. Lets a child that raised its own permission prompt lower
+   * the pane again when it moves on, without letting any child lower a prompt
+   * it did not raise (ADR-184 rule H4).
+   */
+  readonly inputSessionId: string | null;
 }
 
 // ── Effects ──

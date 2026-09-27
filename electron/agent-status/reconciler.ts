@@ -18,9 +18,11 @@
  *      in-progress turn is forced to responded). Status unchanged otherwise.
  *  H3  No session id: cannot be attributed. Ignored on a hook-driven pane;
  *      otherwise its status is applied like a fallback signal (old detector).
- *  H4  Child session (root exists, session differs): may raise the pane to
- *      thinking / working while the root's turn is in progress. Never persists
- *      and never ends a turn.
+ *  H4  Child session (root exists, session differs): while the root's turn is
+ *      in progress its activity shows on the pane — thinking / working, and
+ *      requires_input so a subagent's permission prompt is visible. A child
+ *      lowers only a prompt it raised itself. Never persists and never ends
+ *      a turn.
  *  H5  Root session: first hook makes the pane hook-driven. SubagentStart /
  *      SubagentStop bookkeeping; active hook → create or update the Agent.
  *  H6  Terminal hook on a root that was never active is dropped (hasBeenActive).
@@ -154,6 +156,7 @@ export function initialPaneState(paneId: string): PaneAgentState {
     kind: null,
     status: "idle",
     statusReason: "no agent",
+    inputSessionId: null,
   };
 }
 
@@ -168,16 +171,28 @@ function withoutRoot(state: PaneAgentState): PaneAgentState {
     activeSubagents: new Set(),
     lastHookAt: null,
     pendingStopAt: null,
+    inputSessionId: null,
   };
 }
 
+/**
+ * Set the pane's status. `inputSessionId` names the session that raised a
+ * `requires_input` (null for facts / unattributed hooks); any other status
+ * clears it. An unchanged status keeps its reason and prompt owner.
+ */
 function withStatus(
   state: PaneAgentState,
   status: AgentStatus,
   reason: string,
+  inputSessionId: string | null = null,
 ): PaneAgentState {
   if (state.status === status) return state;
-  return { ...state, status, statusReason: reason };
+  return {
+    ...state,
+    status,
+    statusReason: reason,
+    inputSessionId: status === "requires_input" ? inputSessionId : null,
+  };
 }
 
 /**
@@ -348,17 +363,28 @@ function reconcileChildHook(
   if (!isActiveStatus(event.status)) {
     return result(state, recorded, `${label} ignored: only the root session ends a turn`);
   }
-  // A child may raise the pane to thinking / working while the root's turn is
-  // in progress. It never lowers a root's requires_input, and never reopens a
-  // finished turn.
+  // A child's activity shows on the pane while the root's turn is in progress
+  // (active or held Stop); it never reopens a finished turn.
   const turnInProgress = state.phase === "active" || state.phase === "pendingStop";
   if (!turnInProgress) {
     return result(state, recorded, `${label} ignored: root turn not in progress`);
   }
+  // A child's permission prompt raises the pane to requires_input, so it is
+  // visible. The child owns that prompt until it moves on.
   if (event.status === "requires_input") {
-    return result(state, recorded, `${label} ignored: children only show thinking or working`);
+    if (state.status === "requires_input") {
+      return result(state, recorded, `${label}: pane already requires input`);
+    }
+    const next = withStatus(recorded, "requires_input", label, sessionId);
+    return result(state, next, label);
   }
-  if (state.status !== "thinking" && state.status !== "working") {
+  // thinking / working: follows the pane from thinking / working, or from a
+  // prompt this same child raised. Never lowers a prompt another session
+  // (the root or another child) raised.
+  if (state.status === "requires_input" && state.inputSessionId !== sessionId) {
+    return result(state, recorded, `${label} ignored: another session requires input`);
+  }
+  if (state.status !== "thinking" && state.status !== "working" && state.status !== "requires_input") {
     return result(state, recorded, `${label} ignored: root is ${state.status}`);
   }
   const next = withStatus(recorded, event.status, label);
@@ -417,7 +443,12 @@ function reconcileRootHook(
   // Active hook: the turn is in progress; create or update the Agent. A held
   // Stop (`pendingStopAt`) is kept — T1 drains it once the root goes quiet.
   if (isActiveStatus(event.status)) {
-    next = withStatus({ ...next, phase: "active" }, event.status, hookLabel);
+    // The root's own hook is authoritative: it also takes over (or clears)
+    // ownership of a prompt a child raised.
+    next = {
+      ...withStatus({ ...next, phase: "active" }, event.status, hookLabel, sessionId),
+      inputSessionId: event.status === "requires_input" ? sessionId : null,
+    };
     const effect: Effect = existingAgent
       ? {
           kind: "PersistAgentStatus",

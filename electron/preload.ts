@@ -109,8 +109,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       onChannel(`pty-exit-${paneId}`, callback),
     onCwd: (paneId: string, callback: (cwd: string) => void) =>
       onChannel(`pty-cwd-${paneId}`, callback),
-    onAgentStatus: (paneId: string, callback: (agent: unknown) => void) =>
-      onChannel(`pty-agent-status-${paneId}`, callback),
     onError: (paneId: string, callback: (message: string) => void) =>
       onChannel(`pty-error-${paneId}`, callback),
     // Its own listener rather than `onChannel`, which forwards a single value:
@@ -628,6 +626,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
         kind: string | null;
       }) => void,
     ) => onChannel("agent-status", callback),
+    /**
+     * Every pane's currently published Agent status (ADR-184 ticket 5) — a
+     * window that starts (or reloads) after some panes' statuses were already
+     * published has nothing to replay otherwise.
+     */
+    getPaneStatuses: () => ipcRenderer.invoke("agents:getPaneStatuses"),
   },
 
   preferences: {

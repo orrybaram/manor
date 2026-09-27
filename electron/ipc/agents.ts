@@ -203,6 +203,15 @@ export function register(deps: IpcDeps): void {
     }
   });
 
+  /**
+   * Every pane's currently published Agent status (ADR-184 ticket 5). Called
+   * once on renderer startup — including a detached/popout window, or a
+   * reload — so it paints current dots instead of waiting on the next signal.
+   */
+  ipcMain.handle("agents:getPaneStatuses", () => {
+    return agentStatus.getAllPaneStatuses();
+  });
+
   ipcMain.handle("agents:reconcileStale", async () => {
     let liveSessions: Array<{ sessionId: string }>;
     try {

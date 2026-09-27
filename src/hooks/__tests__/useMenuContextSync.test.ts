@@ -211,13 +211,7 @@ describe("deriveMenuContext", () => {
       makeAppState({
         paneContentType: { "pane-1": "terminal" },
         paneAgentStatus: {
-          "pane-1": {
-            kind: "claude",
-            status: "working",
-            processName: "claude",
-            since: 0,
-            title: null,
-          },
+          "pane-1": { kind: "claude", status: "working", reason: "PreToolUse hook" },
         },
       }),
       [makeProject()],

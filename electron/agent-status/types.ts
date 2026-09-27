@@ -13,26 +13,16 @@
 
 import type { AgentHookEvent } from "../agent-hook-events";
 import type { AgentInfo } from "../agent-persistence";
-import type { AgentKind, OutputHint, PaneFacts } from "../terminal-host/types";
+import type {
+  AgentKind,
+  AgentStatus,
+  OutputHint,
+  PaneFacts,
+} from "../terminal-host/types";
 
-export type { AgentKind };
+export type { AgentKind, AgentStatus };
 
 // ── Agent status ──
-
-/**
- * The one live state shown for an Agent's pane (ADR-184).
- *
- * There is no `"complete"`: a finished turn is `responded`, an ended session is
- * `idle` (and the Agent's lifecycle becomes `completed`). Local to this module
- * until ADR-184 ticket 5 unifies it with `terminal-host/types.ts`.
- */
-export type AgentStatus =
-  | "idle"
-  | "thinking"
-  | "working"
-  | "requires_input"
-  | "responded"
-  | "error";
 
 /** Agent statuses that mean a turn is in progress. */
 export type ActiveAgentStatus = "thinking" | "working" | "requires_input";

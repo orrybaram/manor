@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { pickBestPaneStatus, type PaneStatusDeps } from "../useTabAgentStatus";
-import type { AgentInfo, AgentState } from "../../electron.d";
+import type { AgentInfo, AgentStatus, PaneAgentStatus } from "../../electron.d";
 
 function makeAgent(overrides: Partial<AgentInfo> & { id: string; paneId: string }): AgentInfo {
   return {
@@ -21,6 +21,10 @@ function makeAgent(overrides: Partial<AgentInfo> & { id: string; paneId: string 
     resumedAt: null,
     ...overrides,
   } as AgentInfo;
+}
+
+function makeLive(status: AgentStatus): PaneAgentStatus {
+  return { status, reason: "test", kind: "claude" };
 }
 
 function makeDeps(overrides: Partial<PaneStatusDeps>): PaneStatusDeps {
@@ -45,14 +49,16 @@ describe("pickBestPaneStatus", () => {
   });
 
   it("higher priority wins regardless of order", () => {
-    const agentLow = makeAgent({ id: "a-low", paneId: "pane-1", lastAgentStatus: "responded" });
-    const agentHigh = makeAgent({
-      id: "a-high",
-      paneId: "pane-2",
-      lastAgentStatus: "requires_input",
-    });
+    const agentLow = makeAgent({ id: "a-low", paneId: "pane-1" });
+    const agentHigh = makeAgent({ id: "a-high", paneId: "pane-2" });
 
-    const deps = makeDeps({ agents: [agentLow, agentHigh] });
+    const deps = makeDeps({
+      agents: [agentLow, agentHigh],
+      paneAgentStatus: {
+        "pane-1": makeLive("responded"),
+        "pane-2": makeLive("requires_input"),
+      },
+    });
 
     const resultLowFirst = pickBestPaneStatus(["pane-1", "pane-2"], deps);
     expect(resultLowFirst.status).toBe("requires_input");
@@ -62,16 +68,16 @@ describe("pickBestPaneStatus", () => {
   });
 
   it("prefers the unseen pane on a priority tie: seen then unseen -> unseen wins, pulse true", () => {
-    const seenAgent = makeAgent({ id: "seen", paneId: "pane-1", lastAgentStatus: "responded" });
-    const unseenAgent = makeAgent({
-      id: "unseen",
-      paneId: "pane-2",
-      lastAgentStatus: "responded",
-    });
+    const seenAgent = makeAgent({ id: "seen", paneId: "pane-1" });
+    const unseenAgent = makeAgent({ id: "unseen", paneId: "pane-2" });
 
     const deps = makeDeps({
       agents: [seenAgent, unseenAgent],
       unseenRespondedAgentIds: new Set(["unseen"]),
+      paneAgentStatus: {
+        "pane-1": makeLive("responded"),
+        "pane-2": makeLive("responded"),
+      },
     });
 
     const result = pickBestPaneStatus(["pane-1", "pane-2"], deps);
@@ -80,10 +86,16 @@ describe("pickBestPaneStatus", () => {
   });
 
   it("two responded panes, both seen -> pulse false", () => {
-    const agentA = makeAgent({ id: "a", paneId: "pane-1", lastAgentStatus: "responded" });
-    const agentB = makeAgent({ id: "b", paneId: "pane-2", lastAgentStatus: "responded" });
+    const agentA = makeAgent({ id: "a", paneId: "pane-1" });
+    const agentB = makeAgent({ id: "b", paneId: "pane-2" });
 
-    const deps = makeDeps({ agents: [agentA, agentB] });
+    const deps = makeDeps({
+      agents: [agentA, agentB],
+      paneAgentStatus: {
+        "pane-1": makeLive("responded"),
+        "pane-2": makeLive("responded"),
+      },
+    });
 
     const result = pickBestPaneStatus(["pane-1", "pane-2"], deps);
     expect(result.status).toBe("responded");
@@ -91,20 +103,16 @@ describe("pickBestPaneStatus", () => {
   });
 
   it("two requires_input panes, second unseen -> pulse true", () => {
-    const seenAgent = makeAgent({
-      id: "seen",
-      paneId: "pane-1",
-      lastAgentStatus: "requires_input",
-    });
-    const unseenAgent = makeAgent({
-      id: "unseen",
-      paneId: "pane-2",
-      lastAgentStatus: "requires_input",
-    });
+    const seenAgent = makeAgent({ id: "seen", paneId: "pane-1" });
+    const unseenAgent = makeAgent({ id: "unseen", paneId: "pane-2" });
 
     const deps = makeDeps({
       agents: [seenAgent, unseenAgent],
       unseenInputAgentIds: new Set(["unseen"]),
+      paneAgentStatus: {
+        "pane-1": makeLive("requires_input"),
+        "pane-2": makeLive("requires_input"),
+      },
     });
 
     const result = pickBestPaneStatus(["pane-1", "pane-2"], deps);
@@ -113,15 +121,7 @@ describe("pickBestPaneStatus", () => {
   });
 
   it("live status with no agent record counts and yields pulse true", () => {
-    const liveState: AgentState = {
-      kind: "claude",
-      status: "working",
-      processName: null,
-      since: 0,
-      title: null,
-    };
-
-    const deps = makeDeps({ paneAgentStatus: { "pane-1": liveState } });
+    const deps = makeDeps({ paneAgentStatus: { "pane-1": makeLive("working") } });
 
     const result = pickBestPaneStatus(["pane-1"], deps);
     expect(result.status).toBe("working");

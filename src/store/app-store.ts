@@ -30,7 +30,8 @@ import type {
   PersistedPanel,
   PersistedTab,
   PersistedLayout,
-  AgentState,
+  PaneAgentStatus,
+  PaneAgentStatusUpdate,
   PickedElementResult,
 } from "../electron.d";
 import type { SetupStep, StepStatus } from "./project-store";
@@ -220,7 +221,7 @@ export interface AppState {
   activeWorkspacePath: string | null;
   paneCwd: Record<string, string>;
   paneTitle: Record<string, string>;
-  paneAgentStatus: Record<string, AgentState>;
+  paneAgentStatus: Record<string, PaneAgentStatus>;
   paneContentType: Record<string, "terminal" | "browser" | "diff">;
   paneFavicon: Record<string, string>;
   paneAudioPlaying: Record<string, boolean>;
@@ -382,8 +383,11 @@ export interface AppState {
   // Browser URL tracking
   setPaneUrl: (paneId: string, url: string) => void;
 
-  // Agent status tracking
-  setPaneAgentStatus: (paneId: string, agent: AgentState) => void;
+  /**
+   * Store the pane's Agent status exactly as the Status reconciler published
+   * it (ADR-184 §4) — the renderer displays it, it does not re-derive it.
+   */
+  setPaneAgentStatus: (update: PaneAgentStatusUpdate) => void;
 
   // Startup commands
   setPendingStartupCommand: (workspacePath: string, command: string) => void;
@@ -695,7 +699,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         // and paneUrl from persisted data
         const cwds: Record<string, string> = {};
         const titles: Record<string, string> = {};
-        const agents: Record<string, AgentState> = {};
+        const agents: Record<string, PaneAgentStatus> = {};
         const contentTypes: Record<string, "terminal" | "browser" | "diff"> =
           {};
         const urls: Record<string, string> = {};
@@ -715,14 +719,11 @@ export const useAppStore = create<AppState>((set, get) => ({
               if (paneSession.lastTitle) {
                 titles[paneId] = paneSession.lastTitle;
               }
-              if (
-                paneSession.lastAgentStatus &&
-                !(
-                  paneSession.lastAgentStatus.status === "idle" &&
-                  paneSession.lastAgentStatus.kind === null
-                )
-              ) {
-                agents[paneId] = paneSession.lastAgentStatus as AgentState;
+              // A fresh `agents:getPaneStatuses` fetch on startup (ADR-184
+              // ticket 5) overrides this once it resolves; priming from the
+              // persisted layout just avoids a blank dot until then.
+              if (paneSession.lastAgentStatus) {
+                agents[paneId] = paneSession.lastAgentStatus;
               }
             }
             const extractLeafData = (node: PaneNode): void => {
@@ -2298,28 +2299,18 @@ export const useAppStore = create<AppState>((set, get) => ({
         : {};
     }),
 
-  setPaneAgentStatus: (paneId: string, agent: AgentState) =>
+  setPaneAgentStatus: (update: PaneAgentStatusUpdate) =>
     set((state) => {
+      const { paneId, ...next } = update;
       const current = state.paneAgentStatus[paneId];
       if (
         current &&
-        current.status === agent.status &&
-        current.kind === agent.kind &&
-        current.since === agent.since &&
-        current.title === agent.title &&
-        current.processName === agent.processName
+        current.status === next.status &&
+        current.kind === next.kind &&
+        current.reason === next.reason
       )
         return state;
-      // Remove from store only when agent is truly gone (kind is null)
-      if (agent.status === "idle" && agent.kind === null) {
-        console.debug(`[agent-status] store: pane=${paneId} → REMOVED (gone)`);
-        const { [paneId]: _, ...rest } = state.paneAgentStatus;
-        return { paneAgentStatus: rest };
-      }
-      console.debug(
-        `[agent-status] store: pane=${paneId} → ${agent.kind}/${agent.status} (title=${agent.title})`,
-      );
-      return { paneAgentStatus: { ...state.paneAgentStatus, [paneId]: agent } };
+      return { paneAgentStatus: { ...state.paneAgentStatus, [paneId]: next } };
     }),
 
   setPendingStartupCommand: (workspacePath: string, command: string) =>
@@ -3428,7 +3419,7 @@ function flushLayoutSave(): void {
             daemonSessionId: string;
             lastCwd: string | null;
             lastTitle: string | null;
-            lastAgentStatus?: AgentState | null;
+            lastAgentStatus?: PaneAgentStatus | null;
           }
         > = {};
         for (const pid of paneIds) {
@@ -3470,6 +3461,39 @@ function saveActiveWorkspaceLayout(): void {
     flushLayoutSave();
   }, 500);
 }
+
+// ── Agent status (ADR-184 §4) ──
+//
+// Main's Status reconciler is the one decider of every pane's Agent status;
+// the renderer only displays what it publishes. `onStatus` keeps every
+// window's cache live; `getPaneStatuses` primes a window that starts (or a
+// detached/popout window that opens, or a reload) after some panes' statuses
+// were already published, with nothing to replay otherwise.
+window.electronAPI?.agents?.onStatus?.((update) => {
+  useAppStore.getState().setPaneAgentStatus(update);
+});
+
+void window.electronAPI?.agents
+  ?.getPaneStatuses?.()
+  ?.then((updates) => {
+    const primed: Record<string, PaneAgentStatus> = {};
+    for (const update of updates) {
+      primed[update.paneId] = {
+        status: update.status,
+        reason: update.reason,
+        kind: update.kind,
+      };
+    }
+    // A status published between store creation and this resolving is newer
+    // than the snapshot the fetch carried, and must win.
+    useAppStore.setState((s) => ({
+      paneAgentStatus: { ...primed, ...s.paneAgentStatus },
+    }));
+  })
+  ?.catch(() => {
+    // Older preload, or main not reachable yet — the live `onStatus` stream
+    // still keeps the cache correct from here on.
+  });
 
 // Subscribe to store changes and auto-save layout.
 //

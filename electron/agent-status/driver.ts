@@ -18,7 +18,7 @@
 import type { AgentHookEvent } from "../agent-hook-events";
 import type { AgentInfo } from "../agent-persistence";
 import type { PaneFacts } from "../terminal-host/types";
-import { applyStatusEffects, type EffectApplierDeps } from "./effects";
+import { applyStatusEffects, type EffectApplierDeps, type PaneStatusUpdate } from "./effects";
 import { initialPaneState, reconcile, stateFromSavedAgent } from "./reconciler";
 import type {
   Effect,
@@ -87,6 +87,12 @@ export interface AgentStatusDriver extends AgentStatusSignals {
   forgetPane(paneId: string): void;
   /** The pane's current state, if the driver has seen a signal for it. */
   getPaneState(paneId: string): PaneAgentState | undefined;
+  /**
+   * Every pane's currently published Agent status (ADR-184 ticket 5) — what
+   * `agents:getPaneStatuses` hands a window on startup, so it paints current
+   * dots instead of waiting for the next signal to publish one.
+   */
+  getAllPaneStatuses(): PaneStatusUpdate[];
 }
 
 function defaultMonoClock(): number {
@@ -356,5 +362,18 @@ export function createAgentStatusDriver(deps: AgentStatusDriverDeps): AgentStatu
       states.delete(paneId);
     },
     getPaneState: (paneId) => states.get(paneId),
+    getAllPaneStatuses() {
+      const result: PaneStatusUpdate[] = [];
+      for (const [paneId, state] of states) {
+        if (paneId === NO_PANE) continue;
+        result.push({
+          paneId,
+          status: state.status,
+          reason: state.statusReason,
+          kind: state.kind,
+        });
+      }
+      return result;
+    },
   };
 }

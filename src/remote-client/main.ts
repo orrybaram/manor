@@ -99,8 +99,7 @@ const STATUS_RANK: Record<string, number> = {
   responded: 2,
   working: 3,
   thinking: 4,
-  complete: 5,
-  idle: 6,
+  idle: 5,
 };
 
 const app = document.getElementById("app")!;
@@ -450,10 +449,7 @@ function glyph(status: string): HTMLElement {
   if (status === "requires_input") node.textContent = "👋";
   else if (status === "working" || status === "thinking")
     node.append(el("span", "spinner"));
-  else if (status === "complete") {
-    const mark = el("span", "dot", "✓");
-    node.append(mark);
-  } else node.append(el("span", "dot"));
+  else node.append(el("span", "dot"));
   return node;
 }
 

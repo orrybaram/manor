@@ -1,6 +1,6 @@
 import { useAppStore } from "../store/app-store";
 import { cleanAgentTitle } from "../utils/agent-title";
-import type { AgentState, AgentStatus, AgentInfo, AgentLifecycleStatus } from "../electron.d";
+import type { AgentInfo, AgentStatus } from "../electron.d";
 
 /**
  * Strip SSH-style CWD titles (e.g. "user@host:/path") and clean agent
@@ -27,59 +27,28 @@ export function resolveAgentTitle(
 }
 
 /**
- * Derive a single AgentStatus for an agent by preferring live pane data,
- * then the persisted lastAgentStatus, then a static mapping from AgentLifecycleStatus.
- */
-export function deriveStatus(
-  agent: AgentInfo,
-  liveAgent: AgentState | null,
-): AgentStatus | undefined {
-  // Live agent with a meaningful (non-idle) status takes priority
-  if (
-    agent.status === "active" &&
-    liveAgent &&
-    liveAgent.status !== "idle"
-  ) {
-    return liveAgent.status;
-  }
-
-  // Persisted agent status from the last known snapshot
-  if (agent.status === "active" && agent.lastAgentStatus) {
-    return agent.lastAgentStatus as AgentStatus;
-  }
-
-  // For non-active agents that have a known last status, prefer it over the static map
-  // (e.g. a "responded" agent that got incorrectly abandoned should still show the dot)
-  if (agent.lastAgentStatus) {
-    return agent.lastAgentStatus as AgentStatus;
-  }
-
-  // Static fallback based on agent lifecycle status
-  const statusMap: Record<AgentLifecycleStatus, AgentStatus> = {
-    active: "working",
-    completed: "complete",
-    error: "error",
-    abandoned: "idle",
-  };
-  return statusMap[agent.status];
-}
-
-/**
- * Unified hook that derives display title and agent status for an agent,
- * preferring live pane data when the agent has an active terminal pane.
+ * Unified hook that derives display title and Agent status for an agent.
+ *
+ * The status is exactly what main's Status reconciler published for the
+ * agent's pane (ADR-184 §4) — this hook does not re-derive it. It is
+ * `undefined` when the agent has no pane, or the reconciler has not
+ * published a status for it yet (e.g. a `completed` agent whose pane closed);
+ * the agents list shows the lifecycle as a badge instead of a dot then.
  */
 export function useAgentDisplay(
   agent: AgentInfo,
-): { title: string; status: AgentStatus | undefined } {
-  const liveAgent = useAppStore((s) =>
-    agent.paneId ? s.paneAgentStatus[agent.paneId] ?? null : null,
+): { title: string; status: AgentStatus | undefined; reason: string | undefined } {
+  const status = useAppStore((s) =>
+    agent.paneId ? s.paneAgentStatus[agent.paneId]?.status : undefined,
+  );
+  const reason = useAppStore((s) =>
+    agent.paneId ? s.paneAgentStatus[agent.paneId]?.reason : undefined,
   );
   const liveTitle = useAppStore((s) =>
     agent.paneId ? s.paneTitle[agent.paneId] ?? null : null,
   );
 
   const title = resolveAgentTitle(agent, liveTitle);
-  const status = deriveStatus(agent, liveAgent);
 
-  return { title, status };
+  return { title, status, reason };
 }

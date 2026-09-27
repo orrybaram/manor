@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useAppStore } from "../app-store";
-import type { AgentState, AgentStatus } from "../../electron.d";
+import type { AgentStatus, PaneAgentStatusUpdate } from "../../electron.d";
 import { STATUS_PRIORITY } from "../../hooks/useTabAgentStatus";
 
 // Mock window.electronAPI since it doesn't exist in test
@@ -9,11 +9,12 @@ vi.stubGlobal("window", {
   electronAPI: undefined,
 });
 
-function makeAgentState(
+function makeUpdate(
+  paneId: string,
   status: AgentStatus,
   kind: "claude" | "opencode" | "codex" | null = "claude",
-): AgentState {
-  return { kind, status, processName: kind, since: Date.now(), title: null };
+): PaneAgentStatusUpdate {
+  return { paneId, status, reason: "test", kind };
 }
 
 /** Compute the highest-priority status across all panes (mirrors useTabAgentStatus logic) */
@@ -45,78 +46,77 @@ describe("Full multi-pane tab — status aggregation", () => {
     const { setPaneAgentStatus } = useAppStore.getState();
 
     // 1. Pane A: FG → "claude", Hook: UserPromptSubmit → thinking
-    setPaneAgentStatus("pane-a", makeAgentState("thinking"));
+    setPaneAgentStatus(makeUpdate("pane-a", "thinking"));
     expect(aggregateTabStatus()).toBe("thinking");
 
     // 2. Pane B: FG → "claude", Hook: UserPromptSubmit → thinking
-    setPaneAgentStatus("pane-b", makeAgentState("thinking"));
+    setPaneAgentStatus(makeUpdate("pane-b", "thinking"));
     expect(aggregateTabStatus()).toBe("thinking");
 
     // 3. Pane A: Hook: PermissionRequest → requires_input
-    setPaneAgentStatus("pane-a", makeAgentState("requires_input"));
+    setPaneAgentStatus(makeUpdate("pane-a", "requires_input"));
 
     // 4. Tab status: requires_input (highest priority across panes)
     expect(aggregateTabStatus()).toBe("requires_input");
 
     // 5. Pane A: Hook: PostToolUse → thinking
-    setPaneAgentStatus("pane-a", makeAgentState("thinking"));
+    setPaneAgentStatus(makeUpdate("pane-a", "thinking"));
 
     // 6. Tab status: thinking (both panes thinking)
     expect(aggregateTabStatus()).toBe("thinking");
 
-    // 7. Pane B: Hook: Stop → complete
-    setPaneAgentStatus("pane-b", makeAgentState("complete"));
+    // 7. Pane B: Hook: Stop → responded
+    setPaneAgentStatus(makeUpdate("pane-b", "responded"));
 
     // 8. Tab status: thinking (pane A still thinking)
     expect(aggregateTabStatus()).toBe("thinking");
 
-    // 9. Pane A: Hook: Stop → complete
-    setPaneAgentStatus("pane-a", makeAgentState("complete"));
+    // 9. Pane A: Hook: Stop → responded
+    setPaneAgentStatus(makeUpdate("pane-a", "responded"));
 
-    // 10. Tab status: complete (both done)
-    expect(aggregateTabStatus()).toBe("complete");
+    // 10. Tab status: responded (both done)
+    expect(aggregateTabStatus()).toBe("responded");
   });
 
   it("Scenario: Mixed statuses across many panes — highest priority wins", () => {
     const { setPaneAgentStatus } = useAppStore.getState();
 
-    setPaneAgentStatus("pane-1", makeAgentState("idle"));
-    setPaneAgentStatus("pane-2", makeAgentState("complete"));
-    setPaneAgentStatus("pane-3", makeAgentState("thinking"));
-    setPaneAgentStatus("pane-4", makeAgentState("error"));
+    setPaneAgentStatus(makeUpdate("pane-1", "idle"));
+    setPaneAgentStatus(makeUpdate("pane-2", "responded"));
+    setPaneAgentStatus(makeUpdate("pane-3", "thinking"));
+    setPaneAgentStatus(makeUpdate("pane-4", "error"));
 
-    // idle is removed from store, so effective panes: complete, thinking, error
-    // Priority: thinking (3) > error (2) > complete (1)
+    // idle has priority 0, so it never wins: thinking (3) > error (2) > responded (1)
     expect(aggregateTabStatus()).toBe("thinking");
 
     // Add requires_input — it should win
-    setPaneAgentStatus("pane-5", makeAgentState("requires_input"));
+    setPaneAgentStatus(makeUpdate("pane-5", "requires_input"));
     expect(aggregateTabStatus()).toBe("requires_input");
 
     // Add working — requires_input still wins (priority 5 > 4)
-    setPaneAgentStatus("pane-6", makeAgentState("working"));
+    setPaneAgentStatus(makeUpdate("pane-6", "working"));
     expect(aggregateTabStatus()).toBe("requires_input");
   });
 
   it("Scenario: Panes going idle reduces to next highest", () => {
     const { setPaneAgentStatus } = useAppStore.getState();
 
-    setPaneAgentStatus("pane-a", makeAgentState("requires_input"));
-    setPaneAgentStatus("pane-b", makeAgentState("working"));
-    setPaneAgentStatus("pane-c", makeAgentState("thinking"));
+    setPaneAgentStatus(makeUpdate("pane-a", "requires_input"));
+    setPaneAgentStatus(makeUpdate("pane-b", "working"));
+    setPaneAgentStatus(makeUpdate("pane-c", "thinking"));
 
     expect(aggregateTabStatus()).toBe("requires_input");
 
-    // Pane A goes idle → removed
-    setPaneAgentStatus("pane-a", makeAgentState("idle"));
+    // Pane A goes idle → no longer contends for best
+    setPaneAgentStatus(makeUpdate("pane-a", "idle"));
     expect(aggregateTabStatus()).toBe("working");
 
-    // Pane B goes idle → removed
-    setPaneAgentStatus("pane-b", makeAgentState("idle"));
+    // Pane B goes idle → no longer contends for best
+    setPaneAgentStatus(makeUpdate("pane-b", "idle"));
     expect(aggregateTabStatus()).toBe("thinking");
 
-    // Pane C goes idle → all removed
-    setPaneAgentStatus("pane-c", makeAgentState("idle"));
+    // Pane C goes idle → nothing contends
+    setPaneAgentStatus(makeUpdate("pane-c", "idle"));
     expect(aggregateTabStatus()).toBeNull();
   });
 
@@ -124,44 +124,44 @@ describe("Full multi-pane tab — status aggregation", () => {
     const { setPaneAgentStatus } = useAppStore.getState();
 
     // Pane A lifecycle
-    setPaneAgentStatus("pane-a", makeAgentState("thinking"));
-    setPaneAgentStatus("pane-a", makeAgentState("working"));
-    setPaneAgentStatus("pane-a", makeAgentState("complete"));
+    setPaneAgentStatus(makeUpdate("pane-a", "thinking"));
+    setPaneAgentStatus(makeUpdate("pane-a", "working"));
+    setPaneAgentStatus(makeUpdate("pane-a", "responded"));
 
     // Pane B lifecycle (overlapping)
-    setPaneAgentStatus("pane-b", makeAgentState("thinking"));
-    setPaneAgentStatus("pane-b", makeAgentState("requires_input"));
+    setPaneAgentStatus(makeUpdate("pane-b", "thinking"));
+    setPaneAgentStatus(makeUpdate("pane-b", "requires_input"));
 
-    // Pane A is complete, Pane B requires_input → tab = requires_input
+    // Pane A is responded, Pane B requires_input → tab = requires_input
     expect(aggregateTabStatus()).toBe("requires_input");
 
     // Pane B resolves
-    setPaneAgentStatus("pane-b", makeAgentState("thinking"));
+    setPaneAgentStatus(makeUpdate("pane-b", "thinking"));
     expect(aggregateTabStatus()).toBe("thinking");
 
-    setPaneAgentStatus("pane-b", makeAgentState("complete"));
-    // Both complete
-    expect(aggregateTabStatus()).toBe("complete");
+    setPaneAgentStatus(makeUpdate("pane-b", "responded"));
+    // Both responded
+    expect(aggregateTabStatus()).toBe("responded");
   });
 
   it("Scenario: Error in one pane while others work", () => {
     const { setPaneAgentStatus } = useAppStore.getState();
 
-    setPaneAgentStatus("pane-a", makeAgentState("thinking"));
-    setPaneAgentStatus("pane-b", makeAgentState("error"));
+    setPaneAgentStatus(makeUpdate("pane-a", "thinking"));
+    setPaneAgentStatus(makeUpdate("pane-b", "error"));
 
     // thinking (3) > error (2) → tab = thinking
     expect(aggregateTabStatus()).toBe("thinking");
 
     // Pane A stops
-    setPaneAgentStatus("pane-a", makeAgentState("complete"));
+    setPaneAgentStatus(makeUpdate("pane-a", "responded"));
 
-    // complete (1) vs error (2) → tab = error
+    // responded (1) vs error (2) → tab = error
     expect(aggregateTabStatus()).toBe("error");
 
     // Error pane recovers
-    setPaneAgentStatus("pane-b", makeAgentState("idle"));
-    expect(aggregateTabStatus()).toBe("complete");
+    setPaneAgentStatus(makeUpdate("pane-b", "idle"));
+    expect(aggregateTabStatus()).toBe("responded");
   });
 
   it("Scenario: Rapid updates across panes — no lost writes", () => {
@@ -173,48 +173,48 @@ describe("Full multi-pane tab — status aggregation", () => {
       "working",
       "requires_input",
       "thinking",
-      "complete",
+      "responded",
     ];
 
     // Rapidly update all panes through the sequence
     for (const status of statusSeq) {
       for (const pane of panes) {
-        setPaneAgentStatus(pane, makeAgentState(status));
+        setPaneAgentStatus(makeUpdate(pane, status));
       }
     }
 
-    // All panes should be at "complete"
+    // All panes should be at "responded"
     const state = useAppStore.getState().paneAgentStatus;
     for (const pane of panes) {
-      expect(state[pane]?.status).toBe("complete");
+      expect(state[pane]?.status).toBe("responded");
     }
-    expect(aggregateTabStatus()).toBe("complete");
+    expect(aggregateTabStatus()).toBe("responded");
   });
 
   it("Regression: transition snapshot — multi-pane tab", () => {
     const { setPaneAgentStatus } = useAppStore.getState();
     const snapshots: (AgentStatus | null)[] = [];
 
-    setPaneAgentStatus("pane-a", makeAgentState("thinking"));
+    setPaneAgentStatus(makeUpdate("pane-a", "thinking"));
     snapshots.push(aggregateTabStatus());
 
-    setPaneAgentStatus("pane-b", makeAgentState("thinking"));
+    setPaneAgentStatus(makeUpdate("pane-b", "thinking"));
     snapshots.push(aggregateTabStatus());
 
-    setPaneAgentStatus("pane-a", makeAgentState("requires_input"));
+    setPaneAgentStatus(makeUpdate("pane-a", "requires_input"));
     snapshots.push(aggregateTabStatus());
 
-    setPaneAgentStatus("pane-a", makeAgentState("thinking"));
+    setPaneAgentStatus(makeUpdate("pane-a", "thinking"));
     snapshots.push(aggregateTabStatus());
 
-    setPaneAgentStatus("pane-b", makeAgentState("complete"));
+    setPaneAgentStatus(makeUpdate("pane-b", "responded"));
     snapshots.push(aggregateTabStatus());
 
-    setPaneAgentStatus("pane-a", makeAgentState("complete"));
+    setPaneAgentStatus(makeUpdate("pane-a", "responded"));
     snapshots.push(aggregateTabStatus());
 
-    setPaneAgentStatus("pane-a", makeAgentState("idle"));
-    setPaneAgentStatus("pane-b", makeAgentState("idle"));
+    setPaneAgentStatus(makeUpdate("pane-a", "idle"));
+    setPaneAgentStatus(makeUpdate("pane-b", "idle"));
     snapshots.push(aggregateTabStatus());
 
     expect(snapshots).toMatchInlineSnapshot(`
@@ -224,7 +224,7 @@ describe("Full multi-pane tab — status aggregation", () => {
         "requires_input",
         "thinking",
         "thinking",
-        "complete",
+        "responded",
         null,
       ]
     `);

@@ -26,13 +26,7 @@ import { countBusyAgents } from "./stats-signals";
 import { PreferencesManager } from "./preferences";
 import { KeybindingsManager } from "./keybindings";
 import { cleanAgentTitle } from "./title-utils";
-import type {
-  AgentKind,
-  AgentState,
-  AgentStatus,
-  PaneFacts,
-  StreamEvent,
-} from "./terminal-host/types";
+import type { AgentStatus, StreamEvent } from "./terminal-host/types";
 import { initAutoUpdater, checkForUpdates } from "./updater";
 import { portlessManager } from "./portless";
 import { createLocalBackend } from "./backend/host-backend";
@@ -151,8 +145,6 @@ export interface AgentStreamDeps {
   agentStatus: Pick<AgentStatusDriver, "signal" | "forgetPane">;
   /** Broadcast an updated Agent (and refresh the dock badge). */
   broadcastAgent: (agent: AgentInfo) => void;
-  /** Called after a pane's facts were reconciled (the legacy status bridge). */
-  onPaneFactsReconciled?: (paneId: string) => void;
 }
 
 /**
@@ -168,7 +160,6 @@ export function handleAgentStreamEvent(event: StreamEvent, deps: AgentStreamDeps
     switch (event.type) {
       case "paneFacts": {
         deps.agentStatus.signal(event.sessionId, { type: "paneFacts", facts: event.facts });
-        deps.onPaneFactsReconciled?.(event.sessionId);
         // Update the persisted Agent name from the terminal title — unless the
         // user pinned a name of their own, which the title sync must not
         // clobber.
@@ -523,42 +514,6 @@ export function initApp(devTitle: string | null): void {
   // status, and the only writer of Agents' lifecycle and last status. Built
   // before the IPC handlers and routes that feed it user signals.
 
-  /**
-   * Bridge to the renderer's old per-pane channel (`pty-agent-status-*`)
-   * until ADR-184 ticket 5 moves it to `agent-status`: the reconciler's
-   * status, with the title and process from the pane's facts. Replaces
-   * forwarding the daemon's `agentStatus` events, which main now ignores.
-   */
-  const legacyAgentStates = new Map<string, AgentState>();
-  function sendLegacyAgentState(
-    paneId: string,
-    status: AgentStatus,
-    kind: AgentKind | null,
-    facts: PaneFacts | null,
-  ): void {
-    const prev = legacyAgentStates.get(paneId);
-    const title = facts?.title ?? null;
-    const processName = facts?.foreground?.name ?? null;
-    if (
-      prev &&
-      prev.status === status &&
-      prev.kind === kind &&
-      prev.title === title &&
-      prev.processName === processName
-    ) {
-      return;
-    }
-    const next: AgentState = {
-      kind,
-      status,
-      processName,
-      title,
-      since: prev && prev.status === status ? prev.since : Date.now(),
-    };
-    legacyAgentStates.set(paneId, next);
-    sendToRendererWindows(`pty-agent-status-${paneId}`, next);
-  }
-
   const agentStatusDriver: AgentStatusDriver = createAgentStatusDriver({
     agentManager,
     getPaneContext: (paneId) => paneContextMap.get(paneId),
@@ -571,8 +526,6 @@ export function initApp(devTitle: string | null): void {
     publishPaneStatus: (update: PaneStatusUpdate) => {
       // One channel, every window, once per signal (ADR-184 §4).
       sendToRendererWindows("agent-status", update);
-      const facts = agentStatusDriver.getPaneState(update.paneId)?.lastFacts ?? null;
-      sendLegacyAgentState(update.paneId, update.status, update.kind, facts);
     },
     onHookEvent: (event, effects, { isRootSession, replacedRootSessionId }) => {
       statsStore.observeHookEvent(
@@ -584,11 +537,6 @@ export function initApp(devTitle: string | null): void {
       );
     },
   });
-
-  function onPaneFactsReconciled(paneId: string): void {
-    const state = agentStatusDriver.getPaneState(paneId);
-    if (state) sendLegacyAgentState(paneId, state.status, state.kind, state.lastFacts);
-  }
 
   /**
    * Resync a host's panes after it (re)connects: the `paneFacts` stream has
@@ -651,7 +599,6 @@ export function initApp(devTitle: string | null): void {
       agentManager,
       agentStatus: agentStatusDriver,
       broadcastAgent,
-      onPaneFactsReconciled,
     });
   });
 

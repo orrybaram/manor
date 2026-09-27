@@ -369,11 +369,18 @@ export function parseHello(line: string): BridgeHello | null {
 // ── Agent status types ──
 
 export type AgentKind = "claude" | "opencode" | "codex" | "pi";
+
+/**
+ * The one live state shown for an Agent's pane (ADR-184). There is no
+ * `"complete"`: a finished turn is `responded`, an ended session is `idle`
+ * (and the Agent's lifecycle becomes `completed`). Mirrors `AgentStatus` in
+ * `src/electron.d.ts` — electron and the renderer sit in separate tsconfigs,
+ * so this can't just import it.
+ */
 export type AgentStatus =
   | "idle"
   | "thinking"
   | "working"
-  | "complete"
   | "requires_input"
   | "error"
   | "responded";

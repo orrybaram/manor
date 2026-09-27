@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useAppStore } from "../app-store";
-import type { AgentState, AgentStatus } from "../../electron.d";
+import type { AgentStatus, PaneAgentStatusUpdate } from "../../electron.d";
 import { STATUS_PRIORITY } from "../../hooks/useTabAgentStatus";
 
 // Mock window.electronAPI since it doesn't exist in test
@@ -9,11 +9,13 @@ vi.stubGlobal("window", {
   electronAPI: undefined,
 });
 
-function makeAgentState(
+function makeUpdate(
+  paneId: string,
   status: AgentStatus,
   kind: "claude" | "opencode" | "codex" | null = "claude",
-): AgentState {
-  return { kind, status, processName: kind, since: Date.now(), title: null };
+  reason = "test",
+): PaneAgentStatusUpdate {
+  return { paneId, status, reason, kind };
 }
 
 describe("setPaneAgentStatus", () => {
@@ -27,73 +29,45 @@ describe("setPaneAgentStatus", () => {
       "thinking",
       "working",
       "requires_input",
-      "complete",
+      "responded",
       "error",
     ];
 
     for (const status of statuses) {
-      useAppStore
-        .getState()
-        .setPaneAgentStatus("pane-1", makeAgentState(status));
+      useAppStore.getState().setPaneAgentStatus(makeUpdate("pane-1", status));
       expect(useAppStore.getState().paneAgentStatus["pane-1"]?.status).toBe(
         status,
       );
     }
   });
 
-  it("idle with kind=null removes entry from store (agent truly gone)", () => {
-    // First set a non-idle status
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("thinking"));
+  it("stores idle exactly like any other status — the renderer does not filter it", () => {
+    useAppStore.getState().setPaneAgentStatus(makeUpdate("pane-1", "thinking"));
     expect(useAppStore.getState().paneAgentStatus["pane-1"]).toBeDefined();
 
-    // Set to idle with kind=null (transitionToGone) — should remove the entry
     useAppStore
       .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("idle", null));
-    expect(useAppStore.getState().paneAgentStatus["pane-1"]).toBeUndefined();
-  });
-
-  it("idle with kind='claude' stays in store (agent still present)", () => {
-    // Set to complete first
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("complete", "claude"));
-    expect(useAppStore.getState().paneAgentStatus["pane-1"]).toBeDefined();
-
-    // Set to idle with kind='claude' — should STAY in store (agent still running)
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("idle", "claude"));
+      .setPaneAgentStatus(makeUpdate("pane-1", "idle", null, "agent process exited"));
 
     const entry = useAppStore.getState().paneAgentStatus["pane-1"];
-    expect(entry).toBeDefined();
-    expect(entry?.status).toBe("idle");
-    expect(entry?.kind).toBe("claude");
+    expect(entry).toEqual({ status: "idle", kind: null, reason: "agent process exited" });
   });
 
-  it("deduplicates: same status+kind produces no state update", () => {
-    const agent = makeAgentState("thinking");
-    useAppStore.getState().setPaneAgentStatus("pane-1", agent);
+  it("deduplicates: same status+kind+reason produces no state update", () => {
+    const update = makeUpdate("pane-1", "thinking");
+    useAppStore.getState().setPaneAgentStatus(update);
 
     const stateAfterFirst = useAppStore.getState().paneAgentStatus;
 
-    // Set same status+kind again (a fresh object with the same `since` —
-    // makeAgentState would read Date.now() again and flake across a ms tick)
-    useAppStore.getState().setPaneAgentStatus("pane-1", { ...agent });
+    // Fresh object, same values — zustand skips the update.
+    useAppStore.getState().setPaneAgentStatus({ ...update });
 
-    // Should be the exact same object reference (zustand skips update)
     expect(useAppStore.getState().paneAgentStatus).toBe(stateAfterFirst);
   });
 
   it("different paneIds are independent", () => {
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("thinking"));
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-2", makeAgentState("requires_input"));
+    useAppStore.getState().setPaneAgentStatus(makeUpdate("pane-1", "thinking"));
+    useAppStore.getState().setPaneAgentStatus(makeUpdate("pane-2", "requires_input"));
 
     const state = useAppStore.getState().paneAgentStatus;
     expect(state["pane-1"]?.status).toBe("thinking");
@@ -106,23 +80,21 @@ describe("setPaneAgentStatus", () => {
       "requires_input",
       "thinking",
       "requires_input",
-      "complete",
+      "responded",
     ];
 
     for (const status of sequence) {
-      useAppStore
-        .getState()
-        .setPaneAgentStatus("pane-1", makeAgentState(status));
+      useAppStore.getState().setPaneAgentStatus(makeUpdate("pane-1", status));
     }
 
     expect(useAppStore.getState().paneAgentStatus["pane-1"]?.status).toBe(
-      "complete",
+      "responded",
     );
   });
 });
 
 describe("STATUS_PRIORITY aggregation logic", () => {
-  it("priority order: requires_input > working > thinking > error > complete > idle", () => {
+  it("priority order: requires_input > working > thinking > error > responded > idle", () => {
     expect(STATUS_PRIORITY["requires_input"]).toBeGreaterThan(
       STATUS_PRIORITY["working"],
     );
@@ -133,18 +105,16 @@ describe("STATUS_PRIORITY aggregation logic", () => {
       STATUS_PRIORITY["error"],
     );
     expect(STATUS_PRIORITY["error"]).toBeGreaterThan(
-      STATUS_PRIORITY["complete"],
+      STATUS_PRIORITY["responded"],
     );
-    expect(STATUS_PRIORITY["complete"]).toBeGreaterThan(
+    expect(STATUS_PRIORITY["responded"]).toBeGreaterThan(
       STATUS_PRIORITY["idle"],
     );
   });
 
   it("single pane returns that pane's status", () => {
     useAppStore.setState({ paneAgentStatus: {} });
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("thinking"));
+    useAppStore.getState().setPaneAgentStatus(makeUpdate("pane-1", "thinking"));
 
     const paneStatus = useAppStore.getState().paneAgentStatus;
     const statuses = Object.values(paneStatus);
@@ -154,15 +124,9 @@ describe("STATUS_PRIORITY aggregation logic", () => {
 
   it("multiple panes: highest priority wins", () => {
     useAppStore.setState({ paneAgentStatus: {} });
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("thinking"));
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-2", makeAgentState("requires_input"));
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-3", makeAgentState("complete"));
+    useAppStore.getState().setPaneAgentStatus(makeUpdate("pane-1", "thinking"));
+    useAppStore.getState().setPaneAgentStatus(makeUpdate("pane-2", "requires_input"));
+    useAppStore.getState().setPaneAgentStatus(makeUpdate("pane-3", "responded"));
 
     const paneStatus = useAppStore.getState().paneAgentStatus;
     const best = Object.values(paneStatus).reduce(
@@ -174,92 +138,5 @@ describe("STATUS_PRIORITY aggregation logic", () => {
     );
 
     expect(best.status).toBe("requires_input");
-  });
-
-  it("pane goes idle (kind=null) -> falls back to next highest", () => {
-    useAppStore.setState({ paneAgentStatus: {} });
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("requires_input"));
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-2", makeAgentState("thinking"));
-
-    // Pane 1 goes idle with kind=null (removed from store)
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("idle", null));
-
-    const paneStatus = useAppStore.getState().paneAgentStatus;
-    expect(paneStatus["pane-1"]).toBeUndefined();
-
-    const remaining = Object.values(paneStatus);
-    expect(remaining).toHaveLength(1);
-    expect(remaining[0].status).toBe("thinking");
-  });
-
-  it("pane goes idle with kind='claude' (agent still present) -> stays in store", () => {
-    useAppStore.setState({ paneAgentStatus: {} });
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("complete", "claude"));
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-2", makeAgentState("thinking"));
-
-    // Pane 1 goes idle with kind='claude' — stays in store
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("idle", "claude"));
-
-    const paneStatus = useAppStore.getState().paneAgentStatus;
-    // Both panes are still in the store
-    expect(paneStatus["pane-1"]).toBeDefined();
-    expect(paneStatus["pane-1"]?.kind).toBe("claude");
-    expect(Object.keys(paneStatus)).toHaveLength(2);
-  });
-
-  it("all panes go idle (kind=null) -> empty status map", () => {
-    useAppStore.setState({ paneAgentStatus: {} });
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("thinking"));
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-2", makeAgentState("requires_input"));
-
-    // Both go idle with kind=null (truly gone)
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("idle", null));
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-2", makeAgentState("idle", null));
-
-    const paneStatus = useAppStore.getState().paneAgentStatus;
-    expect(Object.keys(paneStatus)).toHaveLength(0);
-  });
-
-  it("new pane added -> recalculates correctly", () => {
-    useAppStore.setState({ paneAgentStatus: {} });
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("complete"));
-
-    // Add a new pane with higher priority
-    useAppStore
-      .getState()
-      .setPaneAgentStatus("pane-2", makeAgentState("thinking"));
-
-    const paneStatus = useAppStore.getState().paneAgentStatus;
-    const best = Object.values(paneStatus).reduce(
-      (acc, agent) => {
-        const p = STATUS_PRIORITY[agent.status] ?? 0;
-        return p > acc.priority ? { status: agent.status, priority: p } : acc;
-      },
-      { status: null as AgentStatus | null, priority: 0 },
-    );
-
-    expect(best.status).toBe("thinking");
   });
 });

@@ -99,15 +99,7 @@ describe("agent-store renameAgent", () => {
       agents: [makeAgent({ name: "Fix login", namePinned: true })],
     });
     useAppStore.setState({
-      paneAgentStatus: {
-        p1: {
-          kind: "claude",
-          status: "responded",
-          processName: null,
-          since: 0,
-          title: "✳ synced-title",
-        },
-      },
+      paneTitle: { p1: "✳ synced-title" },
     });
 
     await useAgentStore.getState().renameAgent("a1", "   ");
@@ -130,9 +122,7 @@ describe("agent-store renameAgent", () => {
       agents: [makeAgent({ name: "Fix login", namePinned: true })],
     });
     useAppStore.setState({
-      paneAgentStatus: {
-        p1: { kind: "claude", status: "responded", processName: null, since: 0, title: "claude" },
-      },
+      paneTitle: { p1: "claude" },
     });
 
     await useAgentStore.getState().renameAgent("a1", "");

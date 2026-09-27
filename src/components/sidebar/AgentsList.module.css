@@ -110,6 +110,16 @@
   outline-offset: -1px;
 }
 
+/* A finished Agent's lifecycle, not a live status dot (ADR-184 §4) */
+.lifecycleBadge {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  opacity: 0.6;
+}
+
 .agentName {
   flex: 1;
   overflow: hidden;

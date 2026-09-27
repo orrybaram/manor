@@ -239,34 +239,39 @@ export interface ManorProcessInfo {
 }
 
 export type AgentKind = "claude" | "opencode" | "codex" | "pi";
+
+/**
+ * The one live state shown for an Agent's pane (ADR-184). There is no
+ * `"complete"`: a finished turn is `responded`, an ended session is `idle`
+ * (and the Agent's lifecycle becomes `completed`). The single declaration —
+ * `electron/terminal-host/types.ts` and the reconciler mirror or import it,
+ * since electron and the renderer sit in separate tsconfigs.
+ */
 export type AgentStatus =
   | "idle"
   | "thinking"
   | "working"
-  | "complete"
   | "requires_input"
   | "error"
   | "responded";
 
 /**
  * One pane's Agent status as main's Status reconciler publishes it on the
- * `agent-status` channel (ADR-184 §4). There is no `complete`: a finished turn
- * is `responded`, an ended session is `idle`. `reason` says why.
+ * `agent-status` channel (ADR-184 §4). `reason` says why.
  */
 export interface PaneAgentStatusUpdate {
   paneId: string;
-  status: Exclude<AgentStatus, "complete">;
+  status: AgentStatus;
   reason: string;
   kind: AgentKind | null;
 }
 
-export interface AgentState {
-  kind: AgentKind | null;
-  status: AgentStatus;
-  processName: string | null;
-  since: number;
-  title: string | null;
-}
+/**
+ * The renderer's per-pane cache of `PaneAgentStatusUpdate` — the map key
+ * already carries `paneId`, so it is dropped here. The renderer displays this
+ * exactly as published; it never re-derives it (ADR-184 §4).
+ */
+export type PaneAgentStatus = Omit<PaneAgentStatusUpdate, "paneId">;
 
 /**
  * Position in a session's PTY output stream (mirrored from
@@ -308,7 +313,7 @@ export interface PersistedPaneSession {
   daemonSessionId: string;
   lastCwd: string | null;
   lastTitle: string | null;
-  lastAgentStatus?: AgentState | null;
+  lastAgentStatus?: PaneAgentStatus | null;
 }
 
 export interface PersistedTab {
@@ -440,10 +445,6 @@ export interface ElectronAPI {
     onResized: (
       paneId: string,
       callback: (cols: number, rows: number) => void,
-    ) => () => void;
-    onAgentStatus: (
-      paneId: string,
-      callback: (agent: AgentState) => void,
     ) => () => void;
     onError: (
       paneId: string,
@@ -892,9 +893,16 @@ export interface ElectronAPI {
     /**
      * Subscribe to every pane's Agent status as the Status reconciler
      * publishes it, with the reason for it (ADR-184 §4). Replaces
-     * `pty.onAgentStatus` in ADR-184 ticket 5.
+     * `pty.onAgentStatus`, removed in ADR-184 ticket 5.
      */
     onStatus: (callback: (update: PaneAgentStatusUpdate) => void) => () => void;
+    /**
+     * Every pane's currently published Agent status (ADR-184 ticket 5).
+     * Fetched once on renderer startup — including a detached/popout window,
+     * or a reload — to prime a window that starts after some panes' statuses
+     * were already published, with nothing to replay.
+     */
+    getPaneStatuses: () => Promise<PaneAgentStatusUpdate[]>;
   };
 
   preferences: {

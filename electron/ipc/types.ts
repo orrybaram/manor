@@ -12,7 +12,7 @@ import type { GitHubManager } from "../github";
 import type { LinearManager } from "../linear";
 import type { AgentHookServer } from "../agent-hooks";
 import type { AgentManager } from "../agent-persistence";
-import type { AgentStatusSignals } from "../agent-status/driver";
+import type { AgentStatusDriver } from "../agent-status/driver";
 import type { NotificationStore } from "../notification-store";
 import type { StatsStore } from "../stats-store";
 import type { PreferencesManager } from "../preferences";
@@ -70,7 +70,7 @@ export interface IpcDeps {
    * The Status reconciler's driver (ADR-184). User actions that change an
    * Agent's lifecycle enter it as `user` signals; handlers never write status.
    */
-  agentStatus: AgentStatusSignals;
+  agentStatus: Pick<AgentStatusDriver, "signal" | "getPaneState" | "getAllPaneStatuses">;
   /** ADR-162's durable notification log. */
   notificationStore: NotificationStore;
   /** ADR-168 usage stats. */

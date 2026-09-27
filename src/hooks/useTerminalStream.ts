@@ -141,13 +141,6 @@ export function useTerminalStream(
       useAppStore.getState().setPaneCwd(paneId, cwdPath);
     });
 
-    const unsubAgentStatus = window.electronAPI.pty.onAgentStatus(
-      paneId,
-      (agent) => {
-        useAppStore.getState().setPaneAgentStatus(paneId, agent);
-      },
-    );
-
     const unsubError = window.electronAPI.pty.onError(
       paneId,
       (message: string) => {
@@ -160,7 +153,6 @@ export function useTerminalStream(
       unsubResized();
       unsubExit();
       unsubCwd();
-      unsubAgentStatus();
       unsubError();
     };
   });

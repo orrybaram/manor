@@ -162,8 +162,11 @@ test.describe("read state", () => {
     const workspaceItem = window.locator(
       `[data-testid="workspace-item"][data-workspace-path="${agentWorkspacePath}"]`,
     );
-    const dot = workspaceItem.locator('[data-testid="agent-dot"]');
-    await expect(dot).toHaveAttribute("data-status", "responded", {
+    // The workspace row does not show an Agent status dot but ADR-167's
+    // indicator, which answers only "does this workspace need me?": an unread
+    // response is `done_unread`, and it always pulses.
+    const dot = workspaceItem.locator('[data-testid="workspace-indicator"]');
+    await expect(dot).toHaveAttribute("data-kind", "done_unread", {
       timeout: 30_000,
     });
     await expect(dot).toHaveAttribute("data-pulse", "true");
@@ -176,9 +179,9 @@ test.describe("read state", () => {
       ),
     ).toBeVisible({ timeout: 30_000 });
 
-    await expect(dot).toHaveAttribute("data-pulse", "false", {
-      timeout: 30_000,
-    });
+    // A response the user has seen no longer needs them, so the indicator
+    // goes quiet altogether (ADR-167) rather than stopping its pulse.
+    await expect(dot).toHaveCount(0, { timeout: 30_000 });
     await expect.poll(() => dockBadge(app), { timeout: 30_000 }).toBe("");
   });
 });

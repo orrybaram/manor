@@ -235,6 +235,14 @@ class TestDaemon {
         }
         break;
       }
+      case "getPaneFacts":
+        // Mirrors the daemon's handler (index.ts): null for an unknown session.
+        this.send(
+          socket,
+          { type: "paneFacts", facts: this.host.getPaneFacts(req.sessionId) },
+          requestId,
+        );
+        break;
       case "listSessions":
         this.send(socket, {
           type: "sessions",
@@ -872,6 +880,53 @@ describe("TerminalHostClient", () => {
       expect(
         events.some((e) => e.type === "data" && e.data === "output data"),
       ).toBe(true);
+      client.disconnect();
+    });
+  });
+
+  describe("Pane facts (ADR-184)", () => {
+    it("getPaneFacts round-trips the session's current snapshot", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+      await client.createOrAttach("pane-1", "/tmp", 80, 24);
+
+      const session = (daemon.getHost() as any).sessions.get("pane-1");
+      session.decoder.push(encodeFrame(MSG.FGPROC, JSON.stringify({ name: "codex" })));
+      session.decoder.push(encodeFrame(MSG.DATA, "\x1b]2;working on it\x07"));
+
+      expect(await client.getPaneFacts("pane-1")).toEqual({
+        foreground: { name: "codex", kind: "codex" },
+        title: "working on it",
+        outputHint: null,
+      });
+      expect(daemon.seen).toContain("control:getPaneFacts");
+      client.disconnect();
+    });
+
+    it("getPaneFacts answers null for an unknown session", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+      expect(await client.getPaneFacts("nope")).toBeNull();
+      client.disconnect();
+    });
+
+    it("delivers paneFacts stream events", async () => {
+      const client = createTestClient(daemon);
+      const events: any[] = [];
+      client.onEvent((event) => events.push(event));
+      await client.connect();
+      await client.createOrAttach("pane-1", "/tmp", 80, 24);
+      await new Promise((r) => setTimeout(r, 100));
+
+      const session = (daemon.getHost() as any).sessions.get("pane-1");
+      session.decoder.push(encodeFrame(MSG.FGPROC, JSON.stringify({ name: "pi" })));
+      await new Promise((r) => setTimeout(r, 100));
+
+      expect(events).toContainEqual({
+        type: "paneFacts",
+        sessionId: "pane-1",
+        facts: { foreground: { name: "pi", kind: "pi" }, title: null, outputHint: null },
+      });
       client.disconnect();
     });
   });

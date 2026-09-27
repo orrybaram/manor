@@ -200,6 +200,11 @@ async function handleControlMessage(
       return { type: "snapshot", snapshot };
     }
 
+    case "getPaneFacts":
+      // Null for an unknown session: main resyncs every pane it knows of
+      // after a reconnect, and a missing one simply has no facts (ADR-184 §3).
+      return { type: "paneFacts", facts: host.getPaneFacts(request.sessionId) };
+
     case "disposeDead":
       host.disposeDeadSessions();
       return { type: "disposedDead" };

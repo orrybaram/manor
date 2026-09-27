@@ -454,6 +454,71 @@ describe("Session", () => {
       expect(session.info.rows).toBe(40);
     });
   });
+
+  describe("Pane facts (ADR-184)", () => {
+    function paneFactsEvents(written: string[]) {
+      return written
+        .map((line) => JSON.parse(line) as StreamEvent)
+        .filter((event): event is Extract<StreamEvent, { type: "paneFacts" }> =>
+          event.type === "paneFacts",
+        );
+    }
+
+    function pushFgFrame(name: string | null): void {
+      (session as any).decoder.push(encodeJsonFrame(MSG.FGPROC, { name }));
+    }
+
+    it("starts with empty facts", () => {
+      expect(session.getPaneFacts()).toEqual({
+        foreground: null,
+        title: null,
+        outputHint: null,
+      });
+    });
+
+    it("emits paneFacts when the foreground process changes", () => {
+      const { socket, written } = mockSocket();
+      session.attachClient(socket);
+
+      pushFgFrame("claude");
+      pushFgFrame("claude");
+      pushFgFrame(null);
+
+      const events = paneFactsEvents(written);
+      expect(events.map((e) => e.facts.foreground)).toEqual([
+        { name: "claude", kind: "claude" },
+        null,
+      ]);
+      expect(events.every((e) => e.sessionId === "test-session")).toBe(true);
+    });
+
+    it("emits paneFacts from terminal output: title and output hint", () => {
+      const { socket, written } = mockSocket();
+      session.attachClient(socket);
+
+      pushDataFrame(session, "\x1b]0;my title\x07");
+      pushDataFrame(session, "plain output\r\n");
+      pushDataFrame(session, "Do you want to proceed? (y/n)\r\n");
+
+      const events = paneFactsEvents(written);
+      expect(events).toHaveLength(2);
+      expect(events[0].facts.title).toBe("my title");
+      expect(events[1].facts.outputHint?.hint).toBe("requires_input");
+      expect(session.getPaneFacts()).toEqual(events[1].facts);
+    });
+
+    it("keeps the old agentStatus event alongside", () => {
+      const { socket, written } = mockSocket();
+      session.attachClient(socket);
+
+      pushFgFrame("claude");
+      session.setAgentHookStatus("thinking", "claude");
+
+      const types = written.map((line) => (JSON.parse(line) as StreamEvent).type);
+      expect(types).toContain("agentStatus");
+      expect(types).toContain("paneFacts");
+    });
+  });
 });
 
 describe("buildShellEnv", () => {

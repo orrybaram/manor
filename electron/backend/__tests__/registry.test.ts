@@ -12,6 +12,7 @@ import type {
   HostSpec,
   RemoteHostBackend,
   StreamEvent,
+  PaneFacts,
 } from "../types";
 import { SshAuthError } from "../../terminal-host/ssh-config";
 import type { HostProvider } from "../providers/types";
@@ -31,6 +32,7 @@ function fakeBackend(name: string) {
       kill: vi.fn(async () => {}),
       detach: vi.fn(async () => {}),
       getSnapshot: vi.fn(async () => null),
+      getPaneFacts: vi.fn(async (): Promise<PaneFacts | null> => null),
       listSessions: vi.fn(async () => [] as Array<{ sessionId: string }>),
       disposeDead: vi.fn(async () => {}),
       onEvent: vi.fn((handler: (event: StreamEvent) => void) => {
@@ -425,6 +427,15 @@ describe("BackendRegistry", () => {
     expect(remote.raw.pty.createOrAttach).toHaveBeenCalledWith("pane-1", "/r", 80, 24);
   });
 
+  it("waits for the connection before getPaneFacts, like any pty call (ADR-184)", async () => {
+    const { registry, remotes } = setup();
+    registry.register("box", box);
+    const remote = remotes.get("box")!;
+    await registry.get("box").pty.getPaneFacts("pane-1");
+    expect(remote.raw.connect).toHaveBeenCalledTimes(1);
+    expect(remote.raw.pty.getPaneFacts).toHaveBeenCalledWith("pane-1");
+  });
+
   it("tags stream events with their host and drops events for another host's session", () => {
     const { registry, local, remotes } = setup();
     registry.register("box", box);
@@ -541,6 +552,22 @@ describe("RoutedBackend", () => {
     // Unknown panes are local, as every pane was before hosts.
     backend.pty.write("pane-x", "y");
     expect(local.raw.pty.write).toHaveBeenCalledWith("pane-x", "y");
+  });
+
+  it("routes getPaneFacts to the host that owns the pane (ADR-184)", async () => {
+    const { backend, local, box: remote } = routed();
+    const facts: PaneFacts = {
+      foreground: { name: "claude", kind: "claude" },
+      title: null,
+      outputHint: null,
+    };
+    remote.raw.pty.getPaneFacts.mockResolvedValueOnce(facts);
+    await backend.pty.createOrAttach("pane-r", "/remote/app", 80, 24);
+
+    await expect(backend.pty.getPaneFacts("pane-r")).resolves.toEqual(facts);
+    await expect(backend.pty.getPaneFacts("pane-x")).resolves.toBeNull();
+    expect(remote.raw.pty.getPaneFacts).toHaveBeenCalledWith("pane-r");
+    expect(local.raw.pty.getPaneFacts).toHaveBeenCalledWith("pane-x");
   });
 
   it("routes git by cwd", async () => {

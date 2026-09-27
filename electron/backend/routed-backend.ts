@@ -89,6 +89,7 @@ export class RoutedBackend implements WorkspaceBackend {
       },
       detach: (sessionId) => bySession(sessionId).detach(sessionId),
       getSnapshot: (sessionId) => bySession(sessionId).getSnapshot(sessionId),
+      getPaneFacts: (sessionId) => bySession(sessionId).getPaneFacts(sessionId),
       listSessions: () =>
         this.acrossHosts(async (hostId, backend) => {
           const listed = await backend.pty.listSessions();

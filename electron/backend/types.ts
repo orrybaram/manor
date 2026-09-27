@@ -7,6 +7,7 @@ export type {
   AgentStatus,
   AgentKind,
   AgentState,
+  PaneFacts,
 } from "../terminal-host/types";
 
 import type {
@@ -16,6 +17,7 @@ import type {
   AgentStatus,
   AgentKind,
   HookReplay,
+  PaneFacts,
 } from "../terminal-host/types";
 import type { MachineFacts } from "./machine-facts";
 
@@ -51,6 +53,12 @@ export interface PtyBackend {
   detach(sessionId: string): Promise<void>;
 
   getSnapshot(sessionId: string): Promise<TerminalSnapshot | null>;
+
+  /**
+   * A session's current Pane facts (ADR-184 §3), or null when the host has no
+   * such session. Main resyncs with it after a reconnect.
+   */
+  getPaneFacts(sessionId: string): Promise<PaneFacts | null>;
 
   listSessions(): Promise<SessionInfo[]>;
 

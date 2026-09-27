@@ -19,7 +19,7 @@ import {
   unseenInputAgents,
   unseenRespondedAgents,
 } from "../notifications";
-import { stripAnsi } from "../terminal-host/output-pattern-matcher";
+import { stripAnsi } from "../terminal-host/pane-facts";
 import { ScrollbackWriter } from "../terminal-host/scrollback";
 import type { ControlDeps, Route } from "./types";
 

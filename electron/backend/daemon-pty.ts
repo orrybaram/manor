@@ -9,6 +9,7 @@ import type {
   AgentStatus,
   AgentKind,
   HookReplay,
+  PaneFacts,
 } from "../terminal-host/types";
 
 /**
@@ -51,6 +52,10 @@ export class DaemonPtyBackend implements HookJournalPtyBackend {
 
   async getSnapshot(sessionId: string): Promise<TerminalSnapshot | null> {
     return this.client.getSnapshot(sessionId);
+  }
+
+  async getPaneFacts(sessionId: string): Promise<PaneFacts | null> {
+    return this.client.getPaneFacts(sessionId);
   }
 
   async listSessions(): Promise<SessionInfo[]> {

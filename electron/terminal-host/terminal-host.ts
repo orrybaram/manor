@@ -13,6 +13,7 @@ import type {
   TerminalSnapshot,
   AgentStatus,
   AgentKind,
+  PaneFacts,
 } from "./types";
 
 export class TerminalHost {
@@ -109,6 +110,11 @@ export class TerminalHost {
   /** Get a snapshot for warm restore */
   async getSnapshot(sessionId: string): Promise<TerminalSnapshot | null> {
     return this.sessions.get(sessionId)?.getSnapshot() ?? null;
+  }
+
+  /** A session's current Pane facts (ADR-184 §3); null when there is no such session. */
+  getPaneFacts(sessionId: string): PaneFacts | null {
+    return this.sessions.get(sessionId)?.getPaneFacts() ?? null;
   }
 
   /** List all sessions (excludes prewarmed sessions) */

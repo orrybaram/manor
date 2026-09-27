@@ -11,13 +11,8 @@
  */
 
 import type { AgentKind, AgentState, AgentStatus } from "./types";
+import { agentKindForProcess } from "./pane-facts";
 
-const KNOWN_AGENTS: Record<string, AgentKind> = {
-  claude: "claude",
-  opencode: "opencode",
-  codex: "codex",
-  pi: "pi",
-};
 
 const KNOWN_SHELLS = new Set([
   "zsh",
@@ -125,7 +120,7 @@ export class AgentDetector {
 
     // Check if it's a known agent binary
     const basename = name.split("/").pop()?.toLowerCase() ?? "";
-    const agentKind = KNOWN_AGENTS[basename] ?? null;
+    const agentKind = agentKindForProcess(name);
 
     if (agentKind) {
       this.kind = agentKind;

@@ -13,7 +13,7 @@
 
 import type { AgentHookEvent } from "../agent-hook-events";
 import type { AgentInfo } from "../agent-persistence";
-import type { AgentKind } from "../terminal-host/types";
+import type { AgentKind, OutputHint, PaneFacts } from "../terminal-host/types";
 
 export type { AgentKind };
 
@@ -42,21 +42,9 @@ export type AgentLifecycle = AgentInfo["status"];
 
 // ── Pane facts ──
 
-/** What an output pattern suggests the pane is doing (ADR-184 §3). */
-export type OutputHint = "thinking" | "working" | "requires_input" | "idle";
-
-/**
- * The daemon's latest snapshot of what it can see in a pane. A source of Status
- * signals, never an Agent status (ADR-184 §3).
- */
-export interface PaneFacts {
-  /** Foreground process, with its Agent kind when it is a known agent CLI. */
-  foreground: { name: string; kind: AgentKind | null } | null;
-  /** Last terminal title (OSC 0/2), or null. */
-  title: string | null;
-  /** Last output hint and when it was seen (monotonic ms), or null. */
-  outputHint: { hint: OutputHint; at: number } | null;
-}
+// `PaneFacts` and `OutputHint` live with the daemon protocol, which produces
+// them (ADR-184 §3); re-exported here for the reconciler's consumers.
+export type { OutputHint, PaneFacts };
 
 // ── Status signals ──
 

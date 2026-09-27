@@ -14,6 +14,7 @@ import type {
   AgentStatus,
   AgentKind,
   HookReplay,
+  PaneFacts,
 } from "./types";
 import { isDaemonStale } from "./types";
 import type { HostTransport } from "./transport";
@@ -434,6 +435,16 @@ export class TerminalHostClient {
     await this.ensureConnected();
     const resp = await this.rpc.call({ type: "getSnapshot", sessionId });
     return resp.type === "snapshot" ? resp.snapshot : null;
+  }
+
+  /**
+   * A session's current Pane facts (ADR-184 §3); null when the daemon has no
+   * such session. Lets main resync after a reconnect, when the `paneFacts`
+   * events it missed are not replayed.
+   */
+  async getPaneFacts(sessionId: string): Promise<PaneFacts | null> {
+    await this.ensureConnected();
+    return (await this.rpc.call({ type: "getPaneFacts", sessionId })).facts;
   }
 
   /** List all sessions */

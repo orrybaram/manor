@@ -58,75 +58,8 @@ export class TitleDetector {
 }
 
 /**
- * Parse OSC 0 and OSC 2 title sequences from terminal data.
- * Returns the title string if found, or null.
- *
- * OSC 0 = ESC ] 0 ; <title> BEL/ST  (set icon name and window title)
- * OSC 2 = ESC ] 2 ; <title> BEL/ST  (set window title)
+ * The OSC 0/2 title parser moved into the Pane facts extractor
+ * (`pane-facts.ts`, ADR-184 §3); re-exported for the old `AgentDetector`
+ * fallback path until ADR-184 ticket 4 deletes it.
  */
-export class OscTitleParser {
-  private buf: number[] = [];
-  private inOsc = false;
-  private oscType: number | null = null;
-
-  /** Parse data and return any titles found */
-  parse(data: string): string[] {
-    const titles: string[] = [];
-
-    for (let i = 0; i < data.length; i++) {
-      const byte = data.charCodeAt(i);
-
-      if (this.inOsc) {
-        if (byte === 0x07 || byte === 0x1b) {
-          // BEL or ESC terminator (ST = ESC \)
-          const title = String.fromCharCode(...this.buf);
-          titles.push(title);
-          this.buf = [];
-          this.inOsc = false;
-          this.oscType = null;
-        } else {
-          this.buf.push(byte);
-          if (this.buf.length > 4096) {
-            this.buf = [];
-            this.inOsc = false;
-            this.oscType = null;
-          }
-        }
-      } else if (byte === 0x1b) {
-        // ESC
-        this.buf = [byte];
-      } else if (
-        this.buf.length === 1 &&
-        this.buf[0] === 0x1b &&
-        byte === 0x5d
-      ) {
-        // ESC ]
-        this.buf.push(byte);
-      } else if (this.buf.length === 2) {
-        // After ESC ], check for 0 or 2
-        if (byte === 0x30 || byte === 0x32) {
-          // '0' or '2'
-          this.oscType = byte - 0x30;
-          this.buf.push(byte);
-        } else {
-          this.buf = [];
-        }
-      } else if (this.buf.length === 3 && byte === 0x3b) {
-        // semicolon after OSC type number
-        this.buf = [];
-        this.inOsc = true;
-      } else {
-        this.buf = [];
-      }
-    }
-
-    return titles;
-  }
-
-  /** Reset parser state */
-  reset(): void {
-    this.buf = [];
-    this.inOsc = false;
-    this.oscType = null;
-  }
-}
+export { OscTitleParser } from "./pane-facts";

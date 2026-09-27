@@ -51,8 +51,12 @@ export type StreamPosition = number;
  *     exactly the request that needs an answer — so it cannot serve this client
  *     correctly, however new its build looks. No wire *shape* changed here;
  *     the number is carrying the thing it exists to carry.
+ *
+ * 5 — a `paneFacts` stream event and a `getPaneFacts` request (ADR-184 §3).
+ *     Main's Status reconciler reads Pane facts from them, and a protocol-4
+ *     daemon sends neither.
  */
-export const TERMINAL_HOST_PROTOCOL = 4;
+export const TERMINAL_HOST_PROTOCOL = 5;
 
 // ── Handshake ──
 
@@ -169,7 +173,13 @@ export type ControlRequest =
    * any entries — how a client meeting a journal for the first time starts
    * from "now" instead of replaying its whole history.
    */
-  | { type: "replayHooks"; sinceSeq: number; headOnly?: boolean };
+  | { type: "replayHooks"; sinceSeq: number; headOnly?: boolean }
+  /**
+   * The session's current Pane facts (ADR-184 §3), so main can resync after a
+   * reconnect with nothing to replay. Answered with `paneFacts`; `facts` is
+   * null when the daemon has no such session.
+   */
+  | { type: "getPaneFacts"; sessionId: string };
 
 /**
  * A remote daemon's answer to `replayHooks` (ADR-178 §2): journal entries
@@ -246,7 +256,9 @@ export type ControlResponse =
    */
   | { type: "bootstrapped"; agents: string[]; warnings?: string[] }
   /** See `HookReplay`. */
-  | ({ type: "hookReplay" } & HookReplay);
+  | ({ type: "hookReplay" } & HookReplay)
+  /** See `getPaneFacts`. */
+  | { type: "paneFacts"; facts: PaneFacts | null };
 
 /**
  * A control message on the wire: the payload plus the id the client assigned
@@ -283,6 +295,7 @@ type ResponseMap = ExhaustiveResponseMap<{
   readFile: Reply<"fileContents">;
   bootstrap: Reply<"bootstrapped">;
   replayHooks: Reply<"hookReplay">;
+  getPaneFacts: Reply<"paneFacts">;
 }>;
 
 /** The replies a request of type `T` can get: its own, or an `error`. */
@@ -316,6 +329,7 @@ export const REPLY_TYPES = {
   readFile: ["fileContents"],
   bootstrap: ["bootstrapped"],
   replayHooks: ["hookReplay"],
+  getPaneFacts: ["paneFacts"],
 } as const satisfies {
   [K in ControlRequest["type"]]: readonly SuccessFor<K>["type"][];
 };
@@ -365,6 +379,37 @@ export interface AgentState {
   title: string | null;
 }
 
+// ── Pane facts (ADR-184 §3) ──
+
+/**
+ * What an output pattern suggests the pane is doing. A raw fact, not an Agent
+ * status: the Status reconciler decides what it means.
+ */
+export type OutputHint = "thinking" | "working" | "requires_input" | "idle";
+
+/**
+ * The daemon's latest snapshot of what it can see in a pane. A source of Status
+ * signals, never an Agent status (ADR-184 §3). Produced by the daemon's
+ * `PaneFactsExtractor` (`pane-facts.ts`) and consumed by the Status reconciler
+ * (`electron/agent-status`). Lives here so the daemon bundle and main share it
+ * without either pulling in the other's dependencies.
+ */
+export interface PaneFacts {
+  /**
+   * Foreground process, with its Agent kind when it is a known agent CLI;
+   * null when the shell itself is in the foreground.
+   */
+  foreground: { name: string; kind: AgentKind | null } | null;
+  /** Last terminal title (OSC 0/2), or null. */
+  title: string | null;
+  /**
+   * Last output hint and when it was seen (monotonic ms on the daemon's clock),
+   * or null. `at` changes for every new hint, so it identifies one: a consumer
+   * re-applies the hint only when `at` changes.
+   */
+  outputHint: { hint: OutputHint; at: number } | null;
+}
+
 // ── Stream socket event types ──
 
 export type StreamEvent =
@@ -379,6 +424,8 @@ export type StreamEvent =
   | { type: "cwd"; sessionId: string; cwd: string }
   | { type: "error"; sessionId: string; message: string }
   | { type: "agentStatus"; sessionId: string; agent: AgentState }
+  /** The session's Pane facts changed; `facts` is the whole new snapshot (ADR-184 §3). */
+  | { type: "paneFacts"; sessionId: string; facts: PaneFacts }
   /**
    * The pty is at this size, and this is where in the stream it changed: every
    * byte before this event was produced at the old size, every byte after it at

@@ -28,6 +28,7 @@ import { ScrollbackWriter } from "./scrollback";
 import { AgentDetector } from "./agent-detector";
 import { OutputPatternMatcher } from "./output-pattern-matcher";
 import { TitleDetector, OscTitleParser } from "./title-detector";
+import { PaneFactsExtractor } from "./pane-facts";
 import type {
   TerminalSnapshot,
   TerminalModes,
@@ -36,6 +37,7 @@ import type {
   PtySpawnPayload,
   AgentStatus,
   AgentKind,
+  PaneFacts,
 } from "./types";
 import { DEFAULT_TERMINAL_MODES } from "./types";
 
@@ -157,6 +159,10 @@ export class Session {
   private oscTitleParser: OscTitleParser;
   private pidSweepTimer: ReturnType<typeof setInterval> | null = null;
 
+  // Pane facts (ADR-184 §3). Runs alongside the detector above until ADR-184
+  // ticket 4 removes it.
+  private paneFacts: PaneFactsExtractor;
+
   // Pending writes queued before first output (for prewarmed command injection)
   private pendingWrites: string[] = [];
   private hasReceivedOutput = false;
@@ -238,6 +244,12 @@ export class Session {
     this.titleDetector = new TitleDetector();
     this.oscTitleParser = new OscTitleParser();
 
+    this.paneFacts = new PaneFactsExtractor({
+      onChange: (facts) => {
+        this.broadcastEvent({ type: "paneFacts", sessionId: this.sessionId, facts });
+      },
+    });
+
     // Stale PID sweep every 30 seconds
     this.pidSweepTimer = setInterval(() => {
       this.agentDetector.sweepStalePids();
@@ -246,6 +258,11 @@ export class Session {
 
   get alive(): boolean {
     return this._alive;
+  }
+
+  /** The session's current Pane facts (ADR-184 §3). */
+  getPaneFacts(): PaneFacts {
+    return this.paneFacts.facts;
   }
 
   get info(): SessionInfo {
@@ -362,6 +379,9 @@ export class Session {
         // Parse OSC 7 for CWD tracking
         this.parseOsc7(data);
 
+        // Pane facts: titles, output hints (ADR-184 §3)
+        this.paneFacts.feedData(data);
+
         // Parse OSC 0/2 for title-based fallback detection
         const titles = this.oscTitleParser.parse(data);
         if (titles.length > 0) {
@@ -428,8 +448,9 @@ export class Session {
       }
 
       case MSG.FGPROC: {
-        const { name } = JSON.parse(payload.toString("utf-8"));
+        const { name } = JSON.parse(payload.toString("utf-8")) as { name: string | null };
         this.agentDetector.updateForegroundProcess(name);
+        this.paneFacts.setForeground(name);
         break;
       }
     }

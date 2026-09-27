@@ -90,6 +90,8 @@ export function hostView(conn: HostConnection, gates: HostGates | null): Workspa
   const { backend } = conn;
   const exec = gates?.exec ?? null;
   return {
+    // Every other pty call waits for the connection — `getPaneFacts`
+    // included, since main asks for it to resync once a host is back (ADR-184).
     pty: gated(
       backend.pty,
       gates?.pty ?? null,

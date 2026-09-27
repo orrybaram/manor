@@ -1,6 +1,6 @@
 ---
 title: Daemon Pane facts extractor and paneFacts protocol
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]

@@ -46,10 +46,6 @@
   animation: ping 2s ease-out infinite;
 }
 
-.dotRespondedStatic {
-  background: var(--green, #a6e3a1);
-}
-
 @keyframes pulse {
   0%,
   100% {

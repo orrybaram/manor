@@ -2,8 +2,14 @@ import styles from "./SpinnerLoader.module.css";
 
 type SpinnerLoaderProps = {
   size: "pane" | "tab" | "sidebar" | "debug";
-  variant?: "working" | "thinking";
+  variant?: "working" | "thinking" | "idle";
 };
+
+const TITLES = {
+  working: "Agent working",
+  thinking: "Agent thinking",
+  idle: "Agent idle",
+} as const;
 
 export function SpinnerLoader(props: SpinnerLoaderProps) {
   const { size, variant = "working" } = props;
@@ -11,7 +17,7 @@ export function SpinnerLoader(props: SpinnerLoaderProps) {
   return (
     <span
       className={`${styles.spinner} ${styles[size]} ${styles[variant]}`}
-      title={variant === "thinking" ? "Agent thinking" : "Agent working"}
+      title={TITLES[variant]}
     />
   );
 }

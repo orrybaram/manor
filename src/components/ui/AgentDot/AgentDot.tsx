@@ -32,18 +32,24 @@ export function AgentDot(props: AgentDotProps) {
   }
 
   if (status === "responded") {
-    const respondedClass = pulse
-      ? styles.dotResponded
-      : styles.dotRespondedStatic;
+    // Read: the turn has been seen, so the agent is effectively idle — a
+    // still gray ring rather than the green "unread" dot.
+    if (!pulse) {
+      return wrap(
+        <span data-testid="agent-dot" data-status="responded" data-pulse="false">
+          <SpinnerLoader size={size} variant="idle" />
+        </span>,
+      );
+    }
     return wrap(
       <span
-        className={`${styles.dot} ${styles[size]} ${respondedClass}`}
+        className={`${styles.dot} ${styles[size]} ${styles.dotResponded}`}
         // The pulse is the "unread" signal, and CSS-module class names are
         // hashed in a build — so it is stated here too, for tests that need to
         // read it back.
         data-testid="agent-dot"
         data-status="responded"
-        data-pulse={pulse ? "true" : "false"}
+        data-pulse="true"
       />,
     );
   }

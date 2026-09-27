@@ -932,6 +932,16 @@ describe("reconcile — ticks", () => {
     expect(persisted(r.effects)).toEqual([respond()]);
   });
 
+  it("T2 waits STALE_SUBAGENT_MS while a foreground subagent keyed by agent_id runs (ADR-186)", () => {
+    const start = activePane({ status: "working", lastHookAt: 0, activeSubagents: new Set(["agent:a0bc"]) });
+    const c = ctx({ existingAgent: agent({ lastAgentStatus: "working" }) });
+    expect(reconcile(start, tick(STALE_ACTIVE_MS + 1), c).effects).toEqual([]);
+    expect(reconcile(start, tick(STALE_SUBAGENT_MS + 1), c).status).toBe("responded");
+
+    const fallback = activePane({ status: "working", lastHookAt: 0, activeSubagents: new Set(["__fallback_0"]) });
+    expect(reconcile(fallback, tick(STALE_ACTIVE_MS + 1), c).status).toBe("responded");
+  });
+
   it("T2 needs the root's Agent to be stuck active", () => {
     const start = activePane({ lastHookAt: 0 });
     const noAgent = reconcile(start, tick(STALE_ACTIVE_MS + 1), ctx());

@@ -1,6 +1,6 @@
 ---
 title: Reconciler keeps pane working while background subagents run
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]

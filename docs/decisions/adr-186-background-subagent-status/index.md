@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -159,6 +159,20 @@ T2 (stuck-working) already skips `pendingStop` (it needs phase `active`).
 With rule 3 a subagent hook no longer moves `pendingStop` to `active`, so T2
 can't close a turn that is waiting on a background agent. F1 (agent process
 gone) and `SessionEnd` still clean up a crashed or exited session right away.
+
+### 4a. Decisions added during implementation
+
+- **A root `UserPromptSubmit` clears a held Stop.** The turn Claude resumes
+  once the last background subagent finishes is a new turn. Otherwise the old
+  `pendingStopAt` would let T1 drain it 15s into a long think, and the root's
+  real `Stop` would then save a second `responded`.
+- **Subagent activity in a `stalled` turn resumes it** (phase `active`),
+  as a root hook does. T2 clears the subagent keys when it stalls a turn, so
+  the "id in activeSubagents" reopen rule couldn't match.
+- **T2 uses `STALE_SUBAGENT_MS` too** while every active subagent has an
+  `agent:` key. A *foreground* subagent inside one long tool call (a test
+  run over 60s) sends no hooks either, and would otherwise be stalled to
+  responded.
 
 ### 5. Tests
 

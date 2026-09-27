@@ -58,7 +58,8 @@
  *      or > STALE_SUBAGENT_MS when every active subagent has an `agent:` key
  *      (ADR-186: exact pairing, so a quiet background subagent is not lost).
  *  T2  Stuck-working (ADR-131): root turn quiet > STALE_ACTIVE_MS while the
- *      Agent is still active → `stalled`.
+ *      Agent is still active → `stalled` (STALE_SUBAGENT_MS while every active
+ *      subagent has an `agent:` key, ADR-186).
  *  T3  Orphan (ADR-132): the pane's Agent is stuck active but has no turn state,
  *      and is older than STALE_ACTIVE_MS.
  *
@@ -291,7 +292,7 @@ function withSubagentBookkeeping(
   return state;
 }
 
-/** True when every active subagent is paired by a real `agent_id` (T1). */
+/** True when every active subagent is paired by a real `agent_id` (T1, T2). */
 function allSubagentsHaveAgentIds(subs: ReadonlySet<string>): boolean {
   if (subs.size === 0) return false;
   for (const key of subs) if (!key.startsWith("agent:")) return false;
@@ -927,10 +928,15 @@ function reconcileTurnTick(
     ]);
   }
 
-  // T2 — stuck-working safety net (ADR-131).
+  // T2 — stuck-working safety net (ADR-131). A foreground subagent paired by
+  // its `agent_id` can be quiet for minutes inside one tool call (a test run),
+  // so it gets the same STALE_SUBAGENT_MS window as T1 (ADR-186).
+  const activeThreshold = allSubagentsHaveAgentIds(state.activeSubagents)
+    ? STALE_SUBAGENT_MS
+    : STALE_ACTIVE_MS;
   if (
     state.phase === "active" &&
-    idle > STALE_ACTIVE_MS &&
+    idle > activeThreshold &&
     rootAgent &&
     isActiveStatus(rootAgent.lastAgentStatus)
   ) {

@@ -1,6 +1,6 @@
 ---
 title: Wire the reconciler in main and publish status + reason
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [2]

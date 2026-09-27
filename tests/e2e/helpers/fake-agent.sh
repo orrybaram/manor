@@ -92,9 +92,11 @@ while IFS= read -r -n 1 char; do
     # "slow-hush" is "hush" with a pause before the Stop hook, so a test can
     # observe the *thinking* status (raised by the UserPromptSubmit hook
     # above) before it turns into responded — otherwise the two hooks land too
-    # close together to poll for the one in between.
+    # close together to poll for the one in between. The pause has to cover a
+    # status poll, a render, a hover and the tooltip's open delay, so the
+    # thinking dot's tooltip can be read before the Stop hook replaces it.
     if [ "$line" = "slow-hush" ]; then
-      sleep 1
+      sleep 5
       line=""
       hook Stop
       continue

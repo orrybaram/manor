@@ -25,8 +25,8 @@ export const FAKE_AGENT_ECHO = "received:";
 export const FAKE_AGENT_HUSH = "hush";
 
 /**
- * Send this and the agent holds `thinking` (the UserPromptSubmit hook) for a
- * second before its Stop hook parks it in `responded` — long enough for a
+ * Send this and the agent holds `thinking` (the UserPromptSubmit hook) for
+ * five seconds before its Stop hook parks it in `responded` — long enough for a
  * test to observe the in-between status, which `FAKE_AGENT_HUSH`'s
  * back-to-back hooks are too fast to poll for (ADR-184).
  */

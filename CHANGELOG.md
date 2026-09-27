@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.14.3] - 2026-09-27
+
+### Features
+
+- The PR badge and popover now show when a pull request has merge conflicts
+- Agents whose output you've already read now show as a still gray ring on the agent status dot
+
+### Fixes
+
+- The sidebar now updates when worktrees are added or removed outside Manor
+- Agent status now picks back up when a turn continues after Manor had marked it as stuck and ended it
+
 ## [0.14.2] - 2026-09-26
 
 ### Features

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.4] - 2026-09-27
+
+### Fixes
+- Agent panes now stay in the working state while background subagents are still running.
+- Foreground subagents get more time before they are flagged as stuck.
+- Terminal sessions now survive app updates. The background daemon only restarts when an update changes its protocol.
+- Agents cut off by a daemon restart are no longer marked as completed.
+
 ## [0.14.3] - 2026-09-27
 
 ### Features

@@ -13,6 +13,7 @@ import {
   type ControlResponse,
   type StreamEvent,
 } from "../../terminal-host/types";
+import { PTY_SUBPROCESS_PROTOCOL } from "../../terminal-host/pty-subprocess-ipc";
 import { RemoteBackend, remoteReconnectDelayMs } from "../remote-backend";
 import type { HostConnectionEvent } from "../types";
 import { SshAuthError } from "../../terminal-host/ssh-config";
@@ -117,6 +118,7 @@ class FakeDaemon {
           type: "handshake",
           daemonVersion: msg.clientVersion as string,
           protocol: TERMINAL_HOST_PROTOCOL,
+          ptyProtocol: PTY_SUBPROCESS_PROTOCOL,
         });
       case "updateEnv":
         this.envUpdates.push(msg.env as Record<string, string>);

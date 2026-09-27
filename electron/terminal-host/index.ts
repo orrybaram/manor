@@ -14,6 +14,7 @@ import * as crypto from "node:crypto";
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import { TerminalHost } from "./terminal-host";
 import { TERMINAL_HOST_PROTOCOL } from "./types";
+import { PTY_SUBPROCESS_PROTOCOL } from "./pty-subprocess-ipc";
 import type {
   ControlRequest,
   ControlResponse,
@@ -296,12 +297,15 @@ async function handleControlMessage(
     }
 
     case "handshake":
-      // Client sends its app version; daemon replies with its own.
-      // Version mismatch causes the client to kill and respawn the daemon.
+      // Client sends its app version; daemon replies with its own plus the
+      // two protocols it speaks. The client replaces the daemon only when
+      // one of those protocols does not match its own — the app version is
+      // just for diagnostics/logging now (ADR-185 §B, see `isDaemonStale`).
       return {
         type: "handshake",
         daemonVersion: daemonVersion ?? "unknown",
         protocol: TERMINAL_HOST_PROTOCOL,
+        ptyProtocol: PTY_SUBPROCESS_PROTOCOL,
       };
 
     default: {
@@ -605,7 +609,7 @@ function installDaemonSignalHandlers(onShutdown: () => void): void {
 //     socket and pid file (Manor desktop's daemon, if any, is left alone),
 //     using the same path logic as a local client (`LocalTransport.stop`).
 //     The next `remote-bridge` spawns the replacement. `SshTransport.restart`
-//     runs this over ssh when the handshake reports a version mismatch.
+//     runs this over ssh when the handshake reports a protocol mismatch.
 //   - Anything else (the normal case: no argv) starts the daemon itself, as
 //     `localRole` unless argv has `--namespace remote` (see daemon-role.ts).
 async function main(): Promise<void> {

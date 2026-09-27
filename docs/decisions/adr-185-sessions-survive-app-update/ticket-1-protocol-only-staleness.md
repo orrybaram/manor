@@ -1,6 +1,6 @@
 ---
 title: Replace daemon only on protocol mismatch
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

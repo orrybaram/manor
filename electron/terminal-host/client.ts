@@ -203,15 +203,16 @@ export class TerminalHostClient {
     stillWanted();
     let token = await this.authenticate(stillWanted);
 
-    // Version handshake: replace the running daemon when it cannot serve this
-    // client (see `isDaemonStale`).
+    // Handshake: replace the running daemon when it cannot serve this client
+    // (see `isDaemonStale`) — a protocol mismatch, not merely a different app
+    // version (ADR-185 §B).
     const clientVer = this.clientVersion ?? "unknown";
     const hsResp = await this.rpc.request(
       { type: "handshake", clientVersion: clientVer },
       this.handshakeTimeoutMs,
     );
     stillWanted();
-    if (isDaemonStale(hsResp, clientVer)) {
+    if (isDaemonStale(hsResp)) {
       this.cleanup();
       await this.transport.restart(this.clientVersion);
       stillWanted();

@@ -191,6 +191,9 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
   // Look up project and workspace info
   const project = projects.find((p) => p.id === projectId);
   const repoPath = project?.path ?? "";
+  // The project's host (ADR-191 §6): a local and a remote checkout can share
+  // `repoPath`, so this is what keeps `gh` targeting the right one.
+  const hostId = project?.hostId;
   const workspace = project?.workspaces.find((w) => w.path === workspacePath);
   const workspaceLabel = workspace?.name ?? workspace?.branch ?? "";
 
@@ -217,6 +220,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
               repoPath,
               number,
               issue.url,
+              hostId,
             );
             results[issue.id] = { source: "github", data: detail };
           } catch {
@@ -309,7 +313,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
       try {
         if (issueId.startsWith("gh-")) {
           const number = parseInt(issueId.replace("gh-", ""), 10);
-          await window.electronAPI.github.closeIssue(repoPath, number);
+          await window.electronAPI.github.closeIssue(repoPath, number, hostId);
         } else {
           await window.electronAPI.linear.closeIssue(issueId);
         }
@@ -337,7 +341,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
       }
       useProjectStore.getState().loadProjects();
     },
-    [projectId, workspacePath, repoPath, visibleIssues, onClose, revertRemoval],
+    [projectId, workspacePath, repoPath, hostId, visibleIssues, onClose, revertRemoval],
   );
 
   const handleRowClick = useCallback((issueId: string) => {
@@ -417,6 +421,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
               selectedIsGitHub ? (
                 <GitHubIssueDetailView
                   repoPath={repoPath}
+                  hostId={hostId}
                   issueNumber={parseInt(
                     dialogIssueId.replace("gh-", ""),
                     10,

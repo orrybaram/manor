@@ -541,6 +541,7 @@ describe("WebviewServer agent orchestration routes", () => {
     name: "demo",
     path: "/repos/demo",
     defaultBranch: "main",
+    hostId: "local",
     workspaces: [
       { path: "/repos/demo", branch: "main", isMain: true, name: null },
     ],
@@ -685,6 +686,7 @@ describe("WebviewServer agent orchestration routes", () => {
         "/repos/demo",
         50,
         "open",
+        "local",
       );
       expect(github.getAllIssues).not.toHaveBeenCalled();
     });
@@ -699,6 +701,7 @@ describe("WebviewServer agent orchestration routes", () => {
         "/repos/demo",
         50,
         "open",
+        "local",
       );
       expect(github.getMyIssues).not.toHaveBeenCalled();
     });
@@ -860,7 +863,12 @@ describe("WebviewServer agent orchestration routes", () => {
         baseUrl,
         "/projects/proj-1/issues/42?source=github",
       )) as { source: string; ref: string };
-      expect(github.getIssueDetail).toHaveBeenCalledWith("/repos/demo", 42);
+      expect(github.getIssueDetail).toHaveBeenCalledWith(
+        "/repos/demo",
+        42,
+        undefined,
+        "local",
+      );
       expect(detail).toMatchObject({ source: "github", ref: "#42" });
     });
 
@@ -871,7 +879,12 @@ describe("WebviewServer agent orchestration routes", () => {
         baseUrl,
         "/projects/proj-1/issues/%2342?source=github",
       )) as { source: string; ref: string };
-      expect(github.getIssueDetail).toHaveBeenCalledWith("/repos/demo", 42);
+      expect(github.getIssueDetail).toHaveBeenCalledWith(
+        "/repos/demo",
+        42,
+        undefined,
+        "local",
+      );
       expect(detail).toMatchObject({ source: "github", ref: "#42" });
     });
 

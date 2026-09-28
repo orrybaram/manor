@@ -76,7 +76,12 @@ export function useIssuesShortcut(
         ? window.electronAPI.linear.getMyIssues(teamIdsKey.split(","), {
             limit: 1,
           })
-        : window.electronAPI.github.getMyIssues(repoPath!, 1);
+        : window.electronAPI.github.getMyIssues(
+            repoPath!,
+            1,
+            undefined,
+            project?.hostId,
+          );
 
     probe
       .then((issues) => {
@@ -90,7 +95,7 @@ export function useIssuesShortcut(
     return () => {
       cancelled = true;
     };
-  }, [probeKey, tracker, teamIdsKey, repoPath]);
+  }, [probeKey, tracker, teamIdsKey, repoPath, project?.hostId]);
 
   const handleGitHubInstalled = useCallback(() => {
     setGithubNotInstalled(false);

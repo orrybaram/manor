@@ -50,6 +50,7 @@ function makeLinearIssueDetail(identifier: string): LinearIssueDetail {
 const PROJECT: IssueProject = {
   path: "/repos/demo",
   linearAssociations: [{ teamId: "team-1", teamName: "Eng", teamKey: "ENG" }],
+  hostId: "local",
 };
 
 const NO_TEAM: IssueProject = { ...PROJECT, linearAssociations: [] };
@@ -114,13 +115,14 @@ describe("issueBackend('github')", () => {
     });
   });
 
-  it("list(assigned) calls getMyIssues with path, limit, state", async () => {
+  it("list(assigned) calls getMyIssues with path, limit, state, host", async () => {
     const backend = await backendOf(ctx.deps, PROJECT, "github");
     const issues = await backend.list("assigned", "open", 50);
     expect(ctx.githubManager.getMyIssues).toHaveBeenCalledWith(
       "/repos/demo",
       50,
       "open",
+      "local",
     );
     expect(ctx.githubManager.getAllIssues).not.toHaveBeenCalled();
     expect(issues).toEqual([
@@ -142,8 +144,40 @@ describe("issueBackend('github')", () => {
       "/repos/demo",
       10,
       "closed",
+      "local",
     );
     expect(ctx.githubManager.getMyIssues).not.toHaveBeenCalled();
+  });
+
+  // ADR-191 §6: a local and a remote project can share `path`, so the host
+  // must reach `gh` for the cache to tell them apart.
+  it("threads the project's host through to getMyIssues/getAllIssues/getIssueDetail", async () => {
+    const remote: IssueProject = { ...PROJECT, hostId: "box-host-id" };
+    const backend = await backendOf(ctx.deps, remote, "github");
+
+    await backend.list("assigned", "open", 50);
+    expect(ctx.githubManager.getMyIssues).toHaveBeenCalledWith(
+      "/repos/demo",
+      50,
+      "open",
+      "box-host-id",
+    );
+
+    await backend.list("all", "open", 50);
+    expect(ctx.githubManager.getAllIssues).toHaveBeenCalledWith(
+      "/repos/demo",
+      50,
+      "open",
+      "box-host-id",
+    );
+
+    await backend.detail("42");
+    expect(ctx.githubManager.getIssueDetail).toHaveBeenCalledWith(
+      "/repos/demo",
+      42,
+      undefined,
+      "box-host-id",
+    );
   });
 
   // `list()` emits "#42"; ADR-148 promised that ref feeds straight back in.
@@ -155,6 +189,8 @@ describe("issueBackend('github')", () => {
       expect(ctx.githubManager.getIssueDetail).toHaveBeenCalledWith(
         "/repos/demo",
         42,
+        undefined,
+        "local",
       );
       expect(detail).toMatchObject({
         source: "github",
@@ -404,6 +440,8 @@ describe("ref round-trip: list() → detail()", () => {
     expect(ctx.githubManager.getIssueDetail).toHaveBeenCalledWith(
       "/repos/demo",
       1,
+      undefined,
+      "local",
     );
     expect(detail.ref).toBe(issue.ref);
   });

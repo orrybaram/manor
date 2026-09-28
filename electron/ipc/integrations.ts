@@ -6,17 +6,20 @@ export function register(deps: IpcDeps): void {
   const { githubManager, linearManager, projectManager } = deps;
 
   // ── GitHub IPC ──
+  // Every repo-scoped handler takes the caller's `hostId` (ADR-191 §6): a
+  // local and a remote checkout can share `repoPath`, and only the host tells
+  // `gh` which one is meant.
   ipcMain.handle(
     "github:getPrForBranch",
-    (_event, repoPath: string, branch: string) => {
-      return githubManager.getPrForBranch(repoPath, branch);
+    (_event, repoPath: string, branch: string, hostId?: string) => {
+      return githubManager.getPrForBranch(repoPath, branch, hostId);
     },
   );
 
   ipcMain.handle(
     "github:getPrsForBranches",
-    (_event, repoPath: string, branches: string[]) => {
-      return githubManager.getPrsForBranches(repoPath, branches);
+    (_event, repoPath: string, branches: string[], hostId?: string) => {
+      return githubManager.getPrsForBranches(repoPath, branches, hostId);
     },
   );
 
@@ -24,36 +27,54 @@ export function register(deps: IpcDeps): void {
 
   ipcMain.handle(
     "github:getMyIssues",
-    (_event, repoPath: string, limit?: number, state?: "open" | "closed" | "all") => {
-      return githubManager.getMyIssues(repoPath, limit, state);
+    (
+      _event,
+      repoPath: string,
+      limit?: number,
+      state?: "open" | "closed" | "all",
+      hostId?: string,
+    ) => {
+      return githubManager.getMyIssues(repoPath, limit, state, hostId);
     },
   );
 
   ipcMain.handle(
     "github:getAllIssues",
-    (_event, repoPath: string, limit?: number, state?: "open" | "closed" | "all") => {
-      return githubManager.getAllIssues(repoPath, limit, state);
+    (
+      _event,
+      repoPath: string,
+      limit?: number,
+      state?: "open" | "closed" | "all",
+      hostId?: string,
+    ) => {
+      return githubManager.getAllIssues(repoPath, limit, state, hostId);
     },
   );
 
   ipcMain.handle(
     "github:getIssueDetail",
-    (_event, repoPath: string, issueNumber: number, issueUrl?: string) => {
-      return githubManager.getIssueDetail(repoPath, issueNumber, issueUrl);
+    (
+      _event,
+      repoPath: string,
+      issueNumber: number,
+      issueUrl?: string,
+      hostId?: string,
+    ) => {
+      return githubManager.getIssueDetail(repoPath, issueNumber, issueUrl, hostId);
     },
   );
 
   ipcMain.handle(
     "github:assignIssue",
-    (_event, repoPath: string, issueNumber: number) => {
-      return githubManager.assignIssue(repoPath, issueNumber);
+    (_event, repoPath: string, issueNumber: number, hostId?: string) => {
+      return githubManager.assignIssue(repoPath, issueNumber, hostId);
     },
   );
 
   ipcMain.handle(
     "github:closeIssue",
-    (_event, repoPath: string, issueNumber: number) => {
-      return githubManager.closeIssue(repoPath, issueNumber);
+    (_event, repoPath: string, issueNumber: number, hostId?: string) => {
+      return githubManager.closeIssue(repoPath, issueNumber, hostId);
     },
   );
 

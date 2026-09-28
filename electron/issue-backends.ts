@@ -37,8 +37,15 @@ export interface IssueDeps {
   linearManager: LinearManager | null;
 }
 
-/** The slice of `ProjectInfo` an issue backend needs. */
-export type IssueProject = Pick<ProjectInfo, "path" | "linearAssociations">;
+/**
+ * The slice of `ProjectInfo` an issue backend needs. `hostId` (ADR-191 §6)
+ * is what keeps `gh` targeting the right checkout when a local and a remote
+ * project share `path`.
+ */
+export type IssueProject = Pick<
+  ProjectInfo,
+  "path" | "linearAssociations" | "hostId"
+>;
 
 export interface IssueBackend {
   list(
@@ -138,8 +145,8 @@ function githubBackend(
     async list(filter, state, limit) {
       const issues =
         filter === "all"
-          ? await github.getAllIssues(project.path, limit, state)
-          : await github.getMyIssues(project.path, limit, state);
+          ? await github.getAllIssues(project.path, limit, state, project.hostId)
+          : await github.getMyIssues(project.path, limit, state, project.hostId);
       return issues.map(normalizeGitHubIssue);
     },
     async detail(ref) {
@@ -150,7 +157,12 @@ function githubBackend(
         throw new InvalidIssueRef("GitHub issue refs must be numeric.");
       }
       return normalizeGitHubIssueDetail(
-        await github.getIssueDetail(project.path, Number(bare)),
+        await github.getIssueDetail(
+          project.path,
+          Number(bare),
+          undefined,
+          project.hostId,
+        ),
       );
     },
   };

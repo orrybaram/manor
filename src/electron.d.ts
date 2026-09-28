@@ -758,10 +758,15 @@ export interface ElectronAPI {
   };
 
   github: {
-    getPrForBranch: (repoPath: string, branch: string) => Promise<unknown>;
+    getPrForBranch: (
+      repoPath: string,
+      branch: string,
+      hostId?: string,
+    ) => Promise<unknown>;
     getPrsForBranches: (
       repoPath: string,
       branches: string[],
+      hostId?: string,
     ) => Promise<[string, PrInfo | null][]>;
     checkStatus: () => Promise<{
       installed: boolean;
@@ -772,19 +777,30 @@ export interface ElectronAPI {
       repoPath: string,
       limit?: number,
       state?: "open" | "closed" | "all",
+      hostId?: string,
     ) => Promise<GitHubIssue[]>;
     getAllIssues: (
       repoPath: string,
       limit?: number,
       state?: "open" | "closed" | "all",
+      hostId?: string,
     ) => Promise<GitHubIssue[]>;
     getIssueDetail: (
       repoPath: string,
       issueNumber: number,
       issueUrl?: string,
+      hostId?: string,
     ) => Promise<GitHubIssueDetail>;
-    assignIssue: (repoPath: string, issueNumber: number) => Promise<void>;
-    closeIssue: (repoPath: string, issueNumber: number) => Promise<void>;
+    assignIssue: (
+      repoPath: string,
+      issueNumber: number,
+      hostId?: string,
+    ) => Promise<void>;
+    closeIssue: (
+      repoPath: string,
+      issueNumber: number,
+      hostId?: string,
+    ) => Promise<void>;
     createIssue: (
       title: string,
       body: string,

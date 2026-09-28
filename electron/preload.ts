@@ -458,27 +458,40 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
 
   github: {
-    getPrForBranch: (repoPath: string, branch: string) =>
-      ipcRenderer.invoke("github:getPrForBranch", repoPath, branch),
-    getPrsForBranches: (repoPath: string, branches: string[]) =>
-      ipcRenderer.invoke("github:getPrsForBranches", repoPath, branches),
+    getPrForBranch: (repoPath: string, branch: string, hostId?: string) =>
+      ipcRenderer.invoke("github:getPrForBranch", repoPath, branch, hostId),
+    getPrsForBranches: (repoPath: string, branches: string[], hostId?: string) =>
+      ipcRenderer.invoke("github:getPrsForBranches", repoPath, branches, hostId),
     checkStatus: () => ipcRenderer.invoke("github:checkStatus"),
     getMyIssues: (
       repoPath: string,
       limit?: number,
       state?: "open" | "closed" | "all",
-    ) => ipcRenderer.invoke("github:getMyIssues", repoPath, limit, state),
+      hostId?: string,
+    ) => ipcRenderer.invoke("github:getMyIssues", repoPath, limit, state, hostId),
     getAllIssues: (
       repoPath: string,
       limit?: number,
       state?: "open" | "closed" | "all",
-    ) => ipcRenderer.invoke("github:getAllIssues", repoPath, limit, state),
-    getIssueDetail: (repoPath: string, issueNumber: number, issueUrl?: string) =>
-      ipcRenderer.invoke("github:getIssueDetail", repoPath, issueNumber, issueUrl),
-    assignIssue: (repoPath: string, issueNumber: number) =>
-      ipcRenderer.invoke("github:assignIssue", repoPath, issueNumber),
-    closeIssue: (repoPath: string, issueNumber: number) =>
-      ipcRenderer.invoke("github:closeIssue", repoPath, issueNumber),
+      hostId?: string,
+    ) => ipcRenderer.invoke("github:getAllIssues", repoPath, limit, state, hostId),
+    getIssueDetail: (
+      repoPath: string,
+      issueNumber: number,
+      issueUrl?: string,
+      hostId?: string,
+    ) =>
+      ipcRenderer.invoke(
+        "github:getIssueDetail",
+        repoPath,
+        issueNumber,
+        issueUrl,
+        hostId,
+      ),
+    assignIssue: (repoPath: string, issueNumber: number, hostId?: string) =>
+      ipcRenderer.invoke("github:assignIssue", repoPath, issueNumber, hostId),
+    closeIssue: (repoPath: string, issueNumber: number, hostId?: string) =>
+      ipcRenderer.invoke("github:closeIssue", repoPath, issueNumber, hostId),
     createIssue: (title: string, body: string, labels: string[]) =>
       ipcRenderer.invoke("github:createIssue", title, body, labels),
     uploadFeedbackImages: (images: { base64: string; name: string }[]) =>

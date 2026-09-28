@@ -26,12 +26,14 @@ import {
   daemonSocketFile,
   daemonTokenFile,
   hookJournalFile,
+  remoteControlPortFile,
   remoteHookPortFile,
   type DaemonNamespace,
 } from "../paths";
 import { bootstrapHost, type BootstrapHostResult } from "./bootstrap-host";
 import { HookJournal } from "./hook-journal";
 import { HookListener } from "./hook-listener";
+import { ControlRelayListener, type ControlRelay } from "./control-relay-listener";
 import type { HookJournalEntry } from "./types";
 import { errorMessage } from "../lib/errors";
 
@@ -51,6 +53,8 @@ export interface BootstrapReport {
 export interface DaemonStartupContext {
   /** Broadcast a freshly journaled agent hook to every stream socket. */
   onHookEntry(entry: HookJournalEntry): void;
+  /** Relay a `manor` CLI request to main over the relay stream (ADR-189 §1). */
+  relayControlRequest: ControlRelay;
 }
 
 export interface DaemonRole {
@@ -112,12 +116,14 @@ export function localRole(): DaemonRole {
 
 /**
  * Env naming ports on the client's machine. Meaningless on the box, and a
- * pushed `MANOR_HOOK_PORT{,_FILE}` would point agents there away from this
- * daemon's own hook listener (ADR-178 §2).
+ * pushed `MANOR_HOOK_PORT{,_FILE}` or `MANOR_CONTROL_PORT_FILE` would point
+ * agents there away from this daemon's own hook or control relay listener
+ * (ADR-178 §2, ADR-189 §1).
  */
 const CLIENT_MACHINE_ENV_KEYS: ReadonlySet<string> = new Set([
   "MANOR_HOOK_PORT",
   "MANOR_HOOK_PORT_FILE",
+  "MANOR_CONTROL_PORT_FILE",
   "MANOR_WEBVIEW_PORT",
   "MANOR_PORTLESS_PORT",
 ]);
@@ -125,6 +131,7 @@ const CLIENT_MACHINE_ENV_KEYS: ReadonlySet<string> = new Set([
 export function remoteRole(log: Log): DaemonRole {
   let journal: HookJournal | null = null;
   let listener: HookListener | null = null;
+  let controlListener: ControlRelayListener | null = null;
   let bootstrapped: BootstrapHostResult | null = null;
 
   /**
@@ -149,6 +156,14 @@ export function remoteRole(log: Log): DaemonRole {
     return port;
   };
 
+  /** Start the control relay listener (idempotent; retried after a failure). */
+  const startControlListener = async (): Promise<number> => {
+    if (!controlListener) throw new Error("the daemon has not started yet");
+    const port = await controlListener.start();
+    log(`control relay listener on 127.0.0.1:${port}`);
+    return port;
+  };
+
   return {
     namespace: "remote",
     paths: pathsFor("remote"),
@@ -166,6 +181,18 @@ export function remoteRole(log: Log): DaemonRole {
       } catch (err) {
         log(`bootstrap failed: ${errorMessage(err)}`);
       }
+      // Before the hook journal, which returns early when it can't open: the
+      // CLI relay doesn't depend on it. Published in the remote namespace's
+      // own port file, which every PTY spawned from here on gets as
+      // `MANOR_CONTROL_PORT_FILE`.
+      controlListener = new ControlRelayListener({
+        relay: ctx.relayControlRequest,
+        portFile: remoteControlPortFile(),
+        log,
+      });
+      startControlListener().catch((err: unknown) => {
+        log(`control relay listener failed to start: ${errorMessage(err)}`);
+      });
       try {
         const opened = new HookJournal(hookJournalFile(), { log });
         opened.open();
@@ -195,10 +222,16 @@ export function remoteRole(log: Log): DaemonRole {
       } catch (err) {
         report.warnings.push(`agent hook listener could not start: ${errorMessage(err)}`);
       }
+      try {
+        await startControlListener();
+      } catch (err) {
+        report.warnings.push(`manor CLI relay could not start: ${errorMessage(err)}`);
+      }
       return report;
     },
     shutdown() {
       listener?.stop();
+      controlListener?.stop();
       journal?.compact();
     },
   };

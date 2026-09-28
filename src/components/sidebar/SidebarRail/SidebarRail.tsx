@@ -72,18 +72,13 @@ export function SidebarRail(props: SidebarRailProps) {
   }, [agentsPopoverStale, setOpen]);
   const agentsButtonProps = {
     variant: "ghost" as const,
-    className: `${styles.iconButton} ${styles.agentsButton}`,
+    className: styles.iconButton,
     "data-testid": "rail-agents",
     "data-sidebar-row": "",
     tabIndex: -1,
-    "aria-label": `Agents (${agentCount})`,
+    "aria-label": "Agents",
   };
-  const agentsIcon = (
-    <>
-      <Bot size={14} />
-      {agentCount > 0 && <span className={styles.agentsCount}>{agentCount}</span>}
-    </>
-  );
+  const agentsIcon = <Bot size={14} />;
 
   return (
     <div

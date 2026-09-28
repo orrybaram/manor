@@ -136,22 +136,6 @@
   color: var(--accent);
 }
 
-.rail .agentsButton {
-  width: 32px;
-  height: auto;
-  min-height: 32px;
-  padding: 4px 0;
-  flex-direction: column;
-  gap: 2px;
-  border-radius: 8px;
-}
-
-.agentsCount {
-  font-size: 9px;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-}
-
 /* ── Project popover ── */
 
 /* Gives the Radix anchor a box to measure; the tile sets its size. */

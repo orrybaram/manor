@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.15.1] - 2026-09-28
+
+### Features
+
+- Linked projects now share a theme and commands across the whole group
+- Linked project settings now open on a group page, with a nested page for each member
+- Added "Choose local folder…" when linking a remote project
+- Linked hosts now appear in the sidebar as small-caps section headings
+- A host's status dot now appears only while that host is away
+- Folders now use open and closed icons instead of a chevron
+- Project contents now hang off a guide line, which is colored for the selected project
+- The project menu is back on linked project headers, and host section menus are simpler
+
+### Improvements
+
+- Cleaner sidebar layout: projects are separated by spacing and font weight, and workspaces are indented
+- Project names no longer show icons or partial/offline badges
+- Folder headers no longer show a workspace count
+- Collapsed folders no longer show idle status
+- The Projects heading now uses the folders icon, and Home is styled to match it
+- Better spacing and padding across the sidebar and host sections
+- Host labels in settings now line up, and the linked projects list is more polished
+- The host toggle for a new folder now always shows, sits under the name, has a host already selected and uses plain host labels
+
 ## [0.15.0] - 2026-09-28
 
 ### Features

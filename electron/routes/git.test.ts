@@ -237,6 +237,63 @@ describe("git routes", () => {
     expect(res.status).toBe(400);
   });
 
+  it("picks the local project when two hosts' workspaces tie at the same path", async () => {
+    const { git, calls } = makeGit();
+    const cwd = "/repo";
+    const localProject = makeProject({
+      id: "local-p",
+      hostId: "local",
+      path: cwd,
+      defaultBranch: "local-main",
+      workspaces: [{ path: cwd, branch: "main", isMain: true, name: null }],
+    });
+    const remoteProject = makeProject({
+      id: "box-p",
+      hostId: "box",
+      path: cwd,
+      defaultBranch: "box-main",
+      workspaces: [{ path: cwd, branch: "main", isMain: true, name: null }],
+    });
+    const res = await call(
+      route("GET", "/git/diff"),
+      deps(git, [remoteProject, localProject]),
+      { query: { cwd, scope: "full" } },
+    );
+    expect(res).toEqual({ status: 200, body: "full diff" });
+    expect(calls.getFullDiff).toEqual([[cwd, "local-main"]]);
+  });
+
+  it("falls back to another host when the guessed owner's workspaces haven't loaded", async () => {
+    // The remote project's root is the closer match by path alone, so
+    // `ownerHostIdForPath` guesses "box" — but "box-p" has no workspaces
+    // loaded yet, so that guess resolves nothing on its own host. The local
+    // project, further from `cwd` by path but with an actual workspace
+    // there, must still resolve rather than 400ing.
+    const { git, calls } = makeGit();
+    const localProject = makeProject({
+      id: "local-p",
+      hostId: "local",
+      path: "/home/u",
+      defaultBranch: "local-main",
+      workspaces: [{ path: "/home/u", branch: "main", isMain: true, name: null }],
+    });
+    const remoteProject = makeProject({
+      id: "box-p",
+      hostId: "box",
+      path: "/home/u/repo",
+      defaultBranch: "box-main",
+      workspaces: [],
+    });
+    const cwd = "/home/u/repo/x";
+    const res = await call(
+      route("GET", "/git/diff"),
+      deps(git, [remoteProject, localProject]),
+      { query: { cwd, scope: "full" } },
+    );
+    expect(res).toEqual({ status: 200, body: "full diff" });
+    expect(calls.getFullDiff).toEqual([[cwd, "local-main"]]);
+  });
+
   it("503s every route when the git backend is unavailable", async () => {
     const res = await call(route("GET", "/git/staged-files"), deps(null), {
       query: { cwd: WORKSPACE_PATH },

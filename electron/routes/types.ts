@@ -23,6 +23,7 @@ import type { PortScanner } from "../ports";
 import type { RemoteControlController } from "../remote-control/controller";
 import type { AgentHookServer } from "../agent-hooks";
 import type { AgentStatusSignals } from "../agent-status/driver";
+import type { SessionOwners } from "../backend/session-owners";
 
 /** One buffered `console-message` from a webview's `WebContents`. */
 export interface ConsoleEntry {
@@ -91,6 +92,13 @@ export interface ControlDeps {
    * the same path can exist on this machine too. Unset for local callers.
    */
   callerHostId?: string;
+  /**
+   * Which host owns each terminal session (ADR-160 §6, ADR-191 §4). `GET
+   * /context` falls back to this — the host of the calling pane — for a
+   * local caller with no `callerHostId`, since a pane ADR-183 moved to
+   * another host is still local to *this* process.
+   */
+  sessionOwners: SessionOwners | null;
 }
 
 export type Json = (status: number, body: unknown) => void;

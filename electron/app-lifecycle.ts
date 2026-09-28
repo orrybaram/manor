@@ -471,6 +471,7 @@ export function initApp(devTitle: string | null): void {
       webviewPanes: webviewServer,
       resolvePaneUrl,
       getRendererWindows,
+      sessionOwners: backendRegistry.sessions,
     }),
     remoteDeviceStore,
     // Rate limiter, audit log, and client directory all take their defaults.
@@ -734,6 +735,7 @@ export function initApp(devTitle: string | null): void {
     // and console-log buffers (ADR-183) — always itself.
     webviewPanes: webviewServer,
     resolvePaneUrl,
+    sessionOwners: backendRegistry.sessions,
   });
   // Remote hosts' `manor` CLIs reach the same routes, with the same deps,
   // behind the remote allowlist (ADR-189 §2). Set once those deps exist; a

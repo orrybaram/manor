@@ -11,6 +11,7 @@
 import * as path from "node:path";
 import type { PersistedLayout } from "./terminal-host/layout-persistence";
 import type { ProjectInfo, WorkspaceInfo } from "./persistence";
+import { normalizeHostId } from "../src/lib/host-id";
 import type { WorkspaceKey } from "../src/lib/workspace-key";
 
 /**
@@ -36,15 +37,26 @@ export function findWorkspaceForPane(
   return null;
 }
 
-/** The project+workspace whose workspace path best matches `somePath`, or null. */
+/**
+ * The project+workspace on `hostId` whose workspace path best matches
+ * `somePath`, or null. A project lives on one host (ADR-178), so this
+ * filters `projects` by `hostId` before matching the path — but it takes
+ * the host as its own parameter, not a pre-filtered list, since a linked
+ * project (#237 layer 2) will one day hold workspaces on more than one
+ * host (ADR-191 §4).
+ */
 export function matchProjectByPath(
   projects: ProjectInfo[],
+  hostId: string,
   somePath: string,
 ): { project: ProjectInfo; workspace: WorkspaceInfo } | null {
+  const wantHost = normalizeHostId(hostId);
   let best: { project: ProjectInfo; workspace: WorkspaceInfo } | null = null;
   let bestLength = -1;
 
   for (const project of projects) {
+    if (normalizeHostId(project.hostId) !== wantHost) continue;
+
     for (const workspace of project.workspaces ?? []) {
       const p = workspace.path;
       if (!p) continue;

@@ -220,7 +220,7 @@ describe("pane-context", () => {
   describe("matchProjectByPath", () => {
     it("matches an exact workspace path", () => {
       const project = makeProject();
-      const result = matchProjectByPath([project], "/repo");
+      const result = matchProjectByPath([project], "local", "/repo");
 
       expect(result).not.toBeNull();
       expect(result?.project).toBe(project);
@@ -238,7 +238,7 @@ describe("pane-context", () => {
         workspaces: [mainWorkspace, worktreeWorkspace],
       });
 
-      const result = matchProjectByPath([project], "/repo/.worktrees/feat/src");
+      const result = matchProjectByPath([project], "local", "/repo/.worktrees/feat/src");
 
       expect(result?.workspace).toBe(worktreeWorkspace);
     });
@@ -247,25 +247,54 @@ describe("pane-context", () => {
       const workspace = makeWorkspaceInfo({ path: "/a/b" });
       const project = makeProject({ workspaces: [workspace] });
 
-      expect(matchProjectByPath([project], "/a/bc")).toBeNull();
-      expect(matchProjectByPath([project], "/a/bc/d")).toBeNull();
+      expect(matchProjectByPath([project], "local", "/a/bc")).toBeNull();
+      expect(matchProjectByPath([project], "local", "/a/bc/d")).toBeNull();
     });
 
     it("matches a proper sub-path across the boundary", () => {
       const workspace = makeWorkspaceInfo({ path: "/a/b" });
       const project = makeProject({ workspaces: [workspace] });
 
-      const result = matchProjectByPath([project], "/a/b/src/index.ts");
+      const result = matchProjectByPath([project], "local", "/a/b/src/index.ts");
       expect(result?.workspace).toBe(workspace);
     });
 
     it("returns null when nothing matches", () => {
       const project = makeProject();
-      expect(matchProjectByPath([project], "/somewhere/else")).toBeNull();
+      expect(matchProjectByPath([project], "local", "/somewhere/else")).toBeNull();
     });
 
     it("returns null for an empty project list", () => {
-      expect(matchProjectByPath([], "/repo")).toBeNull();
+      expect(matchProjectByPath([], "local", "/repo")).toBeNull();
+    });
+
+    it("with the same path on a local and a remote project, a remote host resolves to the remote project", () => {
+      const localProject = makeProject({ id: "local-p", hostId: "local" });
+      const remoteProject = makeProject({ id: "box-p", hostId: "box" });
+
+      const result = matchProjectByPath([localProject, remoteProject], "box", "/repo");
+
+      expect(result?.project).toBe(remoteProject);
+    });
+
+    it("with the same path on a local and a remote project, local resolves to the local project", () => {
+      const localProject = makeProject({ id: "local-p", hostId: "local" });
+      const remoteProject = makeProject({ id: "box-p", hostId: "box" });
+
+      const result = matchProjectByPath([localProject, remoteProject], "local", "/repo");
+
+      expect(result?.project).toBe(localProject);
+    });
+
+    it("a caller's host with no project at the path finds nothing, even though another host's project matches", () => {
+      const remoteProject = makeProject({ id: "box-p", hostId: "box" });
+      expect(matchProjectByPath([remoteProject], "other", "/repo")).toBeNull();
+    });
+
+    it("an empty host filters as local, same as a project with no hostId", () => {
+      const project = makeProject({ hostId: "" });
+      const result = matchProjectByPath([project], "", "/repo");
+      expect(result?.project).toBe(project);
     });
   });
 });

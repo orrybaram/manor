@@ -8,11 +8,17 @@
  * only guard here against shelling out into arbitrary directories. `cwd` is
  * matched with `matchProjectByPath` (`../pane-context.ts`), the same lookup
  * `GET /context` uses, so a path nested inside a workspace (not just its
- * root) still resolves.
+ * root) still resolves. These routes are never relayed (ADR-189 §2), so
+ * there is no caller host to scope by; `cwd`'s own host is guessed from its
+ * owner (`ownerHostIdForPath`, ADR-191), the same tie-break `PathRouter`
+ * uses, then a scan of every other host, local first, if that guess doesn't
+ * actually resolve — see `resolveProjectByPath`.
  */
 
 import { matchProjectByPath } from "../pane-context";
-import type { ProjectInfo } from "../persistence";
+import { ownerHostIdForPath } from "../../src/lib/workspace-key";
+import { LOCAL_HOST_ID, normalizeHostId } from "../../src/lib/host-id";
+import type { ProjectInfo, WorkspaceInfo } from "../persistence";
 import type { GitBackend } from "../backend/types";
 import type { ControlDeps, Json, Route } from "./types";
 
@@ -22,6 +28,35 @@ interface GitContext {
   git: GitBackend;
   project: ProjectInfo;
   cwd: string;
+}
+
+/**
+ * `cwd`'s project, scoped by host: `ownerHostIdForPath`'s guess first, since
+ * it is usually right and prefers a closer root over a farther one, but that
+ * guess only knows about project and worktree roots, not which projects have
+ * actually loaded their workspaces. A project whose workspaces haven't
+ * loaded yet contributes no match on its own host, so a bare host-scoped
+ * lookup can 400 a `cwd` some other host's project would resolve happily.
+ * Falls back through every other host present in `projects`, local first,
+ * until one's workspaces actually contain `cwd`.
+ */
+function resolveProjectByPath(
+  projects: ProjectInfo[],
+  cwd: string,
+): { project: ProjectInfo; workspace: WorkspaceInfo } | null {
+  const hosts = [
+    ownerHostIdForPath(projects, cwd),
+    LOCAL_HOST_ID,
+    ...projects.map((p) => normalizeHostId(p.hostId)),
+  ];
+  const tried = new Set<string>();
+  for (const hostId of hosts) {
+    if (tried.has(hostId)) continue;
+    tried.add(hostId);
+    const match = matchProjectByPath(projects, hostId, cwd);
+    if (match) return match;
+  }
+  return null;
 }
 
 /**
@@ -47,7 +82,7 @@ async function resolveGit(
     return null;
   }
   const projects = await deps.projectManager.getProjects();
-  const match = matchProjectByPath(projects, cwd);
+  const match = resolveProjectByPath(projects, cwd);
   if (!match) {
     json(400, { error: `'${cwd}' is not a known workspace path` });
     return null;

@@ -3,6 +3,7 @@ import { useAppStore } from "./app-store";
 import { useToastStore } from "./toast-store";
 import { branchesEqual } from "../utils/branch-name";
 import { ipcErrorMessage } from "../lib/ipc-error";
+import { workspaceHostId, type HostId } from "../lib/hosts";
 import {
   buildSidebarItems,
   folderParentsOf,
@@ -174,7 +175,7 @@ function saveCollapsedFolderKeys(keys: Set<string>): void {
  * rendered by WorkspaceSetupView attaches (via `attach` prop) to the same
  * session for live display but never creates or closes the PTY.
  */
-function startSetupScript(wsPath: string, script: string): void {
+function startSetupScript(wsPath: string, script: string, hostId?: HostId): void {
   const sessionId = `setup-${wsPath.replace(/\//g, "-")}`;
   // Reasonable defaults; the view re-fits xterm when/if it mounts.
   const DEFAULT_COLS = 80;
@@ -238,7 +239,13 @@ function startSetupScript(wsPath: string, script: string): void {
   // Kick off the PTY. The promise resolves after main process spawns it.
   // Errors here are rare and we let the view's own exit observation (or the
   // lack of onExit) surface them; keeping this simple.
-  void window.electronAPI.pty.create(sessionId, wsPath, DEFAULT_COLS, DEFAULT_ROWS);
+  void window.electronAPI.pty.create(
+    sessionId,
+    wsPath,
+    DEFAULT_COLS,
+    DEFAULT_ROWS,
+    { hostId: hostId ?? workspaceHostId(useProjectStore.getState(), wsPath) },
+  );
 }
 
 /**
@@ -246,7 +253,11 @@ function startSetupScript(wsPath: string, script: string): void {
  * — i.e. by the main process on behalf of MCP. The git steps already succeeded
  * by the time main hands off, so seed them as done and show only the script.
  */
-export function runWorkspaceSetupScript(wsPath: string, script: string): void {
+export function runWorkspaceSetupScript(
+  wsPath: string,
+  script: string,
+  hostId?: HostId,
+): void {
   const app = useAppStore.getState();
   app.initWorktreeSetup(wsPath, true, script);
   const doneSteps: SetupStep[] = [
@@ -259,7 +270,7 @@ export function runWorkspaceSetupScript(wsPath: string, script: string): void {
   for (const step of doneSteps) {
     app.updateWorktreeSetupStep(wsPath, step, "done");
   }
-  startSetupScript(wsPath, script);
+  startSetupScript(wsPath, script, hostId);
 }
 
 export interface CustomCommand {
@@ -803,7 +814,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         // Kick off the setup script at store scope so its PTY outlives the
         // WorkspaceSetupView — the view renders an `attach`-mode MiniTerminal
         // to observe the same session without owning its lifecycle.
-        startSetupScript(wsPath, startScript);
+        startSetupScript(wsPath, startScript, project?.hostId);
       } else if (agentCommand) {
         // No start script — use the existing pending startup command + addTab pattern
         useAppStore.getState().setPendingStartupCommand(wsPath, agentCommand);

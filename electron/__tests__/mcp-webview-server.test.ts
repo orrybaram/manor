@@ -445,6 +445,7 @@ describe("WebviewServer project/workspace routes", () => {
     ]);
     pm.createWorktree.mockResolvedValueOnce({
       ...PROJECT,
+      hostId: "box",
       worktreeStartScript: "npm install",
       workspaces: [
         ...PROJECT.workspaces,
@@ -464,6 +465,8 @@ describe("WebviewServer project/workspace routes", () => {
     expect(send).toHaveBeenCalledWith("app-command", {
       cmd: "run-setup-script",
       workspacePath: "/repos/demo-ws",
+      // The project's host: the path alone may be on two hosts.
+      hostId: "box",
       script: "npm install",
     });
   });

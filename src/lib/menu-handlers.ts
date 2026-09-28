@@ -21,6 +21,7 @@ import {
   type WorkspaceInfo,
 } from "../store/project-store";
 import { useToastStore } from "../store/toast-store";
+import { projectForWorkspace, selectedProjectId } from "./hosts";
 import { hideWorkspaceAndNavigate } from "../store/workspace-actions";
 import {
   createSharedKeybindingHandlers,
@@ -77,10 +78,10 @@ interface ActiveWorkspace {
 /** The active surface, resolved back to its owning project and workspace. */
 function activeWorkspace(): ActiveWorkspace {
   const path = useAppStore.getState().activeWorkspacePath;
+  // The selected project first: a local and a remote project can share a path.
+  const selection = useProjectStore.getState();
   const project =
-    useProjectStore
-      .getState()
-      .projects.find((p) => p.workspaces.some((w) => w.path === path)) ?? null;
+    projectForWorkspace(selection.projects, path, selectedProjectId(selection)) ?? null;
   const workspace = project?.workspaces.find((w) => w.path === path) ?? null;
   return { project, workspace, path };
 }
@@ -318,7 +319,7 @@ export function createMenuHandlers(
     "run-setup-script": () => {
       const { project, path } = activeWorkspace();
       if (project?.worktreeStartScript && path) {
-        runWorkspaceSetupScript(path, project.worktreeStartScript);
+        runWorkspaceSetupScript(path, project.worktreeStartScript, project.hostId);
       }
     },
     "view-all-agents": () => chrome.openAgents(),

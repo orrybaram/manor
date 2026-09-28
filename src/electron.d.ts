@@ -1,5 +1,6 @@
 import type { PrComment, PrInfo } from "./lib/pr-info";
 import type { HarnessKind } from "./lib/harness";
+import type { HostId } from "./lib/hosts";
 import type { DetachedTabPayload } from "./store/detach-types";
 import type { RecordingCommand as WebviewRecordingCommand } from "./lib/webview-recorder";
 import type {
@@ -280,6 +281,21 @@ export type PaneAgentStatus = Omit<PaneAgentStatusUpdate, "paneId">;
  */
 export type StreamPosition = number;
 
+/** Options for `pty.create` (one type for main and renderer). */
+export interface PtyCreateOptions {
+  /** Sets `MANOR_AGENT_KIND` in a freshly spawned session's env. */
+  agentKind?: string | null;
+  /**
+   * The host a new session runs on: the host of the workspace the pane
+   * belongs to. Omitted, main guesses it from the cwd (local wins a path
+   * both hosts have). An existing session stays where it runs.
+   */
+  hostId?: HostId;
+}
+
+/** Options for `pty.reset`: the host its fresh session runs on (see `PtyCreateOptions`). */
+export type PtyResetOptions = Pick<PtyCreateOptions, "hostId">;
+
 /** What `pty.create` resolves to (ADR-183: one type for main and renderer). */
 export type PtyCreateResult =
   | {
@@ -408,7 +424,7 @@ export interface ElectronAPI {
       cwd: string | null,
       cols: number,
       rows: number,
-      agentKind?: string | null,
+      opts?: PtyCreateOptions,
     ) => Promise<PtyCreateResult>;
     write: (paneId: string, data: string) => Promise<void>;
     /** Resolves once the pty is actually at that size, not merely told to be. */
@@ -419,6 +435,7 @@ export interface ElectronAPI {
       cwd: string | null,
       cols: number,
       rows: number,
+      opts?: PtyResetOptions,
     ) => Promise<{
       ok: boolean;
       snapshot?: string | null;
@@ -1007,6 +1024,8 @@ export interface ElectronAPI {
       cmd: string;
       requestId?: string;
       workspacePath?: string;
+      /** The host of `workspacePath`'s project, when main knows it. */
+      hostId?: HostId;
       prompt?: string;
       script?: string;
       args?: Record<string, unknown>;

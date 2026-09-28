@@ -7,7 +7,7 @@ import { getBrowserPaneRef } from "./browser-pane-registry";
 import type { BrowserPaneRef } from "../components/workspace-panes/BrowserPane/BrowserPane";
 import { DEFAULT_AGENT_COMMAND } from "../agent-defaults";
 import { isHomePath, homeLaunchCommand } from "./home";
-import { LOCAL_HOST_ID, remoteHostIdForWorkspace } from "./hosts";
+import { LOCAL_HOST_ID, workspaceHostId } from "./hosts";
 import {
   PAGE_BROWSER_COMMANDS,
   comboFromEvent,
@@ -100,8 +100,7 @@ export async function startNewAgent(
   const activeWorkspacePath = useAppStore.getState().activeWorkspacePath;
   const command = resolveWorkspaceCommand(activeWorkspacePath);
   const hostId =
-    remoteHostIdForWorkspace(useProjectStore.getState().projects, activeWorkspacePath ?? undefined) ??
-    LOCAL_HOST_ID;
+    workspaceHostId(useProjectStore.getState(), activeWorkspacePath) ?? LOCAL_HOST_ID;
   const prewarmed = prewarm
     ? await window.electronAPI.pty.consumePrewarmed(activeWorkspacePath, hostId)
     : null;

@@ -22,7 +22,7 @@ import { getAgentKindForCommand } from "../agent-defaults";
 import { isHomePath } from "../lib/home";
 import { isNavRegionFocused } from "../lib/focus-regions";
 import { resolveHomeAdapter } from "../lib/harness";
-import { useTerminalConnection } from "./useTerminalConnection";
+import { paneCreateHostId, useTerminalConnection } from "./useTerminalConnection";
 import { useRemotePaneStore } from "../store/remote-pane-store";
 import { isRemotePane, pasteClipboardImage } from "../lib/remote-image-paste";
 import { useTerminalStream } from "./useTerminalStream";
@@ -65,6 +65,8 @@ export function useTerminalLifecycle(
   cwd: string | undefined,
   theme: ITheme | null,
   onOpenSearch?: () => void,
+  /** The workspace the pane belongs to; its host is where the pane runs. */
+  workspacePath?: string,
 ) {
   const [term, setTerm] = useState<Terminal | null>(null);
   const [fitAddon, setFitAddon] = useState<FitAddon | null>(null);
@@ -74,7 +76,7 @@ export function useTerminalLifecycle(
   const resettingRef = useRef(false);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { write, requeueUndelivered, resize, create, detach } =
-    useTerminalConnection(paneId);
+    useTerminalConnection(paneId, workspacePath);
   const { attachHandler } = useTerminalHotkeys(onOpenSearch);
 
   // Subscribe to stream events (pass write so the stream handler can
@@ -509,16 +511,19 @@ export function useTerminalLifecycle(
     resettingRef.current = true;
     try {
       t.reset();
+      // A fresh session on the host the pane runs on, as create picks it: a
+      // pane moved to another host (ADR-183) stays there.
       const result = await window.electronAPI.pty.reset(
         paneId,
         cwd ?? null,
         t.cols,
         t.rows,
+        { hostId: paneCreateHostId(paneId, workspacePath ?? cwd) },
       );
       if (!result.ok) {
         setPtyError(result.error ?? "Failed to create terminal session");
       } else {
-        // A reset spawns on the project's current host, which may differ.
+        // Record where the fresh session really runs.
         useRemotePaneStore.getState().setPaneHost(paneId, result.hostId);
       }
     } finally {
@@ -530,7 +535,7 @@ export function useTerminalLifecycle(
         resettingRef.current = false;
       }, 1_000);
     }
-  }, [paneId, cwd]);
+  }, [paneId, cwd, workspacePath]);
 
   return { term, fitAddon, searchAddon, ptyError, write, reset };
 }

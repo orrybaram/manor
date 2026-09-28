@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.14.5] - 2026-09-27
+
+### Features
+- Paste clipboard images into agents running on remote hosts
+- Manor now checks remote host connections with a heartbeat and re-checks them when your Mac wakes from sleep
+- Main-process logs are now saved to a rotating log file to make troubleshooting easier
+
+### Fixes
+- PR badges and GitHub issues now show for remote projects
+- The sidebar now updates remote projects when worktrees change outside Manor
+- A slow request no longer drops a remote connection; Manor checks whether the host is still reachable first
+- Linked GitHub issues in the status bar load reliably, and a failed load now shows up right away instead of hanging
+
 ## [0.14.4] - 2026-09-27
 
 ### Fixes

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import X from "lucide-react/dist/esm/icons/x";
 import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
@@ -23,6 +23,12 @@ type AddProjectDialogProps = {
   onAddLocal: () => Promise<void>;
   /** Called once the remote clone finishes and the project is added. */
   onRemoteProjectAdded?: (project: ProjectInfo) => void;
+  /**
+   * The mode the dialog opens in (default "local"). Applied each time `open`
+   * goes false → true, e.g. "remote" from the Projects overview's "Clone
+   * onto a remote host" (ADR-194).
+   */
+  initialMode?: Mode;
 };
 
 /** Derive a project name from a repo URL's last path segment. */
@@ -40,9 +46,18 @@ function nameFromRepoUrl(repoUrl: string): string {
  * `useHostCloneFlow` (ADR-183 ticket 10).
  */
 export function AddProjectDialog(props: AddProjectDialogProps) {
-  const { open, onClose, onAddLocal, onRemoteProjectAdded } = props;
+  const { open, onClose, onAddLocal, onRemoteProjectAdded, initialMode } = props;
 
-  const [mode, setMode] = useState<Mode>("local");
+  const [mode, setMode] = useState<Mode>(initialMode ?? "local");
+
+  // Apply `initialMode` when the dialog opens (render-time, ref-guarded):
+  // `reset()` forces "local" on close, so the initial state alone only
+  // covers the first open.
+  const prevOpenRef = useRef(open);
+  if (open && !prevOpenRef.current) {
+    setMode(initialMode ?? "local");
+  }
+  prevOpenRef.current = open;
   const [addingLocal, setAddingLocal] = useState(false);
 
   const hosts = useHostStore((s) => s.hosts);

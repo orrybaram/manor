@@ -10,6 +10,7 @@ import { GhostsOverlay } from "./components/GhostsOverlay/GhostsOverlay";
 import { WorkspaceEmptyState } from "./components/sidebar/WorkspaceEmptyState";
 import { WelcomeEmptyState } from "./components/sidebar/WelcomeEmptyState/WelcomeEmptyState";
 import { HomeEmptyState } from "./components/sidebar/HomeEmptyState";
+import { ProjectsOverview } from "./components/projects-overview/ProjectsOverview";
 import { ManorLogo } from "./components/ui/ManorLogo";
 import { CloseAgentPaneDialog } from "./components/CloseAgentPaneDialog";
 import { ToastContainer } from "./components/ui/Toast/Toast";
@@ -212,9 +213,18 @@ function App() {
   }, [addProject, openWizardForLatestProject]);
 
   const [addProjectDialogOpen, setAddProjectDialogOpen] = useState(false);
-  const handleAddProject = useCallback(() => {
+  const [addProjectDialogMode, setAddProjectDialogMode] = useState<
+    "local" | "remote"
+  >("local");
+  // Also wired straight to click / menu-select handlers, which pass their
+  // event as the argument: anything but "remote" opens the default mode.
+  const handleAddProject = useCallback((mode?: unknown) => {
+    setAddProjectDialogMode(mode === "remote" ? "remote" : "local");
     setAddProjectDialogOpen(true);
   }, []);
+  const handleAddRemoteProject = useCallback(() => {
+    handleAddProject("remote");
+  }, [handleAddProject]);
   const closeAddProjectDialog = useCallback(() => {
     setAddProjectDialogOpen(false);
   }, []);
@@ -345,6 +355,11 @@ function App() {
 
   const hasProjects = projects.length > 0;
   const hasTabs = (ws?.tabs.length ?? 0) > 0;
+  // The Projects overview (ADR-194) covers the active workspace, which stays
+  // active (and mounted) underneath.
+  const projectsOverviewShown = useAppStore(
+    (s) => s.activeSurface === "projects",
+  );
 
   // Keep the prewarmed session in sync with the active workspace.
   // Derive the agent command outside the effect so it only re-fires when the
@@ -661,7 +676,7 @@ function App() {
                 <div
                   key={key}
                   style={
-                    key === activeWorkspaceKey && hasTabs
+                    key === activeWorkspaceKey && hasTabs && !projectsOverviewShown
                       ? TAB_VISIBLE_STYLE
                       : TAB_HIDDEN_STYLE
                   }
@@ -673,12 +688,14 @@ function App() {
                   />
                 </div>
               ))}
-              {!(activeWorkspacePath && hasTabs) && (
+              {(projectsOverviewShown || !(activeWorkspacePath && hasTabs)) && (
                 <div className="empty-surface">
                   <div className="drag-region" />
                   <div className="terminal-container">
                     {wizardStillValid && wizardProjectId
                       ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
+                      : projectsOverviewShown
+                      ? <ProjectsOverview onAddLocal={handleAddLocalProject} onAddRemote={handleAddRemoteProject} onDropFolder={handleDropFolder} />
                       : !hasTabs &&
                         (isHomePath(activeWorkspacePath)
                           ? <HomeEmptyState onNewAgent={handleNewAgent} onAddProject={handleAddProject} onOpenPaletteView={handleOpenPaletteView} />
@@ -730,6 +747,7 @@ function App() {
           onClose={closeAddProjectDialog}
           onAddLocal={handleAddLocalProject}
           onRemoteProjectAdded={handleRemoteProjectAdded}
+          initialMode={addProjectDialogMode}
         />
         <NewWorkspaceDialog
           open={newWorkspaceOpen}

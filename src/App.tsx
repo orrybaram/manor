@@ -703,7 +703,13 @@ function App() {
                       ? <ProjectsOverview onAddLocal={handleAddLocalProject} onAddRemote={handleAddRemoteProject} onDropFolder={handleDropFolder} />
                       : !hasTabs &&
                         (isHomePath(activeWorkspacePath)
-                          ? <HomeEmptyState onNewAgent={handleNewAgent} />
+                          ? (
+                              <HomeEmptyState
+                                onNewAgent={handleNewAgent}
+                                onNewWorkspace={handleNewWorkspace}
+                                onOpenPaletteView={handleOpenPaletteView}
+                              />
+                            )
                           : <WorkspaceEmptyState onOpenPaletteView={handleOpenPaletteView} onNewWorkspace={handleNewWorkspace} />)}
                   </div>
                 </div>

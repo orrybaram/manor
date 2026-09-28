@@ -11,7 +11,7 @@ import type { CommandPaletteProps } from "./types";
 import { Row, Stack } from "../ui/Layout/Layout";
 import { Button } from "../ui/Button/Button";
 import { Link } from "../ui/Link/Link";
-import { sanitizeBranchName, branchesEqual } from "../../utils/branch-name";
+import { assignIssueBestEffort, startGitHubIssueWork } from "../../lib/start-issue-work";
 import type { GhRepo } from "../../lib/gh-repo";
 import styles from "./CommandPalette.module.css";
 
@@ -30,29 +30,10 @@ type GitHubIssueDetailViewProps = {
   workspacePath?: string;
 };
 
-/**
- * Assign the issue without blocking the caller — workspace creation and agent
- * launch have already been kicked off and must not wait on `gh`.
- *
- * Deliberately not `.catch(() => {})`: the user asked to be assigned, so a
- * failure is reported even though it is not awaited. Silently dropping it is the
- * bug ADR-152 exists to remove, not a lighter version of it.
- */
-function assignIssueBestEffort(repo: GhRepo, issueNumber: number): void {
-  window.electronAPI.github.assignIssue(repo, issueNumber).catch((err) => {
-    addErrorToast(
-      `assign-issue-error-gh-${issueNumber}`,
-      "Failed to assign issue",
-      err,
-    );
-  });
-}
-
 export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
   const { repo, issueNumber, issueUrl, onBack, onClose, onNewWorkspace, onNewAgentWithPrompt, linkedTo, projectId, workspacePath } = props;
 
   const projects = useProjectStore((s) => s.projects);
-  const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
 
   const { data: issueDetail, isLoading, error, refetch } = useQuery({
     queryKey: ["github-issue-detail", repo.hostId, repo.path, issueNumber, issueUrl],
@@ -73,44 +54,8 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
     if (!issueDetail) return;
     const project = findProject();
     if (!project) return;
-
-    const branchName = `${issueDetail.number}-${sanitizeBranchName(issueDetail.title)}`;
-
-    const current = useProjectStore
-      .getState()
-      .projects.find((p) => p.id === project.id);
-    const existingIdx =
-      current?.workspaces.findIndex((ws) => branchesEqual(ws.branch, branchName)) ?? -1;
-    if (existingIdx >= 0) {
-      selectWorkspace(project.id, existingIdx);
-      const existingWs = current?.workspaces[existingIdx];
-      if (existingWs) {
-        useProjectStore.getState().linkIssueToWorkspace(project.id, existingWs.path, {
-          id: `gh-${issueDetail.number}`,
-          identifier: `#${issueDetail.number}`,
-          title: issueDetail.title,
-          url: issueDetail.url,
-        });
-      }
-      onClose();
-      return;
-    }
-
-    onClose();
-    onNewWorkspace?.({
-      projectId: project.id,
-      name: issueDetail.title,
-      branch: branchName,
-      agentPrompt: issueDetail.title + "\n\n" + (issueDetail.body ?? ""),
-      linkedIssue: {
-        id: `gh-${issueDetail.number}`,
-        identifier: `#${issueDetail.number}`,
-        title: issueDetail.title,
-        url: issueDetail.url,
-      },
-    });
-    assignIssueBestEffort(repo, issueDetail.number);
-  }, [issueDetail, findProject, selectWorkspace, onClose, onNewWorkspace, repo]);
+    startGitHubIssueWork({ project, repo, issue: issueDetail, onNewWorkspace, onClose });
+  }, [issueDetail, findProject, onClose, onNewWorkspace, repo]);
 
   const handleOpenInBrowser = useCallback(() => {
     if (!issueDetail) return;

@@ -6,12 +6,16 @@ import {
   normalizeIssueRef,
   isIssueLinked,
   rankUpNext,
+  primaryMember,
+  upNextFromGitHub,
+  upNextFromLinear,
+  upNextList,
   projectCardSummary,
   type NeedsYouInput,
   type UpNextIssue,
   type ProjectCardDeps,
 } from "../home-dashboard";
-import type { AgentInfo, PaneAgentStatus } from "../../electron.d";
+import type { AgentInfo, GitHubIssue, LinearIssue, PaneAgentStatus } from "../../electron.d";
 import type { ProjectInfo, WorkspaceInfo, LinkedIssue } from "../../store/project-store";
 import type { TopLevelEntry } from "../../utils/sidebar-items";
 import type { PrInfo } from "../pr-info";
@@ -372,6 +376,118 @@ describe("rankUpNext", () => {
     const a = issue({ projectKey: "p1", identifier: "ENG-2", number: undefined });
     const b = issue({ projectKey: "p1", identifier: "ENG-10", number: undefined });
     expect(rankUpNext([b, a], ["p1"]).map((i) => i.identifier)).toEqual(["ENG-2", "ENG-10"]);
+  });
+});
+
+describe("primaryMember", () => {
+  const group = (lastUsedHostId: string | null) => ({
+    id: "g1",
+    name: "Repo",
+    memberIds: ["a", "b"],
+    lastUsedHostId,
+  });
+  const groupEntry = (lastUsedHostId: string | null): TopLevelEntry<ProjectInfo> => {
+    const a = baseProject({ id: "a", hostId: "local", group: group(lastUsedHostId) });
+    const b = baseProject({ id: "b", hostId: "remote-1", group: group(lastUsedHostId) });
+    return {
+      kind: "group",
+      key: "g1",
+      group: group(lastUsedHostId),
+      sections: [
+        { project: a, items: [] },
+        { project: b, items: [] },
+      ],
+    };
+  };
+
+  it("returns a lone project as is", () => {
+    const project = baseProject();
+    expect(primaryMember({ kind: "project", key: project.id, project })).toBe(project);
+  });
+
+  it("picks a group's lastUsedHostId member", () => {
+    expect(primaryMember(groupEntry("remote-1"))?.id).toBe("b");
+  });
+
+  it("falls back to a group's first member", () => {
+    expect(primaryMember(groupEntry(null))?.id).toBe("a");
+    expect(primaryMember(groupEntry("gone"))?.id).toBe("a");
+  });
+});
+
+describe("upNextFromGitHub / upNextFromLinear / upNextList", () => {
+  const gh = (number: number, labels: string[] = []): GitHubIssue => ({
+    number,
+    title: `issue ${number}`,
+    url: `https://github.com/o/r/issues/${number}`,
+    state: "OPEN",
+    labels: labels.map((name) => ({ name, color: "fff" })),
+    assignees: [],
+  });
+  const linear = (identifier: string): LinearIssue => ({
+    id: `id-${identifier}`,
+    identifier,
+    title: `linear ${identifier}`,
+    url: `https://linear.app/t/issue/${identifier}`,
+    branchName: identifier.toLowerCase(),
+    priority: 0,
+    state: { name: "Todo", type: "unstarted" },
+    labels: [{ name: "ready-for-agent", color: "fff" }],
+  });
+
+  it("maps a GitHub issue", () => {
+    const issue = upNextFromGitHub(gh(7, ["bug"]), "p1");
+    expect(issue).toMatchObject({
+      source: "github",
+      projectKey: "p1",
+      number: 7,
+      identifier: "#7",
+      title: "issue 7",
+      labels: ["bug"],
+    });
+  });
+
+  it("maps a Linear issue without a number", () => {
+    const issue = upNextFromLinear(linear("ENG-3"), "p2");
+    expect(issue).toMatchObject({
+      source: "linear",
+      projectKey: "p2",
+      identifier: "ENG-3",
+      labels: ["ready-for-agent"],
+    });
+    expect(issue.number).toBeUndefined();
+  });
+
+  it("drops linked issues, dedupes by URL and ranks", () => {
+    const projects = [
+      baseProject({
+        id: "p1",
+        workspaces: [
+          baseWorkspace({
+            linkedIssues: [
+              { id: "gh-2", identifier: "#2", title: "t", url: "https://github.com/o/r/issues/2" },
+            ],
+          }),
+        ],
+      }),
+      baseProject({ id: "p2" }),
+    ];
+    const list = upNextList(
+      [
+        upNextFromGitHub(gh(3), "p2"),
+        upNextFromGitHub(gh(3), "p1"),
+        upNextFromGitHub(gh(2), "p1"),
+        upNextFromGitHub(gh(1), "p1"),
+        upNextFromLinear(linear("ENG-9"), "p2"),
+      ],
+      projects,
+      ["p1", "p2"],
+    );
+    expect(list.map((i) => `${i.projectKey}:${i.identifier}`)).toEqual([
+      "p2:ENG-9",
+      "p1:#1",
+      "p1:#3",
+    ]);
   });
 });
 

@@ -100,3 +100,15 @@
   font-size: 13px;
   color: var(--text-dim);
 }
+
+/* Up next's "All issues": a `<Button variant="link">` wearing the shared
+   `.sectionLink` look. Doubled to outrank the link variant's accent colour
+   and underline. */
+.sectionLink.sectionLink {
+  color: var(--text-dim);
+  text-decoration: none;
+}
+
+.sectionLink.sectionLink:hover {
+  color: var(--text-selected);
+}

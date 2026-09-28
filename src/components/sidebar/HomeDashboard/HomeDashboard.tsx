@@ -1,7 +1,9 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import GitPullRequest from "lucide-react/dist/esm/icons/git-pull-request";
 import Check from "lucide-react/dist/esm/icons/check";
+import CircleDot from "lucide-react/dist/esm/icons/circle-dot";
 import { useProjectStore } from "../../../store/project-store";
 import { useAppStore } from "../../../store/app-store";
 import { useAgentStore } from "../../../store/agent-store";
@@ -14,7 +16,16 @@ import {
   type NeedsYouItem,
   type NeedsYouTier,
 } from "../../../lib/home-dashboard";
+import { ghRepoOf } from "../../../lib/gh-repo";
+import {
+  startGitHubIssueWork,
+  startLinearIssueWork,
+  type NewWorkspaceHandler,
+} from "../../../lib/start-issue-work";
+import type { GitHubIssue, LinearIssue } from "../../../electron.d";
+import type { PaletteView } from "../../command-palette/types";
 import { Button } from "../../ui/Button/Button";
+import { useUpNextIssues, type UpNextRow } from "./useUpNextIssues";
 import shared from "../../EmptyState.module.css";
 import styles from "./HomeDashboard.module.css";
 
@@ -64,13 +75,21 @@ function itemLabel(item: NeedsYouItem): { text: string; sub?: string } {
  * Home's "Needs you" section and summary line (ADR-194 §1). Reads the same
  * stores the sidebar's own indicators do and ranks with the pure selectors
  * from `home-dashboard.ts` — this component only wires state in and renders.
- * "Up next" (ticket 5) slots in between the Needs-you section and the
- * summary line.
+ * "Up next" sits between the Needs-you section and the summary line.
  */
-export function HomeDashboard() {
+type HomeDashboardProps = {
+  /** Opens the New Workspace dialog, prefilled — starts work on an Up next issue. */
+  onNewWorkspace?: NewWorkspaceHandler;
+  /** Opens the palette on a view — Up next's "All issues" link. */
+  onOpenPaletteView?: (view: PaletteView) => void;
+};
+
+export function HomeDashboard(props: HomeDashboardProps) {
+  const { onNewWorkspace, onOpenPaletteView } = props;
   const projects = useProjectStore((s) => s.projects);
   const selectProject = useProjectStore((s) => s.selectProject);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
+  const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
   const agents = useAgentStore((s) => s.agents);
   const unseenRespondedAgentIds = useAgentStore((s) => s.unseenRespondedAgentIds);
@@ -86,6 +105,8 @@ export function HomeDashboard() {
     [agents, paneAgentStatus],
   );
   const openPrs = useMemo(() => openPrCount(projects), [projects]);
+  const upNext = useUpNextIssues();
+  const queryClient = useQueryClient();
 
   const shownItems = expanded ? needsYou : needsYou.slice(0, VISIBLE_COUNT);
   const moreCount = needsYou.length - VISIBLE_COUNT;
@@ -108,11 +129,89 @@ export function HomeDashboard() {
     [projects, selectProject, selectWorkspace],
   );
 
-  const hasSummary = runningAgents > 0 || openPrs > 0;
+  // A click fetches the issue body first; ignore repeat clicks meanwhile.
+  const startingRef = useRef(false);
+  const handleUpNextClick = useCallback(
+    async (row: UpNextRow) => {
+      if (startingRef.current) return;
+      startingRef.current = true;
+      try {
+        const { issue, project } = row;
+        if (issue.source === "github") {
+          const listed = issue.raw as GitHubIssue;
+          const repo = ghRepoOf(project);
+          // `getMyIssues` has no body; the palette's detail query does. Same key,
+          // so a palette visit and a Home click share the cache. Title only if
+          // the detail fetch fails.
+          const detail = await queryClient
+            .fetchQuery({
+              queryKey: ["github-issue-detail", repo.hostId, repo.path, listed.number, listed.url],
+              queryFn: () =>
+                window.electronAPI.github.getIssueDetail(repo, listed.number, listed.url),
+              staleTime: 60_000,
+              retry: false,
+            })
+            .catch(() => null);
+          startGitHubIssueWork({
+            project,
+            repo,
+            issue: { ...listed, body: detail?.body ?? null },
+            onNewWorkspace,
+          });
+        } else {
+          const listed = issue.raw as LinearIssue;
+          const detail = await queryClient
+            .fetchQuery({
+              queryKey: ["linear-issue-detail", listed.id],
+              queryFn: () => window.electronAPI.linear.getIssueDetail(listed.id),
+              staleTime: 60_000,
+              retry: false,
+            })
+            .catch(() => null);
+          startLinearIssueWork({
+            project,
+            issue: { ...listed, description: detail?.description ?? null },
+            onNewWorkspace,
+          });
+        }
+      } finally {
+        startingRef.current = false;
+      }
+    },
+    [queryClient, onNewWorkspace],
+  );
+
+  const selectedProject = projects[selectedProjectIndex];
+  const allIssuesView: PaletteView =
+    (selectedProject?.linearAssociations.length ?? 0) > 0 ? "linear-all" : "github-all";
+
+  const issuesReady = upNext.total;
+  const summaryParts: ReactNode[] = [];
+  if (runningAgents > 0) {
+    summaryParts.push(
+      <span key="agents">
+        <b>{runningAgents}</b> agent{runningAgents === 1 ? "" : "s"} running
+      </span>,
+    );
+  }
+  if (openPrs > 0) {
+    summaryParts.push(
+      <span key="prs">
+        <b>{openPrs}</b> open PR{openPrs === 1 ? "" : "s"}
+      </span>,
+    );
+  }
+  if (issuesReady > 0) {
+    summaryParts.push(
+      <span key="issues">
+        <b>{issuesReady}</b> issue{issuesReady === 1 ? "" : "s"} ready
+      </span>,
+    );
+  }
 
   return (
     <div className={styles.root}>
-      {needsYou.length > 0 ? (
+      {needsYou.length > 0 && (
         <div className={shared.section}>
           <div className={shared.sectionHeader}>
             Needs you
@@ -157,7 +256,45 @@ export function HomeDashboard() {
             </Button>
           )}
         </div>
-      ) : (
+      )}
+      {upNext.top.length > 0 && (
+        <div className={shared.section}>
+          <div className={shared.sectionHeader}>
+            Up next
+            {onOpenPaletteView && (
+              <Button
+                variant="link"
+                className={`${shared.sectionLink} ${styles.sectionLink}`}
+                onClick={() => onOpenPaletteView(allIssuesView)}
+              >
+                All issues
+              </Button>
+            )}
+          </div>
+          {upNext.top.map((row) => (
+            <Button
+              key={`${row.issue.source}:${row.issue.url}`}
+              variant="ghost"
+              className={`${shared.action} ${styles.row}`}
+              onClick={() => void handleUpNextClick(row)}
+            >
+              <span className={shared.actionIcon} style={{ color: "var(--accent)" }}>
+                <CircleDot size={16} />
+              </span>
+              <span className={`${shared.actionLabel} ${styles.label}`}>
+                <span className={styles.labelDim}>{row.issue.identifier}</span> {row.issue.title}
+              </span>
+              <span className={styles.meta}>
+                <span className={styles.proj} style={projectColorStyle(row.color)}>
+                  {row.entryName}
+                </span>
+                <span className={styles.hoverHint}>Start agent ↵</span>
+              </span>
+            </Button>
+          ))}
+        </div>
+      )}
+      {needsYou.length === 0 && upNext.top.length === 0 && (
         <div className={styles.clearline}>
           <span className={shared.actionIcon} style={{ color: "var(--green)" }}>
             <Check size={16} />
@@ -165,18 +302,10 @@ export function HomeDashboard() {
           Nothing needs you
         </div>
       )}
-      {hasSummary && (
+      {summaryParts.length > 0 && (
         <div className={styles.summary}>
-          {runningAgents > 0 && (
-            <span>
-              <b>{runningAgents}</b> agent{runningAgents === 1 ? "" : "s"} running
-            </span>
-          )}
-          {runningAgents > 0 && openPrs > 0 && <span>·</span>}
-          {openPrs > 0 && (
-            <span>
-              <b>{openPrs}</b> open PR{openPrs === 1 ? "" : "s"}
-            </span>
+          {summaryParts.flatMap((part, i) =>
+            i === 0 ? [part] : [<span key={`sep-${i}`}>·</span>, part],
           )}
         </div>
       )}

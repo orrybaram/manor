@@ -4,15 +4,21 @@ import Terminal from "lucide-react/dist/esm/icons/terminal";
 import { useAppStore } from "../../store/app-store";
 import { EmptyStateShell, type ActionItem } from "./EmptyStateShell";
 import { HomeDashboard } from "./HomeDashboard/HomeDashboard";
+import type { NewWorkspaceHandler } from "../../lib/start-issue-work";
+import type { PaletteView } from "../command-palette/types";
 
 type HomeEmptyStateProps = {
   /** Boots the configured home harness in a fresh tab (⌘N). */
   onNewAgent: () => void;
+  /** Opens the New Workspace dialog — Up next starts work on an issue with it. */
+  onNewWorkspace?: NewWorkspaceHandler;
+  /** Opens the palette on a view — Up next's "All issues" link. */
+  onOpenPaletteView?: (view: PaletteView) => void;
 };
 
 /** Shown when the home surface has no tabs open. */
 export function HomeEmptyState(props: HomeEmptyStateProps) {
-  const { onNewAgent } = props;
+  const { onNewAgent, onNewWorkspace, onOpenPaletteView } = props;
 
   const addTab = useAppStore((s) => s.addTab);
 
@@ -43,7 +49,7 @@ export function HomeEmptyState(props: HomeEmptyStateProps) {
 
   return (
     <EmptyStateShell actions={actions} testId="home-view">
-      <HomeDashboard />
+      <HomeDashboard onNewWorkspace={onNewWorkspace} onOpenPaletteView={onOpenPaletteView} />
     </EmptyStateShell>
   );
 }

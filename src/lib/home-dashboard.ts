@@ -6,7 +6,7 @@
  * components wire store state into these; they own no state of their own.
  */
 
-import type { AgentInfo, PaneAgentStatus } from "../electron.d";
+import type { AgentInfo, GitHubIssue, LinearIssue, PaneAgentStatus } from "../electron.d";
 import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
 import type { TopLevelEntry } from "../utils/sidebar-items";
 import { prReadiness } from "./pr-readiness";
@@ -280,6 +280,68 @@ export function rankUpNext(
   });
 }
 
+/**
+ * The member project a top-level entry is read through: the project itself,
+ * or for a linked group the `lastUsedHostId` member (else the first). Up next
+ * queries a group once through it, and its card shows that member's path.
+ */
+export function primaryMember(entry: TopLevelEntry<ProjectInfo>): ProjectInfo | undefined {
+  if (entry.kind === "project") return entry.project;
+  return (
+    entry.sections.find((s) => s.project.hostId === entry.group.lastUsedHostId)?.project ??
+    entry.sections[0]?.project
+  );
+}
+
+/** A `gh issue list` result as an Up next candidate under `projectKey`. */
+export function upNextFromGitHub(issue: GitHubIssue, projectKey: string): UpNextIssue {
+  return {
+    source: "github",
+    projectKey,
+    number: issue.number,
+    identifier: `#${issue.number}`,
+    title: issue.title,
+    url: issue.url,
+    labels: issue.labels.map((l) => l.name),
+    raw: issue,
+  };
+}
+
+/** A Linear "my issues" result as an Up next candidate under `projectKey`. */
+export function upNextFromLinear(issue: LinearIssue, projectKey: string): UpNextIssue {
+  return {
+    source: "linear",
+    projectKey,
+    identifier: issue.identifier,
+    title: issue.title,
+    url: issue.url,
+    labels: issue.labels.map((l) => l.name),
+    raw: issue,
+  };
+}
+
+/**
+ * Up next's list: drops issues already linked to a workspace (`isIssueLinked`)
+ * and duplicates (two unlinked projects on the same repo list the same issue —
+ * the first, in sidebar order, wins), then ranks with `rankUpNext`.
+ */
+export function upNextList(
+  candidates: readonly UpNextIssue[],
+  projects: readonly ProjectInfo[],
+  projectOrder: readonly string[],
+): UpNextIssue[] {
+  const ranked = rankUpNext(
+    candidates.filter((issue) => !isIssueLinked(issue, projects)),
+    projectOrder,
+  );
+  const seen = new Set<string>();
+  return ranked.filter((issue) => {
+    if (seen.has(issue.url)) return false;
+    seen.add(issue.url);
+    return true;
+  });
+}
+
 // ── Project cards ──
 
 export interface ProjectCardSummary {
@@ -357,11 +419,7 @@ export function projectCardSummary(
   const name = entry.kind === "project" ? entry.project.name : entry.group.name;
   const color = members[0]?.color ?? null;
   const hostLabel = members.map((p) => deps.hostName(p.hostId)).join(" + ");
-  const path =
-    entry.kind === "project"
-      ? entry.project.path
-      : (entry.sections.find((s) => s.project.hostId === entry.group.lastUsedHostId)?.project
-          .path ?? entry.sections[0]?.project.path ?? "");
+  const path = primaryMember(entry)?.path ?? "";
 
   return {
     key: entry.key,

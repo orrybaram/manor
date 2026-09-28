@@ -420,13 +420,6 @@
   white-space: nowrap;
 }
 
-.folderCount {
-  flex-shrink: 0;
-  font-size: 10px;
-  color: var(--text-dim);
-  font-variant-numeric: tabular-nums;
-}
-
 .folderActive {
   color: var(--project-color, var(--accent));
 }

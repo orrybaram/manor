@@ -249,7 +249,6 @@ export function FolderItem(props: FolderItemProps) {
                 <span className={styles.folderName} title={folder.name}>
                   {folder.name}
                 </span>
-                <span className={styles.folderCount}>{workspaces.length}</span>
                 {/* Same rule as a collapsed project: idle shows nothing. */}
                 {collapsed && indicator && <WorkspaceIndicatorDot indicator={indicator} />}
               </>

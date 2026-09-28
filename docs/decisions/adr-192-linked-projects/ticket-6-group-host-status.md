@@ -1,6 +1,6 @@
 ---
 title: Host status for linked groups
-status: todo
+status: done
 priority: medium
 assignee: opus
 blocked_by: [1]
@@ -23,3 +23,16 @@ issue #242 (layer 1, ADR-191).
 - `src/components/statusbar/StatusBar/HostStatusIndicator.tsx`
 - `src/components/tabbar/TabBar/TabBar.tsx`
 - `src/hooks/useProjectAgentStatus.ts`
+
+## Notes
+
+- Keeping an offline section's last known workspaces needed a change in main:
+  `buildProjectInfo` fell back to the main checkout alone whenever git could
+  not list worktrees, which is always the case while a remote host is away.
+  `ProjectManager` now remembers each remote project's last successful listing
+  (`LastKnownWorkspaces` in `electron/projects/project-info.ts`, keyed by
+  project, host and path) and serves it while the host is away. It is in
+  memory only, so a host that is away from launch on still shows just its
+  main checkout. Local projects are unchanged.
+- The offline section is dimmed by a wrapper in `ProjectGroupItem`, so
+  `ProjectItem` is not touched.

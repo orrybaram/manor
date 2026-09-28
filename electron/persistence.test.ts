@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as crypto from "node:crypto";
 import { ProjectManager } from "./persistence";
 import type { GitBackend } from "./backend/types";
+import type { ProjectHost } from "./projects/types";
 
 vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
@@ -1106,6 +1107,69 @@ describe("ProjectManager", () => {
         (call) => call[1][0] === "symbolic-ref",
       ).length;
       expect(callsAfterSecond).toBe(callsAfterFirst);
+    });
+  });
+
+  describe("last known workspaces while a host is away (ADR-192 §5)", () => {
+    function makeHosts() {
+      const up = { box: true, local: true } as Record<string, boolean>;
+      const listings: Record<string, Array<{ path: string; branch: string; isMain: boolean }>> = {
+        box: [
+          { path: "/home/me/app", branch: "main", isMain: true },
+          { path: "/home/me/.wt/app-feat", branch: "feat", isMain: false },
+        ],
+        local: [
+          { path: "/Users/me/app", branch: "main", isMain: true },
+          { path: "/Users/me/.wt/app-feat", branch: "feat", isMain: false },
+        ],
+      };
+      const gitFor = (hostId: string) =>
+        ({
+          exec: vi.fn().mockRejectedValue(new Error("no git here")),
+          worktreeList: vi.fn(async () => {
+            if (!up[hostId]) throw new Error(`${hostId} is not connected`);
+            return listings[hostId];
+          }),
+        }) as unknown as GitBackend;
+      const gits = { box: gitFor("box"), local: gitFor("local") } as Record<string, GitBackend>;
+      const facts = { readFile: () => Promise.reject(new Error("none")), join: path.join };
+      const resolver = (hostId: string) =>
+        ({ git: gits[hostId], facts, shell: {} }) as unknown as ProjectHost;
+      return { up, resolver };
+    }
+
+    it("keeps a remote project's workspaces when its host drops", async () => {
+      const { up, resolver } = makeHosts();
+      const mgr = new ProjectManager(resolver, tmpDir);
+      await mgr.addProject("App", "/home/me/app", "box");
+      expect((await mgr.getProjects())[0].workspaces).toHaveLength(2);
+
+      up.box = false;
+      const [offline] = await mgr.getProjects();
+      expect(offline.workspaces.map((w) => w.path)).toEqual([
+        "/home/me/app",
+        "/home/me/.wt/app-feat",
+      ]);
+    });
+
+    it("falls back to the main checkout for a host away since launch", async () => {
+      const { up, resolver } = makeHosts();
+      up.box = false;
+      const mgr = new ProjectManager(resolver, tmpDir);
+      await mgr.addProject("App", "/home/me/app", "box");
+      const [offline] = await mgr.getProjects();
+      expect(offline.workspaces.map((w) => w.path)).toEqual(["/home/me/app"]);
+    });
+
+    it("does not keep a local project's workspaces when git fails", async () => {
+      const { up, resolver } = makeHosts();
+      const mgr = new ProjectManager(resolver, tmpDir);
+      await mgr.addProject("App", "/Users/me/app", "local");
+      expect((await mgr.getProjects())[0].workspaces).toHaveLength(2);
+
+      up.local = false;
+      const [broken] = await mgr.getProjects();
+      expect(broken.workspaces.map((w) => w.path)).toEqual(["/Users/me/app"]);
     });
   });
 });

@@ -15,6 +15,7 @@
  */
 
 import type { HostStatusInfo } from "../store/host-store";
+import { normalizeHostId } from "./host-id";
 
 export type HostTone = "ok" | "warn" | "error";
 
@@ -149,7 +150,55 @@ export function isPaneInputBlocked(
   hostId: string | undefined,
   hosts: readonly HostStatusInfo[],
 ): boolean {
+  return isHostOffline(hostId, hosts);
+}
+
+/**
+ * Whether host `hostId` is known to be away: main reported it and it is not
+ * connected. This machine (a missing id) and a host main has not reported
+ * yet are never offline — the same reading `describeHost` gives them.
+ */
+export function isHostOffline(
+  hostId: string | null | undefined,
+  hosts: readonly HostStatusInfo[],
+): boolean {
   if (!hostId) return false;
   const host = hosts.find((h) => h.hostId === hostId);
   return host !== undefined && host.status !== "connected";
+}
+
+/**
+ * A linked group's host state, from its members' hosts (ADR-192 §5):
+ * `connected` when no member's host is away, `offline` when every member's
+ * is, and `partially-offline` otherwise — one host dropped while the others
+ * work, which must not read like a project that is wholly unreachable.
+ */
+export type GroupHostState = "connected" | "partially-offline" | "offline";
+
+/**
+ * The state of a group whose members live on `memberHostIds` (a missing id
+ * is this machine). An empty group is `connected`: nothing is away.
+ */
+export function groupHostState(
+  memberHostIds: readonly (string | null | undefined)[],
+  hosts: readonly HostStatusInfo[],
+): GroupHostState {
+  const offline = memberHostIds.filter((id) => isHostOffline(id, hosts)).length;
+  if (offline === 0) return "connected";
+  return offline === memberHostIds.length ? "offline" : "partially-offline";
+}
+
+/**
+ * The host a tab's "different host" badge names, or null for no badge.
+ * `tabHostId` is the remote host the tab's panes run on (null for panes on
+ * this machine); `workspaceHostId` is the host of the workspace the tab
+ * belongs to — not its project's, which in a linked group (ADR-192) is only
+ * one of several. The badge shows only when the two differ.
+ */
+export function tabBadgeHostId(
+  tabHostId: string | null | undefined,
+  workspaceHostId: string | null | undefined,
+): string | null {
+  if (!tabHostId) return null;
+  return tabHostId === normalizeHostId(workspaceHostId) ? null : tabHostId;
 }

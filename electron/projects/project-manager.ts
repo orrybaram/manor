@@ -20,7 +20,12 @@ import { moveProjectToHost, planRemoteClone, runRemoteClone, switchProjectHost }
 import { PathRouter } from "./path-router";
 import type { WorkspaceKeyOwner } from "../../src/lib/workspace-key";
 import * as groups from "./project-groups";
-import { buildProjectInfo, listGitWorkspaces, seedCommands } from "./project-info";
+import {
+  buildProjectInfo,
+  listGitWorkspaces,
+  seedCommands,
+  type LastKnownWorkspaces,
+} from "./project-info";
 import { StateStore } from "./state-store";
 import * as folders from "./workspace-folders";
 import * as worktrees from "./worktrees";
@@ -46,6 +51,8 @@ export class ProjectManager {
   private readonly origins: OriginLinks;
   private readonly hostFor: ProjectHostResolver;
   private resyncDone = false;
+  /** Remote projects' last workspace listings, for while a host is away. */
+  private readonly lastKnownWorkspaces: LastKnownWorkspaces = new Map();
 
   /**
    * `hosts` resolves a host id to its backend — `BackendRegistry.get` in
@@ -88,6 +95,7 @@ export class ProjectManager {
       this.hostFor(p.hostId).git,
       this.paths,
       groups.groupOf(this.store.state, p.id),
+      this.lastKnownWorkspaces,
     );
   }
 

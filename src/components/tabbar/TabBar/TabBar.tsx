@@ -106,7 +106,7 @@ export function TabBar(props: TabBarProps) {
   const tabs = useMemo(() => panel?.tabs ?? [], [panel?.tabs]);
   const layoutKey = useAppStore((s) => workspaceKey ?? selectActiveWorkspaceKey(s));
   // Tabs running elsewhere are badged against the workspace's own host.
-  const projectHostId = layoutKey ? parseWorkspaceKey(layoutKey).hostId : undefined;
+  const layoutHostId = layoutKey ? parseWorkspaceKey(layoutKey).hostId : undefined;
   const selectedTabId = panel?.selectedTabId ?? null;
   const selectTab = useAppStore((s) => s.selectTab);
   const addTab = useAppStore((s) => s.addTab);
@@ -589,7 +589,7 @@ export function TabBar(props: TabBarProps) {
                   key={tab.id}
                   tabId={tab.id}
                   rootNode={tab.rootNode}
-                  projectHostId={projectHostId}
+                  workspaceHostId={layoutHostId}
                   isActive={tab.id === selectedTabId}
                   isPinned={isPinned}
                   canClose={true}

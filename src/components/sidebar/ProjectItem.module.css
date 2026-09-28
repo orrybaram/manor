@@ -483,3 +483,19 @@
   align-items: center;
   color: var(--text-dim);
 }
+
+/* Some or all of the group's hosts are away (ADR-192 §5). */
+.groupLinkIconWarn {
+  color: var(--yellow, #d29922);
+}
+
+/* Every host of the group is away. */
+.groupNameOffline {
+  opacity: 0.6;
+}
+
+/* An away host's section: its last known workspaces stay listed, dimmed. The
+   header, with the host's state chip, stays at full strength. */
+.sectionOffline .workspaces {
+  opacity: 0.5;
+}

@@ -7,8 +7,9 @@ import type {
   SelectionScope,
   TopLevelEntry,
 } from "../../utils/sidebar-items";
-import { useWorkspacesAgentStatus } from "../../hooks/useProjectAgentStatus";
-import { workspaceKey } from "../../lib/workspace-key";
+import { useGroupAgentStatus } from "../../hooks/useProjectAgentStatus";
+import { useHostStore } from "../../store/host-store";
+import { groupHostState, isHostOffline, type GroupHostState } from "../../lib/host-status";
 import { projectColorStyle, useProjectHeaderRow } from "../../hooks/useProjectHeaderRow";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
@@ -51,14 +52,6 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
   const collapsedProjectIds = useProjectStore((s) => s.collapsedProjectIds);
   const header = useProjectHeaderRow(collapsed, onToggleCollapsed);
 
-  // Every host section's workspaces, each on its own host (ADR-191).
-  const allWorkspaceKeys = useMemo(
-    () =>
-      sections.flatMap(({ project }) =>
-        project.workspaces.map((ws) => workspaceKey(project.hostId, ws.path)),
-      ),
-    [sections],
-  );
   // One selection across every host section, keyed by group id: a range or
   // toggle can cross from one section into the next, and each section reads
   // its own share back out of it.
@@ -74,7 +67,12 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
     }),
     [group.id, sections, collapsedFolderKeys, collapsedProjectIds],
   );
-  const { status, pulse } = useWorkspacesAgentStatus(allWorkspaceKeys);
+  // Agents from every host section, each on its own host (ADR-191).
+  const members = useMemo(() => sections.map((section) => section.project), [sections]);
+  const { status, pulse } = useGroupAgentStatus(members);
+  const hosts = useHostStore((s) => s.hosts);
+  const hostState = groupHostState(members.map((m) => m.hostId), hosts);
+  const linkLabel = groupLinkLabel(hostState);
   const indicator = toWorkspaceIndicator(status, pulse);
   // Shared settings live on the group from ADR-192 ticket 2; until then the
   // first member with a color stands for the group.
@@ -85,6 +83,7 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
       className={`${styles.project} ${isSelected ? styles.projectSelected : ""}`}
       data-testid="project-group"
       data-group-id={group.id}
+      data-host-state={hostState}
       style={projectColorStyle(color)}
     >
       <ContextMenu.Root>
@@ -102,12 +101,22 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
             style={{ touchAction: "none" }}
           >
             <ProjectChevron expanded={!collapsed} />
-            <span className={`${styles.projectName} ${styles.projectNameRemote}`}>
+            <span
+              className={`${styles.projectName} ${styles.projectNameRemote} ${
+                hostState === "offline" ? styles.groupNameOffline : ""
+              }`}
+            >
               {group.name}
             </span>
             <span className={styles.remoteHostIconSlot}>
-              <Tooltip label="Linked across hosts" side="right">
-                <span className={styles.groupLinkIcon} aria-label="Linked across hosts">
+              <Tooltip label={linkLabel} side="right">
+                <span
+                  className={`${styles.groupLinkIcon} ${
+                    hostState === "connected" ? "" : styles.groupLinkIconWarn
+                  }`}
+                  aria-label={linkLabel}
+                  data-testid="project-group-host-state"
+                >
                   <Link2 size={11} aria-hidden />
                 </span>
               </Tooltip>
@@ -131,13 +140,35 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
       </ContextMenu.Root>
       {!collapsed && (
         <div className={styles.groupSections}>
-          {sections.map((section) => (
-            <React.Fragment key={section.project.id}>
-              {renderSection(section, selectionScope)}
-            </React.Fragment>
-          ))}
+          {sections.map((section) => {
+            // An away host's section keeps its last known workspaces, dimmed;
+            // the other sections stay as they are (ADR-192 §5).
+            const offline = isHostOffline(section.project.hostId, hosts);
+            return (
+              <div
+                key={section.project.id}
+                className={offline ? styles.sectionOffline : undefined}
+                data-testid="group-section"
+                data-host-offline={offline || undefined}
+              >
+                {renderSection(section, selectionScope)}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
   );
+}
+
+/** The link icon's label, naming the group's host state when not all up. */
+function groupLinkLabel(state: GroupHostState): string {
+  switch (state) {
+    case "offline":
+      return "Linked across hosts · Offline";
+    case "partially-offline":
+      return "Linked across hosts · Partially offline";
+    default:
+      return "Linked across hosts";
+  }
 }

@@ -23,7 +23,7 @@ import {
   openContextMenuFromKeyboard,
 } from "../../lib/keyboard-context-menu";
 import { HostIndicator } from "../hosts/HostIndicator";
-import { LOCAL_HOST_ID } from "../../lib/hosts";
+import { tabBadgeHostId } from "../../lib/host-status";
 import { TabAgentDot } from "./TabAgentDot";
 import styles from "./TabBar/TabBar.module.css";
 
@@ -121,11 +121,11 @@ type TabButtonProps = {
   /** The tab's pane tree — the remote-host badge is derived from its panes. */
   rootNode: PaneNode;
   /**
-   * The host the tab's project lives on. The tab only shows a host badge
+   * The host the tab's workspace lives on. The tab only shows a host badge
    * when its panes run somewhere else — a pane opened before the project
-   * moved — since the sidebar and status bar already name the project's.
+   * moved — since the sidebar and status bar already name the workspace's.
    */
-  projectHostId?: string;
+  workspaceHostId?: string;
   isActive: boolean;
   isPinned: boolean;
   canClose: boolean;
@@ -142,7 +142,7 @@ type TabButtonProps = {
 };
 
 export function TabButton(props: TabButtonProps) {
-  const { tabId, rootNode, projectHostId = LOCAL_HOST_ID, isActive, isPinned, canClose, isDragging, isDropTarget, draggable, onSelect, onClose, onTogglePin, onDragStart, onDrag, onDragEnd, buttonRef } = props;
+  const { tabId, rootNode, workspaceHostId, isActive, isPinned, canClose, isDragging, isDropTarget, draggable, onSelect, onClose, onTogglePin, onDragStart, onDrag, onDragEnd, buttonRef } = props;
 
   const title = useTabTitle(tabId);
   const { contentType, favicon, audioPlaying, audioMuted, focusedPaneId } = useAppStore(useShallow((s) => {
@@ -185,8 +185,7 @@ export function TabButton(props: TabButtonProps) {
   });
   const [faviconError, setFaviconError] = useState(false);
   const tabHostId = useRemotePaneStore(selectTabRemoteHostId(rootNode));
-  const foreignHostId =
-    tabHostId && tabHostId !== projectHostId ? tabHostId : null;
+  const foreignHostId = tabBadgeHostId(tabHostId, workspaceHostId);
   const isBrowser = contentType === "browser";
   const isDiff = contentType === "diff";
   const contentTypeClass = isDiff ? styles.tabDiff : isBrowser ? styles.tabBrowser : styles.tabTerminal;

@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   describeHost,
+  groupHostState,
+  isHostOffline,
   isPaneInputBlocked,
   secondsUntilRetry,
+  tabBadgeHostId,
 } from "../host-status";
 import type { HostStatusInfo } from "../../store/host-store";
 
@@ -137,5 +140,74 @@ describe("isPaneInputBlocked", () => {
     expect(isPaneInputBlocked(undefined, hosts)).toBe(false);
     expect(isPaneInputBlocked("up", hosts)).toBe(false);
     expect(isPaneInputBlocked("unknown", hosts)).toBe(false);
+  });
+});
+
+describe("isHostOffline", () => {
+  const hosts = [
+    host({ status: "error" }),
+    host({ hostId: "up", status: "connected" }),
+    host({ hostId: "local", spec: null, status: "connected" }),
+  ];
+
+  it("is true only for a reported remote host that is not connected", () => {
+    expect(isHostOffline("box", hosts)).toBe(true);
+    expect(isHostOffline("up", hosts)).toBe(false);
+    expect(isHostOffline("local", hosts)).toBe(false);
+  });
+
+  it("never marks this machine or an unreported host offline", () => {
+    expect(isHostOffline(undefined, hosts)).toBe(false);
+    expect(isHostOffline(null, hosts)).toBe(false);
+    expect(isHostOffline("unknown", hosts)).toBe(false);
+  });
+});
+
+describe("groupHostState", () => {
+  const hosts = [
+    host({ hostId: "box", status: "reconnecting" }),
+    host({ hostId: "vm", status: "error" }),
+    host({ hostId: "up", status: "connected" }),
+  ];
+
+  it("is connected when every member's host is up", () => {
+    expect(groupHostState(["local", "up"], hosts)).toBe("connected");
+    expect(groupHostState([undefined, "up"], hosts)).toBe("connected");
+  });
+
+  it("is offline when every member's host is away", () => {
+    expect(groupHostState(["box", "vm"], hosts)).toBe("offline");
+  });
+
+  it("is partially offline when some but not all hosts are away", () => {
+    expect(groupHostState(["local", "box"], hosts)).toBe("partially-offline");
+    expect(groupHostState(["up", "box", "vm"], hosts)).toBe("partially-offline");
+  });
+
+  it("treats a connecting host as away and an unreported one as up", () => {
+    const connecting = [host({ hostId: "box", status: "connecting" })];
+    expect(groupHostState(["local", "box"], connecting)).toBe("partially-offline");
+    expect(groupHostState(["local", "new"], connecting)).toBe("connected");
+  });
+
+  it("is connected for an empty member list", () => {
+    expect(groupHostState([], hosts)).toBe("connected");
+  });
+});
+
+describe("tabBadgeHostId", () => {
+  it("names the pane's host when it differs from the workspace's", () => {
+    expect(tabBadgeHostId("box", "local")).toBe("box");
+    expect(tabBadgeHostId("box", "vm")).toBe("box");
+    expect(tabBadgeHostId("box", undefined)).toBe("box");
+  });
+
+  it("shows no badge when the pane runs on the workspace's host", () => {
+    expect(tabBadgeHostId("box", "box")).toBeNull();
+  });
+
+  it("shows no badge for a pane on this machine", () => {
+    expect(tabBadgeHostId(null, "box")).toBeNull();
+    expect(tabBadgeHostId(undefined, "local")).toBeNull();
   });
 });

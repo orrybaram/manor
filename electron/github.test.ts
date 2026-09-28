@@ -18,6 +18,8 @@ const { mockState } = vi.hoisted(() => {
         stderr?: string;
         error?: Error & { stdout?: string; stderr?: string; code?: string };
       }>,
+      /** Args of every execFile call since the last `setupExecFileCalls`. */
+      calls: [] as string[][],
     },
   };
 });
@@ -34,10 +36,11 @@ vi.mock("node:child_process", async () => {
   // The callback-based execFile mock — consumed by the promisify.custom below
   function execFile(
     _cmd: string,
-    _args: string[],
+    args: string[],
     _opts: object,
     cb: ExecFileCb,
   ): void {
+    mockState.calls.push(args);
     const spec = mockState.queue.shift();
     if (!spec) {
       cb(new Error("unexpected execFile call — queue exhausted"), "", "");
@@ -95,6 +98,7 @@ type CallSpec = {
 
 function setupExecFileCalls(calls: CallSpec[]) {
   mockState.queue = [...calls];
+  mockState.calls = [];
 }
 
 function success(stdout: string, stderr = ""): CallSpec {
@@ -619,6 +623,14 @@ describe("GitHubManager", () => {
 
       const result = await manager.getIssueDetail("/repo", 10);
       expect(result).toEqual(detail);
+    });
+
+    it("looks the issue up by URL when one is given", async () => {
+      const url = "https://github.com/other/repo/issues/10";
+      setupExecFileCalls([success(JSON.stringify({ number: 10, url }))]);
+
+      await manager.getIssueDetail("/repo", 10, url);
+      expect(mockState.calls[0]).toContain(url);
     });
 
     it("throws on failure (no try/catch in this method)", async () => {

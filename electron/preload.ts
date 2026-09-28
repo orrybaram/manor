@@ -460,8 +460,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       limit?: number,
       state?: "open" | "closed" | "all",
     ) => ipcRenderer.invoke("github:getAllIssues", repoPath, limit, state),
-    getIssueDetail: (repoPath: string, issueNumber: number) =>
-      ipcRenderer.invoke("github:getIssueDetail", repoPath, issueNumber),
+    getIssueDetail: (repoPath: string, issueNumber: number, issueUrl?: string) =>
+      ipcRenderer.invoke("github:getIssueDetail", repoPath, issueNumber, issueUrl),
     assignIssue: (repoPath: string, issueNumber: number) =>
       ipcRenderer.invoke("github:assignIssue", repoPath, issueNumber),
     closeIssue: (repoPath: string, issueNumber: number) =>

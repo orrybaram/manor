@@ -216,6 +216,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
             const detail = await window.electronAPI.github.getIssueDetail(
               repoPath,
               number,
+              issue.url,
             );
             results[issue.id] = { source: "github", data: detail };
           } catch {
@@ -362,6 +363,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
   }, [onClose]);
 
   const selectedIsGitHub = dialogIssueId?.startsWith("gh-") ?? false;
+  const selectedIssueUrl = issues.find((i) => i.id === dialogIssueId)?.url;
 
   return (
     <>
@@ -419,6 +421,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
                     dialogIssueId.replace("gh-", ""),
                     10,
                   )}
+                  issueUrl={selectedIssueUrl}
                   onBack={handleDialogClose}
                   onClose={handleCloseAll}
                   onNewWorkspace={onNewWorkspace}

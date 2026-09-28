@@ -38,8 +38,8 @@ export function register(deps: IpcDeps): void {
 
   ipcMain.handle(
     "github:getIssueDetail",
-    (_event, repoPath: string, issueNumber: number) => {
-      return githubManager.getIssueDetail(repoPath, issueNumber);
+    (_event, repoPath: string, issueNumber: number, issueUrl?: string) => {
+      return githubManager.getIssueDetail(repoPath, issueNumber, issueUrl);
     },
   );
 

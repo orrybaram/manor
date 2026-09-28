@@ -11,8 +11,7 @@
 import { BrowserWindow } from "electron";
 import type { AgentInfo, AgentManager } from "../agent-persistence";
 import { getConnector } from "../agent-connectors";
-import { proxyToRenderer } from "../renderer-bridge";
-import { withWorkspaceHost } from "./workspace-host";
+import { proxyWithWorkspaceHost } from "./workspace-host";
 import { interruptSequenceFor } from "../harness-interrupt";
 import {
   getUnseenFlagsForAgent,
@@ -300,11 +299,11 @@ export const agentRoutes: Route[] = [
         return;
       }
       const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
-      await proxyToRenderer(
-        json,
-        "start-agent",
-        withWorkspaceHost(deps, { workspacePath, prompt, hostId: body.hostId }),
-      );
+      await proxyWithWorkspaceHost(deps, json, "start-agent", {
+        workspacePath,
+        prompt,
+        hostId: body.hostId,
+      });
     },
   },
 

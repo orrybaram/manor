@@ -165,46 +165,45 @@ function lastSavedKey(): string {
 }
 
 // Main leaves layout.json at version 2 while a remote host can't say what it
-// owns. Until the migration runs, the workspace it will give a bare path to
-// reads and saves under that path, so no empty qualified entry can later
-// compete with the legacy one.
+// owns. Each workspace still reads and saves under its own key — a local one
+// under its bare path, as before — never under a key picked from the project
+// list, which may not match what main's migration later sees.
 describe("a layout file not yet migrated (v2)", () => {
-  const REMOTE_ONLY = "/srv/worktrees/app/fix";
-
-  beforeEach(() => {
-    vi.useFakeTimers();
-    useProjectStore.setState({
-      projects: [
-        project("p-local", "local"),
-        { ...project("p-box", "box"), workspaces: [
-          { path: SHARED, branch: "feat", isMain: false, name: null },
-          { path: REMOTE_ONLY, branch: "fix", isMain: false, name: null },
-        ] },
-      ],
-      selectedProjectIndex: 0,
-    } as never);
-  });
+  beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it("restores a remote workspace's legacy layout and saves it under its bare path", async () => {
-    await loadLayout(2, [persistedWorkspace(REMOTE_ONLY, "legacy-pane")]);
-
-    useAppStore.getState().setActiveWorkspace(REMOTE_ONLY, "box");
-
-    expect(paneIds(workspaceKey("box", REMOTE_ONLY))).toEqual(["legacy-pane"]);
-    expect(lastSavedKey()).toBe(REMOTE_ONLY);
-  });
-
-  it("gives a path both hosts have to local, and the other host its own key", async () => {
+  it("gives the legacy layout to the local workspace and the remote one its own key", async () => {
+    // The re-review's scenario: the remote project's workspaces haven't
+    // loaded yet, and it shares a path with a local project.
+    useProjectStore.setState({
+      projects: [project("p-local", "local"), { ...project("p-box", "box"), workspaces: [] }],
+      selectedProjectIndex: 0,
+    } as never);
     await loadLayout(2, [persistedWorkspace(SHARED, "legacy-pane")]);
 
     useAppStore.getState().setActiveWorkspace(SHARED, "box");
     expect(paneIds(BOX)).toEqual([]);
-    // Not the bare path: that is the local workspace's legacy layout.
     expect(lastSavedKey()).toBe(BOX);
 
     useAppStore.getState().setActiveWorkspace(SHARED, "local");
     expect(paneIds(SHARED)).toEqual(["legacy-pane"]);
+    expect(lastSavedKey()).toBe(SHARED);
+  });
+
+  it("keeps the same keys when the remote project's workspaces load mid-session", async () => {
+    useProjectStore.setState({
+      projects: [project("p-local", "local"), { ...project("p-box", "box"), workspaces: [] }],
+      selectedProjectIndex: 0,
+    } as never);
+    await loadLayout(2, [persistedWorkspace(SHARED, "legacy-pane")]);
+    useAppStore.getState().setActiveWorkspace(SHARED, "local");
+    expect(lastSavedKey()).toBe(SHARED);
+
+    useProjectStore.setState({
+      projects: [project("p-local", "local"), project("p-box", "box")],
+    } as never);
+    useAppStore.getState().addTab();
+
     expect(lastSavedKey()).toBe(SHARED);
   });
 });

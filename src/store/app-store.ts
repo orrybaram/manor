@@ -45,7 +45,7 @@ import {
   type HostId,
 } from "../lib/hosts";
 import {
-  migrateWorkspaceKey,
+  isRemoteWorkspaceKey,
   parseWorkspaceKey,
   workspaceKey,
   type WorkspaceKey,
@@ -721,33 +721,28 @@ let _cachedLayout: PersistedLayout | null = null;
 /** The layout file version from which workspaces are keyed by `WorkspaceKey`. */
 const KEYED_LAYOUT_VERSION = 3;
 
-/**
- * The key `layout.json` holds workspace `key` under. Main migrates the file
- * to host-qualified keys before handing it over (ADR-191), but leaves it at
- * version 2, keyed by bare path, while a remote host can't say what it owns.
- * Until then the workspace the migration will give a bare path to — the one
- * on the host of the project that owns it — is read and saved under that
- * bare path, as before. Any other host's workspace at the path keeps its
- * qualified key, which the migration leaves alone. So no layout is saved
- * under a qualified key that would later compete with the legacy one, and
- * two hosts never restore the same legacy panes.
+/*
+ * `layout.json` holds each workspace under its own key, whatever the file's
+ * version (ADR-191). A local key is the bare path, so while main leaves the
+ * file at version 2 (a remote host couldn't say what it owns) a local
+ * workspace reads and saves its legacy layout exactly as before, and a
+ * remote one uses its qualified key. The key never depends on the project
+ * list, so it can't drift from what main's migration later decides; the
+ * migration never gives a bare entry to a host that already has one of its
+ * own (`migrateLayoutV2toV3`). A remote workspace's legacy layout is found
+ * once the file is migrated.
  */
-function persistedKey(key: WorkspaceKey): string {
-  const legacy = _cachedLayout !== null && _cachedLayout.version < KEYED_LAYOUT_VERSION;
-  if (!legacy) return key;
-  const { path } = parseWorkspaceKey(key);
-  const owners = useProjectStore.getState().projects;
-  return migrateWorkspaceKey(path, owners) === key ? path : key;
-}
 
 /**
  * Move the not-yet-opened layouts `layout.json` held under each `from` key
  * to `to`, as main's `moveLayouts` did on disk, so picking a moved workspace
- * restores it. A no-op for a bare-path (version 2) file.
+ * restores it. Like main, leaves a bare entry of a version 2 file for the
+ * migration.
  */
 function moveCachedLayout(from: WorkspaceKey, to: WorkspaceKey): void {
   const cached = _cachedLayout;
-  if (!cached || cached.version < KEYED_LAYOUT_VERSION || from === to) return;
+  if (!cached || from === to) return;
+  if (cached.version < KEYED_LAYOUT_VERSION && !isRemoteWorkspaceKey(from)) return;
   if (cached.workspaces.some((w) => w.workspacePath === to)) return;
   _cachedLayout = {
     ...cached,
@@ -877,7 +872,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Check persisted layout for this workspace
       if (_cachedLayout) {
         const persisted = _cachedLayout.workspaces.find(
-          (w) => w.workspacePath === persistedKey(key),
+          (w) => w.workspacePath === key,
         );
         if (persisted) {
           const restored = restoreWorkspaceState(persisted);
@@ -3564,7 +3559,7 @@ function flushLayoutSave(): void {
   }
 
   const persisted: PersistedWorkspace = {
-    workspacePath: persistedKey(key),
+    workspacePath: key,
     panelTree: layout.panelTree,
     panels: persistedPanels,
     activePanelId: layout.activePanelId,

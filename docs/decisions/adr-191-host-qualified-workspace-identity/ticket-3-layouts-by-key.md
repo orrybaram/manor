@@ -48,10 +48,22 @@ GitHub issue #240. See ADR-191 §3.
   remote host doesn't answer within 5 seconds, the file stays at version 2
   and the migration runs again next launch: a partial owner list would send
   some paths to the wrong host for good.
-- While the file is still at version 2, the renderer reads and saves the
-  workspace the migration will give a bare path to under that bare path, and
-  any other host's workspace at that path under its qualified key. The
-  migration keeps a layout with tabs over an empty one when two entries meet.
+- While the file is still at version 2, every workspace reads and saves
+  under its own key: a local one under its bare path, as before, and a
+  remote one under its qualified key. The key never depends on the
+  renderer's project list, which can differ from the owners main's migration
+  later uses (a remote project whose workspaces haven't loaded yet, say), so
+  keys can't drift mid-session or disagree with the migration. The migration
+  gives a bare entry to its owner's host unless the file already holds a
+  qualified entry for that very workspace; then the bare entry stays local.
+  No two entries meet on one key. A remote workspace's legacy layout is
+  found once the file is migrated. A host move leaves a bare entry of a
+  version 2 file for the migration, and moves a qualified one.
+- App-commands from the control server (`/agents`, `/workspaces/active`,
+  `/tabs`) carry the workspace's host, which main names
+  (`routes/workspace-host.ts`). A request relayed from a remote host
+  (ADR-189) always gets its own host; one that names another gets the same
+  generic 403 as every relayed route (`callerMaySee`).
 - The renderer keeps `activeWorkspacePath` as a path and adds
   `activeWorkspaceHostId`; `selectActiveWorkspaceKey` combines them. Panes
   take their host from the key of the layout they are in

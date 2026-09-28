@@ -818,36 +818,69 @@ describe("LayoutPersistence", () => {
       warn.mockRestore();
     });
 
-    it("keeps the layout with tabs when a legacy and a qualified entry meet", () => {
-      const t = makeLeafTab("p1", "ds1");
-      const empty = makeV2Workspace(workspaceKey("box", "/srv/app"), [], "");
-      writeRaw({
-        version: 2,
-        workspaces: [makeV2Workspace("/srv/app", [t], t.id), empty],
-      });
-
-      persistence.migrateWorkspaceKeys(owners);
-
-      const raw = readRaw();
-      expect(raw.workspaces).toHaveLength(1);
-      expect(raw.workspaces[0].workspacePath).toBe(workspaceKey("box", "/srv/app"));
-      expect(paneIdsOf(raw.workspaces[0])).toEqual(["p1"]);
-    });
-
-    it("keeps the qualified layout when both have tabs", () => {
+    it("never gives a bare entry to a host that already has its own layout", () => {
       const legacy = makeLeafTab("legacy", "ds1");
-      const newer = makeLeafTab("newer", "ds2");
+      const boxOwn = makeLeafTab("box-own", "ds2");
       writeRaw({
         version: 2,
         workspaces: [
-          makeV2Workspace(workspaceKey("box", "/srv/app"), [newer], newer.id),
           makeV2Workspace("/srv/app", [legacy], legacy.id),
+          makeV2Workspace(workspaceKey("box", "/srv/app"), [boxOwn], boxOwn.id),
         ],
+        lastActiveWorkspacePath: "/srv/app",
       });
 
       persistence.migrateWorkspaceKeys(owners);
 
-      expect(readRaw().workspaces.map(paneIdsOf)).toEqual([["newer"]]);
+      // Both kept, each under its own key: no collision, nothing dropped.
+      const raw = readRaw();
+      expect(raw.workspaces.map((w) => [w.workspacePath, paneIdsOf(w)])).toEqual([
+        ["/srv/app", ["legacy"]],
+        [workspaceKey("box", "/srv/app"), ["box-own"]],
+      ]);
+      expect(raw.lastActiveWorkspacePath).toBe("/srv/app");
+    });
+
+    // The re-review's scenario: the renderer's project list had the remote
+    // project without its workspaces yet, while main's migration sees them.
+    // The renderer's keys never depended on that list, so the two agree.
+    it("keeps what the renderer wrote at v2 when main's owners differ from the renderer's", () => {
+      const legacy = makeLeafTab("local-legacy", "ds1");
+      const box = makeLeafTab("box-pane", "ds2");
+      writeRaw({
+        version: 2,
+        workspaces: [
+          // The local workspace, saved under its key: the bare path.
+          makeV2Workspace(SHARED, [legacy], legacy.id),
+          // The remote one, saved under its key while its project had no
+          // workspaces loaded in the renderer.
+          makeV2Workspace(workspaceKey("box", SHARED), [box], box.id),
+        ],
+      });
+      // Main's owners: only the box lists the path, so a bare-path rule
+      // alone would move the local layout onto the remote host.
+      const mainOwners: WorkspaceKeyOwner[] = [
+        { hostId: "local", path: "/home/me/app" },
+        { hostId: "box", path: "/srv/app", workspaces: [{ path: SHARED }] },
+      ];
+
+      persistence.migrateWorkspaceKeys(mainOwners);
+
+      const byKey = new Map<string, PersistedWorkspace>(
+        readRaw().workspaces.map((w) => [w.workspacePath, w]),
+      );
+      expect(paneIdsOf(byKey.get(SHARED)!)).toEqual(["local-legacy"]);
+      expect(paneIdsOf(byKey.get(workspaceKey("box", SHARED))!)).toEqual(["box-pane"]);
+    });
+
+    it("moves a qualified entry of a file not yet migrated", () => {
+      const t = makeLeafTab("p1", "ds1");
+      const from = workspaceKey("box", "/srv/app");
+      writeRaw({ version: 2, workspaces: [makeV2Workspace(from, [t], t.id)] });
+
+      persistence.moveWorkspaces([[from, "/srv/app" as WorkspaceKey]]);
+
+      expect(readRaw().workspaces[0].workspacePath).toBe("/srv/app");
     });
 
     it("moves nothing in a file not yet migrated", () => {

@@ -150,41 +150,35 @@ function migrateV1toV2(v1: PersistedLayoutV1): PersistedLayout {
   };
 }
 
-/** Whether `ws` has any tab: an empty layout is what a fresh workspace gets. */
-function hasTabs(ws: PersistedWorkspace): boolean {
-  return Object.values(ws.panels ?? {}).some((panel) => (panel?.tabs ?? []).length > 0);
-}
-
 /**
  * `layout` with every workspace rekeyed from its bare path to its
- * host-qualified key (version 2 → 3, ADR-191). A bare path goes to the host
- * of the project that owns it, local when none does or on a tie. Never drops
- * a layout with tabs: two entries land on one key only if the file already
- * held a qualified key, and then one with tabs beats an empty one, and
- * otherwise the qualified one, the newer, wins.
+ * host-qualified key (version 2 → 3, ADR-191).
+ *
+ * While the file was at version 2 the renderer wrote a local workspace under
+ * its bare path and a remote one under its qualified key (the local key *is*
+ * the bare path). So a bare entry is migrated to the host of the project that
+ * owns it — local when none does or on a tie — except when the file already
+ * holds a qualified entry for that very workspace: then that host has its own
+ * layout, and the bare entry stays where it is, as local. No two entries ever
+ * land on one key, so nothing is dropped.
  */
 export function migrateLayoutV2toV3(
   layout: PersistedLayout,
   owners: readonly WorkspaceKeyOwner[],
 ): PersistedLayout {
-  const byKey = new Map<string, { ws: PersistedWorkspace; qualified: boolean }>();
-  for (const ws of layout.workspaces) {
-    const key = migrateWorkspaceKey(ws.workspacePath, owners);
-    const qualified = isRemoteWorkspaceKey(ws.workspacePath);
-    const held = byKey.get(key);
-    if (held) {
-      const heldWins =
-        hasTabs(held.ws) !== hasTabs(ws) ? hasTabs(held.ws) : held.qualified && !qualified;
-      if (heldWins) continue;
-    }
-    byKey.set(key, { ws: { ...ws, workspacePath: key }, qualified });
-  }
+  const qualified = new Set(
+    layout.workspaces.map((ws) => ws.workspacePath).filter(isRemoteWorkspaceKey),
+  );
+  const migrate = (key: string): WorkspaceKey => {
+    const migrated = migrateWorkspaceKey(key, owners);
+    return migrated !== key && qualified.has(migrated) ? (key as WorkspaceKey) : migrated;
+  };
   const last = layout.lastActiveWorkspacePath;
   return {
     ...layout,
     version: LAYOUT_VERSION,
-    workspaces: [...byKey.values()].map(({ ws }) => ws),
-    ...(last ? { lastActiveWorkspacePath: migrateWorkspaceKey(last, owners) } : {}),
+    workspaces: layout.workspaces.map((ws) => ({ ...ws, workspacePath: migrate(ws.workspacePath) })),
+    ...(last ? { lastActiveWorkspacePath: migrate(last) } : {}),
   };
 }
 
@@ -248,16 +242,20 @@ export class LayoutPersistence {
    * Move each `[from, to]` workspace key's layout to `to` — a project moved
    * to another host keeps its workspaces' layouts (ADR-191 §3). The renderer
    * makes the same moves in `closeWorkspacesLeftBehind`. A `to` that
-   * already has a layout keeps it, and `from` is then left in place.
+   * already has a layout keeps it, and `from` is then left in place. See
+   * `migrateLayoutV2toV3` for how a file not yet migrated is keyed.
    */
   moveWorkspaces(moves: ReadonlyArray<readonly [WorkspaceKey, WorkspaceKey]>): void {
     const layout = this.load();
-    // A file not yet migrated holds bare paths, which the migration will
-    // give to whichever host owns them then: the moved project's new one.
-    if (!layout || layout.version < LAYOUT_VERSION) return;
+    if (!layout) return;
+    const migrated = layout.version >= LAYOUT_VERSION;
     let changed = false;
     for (const [from, to] of moves) {
       if (from === to) continue;
+      // A bare entry in a file not yet migrated is left for the migration,
+      // which gives it to whichever host owns the path then: the moved
+      // project's new one. A qualified entry is already a real key.
+      if (!migrated && !isRemoteWorkspaceKey(from)) continue;
       if (layout.workspaces.some((w) => w.workspacePath === to)) continue;
       const ws = layout.workspaces.find((w) => w.workspacePath === from);
       if (!ws) continue;

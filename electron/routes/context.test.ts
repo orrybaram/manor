@@ -52,4 +52,10 @@ describe("GET /context", () => {
     const [status] = await getContext("cwd=/repo", { callerHostId: "other" });
     expect(status).toBe(404);
   });
+
+  it("offers a relayed caller only its own host's projects to retry with", async () => {
+    const [status, body] = await getContext("cwd=/elsewhere", { callerHostId: "box" });
+    expect(status).toBe(404);
+    expect(body.candidates).toEqual([{ projectId: "box-p", name: "box-p", path: "/repo" }]);
+  });
 });

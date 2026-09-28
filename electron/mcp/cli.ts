@@ -353,7 +353,6 @@ function printResult(result: ToolResult, command: string, io: CliIo): void {
   }
 }
 
-/** The same message `handleTool` reports for a dead control server. */
 /**
  * An error response's `{ error }` message when it has one — the remote relay
  * (ADR-189) answers "isn't available from remote hosts" and "not connected"
@@ -364,6 +363,7 @@ function httpErrorDetail(err: HttpError): string {
   return body && typeof body.error === "string" ? body.error : err.rawBody;
 }
 
+/** The same message `handleTool` reports for a dead control server. */
 function reportError(err: unknown, io: CliIo): number {
   const message = isConnectionError(err)
     ? "Cannot connect to Manor — is it running?"

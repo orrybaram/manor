@@ -116,6 +116,14 @@ directions:
   `callerHostId` is set, only projects on that host are candidates for the cwd
   match. This removes the ambiguity when a local project has the same path.
   Resolving by pane id is unchanged, since pane ids are unique across hosts.
+- **Requests are scoped to the calling host.** A relayed request that names a
+  project (`/projects/:id/…`) or, for `POST /agents`, a workspace path not on
+  the calling host gets `404 { error: "No project '…' on this host" }`, the
+  same answer as a missing one. `GET /projects` and `GET /agents` are cut down
+  to the calling host's projects and their agents, and `/context` considers
+  only that host's projects on every rung, including its 404 candidate list.
+  Without this a box could create or delete worktrees on the laptop, or launch
+  agents there.
 
 **Allowlist**. Anything else returns 403:
 

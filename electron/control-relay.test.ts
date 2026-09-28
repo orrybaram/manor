@@ -160,4 +160,72 @@ describe("handleRelayedControlRequest", () => {
     );
     expect(result).toEqual({ status: 500, body: { error: "disk on fire" } });
   });
+
+  it("404s a request naming another host's project", async () => {
+    const result = await handleRelayedControlRequest(deps(), "box", {
+      method: "POST",
+      path: "/projects/local-p/workspaces",
+      body: { name: "x" },
+    });
+    expect(result).toEqual({
+      status: 404,
+      body: { error: "No project 'local-p' on this host" },
+    });
+  });
+
+  it("matches the project id the way the router decodes it", async () => {
+    const result = await handleRelayedControlRequest(deps(), "box", {
+      method: "GET",
+      path: "/projects/local%2Dp",
+      body: undefined,
+    });
+    expect(result.status).toBe(404);
+    expect(result.body).toEqual({ error: "No project 'local-p' on this host" });
+  });
+
+  it("404s launching an agent in a workspace that isn't on the calling host", async () => {
+    const result = await handleRelayedControlRequest(
+      {
+        ...deps(),
+        projectManager: {
+          getProjects: async () => [
+            project("box-p", "box"),
+            { ...project("local-p", "local"), workspaces: [{ path: "/laptop/ws" }] },
+          ],
+        },
+      } as unknown as ControlDeps,
+      "box",
+      { method: "POST", path: "/agents", body: { workspacePath: "/laptop/ws" } },
+    );
+    expect(result).toEqual({
+      status: 404,
+      body: { error: "No workspace at '/laptop/ws' on this host" },
+    });
+  });
+
+  it("lists only the calling host's projects", async () => {
+    const result = await handleRelayedControlRequest(deps(), "box", {
+      method: "GET",
+      path: "/projects",
+      body: undefined,
+    });
+    expect(result.status).toBe(200);
+    expect((result.body as ProjectInfo[]).map((p) => p.id)).toEqual(["box-p"]);
+  });
+
+  it("lists only agents in the calling host's projects", async () => {
+    const agent = (id: string, projectId: string) => ({ id, projectId, workspacePath: "/repo" });
+    const result = await handleRelayedControlRequest(
+      {
+        ...deps(),
+        agentManager: {
+          getActiveAgents: () => [agent("a-local", "local-p"), agent("a-box", "box-p")],
+        },
+      } as unknown as ControlDeps,
+      "box",
+      { method: "GET", path: "/agents", body: undefined },
+    );
+    expect(result.status).toBe(200);
+    expect((result.body as Array<{ id: string }>).map((a) => a.id)).toEqual(["a-box"]);
+  });
 });

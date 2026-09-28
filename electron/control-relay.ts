@@ -7,11 +7,17 @@
  * but only if it is on `REMOTE_CONTROL_ALLOWLIST`. A remote agent gets what it
  * needs to find its project and fan out workspaces and agents; it does not get
  * to delete projects, run git, drive panes or poke other agents' sessions.
+ *
+ * And only on its own host: a request naming another host's project or
+ * workspace is refused, and the project and agent lists it reads are cut down
+ * to the calling host's. A box must not be able to add or delete worktrees on
+ * the laptop, or launch agents there.
  */
 
 import { errorMessage } from "./lib/errors";
 import { handleControlRequest } from "./routes";
 import type { ControlDeps } from "./routes/types";
+import type { ProjectInfo } from "./persistence";
 import type {
   ControlRelayResult,
   RelayedControlRequest,
@@ -85,11 +91,87 @@ export function isRemoteAllowed(method: string, pathname: string): boolean {
   );
 }
 
+/** A project's id as it appears in a `/projects/:projectId/…` path. */
+const PROJECT_PATH = /^\/projects\/([^/]+)/;
+
+/** The calling host's projects. */
+async function hostProjects(deps: ControlDeps, hostId: string): Promise<ProjectInfo[]> {
+  const projects = (await deps.projectManager?.getProjects()) ?? [];
+  return projects.filter((p) => p.hostId === hostId);
+}
+
+const notOnHost = (what: string): ControlRelayResult => ({
+  status: 404,
+  body: { error: `No ${what} on this host` },
+});
+
 /**
- * Answer one relayed request: 403 off the allowlist, otherwise whatever the
- * route answers, with `callerHostId` set so host-aware routes (`/context`)
- * scope to the calling host. 404 when no route matched; 500 when the route
- * threw before answering. Never rejects.
+ * A 404 when the request names a project or workspace that isn't on the
+ * calling host, null when it may go ahead. Another host's project answers the
+ * same as a missing one, so a box learns nothing about the laptop's projects.
+ */
+async function refuseOtherHosts(
+  deps: ControlDeps,
+  hostId: string,
+  method: string,
+  path: string,
+  body: Record<string, unknown>,
+): Promise<ControlRelayResult | null> {
+  const projectSegment = PROJECT_PATH.exec(path)?.[1];
+  const workspacePath =
+    method === "POST" && path === "/agents" && typeof body.workspacePath === "string"
+      ? body.workspacePath
+      : undefined;
+  if (projectSegment === undefined && workspacePath === undefined) return null;
+
+  const own = await hostProjects(deps, hostId);
+  if (projectSegment !== undefined) {
+    let projectId: string;
+    try {
+      projectId = decodeURIComponent(projectSegment);
+    } catch {
+      return notOnHost(`project '${projectSegment}'`);
+    }
+    if (!own.some((p) => p.id === projectId)) return notOnHost(`project '${projectId}'`);
+  }
+  if (
+    workspacePath !== undefined &&
+    !own.some((p) => p.workspaces.some((w) => w.path === workspacePath))
+  ) {
+    return notOnHost(`workspace at '${workspacePath}'`);
+  }
+  return null;
+}
+
+/**
+ * Cut a list answer down to the calling host's entries: `GET /projects` to its
+ * projects, `GET /agents` to agents in them. Anything else passes through.
+ */
+async function scopeToHost(
+  deps: ControlDeps,
+  hostId: string,
+  method: string,
+  path: string,
+  result: ControlRelayResult,
+): Promise<ControlRelayResult> {
+  if (method !== "GET" || result.status !== 200 || !Array.isArray(result.body)) return result;
+  if (path !== "/projects" && path !== "/agents") return result;
+  const own = await hostProjects(deps, hostId);
+  const ownIds = new Set(own.map((p) => p.id));
+  const entries = result.body as Array<{ id?: unknown; projectId?: unknown }>;
+  const kept =
+    path === "/projects"
+      ? entries.filter((p) => ownIds.has(p.id as string))
+      : entries.filter((a) => ownIds.has(a.projectId as string));
+  return { status: result.status, body: kept };
+}
+
+/**
+ * Answer one relayed request: 403 off the allowlist, 404 when it names another
+ * host's project or workspace, otherwise whatever the route answers — with
+ * `callerHostId` set so host-aware routes (`/context`) scope to the calling
+ * host, and list answers cut down to it. 404 when no route matched; 500 when
+ * the route threw before answering. Never rejects.
  */
 export async function handleRelayedControlRequest(
   deps: ControlDeps,
@@ -105,16 +187,40 @@ export async function handleRelayedControlRequest(
     };
   }
 
-  const captured: { result?: ControlRelayResult } = {};
-  const json = (status: number, body: unknown): void => {
-    // A route answers once; keep the first, as an HTTP response would.
-    captured.result ??= { status, body };
-  };
   // Routes expect an object body, as the HTTP listener's JSON parse gives.
   const body =
     req.body && typeof req.body === "object" && !Array.isArray(req.body)
       ? (req.body as Record<string, unknown>)
       : {};
+  const path = normalize(url.pathname);
+
+  try {
+    const refusal = await refuseOtherHosts(deps, hostId, method, path, body);
+    if (refusal) return refusal;
+    const result = await dispatchRelayed(deps, hostId, method, url, body);
+    return await scopeToHost(deps, hostId, method, path, result);
+  } catch (err) {
+    return { status: 500, body: { error: errorMessage(err) } };
+  }
+}
+
+/**
+ * Run the request through the route table and capture its answer. 404 when no
+ * route matched; 500 when the route threw before answering (a route that threw
+ * after answering keeps its answer).
+ */
+async function dispatchRelayed(
+  deps: ControlDeps,
+  hostId: string,
+  method: string,
+  url: URL,
+  body: Record<string, unknown>,
+): Promise<ControlRelayResult> {
+  const captured: { result?: ControlRelayResult } = {};
+  const json = (status: number, body: unknown): void => {
+    // A route answers once; keep the first, as an HTTP response would.
+    captured.result ??= { status, body };
+  };
 
   let handled: boolean;
   try {

@@ -6,8 +6,9 @@
  *
  * A request relayed from a remote host (ADR-189 §2) carries
  * `deps.callerHostId`: its cwd names a path on *that* host, so only that
- * host's projects are cwd candidates — a local project at the same path must
- * not win. Pane ids are unique across hosts, so rung 1 is unchanged.
+ * host's projects are candidates on every rung — a local project at the same
+ * path must not win, and the 404's list must not offer the laptop's projects
+ * for a retry the relay would refuse anyway.
  */
 
 import type { ProjectInfo, WorkspaceInfo } from "../persistence";
@@ -51,19 +52,19 @@ export const contextRoutes: Route[] = [
       const cwd = url.searchParams.get("cwd");
       const projects = await pm.getProjects();
 
-      const cwdCandidates = deps.callerHostId
+      const candidates = deps.callerHostId
         ? projects.filter((p) => p.hostId === deps.callerHostId)
         : projects;
       const resolved =
-        resolveByPane(deps.layoutPersistence, projects, paneId) ??
-        (cwd ? matchProjectByPath(cwdCandidates, cwd) : null);
+        resolveByPane(deps.layoutPersistence, candidates, paneId) ??
+        (cwd ? matchProjectByPath(candidates, cwd) : null);
 
       // Rung 3: hand back the candidate list so the model can retry explicitly.
       if (!resolved) {
         json(404, {
           error:
             "Could not determine the current project. Pass projectId explicitly.",
-          candidates: projects.map((p) => ({
+          candidates: candidates.map((p) => ({
             projectId: p.id,
             name: p.name,
             path: p.path,

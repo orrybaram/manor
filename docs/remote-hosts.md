@@ -155,9 +155,9 @@ Managed providers with keep-awake support are planned. See
 
 ## The `manor` CLI
 
-Agents on the box can run the `manor` CLI to manage projects, workspaces and
-folders, link issues, and list and launch agents. The CLI is installed at `~/.manor/bin/manor` and is on PATH in every remote
-PTY.
+Agents on the box can run the `manor` CLI to look up their project, manage
+workspaces and folders, link issues, and list and launch agents. The CLI is
+installed at `~/.manor/bin/manor` and is on PATH in every remote PTY.
 
 Requests go to a loopback listener run by the remote daemon. The listener reads
 the request and relays it over the existing ssh connection to Manor on your
@@ -172,8 +172,27 @@ No new port is opened on your laptop and it doesn't require `AllowTcpForwarding`
 in sshd's config. The relay keeps other users on a shared box out: the token is
 written to `~/.manor/remote/control-port` (mode 0600).
 
-Other commands (panes, browser panes, git, system) aren't available from remote
-hosts.
+The CLI only reaches the box's own projects. `list-projects` and
+`list-agents` show the box's projects and the agents in them, and a command
+that names a project or workspace on another host (your laptop included)
+fails with "No project '…' on this host". So a box can't create or delete
+worktrees on your laptop, or launch agents there.
+
+Only these routes are relayed:
+
+| Area | What the CLI can do |
+|---|---|
+| Context | Find the project and workspace the terminal is in |
+| Projects | List them, read one, list its branches (read-only) |
+| Workspaces | List, create (one or a batch), delete, rename, hide, reorder, move into a folder |
+| Folders | Everything: list, create, rename, move, delete |
+| Issues | List and read issues, create one, link and unlink them from workspaces |
+| Agents | List agents, launch one in a workspace |
+
+Everything else fails with "`<METHOD> <path>` isn't available from remote
+hosts". That covers adding, deleting or updating projects, converting or
+quick-merging workspaces, git, panes, browser panes, system commands, and
+controlling other agents' sessions (sending input, interrupting, ending).
 
 ## Ports and forwarding
 

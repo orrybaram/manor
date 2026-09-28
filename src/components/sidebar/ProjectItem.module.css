@@ -478,6 +478,12 @@
   align-items: center;
 }
 
+/* A host heading sits close to its first workspace. */
+.sectionHeader + .workspaces,
+.hostHeading + .workspaces {
+  margin-top: 2px;
+}
+
 /* Inside the guided body the host heading starts right at the content edge;
    its workspaces step in from there. */
 .sectionHeader,

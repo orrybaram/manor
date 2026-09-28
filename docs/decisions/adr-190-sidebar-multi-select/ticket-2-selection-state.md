@@ -1,6 +1,6 @@
 ---
 title: Sidebar workspace selection state and click gestures
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

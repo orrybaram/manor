@@ -156,8 +156,7 @@ Managed providers with keep-awake support are planned. See
 ## The `manor` CLI
 
 Agents on the box can run the `manor` CLI to manage projects, workspaces and
-folders, link issues, and list and launch agents — the same commands as locally.
-The CLI is installed at `~/.manor/bin/manor` and is on PATH in every remote
+folders, link issues, and list and launch agents. The CLI is installed at `~/.manor/bin/manor` and is on PATH in every remote
 PTY.
 
 Requests go to a loopback listener run by the remote daemon. The listener reads

@@ -1,6 +1,6 @@
 ---
 title: Remote SessionStart hint and docs
-status: in-progress
+status: done
 priority: low
 assignee: haiku
 blocked_by: [1, 2, 3, 4]

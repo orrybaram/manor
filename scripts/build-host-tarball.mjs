@@ -8,6 +8,8 @@
  *   pty-subprocess.js        spawned by the daemon, found via __dirname
  *   agent-hook.js            copied to ~/.manor/hooks/notify.js by the daemon's
  *                            `bootstrap` request (ADR-160 ticket 10)
+ *   manor-cli.js             the `manor` CLI, run by the `~/.manor/bin/manor`
+ *                            shim remote-bootstrap.ts writes (ADR-189 ticket 4)
  *   package.json             generated; pins the bundles' externals at the
  *                            versions in the root package.json
  *
@@ -25,7 +27,7 @@ import path from "node:path";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const OUT_DIR = path.join(ROOT, "dist-electron");
-const BUNDLES = ["terminal-host-index.js", "pty-subprocess.js", "agent-hook.js"];
+const BUNDLES = ["terminal-host-index.js", "pty-subprocess.js", "agent-hook.js", "manor-cli.js"];
 /** The externals of the daemon bundles (see vite.config.ts); agent-hook.js has none. */
 const RUNTIME_DEPS = ["node-pty", "@xterm/headless", "@xterm/addon-serialize", "tree-kill"];
 const MIN_NODE = ">=20";

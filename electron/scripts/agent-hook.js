@@ -110,6 +110,15 @@ function resolvePort(env, homeDir) {
 }
 
 /**
+ * Returns the SessionStart hint appropriate for the environment.
+ * If MANOR_CONTROL_PORT_FILE is set, this terminal is on a remote host
+ * and gets the remote variant. Otherwise, it's a local terminal.
+ */
+function getSessionStartHint(env) {
+  return env.MANOR_CONTROL_PORT_FILE ? REMOTE_SESSION_START_HINT : SESSION_START_HINT;
+}
+
+/**
  * Extract a notification kind discriminator from the payload.
  *
  * Claude Code's Notification hook payload may carry a `notification`
@@ -150,6 +159,18 @@ const SESSION_START_HINT = {
     hookEventName: "SessionStart",
     additionalContext:
       "This terminal runs inside Manor. The `manor` CLI is on PATH: run `manor --help` for commands that manage projects, workspaces, panes, agents, and browser panes. Prefer it over the mcp__manor__* tools; they do the same thing but load a large tool roster into context. To fan a backlog of GitHub issues out to parallel agents in one shot, use `manor batch-create-workspaces --issues 1,2,3`; it creates a workspace per issue and launches an agent in each. Pass `--prompt-template` to override the default per-issue prompt. Verify launches with `manor list-agents` (a launch with no pane did not happen); don't fan out more than 4 agents at once without confirming with the user.",
+  },
+};
+
+/**
+ * SessionStart hint for remote hosts (when MANOR_CONTROL_PORT_FILE is set).
+ * Similar to SESSION_START_HINT but adapted for remote constraints.
+ */
+const REMOTE_SESSION_START_HINT = {
+  hookSpecificOutput: {
+    hookEventName: "SessionStart",
+    additionalContext:
+      "This terminal runs on a remote host managed by Manor. The `manor` CLI is on PATH for managing projects, workspaces, folders, issues and agents: run `manor --help`. To fan a backlog of GitHub issues out to parallel agents in one shot, use `manor batch-create-workspaces --issues 1,2,3`; it creates a workspace per issue and launches an agent in each. Pass `--prompt-template` to override the default per-issue prompt. Verify launches with `manor list-agents` (a launch with no pane did not happen); don't fan out more than 4 agents at once without confirming with the user. Pane, browser and system commands aren't available from remote hosts.",
   },
 };
 
@@ -269,7 +290,8 @@ async function main(opts) {
     // regardless of whether forwarding above succeeded, failed, or was
     // skipped, so the hint is never lost to an unrelated failure.
     if (paneId && eventType === "SessionStart" && kind === "claude") {
-      stdout.write(`${JSON.stringify(SESSION_START_HINT)}\n`);
+      const hint = getSessionStartHint(env);
+      stdout.write(`${JSON.stringify(hint)}\n`);
     }
   }
 }
@@ -281,6 +303,7 @@ module.exports = {
   resolveHookTarget,
   buildUrl,
   extractNotificationKind,
+  getSessionStartHint,
 };
 
 // Run as a CLI when invoked directly (not when imported by tests).

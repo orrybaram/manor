@@ -84,6 +84,13 @@ export interface ControlDeps {
    */
   resolvePaneUrl: ((paneId: string, url: string) => Promise<string>) | null;
   getRendererWindows: (() => BrowserWindow[]) | null;
+  /**
+   * Set per request when it was relayed from a remote host's `manor` CLI
+   * (ADR-189 §2): the host it came from. Routes that infer "the caller's
+   * project" from a path use it to only consider that host's projects, since
+   * the same path can exist on this machine too. Unset for local callers.
+   */
+  callerHostId?: string;
 }
 
 export type Json = (status: number, body: unknown) => void;

@@ -69,6 +69,15 @@ export type StreamPosition = number;
  *     facts and hooks alone. A protocol-5 daemon still accepts an `agentHook`
  *     command main no longer sends, and a protocol-6 daemon never sends
  *     `agentStatus`.
+ *
+ * Still 6 — the control relay (ADR-189 §1) added the `controlRequest` stream
+ *     event and the `enableControlRelay` / `controlResponse` stream commands
+ *     without a bump, because neither side can be misserved by a peer that
+ *     lacks them, and a bump would restart remote daemons and end their
+ *     sessions. An older daemon silently drops the unknown stream commands
+ *     (`handleStreamMessage` has no default case) and so never sends a
+ *     `controlRequest`; an older app never sends `enableControlRelay`, so a
+ *     newer daemon never relays to it and answers the CLI with a 503.
  */
 export const TERMINAL_HOST_PROTOCOL = 6;
 
@@ -484,7 +493,15 @@ export type StreamEvent =
    * An agent hook the daemon's listener received and journaled (ADR-178 §2).
    * Sent to every authenticated stream socket, subscribed or not.
    */
-  | { type: "hookEvent"; seq: number; payload: HookPayload };
+  | { type: "hookEvent"; seq: number; payload: HookPayload }
+  /**
+   * A `manor` CLI request the daemon's control relay listener accepted
+   * (ADR-189 §1). Sent only to the relay stream — the most recent stream
+   * socket that sent `enableControlRelay` — which answers with a
+   * `controlResponse` carrying the same `id`. `path` includes the query
+   * string; `body` is the parsed JSON body, or undefined when there was none.
+   */
+  | { type: "controlRequest"; id: string; method: string; path: string; body: unknown };
 
 // ── Stream socket commands (client → daemon, fire-and-forget) ──
 
@@ -501,7 +518,19 @@ export type StreamCommand =
       /** Overrides merged onto the daemon's own environment. */
       env?: Record<string, string>;
     }
-  | { type: "execCancel"; execId: string };
+  | { type: "execCancel"; execId: string }
+  /**
+   * Make this socket the relay stream: the daemon sends it every
+   * `controlRequest` from here on, until it closes or another socket sends
+   * this (ADR-189 §1).
+   */
+  | { type: "enableControlRelay" }
+  /**
+   * The answer to the `controlRequest` with this `id`: the HTTP status and
+   * JSON body the CLI receives. Unknown ids (answered after the daemon timed
+   * the request out) are ignored.
+   */
+  | { type: "controlResponse"; id: string; status: number; body: unknown };
 
 // ── PTY Subprocess spawn payload ──
 

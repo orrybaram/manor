@@ -17,7 +17,8 @@ export function orchestratorPrimer(): string {
 
 Manor's model: projects contain workspaces (git worktrees), each workspace
 holds tabs made of panes (terminals), and an agent is a session running in a
-pane. Every project has one main workspace, always named "local".
+pane. Every project has one main workspace, shown as "local" (or, for a
+project on a remote host, that host's ssh name) unless renamed.
 
 Prefer the \`manor\` CLI over \`mcp__manor__*\` tools — same capabilities, far
 fewer tokens spent loading a tool roster.

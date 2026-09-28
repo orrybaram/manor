@@ -164,6 +164,15 @@ export function remoteHookPortFile(): string {
   return path.join(remoteNamespaceDir(), "hook-port");
 }
 
+/**
+ * The remote daemon's control relay listener, for the `manor` CLI (ADR-189
+ * §1): `<port>\n<token>`, mode 0600. Remote PTYs get its path as
+ * `MANOR_CONTROL_PORT_FILE`.
+ */
+export function remoteControlPortFile(): string {
+  return path.join(remoteNamespaceDir(), "control-port");
+}
+
 export function hooksDir(): string {
   return path.join(manorHomeDir(), "hooks");
 }

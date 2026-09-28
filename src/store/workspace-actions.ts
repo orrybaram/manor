@@ -2,16 +2,19 @@ import { useAppStore } from "./app-store";
 import { useProjectStore } from "./project-store";
 import { useToastStore } from "./toast-store";
 import type { ProjectInfo, WorkspaceInfo } from "./project-store";
+import { ipcErrorMessage } from "../lib/ipc-error";
 
 /**
  * Remove a worktree: immediately switch away (if active), clean up tabs,
- * show a progress toast, and tear down in the background.
+ * show a progress toast, and tear down in the background. Resolves to
+ * whether the worktree was removed — git refuses a locked one, say — so a
+ * caller showing the row as deleting can put it back.
  */
 export function removeWorktreeWithToast(
   project: ProjectInfo,
   ws: WorkspaceInfo,
   deleteBranch?: boolean,
-): Promise<void> {
+): Promise<boolean> {
   const appStore = useAppStore.getState();
   const projectStore = useProjectStore.getState();
   const toastStore = useToastStore.getState();
@@ -59,13 +62,15 @@ export function removeWorktreeWithToast(
         status: "success",
         detail: undefined,
       });
+      return true;
     })
-    .catch((err) => {
+    .catch((err: unknown) => {
       toastStore.updateToast(toastId, {
         message: `Failed to remove "${wsName}"`,
         status: "error",
-        detail: String(err),
+        detail: ipcErrorMessage(err),
       });
+      return false;
     })
     .finally(() => {
       unsubProgress();
@@ -98,20 +103,25 @@ function navigateAwayFrom(
  * logic in `removeWorktreeWithToast` never lands on a row that is itself
  * about to go. Removals run sequentially: concurrent `git worktree remove`
  * calls on one repo risk lock contention, and each still gets its own toast.
+ * Resolves to the paths that failed to go, so their rows can be un-dimmed.
  */
 export async function removeWorktreesWithToast(
   project: ProjectInfo,
   workspaces: WorkspaceInfo[],
   deleteBranch?: boolean,
-): Promise<void> {
+): Promise<string[]> {
   const targets = workspaces.filter((ws) => !ws.isMain);
-  if (targets.length === 0) return;
+  if (targets.length === 0) return [];
 
   navigateAwayFrom(project, new Set(targets.map((ws) => ws.path)));
 
+  const failed: string[] = [];
   for (const ws of targets) {
-    await removeWorktreeWithToast(project, ws, deleteBranch);
+    if (!(await removeWorktreeWithToast(project, ws, deleteBranch))) {
+      failed.push(ws.path);
+    }
   }
+  return failed;
 }
 
 /**

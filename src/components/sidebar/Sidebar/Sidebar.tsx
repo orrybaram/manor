@@ -386,9 +386,9 @@ export function Sidebar(props: SidebarProps) {
                         onSelectWorkspace={(wsIdx) => {
                           selectWorkspace(project.id, wsIdx);
                         }}
-                        onRemoveWorktree={(ws, deleteBranch) => {
-                          removeWorktreeWithToast(project, ws, deleteBranch);
-                        }}
+                        onRemoveWorktree={(ws, deleteBranch) =>
+                          removeWorktreeWithToast(project, ws, deleteBranch)
+                        }
                         onQuickMergeWorktree={(ws) => {
                           quickMergeWorktreeWithToast(project, ws);
                         }}

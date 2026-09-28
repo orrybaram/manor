@@ -632,7 +632,7 @@ describe("api", () => {
     expect(io.stderr).toContain("PATCH");
   });
 
-  it("prints HTTP <status>: <rawBody> and exits 1 on an HttpError", async () => {
+  it("prints HTTP <status>: <error> and exits 1 on an HttpError", async () => {
     const io = captureIo();
     const http = fakeHttp({
       get: async () => {
@@ -640,6 +640,17 @@ describe("api", () => {
       },
     });
     expect(await runCli(["api", "GET", "/projects/x"], http, io.io)).toBe(1);
-    expect(io.stderr).toBe('HTTP 404: {"error":"nope"}\n');
+    expect(io.stderr).toBe("HTTP 404: nope\n");
+  });
+
+  it("falls back to the raw body when an HttpError has no error message", async () => {
+    const io = captureIo();
+    const http = fakeHttp({
+      get: async () => {
+        throw new HttpError(500, null, "boom");
+      },
+    });
+    expect(await runCli(["api", "GET", "/projects/x"], http, io.io)).toBe(1);
+    expect(io.stderr).toBe("HTTP 500: boom\n");
   });
 });

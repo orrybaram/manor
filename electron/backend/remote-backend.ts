@@ -30,6 +30,7 @@ import { createRemoteExec } from "./remote-exec";
 import { RemoteBootstrapError } from "./remote-bootstrap";
 import { Emitter } from "./emitter";
 import type {
+  ControlRelayCommand,
   HostConnectionEvent,
   HostConnectionEventHandler,
   HostFailure,
@@ -221,6 +222,14 @@ export class RemoteBackend implements RemoteHostBackend, HostBackend {
    */
   checkLiveness(): Promise<boolean> {
     return this.client.checkLiveness();
+  }
+
+  onStreamConnected(handler: () => void): () => void {
+    return this.client.onStreamConnected(handler);
+  }
+
+  sendControlRelayCommand(cmd: ControlRelayCommand): boolean {
+    return this.client.sendStreamCommand(cmd);
   }
 
   /**

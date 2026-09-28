@@ -44,6 +44,7 @@ import { TunnelManager } from "./remote-control/tunnel";
 import { RemoteControlController } from "./remote-control/controller";
 import { PushManager } from "./remote-control/push";
 import type { ControlDeps } from "./routes/types";
+import { handleRelayedControlRequest } from "./control-relay";
 import { createWindow, saveZoomLevel } from "./window";
 import { installAppMenu, type AppMenuController } from "./app-menu";
 import {
@@ -708,6 +709,12 @@ export function initApp(devTitle: string | null): void {
     webviewPanes: webviewServer,
     resolvePaneUrl,
   });
+  // Remote hosts' `manor` CLIs reach the same routes, with the same deps,
+  // behind the remote allowlist (ADR-189 §2). Set once those deps exist; a
+  // request relayed before then is answered 503.
+  backendRegistry.setControlRelaySink((hostId, req) =>
+    handleRelayedControlRequest(webviewServer.getControlDeps(), hostId, req),
+  );
 
   ptyIpc.register(ipcDeps);
   layoutIpc.register(ipcDeps);

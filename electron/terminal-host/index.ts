@@ -34,6 +34,7 @@ import { LocalTransport } from "./transport-local";
 import { ExecRunner, runExec } from "./exec-runner";
 import { createSerializedHandler } from "./control-queue";
 import { localRole, remoteRole, type DaemonRole } from "./daemon-role";
+import { ControlRelayStreams } from "./control-relay-listener";
 import { errorMessage } from "../lib/errors";
 
 const daemonVersion = process.env.MANOR_VERSION;
@@ -109,6 +110,12 @@ interface Daemon {
   role: DaemonRole;
   host: TerminalHost;
   connections: Map<net.Socket, Connection>;
+  /**
+   * Which stream socket `manor` CLI requests are relayed to, and the requests
+   * waiting on its answer (ADR-189 §1). Only the remote role's listener ever
+   * relays, but tracking the socket is harmless on a local daemon.
+   */
+  controlRelay: ControlRelayStreams<net.Socket>;
 }
 
 // ── Setup ──
@@ -407,6 +414,15 @@ async function handleStreamMessage(
     case "execCancel":
       conn.cancelExec(command.execId);
       break;
+    case "enableControlRelay":
+      d.controlRelay.enable(socket);
+      break;
+    case "controlResponse":
+      // Parsed from the wire unchecked; a malformed id can match nothing.
+      if (typeof command.id === "string") {
+        d.controlRelay.respond(socket, command.id, command.status, command.body);
+      }
+      break;
   }
 }
 
@@ -493,6 +509,11 @@ function startServer(role: DaemonRole): DaemonServer {
     role,
     host: new TerminalHost(),
     connections: new Map(),
+    controlRelay: new ControlRelayStreams<net.Socket>({
+      send: (socket, event) => {
+        sendStreamEvent(socket, event);
+      },
+    }),
   };
   const socketPath = role.paths.socket;
 
@@ -532,6 +553,7 @@ function startServer(role: DaemonRole): DaemonServer {
     socket.on("close", () => {
       log("Client disconnected");
       d.host.detachAllFromSocket(socket);
+      d.controlRelay.closed(socket);
       conn.dispose();
       d.connections.delete(socket);
     });
@@ -566,6 +588,8 @@ function startServer(role: DaemonRole): DaemonServer {
         }
       }
     },
+    // CLI requests go to the relay stream only, never broadcast (ADR-189 §1).
+    relayControlRequest: d.controlRelay.relay,
   });
 
   return {

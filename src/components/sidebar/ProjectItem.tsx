@@ -47,6 +47,7 @@ import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import { HostIndicator } from "../hosts/HostIndicator";
 import { isRemoteHost } from "../../lib/hosts";
+import { useHostStore, selectHost } from "../../store/host-store";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
@@ -273,7 +274,8 @@ type ProjectItemProps = {
   onSelect: () => void;
   onRemove: () => void;
   onSelectWorkspace: (index: number) => void;
-  onRemoveWorktree: (ws: WorkspaceInfo, deleteBranch: boolean) => void;
+  /** Resolves to whether the worktree was removed. */
+  onRemoveWorktree: (ws: WorkspaceInfo, deleteBranch: boolean) => Promise<boolean>;
   onRenameWorkspace: (ws: WorkspaceInfo, newName: string) => void;
   onHideWorkspace: (ws: WorkspaceInfo, idx: number) => void;
   onUnhideWorkspace: (ws: WorkspaceInfo) => void;
@@ -305,6 +307,12 @@ export function ProjectItem(props: ProjectItemProps) {
   } = props;
 
   const expanded = !collapsed;
+  // A remote project's main workspace is named for its box, not "local".
+  const remoteTarget = useHostStore((state) => {
+    if (!isRemoteHost(project.hostId)) return null;
+    const host = selectHost(project.hostId)(state);
+    return host?.spec?.target ?? project.hostId;
+  });
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -595,7 +603,7 @@ export function ProjectItem(props: ProjectItemProps) {
     const globalIdx = project.workspaces.indexOf(ws);
     const isEditing = editingPath === ws.path;
     const displayName = ws.isMain
-      ? ws.name || "local"
+      ? ws.name || remoteTarget || "local"
       : ws.name || ws.branch || "main";
     const isDeleting = deletingPaths.has(ws.path);
 
@@ -1225,7 +1233,16 @@ export function ProjectItem(props: ProjectItemProps) {
         workspace={confirmDeleteWorktree}
         onConfirm={(ws, deleteBranch) => {
           setDeletingPaths((prev) => new Set(prev).add(ws.path));
-          onRemoveWorktree(ws, deleteBranch);
+          void onRemoveWorktree(ws, deleteBranch).then((removed) => {
+            // A failed removal leaves the workspace in the list, so the
+            // prune below never un-dims it: do it here.
+            if (removed) return;
+            setDeletingPaths((prev) => {
+              const next = new Set(prev);
+              next.delete(ws.path);
+              return next;
+            });
+          });
         }}
       />
 
@@ -1242,7 +1259,18 @@ export function ProjectItem(props: ProjectItemProps) {
             return next;
           });
           useSidebarSelectionStore.getState().clear();
-          removeWorktreesWithToast(project, bulkWorkspaces, deleteBranch);
+          void removeWorktreesWithToast(project, bulkWorkspaces, deleteBranch).then(
+            (failed) => {
+              // Same as the single delete: a failed removal stays in the
+              // list, so the prune never un-dims it.
+              if (failed.length === 0) return;
+              setDeletingPaths((prev) => {
+                const next = new Set(prev);
+                for (const path of failed) next.delete(path);
+                return next;
+              });
+            },
+          );
         }}
       />
 

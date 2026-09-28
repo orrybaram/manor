@@ -118,7 +118,8 @@ Only styling/markup in `ProjectGroupItem`, the `section` variant of
   its name.
 - **Guide line.** An expanded project's contents (host headings, workspaces,
   folders) hang off a 1px `--border` line under the project's chevron and are
-  indented to its right, in every project, linked or not.
+  indented to its right, in every project, linked or not. The selected
+  project's line takes its project color.
 - (Revised twice after review, using mockups: the first cut left host labels
   at the same x as workspace names; a small-caps divider version made host
   labels as loud as project names, so projects blended together.)

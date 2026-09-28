@@ -12,6 +12,12 @@
   border-left: 1px solid var(--border);
 }
 
+/* The selected project's guide takes its project color. */
+.projectSelected > .projectBody,
+.projectSelected > .groupSections {
+  border-left-color: var(--project-color, var(--accent));
+}
+
 .projectBody > :first-child {
   margin-top: 0;
 }

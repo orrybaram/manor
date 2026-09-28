@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { WorkspaceKey } from "../lib/workspace-key";
 
 /**
  * A single navigable location in the app. Coarse granularity — no `paneId`.
@@ -7,10 +8,14 @@ import { create } from "zustand";
  * prevent a circular dependency: `app-store` (or a bridge that sits on top
  * of it) is expected to translate its own state into a `Location` and feed
  * it into this store via `record`.
+ *
+ * A workspace is named by its host-qualified key (ADR-191), so going back
+ * never lands in another host's workspace with the same path. History lives
+ * in memory only, so there are no path-keyed entries to migrate.
  */
 export type Location =
   | { kind: "surface"; surface: "home" }
-  | { kind: "workspace"; workspacePath: string; panelId: string; tabId: string };
+  | { kind: "workspace"; workspaceKey: WorkspaceKey; panelId: string; tabId: string };
 
 export function locationsEqual(a: Location, b: Location): boolean {
   if (a.kind !== b.kind) return false;
@@ -19,7 +24,7 @@ export function locationsEqual(a: Location, b: Location): boolean {
   }
   if (a.kind === "workspace" && b.kind === "workspace") {
     return (
-      a.workspacePath === b.workspacePath &&
+      a.workspaceKey === b.workspaceKey &&
       a.panelId === b.panelId &&
       a.tabId === b.tabId
     );

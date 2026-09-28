@@ -46,6 +46,7 @@ function makeProject(
 function makeAppState(overrides: Partial<MenuAppState> = {}): MenuAppState {
   return {
     activeWorkspacePath: MAIN,
+    activeWorkspaceHostId: "local",
     workspaceLayouts: {
       [MAIN]: {
         panelTree: { type: "leaf", panelId: "panel-1" },

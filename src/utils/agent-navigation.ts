@@ -4,6 +4,27 @@ import { useAppStore } from "../store/app-store";
 import { useAgentStore } from "../store/agent-store";
 import { useToastStore } from "../store/toast-store";
 import { hasPaneId } from "../store/pane-tree";
+import { workspaceKey, type WorkspaceKey } from "../lib/workspace-key";
+import { projectForWorkspaceKey } from "../lib/hosts";
+import type { ProjectInfo } from "../store/project-store";
+
+/**
+ * The key (ADR-191) of the workspace `agent` runs in: on the host its
+ * terminal runs on (`agent.hostId`). A pane moved to another host (ADR-183)
+ * still belongs to its project's workspace, so when no project on the
+ * agent's host has the path, the key is on the agent's project's host.
+ */
+export function agentWorkspaceKey(
+  agent: Pick<AgentInfo, "hostId" | "projectId" | "workspacePath">,
+  projects: readonly ProjectInfo[],
+): WorkspaceKey | null {
+  const path = agent.workspacePath;
+  if (!path) return null;
+  const onAgentHost = workspaceKey(agent.hostId, path);
+  if (projectForWorkspaceKey(projects, onAgentHost)) return onAgentHost;
+  const project = projects.find((p) => p.id === agent.projectId);
+  return project ? workspaceKey(project.hostId, path) : onAgentHost;
+}
 
 export function navigateToAgent(agent: AgentInfo) {
   const { selectProject, setProjectExpanded, selectWorkspace, projects } =
@@ -26,9 +47,10 @@ export function navigateToAgent(agent: AgentInfo) {
   selectWorkspace(project.id, workspaceIndex);
 
   if (agent.workspacePath && agent.paneId) {
-    // Find the tab containing agent.paneId by searching all panels
-    const { workspaceLayouts } = useAppStore.getState();
-    const layout = workspaceLayouts[agent.workspacePath];
+    // Find the tab containing agent.paneId by searching all panels of the
+    // agent's workspace, on its host (ADR-191).
+    const key = agentWorkspaceKey(agent, projects) ?? workspaceKey(project.hostId, agent.workspacePath);
+    const layout = useAppStore.getState().workspaceLayouts[key];
     let tabId: string | null = null;
     if (layout) {
       for (const panel of Object.values(layout.panels)) {
@@ -45,7 +67,7 @@ export function navigateToAgent(agent: AgentInfo) {
     if (tabId) {
       // Atomically select tab and focus pane in one Zustand set() call
       useAppStore.getState().navigateToContext({
-        workspacePath: agent.workspacePath,
+        workspaceKey: key,
         tabId,
         paneId: agent.paneId,
       });

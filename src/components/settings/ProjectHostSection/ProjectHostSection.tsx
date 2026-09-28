@@ -5,6 +5,7 @@ import { useHostStore, selectHost } from "../../../store/host-store";
 import { useHostDisplay } from "../../../hooks/useHostDisplay";
 import { HostIndicator } from "../../hosts/HostIndicator";
 import { LOCAL_HOST_ID, isRemoteHost, remoteHostOptions } from "../../../lib/hosts";
+import { workspaceKey } from "../../../lib/workspace-key";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
 import { CloneToHostDialog } from "../CloneToHostDialog/CloneToHostDialog";
 import { Input } from "../../ui/Input";
@@ -23,7 +24,7 @@ function projectHasOpenPanes(
   workspaceLayouts: Record<string, { panels: Record<string, { tabs: unknown[] }> }>,
 ): boolean {
   return project.workspaces.some((ws) => {
-    const layout = workspaceLayouts[ws.path];
+    const layout = workspaceLayouts[workspaceKey(project.hostId, ws.path)];
     if (!layout) return false;
     return Object.values(layout.panels).some((panel) => panel.tabs.length > 0);
   });

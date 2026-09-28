@@ -6,10 +6,16 @@ import * as Popover from "@radix-ui/react-popover";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { isContextMenuKey } from "../../../lib/keyboard-context-menu";
-import { useAppStore, selectActiveWorkspace } from "../../../store/app-store";
+import {
+  useAppStore,
+  selectActiveWorkspace,
+  selectActiveWorkspaceKey,
+} from "../../../store/app-store";
+import { parseWorkspaceKey, type WorkspaceKey } from "../../../lib/workspace-key";
 import { useProjectStore } from "../../../store/project-store";
 import { usePaneDrag } from "../../workspace-panes/PaneDragContext";
 import {
+  countTabsInWindow,
   detachTabToNewWindow,
   trackHandoff,
 } from "../../../lib/window-handoff";
@@ -17,16 +23,6 @@ import { TabButton } from "../TabButton";
 import styles from "./TabBar.module.css";
 
 const TAB_GAP = 2; // matches .tabs CSS gap
-/** Total tabs across every panel of the workspace this window is showing. */
-function countTabsInWindow(): number {
-  const state = useAppStore.getState();
-  const path = state.activeWorkspacePath;
-  if (!path) return 0;
-  const layout = state.workspaceLayouts[path];
-  if (!layout) return 0;
-  return Object.values(layout.panels).reduce((n, p) => n + p.tabs.length, 0);
-}
-
 /**
  * The tab's displayed title, computed the same way `useTabTitle` does. The drag
  * chip must show this — not the raw `tab.title`, which is a stale placeholder
@@ -94,25 +90,23 @@ function buildTabDragImage(
 type TabBarProps = {
   onNewAgent: () => void;
   panelId?: string;
-  workspacePath?: string;
+  /** Key of the workspace the panel is in (ADR-191); the active one if absent. */
+  workspaceKey?: WorkspaceKey;
 };
 
 export function TabBar(props: TabBarProps) {
-  const { onNewAgent, panelId, workspacePath } = props;
+  const { onNewAgent, panelId, workspaceKey } = props;
 
   const panel = useAppStore((s) => {
-    if (panelId && workspacePath) {
-      return s.workspaceLayouts[workspacePath]?.panels[panelId] ?? null;
+    if (panelId && workspaceKey) {
+      return s.workspaceLayouts[workspaceKey]?.panels[panelId] ?? null;
     }
     return selectActiveWorkspace(s);
   });
   const tabs = useMemo(() => panel?.tabs ?? [], [panel?.tabs]);
-  const layoutWorkspacePath = useAppStore((s) => workspacePath ?? s.activeWorkspacePath);
-  const projectHostId = useProjectStore(
-    (s) =>
-      s.projects.find((p) => p.workspaces.some((w) => w.path === layoutWorkspacePath))
-        ?.hostId,
-  );
+  const layoutKey = useAppStore((s) => workspaceKey ?? selectActiveWorkspaceKey(s));
+  // Tabs running elsewhere are badged against the workspace's own host.
+  const projectHostId = layoutKey ? parseWorkspaceKey(layoutKey).hostId : undefined;
   const selectedTabId = panel?.selectedTabId ?? null;
   const selectTab = useAppStore((s) => s.selectTab);
   const addTab = useAppStore((s) => s.addTab);

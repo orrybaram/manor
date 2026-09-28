@@ -11,7 +11,7 @@
 import { BrowserWindow } from "electron";
 import type { AgentInfo, AgentManager } from "../agent-persistence";
 import { getConnector } from "../agent-connectors";
-import { proxyToRenderer } from "../renderer-bridge";
+import { proxyWithWorkspaceHost } from "./workspace-host";
 import { interruptSequenceFor } from "../harness-interrupt";
 import {
   getUnseenFlagsForAgent,
@@ -291,7 +291,7 @@ export const agentRoutes: Route[] = [
     // to produce — not a fire-and-forget dispatch reported as success.
     method: "POST",
     path: "/agents",
-    async handler({ json, readBody }) {
+    async handler({ deps, json, readBody }) {
       const body = await readBody();
       const workspacePath = body.workspacePath;
       if (typeof workspacePath !== "string") {
@@ -299,7 +299,11 @@ export const agentRoutes: Route[] = [
         return;
       }
       const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
-      await proxyToRenderer(json, "start-agent", { workspacePath, prompt });
+      await proxyWithWorkspaceHost(deps, json, "start-agent", {
+        workspacePath,
+        prompt,
+        hostId: body.hostId,
+      });
     },
   },
 

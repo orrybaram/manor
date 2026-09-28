@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { appCommandHandlers } from "../app-commands";
-import { useAppStore } from "../../store/app-store";
+import { selectActiveLayout, useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import type { ProjectInfo } from "../../store/project-store";
 import { usePreferencesStore } from "../../store/preferences-store";
@@ -113,6 +113,7 @@ function makeMultiPanelLayout(): WorkspaceLayout {
 function setupStore(layout: WorkspaceLayout, activePath: string = WS_PATH) {
   useAppStore.setState({
     activeWorkspacePath: activePath,
+    activeWorkspaceHostId: "local",
     workspaceLayouts: { [WS_PATH]: layout },
     paneCwd: {},
     paneTitle: {},
@@ -133,7 +134,7 @@ function setupStore(layout: WorkspaceLayout, activePath: string = WS_PATH) {
 /** The tab currently holding `paneId`, across every panel of the active workspace. */
 function tabHolding(paneId: string): Tab | undefined {
   const state = useAppStore.getState();
-  const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
+  const layout = selectActiveLayout(state);
   for (const panel of Object.values(layout?.panels ?? {})) {
     const tab = panel.tabs.find((t) => hasPaneId(t.rootNode, paneId));
     if (tab) return tab;
@@ -920,6 +921,31 @@ describe("set-active-workspace", () => {
     expect(() =>
       run("set-active-workspace", { workspacePath: "/nope" }),
     ).toThrow(/Unknown workspace: \/nope/);
+  });
+  // ADR-191: main names the host, since the path may be on two.
+  it("switches to the workspace on the host main names", () => {
+    const onHost = (id: string, hostId: string) => ({
+      id,
+      name: id,
+      path: "/repo",
+      hostId,
+      workspaces: [{ path: OTHER_WS_PATH }],
+    });
+    useProjectStore.setState({
+      projects: [onHost("p-local", "local"), onHost("p-box", "box")] as unknown as ProjectInfo[],
+      selectedProjectIndex: 0,
+    });
+
+    run("set-active-workspace", { workspacePath: OTHER_WS_PATH, hostId: "box" });
+
+    expect(useAppStore.getState().activeWorkspacePath).toBe(OTHER_WS_PATH);
+    expect(useAppStore.getState().activeWorkspaceHostId).toBe("box");
+  });
+
+  it("throws for a host no project with that path is on", () => {
+    expect(() =>
+      run("set-active-workspace", { workspacePath: WS_PATH, hostId: "box" }),
+    ).toThrow(/Unknown workspace/);
   });
 });
 

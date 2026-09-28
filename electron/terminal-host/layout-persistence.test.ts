@@ -1,11 +1,17 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
 import type { PaneNode } from "../../src/store/pane-tree";
 import {
+  workspaceKey,
+  type WorkspaceKey,
+  type WorkspaceKeyOwner,
+} from "../../src/lib/workspace-key";
+import {
   LayoutPersistence,
+  LAYOUT_VERSION,
   type PersistedLayout,
   type PersistedLayoutV1,
   type PersistedWorkspace,
@@ -83,7 +89,7 @@ describe("LayoutPersistence", () => {
   ): PersistedWorkspace {
     const panelId = `panel-${crypto.randomUUID()}`;
     return {
-      workspacePath,
+      workspacePath: workspacePath as WorkspaceKey,
       panelTree: { type: "leaf", panelId },
       panels: {
         [panelId]: {
@@ -300,7 +306,7 @@ describe("LayoutPersistence", () => {
       };
       persistence.save(layout);
 
-      persistence.removeWorkspace("/project/feature");
+      persistence.removeWorkspace("/project/feature" as WorkspaceKey);
 
       const loaded = persistence.load();
       expect(loaded!.workspaces).toHaveLength(1);
@@ -316,7 +322,7 @@ describe("LayoutPersistence", () => {
       };
       persistence.save(layout);
 
-      persistence.removeWorkspace("/nonexistent");
+      persistence.removeWorkspace("/nonexistent" as WorkspaceKey);
 
       const loaded = persistence.load();
       expect(loaded!.workspaces).toHaveLength(1);
@@ -635,6 +641,294 @@ describe("LayoutPersistence", () => {
       const loaded = persistence.load();
       expect(loaded).not.toBeNull();
       expect(loaded!.version).toBe(2);
+    });
+  });
+
+  // ADR-191: workspaces are keyed by host plus path from version 3.
+  describe("workspace keys (v3)", () => {
+    const SHARED = "/home/me/.manor/worktrees/app/feat";
+    const LOCAL_ONLY = "/home/me/code/other";
+    const box = workspaceKey("box", SHARED);
+
+    /** A local and a remote project of the same repo at the same paths. */
+    const owners: WorkspaceKeyOwner[] = [
+      { hostId: "local", path: "/home/me/app", workspaces: [{ path: SHARED }] },
+      {
+        hostId: "box",
+        path: "/srv/app",
+        worktreeRoot: "/srv/worktrees/app",
+        workspaces: [{ path: SHARED }],
+      },
+    ];
+
+    function writeRaw(layout: object): void {
+      fs.writeFileSync(layoutFile, JSON.stringify(layout, null, 2));
+    }
+
+    function readRaw(): PersistedLayout {
+      return JSON.parse(fs.readFileSync(layoutFile, "utf-8"));
+    }
+
+    function paneIdsOf(ws: PersistedWorkspace): string[] {
+      return Object.values(ws.panels).flatMap((p) =>
+        p.tabs.flatMap((t) => Object.keys(t.paneSessions)),
+      );
+    }
+
+    it("keeps separate layouts for the same path on two hosts across a restart", () => {
+      const localTab = makeLeafTab("local-pane", "ds-local");
+      const boxTab = makeLeafTab("box-pane", "ds-box");
+      persistence.saveWorkspace(makeV2Workspace(SHARED, [localTab], localTab.id));
+      persistence.saveWorkspace(makeV2Workspace(box, [boxTab], boxTab.id));
+
+      // A new instance reads what a relaunch would.
+      const loaded = new LayoutPersistence(layoutFile).load()!;
+
+      expect(loaded.version).toBe(LAYOUT_VERSION);
+      const byKey = new Map<string, PersistedWorkspace>(loaded.workspaces.map((w) => [w.workspacePath, w]));
+      expect(byKey.size).toBe(2);
+      expect(paneIdsOf(byKey.get(SHARED)!)).toEqual(["local-pane"]);
+      expect(paneIdsOf(byKey.get(box)!)).toEqual(["box-pane"]);
+      expect(loaded.lastActiveWorkspacePath).toBe(box);
+    });
+
+    it("removes one host's layout without touching the other's", () => {
+      const a = makeLeafTab("a", "ds-a");
+      const b = makeLeafTab("b", "ds-b");
+      persistence.saveWorkspace(makeV2Workspace(SHARED, [a], a.id));
+      persistence.saveWorkspace(makeV2Workspace(box, [b], b.id));
+
+      persistence.removeWorkspace(box);
+
+      expect(persistence.load()!.workspaces.map((w) => w.workspacePath)).toEqual([SHARED]);
+    });
+
+    it("migrates a v2 file once, each path to the host of the project that owns it", () => {
+      const remoteOnly = "/srv/worktrees/app/fix";
+      const t1 = makeLeafTab("p1", "ds1");
+      const t2 = makeLeafTab("p2", "ds2");
+      const t3 = makeLeafTab("p3", "ds3");
+      writeRaw({
+        version: 2,
+        workspaces: [
+          makeV2Workspace(SHARED, [t1], t1.id),
+          makeV2Workspace(remoteOnly, [t2], t2.id),
+          makeV2Workspace(LOCAL_ONLY, [t3], t3.id),
+        ],
+        lastActiveWorkspacePath: remoteOnly,
+      });
+
+      expect(persistence.needsWorkspaceKeyMigration()).toBe(true);
+      persistence.migrateWorkspaceKeys(owners);
+
+      const raw = readRaw();
+      expect(raw.version).toBe(3);
+      // A path both hosts have stays local; one only the box owns moves there;
+      // one no project owns stays local. Nothing is dropped.
+      expect(raw.workspaces.map((w) => w.workspacePath)).toEqual([
+        SHARED,
+        workspaceKey("box", remoteOnly),
+        LOCAL_ONLY,
+      ]);
+      expect(raw.workspaces.map(paneIdsOf)).toEqual([["p1"], ["p2"], ["p3"]]);
+      expect(raw.lastActiveWorkspacePath).toBe(workspaceKey("box", remoteOnly));
+      expect(persistence.needsWorkspaceKeyMigration()).toBe(false);
+    });
+
+    it("keeps every path of a local-only file as it was", () => {
+      const t1 = makeLeafTab("p1", "ds1");
+      const t2 = makeLeafTab("p2", "ds2");
+      writeRaw({
+        version: 2,
+        workspaces: [
+          makeV2Workspace(SHARED, [t1], t1.id),
+          makeV2Workspace(LOCAL_ONLY, [t2], t2.id),
+        ],
+        lastActiveWorkspacePath: "__home__",
+      });
+
+      persistence.migrateWorkspaceKeys([]);
+
+      const raw = readRaw();
+      expect(raw.version).toBe(3);
+      expect(raw.workspaces.map((w) => w.workspacePath)).toEqual([SHARED, LOCAL_ONLY]);
+      expect(raw.lastActiveWorkspacePath).toBe("__home__");
+    });
+
+    it("never migrates a v3 file again: a bare key there is local", () => {
+      const onlyBox: WorkspaceKeyOwner[] = [{ hostId: "box", path: "/home/me/app" }];
+      const t = makeLeafTab("p1", "ds1");
+      persistence.saveWorkspace(makeV2Workspace(SHARED, [t], t.id));
+
+      persistence.migrateWorkspaceKeys(onlyBox);
+
+      expect(persistence.load()!.workspaces[0].workspacePath).toBe(SHARED);
+    });
+
+    it("migrates a v1 file through v2 to v3", () => {
+      const tab = makeLeafTab("p1", "ds1");
+      const v1: PersistedLayoutV1 = {
+        version: 1,
+        workspaces: [{ workspacePath: "/srv/app", tabs: [tab], selectedTabId: tab.id }],
+      };
+      writeRaw(v1);
+
+      persistence.migrateWorkspaceKeys(owners);
+
+      const raw = readRaw();
+      expect(raw.version).toBe(3);
+      expect(raw.workspaces[0].workspacePath).toBe(workspaceKey("box", "/srv/app"));
+    });
+
+    it("leaves a v2 file at v2 when a workspace is saved before the migration", () => {
+      const t = makeLeafTab("p1", "ds1");
+      writeRaw({ version: 2, workspaces: [makeV2Workspace("/srv/app", [t], t.id)] });
+
+      persistence.saveWorkspace(makeV2Workspace(LOCAL_ONLY, [t], t.id));
+
+      expect(readRaw().version).toBe(2);
+      expect(persistence.needsWorkspaceKeyMigration()).toBe(true);
+    });
+
+    it("asks for the projects only when the file needs migrating", async () => {
+      const t = makeLeafTab("p1", "ds1");
+      writeRaw({ version: 2, workspaces: [makeV2Workspace("/srv/app", [t], t.id)] });
+      const ownersFn = vi.fn(async () => owners);
+
+      await persistence.startWorkspaceKeyMigration(ownersFn);
+      await persistence.whenReady();
+      await persistence.startWorkspaceKeyMigration(ownersFn);
+
+      expect(ownersFn).toHaveBeenCalledTimes(1);
+      expect(persistence.load()!.workspaces[0].workspacePath).toBe(
+        workspaceKey("box", "/srv/app"),
+      );
+    });
+
+    it("keeps the file at v2 while a remote host can't say what it owns", async () => {
+      const t = makeLeafTab("p1", "ds1");
+      writeRaw({ version: 2, workspaces: [makeV2Workspace("/srv/app", [t], t.id)] });
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      await persistence.startWorkspaceKeyMigration(async () => null);
+
+      // Retried next launch, not guessed now: a guess at v3 is permanent.
+      expect(readRaw().version).toBe(2);
+      expect(readRaw().workspaces[0].workspacePath).toBe("/srv/app");
+      warn.mockRestore();
+    });
+
+    it("never gives a bare entry to a host that already has its own layout", () => {
+      const legacy = makeLeafTab("legacy", "ds1");
+      const boxOwn = makeLeafTab("box-own", "ds2");
+      writeRaw({
+        version: 2,
+        workspaces: [
+          makeV2Workspace("/srv/app", [legacy], legacy.id),
+          makeV2Workspace(workspaceKey("box", "/srv/app"), [boxOwn], boxOwn.id),
+        ],
+        lastActiveWorkspacePath: "/srv/app",
+      });
+
+      persistence.migrateWorkspaceKeys(owners);
+
+      // Both kept, each under its own key: no collision, nothing dropped.
+      const raw = readRaw();
+      expect(raw.workspaces.map((w) => [w.workspacePath, paneIdsOf(w)])).toEqual([
+        ["/srv/app", ["legacy"]],
+        [workspaceKey("box", "/srv/app"), ["box-own"]],
+      ]);
+      expect(raw.lastActiveWorkspacePath).toBe("/srv/app");
+    });
+
+    // The re-review's scenario: the renderer's project list had the remote
+    // project without its workspaces yet, while main's migration sees them.
+    // The renderer's keys never depended on that list, so the two agree.
+    it("keeps what the renderer wrote at v2 when main's owners differ from the renderer's", () => {
+      const legacy = makeLeafTab("local-legacy", "ds1");
+      const box = makeLeafTab("box-pane", "ds2");
+      writeRaw({
+        version: 2,
+        workspaces: [
+          // The local workspace, saved under its key: the bare path.
+          makeV2Workspace(SHARED, [legacy], legacy.id),
+          // The remote one, saved under its key while its project had no
+          // workspaces loaded in the renderer.
+          makeV2Workspace(workspaceKey("box", SHARED), [box], box.id),
+        ],
+      });
+      // Main's owners: only the box lists the path, so a bare-path rule
+      // alone would move the local layout onto the remote host.
+      const mainOwners: WorkspaceKeyOwner[] = [
+        { hostId: "local", path: "/home/me/app" },
+        { hostId: "box", path: "/srv/app", workspaces: [{ path: SHARED }] },
+      ];
+
+      persistence.migrateWorkspaceKeys(mainOwners);
+
+      const byKey = new Map<string, PersistedWorkspace>(
+        readRaw().workspaces.map((w) => [w.workspacePath, w]),
+      );
+      expect(paneIdsOf(byKey.get(SHARED)!)).toEqual(["local-legacy"]);
+      expect(paneIdsOf(byKey.get(workspaceKey("box", SHARED))!)).toEqual(["box-pane"]);
+    });
+
+    it("moves a qualified entry of a file not yet migrated", () => {
+      const t = makeLeafTab("p1", "ds1");
+      const from = workspaceKey("box", "/srv/app");
+      writeRaw({ version: 2, workspaces: [makeV2Workspace(from, [t], t.id)] });
+
+      persistence.moveWorkspaces([[from, "/srv/app" as WorkspaceKey]]);
+
+      expect(readRaw().workspaces[0].workspacePath).toBe("/srv/app");
+    });
+
+    it("moves nothing in a file not yet migrated", () => {
+      const t = makeLeafTab("p1", "ds1");
+      writeRaw({ version: 2, workspaces: [makeV2Workspace("/srv/app", [t], t.id)] });
+
+      persistence.moveWorkspaces([["/srv/app" as WorkspaceKey, workspaceKey("box", "/srv/app")]]);
+
+      expect(readRaw().workspaces[0].workspacePath).toBe("/srv/app");
+    });
+
+    it("keeps the file at v2 when the projects can't be read", async () => {
+      const t = makeLeafTab("p1", "ds1");
+      writeRaw({ version: 2, workspaces: [makeV2Workspace("/srv/app", [t], t.id)] });
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await persistence.startWorkspaceKeyMigration(async () => {
+        throw new Error("no projects");
+      });
+
+      expect(readRaw().version).toBe(2);
+      error.mockRestore();
+    });
+
+    it("moves a workspace's layout to its key on a new host", () => {
+      const t = makeLeafTab("p1", "ds1");
+      persistence.saveWorkspace(makeV2Workspace(SHARED, [t], t.id));
+
+      persistence.moveWorkspaces([[workspaceKey("local", SHARED), box]]);
+
+      const loaded = persistence.load()!;
+      expect(loaded.workspaces.map((w) => w.workspacePath)).toEqual([box]);
+      expect(loaded.lastActiveWorkspacePath).toBe(box);
+    });
+
+    it("keeps both layouts when the new host already has one at that key", () => {
+      const a = makeLeafTab("a", "ds-a");
+      const b = makeLeafTab("b", "ds-b");
+      persistence.saveWorkspace(makeV2Workspace(SHARED, [a], a.id));
+      persistence.saveWorkspace(makeV2Workspace(box, [b], b.id));
+
+      persistence.moveWorkspaces([[workspaceKey("local", SHARED), box]]);
+
+      const byKey = new Map<string, PersistedWorkspace>(
+        persistence.load()!.workspaces.map((w) => [w.workspacePath, w]),
+      );
+      expect(paneIdsOf(byKey.get(SHARED)!)).toEqual(["a"]);
+      expect(paneIdsOf(byKey.get(box)!)).toEqual(["b"]);
     });
   });
 });

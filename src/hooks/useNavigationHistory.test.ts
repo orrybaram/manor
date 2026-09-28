@@ -14,6 +14,7 @@ import {
   type Location,
 } from "../store/navigation-history-store";
 import { navigateBack, navigateForward } from "./useNavigationHistory";
+import { workspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 
 // window is provided by the setup file (src/store/__tests__/setup.ts)
 
@@ -48,6 +49,7 @@ function makeLayout(panelId: string, tabId: string): WorkspaceLayout {
 function seedStore(overrides?: Partial<AppState>) {
   useAppStore.setState({
     activeWorkspacePath: null,
+    activeWorkspaceHostId: "local",
     workspaceLayouts: {
       [WS_A]: makeLayout("panel-a", "tab-a"),
       [WS_B]: makeLayout("panel-b", "tab-b"),
@@ -74,13 +76,13 @@ function seedStore(overrides?: Partial<AppState>) {
 
 const locA: Location = {
   kind: "workspace",
-  workspacePath: WS_A,
+  workspaceKey: WS_A as WorkspaceKey,
   panelId: "panel-a",
   tabId: "tab-a",
 };
 const locB: Location = {
   kind: "workspace",
-  workspacePath: WS_B,
+  workspaceKey: WS_B as WorkspaceKey,
   panelId: "panel-b",
   tabId: "tab-b",
 };
@@ -182,7 +184,7 @@ describe("navigator bridge — prune", () => {
     seedStore({ activeWorkspacePath: WS_B });
     const stale: Location = {
       kind: "workspace",
-      workspacePath: "/gone",
+      workspaceKey: "/gone" as WorkspaceKey,
       panelId: "panel-x",
       tabId: "tab-x",
     };
@@ -205,7 +207,7 @@ describe("navigator bridge — prune", () => {
     seedStore({ activeWorkspacePath: WS_B });
     const stale: Location = {
       kind: "workspace",
-      workspacePath: "/gone",
+      workspaceKey: "/gone" as WorkspaceKey,
       panelId: "panel-x",
       tabId: "tab-x",
     };
@@ -242,7 +244,7 @@ describe("navigator bridge — prune", () => {
     };
     const emptyLoc: Location = {
       kind: "workspace",
-      workspacePath: WS_EMPTY,
+      workspaceKey: WS_EMPTY as WorkspaceKey,
       panelId: "panel-empty",
       tabId: "",
     };
@@ -321,5 +323,66 @@ describe("navigator bridge — project-store sync", () => {
       0,
     );
     expect(useAppStore.getState().activeWorkspacePath).toBe(WS_A);
+  });
+});
+
+describe("navigator bridge — hosts (ADR-191)", () => {
+  it("goes back to the workspace on its own host when another host has the same path", async () => {
+    const selectWorkspaceSpy = vi.fn();
+    vi.stubGlobal("window", {
+      ...(globalThis as unknown as { window: Record<string, unknown> }).window,
+      electronAPI: {
+        ...((globalThis as unknown as { window: { electronAPI?: object } })
+          .window?.electronAPI ?? {}),
+        projects: { selectWorkspace: selectWorkspaceSpy, select: vi.fn() },
+      },
+    });
+    const remoteKey = workspaceKey("box", WS_A);
+    seedStore({
+      activeWorkspacePath: WS_B,
+      activeWorkspaceHostId: "local",
+      workspaceLayouts: {
+        [WS_A]: makeLayout("panel-a", "tab-a"),
+        [WS_B]: makeLayout("panel-b", "tab-b"),
+        [remoteKey]: makeLayout("panel-r", "tab-r"),
+      },
+    });
+    const project = (id: string, hostId: string) => ({
+      id,
+      name: id,
+      path: "/test",
+      hostId,
+      defaultBranch: "main",
+      selectedWorkspaceIndex: 0,
+      workspaces: [
+        { path: WS_A, branch: "a", isMain: true, name: null },
+        { path: WS_B, branch: "b", isMain: false, name: null },
+      ],
+    });
+    // The local project is selected, as it would be after a restart.
+    useProjectStore.setState({
+      selectedProjectIndex: 0,
+      projects: [project("p-local", "local"), project("p-box", "box")],
+    } as never);
+    const locRemote: Location = {
+      kind: "workspace",
+      workspaceKey: remoteKey,
+      panelId: "panel-r",
+      tabId: "tab-r",
+    };
+    useNavigationHistoryStore.setState({
+      entries: [locRemote, locB],
+      index: 1,
+      isNavigating: false,
+    });
+
+    navigateBack();
+    await flushMicrotasks();
+
+    expect(selectWorkspaceSpy).toHaveBeenCalledWith("p-box", 0);
+    const app = useAppStore.getState();
+    expect(app.activeWorkspacePath).toBe(WS_A);
+    expect(app.activeWorkspaceHostId).toBe("box");
+    expect(selectCurrentLocation(app)).toEqual(locRemote);
   });
 });

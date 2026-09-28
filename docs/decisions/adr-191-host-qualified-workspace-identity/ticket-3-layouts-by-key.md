@@ -1,6 +1,6 @@
 ---
 title: Saved layouts keyed by host plus path, in the renderer and the daemon
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]
@@ -34,3 +34,44 @@ GitHub issue #240. See ADR-191 §3.
 - `src/store/app-store.ts`, `src/store/layout-snapshot.ts`, and the layout tests.
 - `src/store/navigation-history-store.ts` and its test.
 - The main-process call site that loads the layout with the project list.
+
+## Implementation notes
+
+- The persisted field keeps its name, `workspacePath`, and holds the
+  workspace key from version 3, as does `lastActiveWorkspacePath`. A
+  downgrade still finds every local workspace.
+- Main runs the migration once at launch
+  (`LayoutPersistence.startWorkspaceKeyMigration`); `layout:load` and
+  `layout:save` wait for it. The owners are `projects.json`'s projects with
+  their worktree roots expanded on their hosts, their workspaces as their
+  hosts' git lists them, and the workspace paths the file remembers. If a
+  remote host doesn't answer within 5 seconds, the file stays at version 2
+  and the migration runs again next launch: a partial owner list would send
+  some paths to the wrong host for good.
+- While the file is still at version 2, every workspace reads and saves
+  under its own key: a local one under its bare path, as before, and a
+  remote one under its qualified key. The key never depends on the
+  renderer's project list, which can differ from the owners main's migration
+  later uses (a remote project whose workspaces haven't loaded yet, say), so
+  keys can't drift mid-session or disagree with the migration. The migration
+  gives a bare entry to its owner's host unless the file already holds a
+  qualified entry for that very workspace; then the bare entry stays local.
+  No two entries meet on one key. A remote workspace's legacy layout is
+  found once the file is migrated. A host move leaves a bare entry of a
+  version 2 file for the migration, and moves a qualified one.
+- App-commands from the control server (`/agents`, `/workspaces/active`,
+  `/tabs`) carry the workspace's host, which main names
+  (`routes/workspace-host.ts`). A request relayed from a remote host
+  (ADR-189) always gets its own host; one that names another gets the same
+  generic 403 as every relayed route (`callerMaySee`).
+- The renderer keeps `activeWorkspacePath` as a path and adds
+  `activeWorkspaceHostId`; `selectActiveWorkspaceKey` combines them. Panes
+  take their host from the key of the layout they are in
+  (`paneCreateHostId`), not from the selected project.
+- A host move (`projects:moveToHost`, `projects:switchHost`) moves the saved
+  layouts of the workspaces the project keeps to their keys on the new host,
+  in `layout.json` and in the renderer.
+- Downgrading: an older build keeps the `<hostId>:<path>` entries in
+  `layout.json` but ignores them. A remote workspace's layout that it saves
+  under a bare path is read as local after upgrading again, since the file
+  is already at version 3.

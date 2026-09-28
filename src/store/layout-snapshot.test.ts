@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { layoutSnapshot } from "./layout-snapshot";
 import type { AppState, Panel, Tab, WorkspaceLayout } from "./app-store";
+import { workspaceKey } from "../lib/workspace-key";
 
 const WS_PATH = "/test/workspace";
 
@@ -50,6 +51,26 @@ function singlePanel(tabs: Tab[], selectedTabId?: string): WorkspaceLayout {
 }
 
 describe("layoutSnapshot", () => {
+  // ADR-191: a local and a remote workspace at the same path keep their own
+  // layouts, and the snapshot is the active host's.
+  it("snapshots the active host's layout when two hosts share the path", () => {
+    const layouts = {
+      [WS_PATH]: singlePanel([tab("local-tab", ["local-pane"])]),
+      [workspaceKey("box", WS_PATH)]: singlePanel([tab("box-tab", ["box-pane"])]),
+    };
+
+    const onBox = layoutSnapshot(
+      state(layouts[WS_PATH], { workspaceLayouts: layouts, activeWorkspaceHostId: "box" }),
+    );
+    const onLocal = layoutSnapshot(
+      state(layouts[WS_PATH], { workspaceLayouts: layouts, activeWorkspaceHostId: "local" }),
+    );
+
+    expect(onBox?.workspacePath).toBe(WS_PATH);
+    expect(onBox?.tabs.map((t) => t.tabId)).toEqual(["box-tab"]);
+    expect(onLocal?.tabs.map((t) => t.tabId)).toEqual(["local-tab"]);
+  });
+
   it("returns null when no workspace is active", () => {
     expect(layoutSnapshot(state(singlePanel([tab("t1", ["p1"])]), {
       activeWorkspacePath: null,

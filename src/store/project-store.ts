@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { useAppStore } from "./app-store";
+import { selectActiveWorkspaceKey, useAppStore } from "./app-store";
+import { workspaceKey } from "../lib/workspace-key";
 import { useToastStore } from "./toast-store";
 import { branchesEqual } from "../utils/branch-name";
 import { ipcErrorMessage } from "../lib/ipc-error";
@@ -621,22 +622,36 @@ interface ProjectState {
  * on the new host; the old ones — the previous checkout and its worktrees —
  * are no longer part of it. Select the new main workspace if the window was
  * showing one of them, then close their tabs, killing their terminals, so
- * nothing is left running against a workspace that is gone.
+ * nothing is left running against a workspace that is gone. A workspace
+ * whose path the new host has too keeps its tabs, moved to its key on the
+ * new host (ADR-191 §3), as main moves its saved layout.
  */
 function closeWorkspacesLeftBehind(
   previous: ProjectInfo,
   updated: ProjectInfo,
   selectWorkspace: (projectId: string, workspaceIndex: number) => void,
 ): void {
-  const kept = new Set(updated.workspaces.map((ws) => ws.path));
-  const gone = previous.workspaces.map((ws) => ws.path).filter((p) => !kept.has(p));
-  if (gone.length === 0) return;
   const app = useAppStore.getState();
-  if (app.activeWorkspacePath && gone.includes(app.activeWorkspacePath)) {
+  const kept = new Set(updated.workspaces.map((ws) => ws.path));
+  // The same [old key, new key] pairs main's `moveLayouts`
+  // (`electron/ipc/projects.ts`) moves in `layout.json`; keep them in step.
+  for (const ws of previous.workspaces) {
+    if (!kept.has(ws.path)) continue;
+    app.moveWorkspaceLayout(
+      workspaceKey(previous.hostId, ws.path),
+      workspaceKey(updated.hostId, ws.path),
+    );
+  }
+  const gone = previous.workspaces
+    .filter((ws) => !kept.has(ws.path))
+    .map((ws) => workspaceKey(previous.hostId, ws.path));
+  if (gone.length === 0) return;
+  const activeKey = selectActiveWorkspaceKey(useAppStore.getState());
+  if (activeKey && gone.includes(activeKey)) {
     const mainIdx = updated.workspaces.findIndex((ws) => ws.path === updated.path);
     selectWorkspace(updated.id, mainIdx >= 0 ? mainIdx : 0);
   }
-  for (const path of gone) app.removeWorkspaceLayout(path);
+  for (const key of gone) useAppStore.getState().removeWorkspaceLayout(key);
 }
 
 /**
@@ -811,7 +826,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const project = get().projects.find((p) => p.id === projectId);
     const ws = project?.workspaces[workspaceIndex];
     if (ws) {
-      useAppStore.getState().setActiveWorkspace(ws.path);
+      useAppStore.getState().setActiveWorkspace(ws.path, project.hostId);
       if (ws.folderId) {
         get().setFolderExpanded(projectId, ws.folderId);
       }

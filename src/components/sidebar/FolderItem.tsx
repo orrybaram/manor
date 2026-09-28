@@ -5,7 +5,7 @@ import Folder from "lucide-react/dist/esm/icons/folder";
 import type { WorkspaceFolder, WorkspaceInfo } from "../../store/project-store";
 import { handleSidebarRowKeyDown } from "../../lib/sidebar-row";
 import { openContextMenuFromKeyboard } from "../../lib/keyboard-context-menu";
-import { useWorkspacesAgentStatus } from "../../hooks/useProjectAgentStatus";
+import { useWorkspaceKeys, useWorkspacesAgentStatus } from "../../hooks/useProjectAgentStatus";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
 import { useEmojiAutocomplete } from "../ui/EmojiAutocomplete/useEmojiAutocomplete";
 import { composeHandlers } from "../ui/EmojiAutocomplete/compose";
@@ -16,6 +16,8 @@ type FolderItemProps = {
   /** Every visible workspace in the folder's subtree: the count and the
    * collapsed agent dot speak for the whole block (ADR-172). */
   workspaces: WorkspaceInfo[];
+  /** The host of the folder's project; its workspaces are on it (ADR-191). */
+  hostId: string;
   /** Enclosing folders above this one; 0 at the top level (ADR-172). */
   depth: number;
   collapsed: boolean;
@@ -58,6 +60,7 @@ export function FolderItem(props: FolderItemProps) {
   const {
     folder,
     workspaces,
+    hostId,
     depth,
     collapsed,
     containsSelected,
@@ -114,7 +117,7 @@ export function FolderItem(props: FolderItemProps) {
     return () => cancelAnimationFrame(raf);
   }, [collapsed]);
 
-  const { status, pulse } = useWorkspacesAgentStatus(workspaces);
+  const { status, pulse } = useWorkspacesAgentStatus(useWorkspaceKeys(workspaces, hostId));
 
   const setEditingState = (next: boolean) => {
     setEditing(next);

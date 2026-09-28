@@ -22,7 +22,7 @@ import type { CommandItem, CategoryConfig } from "./types";
 import type { SettingsPageId } from "../settings/SettingsModal/SettingsModal";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
-import { useAppStore } from "../../store/app-store";
+import { selectActiveLayout, useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { useToastStore } from "../../store/toast-store";
 import { getAgentCommand } from "../../agent-defaults";
@@ -318,9 +318,7 @@ export function useCommands({
         keywords: ["panel", "close"],
         action: () => {
           const state = useAppStore.getState();
-          const wsPath = state.activeWorkspacePath;
-          if (!wsPath) return;
-          const layout = state.workspaceLayouts[wsPath];
+          const layout = selectActiveLayout(state);
           if (!layout) return;
           state.closePanel(layout.activePanelId);
           onClose();

@@ -14,6 +14,7 @@
 import type { ProjectInfo, WorkspaceInfo } from "../persistence";
 import type { LayoutPersistence } from "../terminal-host/layout-persistence";
 import { findWorkspaceForPane, matchProjectByPath } from "../pane-context";
+import { parseWorkspaceKey } from "../../src/lib/workspace-key";
 import { availableSources } from "../issue-backends";
 import { callerMaySee } from "./caller-host";
 import type { Route } from "./types";
@@ -32,9 +33,10 @@ function resolveByPane(
 ): { project: ProjectInfo; workspace: WorkspaceInfo } | null {
   if (!paneId) return null;
   const layout = layoutPersistence?.load() ?? null;
-  const workspacePath = layout ? findWorkspaceForPane(layout, paneId) : null;
-  if (!workspacePath) return null;
-  const match = matchProjectByPath(projects, workspacePath);
+  const key = layout ? findWorkspaceForPane(layout, paneId) : null;
+  if (!key) return null;
+  // Matched by path alone for now; host-aware matching is #241.
+  const match = matchProjectByPath(projects, parseWorkspaceKey(key).path);
   if (!match) return null;
   return match;
 }

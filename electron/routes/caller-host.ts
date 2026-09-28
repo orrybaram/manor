@@ -11,3 +11,9 @@ export function callerMaySee(
   if (!callerHostId) return true;
   return hostId === callerHostId;
 }
+
+/**
+ * What a relayed caller hears when it names any host but its own, known or
+ * not, so it can't learn which other hosts exist.
+ */
+export const OWN_HOST_ONLY = "A remote host can only act on its own host.";

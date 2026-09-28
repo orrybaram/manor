@@ -1,21 +1,22 @@
 import type { PaneNode } from "../../../store/pane-tree";
+import type { WorkspaceKey } from "../../../lib/workspace-key";
 import { LeafPane } from "../LeafPane";
 import { SplitLayout } from "../SplitLayout";
 
-interface PaneLayoutProps {
+type PaneLayoutProps = {
   node: PaneNode;
-  workspacePath?: string;
-}
+  workspaceKey?: WorkspaceKey;
+};
 
 export function PaneLayout(props: PaneLayoutProps) {
-  const { node, workspacePath } = props;
+  const { node, workspaceKey } = props;
 
   if (node.type === "leaf") {
     return (
       <LeafPane
         key={node.paneId}
         paneId={node.paneId}
-        workspacePath={workspacePath}
+        workspaceKey={workspaceKey}
       />
     );
   }
@@ -26,7 +27,7 @@ export function PaneLayout(props: PaneLayoutProps) {
       ratio={node.ratio}
       first={node.first}
       second={node.second}
-      workspacePath={workspacePath}
+      workspaceKey={workspaceKey}
     />
   );
 }

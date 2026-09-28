@@ -15,7 +15,8 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { terminalOptions } from "../terminal/config";
 import { createFileLinkProvider } from "../terminal/file-link-provider";
-import { useAppStore, type PendingPaneCommand } from "../store/app-store";
+import { selectActiveLayout, useAppStore, type PendingPaneCommand } from "../store/app-store";
+import type { WorkspaceKey } from "../lib/workspace-key";
 import { useProjectStore } from "../store/project-store";
 import { usePreferencesStore } from "../store/preferences-store";
 import { getAgentKindForCommand } from "../agent-defaults";
@@ -65,8 +66,8 @@ export function useTerminalLifecycle(
   cwd: string | undefined,
   theme: ITheme | null,
   onOpenSearch?: () => void,
-  /** The workspace the pane belongs to; its host is where the pane runs. */
-  workspacePath?: string,
+  /** Key of the workspace the pane belongs to; its host is where the pane runs. */
+  workspaceKey?: WorkspaceKey,
 ) {
   const [term, setTerm] = useState<Terminal | null>(null);
   const [fitAddon, setFitAddon] = useState<FitAddon | null>(null);
@@ -76,7 +77,7 @@ export function useTerminalLifecycle(
   const resettingRef = useRef(false);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { write, requeueUndelivered, resize, create, detach } =
-    useTerminalConnection(paneId, workspacePath);
+    useTerminalConnection(paneId, workspaceKey);
   const { attachHandler } = useTerminalHotkeys(onOpenSearch);
 
   // Subscribe to stream events (pass write so the stream handler can
@@ -97,8 +98,7 @@ export function useTerminalLifecycle(
   // Uses a selector + useEffect so focus() runs after React commits DOM changes
   // (the container's visibility must be "visible" before focus can succeed).
   const isFocusedPane = useAppStore((state) => {
-    const path = state.activeWorkspacePath;
-    const layout = path ? state.workspaceLayouts[path] : undefined;
+    const layout = selectActiveLayout(state);
     const panel = layout ? layout.panels[layout.activePanelId] : undefined;
     const tab = panel?.tabs.find((t) => t.id === panel?.selectedTabId);
     return tab?.focusedPaneId === paneId;
@@ -518,7 +518,7 @@ export function useTerminalLifecycle(
         cwd ?? null,
         t.cols,
         t.rows,
-        { hostId: paneCreateHostId(paneId, workspacePath ?? cwd) },
+        { hostId: paneCreateHostId(paneId, workspaceKey) },
       );
       if (!result.ok) {
         setPtyError(result.error ?? "Failed to create terminal session");
@@ -535,7 +535,7 @@ export function useTerminalLifecycle(
         resettingRef.current = false;
       }, 1_000);
     }
-  }, [paneId, cwd, workspacePath]);
+  }, [paneId, cwd, workspaceKey]);
 
   return { term, fitAddon, searchAddon, ptyError, write, reset };
 }

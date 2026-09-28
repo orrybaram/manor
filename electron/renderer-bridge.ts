@@ -174,17 +174,20 @@ export interface StartedAgent {
  * appeared — a silent no-op reported as success is unretryable (ADR-176).
  *
  * `prompt` seeds the agent's first turn; `agentCommand` overrides the
- * workspace's configured launch command.
+ * workspace's configured launch command. `hostId` is the workspace's host:
+ * the path alone can be on two (ADR-191).
  */
 export async function startAgent(
   workspacePath: string,
   prompt?: string,
   agentCommand?: string,
+  hostId?: string,
 ): Promise<RendererResponse<StartedAgent>> {
   const result = await requestRenderer("start-agent", {
     workspacePath,
     prompt,
     agentCommand,
+    hostId,
   });
   return result.ok ? { ok: true, data: result.data as StartedAgent } : result;
 }

@@ -201,6 +201,73 @@ describe("ProjectManager host-relative paths (ADR-178)", () => {
     );
   });
 
+  // ADR-191: what migrating path-keyed data to workspace keys is told.
+  it("describes each project as a workspace-key owner, with its worktree root expanded on its host", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    const mgr = new ProjectManager(hostsOf(git, shell), tmpDir);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    const project = await mgr.addProject("Remote App", "/srv/app", "box");
+    mgr.renameWorkspace(project.id, "/elsewhere/feat", "Feat");
+
+    const owners = await mgr.workspaceKeyOwners(1000);
+
+    expect(owners).toEqual([
+      {
+        hostId: "box",
+        path: "/srv/app",
+        worktreeRoot: "/home/remoteuser/.manor/worktrees/remote-app",
+        workspaces: [{ path: "/elsewhere/feat" }],
+      },
+    ]);
+  });
+
+  it("names no owners while a remote host can't say where its worktrees are", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    vi.mocked(shell.homeDir).mockImplementation(() => new Promise(() => {}));
+    const mgr = new ProjectManager(hostsOf(git, shell), tmpDir);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    await mgr.addProject("Remote App", "/srv/app", "box");
+
+    // A partial list would send some of its paths to the wrong host for good.
+    expect(await mgr.workspaceKeyOwners(10)).toBeNull();
+  });
+
+  it("names no owners while a remote host can't list its workspaces", async () => {
+    const git = fullGit();
+    vi.mocked(git.worktreeList).mockRejectedValue(new Error("connection lost"));
+    const mgr = new ProjectManager(hostsOf(git, fakeShell("/home/remoteuser")), tmpDir);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    await mgr.addProject("Remote App", "/srv/app", "box");
+
+    expect(await mgr.workspaceKeyOwners(1000)).toBeNull();
+  });
+
+  it("lists each project's workspaces from its host's git", async () => {
+    const git = fullGit();
+    vi.mocked(git.worktreeList).mockResolvedValue([
+      { path: "/srv/app", branch: "main", isMain: true },
+      { path: "/elsewhere/listed", branch: "feat", isMain: false },
+    ] as never);
+    const mgr = new ProjectManager(hostsOf(git, fakeShell("/home/remoteuser")), tmpDir);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    await mgr.addProject("Remote App", "/srv/app", "box");
+
+    const owners = await mgr.workspaceKeyOwners(1000);
+
+    expect(owners?.[0].workspaces).toEqual(
+      expect.arrayContaining([{ path: "/elsewhere/listed" }]),
+    );
+  });
+
+  it("names no owners when every project is local", async () => {
+    const mgr = new ProjectManager(fullGit(), tmpDir);
+    await mgr.addProject("Local App", "/tmp/local-app-3");
+
+    expect(await mgr.workspaceKeyOwners(1000)).toEqual([]);
+  });
+
   it("keeps local worktree resolution byte-identical with no shell resolver supplied", async () => {
     const git = fullGit();
     const mgr = new ProjectManager(git, tmpDir);

@@ -6,7 +6,10 @@ import type { IpcDeps } from "./types";
 export function register(deps: IpcDeps): void {
   const { backend, layoutPersistence } = deps;
 
-  ipcMain.handle("layout:save", (_event, workspace: PersistedWorkspace) => {
+  // Both wait for the one-time workspace-key migration (ADR-191), so the
+  // renderer only ever sees, and writes, host-qualified keys.
+  ipcMain.handle("layout:save", async (_event, workspace: PersistedWorkspace) => {
+    await layoutPersistence.whenReady();
     try {
       layoutPersistence.saveWorkspace(workspace);
     } catch (err) {
@@ -14,7 +17,8 @@ export function register(deps: IpcDeps): void {
     }
   });
 
-  ipcMain.handle("layout:load", () => {
+  ipcMain.handle("layout:load", async () => {
+    await layoutPersistence.whenReady();
     return layoutPersistence.load();
   });
 

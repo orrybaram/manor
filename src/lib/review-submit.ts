@@ -61,6 +61,8 @@ export function submitReview(
   workspacePath: string,
   comments: DraftComment[],
   target: ReviewTarget,
+  /** The workspace's host (ADR-191). */
+  hostId?: string | null,
 ): void {
   if (comments.length === 0) return;
 
@@ -69,7 +71,7 @@ export function submitReview(
   const toastId = `review-submit-${workspacePath}`;
 
   if (target.kind === "new") {
-    startAgentWithPrompt(workspacePath, prompt);
+    startAgentWithPrompt(workspacePath, prompt, hostId);
     addToast({
       id: toastId,
       message: `Sent ${commentCount(comments.length)} to a new agent`,

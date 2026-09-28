@@ -191,6 +191,7 @@ export function AgentsList(props: AgentsListProps) {
 
   const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
+  const activeWorkspaceHostId = useAppStore((s) => s.activeWorkspaceHostId);
 
   // Collect all active pane IDs across all workspace layouts
   const activePaneIds = useMemo(() => {
@@ -211,8 +212,9 @@ export function AgentsList(props: AgentsListProps) {
   // read-state sweep in the agent store, so the sidebar dot and main's unseen
   // flags cannot disagree about what counts as on screen (issue #142).
   const visiblePaneIds = useMemo(
-    () => selectVisiblePaneIds({ activeWorkspacePath, workspaceLayouts }),
-    [activeWorkspacePath, workspaceLayouts],
+    () =>
+      selectVisiblePaneIds({ activeWorkspacePath, activeWorkspaceHostId, workspaceLayouts }),
+    [activeWorkspacePath, activeWorkspaceHostId, workspaceLayouts],
   );
 
   // Show active agents only while they still own a pane; show completed/error/abandoned

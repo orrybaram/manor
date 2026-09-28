@@ -5,7 +5,11 @@ import { TooltipProvider } from "./components/ui/Tooltip/Tooltip";
 import { ToastContainer } from "./components/ui/Toast/Toast";
 import { ManorLogo } from "./components/ui/ManorLogo";
 import { CloseAgentPaneDialog } from "./components/CloseAgentPaneDialog";
-import { useAppStore } from "./store/app-store";
+import {
+  selectActiveLayout,
+  selectActiveWorkspaceKey,
+  useAppStore,
+} from "./store/app-store";
 import { useProjectStore } from "./store/project-store";
 import { useThemeStore } from "./store/theme-store";
 import {
@@ -44,7 +48,7 @@ export default function DetachedApp() {
   const [bootState, setBootState] = useState<BootState>("loading");
   useRemoteRecovery();
 
-  const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
+  const activeWorkspaceKey = useAppStore(selectActiveWorkspaceKey);
   const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
 
   const pendingCloseConfirmPaneId = useAppStore(
@@ -189,9 +193,7 @@ export default function DetachedApp() {
     () =>
       window.electronAPI.window.onTabReceived((payload) => {
         const state = useAppStore.getState();
-        const hasLayout =
-          state.activeWorkspacePath !== null &&
-          state.workspaceLayouts[state.activeWorkspacePath] !== undefined;
+        const hasLayout = selectActiveLayout(state) !== null;
         if (hasLayout) state.receiveReattachedTab(payload);
         else hydrateDetachedTab(payload);
         // Match the incoming tab's workspace theme.
@@ -210,7 +212,7 @@ export default function DetachedApp() {
   useEffect(() => {
     const handler = () => {
       const state = useAppStore.getState();
-      const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
+      const layout = selectActiveLayout(state);
       if (!layout) return;
       for (const panel of Object.values(layout.panels)) {
         for (const tab of panel.tabs) {
@@ -232,8 +234,8 @@ export default function DetachedApp() {
 
   const hasLayout =
     bootState === "ready" &&
-    activeWorkspacePath !== null &&
-    workspaceLayouts[activeWorkspacePath] !== undefined;
+    activeWorkspaceKey !== null &&
+    workspaceLayouts[activeWorkspaceKey] !== undefined;
 
   // Loading (payload in flight) and empty (no payload) both render a splash.
   // A full-width `.drag-region` strip at the top keeps the window movable even
@@ -262,9 +264,9 @@ export default function DetachedApp() {
           <PaneDragProvider>
             <div className="main-content">
               <PanelLayout
-                key={activeWorkspacePath}
-                node={workspaceLayouts[activeWorkspacePath].panelTree}
-                workspacePath={activeWorkspacePath}
+                key={activeWorkspaceKey}
+                node={workspaceLayouts[activeWorkspaceKey].panelTree}
+                workspaceKey={activeWorkspaceKey}
                 onNewAgent={() => void startNewAgent()}
               />
             </div>

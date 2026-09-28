@@ -82,6 +82,14 @@ import { RemoteWorktreePoller, WorktreeWatcher } from "./projects/worktree-watch
 const NAVIGATE_HOST_WAIT_MS = 15_000;
 
 /**
+ * How long the one-time layout.json key migration (ADR-191) waits for a
+ * remote host to say where its worktrees live. It holds up the first
+ * `layout:load` after the upgrade, so it is kept short: a host that misses
+ * it is still matched by its project root and remembered workspace paths.
+ */
+const LAYOUT_MIGRATION_HOST_WAIT_MS = 5_000;
+
+/**
  * Manor's version. `app.getVersion()` in an unpackaged app launched on a bare
  * main.js (E2E, some dev setups) is Electron's own version, so read the repo's
  * package.json there instead. Remote hosts are version-matched against it.
@@ -322,6 +330,11 @@ export function initApp(devTitle: string | null): void {
   for (const { hostId, spec } of projectManager.getHosts()) {
     backendRegistry.register(hostId, spec);
   }
+  // layout.json keyed its workspaces by bare path before ADR-191. Rekey it
+  // once by host plus path, off the launch path; `layout:load` waits for it.
+  void layoutPersistence.startWorkspaceKeyMigration(() =>
+    projectManager.workspaceKeyOwners(LAYOUT_MIGRATION_HOST_WAIT_MS),
+  );
   // Worktrees made or removed outside Manor (an agent's `git worktree add`)
   // never pass through a route that notifies the renderer; watch for them.
   const worktreeWatcher = new WorktreeWatcher(notifyProjectsChanged);

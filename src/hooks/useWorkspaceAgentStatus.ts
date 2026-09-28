@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useAppStore } from "../store/app-store";
 import { useAgentStore } from "../store/agent-store";
 import { allPaneIds } from "../store/pane-tree";
-import { pickBestPaneStatus } from "./useTabAgentStatus";
+import { pickBestPaneStatus, useVisiblePaneIds } from "./useTabAgentStatus";
 import type { AgentStatus } from "../electron.d";
 import type { WorkspaceKey } from "../lib/workspace-key";
 
@@ -15,6 +15,7 @@ export function useWorkspaceAgentStatus(
   const unseenInputAgentIds = useAgentStore((s) => s.unseenInputAgentIds);
   const layout = useAppStore((s) => s.workspaceLayouts[key] ?? null);
   const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
+  const visiblePaneIds = useVisiblePaneIds();
 
   return useMemo(() => {
     if (!layout) return { status: null, pulse: true };
@@ -31,6 +32,7 @@ export function useWorkspaceAgentStatus(
       agents,
       unseenRespondedAgentIds,
       unseenInputAgentIds,
+      visiblePaneIds,
     });
-  }, [layout, paneAgentStatus, agents, unseenRespondedAgentIds, unseenInputAgentIds]);
+  }, [layout, paneAgentStatus, agents, unseenRespondedAgentIds, unseenInputAgentIds, visiblePaneIds]);
 }

@@ -64,7 +64,8 @@
  *      (ADR-186: exact pairing, so a quiet background subagent is not lost).
  *  T2  Stuck-working (ADR-131): root turn quiet > STALE_ACTIVE_MS while the
  *      Agent is still active → `stalled` (STALE_SUBAGENT_MS while every active
- *      subagent has an `agent:` key, ADR-186).
+ *      subagent has an `agent:` key, ADR-186, or while a root tool call is
+ *      open — PreToolUse without its PostToolUse).
  *  T3  Orphan (ADR-132): the pane's Agent is stuck active but has no turn state,
  *      and is older than STALE_ACTIVE_MS.
  *
@@ -178,6 +179,7 @@ export function initialPaneState(paneId: string): PaneAgentState {
     hookDriven: false,
     activeSubagents: new Set(),
     finishedSubagents: new Set(),
+    openToolCalls: 0,
     lastHookAt: null,
     pendingStopAt: null,
     lastUnattributedHookAt: null,
@@ -246,6 +248,7 @@ function withoutRoot(state: PaneAgentState): PaneAgentState {
     hookDriven: false,
     activeSubagents: new Set(),
     finishedSubagents: new Set(),
+    openToolCalls: 0,
     lastHookAt: null,
     pendingStopAt: null,
     inputSessionId: null,
@@ -293,6 +296,20 @@ function withSubagentBookkeeping(
         ? state.finishedSubagents
         : new Set([...state.finishedSubagents, removed]);
     return { ...state, activeSubagents: subs, finishedSubagents: finished };
+  }
+  return state;
+}
+
+/** Record a root PreToolUse / PostToolUse / PostToolUseFailure in the turn state. */
+function withToolCallBookkeeping(
+  state: PaneAgentState,
+  event: AgentHookEvent,
+): PaneAgentState {
+  if (event.type === "PreToolUse") {
+    return { ...state, openToolCalls: state.openToolCalls + 1 };
+  }
+  if (event.type === "PostToolUse" || event.type === "PostToolUseFailure") {
+    return { ...state, openToolCalls: Math.max(0, state.openToolCalls - 1) };
   }
   return state;
 }
@@ -667,9 +684,14 @@ function reconcileRootHook(
       phase: "active",
       activeSubagents: new Set(),
       finishedSubagents: new Set(),
+      openToolCalls: 0,
       pendingStopAt: null,
     };
   }
+
+  // Open tool calls: PreToolUse opens one, PostToolUse / PostToolUseFailure
+  // closes one (T2 waits longer while any is open).
+  next = withToolCallBookkeeping(next, event);
 
   // SubagentStart / SubagentStop without an `agent_id` (older Claude Code):
   // keyed by `tool:<tool_use_id>` or a `__fallback_N` placeholder.
@@ -681,7 +703,7 @@ function reconcileRootHook(
   // Stop is moot (ADR-186: the resume after background subagents finish must
   // not be drained mid-turn).
   if (isActiveStatus(event.status)) {
-    if (event.type === "UserPromptSubmit") next = { ...next, pendingStopAt: null };
+    if (event.type === "UserPromptSubmit") next = { ...next, pendingStopAt: null, openToolCalls: 0 };
     // The root's own hook is authoritative: it also takes over (or clears)
     // ownership of a prompt a child raised.
     next = {
@@ -701,13 +723,14 @@ function reconcileRootHook(
         ...next,
         phase: "pendingStop",
         pendingStopAt: state.pendingStopAt ?? nowMs,
+        openToolCalls: 0,
       };
       // Status is deliberately unchanged: the turn is not over while
       // subagents run (fixes "held Stop shows responded").
       return result(state, next, `Stop hook held: ${n} subagent${n === 1 ? "" : "s"} active`);
     }
     next = withStatus(
-      { ...next, phase: "responded", pendingStopAt: null },
+      { ...next, phase: "responded", pendingStopAt: null, openToolCalls: 0 },
       "responded",
       "Stop hook",
     );
@@ -743,6 +766,7 @@ function reconcileRootHook(
         phase: "none",
         activeSubagents: new Set(),
         finishedSubagents: new Set(),
+        openToolCalls: 0,
         pendingStopAt: null,
       },
       "error",
@@ -800,6 +824,7 @@ function reconcileFacts(
       kind: null,
       hookDriven: false,
       activeSubagents: new Set(),
+      openToolCalls: 0,
       pendingStopAt: null,
       phase: state.phase === "none" ? "none" : "responded",
     };
@@ -932,7 +957,7 @@ function reconcileTurnTick(
   if (state.pendingStopAt !== null && idle > stopThreshold) {
     const reason = `held Stop applied after ${Math.round(idle / 1000)}s without a hook`;
     const next = withStatus(
-      { ...state, phase: "responded", activeSubagents: new Set(), pendingStopAt: null },
+      { ...state, phase: "responded", activeSubagents: new Set(), openToolCalls: 0, pendingStopAt: null },
       "responded",
       reason,
     );
@@ -943,10 +968,12 @@ function reconcileTurnTick(
 
   // T2 — stuck-working safety net (ADR-131). A foreground subagent paired by
   // its `agent_id` can be quiet for minutes inside one tool call (a test run),
-  // so it gets the same STALE_SUBAGENT_MS window as T1 (ADR-186).
-  const activeThreshold = allSubagentsHaveAgentIds(state.activeSubagents)
-    ? STALE_SUBAGENT_MS
-    : STALE_ACTIVE_MS;
+  // so it gets the same STALE_SUBAGENT_MS window as T1 (ADR-186). So can the
+  // root's own tool call: a long foreground Bash sends no hook until it ends.
+  const activeThreshold =
+    state.openToolCalls > 0 || allSubagentsHaveAgentIds(state.activeSubagents)
+      ? STALE_SUBAGENT_MS
+      : STALE_ACTIVE_MS;
   if (
     state.phase === "active" &&
     idle > activeThreshold &&
@@ -955,7 +982,7 @@ function reconcileTurnTick(
   ) {
     const reason = `no hook for ${Math.round(idle / 1000)}s (stuck-working recovery)`;
     const next = withStatus(
-      { ...state, phase: "stalled", activeSubagents: new Set() },
+      { ...state, phase: "stalled", activeSubagents: new Set(), openToolCalls: 0 },
       "responded",
       reason,
     );

@@ -94,6 +94,14 @@ export interface PaneAgentState {
    * subagent is recognised and cannot reopen a finished turn (ADR-186).
    */
   readonly finishedSubagents: ReadonlySet<string>;
+  /**
+   * The root session's own tool calls that sent PreToolUse and have not yet
+   * sent PostToolUse / PostToolUseFailure. A foreground tool (a long Bash
+   * command) sends no hook while it runs, so while one is open T2 waits
+   * STALE_SUBAGENT_MS instead of STALE_ACTIVE_MS. A count, not a flag, because
+   * tool calls can run in parallel; reset whenever the turn ends or restarts.
+   */
+  readonly openToolCalls: number;
   /** Monotonic ms of the root session's last hook, or null. */
   readonly lastHookAt: number | null;
   /** Monotonic ms when a Stop was first held for active subagents, or null. */

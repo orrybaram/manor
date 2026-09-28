@@ -996,6 +996,65 @@ describe("reconcile — ticks", () => {
     expect(reconcile(fallback, tick(STALE_ACTIVE_MS + 1), c).status).toBe("responded");
   });
 
+  it("T2 waits STALE_SUBAGENT_MS while a root tool call is open (a long foreground Bash)", () => {
+    const rs = run([
+      { signal: hook(ev("UserPromptSubmit")), nowMs: 0 },
+      { signal: hook(ev("PreToolUse")), nowMs: 1_000 },
+      { signal: tick(1_000 + STALE_ACTIVE_MS + 1) },
+    ]);
+    expect(last(rs).status).toBe("working");
+    expect(last(rs).state.openToolCalls).toBe(1);
+
+    const later = run([
+      { signal: hook(ev("UserPromptSubmit")), nowMs: 0 },
+      { signal: hook(ev("PreToolUse")), nowMs: 1_000 },
+      { signal: tick(1_000 + STALE_SUBAGENT_MS + 1) },
+    ]);
+    expect(last(later).status).toBe("responded");
+    expect(last(later).state.openToolCalls).toBe(0);
+  });
+
+  it("T2 keeps the short window once every root tool call has finished", () => {
+    const rs = run([
+      { signal: hook(ev("UserPromptSubmit")), nowMs: 0 },
+      { signal: hook(ev("PreToolUse")), nowMs: 1_000 },
+      { signal: hook(ev("PreToolUse")), nowMs: 1_001 },
+      { signal: hook(ev("PostToolUse")), nowMs: 2_000 },
+      { signal: tick(2_000 + STALE_ACTIVE_MS + 1) },
+    ]);
+    // One of two parallel tool calls is still running.
+    expect(last(rs).status).toBe("thinking");
+
+    const done = run([
+      { signal: hook(ev("UserPromptSubmit")), nowMs: 0 },
+      { signal: hook(ev("PreToolUse")), nowMs: 1_000 },
+      { signal: hook(ev("PostToolUseFailure")), nowMs: 2_000 },
+      { signal: tick(2_000 + STALE_ACTIVE_MS + 1) },
+    ]);
+    expect(last(done).status).toBe("responded");
+  });
+
+  it("open root tool calls are forgotten when the turn ends or a new one starts", () => {
+    const stopped = run([
+      { signal: hook(ev("UserPromptSubmit")), nowMs: 0 },
+      { signal: hook(ev("PreToolUse")), nowMs: 1_000 },
+      { signal: hook(ev("Stop")), nowMs: 2_000 },
+    ]);
+    expect(last(stopped).state.openToolCalls).toBe(0);
+
+    const restarted = run([
+      { signal: hook(ev("UserPromptSubmit")), nowMs: 0 },
+      { signal: hook(ev("PreToolUse")), nowMs: 1_000 },
+      { signal: hook(ev("UserPromptSubmit")), nowMs: 2_000 },
+    ]);
+    expect(last(restarted).state.openToolCalls).toBe(0);
+  });
+
+  it("a subagent's PreToolUse does not open a root tool call", () => {
+    const r = reconcile(activePane(), hook(subEv("PreToolUse")), ctx({ existingAgent: agent() }));
+    expect(r.state.openToolCalls).toBe(0);
+  });
+
   it("T2 needs the root's Agent to be stuck active", () => {
     const start = activePane({ lastHookAt: 0 });
     const noAgent = reconcile(start, tick(STALE_ACTIVE_MS + 1), ctx());

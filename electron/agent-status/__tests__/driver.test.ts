@@ -15,7 +15,7 @@ import type { AgentHookEvent } from "../../agent-hook-events";
 import type { AgentKind, PaneFacts } from "../../terminal-host/types";
 import { createAgentStatusDriver, type AgentStatusDriverDeps } from "../driver";
 import { paneContextBackfill, type PaneStatusUpdate } from "../effects";
-import { STALE_ACTIVE_MS, STALE_STOP_MS } from "../reconciler";
+import { STALE_ACTIVE_MS, STALE_STOP_MS, STALE_SUBAGENT_MS } from "../reconciler";
 
 // ── Fake AgentManager ──
 
@@ -282,8 +282,20 @@ describe("driver — ticks replace the sweeps (ported)", () => {
     expect(t.agentManager.getAgentBySessionId("s1")!.lastAgentStatus).not.toBe("responded");
   });
 
+  it("stuck-working: waits STALE_SUBAGENT_MS while a root tool call is open", () => {
+    t.driver.hook(preToolUse({ sessionId: "s1" }));
+    t.advance(STALE_ACTIVE_MS + 1_000);
+    t.driver.tick();
+    expect(t.agentManager.getAgentBySessionId("s1")!.lastAgentStatus).toBe("working");
+
+    t.advance(STALE_SUBAGENT_MS);
+    t.driver.tick();
+    expect(t.agentManager.getAgentBySessionId("s1")!.lastAgentStatus).toBe("responded");
+  });
+
   it("stuck-working: forces responded after STALE_ACTIVE_MS without a hook", () => {
     t.driver.hook(preToolUse({ sessionId: "s1" }));
+    t.driver.hook(postToolUse({ sessionId: "s1" }));
     t.advance(STALE_ACTIVE_MS + 1_000);
     t.driver.tick();
 
@@ -939,6 +951,7 @@ describe("driver — tick interval", () => {
       t.driver.start();
       t.driver.start(); // idempotent
       t.driver.hook(preToolUse({ sessionId: "s1" }));
+      t.driver.hook(postToolUse({ sessionId: "s1" }));
       t.advance(STALE_ACTIVE_MS + 1_000);
       vi.advanceTimersByTime(10_000);
       expect(t.agentManager.getAgentBySessionId("s1")!.lastAgentStatus).toBe("responded");

@@ -1,6 +1,6 @@
 ---
 title: Home Up next section from assigned issues
-status: todo
+status: in-progress
 priority: medium
 assignee: opus
 blocked_by: [4]

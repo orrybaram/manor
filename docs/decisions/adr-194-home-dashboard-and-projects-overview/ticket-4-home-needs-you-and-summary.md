@@ -1,6 +1,6 @@
 ---
 title: Home launchers trim, Needs you section and summary line
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1, 3]

@@ -1,16 +1,18 @@
 import type { PanelNode } from "../../store/panel-tree";
+import type { WorkspaceKey } from "../../lib/workspace-key";
 import { LeafPanel } from "./LeafPanel";
 import { SplitPanelLayout } from "./SplitPanelLayout";
 
-interface PanelLayoutProps {
+type PanelLayoutProps = {
   node: PanelNode;
-  workspacePath: string;
+  workspaceKey: WorkspaceKey;
   onNewAgent: () => void;
-}
+};
 
-export function PanelLayout({ node, workspacePath, onNewAgent }: PanelLayoutProps) {
+export function PanelLayout(props: PanelLayoutProps) {
+  const { node, workspaceKey, onNewAgent } = props;
   if (node.type === "leaf") {
-    return <LeafPanel panelId={node.panelId} workspacePath={workspacePath} onNewAgent={onNewAgent} />;
+    return <LeafPanel panelId={node.panelId} workspaceKey={workspaceKey} onNewAgent={onNewAgent} />;
   }
   return (
     <SplitPanelLayout
@@ -18,7 +20,7 @@ export function PanelLayout({ node, workspacePath, onNewAgent }: PanelLayoutProp
       ratio={node.ratio}
       first={node.first}
       second={node.second}
-      workspacePath={workspacePath}
+      workspaceKey={workspaceKey}
       onNewAgent={onNewAgent}
     />
   );

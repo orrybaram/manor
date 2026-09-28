@@ -495,4 +495,25 @@ describe("ProjectManager linked-project groups (ADR-192)", () => {
       });
     });
   });
+
+  it("persists the host a group last made a workspace on", async () => {
+    seed();
+    const mgr = manager();
+    const { id } = mgr.linkProjects("box-app", "local-app");
+
+    mgr.setGroupLastUsedHost(id, "box");
+
+    // A fresh manager reads it back from disk.
+    expect((await groupOf(manager(), "local-app"))?.lastUsedHostId).toBe("box");
+  });
+
+  it("refuses a last-used host no member is on, or an unknown group", async () => {
+    seed();
+    const mgr = manager();
+    const { id } = mgr.linkProjects("box-app", "local-app");
+
+    expect(() => mgr.setGroupLastUsedHost(id, "mac")).toThrow(/has no project on me@mac/);
+    expect(() => mgr.setGroupLastUsedHost("nope", "box")).toThrow(/Unknown project group/);
+    expect((await groupOf(manager(), "local-app"))?.lastUsedHostId).toBe("local");
+  });
 });

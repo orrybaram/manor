@@ -1,5 +1,6 @@
 import { isHomePath } from "./home-path";
-import { LOCAL_HOST_ID, type HostId } from "./host-id";
+import { LOCAL_HOST_ID, normalizeHostId, type HostId } from "./host-id";
+import { parseWorkspaceKey } from "./workspace-key";
 
 export { LOCAL_HOST_ID };
 export type { HostId };
@@ -24,6 +25,18 @@ export interface HealthCheckResult {
 /** Whether `hostId` refers to a remote host — anything but `LOCAL_HOST_ID`. */
 export function isRemoteHost(hostId: string | null | undefined): boolean {
   return !!hostId && hostId !== LOCAL_HOST_ID;
+}
+
+/**
+ * How a host is named in a sentence: its ssh target, or "this machine".
+ * A remote host main hasn't reported yet is named by its id.
+ */
+export function hostLabel(
+  hostId: string,
+  hosts: readonly { hostId: string; spec?: { target?: string } | null }[],
+): string {
+  if (!isRemoteHost(hostId)) return "this machine";
+  return hosts.find((h) => h.hostId === hostId)?.spec?.target ?? hostId;
 }
 
 /**
@@ -93,23 +106,36 @@ export function hostIdForWorkspace(
   return projectForWorkspace(projects, workspacePath, preferredProjectId)?.hostId;
 }
 
+/**
+ * The project that has the workspace keyed `key` (ADR-191): on the key's
+ * host, with the key's path as its main checkout or one of its workspaces.
+ * Undefined for Home and for a path no project on that host has.
+ */
+export function projectForWorkspaceKey<P extends HostedProject>(
+  projects: readonly P[],
+  key: string | null | undefined,
+): P | undefined {
+  if (!key) return undefined;
+  const { hostId, path } = parseWorkspaceKey(key);
+  return projects.find(
+    (p) => normalizeHostId(p.hostId) === hostId && hasWorkspace(p, path),
+  );
+}
+
 /** The id of the selected project, if any. */
 export function selectedProjectId(selection: ProjectSelection): string | undefined {
   return selection.projects[selection.selectedProjectIndex]?.id;
 }
 
 /**
- * The host a new terminal in workspace `workspacePath` runs on: the host of
- * the project that has it, the selected project first when two share the
- * path — it is the one whose workspace the user opened. Home is on this
- * machine. Undefined when no project has the path, so main falls back to
- * the host the path belongs to.
+ * The host of workspace `workspacePath` for a caller that knows only its
+ * path: the host of the project that has it, the selected project first when
+ * two share the path — it is the one whose workspace the user opened. Home
+ * is on this machine. Undefined when no project has the path, so main falls
+ * back to the host the path belongs to.
  *
- * Known limitation: a pane of a workspace in a project that is NOT selected,
- * sharing its path with the selected project, is sent to the selected
- * project's host. Just after a restart, before the pane's own host reclaims
- * its sessions, a remote pane can so be created locally. Keying layouts by
- * host plus path (#240) closes this.
+ * A pane never needs this: it takes its host from the key of the workspace
+ * it belongs to (`paneCreateHostId`, ADR-191).
  */
 export function workspaceHostId(
   selection: ProjectSelection,
@@ -117,19 +143,6 @@ export function workspaceHostId(
 ): HostId | undefined {
   if (isHomePath(workspacePath)) return LOCAL_HOST_ID;
   return hostIdForWorkspace(selection.projects, workspacePath, selectedProjectId(selection));
-}
-
-/**
- * The remote host `workspacePath` lives on (see `hostIdForWorkspace`), or
- * null when it is on this machine (or unknown).
- */
-export function remoteHostIdForWorkspace(
-  projects: readonly HostedProject[],
-  workspacePath: string | undefined,
-  preferredProjectId?: string,
-): HostId | null {
-  const hostId = hostIdForWorkspace(projects, workspacePath, preferredProjectId);
-  return hostId && isRemoteHost(hostId) ? hostId : null;
 }
 
 /**

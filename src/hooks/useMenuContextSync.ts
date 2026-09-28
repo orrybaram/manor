@@ -12,7 +12,13 @@
  * layouts, projects and agents in the same tick).
  */
 
-import { useAppStore, type AppState } from "../store/app-store";
+import {
+  selectActiveLayout,
+  selectActiveWorkspaceKey,
+  useAppStore,
+  type AppState,
+} from "../store/app-store";
+import { projectForWorkspaceKey } from "../lib/hosts";
 import {
   useProjectStore,
   type ProjectInfo,
@@ -34,6 +40,7 @@ const DEBOUNCE_MS = 100;
 export type MenuAppState = Pick<
   AppState,
   | "activeWorkspacePath"
+  | "activeWorkspaceHostId"
   | "workspaceLayouts"
   | "paneContentType"
   | "paneAgentStatus"
@@ -98,12 +105,11 @@ export function deriveMenuContext(
   const isHome = isHomePath(path);
 
   const project =
-    (!isHome && path
-      ? projects.find((p) => p.workspaces.some((w) => w.path === path))
-      : undefined) ?? null;
+    (!isHome ? projectForWorkspaceKey(projects, selectActiveWorkspaceKey(app)) : undefined) ??
+    null;
   const workspace = project?.workspaces.find((w) => w.path === path) ?? null;
 
-  const layout = app.workspaceLayouts[path ?? ""] ?? null;
+  const layout = selectActiveLayout(app);
   const panel = layout?.panels[layout.activePanelId] ?? null;
   const tab = panel?.tabs.find((t) => t.id === panel.selectedTabId) ?? null;
   const focusedPaneId = tab?.focusedPaneId ?? null;

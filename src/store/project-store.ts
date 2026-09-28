@@ -1,6 +1,12 @@
 import { create } from "zustand";
-import { useAppStore } from "./app-store";
+import { selectActiveWorkspaceKey, useAppStore } from "./app-store";
+import { workspaceKey } from "../lib/workspace-key";
 import { useToastStore } from "./toast-store";
+import {
+  clearLinkSuggestionsFor,
+  offerLinkSuggestions,
+  startLinkSuggestions,
+} from "./link-suggestions";
 import { branchesEqual } from "../utils/branch-name";
 import { ipcErrorMessage } from "../lib/ipc-error";
 import { splitShared } from "../lib/project-groups";
@@ -427,6 +433,17 @@ export interface ProjectGroupInfo {
   lastUsedHostId: string | null;
 }
 
+/** The optional parts of `createWorktree`, named so callers skip what they don't use. */
+export interface CreateWorktreeOptions {
+  /** Run in the new workspace once it (and any setup script) is ready. */
+  agentCommand?: string;
+  linkedIssue?: LinkedIssue;
+  /** What a new branch starts from; the default branch when omitted. */
+  baseBranch?: string;
+  /** Check out `branch` as it is instead of creating it. */
+  useExistingBranch?: boolean;
+}
+
 export type SetupStep = "prune" | "fetch" | "create-worktree" | "persist" | "switch" | "setup-script";
 export type StepStatus = "pending" | "in-progress" | "done" | "error";
 export type SetupProgressEvent = { step: SetupStep; status: StepStatus; message?: string };
@@ -498,10 +515,7 @@ interface ProjectState {
     projectId: string,
     name: string,
     branch?: string,
-    agentCommand?: string,
-    linkedIssue?: LinkedIssue,
-    baseBranch?: string,
-    useExistingBranch?: boolean,
+    options?: CreateWorktreeOptions,
   ) => Promise<string | null>;
   removeWorktree: (
     projectId: string,
@@ -567,6 +581,12 @@ interface ProjectState {
    * at once. Errors roll the change back and are shown as a toast.
    */
   updateGroup: (groupId: string, updates: GroupUpdatableFields) => Promise<void>;
+  /**
+   * ADR-192: remember the host a group last made a workspace on, where the
+   * New Workspace host picker starts next time. `createWorktree` calls it
+   * for a linked project; a failure only loses the default, so it is quiet.
+   */
+  setGroupLastUsedHost: (groupId: string, hostId: string) => Promise<void>;
   /** Persists a full sidebar order: workspace paths and folder ids. */
   reorderSidebar: (
     projectId: string,
@@ -607,22 +627,36 @@ interface ProjectState {
  * on the new host; the old ones — the previous checkout and its worktrees —
  * are no longer part of it. Select the new main workspace if the window was
  * showing one of them, then close their tabs, killing their terminals, so
- * nothing is left running against a workspace that is gone.
+ * nothing is left running against a workspace that is gone. A workspace
+ * whose path the new host has too keeps its tabs, moved to its key on the
+ * new host (ADR-191 §3), as main moves its saved layout.
  */
 function closeWorkspacesLeftBehind(
   previous: ProjectInfo,
   updated: ProjectInfo,
   selectWorkspace: (projectId: string, workspaceIndex: number) => void,
 ): void {
-  const kept = new Set(updated.workspaces.map((ws) => ws.path));
-  const gone = previous.workspaces.map((ws) => ws.path).filter((p) => !kept.has(p));
-  if (gone.length === 0) return;
   const app = useAppStore.getState();
-  if (app.activeWorkspacePath && gone.includes(app.activeWorkspacePath)) {
+  const kept = new Set(updated.workspaces.map((ws) => ws.path));
+  // The same [old key, new key] pairs main's `moveLayouts`
+  // (`electron/ipc/projects.ts`) moves in `layout.json`; keep them in step.
+  for (const ws of previous.workspaces) {
+    if (!kept.has(ws.path)) continue;
+    app.moveWorkspaceLayout(
+      workspaceKey(previous.hostId, ws.path),
+      workspaceKey(updated.hostId, ws.path),
+    );
+  }
+  const gone = previous.workspaces
+    .filter((ws) => !kept.has(ws.path))
+    .map((ws) => workspaceKey(previous.hostId, ws.path));
+  if (gone.length === 0) return;
+  const activeKey = selectActiveWorkspaceKey(useAppStore.getState());
+  if (activeKey && gone.includes(activeKey)) {
     const mainIdx = updated.workspaces.findIndex((ws) => ws.path === updated.path);
     selectWorkspace(updated.id, mainIdx >= 0 ? mainIdx : 0);
   }
-  for (const path of gone) app.removeWorkspaceLayout(path);
+  for (const key of gone) useAppStore.getState().removeWorkspaceLayout(key);
 }
 
 /**
@@ -695,12 +729,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const projects = await window.electronAPI.projects.getAll();
       const selectedIndex =
         await window.electronAPI.projects.getSelectedIndex();
+      const firstLoad = !get().initialLoadDone;
       set((s) => ({
         projects: keepWatchedState(projects, s.projects),
         selectedProjectIndex: selectedIndex,
         loading: false,
         initialLoadDone: true,
       }));
+      // ADR-192 ticket 5: offer links between existing duplicates, now and
+      // as each remote host first connects.
+      if (firstLoad) void startLinkSuggestions(() => get().projects, get().linkProjects);
     } catch {
       set({ loading: false, initialLoadDone: true });
     }
@@ -712,6 +750,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projects: [...s.projects, project],
       selectedProjectIndex: s.projects.length,
     }));
+    void offerLinkSuggestions(project.id, get().linkProjects);
   },
 
   addProjectFromDirectory: async () => {
@@ -728,6 +767,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projects: [...s.projects, project],
       selectedProjectIndex: s.projects.length,
     }));
+    void offerLinkSuggestions(project.id, get().linkProjects);
     return project;
   },
 
@@ -797,7 +837,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const project = get().projects.find((p) => p.id === projectId);
     const ws = project?.workspaces[workspaceIndex];
     if (ws) {
-      useAppStore.getState().setActiveWorkspace(ws.path);
+      useAppStore.getState().setActiveWorkspace(ws.path, project.hostId);
       if (ws.folderId) {
         get().setFolderExpanded(projectId, ws.folderId);
       }
@@ -808,11 +848,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     projectId: string,
     name: string,
     branch?: string,
-    agentCommand?: string,
-    linkedIssue?: LinkedIssue,
-    baseBranch?: string,
-    useExistingBranch?: boolean,
+    options: CreateWorktreeOptions = {},
   ) => {
+    const { agentCommand, linkedIssue, baseBranch, useExistingBranch } = options;
     const project = get().projects.find((p) => p.id === projectId);
     const startScript = project?.worktreeStartScript ?? null;
 
@@ -857,6 +895,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set((s) => ({
       projects: s.projects.map((p) => (p.id === projectId ? updated : p)),
     }));
+
+    // A linked project's host picker starts here next time (ADR-192).
+    if (updated.group) void get().setGroupLastUsedHost(updated.group.id, updated.hostId);
 
     // Find the new workspace by name or branch.
     const branchName = branch || name;
@@ -1008,6 +1049,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       groupErrorToast(`link-projects-${projectId}`, "Couldn't link projects", err);
       return;
     }
+    clearLinkSuggestionsFor([projectId, otherId]);
     await get().loadProjects();
   },
 
@@ -1083,6 +1125,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         const { name, color, agentCommand, linearAssociations, group } = fresh;
         return { ...p, name, color, agentCommand, linearAssociations, group };
       }),
+    }));
+  },
+
+  setGroupLastUsedHost: async (groupId: string, hostId: string) => {
+    const alreadyRecorded = (p: ProjectInfo) =>
+      p.group?.id !== groupId || p.group.lastUsedHostId === hostId;
+    if (get().projects.every(alreadyRecorded)) return;
+    try {
+      await window.electronAPI.projects.setGroupLastUsedHost(groupId, hostId);
+    } catch {
+      // Only the picker's default is lost; the workspace was made.
+      return;
+    }
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        alreadyRecorded(p) || !p.group ? p : { ...p, group: { ...p.group, lastUsedHostId: hostId } },
+      ),
     }));
   },
 

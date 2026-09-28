@@ -1,3 +1,4 @@
+import type { WorkspaceKey } from "../../lib/workspace-key";
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   useAppStore,
@@ -536,7 +537,7 @@ describe("Workspace management", () => {
       paneAgentStatus: {},
     });
 
-    useAppStore.getState().removeWorkspaceLayout(WS_PATH);
+    useAppStore.getState().removeWorkspaceLayout(WS_PATH as WorkspaceKey);
 
     const state = useAppStore.getState();
     expect(state.workspaceLayouts[WS_PATH]).toBeUndefined();

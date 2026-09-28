@@ -16,7 +16,11 @@
  */
 
 import crypto from "node:crypto";
-import { hostTakenMessage, memberOnHost } from "../../src/lib/project-groups";
+import {
+  hostTakenMessage,
+  memberOnHost,
+  noMemberOnHostMessage,
+} from "../../src/lib/project-groups";
 import { isLinearAssociation } from "../ipc-validate";
 import type { ProjectContext } from "./context";
 import type {
@@ -134,6 +138,9 @@ export function normalizeGroups(state: PersistedState): void {
       memberIds,
       lastUsedHostId: typeof lastUsed === "string" && hosts.has(lastUsed) ? lastUsed : null,
       ...shared,
+      ...(typeof raw.originKey === "string" && raw.originKey !== ""
+        ? { originKey: raw.originKey }
+        : {}),
     });
   }
   // After the loop: a later group may still have claimed the survivor.
@@ -258,6 +265,26 @@ function copySharedOnto(group: PersistedProjectGroup, project: PersistedProject)
 }
 
 /**
+ * Remember `hostId` as the host `groupId` last made a workspace on, so the
+ * New Workspace host picker starts there next time. Throws for an unknown
+ * group or a host none of its members is on; the same host again is a no-op.
+ */
+export function setGroupLastUsedHost(
+  ctx: ProjectContext,
+  groupId: string,
+  hostId: string,
+): void {
+  const group = ctx.store.state.groups?.find((g) => g.id === groupId);
+  if (!group) throw new Error(`Unknown project group "${groupId}".`);
+  if (group.lastUsedHostId === hostId) return;
+  if (memberOnHost(group.memberIds, hostId, (id) => ctx.find(id)?.hostId) === undefined) {
+    throw new Error(noMemberOnHostMessage(group.name, ctx.hosts.label(hostId)));
+  }
+  group.lastUsedHostId = hostId;
+  ctx.store.save();
+}
+
+/**
  * Take `projectId` out of its group, dissolving a group left with one
  * member. The project leaving — and the last member of a dissolved group —
  * takes the group's shared settings with it; its workspaces, folders and
@@ -299,6 +326,9 @@ export function forgetProject(state: PersistedState, projectId: string): boolean
   const leaving = byId(projectId);
   if (leaving) copySharedOnto(group, leaving);
   group.memberIds = group.memberIds.filter((id) => id !== projectId);
+  // The origin key may have come from the member that left (ticket 5); the
+  // caller derives it again from the rest.
+  delete group.originKey;
   if (group.memberIds.length < 2) {
     for (const id of group.memberIds) {
       const last = byId(id);

@@ -1,6 +1,6 @@
 ---
 title: New terminals open on the host they were asked for
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: []

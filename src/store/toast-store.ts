@@ -3,13 +3,16 @@ import { create } from "zustand";
 export interface Toast {
   id: string;
   message: string;
-  status: "loading" | "success" | "error";
+  /** `info` is neutral: a question or notice, neither a result nor a failure. */
+  status: "loading" | "success" | "error" | "info";
   detail?: string;
   persistent?: boolean;
   /** Custom auto-dismiss duration in ms (overrides default) */
   duration?: number;
   action?: { label: string; onClick: () => void };
   secondaryAction?: { label: string; onClick: () => void };
+  /** Called when the user closes a persistent toast with its X button. */
+  onClose?: () => void;
   /** When true, render `detail` expanded on first mount instead of collapsed. */
   autoExpand?: boolean;
 }

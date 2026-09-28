@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useAppStore } from "../app-store";
 import { useProjectStore, type ProjectInfo } from "../project-store";
+import { workspaceKey } from "../../lib/workspace-key";
 
 // A host switch moves a project's checkout (ADR-179). The window used to
 // keep showing the old path — a workspace that no longer exists — and was
@@ -58,7 +59,11 @@ function project(path: string, extraWorkspaces: string[] = [], hostId = "local")
 describe("switchProjectHost", () => {
   beforeEach(() => {
     useProjectStore.setState({ projects: [project(OLD, [OLD_WT])], selectedProjectIndex: 0 });
-    useAppStore.setState({ workspaceLayouts: {}, activeWorkspacePath: null });
+    useAppStore.setState({
+      workspaceLayouts: {},
+      activeWorkspacePath: null,
+      activeWorkspaceHostId: "local",
+    });
     vi.clearAllMocks();
   });
 
@@ -102,5 +107,23 @@ describe("switchProjectHost", () => {
     const app = useAppStore.getState();
     expect(app.activeWorkspacePath).toBe(OLD);
     expect(app.workspaceLayouts[OLD]).toBeDefined();
+  });
+
+  // ADR-191: a path the new host has too keeps its tabs, under its new key.
+  it("keeps the tabs of a workspace whose path the new host has too", async () => {
+    useAppStore.getState().setActiveWorkspace(OLD, "local");
+    useAppStore.getState().addTab();
+    const tabs = useAppStore.getState().workspaceLayouts[OLD].panels;
+    vi.mocked(window.electronAPI.projects.switchHost).mockResolvedValue(
+      project(OLD, [], "box"),
+    );
+
+    await useProjectStore.getState().switchProjectHost("p1", "box");
+
+    const app = useAppStore.getState();
+    expect(app.workspaceLayouts[OLD]).toBeUndefined();
+    expect(app.workspaceLayouts[workspaceKey("box", OLD)].panels).toEqual(tabs);
+    expect(app.activeWorkspacePath).toBe(OLD);
+    expect(app.activeWorkspaceHostId).toBe("box");
   });
 });

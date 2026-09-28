@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   createMenuHandlers,
   dispatchMenuCommand,
-  orderedWorkspacePaths,
+  orderedWorkspaceKeys,
   type MenuChrome,
 } from "../menu-handlers";
 import { DEFAULT_KEYBINDINGS } from "../keybinding-defs";
@@ -93,6 +93,7 @@ beforeEach(() => {
   });
   useAppStore.setState({
     activeWorkspacePath: WS_PATH,
+    activeWorkspaceHostId: "local",
     workspaceLayouts: {
       [WS_PATH]: makeLayout({
         id: "tab-1",
@@ -105,7 +106,7 @@ beforeEach(() => {
   });
 });
 
-describe("orderedWorkspacePaths", () => {
+describe("orderedWorkspaceKeys", () => {
   it("puts Home first and follows the sidebar order", () => {
     const projects = [
       makeProject(
@@ -116,7 +117,7 @@ describe("orderedWorkspacePaths", () => {
       ),
       makeProject("b", [ws("/repo/b/one")]),
     ];
-    expect(orderedWorkspacePaths(projects)).toEqual([
+    expect(orderedWorkspaceKeys(projects)).toEqual([
       HOME_PATH,
       "/repo/a/two",
       "/repo/a/one",
@@ -137,7 +138,7 @@ describe("orderedWorkspacePaths", () => {
         ["/repo/a/loose", "f1", "/repo/a/in-folder", "/repo/a/last"],
       ),
     ];
-    expect(orderedWorkspacePaths(projects)).toEqual([
+    expect(orderedWorkspaceKeys(projects)).toEqual([
       HOME_PATH,
       "/repo/a/loose",
       "/repo/a/in-folder",
@@ -169,7 +170,7 @@ describe("orderedWorkspacePaths", () => {
         ],
       ),
     ];
-    expect(orderedWorkspacePaths(projects)).toEqual([
+    expect(orderedWorkspaceKeys(projects)).toEqual([
       HOME_PATH,
       "/repo/a/loose",
       "/repo/a/in-folder",
@@ -185,7 +186,7 @@ describe("orderedWorkspacePaths", () => {
         ws("/repo/a/hidden", { hidden: true }),
       ]),
     ];
-    expect(orderedWorkspacePaths(projects)).toEqual([HOME_PATH, "/repo/a/one"]);
+    expect(orderedWorkspaceKeys(projects)).toEqual([HOME_PATH, "/repo/a/one"]);
   });
 });
 
@@ -235,6 +236,33 @@ describe("workspace stepping", () => {
       path: "/repo/a/two",
     });
     expect(selectWorkspace).toHaveBeenCalledWith("a", 1);
+  });
+
+  // ADR-191: the same path on two hosts is two workspaces.
+  describe("with the same path on two hosts", () => {
+    beforeEach(() => {
+      const onHost = (id: string, hostId: string) => ({
+        ...makeProject(id, [ws("/repo/shared")]),
+        hostId,
+      });
+      useProjectStore.setState({
+        projects: [onHost("local-app", "local"), onHost("box-app", "box")],
+      });
+    });
+
+    it("switch-workspace selects the project the menu names", () => {
+      createMenuHandlers(makeChrome())["switch-workspace"]({
+        path: "/repo/shared",
+        projectId: "box-app",
+      });
+      expect(selectWorkspace).toHaveBeenCalledWith("box-app", 0);
+    });
+
+    it("next-workspace steps from one host's copy to the other's", () => {
+      useAppStore.setState({ activeWorkspacePath: "/repo/shared", activeWorkspaceHostId: "local" });
+      createMenuHandlers(makeChrome())["next-workspace"]();
+      expect(selectWorkspace).toHaveBeenCalledWith("box-app", 0);
+    });
   });
 });
 

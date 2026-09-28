@@ -63,6 +63,11 @@
   margin-top: 0;
 }
 
+.hint {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
 .error {
   font-size: 12px;
   color: var(--danger);

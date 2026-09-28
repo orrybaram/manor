@@ -4,9 +4,30 @@ import type { GroupUpdatableFields, ProjectUpdatableFields } from "../persistenc
 import type { LinkedIssue } from "../linear";
 import { LOCAL_HOST_ID } from "../backend/types";
 import type { IpcDeps } from "./types";
+import type { ProjectInfo } from "../persistence";
+import { workspaceKey } from "../../src/lib/workspace-key";
 
 export function register(deps: IpcDeps): void {
-  const { projectManager, statsStore, backendRegistry } = deps;
+  const { projectManager, statsStore, backendRegistry, layoutPersistence } = deps;
+
+  /**
+   * A project that moved from `oldHostId` keeps the saved layouts of the
+   * workspaces it still has, under their keys on its new host (ADR-191 §3).
+   * The renderer's `closeWorkspacesLeftBehind` (`src/store/project-store.ts`)
+   * makes the same [old key, new key] moves in memory; keep them in step.
+   */
+  async function moveLayouts(oldHostId: string, moved: ProjectInfo): Promise<ProjectInfo> {
+    if (oldHostId !== moved.hostId) {
+      await layoutPersistence.whenReady();
+      layoutPersistence.moveWorkspaces(
+        moved.workspaces.map((ws) => [
+          workspaceKey(oldHostId, ws.path),
+          workspaceKey(moved.hostId, ws.path),
+        ]),
+      );
+    }
+    return moved;
+  }
 
   ipcMain.handle("projects:getAll", () => {
     return projectManager.getProjects();
@@ -64,7 +85,8 @@ export function register(deps: IpcDeps): void {
       assertString(opts?.remoteDir, "remoteDir");
       projectManager.assertRemoteHost(opts.hostId);
       await backendRegistry.ensureConnected(opts.hostId);
-      return projectManager.moveProjectToHost(projectId, opts);
+      const oldHostId = projectManager.getProjectHostId(projectId);
+      return moveLayouts(oldHostId, await projectManager.moveProjectToHost(projectId, opts));
     },
   );
 
@@ -243,6 +265,32 @@ export function register(deps: IpcDeps): void {
     },
   );
 
+  // ADR-192: the host the New Workspace picker starts on next time.
+  ipcMain.handle(
+    "projects:setGroupLastUsedHost",
+    (_event, groupId: string, hostId: string) => {
+      assertString(groupId, "groupId");
+      assertString(hostId, "hostId");
+      projectManager.setGroupLastUsedHost(groupId, hostId);
+    },
+  );
+
+  // ADR-192 ticket 5: projects on other hosts with the same `origin`, to
+  // offer as links after an add or clone. Suggests only; never links.
+  ipcMain.handle("projects:suggestLinks", (_event, projectId: string) => {
+    assertString(projectId, "projectId");
+    return projectManager.suggestLinks(projectId);
+  });
+
+  ipcMain.handle(
+    "projects:dismissLinkSuggestion",
+    (_event, projectId: string, otherId: string) => {
+      assertString(projectId, "projectId");
+      assertString(otherId, "otherId");
+      projectManager.dismissLinkSuggestion(projectId, otherId);
+    },
+  );
+
   ipcMain.handle(
     "projects:update",
     (
@@ -275,6 +323,10 @@ export function register(deps: IpcDeps): void {
     if (hostId !== LOCAL_HOST_ID) {
       await backendRegistry.ensureConnected(hostId);
     }
-    return projectManager.switchProjectHost(projectId, hostId, projectPath);
+    const oldHostId = projectManager.getProjectHostId(projectId);
+    return moveLayouts(
+      oldHostId,
+      await projectManager.switchProjectHost(projectId, hostId, projectPath),
+    );
   }
 }

@@ -57,6 +57,11 @@
   color: var(--danger);
 }
 
+.iconInfo {
+  display: flex;
+  color: var(--text-primary);
+}
+
 .body {
   flex: 1;
   min-width: 0;

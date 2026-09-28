@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useAppStore } from "../app-store";
 import type { AppState, WorkspaceLayout, Tab, Panel } from "../app-store";
+import { workspaceKey } from "../../lib/workspace-key";
 
 // window is provided by the setup file (src/store/__tests__/setup.ts)
 
@@ -36,6 +37,7 @@ function makeLayout(): WorkspaceLayout {
 function seedStore(overrides?: Partial<AppState>) {
   useAppStore.setState({
     activeWorkspacePath: null,
+    activeWorkspaceHostId: "local",
     workspaceLayouts: { [WS_PATH]: makeLayout() },
     paneCwd: {},
     paneTitle: {},
@@ -66,7 +68,7 @@ describe("navigateToContext", () => {
 
   it("sets all four selections in one call", () => {
     useAppStore.getState().navigateToContext({
-      workspacePath: WS_PATH,
+      workspaceKey: workspaceKey("local", WS_PATH),
       tabId: TAB_ID,
       paneId: PANE_ID,
     });
@@ -89,7 +91,7 @@ describe("navigateToContext", () => {
     const unsub = useAppStore.subscribe(spy);
     try {
       useAppStore.getState().navigateToContext({
-        workspacePath: WS_PATH,
+        workspaceKey: workspaceKey("local", WS_PATH),
         tabId: TAB_ID,
         paneId: PANE_ID,
       });
@@ -103,7 +105,7 @@ describe("navigateToContext", () => {
     const before = useAppStore.getState();
 
     useAppStore.getState().navigateToContext({
-      workspacePath: WS_PATH,
+      workspaceKey: workspaceKey("local", WS_PATH),
       tabId: "nonexistent-tab",
       paneId: PANE_ID,
     });
@@ -118,7 +120,7 @@ describe("navigateToContext", () => {
     const before = useAppStore.getState();
 
     useAppStore.getState().navigateToContext({
-      workspacePath: "/no/such/workspace",
+      workspaceKey: workspaceKey("local", "/no/such/workspace"),
       tabId: TAB_ID,
       paneId: PANE_ID,
     });
@@ -126,5 +128,20 @@ describe("navigateToContext", () => {
     const after = useAppStore.getState();
     expect(after.activeWorkspacePath).toBe(before.activeWorkspacePath);
     expect(after.workspaceLayouts).toBe(before.workspaceLayouts);
+  });
+
+  it("activates the workspace on the key's host (ADR-191)", () => {
+    const remote = workspaceKey("box", WS_PATH);
+    seedStore({ workspaceLayouts: { [WS_PATH]: makeLayout(), [remote]: makeLayout() } });
+
+    useAppStore.getState().navigateToContext({
+      workspaceKey: remote,
+      tabId: TAB_ID,
+      paneId: PANE_ID,
+    });
+
+    const state = useAppStore.getState();
+    expect(state.activeWorkspacePath).toBe(WS_PATH);
+    expect(state.activeWorkspaceHostId).toBe("box");
   });
 });

@@ -275,7 +275,7 @@ describe("POST /projects/:projectId/workspaces", () => {
     }
     expect(answers[0]).toEqual({
       status: 403,
-      body: { error: "A remote host can only create workspaces on its own host." },
+      body: { error: "A remote host can only act on its own host." },
     });
     expect(answers[1]).toEqual(answers[0]);
     expect(answers[2]).toEqual(answers[0]);

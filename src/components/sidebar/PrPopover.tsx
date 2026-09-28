@@ -33,6 +33,8 @@ type PrPopoverProps = {
    * comment as its prompt.
    */
   workspacePath?: string;
+  /** The workspace's host (ADR-191). */
+  hostId?: string;
 };
 
 const HOVER_DELAY = 300;
@@ -54,7 +56,7 @@ const MAX_COMMENTS_SHOWN = 6;
  * already does that.
  */
 export function PrPopover(props: PrPopoverProps) {
-  const { pr, onOpen, workspacePath } = props;
+  const { pr, onOpen, workspacePath, hostId } = props;
 
   const [open, setOpen] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -144,9 +146,9 @@ export function PrPopover(props: PrPopoverProps) {
       if (!workspacePath) return;
       clearHoverTimeout();
       setOpen(false);
-      startAgentWithPrompt(workspacePath, reviewCommentPrompt(pr, comment));
+      startAgentWithPrompt(workspacePath, reviewCommentPrompt(pr, comment), hostId);
     },
-    [workspacePath, pr, clearHoverTimeout],
+    [workspacePath, hostId, pr, clearHoverTimeout],
   );
 
   return (

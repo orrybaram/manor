@@ -5,13 +5,16 @@ import { allPaneIds } from "../store/pane-tree";
 import { pickBestPaneStatus } from "./useTabAgentStatus";
 import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
 import type { AgentStatus } from "../electron.d";
+import { workspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 
 /**
- * Aggregate agent status across an arbitrary set of workspaces — the whole
- * project (see `useProjectAgentStatus`) or one folder's members.
+ * Aggregate agent status across an arbitrary set of workspaces, named by
+ * their workspace keys (ADR-191) — the whole project (see
+ * `useProjectAgentStatus`), one folder's members, or a linked group's.
+ * Memoize `keys`: a new array each render recomputes.
  */
 export function useWorkspacesAgentStatus(
-  workspaces: WorkspaceInfo[],
+  keys: readonly string[],
 ): { status: AgentStatus | null; pulse: boolean } {
   const agents = useAgentStore((s) => s.agents);
   const unseenRespondedAgentIds = useAgentStore((s) => s.unseenRespondedAgentIds);
@@ -21,8 +24,8 @@ export function useWorkspacesAgentStatus(
 
   return useMemo(() => {
     const paneIds: string[] = [];
-    for (const ws of workspaces) {
-      const layout = workspaceLayouts[ws.path];
+    for (const key of keys) {
+      const layout = workspaceLayouts[key];
       if (!layout) continue;
 
       for (const panel of Object.values(layout.panels)) {
@@ -39,7 +42,7 @@ export function useWorkspacesAgentStatus(
       unseenInputAgentIds,
     });
   }, [
-    workspaces,
+    keys,
     workspaceLayouts,
     paneAgentStatus,
     agents,
@@ -48,8 +51,19 @@ export function useWorkspacesAgentStatus(
   ]);
 }
 
+/** The workspace keys of `workspaces`, all on `hostId`, memoized. */
+export function useWorkspaceKeys(
+  workspaces: readonly WorkspaceInfo[],
+  hostId: string | null | undefined,
+): WorkspaceKey[] {
+  return useMemo(
+    () => workspaces.map((ws) => workspaceKey(hostId, ws.path)),
+    [workspaces, hostId],
+  );
+}
+
 export function useProjectAgentStatus(
   project: ProjectInfo,
 ): { status: AgentStatus | null; pulse: boolean } {
-  return useWorkspacesAgentStatus(project.workspaces);
+  return useWorkspacesAgentStatus(useWorkspaceKeys(project.workspaces, project.hostId));
 }

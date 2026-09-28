@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import type { WorkspaceKey } from "../../src/lib/workspace-key";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -555,6 +556,7 @@ describe("WebviewServer agent orchestration routes", () => {
   let server: WebviewServer;
   let baseUrl: string;
   let pm: {
+    hostIdForPath: ReturnType<typeof vi.fn>;
     getProjects: ReturnType<typeof vi.fn>;
     addProject: ReturnType<typeof vi.fn>;
     createWorkspacesFromIssues: ReturnType<typeof vi.fn>;
@@ -614,6 +616,8 @@ describe("WebviewServer agent orchestration routes", () => {
 
   beforeEach(async () => {
     pm = {
+      // The workspace host `POST /agents` names for the renderer (ADR-191).
+      hostIdForPath: vi.fn(() => "local"),
       getProjects: vi.fn(async () => [PROJECT]),
       addProject: vi.fn(),
       // The batch route delegates the worktree fan-out to this canonical method
@@ -957,6 +961,8 @@ describe("WebviewServer agent orchestration routes", () => {
         args: {
           workspacePath: "/repos/demo-ws",
           prompt: "do the thing",
+          // Main names the workspace's host (ADR-191).
+          hostId: "local",
         },
       });
     });
@@ -1791,7 +1797,7 @@ function contextWorkspace(
 ): PersistedWorkspace {
   const firstPanelId = Object.keys(panels)[0] ?? "panel-1";
   return {
-    workspacePath,
+    workspacePath: workspacePath as WorkspaceKey,
     panelTree: { type: "leaf", panelId: firstPanelId },
     panels,
     activePanelId: firstPanelId,

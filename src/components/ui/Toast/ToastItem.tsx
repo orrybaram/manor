@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { ChevronDown, ChevronUp, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Info, X } from "lucide-react";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { useToastStore, type Toast as ToastData } from "../../../store/toast-store";
 import styles from "./Toast.module.css";
@@ -66,6 +66,11 @@ export function ToastItem(props: ToastItemProps) {
       {toast.status === "error" && (
         <span className={`${styles.icon} ${styles.iconError}`}>&#10007;</span>
       )}
+      {toast.status === "info" && (
+        <span className={`${styles.icon} ${styles.iconInfo}`}>
+          <Info size={14} aria-hidden />
+        </span>
+      )}
       <div
         className={`${styles.body} ${expandable ? styles.detailExpandable : ""}`}
         role={expandable ? "button" : undefined}
@@ -125,6 +130,7 @@ export function ToastItem(props: ToastItemProps) {
           className={styles.dismissButton}
           onClick={(e) => {
             e.stopPropagation();
+            toast.onClose?.();
             removeToast(toast.id);
           }}
           type="button"

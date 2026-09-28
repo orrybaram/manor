@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import type { WorkspaceKey } from "../../lib/workspace-key";
 import type { PaneNode } from "../../store/pane-tree";
 import { useDragOverlayStore } from "../../store/drag-overlay-store";
 import { PaneLayout } from "./PaneLayout/PaneLayout";
@@ -9,11 +10,11 @@ type SplitLayoutProps = {
   ratio: number;
   first: PaneNode;
   second: PaneNode;
-  workspacePath?: string;
+  workspaceKey?: WorkspaceKey;
 };
 
 export function SplitLayout(props: SplitLayoutProps) {
-  const { direction, ratio, first, second, workspacePath } = props;
+  const { direction, ratio, first, second, workspaceKey } = props;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentRatio, setCurrentRatio] = useState(ratio);
@@ -69,7 +70,7 @@ export function SplitLayout(props: SplitLayoutProps) {
         className={styles.splitChild}
         style={isHorizontal ? { width: firstSize } : { height: firstSize }}
       >
-        <PaneLayout node={first} workspacePath={workspacePath} />
+        <PaneLayout node={first} workspaceKey={workspaceKey} />
       </div>
       <div
         className={`${styles.divider} ${isHorizontal ? styles.dividerHorizontal : styles.dividerVertical} ${isDragging ? styles.dividerActive : ""}`}
@@ -79,7 +80,7 @@ export function SplitLayout(props: SplitLayoutProps) {
         className={styles.splitChild}
         style={isHorizontal ? { width: secondSize } : { height: secondSize }}
       >
-        <PaneLayout node={second} workspacePath={workspacePath} />
+        <PaneLayout node={second} workspaceKey={workspaceKey} />
       </div>
     </div>
   );

@@ -12,10 +12,10 @@ import Check from "lucide-react/dist/esm/icons/check";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import FolderGit2 from "lucide-react/dist/esm/icons/folder-git-2";
-import Laptop from "lucide-react/dist/esm/icons/laptop";
 import {
   collapsedFolderIdsOf,
   useProjectStore,
+  type CreateWorktreeOptions,
   type ProjectInfo,
   type WorkspaceInfo,
 } from "../../store/project-store";
@@ -55,8 +55,10 @@ import { ProjectChevron } from "./ProjectChevron";
 import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
-import { HostIndicator } from "../hosts/HostIndicator";
+import { HostIndicator, LocalHostLabel } from "../hosts/HostIndicator";
 import { isRemoteHost } from "../../lib/hosts";
+import { workspaceKey } from "../../lib/workspace-key";
+import { normalizeHostId } from "../../lib/host-id";
 import { useHostStore, selectHost } from "../../store/host-store";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
@@ -82,6 +84,8 @@ import styles from "./ProjectItem.module.css";
 
 interface WorkspaceItemProps {
   ws: WorkspaceInfo;
+  /** The host of the workspace's project (ADR-191). */
+  hostId: string;
   /** True for the workspace currently open — matched by path, never by index. */
   isActive: boolean;
   /** True when this row is part of the sidebar multi-select (ADR-190). */
@@ -121,6 +125,7 @@ const WorkspaceItem = React.forwardRef<
 ) {
   const {
     ws,
+    hostId,
     isActive,
     isSelected,
     isDragging,
@@ -146,7 +151,9 @@ const WorkspaceItem = React.forwardRef<
     ...rest
   } = props;
 
-  const { status: workspaceStatus, pulse: workspacePulse } = useWorkspaceAgentStatus(ws.path);
+  const { status: workspaceStatus, pulse: workspacePulse } = useWorkspaceAgentStatus(
+    workspaceKey(hostId, ws.path),
+  );
   const workspaceIndicator = toWorkspaceIndicator(workspaceStatus, workspacePulse);
   const {
     handleKeyDown: handleEmojiKeyDown,
@@ -254,6 +261,7 @@ const WorkspaceItem = React.forwardRef<
                 <PrPopover
                   pr={ws.pr}
                   workspacePath={ws.path}
+                  hostId={hostId}
                   onOpen={() =>
                     window.electronAPI.shell.openExternal(ws.pr!.url)
                   }
@@ -295,7 +303,16 @@ type ProjectItemProps = {
   onRenameWorkspace: (ws: WorkspaceInfo, newName: string) => void;
   onHideWorkspace: (ws: WorkspaceInfo, idx: number) => void;
   onUnhideWorkspace: (ws: WorkspaceInfo) => void;
-  onCreateWorktree: (name: string, branch: string, baseBranch?: string, useExistingBranch?: boolean) => Promise<string | null>;
+  /**
+   * `projectId` is this project, or — for a linked project — the member the
+   * New Workspace host picker chose (ADR-192).
+   */
+  onCreateWorktree: (
+    projectId: string,
+    name: string,
+    branch: string,
+    options: Pick<CreateWorktreeOptions, "baseBranch" | "useExistingBranch">,
+  ) => Promise<string | null>;
   onOpenSettings?: () => void;
   onDragStart?: (e: ReactPointerEvent) => void;
   onQuickMergeWorktree?: (ws: WorkspaceInfo) => void;
@@ -397,6 +414,14 @@ export function ProjectItem(props: ProjectItemProps) {
   const deleteWorkspaceFolder = useProjectStore((s) => s.deleteWorkspaceFolder);
   const applySidebarChange = useProjectStore((s) => s.applySidebarChange);
   const allProjects = useProjectStore((s) => s.projects);
+  // The New Workspace dialog offers every member of a linked group, so its
+  // host picker can create on another host (ADR-192).
+  const dialogProjects = useMemo(() => {
+    const memberIds = project.group?.memberIds;
+    if (!memberIds) return [project];
+    const members = allProjects.filter((p) => memberIds.includes(p.id));
+    return members.some((p) => p.id === project.id) ? members : [project];
+  }, [project, allProjects]);
   const linkProjects = useProjectStore((s) => s.linkProjects);
   const unlinkProject = useProjectStore((s) => s.unlinkProject);
   const linkChoices = useMemo(
@@ -435,14 +460,19 @@ export function ProjectItem(props: ProjectItemProps) {
     return choices;
   }, [items]);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
+  // A path can be on two hosts (ADR-191): only the active host's section
+  // holds the active workspace.
+  const onActiveHost = useAppStore(
+    (s) => s.activeWorkspaceHostId === normalizeHostId(project.hostId),
+  );
   // Keyed by path, not by `selectedWorkspaceIndex`: that index addresses an
   // array the sidebar re-sorts on every reorder, so it drifts onto whichever
   // workspace now sits at the old position. A folder tinting itself accent
   // because a stale index landed inside it is the bug that made the highlight
   // look random. The active path is the thing the user is actually looking at.
-  const selectedWorkspace = project.workspaces.find(
-    (ws) => ws.path === activeWorkspacePath,
-  );
+  const selectedWorkspace = onActiveHost
+    ? project.workspaces.find((ws) => ws.path === activeWorkspacePath)
+    : undefined;
 
   // What this project's selection is shared across: its group's host
   // sections when it is one (ADR-192 ticket 7), else just itself.
@@ -635,7 +665,8 @@ export function ProjectItem(props: ProjectItemProps) {
     const workspaceEl = (
       <WorkspaceItem
         ws={ws}
-        isActive={ws.path === activeWorkspacePath}
+        hostId={project.hostId}
+        isActive={onActiveHost && ws.path === activeWorkspacePath}
         isSelected={selectedPaths.has(ws.path)}
         isDragging={dragKey === ws.path}
         isGroupDragging={
@@ -1028,6 +1059,7 @@ export function ProjectItem(props: ProjectItemProps) {
         key={folder.id}
         folder={folder}
         workspaces={contents}
+        hostId={project.hostId}
         depth={depth}
         collapsed={collapsedFolderIds.has(folder.id)}
         containsSelected={
@@ -1099,10 +1131,7 @@ export function ProjectItem(props: ProjectItemProps) {
                     projectId={project.id}
                   />
                 ) : (
-                  <span className={styles.sectionLocal}>
-                    <Laptop size={11} aria-hidden />
-                    This machine
-                  </span>
+                  <LocalHostLabel />
                 )}
               </span>
             ) : (
@@ -1247,16 +1276,22 @@ export function ProjectItem(props: ProjectItemProps) {
           setNewWorkspaceOpen(false);
           setNewWorkspaceFolderId(null);
         }}
-        projects={[project]}
+        projects={dialogProjects}
         selectedProjectIndex={0}
+        preselectedProjectId={project.id}
+        // Opened from this host's own section or folder: start there.
+        preferredMemberId={isSection ? project.id : null}
         initialFolderId={newWorkspaceFolderId}
-        onSubmit={async (_projectId, name, branch, baseBranch, useExistingBranch, folderId) => {
-          const result = await onCreateWorktree(name, branch, baseBranch, useExistingBranch);
+        onSubmit={async (createInId, name, branch, baseBranch, useExistingBranch, folderId) => {
+          const result = await onCreateWorktree(createInId, name, branch, {
+            baseBranch,
+            useExistingBranch,
+          });
           if (result) {
             setNewWorkspaceOpen(false);
             setNewWorkspaceFolderId(null);
             if (folderId) {
-              await placeNewWorkspaceInFolder(projectId, result, folderId);
+              await placeNewWorkspaceInFolder(createInId, result, folderId);
             }
           }
           return !!result;

@@ -10,7 +10,7 @@
  * it were the active tab — and is not a claim about global focus.
  */
 
-import type { AppState } from "./app-store";
+import { selectActiveLayout, type AppState } from "./app-store";
 import { allPaneIds } from "./pane-tree";
 import { allPanelIds } from "./panel-tree";
 
@@ -50,7 +50,8 @@ export interface LayoutSnapshot {
 export function layoutSnapshot(state: AppState): LayoutSnapshot | null {
   const workspacePath = state.activeWorkspacePath;
   if (!workspacePath) return null;
-  const layout = state.workspaceLayouts[workspacePath];
+  // The active workspace's own layout, on its host (ADR-191).
+  const layout = selectActiveLayout(state);
   if (!layout) return null;
 
   const activePanel = layout.panels[layout.activePanelId];

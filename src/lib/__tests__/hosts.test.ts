@@ -3,7 +3,7 @@ import {
   hostIdForWorkspace,
   isLocalhostHttpUrl,
   projectForWorkspace,
-  remoteHostIdForWorkspace,
+  projectForWorkspaceKey,
   workspaceHostId,
 } from "../hosts";
 import { HOME_PATH } from "../home-path";
@@ -38,11 +38,29 @@ describe("projectForWorkspace", () => {
   });
 });
 
+describe("projectForWorkspaceKey", () => {
+  it("finds the project on the key's host, whichever is selected", () => {
+    expect(projectForWorkspaceKey(sharedProjects, SHARED)).toBe(localApp);
+    expect(projectForWorkspaceKey(sharedProjects, `box:${SHARED}`)).toBe(boxApp);
+    expect(projectForWorkspaceKey(sharedProjects, `box:${MAIN}`)).toBe(boxApp);
+  });
+
+  it("reads a project with no host as local", () => {
+    const hostless = { ...localApp, hostId: undefined as unknown as string };
+    expect(projectForWorkspaceKey([hostless], SHARED)).toBe(hostless);
+  });
+
+  it("is undefined for Home, no key, or a host no project is on", () => {
+    expect(projectForWorkspaceKey(sharedProjects, HOME_PATH)).toBeUndefined();
+    expect(projectForWorkspaceKey(sharedProjects, null)).toBeUndefined();
+    expect(projectForWorkspaceKey(sharedProjects, `other:${SHARED}`)).toBeUndefined();
+  });
+});
+
 describe("hostIdForWorkspace", () => {
   it("names the host of the path's project, local too", () => {
     expect(hostIdForWorkspace(sharedProjects, SHARED)).toBe("local");
     expect(hostIdForWorkspace(sharedProjects, SHARED, "p-box")).toBe("box");
-    expect(remoteHostIdForWorkspace(sharedProjects, SHARED, "p-box")).toBe("box");
   });
 
   it("is undefined when no project has the path", () => {
@@ -66,30 +84,6 @@ describe("workspaceHostId", () => {
 
   it("is undefined for a path no project has, so main guesses from it", () => {
     expect(workspaceHostId({ projects: sharedProjects, selectedProjectIndex: 1 }, "/tmp")).toBeUndefined();
-  });
-});
-
-describe("remoteHostIdForWorkspace", () => {
-  const projects = [
-    { path: "/Users/me/app", hostId: "local", workspaces: [{ path: "/Users/me/app" }] },
-    {
-      path: "/home/me/api",
-      hostId: "box",
-      workspaces: [{ path: "/home/me/api" }, { path: "/home/me/.wt/api-feat" }],
-    },
-    { path: "/Users/me/old", hostId: "local", workspaces: [] },
-  ];
-
-  it("finds the remote host of a project root or worktree", () => {
-    expect(remoteHostIdForWorkspace(projects, "/home/me/api")).toBe("box");
-    expect(remoteHostIdForWorkspace(projects, "/home/me/.wt/api-feat")).toBe("box");
-  });
-
-  it("is null on this machine, for unknown paths and without a path", () => {
-    expect(remoteHostIdForWorkspace(projects, "/Users/me/app")).toBeNull();
-    expect(remoteHostIdForWorkspace(projects, "/Users/me/old")).toBeNull();
-    expect(remoteHostIdForWorkspace(projects, "/nowhere")).toBeNull();
-    expect(remoteHostIdForWorkspace(projects, undefined)).toBeNull();
   });
 });
 

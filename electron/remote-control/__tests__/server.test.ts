@@ -155,6 +155,7 @@ describe("RemoteControlServer", () => {
   /** Give the deps one project, so `KNOWN_WORKSPACE` is a launchable target. */
   function withKnownWorkspace(): void {
     deps.projectManager = {
+      hostIdForPath: () => "local",
       getProjects: async () => [
         {
           id: "p1",
@@ -489,7 +490,7 @@ describe("RemoteControlServer", () => {
       expect(proxyToRenderer).toHaveBeenCalledWith(
         expect.any(Function),
         "start-agent",
-        { workspacePath: KNOWN_WORKSPACE, prompt: "fix the login flake" },
+        { workspacePath: KNOWN_WORKSPACE, prompt: "fix the login flake", hostId: "local" },
       );
     });
 
@@ -735,6 +736,7 @@ describe("RemoteControlServer", () => {
 
     it("gives a read-only device the list — this is a read, canSend is irrelevant", async () => {
       deps.projectManager = {
+        hostIdForPath: () => "local",
         getProjects: async () => [
           {
             id: "p1",
@@ -787,6 +789,7 @@ describe("RemoteControlServer", () => {
 
     it("leaks no key beyond the four per workspace and the two per project", async () => {
       deps.projectManager = {
+        hostIdForPath: () => "local",
         getProjects: async () => [
           {
             id: "p1",
@@ -835,6 +838,7 @@ describe("RemoteControlServer", () => {
 
     it("omits a hidden workspace, and omits the project entirely when nothing is visible", async () => {
       deps.projectManager = {
+        hostIdForPath: () => "local",
         getProjects: async () => [
           {
             id: "p1",

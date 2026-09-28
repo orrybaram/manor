@@ -4,6 +4,7 @@ import {
   locationsEqual,
   type Location,
 } from "./navigation-history-store";
+import { workspaceKey } from "../lib/workspace-key";
 
 const home: Location = { kind: "surface", surface: "home" };
 
@@ -11,8 +12,9 @@ function workspace(
   workspacePath: string,
   panelId = "panel-1",
   tabId = "tab-1",
+  hostId = "local",
 ): Location {
-  return { kind: "workspace", workspacePath, panelId, tabId };
+  return { kind: "workspace", workspaceKey: workspaceKey(hostId, workspacePath), panelId, tabId };
 }
 
 beforeEach(() => {
@@ -34,6 +36,12 @@ describe("locationsEqual", () => {
     expect(
       locationsEqual(workspace("/repo"), workspace("/repo")),
     ).toBe(true);
+  });
+
+  it("tells apart the same path on two hosts (ADR-191)", () => {
+    expect(
+      locationsEqual(workspace("/repo"), workspace("/repo", "panel-1", "tab-1", "box")),
+    ).toBe(false);
   });
 
   it("treats workspace locations with different fields as unequal", () => {
@@ -130,7 +138,7 @@ describe("navigation-history-store", () => {
 
     // Walking back, only home is valid — the two stale entries get pruned.
     const isValid = (loc: Location) =>
-      loc.kind === "surface" || loc.workspacePath === "/repo-b";
+      loc.kind === "surface" || loc.workspaceKey === "/repo-b";
     const target = useNavigationHistoryStore.getState().navigate(-1, isValid);
 
     expect(target).toEqual(home);

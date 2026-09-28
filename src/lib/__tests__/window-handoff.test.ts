@@ -7,7 +7,7 @@ import {
   trackHandoff,
   whenHandoffsIdle,
 } from "../window-handoff";
-import { useAppStore } from "../../store/app-store";
+import { selectActiveLayout, useAppStore } from "../../store/app-store";
 import { hasPaneId } from "../../store/pane-tree";
 import type { WorkspaceLayout, Tab, Panel } from "../../store/app-store";
 
@@ -49,7 +49,7 @@ const ptyDetach = vi.fn();
 /** The tab currently holding `paneId`, if any. */
 function tabHolding(paneId: string): Tab | undefined {
   const state = useAppStore.getState();
-  const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
+  const layout = selectActiveLayout(state);
   for (const panel of Object.values(layout?.panels ?? {})) {
     const tab = panel.tabs.find((t) => hasPaneId(t.rootNode, paneId));
     if (tab) return tab;
@@ -115,7 +115,7 @@ describe("movePaneToNewWindow", () => {
     expect(detachTab).toHaveBeenCalledTimes(1);
     const [payload, spawnBounds] = detachTab.mock.calls[0];
     expect(hasPaneId(payload.tab.rootNode, "pane-2")).toBe(true);
-    expect(payload.sourceWorkspacePath).toBe(WS_PATH);
+    expect(payload.sourceWorkspaceKey).toBe(WS_PATH);
     // Offset from this window's bounds so the popout doesn't land exactly on it.
     expect(spawnBounds).toMatchObject({ x: 140, y: 240 });
 

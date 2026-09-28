@@ -276,8 +276,8 @@ export function Sidebar(props: SidebarProps) {
         onUnhideWorkspace={(ws) =>
           setWorkspaceHidden(project.id, ws.path, false)
         }
-        onCreateWorktree={(name, branch, baseBranch, useExistingBranch) =>
-          createWorktree(project.id, name, branch, undefined, undefined, baseBranch, useExistingBranch)
+        onCreateWorktree={(projectId, name, branch, options) =>
+          createWorktree(projectId, name, branch, options)
         }
         onOpenSettings={() => onOpenProjectSettings?.(project.id)}
         onDragStart={onDragStart}

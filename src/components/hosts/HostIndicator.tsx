@@ -1,5 +1,6 @@
 import Cloud from "lucide-react/dist/esm/icons/cloud";
 import CloudOff from "lucide-react/dist/esm/icons/cloud-off";
+import Laptop from "lucide-react/dist/esm/icons/laptop";
 import { useHostStore } from "../../store/host-store";
 import { useHostDisplay } from "../../hooks/useHostDisplay";
 import type { HostDisplay } from "../../lib/host-status";
@@ -16,8 +17,10 @@ type HostIndicatorProps = {
    * - `chip`: cloud + host name, adding the state when not connected; click
    *   retries. For the status bar and project settings.
    * - `banner`: one line over a pane, only while the host is away.
+   * - `label`: the chip's look, inert and without a tooltip, for use inside
+   *   another control (the New Workspace host picker).
    */
-  variant: "icon" | "chip" | "banner";
+  variant: "icon" | "chip" | "banner" | "label";
   /**
    * The project this indicator speaks for. When set, clicking the icon or
    * chip opens that project's Host settings; without it the chip retries
@@ -41,7 +44,22 @@ export function HostIndicator(props: HostIndicatorProps) {
   const common = { hostId, display, projectId, className };
   if (variant === "icon") return <HostIcon {...common} />;
   if (variant === "chip") return <HostChip {...common} />;
+  if (variant === "label") return <HostLabel {...common} />;
   return <HostBanner {...common} />;
+}
+
+/**
+ * This machine's counterpart to a remote host's chip, where a list shows
+ * every host of a linked group (ADR-192): the sidebar's host sections and
+ * the New Workspace host picker.
+ */
+export function LocalHostLabel() {
+  return (
+    <span className={styles.local} data-testid="local-host-label">
+      <Laptop size={11} aria-hidden />
+      This machine
+    </span>
+  );
 }
 
 type VariantProps = {
@@ -102,6 +120,24 @@ function HostIcon(props: VariantProps) {
   );
 }
 
+function ChipContent(props: { display: HostDisplay }) {
+  const { display } = props;
+
+  return (
+    <>
+      <StateIcon display={display} size={11} />
+      <span className={styles.target}>{display.target}</span>
+      {display.offline && (
+        <span className={styles.state}>· {display.status.toLowerCase()}</span>
+      )}
+    </>
+  );
+}
+
+function chipClassFor(display: HostDisplay, className?: string): string {
+  return `${styles.chip} ${toneClass(display)} ${className ?? ""}`;
+}
+
 function HostChip(props: VariantProps) {
   const { hostId, display, projectId, className } = props;
   const retryConnect = useHostStore((s) => s.retryConnect);
@@ -114,16 +150,8 @@ function HostChip(props: VariantProps) {
     display,
     !projectId && onClick ? "Click to retry." : null,
   );
-  const content = (
-    <>
-      <StateIcon display={display} size={11} />
-      <span className={styles.target}>{display.target}</span>
-      {display.offline && (
-        <span className={styles.state}>· {display.status.toLowerCase()}</span>
-      )}
-    </>
-  );
-  const chipClass = `${styles.chip} ${toneClass(display)} ${className ?? ""}`;
+  const content = <ChipContent display={display} />;
+  const chipClass = chipClassFor(display, className);
 
   return (
     <Tooltip label={label} side="top">
@@ -143,6 +171,16 @@ function HostChip(props: VariantProps) {
         </span>
       )}
     </Tooltip>
+  );
+}
+
+function HostLabel(props: VariantProps) {
+  const { display, className } = props;
+
+  return (
+    <span className={chipClassFor(display, className)} data-testid="host-indicator-label">
+      <ChipContent display={display} />
+    </span>
   );
 }
 

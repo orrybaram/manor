@@ -18,11 +18,16 @@
  */
 
 import {
+  layoutKeyFor,
+  selectActiveLayout,
+  selectActiveWorkspaceKey,
   useAppStore,
   type AppState,
   type Panel,
   type WorkspaceLayout,
 } from "../store/app-store";
+import { parseWorkspaceKey, type WorkspaceKey } from "./workspace-key";
+import { projectForWorkspaceKey } from "./hosts";
 import { useProjectStore } from "../store/project-store";
 import { layoutSnapshot } from "../store/layout-snapshot";
 import { hasPaneId, type SplitDirection } from "../store/pane-tree";
@@ -117,8 +122,7 @@ function parseOptionalEnum<T extends string>(
 // ---------------------------------------------------------------------------
 
 function requireActiveLayout(state: AppState): WorkspaceLayout {
-  const path = state.activeWorkspacePath;
-  const layout = path ? state.workspaceLayouts[path] : undefined;
+  const layout = selectActiveLayout(state);
   if (!layout) throw new Error("No active workspace");
   return layout;
 }
@@ -149,13 +153,24 @@ function layoutHasTab(layout: WorkspaceLayout, tabId: string): boolean {
  * loaded project claims it. `setActiveWorkspace` happily invents an empty
  * layout for any string, which would silently create the tab nowhere useful.
  */
-function isKnownWorkspace(state: AppState, path: string): boolean {
-  if (state.workspaceLayouts[path]) return true;
-  return useProjectStore
-    .getState()
-    .projects.some((project) =>
-      project.workspaces.some((w) => w.path === path),
-    );
+function isKnownWorkspace(state: AppState, key: WorkspaceKey): boolean {
+  if (state.workspaceLayouts[key]) return true;
+  return projectForWorkspaceKey(useProjectStore.getState().projects, key) !== undefined;
+}
+
+/**
+ * The key of the workspace an app-command names: its `workspacePath` on its
+ * `hostId`, which main adds from the project it knows (ADR-191). Without
+ * one, the host of the project that has the path.
+ */
+function workspaceKeyArg(args: Record<string, unknown>, workspacePath: string): WorkspaceKey {
+  return layoutKeyFor(workspacePath, optionalString(args, "hostId"));
+}
+
+/** Activate the workspace keyed `key`. */
+function activateKey(key: WorkspaceKey): void {
+  const { hostId, path } = parseWorkspaceKey(key);
+  useAppStore.getState().setActiveWorkspace(path, hostId);
 }
 
 // ---------------------------------------------------------------------------
@@ -243,15 +258,16 @@ function newTab(args: Record<string, unknown>): {
   }
 
   const state = useAppStore.getState();
-  if (workspacePath && !isKnownWorkspace(state, workspacePath)) {
+  const target = workspacePath ? workspaceKeyArg(args, workspacePath) : null;
+  if (target && !isKnownWorkspace(state, target)) {
     throw new Error(`Unknown workspace: ${workspacePath}`);
   }
 
   // 2. Act. Switch workspace only if requested, and always switch back —
   // `new-tab` is MCP-only; an agent that wants the user looking at its tab
   // calls `focus_pane` instead.
-  const previous = state.activeWorkspacePath;
-  if (workspacePath) state.setActiveWorkspace(workspacePath);
+  const previous = selectActiveWorkspaceKey(state);
+  if (target) activateKey(target);
   try {
     // `setActiveWorkspace` is a synchronous `set()`; re-read to see it.
     const fresh = useAppStore.getState();
@@ -269,9 +285,8 @@ function newTab(args: Record<string, unknown>): {
     if (!created) throw new Error("Tab was not created");
     return created;
   } finally {
-    if (workspacePath && previous && previous !== workspacePath) {
-      useAppStore.getState().setActiveWorkspace(previous);
-    }
+    const now = selectActiveWorkspaceKey(useAppStore.getState());
+    if (target && previous && previous !== now) activateKey(previous);
   }
 }
 
@@ -511,9 +526,9 @@ function extractPaneToTab(args: Record<string, unknown>): { tabId: string } {
 
 function reopenClosedPane(): { ok: true } {
   const state = useAppStore.getState();
-  const path = state.activeWorkspacePath;
-  if (!path) throw new Error("No active workspace");
-  const hasClosed = state.closedPaneStack.some((s) => s.workspacePath === path);
+  const key = selectActiveWorkspaceKey(state);
+  if (!key) throw new Error("No active workspace");
+  const hasClosed = state.closedPaneStack.some((s) => s.workspaceKey === key);
   if (!hasClosed) {
     throw new Error("Nothing to reopen");
   }
@@ -549,11 +564,11 @@ function setActiveWorkspace(args: Record<string, unknown>): {
   workspacePath: string;
 } {
   const workspacePath = requireString(args, "workspacePath");
-  const state = useAppStore.getState();
-  if (!isKnownWorkspace(state, workspacePath)) {
+  const key = workspaceKeyArg(args, workspacePath);
+  if (!isKnownWorkspace(useAppStore.getState(), key)) {
     throw new Error(`Unknown workspace: ${workspacePath}`);
   }
-  state.setActiveWorkspace(workspacePath);
+  activateKey(key);
   return { workspacePath };
 }
 
@@ -594,6 +609,7 @@ async function startAgent(args: Record<string, unknown>): Promise<{
   const workspacePath = requireString(args, "workspacePath");
   const prompt = optionalString(args, "prompt");
   const agentCommand = optionalString(args, "agentCommand");
+  const hostId = optionalString(args, "hostId");
 
   // A workspace created moments ago over the control server is not in the
   // store yet, and the command resolution below needs it. Refetch only when
@@ -603,7 +619,7 @@ async function startAgent(args: Record<string, unknown>): Promise<{
     await useProjectStore.getState().loadProjects();
   }
 
-  const tab = launchAgentInWorkspace(workspacePath, { prompt, agentCommand });
+  const tab = launchAgentInWorkspace(workspacePath, { prompt, agentCommand, hostId });
   if (!tab) throw new Error("No active panel to open an agent in");
   return { tabId: tab.tabId, paneId: tab.paneId, workspacePath };
 }

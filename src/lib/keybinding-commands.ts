@@ -1,4 +1,4 @@
-import { useAppStore } from "../store/app-store";
+import { selectActiveLayout, useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { usePreferencesStore } from "../store/preferences-store";
 import { useKeybindingsStore } from "../store/keybindings-store";
@@ -7,7 +7,6 @@ import { getBrowserPaneRef } from "./browser-pane-registry";
 import type { BrowserPaneRef } from "../components/workspace-panes/BrowserPane/BrowserPane";
 import { DEFAULT_AGENT_COMMAND } from "../agent-defaults";
 import { isHomePath, homeLaunchCommand } from "./home";
-import { LOCAL_HOST_ID, workspaceHostId } from "./hosts";
 import {
   PAGE_BROWSER_COMMANDS,
   comboFromEvent,
@@ -35,7 +34,7 @@ import type { ForwardedCommandPayload } from "./menu-commands";
 /** The focused pane's id when that pane is a browser, else undefined. */
 function focusedBrowserPaneId(): string | undefined {
   const state = useAppStore.getState();
-  const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
+  const layout = selectActiveLayout(state);
   if (!layout) return;
   const panel = layout.panels[layout.activePanelId];
   if (!panel) return;
@@ -97,10 +96,8 @@ export function resolveWorkspaceCommand(workspacePath: string | null): string {
 export async function startNewAgent(
   { prewarm }: { prewarm: boolean } = { prewarm: false },
 ): Promise<void> {
-  const activeWorkspacePath = useAppStore.getState().activeWorkspacePath;
+  const { activeWorkspacePath, activeWorkspaceHostId: hostId } = useAppStore.getState();
   const command = resolveWorkspaceCommand(activeWorkspacePath);
-  const hostId =
-    workspaceHostId(useProjectStore.getState(), activeWorkspacePath) ?? LOCAL_HOST_ID;
   const prewarmed = prewarm
     ? await window.electronAPI.pty.consumePrewarmed(activeWorkspacePath, hostId)
     : null;
@@ -127,7 +124,7 @@ export function createSharedKeybindingHandlers(
     "reopen-pane": () => store().reopenClosedPane(),
     "close-tab": () => {
       const state = store();
-      const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
+      const layout = selectActiveLayout(state);
       const panel = layout?.panels[layout.activePanelId];
       if (panel?.selectedTabId) state.requestCloseTab(panel.selectedTabId);
     },
@@ -156,13 +153,13 @@ export function createSharedKeybindingHandlers(
     "focus-prev-panel": () => store().focusPrevPanel(),
     "close-panel": () => {
       const state = store();
-      const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
+      const layout = selectActiveLayout(state);
       if (!layout) return;
       state.closePanel(layout.activePanelId);
     },
     "move-tab-to-next-panel": () => {
       const state = store();
-      const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
+      const layout = selectActiveLayout(state);
       if (!layout) return;
       const panel = layout.panels[layout.activePanelId];
       if (!panel) return;
@@ -178,7 +175,7 @@ export function createSharedKeybindingHandlers(
     "browser-reload": () => getFocusedBrowserRef()?.reload(),
     "browser-focus-url": () => {
       const state = store();
-      const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
+      const layout = selectActiveLayout(state);
       const panel = layout?.panels[layout.activePanelId];
       if (!panel) return;
       const tab = panel.tabs.find((t) => t.id === panel.selectedTabId);

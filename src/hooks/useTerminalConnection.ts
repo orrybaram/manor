@@ -8,13 +8,8 @@ import {
   remoteHostByPane,
   useRemotePaneStore,
 } from "../store/remote-pane-store";
-import { useProjectStore } from "../store/project-store";
-import {
-  isRemoteHost,
-  workspaceHostId,
-  type HostId,
-  type ProjectSelection,
-} from "../lib/hosts";
+import { isRemoteHost, type HostId } from "../lib/hosts";
+import { parseWorkspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import { useHostStore } from "../store/host-store";
 import { isPaneInputBlocked } from "../lib/host-status";
 import { useAppStore, type PendingPaneCommand } from "../store/app-store";
@@ -24,28 +19,34 @@ import type { PtyCreateResult } from "../electron.d";
 /**
  * The host a pane's new session runs on, for create and reset alike. A pane
  * known to run on a remote host keeps it — it may have been moved there, or
- * its project moved away from it (ADR-183) — else it is the host of the
- * workspace it belongs to (`workspaceHostId`). Main attaches an existing
+ * its project moved away from it (ADR-183) — else it is the host named by
+ * the key of the workspace it belongs to (ADR-191), never a guess from its
+ * path: a restored pane goes back to its own host even when another host's
+ * project with the same path is selected. Undefined with no workspace, so
+ * main falls back to the host its cwd belongs to. Main attaches an existing
  * session wherever it already runs regardless.
  */
 export function paneCreateHostId(
   paneId: string,
-  workspacePath: string | null | undefined,
+  workspaceKey: string | null | undefined,
   remotePanes: Parameters<typeof paneRemoteHost>[0] = useRemotePaneStore.getState(),
-  selection: ProjectSelection = useProjectStore.getState(),
 ): HostId | undefined {
-  return paneRemoteHost(remotePanes, paneId) ?? workspaceHostId(selection, workspacePath);
+  return (
+    paneRemoteHost(remotePanes, paneId) ??
+    (workspaceKey ? parseWorkspaceKey(workspaceKey).hostId : undefined)
+  );
 }
 
 /**
- * `workspacePath` is the workspace the pane belongs to (not its cwd, which
- * can be anywhere): its host is where the pane's session is created.
+ * `workspaceKey` is the key of the workspace the pane belongs to (not its
+ * cwd, which can be anywhere): its host is where the pane's session is
+ * created.
  */
-export function useTerminalConnection(paneId: string, workspacePath?: string | null) {
+export function useTerminalConnection(paneId: string, workspaceKey?: WorkspaceKey | null) {
   const paneIdRef = useRef(paneId);
   paneIdRef.current = paneId;
-  const workspacePathRef = useRef(workspacePath);
-  workspacePathRef.current = workspacePath;
+  const workspaceKeyRef = useRef(workspaceKey);
+  workspaceKeyRef.current = workspaceKey;
 
   /** Send `data` to the pane's pty. Returns whether it was delivered. */
   const write = useCallback((data: string): boolean => {
@@ -94,7 +95,7 @@ export function useTerminalConnection(paneId: string, workspacePath?: string | n
       const paneId = paneIdRef.current;
       // Name the host outright: a path alone can't tell a local and a remote
       // workspace with the same path apart (main's guess picks local).
-      const hostId = paneCreateHostId(paneId, workspacePathRef.current ?? cwd);
+      const hostId = paneCreateHostId(paneId, workspaceKeyRef.current);
       // A pane of a remote workspace whose host is not known yet is assumed
       // to run there until create says otherwise, so a slow connect (the app
       // launched while the host is down) shows the host's banner meanwhile.

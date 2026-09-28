@@ -3,6 +3,7 @@ import { contextRoutes } from "./context";
 import type { ControlDeps } from "./types";
 import type { ProjectInfo } from "../persistence";
 import type { PersistedLayout } from "../terminal-host/layout-persistence";
+import type { WorkspaceKey } from "../../src/lib/workspace-key";
 
 function project(id: string, hostId: string, path: string): ProjectInfo {
   return {
@@ -23,7 +24,7 @@ function layoutWithPane(paneId: string, workspacePath: string): PersistedLayout 
     version: 2,
     workspaces: [
       {
-        workspacePath,
+        workspacePath: workspacePath as WorkspaceKey,
         panelTree: { type: "leaf", panelId: "panel-1" },
         activePanelId: "panel-1",
         panels: {

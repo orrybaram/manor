@@ -10,7 +10,7 @@ import { PortScanner } from "./ports";
 import { RemoteForwards, RemoteUrlResolver } from "./remote-forwards";
 import { BranchWatcher } from "./branch-watcher";
 import { DiffWatcher } from "./diff-watcher";
-import { GitHubManager } from "./github";
+import { GitHubManager, ghRepoFromRemoteUrl } from "./github";
 import { LinearManager } from "./linear";
 import { homeWorkspaceDir } from "./paths";
 import { AgentHookServer } from "./agent-hooks";
@@ -364,7 +364,15 @@ export function initApp(devTitle: string | null): void {
   };
   const branchWatcher = new BranchWatcher(backendRegistry);
   const diffWatcher = new DiffWatcher(backendRegistry);
-  const githubManager = new GitHubManager();
+  // `gh` runs here, where it is authenticated; a remote project's checkout
+  // isn't, so it is told the repo from that checkout's origin instead.
+  const githubManager = new GitHubManager(async (repoPath) => {
+    if (projectManager.hostIdForPath(repoPath) === LOCAL_HOST_ID) return null;
+    const origin = (await backend.git.exec(repoPath, ["remote", "get-url", "origin"])).trim();
+    const repo = ghRepoFromRemoteUrl(origin);
+    if (!repo) throw new Error(`Not a GitHub remote: ${origin}`);
+    return repo;
+  });
   const linearManager = new LinearManager();
 
   const prewarmManager = new PrewarmManager(client, process.env.HOME || "/");

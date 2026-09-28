@@ -80,6 +80,7 @@ function makeFakeAgentManager(calls: string[]) {
         activatedAt: null,
         projectId: null,
         projectName: null,
+        hostId: "local",
         workspacePath: null,
         cwd: "",
         agentKind: "claude",
@@ -117,10 +118,13 @@ function build() {
     calls.push(`publish:${update.paneId}:${update.status}`);
   });
   const onHookEvent = vi.fn();
+  /** Pane id → the host that owns its session (`SessionOwners`). */
+  const paneOwners = new Map<string, string>();
 
   const deps: AgentStatusDriverDeps = {
     agentManager,
     getPaneContext: () => undefined,
+    getPaneHostId: (paneId) => paneOwners.get(paneId),
     unseenRespondedAgents,
     unseenInputAgents,
     broadcastAgent,
@@ -152,6 +156,7 @@ function build() {
     maybeSendNotification,
     publishPaneStatus,
     onHookEvent,
+    paneOwners,
   };
 }
 
@@ -923,5 +928,41 @@ describe("driver — a new Agent is named from the pane's title", () => {
     const t = build();
     t.driver.hook(userPromptSubmit({ sessionId: "s1" }));
     expect(t.agentManager.getAgentBySessionId("s1")!.name).toBeNull();
+  });
+});
+
+// ── The host an Agent runs on (ADR-191 §5) ──
+
+describe("driver — an Agent records the host its pane runs on", () => {
+  it("records the pane's session owner when the Agent is created", () => {
+    const t = build();
+    t.paneOwners.set("pane-1", "box");
+    t.driver.hook(userPromptSubmit({ sessionId: "s1" }));
+    expect(t.agentManager.getAgentBySessionId("s1")!.hostId).toBe("box");
+  });
+
+  it("follows the pane to a new host", () => {
+    const t = build();
+    t.paneOwners.set("pane-1", "local");
+    t.driver.hook(userPromptSubmit({ sessionId: "s1" }));
+
+    // The pane was reset onto the box (ADR-183).
+    t.paneOwners.set("pane-1", "box");
+    t.driver.hook(preToolUse({ sessionId: "s1" }));
+
+    const agent = t.agentManager.getAgentBySessionId("s1")!;
+    expect(agent.hostId).toBe("box");
+    expect(last(t.broadcastAgent.mock.calls)![0].hostId).toBe("box");
+  });
+
+  it("keeps the recorded host while no host owns the pane", () => {
+    const t = build();
+    t.paneOwners.set("pane-1", "box");
+    t.driver.hook(userPromptSubmit({ sessionId: "s1" }));
+
+    t.paneOwners.delete("pane-1");
+    t.driver.hook(preToolUse({ sessionId: "s1" }));
+
+    expect(t.agentManager.getAgentBySessionId("s1")!.hostId).toBe("box");
   });
 });

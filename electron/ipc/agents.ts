@@ -9,6 +9,7 @@ import {
 } from "../notifications";
 import { killCounters } from "../stats-signals";
 import { cleanAgentTitle } from "../title-utils";
+import { agentHostId, type AgentInfo } from "../agent-persistence";
 import { LOCAL_HOST_ID } from "../backend/types";
 import type { IpcDeps } from "./types";
 
@@ -35,10 +36,12 @@ function assertRendererAgentUpdate(updates: unknown): asserts updates is Record<
   }
 }
 
-/** Whether the host an agent's project lives on is connected (local always is). */
-function isAgentHostConnected(deps: IpcDeps, projectId: string | null): boolean {
-  if (!projectId) return true;
-  const hostId = deps.projectManager.getProjectHostId(projectId);
+/** Whether the host an agent's terminal runs on is connected (local always is). */
+function isAgentHostConnected(
+  deps: IpcDeps,
+  agent: Pick<AgentInfo, "paneId" | "hostId">,
+): boolean {
+  const hostId = agentHostId(agent, deps.getPaneHostId);
   return hostId === LOCAL_HOST_ID || deps.backendRegistry.status(hostId) === "connected";
 }
 
@@ -230,7 +233,7 @@ export function register(deps: IpcDeps): void {
       if (livePaneIds.has(agent.paneId)) continue;
       // Sessions of a remote host that is not connected are missing from
       // `listSessions` because nobody could ask, not because they ended.
-      if (!isAgentHostConnected(deps, agent.projectId)) continue;
+      if (!isAgentHostConnected(deps, agent)) continue;
       if (agent.lastAgentStatus === "responded") continue;
       // Its pty was killed by a daemon replacement (ADR-185 §A): the pane is
       // about to be cold-restored, which resumes the Agent. Abandoning it

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
+import { LOCAL_HOST_ID, type HostId } from "./backend/types";
 import { manorDataDir } from "./paths";
 
 /**
@@ -42,6 +43,13 @@ export interface AgentInfo {
   activatedAt: string | null;
   projectId: string | null;
   projectName: string | null;
+  /**
+   * The host the agent's terminal runs on (ADR-191 §5): the pane's session
+   * owner when the agent was created, kept in step if the pane moves. A
+   * record saved without one predates ADR-191, when an agent could only run
+   * on its project's host, so on load it takes its project's host.
+   */
+  hostId: HostId;
   workspacePath: string | null;
   cwd: string;
   agentKind: "claude" | "opencode" | "codex" | "pi";
@@ -55,6 +63,30 @@ export interface AgentInfo {
    * overwritten by the live-title sync in app-lifecycle.
    */
   namePinned?: boolean;
+}
+
+/** What `createAgent` takes: `hostId` defaults to the project's host. */
+export type NewAgent = Omit<AgentInfo, "id" | "createdAt" | "updatedAt" | "activatedAt" | "hostId"> & {
+  hostId?: HostId;
+};
+
+/** The host a project lives on (`ProjectManager.getProjectHostId`). */
+export type ProjectHostLookup = (projectId: string | null) => HostId;
+
+/** A pane's session owner (`SessionOwners.ownerOf`), if any host claimed it. */
+export type PaneHostLookup = (paneId: string) => HostId | undefined;
+
+/**
+ * The host an agent's terminal runs on (ADR-191 §5): its pane's session
+ * owner, so an agent whose pane moved host (ADR-183) follows it. A pane no
+ * host has claimed yet (after a restart, before its host reconnects) falls
+ * back to the host recorded on the agent.
+ */
+export function agentHostId(
+  agent: Pick<AgentInfo, "paneId" | "hostId">,
+  getPaneHostId: PaneHostLookup,
+): HostId {
+  return (agent.paneId ? getPaneHostId(agent.paneId) : undefined) ?? agent.hostId;
 }
 
 interface PersistedState {
@@ -79,10 +111,21 @@ export class AgentManager {
    * rewritten file no longer contains the legacy key on disk.
    */
   private migrationPerformed = false;
+  private hostOfProject: ProjectHostLookup;
 
-  constructor(dataDir?: string, retentionDays = 90) {
+  /**
+   * `hostOfProject` resolves the host of an agent whose own host is unknown:
+   * a record saved without one, or a new agent whose pane has no owner yet.
+   * Defaults to local.
+   */
+  constructor(
+    dataDir?: string,
+    retentionDays = 90,
+    hostOfProject: ProjectHostLookup = () => LOCAL_HOST_ID,
+  ) {
     this.dataDir = dataDir ?? manorDataDir();
     this.retentionDays = retentionDays;
+    this.hostOfProject = hostOfProject;
     this.agents = this.loadState();
     if (this.migrationPerformed) {
       // Bypass the debounce: write immediately so future loads don't re-migrate.
@@ -131,6 +174,14 @@ export class AgentManager {
           delete migrated.claudeSessionId;
           this.migrationPerformed = true;
         }
+        // ADR-191 §5: a record with no host predates host-qualified
+        // identity, when an agent could only run on its project's host.
+        // Written back at once, so it migrates once: a later host move of
+        // the project must not re-derive it.
+        if (!migrated.hostId) {
+          migrated.hostId = this.hostOfProject(migrated.projectId);
+          this.migrationPerformed = true;
+        }
         map.set(migrated.agentSessionId, migrated);
         idIndex.set(migrated.id, migrated.agentSessionId);
       }
@@ -171,12 +222,11 @@ export class AgentManager {
     this.writeStateSync();
   }
 
-  createAgent(
-    data: Omit<AgentInfo, "id" | "createdAt" | "updatedAt" | "activatedAt">,
-  ): AgentInfo {
+  createAgent(data: NewAgent): AgentInfo {
     const now = new Date().toISOString();
     const agent: AgentInfo = {
       ...data,
+      hostId: data.hostId ?? this.hostOfProject(data.projectId),
       id: crypto.randomUUID(),
       createdAt: now,
       updatedAt: now,

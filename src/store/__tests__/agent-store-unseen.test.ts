@@ -64,6 +64,7 @@ function makeAgent(
     activatedAt: null,
     projectId: null,
     projectName: null,
+    hostId: "local",
     workspacePath: null,
     cwd: "/",
     agentKind: "claude",

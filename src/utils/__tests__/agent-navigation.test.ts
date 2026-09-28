@@ -107,6 +107,7 @@ function makeAgent(overrides?: Partial<AgentInfo>): AgentInfo {
     activatedAt: null,
     projectId: PROJECT_ID,
     projectName: "Test Project",
+    hostId: "local",
     workspacePath: WS_PATH,
     cwd: WS_PATH,
     agentKind: "claude",

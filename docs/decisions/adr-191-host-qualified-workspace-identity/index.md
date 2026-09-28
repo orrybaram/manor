@@ -211,6 +211,14 @@ recorded host. A record without one takes its project's host on load; "no
 `hostId`" is the migration marker, so the record is written back at once and
 migrates only once.
 
+This departs from story 10 of #237 ("saved files stay as they are"): a
+local-only user's `agents.json` is rewritten once, to add `"hostId": "local"`
+to each record. It is a small cost. Manor rewrites `agents.json` on every
+agent update anyway, so the file is not stable to begin with. And the
+write-back is what makes the migration safe: a record left without a host
+would be re-derived from its project on every load, so moving the project to
+another host later would silently move its old agents too.
+
 ### 6. GitHub cache and portless hostnames by host (#243)
 
 `remoteRepoCache` is keyed by the workspace key. The "use `gh -R`" decision

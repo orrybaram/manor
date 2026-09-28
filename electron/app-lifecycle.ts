@@ -541,10 +541,13 @@ export function initApp(devTitle: string | null): void {
   // status, and the only writer of Agents' lifecycle and last status. Built
   // before the IPC handlers and routes that feed it user signals.
 
+  /** A pane's session owner: the host its terminal runs on (ADR-191 §5). */
+  const getPaneHostId = (paneId: string) => backendRegistry.sessions.ownerOf(paneId);
+
   const agentStatusDriver: AgentStatusDriver = createAgentStatusDriver({
     agentManager,
     getPaneContext: (paneId) => paneContextMap.get(paneId),
-    getPaneHostId: (paneId) => backendRegistry.sessions.ownerOf(paneId),
+    getPaneHostId,
     unseenRespondedAgents,
     unseenInputAgents,
     broadcastAgent,
@@ -660,6 +663,7 @@ export function initApp(devTitle: string | null): void {
     registerDetachedWindow,
     backend,
     backendRegistry,
+    getPaneHostId,
     layoutPersistence,
     projectManager,
     themeManager,

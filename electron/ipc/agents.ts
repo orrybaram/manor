@@ -9,7 +9,7 @@ import {
 } from "../notifications";
 import { killCounters } from "../stats-signals";
 import { cleanAgentTitle } from "../title-utils";
-import type { AgentInfo } from "../agent-persistence";
+import { agentHostId, type AgentInfo } from "../agent-persistence";
 import { LOCAL_HOST_ID } from "../backend/types";
 import type { IpcDeps } from "./types";
 
@@ -36,27 +36,12 @@ function assertRendererAgentUpdate(updates: unknown): asserts updates is Record<
   }
 }
 
-/**
- * The host an agent's terminal runs on (ADR-191 §5): its pane's session
- * owner, so an agent whose pane moved host follows the new one. A pane no
- * host has claimed yet (its host has not connected since startup) falls back
- * to the host recorded on the agent, which a record saved before ADR-191
- * took from its project on load.
- */
-function agentHostId(
-  deps: IpcDeps,
-  agent: Pick<AgentInfo, "paneId" | "hostId">,
-): string {
-  const owner = agent.paneId ? deps.backendRegistry.sessions.ownerOf(agent.paneId) : undefined;
-  return owner ?? agent.hostId;
-}
-
 /** Whether the host an agent's terminal runs on is connected (local always is). */
 function isAgentHostConnected(
   deps: IpcDeps,
   agent: Pick<AgentInfo, "paneId" | "hostId">,
 ): boolean {
-  const hostId = agentHostId(deps, agent);
+  const hostId = agentHostId(agent, deps.getPaneHostId);
   return hostId === LOCAL_HOST_ID || deps.backendRegistry.status(hostId) === "connected";
 }
 

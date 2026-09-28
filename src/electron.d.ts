@@ -57,7 +57,7 @@ export interface AgentInfo {
   projectId: string | null;
   projectName: string | null;
   /** The host the agent's terminal runs on (ADR-191 §5). */
-  hostId: string;
+  hostId: HostId;
   workspacePath: string | null;
   cwd: string;
   agentKind: "claude" | "opencode" | "codex";

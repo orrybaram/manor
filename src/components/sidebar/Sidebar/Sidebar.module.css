@@ -187,10 +187,13 @@
   overflow-y: auto;
 }
 
+/* Side padding keeps hovered and active rows' backgrounds off the sidebar's
+   edges. */
 .projects {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  padding-inline: 8px;
 }
 
 .projectDragging {

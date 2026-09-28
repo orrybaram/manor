@@ -1,6 +1,6 @@
 ---
 title: Bulk context menu with delete, hide, and move to folder
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [1, 2, 3]

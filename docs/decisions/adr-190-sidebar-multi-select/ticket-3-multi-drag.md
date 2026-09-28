@@ -1,6 +1,6 @@
 ---
 title: Drag a multi-selection into and out of folders
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [1, 2]

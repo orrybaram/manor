@@ -527,6 +527,197 @@ export function insertFolderBefore(
   return insertItem(base, at.parentId, at.index, item);
 }
 
+/**
+ * Depth-first order of every visible workspace path (ADR-190 §1): a
+ * collapsed folder hides its members at any depth, exactly like `flattenRows`
+ * hides them as rows, so a shift-click range and the flattened row list agree
+ * on what's "between" two workspaces.
+ */
+export function visibleWorkspacePaths(
+  items: SidebarItem[],
+  collapsedFolderIds: Set<string>,
+): string[] {
+  const paths: string[] = [];
+  const walk = (list: SidebarItem[]) => {
+    for (const item of list) {
+      if (!isFolder(item)) {
+        paths.push(item.ws.path);
+        continue;
+      }
+      if (collapsedFolderIds.has(item.folder.id)) continue;
+      walk(item.children);
+    }
+  };
+  walk(items);
+  return paths;
+}
+
+/**
+ * Bulk "Move to Folder" (ADR-190 §2): append each of `keys`, in the given
+ * order, to F — one `placeInFolder` per key, so a key missing from the tree
+ * or a folder headed for its own subtree is skipped exactly as a single move
+ * would be.
+ */
+export function placeManyInFolder(
+  items: SidebarItem[],
+  keys: string[],
+  folderId: string,
+): SidebarItem[] {
+  return keys.reduce((acc, key) => placeInFolder(acc, key, folderId), items);
+}
+
+/**
+ * Bulk "Remove from Folder" (ADR-190 §2): every key that lives in a folder
+ * leaves it for the slot right after, `placeAfterFolder`'s rule applied to
+ * each. Keys that share a folder keep their relative tree order in the block
+ * that lands after it; a loose key is untouched.
+ */
+export function placeManyAfterFolders(
+  items: SidebarItem[],
+  keys: string[],
+): SidebarItem[] {
+  const info = new Map<string, { parentId: string | null; index: number }>();
+  for (const key of keys) {
+    const at = locate(items, key);
+    if (at) info.set(key, at);
+  }
+
+  // Group by enclosing folder, then sort each bucket by original tree index
+  // so the block that lands after a folder mirrors its previous order,
+  // whatever order the caller passed `keys` in.
+  const byFolder = new Map<string, string[]>();
+  for (const key of keys) {
+    const at = info.get(key);
+    if (!at || at.parentId === null) continue;
+    const bucket = byFolder.get(at.parentId);
+    if (bucket) bucket.push(key);
+    else byFolder.set(at.parentId, [key]);
+  }
+  for (const bucket of byFolder.values()) {
+    bucket.sort((a, b) => info.get(a)!.index - info.get(b)!.index);
+  }
+
+  let result = items;
+  for (const [folderId, keysInFolder] of byFolder) {
+    const { items: base, block } = removeBlock(result, keysInFolder);
+    if (block.length === 0) continue;
+    const at = locate(base, folderId);
+    result = at
+      ? insertBlock(base, at.parentId, at.index + 1, block)
+      : insertBlock(base, null, base.length, block);
+  }
+  return result;
+}
+
+/** Pulls every present key out of the tree, returning them as a block in `keys` order. */
+function removeBlock(
+  items: SidebarItem[],
+  keys: string[],
+): { items: SidebarItem[]; block: SidebarItem[] } {
+  let base = items;
+  const block: SidebarItem[] = [];
+  for (const key of keys) {
+    const { items: next, item } = removeItem(base, key);
+    if (item) {
+      base = next;
+      block.push(item);
+    }
+  }
+  return { items: base, block };
+}
+
+/** Inserts `block` contiguously at `index` under `parentId` (null = top level). */
+function insertBlock(
+  items: SidebarItem[],
+  parentId: string | null,
+  index: number,
+  block: SidebarItem[],
+): SidebarItem[] {
+  return block.reduce(
+    (tree, item, i) => insertItem(tree, parentId, index + i, item),
+    items,
+  );
+}
+
+/** Every key in `keys` present in the tree, in depth-first tree order. */
+function keysInTreeOrder(items: SidebarItem[], keys: Set<string>): string[] {
+  const ordered: string[] = [];
+  const walk = (list: SidebarItem[]) => {
+    for (const item of list) {
+      const key = keyOf(item);
+      if (keys.has(key)) ordered.push(key);
+      if (isFolder(item)) walk(item.children);
+    }
+  };
+  walk(items);
+  return ordered;
+}
+
+/**
+ * Multi-drag (ADR-190 §3): moves `groupKeys` together, following the source
+ * row's drop target. A group of one behaves exactly like `applyDrop`. An
+ * `into` target appends the whole group, in tree order, via
+ * `placeManyInFolder`. A `slot` target resolves the landing position against
+ * `rows` minus the source row — the same semantic as `applyDrop` — and, if
+ * that position falls on another member of the group, walks back to the
+ * nearest row outside it. The group is then pulled out as one block, in its
+ * original tree order, and reinserted at that position under the same parent
+ * rules as `applyDrop`.
+ */
+export function applyGroupDrop(
+  items: SidebarItem[],
+  sourceKey: string,
+  groupKeys: string[],
+  target: DropTarget,
+  rows: Row[],
+): SidebarItem[] {
+  const groupSet = new Set(groupKeys);
+  if (groupSet.size <= 1) {
+    return applyDrop(items, sourceKey, target, rows);
+  }
+
+  const orderedKeys = keysInTreeOrder(items, groupSet);
+
+  if (target.type === "into") {
+    return placeManyInFolder(items, orderedKeys, target.folderId);
+  }
+
+  const { item: sourceItem } = removeItem(items, sourceKey);
+  if (!sourceItem) return items;
+  const movedFromSource = keysWithin(sourceItem);
+  const rest = rows.filter((row) => !movedFromSource.has(row.key));
+
+  // Folders whose members were visible when the drag started — read from the
+  // original `rows`, same as `applyDrop`.
+  const expandedFolderIds = new Set(
+    rows.map((r) => r.parentFolderId).filter((id): id is string => id != null),
+  );
+
+  const index = clamp(target.rowIndex, 0, rest.length);
+  let predIndex = index - 1;
+  while (predIndex >= 0 && groupSet.has(rest[predIndex].key)) predIndex--;
+  const pred = predIndex >= 0 ? rest[predIndex] : undefined;
+
+  // Pull the whole group out as one block, in its original tree order.
+  const { items: base, block } = removeBlock(items, orderedKeys);
+  if (block.length === 0) return items;
+
+  if (!pred) return insertBlock(base, null, 0, block);
+
+  if (
+    pred.kind === "folder" &&
+    expandedFolderIds.has(pred.key) &&
+    findFolder(base, pred.key)
+  ) {
+    // Landing right under an expanded header means "first children".
+    return insertBlock(base, pred.key, 0, block);
+  }
+
+  const at = locate(base, pred.key);
+  if (!at) return insertBlock(base, null, base.length, block);
+  return insertBlock(base, at.parentId, at.index + 1, block);
+}
+
 // ── Top level: projects and linked-project groups (ADR-192) ──
 
 type TopLevelProject = Pick<

@@ -21,16 +21,27 @@ import {
 } from "../../store/project-store";
 import { useAppStore } from "../../store/app-store";
 import {
-  applyDrop,
+  applyGroupDrop,
   buildSidebarItems,
   descendantWorkspaces,
   linkChoices as buildLinkChoices,
   placeAfterFolder,
   placeInFolder,
+  placeManyAfterFolders,
+  placeManyInFolder,
+  visibleWorkspacePaths,
   type DropTarget,
   type Row,
   type SidebarItem,
 } from "../../utils/sidebar-items";
+import {
+  hideWorkspacesAndNavigate,
+  removeWorktreesWithToast,
+} from "../../store/workspace-actions";
+import {
+  EMPTY_SIDEBAR_SELECTION,
+  useSidebarSelectionStore,
+} from "../../store/sidebar-selection-store";
 import { headerRefKey, useSidebarDrag } from "../../hooks/useSidebarDrag";
 import { useProjectAgentStatus } from "../../hooks/useProjectAgentStatus";
 import { projectColorStyle, useProjectHeaderRow } from "../../hooks/useProjectHeaderRow";
@@ -45,6 +56,8 @@ import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { DeleteWorktreeDialog } from "./DeleteWorktreeDialog";
+import { BulkDeleteWorktreesDialog } from "./BulkDeleteWorktreesDialog";
+import { WorkspaceBulkMenu } from "./WorkspaceBulkMenu";
 import { MergeWorktreeDialog } from "./MergeWorktreeDialog";
 import { ConvertToWorkspaceDialog } from "./ConvertToWorkspaceDialog";
 import { NewFolderDialog } from "./NewFolderDialog";
@@ -63,10 +76,15 @@ import styles from "./ProjectItem.module.css";
 
 interface WorkspaceItemProps {
   ws: WorkspaceInfo;
-  idx: number;
   /** True for the workspace currently open — matched by path, never by index. */
   isActive: boolean;
+  /** True when this row is part of the sidebar multi-select (ADR-190). */
+  isSelected: boolean;
   isDragging: boolean;
+  /** Another row of the live group drag: dimmed, not lifted (ADR-190 §3). */
+  isGroupDragging: boolean;
+  /** Size of the group this row is leading in a drag; badged when 2+. */
+  dragGroupCount: number;
   isDeleting: boolean;
   isEditing: boolean;
   editValue: string;
@@ -76,7 +94,8 @@ interface WorkspaceItemProps {
   dragStyle: React.CSSProperties | undefined;
   justDragged: React.RefObject<boolean>;
   itemRefCallback: (el: HTMLDivElement | null) => void;
-  onSelectWorkspace: (index: number) => void;
+  /** A click the drag didn't swallow; plain, Shift or Cmd/Ctrl (ADR-190 §1). */
+  onRowClick: (e: React.MouseEvent) => void;
   onRowKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => void;
   onPointerDown: (e: React.PointerEvent) => void;
   onEditChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -96,9 +115,11 @@ const WorkspaceItem = React.forwardRef<
 ) {
   const {
     ws,
-    idx,
     isActive,
+    isSelected,
     isDragging,
+    isGroupDragging,
+    dragGroupCount,
     isDeleting,
     isEditing,
     editValue,
@@ -107,7 +128,7 @@ const WorkspaceItem = React.forwardRef<
     dragStyle,
     justDragged,
     itemRefCallback,
-    onSelectWorkspace,
+    onRowClick,
     onRowKeyDown,
     onPointerDown,
     onEditChange,
@@ -140,14 +161,15 @@ const WorkspaceItem = React.forwardRef<
       // The roving tabindex (useRovingRows) decides which row holds 0.
       tabIndex={-1}
       aria-current={isActive ? "true" : undefined}
+      aria-selected={isSelected ? "true" : undefined}
       {...rest}
       className={`${styles.workspace} ${isActive
           ? styles.workspaceActive
           : ""
-        } ${isDragging ? styles.workspaceDragging : ""} ${isDeleting ? styles.workspaceDeleting : ""}${rest.className ? ` ${rest.className}` : ""}`}
+        } ${isSelected ? styles.workspaceSelected : ""} ${isDragging ? styles.workspaceDragging : ""} ${isGroupDragging ? styles.workspaceGroupDragging : ""} ${isDeleting ? styles.workspaceDeleting : ""}${rest.className ? ` ${rest.className}` : ""}`}
       style={{ ...dragStyle, ...rest.style }}
       onClick={(e) => {
-        if (!justDragged.current) onSelectWorkspace(idx);
+        if (!justDragged.current) onRowClick(e);
         rest.onClick?.(e);
       }}
       onKeyDown={(e) => {
@@ -233,6 +255,15 @@ const WorkspaceItem = React.forwardRef<
               )}
             </div>
           </div>
+          {isDragging && dragGroupCount > 1 && (
+            <span
+              className={styles.dragCountBadge}
+              data-testid="drag-count-badge"
+              aria-hidden="true"
+            >
+              {dragGroupCount}
+            </span>
+          )}
         </>
       )}
     </div>
@@ -314,9 +345,12 @@ export function ProjectItem(props: ProjectItemProps) {
   const [newWorkspaceFolderId, setNewWorkspaceFolderId] = useState<string | null>(null);
   const [convertWorkspaceOpen, setConvertWorkspaceOpen] = useState(false);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
-  // Set when "New Folder…" is picked from a workspace's menu: the folder is
-  // created and that workspace moved into it in one step.
-  const [pendingMovePath, setPendingMovePath] = useState<string | null>(null);
+  // Set when "New Folder…" is picked from a workspace's (or a selection's)
+  // menu: the folder is created and those workspaces moved into it in one
+  // step. A single row is still an array of one (ADR-190 §2).
+  const [pendingMovePaths, setPendingMovePaths] = useState<string[] | null>(null);
+  const [confirmBulkDeleteWorkspaces, setConfirmBulkDeleteWorkspaces] =
+    useState<WorkspaceInfo[] | null>(null);
   // The folder the next new folder belongs in: a folder's "New Folder Inside…",
   // or the folder the "New Folder…" anchor already lives in, so the new group
   // appears where it was asked for rather than at the top level (ADR-172).
@@ -414,15 +448,77 @@ export function ProjectItem(props: ProjectItemProps) {
     (ws) => ws.path === activeWorkspacePath,
   );
 
+  // Tree order of every workspace a shift-click range can land on — a
+  // collapsed folder's members are off screen and out of the range, exactly
+  // as they are absent from `flattenRows` (ADR-190 §1).
+  const orderedVisiblePaths = useMemo(
+    () => visibleWorkspacePaths(items, collapsedFolderIds),
+    [items, collapsedFolderIds],
+  );
+  // Read only when the selection belongs to this project: a selection made in
+  // another project highlights nothing here. A path that has since left the
+  // sidebar (deleted, or hidden from anywhere) is dropped here, at read time,
+  // so a stale entry can never drive a bulk action on a row that isn't shown.
+  const storedPaths = useSidebarSelectionStore((s) =>
+    s.projectId === projectId ? s.paths : EMPTY_SIDEBAR_SELECTION,
+  );
+  const selectedPaths = useMemo(() => {
+    if (storedPaths.size === 0) return storedPaths;
+    const shown = new Set(
+      workspaces.filter((ws) => !ws.hidden).map((ws) => ws.path),
+    );
+    const live = new Set([...storedPaths].filter((path) => shown.has(path)));
+    return live.size === storedPaths.size ? storedPaths : live;
+  }, [storedPaths, workspaces]);
+
+  // The selection in tree order (ADR-190 §2): visible rows first, then any
+  // selected path a collapsed folder hides — the same rule the group drag
+  // uses to order its own block.
+  const orderedSelection = useMemo(() => {
+    const visible = orderedVisiblePaths.filter((p) => selectedPaths.has(p));
+    const visibleSet = new Set(visible);
+    return [
+      ...visible,
+      ...[...selectedPaths].filter((p) => !visibleSet.has(p)),
+    ];
+  }, [orderedVisiblePaths, selectedPaths]);
+  const selectedWorkspaces = useMemo(
+    () =>
+      orderedSelection
+        .map((path) => workspaces.find((ws) => ws.path === path))
+        .filter((ws): ws is WorkspaceInfo => ws != null),
+    [orderedSelection, workspaces],
+  );
+  const selectedNonMain = useMemo(
+    () => selectedWorkspaces.filter((ws) => !ws.isMain),
+    [selectedWorkspaces],
+  );
+  const selectionHasFolderMember = selectedWorkspaces.some((ws) => ws.folderId);
+
   const handleDrop = useCallback(
-    (sourceKey: string, target: DropTarget, rows: Row[]) => {
-      applySidebarChange(projectId, applyDrop(items, sourceKey, target, rows));
+    (
+      sourceKey: string,
+      target: DropTarget,
+      rows: Row[],
+      groupKeys: string[] | undefined,
+    ) => {
+      // A group of one (or none) is exactly `applyDrop` (ADR-190 §3).
+      applySidebarChange(
+        projectId,
+        applyGroupDrop(items, sourceKey, groupKeys ?? [sourceKey], target, rows),
+      );
+      // The group has landed where the user put it; the selection has done
+      // its job.
+      if (groupKeys && groupKeys.length > 1) {
+        useSidebarSelectionStore.getState().clear();
+      }
     },
     [applySidebarChange, projectId, items],
   );
 
   const {
     dragKey,
+    dragGroupKeys,
     intoFolderId,
     justDragged,
     rowRefs,
@@ -540,9 +636,13 @@ export function ProjectItem(props: ProjectItemProps) {
     const workspaceEl = (
       <WorkspaceItem
         ws={ws}
-        idx={globalIdx}
         isActive={ws.path === activeWorkspacePath}
+        isSelected={selectedPaths.has(ws.path)}
         isDragging={dragKey === ws.path}
+        isGroupDragging={
+          dragKey !== ws.path && (dragGroupKeys?.includes(ws.path) ?? false)
+        }
+        dragGroupCount={dragGroupKeys?.length ?? 0}
         isDeleting={isDeleting}
         isEditing={isEditing}
         editValue={editValue}
@@ -551,9 +651,29 @@ export function ProjectItem(props: ProjectItemProps) {
         dragStyle={getTransformStyle(ws.path)}
         justDragged={justDragged}
         itemRefCallback={registerRow(ws.path)}
-        onSelectWorkspace={onSelectWorkspace}
+        onRowClick={(e) => {
+          const selection = useSidebarSelectionStore.getState();
+          if (e.shiftKey) {
+            // Modifier clicks select; they never navigate (ADR-190 §1).
+            selection.selectRange(
+              projectId,
+              orderedVisiblePaths,
+              ws.path,
+              activeWorkspacePath,
+            );
+          } else if (e.metaKey || e.ctrlKey) {
+            selection.toggle(projectId, ws.path, activeWorkspacePath);
+          } else {
+            selection.setAnchor(projectId, ws.path);
+            onSelectWorkspace(globalIdx);
+          }
+        }}
         onRowKeyDown={(e) => {
           if (isEditing) return;
+          // Escape clears the selection before handing off to the shared
+          // handler's own Escape (which blurs the row and refocuses the
+          // active pane) — both happen on one press (ADR-190 §1).
+          if (e.key === "Escape") useSidebarSelectionStore.getState().clear();
           handleSidebarRowKeyDown(e, {
             activate: () => onSelectWorkspace(globalIdx),
             startRename: () => startRename(ws),
@@ -563,7 +683,23 @@ export function ProjectItem(props: ProjectItemProps) {
             },
           });
         }}
-        onPointerDown={(e) => handleDragStart(ws.path, "workspace", e)}
+        onPointerDown={(e) => {
+          // Shift/Cmd/Ctrl-pointerdown are selection gestures, not drags
+          // (ADR-190 §1); shift's browser text-selection needs an explicit
+          // preventDefault since a click on plain text still fires from here.
+          if (e.shiftKey) {
+            e.preventDefault();
+            return;
+          }
+          if (e.metaKey || e.ctrlKey) return;
+          // Grabbing a row of a 2+ selection drags the whole selection, in
+          // tree order (ADR-190 §3).
+          const groupKeys =
+            selectedPaths.has(ws.path) && selectedPaths.size > 1
+              ? orderedSelection
+              : undefined;
+          handleDragStart(ws.path, "workspace", e, groupKeys);
+        }}
         onEditChange={(e) => setEditValue(e.target.value)}
         onEditBlur={() => {
           if (renameCancelled.current) {
@@ -594,11 +730,31 @@ export function ProjectItem(props: ProjectItemProps) {
       />
     );
 
+    // A right-click on a row that is already part of a 2+ selection acts on
+    // the whole selection; anything else clears it and falls back to the
+    // single-workspace menu (ADR-190 §2).
+    const isBulkSelected = selectedPaths.has(ws.path) && selectedPaths.size > 1;
+
+    const closeAutoFocus = (e: Event) => {
+      if (workspaceMenuOpenedByKeyboard.current.has(ws.path)) {
+        e.preventDefault();
+        rowRefs.current.get(ws.path)?.focus();
+      }
+      workspaceMenuOpenedByKeyboard.current.delete(ws.path);
+    };
+
     return (
       <ContextMenu.Root
         key={ws.path}
         onOpenChange={(open) => {
-          if (open && !ws.isMain) {
+          if (!open) {
+            setMergeState(null);
+            return;
+          }
+          if (!selectedPaths.has(ws.path)) {
+            useSidebarSelectionStore.getState().clear();
+          }
+          if (!ws.isMain && !isBulkSelected) {
             setMergeState(null);
             useProjectStore
               .getState()
@@ -620,15 +776,47 @@ export function ProjectItem(props: ProjectItemProps) {
           {workspaceEl}
         </ContextMenu.Trigger>
         <ContextMenu.Portal>
+          {isBulkSelected ? (
+            <WorkspaceBulkMenu
+              selectedCount={orderedSelection.length}
+              folderChoices={folderChoices}
+              hasFolderMember={selectionHasFolderMember}
+              removableCount={selectedNonMain.length}
+              onCloseAutoFocus={closeAutoFocus}
+              onMoveToFolder={(folderId) => {
+                applySidebarChange(
+                  projectId,
+                  placeManyInFolder(items, orderedSelection, folderId),
+                );
+                useSidebarSelectionStore.getState().clear();
+              }}
+              onNewFolder={() => {
+                setPendingMovePaths(orderedSelection);
+                setNewFolderParentId(selectedWorkspaces[0]?.folderId ?? null);
+                setNewFolderOpen(true);
+              }}
+              onRemoveFromFolder={() => {
+                applySidebarChange(
+                  projectId,
+                  placeManyAfterFolders(items, orderedSelection),
+                );
+                useSidebarSelectionStore.getState().clear();
+              }}
+              onHide={() => {
+                hideWorkspacesAndNavigate(
+                  projectId,
+                  selectedNonMain.map((w) => w.path),
+                );
+                useSidebarSelectionStore.getState().clear();
+              }}
+              onDelete={() => {
+                setConfirmBulkDeleteWorkspaces(selectedNonMain);
+              }}
+            />
+          ) : (
           <ContextMenu.Content
             className={styles.contextMenu}
-            onCloseAutoFocus={(e) => {
-              if (workspaceMenuOpenedByKeyboard.current.has(ws.path)) {
-                e.preventDefault();
-                rowRefs.current.get(ws.path)?.focus();
-              }
-              workspaceMenuOpenedByKeyboard.current.delete(ws.path);
-            }}
+            onCloseAutoFocus={closeAutoFocus}
           >
             <ContextMenu.Item
               className={styles.contextMenuItem}
@@ -731,7 +919,7 @@ export function ProjectItem(props: ProjectItemProps) {
                   <ContextMenu.Item
                     className={styles.contextMenuItem}
                     onSelect={() => {
-                      setPendingMovePath(ws.path);
+                      setPendingMovePaths([ws.path]);
                       setNewFolderParentId(ws.folderId ?? null);
                       setNewFolderOpen(true);
                     }}
@@ -796,6 +984,7 @@ export function ProjectItem(props: ProjectItemProps) {
               </>
             )}
           </ContextMenu.Content>
+          )}
         </ContextMenu.Portal>
       </ContextMenu.Root>
     );
@@ -827,7 +1016,7 @@ export function ProjectItem(props: ProjectItemProps) {
           setNewWorkspaceOpen(true);
         }}
         onNewSubfolder={() => {
-          setPendingMovePath(null);
+          setPendingMovePaths(null);
           setNewFolderParentId(folder.id);
           setNewFolderOpen(true);
         }}
@@ -923,7 +1112,7 @@ export function ProjectItem(props: ProjectItemProps) {
             <ContextMenu.Item
               className={styles.contextMenuItem}
               onSelect={() => {
-                setPendingMovePath(null);
+                setPendingMovePaths(null);
                 setNewFolderParentId(null);
                 setNewFolderOpen(true);
               }}
@@ -1052,22 +1241,25 @@ export function ProjectItem(props: ProjectItemProps) {
         onOpenChange={(open) => {
           setNewFolderOpen(open);
           if (!open) {
-            setPendingMovePath(null);
+            setPendingMovePaths(null);
             setNewFolderParentId(null);
           }
         }}
         onConfirm={async (name) => {
           setNewFolderOpen(false);
-          const movePath = pendingMovePath;
+          const movePaths = pendingMovePaths;
           const parentId = newFolderParentId;
-          setPendingMovePath(null);
+          setPendingMovePaths(null);
           setNewFolderParentId(null);
           await createWorkspaceFolder(
             projectId,
             name,
-            movePath ?? undefined,
+            movePaths ?? undefined,
             parentId,
           );
+          if (movePaths && movePaths.length > 1) {
+            useSidebarSelectionStore.getState().clear();
+          }
         }}
       />
 
@@ -1106,6 +1298,34 @@ export function ProjectItem(props: ProjectItemProps) {
               return next;
             });
           });
+        }}
+      />
+
+      <BulkDeleteWorktreesDialog
+        open={confirmBulkDeleteWorkspaces !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmBulkDeleteWorkspaces(null);
+        }}
+        workspaces={confirmBulkDeleteWorkspaces ?? []}
+        onConfirm={(bulkWorkspaces, deleteBranch) => {
+          setDeletingPaths((prev) => {
+            const next = new Set(prev);
+            for (const ws of bulkWorkspaces) next.add(ws.path);
+            return next;
+          });
+          useSidebarSelectionStore.getState().clear();
+          void removeWorktreesWithToast(project, bulkWorkspaces, deleteBranch).then(
+            (failed) => {
+              // Same as the single delete: a failed removal stays in the
+              // list, so the prune never un-dims it.
+              if (failed.length === 0) return;
+              setDeletingPaths((prev) => {
+                const next = new Set(prev);
+                for (const path of failed) next.delete(path);
+                return next;
+              });
+            },
+          );
         }}
       />
 

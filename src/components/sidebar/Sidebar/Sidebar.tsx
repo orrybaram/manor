@@ -26,6 +26,7 @@ import {
   isHomePath,
 } from "../../../lib/home";
 import { useDragOverlayStore } from "../../../store/drag-overlay-store";
+import { useSidebarSelectionStore } from "../../../store/sidebar-selection-store";
 import {
   handleSidebarRowKeyDown,
   useRovingRows,
@@ -406,7 +407,16 @@ export function Sidebar(props: SidebarProps) {
                 </Button>
               </div>
             )}
-            <div className={styles.projectsScroll}>
+            <div
+              className={styles.projectsScroll}
+              onClick={(e) => {
+                // A click on empty sidebar space, not a row bubbling up,
+                // clears the selection (ADR-190 §1).
+                if (e.target === e.currentTarget) {
+                  useSidebarSelectionStore.getState().clear();
+                }
+              }}
+            >
               <div className={styles.projects}>
                 {entries.map((entry, idx) => (
                   <React.Fragment key={entry.key}>

@@ -9,7 +9,7 @@ import {
   folderParentsOf,
   insertFolderBefore,
   membershipOf,
-  placeInFolder,
+  placeManyInFolder,
   serializeOrder,
   type SidebarItem,
 } from "../utils/sidebar-items";
@@ -509,8 +509,11 @@ interface ProjectState {
   createWorkspaceFolder: (
     projectId: string,
     name: string,
-    /** When given, the new folder takes this row's slot and swallows it. */
-    anchorKey?: string,
+    /**
+     * When given, the new folder takes the first key's slot and swallows
+     * every key — one row from a row's menu, a whole selection (ADR-190 §2).
+     */
+    anchorKeys?: string[],
     /** Enclosing folder for the new folder; top level when omitted. */
     parentId?: string | null,
   ) => Promise<WorkspaceFolder | null>;
@@ -1149,7 +1152,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   createWorkspaceFolder: async (
     projectId: string,
     name: string,
-    anchorKey?: string,
+    anchorKeys?: string[],
     parentId?: string | null,
   ) => {
     const folder = await window.electronAPI.projects.createWorkspaceFolder(
@@ -1172,15 +1175,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       ),
     }));
 
-    if (anchorKey) {
+    if (anchorKeys && anchorKeys.length > 0) {
       const project = get().projects.find((p) => p.id === projectId);
       if (project) {
         const items = buildSidebarItems(project);
         await get().applySidebarChange(
           projectId,
-          placeInFolder(
-            insertFolderBefore(items, folder, anchorKey),
-            anchorKey,
+          placeManyInFolder(
+            insertFolderBefore(items, folder, anchorKeys[0]),
+            anchorKeys,
             folder.id,
           ),
         );

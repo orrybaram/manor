@@ -78,6 +78,53 @@ export function removeWorktreeWithToast(
 }
 
 /**
+ * Before a bulk hide or delete (ADR-190 §2): if the active workspace is one
+ * of `targetPaths`, switch to main — or the first workspace that stays — so
+ * the window never sits on, or steps onto, a row that is about to go.
+ */
+function navigateAwayFrom(
+  project: ProjectInfo,
+  targetPaths: ReadonlySet<string>,
+): void {
+  const active = useAppStore.getState().activeWorkspacePath;
+  if (!active || !targetPaths.has(active)) return;
+  const remaining = project.workspaces.filter((ws) => !targetPaths.has(ws.path));
+  const next = remaining.find((ws) => ws.isMain) ?? remaining[0];
+  if (!next) return;
+  useProjectStore
+    .getState()
+    .selectWorkspace(project.id, project.workspaces.indexOf(next));
+}
+
+/**
+ * Remove several worktrees in one gesture (ADR-190 §2): main is never a
+ * target, and — when the active workspace is among the rest — the window
+ * navigates away before any teardown starts, so the per-item "select next"
+ * logic in `removeWorktreeWithToast` never lands on a row that is itself
+ * about to go. Removals run sequentially: concurrent `git worktree remove`
+ * calls on one repo risk lock contention, and each still gets its own toast.
+ * Resolves to the paths that failed to go, so their rows can be un-dimmed.
+ */
+export async function removeWorktreesWithToast(
+  project: ProjectInfo,
+  workspaces: WorkspaceInfo[],
+  deleteBranch?: boolean,
+): Promise<string[]> {
+  const targets = workspaces.filter((ws) => !ws.isMain);
+  if (targets.length === 0) return [];
+
+  navigateAwayFrom(project, new Set(targets.map((ws) => ws.path)));
+
+  const failed: string[] = [];
+  for (const ws of targets) {
+    if (!(await removeWorktreeWithToast(project, ws, deleteBranch))) {
+      failed.push(ws.path);
+    }
+  }
+  return failed;
+}
+
+/**
  * Quick-merge a worktree into the default branch: immediately switch away
  * (if active), clean up tabs, show a progress toast, and merge in the
  * background.
@@ -158,4 +205,32 @@ export function hideWorkspaceAndNavigate(
   if (!wasSelected) return;
   const mainIndex = project.workspaces.findIndex((w) => w.isMain);
   if (mainIndex >= 0) projectStore.selectWorkspace(projectId, mainIndex);
+}
+
+/**
+ * Hide several workspaces at once (ADR-190 §2): main is never a target, and —
+ * when the active workspace is among the rest — the window navigates to main
+ * before any of them disappear, mirroring `hideWorkspaceAndNavigate`'s single-
+ * workspace fallback. Hides are awaited sequentially.
+ */
+export async function hideWorkspacesAndNavigate(
+  projectId: string,
+  paths: string[],
+): Promise<void> {
+  const projectStore = useProjectStore.getState();
+  const project = projectStore.projects.find((p) => p.id === projectId);
+  if (!project) return;
+
+  const wsByPath = new Map(project.workspaces.map((ws) => [ws.path, ws]));
+  const targets = paths.filter((path) => {
+    const ws = wsByPath.get(path);
+    return ws && !ws.isMain;
+  });
+  if (targets.length === 0) return;
+
+  navigateAwayFrom(project, new Set(targets));
+
+  for (const path of targets) {
+    await projectStore.setWorkspaceHidden(projectId, path, true);
+  }
 }

@@ -1,9 +1,9 @@
-import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import type { WorkspaceInfo } from "../../store/project-store";
 import styles from "./dialogs.module.css";
 import { Button } from "../ui/Button/Button";
+import { useDeleteBranchPreference } from "./useDeleteBranchPreference";
 
 type DeleteWorktreeDialogProps = {
   open: boolean;
@@ -15,13 +15,8 @@ type DeleteWorktreeDialogProps = {
 export function DeleteWorktreeDialog(props: DeleteWorktreeDialogProps) {
   const { open, onOpenChange, workspace, onConfirm } = props;
 
-  const [deleteBranchChecked, setDeleteBranchChecked] = useState(() => {
-    try {
-      return localStorage.getItem("manor:deleteBranchOnWorktreeRemove") === "true";
-    } catch {
-      return false;
-    }
-  });
+  const [deleteBranchChecked, setDeleteBranchChecked] =
+    useDeleteBranchPreference();
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -46,17 +41,7 @@ export function DeleteWorktreeDialog(props: DeleteWorktreeDialogProps) {
                 <input
                   type="checkbox"
                   checked={deleteBranchChecked}
-                  onChange={(e) => {
-                    setDeleteBranchChecked(e.target.checked);
-                    try {
-                      localStorage.setItem(
-                        "manor:deleteBranchOnWorktreeRemove",
-                        String(e.target.checked),
-                      );
-                    } catch {
-                      // ignore
-                    }
-                  }}
+                  onChange={(e) => setDeleteBranchChecked(e.target.checked)}
                 />
                 Also delete local branch
               </label>

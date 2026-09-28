@@ -1,6 +1,6 @@
 ---
 title: Projects overview surface, sidebar row and routing
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: []

@@ -261,27 +261,45 @@ function workspaceTarget(
 }
 
 /**
- * The optional `host` argument off a create request's body: `undefined` when
- * absent or empty, or `null` after answering 400 for a non-string.
+ * Which project a create request (single or batch) lands in, from the body's
+ * optional `host` and `workspaceTarget`. Answers the error itself — a
+ * non-string `host`, or `workspaceTarget`'s 400/403 — and returns
+ * `undefined`, so the caller just returns.
  */
-function readHostArg(body: Record<string, unknown>, json: Json): string | undefined | null {
-  if (body.host !== undefined && typeof body.host !== "string") {
-    json(400, { error: "'host' must be a string" });
-    return null;
+function resolveCreateTarget(
+  { deps, json }: RouteContext,
+  pm: ProjectManager,
+  named: ProjectInfo,
+  projects: ProjectInfo[],
+  body: Record<string, unknown>,
+): ProjectInfo | undefined {
+  const target: WorkspaceTargetResult =
+    body.host !== undefined && typeof body.host !== "string"
+      ? { ok: false, status: 400, error: "'host' must be a string" }
+      : workspaceTarget(pm, {
+          project: named,
+          projects,
+          host: typeof body.host === "string" && body.host ? body.host : undefined,
+          callerHostId: deps.callerHostId,
+        });
+  if (!target.ok) {
+    json(target.status, { error: target.error });
+    return undefined;
   }
-  return typeof body.host === "string" && body.host ? body.host : undefined;
+  return target.project;
 }
 
 /**
  * Remember `project`'s host as its group's last-used host, the way the New
  * Workspace dialog does, so the dialog's default follows CLI creates too.
- * An ungrouped project, or the host already recorded, writes nothing. A
- * failure only costs the picker its default, so it is logged, not thrown:
+ * An ungrouped project writes nothing; `setGroupLastUsedHost` itself skips
+ * the host already recorded (checked there, not against a possibly stale
+ * snapshot here). A failure only costs the picker its default, so it is logged, not thrown:
  * the workspace was made.
  */
 function recordLastUsedHost(pm: ProjectManager, project: ProjectInfo): void {
   const group = project.group;
-  if (!group || group.lastUsedHostId === project.hostId) return;
+  if (!group) return;
   try {
     pm.setGroupLastUsedHost(group.id, project.hostId);
   } catch (err) {
@@ -371,7 +389,7 @@ function renderPrompt(
  * agent in every one.
  */
 async function batchCreateWorkspaces(
-  { deps, json, readBody }: RouteContext,
+  ctx: RouteContext,
   pm: ProjectManager,
   named: ProjectInfo,
   projects: ProjectInfo[],
@@ -384,6 +402,7 @@ async function batchCreateWorkspaces(
   // body first so we can validate it before the 503 githubManager check, so
   // a Linear caller gets the accurate 400 rather than a misleading 503 on a
   // machine where `gh` happens to be unavailable.
+  const { deps, json, readBody } = ctx;
   const body = await readBody();
   const source = body.source ?? "github";
   if (!isIssueSource(source)) {
@@ -398,20 +417,10 @@ async function batchCreateWorkspaces(
     });
     return;
   }
-  const host = readHostArg(body, json);
-  if (host === null) return;
-  // The same member resolution, errors and relay scoping as the single create.
-  const target = workspaceTarget(pm, {
-    project: named,
-    projects,
-    host,
-    callerHostId: deps.callerHostId,
-  });
-  if (!target.ok) {
-    json(target.status, { error: target.error });
-    return;
-  }
-  const project = target.project;
+  // Host validation deliberately runs before the GitHub and `issues` checks:
+  // like `source`, a bad or foreign host is the caller's mistake to hear first.
+  const project = resolveCreateTarget(ctx, pm, named, projects, body);
+  if (!project) return;
   const github = deps.githubManager;
   if (!github) {
     json(503, {
@@ -470,9 +479,8 @@ async function batchCreateWorkspaces(
     baseBranch,
   );
   const createdByNumber = new Map(created.map((c) => [c.number, c]));
-  if (created.some((c) => c.worktreePath && !c.error)) {
-    recordLastUsedHost(pm, project);
-  }
+  const wasCreated = (c: WorkspaceFromIssue) => !!c.worktreePath && !c.error;
+  if (created.some(wasCreated)) recordLastUsedHost(pm, project);
   notifyProjectsChanged();
 
   // 3. Resolve each issue to a result entry, assigning and launching as it
@@ -585,10 +593,11 @@ export const projectRoutes: Route[] = [
   {
     method: "POST",
     path: "/projects/:projectId/workspaces",
-    handler: withProject(async ({ deps, json, readBody }, pm, named, projects) => {
+    handler: withProject(async (ctx, pm, named, projects) => {
+      const { json, readBody } = ctx;
       const body = await readBody();
-      const host = readHostArg(body, json);
-      if (host === null) return;
+      const project = resolveCreateTarget(ctx, pm, named, projects, body);
+      if (!project) return;
       const branch = typeof body.branch === "string" ? body.branch : undefined;
       // Either field alone is enough — each falls back to the other, matching
       // the new-workspace dialog where the branch tracks the name.
@@ -605,17 +614,6 @@ export const projectRoutes: Route[] = [
         typeof body.useExistingBranch === "boolean"
           ? body.useExistingBranch
           : undefined;
-      const target = workspaceTarget(pm, {
-        project: named,
-        projects,
-        host,
-        callerHostId: deps.callerHostId,
-      });
-      if (!target.ok) {
-        json(target.status, { error: target.error });
-        return;
-      }
-      const project = target.project;
       const before = new Set(project.workspaces.map((ws) => ws.path));
       const updated = await pm.createWorktree(
         project.id,

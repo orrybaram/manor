@@ -4,6 +4,7 @@
  */
 
 import { resolveProjectId } from "./context";
+import { CREATE_HOST_PROP } from "./tools-projects";
 // Type-only: `issue-sources.ts` is pure, and the edge erases at runtime, so the
 // MCP process stays Electron-free while sharing the one wire shape.
 import type { McpIssue, McpIssueDetail } from "../issue-sources";
@@ -135,11 +136,7 @@ const tools: ToolDef[] = [
           description:
             "Prompt template for the launched agents. Supports {number}, {title}, {body}.",
         },
-        host: {
-          type: "string",
-          description:
-            "For a linked project: the host to create on (a host id or ssh target, or 'local'), which picks that host's member of the group. Defaults to the caller's own host when it is a remote pane, then the group's last-used host.",
-        },
+        host: CREATE_HOST_PROP,
       },
       required: ["issues"],
     },

@@ -343,10 +343,13 @@ describe("POST /projects/:projectId/workspaces", () => {
     expect(pm.setGroupLastUsedHost).toHaveBeenCalledWith("g1", "box");
   });
 
-  it("writes nothing when the host is already the last used", async () => {
+  it("leaves an unchanged host to the manager's own no-op check", async () => {
+    // `setGroupLastUsedHost` skips the host already recorded
+    // (project-groups.test.ts), so the route doesn't second-guess it
+    // against its snapshot.
     await call(create, deps(pm), { projectId: "local-app" }, { name: "feat" });
     expect(pm.createWorktree.mock.calls[0][0]).toBe("box-app");
-    expect(pm.setGroupLastUsedHost).not.toHaveBeenCalled();
+    expect(pm.setGroupLastUsedHost).toHaveBeenCalledWith("g1", "box");
   });
 
   it("records nothing for an unlinked project, or a refused create", async () => {
@@ -414,8 +417,6 @@ describe("POST /projects/:projectId/workspaces/batch", () => {
     pm = makeProjectManager("box");
     await batchCall("local-app", {});
     expect(pm.createWorkspacesFromIssues.mock.calls[0][0]).toBe("box-app");
-    // Already the last used: nothing written.
-    expect(pm.setGroupLastUsedHost).not.toHaveBeenCalled();
 
     pm = makeProjectManager(null);
     await batchCall("local-app", {});

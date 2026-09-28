@@ -12,8 +12,10 @@
  * on another host at the same path must not win, and the 404's list must
  * not offer a retry the relay would refuse anyway. Rung 1 needs no such
  * guess: `layout.json` keys each workspace by its host-qualified
- * `WorkspaceKey` (ADR-191, #240), so the pane's own host is read straight
- * off that key.
+ * `WorkspaceKey` (ADR-191, #240), so the pane's workspace host is read
+ * straight off that key — the workspace the pane lives in, even when
+ * ADR-183 has moved its session to another host. `SessionOwners` only
+ * stands in when the layout has no record of the pane.
  */
 
 import type { ProjectInfo, WorkspaceInfo } from "../persistence";
@@ -21,8 +23,7 @@ import type { LayoutPersistence } from "../terminal-host/layout-persistence";
 import { findWorkspaceForPane, matchProjectByPath } from "../pane-context";
 import { parseWorkspaceKey } from "../../src/lib/workspace-key";
 import { availableSources } from "../issue-backends";
-import { LOCAL_HOST_ID } from "../backend/types";
-import { normalizeHostId } from "../../src/lib/host-id";
+import { LOCAL_HOST_ID, normalizeHostId } from "../../src/lib/host-id";
 import { callerMaySee } from "./caller-host";
 import type { Route } from "./types";
 

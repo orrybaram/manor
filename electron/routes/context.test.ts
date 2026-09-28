@@ -3,7 +3,7 @@ import { contextRoutes } from "./context";
 import type { ControlDeps } from "./types";
 import type { ProjectInfo } from "../persistence";
 import type { PersistedLayout } from "../terminal-host/layout-persistence";
-import type { WorkspaceKey } from "../../src/lib/workspace-key";
+import { workspaceKey, type WorkspaceKey } from "../../src/lib/workspace-key";
 
 function project(id: string, hostId: string, path: string): ProjectInfo {
   return {
@@ -19,12 +19,12 @@ function project(id: string, hostId: string, path: string): ProjectInfo {
 const projects = [project("local-p", "local", "/repo"), project("box-p", "box", "/repo")];
 
 /** A minimal `layout.json` naming one pane's host-qualified workspace key. */
-function layoutWithPane(paneId: string, workspaceKey: string): PersistedLayout {
+function layoutWithPane(paneId: string, key: WorkspaceKey): PersistedLayout {
   return {
     version: 3,
     workspaces: [
       {
-        workspacePath: workspaceKey as WorkspaceKey,
+        workspacePath: key,
         panelTree: { type: "leaf", panelId: "panel-1" },
         activePanelId: "panel-1",
         panels: {
@@ -119,7 +119,7 @@ describe("GET /context", () => {
   it("rung 1 resolves a remote workspace key to the remote project even for a local caller", async () => {
     // Same path exists on "local" and "box"; the pane's own recorded key
     // says "box", so that must win over the caller's own (local) host.
-    const layoutPersistence = { load: () => layoutWithPane("pane-1", "box:/repo") };
+    const layoutPersistence = { load: () => layoutWithPane("pane-1", workspaceKey("box", "/repo")) };
     const [status, body] = await getContext("paneId=pane-1", {
       layoutPersistence: layoutPersistence as unknown as ControlDeps["layoutPersistence"],
     });
@@ -131,7 +131,7 @@ describe("GET /context", () => {
     // The pane's own key is local, but the request was relayed from "box":
     // naming a local pane id must not reveal the local project, so rung 1
     // misses and cwd resolves on the caller's own host.
-    const layoutPersistence = { load: () => layoutWithPane("pane-1", "/repo") };
+    const layoutPersistence = { load: () => layoutWithPane("pane-1", workspaceKey("local", "/repo")) };
     const [status, body] = await getContext("paneId=pane-1&cwd=/repo/src", {
       layoutPersistence: layoutPersistence as unknown as ControlDeps["layoutPersistence"],
       callerHostId: "box",
@@ -141,7 +141,7 @@ describe("GET /context", () => {
   });
 
   it("rung 1 resolves a relayed caller's own-host pane key", async () => {
-    const layoutPersistence = { load: () => layoutWithPane("pane-1", "box:/repo") };
+    const layoutPersistence = { load: () => layoutWithPane("pane-1", workspaceKey("box", "/repo")) };
     const [status, body] = await getContext("paneId=pane-1", {
       layoutPersistence: layoutPersistence as unknown as ControlDeps["layoutPersistence"],
       callerHostId: "box",
@@ -151,7 +151,7 @@ describe("GET /context", () => {
   });
 
   it("rung 1 falls through to cwd when the pane's own key's host has no project at that path", async () => {
-    const layoutPersistence = { load: () => layoutWithPane("pane-1", "ghost:/repo") };
+    const layoutPersistence = { load: () => layoutWithPane("pane-1", workspaceKey("ghost", "/repo")) };
     const [status, body] = await getContext("paneId=pane-1&cwd=/repo/src", {
       layoutPersistence: layoutPersistence as unknown as ControlDeps["layoutPersistence"],
     });

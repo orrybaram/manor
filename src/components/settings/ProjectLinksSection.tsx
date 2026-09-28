@@ -1,32 +1,15 @@
 import { useMemo } from "react";
+import Cloud from "lucide-react/dist/esm/icons/cloud";
 import Laptop from "lucide-react/dist/esm/icons/laptop";
 import { useProjectStore, type ProjectInfo } from "../../store/project-store";
 import { useHostStore } from "../../store/host-store";
-import { isRemoteHost, remoteHostOptions } from "../../lib/hosts";
+import { isRemoteHost, memberHostName, remoteHostOptions } from "../../lib/hosts";
 import { canLinkLocalFolder, linkChoices } from "../../utils/sidebar-items";
-import { HostIndicator } from "../hosts/HostIndicator";
 import { Button } from "../ui/Button/Button";
 import { SearchableSelect } from "../ui/SearchableSelect/SearchableSelect";
 import { Stack, Row } from "../ui/Layout/Layout";
 import { SectionTitle } from "./SectionTitle";
 import styles from "./SettingsModal/SettingsModal.module.css";
-
-type HostLabelProps = {
-  hostId: string;
-};
-
-/** A member's host, as the sidebar's group sections name it. */
-export function HostLabel(props: HostLabelProps) {
-  const { hostId } = props;
-
-  if (isRemoteHost(hostId)) return <HostIndicator hostId={hostId} variant="chip" />;
-  return (
-    <Row gap="xxs" align="center" className={styles.hostLabelLocal}>
-      <Laptop size={12} aria-hidden />
-      This machine
-    </Row>
-  );
-}
 
 type ProjectLinksSectionProps = {
   project: ProjectInfo;
@@ -73,41 +56,50 @@ export function ProjectLinksSection(props: ProjectLinksSectionProps) {
   };
 
   return (
-    <Stack gap="xs">
-      <SectionTitle id="project-links">Linked projects</SectionTitle>
-      {project.group ? (
-        <>
-          <div className={styles.sectionDescription}>
-            One sidebar entry with a section per host. Unlinking a project
-            keeps the shared settings as its own.
-          </div>
+    <Stack gap="md">
+      <Stack gap="xs">
+        <SectionTitle id="project-links">Linked projects</SectionTitle>
+        <div className={styles.sectionDescription}>
+          {project.group
+            ? "One sidebar entry with a section per host. Unlinking a project keeps the shared settings as its own."
+            : "Link this project with a clone of the same repo on another host to show both as one sidebar entry with shared settings."}
+        </div>
+      </Stack>
+      {project.group && (
+        <Stack gap="sm">
           <div className={styles.linkedMemberList}>
-            {members.map((member) => (
-              <Row
-                key={member.id}
-                gap="sm"
-                align="center"
-                className={styles.linkedMemberRow}
-              >
-                <span className={styles.linkedMemberHost}>
-                  <HostLabel hostId={member.hostId} />
-                </span>
-                <span className={styles.linkedMemberPath} title={member.path}>
-                  {member.path}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => void unlinkProject(member.id)}
+            {members.map((member) => {
+              const HostIcon = isRemoteHost(member.hostId) ? Cloud : Laptop;
+              return (
+                <Row
+                  key={member.id}
+                  gap="md"
+                  align="center"
+                  className={styles.linkedMemberRow}
                 >
-                  Unlink
-                </Button>
-              </Row>
-            ))}
+                  <HostIcon size={14} aria-hidden className={styles.linkedMemberIcon} />
+                  <Stack gap="2xs" className={styles.linkedMemberText}>
+                    <span className={styles.linkedMemberHost}>
+                      {memberHostName(member.hostId, hosts)}
+                    </span>
+                    <span className={styles.linkedMemberPath} title={member.path}>
+                      {member.path}
+                    </span>
+                  </Stack>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void unlinkProject(member.id)}
+                  >
+                    Unlink
+                  </Button>
+                </Row>
+              );
+            })}
           </div>
           <div>
             <Button
-              variant="secondary"
+              variant="ghost"
               size="sm"
               onClick={() => {
                 if (project.group) void unlinkGroup(project.group.id);
@@ -116,33 +108,30 @@ export function ProjectLinksSection(props: ProjectLinksSectionProps) {
               Unlink all
             </Button>
           </div>
-        </>
-      ) : (
-        <div className={styles.sectionDescription}>
-          Link this project with a clone of the same repo on another host to
-          show both as one sidebar entry with shared settings.
-        </div>
+        </Stack>
       )}
-      <label className={styles.fieldLabel}>Link with</label>
-      <Row gap="sm" align="center">
-        <SearchableSelect
-          value=""
-          onChange={handleLink}
-          options={options}
-          placeholder={choices.length > 0 ? "Choose a project…" : "No project to link"}
-          emptyMessage="No project on another host to link"
-          maxWidth={320}
-        />
-        {localFolderEligible && (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => void linkLocalFolder(project.id)}
-          >
-            Choose local folder…
-          </Button>
-        )}
-      </Row>
+      <Stack gap="xs">
+        <label className={styles.fieldLabel}>Link with</label>
+        <Row gap="sm" align="center">
+          <SearchableSelect
+            value=""
+            onChange={handleLink}
+            options={options}
+            placeholder={choices.length > 0 ? "Choose a project…" : "No project to link"}
+            emptyMessage="No project on another host to link"
+            maxWidth={320}
+          />
+          {localFolderEligible && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void linkLocalFolder(project.id)}
+            >
+              Choose local folder…
+            </Button>
+          )}
+        </Row>
+      </Stack>
     </Stack>
   );
 }

@@ -3,6 +3,8 @@ import Check from "lucide-react/dist/esm/icons/check";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import GripVertical from "lucide-react/dist/esm/icons/grip-vertical";
+import Cloud from "lucide-react/dist/esm/icons/cloud";
+import Laptop from "lucide-react/dist/esm/icons/laptop";
 import {
   useProjectStore,
   type ProjectInfo,
@@ -11,7 +13,7 @@ import {
 } from "../../store/project-store";
 import { useListDrag } from "../../hooks/useListDrag";
 import { useHostStore } from "../../store/host-store";
-import { isRemoteHost } from "../../lib/hosts";
+import { isRemoteHost, memberHostName } from "../../lib/hosts";
 import {
   hostSegments,
   portlessHostFor,
@@ -22,7 +24,7 @@ import { useThemeStore, type Theme } from "../../store/theme-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { LinearProjectSection } from "./LinearProjectSection";
 import { ProjectHostSection } from "./ProjectHostSection/ProjectHostSection";
-import { HostLabel, ProjectLinksSection } from "./ProjectLinksSection";
+import { ProjectLinksSection } from "./ProjectLinksSection";
 import { DEFAULT_AGENT_COMMAND } from "../../agent-defaults";
 import { PROJECT_COLORS } from "../../project-colors";
 import { Input, Textarea } from "../ui/Input";
@@ -609,12 +611,18 @@ function MemberSettingsPage(props: MemberSettingsPageProps) {
   const { project, group } = props;
 
   const unlinkProject = useProjectStore((s) => s.unlinkProject);
+  const hosts = useHostStore((s) => s.hosts);
+  const HostIcon = isRemoteHost(project.hostId) ? Cloud : Laptop;
 
+  // Plain text in the heading's own type, not a host chip, so the host name
+  // sits on the same baseline as the project name.
   return (
     <Stack className={styles.pageContent}>
       <Row gap="xs" align="center" className={styles.memberHeading}>
-        <span>{group.name} on</span>
-        <HostLabel hostId={project.hostId} />
+        <span>{group.name}</span>
+        <span className={styles.memberHeadingOn}>on</span>
+        <HostIcon size={14} aria-hidden className={styles.memberHeadingIcon} />
+        <span>{memberHostName(project.hostId, hosts)}</span>
       </Row>
       <Stack gap="xs">
         <SectionTitle id="project-location">Location</SectionTitle>

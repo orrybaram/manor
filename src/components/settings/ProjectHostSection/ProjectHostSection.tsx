@@ -226,7 +226,9 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
           <Row gap="xs" align="center">
             <HostIndicator hostId={currentHostId} variant="chip" />
             {!display.offline && (
-              <span className={styles.fieldHint}>{display.status}</span>
+              <span className={`${styles.fieldHint} ${styles.fieldHintInline}`}>
+                {display.status}
+              </span>
             )}
           </Row>
           {display.detail && (

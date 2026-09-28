@@ -1,6 +1,6 @@
 ---
 title: Split linked settings into a group page and nested member pages
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]

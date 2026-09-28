@@ -10,8 +10,10 @@ import React, {
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import Check from "lucide-react/dist/esm/icons/check";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
+import Cloud from "lucide-react/dist/esm/icons/cloud";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import FolderGit2 from "lucide-react/dist/esm/icons/folder-git-2";
+import Laptop from "lucide-react/dist/esm/icons/laptop";
 import {
   collapsedFolderIdsOf,
   useProjectStore,
@@ -55,8 +57,9 @@ import { ProjectChevron } from "./ProjectChevron";
 import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
-import { HostIndicator, LocalHostLabel } from "../hosts/HostIndicator";
+import { HostIndicator } from "../hosts/HostIndicator";
 import { isRemoteHost } from "../../lib/hosts";
+import { isHostOffline } from "../../lib/host-status";
 import { workspaceKey } from "../../lib/workspace-key";
 import { normalizeHostId } from "../../lib/host-id";
 import { useHostStore, selectHost } from "../../store/host-store";
@@ -285,6 +288,36 @@ const WorkspaceItem = React.forwardRef<
 });
 
 /**
+ * A section header's host label (ADR-193 §3): the plain-text counterpart to
+ * `HostIndicator`'s chip — same host icon and name, no chip background or
+ * project color, plus a small state dot for a remote host. Kept local to
+ * this file rather than folded into `LocalHostLabel`/`HostIndicator`, which
+ * other callers (the New Workspace host picker) still use as chips.
+ */
+function SectionHostLabel(props: {
+  hostId: string;
+  path: string;
+  label: string;
+  offline: boolean;
+}) {
+  const { hostId, path, label, offline } = props;
+  const remote = isRemoteHost(hostId);
+
+  return (
+    <span className={styles.sectionHost} title={path}>
+      {remote ? <Cloud size={11} aria-hidden /> : <Laptop size={11} aria-hidden />}
+      <span className={styles.sectionHostName}>{label}</span>
+      {remote && (
+        <span
+          className={`${styles.sectionHostDot} ${offline ? styles.sectionHostDotOffline : ""}`}
+          aria-hidden
+        />
+      )}
+    </span>
+  );
+}
+
+/**
  * `project`: a lone project's entry. `section`: one host's section of a
  * linked group (ADR-192).
  */
@@ -362,6 +395,9 @@ export function ProjectItem(props: ProjectItemProps) {
     const host = selectHost(project.hostId)(state);
     return host?.spec?.target ?? project.hostId;
   });
+  // A section's connection dot (ADR-193 §3) reads the same away state as the
+  // group header's own icon.
+  const hosts = useHostStore((s) => s.hosts);
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -1102,7 +1138,11 @@ export function ProjectItem(props: ProjectItemProps) {
 
   return (
     <div
-      className={`${styles.project} ${isSelected ? styles.projectSelected : ""}`}
+      className={
+        isSection
+          ? styles.section
+          : `${styles.project} ${isSelected ? styles.projectSelected : ""}`
+      }
       style={projectColorStyle(project.color)}
     >
       <ContextMenu.Root>
@@ -1123,17 +1163,12 @@ export function ProjectItem(props: ProjectItemProps) {
           >
             <ProjectChevron expanded={expanded} />
             {isSection ? (
-              <span className={styles.sectionHost} title={project.path}>
-                {isRemoteHost(project.hostId) ? (
-                  <HostIndicator
-                    hostId={project.hostId}
-                    variant="chip"
-                    projectId={project.id}
-                  />
-                ) : (
-                  <LocalHostLabel />
-                )}
-              </span>
+              <SectionHostLabel
+                hostId={project.hostId}
+                path={project.path}
+                label={isRemoteHost(project.hostId) ? remoteTarget ?? project.hostId : "This machine"}
+                offline={isHostOffline(project.hostId, hosts)}
+              />
             ) : (
             <span
               className={`${styles.projectName} ${

@@ -1,3 +1,4 @@
+import { useHostStore } from "./host-store";
 import { useToastStore } from "./toast-store";
 
 /** Mirrors `LinkSuggestion` in `electron/projects/types.ts` (ADR-192 ticket 5). */
@@ -12,11 +13,21 @@ export interface LinkSuggestion {
 
 type LinkProjects = (projectId: string, otherId: string) => Promise<void>;
 
-/** What `offerLinkSuggestionsAtLaunch` needs of each loaded project. */
+/** What `startLinkSuggestions` needs of each loaded project. */
 interface LoadedProject {
   id: string;
+  hostId: string;
   group?: { id: string } | null;
 }
+
+/**
+ * Every pair offered this session, by toast id. A pair is offered at most
+ * once per session, and a link clears the open toasts naming its projects.
+ */
+const offered = new Map<string, readonly [string, string]>();
+
+/** Stops the current session's host watch; see `startLinkSuggestions`. */
+let stopWatchingHosts: (() => void) | null = null;
 
 /**
  * The toast id of one suggested pair, the same from either side, so a pair
@@ -27,10 +38,6 @@ export function linkSuggestionToastId(projectId: string, otherId: string): strin
   return `link-suggestion-${a}-${b}`;
 }
 
-function isShown(id: string): boolean {
-  return useToastStore.getState().toasts.some((t) => t.id === id);
-}
-
 /** One toast asking to link `projectId` with `suggestion`. */
 function showSuggestion(
   projectId: string,
@@ -39,6 +46,7 @@ function showSuggestion(
 ): void {
   const { addToast, removeToast } = useToastStore.getState();
   const id = linkSuggestionToastId(projectId, suggestion.projectId);
+  offered.set(id, [projectId, suggestion.projectId]);
   addToast({
     id,
     status: "info",
@@ -80,33 +88,83 @@ async function suggestionsFor(projectId: string): Promise<LinkSuggestion[]> {
  * or group on another host that has the same `origin` (ADR-192 ticket 5).
  * Each offer is a toast: "Link" calls `link`, "Dismiss" asks main not to
  * suggest the pair again, and closing it just hides it. Nothing is linked
- * without the user's click, and a failed lookup shows nothing.
+ * without the user's click, a failed lookup shows nothing, and a pair
+ * already offered this session isn't offered again.
  */
 export async function offerLinkSuggestions(
   projectId: string,
   link: LinkProjects,
 ): Promise<void> {
-  for (const suggestion of await suggestionsFor(projectId)) {
-    showSuggestion(projectId, suggestion, link);
-  }
+  await offerForEach([{ id: projectId }], link);
 }
 
 /**
- * Once per launch, after the projects load: offer links between ungrouped
- * projects that already share an `origin`, so duplicates added before
- * linking existed are found too. Asked one project at a time, so each host
- * is asked for each checkout's `origin` once. A pair is offered once, from
- * whichever side comes first; dismissed pairs never come back from main.
+ * Offer each project's suggestions in turn, skipping pairs already offered
+ * this session. One project at a time, so each host is asked for each
+ * checkout's `origin` once. Dismissed pairs never come back from main.
  */
-export async function offerLinkSuggestionsAtLaunch(
-  projects: readonly LoadedProject[],
+async function offerForEach(
+  projects: readonly { id: string }[],
   link: LinkProjects,
 ): Promise<void> {
   for (const project of projects) {
-    if (project.group) continue;
     for (const suggestion of await suggestionsFor(project.id)) {
-      if (isShown(linkSuggestionToastId(project.id, suggestion.projectId))) continue;
+      if (offered.has(linkSuggestionToastId(project.id, suggestion.projectId))) continue;
       showSuggestion(project.id, suggestion, link);
     }
+  }
+}
+
+/** Hosts the host store reports as connected right now. */
+function connectedHostIds(): Set<string> {
+  return new Set(
+    useHostStore
+      .getState()
+      .hosts.filter((h) => h.status === "connected")
+      .map((h) => h.hostId),
+  );
+}
+
+/**
+ * Start this session's link suggestions, once the projects first load:
+ * offer links between ungrouped projects that already share an `origin`, so
+ * duplicates added before linking existed are found too. A remote host that
+ * isn't connected yet can't report its checkouts' `origin`, so when a host
+ * first connects in the session, its ungrouped projects are asked again.
+ * A pair is offered once per session, from whichever side comes first.
+ * `getProjects` reads the current project list when a host connects.
+ */
+export function startLinkSuggestions(
+  getProjects: () => readonly LoadedProject[],
+  link: LinkProjects,
+): Promise<void> {
+  stopWatchingHosts?.();
+  offered.clear();
+  // Hosts connected by now are covered by the pass below; a host is
+  // re-asked only the first time it connects, not after every reconnect.
+  const seen = connectedHostIds();
+  stopWatchingHosts = useHostStore.subscribe(({ hosts }) => {
+    for (const host of hosts) {
+      if (host.status !== "connected" || seen.has(host.hostId)) continue;
+      seen.add(host.hostId);
+      const onHost = getProjects().filter((p) => !p.group && p.hostId === host.hostId);
+      void offerForEach(onHost, link);
+    }
+  });
+  return offerForEach(
+    getProjects().filter((p) => !p.group),
+    link,
+  );
+}
+
+/**
+ * Close the open suggestion toasts that name any of `projectIds`, once they
+ * are linked: those offers are stale, and the pair is not offered again this
+ * session.
+ */
+export function clearLinkSuggestionsFor(projectIds: readonly string[]): void {
+  const { removeToast } = useToastStore.getState();
+  for (const [id, pair] of offered) {
+    if (pair.some((projectId) => projectIds.includes(projectId))) removeToast(id);
   }
 }

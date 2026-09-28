@@ -2,8 +2,10 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   linkSuggestionToastId,
   offerLinkSuggestions,
+  startLinkSuggestions,
   type LinkSuggestion,
 } from "../link-suggestions";
+import { useHostStore, type HostStatus } from "../host-store";
 import { useProjectStore, type ProjectInfo } from "../project-store";
 import { useToastStore } from "../toast-store";
 
@@ -12,21 +14,36 @@ import { useToastStore } from "../toast-store";
 // accepts or dismisses.
 
 /**
- * A fake main: `local-app` and `box-app` share an origin, and a dismissed
- * pair stops being suggested, as `ProjectManager.suggestLinks` does.
+ * A fake main: `local-app` shares an origin with `box-app` and `mac-app`.
+ * A dismissed pair stops being suggested, and while the box is away its
+ * checkout's origin is unknown, as with `ProjectManager.suggestLinks`.
  */
 const dismissed = new Set<string>();
+const offline = new Set<string>();
+/** The projects main has; `mac-app` only where a test adds it. */
+const present = new Set<string>();
 const pairKey = (a: string, b: string) => [a, b].sort().join("|");
+const HOST: Record<string, string> = { "local-app": "local", "box-app": "box", "mac-app": "mac" };
 const SUGGESTIONS: Record<string, LinkSuggestion[]> = {
-  "local-app": [{ projectId: "box-app", name: "box app", hostLabel: "me@box" }],
+  "local-app": [
+    { projectId: "box-app", name: "box app", hostLabel: "me@box" },
+    { projectId: "mac-app", name: "mac app", hostLabel: "me@mac" },
+  ],
   "box-app": [{ projectId: "local-app", name: "local app", hostLabel: "this Mac" }],
+  "mac-app": [{ projectId: "local-app", name: "local app", hostLabel: "this Mac" }],
 };
 
 const api = {
   getAll: vi.fn(),
   getSelectedIndex: vi.fn(async () => 0),
   suggestLinks: vi.fn(async (projectId: string) =>
-    (SUGGESTIONS[projectId] ?? []).filter((s) => !dismissed.has(pairKey(projectId, s.projectId))),
+    (SUGGESTIONS[projectId] ?? []).filter(
+      (s) =>
+        present.has(s.projectId) &&
+        !dismissed.has(pairKey(projectId, s.projectId)) &&
+        !offline.has(HOST[projectId]) &&
+        !offline.has(HOST[s.projectId]),
+    ),
   ),
   dismissLinkSuggestion: vi.fn(async (projectId: string, otherId: string) => {
     dismissed.add(pairKey(projectId, otherId));
@@ -67,6 +84,13 @@ function project(id: string, hostId: string): ProjectInfo {
   };
 }
 
+/** Set every remote host's status in the host store, as main pushes it. */
+function hostsAre(status: HostStatus): void {
+  useHostStore.setState({
+    hosts: ["box", "mac"].map((hostId) => ({ hostId, spec: null, status })),
+  });
+}
+
 const toastId = linkSuggestionToastId("local-app", "box-app");
 const toast = () => useToastStore.getState().toasts.find((t) => t.id === toastId);
 const suggestionToasts = () =>
@@ -80,9 +104,15 @@ function launch(): Promise<void> {
 }
 
 describe("link suggestions", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     dismissed.clear();
+    offline.clear();
+    present.clear();
+    present.add("local-app").add("box-app");
+    hostsAre("connected");
+    // A fresh session: nothing offered yet.
+    await startLinkSuggestions(() => [], vi.fn());
     useToastStore.setState({ toasts: [] });
     api.getAll.mockResolvedValue([project("local-app", "local"), project("box-app", "box")]);
   });
@@ -154,5 +184,39 @@ describe("link suggestions", () => {
     await vi.waitFor(() => expect(api.suggestLinks).toHaveBeenCalledTimes(4));
 
     expect(suggestionToasts()).toEqual([]);
+  });
+
+  it("offers a pair once its host connects, and only once", async () => {
+    hostsAre("disconnected");
+    offline.add("box");
+
+    await launch();
+    await vi.waitFor(() => expect(api.suggestLinks).toHaveBeenCalledTimes(2));
+    expect(suggestionToasts()).toEqual([]);
+
+    offline.clear();
+    hostsAre("connected");
+    await vi.waitFor(() => expect(suggestionToasts()).toHaveLength(1));
+    expect(toast()).toBeDefined();
+
+    // Closed with its X, then the host drops and comes back: not again.
+    useToastStore.getState().removeToast(toastId);
+    hostsAre("reconnecting");
+    hostsAre("connected");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(suggestionToasts()).toEqual([]);
+  });
+
+  it("closes other suggestions naming a project once it is linked", async () => {
+    present.add("mac-app");
+    useProjectStore.setState({ initialLoadDone: true });
+    const link = useProjectStore.getState().linkProjects;
+    await offerLinkSuggestions("local-app", link);
+    expect(suggestionToasts()).toHaveLength(2);
+
+    toast()!.action!.onClick();
+
+    await vi.waitFor(() => expect(api.link).toHaveBeenCalledWith("local-app", "box-app"));
+    await vi.waitFor(() => expect(suggestionToasts()).toEqual([]));
   });
 });

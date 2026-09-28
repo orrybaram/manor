@@ -218,7 +218,10 @@ rule.
   persistent, neutral `info` toast, one per pair. It does this after
   `addProject` and `addRemoteProject`, and once per launch for ungrouped
   projects after they load, so duplicates added before linking existed are
-  found too.
+  found too. A remote host is usually still connecting at that point, so
+  when a host first connects in a session its ungrouped projects are asked
+  again. A pair is offered at most once per session. A successful link
+  closes the other open suggestions that name either project.
 - **Host status for groups (ticket 6).** Connected / offline / partially
   offline, derived from members. The offline section dims. The status bar chip
   and the tab badge follow the workspace's host, and the collapsed-group agent

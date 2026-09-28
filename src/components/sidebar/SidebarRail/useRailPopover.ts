@@ -5,12 +5,15 @@ const HOVER_OPEN_DELAY_MS = 1000;
 /** Grace for the pointer to cross from the tile to the popover and back. */
 const HOVER_CLOSE_DELAY_MS = 300;
 
+/** Marks a rail popover's content, so the hover intent can find it. */
+export const RAIL_POPOVER_ATTR = "data-rail-popover";
+
 /**
  * Whether something opened from the popover — a context menu, a dialog, an
  * inline rename — still needs it. Closing would unmount it.
  */
 function popoverInUse(): boolean {
-  const content = document.querySelector('[data-testid="rail-workspace-popover"]');
+  const content = document.querySelector(`[${RAIL_POPOVER_ATTR}]`);
   if (!content) return false;
   const active = document.activeElement;
   if (active instanceof HTMLInputElement && content.contains(active)) return true;

@@ -148,10 +148,17 @@ function AgentRow({ agent, shouldPulse, onClose, onClick, onRename }: {
 
 type AgentsListProps = {
   onShowAll?: () => void;
+  /**
+   * Sized by its content, without the drag-to-resize handle: the collapsed
+   * rail's Agents popover (ADR-195), which scrolls on its own.
+   */
+  fitContent?: boolean;
+  /** Called after a row navigates to its agent's pane. */
+  onAgentSelect?: () => void;
 };
 
 export function AgentsList(props: AgentsListProps) {
-  const { onShowAll } = props;
+  const { onShowAll, fitContent = false, onAgentSelect } = props;
 
   const agentsHeight = useProjectStore((s) => s.agentsHeight);
   const setAgentsHeight = useProjectStore((s) => s.setAgentsHeight);
@@ -211,11 +218,13 @@ export function AgentsList(props: AgentsListProps) {
 
   return (
     <div className={styles.agentsSection}>
-      <div
-        className={`${styles.agentsResizeHandle} ${isResizing ? styles.agentsResizeHandleActive : ""}`}
-        onMouseDown={handleResizeStart}
-        data-testid="sidebar-agents-resize-handle"
-      />
+      {!fitContent && (
+        <div
+          className={`${styles.agentsResizeHandle} ${isResizing ? styles.agentsResizeHandleActive : ""}`}
+          onMouseDown={handleResizeStart}
+          data-testid="sidebar-agents-resize-handle"
+        />
+      )}
       <div className={styles.sectionHeader}>
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <Bot size={12} />
@@ -233,7 +242,7 @@ export function AgentsList(props: AgentsListProps) {
           </button>
         )}
       </div>
-      <div className={styles.agentGroups} style={{ height: agentsHeight }}>
+      <div className={styles.agentGroups} style={fitContent ? undefined : { height: agentsHeight }}>
         {Array.from(groups.entries()).map(([projectName, groupAgents]) => (
           <div key={projectName} className={styles.agentGroup}>
             <div className={styles.agentGroupHeader}>{projectName}</div>
@@ -242,7 +251,10 @@ export function AgentsList(props: AgentsListProps) {
                 key={agent.id}
                 agent={agent}
                 shouldPulse={shouldPulse(agent)}
-                onClick={() => navigateToAgent(agent)}
+                onClick={() => {
+                  navigateToAgent(agent);
+                  onAgentSelect?.();
+                }}
                 onRename={(name) =>
                   useAgentStore.getState().renameAgent(agent.id, name)
                 }

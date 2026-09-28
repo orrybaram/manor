@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import House from "lucide-react/dist/esm/icons/house";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import { Button } from "../../ui/Button/Button";
@@ -15,7 +15,12 @@ import { useVisibleAgents } from "../../../hooks/useVisibleAgents";
 import { NotificationsPopover } from "../../notifications/NotificationsPopover";
 import { RailProjectTile } from "./RailProjectTile";
 import { useRailPopover } from "./useRailPopover";
+import { RailPopoverShell } from "./RailPopoverShell";
+import { AgentsList } from "../AgentsList";
 import styles from "./SidebarRail.module.css";
+
+/** The Agents button's key in the rail's one open popover; never a project id. */
+const AGENTS_POPOVER_KEY = "rail:agents";
 
 type SidebarRailProps = {
   onShowAgents: () => void;
@@ -53,6 +58,32 @@ export function SidebarRail(props: SidebarRailProps) {
   useRovingRows(railRef);
 
   const goHome = () => setActiveWorkspace(HOME_PATH);
+
+  const { setOpen } = popover;
+  const onAgentsOpenChange = useCallback(
+    (next: boolean) => setOpen(AGENTS_POPOVER_KEY, next),
+    [setOpen],
+  );
+  // With no agents the button opens the Agents view instead; don't leave
+  // its popover marked open to reappear with the next agent.
+  const agentsPopoverStale = agentCount === 0 && popover.openKey === AGENTS_POPOVER_KEY;
+  useEffect(() => {
+    if (agentsPopoverStale) setOpen(AGENTS_POPOVER_KEY, false);
+  }, [agentsPopoverStale, setOpen]);
+  const agentsButtonProps = {
+    variant: "ghost" as const,
+    className: `${styles.iconButton} ${styles.agentsButton}`,
+    "data-testid": "rail-agents",
+    "data-sidebar-row": "",
+    tabIndex: -1,
+    "aria-label": `Agents (${agentCount})`,
+  };
+  const agentsIcon = (
+    <>
+      <Bot size={14} />
+      {agentCount > 0 && <span className={styles.agentsCount}>{agentCount}</span>}
+    </>
+  );
 
   return (
     <div
@@ -96,21 +127,55 @@ export function SidebarRail(props: SidebarRailProps) {
         ))}
       </div>
       <div className={styles.footer}>
-        <Tooltip label="Agents" side="right">
-          <Button
-            variant="ghost"
-            className={`${styles.iconButton} ${styles.agentsButton}`}
-            data-testid="rail-agents"
-            data-sidebar-row=""
-            tabIndex={-1}
-            aria-label={`Agents (${agentCount})`}
-            onClick={onShowAgents}
-            onKeyDown={(e) => handleSidebarRowKeyDown(e, { activate: onShowAgents })}
+        {agentCount > 0 ? (
+          // The full sidebar's Agents panel, on hover or click (ADR-195).
+          <RailPopoverShell
+            open={popover.openKey === AGENTS_POPOVER_KEY}
+            onOpenChange={onAgentsOpenChange}
+            focusOnOpen={popover.focusOnOpen}
+            onContentPointerEnter={popover.onContentEnter}
+            onContentPointerLeave={popover.onContentLeave}
+            testId="rail-agents-popover"
+            anchor={
+              <Button
+                {...agentsButtonProps}
+                aria-haspopup="dialog"
+                aria-expanded={popover.openKey === AGENTS_POPOVER_KEY}
+                onPointerEnter={() => popover.onTileEnter(AGENTS_POPOVER_KEY)}
+                onPointerLeave={popover.onTileLeave}
+                onClick={() => popover.openNow(AGENTS_POPOVER_KEY, true)}
+                onKeyDown={(e) =>
+                  handleSidebarRowKeyDown(e, {
+                    activate: () => popover.openNow(AGENTS_POPOVER_KEY, true),
+                  })
+                }
+              >
+                {agentsIcon}
+              </Button>
+            }
           >
-            <Bot size={14} />
-            {agentCount > 0 && <span className={styles.agentsCount}>{agentCount}</span>}
-          </Button>
-        </Tooltip>
+            {(onNavigated) => (
+              <AgentsList
+                fitContent
+                onAgentSelect={onNavigated}
+                onShowAll={() => {
+                  popover.setOpen(AGENTS_POPOVER_KEY, false);
+                  onShowAgents();
+                }}
+              />
+            )}
+          </RailPopoverShell>
+        ) : (
+          <Tooltip label="Agents" side="right">
+            <Button
+              {...agentsButtonProps}
+              onClick={onShowAgents}
+              onKeyDown={(e) => handleSidebarRowKeyDown(e, { activate: onShowAgents })}
+            >
+              {agentsIcon}
+            </Button>
+          </Tooltip>
+        )}
         <NotificationsPopover />
       </div>
     </div>

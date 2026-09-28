@@ -106,6 +106,7 @@ After the first build, the popover changed in two ways.
 - **Moving between tiles.** While one tile's popover is open, pointing at another tile swaps to that tile's popover at once, with no delay. The rail owns a single open popover (`useRailPopover`).
 - **No tile tooltips.** They competed with the hover popover, and the popover's header already names the project.
 - **Width.** The popover is the sidebar's width, but at least 340px.
+- **Agents popover.** When there are agents, the rail's Agents button opens a popover showing the sidebar's `AgentsList`, with the same hover intent and handoff as the tiles. The list sizes to its content (`fitContent`), without the resize handle. Picking an agent closes the popover, and "View All" opens the Agents view. With no agents, the button still opens the Agents view directly. Both popovers share `RailPopoverShell`.
 
 ## Tickets
 

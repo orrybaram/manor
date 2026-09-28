@@ -3,6 +3,7 @@ import { PaneDragProvider } from "./components/workspace-panes/PaneDragContext";
 import { StatusBar } from "./components/statusbar/StatusBar/StatusBar";
 import { PanelLayout } from "./components/panels/PanelLayout";
 import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
+import { SidebarRail } from "./components/sidebar/SidebarRail/SidebarRail";
 import type { PaletteView } from "./components/command-palette/types";
 import type { AddProjectMode } from "./components/sidebar/AddProjectDialog/AddProjectDialog";
 import { onPaletteViewRequest } from "./utils/palette-request";
@@ -366,7 +367,7 @@ function App() {
     prevThemeRef.current = effectiveThemeName;
     applyProjectTheme(effectiveThemeName);
   }
-  const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
+  const sidebarMode = useProjectStore((s) => s.sidebarMode);
 
   const hasProjects = projects.length > 0;
   const hasTabs = (ws?.tabs.length ?? 0) > 0;
@@ -664,7 +665,13 @@ function App() {
     <TooltipProvider>
     <div className="app">
       <div className="app-body">
-        {sidebarVisible && hasProjects && (
+        {sidebarMode === "rail" && hasProjects && (
+          <SidebarRail
+            onShowAgents={() => setAgentsOpen(true)}
+            onOpenProjectSettings={handleOpenProjectSettings}
+          />
+        )}
+        {sidebarMode === "full" && hasProjects && (
           <Sidebar
             onShowAgents={() => setAgentsOpen(true)}
             onOpenProjectSettings={handleOpenProjectSettings}

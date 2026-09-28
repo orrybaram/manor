@@ -9,7 +9,15 @@ import styles from "./Ports.module.css";
 
 export function PortsList() {
   const { workspacePortGroups, totalPortCount } = usePortsData();
-  const [collapsed, setCollapsed] = useState(false);
+  // Persisted, so a folded Ports pane stays folded across restarts.
+  const collapsed = useProjectStore((s) => s.portsCollapsed);
+  const setPortsCollapsed = useProjectStore((s) => s.setPortsCollapsed);
+  const setCollapsed = useCallback(
+    (next: boolean) => {
+      if (useProjectStore.getState().portsCollapsed !== next) setPortsCollapsed(next);
+    },
+    [setPortsCollapsed],
+  );
   const portsHeight = useProjectStore((s) => s.portsHeight);
   const setPortsHeight = useProjectStore((s) => s.setPortsHeight);
   const [isResizing, setIsResizing] = useState(false);
@@ -48,7 +56,7 @@ export function PortsList() {
       document.addEventListener("mouseup", cleanup);
       window.addEventListener("blur", cleanup);
     },
-    [portsHeight, setPortsHeight],
+    [portsHeight, setPortsHeight, setCollapsed],
   );
 
   if (totalPortCount === 0) return null;

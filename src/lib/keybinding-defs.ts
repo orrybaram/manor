@@ -129,8 +129,14 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
   },
   {
     id: "toggle-sidebar",
-    label: "Toggle Sidebar",
+    label: "Collapse Sidebar",
     defaultCombo: metaCombo("\\"),
+    category: "app",
+  },
+  {
+    id: "hide-sidebar",
+    label: "Hide Sidebar",
+    defaultCombo: metaCombo("\\", true),
     category: "app",
   },
   {

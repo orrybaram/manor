@@ -61,10 +61,14 @@ import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import { HostIndicator } from "../hosts/HostIndicator";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { isRemoteHost } from "../../lib/hosts";
+import {
+  remoteTargetForProject,
+  workspaceDisplayName,
+} from "../../lib/sidebar-rail";
 import { isHostOffline } from "../../lib/host-status";
 import { workspaceKey } from "../../lib/workspace-key";
 import { normalizeHostId } from "../../lib/host-id";
-import { useHostStore, selectHost } from "../../store/host-store";
+import { useHostStore } from "../../store/host-store";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
@@ -293,7 +297,7 @@ const WorkspaceItem = React.forwardRef<
  * A host heading's label (ADR-193 §3): host icon and name in small caps,
  * and a yellow dot while a remote host is away. Used by a linked group's section
  * headers and above a remote-only project's workspaces. A collapsed section shows its workspace count after the name. Kept
- * local to this file rather than folded into `LocalHostLabel`/`HostIndicator`,
+ * here (exported for the collapsed rail's popover, ADR-195) rather than folded into `LocalHostLabel`/`HostIndicator`,
  * which other callers (the New Workspace host picker) still use as chips.
  */
 function SectionHostLabel(props: {
@@ -396,11 +400,9 @@ export function ProjectItem(props: ProjectItemProps) {
 
   const expanded = !collapsed;
   // A remote project's main workspace is named for its box, not "local".
-  const remoteTarget = useHostStore((state) => {
-    if (!isRemoteHost(project.hostId)) return null;
-    const host = selectHost(project.hostId)(state);
-    return host?.spec?.target ?? project.hostId;
-  });
+  const remoteTarget = useHostStore((state) =>
+    remoteTargetForProject(project, state),
+  );
   // A section's connection dot (ADR-193 §3) reads the same away state as the
   // group header's own icon.
   const hosts = useHostStore((s) => s.hosts);
@@ -703,9 +705,7 @@ export function ProjectItem(props: ProjectItemProps) {
     // `project.workspaces`; the drag itself is keyed by path.
     const globalIdx = project.workspaces.indexOf(ws);
     const isEditing = editingPath === ws.path;
-    const displayName = ws.isMain
-      ? ws.name || remoteTarget || "local"
-      : ws.name || ws.branch || "main";
+    const displayName = workspaceDisplayName(ws, remoteTarget);
     const rowKey = selectionKey(projectId, ws.path);
     const isDeleting = deletingKeys.has(rowKey);
 

@@ -123,7 +123,7 @@ export function TabBar(props: TabBarProps) {
       useAppStore.getState().focusPanel(panelId);
     }
   }, [panelId]);
-  const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
+  const sidebarMode = useProjectStore((s) => s.sidebarMode);
   const { drag, startDrag, endDrag } = usePaneDrag();
   const extractPaneToTab = useAppStore((s) => s.extractPaneToTab);
 
@@ -575,7 +575,7 @@ export function TabBar(props: TabBarProps) {
           data-focus-region="tabbar"
           role="tablist"
           aria-orientation="horizontal"
-          className={`${styles.tabBar} ${!sidebarVisible ? styles.noSidebar : ""} ${isDragActive ? styles.tabBarDropTarget : ""} ${splitDropHint ? styles.tabBarSplitHint : ""}`}
+          className={`${styles.tabBar} ${sidebarMode === "hidden" ? styles.noSidebar : sidebarMode === "rail" ? styles.railSidebar : ""} ${isDragActive ? styles.tabBarDropTarget : ""} ${splitDropHint ? styles.tabBarSplitHint : ""}`}
           onDragOver={handleBarDragOver}
           onDragLeave={handleBarDragLeave}
           onDrop={handleBarDrop}

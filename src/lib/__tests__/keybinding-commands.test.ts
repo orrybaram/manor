@@ -143,6 +143,7 @@ describe("createSharedKeybindingHandlers", () => {
       "settings",
       "command-palette",
       "toggle-sidebar",
+      "hide-sidebar",
       "new-workspace",
       "history-back",
       "history-forward",

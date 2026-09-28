@@ -9,6 +9,7 @@ import { useAgentStore } from "../../../store/agent-store";
 import { useRestoreFocus } from "../../../hooks/useRestoreFocus";
 import { AgentDot } from "../../ui/AgentDot/AgentDot";
 import { useAgentDisplay } from "../../../hooks/useAgentDisplay";
+import { useAgentPulse } from "../../../hooks/useAgentPulse";
 import { useInlineRename } from "../../../hooks/useInlineRename";
 import { relativeShortThenDate } from "../../../utils/relative-time";
 import { BUCKET_ORDER, getDateBucket, type DateBucket } from "../../../utils/date-buckets";
@@ -35,15 +36,16 @@ function matchesFilter(agent: AgentInfo, filter: StatusFilter): boolean {
 
 type AgentViewRowProps = {
   agent: AgentInfo;
+  shouldPulse: boolean;
   onResumeAgent: (agent: AgentInfo) => void;
   onRemoveAgent: (agentId: string) => void;
   onRenameAgent: (agentId: string, name: string) => void;
 };
 
 const AgentViewRow = memo(function AgentViewRow(props: AgentViewRowProps) {
-  const { agent, onResumeAgent, onRemoveAgent, onRenameAgent } = props;
+  const { agent, shouldPulse, onResumeAgent, onRemoveAgent, onRenameAgent } = props;
 
-  const { title, status } = useAgentDisplay(agent);
+  const { title, status, reason } = useAgentDisplay(agent);
   const rename = useInlineRename(
     title,
     (name) => onRenameAgent(agent.id, name),
@@ -74,7 +76,12 @@ const AgentViewRow = memo(function AgentViewRow(props: AgentViewRowProps) {
             }
           }}
         >
-          <AgentDot status={status} size="sidebar" />
+          <AgentDot
+            status={status}
+            size="sidebar"
+            pulse={shouldPulse}
+            reason={reason}
+          />
           {rename.editing ? (
             <>
               <input
@@ -160,6 +167,7 @@ export function AgentsModal(props: AgentsModalProps) {
     renameAgent,
     loadMoreAgents,
   } = useAgentStore();
+  const shouldPulse = useAgentPulse();
   const [filter, setFilter] = useState<StatusFilter>("all");
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
@@ -286,6 +294,7 @@ export function AgentsModal(props: AgentsModalProps) {
                           <AgentViewRow
                             key={agent.id}
                             agent={agent}
+                            shouldPulse={shouldPulse(agent)}
                             onResumeAgent={handleResume}
                             onRemoveAgent={removeAgent}
                             onRenameAgent={renameAgent}

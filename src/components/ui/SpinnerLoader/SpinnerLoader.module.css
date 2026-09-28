@@ -25,13 +25,10 @@
     breathe 2.4s ease-in-out infinite;
 }
 
-/* Same ring as working/thinking, gray and still — an agent whose finished
-   turn has been read. */
+/* Same ring as working/thinking, but a plain gray outline and still — an
+   agent whose finished turn has been read. */
 .idle {
-  border-color: var(--text-dim, #6c7086)
-    color-mix(in srgb, var(--text-dim, #6c7086) 25%, transparent)
-    var(--text-dim, #6c7086)
-    color-mix(in srgb, var(--text-dim, #6c7086) 25%, transparent);
+  border-color: var(--text-dim, #6c7086);
 }
 
 .pane {

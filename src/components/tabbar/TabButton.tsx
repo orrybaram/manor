@@ -23,7 +23,7 @@ import {
   openContextMenuFromKeyboard,
 } from "../../lib/keyboard-context-menu";
 import { HostIndicator } from "../hosts/HostIndicator";
-import { tabBadgeHostId } from "../../lib/host-status";
+import { tabBadgeHostId } from "./tab-host-badge";
 import { TabAgentDot } from "./TabAgentDot";
 import styles from "./TabBar/TabBar.module.css";
 

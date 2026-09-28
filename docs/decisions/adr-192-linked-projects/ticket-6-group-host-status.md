@@ -30,9 +30,15 @@ issue #242 (layer 1, ADR-191).
   `buildProjectInfo` fell back to the main checkout alone whenever git could
   not list worktrees, which is always the case while a remote host is away.
   `ProjectManager` now remembers each remote project's last successful listing
-  (`LastKnownWorkspaces` in `electron/projects/project-info.ts`, keyed by
-  project, host and path) and serves it while the host is away. It is in
-  memory only, so a host that is away from launch on still shows just its
-  main checkout. Local projects are unchanged.
+  (`LastKnownWorkspaces` in `electron/projects/project-info.ts`, keyed by the
+  project's host and path) and serves it only while the registry reports that
+  host as not connected. A connected host that lists nothing gets the main
+  checkout, never stale worktrees. Entries are dropped when a project is
+  removed or moved. The cache is in memory only, so a host that is away from
+  launch on still shows just its main checkout. Local projects are unchanged.
+- "Partially offline" and "Offline" each have their own icon and word on the
+  group header (`CloudAlert` + "Partial", `CloudOff` + "Offline"); only a
+  fully offline group dims its name. A host still connecting or reconnecting
+  counts as away, as for pane input (`isHostOffline`).
 - The offline section is dimmed by a wrapper in `ProjectGroupItem`, so
   `ProjectItem` is not touched.

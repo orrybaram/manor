@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupAgentPaneIds } from "../useProjectAgentStatus";
+import { groupAgentPaneIds, layoutPaneIds } from "../useProjectAgentStatus";
 import { pickBestPaneStatus } from "../useTabAgentStatus";
 import type { WorkspaceLayout } from "../../store/app-store";
 
@@ -30,6 +30,14 @@ const boxApp = {
   hostId: "box",
   workspaces: [{ path: "/home/me/app" }, { path: "/home/me/.wt/app-feat" }],
 };
+
+describe("layoutPaneIds", () => {
+  it("walks every tab of the given workspaces' layouts, skipping ones without", () => {
+    expect(
+      layoutPaneIds(["/a", "/none", "/b"], { "/a": layout("x", "y"), "/b": layout("z") }),
+    ).toEqual(["x", "y", "z"]);
+  });
+});
 
 describe("groupAgentPaneIds", () => {
   it("collects the panes of every section's workspace layouts", () => {

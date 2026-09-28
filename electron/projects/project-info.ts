@@ -6,6 +6,7 @@
 import crypto from "node:crypto";
 import { LOCAL_HOST_ID, type GitBackend, type MachineFacts } from "../backend/types";
 import { errorMessage } from "../lib/errors";
+import { workspaceKey, type WorkspaceKey } from "../../src/lib/workspace-key";
 import type { PathRouter } from "./path-router";
 import { resolveShared, summarizeGroup } from "./project-groups";
 import { normalizeSidebarOrder } from "./workspace-folders";
@@ -76,24 +77,64 @@ export async function seedCommands(
 }
 
 /**
- * Each remote project's last successful workspace listing. While its host is
- * away git can't list anything; the project then keeps the workspaces it
- * last had rather than collapsing to its main checkout, so the sidebar still
- * shows what's there (ADR-192 §5). Keyed by the project and where it lives
- * (`lastKnownKey`), so a project moved to another host or path never shows
- * the old checkout's workspaces. In memory only: a host that is away from
- * launch on shows just the main checkout.
+ * Each remote project's last successful workspace listing (ADR-192 §5).
+ * While its host is away git can't list anything; the project then keeps
+ * the workspaces it last had rather than collapsing to its main checkout, so
+ * the sidebar still shows what's there.
+ *
+ * Served only while the host is away (`isHostAway`): a connected host that
+ * lists nothing — the repo was deleted or moved — gets the main checkout,
+ * never stale worktrees. An entry is for one host and path (`workspaceKey`),
+ * so it is ignored once the project lives elsewhere, and `forget` drops it
+ * when the project is removed or moved. In memory only: a host that is away
+ * from launch on shows just the main checkout.
  */
-export type LastKnownWorkspaces = Map<string, WorkspaceInfo[]>;
+export class LastKnownWorkspaces {
+  private readonly byProject = new Map<
+    string,
+    { key: WorkspaceKey; workspaces: WorkspaceInfo[] }
+  >();
 
-function lastKnownKey(p: PersistedProject): string {
-  return JSON.stringify([p.id, p.hostId, p.path]);
+  constructor(private readonly isHostAway: (hostId: string) => boolean) {}
+
+  /** Records `workspaces` as what git listed for remote project `p`. */
+  remember(p: PersistedProject, workspaces: readonly WorkspaceInfo[]): void {
+    const key = remoteKey(p);
+    if (!key) return;
+    this.byProject.set(p.id, { key, workspaces: workspaces.map((ws) => ({ ...ws })) });
+  }
+
+  /** `p`'s last listing, when `p` is remote, its host is away and it has one. */
+  recall(p: PersistedProject): WorkspaceInfo[] | undefined {
+    const key = remoteKey(p);
+    if (!key || !this.isHostAway(p.hostId)) return undefined;
+    const entry = this.byProject.get(p.id);
+    if (!entry || entry.key !== key) return undefined;
+    return entry.workspaces.map((ws) => ({ ...ws }));
+  }
+
+  forget(projectId: string): void {
+    this.byProject.delete(projectId);
+  }
 }
 
 /**
- * The workspaces to show for `p`: what git lists now, else — for a remote
- * project whose host can't answer — the last listing in `lastKnown`, else
- * the main checkout alone. A successful listing is remembered.
+ * The key of a remote project's checkout, or undefined for a local project
+ * or one whose path can't be keyed (not POSIX-absolute) — such a project is
+ * never cached rather than failing the whole project list.
+ */
+function remoteKey(p: PersistedProject): WorkspaceKey | undefined {
+  if (!p.hostId || p.hostId === LOCAL_HOST_ID) return undefined;
+  try {
+    return workspaceKey(p.hostId, p.path);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The workspaces to show for `p`: what git lists now, else its last listing
+ * while its host is away (`lastKnown`), else the main checkout alone.
  */
 async function currentWorkspaces(
   p: PersistedProject,
@@ -101,15 +142,15 @@ async function currentWorkspaces(
   lastKnown: LastKnownWorkspaces | undefined,
 ): Promise<WorkspaceInfo[]> {
   const listed = await listGitWorkspaces(git, p.path);
-  const remote = !!p.hostId && p.hostId !== LOCAL_HOST_ID;
-  const key = lastKnownKey(p);
   if (listed) {
-    if (remote) lastKnown?.set(key, listed.map((ws) => ({ ...ws })));
+    lastKnown?.remember(p, listed);
     return listed;
   }
-  const remembered = remote ? lastKnown?.get(key) : undefined;
-  if (remembered) return remembered.map((ws) => ({ ...ws }));
-  return [{ path: p.path, branch: p.defaultBranch, isMain: true, name: null }];
+  return (
+    lastKnown?.recall(p) ?? [
+      { path: p.path, branch: p.defaultBranch, isMain: true, name: null },
+    ]
+  );
 }
 
 /**

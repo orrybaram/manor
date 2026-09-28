@@ -15,7 +15,6 @@
  */
 
 import type { HostStatusInfo } from "../store/host-store";
-import { normalizeHostId } from "./host-id";
 
 export type HostTone = "ok" | "warn" | "error";
 
@@ -140,23 +139,15 @@ export function secondsUntilRetry(
 }
 
 /**
- * Whether typing into a pane on remote host `hostId` (undefined for a local
- * pane) must be dropped: that host is not connected (ADR-178 §6). Input is
- * dropped, not queued — keystrokes replayed into a shell minutes later, into
- * whatever is then in the foreground, would do more harm than losing them.
- * A local pane, or one on a host main has not reported yet, is never blocked.
- */
-export function isPaneInputBlocked(
-  hostId: string | undefined,
-  hosts: readonly HostStatusInfo[],
-): boolean {
-  return isHostOffline(hostId, hosts);
-}
-
-/**
- * Whether host `hostId` is known to be away: main reported it and it is not
- * connected. This machine (a missing id) and a host main has not reported
- * yet are never offline — the same reading `describeHost` gives them.
+ * Whether host `hostId` is away: main reported it and it is not connected.
+ * `connecting`, `reconnecting`, `error` and `disconnected` all count as away,
+ * as `describeHost` marks them `offline`. This machine (a missing id) and a
+ * host main has not reported yet are never away.
+ *
+ * Typing into a pane on an away host is dropped, not queued (ADR-178 §6):
+ * keystrokes replayed into a shell minutes later, into whatever is then in
+ * the foreground, would do more harm than losing them. A linked group's
+ * sections and host state (ADR-192 §5) read the same predicate.
  */
 export function isHostOffline(
   hostId: string | null | undefined,
@@ -169,8 +160,9 @@ export function isHostOffline(
 
 /**
  * A linked group's host state, from its members' hosts (ADR-192 §5):
- * `connected` when no member's host is away, `offline` when every member's
- * is, and `partially-offline` otherwise — one host dropped while the others
+ * `connected` when no member's host is away (`isHostOffline`, so a host
+ * still connecting or reconnecting counts as away), `offline` when every
+ * member's is, and `partially-offline` otherwise — one host dropped while the others
  * work, which must not read like a project that is wholly unreachable.
  */
 export type GroupHostState = "connected" | "partially-offline" | "offline";
@@ -186,19 +178,4 @@ export function groupHostState(
   const offline = memberHostIds.filter((id) => isHostOffline(id, hosts)).length;
   if (offline === 0) return "connected";
   return offline === memberHostIds.length ? "offline" : "partially-offline";
-}
-
-/**
- * The host a tab's "different host" badge names, or null for no badge.
- * `tabHostId` is the remote host the tab's panes run on (null for panes on
- * this machine); `workspaceHostId` is the host of the workspace the tab
- * belongs to — not its project's, which in a linked group (ADR-192) is only
- * one of several. The badge shows only when the two differ.
- */
-export function tabBadgeHostId(
-  tabHostId: string | null | undefined,
-  workspaceHostId: string | null | undefined,
-): string | null {
-  if (!tabHostId) return null;
-  return tabHostId === normalizeHostId(workspaceHostId) ? null : tabHostId;
 }

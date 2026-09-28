@@ -1,7 +1,7 @@
 import { useShallow } from "zustand/react/shallow";
 import { useAppStore } from "../../../store/app-store";
 import { useProjectStore } from "../../../store/project-store";
-import { workspaceProject } from "../../../lib/hosts";
+import { projectForWorkspace, selectedProjectId } from "../../../lib/hosts";
 import { HostIndicator } from "../../hosts/HostIndicator";
 
 /**
@@ -22,7 +22,7 @@ export function HostStatusIndicator() {
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const project = useProjectStore(
     useShallow((s) => {
-      const p = workspaceProject(s, activeWorkspacePath);
+      const p = projectForWorkspace(s.projects, activeWorkspacePath, selectedProjectId(s));
       return { id: p?.id, hostId: p?.hostId };
     }),
   );

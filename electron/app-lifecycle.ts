@@ -326,7 +326,11 @@ export function initApp(devTitle: string | null): void {
   });
   const layoutPersistence = new LayoutPersistence();
   // Each project's git, shell and machine facts come from its host (ADR-183).
-  const projectManager = new ProjectManager((hostId) => backendRegistry.get(hostId));
+  // A remote project keeps its last workspace listing only while its host
+  // is away (ADR-192 §5).
+  const projectManager = new ProjectManager((hostId) => backendRegistry.get(hostId), undefined, {
+    isHostAway: (hostId) => backendRegistry.status(hostId) !== "connected",
+  });
   for (const { hostId, spec } of projectManager.getHosts()) {
     backendRegistry.register(hostId, spec);
   }

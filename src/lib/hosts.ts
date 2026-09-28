@@ -142,20 +142,7 @@ export function workspaceHostId(
   workspacePath: string | null | undefined,
 ): HostId | undefined {
   if (isHomePath(workspacePath)) return LOCAL_HOST_ID;
-  return workspaceProject(selection, workspacePath)?.hostId;
-}
-
-/**
- * The project whose workspace `workspacePath` is, as the user opened it: the
- * selected project first when two share the path — in a linked group
- * (ADR-192) the member whose section the workspace was picked from. What the
- * status bar's host chip and the tab badge speak for.
- */
-export function workspaceProject<P extends HostedProject>(
-  selection: ProjectSelection<P>,
-  workspacePath: string | null | undefined,
-): P | undefined {
-  return projectForWorkspace(selection.projects, workspacePath, selectedProjectId(selection));
+  return hostIdForWorkspace(selection.projects, workspacePath, selectedProjectId(selection));
 }
 
 /**

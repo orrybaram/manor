@@ -485,8 +485,17 @@
 }
 
 /* Some or all of the group's hosts are away (ADR-192 §5). */
-.groupLinkIconWarn {
+.groupStateWarn {
   color: var(--yellow, #d29922);
+}
+
+/* "Partial" / "Offline" beside the state icon, so the two read apart. */
+.groupStateBadge {
+  margin-left: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 /* Every host of the group is away. */

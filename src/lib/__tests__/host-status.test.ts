@@ -3,9 +3,7 @@ import {
   describeHost,
   groupHostState,
   isHostOffline,
-  isPaneInputBlocked,
   secondsUntilRetry,
-  tabBadgeHostId,
 } from "../host-status";
 import type { HostStatusInfo } from "../../store/host-store";
 
@@ -129,20 +127,6 @@ describe("secondsUntilRetry", () => {
   });
 });
 
-describe("isPaneInputBlocked", () => {
-  const hosts = [host({ status: "reconnecting" }), host({ hostId: "up", status: "connected" })];
-
-  it("drops input for a pane whose remote host is away", () => {
-    expect(isPaneInputBlocked("box", hosts)).toBe(true);
-  });
-
-  it("lets input through for local panes, connected hosts and unreported hosts", () => {
-    expect(isPaneInputBlocked(undefined, hosts)).toBe(false);
-    expect(isPaneInputBlocked("up", hosts)).toBe(false);
-    expect(isPaneInputBlocked("unknown", hosts)).toBe(false);
-  });
-});
-
 describe("isHostOffline", () => {
   const hosts = [
     host({ status: "error" }),
@@ -154,6 +138,15 @@ describe("isHostOffline", () => {
     expect(isHostOffline("box", hosts)).toBe(true);
     expect(isHostOffline("up", hosts)).toBe(false);
     expect(isHostOffline("local", hosts)).toBe(false);
+  });
+
+  it("counts a host still connecting or reconnecting as away", () => {
+    const pending = [
+      host({ hostId: "a", status: "connecting" }),
+      host({ hostId: "b", status: "reconnecting" }),
+    ];
+    expect(isHostOffline("a", pending)).toBe(true);
+    expect(isHostOffline("b", pending)).toBe(true);
   });
 
   it("never marks this machine or an unreported host offline", () => {
@@ -192,22 +185,5 @@ describe("groupHostState", () => {
 
   it("is connected for an empty member list", () => {
     expect(groupHostState([], hosts)).toBe("connected");
-  });
-});
-
-describe("tabBadgeHostId", () => {
-  it("names the pane's host when it differs from the workspace's", () => {
-    expect(tabBadgeHostId("box", "local")).toBe("box");
-    expect(tabBadgeHostId("box", "vm")).toBe("box");
-    expect(tabBadgeHostId("box", undefined)).toBe("box");
-  });
-
-  it("shows no badge when the pane runs on the workspace's host", () => {
-    expect(tabBadgeHostId("box", "box")).toBeNull();
-  });
-
-  it("shows no badge for a pane on this machine", () => {
-    expect(tabBadgeHostId(null, "box")).toBeNull();
-    expect(tabBadgeHostId(undefined, "local")).toBeNull();
   });
 });

@@ -58,6 +58,7 @@ import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import { HostIndicator, LocalHostLabel } from "../hosts/HostIndicator";
 import { isRemoteHost } from "../../lib/hosts";
 import { workspaceKey } from "../../lib/workspace-key";
+import { normalizeHostId } from "../../lib/host-id";
 import { useHostStore, selectHost } from "../../store/host-store";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
@@ -459,14 +460,19 @@ export function ProjectItem(props: ProjectItemProps) {
     return choices;
   }, [items]);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
+  // A path can be on two hosts (ADR-191): only the active host's section
+  // holds the active workspace.
+  const onActiveHost = useAppStore(
+    (s) => s.activeWorkspaceHostId === normalizeHostId(project.hostId),
+  );
   // Keyed by path, not by `selectedWorkspaceIndex`: that index addresses an
   // array the sidebar re-sorts on every reorder, so it drifts onto whichever
   // workspace now sits at the old position. A folder tinting itself accent
   // because a stale index landed inside it is the bug that made the highlight
   // look random. The active path is the thing the user is actually looking at.
-  const selectedWorkspace = project.workspaces.find(
-    (ws) => ws.path === activeWorkspacePath,
-  );
+  const selectedWorkspace = onActiveHost
+    ? project.workspaces.find((ws) => ws.path === activeWorkspacePath)
+    : undefined;
 
   // What this project's selection is shared across: its group's host
   // sections when it is one (ADR-192 ticket 7), else just itself.
@@ -660,7 +666,7 @@ export function ProjectItem(props: ProjectItemProps) {
       <WorkspaceItem
         ws={ws}
         hostId={project.hostId}
-        isActive={ws.path === activeWorkspacePath}
+        isActive={onActiveHost && ws.path === activeWorkspacePath}
         isSelected={selectedPaths.has(ws.path)}
         isDragging={dragKey === ws.path}
         isGroupDragging={

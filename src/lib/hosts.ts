@@ -1,8 +1,6 @@
-/**
- * Mirrors `LOCAL_HOST_ID` in `electron/backend/types.ts` — the host every
- * project without a `hostId` lives on: this machine.
- */
-export const LOCAL_HOST_ID = "local";
+import { LOCAL_HOST_ID } from "./host-id";
+
+export { LOCAL_HOST_ID };
 
 /** Mirrors `HealthCheckResult` in `electron/backend/health-check.ts`. */
 export interface HealthCheckResult {

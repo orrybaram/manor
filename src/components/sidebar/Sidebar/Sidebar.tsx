@@ -45,6 +45,12 @@ import { AgentsList } from "../AgentsList";
 import { NotificationsPopover } from "../../notifications/NotificationsPopover";
 import styles from "./Sidebar.module.css";
 
+/**
+ * Dragging the resize handle left of this x (the sidebar's 160px minimum
+ * less about half the gap to the 52px rail) collapses to the rail.
+ */
+const COLLAPSE_TO_RAIL_X = 110;
+
 interface SidebarProps {
   onShowAgents?: () => void;
   onOpenProjectSettings?: (projectId: string) => void;
@@ -67,6 +73,7 @@ export function Sidebar(props: SidebarProps) {
   const reorderProjects = useProjectStore((s) => s.reorderProjects);
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
   const setSidebarWidth = useProjectStore((s) => s.setSidebarWidth);
+  const setSidebarMode = useProjectStore((s) => s.setSidebarMode);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const homeActive = isHomePath(activeWorkspacePath);
@@ -223,24 +230,35 @@ export function Sidebar(props: SidebarProps) {
       setIsResizing(true);
       useDragOverlayStore.getState().incrementDragCount();
 
+      // Put back on collapse, so expanding again restores the width the
+      // drag started from rather than the minimum it passed through.
+      const startWidth = useProjectStore.getState().sidebarWidth;
+
       const onMouseMove = (ev: MouseEvent) => {
+        // Dragged well past the minimum: snap to the rail (ADR-195).
+        if (ev.clientX < COLLAPSE_TO_RAIL_X) {
+          cleanup();
+          setSidebarWidth(startWidth);
+          setSidebarMode("rail");
+          return;
+        }
         const newWidth = Math.max(160, Math.min(400, ev.clientX));
         setSidebarWidth(newWidth);
       };
 
-      const cleanup = () => {
+      function cleanup() {
         useDragOverlayStore.getState().decrementDragCount();
         setIsResizing(false);
         document.removeEventListener("mousemove", onMouseMove);
         document.removeEventListener("mouseup", cleanup);
         window.removeEventListener("blur", cleanup);
-      };
+      }
 
       document.addEventListener("mousemove", onMouseMove);
       document.addEventListener("mouseup", cleanup);
       window.addEventListener("blur", cleanup);
     },
-    [setSidebarWidth],
+    [setSidebarWidth, setSidebarMode],
   );
 
   return (

@@ -1,6 +1,6 @@
 ---
 title: Mirror main-process console output to a rotating log file
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: []

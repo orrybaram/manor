@@ -1,6 +1,6 @@
 ---
 title: Enable the heartbeat for remote hosts and check them on wake
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

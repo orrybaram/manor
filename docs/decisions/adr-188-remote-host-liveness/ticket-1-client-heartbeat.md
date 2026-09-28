@@ -1,6 +1,6 @@
 ---
 title: Route request timeouts through the loss path and add a client heartbeat
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: []

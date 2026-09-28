@@ -811,6 +811,72 @@ describe("GitHubManager", () => {
       await expect(remote.getPrForBranch("/remote/repo", "feat/x")).resolves.toBeNull();
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Workspace-key cache (ADR-191 §6): a local and a remote checkout can share
+  // a literal path, so the cache — and the resolver's own host — must key on
+  // more than the path.
+  // -------------------------------------------------------------------------
+  describe("workspace-key cache", () => {
+    it("keeps separate cache entries for the same path on two hosts", async () => {
+      const resolve = vi.fn(async (_p: string, hostId?: string) =>
+        hostId === "host-b" ? "owner/repo-b" : "owner/repo-a",
+      );
+      const remote = new GitHubManager(resolve);
+      setupExecFileCalls([success("[]"), success("[]")]);
+
+      await remote.getAllIssues("/repo", 50, "open", "host-a");
+      await remote.getAllIssues("/repo", 50, "open", "host-b");
+
+      expect(resolve).toHaveBeenCalledTimes(2);
+      expect(mockState.calls[0]).toEqual(
+        expect.arrayContaining(["--repo", "owner/repo-a"]),
+      );
+      expect(mockState.calls[1]).toEqual(
+        expect.arrayContaining(["--repo", "owner/repo-b"]),
+      );
+    });
+
+    it("reuses the cached repo for the same host", async () => {
+      const resolve = vi.fn(async () => "owner/repo");
+      const remote = new GitHubManager(resolve);
+      setupExecFileCalls([success("[]"), success("[]")]);
+
+      await remote.getAllIssues("/repo", 50, "open", "host-a");
+      await remote.getAllIssues("/repo", 50, "open", "host-a");
+
+      expect(resolve).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not confuse a host-qualified entry with the bare-path one", async () => {
+      const resolve = vi.fn(async (_p: string, hostId?: string) =>
+        hostId ? "owner/remote-repo" : null,
+      );
+      const remote = new GitHubManager(resolve);
+      setupExecFileCalls([success("[]"), success("[]")]);
+
+      // No hostId: local, runs in the directory rather than by `--repo`.
+      await remote.getAllIssues("/repo");
+      expect(mockState.calls[0]).not.toContain("--repo");
+      expect(mockState.cwds[0]).toBe("/repo");
+
+      // Same path, a known remote host: its own cache entry.
+      await remote.getAllIssues("/repo", 50, "open", "host-a");
+      expect(mockState.calls[1]).toEqual(
+        expect.arrayContaining(["--repo", "owner/remote-repo"]),
+      );
+    });
+
+    it("passes the caller's host to the resolver instead of leaving it to guess", async () => {
+      const resolve = vi.fn(async () => null);
+      const remote = new GitHubManager(resolve);
+      setupExecFileCalls([success("[]")]);
+
+      await remote.getAllIssues("/repo", 50, "open", "host-a");
+
+      expect(resolve).toHaveBeenCalledWith("/repo", "host-a");
+    });
+  });
 });
 
 describe("ghRepoFromRemoteUrl", () => {

@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 import type { ActivePort } from "../ports";
-import { portlessManager } from "../portless";
+import { portlessManager, hostSegment } from "../portless";
 import { remoteFormOfUrl } from "../remote-forwards";
 import { LOCAL_HOST_ID } from "../backend/types";
 import {
@@ -28,6 +28,10 @@ export function register(deps: IpcDeps): void {
   function enrichPorts(ports: ActivePort[]): ActivePort[] {
     const proxyPort = portlessManager.proxyPort;
     const routes: { hostname: string; port: number }[] = [];
+    // The hosts this scan sees, so two of them sharing an 8-char id prefix
+    // (vanishingly unlikely, but the id is the only thing the segment may
+    // key on) still get distinct segments (ADR-191 §6).
+    const knownHostIds = ports.map((p) => p.hostId);
     const enriched = ports.map((port) => {
       const meta = workspaceMeta.find((m) => m.path === port.workspacePath);
       // portlessEnabled === false opts the project out — its ports keep the
@@ -38,6 +42,7 @@ export function register(deps: IpcDeps): void {
         meta.projectName,
         meta.branch,
         meta.isMain,
+        hostSegment(port.hostId, knownHostIds),
       );
       // A remote port is only reachable through its forward: the route
       // exists once the port has been opened (see `ports:resolveUrl`).

@@ -10,10 +10,55 @@ import * as http from "node:http";
 import * as path from "node:path";
 import { createProxyServer, type RouteInfo, type ProxyServer } from "portless";
 import { portlessProxyPortFile } from "./paths";
+import { LOCAL_HOST_ID } from "./backend/types";
 
 const PORT_FILE = portlessProxyPortFile();
 
 const DEFAULT_PROXY_PORT = 1355;
+
+/**
+ * DNS-label-safes a slug: lowercase, non-alphanumeric runs become one
+ * hyphen, no leading or trailing hyphen, capped at 63 chars (the DNS label
+ * limit). Shared by the project slug and, since ADR-191 §6, the host
+ * segment's full-id fallback.
+ */
+function sanitizeLabel(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 63);
+}
+
+/**
+ * The `.localhost` label naming a non-local host, or `null` for local —
+ * whose hostnames carry no host segment, unchanged since before this existed
+ * (ADR-191 §6). A local main and a remote main of the same project used to
+ * both claim `project.localhost`; this tells them apart.
+ *
+ * The label is the first 8 characters of the host id, lowercased: short,
+ * and stable since a host id never changes. It falls back to the full
+ * (sanitized) id only when that prefix collides with another host's among
+ * `knownHostIds` — the hosts portless currently knows about — so two hosts
+ * are never routed to the same hostname. The id, not the host's name (the
+ * ssh target): a name can be edited, which would silently move every
+ * bookmarked URL, and two hosts can share a name, which is the very
+ * collision this guards against.
+ */
+export function hostSegment(
+  hostId: string,
+  knownHostIds: readonly string[],
+): string | null {
+  if (hostId === LOCAL_HOST_ID) return null;
+  const short = hostId.slice(0, 8).toLowerCase();
+  const collides = knownHostIds.some(
+    (other) =>
+      other !== hostId &&
+      other !== LOCAL_HOST_ID &&
+      other.slice(0, 8).toLowerCase() === short,
+  );
+  return collides ? sanitizeLabel(hostId) : short;
+}
 
 export class PortlessManager {
   routes: RouteInfo[] = [];
@@ -117,30 +162,26 @@ export class PortlessManager {
    * Base slug: `projectName` or `basename(workspacePath)`, sanitized
    * (lowercase, non-alphanumeric → hyphens, max 63 chars).
    *
-   * If `branch` is set and `!isMain`, returns `${branch}.${base}.localhost`.
-   * Otherwise returns `${base}.localhost`.
+   * If `branch` is set and `!isMain`, the base is `${branch}.${base}`.
+   * `hostSeg` — this workspace's host segment (`hostSegment`, ADR-191 §6),
+   * `null` for local — inserts a further `.${hostSeg}` right before
+   * `.localhost`, so a local and a remote checkout of the same project
+   * never claim the same hostname.
    */
   hostnameForPort(
     workspacePath: string,
     projectName: string | undefined | null,
     branch: string | undefined | null,
     isMain: boolean,
+    hostSeg?: string | null,
   ): string {
-    const sanitize = (s: string): string =>
-      s
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-        .slice(0, 63);
-
     const rawBase = projectName || path.basename(workspacePath);
-    const base = sanitize(rawBase);
+    const base = sanitizeLabel(rawBase);
+    const withBranch =
+      branch && !isMain ? `${sanitizeLabel(branch)}.${base}` : base;
+    const suffix = hostSeg ? `.${hostSeg}` : "";
 
-    if (branch && !isMain) {
-      return `${sanitize(branch)}.${base}.localhost`;
-    }
-
-    return `${base}.localhost`;
+    return `${withBranch}${suffix}.localhost`;
   }
 }
 

@@ -16,7 +16,10 @@ vi.mock("electron", () => ({
 // ── Mock the portless proxy ────────────────────────────────────────────────────
 const updateRoutes = vi.fn();
 
-vi.mock("../portless", () => ({
+// `hostSegment` is left as the real implementation — it is what these tests
+// exercise for remote ports — only `portlessManager` is stubbed.
+vi.mock("../portless", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../portless")>()),
   portlessManager: {
     get proxyPort() {
       return 7999;
@@ -27,10 +30,13 @@ vi.mock("../portless", () => ({
       projectName: string | null,
       branch: string | null,
       isMain: boolean,
-    ) =>
-      branch && !isMain
-        ? `${branch}.${projectName}.localhost`
-        : `${projectName}.localhost`,
+      hostSeg?: string | null,
+    ) => {
+      const suffix = hostSeg ? `.${hostSeg}` : "";
+      return branch && !isMain
+        ? `${branch}.${projectName}${suffix}.localhost`
+        : `${projectName}${suffix}.localhost`;
+    },
   },
 }));
 
@@ -178,6 +184,7 @@ function makeDeps(
 async function scan() {
   return (await handlers.get("ports:scanNow")!()) as {
     port: number;
+    hostId: string;
     hostname?: string;
   }[];
 }
@@ -272,6 +279,27 @@ describe("remote ports", () => {
     { port: 4000, workspacePath: "/local" },
   ];
 
+  // ADR-191 §6: a local main and a remote main of the same project share a
+  // literal path (the common case for a laptop and a box reached as the same
+  // user), so their portless hostnames used to collide on `acme.localhost`.
+  it("gives a local main and a remote main of the same project distinct, working hostnames", async () => {
+    const deps = makeDeps(
+      [meta()],
+      [
+        { port: 3000, workspacePath: "/repo" },
+        { port: 3000, workspacePath: "/repo", hostId: "box" },
+      ],
+    );
+    register(deps as never);
+
+    const ports = await scan();
+    const local = ports.find((p) => p.hostId === "local")!;
+    const remote = ports.find((p) => p.hostId === "box")!;
+    expect(local.hostname).toBe("acme.localhost:7999");
+    expect(remote.hostname).toBe("acme.box.localhost:7999");
+    expect(local.hostname).not.toBe(remote.hostname);
+  });
+
   it("routes a remote port only once it is forwarded, then to the forward", async () => {
     const deps = makeDeps(
       [meta(), meta({ path: "/local", projectName: "loc" })],
@@ -281,7 +309,10 @@ describe("remote ports", () => {
 
     const ports = await scan();
     // The hostname is shown either way; the route waits for the forward.
-    expect(ports.find((p) => p.port === 3000)!.hostname).toBe("acme.localhost:7999");
+    // Remote (host "box"): a host segment before `.localhost` (ADR-191 §6).
+    expect(ports.find((p) => p.port === 3000)!.hostname).toBe(
+      "acme.box.localhost:7999",
+    );
     expect(updateRoutes).toHaveBeenLastCalledWith([
       { hostname: "loc.localhost", port: 4000 },
     ]);
@@ -289,15 +320,15 @@ describe("remote ports", () => {
     // Opening the portless URL makes the forward, which re-routes.
     const url = await handlers.get("ports:resolveUrl")!(
       {} as never,
-      "http://acme.localhost:7999/",
+      "http://acme.box.localhost:7999/",
       "box",
     );
-    expect(url).toBe("http://acme.localhost:7999/");
+    expect(url).toBe("http://acme.box.localhost:7999/");
     expect(deps.remoteForwards.ensure).toHaveBeenCalledWith("box", 3000, {
       remoteHost: undefined,
     });
     expect(updateRoutes).toHaveBeenLastCalledWith([
-      { hostname: "acme.localhost", port: 53000 },
+      { hostname: "acme.box.localhost", port: 53000 },
       { hostname: "loc.localhost", port: 4000 },
     ]);
   });

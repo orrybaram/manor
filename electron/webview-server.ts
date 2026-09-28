@@ -86,6 +86,38 @@ export class WebviewServer {
     this.controlDeps = deps;
   }
 
+  /**
+   * The dependencies control routes run with: the six constructor fields as
+   * the fallback, `setControlDeps`'s bag winning where both are present and
+   * carrying the fields the constructor never took. Public so requests
+   * relayed from remote hosts (ADR-189 §2) run with exactly what this
+   * server's own requests do.
+   */
+  getControlDeps(): ControlDeps {
+    return {
+      projectManager: this.projectManager,
+      githubManager: this.githubManager,
+      linearManager: this.linearManager,
+      layoutPersistence: this.layoutPersistence,
+      agentManager: this.agentManager,
+      backend: this.backend,
+      notificationStore: null,
+      statsStore: null,
+      preferencesManager: null,
+      themeManager: null,
+      portScanner: null,
+      remoteControl: null,
+      agentHookServer: null,
+      // Always us: the server answering the request is the one
+      // `GET /processes` has to report a port for.
+      webviewServer: this,
+      webviewPanes: this,
+      resolvePaneUrl: null,
+      getRendererWindows: null,
+      ...this.controlDeps,
+    };
+  }
+
   /** Start the HTTP server on a random port */
   async start(): Promise<void> {
     this.server = http.createServer((req, res) => {
@@ -245,40 +277,7 @@ export class WebviewServer {
     };
 
     // ── Manor-control routes (/projects…, /agents, /webview/:id/*…) ──
-    //
-    // The six constructor fields are the fallback; `this.controlDeps` (set
-    // via `setControlDeps`) wins where both are present, and carries the
-    // fields the constructor never took.
-    if (
-      await handleControlRequest(
-        {
-          projectManager: this.projectManager,
-          githubManager: this.githubManager,
-          linearManager: this.linearManager,
-          layoutPersistence: this.layoutPersistence,
-          agentManager: this.agentManager,
-          backend: this.backend,
-          notificationStore: null,
-          statsStore: null,
-          preferencesManager: null,
-          themeManager: null,
-          portScanner: null,
-          remoteControl: null,
-          agentHookServer: null,
-          // Always us: the server answering the request is the one
-          // `GET /processes` has to report a port for.
-          webviewServer: this,
-          webviewPanes: this,
-          resolvePaneUrl: null,
-          getRendererWindows: null,
-          ...this.controlDeps,
-        },
-        method,
-        url,
-        json,
-        readBody,
-      )
-    ) {
+    if (await handleControlRequest(this.getControlDeps(), method, url, json, readBody)) {
       return;
     }
 

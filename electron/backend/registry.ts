@@ -22,6 +22,7 @@ import { memoryHookSeqStore, type HookSeqStore, type HookSink } from "./hook-fee
 import {
   HostConnection,
   RemoteHostConnection,
+  type ControlRelaySink,
   type HostStatus,
   type HostStatusInfo,
   type RemoteHostContext,
@@ -41,7 +42,7 @@ import {
   type WorkspaceBackend,
 } from "./types";
 
-export type { HostStatus, HostStatusInfo } from "./host-connection";
+export type { ControlRelaySink, HostStatus, HostStatusInfo } from "./host-connection";
 export { HostUnavailableError } from "./host-view";
 export { isRemoteSessionLoss } from "./session-owners";
 
@@ -121,6 +122,7 @@ export class BackendRegistry {
   /** What every remote host's connection reports to. */
   private readonly ctx: RemoteHostContext;
   private hookSink: HookSink | null = null;
+  private controlRelaySink: ControlRelaySink | null = null;
 
   constructor(opts: BackendRegistryOptions) {
     this.remoteVersion = opts.remoteVersion;
@@ -136,6 +138,7 @@ export class BackendRegistry {
       hookSeqStore: opts.hookSeqStore ?? memoryHookSeqStore(),
       hookSink: () => this.hookSink,
       hookReplayRetryDelayMs: opts.hookReplayRetryDelayMs,
+      controlRelaySink: () => this.controlRelaySink,
     };
     this.add(new HostConnection(LOCAL_HOST_ID, null, opts.local, this.ctx));
   }
@@ -287,6 +290,14 @@ export class BackendRegistry {
     for (const conn of this.hosts.values()) {
       if (conn.status === "connected") void conn.catchUpHooks();
     }
+  }
+
+  /**
+   * Where control requests relayed from remote hosts' `manor` CLIs go
+   * (ADR-189 §2). Until it is set they are answered 503.
+   */
+  setControlRelaySink(sink: ControlRelaySink): void {
+    this.controlRelaySink = sink;
   }
 
   /** Stream events from every host, tagged with the host they came from. */

@@ -3,6 +3,11 @@
  *
  * A three-rung ladder: the caller's pane id, then its cwd, then a 404 carrying
  * the candidate list so the model can retry with an explicit `projectId`.
+ *
+ * A request relayed from a remote host (ADR-189 §2) carries
+ * `deps.callerHostId`: its cwd names a path on *that* host, so only that
+ * host's projects are cwd candidates — a local project at the same path must
+ * not win. Pane ids are unique across hosts, so rung 1 is unchanged.
  */
 
 import type { ProjectInfo, WorkspaceInfo } from "../persistence";
@@ -46,9 +51,12 @@ export const contextRoutes: Route[] = [
       const cwd = url.searchParams.get("cwd");
       const projects = await pm.getProjects();
 
+      const cwdCandidates = deps.callerHostId
+        ? projects.filter((p) => p.hostId === deps.callerHostId)
+        : projects;
       const resolved =
         resolveByPane(deps.layoutPersistence, projects, paneId) ??
-        (cwd ? matchProjectByPath(projects, cwd) : null);
+        (cwd ? matchProjectByPath(cwdCandidates, cwd) : null);
 
       // Rung 3: hand back the candidate list so the model can retry explicitly.
       if (!resolved) {

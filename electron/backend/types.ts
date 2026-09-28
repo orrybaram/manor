@@ -283,4 +283,13 @@ export interface RemoteHostBackend extends WorkspaceBackend {
    * backoff. Returns false if there is no wait to cut short.
    */
   retryNow(): boolean;
+
+  /**
+   * Ping the host once and resolve whether it answered (ADR-188 §3), for a
+   * wake check: a connection can be up but wedged, which only asking it
+   * something — not merely "is the socket open" — would catch. A failure is
+   * reported through `onHostEvent`'s `hostDisconnected`, same as a heartbeat
+   * tick going unanswered.
+   */
+  checkLiveness(): Promise<boolean>;
 }

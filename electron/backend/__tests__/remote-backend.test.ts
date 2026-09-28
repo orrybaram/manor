@@ -15,6 +15,7 @@ import {
 } from "../../terminal-host/types";
 import { PTY_SUBPROCESS_PROTOCOL } from "../../terminal-host/pty-subprocess-ipc";
 import { RemoteBackend, remoteReconnectDelayMs } from "../remote-backend";
+import type { HeartbeatOptions } from "../../terminal-host/client";
 import type { HostConnectionEvent } from "../types";
 import { SshAuthError } from "../../terminal-host/ssh-config";
 import { RemoteBootstrapError } from "../remote-bootstrap";
@@ -147,6 +148,8 @@ class FakeDaemon {
             alive: true,
           })),
         });
+      case "ping":
+        return reply({ type: "pong" });
       case "resize":
         return reply({ type: "resized" });
       case "getSnapshot":
@@ -195,7 +198,12 @@ class FakeTransport implements HostTransport {
   }
 }
 
-function setup(opts: { reconnectDelayMs?: (attempt: number) => number | null } = {}) {
+function setup(
+  opts: {
+    reconnectDelayMs?: (attempt: number) => number | null;
+    heartbeat?: HeartbeatOptions | null;
+  } = {},
+) {
   const daemon = new FakeDaemon();
   const transport = new FakeTransport(daemon);
   const backend = new RemoteBackend({
@@ -749,6 +757,50 @@ describe("RemoteBackend", () => {
       await vi.advanceTimersByTimeAsync(120_000);
       expect(transport.controlConnects).toBe(connects);
       warn.mockRestore();
+    });
+  });
+
+  describe("heartbeat (ADR-188 §2, §3)", () => {
+    it("pings the daemon on the default 15s interval once connected", async () => {
+      const { backend, daemon } = setup();
+      current = backend;
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+      await backend.connect();
+
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(daemon.control.some((r) => r.type === "ping")).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      vi.useRealTimers();
+      await waitFor(() => daemon.control.some((r) => r.type === "ping"), "heartbeat ping");
+    });
+
+    it("a heartbeat override changes the interval", async () => {
+      const { backend, daemon } = setup({ heartbeat: { intervalMs: 5, timeoutMs: 1_000 } });
+      current = backend;
+      await backend.connect();
+      await waitFor(() => daemon.control.some((r) => r.type === "ping"), "overridden ping");
+    });
+
+    it("heartbeat: null turns pinging off", async () => {
+      const { backend, daemon } = setup({ heartbeat: null });
+      current = backend;
+      await backend.connect();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(daemon.control.some((r) => r.type === "ping")).toBe(false);
+    });
+
+    it("checkLiveness resolves true once the daemon answers", async () => {
+      const { backend } = setup({ heartbeat: null });
+      current = backend;
+      await backend.connect();
+      await expect(backend.checkLiveness()).resolves.toBe(true);
+    });
+
+    it("checkLiveness resolves false without connecting when not connected", async () => {
+      const { backend, transport } = setup({ heartbeat: null });
+      current = backend;
+      await expect(backend.checkLiveness()).resolves.toBe(false);
+      expect(transport.ensureRunning).not.toHaveBeenCalled();
     });
   });
 });

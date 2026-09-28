@@ -135,6 +135,11 @@ const tools: ToolDef[] = [
           description:
             "Prompt template for the launched agents. Supports {number}, {title}, {body}.",
         },
+        host: {
+          type: "string",
+          description:
+            "For a linked project: the host to create on (a host id or ssh target, or 'local'), which picks that host's member of the group. Defaults to the caller's own host when it is a remote pane, then the group's last-used host.",
+        },
       },
       required: ["issues"],
     },
@@ -278,6 +283,7 @@ const handlers: ToolModule["handlers"] = {
     if (args.startAgent !== undefined) body.startAgent = args.startAgent;
     if (args.promptTemplate !== undefined)
       body.promptTemplate = args.promptTemplate;
+    if (args.host !== undefined) body.host = args.host;
     const result = (await http.post(
       `/projects/${encodeURIComponent(projectId)}/workspaces/batch`,
       body,

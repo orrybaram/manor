@@ -260,6 +260,38 @@ function workspaceTarget(
   return { ok: false, status: 400, error };
 }
 
+/**
+ * The optional `host` argument off a create request's body: `undefined` when
+ * absent or empty, or `null` after answering 400 for a non-string.
+ */
+function readHostArg(body: Record<string, unknown>, json: Json): string | undefined | null {
+  if (body.host !== undefined && typeof body.host !== "string") {
+    json(400, { error: "'host' must be a string" });
+    return null;
+  }
+  return typeof body.host === "string" && body.host ? body.host : undefined;
+}
+
+/**
+ * Remember `project`'s host as its group's last-used host, the way the New
+ * Workspace dialog does, so the dialog's default follows CLI creates too.
+ * An ungrouped project, or the host already recorded, writes nothing. A
+ * failure only costs the picker its default, so it is logged, not thrown:
+ * the workspace was made.
+ */
+function recordLastUsedHost(pm: ProjectManager, project: ProjectInfo): void {
+  const group = project.group;
+  if (!group || group.lastUsedHostId === project.hostId) return;
+  try {
+    pm.setGroupLastUsedHost(group.id, project.hostId);
+  } catch (err) {
+    console.warn(
+      `[projects] Could not record ${project.hostId} as group ${group.id}'s last-used host:`,
+      err,
+    );
+  }
+}
+
 export interface BatchResultEntry {
   number: number;
   title: string;
@@ -339,9 +371,10 @@ function renderPrompt(
  * agent in every one.
  */
 async function batchCreateWorkspaces(
-  { deps, params, json, readBody }: RouteContext,
+  { deps, json, readBody }: RouteContext,
   pm: ProjectManager,
-  project: ProjectInfo,
+  named: ProjectInfo,
+  projects: ProjectInfo[],
 ): Promise<void> {
   // Batch creation is GitHub-only: the `issues: number[]` schema and the
   // "Work on GitHub issue #…" prompt template both assume numeric refs.
@@ -365,6 +398,20 @@ async function batchCreateWorkspaces(
     });
     return;
   }
+  const host = readHostArg(body, json);
+  if (host === null) return;
+  // The same member resolution, errors and relay scoping as the single create.
+  const target = workspaceTarget(pm, {
+    project: named,
+    projects,
+    host,
+    callerHostId: deps.callerHostId,
+  });
+  if (!target.ok) {
+    json(target.status, { error: target.error });
+    return;
+  }
+  const project = target.project;
   const github = deps.githubManager;
   if (!github) {
     json(503, {
@@ -418,11 +465,14 @@ async function batchCreateWorkspaces(
       : [],
   );
   const created = await pm.createWorkspacesFromIssues(
-    params.projectId,
+    project.id,
     seeds,
     baseBranch,
   );
   const createdByNumber = new Map(created.map((c) => [c.number, c]));
+  if (created.some((c) => c.worktreePath && !c.error)) {
+    recordLastUsedHost(pm, project);
+  }
   notifyProjectsChanged();
 
   // 3. Resolve each issue to a result entry, assigning and launching as it
@@ -537,11 +587,8 @@ export const projectRoutes: Route[] = [
     path: "/projects/:projectId/workspaces",
     handler: withProject(async ({ deps, json, readBody }, pm, named, projects) => {
       const body = await readBody();
-      if (body.host !== undefined && typeof body.host !== "string") {
-        json(400, { error: "'host' must be a string" });
-        return;
-      }
-      const host = typeof body.host === "string" && body.host ? body.host : undefined;
+      const host = readHostArg(body, json);
+      if (host === null) return;
       const branch = typeof body.branch === "string" ? body.branch : undefined;
       // Either field alone is enough — each falls back to the other, matching
       // the new-workspace dialog where the branch tracks the name.
@@ -578,6 +625,7 @@ export const projectRoutes: Route[] = [
         baseBranch,
         useExistingBranch,
       );
+      if (updated) recordLastUsedHost(pm, project);
       notifyProjectsChanged();
       // The UI path runs `worktreeStartScript` from the renderer (it needs a
       // PTY), so main round-trips the request the same way start-agent does.

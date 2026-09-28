@@ -35,3 +35,9 @@ GitHub issue #251. See ADR-192 §5.
   ambiguous) gets the same generic 403.
 - Recording the group's last-used host on a CLI create is left for a
   follow-up: `setGroupLastUsedHost` (#246) was not on main yet.
+- Follow-up #263: a successful create through `POST /projects/:id/workspaces`
+  or `/workspaces/batch` now records the target member's host as the group's
+  last-used host (`setGroupLastUsedHost`; the same host again writes nothing,
+  and a failure to record is logged without failing the create). The batch
+  route and `batch_create_workspaces` take the same optional `host`, with the
+  same resolution, errors and relay scoping as the single create.

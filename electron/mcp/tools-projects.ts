@@ -17,6 +17,17 @@ const PROJECT_ID_PROP = {
   description: "Project ID. Defaults to the project this agent is running in.",
 } as const;
 
+/**
+ * The optional `host` of every workspace-creating tool (`create_workspace`
+ * here, `batch_create_workspaces` in tools-agents.ts); the routes resolve it
+ * the same way.
+ */
+export const CREATE_HOST_PROP = {
+  type: "string",
+  description:
+    "For a linked project: the host to create on (a host id or ssh target, or 'local'), which picks that host's member of the group. Defaults to the caller's own host when it is a remote pane, then the group's last-used host.",
+} as const;
+
 // ── Project & workspace types ──
 
 export interface WorkspaceFolder {
@@ -209,11 +220,7 @@ const tools: ToolDef[] = [
           description:
             "Check out an existing branch instead of creating a new one.",
         },
-        host: {
-          type: "string",
-          description:
-            "For a linked project: the host to create on (a host id or ssh target, or 'local'), which picks that host's member of the group. Defaults to the caller's own host when it is a remote pane, then the group's last-used host.",
-        },
+        host: CREATE_HOST_PROP,
       },
     },
   },

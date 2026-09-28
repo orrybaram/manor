@@ -8,7 +8,12 @@ vi.mock("../renderer-bridge", () => ({
 
 import { projectRoutes } from "./projects";
 import type { ControlDeps, Route } from "./types";
-import type { ProjectGroupInfo, ProjectInfo } from "../persistence";
+import type {
+  IssueSeed,
+  ProjectGroupInfo,
+  ProjectInfo,
+  WorkspaceFromIssue,
+} from "../persistence";
 
 function route(method: Route["method"], path: string): Route {
   const found = projectRoutes.find(
@@ -79,13 +84,37 @@ function makeProjectManager(lastUsedHostId: string | null = "box") {
     createWorktree: vi.fn(async (projectId: string) =>
       projects.find((p) => p.id === projectId) ?? null,
     ),
+    createWorkspacesFromIssues: vi.fn(
+      async (projectId: string, seeds: IssueSeed[]): Promise<WorkspaceFromIssue[]> =>
+        seeds.map((seed) => ({
+          ...seed,
+          body: seed.body ?? null,
+          worktreePath: `/${projectId}/issue-${seed.number}`,
+        })),
+    ),
+    setGroupLastUsedHost: vi.fn((_groupId: string, hostId: string) => {
+      group.lastUsedHostId = hostId;
+    }),
   };
 }
 
 type Pm = ReturnType<typeof makeProjectManager>;
 
+const github = {
+  getIssueDetail: vi.fn(async (_repo: unknown, number: number) => ({
+    title: `Issue ${number}`,
+    url: `https://github.com/o/r/issues/${number}`,
+    body: null,
+  })),
+  assignIssue: vi.fn(async () => {}),
+};
+
 function deps(pm: Pm, callerHostId?: string): ControlDeps {
-  return { projectManager: pm, callerHostId } as unknown as ControlDeps;
+  return {
+    projectManager: pm,
+    githubManager: github,
+    callerHostId,
+  } as unknown as ControlDeps;
 }
 
 async function call(
@@ -302,5 +331,152 @@ describe("POST /projects/:projectId/workspaces", () => {
     expect((res.body as { error: string }).error).toBe(
       'Project "Solo" is on this Mac, not me@box, and isn\'t linked with a project there.',
     );
+  });
+
+  it("records the target member's host as the group's last-used host", async () => {
+    pm = makeProjectManager("local");
+    const res = await call(create, deps(pm), { projectId: "local-app" }, {
+      name: "feat",
+      host: "box",
+    });
+    expect(res.status).toBe(200);
+    expect(pm.setGroupLastUsedHost).toHaveBeenCalledWith("g1", "box");
+  });
+
+  it("leaves an unchanged host to the manager's own no-op check", async () => {
+    // `setGroupLastUsedHost` skips the host already recorded
+    // (project-groups.test.ts), so the route doesn't second-guess it
+    // against its snapshot.
+    await call(create, deps(pm), { projectId: "local-app" }, { name: "feat" });
+    expect(pm.createWorktree.mock.calls[0][0]).toBe("box-app");
+    expect(pm.setGroupLastUsedHost).toHaveBeenCalledWith("g1", "box");
+  });
+
+  it("records nothing for an unlinked project, or a refused create", async () => {
+    await call(create, deps(pm), { projectId: "solo" }, { name: "feat" });
+    await call(create, deps(pm), { projectId: "local-app" }, {
+      name: "feat",
+      host: "me@mini",
+    });
+    expect(pm.setGroupLastUsedHost).not.toHaveBeenCalled();
+  });
+
+  it("still succeeds when recording the last-used host fails", async () => {
+    pm = makeProjectManager("local");
+    pm.setGroupLastUsedHost.mockImplementationOnce(() => {
+      throw new Error("disk full");
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const res = await call(create, deps(pm), { projectId: "local-app" }, {
+      name: "feat",
+      host: "box",
+    });
+    expect(res.status).toBe(200);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
+
+describe("POST /projects/:projectId/workspaces/batch", () => {
+  const batch = route("POST", "/projects/:projectId/workspaces/batch");
+  let pm: Pm;
+  beforeEach(() => {
+    pm = makeProjectManager();
+  });
+
+  function batchCall(
+    projectId: string,
+    body: Record<string, unknown>,
+    callerHostId?: string,
+  ) {
+    return call(batch, deps(pm, callerHostId), { projectId }, {
+      issues: [1, 2],
+      startAgent: false,
+      ...body,
+    });
+  }
+
+  it("creates in the member on the named host and records it", async () => {
+    pm = makeProjectManager("local");
+    const res = await batchCall("local-app", { host: "me@box" });
+    expect(res.status).toBe(200);
+    expect(pm.createWorkspacesFromIssues.mock.calls[0][0]).toBe("box-app");
+    expect(
+      (res.body as { results: Array<{ workspacePath: string }> }).results.map(
+        (r) => r.workspacePath,
+      ),
+    ).toEqual(["/box-app/issue-1", "/box-app/issue-2"]);
+    expect(pm.setGroupLastUsedHost).toHaveBeenCalledWith("g1", "box");
+  });
+
+  it("defaults to a relayed caller's own host, then last-used, then the named project", async () => {
+    pm = makeProjectManager("local");
+    await batchCall("local-app", {}, "box");
+    expect(pm.createWorkspacesFromIssues.mock.calls[0][0]).toBe("box-app");
+
+    pm = makeProjectManager("box");
+    await batchCall("local-app", {});
+    expect(pm.createWorkspacesFromIssues.mock.calls[0][0]).toBe("box-app");
+
+    pm = makeProjectManager(null);
+    await batchCall("local-app", {});
+    expect(pm.createWorkspacesFromIssues.mock.calls[0][0]).toBe("local-app");
+    expect(pm.setGroupLastUsedHost).toHaveBeenCalledWith("g1", "local");
+  });
+
+  it("gives the single create's 400s for a bad host", async () => {
+    const wrongType = await batchCall("local-app", { host: 3 });
+    expect(wrongType).toEqual({
+      status: 400,
+      body: { error: "'host' must be a string" },
+    });
+
+    const noMember = await batchCall("local-app", { host: "me@mini" });
+    expect(noMember).toEqual({
+      status: 400,
+      body: {
+        error:
+          'Group "App" has no project on me@mini. Available hosts: this Mac, me@box.',
+      },
+    });
+
+    const unknown = await batchCall("local-app", { host: "nowhere" });
+    expect(unknown.status).toBe(400);
+    expect((unknown.body as { error: string }).error).toContain(
+      "Unknown host 'nowhere'",
+    );
+
+    pm.hosts.push({ hostId: "box2", spec: { kind: "ssh", target: "me@box" } });
+    const ambiguous = await batchCall("local-app", { host: "me@box" });
+    expect(ambiguous.status).toBe(400);
+    expect((ambiguous.body as { error: string }).error).toContain(
+      "more than one host",
+    );
+
+    expect(pm.createWorkspacesFromIssues).not.toHaveBeenCalled();
+    expect(pm.setGroupLastUsedHost).not.toHaveBeenCalled();
+  });
+
+  it("answers a relayed caller the same 403 for every other host", async () => {
+    for (const host of ["local", "me@mini", "nowhere"]) {
+      expect(await batchCall("box-app", { host }, "box")).toEqual({
+        status: 403,
+        body: { error: "A remote host can only act on its own host." },
+      });
+    }
+    expect(pm.createWorkspacesFromIssues).not.toHaveBeenCalled();
+
+    await batchCall("box-app", { host: "me@box" }, "box");
+    expect(pm.createWorkspacesFromIssues.mock.calls[0][0]).toBe("box-app");
+  });
+
+  it("records nothing when no workspace was created", async () => {
+    pm = makeProjectManager("local");
+    pm.createWorkspacesFromIssues.mockImplementationOnce(async (_id, seeds) =>
+      seeds.map((seed) => ({ ...seed, body: seed.body ?? null, error: "boom" })),
+    );
+    const res = await batchCall("local-app", { host: "box" });
+    expect(res.status).toBe(200);
+    expect(pm.setGroupLastUsedHost).not.toHaveBeenCalled();
   });
 });

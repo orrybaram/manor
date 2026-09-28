@@ -4,6 +4,7 @@
  */
 
 import { resolveProjectId } from "./context";
+import { CREATE_HOST_PROP } from "./tools-projects";
 // Type-only: `issue-sources.ts` is pure, and the edge erases at runtime, so the
 // MCP process stays Electron-free while sharing the one wire shape.
 import type { McpIssue, McpIssueDetail } from "../issue-sources";
@@ -135,6 +136,7 @@ const tools: ToolDef[] = [
           description:
             "Prompt template for the launched agents. Supports {number}, {title}, {body}.",
         },
+        host: CREATE_HOST_PROP,
       },
       required: ["issues"],
     },
@@ -278,6 +280,7 @@ const handlers: ToolModule["handlers"] = {
     if (args.startAgent !== undefined) body.startAgent = args.startAgent;
     if (args.promptTemplate !== undefined)
       body.promptTemplate = args.promptTemplate;
+    if (args.host !== undefined) body.host = args.host;
     const result = (await http.post(
       `/projects/${encodeURIComponent(projectId)}/workspaces/batch`,
       body,

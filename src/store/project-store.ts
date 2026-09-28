@@ -563,6 +563,32 @@ function closeWorkspacesLeftBehind(
   for (const path of gone) app.removeWorkspaceLayout(path);
 }
 
+/**
+ * `pr` and `diffStats` are filled in by renderer-side watchers, and the main
+ * process's project list never carries them. Replacing the list wholesale
+ * (after removing a worktree, say) would blank every PR badge until the next
+ * poll, so carry them over for workspaces still on the same branch.
+ */
+function keepWatchedState(
+  fresh: ProjectInfo[],
+  previous: ProjectInfo[],
+): ProjectInfo[] {
+  const byPath = new Map<string, WorkspaceInfo>();
+  for (const p of previous) for (const ws of p.workspaces) byPath.set(ws.path, ws);
+  return fresh.map((p) => ({
+    ...p,
+    workspaces: p.workspaces.map((ws) => {
+      const prev = byPath.get(ws.path);
+      if (!prev || prev.branch !== ws.branch) return ws;
+      return {
+        ...ws,
+        pr: ws.pr ?? prev.pr,
+        diffStats: ws.diffStats ?? prev.diffStats,
+      };
+    }),
+  }));
+}
+
 export const useProjectStore = create<ProjectState>((set, get) => ({
   projects: [],
   selectedProjectIndex: 0,
@@ -581,7 +607,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const projects = await window.electronAPI.projects.getAll();
       const selectedIndex =
         await window.electronAPI.projects.getSelectedIndex();
-      set({ projects, selectedProjectIndex: selectedIndex, loading: false, initialLoadDone: true });
+      set((s) => ({
+        projects: keepWatchedState(projects, s.projects),
+        selectedProjectIndex: selectedIndex,
+        loading: false,
+        initialLoadDone: true,
+      }));
     } catch {
       set({ loading: false, initialLoadDone: true });
     }
@@ -801,7 +832,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     );
     // Refresh projects to get updated worktree list
     const projects = await window.electronAPI.projects.getAll();
-    set({ projects });
+    set((s) => ({ projects: keepWatchedState(projects, s.projects) }));
   },
 
   canQuickMerge: async (projectId: string, worktreePath: string) => {
@@ -815,7 +846,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     );
     // Refresh projects to get updated worktree list
     const projects = await window.electronAPI.projects.getAll();
-    set({ projects });
+    set((s) => ({ projects: keepWatchedState(projects, s.projects) }));
   },
 
   convertMainToWorktree: async (projectId: string, name: string, branch: string) => {

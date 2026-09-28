@@ -515,13 +515,18 @@
   background: var(--yellow, #d29922);
 }
 
-/* Each host section after the first starts well clear of the previous
-   host's last workspace. */
+/* Host sections sit close together; an expanded section's list carries the
+   space below it, so collapsed hosts don't leave gaps. The last section's
+   space comes from the project's own bottom padding. */
 .groupSections {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 4px;
   margin-top: 4px;
+}
+
+.groupSections > :not(:last-child) .section > .workspaces {
+  padding-bottom: 16px;
 }
 
 .groupLinkIcon {

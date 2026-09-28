@@ -107,7 +107,7 @@ Only styling/markup in `ProjectGroupItem`, the `section` variant of
   `--text-dim`): host icon (`Laptop` / `Cloud`) + host name, and a connection
   dot on the right for a remote host. No chip, no rule, no chevron; clicking
   the label collapses the section, and a collapsed section shows its
-  workspace count. Sections are 20px apart.
+  workspace count. An expanded section's list carries 16px of space below it; collapsed sections sit 4px apart.
 - **Indentation.** Host labels and workspace rows (in every project, linked
   or not) start under the project name, past the chevron.
 - (Revised twice after review, using mockups: the first cut left host labels

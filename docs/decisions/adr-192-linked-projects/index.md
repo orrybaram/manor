@@ -221,7 +221,12 @@ rule.
   found too. A remote host is usually still connecting at that point, so
   when a host first connects in a session its ungrouped projects are asked
   again. A pair is offered at most once per session. A successful link
-  closes the other open suggestions that name either project.
+  closes the other open suggestions that name either project. A launch or
+  host-connect pass that finds three or more new pairs shows one summary
+  toast ("N projects on other hosts could be linked") instead of a toast per
+  pair. Its "Review" shows the next pair, and its "Dismiss" hides it for the
+  session without remembering anything. Suggestions after an add or clone
+  are always shown one by one.
 - **Host status for groups (ticket 6).** Connected / offline / partially
   offline, derived from members. The offline section dims. The status bar chip
   and the tab badge follow the workspace's host, and the collapsed-group agent

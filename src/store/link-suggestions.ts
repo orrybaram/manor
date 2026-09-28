@@ -29,6 +29,24 @@ const offered = new Map<string, readonly [string, string]>();
 /** Stops the current session's host watch; see `startLinkSuggestions`. */
 let stopWatchingHosts: (() => void) | null = null;
 
+/** One pair to offer: `projectId` and what main suggested linking it with. */
+interface Offer {
+  projectId: string;
+  suggestion: LinkSuggestion;
+  link: LinkProjects;
+}
+
+/**
+ * A background pass (launch or host connect) that finds more new pairs than
+ * this shows one summary toast instead of a toast per pair.
+ */
+const MAX_BACKGROUND_TOASTS = 2;
+const SUMMARY_TOAST_ID = "link-suggestions-summary";
+/** Offers waiting behind the summary toast, in the order found. */
+let held: Offer[] = [];
+/** The user hid the summary: later background bursts stay quiet this session. */
+let summaryHidden = false;
+
 /**
  * The toast id of one suggested pair, the same from either side, so a pair
  * is offered in at most one toast and asking again replaces it.
@@ -95,24 +113,87 @@ export async function offerLinkSuggestions(
   projectId: string,
   link: LinkProjects,
 ): Promise<void> {
-  await offerForEach([{ id: projectId }], link);
+  (await newOffers([{ id: projectId }], link)).forEach(show);
 }
 
 /**
- * Offer each project's suggestions in turn, skipping pairs already offered
- * this session. One project at a time, so each host is asked for each
- * checkout's `origin` once. Dismissed pairs never come back from main.
+ * The pairs among `projects`' suggestions not yet offered this session,
+ * each marked as offered. One project at a time, so each host is asked for
+ * each checkout's `origin` once. Dismissed pairs never come back from main.
  */
-async function offerForEach(
+async function newOffers(
+  projects: readonly { id: string }[],
+  link: LinkProjects,
+): Promise<Offer[]> {
+  const found: Offer[] = [];
+  for (const project of projects) {
+    for (const suggestion of await suggestionsFor(project.id)) {
+      const id = linkSuggestionToastId(project.id, suggestion.projectId);
+      if (offered.has(id)) continue;
+      offered.set(id, [project.id, suggestion.projectId]);
+      found.push({ projectId: project.id, suggestion, link });
+    }
+  }
+  return found;
+}
+
+function show(offer: Offer): void {
+  showSuggestion(offer.projectId, offer.suggestion, offer.link);
+}
+
+/**
+ * The summary toast for `held`, or none when nothing is held. "Review" shows
+ * the next held pair as its own toast; "Dismiss" only hides the summary for
+ * the session, remembering nothing.
+ */
+function showSummary(): void {
+  const { addToast, removeToast } = useToastStore.getState();
+  if (held.length === 0) {
+    removeToast(SUMMARY_TOAST_ID);
+    return;
+  }
+  addToast({
+    id: SUMMARY_TOAST_ID,
+    status: "info",
+    persistent: true,
+    message: `${held.length} projects on other hosts could be linked`,
+    detail: "Each is a clone of the same repo as a project on another host.",
+    action: {
+      label: "Review",
+      onClick: () => {
+        const next = held.shift();
+        if (next) show(next);
+        showSummary();
+      },
+    },
+    secondaryAction: {
+      label: "Dismiss",
+      onClick: () => {
+        held = [];
+        summaryHidden = true;
+        removeToast(SUMMARY_TOAST_ID);
+      },
+    },
+  });
+}
+
+/**
+ * A launch or host-connect pass: a few new pairs get a toast each; a burst
+ * of more, or any while a summary is already up, joins the summary instead,
+ * so a sidebar full of duplicates doesn't stack a toast per repo.
+ */
+async function offerInBackground(
   projects: readonly { id: string }[],
   link: LinkProjects,
 ): Promise<void> {
-  for (const project of projects) {
-    for (const suggestion of await suggestionsFor(project.id)) {
-      if (offered.has(linkSuggestionToastId(project.id, suggestion.projectId))) continue;
-      showSuggestion(project.id, suggestion, link);
-    }
+  const found = await newOffers(projects, link);
+  if (held.length === 0 && found.length <= MAX_BACKGROUND_TOASTS) {
+    found.forEach(show);
+    return;
   }
+  if (summaryHidden) return;
+  held.push(...found);
+  showSummary();
 }
 
 /** Hosts the host store reports as connected right now. */
@@ -131,7 +212,8 @@ function connectedHostIds(): Set<string> {
  * duplicates added before linking existed are found too. A remote host that
  * isn't connected yet can't report its checkouts' `origin`, so when a host
  * first connects in the session, its ungrouped projects are asked again.
- * A pair is offered once per session, from whichever side comes first.
+ * A pair is offered once per session, from whichever side comes first,
+ * and a pass that finds many shows one summary (`offerInBackground`).
  * `getProjects` reads the current project list when a host connects.
  */
 export function startLinkSuggestions(
@@ -140,6 +222,9 @@ export function startLinkSuggestions(
 ): Promise<void> {
   stopWatchingHosts?.();
   offered.clear();
+  held = [];
+  summaryHidden = false;
+  useToastStore.getState().removeToast(SUMMARY_TOAST_ID);
   // Hosts connected by now are covered by the pass below; a host is
   // re-asked only the first time it connects, not after every reconnect.
   const seen = connectedHostIds();
@@ -148,10 +233,10 @@ export function startLinkSuggestions(
       if (host.status !== "connected" || seen.has(host.hostId)) continue;
       seen.add(host.hostId);
       const onHost = getProjects().filter((p) => !p.group && p.hostId === host.hostId);
-      void offerForEach(onHost, link);
+      void offerInBackground(onHost, link);
     }
   });
-  return offerForEach(
+  return offerInBackground(
     getProjects().filter((p) => !p.group),
     link,
   );
@@ -159,12 +244,16 @@ export function startLinkSuggestions(
 
 /**
  * Close the open suggestion toasts that name any of `projectIds`, once they
- * are linked: those offers are stale, and the pair is not offered again this
- * session.
+ * are linked, and drop such pairs from the summary: those offers are stale,
+ * and the pair is not offered again this session.
  */
 export function clearLinkSuggestionsFor(projectIds: readonly string[]): void {
   const { removeToast } = useToastStore.getState();
-  for (const [id, pair] of offered) {
-    if (pair.some((projectId) => projectIds.includes(projectId))) removeToast(id);
+  const names = (a: string, b: string) => projectIds.includes(a) || projectIds.includes(b);
+  for (const [id, [a, b]] of offered) {
+    if (names(a, b)) removeToast(id);
   }
+  if (held.length === 0) return;
+  held = held.filter((o) => !names(o.projectId, o.suggestion.projectId));
+  showSummary();
 }

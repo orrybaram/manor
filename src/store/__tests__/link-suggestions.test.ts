@@ -33,18 +33,20 @@ const SUGGESTIONS: Record<string, LinkSuggestion[]> = {
   "mac-app": [{ projectId: "local-app", name: "local app", hostLabel: "this Mac" }],
 };
 
+async function fakeSuggestLinks(projectId: string): Promise<LinkSuggestion[]> {
+  return (SUGGESTIONS[projectId] ?? []).filter(
+    (s) =>
+      present.has(s.projectId) &&
+      !dismissed.has(pairKey(projectId, s.projectId)) &&
+      !offline.has(HOST[projectId]) &&
+      !offline.has(HOST[s.projectId]),
+  );
+}
+
 const api = {
   getAll: vi.fn(),
   getSelectedIndex: vi.fn(async () => 0),
-  suggestLinks: vi.fn(async (projectId: string) =>
-    (SUGGESTIONS[projectId] ?? []).filter(
-      (s) =>
-        present.has(s.projectId) &&
-        !dismissed.has(pairKey(projectId, s.projectId)) &&
-        !offline.has(HOST[projectId]) &&
-        !offline.has(HOST[s.projectId]),
-    ),
-  ),
+  suggestLinks: vi.fn(fakeSuggestLinks),
   dismissLinkSuggestion: vi.fn(async (projectId: string, otherId: string) => {
     dismissed.add(pairKey(projectId, otherId));
   }),
@@ -106,6 +108,7 @@ function launch(): Promise<void> {
 describe("link suggestions", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    api.suggestLinks.mockImplementation(fakeSuggestLinks);
     dismissed.clear();
     offline.clear();
     present.clear();
@@ -218,5 +221,88 @@ describe("link suggestions", () => {
 
     await vi.waitFor(() => expect(api.link).toHaveBeenCalledWith("local-app", "box-app"));
     await vi.waitFor(() => expect(suggestionToasts()).toEqual([]));
+  });
+
+  describe("a background pass with many pairs", () => {
+    const SUMMARY = "link-suggestions-summary";
+    const summary = () => useToastStore.getState().toasts.find((t) => t.id === SUMMARY);
+
+    /**
+     * `n` repos cloned on this Mac (`l1`…) and on the box (`b1`…): `n`
+     * pairs, each suggested from both sides.
+     */
+    function duplicates(n: number): void {
+      const ids = Array.from({ length: n }, (_, i) => i + 1);
+      api.getAll.mockResolvedValue(
+        ids.flatMap((i) => [project(`l${i}`, "local"), project(`b${i}`, "box")]),
+      );
+      api.suggestLinks.mockImplementation(async (projectId: string) => {
+        const [side, i] = [projectId[0], projectId.slice(1)];
+        const other = side === "l" ? `b${i}` : `l${i}`;
+        if (offline.has("box") || dismissed.has(pairKey(projectId, other))) return [];
+        return [{ projectId: other, name: other, hostLabel: side === "l" ? "me@box" : "this Mac" }];
+      });
+    }
+
+    it("shows one summary for 5 pairs at launch, not 5 toasts", async () => {
+      duplicates(5);
+
+      await launch();
+
+      await vi.waitFor(() => expect(summary()).toBeDefined());
+      expect(summary()).toMatchObject({
+        status: "info",
+        persistent: true,
+        message: "5 projects on other hosts could be linked",
+      });
+      expect(suggestionToasts()).toEqual([]);
+    });
+
+    it("shows 2 pairs at launch as 2 toasts", async () => {
+      duplicates(2);
+
+      await launch();
+
+      await vi.waitFor(() => expect(suggestionToasts()).toHaveLength(2));
+      expect(summary()).toBeUndefined();
+    });
+
+    it("shows one summary when a host connects with 3 pairs", async () => {
+      duplicates(3);
+      hostsAre("disconnected");
+      offline.add("box");
+      await launch();
+      await vi.waitFor(() => expect(api.suggestLinks).toHaveBeenCalledTimes(6));
+      expect(useToastStore.getState().toasts).toEqual([]);
+
+      offline.clear();
+      hostsAre("connected");
+
+      await vi.waitFor(() => expect(summary()?.message).toBe("3 projects on other hosts could be linked"));
+      expect(suggestionToasts()).toEqual([]);
+    });
+
+    it("reviews held pairs one at a time", async () => {
+      duplicates(3);
+      await launch();
+      await vi.waitFor(() => expect(summary()).toBeDefined());
+
+      summary()!.action!.onClick();
+
+      expect(suggestionToasts().map((t) => t.id)).toEqual([linkSuggestionToastId("l1", "b1")]);
+      expect(summary()?.message).toBe("2 projects on other hosts could be linked");
+    });
+
+    it("dismissing the summary hides it and remembers nothing", async () => {
+      duplicates(3);
+      await launch();
+      await vi.waitFor(() => expect(summary()).toBeDefined());
+
+      summary()!.secondaryAction!.onClick();
+
+      expect(summary()).toBeUndefined();
+      expect(suggestionToasts()).toEqual([]);
+      expect(api.dismissLinkSuggestion).not.toHaveBeenCalled();
+    });
   });
 });

@@ -18,13 +18,13 @@ function project(id: string, hostId: string, path: string): ProjectInfo {
 /** Same path on this machine and on "box" — the ambiguity ADR-189 §2 removes. */
 const projects = [project("local-p", "local", "/repo"), project("box-p", "box", "/repo")];
 
-/** A minimal `layout.json` naming one pane's bare workspace path. */
-function layoutWithPane(paneId: string, workspacePath: string): PersistedLayout {
+/** A minimal `layout.json` naming one pane's host-qualified workspace key. */
+function layoutWithPane(paneId: string, workspaceKey: string): PersistedLayout {
   return {
-    version: 2,
+    version: 3,
     workspaces: [
       {
-        workspacePath: workspacePath as WorkspaceKey,
+        workspacePath: workspaceKey as WorkspaceKey,
         panelTree: { type: "leaf", panelId: "panel-1" },
         activePanelId: "panel-1",
         panels: {
@@ -116,23 +116,38 @@ describe("GET /context", () => {
     expect(body.projectId).toBe("local-p");
   });
 
-  it("rung 1 matches the pane's workspace path against the caller's host, not just any project at that path", async () => {
+  it("rung 1 resolves a remote workspace key to the remote project even for a local caller", async () => {
+    // Same path exists on "local" and "box"; the pane's own recorded key
+    // says "box", so that must win over the caller's own (local) host.
+    const layoutPersistence = { load: () => layoutWithPane("pane-1", "box:/repo") };
+    const [status, body] = await getContext("paneId=pane-1", {
+      layoutPersistence: layoutPersistence as unknown as ControlDeps["layoutPersistence"],
+    });
+    expect(status).toBe(200);
+    expect(body.projectId).toBe("box-p");
+  });
+
+  it("rung 1 resolves a bare (local) workspace key to the local project, even for a relayed caller", async () => {
+    // The opposite pairing: the pane's own key is local, so it must win
+    // even though the request was relayed from "box".
     const layoutPersistence = { load: () => layoutWithPane("pane-1", "/repo") };
     const [status, body] = await getContext("paneId=pane-1", {
       layoutPersistence: layoutPersistence as unknown as ControlDeps["layoutPersistence"],
       callerHostId: "box",
     });
     expect(status).toBe(200);
-    expect(body.projectId).toBe("box-p");
+    expect(body.projectId).toBe("local-p");
   });
 
-  it("rung 1 falls through to cwd when the pane's host has no project at that path", async () => {
-    const layoutPersistence = { load: () => layoutWithPane("pane-1", "/repo") };
-    const [status] = await getContext("paneId=pane-1", {
+  it("rung 1 falls through to cwd when the pane's own key's host has no project at that path", async () => {
+    const layoutPersistence = { load: () => layoutWithPane("pane-1", "ghost:/repo") };
+    const [status, body] = await getContext("paneId=pane-1&cwd=/repo/src", {
       layoutPersistence: layoutPersistence as unknown as ControlDeps["layoutPersistence"],
-      callerHostId: "other",
     });
-    expect(status).toBe(404);
+    // No project on "ghost", so rung 1 misses and rung 2 falls back to the
+    // caller's own (local) host via cwd instead of 404ing outright.
+    expect(status).toBe(200);
+    expect(body.projectId).toBe("local-p");
   });
 
   it("single-host behavior is unchanged: a local caller resolves by cwd alone", async () => {

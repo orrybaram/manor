@@ -8,9 +8,12 @@
  * relayed from a remote host's `manor` CLI (ADR-189 §2), else the host that
  * owns the calling pane (`SessionOwners`, keyed by pane id — a pane ADR-183
  * moved to another host still answers to its session owner), else local.
- * That host's projects are the only candidates on every rung — a project on
- * another host at the same path must not win, and the 404's list must not
- * offer a retry the relay would refuse anyway.
+ * That host's projects are the only candidates on rungs 2 and 3 — a project
+ * on another host at the same path must not win, and the 404's list must
+ * not offer a retry the relay would refuse anyway. Rung 1 needs no such
+ * guess: `layout.json` keys each workspace by its host-qualified
+ * `WorkspaceKey` (ADR-191, #240), so the pane's own host is read straight
+ * off that key.
  */
 
 import type { ProjectInfo, WorkspaceInfo } from "../persistence";
@@ -30,22 +33,22 @@ import type { Route } from "./types";
  * legitimately missing from it must fall through to cwd, never 404 here.
  * A corrupt or half-written file is the same fall-through, not a 500.
  *
- * `layout.json` still keys workspaces by bare path (ticket 3 rekeys it to
- * `WorkspaceKey`), so the pane's workspace key is built here, from that path
- * and the caller's host, and matched against host and path together.
+ * The workspace key names its own host, so it — not the caller's guessed
+ * host — is what `matchProjectByPath` matches against: a pane recorded on
+ * "box" resolves against "box"'s projects even if the caller somehow looked
+ * local.
  */
 function resolveByPane(
   layoutPersistence: LayoutPersistence | null,
   projects: ProjectInfo[],
-  hostId: string,
   paneId: string | null,
 ): { project: ProjectInfo; workspace: WorkspaceInfo } | null {
   if (!paneId) return null;
   const layout = layoutPersistence?.load() ?? null;
   const key = layout ? findWorkspaceForPane(layout, paneId) : null;
   if (!key) return null;
-  // TODO(#241): match on the key's own host, not the caller's guessed one.
-  const match = matchProjectByPath(projects, hostId, parseWorkspaceKey(key).path);
+  const { hostId, path } = parseWorkspaceKey(key);
+  const match = matchProjectByPath(projects, hostId, path);
   if (!match) return null;
   return match;
 }
@@ -76,7 +79,7 @@ export const contextRoutes: Route[] = [
         callerMaySee(callerHostId, normalizeHostId(p.hostId)),
       );
       const resolved =
-        resolveByPane(deps.layoutPersistence, projects, callerHostId, paneId) ??
+        resolveByPane(deps.layoutPersistence, projects, paneId) ??
         (cwd ? matchProjectByPath(projects, callerHostId, cwd) : null);
 
       // Rung 3: hand back the candidate list so the model can retry explicitly.

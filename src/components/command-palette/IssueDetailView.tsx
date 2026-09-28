@@ -9,7 +9,7 @@ import { PRIORITY_LABELS, stripMarkdown, extractImages } from "./utils";
 import { IssueDetailSkeleton } from "./IssueDetailSkeleton";
 import type { CommandPaletteProps } from "./types";
 import { Row, Stack } from "../ui/Layout/Layout";
-import { branchesEqual } from "../../utils/branch-name";
+import { startLinearIssueWork } from "../../lib/start-issue-work";
 import styles from "./CommandPalette.module.css";
 
 type IssueDetailViewProps = {
@@ -27,7 +27,6 @@ export function IssueDetailView(props: IssueDetailViewProps) {
   const { issueId, onBack, onClose, onNewWorkspace, onNewAgentWithPrompt, linkedTo, projectId, workspacePath } = props;
 
   const projects = useProjectStore((s) => s.projects);
-  const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
 
   const { data: issueDetail, isLoading } = useQuery({
     queryKey: ["linear-issue-detail", issueId],
@@ -46,51 +45,9 @@ export function IssueDetailView(props: IssueDetailViewProps) {
     (issue: LinearIssueDetail) => {
       const project = findProjectForIssue(issue);
       if (!project) return;
-
-      const current = useProjectStore
-        .getState()
-        .projects.find((p) => p.id === project.id);
-      const existingIdx =
-        current?.workspaces.findIndex((ws) =>
-          branchesEqual(ws.branch, issue.branchName),
-        ) ?? -1;
-      if (existingIdx >= 0) {
-        selectWorkspace(project.id, existingIdx);
-        const existingWs = current?.workspaces[existingIdx];
-        if (existingWs) {
-          useProjectStore.getState().linkIssueToWorkspace(project.id, existingWs.path, {
-            id: issue.id,
-            identifier: issue.identifier,
-            title: issue.title,
-            url: issue.url,
-          });
-        }
-        onClose();
-        return;
-      }
-
-      onClose();
-      onNewWorkspace?.({
-        projectId: project.id,
-        name: issue.title,
-        branch: issue.branchName,
-        agentPrompt:
-          issue.title + "\n\n" + (issue.description ?? ""),
-        linkedIssue: {
-          id: issue.id,
-          identifier: issue.identifier,
-          title: issue.title,
-          url: issue.url,
-        },
-      });
-      window.electronAPI.linear.startIssue(issue.id);
+      startLinearIssueWork({ project, issue, onNewWorkspace, onClose });
     },
-    [
-      findProjectForIssue,
-      selectWorkspace,
-      onClose,
-      onNewWorkspace,
-    ],
+    [findProjectForIssue, onClose, onNewWorkspace],
   );
 
   const handleOpenInBrowser = useCallback(

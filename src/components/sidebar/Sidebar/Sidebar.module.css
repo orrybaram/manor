@@ -58,22 +58,6 @@
   padding-top: 8px;
 }
 
-/* Duplicated in AgentsList.module.css, Ports.module.css — candidate for a shared <SectionHeader> UI component */
-.sectionHeader {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 4px 6px;
-  /* Same side inset as the project list below. */
-  margin-inline: 8px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-dim);
-}
-
 .titlebarActions {
   display: flex;
   align-items: center;
@@ -132,7 +116,7 @@
   padding: 4px 6px;
   border-radius: 4px;
   cursor: pointer;
-  /* Set like the Projects heading below it. */
+  /* Set like the Projects row below it. */
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -173,6 +157,61 @@
 }
 
 .homeLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The Projects heading as a row (ADR-194): same look as Home, and a click
+   opens the Projects overview. Kept as the section's heading, so it has
+   Home's side inset and sits flush on the project list below. */
+.projectsRow {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-inline: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+
+.projectsRow:hover {
+  background: var(--surface);
+}
+
+.projectsRow:focus {
+  outline: none;
+}
+
+.projectsRow:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.projectsRowActive {
+  background: var(--surface);
+  color: var(--text-selected);
+}
+
+.projectsIcon {
+  color: var(--text-dim);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  height: 16px;
+}
+
+.projectsRowActive .projectsIcon {
+  color: var(--accent);
+}
+
+.projectsLabel {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

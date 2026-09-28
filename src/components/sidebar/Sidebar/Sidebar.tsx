@@ -31,6 +31,7 @@ import {
   handleSidebarRowKeyDown,
   useRovingRows,
 } from "../../../lib/sidebar-row";
+import { openContextMenuFromKeyboard } from "../../../lib/keyboard-context-menu";
 import { useBranchWatcher } from "../../../hooks/useBranchWatcher";
 import { useDiffWatcher } from "../../../hooks/useDiffWatcher";
 import { usePrWatcher } from "../../../hooks/usePrWatcher";
@@ -69,7 +70,11 @@ export function Sidebar(props: SidebarProps) {
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
-  const homeActive = isHomePath(activeWorkspacePath);
+  const showProjectsOverview = useAppStore((s) => s.showProjectsOverview);
+  const projectsActive = useAppStore((s) => s.activeSurface === "projects");
+  // While the Projects overview is shown (ADR-194) neither Home nor any
+  // project is the current row; `homeActive` also gates project selection.
+  const homeActive = !projectsActive && isHomePath(activeWorkspacePath);
 
   useBranchWatcher();
   useDiffWatcher();
@@ -276,13 +281,26 @@ export function Sidebar(props: SidebarProps) {
         <div className={styles.projectsSection}>
           <ContextMenu.Root>
             <ContextMenu.Trigger asChild>
-              {/* Right-click only offers "Add Project", which the app menu
-                  also carries; a click does nothing, so no pointer cursor. */}
-              <div className={styles.sectionHeader}>
-                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              {/* A row like Home: a click shows the Projects overview
+                  (ADR-194); right-click still offers "Add Project". */}
+              <div
+                className={`${styles.projectsRow} ${projectsActive ? styles.projectsRowActive : ""}`}
+                data-testid="projects-row"
+                data-sidebar-row=""
+                tabIndex={-1}
+                aria-current={projectsActive ? "true" : undefined}
+                onClick={showProjectsOverview}
+                onKeyDown={(e) =>
+                  handleSidebarRowKeyDown(e, {
+                    activate: showProjectsOverview,
+                    openMenu: openContextMenuFromKeyboard,
+                  })
+                }
+              >
+                <span className={styles.projectsIcon}>
                   <Folders size={12} />
-                  Projects
                 </span>
+                <span className={styles.projectsLabel}>Projects</span>
               </div>
             </ContextMenu.Trigger>
             <ContextMenu.Portal>

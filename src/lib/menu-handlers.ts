@@ -35,6 +35,7 @@ import {
 import { hideWorkspaceAndNavigate } from "../store/workspace-actions";
 import {
   createSharedKeybindingHandlers,
+  unlessOverviewShown,
   resolveWorkspaceCommand,
 } from "./keybinding-commands";
 import {
@@ -212,10 +213,10 @@ export function createMenuHandlers(
     "history-back": () => navigateBack(),
     "history-forward": () => navigateForward(),
     "new-workspace": () => chrome.openNewWorkspace(),
-    "close-tab": () => {
+    "close-tab": unlessOverviewShown(() => {
       const tabId = activeTabId();
       if (tabId) app().requestCloseTab(tabId);
-    },
+    }),
 
     // ── File ──────────────────────────────────────────────────────────────
     "add-project": () => chrome.addProject(),

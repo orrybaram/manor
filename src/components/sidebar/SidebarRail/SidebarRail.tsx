@@ -41,7 +41,8 @@ export function SidebarRail(props: SidebarRailProps) {
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
-  const homeActive = isHomePath(activeWorkspacePath);
+  const projectsActive = useAppStore((s) => s.activeSurface === "projects");
+  const homeActive = !projectsActive && isHomePath(activeWorkspacePath);
   const agentCount = useVisibleAgents().length;
 
   // The full sidebar runs these; the rail stands in for it, so branch names,
@@ -113,6 +114,7 @@ export function SidebarRail(props: SidebarRailProps) {
             onOpenProjectSettings={onOpenProjectSettings}
             popover={popover}
             isSelected={
+              !projectsActive &&
               !homeActive &&
               selectedProject !== undefined &&
               (entry.kind === "project"

@@ -1,0 +1,114 @@
+/*
+ * Home's "Needs you" / summary line (ADR-194 §1). Rows reuse the shared
+ * launcher look (`EmptyState.module.css` `.action`/`.section`); these rules
+ * add the trailing meta column, the hover-hint swap and the summary line,
+ * mirroring the prototype's `.meta` / `.hover-hint` / `.more` / `.summary` /
+ * `.clearline`.
+ */
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* `.row` is a local marker class (alongside the shared `.action` look) so
+   the hover rules below don't reach into other `.action` rows. */
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.labelDim {
+  color: var(--text-dim);
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.proj {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--project-color, var(--text-dim));
+}
+
+.age {
+  min-width: 28px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.hoverHint {
+  display: none;
+  color: var(--text-selected);
+}
+
+.row:hover .hoverHint {
+  display: inline;
+}
+
+.row:hover .age {
+  display: none;
+}
+
+/* Doubled: outranks the `<Button>` ghost variant's own padding/colour rules
+   (same reasoning as `.action.action` in EmptyState.module.css). */
+.more.more {
+  justify-content: flex-start;
+  width: 100%;
+  padding: 2px 6px 0 38px;
+  border-radius: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: left;
+}
+
+.more.more:hover:not(:disabled) {
+  background: none;
+  color: var(--text-selected);
+}
+
+.summary {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.summary b {
+  font-weight: 500;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.clearline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+/* Up next's "All issues": a `<Button variant="link">` wearing the shared
+   `.sectionLink` look. Doubled to outrank the link variant's accent colour
+   and underline. */
+.sectionLink.sectionLink {
+  color: var(--text-dim);
+  text-decoration: none;
+}
+
+.sectionLink.sectionLink:hover {
+  color: var(--text-selected);
+}

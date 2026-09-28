@@ -114,14 +114,15 @@ async function openRemoteProject(
     500,
   );
 
-  await window.getByTestId("import-project-button").click();
+  // The Projects overview's clone row (ADR-194) opens the Add Project dialog
+  // already on its clone tab.
+  await window.getByTestId("add-remote-project-button").click();
   const dialog = window.getByTestId("add-project-dialog");
   await expect(dialog).toBeVisible({ timeout: 10_000 });
-  await dialog.getByText("Clone repository", { exact: true }).click();
   await dialog.locator("#add-project-host").click();
   await window.getByRole("option", { name: APP_TARGET, exact: true }).click();
   await dialog.locator("#add-project-repo-url").fill(SEED_REPO_URL);
-  await dialog.locator("#add-project-location").fill(REMOTE_DIR);
+  await dialog.locator("#add-project-remote-dir").fill(REMOTE_DIR);
   await dialog.locator("#add-project-name").fill(PROJECT_NAME);
   await dialog.getByRole("button", { name: "Clone", exact: true }).click();
 

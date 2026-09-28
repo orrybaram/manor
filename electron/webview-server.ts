@@ -114,6 +114,7 @@ export class WebviewServer {
       webviewPanes: this,
       resolvePaneUrl: null,
       getRendererWindows: null,
+      sessionOwners: null,
       ...this.controlDeps,
     };
   }

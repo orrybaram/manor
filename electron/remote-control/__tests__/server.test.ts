@@ -114,6 +114,7 @@ describe("RemoteControlServer", () => {
       webviewPanes: null,
       resolvePaneUrl: null,
       getRendererWindows: null,
+      sessionOwners: null,
     };
     server = new RemoteControlServer(() => deps, devices, {
       limiter: new AuthRateLimiter(() => now),

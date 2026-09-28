@@ -1,6 +1,6 @@
 ---
 title: /context matches workspaces by host plus path
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [1]

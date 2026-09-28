@@ -8,10 +8,13 @@
  * only guard here against shelling out into arbitrary directories. `cwd` is
  * matched with `matchProjectByPath` (`../pane-context.ts`), the same lookup
  * `GET /context` uses, so a path nested inside a workspace (not just its
- * root) still resolves.
+ * root) still resolves. These routes are never relayed (ADR-189 §2), so
+ * there is no caller host to scope by; `cwd`'s own host is `cwd`'s owner
+ * (`ownerHostIdForPath`, ADR-191), the same tie-break `PathRouter` uses.
  */
 
 import { matchProjectByPath } from "../pane-context";
+import { ownerHostIdForPath } from "../../src/lib/workspace-key";
 import type { ProjectInfo } from "../persistence";
 import type { GitBackend } from "../backend/types";
 import type { ControlDeps, Json, Route } from "./types";
@@ -47,7 +50,7 @@ async function resolveGit(
     return null;
   }
   const projects = await deps.projectManager.getProjects();
-  const match = matchProjectByPath(projects, cwd);
+  const match = matchProjectByPath(projects, ownerHostIdForPath(projects, cwd), cwd);
   if (!match) {
     json(400, { error: `'${cwd}' is not a known workspace path` });
     return null;

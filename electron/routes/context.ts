@@ -4,17 +4,21 @@
  * A three-rung ladder: the caller's pane id, then its cwd, then a 404 carrying
  * the candidate list so the model can retry with an explicit `projectId`.
  *
- * A request relayed from a remote host (ADR-189 §2) carries
- * `deps.callerHostId`: its cwd names a path on *that* host, so only that
- * host's projects are candidates on every rung — a local project at the same
- * path must not win, and the 404's list must not offer the laptop's projects
- * for a retry the relay would refuse anyway.
+ * Every caller has a host (ADR-191 §4): `deps.callerHostId` for a request
+ * relayed from a remote host's `manor` CLI (ADR-189 §2), else the host that
+ * owns the calling pane (`SessionOwners`, keyed by pane id — a pane ADR-183
+ * moved to another host still answers to its session owner), else local.
+ * That host's projects are the only candidates on every rung — a project on
+ * another host at the same path must not win, and the 404's list must not
+ * offer a retry the relay would refuse anyway.
  */
 
 import type { ProjectInfo, WorkspaceInfo } from "../persistence";
 import type { LayoutPersistence } from "../terminal-host/layout-persistence";
 import { findWorkspaceForPane, matchProjectByPath } from "../pane-context";
 import { availableSources } from "../issue-backends";
+import { LOCAL_HOST_ID } from "../backend/types";
+import { normalizeHostId } from "../../src/lib/host-id";
 import type { Route } from "./types";
 
 /**
@@ -23,17 +27,22 @@ import type { Route } from "./types";
  * on a 500ms debounce and serializes only the active workspace, so a pane
  * legitimately missing from it must fall through to cwd, never 404 here.
  * A corrupt or half-written file is the same fall-through, not a 500.
+ *
+ * `layout.json` still keys workspaces by bare path (ticket 3 rekeys it to
+ * `WorkspaceKey`), so the pane's workspace key is built here, from that path
+ * and the caller's host, and matched against host and path together.
  */
 function resolveByPane(
   layoutPersistence: LayoutPersistence | null,
   projects: ProjectInfo[],
+  hostId: string,
   paneId: string | null,
 ): { project: ProjectInfo; workspace: WorkspaceInfo } | null {
   if (!paneId) return null;
   const layout = layoutPersistence?.load() ?? null;
   const workspacePath = layout ? findWorkspaceForPane(layout, paneId) : null;
   if (!workspacePath) return null;
-  const match = matchProjectByPath(projects, workspacePath);
+  const match = matchProjectByPath(projects, hostId, workspacePath);
   if (!match) return null;
   return match;
 }
@@ -52,12 +61,17 @@ export const contextRoutes: Route[] = [
       const cwd = url.searchParams.get("cwd");
       const projects = await pm.getProjects();
 
-      const candidates = deps.callerHostId
-        ? projects.filter((p) => p.hostId === deps.callerHostId)
-        : projects;
+      const callerHostId =
+        deps.callerHostId ??
+        (paneId ? deps.sessionOwners?.ownerOf(paneId) : undefined) ??
+        LOCAL_HOST_ID;
+
+      const candidates = projects.filter(
+        (p) => normalizeHostId(p.hostId) === normalizeHostId(callerHostId),
+      );
       const resolved =
-        resolveByPane(deps.layoutPersistence, candidates, paneId) ??
-        (cwd ? matchProjectByPath(candidates, cwd) : null);
+        resolveByPane(deps.layoutPersistence, projects, callerHostId, paneId) ??
+        (cwd ? matchProjectByPath(projects, callerHostId, cwd) : null);
 
       // Rung 3: hand back the candidate list so the model can retry explicitly.
       if (!resolved) {

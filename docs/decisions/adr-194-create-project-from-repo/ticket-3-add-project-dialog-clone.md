@@ -1,6 +1,6 @@
 ---
 title: Add Project dialog - clone a repository onto any host
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [1, 2]

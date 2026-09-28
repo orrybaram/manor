@@ -1,6 +1,6 @@
 ---
 title: Clone a project onto any host, including this machine
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

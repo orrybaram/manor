@@ -1,6 +1,6 @@
 ---
 title: List the user's GitHub repos via gh
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: []

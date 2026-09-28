@@ -114,10 +114,11 @@ async function openRemoteProject(
     500,
   );
 
-  await window.getByTestId("import-project-button").click();
+  // The Projects overview's "Clone onto a remote host" row (ADR-194) opens the
+  // Add Project dialog already on its remote tab.
+  await window.getByTestId("add-remote-project-button").click();
   const dialog = window.getByTestId("add-project-dialog");
   await expect(dialog).toBeVisible({ timeout: 10_000 });
-  await dialog.getByText("On a remote host", { exact: true }).click();
   await dialog.locator("#add-project-host").click();
   await window.getByRole("option", { name: APP_TARGET, exact: true }).click();
   await dialog.locator("#add-project-repo-url").fill(SEED_REPO_URL);

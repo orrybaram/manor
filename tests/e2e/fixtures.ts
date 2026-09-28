@@ -291,12 +291,9 @@ export async function importSeededProject(
     });
   }, seededProjectPath);
 
+  // The Projects overview's "Open a folder" row (ADR-194) runs the (stubbed)
+  // folder picker directly — no Add Project dialog in between.
   await window.locator('[data-testid="import-project-button"]').click();
-  // Import opens the Add Project dialog (ADR-178); "On this Mac" is the
-  // default mode, and its button runs the (stubbed) folder picker.
-  const addDialog = window.getByTestId("add-project-dialog");
-  await expect(addDialog).toBeVisible({ timeout: 10_000 });
-  await addDialog.getByRole("button", { name: "Choose Folder…", exact: true }).click();
 
   const wizard = window.locator('[data-testid="project-setup-wizard"]');
   const skipButton = wizard.getByRole("button", { name: "Skip", exact: true });

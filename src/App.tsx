@@ -8,7 +8,6 @@ import { onPaletteViewRequest } from "./utils/palette-request";
 import { onUiRequest } from "./utils/ui-request";
 import { GhostsOverlay } from "./components/GhostsOverlay/GhostsOverlay";
 import { WorkspaceEmptyState } from "./components/sidebar/WorkspaceEmptyState";
-import { WelcomeEmptyState } from "./components/sidebar/WelcomeEmptyState/WelcomeEmptyState";
 import { HomeEmptyState } from "./components/sidebar/HomeEmptyState";
 import { ProjectsOverview } from "./components/projects-overview/ProjectsOverview";
 import { ManorLogo } from "./components/ui/ManorLogo";
@@ -133,9 +132,11 @@ function App() {
     setSettingsPage(null);
     setSettingsSection(null);
     // Revert to the active surface's theme in case settings was previewing a
-    // different theme. Home has no project override — it inherits the global
-    // theme (null).
-    const activeTheme = isHomePath(useAppStore.getState().activeWorkspacePath)
+    // different theme. Home and the Projects overview have no project
+    // override — they inherit the global theme (null).
+    const appState = useAppStore.getState();
+    const activeTheme =
+      isHomePath(appState.activeWorkspacePath) || appState.activeSurface === "projects"
       ? null
       : useProjectStore.getState().projects[
           useProjectStore.getState().selectedProjectIndex
@@ -340,10 +341,17 @@ function App() {
   // Clean up wizard state if the project is removed while wizard is open
   const wizardStillValid = wizardOpen && wizardProjectId && projects.some((p) => p.id === wizardProjectId);
 
+  // The Projects overview (ADR-194) covers the active workspace, which stays
+  // active (and mounted) underneath.
+  const projectsOverviewShown = useAppStore(
+    (s) => s.activeSurface === "projects",
+  );
+
   // Reactively apply the active surface's theme. Projects carry an optional
-  // theme override; the home surface has no owning project, so it inherits the
-  // global theme (null override) — switching to/from home re-applies here.
-  const effectiveThemeName = isHomePath(activeWorkspacePath)
+  // theme override; Home and the Projects overview have no owning project, so
+  // they inherit the global theme (null override) — switching to/from either
+  // re-applies here.
+  const effectiveThemeName = isHomePath(activeWorkspacePath) || projectsOverviewShown
     ? null
     : projects[selectedProjectIndex]?.themeName ?? null;
   const prevThemeRef = useRef(effectiveThemeName);
@@ -355,11 +363,8 @@ function App() {
 
   const hasProjects = projects.length > 0;
   const hasTabs = (ws?.tabs.length ?? 0) > 0;
-  // The Projects overview (ADR-194) covers the active workspace, which stays
-  // active (and mounted) underneath.
-  const projectsOverviewShown = useAppStore(
-    (s) => s.activeSurface === "projects",
-  );
+  // With zero projects the overview is also the onboarding screen (ADR-194 §3).
+  const showProjectsOverview = projectsOverviewShown || !hasProjects;
 
   // Keep the prewarmed session in sync with the active workspace.
   // Derive the agent command outside the effect so it only re-fires when the
@@ -676,7 +681,7 @@ function App() {
                 <div
                   key={key}
                   style={
-                    key === activeWorkspaceKey && hasTabs && !projectsOverviewShown
+                    key === activeWorkspaceKey && hasTabs && !showProjectsOverview
                       ? TAB_VISIBLE_STYLE
                       : TAB_HIDDEN_STYLE
                   }
@@ -688,20 +693,18 @@ function App() {
                   />
                 </div>
               ))}
-              {(projectsOverviewShown || !(activeWorkspacePath && hasTabs)) && (
+              {(showProjectsOverview || !(activeWorkspacePath && hasTabs)) && (
                 <div className="empty-surface">
                   <div className="drag-region" />
                   <div className="terminal-container">
                     {wizardStillValid && wizardProjectId
                       ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
-                      : projectsOverviewShown
+                      : showProjectsOverview
                       ? <ProjectsOverview onAddLocal={handleAddLocalProject} onAddRemote={handleAddRemoteProject} onDropFolder={handleDropFolder} />
                       : !hasTabs &&
                         (isHomePath(activeWorkspacePath)
                           ? <HomeEmptyState onNewAgent={handleNewAgent} onAddProject={handleAddProject} onOpenPaletteView={handleOpenPaletteView} />
-                          : hasProjects
-                            ? <WorkspaceEmptyState onOpenPaletteView={handleOpenPaletteView} onNewWorkspace={handleNewWorkspace} />
-                            : <WelcomeEmptyState onAddProject={handleAddProject} onDropFolder={handleDropFolder} />)}
+                          : <WorkspaceEmptyState onOpenPaletteView={handleOpenPaletteView} onNewWorkspace={handleNewWorkspace} />)}
                   </div>
                 </div>
               )}

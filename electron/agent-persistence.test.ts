@@ -400,4 +400,92 @@ describe("AgentManager", () => {
       ).toThrow("agentSessionId is immutable");
     });
   });
+
+  describe("hostId (ADR-191 §5)", () => {
+    function savedRecord(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+      return {
+        id: crypto.randomUUID(),
+        agentSessionId: `session-${crypto.randomUUID()}`,
+        name: null,
+        status: "active",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        completedAt: null,
+        activatedAt: null,
+        projectId: null,
+        projectName: null,
+        workspacePath: "/w",
+        cwd: "/w",
+        agentKind: "claude",
+        agentCommand: null,
+        paneId: null,
+        lastAgentStatus: null,
+        resumedAt: null,
+        ...overrides,
+      };
+    }
+
+    function writeAgents(records: object[]): void {
+      fs.writeFileSync(path.join(tmpDir, "agents.json"), JSON.stringify({ agents: records }));
+    }
+
+    function readAgents(): Array<Record<string, unknown>> {
+      return JSON.parse(fs.readFileSync(path.join(tmpDir, "agents.json"), "utf-8")).agents;
+    }
+
+    const projectHosts: Record<string, string> = { remote: "box", here: "local" };
+    const hostOfProject = (projectId: string | null) =>
+      (projectId && projectHosts[projectId]) || "local";
+
+    it("records the host a new agent was created on", () => {
+      const m = new AgentManager(tmpDir, 90, hostOfProject);
+      const agent = m.createAgent({ ...savedRecord({ projectId: "here" }), hostId: "box" } as never);
+      expect(agent.hostId).toBe("box");
+    });
+
+    it("gives a new agent with no host its project's host", () => {
+      const m = new AgentManager(tmpDir, 90, hostOfProject);
+      const remote = m.createAgent(savedRecord({ projectId: "remote" }) as never);
+      const local = m.createAgent(savedRecord({ projectId: null }) as never);
+      expect(remote.hostId).toBe("box");
+      expect(local.hostId).toBe("local");
+    });
+
+    it("migrates a record without a host to its project's host, and writes it back", () => {
+      const remote = savedRecord({ projectId: "remote" });
+      const local = savedRecord({ projectId: "here" });
+      const orphan = savedRecord({ projectId: "deleted-project" });
+      writeAgents([remote, local, orphan]);
+
+      const m = new AgentManager(tmpDir, 90, hostOfProject);
+
+      expect(m.getAgentById(remote.id as string)!.hostId).toBe("box");
+      expect(m.getAgentById(local.id as string)!.hostId).toBe("local");
+      expect(m.getAgentById(orphan.id as string)!.hostId).toBe("local");
+      expect(readAgents().map((a) => a.hostId)).toEqual(["box", "local", "local"]);
+    });
+
+    it("keeps a recorded host, even when its project now lives elsewhere", () => {
+      // The pane stayed on the box after its project moved local (ADR-183).
+      const moved = savedRecord({ projectId: "here", hostId: "box" });
+      writeAgents([moved]);
+      const before = fs.readFileSync(path.join(tmpDir, "agents.json"), "utf-8");
+
+      const m = new AgentManager(tmpDir, 90, hostOfProject);
+
+      expect(m.getAgentById(moved.id as string)!.hostId).toBe("box");
+      // Nothing to migrate: the file is not rewritten.
+      expect(fs.readFileSync(path.join(tmpDir, "agents.json"), "utf-8")).toBe(before);
+    });
+
+    it("migrates once: a second load leaves a migrated record's host alone", () => {
+      const record = savedRecord({ projectId: "remote" });
+      writeAgents([record]);
+      new AgentManager(tmpDir, 90, hostOfProject);
+
+      // The project later moves local; the agent's recorded host must not.
+      const m = new AgentManager(tmpDir, 90, () => "local");
+      expect(m.getAgentById(record.id as string)!.hostId).toBe("box");
+    });
+  });
 });

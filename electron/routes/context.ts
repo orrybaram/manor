@@ -17,7 +17,8 @@ import type { ProjectInfo, WorkspaceInfo } from "../persistence";
 import type { LayoutPersistence } from "../terminal-host/layout-persistence";
 import { findWorkspaceForPane, matchProjectByPath } from "../pane-context";
 import { availableSources } from "../issue-backends";
-import { LOCAL_HOST_ID, normalizeHostId } from "../../src/lib/host-id";
+import { LOCAL_HOST_ID } from "../backend/types";
+import { callerMaySee } from "./caller-host";
 import type { Route } from "./types";
 
 /**
@@ -65,9 +66,10 @@ export const contextRoutes: Route[] = [
         (paneId ? deps.sessionOwners?.ownerOf(paneId) : undefined) ??
         LOCAL_HOST_ID;
 
-      const candidates = projects.filter(
-        (p) => normalizeHostId(p.hostId) === normalizeHostId(callerHostId),
-      );
+      // `callerHostId` here is always resolved (never undefined), so this
+      // is an exact-host filter, not `callerMaySee`'s "a local caller sees
+      // everything" — a local caller here is scoped to its own host too.
+      const candidates = projects.filter((p) => callerMaySee(callerHostId, p.hostId));
       const resolved =
         resolveByPane(deps.layoutPersistence, projects, callerHostId, paneId) ??
         (cwd ? matchProjectByPath(projects, callerHostId, cwd) : null);

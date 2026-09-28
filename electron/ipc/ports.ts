@@ -1,17 +1,23 @@
 import { ipcMain } from "electron";
 import type { ActivePort } from "../ports";
 import { portlessManager } from "../portless";
+import {
+  hostSegments,
+  portlessHostFor,
+  portlessHostname,
+} from "../../src/lib/portless-hostname";
 import { remoteFormOfUrl } from "../remote-forwards";
 import { LOCAL_HOST_ID } from "../backend/types";
 import {
   assertHostPaths,
   assertPositiveInt,
   assertString,
+  assertWorkspaceMeta,
 } from "../ipc-validate";
 import type { IpcDeps, WorkspaceMeta } from "./types";
 
 export function register(deps: IpcDeps): void {
-  const { portScanner, backend, remoteForwards, remoteUrlResolver } = deps;
+  const { portScanner, backend, backendRegistry, remoteForwards, remoteUrlResolver } = deps;
 
   function getMainWindow() {
     return deps.mainWindow;
@@ -28,21 +34,23 @@ export function register(deps: IpcDeps): void {
   function enrichPorts(ports: ActivePort[]): ActivePort[] {
     const proxyPort = portlessManager.proxyPort;
     const routes: { hostname: string; port: number }[] = [];
+    const segments = hostSegments(backendRegistry.remoteHostIds());
     const enriched = ports.map((port) => {
-      const meta = workspaceMeta.find((m) => m.path === port.workspacePath);
+      // By host and path: a local and a remote workspace can share a path
+      // (ADR-191).
+      const meta = workspaceMeta.find(
+        (m) => m.path === port.workspacePath && m.hostId === port.hostId,
+      );
       // portlessEnabled === false opts the project out — its ports keep the
       // plain `localhost:<port>` URL and contribute no proxy route.
       if (!meta || !proxyPort || meta.portlessEnabled === false) return port;
-      const hostname = portlessManager.hostnameForPort(
-        meta.path,
-        meta.projectName,
-        meta.branch,
-        meta.isMain,
-      );
+      const host = portlessHostFor(port.hostId, segments);
+      if (host.kind === "unknown") return port;
+      const hostname = portlessHostname(meta, host);
       // A remote port is only reachable through its forward: the route
       // exists once the port has been opened (see `ports:resolveUrl`).
       const target =
-        port.hostId === LOCAL_HOST_ID
+        host.kind === "local"
           ? port.port
           : remoteForwards.localPort(port.hostId, port.port);
       if (target !== undefined) routes.push({ hostname, port: target });
@@ -75,7 +83,8 @@ export function register(deps: IpcDeps): void {
 
   ipcMain.handle(
     "ports:updateWorkspaceMetadata",
-    (_event, meta: WorkspaceMeta[]) => {
+    (_event, meta: unknown) => {
+      assertWorkspaceMeta(meta, "meta");
       workspaceMeta = meta;
     },
   );

@@ -56,6 +56,7 @@ function makeAgent(overrides: Partial<AgentInfo> = {}): AgentInfo {
     activatedAt: null,
     projectId: "project-1",
     projectName: "manor",
+    hostId: "local",
     workspacePath: WS_PATH,
     cwd: WS_PATH,
     agentKind: "claude",

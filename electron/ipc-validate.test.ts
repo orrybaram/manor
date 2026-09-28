@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { assertString, assertNumber, assertPositiveInt } from "./ipc-validate";
+import {
+  assertGhRepo,
+  assertGroupUpdates,
+  assertNumber,
+  assertPositiveInt,
+  assertString,
+  assertWorkspaceMeta,
+} from "./ipc-validate";
 
 describe("assertString", () => {
   it("passes for a normal string", () => {
@@ -163,6 +170,93 @@ describe("assertPositiveInt", () => {
   it("includes the field name and actual value in the error message", () => {
     expect(() => assertPositiveInt(0, "myField")).toThrow(
       "myField: expected positive integer, got 0",
+    );
+  });
+});
+
+describe("assertGroupUpdates", () => {
+  const TEAM = { teamId: "t1", teamName: "Team", teamKey: "TM" };
+
+  it("passes for a well-formed update, a partial one and nulls", () => {
+    expect(() =>
+      assertGroupUpdates(
+        { name: "App", color: "blue", agentCommand: "codex", linearAssociations: [TEAM] },
+        "updates",
+      ),
+    ).not.toThrow();
+    expect(() => assertGroupUpdates({}, "updates")).not.toThrow();
+    expect(() =>
+      assertGroupUpdates({ color: null, agentCommand: null, linearAssociations: null }, "updates"),
+    ).not.toThrow();
+  });
+
+  it("throws for a non-object", () => {
+    expect(() => assertGroupUpdates(null, "updates")).toThrow("updates: expected object, got null");
+    expect(() => assertGroupUpdates("x", "updates")).toThrow("updates: expected object");
+    expect(() => assertGroupUpdates([], "updates")).toThrow("updates: expected object");
+  });
+
+  it("throws for a field of the wrong type", () => {
+    expect(() => assertGroupUpdates({ name: null }, "updates")).toThrow("updates.name");
+    expect(() => assertGroupUpdates({ color: 3 }, "updates")).toThrow("updates.color");
+    expect(() => assertGroupUpdates({ agentCommand: {} }, "updates")).toThrow(
+      "updates.agentCommand",
+    );
+    expect(() => assertGroupUpdates({ linearAssociations: "TM" }, "updates")).toThrow(
+      "updates.linearAssociations",
+    );
+  });
+
+  it("throws for a malformed Linear association", () => {
+    expect(() => assertGroupUpdates({ linearAssociations: [TEAM, null] }, "updates")).toThrow(
+      "updates.linearAssociations[1]",
+    );
+    expect(() =>
+      assertGroupUpdates({ linearAssociations: [{ ...TEAM, teamKey: 1 }] }, "updates"),
+    ).toThrow("updates.linearAssociations[0]");
+  });
+});
+
+describe("assertGhRepo", () => {
+  it("passes for a path and a host", () => {
+    expect(() => assertGhRepo({ path: "/a", hostId: "box" }, "repo")).not.toThrow();
+  });
+
+  it("throws for a bare path or a missing host", () => {
+    expect(() => assertGhRepo("/a", "repo")).toThrow("repo: expected object, got string");
+    expect(() => assertGhRepo({ path: "/a" }, "repo")).toThrow(
+      "repo.hostId: expected string, got undefined",
+    );
+  });
+});
+
+describe("assertWorkspaceMeta", () => {
+  const entry = {
+    path: "/a",
+    hostId: "local",
+    projectName: null,
+    branch: "main",
+    isMain: true,
+    portlessEnabled: true,
+  };
+
+  it("passes for well-formed entries", () => {
+    expect(() => assertWorkspaceMeta([entry, { ...entry, projectName: "x" }], "meta")).not.toThrow();
+  });
+
+  it("throws for an entry without a host", () => {
+    const { hostId: _hostId, ...noHost } = entry;
+    expect(() => assertWorkspaceMeta([noHost], "meta")).toThrow(
+      "meta[0].hostId: expected string, got undefined",
+    );
+  });
+
+  it("throws for a mistyped field", () => {
+    expect(() => assertWorkspaceMeta([{ ...entry, branch: 1 }], "meta")).toThrow(
+      "meta[0].branch: expected string or null, got number",
+    );
+    expect(() => assertWorkspaceMeta([{ ...entry, isMain: "yes" }], "meta")).toThrow(
+      "meta[0].isMain: expected boolean, got string",
     );
   });
 });

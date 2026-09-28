@@ -12,10 +12,12 @@ import { Row, Stack } from "../ui/Layout/Layout";
 import { Button } from "../ui/Button/Button";
 import { Link } from "../ui/Link/Link";
 import { sanitizeBranchName, branchesEqual } from "../../utils/branch-name";
+import type { GhRepo } from "../../lib/gh-repo";
 import styles from "./CommandPalette.module.css";
 
 type GitHubIssueDetailViewProps = {
-  repoPath: string;
+  /** The project's checkout, on its host (ADR-191). */
+  repo: GhRepo;
   issueNumber: number;
   /** When known, looked up by URL so an issue from another repo still resolves. */
   issueUrl?: string;
@@ -36,8 +38,8 @@ type GitHubIssueDetailViewProps = {
  * failure is reported even though it is not awaited. Silently dropping it is the
  * bug ADR-152 exists to remove, not a lighter version of it.
  */
-function assignIssueBestEffort(repoPath: string, issueNumber: number): void {
-  window.electronAPI.github.assignIssue(repoPath, issueNumber).catch((err) => {
+function assignIssueBestEffort(repo: GhRepo, issueNumber: number): void {
+  window.electronAPI.github.assignIssue(repo, issueNumber).catch((err) => {
     addErrorToast(
       `assign-issue-error-gh-${issueNumber}`,
       "Failed to assign issue",
@@ -47,15 +49,15 @@ function assignIssueBestEffort(repoPath: string, issueNumber: number): void {
 }
 
 export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
-  const { repoPath, issueNumber, issueUrl, onBack, onClose, onNewWorkspace, onNewAgentWithPrompt, linkedTo, projectId, workspacePath } = props;
+  const { repo, issueNumber, issueUrl, onBack, onClose, onNewWorkspace, onNewAgentWithPrompt, linkedTo, projectId, workspacePath } = props;
 
   const projects = useProjectStore((s) => s.projects);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
 
   const { data: issueDetail, isLoading, error, refetch } = useQuery({
-    queryKey: ["github-issue-detail", repoPath, issueNumber, issueUrl],
+    queryKey: ["github-issue-detail", repo.hostId, repo.path, issueNumber, issueUrl],
     queryFn: () =>
-      window.electronAPI.github.getIssueDetail(repoPath, issueNumber, issueUrl),
+      window.electronAPI.github.getIssueDetail(repo, issueNumber, issueUrl),
     staleTime: 60_000,
     // `gh` failures (wrong repo, not found, auth) are deterministic, and each
     // attempt can take up to its 10s timeout — the default three retries with
@@ -64,8 +66,8 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
   });
 
   const findProject = useCallback(() => {
-    return projects.find((p) => p.path === repoPath);
-  }, [projects, repoPath]);
+    return projects.find((p) => p.path === repo.path && p.hostId === repo.hostId);
+  }, [projects, repo]);
 
   const handleCreateWorkspace = useCallback(() => {
     if (!issueDetail) return;
@@ -107,8 +109,8 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
         url: issueDetail.url,
       },
     });
-    assignIssueBestEffort(repoPath, issueDetail.number);
-  }, [issueDetail, findProject, selectWorkspace, onClose, onNewWorkspace, repoPath]);
+    assignIssueBestEffort(repo, issueDetail.number);
+  }, [issueDetail, findProject, selectWorkspace, onClose, onNewWorkspace, repo]);
 
   const handleOpenInBrowser = useCallback(() => {
     if (!issueDetail) return;
@@ -120,7 +122,7 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
     if (!issueDetail) return;
     const prompt = issueDetail.title + "\n\n" + (issueDetail.body ?? "");
     onNewAgentWithPrompt?.(prompt);
-    assignIssueBestEffort(repoPath, issueDetail.number);
+    assignIssueBestEffort(repo, issueDetail.number);
     onClose();
 
     const activeWorkspacePath = useAppStore.getState().activeWorkspacePath;
@@ -140,7 +142,7 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
         },
       );
     }
-  }, [issueDetail, onNewAgentWithPrompt, repoPath, onClose]);
+  }, [issueDetail, onNewAgentWithPrompt, repo, onClose]);
 
   const handleUnlink = useCallback(async () => {
     if (!projectId || !workspacePath) return;
@@ -165,7 +167,7 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
   const handleCloseTicket = useCallback(async () => {
     if (!projectId || !workspacePath) return;
     try {
-      await window.electronAPI.github.closeIssue(repoPath, issueNumber);
+      await window.electronAPI.github.closeIssue(repo, issueNumber);
     } catch (err) {
       addErrorToast(
         `close-issue-error-gh-${issueNumber}`,
@@ -192,7 +194,7 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
       return;
     }
     useProjectStore.getState().loadProjects();
-  }, [projectId, workspacePath, repoPath, issueNumber, onClose]);
+  }, [projectId, workspacePath, repo, issueNumber, onClose]);
 
   const handleCreateWorkspaceRef = useRef(handleCreateWorkspace);
   handleCreateWorkspaceRef.current = handleCreateWorkspace;

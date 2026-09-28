@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Command } from "cmdk";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import { IssueListSkeleton } from "./IssueListSkeleton";
+import type { GhRepo } from "../../lib/gh-repo";
 import styles from "./CommandPalette.module.css";
 
 const STATE_OPTIONS = [
@@ -11,13 +12,14 @@ const STATE_OPTIONS = [
 ] as const;
 
 type GitHubIssuesViewProps = {
-  repoPath: string;
+  /** The project's checkout, on its host (ADR-191). */
+  repo: GhRepo;
   onSelectIssue: (issueNumber: number) => void;
   onEmptyChange?: (empty: boolean) => void;
 };
 
 export function GitHubIssuesView(props: GitHubIssuesViewProps) {
-  const { repoPath, onSelectIssue, onEmptyChange } = props;
+  const { repo, onSelectIssue, onEmptyChange } = props;
 
   const [myIssues, setMyIssues] = useState(() => {
     const saved = localStorage.getItem("github-issues-filter:myIssues");
@@ -55,12 +57,12 @@ export function GitHubIssuesView(props: GitHubIssuesViewProps) {
       : (stateFilter[0] as "open" | "closed");
 
   const { data: issues = [], isLoading } = useQuery({
-    queryKey: ["github-issues", repoPath, myIssues, ghState],
+    queryKey: ["github-issues", repo.hostId, repo.path, myIssues, ghState],
     queryFn: () =>
       myIssues
-        ? window.electronAPI.github.getMyIssues(repoPath, 50, ghState)
-        : window.electronAPI.github.getAllIssues(repoPath, 50, ghState),
-    enabled: !!repoPath,
+        ? window.electronAPI.github.getMyIssues(repo, 50, ghState)
+        : window.electronAPI.github.getAllIssues(repo, 50, ghState),
+    enabled: !!repo.path,
     staleTime: 0,
     refetchOnMount: "always",
   });

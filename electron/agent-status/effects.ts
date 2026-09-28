@@ -13,14 +13,14 @@
  *   persist → unseen add/clear → notify → broadcast
  */
 
-import type { AgentInfo } from "../agent-persistence";
+import { agentHostId, type AgentInfo, type NewAgent, type PaneHostLookup } from "../agent-persistence";
 import { cleanAgentTitle } from "../title-utils";
 import type { AgentStatus as WireAgentStatus } from "../terminal-host/types";
 import type { AgentKind, AgentStatus, AgentStatusTransition, Effect } from "./types";
 
 /** Structural interface for the Agent persistence layer (fakes in tests). */
 export interface IAgentManager {
-  createAgent(data: Omit<AgentInfo, "id" | "createdAt" | "updatedAt" | "activatedAt">): AgentInfo;
+  createAgent(data: NewAgent): AgentInfo;
   updateAgent(id: string, updates: Partial<AgentInfo>): AgentInfo | null;
   getAgentBySessionId(sessionId: string): AgentInfo | null;
   getAgentByPaneId(paneId: string): AgentInfo | null;
@@ -47,6 +47,11 @@ export interface PaneStatusUpdate {
 export interface EffectApplierDeps {
   agentManager: IAgentManager;
   getPaneContext: (paneId: string) => PaneContext | undefined;
+  /**
+   * The host that runs a pane's terminal: its session owner, if any host has
+   * claimed it (ADR-191 §5).
+   */
+  getPaneHostId: PaneHostLookup;
   unseenRespondedAgents: Set<string>;
   unseenInputAgents: Set<string>;
   /** Broadcast an `agent-updated` event and refresh the dock badge. */
@@ -137,6 +142,8 @@ function applyCreateAgent(
     completedAt: null,
     projectId: paneContext?.projectId ?? null,
     projectName: paneContext?.projectName ?? null,
+    // Undefined when no host owns the pane yet: the Agent manager falls back.
+    hostId: deps.getPaneHostId(effect.paneId),
     workspacePath: paneContext?.workspacePath ?? null,
     cwd: paneContext?.workspacePath ?? "",
     agentKind: effect.agentKind,
@@ -157,6 +164,16 @@ function applyCreateAgent(
   }
 }
 
+/**
+ * The host update to fold into a transition's write: the pane's session owner
+ * when it differs from the recorded host, so an Agent whose pane moved host
+ * (ADR-183) is judged by the new host after a restart too (ADR-191 §5).
+ */
+function hostUpdate(agent: AgentInfo, deps: EffectApplierDeps): Partial<AgentInfo> {
+  const hostId = agentHostId(agent, deps.getPaneHostId);
+  return hostId === agent.hostId ? {} : { hostId };
+}
+
 function applyTransition(
   sessionId: string,
   transition: AgentStatusTransition,
@@ -164,12 +181,14 @@ function applyTransition(
 ): void {
   const existing = deps.agentManager.getAgentBySessionId(sessionId);
   if (!existing) return;
+  const host = hostUpdate(existing, deps);
   const prevStatus = existing.lastAgentStatus;
   const now = new Date().toISOString();
 
   switch (transition.to) {
     case "active": {
       const agent = deps.agentManager.updateAgent(existing.id, {
+        ...host,
         lastAgentStatus: transition.status,
         status: "active",
         ...(existing.activatedAt ? {} : { activatedAt: now }),
@@ -186,6 +205,7 @@ function applyTransition(
 
     case "responded": {
       const agent = deps.agentManager.updateAgent(existing.id, {
+        ...host,
         lastAgentStatus: "responded",
         status: "active",
       });
@@ -201,6 +221,7 @@ function applyTransition(
       // ADR-184: an ended session's last Agent status is `idle` (the old relay
       // wrote "complete"); the lifecycle carries the outcome.
       const agent = deps.agentManager.updateAgent(existing.id, {
+        ...host,
         lastAgentStatus: "idle",
         status: "completed",
         completedAt: now,
@@ -215,6 +236,7 @@ function applyTransition(
 
     case "error": {
       const agent = deps.agentManager.updateAgent(existing.id, {
+        ...host,
         lastAgentStatus: "error",
         status: "error",
         completedAt: now,
@@ -231,6 +253,7 @@ function applyTransition(
       // Was the direct write in `agents:abandonForPane` / `/sessions/end`.
       // Unseen flags are left as they were, as before.
       const agent = deps.agentManager.updateAgent(existing.id, {
+        ...host,
         status: "abandoned",
         completedAt: now,
       });

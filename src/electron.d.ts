@@ -1,6 +1,7 @@
 import type { PrComment, PrInfo } from "./lib/pr-info";
 import type { HarnessKind } from "./lib/harness";
 import type { HostId } from "./lib/hosts";
+import type { GhRepo } from "./lib/gh-repo";
 import type { DetachedTabPayload } from "./store/detach-types";
 import type { RecordingCommand as WebviewRecordingCommand } from "./lib/webview-recorder";
 import type {
@@ -56,6 +57,8 @@ export interface AgentInfo {
   activatedAt: string | null;
   projectId: string | null;
   projectName: string | null;
+  /** The host the agent's terminal runs on (ADR-191 §5). */
+  hostId: HostId;
   workspacePath: string | null;
   cwd: string;
   agentKind: "claude" | "opencode" | "codex";
@@ -588,10 +591,21 @@ export interface ElectronAPI {
       projectId: string,
       otherId: string,
     ) => Promise<import("./store/project-store").ProjectGroupInfo>;
-    /** ADR-192: take a project out of its group; its workspaces and settings stay. */
+    /**
+     * ADR-192: take a project out of its group. It keeps the group's shared
+     * settings as its own; its workspaces and other settings stay.
+     */
     unlink: (projectId: string) => Promise<void>;
-    /** ADR-192: dissolve a group; every member stays as it is, just unlinked. */
+    /** ADR-192: dissolve a group; every member keeps the shared settings. */
     unlinkGroup: (groupId: string) => Promise<void>;
+    /**
+     * ADR-192 ticket 2: set a group's shared settings (name, color, agent
+     * command, Linear). Resolves to every member as it now reads.
+     */
+    updateGroup: (
+      groupId: string,
+      updates: import("./store/project-store").GroupUpdatableFields,
+    ) => Promise<import("./store/project-store").ProjectInfo[]>;
     update: (
       projectId: string,
       updates: import("./store/project-store").ProjectUpdatableFields,
@@ -682,6 +696,7 @@ export interface ElectronAPI {
     updateWorkspaceMetadata: (
       meta: Array<{
         path: string;
+        hostId: string;
         projectName: string | null;
         branch: string | null;
         isMain: boolean;
@@ -758,9 +773,12 @@ export interface ElectronAPI {
   };
 
   github: {
-    getPrForBranch: (repoPath: string, branch: string) => Promise<unknown>;
+    /**
+     * Every checkout names its project's host (`ghRepoOf`): a local and a
+     * remote one can share a path (ADR-191).
+     */
     getPrsForBranches: (
-      repoPath: string,
+      repo: GhRepo,
       branches: string[],
     ) => Promise<[string, PrInfo | null][]>;
     checkStatus: () => Promise<{
@@ -769,22 +787,22 @@ export interface ElectronAPI {
       username?: string;
     }>;
     getMyIssues: (
-      repoPath: string,
+      repo: GhRepo,
       limit?: number,
       state?: "open" | "closed" | "all",
     ) => Promise<GitHubIssue[]>;
     getAllIssues: (
-      repoPath: string,
+      repo: GhRepo,
       limit?: number,
       state?: "open" | "closed" | "all",
     ) => Promise<GitHubIssue[]>;
     getIssueDetail: (
-      repoPath: string,
+      repo: GhRepo,
       issueNumber: number,
       issueUrl?: string,
     ) => Promise<GitHubIssueDetail>;
-    assignIssue: (repoPath: string, issueNumber: number) => Promise<void>;
-    closeIssue: (repoPath: string, issueNumber: number) => Promise<void>;
+    assignIssue: (repo: GhRepo, issueNumber: number) => Promise<void>;
+    closeIssue: (repo: GhRepo, issueNumber: number) => Promise<void>;
     createIssue: (
       title: string,
       body: string,

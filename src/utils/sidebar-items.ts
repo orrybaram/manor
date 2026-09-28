@@ -535,7 +535,7 @@ export function insertFolderBefore(
  */
 export function visibleWorkspacePaths(
   items: SidebarItem[],
-  collapsedFolderIds: Set<string>,
+  collapsedFolderIds: ReadonlySet<string>,
 ): string[] {
   const paths: string[] = [];
   const walk = (list: SidebarItem[]) => {
@@ -716,6 +716,122 @@ export function applyGroupDrop(
   const at = locate(base, pred.key);
   if (!at) return insertBlock(base, null, base.length, block);
   return insertBlock(base, at.parentId, at.index + 1, block);
+}
+
+// ── Selection scope: a project, or a group's host sections (ADR-192 t7) ──
+
+/**
+ * A selected row's key: its member project and its path. Two hosts of one
+ * linked group can hold byte-identical paths, so a bare path can't name a row
+ * of a group-wide selection; the project id also routes each bulk action to
+ * the member that owns the workspace. NUL can't occur in either half.
+ */
+export function selectionKey(projectId: string, path: string): string {
+  return `${projectId}\u0000${path}`;
+}
+
+/**
+ * One project's slice of a selection scope. A lone project is a scope of one
+ * section; a linked group's host sections share a scope, so a selection can
+ * span them.
+ */
+export type SelectionSection<P extends Pick<ProjectInfo, "id"> = ProjectInfo> = {
+  project: P;
+  items: SidebarItem[];
+  /** Folders collapsed in this section: their members are off screen. */
+  collapsedFolderIds: ReadonlySet<string>;
+  /** The whole section is collapsed: none of its rows are on screen. */
+  collapsed: boolean;
+};
+
+/** What one selection is shared across: its id is the project's or the group's. */
+export type SelectionScope<P extends Pick<ProjectInfo, "id"> = ProjectInfo> = {
+  id: string;
+  sections: SelectionSection<P>[];
+};
+
+/**
+ * Every row a shift-click range can land on, as selection keys: each open
+ * section's `visibleWorkspacePaths`, in section order — so a range dragged
+ * past the end of one host's section carries on into the next.
+ */
+export function visibleSelectionKeys(
+  sections: readonly SelectionSection<Pick<ProjectInfo, "id">>[],
+): string[] {
+  return sections.flatMap((section) =>
+    section.collapsed
+      ? []
+      : visibleWorkspacePaths(section.items, section.collapsedFolderIds).map(
+          (path) => selectionKey(section.project.id, path),
+        ),
+  );
+}
+
+/**
+ * The selection key of the workspace at `path` (the active one, standing in
+ * as an anchor), or null when no section shows it. When two hosts share the
+ * path, the first of `preferProjectIds` to own it wins — the project whose
+ * workspace is actually open should come first, so a Cmd-click in one
+ * section never seeds its twin of a row the user was never on.
+ */
+export function selectionKeyForPath(
+  sections: readonly SelectionSection<Pick<ProjectInfo, "id">>[],
+  path: string | null,
+  preferProjectIds: readonly (string | null | undefined)[] = [],
+): string | null {
+  if (path === null) return null;
+  const owners = sections.filter((section) =>
+    visibleWorkspacePaths(section.items, new Set()).includes(path),
+  );
+  const preferred = preferProjectIds
+    .map((id) => owners.find((section) => section.project.id === id))
+    .find((section) => section !== undefined);
+  const owner = preferred ?? owners[0];
+  return owner ? selectionKey(owner.project.id, path) : null;
+}
+
+/** One section's share of a selection, in tree order. */
+export type SectionSelection<P extends Pick<ProjectInfo, "id"> = ProjectInfo> = {
+  section: SelectionSection<P>;
+  workspaces: WorkspaceInfo[];
+};
+
+/**
+ * Splits `keys` by the section that owns each row, so every bulk action runs
+ * against its own member project. Sections with nothing selected are left
+ * out. Within a section, rows on screen come first, in tree order, then any
+ * a collapsed folder or section hides — the order a bulk "New Folder" and a
+ * group drag place them in (ADR-190 §2). A key naming no row in the tree (a
+ * workspace since deleted or hidden) is dropped, so a stale entry can never
+ * drive a bulk action on a row that isn't shown.
+ */
+export function selectionBySection<P extends Pick<ProjectInfo, "id">>(
+  sections: readonly SelectionSection<P>[],
+  keys: ReadonlySet<string>,
+): SectionSelection<P>[] {
+  if (keys.size === 0) return [];
+  const result: SectionSelection<P>[] = [];
+  for (const section of sections) {
+    const shown: WorkspaceInfo[] = [];
+    const offScreen: WorkspaceInfo[] = [];
+    const walk = (list: SidebarItem[], visible: boolean) => {
+      for (const item of list) {
+        if (isFolder(item)) {
+          walk(
+            item.children,
+            visible && !section.collapsedFolderIds.has(item.folder.id),
+          );
+          continue;
+        }
+        if (!keys.has(selectionKey(section.project.id, item.ws.path))) continue;
+        (visible ? shown : offScreen).push(item.ws);
+      }
+    };
+    walk(section.items, !section.collapsed);
+    const workspaces = [...shown, ...offScreen];
+    if (workspaces.length > 0) result.push({ section, workspaces });
+  }
+  return result;
 }
 
 // ── Top level: projects and linked-project groups (ADR-192) ──

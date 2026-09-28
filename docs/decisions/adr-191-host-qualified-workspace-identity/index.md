@@ -202,9 +202,22 @@ caller also gets its host scoped, which ADR-189 left open.
 ### 5. Agents follow their pane's host (#242)
 
 `isAgentHostConnected` asks `SessionOwners` for the host that owns the
-agent's pane, and uses the project's host only when the pane has no owner.
-Saved agents record `hostId`. A record without one takes its project's host
-on load.
+agent's pane. Saved agents record `hostId`: the pane's owner when the agent
+is created (its project's host if no host has claimed the pane yet), updated
+on each later hook if the pane's owner has changed. So an agent whose pane
+moved host (ADR-183) follows it across a restart, too. When the pane has no
+owner, as after a restart before its host reconnects, the check uses the
+recorded host. A record without one takes its project's host on load; "no
+`hostId`" is the migration marker, so the record is written back at once and
+migrates only once.
+
+This departs from story 10 of #237 ("saved files stay as they are"): a
+local-only user's `agents.json` is rewritten once, to add `"hostId": "local"`
+to each record. It is a small cost. Manor rewrites `agents.json` on every
+agent update anyway, so the file is not stable to begin with. And the
+write-back is what makes the migration safe: a record left without a host
+would be re-derived from its project on every load, so moving the project to
+another host later would silently move its old agents too.
 
 ### 6. GitHub cache and portless hostnames by host (#243)
 

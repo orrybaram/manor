@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ListTodo from "lucide-react/dist/esm/icons/list-todo";
 import { useProjectStore } from "../../store/project-store";
+import { ghRepoOf } from "../../lib/gh-repo";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import type { PaletteView } from "../command-palette/types";
 import type { ActionItem } from "./EmptyStateShell";
@@ -20,7 +21,14 @@ export function useIssuesShortcut(
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const project = projects[selectedProjectIndex];
-  const repoPath = project?.path ?? null;
+  // On the project's host: a local and a remote checkout can share a path.
+  // Memoized on the strings, so a store update doesn't make a new repo.
+  const repoPath = project?.path;
+  const repoHostId = project?.hostId;
+  const repo = useMemo(
+    () => (repoPath === undefined ? null : ghRepoOf({ path: repoPath, hostId: repoHostId })),
+    [repoPath, repoHostId],
+  );
 
   const teamIds = useMemo(
     () => project?.linearAssociations?.map((a) => a.teamId) ?? [],
@@ -59,12 +67,12 @@ export function useIssuesShortcut(
   // Probe the active tracker for at least one assigned issue.
   const tracker: "linear" | "github" | null = linearLinked
     ? "linear"
-    : githubAvailable && repoPath
+    : githubAvailable && repo
       ? "github"
       : null;
 
   const probeKey = tracker
-    ? `${tracker}:${tracker === "linear" ? teamIdsKey : repoPath}`
+    ? `${tracker}:${tracker === "linear" ? teamIdsKey : `${repo?.hostId}:${repo?.path}`}`
     : null;
 
   useEffect(() => {
@@ -76,7 +84,7 @@ export function useIssuesShortcut(
         ? window.electronAPI.linear.getMyIssues(teamIdsKey.split(","), {
             limit: 1,
           })
-        : window.electronAPI.github.getMyIssues(repoPath!, 1);
+        : window.electronAPI.github.getMyIssues(repo!, 1);
 
     probe
       .then((issues) => {
@@ -90,7 +98,7 @@ export function useIssuesShortcut(
     return () => {
       cancelled = true;
     };
-  }, [probeKey, tracker, teamIdsKey, repoPath]);
+  }, [probeKey, tracker, teamIdsKey, repo]);
 
   const handleGitHubInstalled = useCallback(() => {
     setGithubNotInstalled(false);

@@ -110,38 +110,6 @@ export class PortlessManager {
   updateRoutes(routes: RouteInfo[]): void {
     this.routes = routes;
   }
-
-  /**
-   * Compute the `.localhost` hostname for a given project.
-   *
-   * Base slug: `projectName` or `basename(workspacePath)`, sanitized
-   * (lowercase, non-alphanumeric → hyphens, max 63 chars).
-   *
-   * If `branch` is set and `!isMain`, returns `${branch}.${base}.localhost`.
-   * Otherwise returns `${base}.localhost`.
-   */
-  hostnameForPort(
-    workspacePath: string,
-    projectName: string | undefined | null,
-    branch: string | undefined | null,
-    isMain: boolean,
-  ): string {
-    const sanitize = (s: string): string =>
-      s
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-        .slice(0, 63);
-
-    const rawBase = projectName || path.basename(workspacePath);
-    const base = sanitize(rawBase);
-
-    if (branch && !isMain) {
-      return `${sanitize(branch)}.${base}.localhost`;
-    }
-
-    return `${base}.localhost`;
-  }
 }
 
 export const portlessManager = new PortlessManager();

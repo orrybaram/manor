@@ -9,6 +9,7 @@ import crypto from "node:crypto";
 import { ExecShellBackend } from "../backend/exec-shell";
 import { localFacts } from "../backend/machine-facts";
 import { LOCAL_HOST_ID, type GitBackend, type HostSpec } from "../backend/types";
+import { splitShared } from "../../src/lib/project-groups";
 import { manorDataDir } from "../paths";
 import type { HostPath } from "../per-host-poller";
 import { detectDefaultBranch, listLocalBranches, listRemoteBranches, resyncDefaultBranches } from "./branches";
@@ -22,6 +23,7 @@ import { StateStore } from "./state-store";
 import * as folders from "./workspace-folders";
 import * as worktrees from "./worktrees";
 import type {
+  GroupUpdatableFields,
   IssueSeed,
   LinkedIssue,
   PersistedProject,
@@ -80,7 +82,7 @@ export class ProjectManager {
       p,
       this.hostFor(p.hostId).git,
       this.paths,
-      groups.groupInfoFor(this.store.state, p.id),
+      groups.groupOf(this.store.state, p.id),
     );
   }
 
@@ -96,6 +98,11 @@ export class ProjectManager {
     this.hosts.save(hostId, spec);
     // A new address may be a different machine: re-ask its home.
     this.paths.forgetHost(hostId);
+  }
+
+  /** How `hostId` is named to people: its ssh target, or "this Mac". */
+  hostLabel(hostId: string): string {
+    return this.hosts.label(hostId);
   }
 
   /** Throws unless `hostId` is this machine or a registered host. */
@@ -334,6 +341,9 @@ export class ProjectManager {
    * A `~` worktree root is stored as written and expanded only when read,
    * so it keeps meaning "home" on whichever host the project moves to
    * (ADR-183) — and saving one never asks the host anything.
+   *
+   * For a grouped project the shared settings (name, color, agent command,
+   * Linear) are the group's, so those go to the group (ADR-192).
    */
   async updateProject(
     projectId: string,
@@ -341,8 +351,17 @@ export class ProjectManager {
   ): Promise<ProjectInfo | null> {
     const project = this.findProject(projectId);
     if (!project) return null;
-    Object.assign(project, updates);
-    this.store.save();
+    const group = groups.groupOf(this.store.state, projectId);
+    const { shared, own } = group
+      ? splitShared(updates)
+      : { shared: {}, own: updates };
+    Object.assign(project, own);
+    if (group && Object.keys(shared).length > 0) {
+      // Saves the project's own changes too.
+      groups.updateGroup(this.ctx, group.id, shared);
+    } else {
+      this.store.save();
+    }
     return this.buildProjectInfo(project);
   }
 
@@ -377,12 +396,30 @@ export class ProjectManager {
     return groups.linkProjects(this.ctx, projectId, otherId);
   }
 
-  /** Take a project out of its group; its workspaces and settings stay. */
+  /**
+   * Set a group's shared settings (name, color, agent command, Linear).
+   * Returns every member as the renderer now sees it. Throws on an unknown
+   * group.
+   */
+  async updateGroup(groupId: string, updates: GroupUpdatableFields): Promise<ProjectInfo[]> {
+    const group = groups.updateGroup(this.ctx, groupId, updates);
+    return Promise.all(
+      group.memberIds
+        .map((id) => this.findProject(id))
+        .filter((p): p is PersistedProject => p != null)
+        .map((p) => this.buildProjectInfo(p)),
+    );
+  }
+
+  /**
+   * Take a project out of its group. It keeps the group's shared settings
+   * as its own; its workspaces and other settings stay.
+   */
   unlinkProject(projectId: string): void {
     groups.unlinkProject(this.ctx, projectId);
   }
 
-  /** Dissolve a group; every member stays as it is, just unlinked. */
+  /** Dissolve a group; every member keeps the shared settings, just unlinked. */
   unlinkGroup(groupId: string): void {
     groups.unlinkGroup(this.ctx, groupId);
   }

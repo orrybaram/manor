@@ -11,7 +11,7 @@ import type { DiffWatcher } from "../diff-watcher";
 import type { GitHubManager } from "../github";
 import type { LinearManager } from "../linear";
 import type { AgentHookServer } from "../agent-hooks";
-import type { AgentManager } from "../agent-persistence";
+import type { AgentManager, PaneHostLookup } from "../agent-persistence";
 import type { AgentStatusDriver } from "../agent-status/driver";
 import type { NotificationStore } from "../notification-store";
 import type { StatsStore } from "../stats-store";
@@ -21,12 +21,12 @@ import type { WebviewServer } from "../webview-server";
 import type { PrewarmManager } from "../prewarm-manager";
 import type { RemoteControlController } from "../remote-control/controller";
 import type { AppMenuController } from "../app-menu";
+import type { PortlessWorkspace } from "../../src/lib/portless-hostname";
 
-export interface WorkspaceMeta {
-  path: string;
-  projectName: string | null;
-  branch: string | null;
-  isMain: boolean;
+/** A workspace as the renderer describes it for portless hostnames. */
+export interface WorkspaceMeta extends PortlessWorkspace {
+  /** The workspace's project's host (ADR-191). */
+  hostId: string;
   /** When false, this workspace's ports get no `.localhost` preview hostname. */
   portlessEnabled: boolean;
 }
@@ -45,6 +45,8 @@ export interface IpcDeps {
   backend: RoutedBackend;
   /** Every host and its connection status (ADR-160). */
   backendRegistry: BackendRegistry;
+  /** A pane's session owner, if any host has claimed it (ADR-191 §5). */
+  getPaneHostId: PaneHostLookup;
   layoutPersistence: LayoutPersistence;
   projectManager: ProjectManager;
   themeManager: ThemeManager;

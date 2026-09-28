@@ -121,6 +121,9 @@ function failure(
   };
 }
 
+/** A checkout on this machine. */
+const REPO = { path: "/repo", hostId: "local" };
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -173,7 +176,7 @@ describe("GitHubManager", () => {
         success(JSON.stringify(graphqlResponse)), // gh api graphql (unresolved threads)
       ]);
 
-      const result = await manager.getPrForBranch("/repo", "feat/my-branch");
+      const result = await manager.getPrForBranch(REPO, "feat/my-branch");
 
       expect(result).not.toBeNull();
       expect(result!.number).toBe(42);
@@ -207,7 +210,7 @@ describe("GitHubManager", () => {
         success(JSON.stringify({ data: { repository: { pullRequest: {} } } })),
       ]);
 
-      const result = await manager.getPrForBranch("/repo", "feat/auto");
+      const result = await manager.getPrForBranch(REPO, "feat/auto");
       expect(result!.queuedToMerge).toBe(true);
     });
 
@@ -231,21 +234,21 @@ describe("GitHubManager", () => {
         ),
       ]);
 
-      const result = await manager.getPrForBranch("/repo", "feat/queued");
+      const result = await manager.getPrForBranch(REPO, "feat/queued");
       expect(result!.queuedToMerge).toBe(true);
     });
 
     it("returns null when gh pr list returns empty array", async () => {
       setupExecFileCalls([success("[]")]);
 
-      const result = await manager.getPrForBranch("/repo", "no-pr-branch");
+      const result = await manager.getPrForBranch(REPO, "no-pr-branch");
       expect(result).toBeNull();
     });
 
     it("returns null when gh command fails", async () => {
       setupExecFileCalls([failure("command failed")]);
 
-      const result = await manager.getPrForBranch("/repo", "some-branch");
+      const result = await manager.getPrForBranch(REPO, "some-branch");
       expect(result).toBeNull();
     });
 
@@ -284,7 +287,7 @@ describe("GitHubManager", () => {
         ),
       ]);
 
-      const result = await manager.getPrForBranch("/repo", "branch");
+      const result = await manager.getPrForBranch(REPO, "branch");
       expect(result!.checks).toEqual({
         total: 6,
         passing: 1,
@@ -322,7 +325,7 @@ describe("GitHubManager", () => {
         ),
       ]);
 
-      const result = await manager.getPrForBranch("/repo", "branch");
+      const result = await manager.getPrForBranch(REPO, "branch");
       expect(result!.checks).toBeNull();
     });
 
@@ -354,7 +357,7 @@ describe("GitHubManager", () => {
         ),
       ]);
 
-      const result = await manager.getPrForBranch("/repo", "branch");
+      const result = await manager.getPrForBranch(REPO, "branch");
       expect(result!.checks).toBeNull();
     });
   });
@@ -401,8 +404,8 @@ describe("GitHubManager", () => {
         success(pr({})), // poll 2: pr list only
       ]);
 
-      const first = await manager.getPrForBranch("/repo", "b");
-      const second = await manager.getPrForBranch("/repo", "b");
+      const first = await manager.getPrForBranch(REPO, "b");
+      const second = await manager.getPrForBranch(REPO, "b");
       expect(first!.unresolvedThreads).toBe(2);
       expect(second!.unresolvedThreads).toBe(2);
       expect(mockState.queue).toHaveLength(0);
@@ -416,8 +419,8 @@ describe("GitHubManager", () => {
         success(graphql(0)),
       ]);
 
-      await manager.getPrForBranch("/repo", "b");
-      const second = await manager.getPrForBranch("/repo", "b");
+      await manager.getPrForBranch(REPO, "b");
+      const second = await manager.getPrForBranch(REPO, "b");
       expect(second!.unresolvedThreads).toBe(0);
       expect(mockState.queue).toHaveLength(0);
     });
@@ -429,8 +432,8 @@ describe("GitHubManager", () => {
         success(pr({ state: "MERGED", updatedAt: "2026-09-07T00:00:00Z" })),
       ]);
 
-      await manager.getPrForBranch("/repo", "b");
-      const second = await manager.getPrForBranch("/repo", "b");
+      await manager.getPrForBranch(REPO, "b");
+      const second = await manager.getPrForBranch(REPO, "b");
       expect(second!.unresolvedThreads).toBe(1);
       expect(mockState.queue).toHaveLength(0);
     });
@@ -447,11 +450,11 @@ describe("GitHubManager", () => {
         success(pr({ state: "MERGED" })),
       ]);
 
-      await manager.getPrForBranch("/repo", "b"); // open: silent
+      await manager.getPrForBranch(REPO, "b"); // open: silent
       expect(seen).not.toHaveBeenCalled();
 
-      await manager.getPrForBranch("/repo", "b");
-      await manager.getPrForBranch("/repo", "b");
+      await manager.getPrForBranch(REPO, "b");
+      await manager.getPrForBranch(REPO, "b");
       // Deduping is the listener's job, so both sightings are reported.
       expect(seen.mock.calls).toEqual([
         ["https://github.com/owner/repo/pull/9"],
@@ -466,7 +469,7 @@ describe("GitHubManager", () => {
       });
       setupExecFileCalls([success(pr({ state: "MERGED" })), success(graphql(0))]);
 
-      const result = await manager.getPrForBranch("/repo", "b");
+      const result = await manager.getPrForBranch(REPO, "b");
       expect(result!.state).toBe("merged");
     });
 
@@ -478,9 +481,9 @@ describe("GitHubManager", () => {
         success(graphql(1)),
       ]);
 
-      const first = await manager.getPrForBranch("/repo", "b");
+      const first = await manager.getPrForBranch(REPO, "b");
       expect(first!.unresolvedThreads).toBeUndefined();
-      const second = await manager.getPrForBranch("/repo", "b");
+      const second = await manager.getPrForBranch(REPO, "b");
       expect(second!.unresolvedThreads).toBe(1);
       expect(mockState.queue).toHaveLength(0);
     });
@@ -523,7 +526,7 @@ describe("GitHubManager", () => {
         success(emptyGraphql), // call 4: branch-b graphql
       ]);
 
-      const results = await manager.getPrsForBranches("/repo", [
+      const results = await manager.getPrsForBranches(REPO, [
         "branch-a",
         "branch-b",
       ]);
@@ -542,7 +545,7 @@ describe("GitHubManager", () => {
       // Promise.allSettled fulfills with [branch, null].
       setupExecFileCalls([failure("gh not found")]);
 
-      const results = await manager.getPrsForBranches("/repo", ["bad-branch"]);
+      const results = await manager.getPrsForBranches(REPO, ["bad-branch"]);
       expect(results).toHaveLength(1);
       expect(results[0][0]).toBe("bad-branch");
       expect(results[0][1]).toBeNull();
@@ -566,7 +569,7 @@ describe("GitHubManager", () => {
       ];
       setupExecFileCalls([success(JSON.stringify(issues))]);
 
-      const result = await manager.getMyIssues("/repo");
+      const result = await manager.getMyIssues(REPO);
       expect(result).toEqual(issues);
     });
 
@@ -576,7 +579,7 @@ describe("GitHubManager", () => {
     it("throws on failure rather than reporting an empty backlog", async () => {
       setupExecFileCalls([failure("gh failed")]);
 
-      await expect(manager.getMyIssues("/repo")).rejects.toThrow();
+      await expect(manager.getMyIssues(REPO)).rejects.toThrow();
     });
   });
 
@@ -597,14 +600,14 @@ describe("GitHubManager", () => {
       ];
       setupExecFileCalls([success(JSON.stringify(issues))]);
 
-      const result = await manager.getAllIssues("/repo");
+      const result = await manager.getAllIssues(REPO);
       expect(result).toEqual(issues);
     });
 
     it("throws on failure rather than reporting an empty backlog", async () => {
       setupExecFileCalls([failure("gh error")]);
 
-      await expect(manager.getAllIssues("/repo")).rejects.toThrow();
+      await expect(manager.getAllIssues(REPO)).rejects.toThrow();
     });
   });
 
@@ -625,7 +628,7 @@ describe("GitHubManager", () => {
       };
       setupExecFileCalls([success(JSON.stringify(detail))]);
 
-      const result = await manager.getIssueDetail("/repo", 10);
+      const result = await manager.getIssueDetail(REPO, 10);
       expect(result).toEqual(detail);
     });
 
@@ -633,14 +636,14 @@ describe("GitHubManager", () => {
       const url = "https://github.com/other/repo/issues/10";
       setupExecFileCalls([success(JSON.stringify({ number: 10, url }))]);
 
-      await manager.getIssueDetail("/repo", 10, url);
+      await manager.getIssueDetail(REPO, 10, url);
       expect(mockState.calls[0]).toContain(url);
     });
 
     it("throws on failure (no try/catch in this method)", async () => {
       setupExecFileCalls([failure("gh issue view failed")]);
 
-      await expect(manager.getIssueDetail("/repo", 10)).rejects.toThrow();
+      await expect(manager.getIssueDetail(REPO, 10)).rejects.toThrow();
     });
   });
 
@@ -733,13 +736,13 @@ describe("GitHubManager", () => {
     it("throws on failure rather than silently no-op'ing", async () => {
       setupExecFileCalls([failure("gh error")]);
 
-      await expect(manager.assignIssue("/repo", 5)).rejects.toThrow();
+      await expect(manager.assignIssue(REPO, 5)).rejects.toThrow();
     });
 
     it("completes without error on success", async () => {
       setupExecFileCalls([success("")]);
 
-      await expect(manager.assignIssue("/repo", 5)).resolves.toBeUndefined();
+      await expect(manager.assignIssue(REPO, 5)).resolves.toBeUndefined();
     });
   });
 
@@ -753,13 +756,13 @@ describe("GitHubManager", () => {
     it("throws on failure rather than reporting a closed issue that isn't", async () => {
       setupExecFileCalls([failure("gh error")]);
 
-      await expect(manager.closeIssue("/repo", 5)).rejects.toThrow();
+      await expect(manager.closeIssue(REPO, 5)).rejects.toThrow();
     });
 
     it("completes without error on success", async () => {
       setupExecFileCalls([success("")]);
 
-      await expect(manager.closeIssue("/repo", 5)).resolves.toBeUndefined();
+      await expect(manager.closeIssue(REPO, 5)).resolves.toBeUndefined();
     });
   });
 
@@ -768,13 +771,15 @@ describe("GitHubManager", () => {
   // here against the repo the resolver names instead of inside the path.
   // -------------------------------------------------------------------------
   describe("remote projects", () => {
+    function resolver(repoFor: (hostId: string, path: string) => Promise<string>) {
+      return vi.fn(repoFor);
+    }
+
     it("targets the resolved repo instead of running in the remote path", async () => {
-      const remote = new GitHubManager(async (p) =>
-        p === "/remote/repo" ? "owner/repo" : null,
-      );
+      const remote = new GitHubManager(resolver(async () => "owner/repo"));
       setupExecFileCalls([success("[]")]);
 
-      await remote.getPrForBranch("/remote/repo", "feat/x");
+      await remote.getPrForBranch({ path: "/remote/repo", hostId: "box" }, "feat/x");
 
       expect(mockState.calls[0]).toEqual(
         expect.arrayContaining(["pr", "list", "--repo", "owner/repo"]),
@@ -782,33 +787,65 @@ describe("GitHubManager", () => {
       expect(mockState.cwds[0]).toBeUndefined();
     });
 
-    it("keeps running local paths in their directory", async () => {
-      const remote = new GitHubManager(async () => null);
+    it("keeps running local checkouts in their directory", async () => {
+      const resolve = resolver(async () => "owner/repo");
+      const remote = new GitHubManager(resolve);
       setupExecFileCalls([success("[]")]);
 
-      await remote.getAllIssues("/local/repo");
+      await remote.getAllIssues({ path: "/local/repo", hostId: "local" });
 
       expect(mockState.calls[0]).not.toContain("--repo");
       expect(mockState.cwds[0]).toBe("/local/repo");
+      expect(resolve).not.toHaveBeenCalled();
     });
 
-    it("resolves a remote path's repo once", async () => {
-      const resolve = vi.fn(async () => "owner/repo");
+    it("resolves a remote checkout's repo once", async () => {
+      const resolve = resolver(async () => "owner/repo");
       const remote = new GitHubManager(resolve);
       setupExecFileCalls([success("[]"), success("[]")]);
 
-      await remote.getMyIssues("/remote/repo");
-      await remote.getMyIssues("/remote/repo");
+      await remote.getMyIssues({ path: "/remote/repo", hostId: "box" });
+      await remote.getMyIssues({ path: "/remote/repo", hostId: "box" });
 
-      expect(resolve).toHaveBeenCalledTimes(1);
+      expect(resolve).toHaveBeenCalledOnce();
+      expect(resolve).toHaveBeenCalledWith("box", "/remote/repo");
     });
 
     it("reports no PR when the repo cannot be resolved", async () => {
-      const remote = new GitHubManager(async () => {
-        throw new Error("no origin");
-      });
+      const remote = new GitHubManager(
+        resolver(async () => {
+          throw new Error("no origin");
+        }),
+      );
 
-      await expect(remote.getPrForBranch("/remote/repo", "feat/x")).resolves.toBeNull();
+      await expect(
+        remote.getPrForBranch({ path: "/remote/repo", hostId: "box" }, "feat/x"),
+      ).resolves.toBeNull();
+    });
+
+    // ADR-191: the same path on two hosts is two checkouts.
+    it("keeps separate cache entries for the same path on two hosts", async () => {
+      const resolve = resolver(async (hostId) => `owner/${hostId}-repo`);
+      const remote = new GitHubManager(resolve);
+      setupExecFileCalls([success("[]"), success("[]"), success("[]"), success("[]"), success("[]")]);
+
+      await remote.getMyIssues({ path: "/srv/repo", hostId: "box" });
+      await remote.getMyIssues({ path: "/srv/repo", hostId: "other" });
+      await remote.getMyIssues({ path: "/srv/repo", hostId: "box" });
+      await remote.getMyIssues({ path: "/srv/repo", hostId: "other" });
+      await remote.getMyIssues({ path: "/srv/repo", hostId: "local" });
+
+      expect(resolve).toHaveBeenCalledTimes(2);
+      const repoArg = (args: string[]) =>
+        args.includes("--repo") ? args[args.indexOf("--repo") + 1] : null;
+      expect(mockState.calls.map(repoArg)).toEqual([
+        "owner/box-repo",
+        "owner/other-repo",
+        "owner/box-repo",
+        "owner/other-repo",
+        null,
+      ]);
+      expect(mockState.cwds[4]).toBe("/srv/repo");
     });
   });
 });

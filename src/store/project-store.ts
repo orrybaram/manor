@@ -37,6 +37,9 @@ export type {
 const COLLAPSED_KEY = "manor:collapsedProjectIds";
 const COLLAPSED_FOLDER_KEYS_KEY = "manor:collapsedWorkspaceFolderKeys";
 const SIDEBAR_WIDTH_KEY = "manor:sidebarWidth";
+const SIDEBAR_MODE_KEY = "manor:sidebarMode";
+
+export type SidebarMode = "full" | "rail" | "hidden";
 const PORTS_HEIGHT_KEY = "manor:portsHeight";
 const AGENTS_HEIGHT_KEY = "manor:agentsHeight";
 const DEFAULT_SIDEBAR_WIDTH = 220;
@@ -58,6 +61,16 @@ function loadSidebarWidth(): number {
     /* ignore */
   }
   return DEFAULT_SIDEBAR_WIDTH;
+}
+
+function loadSidebarMode(): SidebarMode {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_MODE_KEY);
+    if (raw === "full" || raw === "rail" || raw === "hidden") return raw;
+  } catch {
+    /* ignore */
+  }
+  return "full";
 }
 
 function loadPortsHeight(): number {
@@ -143,8 +156,7 @@ function sortWorkspacesByOrder(
     if (!index.has(entry)) index.set(entry, i);
   });
   return [...workspaces].sort(
-    (a, b) =>
-      (index.get(a.path) ?? Infinity) - (index.get(b.path) ?? Infinity),
+    (a, b) => (index.get(a.path) ?? Infinity) - (index.get(b.path) ?? Infinity),
   );
 }
 
@@ -196,7 +208,11 @@ function saveCollapsedFolderKeys(keys: Set<string>): void {
  * rendered by WorkspaceSetupView attaches (via `attach` prop) to the same
  * session for live display but never creates or closes the PTY.
  */
-function startSetupScript(wsPath: string, script: string, hostId?: HostId): void {
+function startSetupScript(
+  wsPath: string,
+  script: string,
+  hostId?: HostId,
+): void {
   const sessionId = `setup-${wsPath.replace(/\//g, "-")}`;
   // Reasonable defaults; the view re-fits xterm when/if it mounts.
   const DEFAULT_COLS = 80;
@@ -227,7 +243,9 @@ function startSetupScript(wsPath: string, script: string, hostId?: HostId): void
 
   const handleExit = () => {
     disposeCommandWaiters();
-    useAppStore.getState().updateWorktreeSetupStep(wsPath, "setup-script", "done");
+    useAppStore
+      .getState()
+      .updateWorktreeSetupStep(wsPath, "setup-script", "done");
     useAppStore.getState().completeWorktreeSetup(wsPath);
     // Remove the background persistent toast (ticket 2 creates it; unconditional
     // remove is a no-op if absent).
@@ -305,7 +323,10 @@ export interface DiffStats {
   removed: number;
 }
 
-function checksEqual(a?: ChecksSummary | null, b?: ChecksSummary | null): boolean {
+function checksEqual(
+  a?: ChecksSummary | null,
+  b?: ChecksSummary | null,
+): boolean {
   if (a == null || b == null) return a == b;
   return (
     a.total === b.total &&
@@ -444,9 +465,19 @@ export interface CreateWorktreeOptions {
   useExistingBranch?: boolean;
 }
 
-export type SetupStep = "prune" | "fetch" | "create-worktree" | "persist" | "switch" | "setup-script";
+export type SetupStep =
+  | "prune"
+  | "fetch"
+  | "create-worktree"
+  | "persist"
+  | "switch"
+  | "setup-script";
 export type StepStatus = "pending" | "in-progress" | "done" | "error";
-export type SetupProgressEvent = { step: SetupStep; status: StepStatus; message?: string };
+export type SetupProgressEvent = {
+  step: SetupStep;
+  status: StepStatus;
+  message?: string;
+};
 
 export type ProjectUpdatableFields = Partial<
   Pick<
@@ -470,14 +501,21 @@ export type ProjectUpdatableFields = Partial<
 export type GroupUpdatableFields = Partial<
   Pick<
     ProjectInfo,
-    "name" | "color" | "agentCommand" | "linearAssociations" | "themeName" | "commands"
+    | "name"
+    | "color"
+    | "agentCommand"
+    | "linearAssociations"
+    | "themeName"
+    | "commands"
   >
 >;
 
 interface ProjectState {
   projects: ProjectInfo[];
   selectedProjectIndex: number;
-  sidebarVisible: boolean;
+  sidebarMode: SidebarMode;
+  /** Last mode that wasn't `hidden`; what un-hiding restores. Not persisted. */
+  lastVisibleSidebarMode: "full" | "rail";
   sidebarWidth: number;
   portsHeight: number;
   agentsHeight: number;
@@ -559,16 +597,17 @@ interface ProjectState {
     folderId: string,
     name: string,
   ) => Promise<void>;
-  deleteWorkspaceFolder: (
-    projectId: string,
-    folderId: string,
-  ) => Promise<void>;
+  deleteWorkspaceFolder: (projectId: string, folderId: string) => Promise<void>;
   setWorkspaceFolder: (
     projectId: string,
     workspacePath: string,
     folderId: string | null,
   ) => Promise<void>;
-  convertMainToWorktree: (projectId: string, name: string, branch: string) => Promise<string | null>;
+  convertMainToWorktree: (
+    projectId: string,
+    name: string,
+    branch: string,
+  ) => Promise<string | null>;
   reorderProjects: (orderedIds: string[]) => Promise<void>;
   /**
    * ADR-192: link two projects on different hosts into one group. Errors
@@ -602,7 +641,10 @@ interface ProjectState {
    * ADR-192 ticket 2: set a group's shared settings, shown on every member
    * at once. Errors roll the change back and are shown as a toast.
    */
-  updateGroup: (groupId: string, updates: GroupUpdatableFields) => Promise<void>;
+  updateGroup: (
+    groupId: string,
+    updates: GroupUpdatableFields,
+  ) => Promise<void>;
   /**
    * ADR-192: remember the host a group last made a workspace on, where the
    * New Workspace host picker starts next time. `createWorktree` calls it
@@ -610,15 +652,9 @@ interface ProjectState {
    */
   setGroupLastUsedHost: (groupId: string, hostId: string) => Promise<void>;
   /** Persists a full sidebar order: workspace paths and folder ids. */
-  reorderSidebar: (
-    projectId: string,
-    orderedKeys: string[],
-  ) => Promise<void>;
+  reorderSidebar: (projectId: string, orderedKeys: string[]) => Promise<void>;
   /** Persists a whole sidebar tree: membership changes, then the order. */
-  applySidebarChange: (
-    projectId: string,
-    next: SidebarItem[],
-  ) => Promise<void>;
+  applySidebarChange: (projectId: string, next: SidebarItem[]) => Promise<void>;
   updateProject: (
     projectId: string,
     updates: ProjectUpdatableFields,
@@ -634,7 +670,11 @@ interface ProjectState {
     stats: DiffStats | null,
   ) => void;
   updateWorkspacePr: (workspacePath: string, pr: PrInfo | null) => void;
-  toggleSidebar: () => void;
+  setSidebarMode: (mode: SidebarMode) => void;
+  /** full <-> rail; hidden -> full. */
+  toggleSidebarRail: () => void;
+  /** hidden -> last visible mode; otherwise hidden. */
+  toggleSidebarHidden: () => void;
   setSidebarWidth: (width: number) => void;
   setPortsHeight: (height: number) => void;
   setAgentsHeight: (height: number) => void;
@@ -675,7 +715,9 @@ function closeWorkspacesLeftBehind(
   if (gone.length === 0) return;
   const activeKey = selectActiveWorkspaceKey(useAppStore.getState());
   if (activeKey && gone.includes(activeKey)) {
-    const mainIdx = updated.workspaces.findIndex((ws) => ws.path === updated.path);
+    const mainIdx = updated.workspaces.findIndex(
+      (ws) => ws.path === updated.path,
+    );
     selectWorkspace(updated.id, mainIdx >= 0 ? mainIdx : 0);
   }
   for (const key of gone) useAppStore.getState().removeWorkspaceLayout(key);
@@ -692,7 +734,8 @@ function keepWatchedState(
   previous: ProjectInfo[],
 ): ProjectInfo[] {
   const byPath = new Map<string, WorkspaceInfo>();
-  for (const p of previous) for (const ws of p.workspaces) byPath.set(ws.path, ws);
+  for (const p of previous)
+    for (const ws of p.workspaces) byPath.set(ws.path, ws);
   return fresh.map((p) => ({
     ...p,
     workspaces: p.workspaces.map((ws) => {
@@ -733,10 +776,14 @@ function forgetDissolvedGroup(groupId: string | undefined): void {
   });
 }
 
+const initialSidebarMode = loadSidebarMode();
+
 export const useProjectStore = create<ProjectState>((set, get) => ({
   projects: [],
   selectedProjectIndex: 0,
-  sidebarVisible: true,
+  sidebarMode: initialSidebarMode,
+  lastVisibleSidebarMode:
+    initialSidebarMode === "hidden" ? "full" : initialSidebarMode,
   sidebarWidth: loadSidebarWidth(),
   portsHeight: loadPortsHeight(),
   agentsHeight: loadAgentsHeight(),
@@ -760,7 +807,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }));
       // ADR-192 ticket 5: offer links between existing duplicates, now and
       // as each remote host first connects.
-      if (firstLoad) void startLinkSuggestions(() => get().projects, get().linkProjects);
+      if (firstLoad)
+        void startLinkSuggestions(() => get().projects, get().linkProjects);
     } catch {
       set({ loading: false, initialLoadDone: true });
     }
@@ -796,11 +844,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   moveProjectToHost: async (projectId, opts) => {
     const previous = get().projects.find((p) => p.id === projectId);
-    const updated = await window.electronAPI.projects.moveToHost(projectId, opts);
+    const updated = await window.electronAPI.projects.moveToHost(
+      projectId,
+      opts,
+    );
     set((s) => ({
       projects: s.projects.map((p) => (p.id === projectId ? updated : p)),
     }));
-    if (previous) closeWorkspacesLeftBehind(previous, updated, get().selectWorkspace);
+    if (previous)
+      closeWorkspacesLeftBehind(previous, updated, get().selectWorkspace);
     return updated;
   },
 
@@ -814,7 +866,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set((s) => ({
       projects: s.projects.map((p) => (p.id === projectId ? updated : p)),
     }));
-    if (previous) closeWorkspacesLeftBehind(previous, updated, get().selectWorkspace);
+    if (previous)
+      closeWorkspacesLeftBehind(previous, updated, get().selectWorkspace);
     return updated;
   },
 
@@ -873,17 +926,29 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     branch?: string,
     options: CreateWorktreeOptions = {},
   ) => {
-    const { agentCommand, linkedIssue, baseBranch, useExistingBranch } = options;
+    const { agentCommand, linkedIssue, baseBranch, useExistingBranch } =
+      options;
     const project = get().projects.find((p) => p.id === projectId);
     const startScript = project?.worktreeStartScript ?? null;
 
     // Init setup state before IPC call
-    useAppStore.getState().initWorktreeSetup("__pending__", !!startScript, startScript);
+    useAppStore
+      .getState()
+      .initWorktreeSetup("__pending__", !!startScript, startScript);
 
     // Subscribe to progress events BEFORE calling IPC
-    const unsubProgress = window.electronAPI.projects.onWorktreeSetupProgress((event: SetupProgressEvent) => {
-      useAppStore.getState().updateWorktreeSetupStep("__pending__", event.step, event.status, event.message);
-    });
+    const unsubProgress = window.electronAPI.projects.onWorktreeSetupProgress(
+      (event: SetupProgressEvent) => {
+        useAppStore
+          .getState()
+          .updateWorktreeSetupStep(
+            "__pending__",
+            event.step,
+            event.status,
+            event.message,
+          );
+      },
+    );
 
     let updated;
     try {
@@ -920,12 +985,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }));
 
     // A linked project's host picker starts here next time (ADR-192).
-    if (updated.group) void get().setGroupLastUsedHost(updated.group.id, updated.hostId);
+    if (updated.group)
+      void get().setGroupLastUsedHost(updated.group.id, updated.hostId);
 
     // Find the new workspace by name or branch.
     const branchName = branch || name;
     const newWs = updated.workspaces.find(
-      (ws) => !ws.isMain && (ws.name === name || branchesEqual(ws.branch, branchName)),
+      (ws) =>
+        !ws.isMain &&
+        (ws.name === name || branchesEqual(ws.branch, branchName)),
     );
     const wsPath = newWs?.path ?? null;
 
@@ -937,13 +1005,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       // guarantees they completed, but progress events delivered via
       // webContents.send may arrive after the ipcMain.handle response,
       // racing with unsubProgress() above.
-      const ipcSteps: SetupStep[] = ["prune", "fetch", "create-worktree", "persist"];
+      const ipcSteps: SetupStep[] = [
+        "prune",
+        "fetch",
+        "create-worktree",
+        "persist",
+      ];
       for (const step of ipcSteps) {
         useAppStore.getState().updateWorktreeSetupStep(wsPath, step, "done");
       }
 
       // Emit switch step as in-progress
-      useAppStore.getState().updateWorktreeSetupStep(wsPath, "switch", "in-progress");
+      useAppStore
+        .getState()
+        .updateWorktreeSetupStep(wsPath, "switch", "in-progress");
 
       // Select the new workspace and switch to it
       const newIdx = updated.workspaces.findIndex((ws) => ws.path === wsPath);
@@ -957,7 +1032,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         // command is also present (legacy chaining hook). The setup-script
         // step was already initialised as "pending" by initWorktreeSetup.
         if (agentCommand) {
-          useAppStore.getState().updateWorktreeSetupStep(wsPath, "setup-script", "pending");
+          useAppStore
+            .getState()
+            .updateWorktreeSetupStep(wsPath, "setup-script", "pending");
         }
         // Kick off the setup script at store scope so its PTY outlives the
         // WorkspaceSetupView — the view renders an `attach`-mode MiniTerminal
@@ -1008,10 +1085,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set((s) => ({ projects: keepWatchedState(projects, s.projects) }));
   },
 
-  convertMainToWorktree: async (projectId: string, name: string, branch: string) => {
+  convertMainToWorktree: async (
+    projectId: string,
+    name: string,
+    branch: string,
+  ) => {
     let updated;
     try {
-      updated = await window.electronAPI.projects.convertMainToWorktree(projectId, name);
+      updated = await window.electronAPI.projects.convertMainToWorktree(
+        projectId,
+        name,
+      );
     } catch (err) {
       const detail = ipcErrorMessage(err);
       useToastStore.getState().addToast({
@@ -1069,7 +1153,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     try {
       await window.electronAPI.projects.link(projectId, otherId);
     } catch (err) {
-      groupErrorToast(`link-projects-${projectId}`, "Couldn't link projects", err);
+      groupErrorToast(
+        `link-projects-${projectId}`,
+        "Couldn't link projects",
+        err,
+      );
       return;
     }
     clearLinkSuggestionsFor([projectId, otherId]);
@@ -1078,13 +1166,21 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   cloneIntoGroup: async (memberId, opts) => {
     const member = get().projects.find((p) => p.id === memberId);
-    if (!member?.group) throw new Error("This project isn't linked to a group.");
-    const cloned = await window.electronAPI.projects.addRemote({ ...opts, name: member.name });
+    if (!member?.group)
+      throw new Error("This project isn't linked to a group.");
+    const cloned = await window.electronAPI.projects.addRemote({
+      ...opts,
+      name: member.name,
+    });
     try {
       await window.electronAPI.projects.link(cloned.id, memberId);
       clearLinkSuggestionsFor([cloned.id, memberId]);
     } catch (err) {
-      groupErrorToast(`link-projects-${cloned.id}`, "Cloned, but couldn't link the projects", err);
+      groupErrorToast(
+        `link-projects-${cloned.id}`,
+        "Cloned, but couldn't link the projects",
+        err,
+      );
       // It stands alone now, like any other clone: offer what it could join.
       void offerLinkSuggestions(cloned.id, get().linkProjects);
     }
@@ -1112,7 +1208,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       try {
         created = await window.electronAPI.projects.add(name, selected);
       } catch (err) {
-        groupErrorToast(`link-local-folder-${projectId}`, "Couldn't add local folder", err);
+        groupErrorToast(
+          `link-local-folder-${projectId}`,
+          "Couldn't add local folder",
+          err,
+        );
         return;
       }
       // Append like `addProject` does, but without offering link suggestions
@@ -1132,7 +1232,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     try {
       await window.electronAPI.projects.unlink(projectId);
     } catch (err) {
-      groupErrorToast(`unlink-project-${projectId}`, "Couldn't unlink project", err);
+      groupErrorToast(
+        `unlink-project-${projectId}`,
+        "Couldn't unlink project",
+        err,
+      );
       return;
     }
     await get().loadProjects();
@@ -1143,7 +1247,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     try {
       await window.electronAPI.projects.unlinkGroup(groupId);
     } catch (err) {
-      groupErrorToast(`unlink-group-${groupId}`, "Couldn't unlink projects", err);
+      groupErrorToast(
+        `unlink-group-${groupId}`,
+        "Couldn't unlink projects",
+        err,
+      );
       return;
     }
     await get().loadProjects();
@@ -1179,14 +1287,21 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           const before = previous.get(p.id);
           if (!before) return p;
           const undo: Partial<ProjectInfo> = {};
-          for (const key of Object.keys(applied) as (keyof GroupUpdatableFields)[]) {
-            if (p[key] === applied[key]) Object.assign(undo, { [key]: before[key] });
+          for (const key of Object.keys(
+            applied,
+          ) as (keyof GroupUpdatableFields)[]) {
+            if (p[key] === applied[key])
+              Object.assign(undo, { [key]: before[key] });
           }
           if (undo.name !== undefined) undo.group = before.group;
           return { ...p, ...undo };
         }),
       }));
-      groupErrorToast(`update-group-${groupId}`, "Couldn't save shared settings", err);
+      groupErrorToast(
+        `update-group-${groupId}`,
+        "Couldn't save shared settings",
+        err,
+      );
       return;
     }
     // Only the shared settings changed; take those, and keep the rest (the
@@ -1214,16 +1329,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
     set((s) => ({
       projects: s.projects.map((p) =>
-        alreadyRecorded(p) || !p.group ? p : { ...p, group: { ...p.group, lastUsedHostId: hostId } },
+        alreadyRecorded(p) || !p.group
+          ? p
+          : { ...p, group: { ...p.group, lastUsedHostId: hostId } },
       ),
     }));
   },
 
   reorderSidebar: async (projectId: string, orderedKeys: string[]) => {
-    await window.electronAPI.projects.reorderWorkspaces(
-      projectId,
-      orderedKeys,
-    );
+    await window.electronAPI.projects.reorderWorkspaces(projectId, orderedKeys);
     set((s) => ({
       projects: s.projects.map((p) =>
         p.id === projectId
@@ -1435,8 +1549,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         // Main promotes rather than orphans: whatever the folder held —
         // member workspaces and child folders alike — moves up to the
         // grandparent and takes the deleted folder's slot in the order.
-        const parentId = p.folders.find((f) => f.id === folderId)?.parentId ?? null;
-        const orderIndex = new Map(p.sidebarOrder.map((entry, i) => [entry, i]));
+        const parentId =
+          p.folders.find((f) => f.id === folderId)?.parentId ?? null;
+        const orderIndex = new Map(
+          p.sidebarOrder.map((entry, i) => [entry, i]),
+        );
         const memberKeys = [
           ...p.workspaces
             .filter((ws) => ws.folderId === folderId)
@@ -1512,7 +1629,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       if (Object.keys(shared).length > 0) {
         await Promise.all([
           get().updateGroup(groupId, shared),
-          Object.keys(own).length > 0 ? get().updateProject(projectId, own) : null,
+          Object.keys(own).length > 0
+            ? get().updateProject(projectId, own)
+            : null,
         ]);
         return;
       }
@@ -1536,8 +1655,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           projects: s.projects.map((p) => {
             if (p.id !== projectId) return p;
             const undo: Partial<ProjectInfo> = {};
-            for (const key of Object.keys(updates) as (keyof ProjectUpdatableFields)[]) {
-              if (p[key] === updates[key]) Object.assign(undo, { [key]: previous[key] });
+            for (const key of Object.keys(
+              updates,
+            ) as (keyof ProjectUpdatableFields)[]) {
+              if (p[key] === updates[key])
+                Object.assign(undo, { [key]: previous[key] });
             }
             return { ...p, ...undo };
           }),
@@ -1613,7 +1735,28 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }),
     })),
 
-  toggleSidebar: () => set((s) => ({ sidebarVisible: !s.sidebarVisible })),
+  setSidebarMode: (mode) => {
+    try {
+      localStorage.setItem(SIDEBAR_MODE_KEY, mode);
+    } catch {
+      /* ignore */
+    }
+    set((s) => ({
+      sidebarMode: mode,
+      lastVisibleSidebarMode:
+        mode === "hidden" ? s.lastVisibleSidebarMode : mode,
+    }));
+  },
+
+  toggleSidebarRail: () =>
+    get().setSidebarMode(get().sidebarMode === "full" ? "rail" : "full"),
+
+  toggleSidebarHidden: () => {
+    const { sidebarMode, lastVisibleSidebarMode } = get();
+    get().setSidebarMode(
+      sidebarMode === "hidden" ? lastVisibleSidebarMode : "hidden",
+    );
+  },
 
   setSidebarWidth: (width: number) => {
     localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));

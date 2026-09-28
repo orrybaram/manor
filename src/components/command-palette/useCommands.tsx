@@ -47,7 +47,6 @@ interface UseCommandsParams {
   selectPrevTab: () => void;
   focusNextPane: () => void;
   focusPrevPane: () => void;
-  toggleSidebar: () => void;
   onClose: () => void;
   onOpenSettings?: (page?: SettingsPageId) => void;
   onOpenFeedback?: () => void;
@@ -70,7 +69,6 @@ export function useCommands({
   selectPrevTab,
   focusNextPane,
   focusPrevPane,
-  toggleSidebar,
   onClose,
   onOpenSettings,
   onOpenFeedback,
@@ -334,9 +332,9 @@ export function useCommands({
         keywords: ["git", "branch", "clipboard"],
         action: () => {
           const awp = useAppStore.getState().activeWorkspacePath;
-          const proj = useProjectStore.getState().projects.find((p) =>
-            p.workspaces.some((w) => w.path === awp),
-          );
+          const proj = useProjectStore
+            .getState()
+            .projects.find((p) => p.workspaces.some((w) => w.path === awp));
           const ws = proj?.workspaces.find((w) => w.path === awp);
           const branch = ws?.branch;
           if (branch) {
@@ -356,7 +354,8 @@ export function useCommands({
         shortcut: fmt("open-diff"),
         keywords: ["git", "changes", "diff", "staged"],
         action: () => {
-          const { diffOpensInNewPanel } = usePreferencesStore.getState().preferences;
+          const { diffOpensInNewPanel } =
+            usePreferencesStore.getState().preferences;
           if (diffOpensInNewPanel) {
             openDiffInNewPanel();
           } else {
@@ -375,8 +374,9 @@ export function useCommands({
         ? p.hostname.replace(/\.localhost(:\d+)?$/, "")
         : p.processName;
       return {
-        id:
-          isRemoteHost(p.hostId) ? `open-port-${p.hostId}-${p.port}` : `open-port-${p.port}`,
+        id: isRemoteHost(p.hostId)
+          ? `open-port-${p.hostId}-${p.port}`
+          : `open-port-${p.port}`,
         label: `Open Browser ${displayName}`,
         icon: <Globe size={14} />,
         keywords: [
@@ -406,14 +406,23 @@ export function useCommands({
       };
     });
 
-    const editorName = usePreferencesStore.getState().preferences.defaultEditor || undefined;
+    const editorName =
+      usePreferencesStore.getState().preferences.defaultEditor || undefined;
 
     const generalItems: CommandItem[] = [
       {
         id: "new-project",
         label: "New Project",
         icon: <FolderPlus size={14} />,
-        keywords: ["add", "create", "project", "folder", "directory", "repo", "open"],
+        keywords: [
+          "add",
+          "create",
+          "project",
+          "folder",
+          "directory",
+          "repo",
+          "open",
+        ],
         action: () => {
           onClose();
           void useProjectStore.getState().addProjectFromDirectory();
@@ -431,11 +440,21 @@ export function useCommands({
       },
       {
         id: "toggle-sidebar",
-        label: "Toggle Sidebar",
+        label: "Collapse Sidebar",
         icon: <PanelLeft size={14} />,
         shortcut: fmt("toggle-sidebar"),
         action: () => {
-          toggleSidebar();
+          useProjectStore.getState().toggleSidebarRail();
+          onClose();
+        },
+      },
+      {
+        id: "hide-sidebar",
+        label: "Hide Sidebar",
+        icon: <PanelLeft size={14} />,
+        shortcut: fmt("hide-sidebar"),
+        action: () => {
+          useProjectStore.getState().toggleSidebarHidden();
           onClose();
         },
       },
@@ -447,7 +466,9 @@ export function useCommands({
         keywords: ["keyboard", "navigate"],
         action: () => {
           onClose();
-          if (!useProjectStore.getState().sidebarVisible) toggleSidebar();
+          const { sidebarMode, lastVisibleSidebarMode, setSidebarMode } =
+            useProjectStore.getState();
+          if (sidebarMode === "hidden") setSidebarMode(lastVisibleSidebarMode);
           focusRegionWhenReady("sidebar");
         },
       },
@@ -478,7 +499,9 @@ export function useCommands({
         label: "Open in Editor",
         icon: <ExternalLink size={14} />,
         keywords: ["code", ...(editorName ? [editorName] : [])],
-        suffix: editorName ? <span className={styles.editorBadge}>{editorName}</span> : undefined,
+        suffix: editorName ? (
+          <span className={styles.editorBadge}>{editorName}</span>
+        ) : undefined,
         action: () => {
           if (activeWorkspacePath) {
             openInEditor(activeWorkspacePath);
@@ -491,7 +514,15 @@ export function useCommands({
         label: "Processes",
         icon: <Activity size={14} />,
         suffix: <ChevronRight size={14} />,
-        keywords: ["process", "port", "kill", "daemon", "terminal", "activity", "monitor"],
+        keywords: [
+          "process",
+          "port",
+          "kill",
+          "daemon",
+          "terminal",
+          "activity",
+          "monitor",
+        ],
         action: () => {
           navigateToProcesses();
         },
@@ -501,7 +532,14 @@ export function useCommands({
         label: "Show Stats",
         icon: <BarChart3 size={14} />,
         suffix: <ChevronRight size={14} />,
-        keywords: ["stats", "statistics", "streak", "badges", "usage", "counters"],
+        keywords: [
+          "stats",
+          "statistics",
+          "streak",
+          "badges",
+          "usage",
+          "counters",
+        ],
         action: () => {
           navigateToStats();
         },
@@ -537,42 +575,97 @@ export function useCommands({
         id: "settings-general",
         label: "Settings: General",
         icon: <Settings size={14} />,
-        keywords: ["settings", "general", "editor", "code editor", "default editor", "diff"],
+        keywords: [
+          "settings",
+          "general",
+          "editor",
+          "code editor",
+          "default editor",
+          "diff",
+        ],
         action: openSettingsPage("general"),
       },
       {
         id: "settings-appearance",
         label: "Settings: Appearance",
         icon: <Palette size={14} />,
-        keywords: ["settings", "appearance", "theme", "dark", "light", "color", "font", "font size", "font family"],
+        keywords: [
+          "settings",
+          "appearance",
+          "theme",
+          "dark",
+          "light",
+          "color",
+          "font",
+          "font size",
+          "font family",
+        ],
         action: openSettingsPage("app"),
       },
       {
         id: "settings-keybindings",
         label: "Settings: Keybindings",
         icon: <Keyboard size={14} />,
-        keywords: ["settings", "keybindings", "shortcuts", "keyboard", "hotkeys", "keys", "bindings"],
+        keywords: [
+          "settings",
+          "keybindings",
+          "shortcuts",
+          "keyboard",
+          "hotkeys",
+          "keys",
+          "bindings",
+        ],
         action: openSettingsPage("keybindings"),
       },
       {
         id: "settings-notifications",
         label: "Settings: Notifications",
         icon: <Bell size={14} />,
-        keywords: ["settings", "notifications", "notify", "alerts", "sound", "dock badge", "pull requests", "pr", "review", "ci", "comment"],
+        keywords: [
+          "settings",
+          "notifications",
+          "notify",
+          "alerts",
+          "sound",
+          "dock badge",
+          "pull requests",
+          "pr",
+          "review",
+          "ci",
+          "comment",
+        ],
         action: openSettingsPage("notifications"),
       },
       {
         id: "settings-integrations",
         label: "Settings: Integrations",
         icon: <Link size={14} />,
-        keywords: ["settings", "integrations", "github", "linear", "connect", "auth", "token"],
+        keywords: [
+          "settings",
+          "integrations",
+          "github",
+          "linear",
+          "connect",
+          "auth",
+          "token",
+        ],
         action: openSettingsPage("integrations"),
       },
       {
         id: "settings-home",
         label: "Settings: Home",
         icon: <Bot size={14} />,
-        keywords: ["settings", "home", "harness", "agent", "claude", "codex", "custom", "launch command", "interrupt"],
+        keywords: [
+          "settings",
+          "home",
+          "harness",
+          "agent",
+          "claude",
+          "codex",
+          "custom",
+          "launch command",
+          "interrupt",
+        ],
         action: openSettingsPage("home"),
       },
     ];
@@ -582,9 +675,19 @@ export function useCommands({
       { id: "panes", heading: "Panes", visible: true, items: paneItems },
       { id: "panels", heading: "Panels", visible: true, items: panelItems },
       { id: "git", heading: "Git", visible: true, items: gitItems },
-      { id: "ports", heading: "Ports", visible: portItems.length > 0, items: portItems },
+      {
+        id: "ports",
+        heading: "Ports",
+        visible: portItems.length > 0,
+        items: portItems,
+      },
       { id: "general", heading: "General", visible: true, items: generalItems },
-      { id: "settings", heading: "Settings", visible: true, items: settingsItems },
+      {
+        id: "settings",
+        heading: "Settings",
+        visible: true,
+        items: settingsItems,
+      },
     ];
   }, [
     addTab,
@@ -596,7 +699,6 @@ export function useCommands({
     selectPrevTab,
     focusNextPane,
     focusPrevPane,
-    toggleSidebar,
     onClose,
     onOpenSettings,
     onOpenFeedback,

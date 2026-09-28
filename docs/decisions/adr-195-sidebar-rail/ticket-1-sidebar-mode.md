@@ -1,6 +1,6 @@
 ---
 title: Replace sidebarVisible with a persisted sidebarMode
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: []

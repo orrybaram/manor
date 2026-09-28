@@ -104,11 +104,12 @@ export default function DetachedApp() {
 
   useMountEffect(() => {
     loadTheme();
-    // A detached window has no sidebar. Marking it hidden makes the tab bar
+    // A detached window has no sidebar. Marking it `hidden` (plain setState,
+    // not the persisting action) makes the tab bar
     // apply its `.noSidebar` inset (padding-left: 78px) so the tabs clear the
     // macOS traffic lights instead of hiding beneath them. This store is
     // per-renderer and not persisted, so it never affects the primary window.
-    useProjectStore.setState({ sidebarVisible: false });
+    useProjectStore.setState({ sidebarMode: "hidden" });
     // The popout renders no sidebar, but it still needs the project list: the
     // new-agent command reads the workspace's `agentCommand` from it, and
     // copy-branch reads the workspace's branch.

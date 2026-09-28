@@ -10,6 +10,7 @@ import { ExecShellBackend } from "../backend/exec-shell";
 import { localFacts } from "../backend/machine-facts";
 import { LOCAL_HOST_ID, type GitBackend, type HostSpec } from "../backend/types";
 import { manorDataDir } from "../paths";
+import type { HostPath } from "../per-host-poller";
 import { detectDefaultBranch, listLocalBranches, listRemoteBranches, resyncDefaultBranches } from "./branches";
 import type { ProjectContext } from "./context";
 import { HostRecords } from "./host-records";
@@ -128,6 +129,13 @@ export class ProjectManager {
     return this.store.state.projects
       .filter((p) => p.hostId === LOCAL_HOST_ID)
       .map((p) => p.path);
+  }
+
+  /** The projects that live on a remote host, each path with its host. */
+  remoteProjectHostPaths(): HostPath[] {
+    return this.store.state.projects
+      .filter((p) => p.hostId !== LOCAL_HOST_ID)
+      .map((p) => ({ path: p.path, hostId: p.hostId }));
   }
 
   /** Run `listener` after every write of `projects.json` — any project mutation. */

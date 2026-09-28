@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   applyDrop,
+  applyGroupDrop,
   buildSidebarItems,
   descendantWorkspaces,
   flattenRows,
@@ -10,7 +11,10 @@ import {
   membershipOf,
   placeAfterFolder,
   placeInFolder,
+  placeManyAfterFolders,
+  placeManyInFolder,
   serializeOrder,
+  visibleWorkspacePaths,
   type SidebarItem,
 } from "./sidebar-items";
 import type {
@@ -765,5 +769,225 @@ describe("placement helpers", () => {
     );
     expect(shape(items)).toEqual(["/a", "f1[f3[/m1]]", "/b", "f2[]"]);
     expect(folderParentsOf(items).get("f3")).toBe("f1");
+  });
+});
+
+describe("visibleWorkspacePaths", () => {
+  it("orders workspaces depth-first across a folder boundary", () => {
+    const items = buildSidebarItems(
+      project(
+        [ws("/a"), ws("/m1", "f1"), ws("/m2", "f1"), ws("/b")],
+        [folder("f1")],
+        ["/a", "f1", "/m1", "/m2", "/b"],
+      ),
+    );
+    expect(visibleWorkspacePaths(items, new Set())).toEqual([
+      "/a",
+      "/m1",
+      "/m2",
+      "/b",
+    ]);
+  });
+
+  it("skips the contents of a collapsed folder, at any depth", () => {
+    const items = buildSidebarItems(
+      project(
+        [ws("/a"), ws("/m1", "f1"), ws("/deep", "f2"), ws("/b")],
+        [folder("f1"), folder("f2", "f1")],
+        ["/a", "f1", "/m1", "f2", "/deep", "/b"],
+      ),
+    );
+    // Collapsing the outer folder hides its nested folder's members too.
+    expect(visibleWorkspacePaths(items, new Set(["f1"]))).toEqual(["/a", "/b"]);
+    // Collapsing only the nested folder hides just its own members.
+    expect(visibleWorkspacePaths(items, new Set(["f2"]))).toEqual([
+      "/a",
+      "/m1",
+      "/b",
+    ]);
+  });
+});
+
+describe("placeManyInFolder", () => {
+  const tree = () =>
+    buildSidebarItems(
+      project(
+        [ws("/a"), ws("/b"), ws("/m1", "f1")],
+        [folder("f1"), folder("f2"), folder("f3", "f1")],
+        ["/a", "/b", "f1", "/m1", "f2", "f3"],
+      ),
+    );
+
+  it("appends many workspaces to a folder in the given order", () => {
+    expect(shape(placeManyInFolder(tree(), ["/a", "/b"], "f1"))).toEqual([
+      "f1[/m1,f3[],/a,/b]",
+      "f2[]",
+    ]);
+  });
+
+  it("skips keys that are not in the tree", () => {
+    expect(
+      shape(placeManyInFolder(tree(), ["/a", "/gone", "/b"], "f1")),
+    ).toEqual(["f1[/m1,f3[],/a,/b]", "f2[]"]);
+  });
+
+  it("refuses to move a folder into its own subtree", () => {
+    const items = tree();
+    expect(placeManyInFolder(items, ["f1"], "f3")).toBe(items);
+  });
+});
+
+describe("placeManyAfterFolders", () => {
+  const tree = () =>
+    buildSidebarItems(
+      project(
+        [
+          ws("/a"),
+          ws("/m1", "f1"),
+          ws("/m2", "f1"),
+          ws("/m3", "f1"),
+          ws("/x1", "f2"),
+          ws("/x2", "f2"),
+        ],
+        [folder("f1"), folder("f2")],
+        ["/a", "f1", "/m1", "/m2", "/m3", "f2", "/x1", "/x2"],
+      ),
+    );
+
+  it("moves workspaces out of mixed folders to sit right after each one", () => {
+    expect(
+      shape(placeManyAfterFolders(tree(), ["/m1", "/x1", "/m3"])),
+    ).toEqual(["/a", "f1[/m2]", "/m1", "/m3", "f2[/x2]", "/x1"]);
+  });
+
+  it("keeps shared-folder keys in tree order, regardless of input order", () => {
+    expect(shape(placeManyAfterFolders(tree(), ["/m3", "/m1"]))).toEqual([
+      "/a",
+      "f1[/m2]",
+      "/m1",
+      "/m3",
+      "f2[/x1,/x2]",
+    ]);
+  });
+
+  it("leaves loose and unknown keys untouched", () => {
+    const items = tree();
+    expect(placeManyAfterFolders(items, ["/a", "/gone"])).toBe(items);
+  });
+});
+
+describe("applyGroupDrop", () => {
+  const tree = () =>
+    buildSidebarItems(
+      project(
+        [ws("/a"), ws("/m1", "f1"), ws("/m2", "f1"), ws("/m3", "f1"), ws("/b")],
+        [folder("f1")],
+        ["/a", "f1", "/m1", "/m2", "/m3", "/b"],
+      ),
+    );
+
+  it("delegates a group of one to applyDrop", () => {
+    const items = buildSidebarItems(
+      project([ws("/a"), ws("/b"), ws("/c")], [], ["/a", "/b", "/c"]),
+    );
+    const rows = flattenRows(items, new Set(), "workspace");
+    const target = { type: "slot" as const, rowIndex: 2 };
+    expect(shape(applyGroupDrop(items, "/a", ["/a"], target, rows))).toEqual([
+      "/b",
+      "/c",
+      "/a",
+    ]);
+    expect(applyGroupDrop(items, "/a", ["/a"], target, rows)).toEqual(
+      applyDrop(items, "/a", target, rows),
+    );
+  });
+
+  it("drops a group above everything, pulling it out of its folder to the top level", () => {
+    const items = tree();
+    const rows = flattenRows(items, new Set(), "workspace");
+    expect(
+      shape(
+        applyGroupDrop(
+          items,
+          "/m2",
+          ["/m2", "/m3"],
+          { type: "slot", rowIndex: 0 },
+          rows,
+        ),
+      ),
+    ).toEqual(["/m2", "/m3", "/a", "f1[/m1]", "/b"]);
+  });
+
+  it("drops a group below everything, loose at the top level", () => {
+    const items = tree();
+    const rows = flattenRows(items, new Set(), "workspace");
+    expect(
+      shape(
+        applyGroupDrop(
+          items,
+          "/m2",
+          ["/m2", "/m3"],
+          { type: "slot", rowIndex: 5 },
+          rows,
+        ),
+      ),
+    ).toEqual(["/a", "f1[/m1]", "/b", "/m2", "/m3"]);
+  });
+
+  it("lands a group as a folder's first children when it targets an expanded header slot", () => {
+    const items = tree();
+    const rows = flattenRows(items, new Set(), "workspace");
+    expect(
+      shape(
+        applyGroupDrop(
+          items,
+          "/a",
+          ["/a", "/b"],
+          { type: "slot", rowIndex: 1 },
+          rows,
+        ),
+      ),
+    ).toEqual(["f1[/a,/b,/m1,/m2,/m3]"]);
+  });
+
+  it("steps back past a predecessor that is itself in the group", () => {
+    const items = tree();
+    const rows = flattenRows(items, new Set(), "workspace");
+    // Landing after /m3 (row index 4 of rows minus the source /m1) walks back
+    // past /m3 and /m2 — both in the group — to f1's header, so the whole
+    // group re-lands as its first children, unchanged in effect.
+    expect(
+      shape(
+        applyGroupDrop(
+          items,
+          "/m1",
+          ["/m1", "/m2", "/m3"],
+          { type: "slot", rowIndex: 4 },
+          rows,
+        ),
+      ),
+    ).toEqual(["/a", "f1[/m1,/m2,/m3]", "/b"]);
+  });
+
+  it("moves a group into a folder in tree order via an `into` target", () => {
+    const items = buildSidebarItems(
+      project(
+        [ws("/a"), ws("/b"), ws("/m1", "f1")],
+        [folder("f1")],
+        ["/a", "/b", "f1", "/m1"],
+      ),
+    );
+    const rows = flattenRows(items, new Set(), "workspace");
+    expect(
+      shape(
+        applyGroupDrop(
+          items,
+          "/b",
+          ["/b", "/a"],
+          { type: "into", folderId: "f1" },
+          rows,
+        ),
+      ),
+    ).toEqual(["f1[/m1,/a,/b]"]);
   });
 });

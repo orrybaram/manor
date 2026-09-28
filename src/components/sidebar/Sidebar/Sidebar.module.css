@@ -66,6 +66,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 4px 6px;
+  /* Same side inset as the project list below. */
+  margin-inline: 8px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -127,7 +129,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 6px;
+  margin: 0 8px 6px;
   padding: 4px 6px;
   border-radius: 4px;
   cursor: pointer;

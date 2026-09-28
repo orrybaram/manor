@@ -82,7 +82,18 @@ export function SettingsModal(props: SettingsModalProps) {
   }
   prevOpenRef.current = open;
 
-  const index = useMemo(() => buildSettingsIndex(projects), [projects]);
+  // A linked group has one settings page (ADR-192), so it is listed and
+  // indexed once, under its first member.
+  const navProjects = useMemo(() => {
+    const seen = new Set<string>();
+    return projects.filter((p) => {
+      if (!p.group) return true;
+      if (seen.has(p.group.id)) return false;
+      seen.add(p.group.id);
+      return true;
+    });
+  }, [projects]);
+  const index = useMemo(() => buildSettingsIndex(navProjects), [navProjects]);
   const results = useMemo(() => searchSettings(index, query), [index, query]);
   const searching = query.trim().length > 0;
 
@@ -185,6 +196,10 @@ export function SettingsModal(props: SettingsModalProps) {
     page.type === "project"
       ? projects.find((p) => p.id === page.projectId)
       : null;
+  const isCurrentPage = (project: (typeof projects)[number]) =>
+    page.type === "project" &&
+    (page.projectId === project.id ||
+      (project.group != null && currentProject?.group?.id === project.group.id));
 
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
@@ -334,21 +349,13 @@ export function SettingsModal(props: SettingsModalProps) {
                     <span>Projects</span>
                   </button>
                   {projectsExpanded &&
-                    projects.map((project) => (
+                    navProjects.map((project) => (
                       <button
                         key={project.id}
                         className={`${styles.navItem} ${styles.navItemNested} ${
-                          page.type === "project" &&
-                          page.projectId === project.id
-                            ? styles.navItemActive
-                            : ""
+                          isCurrentPage(project) ? styles.navItemActive : ""
                         }`}
-                        aria-current={
-                          page.type === "project" &&
-                          page.projectId === project.id
-                            ? "page"
-                            : undefined
-                        }
+                        aria-current={isCurrentPage(project) ? "page" : undefined}
                         onClick={() =>
                           setPage({ type: "project", projectId: project.id })
                         }

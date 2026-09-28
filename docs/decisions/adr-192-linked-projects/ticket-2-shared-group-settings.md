@@ -1,6 +1,6 @@
 ---
 title: Shared settings live on the project group
-status: todo
+status: done
 priority: medium
 assignee: opus
 blocked_by: [1]

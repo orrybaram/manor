@@ -7,11 +7,12 @@ import crypto from "node:crypto";
 import type { GitBackend, MachineFacts } from "../backend/types";
 import { errorMessage } from "../lib/errors";
 import type { PathRouter } from "./path-router";
+import { resolveShared, summarizeGroup } from "./project-groups";
 import { normalizeSidebarOrder } from "./workspace-folders";
 import type {
   CustomCommand,
   PersistedProject,
-  ProjectGroupInfo,
+  PersistedProjectGroup,
   ProjectInfo,
   WorkspaceFolder,
   WorkspaceInfo,
@@ -77,13 +78,15 @@ export async function seedCommands(
 /**
  * The renderer's view of `p`: its persisted settings over the workspaces
  * git lists now. Records those workspace paths with `paths`, which routes
- * by them. `group` is the project's linked-project group (ADR-192).
+ * by them. `group` is the project's linked-project group (ADR-192), whose
+ * shared settings (name, color, agent command, Linear) win over the
+ * project's own.
  */
 export async function buildProjectInfo(
   p: PersistedProject,
   git: GitBackend,
   paths: PathRouter,
-  group: ProjectGroupInfo | null = null,
+  group?: PersistedProjectGroup,
 ): Promise<ProjectInfo> {
   const rawWorkspaces = (await listGitWorkspaces(git, p.path)) ?? [
     { path: p.path, branch: p.defaultBranch, isMain: true, name: null },
@@ -126,9 +129,10 @@ export async function buildProjectInfo(
         mappedFolderId && folderIdSet.has(mappedFolderId) ? mappedFolderId : null,
     };
   });
+  const shared = resolveShared(group, p);
   return {
     id: p.id,
-    name: p.name,
+    name: shared.name,
     path: p.path,
     defaultBranch: p.defaultBranch,
     workspaces,
@@ -137,9 +141,9 @@ export async function buildProjectInfo(
     worktreePath: p.worktreePath ?? null,
     worktreeStartScript: p.worktreeStartScript ?? null,
     worktreeTeardownScript: p.worktreeTeardownScript ?? null,
-    linearAssociations: p.linearAssociations ?? [],
-    color: p.color ?? null,
-    agentCommand: p.agentCommand ?? null,
+    linearAssociations: shared.linearAssociations,
+    color: shared.color,
+    agentCommand: shared.agentCommand,
     commands: p.commands ?? [],
     themeName: p.themeName ?? null,
     setupComplete: p.setupComplete ?? true,
@@ -151,6 +155,6 @@ export async function buildProjectInfo(
       rawWorkspacePaths,
       folders.map((f) => f.id),
     ),
-    group,
+    group: group ? summarizeGroup(group) : null,
   };
 }

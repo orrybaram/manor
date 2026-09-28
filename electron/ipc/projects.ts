@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
-import { assertString } from "../ipc-validate";
-import type { ProjectUpdatableFields } from "../persistence";
+import { assertGroupUpdates, assertString } from "../ipc-validate";
+import type { GroupUpdatableFields, ProjectUpdatableFields } from "../persistence";
 import type { LinkedIssue } from "../linear";
 import { LOCAL_HOST_ID } from "../backend/types";
 import type { IpcDeps } from "./types";
@@ -211,7 +211,8 @@ export function register(deps: IpcDeps): void {
   });
 
   // ADR-192: link two projects on different hosts into one group, or take
-  // one out of its group. Both leave the projects' own records alone.
+  // one out of its group. A project leaving keeps the group's shared
+  // settings; nothing else about it changes.
   ipcMain.handle("projects:link", (_event, projectId: string, otherId: string) => {
     assertString(projectId, "projectId");
     assertString(otherId, "otherId");
@@ -227,6 +228,20 @@ export function register(deps: IpcDeps): void {
     assertString(groupId, "groupId");
     projectManager.unlinkGroup(groupId);
   });
+
+  // ADR-192 ticket 2: set a group's shared settings. Returns every member.
+  ipcMain.handle(
+    "projects:updateGroup",
+    (_event, groupId: unknown, updates: unknown) => {
+      assertString(groupId, "groupId");
+      assertGroupUpdates(updates, "updates");
+      const { linearAssociations, ...rest } = updates;
+      const clean: GroupUpdatableFields = { ...rest };
+      // Null clears the group's teams.
+      if (linearAssociations !== undefined) clean.linearAssociations = linearAssociations ?? [];
+      return projectManager.updateGroup(groupId, clean);
+    },
+  );
 
   ipcMain.handle(
     "projects:update",

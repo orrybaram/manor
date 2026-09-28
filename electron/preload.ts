@@ -302,6 +302,20 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("projects:unlink", projectId),
     unlinkGroup: (groupId: string) =>
       ipcRenderer.invoke("projects:unlinkGroup", groupId),
+    // ADR-192 ticket 2: set a group's shared settings.
+    updateGroup: (
+      groupId: string,
+      updates: Partial<{
+        name: string;
+        color: string | null;
+        agentCommand: string | null;
+        linearAssociations: Array<{
+          teamId: string;
+          teamName: string;
+          teamKey: string;
+        }>;
+      }>,
+    ) => ipcRenderer.invoke("projects:updateGroup", groupId, updates),
     update: (
       projectId: string,
       updates: Partial<{

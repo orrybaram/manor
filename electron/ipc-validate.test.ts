@@ -1,9 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
-  assertString,
+  assertGhRepo,
+  assertGroupUpdates,
   assertNumber,
   assertPositiveInt,
-  assertGhRepo,
+  assertString,
   assertWorkspaceMeta,
 } from "./ipc-validate";
 
@@ -170,6 +171,49 @@ describe("assertPositiveInt", () => {
     expect(() => assertPositiveInt(0, "myField")).toThrow(
       "myField: expected positive integer, got 0",
     );
+  });
+});
+
+describe("assertGroupUpdates", () => {
+  const TEAM = { teamId: "t1", teamName: "Team", teamKey: "TM" };
+
+  it("passes for a well-formed update, a partial one and nulls", () => {
+    expect(() =>
+      assertGroupUpdates(
+        { name: "App", color: "blue", agentCommand: "codex", linearAssociations: [TEAM] },
+        "updates",
+      ),
+    ).not.toThrow();
+    expect(() => assertGroupUpdates({}, "updates")).not.toThrow();
+    expect(() =>
+      assertGroupUpdates({ color: null, agentCommand: null, linearAssociations: null }, "updates"),
+    ).not.toThrow();
+  });
+
+  it("throws for a non-object", () => {
+    expect(() => assertGroupUpdates(null, "updates")).toThrow("updates: expected object, got null");
+    expect(() => assertGroupUpdates("x", "updates")).toThrow("updates: expected object");
+    expect(() => assertGroupUpdates([], "updates")).toThrow("updates: expected object");
+  });
+
+  it("throws for a field of the wrong type", () => {
+    expect(() => assertGroupUpdates({ name: null }, "updates")).toThrow("updates.name");
+    expect(() => assertGroupUpdates({ color: 3 }, "updates")).toThrow("updates.color");
+    expect(() => assertGroupUpdates({ agentCommand: {} }, "updates")).toThrow(
+      "updates.agentCommand",
+    );
+    expect(() => assertGroupUpdates({ linearAssociations: "TM" }, "updates")).toThrow(
+      "updates.linearAssociations",
+    );
+  });
+
+  it("throws for a malformed Linear association", () => {
+    expect(() => assertGroupUpdates({ linearAssociations: [TEAM, null] }, "updates")).toThrow(
+      "updates.linearAssociations[1]",
+    );
+    expect(() =>
+      assertGroupUpdates({ linearAssociations: [{ ...TEAM, teamKey: 1 }] }, "updates"),
+    ).toThrow("updates.linearAssociations[0]");
   });
 });
 

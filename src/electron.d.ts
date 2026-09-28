@@ -591,10 +591,21 @@ export interface ElectronAPI {
       projectId: string,
       otherId: string,
     ) => Promise<import("./store/project-store").ProjectGroupInfo>;
-    /** ADR-192: take a project out of its group; its workspaces and settings stay. */
+    /**
+     * ADR-192: take a project out of its group. It keeps the group's shared
+     * settings as its own; its workspaces and other settings stay.
+     */
     unlink: (projectId: string) => Promise<void>;
-    /** ADR-192: dissolve a group; every member stays as it is, just unlinked. */
+    /** ADR-192: dissolve a group; every member keeps the shared settings. */
     unlinkGroup: (groupId: string) => Promise<void>;
+    /**
+     * ADR-192 ticket 2: set a group's shared settings (name, color, agent
+     * command, Linear). Resolves to every member as it now reads.
+     */
+    updateGroup: (
+      groupId: string,
+      updates: import("./store/project-store").GroupUpdatableFields,
+    ) => Promise<import("./store/project-store").ProjectInfo[]>;
     update: (
       projectId: string,
       updates: import("./store/project-store").ProjectUpdatableFields,

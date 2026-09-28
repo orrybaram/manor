@@ -17,6 +17,7 @@ export {
 export type {
   CustomCommand,
   FolderLink,
+  GroupUpdatableFields,
   IssueSeed,
   LinkedIssue,
   ProjectHost,

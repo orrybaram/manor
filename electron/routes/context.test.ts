@@ -140,4 +140,20 @@ describe("GET /context", () => {
     expect(status).toBe(200);
     expect(body.projectId).toBe("only-p");
   });
+
+  it("callerHostId wins over SessionOwners: a relayed caller whose pane SessionOwners says is local still resolves to its own (box) host", async () => {
+    const sessionOwners = { ownerOf: () => "local" } as unknown as ControlDeps["sessionOwners"];
+    const [status, body] = await getContext("paneId=pane-1&cwd=/repo/src", {
+      callerHostId: "box",
+      sessionOwners,
+    });
+    expect(status).toBe(200);
+    expect(body.projectId).toBe("box-p");
+  });
+
+  it("a local caller's 404 candidate list offers only local projects, never another host's", async () => {
+    const [status, body] = await getContext("cwd=/elsewhere");
+    expect(status).toBe(404);
+    expect(body.candidates).toEqual([{ projectId: "local-p", name: "local-p", path: "/repo" }]);
+  });
 });

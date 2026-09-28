@@ -17,8 +17,7 @@ import type { ProjectInfo, WorkspaceInfo } from "../persistence";
 import type { LayoutPersistence } from "../terminal-host/layout-persistence";
 import { findWorkspaceForPane, matchProjectByPath } from "../pane-context";
 import { availableSources } from "../issue-backends";
-import { LOCAL_HOST_ID } from "../backend/types";
-import { normalizeHostId } from "../../src/lib/host-id";
+import { LOCAL_HOST_ID, normalizeHostId } from "../../src/lib/host-id";
 import type { Route } from "./types";
 
 /**

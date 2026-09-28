@@ -273,9 +273,9 @@ describe("pane-context", () => {
       expect(matchProjectByPath([remoteProject], "other", "/repo")).toBeNull();
     });
 
-    it("a missing host filters as local, same as a project with no hostId", () => {
+    it("an empty host filters as local, same as a project with no hostId", () => {
       const project = makeProject({ hostId: "" });
-      const result = matchProjectByPath([project], undefined as unknown as string, "/repo");
+      const result = matchProjectByPath([project], "", "/repo");
       expect(result?.project).toBe(project);
     });
   });

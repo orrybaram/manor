@@ -250,6 +250,9 @@ export type HostConnectionEventHandler = (event: HostConnectionEvent) => void;
  */
 export const LOCAL_HOST_ID = "local";
 
+/** A host's id: `LOCAL_HOST_ID`, or a registered remote host's. */
+export type HostId = string;
+
 /**
  * How to reach a remote host (ADR-160). Persisted per host in
  * `projects.json`; a `BackendRegistry` turns it into a `WorkspaceBackend`.

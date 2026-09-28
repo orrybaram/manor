@@ -457,3 +457,35 @@
   gap: 8px;
   margin-top: 8px;
 }
+
+/* ── Linked-project groups (ADR-192) ── */
+
+/* A member's section header inside a group: the host, not the project. */
+.sectionHeader {
+  font-size: 11px;
+  padding: 2px 6px;
+  color: var(--text-dim);
+}
+
+.sectionHost {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.sectionLocal {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.groupSections {
+  padding-left: 8px;
+}
+
+.groupLinkIcon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-dim);
+}

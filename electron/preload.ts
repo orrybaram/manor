@@ -7,6 +7,7 @@ import type {
   MenuContext,
 } from "../src/lib/menu-commands";
 import type { HostStatusInfo } from "../src/store/host-store";
+import type { PtyCreateOptions, PtyResetOptions } from "../src/electron.d";
 
 interface WindowBounds {
   x: number;
@@ -70,15 +71,20 @@ contextBridge.exposeInMainWorld("electronAPI", {
       cwd: string | null,
       cols: number,
       rows: number,
-      agentKind?: string | null,
-    ) => ipcRenderer.invoke("pty:create", paneId, cwd, cols, rows, agentKind),
+      opts?: PtyCreateOptions,
+    ) => ipcRenderer.invoke("pty:create", paneId, cwd, cols, rows, opts),
     write: (paneId: string, data: string) =>
       ipcRenderer.invoke("pty:write", paneId, data),
     resize: (paneId: string, cols: number, rows: number) =>
       ipcRenderer.invoke("pty:resize", paneId, cols, rows),
     close: (paneId: string) => ipcRenderer.invoke("pty:close", paneId),
-    reset: (paneId: string, cwd: string | null, cols: number, rows: number) =>
-      ipcRenderer.invoke("pty:reset", paneId, cwd, cols, rows),
+    reset: (
+      paneId: string,
+      cwd: string | null,
+      cols: number,
+      rows: number,
+      opts?: PtyResetOptions,
+    ) => ipcRenderer.invoke("pty:reset", paneId, cwd, cols, rows, opts),
     detach: (paneId: string) => ipcRenderer.invoke("pty:detach", paneId),
     consumePrewarmed: (cwd: string | null, hostId: string) =>
       ipcRenderer.invoke("pty:consumePrewarmed", cwd, hostId),
@@ -288,6 +294,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("projects:reorderWorkspaces", projectId, orderedKeys),
     reorder: (orderedIds: string[]) =>
       ipcRenderer.invoke("projects:reorder", orderedIds),
+    // ADR-192: link two projects on different hosts into one group.
+    link: (projectId: string, otherId: string) =>
+      ipcRenderer.invoke("projects:link", projectId, otherId),
+    unlink: (projectId: string) =>
+      ipcRenderer.invoke("projects:unlink", projectId),
+    unlinkGroup: (groupId: string) =>
+      ipcRenderer.invoke("projects:unlinkGroup", groupId),
     update: (
       projectId: string,
       updates: Partial<{

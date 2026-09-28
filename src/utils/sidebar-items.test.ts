@@ -3,21 +3,27 @@ import {
   applyDrop,
   applyGroupDrop,
   buildSidebarItems,
+  buildTopLevelEntries,
   descendantWorkspaces,
+  expandTopLevelOrder,
   flattenRows,
   folderParentsOf,
   insertFolderBefore,
   isFolderDescendant,
+  linkCandidates,
+  linkChoices,
   membershipOf,
   placeAfterFolder,
   placeInFolder,
   placeManyAfterFolders,
   placeManyInFolder,
   serializeOrder,
+  topLevelKeys,
   visibleWorkspacePaths,
   type SidebarItem,
 } from "./sidebar-items";
 import type {
+  ProjectGroupInfo,
   ProjectInfo,
   WorkspaceFolder,
   WorkspaceInfo,
@@ -989,5 +995,177 @@ describe("applyGroupDrop", () => {
         ),
       ),
     ).toEqual(["f1[/m1,/a,/b]"]);
+  });
+});
+
+describe("linked-project groups at the top level (ADR-192)", () => {
+  type TopProject = Pick<
+    ProjectInfo,
+    "id" | "hostId" | "workspaces" | "folders" | "sidebarOrder" | "group"
+  >;
+
+  function member(
+    id: string,
+    hostId: string,
+    group: ProjectGroupInfo | null = null,
+    tree: MinimalProject = project([], [], []),
+  ): TopProject {
+    return { id, hostId, group, ...tree };
+  }
+
+  const appGroup: ProjectGroupInfo = {
+    id: "g-app",
+    name: "App",
+    memberIds: ["app-local", "app-box"],
+    lastUsedHostId: "local",
+  };
+
+  /** Top-level shape: project ids, groups as `groupId[memberId@host,…]`. */
+  function topShape(entries: ReturnType<typeof buildTopLevelEntries<TopProject>>): string[] {
+    return entries.map((entry) =>
+      entry.kind === "project"
+        ? entry.project.id
+        : `${entry.key}[${entry.sections.map((s) => `${s.project.id}@${s.project.hostId}`).join(",")}]`,
+    );
+  }
+
+  it("renders a group as one entry with a section per host, in the first member's slot", () => {
+    const projects = [
+      member("other", "local"),
+      member("app-box", "box", appGroup),
+      member("docs", "local"),
+      member("app-local", "local", appGroup),
+    ];
+
+    const entries = buildTopLevelEntries(projects);
+
+    expect(topShape(entries)).toEqual(["other", "g-app[app-local@local,app-box@box]", "docs"]);
+    expect(topLevelKeys(entries)).toEqual(["other", "g-app", "docs"]);
+  });
+
+  it("keeps each section's own workspace order and folders", () => {
+    const localTree = project(
+      [ws("/l/main"), ws("/l/feat", "f1"), ws("/l/fix")],
+      [folder("f1")],
+      ["/l/fix", "f1", "/l/feat", "/l/main"],
+    );
+    const boxTree = project(
+      [ws("/b/main"), ws("/b/wip")],
+      [],
+      ["/b/wip", "/b/main"],
+    );
+    const projects = [
+      member("app-local", "local", appGroup, localTree),
+      member("app-box", "box", appGroup, boxTree),
+    ];
+
+    const [entry] = buildTopLevelEntries(projects);
+
+    expect(entry.kind).toBe("group");
+    if (entry.kind !== "group") return;
+    expect(entry.sections.map((s) => shape(s.items))).toEqual([
+      shape(buildSidebarItems(localTree)),
+      shape(buildSidebarItems(boxTree)),
+    ]);
+    expect(shape(entry.sections[0].items)).toEqual(["/l/fix", "f1[/l/feat]", "/l/main"]);
+    expect(shape(entry.sections[1].items)).toEqual(["/b/wip", "/b/main"]);
+  });
+
+  it("renders a group missing its other members as a plain project", () => {
+    const entries = buildTopLevelEntries([member("app-local", "local", appGroup)]);
+    expect(topShape(entries)).toEqual(["app-local"]);
+  });
+
+  it("expands a top-level order holding the group id into member project ids", () => {
+    const projects = [
+      member("other", "local"),
+      member("app-local", "local", appGroup),
+      member("docs", "local"),
+      member("app-box", "box", appGroup),
+    ];
+    const entries = buildTopLevelEntries(projects);
+
+    // Drag the group to the end.
+    expect(expandTopLevelOrder(["other", "docs", "g-app"], entries)).toEqual([
+      "other",
+      "docs",
+      "app-local",
+      "app-box",
+    ]);
+    // Unknown keys are ignored and forgotten entries appended.
+    expect(expandTopLevelOrder(["g-app", "nope"], entries)).toEqual([
+      "app-local",
+      "app-box",
+      "other",
+      "docs",
+    ]);
+  });
+
+  it("round-trips a top-level order through the persisted project order", () => {
+    const projects = [
+      member("other", "local"),
+      member("app-local", "local", appGroup),
+      member("docs", "local"),
+      member("app-box", "box", appGroup),
+    ];
+    const byId = new Map(projects.map((p) => [p.id, p]));
+    const entries = buildTopLevelEntries(projects);
+
+    for (const keys of [
+      ["g-app", "other", "docs"],
+      ["other", "docs", "g-app"],
+      ["docs", "g-app", "other"],
+    ]) {
+      // What main saves, read back as the project list it returns.
+      const saved = expandTopLevelOrder(keys, entries).map((id) => byId.get(id)!);
+      expect(topLevelKeys(buildTopLevelEntries(saved))).toEqual(keys);
+    }
+  });
+
+  it("offers each eligible group once in Link with…", () => {
+    const boxGroup: ProjectGroupInfo = {
+      id: "g-three",
+      name: "Three",
+      memberIds: ["t-box", "t-mac"],
+      lastUsedHostId: null,
+    };
+    const projects = [
+      { ...member("app-local", "local", appGroup), name: "App (local)" },
+      { ...member("app-box", "box", appGroup), name: "App (box)" },
+      { ...member("t-box", "box", boxGroup), name: "Three (box)" },
+      { ...member("t-mac", "mac", boxGroup), name: "Three (mac)" },
+      { ...member("solo", "mac"), name: "Solo" },
+      { ...member("local-2", "local"), name: "Local 2" },
+    ];
+
+    // `local-2` can't join App (it has a local member) but can join Three,
+    // which is offered once and links through its first member.
+    expect(linkChoices(projects[5], projects)).toEqual([
+      { key: "g-three", label: "Three", targetId: "t-box", hostIds: ["box", "mac"] },
+      { key: "solo", label: "Solo", targetId: "solo", hostIds: ["mac"] },
+    ]);
+  });
+
+  it("offers link candidates on other hosts only, one per host in a group", () => {
+    const projects = [
+      member("app-local", "local", appGroup),
+      member("app-box", "box", appGroup),
+      member("box-other", "box"),
+      member("mac-app", "mac"),
+      member("local-2", "local"),
+    ];
+    const ids = (list: TopProject[]) => list.map((p) => p.id);
+
+    // A grouped project: unlinked projects on hosts the group lacks.
+    expect(ids(linkCandidates(projects[0], projects))).toEqual(["mac-app"]);
+    // An unlinked project: other hosts' unlinked projects, and groups
+    // without a member on its host.
+    expect(ids(linkCandidates(projects[3], projects))).toEqual([
+      "app-local",
+      "app-box",
+      "box-other",
+      "local-2",
+    ]);
+    expect(ids(linkCandidates(projects[2], projects))).toEqual(["mac-app", "local-2"]);
   });
 });

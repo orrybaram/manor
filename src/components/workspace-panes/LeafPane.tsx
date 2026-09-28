@@ -36,7 +36,7 @@ import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { Row } from "../ui/Layout/Layout";
 import { registerBrowserPane, unregisterBrowserPane } from "../../lib/browser-pane-registry";
 import { useProjectStore } from "../../store/project-store";
-import { remoteHostIdForWorkspace } from "../../lib/hosts";
+import { remoteHostIdForWorkspace, selectedProjectId } from "../../lib/hosts";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { useRemotePaneStore } from "../../store/remote-pane-store";
 
@@ -68,7 +68,9 @@ export function LeafPane(props: LeafPaneProps) {
   // through port forwards (ADR-178 §5). Null — and a stable primitive, so
   // local-only users never re-render on it — for this machine.
   const remoteHostId = useProjectStore((s) =>
-    contentType === "browser" ? remoteHostIdForWorkspace(s.projects, workspacePath) : null,
+    contentType === "browser"
+      ? remoteHostIdForWorkspace(s.projects, workspacePath, selectedProjectId(s))
+      : null,
   );
   const recordingStartedAt = useAppStore((s) => s.paneRecordingStartedAt[paneId]);
   // Bumped when this pane's remote host comes back, to remount its terminal
@@ -652,6 +654,7 @@ export function LeafPane(props: LeafPaneProps) {
             key={reattachEpoch}
             paneId={paneId}
             cwd={paneCwd || workspacePath}
+            workspacePath={workspacePath}
           />
         )}
       </div>

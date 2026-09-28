@@ -9,16 +9,43 @@ import {
   useRemotePaneStore,
 } from "../store/remote-pane-store";
 import { useProjectStore } from "../store/project-store";
-import { remoteHostIdForWorkspace } from "../lib/hosts";
+import {
+  isRemoteHost,
+  workspaceHostId,
+  type HostId,
+  type ProjectSelection,
+} from "../lib/hosts";
 import { useHostStore } from "../store/host-store";
 import { isPaneInputBlocked } from "../lib/host-status";
 import { useAppStore, type PendingPaneCommand } from "../store/app-store";
 import { shouldRequeuePaneCommand, windowPaneIds } from "../lib/remote-recovery";
 import type { PtyCreateResult } from "../electron.d";
 
-export function useTerminalConnection(paneId: string) {
+/**
+ * The host a pane's new session runs on, for create and reset alike. A pane
+ * known to run on a remote host keeps it — it may have been moved there, or
+ * its project moved away from it (ADR-183) — else it is the host of the
+ * workspace it belongs to (`workspaceHostId`). Main attaches an existing
+ * session wherever it already runs regardless.
+ */
+export function paneCreateHostId(
+  paneId: string,
+  workspacePath: string | null | undefined,
+  remotePanes: Parameters<typeof paneRemoteHost>[0] = useRemotePaneStore.getState(),
+  selection: ProjectSelection = useProjectStore.getState(),
+): HostId | undefined {
+  return paneRemoteHost(remotePanes, paneId) ?? workspaceHostId(selection, workspacePath);
+}
+
+/**
+ * `workspacePath` is the workspace the pane belongs to (not its cwd, which
+ * can be anywhere): its host is where the pane's session is created.
+ */
+export function useTerminalConnection(paneId: string, workspacePath?: string | null) {
   const paneIdRef = useRef(paneId);
   paneIdRef.current = paneId;
+  const workspacePathRef = useRef(workspacePath);
+  workspacePathRef.current = workspacePath;
 
   /** Send `data` to the pane's pty. Returns whether it was delivered. */
   const write = useCallback((data: string): boolean => {
@@ -65,19 +92,18 @@ export function useTerminalConnection(paneId: string) {
   const create = useCallback(
     (cwd: string | null, cols: number, rows: number, agentKind?: string | null) => {
       const paneId = paneIdRef.current;
-      // A pane of a remote project whose host is not known yet is assumed to
-      // run there until create says otherwise, so a slow connect (the app
+      // Name the host outright: a path alone can't tell a local and a remote
+      // workspace with the same path apart (main's guess picks local).
+      const hostId = paneCreateHostId(paneId, workspacePathRef.current ?? cwd);
+      // A pane of a remote workspace whose host is not known yet is assumed
+      // to run there until create says otherwise, so a slow connect (the app
       // launched while the host is down) shows the host's banner meanwhile.
       const panes = useRemotePaneStore.getState();
-      if (cwd && !paneRemoteHost(panes, paneId)) {
-        const projectHost = remoteHostIdForWorkspace(
-          useProjectStore.getState().projects,
-          cwd,
-        );
-        if (projectHost) panes.setPaneHost(paneId, projectHost);
+      if (hostId && isRemoteHost(hostId) && !paneRemoteHost(panes, paneId)) {
+        panes.setPaneHost(paneId, hostId);
       }
       return window.electronAPI.pty
-        .create(paneId, cwd, cols, rows, agentKind)
+        .create(paneId, cwd, cols, rows, { agentKind, hostId })
         .then((result: PtyCreateResult) => {
           // Badge the tab from where the session really runs (ADR-160).
           if (result.ok) useRemotePaneStore.getState().setPaneHost(paneId, result.hostId);

@@ -387,7 +387,7 @@ export const projectRoutes: Route[] = [
       // PTY), so main round-trips the request the same way start-agent does.
       const created = updated?.workspaces.find((ws) => !before.has(ws.path));
       if (created && updated?.worktreeStartScript) {
-        runSetupScript(created.path, updated.worktreeStartScript);
+        runSetupScript(created.path, updated.worktreeStartScript, updated.hostId);
       }
       json(200, updated);
     }),

@@ -19,6 +19,11 @@ database:
 
 # ADR-178: Always-on remote projects
 
+> **Amended by [ADR-192](../adr-192-linked-projects/index.md) (linked projects).**
+> A project still lives on exactly one host. ADR-192 adds project groups that
+> link single-host projects of the same repo into one sidebar entry, with a
+> section per host. It does not give one project workspaces on several hosts.
+
 ## Context
 
 The goal: a project can live on a remote box, and every workspace created in that

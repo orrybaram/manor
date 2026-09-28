@@ -109,6 +109,18 @@ export async function startNewAgent(
   useAppStore.getState().addTab(prewarmed?.paneId);
 }
 
+/**
+ * Close shortcuts act on the active workspace's layout, which stays mounted but
+ * hidden behind the Projects overview (ADR-194). Ignore them there, so ⌘W
+ * can't close a tab the user can't see.
+ */
+export function unlessOverviewShown(fn: () => void): () => void {
+  return () => {
+    if (useAppStore.getState().activeSurface === "projects") return;
+    fn();
+  };
+}
+
 /** Build the window-agnostic half of the command→action map. */
 export function createSharedKeybindingHandlers(
   { prewarmNewAgent }: { prewarmNewAgent: boolean } = { prewarmNewAgent: false },
@@ -120,14 +132,14 @@ export function createSharedKeybindingHandlers(
     "new-browser": () => store().addBrowserTab("about:blank"),
     "split-h": () => store().splitPane("horizontal"),
     "split-v": () => store().splitPane("vertical"),
-    "close-pane": () => store().requestClosePane(),
+    "close-pane": unlessOverviewShown(() => store().requestClosePane()),
     "reopen-pane": () => store().reopenClosedPane(),
-    "close-tab": () => {
+    "close-tab": unlessOverviewShown(() => {
       const state = store();
       const layout = selectActiveLayout(state);
       const panel = layout?.panels[layout.activePanelId];
       if (panel?.selectedTabId) state.requestCloseTab(panel.selectedTabId);
-    },
+    }),
     "next-tab": () => store().selectNextTab(),
     "prev-tab": () => store().selectPrevTab(),
     "next-pane": () => store().focusNextPane(),
@@ -151,12 +163,12 @@ export function createSharedKeybindingHandlers(
     "split-panel-down": () => store().splitPanel("vertical"),
     "focus-next-panel": () => store().focusNextPanel(),
     "focus-prev-panel": () => store().focusPrevPanel(),
-    "close-panel": () => {
+    "close-panel": unlessOverviewShown(() => {
       const state = store();
       const layout = selectActiveLayout(state);
       if (!layout) return;
       state.closePanel(layout.activePanelId);
-    },
+    }),
     "move-tab-to-next-panel": () => {
       const state = store();
       const layout = selectActiveLayout(state);

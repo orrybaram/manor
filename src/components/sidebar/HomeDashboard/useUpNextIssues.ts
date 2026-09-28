@@ -43,8 +43,14 @@ async function swallow<T>(key: string, fetch: () => Promise<T[]>): Promise<T[]> 
   }
 }
 
-function flattenResults(results: { data?: UpNextIssue[] }[]): UpNextIssue[] {
-  return results.flatMap((r) => r.data ?? []);
+function flattenResults(results: { data?: UpNextIssue[]; isPending: boolean }[]): {
+  issues: UpNextIssue[];
+  loading: boolean;
+} {
+  return {
+    issues: results.flatMap((r) => r.data ?? []),
+    loading: results.some((r) => r.isPending),
+  };
 }
 
 type Source = {
@@ -60,7 +66,12 @@ type Source = {
  * GitHub and (when linked and connected) one Linear query per entry, through
  * the entry's primary member; polled every minute while mounted.
  */
-export function useUpNextIssues(): { top: UpNextRow[]; total: number } {
+export function useUpNextIssues(): {
+  top: UpNextRow[];
+  total: number;
+  /** True until every source has answered once, so callers can hold back an empty state. */
+  loading: boolean;
+} {
   const projects = useProjectStore((s) => s.projects);
 
   const entries = useMemo(() => buildTopLevelEntries(projects), [projects]);
@@ -144,12 +155,12 @@ export function useUpNextIssues(): { top: UpNextRow[]; total: number } {
         color: member.color,
       });
     }
-    const ranked = upNextList(candidates, projects, topLevelKeys(entries));
+    const ranked = upNextList(candidates.issues, projects, topLevelKeys(entries));
     const rows: UpNextRow[] = [];
     for (const issue of ranked) {
       const ctx = context.get(issue.projectKey);
       if (ctx) rows.push({ issue, ...ctx });
     }
-    return { top: rows.slice(0, TOP_COUNT), total: rows.length };
+    return { top: rows.slice(0, TOP_COUNT), total: rows.length, loading: candidates.loading };
   }, [candidates, projects, entries]);
 }

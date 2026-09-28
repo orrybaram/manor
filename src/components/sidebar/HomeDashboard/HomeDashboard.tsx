@@ -294,7 +294,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
           ))}
         </div>
       )}
-      {needsYou.length === 0 && upNext.top.length === 0 && (
+      {needsYou.length === 0 && upNext.top.length === 0 && !upNext.loading && (
         <div className={styles.clearline}>
           <span className={shared.actionIcon} style={{ color: "var(--green)" }}>
             <Check size={16} />

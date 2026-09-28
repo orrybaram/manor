@@ -1,3 +1,6 @@
+import type { WorkspaceMeta } from "./ipc/types";
+import type { GhRepo } from "../src/lib/gh-repo";
+
 export function assertString(
   value: unknown,
   name: string,
@@ -126,4 +129,32 @@ export function assertHostPaths<K extends string = never>(
       }
     }
   }
+}
+
+/** A checkout for `gh`: `{ path, hostId }` (ADR-191). */
+export function assertGhRepo(value: unknown, name: string): asserts value is GhRepo {
+  if (typeof value !== "object" || value === null) {
+    throw new Error(`${name}: expected object, got ${typeof value}`);
+  }
+  const repo = value as Record<string, unknown>;
+  assertString(repo.path, `${name}.path`);
+  assertString(repo.hostId, `${name}.hostId`);
+}
+
+/** The workspaces `ports:updateWorkspaceMetadata` describes (ADR-191). */
+export function assertWorkspaceMeta(
+  value: unknown,
+  name: string,
+): asserts value is WorkspaceMeta[] {
+  assertHostPaths(value, name);
+  value.forEach((entry, i) => {
+    const e = entry as Record<string, unknown>;
+    for (const key of ["projectName", "branch"]) {
+      if (e[key] !== null && typeof e[key] !== "string") {
+        throw new Error(`${name}[${i}].${key}: expected string or null, got ${typeof e[key]}`);
+      }
+    }
+    assertBoolean(e.isMain, `${name}[${i}].isMain`);
+    assertBoolean(e.portlessEnabled, `${name}[${i}].portlessEnabled`);
+  });
 }

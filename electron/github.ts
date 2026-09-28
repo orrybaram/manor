@@ -11,6 +11,10 @@ import type {
   PrComment,
   PrInfo,
 } from "../src/lib/pr-info";
+import { LOCAL_HOST_ID } from "./backend/types";
+import { normalizeHostId } from "../src/lib/host-id";
+import { workspaceKey, type WorkspaceKey } from "../src/lib/workspace-key";
+import type { GhRepo } from "../src/lib/gh-repo";
 
 const execFileAsync = promisify(execFile);
 
@@ -62,15 +66,14 @@ export function ghRepoFromRemoteUrl(url: string): string | null {
 }
 
 /**
- * Says which repo `gh` should target for a project path that `gh` cannot run
- * inside: `[HOST/]OWNER/REPO` for a path on a remote host (ADR-160), whose
- * checkout exists only over there, or null for a local path — `gh` then runs
- * in that directory and reads the repo from it, as before. Throws when a
- * remote path's repo cannot be determined.
+ * Names the repo `gh` should target for a checkout that `gh` cannot run
+ * inside: `[HOST/]OWNER/REPO` for the checkout at `path` on the remote
+ * `hostId` (ADR-160), which exists only over there. Throws when its repo
+ * cannot be determined.
  */
-export type RemoteRepoResolver = (repoPath: string) => Promise<string | null>;
+export type RemoteRepoResolver = (hostId: string, path: string) => Promise<string>;
 
-/** Where and how to run `gh` for a project path: see `RemoteRepoResolver`. */
+/** Where and how to run `gh` for a checkout: see `RemoteRepoResolver`. */
 interface GhTarget {
   cwd: string | undefined;
   repoArgs: string[];
@@ -78,21 +81,30 @@ interface GhTarget {
 
 export class GitHubManager {
   /**
-   * Remote paths' repos, keyed by path. A checkout's origin rarely moves, and
+   * Remote checkouts' repos, keyed by workspace key (ADR-191), so the same
+   * path on two hosts keeps two entries. A checkout's origin rarely moves, and
    * resolving it is an ssh round trip — once per project per poll otherwise.
    */
-  private remoteRepoCache = new Map<string, string>();
+  private remoteRepoCache = new Map<WorkspaceKey, string>();
 
+  /** Without a resolver every checkout is local. */
   constructor(private readonly resolveRemoteRepo?: RemoteRepoResolver) {}
 
-  private async ghTarget(repoPath: string): Promise<GhTarget> {
-    const cached = this.remoteRepoCache.get(repoPath);
-    if (cached) return { cwd: undefined, repoArgs: ["--repo", cached] };
-    const repo = this.resolveRemoteRepo
-      ? await this.resolveRemoteRepo(repoPath)
-      : null;
-    if (repo === null) return { cwd: repoPath, repoArgs: [] };
-    this.remoteRepoCache.set(repoPath, repo);
+  /**
+   * A local checkout runs `gh` in its directory, which reads the repo from
+   * it, as before; a remote one runs here against its origin's repo.
+   */
+  private async ghTarget({ path, hostId }: GhRepo): Promise<GhTarget> {
+    const resolve = this.resolveRemoteRepo;
+    if (!resolve || normalizeHostId(hostId) === LOCAL_HOST_ID) {
+      return { cwd: path, repoArgs: [] };
+    }
+    const key = workspaceKey(hostId, path);
+    let repo = this.remoteRepoCache.get(key);
+    if (!repo) {
+      repo = await resolve(hostId, path);
+      this.remoteRepoCache.set(key, repo);
+    }
     return { cwd: undefined, repoArgs: ["--repo", repo] };
   }
 
@@ -137,19 +149,19 @@ export class GitHubManager {
   }
 
   async getPrForBranch(
-    repoPath: string,
+    repo: GhRepo,
     branch: string,
   ): Promise<PrInfo | null> {
-    return this.getPrForBranchInner(repoPath, branch);
+    return this.getPrForBranchInner(repo, branch);
   }
 
   async getPrsForBranches(
-    repoPath: string,
+    repo: GhRepo,
     branches: string[],
   ): Promise<[string, PrInfo | null][]> {
     const results = await Promise.allSettled(
       branches.map((branch) =>
-        this.getPrForBranchInner(repoPath, branch).then(
+        this.getPrForBranchInner(repo, branch).then(
           (pr): [string, PrInfo | null] => [branch, pr],
         ),
       ),
@@ -162,11 +174,11 @@ export class GitHubManager {
   }
 
   private async getPrForBranchInner(
-    repoPath: string,
+    repo: GhRepo,
     branch: string,
   ): Promise<PrInfo | null> {
     try {
-      const { cwd, repoArgs } = await this.ghTarget(repoPath);
+      const { cwd, repoArgs } = await this.ghTarget(repo);
       const { stdout } = await execFileAsync(
         "gh",
         [
@@ -325,11 +337,11 @@ export class GitHubManager {
    * always thrown.
    */
   async getMyIssues(
-    repoPath: string,
+    repo: GhRepo,
     limit = 50,
     state: "open" | "closed" | "all" = "open",
   ): Promise<GitHubIssue[]> {
-    const { cwd, repoArgs } = await this.ghTarget(repoPath);
+    const { cwd, repoArgs } = await this.ghTarget(repo);
     const { stdout } = await execFileAsync(
       "gh",
       [
@@ -352,11 +364,11 @@ export class GitHubManager {
 
   /** Throws when `gh` fails — see `getMyIssues`. */
   async getAllIssues(
-    repoPath: string,
+    repo: GhRepo,
     limit = 50,
     state: "open" | "closed" | "all" = "open",
   ): Promise<GitHubIssue[]> {
-    const { cwd, repoArgs } = await this.ghTarget(repoPath);
+    const { cwd, repoArgs } = await this.ghTarget(repo);
     const { stdout } = await execFileAsync(
       "gh",
       [
@@ -377,15 +389,15 @@ export class GitHubManager {
 
   /**
    * Prefer `issueUrl` when the caller has one: a bare number resolves against
-   * whatever repo `repoPath`'s remote points at, so an issue linked from
+   * whatever repo `repo`'s remote points at, so an issue linked from
    * another repo (or a checkout whose default remote is a fork) fails to load.
    */
   async getIssueDetail(
-    repoPath: string,
+    repo: GhRepo,
     issueNumber: number,
     issueUrl?: string,
   ): Promise<GitHubIssueDetail> {
-    const { cwd, repoArgs } = await this.ghTarget(repoPath);
+    const { cwd, repoArgs } = await this.ghTarget(repo);
     const { stdout } = await execFileAsync(
       "gh",
       [
@@ -402,8 +414,8 @@ export class GitHubManager {
   }
 
   /** Throws when `gh` fails — see `getMyIssues`; a caller that requested an assignment is entitled to know it didn't happen. */
-  async assignIssue(repoPath: string, issueNumber: number): Promise<void> {
-    const { cwd, repoArgs } = await this.ghTarget(repoPath);
+  async assignIssue(repo: GhRepo, issueNumber: number): Promise<void> {
+    const { cwd, repoArgs } = await this.ghTarget(repo);
     await execFileAsync(
       "gh",
       ["issue", "edit", String(issueNumber), ...repoArgs, "--add-assignee", "@me"],
@@ -416,8 +428,8 @@ export class GitHubManager {
   }
 
   /** Throws when `gh` fails — see `getMyIssues`; a caller that told the user the issue is closed must be right. */
-  async closeIssue(repoPath: string, issueNumber: number): Promise<void> {
-    const { cwd, repoArgs } = await this.ghTarget(repoPath);
+  async closeIssue(repo: GhRepo, issueNumber: number): Promise<void> {
+    const { cwd, repoArgs } = await this.ghTarget(repo);
     await execFileAsync("gh", ["issue", "close", String(issueNumber), ...repoArgs], {
       cwd,
       encoding: "utf-8",
@@ -426,8 +438,8 @@ export class GitHubManager {
   }
 
   /**
-   * Create an issue. With no `repoPath` this targets Manor's own repo — the
-   * in-app feedback form, its original and only renderer caller. `repoPath`
+   * Create an issue. With no `repo` this targets Manor's own repo — the
+   * in-app feedback form, its original and only renderer caller. `repo`
    * (passed by `POST /projects/:projectId/issues`, ADR-171) instead runs `gh`
    * inside that checkout, so the issue lands on whatever repo the project is.
    */
@@ -435,10 +447,10 @@ export class GitHubManager {
     title: string,
     body: string,
     labels: string[],
-    repoPath?: string,
+    repo?: GhRepo,
   ): Promise<{ url: string } | null> {
-    const target: GhTarget | null = repoPath
-      ? await this.ghTarget(repoPath).catch(() => null)
+    const target: GhTarget | null = repo
+      ? await this.ghTarget(repo).catch(() => null)
       : { cwd: undefined, repoArgs: ["--repo", "orrybaram/manor"] };
     if (target === null) return null;
     const baseArgs = [

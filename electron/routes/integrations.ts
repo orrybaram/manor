@@ -10,6 +10,7 @@
  */
 
 import { withProject } from "./projects";
+import { ghRepoOf } from "../../src/lib/gh-repo";
 import type { Route } from "./types";
 
 export const integrationRoutes: Route[] = [
@@ -99,7 +100,7 @@ export const integrationRoutes: Route[] = [
           title,
           issueBody,
           (labels as string[]) ?? [],
-          project.path,
+          ghRepoOf(project),
         );
         // `createIssue` swallows `gh`'s error and returns null — all this side
         // knows is that it did not happen.

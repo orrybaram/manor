@@ -9,6 +9,13 @@ import {
   type CustomCommand,
 } from "../../store/project-store";
 import { useListDrag } from "../../hooks/useListDrag";
+import { useHostStore } from "../../store/host-store";
+import { isRemoteHost } from "../../lib/hosts";
+import {
+  hostSegments,
+  portlessHostFor,
+  portlessHostname,
+} from "../../lib/portless-hostname";
 import { useListKeyboardNav } from "../../hooks/useListKeyboardNav";
 import { useThemeStore, type Theme } from "../../store/theme-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
@@ -245,14 +252,25 @@ function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
   );
 }
 
-/** Mirrors PortlessManager.hostnameForPort's slug rules — display only. */
-function previewHostname(projectName: string): string {
-  const slug = projectName
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 63);
-  return `${slug}.localhost`;
+/**
+ * The hostname a project's main workspace gets, by the rules portless routes
+ * with — display only. A remote project's carries its host's segment, found
+ * among every registered host so a shared prefix shows the full id.
+ */
+function previewHostname(
+  project: Pick<ProjectInfo, "name" | "path" | "hostId">,
+  hosts: readonly { hostId: string }[],
+): string {
+  const remoteIds = hosts.map((h) => h.hostId).filter((id) => isRemoteHost(id));
+  // The host list may not have loaded yet; the project's own host is always known.
+  if (isRemoteHost(project.hostId) && !remoteIds.includes(project.hostId)) {
+    remoteIds.push(project.hostId);
+  }
+  const host = portlessHostFor(project.hostId, hostSegments(remoteIds));
+  return portlessHostname(
+    { path: project.path, projectName: project.name, branch: null, isMain: true },
+    host.kind === "unknown" ? { kind: "local" } : host,
+  );
 }
 
 function defaultWorktreePath(projectName: string): string {
@@ -373,6 +391,7 @@ function PortsSection(props: HostSectionProps) {
   const { project, anchor } = props;
 
   const updateProject = useProjectStore((s) => s.updateProject);
+  const hosts = useHostStore((s) => s.hosts);
 
   return (
     <Stack gap="xs">
@@ -389,7 +408,7 @@ function PortsSection(props: HostSectionProps) {
       <div className={styles.fieldHint}>
         Route this project's dev servers through the portless proxy so each
         workspace gets a stable hostname like{" "}
-        <code>{previewHostname(project.name)}</code>. When off, ports open as{" "}
+        <code>{previewHostname(project, hosts)}</code>. When off, ports open as{" "}
         <code>localhost:&lt;port&gt;</code>.
       </div>
     </Stack>

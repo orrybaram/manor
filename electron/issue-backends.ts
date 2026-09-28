@@ -16,6 +16,7 @@
 
 import type { GitHubManager } from "./github";
 import type { LinearManager } from "./linear";
+import { ghRepoOf } from "../src/lib/gh-repo";
 import type { ProjectInfo } from "./persistence";
 import {
   linearStateTypes,
@@ -38,7 +39,7 @@ export interface IssueDeps {
 }
 
 /** The slice of `ProjectInfo` an issue backend needs. */
-export type IssueProject = Pick<ProjectInfo, "path" | "linearAssociations">;
+export type IssueProject = Pick<ProjectInfo, "path" | "hostId" | "linearAssociations">;
 
 export interface IssueBackend {
   list(
@@ -134,12 +135,13 @@ function githubBackend(
   github: GitHubManager,
   project: IssueProject,
 ): IssueBackend {
+  const repo = ghRepoOf(project);
   return {
     async list(filter, state, limit) {
       const issues =
         filter === "all"
-          ? await github.getAllIssues(project.path, limit, state)
-          : await github.getMyIssues(project.path, limit, state);
+          ? await github.getAllIssues(repo, limit, state)
+          : await github.getMyIssues(repo, limit, state);
       return issues.map(normalizeGitHubIssue);
     },
     async detail(ref) {
@@ -150,7 +152,7 @@ function githubBackend(
         throw new InvalidIssueRef("GitHub issue refs must be numeric.");
       }
       return normalizeGitHubIssueDetail(
-        await github.getIssueDetail(project.path, Number(bare)),
+        await github.getIssueDetail(repo, Number(bare)),
       );
     },
   };

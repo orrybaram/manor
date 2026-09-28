@@ -8,6 +8,7 @@ import type {
 } from "../src/lib/menu-commands";
 import type { HostStatusInfo } from "../src/store/host-store";
 import type { PtyCreateOptions, PtyResetOptions } from "../src/electron.d";
+import type { GhRepo } from "../src/lib/gh-repo";
 
 interface WindowBounds {
   x: number;
@@ -395,6 +396,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     updateWorkspaceMetadata: (
       meta: Array<{
         path: string;
+        hostId: string;
         projectName: string | null;
         branch: string | null;
         isMain: boolean;
@@ -472,27 +474,25 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
 
   github: {
-    getPrForBranch: (repoPath: string, branch: string) =>
-      ipcRenderer.invoke("github:getPrForBranch", repoPath, branch),
-    getPrsForBranches: (repoPath: string, branches: string[]) =>
-      ipcRenderer.invoke("github:getPrsForBranches", repoPath, branches),
+    getPrsForBranches: (repo: GhRepo, branches: string[]) =>
+      ipcRenderer.invoke("github:getPrsForBranches", repo, branches),
     checkStatus: () => ipcRenderer.invoke("github:checkStatus"),
     getMyIssues: (
-      repoPath: string,
+      repo: GhRepo,
       limit?: number,
       state?: "open" | "closed" | "all",
-    ) => ipcRenderer.invoke("github:getMyIssues", repoPath, limit, state),
+    ) => ipcRenderer.invoke("github:getMyIssues", repo, limit, state),
     getAllIssues: (
-      repoPath: string,
+      repo: GhRepo,
       limit?: number,
       state?: "open" | "closed" | "all",
-    ) => ipcRenderer.invoke("github:getAllIssues", repoPath, limit, state),
-    getIssueDetail: (repoPath: string, issueNumber: number, issueUrl?: string) =>
-      ipcRenderer.invoke("github:getIssueDetail", repoPath, issueNumber, issueUrl),
-    assignIssue: (repoPath: string, issueNumber: number) =>
-      ipcRenderer.invoke("github:assignIssue", repoPath, issueNumber),
-    closeIssue: (repoPath: string, issueNumber: number) =>
-      ipcRenderer.invoke("github:closeIssue", repoPath, issueNumber),
+    ) => ipcRenderer.invoke("github:getAllIssues", repo, limit, state),
+    getIssueDetail: (repo: GhRepo, issueNumber: number, issueUrl?: string) =>
+      ipcRenderer.invoke("github:getIssueDetail", repo, issueNumber, issueUrl),
+    assignIssue: (repo: GhRepo, issueNumber: number) =>
+      ipcRenderer.invoke("github:assignIssue", repo, issueNumber),
+    closeIssue: (repo: GhRepo, issueNumber: number) =>
+      ipcRenderer.invoke("github:closeIssue", repo, issueNumber),
     createIssue: (title: string, body: string, labels: string[]) =>
       ipcRenderer.invoke("github:createIssue", title, body, labels),
     uploadFeedbackImages: (images: { base64: string; name: string }[]) =>

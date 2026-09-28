@@ -18,6 +18,7 @@ import { isDaemonStale } from "./types";
 import type { HostTransport } from "./transport";
 import { LocalTransport } from "./transport-local";
 import { execReplyTimeoutMs } from "./exec-runner";
+import { errorMessage } from "../lib/errors";
 import { DEFAULT_REQUEST_TIMEOUT_MS, RpcChannel } from "./rpc-channel";
 import { StreamChannel, type StreamEventHandler } from "./stream-channel";
 import { SessionSubscriptions } from "./session-subscriptions";
@@ -70,6 +71,15 @@ function envForConnect(overrides: Record<string, string>): Record<string, string
   return env;
 }
 
+/**
+ * How often to ping a connected daemon, and how long to wait for its pong
+ * before presuming the connection dead (ADR-188 §2).
+ */
+export interface HeartbeatOptions {
+  intervalMs: number;
+  timeoutMs: number;
+}
+
 function disconnectedWhileConnecting(): Error {
   return new Error("Disconnected while connecting");
 }
@@ -77,7 +87,15 @@ function disconnectedWhileConnecting(): Error {
 export class TerminalHostClient {
   private connected = false;
   private connectPromise: Promise<void> | null = null;
-  private readonly rpc = new RpcChannel(() => this.cleanup());
+  /**
+   * A timeout while connected is an unexpected loss like a closed socket, so
+   * it goes through `handleDisconnect` and the reconnect loop (ADR-188 §1).
+   * Before that it is a failed attempt, which `connect()` already reports.
+   */
+  private readonly rpc = new RpcChannel((type) => {
+    if (this.connected) this.handleDisconnect(`request timed out: ${type}`);
+    else this.cleanup();
+  });
   private readonly stream: StreamChannel = new StreamChannel((event) =>
     this.execStreams.dispatch(event),
   );
@@ -103,6 +121,17 @@ export class TerminalHostClient {
   private generation = 0;
   /** The `generation` the in-flight `connectPromise` was started under. */
   private connectGeneration = 0;
+  /**
+   * Bumped by every successful connect, so a ping that fails can tell
+   * whether the connection it was sent on is still the current one.
+   */
+  private connectionId = 0;
+  /** Set through `setHeartbeat`; null means no heartbeat (the default). */
+  private heartbeat: HeartbeatOptions | null = null;
+  /** Runs `heartbeatTick` while connected with a heartbeat set. */
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  /** The ping in flight, shared by heartbeat ticks and `checkLiveness`. */
+  private livenessPing: Promise<boolean> | null = null;
   private readonly supervisor = new ReconnectSupervisor({
     connect: () => this.connect(),
     isConnected: () => this.connected,
@@ -147,6 +176,29 @@ export class TerminalHostClient {
     opts: { isPermanentFailure?: (err: unknown) => boolean } = {},
   ): void {
     this.supervisor.setPolicy(policy, opts);
+  }
+
+  /**
+   * Ping the daemon every `intervalMs` while connected, and treat a ping not
+   * answered within `timeoutMs` as a lost connection (ADR-188 §2). Catches a
+   * connection that is up but no longer delivering, which a socket close
+   * never reports. `null` turns it off, the default.
+   */
+  setHeartbeat(opts: HeartbeatOptions | null): void {
+    this.heartbeat = opts;
+    this.stopHeartbeat();
+    if (this.connected) this.startHeartbeat();
+  }
+
+  /**
+   * Ping the daemon now (sharing a ping already in flight) and resolve
+   * whether it answered. A failure is handled as a lost connection, exactly
+   * as for a heartbeat tick. Resolves false without sending anything when
+   * not connected; never starts a connect.
+   */
+  checkLiveness(): Promise<boolean> {
+    if (!this.connected) return Promise.resolve(false);
+    return this.sendLivenessPing();
   }
 
   /** Observe unexpected connection loss and recovery. */
@@ -246,6 +298,8 @@ export class TerminalHostClient {
     stillWanted();
 
     this.connected = true;
+    this.connectionId++;
+    this.startHeartbeat();
   }
 
   /**
@@ -481,7 +535,10 @@ export class TerminalHostClient {
     return (await this.rpc.call({ type: "listSessions" })).sessions;
   }
 
-  /** Ping the daemon */
+  /**
+   * Ping the daemon, connecting first if needed. The heartbeat must never
+   * trigger a connect, so it does not use this (see `sendLivenessPing`).
+   */
   async ping(): Promise<boolean> {
     try {
       await this.ensureConnected();
@@ -612,20 +669,73 @@ export class TerminalHostClient {
   }
 
   /**
-   * A socket closed while we were connected — the daemon exited, crashed, or
-   * was killed. `disconnect()` never lands here: it clears `connected` before
-   * destroying the sockets, so their close events return at the guard.
+   * The connection was lost while we were connected — a socket closed (the
+   * daemon exited, crashed, or was killed), a request timed out, or the
+   * heartbeat went unanswered. `reason` goes into the log line.
+   * `disconnect()` never lands here: it clears `connected` before destroying
+   * the sockets, so their close events return at the guard.
    */
-  private handleDisconnect(): void {
+  private handleDisconnect(reason?: string): void {
     if (!this.connected) return;
     this.cleanup();
-    console.warn("[terminal-host] lost connection to daemon; reconnecting");
+    const detail = reason ? ` (${reason})` : "";
+    console.warn(`[terminal-host] lost connection to daemon${detail}; reconnecting`);
     this.supervisor.connectionLost();
+  }
+
+  /** Start pinging on the configured interval, if a heartbeat is set. */
+  private startHeartbeat(): void {
+    if (!this.heartbeat || this.heartbeatTimer) return;
+    this.heartbeatTimer = setInterval(
+      () => this.heartbeatTick(),
+      this.heartbeat.intervalMs,
+    );
+    this.heartbeatTimer.unref?.();
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
+  }
+
+  /** One heartbeat: skipped while disconnected or while a ping is pending. */
+  private heartbeatTick(): void {
+    if (!this.connected || this.livenessPing) return;
+    void this.sendLivenessPing();
+  }
+
+  /**
+   * Send one `ping` straight to the wire (never through `ensureConnected`)
+   * and resolve whether it was answered. On failure, report the loss — unless
+   * the connection it went out on is already gone, e.g. because its timeout
+   * went through `handleDisconnect` already, so it is never reported twice.
+   */
+  private sendLivenessPing(): Promise<boolean> {
+    if (this.livenessPing) return this.livenessPing;
+    const connection = this.connectionId;
+    const timeoutMs = this.heartbeat?.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    const ping: Promise<boolean> = this.rpc
+      .call({ type: "ping" }, timeoutMs)
+      .then(
+        () => true,
+        (err: unknown) => {
+          if (this.connected && connection === this.connectionId) {
+            this.handleDisconnect(`heartbeat failed: ${errorMessage(err)}`);
+          }
+          return false;
+        },
+      )
+      .finally(() => {
+        if (this.livenessPing === ping) this.livenessPing = null;
+      });
+    this.livenessPing = ping;
+    return ping;
   }
 
   /** Shared teardown for both intentional disconnect and unexpected connection loss */
   private cleanup(): void {
     this.connected = false;
+    this.stopHeartbeat();
     this.rpc.close();
     this.stream.close();
     this.execStreams.failAll("Lost connection to the terminal host");

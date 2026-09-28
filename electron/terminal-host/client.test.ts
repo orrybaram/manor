@@ -58,6 +58,9 @@ class TestDaemon {
   /** Behave like a daemon from before ADR-159: no protocol, no `notFound`, so
    *  the client must replace it. */
   legacyProtocol = false;
+  /** Control request types to swallow without a reply, as a wedged
+   *  connection would (ADR-188). They are still recorded in `seen`. */
+  readonly silentTypes = new Set<string>();
 
   constructor(dir: string) {
     // macOS has a 104-char limit for unix socket paths — use a short socket path
@@ -162,6 +165,7 @@ class TestDaemon {
     }
 
     const requestId = req.requestId;
+    if (this.silentTypes.has(req.type)) return;
 
     if (req.type !== "auth" && !this.authenticatedSockets.has(socket)) {
       this.send(socket, { type: "error", message: "Not authenticated" }, requestId);
@@ -1121,6 +1125,181 @@ describe("TerminalHostClient", () => {
       // afterEach stops the daemon; it is already stopped, so restart it to
       // keep that teardown symmetric.
       await daemon.start();
+    });
+  });
+
+  describe("liveness (ADR-188)", () => {
+    /** Wait until `pred()` holds, or fail after `timeoutMs`. */
+    async function waitFor(
+      pred: () => boolean,
+      label: string,
+      timeoutMs = 3_000,
+    ): Promise<void> {
+      const start = Date.now();
+      while (!pred()) {
+        if (Date.now() - start > timeoutMs)
+          throw new Error(`timed out waiting for: ${label}`);
+        await new Promise((r) => setTimeout(r, 10));
+      }
+    }
+
+    const pings = () => daemon.seen.filter((e) => e === "control:ping").length;
+
+    /**
+     * A client that retries fast, recording `onLost`/`onReconnected`. The
+     * listener lifts any silence on loss, so the reconnect can succeed.
+     */
+    function watchedClient() {
+      const client = createTestClient(daemon);
+      client.setReconnectPolicy((attempt) => [30, 60, 120][attempt] ?? null);
+      const lost: number[] = [];
+      const reconnected: number[] = [];
+      client.setConnectionListener({
+        onLost: () => {
+          lost.push(Date.now());
+          daemon.silentTypes.clear();
+        },
+        onReconnected: () => reconnected.push(Date.now()),
+      });
+      return { client, lost, reconnected };
+    }
+
+    beforeEach(() => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("a request timeout while connected starts the reconnect loop", async () => {
+      const { client, lost, reconnected } = watchedClient();
+      await client.connect();
+
+      daemon.silentTypes.add("resize");
+      const rpc = (client as any).rpc;
+      await expect(
+        rpc.call({ type: "resize", sessionId: "s", cols: 80, rows: 24 }, 50),
+      ).rejects.toThrow("Request timed out: resize");
+
+      expect(lost).toHaveLength(1);
+      expect(console.warn).toHaveBeenCalledWith(
+        expect.stringContaining("request timed out: resize"),
+      );
+      await waitFor(() => reconnected.length === 1, "onReconnected");
+      expect((client as any).connected).toBe(true);
+      client.disconnect();
+    });
+
+    it("reports a daemon that stops answering pings as lost, and reconnects", async () => {
+      const { client, lost, reconnected } = watchedClient();
+      client.setHeartbeat({ intervalMs: 50, timeoutMs: 100 });
+      await client.connect();
+
+      const silencedAt = Date.now();
+      daemon.silentTypes.add("ping");
+      await waitFor(() => lost.length > 0, "onLost");
+      // Within one interval plus one timeout, with slack for a busy runner.
+      expect(lost[0] - silencedAt).toBeLessThan(50 + 100 + 150);
+      expect(lost).toHaveLength(1);
+
+      await waitFor(() => reconnected.length === 1, "onReconnected");
+      expect((client as any).connected).toBe(true);
+      client.disconnect();
+    });
+
+    it("keeps pinging a healthy daemon without disconnecting", async () => {
+      const { client, lost } = watchedClient();
+      client.setHeartbeat({ intervalMs: 30, timeoutMs: 200 });
+      await client.connect();
+
+      await waitFor(() => pings() >= 3, "three pings");
+      expect(lost).toHaveLength(0);
+      expect((client as any).connected).toBe(true);
+      client.disconnect();
+    });
+
+    it("sends at most one ping at a time", async () => {
+      const { client } = watchedClient();
+      client.setHeartbeat({ intervalMs: 20, timeoutMs: 5_000 });
+      await client.connect();
+      daemon.silentTypes.add("ping");
+
+      await new Promise((r) => setTimeout(r, 150));
+      expect(pings()).toBe(1);
+      client.disconnect();
+    });
+
+    it("checkLiveness answers true for a healthy daemon", async () => {
+      const { client, lost } = watchedClient();
+      client.setHeartbeat({ intervalMs: 60_000, timeoutMs: 100 });
+      await client.connect();
+
+      expect(await client.checkLiveness()).toBe(true);
+      expect(pings()).toBe(1);
+      expect(lost).toHaveLength(0);
+      client.disconnect();
+    });
+
+    it("checkLiveness answers false for a silent daemon, and reports the loss", async () => {
+      const { client, lost, reconnected } = watchedClient();
+      client.setHeartbeat({ intervalMs: 60_000, timeoutMs: 100 });
+      await client.connect();
+
+      daemon.silentTypes.add("ping");
+      expect(await client.checkLiveness()).toBe(false);
+      expect(lost).toHaveLength(1);
+      await waitFor(() => reconnected.length === 1, "onReconnected");
+      client.disconnect();
+    });
+
+    it("checkLiveness shares a ping already in flight", async () => {
+      const { client } = watchedClient();
+      client.setHeartbeat({ intervalMs: 60_000, timeoutMs: 1_000 });
+      await client.connect();
+
+      const [a, b] = await Promise.all([client.checkLiveness(), client.checkLiveness()]);
+      expect([a, b]).toEqual([true, true]);
+      expect(pings()).toBe(1);
+      client.disconnect();
+    });
+
+    it("checkLiveness answers false without sending anything when disconnected", async () => {
+      const { client } = watchedClient();
+      client.setHeartbeat({ intervalMs: 60_000, timeoutMs: 100 });
+
+      expect(await client.checkLiveness()).toBe(false);
+      expect(daemon.seen).toEqual([]);
+      expect((client as any).connected).toBe(false);
+    });
+
+    it("stops the heartbeat on disconnect", async () => {
+      const { client, lost } = watchedClient();
+      client.setHeartbeat({ intervalMs: 20, timeoutMs: 200 });
+      await client.connect();
+      await waitFor(() => pings() >= 1, "first ping");
+
+      client.disconnect();
+      expect((client as any).heartbeatTimer).toBeNull();
+      const before = pings();
+      await new Promise((r) => setTimeout(r, 100));
+      expect(pings()).toBe(before);
+      expect(lost).toHaveLength(0);
+    });
+
+    it("setHeartbeat(null) stops pinging a connected daemon", async () => {
+      const { client } = watchedClient();
+      client.setHeartbeat({ intervalMs: 20, timeoutMs: 200 });
+      await client.connect();
+      await waitFor(() => pings() >= 1, "first ping");
+
+      client.setHeartbeat(null);
+      // Let a ping that was already on the wire land before counting.
+      await new Promise((r) => setTimeout(r, 30));
+      const before = pings();
+      await new Promise((r) => setTimeout(r, 100));
+      expect(pings()).toBe(before);
+      client.disconnect();
     });
   });
 

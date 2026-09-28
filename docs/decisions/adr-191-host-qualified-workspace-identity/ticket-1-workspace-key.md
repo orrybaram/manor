@@ -1,6 +1,6 @@
 ---
 title: Add a workspace key made of host plus path, alongside the old path key
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: []

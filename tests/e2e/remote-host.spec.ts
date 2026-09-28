@@ -117,11 +117,11 @@ async function openRemoteProject(
   await window.getByTestId("import-project-button").click();
   const dialog = window.getByTestId("add-project-dialog");
   await expect(dialog).toBeVisible({ timeout: 10_000 });
-  await dialog.getByText("On a remote host", { exact: true }).click();
+  await dialog.getByText("Clone repository", { exact: true }).click();
   await dialog.locator("#add-project-host").click();
   await window.getByRole("option", { name: APP_TARGET, exact: true }).click();
   await dialog.locator("#add-project-repo-url").fill(SEED_REPO_URL);
-  await dialog.locator("#add-project-remote-dir").fill(REMOTE_DIR);
+  await dialog.locator("#add-project-location").fill(REMOTE_DIR);
   await dialog.locator("#add-project-name").fill(PROJECT_NAME);
   await dialog.getByRole("button", { name: "Clone", exact: true }).click();
 

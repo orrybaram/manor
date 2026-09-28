@@ -10,6 +10,12 @@ export type UseHostCloneFlowOptions = {
   hostId: string;
   /** Performs the clone (or move) itself; resolves with the resulting project. */
   run: () => Promise<ProjectInfo>;
+  /**
+   * Stop after the clone instead of moving on to the health step — a clone
+   * on this machine (ADR-194) goes to `ProjectSetupWizard` instead. `step`
+   * returns to "form" and the caller takes it from there.
+   */
+  skipHealthChecks?: boolean;
 };
 
 export type UseHostCloneFlowResult = {
@@ -21,7 +27,7 @@ export type UseHostCloneFlowResult = {
   checksRunning: boolean;
   /**
    * Runs `run()`, streaming progress into `progressLines`, then
-   * health-checks. Resolves with the project on success, or null after an
+   * health-checks (unless `skipHealthChecks`). Resolves with the project on success, or null after an
    * error (already reflected in `error`).
    */
   start: () => Promise<ProjectInfo | null>;
@@ -37,7 +43,7 @@ export type UseHostCloneFlowResult = {
  * callers: `cloneProject` or `moveProjectToHost`.
  */
 export function useHostCloneFlow(options: UseHostCloneFlowOptions): UseHostCloneFlowResult {
-  const { hostId, run } = options;
+  const { hostId, run, skipHealthChecks = false } = options;
 
   const [step, setStep] = useState<HostCloneStep>("form");
   const [progressLines, setProgressLines] = useState<string[]>([]);
@@ -87,6 +93,10 @@ export function useHostCloneFlow(options: UseHostCloneFlowOptions): UseHostClone
       const result = await run();
       unsub();
       setProject(result);
+      if (skipHealthChecks) {
+        setStep("form");
+        return result;
+      }
       setStep("health");
       void runHealthChecks(result.path);
       return result;
@@ -96,7 +106,7 @@ export function useHostCloneFlow(options: UseHostCloneFlowOptions): UseHostClone
       setStep("form");
       return null;
     }
-  }, [run, runHealthChecks]);
+  }, [run, runHealthChecks, skipHealthChecks]);
 
   const rerun = useCallback(() => {
     if (project) void runHealthChecks(project.path);

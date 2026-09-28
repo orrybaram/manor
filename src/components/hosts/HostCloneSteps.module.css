@@ -61,3 +61,9 @@
   font-size: 12px;
   color: var(--danger);
 }
+
+/* An input sharing its row with a button (Location + Browse…, ADR-194). */
+.fieldGrow {
+  flex: 1;
+  min-width: 0;
+}

@@ -148,6 +148,7 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
                   value={mode}
                   onChange={setMode}
                   size="sm"
+                  aria-label="Where the project lives"
                   options={[
                     { value: "local", label: "On this Mac" },
                     { value: "remote", label: "On a remote host" },

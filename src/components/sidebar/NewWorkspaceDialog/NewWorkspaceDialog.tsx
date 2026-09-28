@@ -349,6 +349,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                   value={mode}
                   onChange={setMode}
                   size="sm"
+                  aria-label="New or existing branch"
                   options={[
                     { value: "new", label: "New branch" },
                     { value: "existing", label: "Existing branch" },

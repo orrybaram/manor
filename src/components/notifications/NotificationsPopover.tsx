@@ -379,6 +379,7 @@ export function NotificationsPopover() {
               value={filter}
               onChange={setFilter}
               options={FILTER_OPTIONS}
+              aria-label="Filter notifications"
             />
           </div>
 

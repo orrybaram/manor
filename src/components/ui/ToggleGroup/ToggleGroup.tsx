@@ -1,5 +1,6 @@
 import { Fragment, useId, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { Tooltip } from "../Tooltip/Tooltip";
+import { toggleKeyAction } from "./toggle-keys";
 import styles from "./ToggleGroup.module.css";
 
 type ToggleOption<T extends string> = {
@@ -17,22 +18,24 @@ type ToggleGroupProps<T extends string> = {
   onChange: (value: T) => void;
   options: ToggleOption<T>[];
   size?: "sm" | "md" | "lg";
-  /** Id of the element that names the group. */
+  /** The group's accessible name. Give this or `aria-labelledby`. */
+  "aria-label"?: string;
+  /** Id of the element that names the group. Give this or `aria-label`. */
   "aria-labelledby"?: string;
+  /**
+   * `automatic` (the default): arrow keys move to an option and choose it.
+   * `manual`: arrow keys only move focus, and Enter or Space chooses. Use
+   * it where choosing is costly, e.g. it refetches or clears a selection.
+   */
+  activationMode?: "automatic" | "manual";
   "data-testid"?: string;
-};
-
-const STEP_KEYS: Record<string, 1 | -1> = {
-  ArrowRight: 1,
-  ArrowDown: 1,
-  ArrowLeft: -1,
-  ArrowUp: -1,
 };
 
 /**
  * One choice among a few options, as a radio group. It has a single tab
- * stop (the chosen option). Arrow keys, Home and End move and choose, and
- * skip disabled options.
+ * stop (the chosen option). Arrow keys, Home and End move between options,
+ * skipping disabled ones, and choose them too unless `activationMode` is
+ * `manual`.
  */
 export function ToggleGroup<T extends string>(props: ToggleGroupProps<T>) {
   const {
@@ -40,7 +43,9 @@ export function ToggleGroup<T extends string>(props: ToggleGroupProps<T>) {
     onChange,
     options,
     size = "md",
+    "aria-label": label,
     "aria-labelledby": labelledBy,
+    activationMode = "automatic",
     "data-testid": testId,
   } = props;
 
@@ -55,23 +60,25 @@ export function ToggleGroup<T extends string>(props: ToggleGroupProps<T>) {
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (enabled.length === 0) return;
-    const at = Math.max(0, enabled.findIndex((o) => o.value === tabStop));
-    let target: number | null = null;
-    if (e.key === "Home") target = 0;
-    else if (e.key === "End") target = enabled.length - 1;
-    else if (e.key in STEP_KEYS) {
-      target = (at + STEP_KEYS[e.key] + enabled.length) % enabled.length;
-    }
-    if (target === null) return;
+    // In manual mode focus can sit on an unchosen option; step from there.
+    const focused = enabled.find((o) => buttons.current.get(o.value) === e.target)?.value;
+    const action = toggleKeyAction(
+      e.key,
+      enabled.map((o) => o.value),
+      focused ?? tabStop,
+      activationMode,
+    );
+    if (!action) return;
     e.preventDefault();
-    choose(enabled[target].value);
+    if (action.choose) choose(action.focus);
+    else buttons.current.get(action.focus)?.focus();
   };
 
   return (
     <div
       className={`${styles.toggleGroup} ${styles[size]}`}
       role="radiogroup"
+      aria-label={label}
       aria-labelledby={labelledBy}
       data-testid={testId}
       onKeyDown={onKeyDown}

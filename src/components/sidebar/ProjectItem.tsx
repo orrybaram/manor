@@ -242,7 +242,8 @@ type ProjectItemProps = {
   onSelect: () => void;
   onRemove: () => void;
   onSelectWorkspace: (index: number) => void;
-  onRemoveWorktree: (ws: WorkspaceInfo, deleteBranch: boolean) => void;
+  /** Resolves to whether the worktree was removed. */
+  onRemoveWorktree: (ws: WorkspaceInfo, deleteBranch: boolean) => Promise<boolean>;
   onRenameWorkspace: (ws: WorkspaceInfo, newName: string) => void;
   onHideWorkspace: (ws: WorkspaceInfo, idx: number) => void;
   onUnhideWorkspace: (ws: WorkspaceInfo) => void;
@@ -1033,7 +1034,16 @@ export function ProjectItem(props: ProjectItemProps) {
         workspace={confirmDeleteWorktree}
         onConfirm={(ws, deleteBranch) => {
           setDeletingPaths((prev) => new Set(prev).add(ws.path));
-          onRemoveWorktree(ws, deleteBranch);
+          void onRemoveWorktree(ws, deleteBranch).then((removed) => {
+            // A failed removal leaves the workspace in the list, so the
+            // prune below never un-dims it: do it here.
+            if (removed) return;
+            setDeletingPaths((prev) => {
+              const next = new Set(prev);
+              next.delete(ws.path);
+              return next;
+            });
+          });
         }}
       />
 

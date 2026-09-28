@@ -2,16 +2,19 @@ import { useAppStore } from "./app-store";
 import { useProjectStore } from "./project-store";
 import { useToastStore } from "./toast-store";
 import type { ProjectInfo, WorkspaceInfo } from "./project-store";
+import { ipcErrorMessage } from "../lib/ipc-error";
 
 /**
  * Remove a worktree: immediately switch away (if active), clean up tabs,
- * show a progress toast, and tear down in the background.
+ * show a progress toast, and tear down in the background. Resolves to
+ * whether the worktree was removed — git refuses a locked one, say — so a
+ * caller showing the row as deleting can put it back.
  */
 export function removeWorktreeWithToast(
   project: ProjectInfo,
   ws: WorkspaceInfo,
   deleteBranch?: boolean,
-): void {
+): Promise<boolean> {
   const appStore = useAppStore.getState();
   const projectStore = useProjectStore.getState();
   const toastStore = useToastStore.getState();
@@ -51,7 +54,7 @@ export function removeWorktreeWithToast(
     },
   );
 
-  projectStore
+  return projectStore
     .removeWorktree(project.id, ws.path, deleteBranch)
     .then(() => {
       toastStore.updateToast(toastId, {
@@ -59,13 +62,15 @@ export function removeWorktreeWithToast(
         status: "success",
         detail: undefined,
       });
+      return true;
     })
-    .catch((err) => {
+    .catch((err: unknown) => {
       toastStore.updateToast(toastId, {
         message: `Failed to remove "${wsName}"`,
         status: "error",
-        detail: String(err),
+        detail: ipcErrorMessage(err),
       });
+      return false;
     })
     .finally(() => {
       unsubProgress();

@@ -49,6 +49,7 @@ function makeLinearIssueDetail(identifier: string): LinearIssueDetail {
 
 const PROJECT: IssueProject = {
   path: "/repos/demo",
+  hostId: "local",
   linearAssociations: [{ teamId: "team-1", teamName: "Eng", teamKey: "ENG" }],
 };
 
@@ -114,11 +115,11 @@ describe("issueBackend('github')", () => {
     });
   });
 
-  it("list(assigned) calls getMyIssues with path, limit, state", async () => {
+  it("list(assigned) calls getMyIssues with the project's path and host, limit, state", async () => {
     const backend = await backendOf(ctx.deps, PROJECT, "github");
     const issues = await backend.list("assigned", "open", 50);
     expect(ctx.githubManager.getMyIssues).toHaveBeenCalledWith(
-      "/repos/demo",
+      { path: "/repos/demo", hostId: "local" },
       50,
       "open",
     );
@@ -139,7 +140,7 @@ describe("issueBackend('github')", () => {
     const backend = await backendOf(ctx.deps, PROJECT, "github");
     await backend.list("all", "closed", 10);
     expect(ctx.githubManager.getAllIssues).toHaveBeenCalledWith(
-      "/repos/demo",
+      { path: "/repos/demo", hostId: "local" },
       10,
       "closed",
     );
@@ -153,7 +154,7 @@ describe("issueBackend('github')", () => {
       const backend = await backendOf(ctx.deps, PROJECT, "github");
       const detail = await backend.detail(ref);
       expect(ctx.githubManager.getIssueDetail).toHaveBeenCalledWith(
-        "/repos/demo",
+        { path: "/repos/demo", hostId: "local" },
         42,
       );
       expect(detail).toMatchObject({
@@ -402,7 +403,7 @@ describe("ref round-trip: list() → detail()", () => {
     );
     const detail = await backend.detail(issue.ref);
     expect(ctx.githubManager.getIssueDetail).toHaveBeenCalledWith(
-      "/repos/demo",
+      { path: "/repos/demo", hostId: "local" },
       1,
     );
     expect(detail.ref).toBe(issue.ref);

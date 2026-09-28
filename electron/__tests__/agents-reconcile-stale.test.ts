@@ -35,6 +35,8 @@ function makeAgent(
     status: string;
     agentSessionId: string | null;
     paneId: string | null;
+    hostId: string;
+    projectId: string | null;
   }> = {},
 ) {
   return {
@@ -42,15 +44,20 @@ function makeAgent(
     status: "active",
     agentSessionId: "agent-uuid-default",
     paneId: "pane-default",
+    hostId: LOCAL_HOST_ID,
+    projectId: null,
     ...overrides,
   };
 }
 
+/** Pane id → the host that owns its session (`SessionOwners`). */
+const paneOwners = new Map<string, string>();
+
 /**
  * An `IpcDeps`-shaped fixture (ADR-183): every field `ipc/agents.ts`
- * reaches, including `projectManager`/`backendRegistry`, which
- * `isAgentHostConnected` always dereferences now — rather than a bag the
- * handler had to guard against being partial.
+ * reaches, including the pane owners and host status
+ * `isAgentHostConnected` reads — rather than a bag the handler had to
+ * guard against being partial.
  */
 function makeDeps(overrides: Record<string, unknown> = {}) {
   return {
@@ -68,12 +75,10 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
         listSessions: vi.fn().mockResolvedValue([]),
       },
     },
-    projectManager: {
-      getProjectHostId: vi.fn().mockReturnValue(LOCAL_HOST_ID),
-    },
     backendRegistry: {
       status: vi.fn().mockReturnValue("connected"),
     },
+    getPaneHostId: (paneId: string) => paneOwners.get(paneId),
     // The Status reconciler's driver (ADR-184).
     agentStatus: {
       signal: vi.fn(() => ({ effects: [] })),
@@ -95,6 +100,7 @@ describe("agents:reconcileStale handler", () => {
 
   beforeEach(() => {
     handlers.clear();
+    paneOwners.clear();
     deps = makeDeps();
     register(deps as never);
   });
@@ -196,5 +202,65 @@ describe("agents:reconcileStale handler", () => {
     // paneId "pane-1" is live → agent must NOT be abandoned
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
     expect(deps.agentStatus.signal).not.toHaveBeenCalled();
+  });
+});
+
+describe("agents:reconcileStale host connectivity (ADR-191 §5)", () => {
+  let deps: ReturnType<typeof makeDeps>;
+  const reconcile = () => handlers.get("agents:reconcileStale")!({} as never);
+  const abandoned = () => deps.agentStatus.signal.mock.calls.map((c) => (c as unknown[])[0]);
+
+  beforeEach(() => {
+    handlers.clear();
+    paneOwners.clear();
+    deps = makeDeps();
+    // The box has dropped: none of its sessions are listed.
+    deps.backendRegistry.status.mockImplementation((hostId: string) =>
+      hostId === "box" ? "disconnected" : "connected",
+    );
+    deps.backend.pty.listSessions.mockResolvedValue([]);
+    register(deps as never);
+  });
+
+  it("keeps a remote agent when its host drops, and abandons a dead local one in the same repo", async () => {
+    // Both agents belong to one project: judging by the project's host (the
+    // bug) gives them the same answer.
+    paneOwners.set("pane-remote", "box");
+    paneOwners.set("pane-local", LOCAL_HOST_ID);
+    deps.agentManager.getAllAgents.mockReturnValue([
+      makeAgent({ id: "remote", paneId: "pane-remote", hostId: "box", projectId: "app" }),
+      makeAgent({ id: "local", paneId: "pane-local", hostId: LOCAL_HOST_ID, projectId: "app" }),
+    ]);
+
+    await reconcile();
+
+    expect(abandoned()).toEqual(["pane-local"]);
+  });
+
+  it("follows the pane's session owner over the agent's recorded host", async () => {
+    // Recorded local, but its pane moved to the box (ADR-183), which dropped.
+    paneOwners.set("pane-to-box", "box");
+    // Recorded on the box, but its pane now runs locally, and is gone.
+    paneOwners.set("pane-to-local", LOCAL_HOST_ID);
+    deps.agentManager.getAllAgents.mockReturnValue([
+      makeAgent({ id: "a", paneId: "pane-to-box", hostId: LOCAL_HOST_ID }),
+      makeAgent({ id: "b", paneId: "pane-to-local", hostId: "box" }),
+    ]);
+
+    await reconcile();
+
+    expect(abandoned()).toEqual(["pane-to-local"]);
+  });
+
+  it("uses the recorded host for a pane no host has claimed yet", async () => {
+    // After a restart the box never connected, so nothing claimed its panes.
+    deps.agentManager.getAllAgents.mockReturnValue([
+      makeAgent({ id: "remote", paneId: "pane-remote", hostId: "box" }),
+      makeAgent({ id: "local", paneId: "pane-local", hostId: LOCAL_HOST_ID }),
+    ]);
+
+    await reconcile();
+
+    expect(abandoned()).toEqual(["pane-local"]);
   });
 });

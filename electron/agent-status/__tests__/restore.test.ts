@@ -19,6 +19,7 @@ function agent(overrides: Partial<AgentInfo> = {}): AgentInfo {
     activatedAt: "2026-09-26T12:00:00Z",
     projectId: null,
     projectName: null,
+    hostId: "local",
     workspacePath: null,
     cwd: "",
     agentKind: "claude",

@@ -47,6 +47,7 @@ function makeAgent(id: string, createdAt: string, status: AgentInfo["status"] = 
     activatedAt: null,
     projectId: null,
     projectName: null,
+    hostId: "local",
     workspacePath: null,
     cwd: "/",
     agentKind: "claude",

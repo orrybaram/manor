@@ -366,10 +366,12 @@ export function initApp(devTitle: string | null): void {
   const branchWatcher = new BranchWatcher(backendRegistry);
   const diffWatcher = new DiffWatcher(backendRegistry);
   // `gh` runs here, where it is authenticated; a remote project's checkout
-  // isn't, so it is told the repo from that checkout's origin instead.
-  const githubManager = new GitHubManager(async (repoPath) => {
-    if (projectManager.hostIdForPath(repoPath) === LOCAL_HOST_ID) return null;
-    const origin = (await backend.git.exec(repoPath, ["remote", "get-url", "origin"])).trim();
+  // isn't, so it is told the repo from that checkout's origin instead, read
+  // on the host the caller named (ADR-191).
+  const githubManager = new GitHubManager(async (hostId, repoPath) => {
+    const origin = (
+      await backendRegistry.get(hostId).git.exec(repoPath, ["remote", "get-url", "origin"])
+    ).trim();
     const repo = ghRepoFromRemoteUrl(origin);
     if (!repo) throw new Error(`Not a GitHub remote: ${origin}`);
     return repo;
@@ -393,9 +395,11 @@ export function initApp(devTitle: string | null): void {
   // PreferencesManager must be constructed before AgentManager so we can pass
   // the user's configured retention into the prune step.
   const preferencesManager = new PreferencesManager();
+  // An agent saved before ADR-191 has no host: it takes its project's.
   const agentManager = new AgentManager(
     undefined,
     preferencesManager.get("agentRetentionDays"),
+    (projectId) => projectManager.getProjectHostId(projectId),
   );
   const keybindingsManager = new KeybindingsManager();
   // ADR-162's durable notification log. Handed to `notifications.ts` so the
@@ -539,9 +543,13 @@ export function initApp(devTitle: string | null): void {
   // status, and the only writer of Agents' lifecycle and last status. Built
   // before the IPC handlers and routes that feed it user signals.
 
+  /** A pane's session owner: the host its terminal runs on (ADR-191 §5). */
+  const getPaneHostId = (paneId: string) => backendRegistry.sessions.ownerOf(paneId);
+
   const agentStatusDriver: AgentStatusDriver = createAgentStatusDriver({
     agentManager,
     getPaneContext: (paneId) => paneContextMap.get(paneId),
+    getPaneHostId,
     unseenRespondedAgents,
     unseenInputAgents,
     broadcastAgent,
@@ -657,6 +665,7 @@ export function initApp(devTitle: string | null): void {
     registerDetachedWindow,
     backend,
     backendRegistry,
+    getPaneHostId,
     layoutPersistence,
     projectManager,
     themeManager,

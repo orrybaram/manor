@@ -1,6 +1,7 @@
 import type { PrComment, PrInfo } from "./lib/pr-info";
 import type { HarnessKind } from "./lib/harness";
 import type { HostId } from "./lib/hosts";
+import type { GhRepo } from "./lib/gh-repo";
 import type { DetachedTabPayload } from "./store/detach-types";
 import type { RecordingCommand as WebviewRecordingCommand } from "./lib/webview-recorder";
 import type {
@@ -56,6 +57,8 @@ export interface AgentInfo {
   activatedAt: string | null;
   projectId: string | null;
   projectName: string | null;
+  /** The host the agent's terminal runs on (ADR-191 §5). */
+  hostId: HostId;
   workspacePath: string | null;
   cwd: string;
   agentKind: "claude" | "opencode" | "codex";
@@ -682,6 +685,7 @@ export interface ElectronAPI {
     updateWorkspaceMetadata: (
       meta: Array<{
         path: string;
+        hostId: string;
         projectName: string | null;
         branch: string | null;
         isMain: boolean;
@@ -758,9 +762,12 @@ export interface ElectronAPI {
   };
 
   github: {
-    getPrForBranch: (repoPath: string, branch: string) => Promise<unknown>;
+    /**
+     * Every checkout names its project's host (`ghRepoOf`): a local and a
+     * remote one can share a path (ADR-191).
+     */
     getPrsForBranches: (
-      repoPath: string,
+      repo: GhRepo,
       branches: string[],
     ) => Promise<[string, PrInfo | null][]>;
     checkStatus: () => Promise<{
@@ -769,22 +776,22 @@ export interface ElectronAPI {
       username?: string;
     }>;
     getMyIssues: (
-      repoPath: string,
+      repo: GhRepo,
       limit?: number,
       state?: "open" | "closed" | "all",
     ) => Promise<GitHubIssue[]>;
     getAllIssues: (
-      repoPath: string,
+      repo: GhRepo,
       limit?: number,
       state?: "open" | "closed" | "all",
     ) => Promise<GitHubIssue[]>;
     getIssueDetail: (
-      repoPath: string,
+      repo: GhRepo,
       issueNumber: number,
       issueUrl?: string,
     ) => Promise<GitHubIssueDetail>;
-    assignIssue: (repoPath: string, issueNumber: number) => Promise<void>;
-    closeIssue: (repoPath: string, issueNumber: number) => Promise<void>;
+    assignIssue: (repo: GhRepo, issueNumber: number) => Promise<void>;
+    closeIssue: (repo: GhRepo, issueNumber: number) => Promise<void>;
     createIssue: (
       title: string,
       body: string,

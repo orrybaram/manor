@@ -31,6 +31,7 @@ export function usePortsData() {
       useProjectStore.getState().projects.flatMap((p) =>
         p.workspaces.map((ws) => ({
           path: ws.path,
+          hostId: p.hostId,
           projectName: p.name,
           branch: ws.branch ?? null,
           isMain: ws.isMain,

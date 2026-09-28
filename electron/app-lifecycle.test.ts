@@ -384,6 +384,7 @@ describe("handleStreamEvent", () => {
       const driver = createAgentStatusDriver({
         agentManager,
         getPaneContext: () => undefined,
+        getPaneHostId: () => undefined,
         unseenRespondedAgents: new Set(),
         unseenInputAgents: new Set(),
         broadcastAgent,

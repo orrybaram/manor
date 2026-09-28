@@ -427,6 +427,7 @@ describe("replay through the real ingest path", () => {
         workspacePath: "/w",
         agentCommand: "claude",
       }),
+      getPaneHostId: () => undefined,
       unseenRespondedAgents: new Set(),
       unseenInputAgents: new Set(),
       broadcastAgent: vi.fn(),

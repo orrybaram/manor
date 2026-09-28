@@ -128,3 +128,32 @@ describe("pickBestPaneStatus", () => {
     expect(result.pulse).toBe(true);
   });
 });
+
+describe("pickBestPaneStatus — on-screen panes", () => {
+  it("does not pulse an unseen responded pane that is on screen", () => {
+    const deps = makeDeps({
+      paneAgentStatus: { "pane-1": makeLive("responded") },
+      agents: [makeAgent({ id: "a1", paneId: "pane-1" })],
+      unseenRespondedAgentIds: new Set(["a1"]),
+    });
+    expect(pickBestPaneStatus(["pane-1"], deps).pulse).toBe(true);
+    const onScreen = pickBestPaneStatus(["pane-1"], { ...deps, visiblePaneIds: new Set(["pane-1"]) });
+    expect(onScreen).toEqual({ status: "responded", pulse: false });
+  });
+
+  it("does not pulse an on-screen pane with no agent row", () => {
+    const deps = makeDeps({ paneAgentStatus: { "pane-1": makeLive("responded") } });
+    expect(pickBestPaneStatus(["pane-1"], deps).pulse).toBe(true);
+    expect(pickBestPaneStatus(["pane-1"], { ...deps, visiblePaneIds: new Set(["pane-1"]) }).pulse).toBe(false);
+  });
+
+  it("prefers an off-screen unseen pane over an on-screen one on a tie", () => {
+    const deps = makeDeps({
+      paneAgentStatus: { "pane-1": makeLive("responded"), "pane-2": makeLive("responded") },
+      agents: [makeAgent({ id: "a1", paneId: "pane-1" }), makeAgent({ id: "a2", paneId: "pane-2" })],
+      unseenRespondedAgentIds: new Set(["a1", "a2"]),
+      visiblePaneIds: new Set(["pane-1"]),
+    });
+    expect(pickBestPaneStatus(["pane-1", "pane-2"], deps).pulse).toBe(true);
+  });
+});

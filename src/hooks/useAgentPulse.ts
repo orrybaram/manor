@@ -1,41 +1,32 @@
-import { useCallback, useMemo } from "react";
+import { useCallback } from "react";
 import type { AgentInfo } from "../electron.d";
 import { useAgentStore } from "../store/agent-store";
-import { useAppStore, selectVisiblePaneIds } from "../store/app-store";
+import { useAppStore } from "../store/app-store";
+import { isUnseenStatus, useVisiblePaneIds } from "./useTabAgentStatus";
 
 /**
  * Returns the pulse predicate for agent dots in the agents lists — the sidebar
- * list and the Agents modal share it so their dots cannot disagree.
+ * list and the Agents modal share it with the tab, workspace and project dots
+ * (`isUnseenStatus`), so no two dots for one agent can disagree.
  *
- * Pulse predicate (ADR-136 §"Change 3"): main owns the unseen flags; pulse iff
- * the agent's pane is off screen and its current status matches an unseen
- * axis. Visibility shares `selectVisiblePaneIds` with the read-state sweep in
- * the agent store (issue #142).
+ * The status tested is the one the dot shows: the pane's published status,
+ * falling back to the persisted one for an agent without a published status.
  */
 export function useAgentPulse(): (agent: AgentInfo) => boolean {
   const unseenRespondedAgentIds = useAgentStore((s) => s.unseenRespondedAgentIds);
   const unseenInputAgentIds = useAgentStore((s) => s.unseenInputAgentIds);
-  const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
-  const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
-  const activeWorkspaceHostId = useAppStore((s) => s.activeWorkspaceHostId);
-
-  const visiblePaneIds = useMemo(
-    () =>
-      selectVisiblePaneIds({ activeWorkspacePath, activeWorkspaceHostId, workspaceLayouts }),
-    [activeWorkspacePath, activeWorkspaceHostId, workspaceLayouts],
-  );
+  const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
+  const visiblePaneIds = useVisiblePaneIds();
 
   return useCallback(
     (agent: AgentInfo) => {
-      const isVisible = agent.paneId != null && visiblePaneIds.has(agent.paneId);
-      return (
-        !isVisible &&
-        ((agent.lastAgentStatus === "responded" &&
-          unseenRespondedAgentIds.has(agent.id)) ||
-          (agent.lastAgentStatus === "requires_input" &&
-            unseenInputAgentIds.has(agent.id)))
-      );
+      const live = agent.paneId ? paneAgentStatus[agent.paneId]?.status : undefined;
+      return isUnseenStatus(live ?? agent.lastAgentStatus, agent.id, agent.paneId, {
+        unseenRespondedAgentIds,
+        unseenInputAgentIds,
+        visiblePaneIds,
+      });
     },
-    [visiblePaneIds, unseenRespondedAgentIds, unseenInputAgentIds],
+    [paneAgentStatus, visiblePaneIds, unseenRespondedAgentIds, unseenInputAgentIds],
   );
 }

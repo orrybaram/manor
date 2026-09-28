@@ -308,6 +308,13 @@ export type PtyCreateResult =
     }
   | { ok: false; reason: "error"; error: string };
 
+/** What `terminal.pasteClipboardImage` resolves to (ADR-187 §3). */
+export type PasteClipboardImageResult =
+  | { kind: "local" }
+  | { kind: "none" }
+  | { kind: "uploaded"; path: string }
+  | { kind: "error"; message: string };
+
 /** Layout persistence types (mirrored from electron/terminal-host/layout-persistence.ts) */
 export interface PersistedPaneSession {
   daemonSessionId: string;
@@ -979,6 +986,14 @@ export interface ElectronAPI {
 
   clipboard: {
     writeText: (text: string) => Promise<void>;
+  };
+
+  terminal: {
+    /**
+     * Uploads the clipboard's image to `paneId`'s host and returns a path to
+     * paste, or why there is nothing to paste (ADR-187 §3).
+     */
+    pasteClipboardImage: (paneId: string) => Promise<PasteClipboardImageResult>;
   };
 
   onProjectsChanged: (callback: () => void) => () => void;

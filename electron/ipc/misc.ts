@@ -15,9 +15,11 @@ import {
   MAIN_WINDOW_KEYBINDINGS,
   type ForwardedCommandPayload,
 } from "../../src/lib/menu-commands";
+import { uploadClipboardImage } from "./paste-image";
 
 export function register(deps: IpcDeps): void {
-  const { backend, preferencesManager, keybindingsManager } = deps;
+  const { backend, backendRegistry, preferencesManager, keybindingsManager } =
+    deps;
 
   function getMainWindow() {
     return deps.mainWindow;
@@ -115,6 +117,15 @@ export function register(deps: IpcDeps): void {
   // ── Clipboard ──
   ipcMain.handle("clipboard:writeText", (_event, text: string) => {
     clipboard.writeText(text);
+  });
+
+  // ── Terminal ──
+  // Uploads the clipboard's image to a remote pane's host so an agent there
+  // can attach it by path (ADR-187 §3). `local` before the clipboard is ever
+  // touched: the agent already reads its own machine's clipboard.
+  ipcMain.handle("terminal:pasteClipboardImage", (_event, paneId: string) => {
+    assertString(paneId, "paneId");
+    return uploadClipboardImage(backendRegistry, paneId, clipboard.readImage());
   });
 
   // ── Preferences ──

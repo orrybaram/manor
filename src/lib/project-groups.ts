@@ -34,8 +34,18 @@ export function memberOnHost(
   return memberIds.find((id) => id !== exceptId && hostOf(id) === hostId);
 }
 
-/** The settings a group shares across its members (ADR-192 ticket 2). */
-const GROUP_SHARED_KEYS = ["name", "color", "agentCommand", "linearAssociations"] as const;
+/**
+ * The settings a group shares across its members (ADR-192 ticket 2;
+ * `themeName` and `commands` joined in ADR-193 ticket 1).
+ */
+const GROUP_SHARED_KEYS = [
+  "name",
+  "color",
+  "agentCommand",
+  "linearAssociations",
+  "themeName",
+  "commands",
+] as const;
 
 type SharedKey = (typeof GROUP_SHARED_KEYS)[number];
 

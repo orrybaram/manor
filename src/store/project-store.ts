@@ -466,9 +466,12 @@ export type ProjectUpdatableFields = Partial<
   >
 >;
 
-/** Mirrors `GroupUpdatableFields` in `electron/projects/types.ts` (ADR-192). */
+/** Mirrors `GroupUpdatableFields` in `electron/projects/types.ts` (ADR-192; ADR-193 ticket 1). */
 export type GroupUpdatableFields = Partial<
-  Pick<ProjectInfo, "name" | "color" | "agentCommand" | "linearAssociations">
+  Pick<
+    ProjectInfo,
+    "name" | "color" | "agentCommand" | "linearAssociations" | "themeName" | "commands"
+  >
 >;
 
 interface ProjectState {

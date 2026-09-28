@@ -157,8 +157,8 @@ async function currentWorkspaces(
  * The renderer's view of `p`: its persisted settings over the workspaces
  * git lists now. Records those workspace paths with `paths`, which routes
  * by them. `group` is the project's linked-project group (ADR-192), whose
- * shared settings (name, color, agent command, Linear) win over the
- * project's own. `lastKnown` stands in for the listing while a remote host
+ * shared settings (name, color, agent command, Linear, theme, commands) win
+ * over the project's own. `lastKnown` stands in for the listing while a remote host
  * is away.
  */
 export async function buildProjectInfo(
@@ -222,8 +222,8 @@ export async function buildProjectInfo(
     linearAssociations: shared.linearAssociations,
     color: shared.color,
     agentCommand: shared.agentCommand,
-    commands: p.commands ?? [],
-    themeName: p.themeName ?? null,
+    commands: shared.commands,
+    themeName: shared.themeName,
     setupComplete: p.setupComplete ?? true,
     portlessEnabled: p.portlessEnabled ?? true,
     hostId: p.hostId,

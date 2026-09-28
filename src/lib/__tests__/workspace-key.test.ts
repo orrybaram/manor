@@ -32,6 +32,19 @@ describe("workspaceKey", () => {
   it("rejects a host id that could not be parsed back", () => {
     expect(() => workspaceKey("a:b", "/p")).toThrow(/Invalid host id/);
     expect(() => workspaceKey("a/b", "/p")).toThrow(/Invalid host id/);
+    expect(() => workspaceKey("a\\b", "/p")).toThrow(/Invalid host id/);
+    expect(() => workspaceKey("C", "/p")).toThrow(/Invalid host id/);
+  });
+
+  it("rejects a remote path that is not POSIX-absolute", () => {
+    expect(() => workspaceKey(BOX, "code/app")).toThrow(/POSIX-absolute/);
+    expect(() => workspaceKey(BOX, "C:\\code\\app")).toThrow(/POSIX-absolute/);
+    expect(() => workspaceKey(BOX, "C:/code/app")).toThrow(/POSIX-absolute/);
+  });
+
+  it("keeps any local path as it is", () => {
+    expect(workspaceKey(LOCAL_HOST_ID, "C:/code/app")).toBe("C:/code/app");
+    expect(workspaceKey(LOCAL_HOST_ID, "code/app")).toBe("code/app");
   });
 });
 
@@ -55,6 +68,14 @@ describe("parseWorkspaceKey", () => {
       path: "C:\\code\\app",
     });
     expect(parseWorkspaceKey("~/x:y")).toEqual({ hostId: LOCAL_HOST_ID, path: "~/x:y" });
+    expect(parseWorkspaceKey("C:/code/app")).toEqual({
+      hostId: LOCAL_HOST_ID,
+      path: "C:/code/app",
+    });
+    expect(parseWorkspaceKey("box:code/app")).toEqual({
+      hostId: LOCAL_HOST_ID,
+      path: "box:code/app",
+    });
   });
 
   it("says whether a key is remote", () => {

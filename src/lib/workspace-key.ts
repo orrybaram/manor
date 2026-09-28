@@ -20,12 +20,7 @@
  * the renderer (`src/`) alike, so it must not touch `window`, Node or Electron.
  */
 
-/**
- * Mirrors `LOCAL_HOST_ID` in `electron/backend/types.ts` and `src/lib/hosts.ts`.
- * Not imported from either: the first is main-only, and the second reaches for
- * `window`, which the main-process typecheck has no DOM types for.
- */
-const LOCAL_HOST_ID = "local";
+import { LOCAL_HOST_ID, normalizeHostId } from "./host-id";
 
 /** Separates a remote host id from the path in a qualified key. */
 const SEPARATOR = ":";
@@ -43,25 +38,37 @@ export interface ParsedWorkspaceKey {
   path: string;
 }
 
-function isLocal(hostId: string | null | undefined): boolean {
-  return !hostId || hostId === LOCAL_HOST_ID;
+/**
+ * Whether `hostId` can be the host part of a remote key and be parsed back:
+ * non-empty, with no `:`, `/` or `\`, and not a lone letter, which would read
+ * as a Windows drive (`C:/x`).
+ */
+function isEncodableHostId(hostId: string): boolean {
+  return /^[^:/\\]+$/.test(hostId) && !/^[A-Za-z]$/.test(hostId);
 }
 
 /**
  * The key for the workspace at `path` on `hostId`. A missing host means
  * local. Deterministic: the same host and path always give the same key.
  *
- * Throws for a remote host id containing `:` or `/`, which could not be
- * parsed back. Real host ids are `"local"` or UUIDs (`ipc/hosts.ts`).
+ * For a remote host it throws when the key could not be parsed back: a host
+ * id that is a lone letter or contains `:`, `/` or `\`, or a path that is not
+ * POSIX-absolute (relative, `C:\a` or `C:/a`). Real host ids are `"local"`
+ * or UUIDs (`electron/ipc/hosts.ts`), and remote paths are POSIX.
  */
 export function workspaceKey(
   hostId: string | null | undefined,
   path: string,
 ): WorkspaceKey {
-  if (isLocal(hostId)) return path as WorkspaceKey;
-  const id = hostId as string;
-  if (id.includes(SEPARATOR) || id.includes("/") || id.includes("\\")) {
+  const id = normalizeHostId(hostId);
+  if (id === LOCAL_HOST_ID) return path as WorkspaceKey;
+  if (!isEncodableHostId(id)) {
     throw new Error(`Invalid host id for a workspace key: ${JSON.stringify(id)}`);
+  }
+  if (!path.startsWith("/")) {
+    throw new Error(
+      `A remote workspace path must be POSIX-absolute: ${JSON.stringify(path)}`,
+    );
   }
   return `${id}${SEPARATOR}${path}` as WorkspaceKey;
 }
@@ -71,19 +78,17 @@ export function workspaceKey(
  * path-only key written before ADR-191, parses as local: call
  * `migrateWorkspaceKey` on legacy data first if it may name a remote path.
  *
- * A remote key's path must be absolute (`box:/a/b`). Anything else, such as
- * a Windows drive path (`C:\a`), is read as a bare local path.
+ * A key is remote only when its host part could have come from
+ * `workspaceKey`: no `/` or `\`, not a lone letter, and followed by a
+ * POSIX-absolute path (`box:/a/b`). Anything else, such as a Windows drive
+ * path (`C:\a`, `C:/a`) or a relative path, is read as a bare local path.
  */
 export function parseWorkspaceKey(key: string): ParsedWorkspaceKey {
   const at = key.indexOf(SEPARATOR);
   if (at > 0) {
     const hostId = key.slice(0, at);
     const path = key.slice(at + 1);
-    if (
-      path.startsWith("/") &&
-      !hostId.includes("/") &&
-      !hostId.includes("\\")
-    ) {
+    if (path.startsWith("/") && isEncodableHostId(hostId)) {
       return { hostId, path };
     }
   }
@@ -92,7 +97,7 @@ export function parseWorkspaceKey(key: string): ParsedWorkspaceKey {
 
 /** Whether `key` names a workspace on a remote host. */
 export function isRemoteWorkspaceKey(key: string): boolean {
-  return !isLocal(parseWorkspaceKey(key).hostId);
+  return parseWorkspaceKey(key).hostId !== LOCAL_HOST_ID;
 }
 
 /**
@@ -113,7 +118,8 @@ export interface WorkspaceKeyOwner {
   worktreeRoot?: string | null;
 }
 
-function isWithinPath(p: string, root: string): boolean {
+/** True when `p` is `root` or lies beneath it. An empty root holds nothing. */
+export function isWithinPath(p: string, root: string): boolean {
   if (!root) return false;
   if (p === root) return true;
   const prefix = root.endsWith("/") ? root : `${root}/`;
@@ -124,7 +130,7 @@ function isWithinPath(p: string, root: string): boolean {
  * The host of the project that owns `path`: the one whose root, worktree
  * directory or known workspace contains it most closely. Local when no
  * project matches, and when a local and a remote project match equally
- * closely, the same tie-break as `PathRouter.hostIdForPath`.
+ * closely. `PathRouter.hostIdForPath` delegates here.
  */
 export function ownerHostIdForPath(
   owners: readonly WorkspaceKeyOwner[],
@@ -133,7 +139,7 @@ export function ownerHostIdForPath(
   let best = LOCAL_HOST_ID;
   let bestLength = -1;
   for (const owner of owners) {
-    const hostId = isLocal(owner.hostId) ? LOCAL_HOST_ID : (owner.hostId as string);
+    const hostId = normalizeHostId(owner.hostId);
     const roots = [
       owner.path,
       ...(owner.worktreeRoot ? [owner.worktreeRoot] : []),

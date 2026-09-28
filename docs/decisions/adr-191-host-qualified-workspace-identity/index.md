@@ -33,7 +33,7 @@ it belongs to or from its path.
 Paths are not unique across hosts. The default worktree root is
 `~/.manor/worktrees/<slug>` on this machine (`electron/paths.ts`) and
 `<home>/.manor/worktrees/<slug>` on a remote host
-(`electron/projects/machine-facts.ts`). The clone dialog defaults to
+(`electron/backend/machine-facts.ts`). The clone dialog defaults to
 `~/code/<slug>`. A Linux or WSL laptop that reaches a Linux box as the same
 user gets **byte-identical paths** on both. That is the common case for
 anyone who keeps a local and a remote project of the same repo, which is also
@@ -60,6 +60,10 @@ When two hosts have the same path:
   `callerHostId`, so it still sees every project and can be handed a remote
   one. Rung 1 (by pane id) also reads a path-only `workspacePath` from
   `layout.json` and then matches it by path, so it has the same ambiguity.
+  ADR-189 says resolving by pane id "is unchanged, since pane ids are unique
+  across hosts". The pane id is unique, but the workspace it leads to is a
+  bare path, so that rung is still path-ambiguous. This ADR corrects that
+  claim; see §4.
 - **The GitHub repo cache is shared.** `GitHubManager.remoteRepoCache`
   (`electron/github.ts`) is keyed by `repoPath`, and the "use `gh -R`" choice
   comes from `hostIdForPath(repoPath)` (`electron/app-lifecycle.ts`).
@@ -103,22 +107,26 @@ Local keys stay bare so that local-only files are unchanged, as story 10 of
 #237 asks, and so the local stores that already hold path keys are already in
 the new shape. Host ids are `"local"` or UUIDs (`electron/ipc/hosts.ts`), so
 the first `:` always ends the host id. A remote key's path must be absolute.
-Anything else parses as a bare local path, so a Windows-style `C:\…` path is
-never read as host `C`.
+Anything else parses as a bare local path, and a single-letter host part is
+never read as a host, so neither `C:\…` nor `C:/…` is read as host `C`.
 
-The module is pure and imports nothing, so it compiles for the renderer
-(`tsconfig.json`) and main (`tsconfig.electron.json`). `src/lib/` is where
-code shared by both processes already lives (`pr-info.ts`,
+The module is pure. It imports only `src/lib/host-id.ts`, a new DOM-free
+module holding `LOCAL_HOST_ID` and `normalizeHostId`, so it compiles for the
+renderer (`tsconfig.json`) and main (`tsconfig.electron.json`). `src/lib/` is
+where code shared by both processes already lives (`pr-info.ts`,
 `keybinding-defs.ts` and `menu-commands.ts` are imported from `electron/`).
-It keeps a private copy of `LOCAL_HOST_ID`, because `src/lib/hosts.ts`
-reaches for `window`, and main's typecheck has no DOM types. A test pins it to
-main's `LOCAL_HOST_ID`.
+`src/lib/hosts.ts` re-exports `LOCAL_HOST_ID` from `host-id.ts`; it can't be
+imported by main itself because it reaches for `window`. Main's own
+`LOCAL_HOST_ID` in `electron/backend/types.ts` stays, and a test pins the two
+together. `PathRouter.hostIdForPath` delegates its closest-root search to
+`ownerHostIdForPath`, so the tie-break rule and `isWithinPath` exist once.
 
 API:
 
-- `workspaceKey(hostId, path): WorkspaceKey`. A missing host means local. It
-  throws for a host id containing `:` or a slash, which could not be parsed
-  back.
+- `workspaceKey(hostId, path): WorkspaceKey`. A missing host means local. For
+  a remote host it throws when the key could not be parsed back: a host id
+  that contains `:`, `/` or `\` or is a lone letter, or a path that is not
+  POSIX-absolute (relative, `C:\a`, `C:/a`).
 - `parseWorkspaceKey(key): { hostId, path }`.
 - `isRemoteWorkspaceKey(key)`.
 - `ownerHostIdForPath(owners, path)`: the host of the project whose root,
@@ -146,6 +154,13 @@ project own. It migrates to local, the same answer the code gives today, so
 migration never changes behavior for that entry. From then on, the other
 host's copy is written under its own key.
 
+**Rejected: qualifying local keys too** (`local:/p`). Every key would then say
+its host, so a bare key would always be legacy, and migration would be safe
+to re-run with no version marker. But every local-only user's `layout.json`,
+agent records and other path-keyed files would be rewritten on upgrade, which
+story 10 of #237 rules out, and a downgrade would find none of its keys. A
+version marker per store is a smaller cost than rewriting every local file.
+
 ### 2. Terminals are created on the host they were asked for (#239)
 
 `pty:create` gains an optional `hostId`. `RoutedBackend.createOrAttach`
@@ -160,8 +175,17 @@ by ADR-183 keeps reporting its session owner.
 The daemon's `PersistedLayout` workspaces are keyed by `workspaceKey`, with a
 `version: 3` bump and a load-time migration from version 2 that uses the
 projects in `projects.json` as owners. The renderer's `workspaceLayouts` is
-keyed the same way. It is loaded from `layout.json` through `layout.load()`,
-so there is one migration site, in main.
+keyed the same way. Navigation history (`src/store/navigation-history-store.ts`)
+keys its workspace entries by `workspacePath` too, and moves to the key.
+
+**There is a single migration site, in main.** This departs from #237, which
+says the migration runs "in the main process and in the renderer store". The
+renderer has no persisted copy of its own to migrate: `workspaceLayouts` is
+filled from `layout.json` through `layout.load()` (`src/store/app-store.ts`),
+and navigation history lives in memory only. Migrating in main, where
+`projects.json` and the expanded worktree roots are at hand, means the
+renderer only ever sees qualified keys, and there is one version marker, not
+two that could disagree.
 
 ### 4. `/context` matches by host plus path (#241)
 
@@ -169,7 +193,8 @@ Every caller has a host. For a relayed request it is ADR-189's
 `callerHostId`. For a local caller it is local, unless the caller's pane is
 owned by a remote host. `matchProjectByPath` narrows by host before matching
 the path, and rung 1 reads a workspace key from `layout.json`, not a bare
-path. This builds on ADR-189 and generalizes it. ADR-189's filter means
+path. That fixes the ambiguity ADR-189 said rung 1 didn't have. This builds
+on ADR-189 and generalizes it. ADR-189's filter means
 "projects on that host". Here it means "workspaces on that host", which is
 what #237 layer 2 needs once a linked group has one member per host. A local
 caller also gets its host scoped, which ADR-189 left open.
@@ -185,9 +210,13 @@ on load.
 
 `remoteRepoCache` is keyed by the workspace key. The "use `gh -R`" decision
 takes the caller's host when it is known. Portless hostnames for non-local
-hosts gain a host segment derived from the host's name (for example
-`project.<host>.localhost`, and `branch.project.<host>.localhost`).
-Local hostnames are unchanged.
+hosts gain a host segment derived from the **host id**, not the host's name:
+the first 8 characters of the id, lowercased, with the full sanitized id used
+if two hosts share that prefix (for example `project.3f1c2a9e.localhost` and
+`branch.project.3f1c2a9e.localhost`). A name (the ssh target) can be edited,
+which would silently move every URL the user has bookmarked, and two hosts can
+share a name, which is the very collision this fixes. The id is stable and
+unique. Local hostnames are unchanged.
 
 ### Out of scope
 

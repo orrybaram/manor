@@ -10,6 +10,7 @@ import {
   workspaceKey,
 } from "../../src/lib/workspace-key";
 import { LOCAL_HOST_ID } from "../backend/types";
+import { LOCAL_HOST_ID as SHARED_LOCAL_HOST_ID } from "../../src/lib/host-id";
 import type { ProjectInfo } from "./types";
 
 function project(id: string, hostId: string, path: string, workspaces: string[]): ProjectInfo {
@@ -44,6 +45,7 @@ function project(id: string, hostId: string, path: string, workspaces: string[])
 
 describe("workspace keys in the main process", () => {
   it("uses the same local host id as the backend", () => {
+    expect(SHARED_LOCAL_HOST_ID).toBe(LOCAL_HOST_ID);
     expect(parseWorkspaceKey("/x").hostId).toBe(LOCAL_HOST_ID);
     expect(workspaceKey(LOCAL_HOST_ID, "/x")).toBe("/x");
   });

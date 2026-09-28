@@ -9,6 +9,7 @@ import { LOCAL_HOST_ID, type MachineFacts } from "../backend/types";
 import { errorMessage } from "../lib/errors";
 import { toDirSlug } from "../branch-name";
 import type { PersistedProject } from "./types";
+import { ownerHostIdForPath } from "../../src/lib/workspace-key";
 
 /** Expands a leading `~` in `p` against `home`, joining as that host does. */
 export function expandHome(
@@ -20,13 +21,6 @@ export function expandHome(
     return join(home, p.slice(1));
   }
   return p;
-}
-
-/** True when `p` is `root` or lies beneath it. */
-function isWithinPath(p: string, root: string): boolean {
-  if (p === root) return true;
-  const prefix = root.endsWith("/") ? root : `${root}/`;
-  return p.startsWith(prefix);
 }
 
 export class PathRouter {
@@ -182,26 +176,14 @@ export class PathRouter {
     if (!projects.some((pr) => pr.hostId !== LOCAL_HOST_ID)) {
       return LOCAL_HOST_ID;
     }
-    let bestLength = -1;
-    let best = LOCAL_HOST_ID;
-    for (const project of projects) {
-      const isRemote = project.hostId !== LOCAL_HOST_ID;
-      const base = this.knownWorktreeBaseDir(project);
-      const roots = [
-        project.path,
-        ...(base != null ? [base] : []),
-        ...(this.workspacePaths.get(project.id) ?? []),
-      ];
-      for (const root of roots) {
-        if (!isWithinPath(p, root)) continue;
-        const closer = root.length > bestLength;
-        const tieToLocal = root.length === bestLength && !isRemote;
-        if (closer || tieToLocal) {
-          bestLength = root.length;
-          best = project.hostId;
-        }
-      }
-    }
-    return best;
+    return ownerHostIdForPath(
+      projects.map((project) => ({
+        hostId: project.hostId,
+        path: project.path,
+        worktreeRoot: this.knownWorktreeBaseDir(project),
+        workspaces: (this.workspacePaths.get(project.id) ?? []).map((path) => ({ path })),
+      })),
+      p,
+    );
   }
 }

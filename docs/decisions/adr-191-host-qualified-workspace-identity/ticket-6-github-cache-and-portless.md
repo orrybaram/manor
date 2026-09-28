@@ -15,7 +15,9 @@ GitHub issue #243. See ADR-191 §6.
   `gh -R` decision in `electron/app-lifecycle.ts` instead of
   `hostIdForPath(repoPath)`.
 - `electron/portless.ts` and `electron/ipc/ports.ts`: for a non-local host,
-  add a host segment derived from the host's name. Local hostnames stay
+  add a host segment derived from the host id
+  (the first 8 characters, lowercased; the full sanitized id if two hosts
+  share the prefix), not the renamable host name. See ADR-191 §6. Local hostnames stay
   byte-for-byte the same.
 - Tests: the repo cache keeps separate entries for the same path on two
   hosts. A local main and a remote main of the same project get distinct,

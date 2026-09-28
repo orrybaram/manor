@@ -19,6 +19,9 @@ GitHub issue #240. See ADR-191 §3.
 - `src/store/app-store.ts`: `workspaceLayouts` and `activeWorkspacePath`
   lookups use the workspace key of the active workspace. It is loaded through
   `layout.load()`, so no separate renderer migration is needed.
+- `src/store/navigation-history-store.ts`: workspace entries are keyed and
+  compared by `workspacePath`. Key them by the workspace key, so going back
+  never lands in the other host's workspace with the same path.
 - `electron/pane-context.ts` `findWorkspaceForPane` now returns a key. Parse
   it where a path is needed, or coordinate with ticket 4.
 - Tests: two workspaces with the same path on different hosts keep separate
@@ -29,4 +32,5 @@ GitHub issue #240. See ADR-191 §3.
 ## Files to touch
 - `electron/terminal-host/layout-persistence.ts` and its test.
 - `src/store/app-store.ts`, `src/store/layout-snapshot.ts`, and the layout tests.
+- `src/store/navigation-history-store.ts` and its test.
 - The main-process call site that loads the layout with the project list.

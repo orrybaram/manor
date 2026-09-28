@@ -8,6 +8,9 @@ import { SidebarEntry } from "../SidebarEntry";
 import sidebarStyles from "../Sidebar/Sidebar.module.css";
 import styles from "./SidebarRail.module.css";
 
+/** Wider than the sidebar's default, so branch lines and badges fit. */
+const POPOVER_MIN_WIDTH = 340;
+
 type RailWorkspacePopoverProps = {
   entry: TopLevelEntry;
   open: boolean;
@@ -92,7 +95,7 @@ export function RailWorkspacePopover(props: RailWorkspacePopoverProps) {
           align="start"
           sideOffset={8}
           collisionPadding={8}
-          style={{ width: sidebarWidth }}
+          style={{ width: Math.max(sidebarWidth, POPOVER_MIN_WIDTH) }}
           onPointerEnter={onContentPointerEnter}
           onPointerLeave={onContentPointerLeave}
           onOpenAutoFocus={(e) => {
@@ -104,10 +107,15 @@ export function RailWorkspacePopover(props: RailWorkspacePopoverProps) {
             (rows.find((row) => row.getAttribute("aria-current") === "true") ?? rows[0])?.focus();
           }}
           onCloseAutoFocus={(e) => {
-            if (!switchedRef.current) return;
-            switchedRef.current = false;
-            e.preventDefault();
-            useAppStore.getState().refocusActivePane();
+            if (switchedRef.current) {
+              switchedRef.current = false;
+              e.preventDefault();
+              useAppStore.getState().refocusActivePane();
+              return;
+            }
+            // A hover open never took focus; leave it where it is (a
+            // terminal, another tile's popover) rather than pulling it back.
+            if (!bodyRef.current?.contains(document.activeElement)) e.preventDefault();
           }}
           onInteractOutside={(e) => {
             const target = e.target as Node | null;

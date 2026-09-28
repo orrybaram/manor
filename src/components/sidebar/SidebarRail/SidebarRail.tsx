@@ -14,6 +14,7 @@ import { usePrWatcher } from "../../../hooks/usePrWatcher";
 import { useVisibleAgents } from "../../../hooks/useVisibleAgents";
 import { NotificationsPopover } from "../../notifications/NotificationsPopover";
 import { RailProjectTile } from "./RailProjectTile";
+import { useRailPopover } from "./useRailPopover";
 import styles from "./SidebarRail.module.css";
 
 type SidebarRailProps = {
@@ -45,6 +46,8 @@ export function SidebarRail(props: SidebarRailProps) {
 
   const entries = useMemo(() => buildTopLevelEntries(projects), [projects]);
   const selectedProject = projects[selectedProjectIndex];
+
+  const popover = useRailPopover();
 
   const railRef = useRef<HTMLDivElement>(null);
   useRovingRows(railRef);
@@ -81,6 +84,7 @@ export function SidebarRail(props: SidebarRailProps) {
             key={entry.key}
             entry={entry}
             onOpenProjectSettings={onOpenProjectSettings}
+            popover={popover}
             isSelected={
               !homeActive &&
               selectedProject !== undefined &&

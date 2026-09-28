@@ -6,8 +6,6 @@ interface TooltipProps {
   children: React.ReactNode;
   side?: "top" | "right" | "bottom" | "left";
   delayDuration?: number;
-  /** Keeps the tooltip closed, e.g. while a popover on the same trigger is open. */
-  disabled?: boolean;
 }
 
 type TooltipProviderProps = {
@@ -25,10 +23,10 @@ export function TooltipProvider(props: TooltipProviderProps) {
 }
 
 export function Tooltip(props: TooltipProps) {
-  const { label, children, side = "bottom", delayDuration, disabled = false } = props;
+  const { label, children, side = "bottom", delayDuration } = props;
 
   return (
-    <RadixTooltip.Root delayDuration={delayDuration} open={disabled ? false : undefined}>
+    <RadixTooltip.Root delayDuration={delayDuration}>
       <RadixTooltip.Trigger asChild>{children}</RadixTooltip.Trigger>
       <RadixTooltip.Portal>
         <RadixTooltip.Content className={styles.content} side={side} sideOffset={4}>

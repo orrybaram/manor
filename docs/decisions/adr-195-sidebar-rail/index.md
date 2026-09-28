@@ -103,6 +103,9 @@ After the first build, the popover changed in two ways.
 
 - **Same content as the full sidebar.** The popover now renders the entry through `SidebarEntry` (`src/components/sidebar/SidebarEntry.tsx`), the component the full sidebar uses too. It's `ProjectItem` / `ProjectGroupItem` wired to the stores, pulled out of `Sidebar.tsx`. So the popover has the same rows, branch lines, diff stats, PR badges, host sections, folders, context menus and actions, at the sidebar's width. It's always expanded (`forceExpanded`), whatever the entry's stored collapsed state. `railWorkspaceRows` and the custom popover rows are gone.
 - **Hover intent.** Resting the pointer on a tile for 1s opens the popover without taking focus. Leaving the tile and the popover closes it after 300ms. It stays open while a menu or dialog opened from inside is up, or while an inline rename has focus. Clicking the tile, or pressing Enter/Space, opens it right away with focus inside. Switching workspace from it closes it and focuses the new pane.
+- **Moving between tiles.** While one tile's popover is open, pointing at another tile swaps to that tile's popover at once, with no delay. The rail owns a single open popover (`useRailPopover`).
+- **No tile tooltips.** They competed with the hover popover, and the popover's header already names the project.
+- **Width.** The popover is the sidebar's width, but at least 340px.
 
 ## Tickets
 

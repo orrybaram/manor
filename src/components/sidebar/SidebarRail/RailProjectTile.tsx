@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { Button } from "../../ui/Button/Button";
-import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import type { TopLevelEntry } from "../../../utils/sidebar-items";
 import {
   useGroupAgentStatus,
@@ -15,6 +14,7 @@ import {
 } from "../../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "../WorkspaceIndicatorDot";
 import { RailWorkspacePopover } from "./RailWorkspacePopover";
+import type { RailPopover } from "./useRailPopover";
 import styles from "./SidebarRail.module.css";
 
 type ProjectEntry = Extract<TopLevelEntry, { kind: "project" }>;
@@ -24,30 +24,33 @@ type RailProjectTileProps = {
   entry: TopLevelEntry;
   /** The entry holds the selected project and home isn't active. */
   isSelected: boolean;
+  popover: RailPopover;
   onOpenProjectSettings?: (projectId: string) => void;
 };
 
 /** One rail tile per sidebar entry: a lone project or a linked group. */
 export function RailProjectTile(props: RailProjectTileProps) {
-  const { entry, isSelected, onOpenProjectSettings } = props;
+  const { entry, isSelected, popover, onOpenProjectSettings } = props;
 
   return entry.kind === "project" ? (
     <RailSingleProjectTile
       entry={entry}
       isSelected={isSelected}
+      popover={popover}
       onOpenProjectSettings={onOpenProjectSettings}
     />
   ) : (
     <RailGroupTile
       entry={entry}
       isSelected={isSelected}
+      popover={popover}
       onOpenProjectSettings={onOpenProjectSettings}
     />
   );
 }
 
-function RailSingleProjectTile(props: { entry: ProjectEntry; isSelected: boolean; onOpenProjectSettings?: (projectId: string) => void }) {
-  const { entry, isSelected, onOpenProjectSettings } = props;
+function RailSingleProjectTile(props: { entry: ProjectEntry; isSelected: boolean; popover: RailPopover; onOpenProjectSettings?: (projectId: string) => void }) {
+  const { entry, isSelected, popover, onOpenProjectSettings } = props;
 
   const { status, pulse } = useProjectAgentStatus(entry.project);
 
@@ -58,13 +61,14 @@ function RailSingleProjectTile(props: { entry: ProjectEntry; isSelected: boolean
       color={entry.project.color ?? null}
       indicator={toWorkspaceIndicator(status, pulse)}
       isSelected={isSelected}
+      popover={popover}
       onOpenProjectSettings={onOpenProjectSettings}
     />
   );
 }
 
-function RailGroupTile(props: { entry: GroupEntry; isSelected: boolean; onOpenProjectSettings?: (projectId: string) => void }) {
-  const { entry, isSelected, onOpenProjectSettings } = props;
+function RailGroupTile(props: { entry: GroupEntry; isSelected: boolean; popover: RailPopover; onOpenProjectSettings?: (projectId: string) => void }) {
+  const { entry, isSelected, popover, onOpenProjectSettings } = props;
 
   const members = useMemo(
     () => entry.sections.map((section) => section.project),
@@ -81,28 +85,10 @@ function RailGroupTile(props: { entry: GroupEntry; isSelected: boolean; onOpenPr
       color={color}
       indicator={toWorkspaceIndicator(status, pulse)}
       isSelected={isSelected}
+      popover={popover}
       onOpenProjectSettings={onOpenProjectSettings}
     />
   );
-}
-
-/** How long the pointer rests on a tile before its popover opens. */
-const HOVER_OPEN_DELAY_MS = 1000;
-/** Grace for the pointer to cross from the tile to the popover and back. */
-const HOVER_CLOSE_DELAY_MS = 300;
-
-/**
- * Whether something opened from the popover — a context menu, a dialog, an
- * inline rename — still needs it. Closing would unmount it.
- */
-function popoverInUse(): boolean {
-  const content = document.querySelector('[data-testid="rail-workspace-popover"]');
-  if (!content) return false;
-  const active = document.activeElement;
-  if (active instanceof HTMLInputElement && content.contains(active)) return true;
-  return Array.from(
-    document.querySelectorAll('[role="menu"], [role="dialog"], [role="alertdialog"]'),
-  ).some((layer) => layer !== content && !content.contains(layer));
 }
 
 type RailTileProps = {
@@ -111,46 +97,20 @@ type RailTileProps = {
   color: string | null;
   indicator: WorkspaceIndicator;
   isSelected: boolean;
+  popover: RailPopover;
   onOpenProjectSettings?: (projectId: string) => void;
 };
 
+// No name tooltip: it would fight the hover popover, whose entry header
+// already names the project.
 function RailTile(props: RailTileProps) {
-  const { entry, name, color, indicator, isSelected, onOpenProjectSettings } = props;
+  const { entry, name, color, indicator, isSelected, popover, onOpenProjectSettings } = props;
 
-  const [open, setOpen] = useState(false);
-  const [focusOnOpen, setFocusOnOpen] = useState(false);
-  const openTimer = useRef<number | undefined>(undefined);
-  const closeTimer = useRef<number | undefined>(undefined);
-
-  const clearTimers = useCallback(() => {
-    window.clearTimeout(openTimer.current);
-    window.clearTimeout(closeTimer.current);
-  }, []);
-  useEffect(() => clearTimers, [clearTimers]);
-
-  const openNow = (focus: boolean) => {
-    clearTimers();
-    setFocusOnOpen(focus);
-    setOpen(true);
-  };
-
-  const scheduleClose = () => {
-    window.clearTimeout(openTimer.current);
-    window.clearTimeout(closeTimer.current);
-    const tryClose = () => {
-      // Wait out a menu or dialog opened from the popover.
-      if (popoverInUse()) closeTimer.current = window.setTimeout(tryClose, HOVER_CLOSE_DELAY_MS);
-      else setOpen(false);
-    };
-    closeTimer.current = window.setTimeout(tryClose, HOVER_CLOSE_DELAY_MS);
-  };
-
+  const open = popover.openKey === entry.key;
+  const { setOpen } = popover;
   const onOpenChange = useCallback(
-    (next: boolean) => {
-      clearTimers();
-      setOpen(next);
-    },
-    [clearTimers],
+    (next: boolean) => setOpen(entry.key, next),
+    [setOpen, entry.key],
   );
 
   return (
@@ -160,46 +120,36 @@ function RailTile(props: RailTileProps) {
         entry={entry}
         open={open}
         onOpenChange={onOpenChange}
-        focusOnOpen={focusOnOpen}
+        focusOnOpen={popover.focusOnOpen}
         onOpenProjectSettings={onOpenProjectSettings}
-        onContentPointerEnter={() => window.clearTimeout(closeTimer.current)}
-        onContentPointerLeave={scheduleClose}
+        onContentPointerEnter={popover.onContentEnter}
+        onContentPointerLeave={popover.onContentLeave}
       >
-        <Tooltip label={name} side="right" disabled={open}>
-          <Button
-            variant="ghost"
-            className={`${styles.tile} ${isSelected ? styles.tileSelected : ""}`}
-            data-testid="rail-project-tile"
-            data-entry-key={entry.key}
-            data-sidebar-row=""
-            tabIndex={-1}
-            aria-label={name}
-            aria-haspopup="dialog"
-            aria-expanded={open}
-            aria-current={isSelected ? "true" : undefined}
-            onPointerEnter={() => {
-              window.clearTimeout(closeTimer.current);
-              if (!open) {
-                openTimer.current = window.setTimeout(() => openNow(false), HOVER_OPEN_DELAY_MS);
-              }
-            }}
-            onPointerLeave={() => {
-              window.clearTimeout(openTimer.current);
-              if (open) scheduleClose();
-            }}
-            onClick={() => openNow(true)}
-            onKeyDown={(e) =>
-              handleSidebarRowKeyDown(e, { activate: () => openNow(true) })
-            }
-          >
-            {railTileLabel(name)}
-            {indicator && (
-              <span className={styles.badge}>
-                <WorkspaceIndicatorDot indicator={indicator} />
-              </span>
-            )}
-          </Button>
-        </Tooltip>
+        <Button
+          variant="ghost"
+          className={`${styles.tile} ${isSelected ? styles.tileSelected : ""}`}
+          data-testid="rail-project-tile"
+          data-entry-key={entry.key}
+          data-sidebar-row=""
+          tabIndex={-1}
+          aria-label={name}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-current={isSelected ? "true" : undefined}
+          onPointerEnter={() => popover.onTileEnter(entry.key)}
+          onPointerLeave={popover.onTileLeave}
+          onClick={() => popover.openNow(entry.key, true)}
+          onKeyDown={(e) =>
+            handleSidebarRowKeyDown(e, { activate: () => popover.openNow(entry.key, true) })
+          }
+        >
+          {railTileLabel(name)}
+          {indicator && (
+            <span className={styles.badge}>
+              <WorkspaceIndicatorDot indicator={indicator} />
+            </span>
+          )}
+        </Button>
       </RailWorkspacePopover>
     </div>
   );

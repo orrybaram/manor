@@ -129,6 +129,12 @@
   font-weight: 500;
 }
 
+/* The sidebar multi-select (ADR-190). Tinted rather than opaque so it still
+   reads as distinct alongside .workspaceActive on the open workspace. */
+.workspaceSelected {
+  background: color-mix(in srgb, var(--project-color, var(--accent)) 18%, transparent);
+}
+
 .workspaceActive .workspaceIcon {
   color: var(--project-color, var(--accent));
 }

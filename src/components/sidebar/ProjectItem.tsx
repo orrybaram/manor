@@ -25,10 +25,15 @@ import {
   descendantWorkspaces,
   placeAfterFolder,
   placeInFolder,
+  visibleWorkspacePaths,
   type DropTarget,
   type Row,
   type SidebarItem,
 } from "../../utils/sidebar-items";
+import {
+  EMPTY_SIDEBAR_SELECTION,
+  useSidebarSelectionStore,
+} from "../../store/sidebar-selection-store";
 import { headerRefKey, useSidebarDrag } from "../../hooks/useSidebarDrag";
 import { useProjectAgentStatus } from "../../hooks/useProjectAgentStatus";
 import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
@@ -61,6 +66,8 @@ interface WorkspaceItemProps {
   idx: number;
   /** True for the workspace currently open — matched by path, never by index. */
   isActive: boolean;
+  /** True when this row is part of the sidebar multi-select (ADR-190). */
+  isSelected: boolean;
   isDragging: boolean;
   isDeleting: boolean;
   isEditing: boolean;
@@ -80,6 +87,12 @@ interface WorkspaceItemProps {
   onEditClick: (e: React.MouseEvent) => void;
   onEditPointerDown: (e: React.PointerEvent) => void;
   onOpenDiff?: () => void;
+  /** The project this row belongs to, for the selection store (ADR-190). */
+  projectId: string;
+  /** Depth-first order of every visible workspace, for a shift-click range. */
+  orderedVisiblePaths: string[];
+  /** Shift-click's fallback anchor when there is none in this project yet. */
+  activeWorkspacePath: string | null;
 }
 
 const WorkspaceItem = React.forwardRef<
@@ -93,6 +106,7 @@ const WorkspaceItem = React.forwardRef<
     ws,
     idx,
     isActive,
+    isSelected,
     isDragging,
     isDeleting,
     isEditing,
@@ -111,6 +125,9 @@ const WorkspaceItem = React.forwardRef<
     onEditClick,
     onEditPointerDown,
     onOpenDiff,
+    projectId,
+    orderedVisiblePaths,
+    activeWorkspacePath,
     ...rest
   } = props;
 
@@ -135,14 +152,29 @@ const WorkspaceItem = React.forwardRef<
       // The roving tabindex (useRovingRows) decides which row holds 0.
       tabIndex={-1}
       aria-current={isActive ? "true" : undefined}
+      aria-selected={isSelected ? "true" : undefined}
       {...rest}
       className={`${styles.workspace} ${isActive
           ? styles.workspaceActive
           : ""
-        } ${isDragging ? styles.workspaceDragging : ""} ${isDeleting ? styles.workspaceDeleting : ""}${rest.className ? ` ${rest.className}` : ""}`}
+        } ${isSelected ? styles.workspaceSelected : ""} ${isDragging ? styles.workspaceDragging : ""} ${isDeleting ? styles.workspaceDeleting : ""}${rest.className ? ` ${rest.className}` : ""}`}
       style={{ ...dragStyle, ...rest.style }}
       onClick={(e) => {
-        if (!justDragged.current) onSelectWorkspace(idx);
+        if (justDragged.current) {
+          rest.onClick?.(e);
+          return;
+        }
+        if (e.shiftKey) {
+          // Selects a range; it never navigates (ADR-190 §1).
+          useSidebarSelectionStore
+            .getState()
+            .selectRange(projectId, orderedVisiblePaths, ws.path, activeWorkspacePath);
+        } else if (e.metaKey || e.ctrlKey) {
+          useSidebarSelectionStore.getState().toggle(projectId, ws.path);
+        } else {
+          useSidebarSelectionStore.getState().setAnchor(projectId, ws.path);
+          onSelectWorkspace(idx);
+        }
         rest.onClick?.(e);
       }}
       onKeyDown={(e) => {
@@ -380,6 +412,27 @@ export function ProjectItem(props: ProjectItemProps) {
     (ws) => ws.path === activeWorkspacePath,
   );
 
+  // Tree order of every workspace a shift-click range can land on — a
+  // collapsed folder's members are off screen and out of the range, exactly
+  // as they are absent from `flattenRows` (ADR-190 §1).
+  const orderedVisiblePaths = useMemo(
+    () => visibleWorkspacePaths(items, collapsedFolderIds),
+    [items, collapsedFolderIds],
+  );
+  // Read only when the selection belongs to this project: a selection made in
+  // another project highlights nothing here.
+  const selectedPaths = useSidebarSelectionStore((s) =>
+    s.projectId === projectId ? s.paths : EMPTY_SIDEBAR_SELECTION,
+  );
+  // A workspace leaving the project (hidden, deleted) leaves the selection
+  // too, else a stale path could still drive a bulk action on a row that no
+  // longer exists.
+  useEffect(() => {
+    useSidebarSelectionStore
+      .getState()
+      .prune(projectId, new Set(workspaces.map((ws) => ws.path)));
+  }, [workspaces, projectId]);
+
   const handleDrop = useCallback(
     (sourceKey: string, target: DropTarget, rows: Row[]) => {
       applySidebarChange(projectId, applyDrop(items, sourceKey, target, rows));
@@ -508,6 +561,7 @@ export function ProjectItem(props: ProjectItemProps) {
         ws={ws}
         idx={globalIdx}
         isActive={ws.path === activeWorkspacePath}
+        isSelected={selectedPaths.has(ws.path)}
         isDragging={dragKey === ws.path}
         isDeleting={isDeleting}
         isEditing={isEditing}
@@ -518,8 +572,15 @@ export function ProjectItem(props: ProjectItemProps) {
         justDragged={justDragged}
         itemRefCallback={registerRow(ws.path)}
         onSelectWorkspace={onSelectWorkspace}
+        projectId={projectId}
+        orderedVisiblePaths={orderedVisiblePaths}
+        activeWorkspacePath={activeWorkspacePath}
         onRowKeyDown={(e) => {
           if (isEditing) return;
+          // Escape clears the selection before handing off to the shared
+          // handler's own Escape (which blurs the row and refocuses the
+          // active pane) — both happen on one press (ADR-190 §1).
+          if (e.key === "Escape") useSidebarSelectionStore.getState().clear();
           handleSidebarRowKeyDown(e, {
             activate: () => onSelectWorkspace(globalIdx),
             startRename: () => startRename(ws),
@@ -529,7 +590,17 @@ export function ProjectItem(props: ProjectItemProps) {
             },
           });
         }}
-        onPointerDown={(e) => handleDragStart(ws.path, "workspace", e)}
+        onPointerDown={(e) => {
+          // Shift/Cmd/Ctrl-pointerdown are selection gestures, not drags
+          // (ADR-190 §1); shift's browser text-selection needs an explicit
+          // preventDefault since a click on plain text still fires from here.
+          if (e.shiftKey) {
+            e.preventDefault();
+            return;
+          }
+          if (e.metaKey || e.ctrlKey) return;
+          handleDragStart(ws.path, "workspace", e);
+        }}
         onEditChange={(e) => setEditValue(e.target.value)}
         onEditBlur={() => {
           if (renameCancelled.current) {

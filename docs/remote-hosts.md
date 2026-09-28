@@ -95,14 +95,17 @@ On the box, everything Manor installs lives under `~/.manor/`:
 |---|---|
 | `~/.manor/host/` | The host package: the terminal daemon bundle and its `node_modules` |
 | `~/.manor/bin/manor-host` | Launcher that pins the version and the absolute path to `node` |
+| `~/.manor/bin/manor` | The `manor` CLI shim for remote use |
 | `~/.manor/remote/daemon/` | The remote daemon's socket, auth token, pid and log, plus the hook journal |
 | `~/.manor/remote/hook-port` | The hook listener's port and token (mode 0600) |
+| `~/.manor/remote/control-port` | The CLI relay's port and token (mode 0600) |
 | `~/.manor/hooks/notify.{sh,js}` | The hook script agents call |
 | `~/.manor/sessions/` | Terminal scrollback |
 
 The first connect also registers Manor's hooks in each agent CLI's config
 (for example `~/.claude/settings.json`), the same way the desktop app does on
-your laptop. MCP isn't registered on remote hosts.
+your laptop. The `manor` CLI is installed at `~/.manor/bin/manor`. MCP isn't
+registered on remote hosts.
 
 If a Manor desktop also runs on the box, it isn't affected. Its daemon
 (`~/.manor/daemon/`) and hook port file (`~/.manor/hook-port`) are separate.
@@ -150,6 +153,29 @@ running agents down with it, and they resume only when you reconnect.
 Managed providers with keep-awake support are planned. See
 [What isn't supported](#what-isnt-supported).
 
+## The `manor` CLI
+
+Agents on the box can run the `manor` CLI to manage projects, workspaces and
+folders, link issues, and list and launch agents — the same commands as locally.
+The CLI is installed at `~/.manor/bin/manor` and is on PATH in every remote
+PTY.
+
+Requests go to a loopback listener run by the remote daemon. The listener reads
+the request and relays it over the existing ssh connection to Manor on your
+laptop, which processes it the same way it handles requests from the local
+client. The result comes back over the same connection.
+
+This only works while your laptop is connected. If it disconnects, CLI commands
+fail with "Manor desktop is not connected to this host" — there is no queueing
+or journal for CLI requests, unlike hooks.
+
+No new port is opened on your laptop and it doesn't require `AllowTcpForwarding`
+in sshd's config. The relay keeps other users on a shared box out: the token is
+written to `~/.manor/remote/control-port` (mode 0600).
+
+Other commands (panes, browser panes, git, system) aren't available from remote
+hosts.
+
 ## Ports and forwarding
 
 The port list scans remote hosts too. It uses `lsof` on macOS boxes, and on
@@ -179,8 +205,9 @@ lives on the box.
   now. Manor already models hosts as providers internally, so these can be
   added later.
 - **Windows hosts.** Linux and macOS only.
-- **Remote MCP.** Agents on the box don't get Manor's MCP server. The
-  `manor` CLI and hooks work.
+- **Remote MCP.** Agents on the box don't get Manor's MCP server. Hooks
+  work, and the `manor` CLI works for the commands listed in "The `manor` CLI"
+  section.
 - **Open in editor**, and the directory picker, for remote paths. There's no
   file sync to a local editor either. Use your editor's own remote mode (VS
   Code Remote-SSH, Zed remote) against the same box.

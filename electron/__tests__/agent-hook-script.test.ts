@@ -792,6 +792,49 @@ describe("agent-hook.js — SessionStart manor CLI hint", () => {
     expect(parsed.hookSpecificOutput.additionalContext).toContain(
       "manor --help",
     );
+    // Verify it's the local variant (contains mcp__manor__ reference)
+    expect(parsed.hookSpecificOutput.additionalContext).toContain(
+      "mcp__manor__",
+    );
+  });
+
+  it("prints the remote variant of the hint when MANOR_CONTROL_PORT_FILE is set", async () => {
+    const controlPortFile = path.join(tmpDir, ".manor", "remote", "control-port");
+    fs.mkdirSync(path.dirname(controlPortFile), { recursive: true });
+    fs.writeFileSync(controlPortFile, "9999\ntoken123\n");
+
+    const { fn: fetchFn } = makeFetch();
+    const stdout = makeStdout();
+
+    await agentHook.main({
+      argv: ["node", "agent-hook.js"],
+      stdin: makeStdin(JSON.stringify({ hook_event_name: "SessionStart" })),
+      env: {
+        MANOR_PANE_ID: "pane-1",
+        MANOR_AGENT_KIND: "claude",
+        MANOR_CONTROL_PORT_FILE: controlPortFile,
+      },
+      homeDir: tmpDir,
+      fetch: fetchFn,
+      stderr: makeStderr(),
+      stdout,
+    });
+
+    expect(stdout.lines).toHaveLength(1);
+    const line = stdout.lines[0]!.trimEnd();
+    const parsed = JSON.parse(line);
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("SessionStart");
+    const context = parsed.hookSpecificOutput.additionalContext;
+    // Verify it's the remote variant
+    expect(context).toContain("remote host managed by Manor");
+    expect(context).toContain("manor --help");
+    expect(context).toContain("batch-create-workspaces");
+    expect(context).toContain("list-agents");
+    expect(context).toContain(
+      "Pane, browser and system commands aren't available from remote hosts"
+    );
+    // Verify it doesn't contain the mcp__manor__ reference
+    expect(context).not.toContain("mcp__manor__");
   });
 
   it("does not print the hint for other agent kinds", async () => {

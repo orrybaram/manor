@@ -10,7 +10,7 @@ blocked_by: [1]
 
 GitHub issue #248. See ADR-192 §5.
 
-- `PersistedProjectGroup` gains `originUrl?`, the URL normalized with the existing GitHub remote-URL parsing (`normalizeOriginUrl` / `ghRepoFromRemoteUrl`).
+- `PersistedProjectGroup` gains `originKey?`, the `origin` URL normalized with the existing remote-URL normalization (`normalizeOriginUrl`, via `originKey`).
 - Add a ProjectManager `suggestLinks(projectId)` that returns candidates on other hosts whose normalized `origin` matches. Use the group's stored URL when a member's host is offline. It only returns candidates and never links.
 - After adding or cloning a project with a matching `origin`, show a suggestion the user can accept or dismiss. Persist dismissed pairs so they aren't suggested again.
 - Forks and other non-matching remotes are never suggested.

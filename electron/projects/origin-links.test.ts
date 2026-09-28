@@ -19,6 +19,12 @@ describe("originKey", () => {
     expect(originKey("https://github.com/Acme/App")).toBe(key);
     expect(originKey("ssh://git@github.com:22/acme/app.git/")).toBe(key);
     expect(originKey("github.com:acme/app\n")).toBe(key);
+    expect(originKey("git://github.com/acme/app")).toBe(key);
+  });
+
+  it("matches with a trailing slash after .git", () => {
+    expect(originKey("https://github.com/acme/app.git/")).toBe(originKey("https://github.com/acme/app"));
+    expect(originKey("git@github.com:acme/app.git//")).toBe("github.com/acme/app");
   });
 
   it("falls back to the normalized URL for other remotes", () => {
@@ -36,6 +42,14 @@ describe("originKey", () => {
     expect(originKey("/srv/git/app.git")).toBeNull();
     expect(originKey("../app")).toBeNull();
     expect(originKey("file:///srv/git/app")).toBeNull();
+  });
+
+  it("has no key for a bare relative path or a Windows drive path", () => {
+    expect(originKey("repos/app")).toBeNull();
+    expect(originKey("repos/app.git")).toBeNull();
+    expect(originKey("C:/x/y")).toBeNull();
+    expect(originKey("C:\\x")).toBeNull();
+    expect(originKey("c:\\repos\\app.git")).toBeNull();
   });
 });
 
@@ -136,20 +150,8 @@ describe("ProjectManager link suggestions by origin (ADR-192 ticket 5)", () => {
     const suggestions = await mgr.suggestLinks("local-app");
 
     expect(suggestions).toEqual([
-      {
-        projectId: "box-app",
-        name: "Project box-app",
-        hostId: "box",
-        hostLabel: "me@box",
-        groupId: null,
-      },
-      {
-        projectId: "mac-app",
-        name: "Project mac-app",
-        hostId: "mac",
-        hostLabel: "me@mac",
-        groupId: null,
-      },
+      { projectId: "box-app", name: "Project box-app", hostLabel: "me@box" },
+      { projectId: "mac-app", name: "Project mac-app", hostLabel: "me@mac" },
     ]);
   });
 
@@ -192,14 +194,12 @@ describe("ProjectManager link suggestions by origin (ADR-192 ticket 5)", () => {
 
     // The group has no member on the mac: offered once, as the group.
     const forMac = await mgr.suggestLinks("mac-app");
-    expect(forMac).toContainEqual({
-      projectId: "local-app",
-      name: group.name,
-      hostId: "local",
-      hostLabel: "this Mac, me@box",
-      groupId: group.id,
-    });
-    expect(forMac.filter((s) => s.groupId === group.id)).toHaveLength(1);
+    const asGroup = forMac.filter((s) => s.name === group.name);
+    expect(asGroup).toEqual([
+      { projectId: "local-app", name: group.name, hostLabel: "this Mac, me@box" },
+    ]);
+    // Its members aren't offered one by one as well.
+    expect(forMac.map((s) => s.projectId)).not.toContain("box-app");
 
     // local-dup is on this Mac, where the group already has local-app.
     expect(await suggestedIds(mgr, "local-dup")).toEqual(["mac-app"]);
@@ -243,11 +243,11 @@ describe("ProjectManager link suggestions by origin (ADR-192 ticket 5)", () => {
     seed();
     const mgr = manager();
     const group = mgr.linkProjects("box-app", "local-app");
-    const offered = (await mgr.suggestLinks("mac-app")).find((s) => s.groupId === group.id)!;
+    const offered = (await mgr.suggestLinks("mac-app")).find((s) => s.name === group.name)!;
 
     mgr.dismissLinkSuggestion("mac-app", offered.projectId);
 
-    expect((await mgr.suggestLinks("mac-app")).some((s) => s.groupId === group.id)).toBe(false);
+    expect((await mgr.suggestLinks("mac-app")).some((s) => s.name === group.name)).toBe(false);
   });
 
   it("drops a removed project's dismissals, and the key once none are left", async () => {
@@ -297,7 +297,7 @@ describe("ProjectManager link suggestions by origin (ADR-192 ticket 5)", () => {
     mgr.linkProjects("box-app", "local-app");
 
     await vi.waitFor(() =>
-      expect(readState().groups?.[0].originUrl).toBe("github.com/acme/app"),
+      expect(readState().groups?.[0].originKey).toBe("github.com/acme/app"),
     );
   });
 
@@ -308,24 +308,56 @@ describe("ProjectManager link suggestions by origin (ADR-192 ticket 5)", () => {
     mgr.linkProjects("box-app", "local-app");
     // Let the attempt made on linking finish, with nothing to show for it.
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(readState().groups?.[0]).not.toHaveProperty("originUrl");
+    expect(readState().groups?.[0]).not.toHaveProperty("originKey");
 
     offline.clear();
     expect(await suggestedIds(mgr, "mac-app")).toContain("local-app");
-    expect(readState().groups?.[0].originUrl).toBe("github.com/acme/app");
+    expect(readState().groups?.[0].originKey).toBe("github.com/acme/app");
   });
 
   it("still suggests a group while all its hosts are offline", async () => {
     seed();
     const linker = manager();
     const group = linker.linkProjects("box-app", "local-app");
-    await vi.waitFor(() => expect(readState().groups?.[0].originUrl).toBeDefined());
+    await vi.waitFor(() => expect(readState().groups?.[0].originKey).toBeDefined());
 
     offline = new Set(["local", "box"]);
     const mgr = manager();
 
     const suggestions = await mgr.suggestLinks("mac-app");
-    expect(suggestions.map((s) => s.groupId)).toEqual([group.id]);
+    expect(suggestions.map((s) => s.name)).toEqual([group.name]);
+  });
+
+  it("derives the group's origin again when the member it came from leaves", async () => {
+    seed();
+    const mgr = manager();
+    // local-app is first, so the group takes its key; box-fork (a fork)
+    // and mac-other (another repo) are linked by hand.
+    mgr.linkProjects("box-fork", "local-app");
+    mgr.linkProjects("local-app", "mac-other");
+    await vi.waitFor(() =>
+      expect(readState().groups?.[0].originKey).toBe("github.com/acme/app"),
+    );
+
+    mgr.unlinkProject("local-app");
+
+    await vi.waitFor(() =>
+      expect(readState().groups?.[0].originKey).toBe("github.com/me/app"),
+    );
+  });
+
+  it("doesn't keep a departed member's key while the rest are away", async () => {
+    seed();
+    const mgr = manager();
+    mgr.linkProjects("box-fork", "local-app");
+    mgr.linkProjects("local-app", "mac-other");
+    await vi.waitFor(() => expect(readState().groups?.[0].originKey).toBeDefined());
+    offline = new Set(["box", "mac"]);
+
+    mgr.removeProject("local-app");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(readState().groups?.[0]).not.toHaveProperty("originKey");
   });
 
   it("keeps a group's stored origin across a load", async () => {
@@ -336,7 +368,7 @@ describe("ProjectManager link suggestions by origin (ADR-192 ticket 5)", () => {
           name: "App",
           memberIds: ["local-app", "box-app"],
           lastUsedHostId: "local",
-          originUrl: "github.com/acme/app",
+          originKey: "github.com/acme/app",
         },
       ],
     });
@@ -344,6 +376,6 @@ describe("ProjectManager link suggestions by origin (ADR-192 ticket 5)", () => {
 
     mgr.selectProject(1);
 
-    expect(readState().groups?.[0].originUrl).toBe("github.com/acme/app");
+    expect(readState().groups?.[0].originKey).toBe("github.com/acme/app");
   });
 });

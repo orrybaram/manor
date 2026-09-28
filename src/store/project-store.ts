@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { selectActiveWorkspaceKey, useAppStore } from "./app-store";
 import { workspaceKey } from "../lib/workspace-key";
 import { useToastStore } from "./toast-store";
-import { offerLinkSuggestions } from "./link-suggestions";
+import { offerLinkSuggestions, offerLinkSuggestionsAtLaunch } from "./link-suggestions";
 import { branchesEqual } from "../utils/branch-name";
 import { ipcErrorMessage } from "../lib/ipc-error";
 import { splitShared } from "../lib/project-groups";
@@ -725,12 +725,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const projects = await window.electronAPI.projects.getAll();
       const selectedIndex =
         await window.electronAPI.projects.getSelectedIndex();
+      const firstLoad = !get().initialLoadDone;
       set((s) => ({
         projects: keepWatchedState(projects, s.projects),
         selectedProjectIndex: selectedIndex,
         loading: false,
         initialLoadDone: true,
       }));
+      // ADR-192 ticket 5: offer links between existing duplicates once.
+      if (firstLoad) void offerLinkSuggestionsAtLaunch(projects, get().linkProjects);
     } catch {
       set({ loading: false, initialLoadDone: true });
     }

@@ -205,14 +205,20 @@ rule.
 - **Link suggestions by `origin` (ticket 5).** Normalized with the existing
   GitHub remote parsing, stored on the group, and suggested for the user to
   confirm. Manor never links on its own. The logic lives in
-  `electron/projects/origin-links.ts`. A remote that is only a path on disk
-  is never matched, because it names a different directory on each host. A
-  group is offered once, under its first member. Dismissed pairs of project
+  `electron/projects/origin-links.ts`. `originKey` is `normalizeOriginUrl`
+  plus a guard: a remote that is only a path on disk (absolute, relative, a
+  Windows drive or `file://`) is never matched, because it names a different
+  directory on each host. The group stores it as `originKey`. A member
+  leaving clears it, and it is derived again from the members that remain.
+  A group is offered once, under its first member. Dismissed pairs of project
   ids are persisted as `dismissedLinkSuggestions`. The key is absent until
   the first dismissal and is dropped with the last one, so files of users who
   never dismiss stay unchanged. A dismissal with any member of a group
   covers the whole group. The renderer offers each suggestion as a
-  persistent toast after `addProject` and `addRemoteProject`.
+  persistent, neutral `info` toast, one per pair. It does this after
+  `addProject` and `addRemoteProject`, and once per launch for ungrouped
+  projects after they load, so duplicates added before linking existed are
+  found too.
 - **Host status for groups (ticket 6).** Connected / offline / partially
   offline, derived from members. The offline section dims. The status bar chip
   and the tab badge follow the workspace's host, and the collapsed-group agent

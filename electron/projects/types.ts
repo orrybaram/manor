@@ -137,12 +137,8 @@ export interface LinkSuggestion {
   projectId: string;
   /** The project's name, or its group's. */
   name: string;
-  /** `projectId`'s host. */
-  hostId: string;
   /** Where it lives, for the prompt: its host's label, or a group's hosts' labels. */
   hostLabel: string;
-  /** The group it would join, or null for a lone project. */
-  groupId: string | null;
 }
 
 export type ProjectUpdatableFields = Partial<
@@ -249,11 +245,12 @@ export interface PersistedProjectGroup {
   agentCommand?: string | null;
   linearAssociations?: LinearAssociation[];
   /**
-   * The group's repo as a normalized `origin` URL (`originKey`, ADR-192
-   * ticket 5), so link suggestions can match it while its hosts are away.
-   * Absent until a member's host has reported one.
+   * The group's repo as a normalized `origin` key (`originKey` in
+   * `origin-links.ts`, ADR-192 ticket 5), so link suggestions can match it
+   * while its hosts are away. Absent until a member's host has reported one;
+   * cleared when a member leaves, and derived again from those that remain.
    */
-  originUrl?: string;
+  originKey?: string;
 }
 
 export interface PersistedState {

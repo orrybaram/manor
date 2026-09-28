@@ -3,7 +3,8 @@ import { create } from "zustand";
 export interface Toast {
   id: string;
   message: string;
-  status: "loading" | "success" | "error";
+  /** `info` is neutral: a question or notice, neither a result nor a failure. */
+  status: "loading" | "success" | "error" | "info";
   detail?: string;
   persistent?: boolean;
   /** Custom auto-dismiss duration in ms (overrides default) */

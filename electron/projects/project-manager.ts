@@ -347,6 +347,7 @@ export class ProjectManager {
 
   removeProject(projectId: string): void {
     const state = this.store.state;
+    const groupId = groups.groupOf(state, projectId)?.id;
     groups.forgetProject(state, projectId);
     forgetLinkDismissals(state, projectId);
     state.projects = state.projects.filter((p) => p.id !== projectId);
@@ -354,6 +355,7 @@ export class ProjectManager {
       state.selectedProjectIndex = Math.max(0, state.projects.length - 1);
     }
     this.store.save();
+    if (groupId) void this.origins.rememberGroupOrigin(groupId);
   }
 
   /**
@@ -438,7 +440,10 @@ export class ProjectManager {
    * as its own; its workspaces and other settings stay.
    */
   unlinkProject(projectId: string): void {
+    const groupId = groups.groupOf(this.store.state, projectId)?.id;
     groups.unlinkProject(this.ctx, projectId);
+    // The group's origin key is derived again from the members left.
+    if (groupId) void this.origins.rememberGroupOrigin(groupId);
   }
 
   /** Dissolve a group; every member keeps the shared settings, just unlinked. */

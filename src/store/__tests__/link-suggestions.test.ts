@@ -4,46 +4,95 @@ import {
   offerLinkSuggestions,
   type LinkSuggestion,
 } from "../link-suggestions";
+import { useProjectStore, type ProjectInfo } from "../project-store";
 import { useToastStore } from "../toast-store";
 
-// ADR-192 ticket 5: after an add or clone, each project on another host with
-// the same `origin` is offered as a toast the user accepts or dismisses.
+// ADR-192 ticket 5: after an add or clone, and once per launch, each project
+// on another host with the same `origin` is offered as a toast the user
+// accepts or dismisses.
 
-const api = {
-  suggestLinks: vi.fn(),
-  dismissLinkSuggestion: vi.fn(async () => {}),
+/**
+ * A fake main: `local-app` and `box-app` share an origin, and a dismissed
+ * pair stops being suggested, as `ProjectManager.suggestLinks` does.
+ */
+const dismissed = new Set<string>();
+const pairKey = (a: string, b: string) => [a, b].sort().join("|");
+const SUGGESTIONS: Record<string, LinkSuggestion[]> = {
+  "local-app": [{ projectId: "box-app", name: "box app", hostLabel: "me@box" }],
+  "box-app": [{ projectId: "local-app", name: "local app", hostLabel: "this Mac" }],
 };
 
+const api = {
+  getAll: vi.fn(),
+  getSelectedIndex: vi.fn(async () => 0),
+  suggestLinks: vi.fn(async (projectId: string) =>
+    (SUGGESTIONS[projectId] ?? []).filter((s) => !dismissed.has(pairKey(projectId, s.projectId))),
+  ),
+  dismissLinkSuggestion: vi.fn(async (projectId: string, otherId: string) => {
+    dismissed.add(pairKey(projectId, otherId));
+  }),
+  link: vi.fn(async () => {}),
+};
+
+// The collapsed set is localStorage-backed; this suite runs without a DOM.
+vi.stubGlobal("localStorage", { getItem: vi.fn(() => null), setItem: vi.fn() });
 vi.stubGlobal("window", {
   ...globalThis.window,
   electronAPI: { projects: api },
 });
 
-const BOX_APP: LinkSuggestion = {
-  projectId: "box-app",
-  name: "app",
-  hostId: "box",
-  hostLabel: "me@box",
-  groupId: null,
-};
+function project(id: string, hostId: string): ProjectInfo {
+  return {
+    id,
+    name: id,
+    path: `/code/${id}`,
+    hostId,
+    defaultBranch: "main",
+    workspaces: [{ path: `/code/${id}`, branch: "main", isMain: true, name: null }],
+    selectedWorkspaceIndex: 0,
+    defaultRunCommand: null,
+    worktreePath: null,
+    worktreeStartScript: null,
+    worktreeTeardownScript: null,
+    linearAssociations: [],
+    color: null,
+    agentCommand: null,
+    commands: [],
+    themeName: null,
+    setupComplete: true,
+    portlessEnabled: true,
+    folders: [],
+    sidebarOrder: [],
+    group: null,
+  };
+}
 
 const toastId = linkSuggestionToastId("local-app", "box-app");
 const toast = () => useToastStore.getState().toasts.find((t) => t.id === toastId);
+const suggestionToasts = () =>
+  useToastStore.getState().toasts.filter((t) => t.id.startsWith("link-suggestion-"));
 
-describe("offerLinkSuggestions", () => {
+/** A fresh launch: nothing loaded yet, no toasts. */
+function launch(): Promise<void> {
+  useProjectStore.setState({ projects: [], initialLoadDone: false });
+  useToastStore.setState({ toasts: [] });
+  return useProjectStore.getState().loadProjects();
+}
+
+describe("link suggestions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    dismissed.clear();
     useToastStore.setState({ toasts: [] });
+    api.getAll.mockResolvedValue([project("local-app", "local"), project("box-app", "box")]);
   });
 
   it("asks before linking, and links on accept", async () => {
-    api.suggestLinks.mockResolvedValue([BOX_APP]);
     const link = vi.fn(async () => {});
 
     await offerLinkSuggestions("local-app", link);
 
-    expect(api.suggestLinks).toHaveBeenCalledWith("local-app");
-    expect(toast()?.message).toBe('Link with "app" on me@box?');
+    expect(toast()).toMatchObject({ status: "info", message: 'Link with "box app" on me@box?' });
     expect(link).not.toHaveBeenCalled();
 
     toast()!.action!.onClick();
@@ -54,7 +103,6 @@ describe("offerLinkSuggestions", () => {
   });
 
   it("remembers a dismissal without linking", async () => {
-    api.suggestLinks.mockResolvedValue([BOX_APP]);
     const link = vi.fn(async () => {});
 
     await offerLinkSuggestions("local-app", link);
@@ -65,13 +113,46 @@ describe("offerLinkSuggestions", () => {
     expect(toast()).toBeUndefined();
   });
 
-  it("shows nothing when there is no match or the lookup fails", async () => {
-    api.suggestLinks.mockResolvedValue([]);
+  it("shows nothing when the lookup fails", async () => {
+    api.suggestLinks.mockRejectedValueOnce(new Error("host away"));
     await offerLinkSuggestions("local-app", vi.fn());
-    expect(useToastStore.getState().toasts).toEqual([]);
+    expect(suggestionToasts()).toEqual([]);
+  });
 
-    api.suggestLinks.mockRejectedValue(new Error("host away"));
-    await offerLinkSuggestions("local-app", vi.fn());
-    expect(useToastStore.getState().toasts).toEqual([]);
+  it("offers existing duplicates once per launch, one toast per pair", async () => {
+    await launch();
+    await vi.waitFor(() => expect(api.suggestLinks).toHaveBeenCalledTimes(2));
+
+    // Both sides suggest the other; the pair gets one toast.
+    expect(suggestionToasts()).toHaveLength(1);
+
+    // A later reload in the same session doesn't ask again.
+    await useProjectStore.getState().loadProjects();
+    expect(api.suggestLinks).toHaveBeenCalledTimes(2);
+  });
+
+  it("skips grouped projects at launch", async () => {
+    const group = { id: "g1", name: "app", memberIds: ["local-app", "box-app"], lastUsedHostId: null };
+    api.getAll.mockResolvedValue([
+      { ...project("local-app", "local"), group },
+      { ...project("box-app", "box"), group },
+    ]);
+
+    await launch();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(api.suggestLinks).not.toHaveBeenCalled();
+  });
+
+  it("doesn't offer a dismissed pair at the next launch", async () => {
+    await launch();
+    await vi.waitFor(() => expect(suggestionToasts()).toHaveLength(1));
+    suggestionToasts()[0].secondaryAction!.onClick();
+    await vi.waitFor(() => expect(api.dismissLinkSuggestion).toHaveBeenCalled());
+
+    await launch();
+    await vi.waitFor(() => expect(api.suggestLinks).toHaveBeenCalledTimes(4));
+
+    expect(suggestionToasts()).toEqual([]);
   });
 });

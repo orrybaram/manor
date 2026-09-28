@@ -36,6 +36,7 @@ import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import { HostIndicator } from "../hosts/HostIndicator";
 import { isRemoteHost } from "../../lib/hosts";
+import { useHostStore, selectHost } from "../../store/host-store";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
@@ -274,6 +275,12 @@ export function ProjectItem(props: ProjectItemProps) {
   } = props;
 
   const expanded = !collapsed;
+  // A remote project's main workspace is named for its box, not "local".
+  const remoteTarget = useHostStore((state) => {
+    if (!isRemoteHost(project.hostId)) return null;
+    const host = selectHost(project.hostId)(state);
+    return host?.spec?.target ?? project.hostId;
+  });
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -499,7 +506,7 @@ export function ProjectItem(props: ProjectItemProps) {
     const globalIdx = project.workspaces.indexOf(ws);
     const isEditing = editingPath === ws.path;
     const displayName = ws.isMain
-      ? ws.name || "local"
+      ? ws.name || remoteTarget || "local"
       : ws.name || ws.branch || "main";
     const isDeleting = deletingPaths.has(ws.path);
 

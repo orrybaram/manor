@@ -1219,7 +1219,7 @@ export function ProjectItem(props: ProjectItemProps) {
                 setNewFolderOpen(true);
               }}
             >
-              New Folder…
+              New Folder
             </ContextMenu.Item>
             <ContextMenu.Item
               className={styles.contextMenuItem}
@@ -1261,65 +1261,71 @@ export function ProjectItem(props: ProjectItemProps) {
                 </ContextMenu.Portal>
               </ContextMenu.Sub>
             )}
-            <ContextMenu.Separator className={styles.contextMenuSeparator} />
-            <ContextMenu.Sub>
-              <ContextMenu.SubTrigger
-                className={styles.contextMenuItem}
-                style={{ display: "flex", alignItems: "center" }}
-                disabled={linkChoices.length === 0 && !localFolderEligible}
-              >
-                Link with…
-                <ChevronRight size={14} style={{ marginLeft: "auto" }} />
-              </ContextMenu.SubTrigger>
-              <ContextMenu.Portal>
-                <ContextMenu.SubContent
-                  className={styles.contextMenu}
-                  style={{ maxWidth: 260 }}
-                >
-                  {linkChoices.map((choice) => (
-                    <ContextMenu.Item
-                      key={choice.key}
-                      className={styles.contextMenuItem}
-                      style={{ display: "flex", alignItems: "center", gap: 6 }}
-                      onSelect={() => void linkProjects(project.id, choice.targetId)}
+            {/* A host section's menu covers only that host's workspaces;
+                linking and removal live on the group header. */}
+            {!isSection && (
+              <>
+                <ContextMenu.Separator className={styles.contextMenuSeparator} />
+                <ContextMenu.Sub>
+                  <ContextMenu.SubTrigger
+                    className={styles.contextMenuItem}
+                    style={{ display: "flex", alignItems: "center" }}
+                    disabled={linkChoices.length === 0 && !localFolderEligible}
+                  >
+                    Link with…
+                    <ChevronRight size={14} style={{ marginLeft: "auto" }} />
+                  </ContextMenu.SubTrigger>
+                  <ContextMenu.Portal>
+                    <ContextMenu.SubContent
+                      className={styles.contextMenu}
+                      style={{ maxWidth: 260 }}
                     >
-                      {choice.label}
-                      {choice.hostIds.filter(isRemoteHost).map((hostId) => (
-                        <HostIndicator key={hostId} hostId={hostId} variant="icon" />
+                      {linkChoices.map((choice) => (
+                        <ContextMenu.Item
+                          key={choice.key}
+                          className={styles.contextMenuItem}
+                          style={{ display: "flex", alignItems: "center", gap: 6 }}
+                          onSelect={() => void linkProjects(project.id, choice.targetId)}
+                        >
+                          {choice.label}
+                          {choice.hostIds.filter(isRemoteHost).map((hostId) => (
+                            <HostIndicator key={hostId} hostId={hostId} variant="icon" />
+                          ))}
+                        </ContextMenu.Item>
                       ))}
-                    </ContextMenu.Item>
-                  ))}
-                  {localFolderEligible && (
-                    <>
-                      {linkChoices.length > 0 && (
-                        <ContextMenu.Separator className={styles.contextMenuSeparator} />
+                      {localFolderEligible && (
+                        <>
+                          {linkChoices.length > 0 && (
+                            <ContextMenu.Separator className={styles.contextMenuSeparator} />
+                          )}
+                          <ContextMenu.Item
+                            className={styles.contextMenuItem}
+                            onSelect={() => void linkLocalFolder(project.id)}
+                          >
+                            Choose local folder…
+                          </ContextMenu.Item>
+                        </>
                       )}
-                      <ContextMenu.Item
-                        className={styles.contextMenuItem}
-                        onSelect={() => void linkLocalFolder(project.id)}
-                      >
-                        Choose local folder…
-                      </ContextMenu.Item>
-                    </>
-                  )}
-                </ContextMenu.SubContent>
-              </ContextMenu.Portal>
-            </ContextMenu.Sub>
-            {project.group && (
-              <ContextMenu.Item
-                className={styles.contextMenuItem}
-                onSelect={() => void unlinkProject(project.id)}
-              >
-                Unlink
-              </ContextMenu.Item>
+                    </ContextMenu.SubContent>
+                  </ContextMenu.Portal>
+                </ContextMenu.Sub>
+                {project.group && (
+                  <ContextMenu.Item
+                    className={styles.contextMenuItem}
+                    onSelect={() => void unlinkProject(project.id)}
+                  >
+                    Unlink
+                  </ContextMenu.Item>
+                )}
+                <ContextMenu.Separator className={styles.contextMenuSeparator} />
+                <ContextMenu.Item
+                  className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+                  onSelect={() => setConfirmRemove(true)}
+                >
+                  Remove Project
+                </ContextMenu.Item>
+              </>
             )}
-            <ContextMenu.Separator className={styles.contextMenuSeparator} />
-            <ContextMenu.Item
-              className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
-              onSelect={() => setConfirmRemove(true)}
-            >
-              Remove Project
-            </ContextMenu.Item>
           </ContextMenu.Content>
         </ContextMenu.Portal>
       </ContextMenu.Root>

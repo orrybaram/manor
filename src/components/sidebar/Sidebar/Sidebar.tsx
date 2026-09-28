@@ -464,6 +464,22 @@ export function Sidebar(props: SidebarProps) {
                               selectionScope,
                             )
                           }
+                          onCreateWorktree={(projectId, name, branch, options) =>
+                            createWorktree(projectId, name, branch, options)
+                          }
+                          onUnhideWorkspace={(project, ws) =>
+                            setWorkspaceHidden(project.id, ws.path, false)
+                          }
+                          onOpenSettings={() =>
+                            onOpenProjectSettings?.(entry.sections[0].project.id)
+                          }
+                          onRemove={() => {
+                            void (async () => {
+                              for (const section of entry.sections) {
+                                await removeProject(section.project.id);
+                              }
+                            })();
+                          }}
                         />
                       )}
                     </div>

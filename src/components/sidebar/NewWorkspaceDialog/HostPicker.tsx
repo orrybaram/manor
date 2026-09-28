@@ -17,6 +17,8 @@ type HostPickerProps = {
    * registered host already has a member, which hides the action.
    */
   onCloneOntoAnotherHost?: () => void;
+  /** The field's label; a workspace "Run on" a host, a folder lives "On" one. */
+  label?: string;
 };
 
 /**
@@ -26,14 +28,14 @@ type HostPickerProps = {
  * it, "Clone onto another host…" adds a member on a host the group lacks.
  */
 export function HostPicker(props: HostPickerProps) {
-  const { choices, value, onChange, onCloneOntoAnotherHost } = props;
+  const { choices, value, onChange, onCloneOntoAnotherHost, label = "Run on" } = props;
 
   const labelId = useId();
 
   return (
     <Stack>
       <span className={styles.fieldLabel} id={labelId}>
-        Run on
+        {label}
       </span>
       <Row gap="sm" align="center" className={styles.hostPickerRow}>
         <ToggleGroup

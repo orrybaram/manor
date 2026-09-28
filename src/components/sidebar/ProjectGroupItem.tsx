@@ -1,11 +1,26 @@
-import React, { useMemo, type PointerEvent as ReactPointerEvent } from "react";
+import React, { useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import { collapsedFolderIdsOf, useProjectStore } from "../../store/project-store";
-import type {
-  GroupSection,
-  SelectionScope,
-  TopLevelEntry,
+import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
+import {
+  collapsedFolderIdsOf,
+  useProjectStore,
+  type CreateWorktreeOptions,
+  type ProjectInfo,
+  type WorkspaceInfo,
+} from "../../store/project-store";
+import {
+  canLinkLocalFolder,
+  linkChoices as buildLinkChoices,
+  type GroupSection,
+  type SelectionScope,
+  type TopLevelEntry,
 } from "../../utils/sidebar-items";
+import { isRemoteHost, memberHostName } from "../../lib/hosts";
+import type { WorkspaceHostChoice } from "../../lib/workspace-host-choices";
+import { HostIndicator } from "../hosts/HostIndicator";
+import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
+import { NewFolderDialog } from "./NewFolderDialog";
+import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { useGroupAgentStatus } from "../../hooks/useProjectAgentStatus";
 import { useHostStore } from "../../store/host-store";
 import { groupHostState, isHostOffline } from "../../lib/host-status";
@@ -32,6 +47,18 @@ type ProjectGroupItemProps = {
     section: GroupSection,
     selectionScope: SelectionScope,
   ) => React.ReactNode;
+  /** `projectId` is the member the New Workspace host picker chose. */
+  onCreateWorktree: (
+    projectId: string,
+    name: string,
+    branch: string,
+    options: Pick<CreateWorktreeOptions, "baseBranch" | "useExistingBranch">,
+  ) => Promise<string | null>;
+  onUnhideWorkspace: (project: ProjectInfo, ws: WorkspaceInfo) => void;
+  /** Opens the group's settings page. */
+  onOpenSettings: () => void;
+  /** Removes every member of the group from the sidebar. */
+  onRemove: () => void;
 };
 
 /**
@@ -41,11 +68,27 @@ type ProjectGroupItemProps = {
  * its own workspaces, folders and menus.
  */
 export function ProjectGroupItem(props: ProjectGroupItemProps) {
-  const { entry, isSelected, collapsed, onToggleCollapsed, onDragStart, renderSection } =
-    props;
+  const {
+    entry,
+    isSelected,
+    collapsed,
+    onToggleCollapsed,
+    onDragStart,
+    renderSection,
+    onCreateWorktree,
+    onUnhideWorkspace,
+    onOpenSettings,
+    onRemove,
+  } = props;
 
   const { group, sections } = entry;
-  const unlinkGroup = useProjectStore((s) => s.unlinkGroup);
+  const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const createWorkspaceFolder = useProjectStore((s) => s.createWorkspaceFolder);
+  const linkProjects = useProjectStore((s) => s.linkProjects);
+  const linkLocalFolder = useProjectStore((s) => s.linkLocalFolder);
+  const allProjects = useProjectStore((s) => s.projects);
   const collapsedFolderKeys = useProjectStore((s) => s.collapsedFolderKeys);
   const collapsedProjectIds = useProjectStore((s) => s.collapsedProjectIds);
   const header = useProjectHeaderRow(collapsed, onToggleCollapsed);
@@ -71,6 +114,25 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
   const hosts = useHostStore((s) => s.hosts);
   const hostState = groupHostState(members.map((m) => m.hostId), hosts);
   const indicator = toWorkspaceIndicator(status, pulse);
+  // Linking any member links the group, so the first stands in for it.
+  const lead = members[0];
+  const linkChoices = useMemo(
+    () => (lead ? buildLinkChoices(lead, allProjects) : []),
+    [lead, allProjects],
+  );
+  // "Choose local folder…" links through a remote member, while the group
+  // has no local one.
+  const localFolderMember = members.find((m) => canLinkLocalFolder(m, allProjects));
+  // A folder is only sidebar grouping, so any host can take one — even an
+  // away host's section.
+  const folderHostChoices = useMemo<WorkspaceHostChoice[]>(
+    () =>
+      members.map((m) => ({ projectId: m.id, hostId: m.hostId, disabledReason: null })),
+    [members],
+  );
+  const hiddenWorkspaces = members.flatMap((project) =>
+    project.workspaces.filter((ws) => ws.hidden).map((ws) => ({ project, ws })),
+  );
   // Shared settings live on the group from ADR-192 ticket 2; until then the
   // first member with a color stands for the group.
   const color = sections.find((s) => s.project.color)?.project.color ?? null;
@@ -118,9 +180,103 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
           >
             <ContextMenu.Item
               className={styles.contextMenuItem}
-              onSelect={() => void unlinkGroup(group.id)}
+              onSelect={() => setNewWorkspaceOpen(true)}
             >
-              Unlink All
+              New Workspace
+            </ContextMenu.Item>
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              onSelect={() => setNewFolderOpen(true)}
+            >
+              New Folder
+            </ContextMenu.Item>
+            <ContextMenu.Item className={styles.contextMenuItem} onSelect={onOpenSettings}>
+              Project Settings
+            </ContextMenu.Item>
+            {hiddenWorkspaces.length > 0 && (
+              <ContextMenu.Sub>
+                <ContextMenu.SubTrigger
+                  className={styles.contextMenuItem}
+                  style={{ display: "flex", alignItems: "center" }}
+                >
+                  Hidden ({hiddenWorkspaces.length})
+                  <ChevronRight size={14} style={{ marginLeft: "auto" }} />
+                </ContextMenu.SubTrigger>
+                <ContextMenu.Portal>
+                  <ContextMenu.SubContent
+                    className={styles.contextMenu}
+                    style={{ maxWidth: 220 }}
+                  >
+                    {hiddenWorkspaces.map(({ project, ws }) => (
+                      <ContextMenu.Item
+                        key={`${project.id}:${ws.path}`}
+                        className={styles.contextMenuItem}
+                        onSelect={() => onUnhideWorkspace(project, ws)}
+                      >
+                        <div className={styles.workspaceLabel}>
+                          <span className={styles.workspaceName}>
+                            {ws.name || ws.branch || "main"}
+                          </span>
+                          <span className={styles.workspaceBranch}>
+                            {memberHostName(project.hostId, hosts)}
+                          </span>
+                        </div>
+                      </ContextMenu.Item>
+                    ))}
+                  </ContextMenu.SubContent>
+                </ContextMenu.Portal>
+              </ContextMenu.Sub>
+            )}
+            <ContextMenu.Separator className={styles.contextMenuSeparator} />
+            <ContextMenu.Sub>
+              <ContextMenu.SubTrigger
+                className={styles.contextMenuItem}
+                style={{ display: "flex", alignItems: "center" }}
+                disabled={linkChoices.length === 0 && !localFolderMember}
+              >
+                Link with…
+                <ChevronRight size={14} style={{ marginLeft: "auto" }} />
+              </ContextMenu.SubTrigger>
+              <ContextMenu.Portal>
+                <ContextMenu.SubContent
+                  className={styles.contextMenu}
+                  style={{ maxWidth: 260 }}
+                >
+                  {linkChoices.map((choice) => (
+                    <ContextMenu.Item
+                      key={choice.key}
+                      className={styles.contextMenuItem}
+                      style={{ display: "flex", alignItems: "center", gap: 6 }}
+                      onSelect={() => lead && void linkProjects(lead.id, choice.targetId)}
+                    >
+                      {choice.label}
+                      {choice.hostIds.filter(isRemoteHost).map((hostId) => (
+                        <HostIndicator key={hostId} hostId={hostId} variant="icon" />
+                      ))}
+                    </ContextMenu.Item>
+                  ))}
+                  {localFolderMember && (
+                    <>
+                      {linkChoices.length > 0 && (
+                        <ContextMenu.Separator className={styles.contextMenuSeparator} />
+                      )}
+                      <ContextMenu.Item
+                        className={styles.contextMenuItem}
+                        onSelect={() => void linkLocalFolder(localFolderMember.id)}
+                      >
+                        Choose local folder…
+                      </ContextMenu.Item>
+                    </>
+                  )}
+                </ContextMenu.SubContent>
+              </ContextMenu.Portal>
+            </ContextMenu.Sub>
+            <ContextMenu.Separator className={styles.contextMenuSeparator} />
+            <ContextMenu.Item
+              className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+              onSelect={() => setConfirmRemove(true)}
+            >
+              Remove Project
             </ContextMenu.Item>
           </ContextMenu.Content>
         </ContextMenu.Portal>
@@ -144,6 +300,41 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
           })}
         </div>
       )}
+
+      {lead && (
+        <NewWorkspaceDialog
+          open={newWorkspaceOpen}
+          onClose={() => setNewWorkspaceOpen(false)}
+          projects={members}
+          selectedProjectIndex={0}
+          preselectedProjectId={lead.id}
+          onSubmit={async (createInId, name, branch, baseBranch, useExistingBranch) => {
+            const result = await onCreateWorktree(createInId, name, branch, {
+              baseBranch,
+              useExistingBranch,
+            });
+            if (result) setNewWorkspaceOpen(false);
+            return !!result;
+          }}
+        />
+      )}
+
+      <NewFolderDialog
+        open={newFolderOpen}
+        onOpenChange={setNewFolderOpen}
+        hostChoices={folderHostChoices}
+        onConfirm={(name, projectId) => {
+          setNewFolderOpen(false);
+          if (projectId) void createWorkspaceFolder(projectId, name);
+        }}
+      />
+
+      <RemoveProjectDialog
+        open={confirmRemove}
+        onOpenChange={setConfirmRemove}
+        projectName={group.name}
+        onConfirm={onRemove}
+      />
     </div>
   );
 }

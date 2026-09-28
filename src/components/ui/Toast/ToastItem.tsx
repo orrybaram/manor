@@ -130,6 +130,7 @@ export function ToastItem(props: ToastItemProps) {
           className={styles.dismissButton}
           onClick={(e) => {
             e.stopPropagation();
+            toast.onClose?.();
             removeToast(toast.id);
           }}
           type="button"

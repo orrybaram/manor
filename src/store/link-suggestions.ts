@@ -44,8 +44,28 @@ const MAX_BACKGROUND_TOASTS = 2;
 const SUMMARY_TOAST_ID = "link-suggestions-summary";
 /** Offers waiting behind the summary toast, in the order found. */
 let held: Offer[] = [];
-/** The user hid the summary: later background bursts stay quiet this session. */
+/**
+ * The user hid the summary (its Dismiss or its X): it stays hidden, and
+ * later background bursts stay quiet, for the rest of the session.
+ */
 let summaryHidden = false;
+
+/** Whether the summary toast is on screen now. */
+function summaryShown(): boolean {
+  return useToastStore.getState().toasts.some((t) => t.id === SUMMARY_TOAST_ID);
+}
+
+/** Hide the summary for the session, remembering no dismissal in main. */
+function hideSummary(): void {
+  held = [];
+  summaryHidden = true;
+  useToastStore.getState().removeToast(SUMMARY_TOAST_ID);
+}
+
+/** "1 possible project link", "3 possible project links". */
+function summaryMessage(count: number): string {
+  return `${count} possible project link${count === 1 ? "" : "s"}`;
+}
 
 /**
  * The toast id of one suggested pair, the same from either side, so a pair
@@ -143,8 +163,8 @@ function show(offer: Offer): void {
 
 /**
  * The summary toast for `held`, or none when nothing is held. "Review" shows
- * the next held pair as its own toast; "Dismiss" only hides the summary for
- * the session, remembering nothing.
+ * the next held pair as its own toast; "Dismiss" and the X only hide the
+ * summary for the session, remembering nothing.
  */
 function showSummary(): void {
   const { addToast, removeToast } = useToastStore.getState();
@@ -156,8 +176,9 @@ function showSummary(): void {
     id: SUMMARY_TOAST_ID,
     status: "info",
     persistent: true,
-    message: `${held.length} projects on other hosts could be linked`,
-    detail: "Each is a clone of the same repo as a project on another host.",
+    message: summaryMessage(held.length),
+    detail: "Projects on different hosts that are clones of the same repo.",
+    onClose: hideSummary,
     action: {
       label: "Review",
       onClick: () => {
@@ -168,11 +189,7 @@ function showSummary(): void {
     },
     secondaryAction: {
       label: "Dismiss",
-      onClick: () => {
-        held = [];
-        summaryHidden = true;
-        removeToast(SUMMARY_TOAST_ID);
-      },
+      onClick: hideSummary,
     },
   });
 }
@@ -180,18 +197,22 @@ function showSummary(): void {
 /**
  * A launch or host-connect pass: a few new pairs get a toast each; a burst
  * of more, or any while a summary is already up, joins the summary instead,
- * so a sidebar full of duplicates doesn't stack a toast per repo.
+ * so a sidebar full of duplicates doesn't stack a toast per repo. A pass
+ * that finds nothing new leaves the summary alone, and once the user has
+ * hidden it, a burst stays quiet.
  */
 async function offerInBackground(
   projects: readonly { id: string }[],
   link: LinkProjects,
 ): Promise<void> {
   const found = await newOffers(projects, link);
-  if (held.length === 0 && found.length <= MAX_BACKGROUND_TOASTS) {
+  if (found.length === 0) return;
+  if (!summaryShown() && found.length <= MAX_BACKGROUND_TOASTS) {
     found.forEach(show);
     return;
   }
   if (summaryHidden) return;
+  if (!summaryShown()) held = [];
   held.push(...found);
   showSummary();
 }
@@ -253,7 +274,8 @@ export function clearLinkSuggestionsFor(projectIds: readonly string[]): void {
   for (const [id, [a, b]] of offered) {
     if (names(a, b)) removeToast(id);
   }
-  if (held.length === 0) return;
+  // Only an open summary is updated; a hidden one never comes back.
+  if (!summaryShown()) return;
   held = held.filter((o) => !names(o.projectId, o.suggestion.projectId));
   showSummary();
 }

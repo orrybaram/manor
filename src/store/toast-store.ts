@@ -11,6 +11,8 @@ export interface Toast {
   duration?: number;
   action?: { label: string; onClick: () => void };
   secondaryAction?: { label: string; onClick: () => void };
+  /** Called when the user closes a persistent toast with its X button. */
+  onClose?: () => void;
   /** When true, render `detail` expanded on first mount instead of collapsed. */
   autoExpand?: boolean;
 }

@@ -12,6 +12,7 @@ import Check from "lucide-react/dist/esm/icons/check";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import FolderGit2 from "lucide-react/dist/esm/icons/folder-git-2";
+import Laptop from "lucide-react/dist/esm/icons/laptop";
 import {
   folderCollapseKey,
   useProjectStore,
@@ -23,6 +24,7 @@ import {
   applyDrop,
   buildSidebarItems,
   descendantWorkspaces,
+  linkCandidates,
   placeAfterFolder,
   placeInFolder,
   type DropTarget,
@@ -252,6 +254,12 @@ type ProjectItemProps = {
   onDragStart?: (e: ReactPointerEvent) => void;
   onQuickMergeWorktree?: (ws: WorkspaceInfo) => void;
   onOpenDiff?: (wsIndex: number) => void;
+  /**
+   * `section`: this project is one host's section of a linked group
+   * (ADR-192). Its header shows the host rather than the project, and the
+   * group row above it carries the name, color and drag.
+   */
+  variant?: "project" | "section";
 };
 
 export function ProjectItem(props: ProjectItemProps) {
@@ -272,7 +280,9 @@ export function ProjectItem(props: ProjectItemProps) {
     onDragStart,
     onQuickMergeWorktree,
     onOpenDiff,
+    variant = "project",
   } = props;
+  const isSection = variant === "section";
 
   const expanded = !collapsed;
   const [editingPath, setEditingPath] = useState<string | null>(null);
@@ -335,6 +345,13 @@ export function ProjectItem(props: ProjectItemProps) {
   const renameWorkspaceFolder = useProjectStore((s) => s.renameWorkspaceFolder);
   const deleteWorkspaceFolder = useProjectStore((s) => s.deleteWorkspaceFolder);
   const applySidebarChange = useProjectStore((s) => s.applySidebarChange);
+  const allProjects = useProjectStore((s) => s.projects);
+  const linkProjects = useProjectStore((s) => s.linkProjects);
+  const unlinkProject = useProjectStore((s) => s.unlinkProject);
+  const linkChoices = useMemo(
+    () => linkCandidates(project, allProjects),
+    [project, allProjects],
+  );
 
   const { status: projectStatus, pulse: projectPulse } = useProjectAgentStatus(project);
   const projectIndicator = toWorkspaceIndicator(projectStatus, projectPulse);
@@ -834,11 +851,11 @@ export function ProjectItem(props: ProjectItemProps) {
         <ContextMenu.Trigger asChild>
           <div
             ref={projectHeaderRef}
-            data-testid="project-header"
+            data-testid={isSection ? "group-section-header" : "project-header"}
             data-sidebar-row=""
             tabIndex={-1}
             aria-expanded={expanded}
-            className={styles.projectHeader}
+            className={`${styles.projectHeader} ${isSection ? styles.sectionHeader : ""}`}
             onClick={() => {
               onToggleCollapsed();
             }}
@@ -854,7 +871,7 @@ export function ProjectItem(props: ProjectItemProps) {
                 },
               })
             }
-            onPointerDown={onDragStart}
+            onPointerDown={isSection ? undefined : onDragStart}
             style={{ touchAction: "none" }}
           >
             <span
@@ -862,6 +879,22 @@ export function ProjectItem(props: ProjectItemProps) {
             >
               <ChevronRight size={12} />
             </span>
+            {isSection ? (
+              <span className={styles.sectionHost} title={project.path}>
+                {isRemoteHost(project.hostId) ? (
+                  <HostIndicator
+                    hostId={project.hostId}
+                    variant="chip"
+                    projectId={project.id}
+                  />
+                ) : (
+                  <span className={styles.sectionLocal}>
+                    <Laptop size={11} aria-hidden />
+                    This machine
+                  </span>
+                )}
+              </span>
+            ) : (
             <span
               className={`${styles.projectName} ${
                 isRemoteHost(project.hostId) ? styles.projectNameRemote : ""
@@ -870,7 +903,8 @@ export function ProjectItem(props: ProjectItemProps) {
             >
               {project.name}
             </span>
-            {isRemoteHost(project.hostId) && (
+            )}
+            {!isSection && isRemoteHost(project.hostId) && (
               <span className={styles.remoteHostIconSlot}>
                 <HostIndicator hostId={project.hostId} variant="icon" projectId={project.id} />
               </span>
@@ -946,6 +980,45 @@ export function ProjectItem(props: ProjectItemProps) {
                   </ContextMenu.SubContent>
                 </ContextMenu.Portal>
               </ContextMenu.Sub>
+            )}
+            <ContextMenu.Separator className={styles.contextMenuSeparator} />
+            <ContextMenu.Sub>
+              <ContextMenu.SubTrigger
+                className={styles.contextMenuItem}
+                style={{ display: "flex", alignItems: "center" }}
+                disabled={linkChoices.length === 0}
+              >
+                Link with…
+                <ChevronRight size={14} style={{ marginLeft: "auto" }} />
+              </ContextMenu.SubTrigger>
+              <ContextMenu.Portal>
+                <ContextMenu.SubContent
+                  className={styles.contextMenu}
+                  style={{ maxWidth: 260 }}
+                >
+                  {linkChoices.map((other) => (
+                    <ContextMenu.Item
+                      key={other.id}
+                      className={styles.contextMenuItem}
+                      style={{ display: "flex", alignItems: "center", gap: 6 }}
+                      onSelect={() => void linkProjects(project.id, other.id)}
+                    >
+                      {other.group?.name ?? other.name}
+                      {isRemoteHost(other.hostId) && (
+                        <HostIndicator hostId={other.hostId} variant="icon" />
+                      )}
+                    </ContextMenu.Item>
+                  ))}
+                </ContextMenu.SubContent>
+              </ContextMenu.Portal>
+            </ContextMenu.Sub>
+            {project.group && (
+              <ContextMenu.Item
+                className={styles.contextMenuItem}
+                onSelect={() => void unlinkProject(project.id)}
+              >
+                Unlink
+              </ContextMenu.Item>
             )}
             <ContextMenu.Separator className={styles.contextMenuSeparator} />
             <ContextMenu.Item

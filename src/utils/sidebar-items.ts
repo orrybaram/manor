@@ -11,7 +11,12 @@
 // folders, `folderId` for workspaces) and position from `sidebarOrder`, so
 // every function below is the recursive form of its ADR-167 self.
 
-import type { ProjectInfo, WorkspaceFolder, WorkspaceInfo } from "../store/project-store";
+import type {
+  ProjectGroupInfo,
+  ProjectInfo,
+  WorkspaceFolder,
+  WorkspaceInfo,
+} from "../store/project-store";
 
 export type SidebarItem =
   | { kind: "workspace"; ws: WorkspaceInfo }
@@ -519,4 +524,132 @@ export function insertFolderBefore(
   const at = locate(base, anchorKey);
   if (!at) return insertItem(base, null, base.length, item);
   return insertItem(base, at.parentId, at.index, item);
+}
+
+// ── Top level: projects and linked-project groups (ADR-192) ──
+
+type TopLevelProject = Pick<
+  ProjectInfo,
+  "id" | "hostId" | "workspaces" | "folders" | "sidebarOrder" | "group"
+>;
+
+/**
+ * One host's slice of a linked group: a member project and its own item
+ * tree, built exactly as it would be for that project alone — so linking
+ * keeps its workspace order and folders.
+ */
+export type GroupSection<P extends TopLevelProject = ProjectInfo> = {
+  hostId: string;
+  project: P;
+  items: SidebarItem[];
+};
+
+/**
+ * One slot in the sidebar's project list: a lone project, or a linked group
+ * with a section per member host. `key` is the project id or the group id —
+ * what the top-level order holds.
+ */
+export type TopLevelEntry<P extends TopLevelProject = ProjectInfo> =
+  | { kind: "project"; key: string; project: P }
+  | {
+      kind: "group";
+      key: string;
+      group: ProjectGroupInfo;
+      sections: GroupSection<P>[];
+    };
+
+/**
+ * The sidebar's top-level entries, in project order. A group takes the slot
+ * of its first member in `projects`, and its sections follow the group's
+ * `memberIds`. A group with fewer than two members present renders them as
+ * plain projects — defensive only, main never sends one.
+ */
+export function buildTopLevelEntries<P extends TopLevelProject>(
+  projects: readonly P[],
+): TopLevelEntry<P>[] {
+  const byId = new Map(projects.map((p) => [p.id, p]));
+  const entries: TopLevelEntry<P>[] = [];
+  const placed = new Set<string>();
+  for (const project of projects) {
+    if (placed.has(project.id)) continue;
+    const group = project.group;
+    const members = group
+      ? group.memberIds
+          .map((id) => byId.get(id))
+          .filter((p): p is P => p != null && p.group?.id === group.id)
+      : [];
+    if (!group || members.length < 2) {
+      placed.add(project.id);
+      entries.push({ kind: "project", key: project.id, project });
+      continue;
+    }
+    for (const member of members) placed.add(member.id);
+    entries.push({
+      kind: "group",
+      key: group.id,
+      group,
+      sections: members.map((member) => ({
+        hostId: member.hostId,
+        project: member,
+        items: buildSidebarItems(member),
+      })),
+    });
+  }
+  return entries;
+}
+
+/** The top-level order: one key per entry, a group id in place of its members. */
+export function topLevelKeys(entries: readonly TopLevelEntry<TopLevelProject>[]): string[] {
+  return entries.map((entry) => entry.key);
+}
+
+/**
+ * The project-id order main persists (`projects:reorder`) for a top-level
+ * order of entry keys: each group id expands to its members in section
+ * order, so a group's members stay together. Entries the order forgot are
+ * appended; unknown keys are ignored.
+ */
+export function expandTopLevelOrder(
+  keys: readonly string[],
+  entries: readonly TopLevelEntry<TopLevelProject>[],
+): string[] {
+  const byKey = new Map(entries.map((entry) => [entry.key, entry]));
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  const emit = (entry: TopLevelEntry<TopLevelProject>) => {
+    if (seen.has(entry.key)) return;
+    seen.add(entry.key);
+    if (entry.kind === "project") ids.push(entry.project.id);
+    else for (const section of entry.sections) ids.push(section.project.id);
+  };
+  for (const key of keys) {
+    const entry = byKey.get(key);
+    if (entry) emit(entry);
+  }
+  for (const entry of entries) emit(entry);
+  return ids;
+}
+
+/**
+ * Projects `project` can be linked with (ADR-192): on another host, and
+ * either unlinked or in a group with no member on this project's host. A
+ * project already in a group only offers unlinked projects on hosts the
+ * group lacks.
+ */
+export function linkCandidates<P extends Pick<ProjectInfo, "id" | "hostId" | "group">>(
+  project: P,
+  projects: readonly P[],
+): P[] {
+  const hostOf = new Map(projects.map((p) => [p.id, p.hostId]));
+  const groupHosts = (group: ProjectGroupInfo) =>
+    new Set(group.memberIds.map((id) => hostOf.get(id)));
+  const own = project.group ?? null;
+  return projects.filter((other) => {
+    if (other.id === project.id) return false;
+    const theirs = other.group ?? null;
+    if (own && theirs) return false;
+    if (own) return !groupHosts(own).has(other.hostId);
+    if (theirs) return !groupHosts(theirs).has(project.hostId);
+    return other.hostId !== project.hostId;
+  });
 }

@@ -2,18 +2,23 @@ import { describe, it, expect } from "vitest";
 import {
   applyDrop,
   buildSidebarItems,
+  buildTopLevelEntries,
   descendantWorkspaces,
+  expandTopLevelOrder,
   flattenRows,
   folderParentsOf,
   insertFolderBefore,
   isFolderDescendant,
+  linkCandidates,
   membershipOf,
   placeAfterFolder,
   placeInFolder,
   serializeOrder,
+  topLevelKeys,
   type SidebarItem,
 } from "./sidebar-items";
 import type {
+  ProjectGroupInfo,
   ProjectInfo,
   WorkspaceFolder,
   WorkspaceInfo,
@@ -765,5 +770,132 @@ describe("placement helpers", () => {
     );
     expect(shape(items)).toEqual(["/a", "f1[f3[/m1]]", "/b", "f2[]"]);
     expect(folderParentsOf(items).get("f3")).toBe("f1");
+  });
+});
+
+describe("linked-project groups at the top level (ADR-192)", () => {
+  type TopProject = Pick<
+    ProjectInfo,
+    "id" | "hostId" | "workspaces" | "folders" | "sidebarOrder" | "group"
+  >;
+
+  function member(
+    id: string,
+    hostId: string,
+    group: ProjectGroupInfo | null = null,
+    tree: MinimalProject = project([], [], []),
+  ): TopProject {
+    return { id, hostId, group, ...tree };
+  }
+
+  const appGroup: ProjectGroupInfo = {
+    id: "g-app",
+    name: "App",
+    memberIds: ["app-local", "app-box"],
+    lastUsedHostId: "local",
+  };
+
+  /** Top-level shape: project ids, groups as `groupId[memberId@host,…]`. */
+  function topShape(entries: ReturnType<typeof buildTopLevelEntries<TopProject>>): string[] {
+    return entries.map((entry) =>
+      entry.kind === "project"
+        ? entry.project.id
+        : `${entry.key}[${entry.sections.map((s) => `${s.project.id}@${s.hostId}`).join(",")}]`,
+    );
+  }
+
+  it("renders a group as one entry with a section per host, in the first member's slot", () => {
+    const projects = [
+      member("other", "local"),
+      member("app-box", "box", appGroup),
+      member("docs", "local"),
+      member("app-local", "local", appGroup),
+    ];
+
+    const entries = buildTopLevelEntries(projects);
+
+    expect(topShape(entries)).toEqual(["other", "g-app[app-local@local,app-box@box]", "docs"]);
+    expect(topLevelKeys(entries)).toEqual(["other", "g-app", "docs"]);
+  });
+
+  it("keeps each section's own workspace order and folders", () => {
+    const localTree = project(
+      [ws("/l/main"), ws("/l/feat", "f1"), ws("/l/fix")],
+      [folder("f1")],
+      ["/l/fix", "f1", "/l/feat", "/l/main"],
+    );
+    const boxTree = project(
+      [ws("/b/main"), ws("/b/wip")],
+      [],
+      ["/b/wip", "/b/main"],
+    );
+    const projects = [
+      member("app-local", "local", appGroup, localTree),
+      member("app-box", "box", appGroup, boxTree),
+    ];
+
+    const [entry] = buildTopLevelEntries(projects);
+
+    expect(entry.kind).toBe("group");
+    if (entry.kind !== "group") return;
+    expect(entry.sections.map((s) => shape(s.items))).toEqual([
+      shape(buildSidebarItems(localTree)),
+      shape(buildSidebarItems(boxTree)),
+    ]);
+    expect(shape(entry.sections[0].items)).toEqual(["/l/fix", "f1[/l/feat]", "/l/main"]);
+    expect(shape(entry.sections[1].items)).toEqual(["/b/wip", "/b/main"]);
+  });
+
+  it("renders a group missing its other members as a plain project", () => {
+    const entries = buildTopLevelEntries([member("app-local", "local", appGroup)]);
+    expect(topShape(entries)).toEqual(["app-local"]);
+  });
+
+  it("expands a top-level order holding the group id into member project ids", () => {
+    const projects = [
+      member("other", "local"),
+      member("app-local", "local", appGroup),
+      member("docs", "local"),
+      member("app-box", "box", appGroup),
+    ];
+    const entries = buildTopLevelEntries(projects);
+
+    // Drag the group to the end.
+    expect(expandTopLevelOrder(["other", "docs", "g-app"], entries)).toEqual([
+      "other",
+      "docs",
+      "app-local",
+      "app-box",
+    ]);
+    // Unknown keys are ignored and forgotten entries appended.
+    expect(expandTopLevelOrder(["g-app", "nope"], entries)).toEqual([
+      "app-local",
+      "app-box",
+      "other",
+      "docs",
+    ]);
+  });
+
+  it("offers link candidates on other hosts only, one per host in a group", () => {
+    const projects = [
+      member("app-local", "local", appGroup),
+      member("app-box", "box", appGroup),
+      member("box-other", "box"),
+      member("mac-app", "mac"),
+      member("local-2", "local"),
+    ];
+    const ids = (list: TopProject[]) => list.map((p) => p.id);
+
+    // A grouped project: unlinked projects on hosts the group lacks.
+    expect(ids(linkCandidates(projects[0], projects))).toEqual(["mac-app"]);
+    // An unlinked project: other hosts' unlinked projects, and groups
+    // without a member on its host.
+    expect(ids(linkCandidates(projects[3], projects))).toEqual([
+      "app-local",
+      "app-box",
+      "box-other",
+      "local-2",
+    ]);
+    expect(ids(linkCandidates(projects[2], projects))).toEqual(["mac-app", "local-2"]);
   });
 });

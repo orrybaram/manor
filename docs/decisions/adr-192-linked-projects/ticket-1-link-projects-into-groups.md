@@ -1,6 +1,6 @@
 ---
 title: Link two projects into a group shown as one sidebar entry
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: []

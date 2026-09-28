@@ -96,6 +96,23 @@ export interface ProjectInfo {
    * canonical shape of what the sidebar renders. See `normalizeSidebarOrder`.
    */
   sidebarOrder: string[];
+  /**
+   * The linked-project group this project belongs to (ADR-192), or null.
+   * Every member carries the same summary, so the sidebar builds groups
+   * from the project list alone. Always set by `buildProjectInfo`; optional
+   * so fixtures and the renderer's mirror type need not name it.
+   */
+  group?: ProjectGroupInfo | null;
+}
+
+/** What the renderer sees of a project group (ADR-192). */
+export interface ProjectGroupInfo {
+  id: string;
+  name: string;
+  /** Member project ids, in the order their host sections render. */
+  memberIds: string[];
+  /** The host a workspace was last created on in this group, if known. */
+  lastUsedHostId: string | null;
 }
 
 export type ProjectUpdatableFields = Partial<
@@ -182,11 +199,26 @@ export interface PersistedHost {
   hookJournalEpoch?: string;
 }
 
+/**
+ * A linked-project group (ADR-192): single-host projects of the same repo,
+ * shown as one sidebar entry with a section per host. A project is in at
+ * most one group, a group has at most one member per host and at least two
+ * members — see `project-groups.ts`.
+ */
+export interface PersistedProjectGroup {
+  id: string;
+  name: string;
+  memberIds: string[];
+  lastUsedHostId: string | null;
+}
+
 export interface PersistedState {
   projects: PersistedProject[];
   selectedProjectIndex: number;
   /** Remote hosts by hostId. Absent in files written before ADR-160. */
   hosts?: Record<string, PersistedHost>;
+  /** Linked-project groups (ADR-192). Absent when there are none. */
+  groups?: PersistedProjectGroup[];
 }
 
 /**

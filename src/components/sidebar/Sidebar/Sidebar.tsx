@@ -1,5 +1,6 @@
 import React, {
   useCallback,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -38,6 +39,13 @@ import { useBranchWatcher } from "../../../hooks/useBranchWatcher";
 import { useDiffWatcher } from "../../../hooks/useDiffWatcher";
 import { usePrWatcher } from "../../../hooks/usePrWatcher";
 import { ProjectItem } from "../ProjectItem";
+import { ProjectGroupItem } from "../ProjectGroupItem";
+import {
+  buildTopLevelEntries,
+  expandTopLevelOrder,
+  topLevelKeys,
+} from "../../../utils/sidebar-items";
+import type { ProjectInfo } from "../../../store/project-store";
 import { PortsList } from "../../ports/PortsList";
 import { AgentsList } from "../AgentsList";
 import { NotificationsPopover } from "../../notifications/NotificationsPopover";
@@ -88,6 +96,10 @@ export function Sidebar(props: SidebarProps) {
 
   const handleAddProject = onAddProject ?? (() => { });
 
+  // One entry per project, or per linked group of projects (ADR-192). The
+  // drag below reorders entries; a group's members move together.
+  const entries = useMemo(() => buildTopLevelEntries(projects), [projects]);
+
   // Project drag-and-drop state
   const [projDragIndex, setProjDragIndex] = useState<number | null>(null);
   const [projDropIndex, setProjDropIndex] = useState<number | null>(null);
@@ -110,7 +122,7 @@ export function Sidebar(props: SidebarProps) {
       projDragCleanedUp.current = false;
 
       const heights: number[] = [];
-      for (let i = 0; i < projects.length; i++) {
+      for (let i = 0; i < entries.length; i++) {
         const el = projItemRefs.current.get(i);
         heights[i] = el ? el.getBoundingClientRect().height : 40;
       }
@@ -141,7 +153,7 @@ export function Sidebar(props: SidebarProps) {
             } else break;
           }
         } else {
-          for (let i = idx + 1; i < projects.length; i++) {
+          for (let i = idx + 1; i < entries.length; i++) {
             offset += projItemHeights.current[i];
             if (dy > offset - projItemHeights.current[i] / 2) {
               targetIdx = i;
@@ -167,10 +179,10 @@ export function Sidebar(props: SidebarProps) {
           projJustDragged.current = true;
           const finalDrop = projDropIndexRef.current ?? idx;
           if (finalDrop !== idx) {
-            const ids = projects.map((p) => p.id);
-            const [moved] = ids.splice(idx, 1);
-            ids.splice(finalDrop, 0, moved);
-            reorderProjects(ids);
+            const keys = topLevelKeys(entries);
+            const [moved] = keys.splice(idx, 1);
+            keys.splice(finalDrop, 0, moved);
+            reorderProjects(expandTopLevelOrder(keys, entries));
           }
           requestAnimationFrame(() => {
             projJustDragged.current = false;
@@ -187,7 +199,7 @@ export function Sidebar(props: SidebarProps) {
       target.addEventListener("pointerup", onUp);
       target.addEventListener("lostpointercapture", onUp);
     },
-    [projects, reorderProjects],
+    [entries, reorderProjects],
   );
 
   const getProjectTransformStyle = (idx: number): React.CSSProperties => {
@@ -217,6 +229,60 @@ export function Sidebar(props: SidebarProps) {
       };
     }
     return { transition: "transform 150ms ease" };
+  };
+
+  const renderProject = (
+    project: ProjectInfo,
+    variant: "project" | "section",
+    onDragStart?: (e: ReactPointerEvent) => void,
+  ) => {
+    const idx = projects.indexOf(project);
+    return (
+      <ProjectItem
+        project={project}
+        variant={variant}
+        isSelected={!homeActive && idx === selectedProjectIndex}
+        collapsed={collapsedProjectIds.has(project.id)}
+        onToggleCollapsed={() => {
+          if (!projJustDragged.current) toggleProjectCollapsed(project.id);
+        }}
+        onSelect={() => {
+          if (projJustDragged.current) return;
+          selectProject(idx);
+          setProjectExpanded(project.id);
+          const wsIdx = project.selectedWorkspaceIndex;
+          selectWorkspace(project.id, wsIdx >= 0 ? wsIdx : 0);
+        }}
+        onRemove={() => removeProject(project.id)}
+        onSelectWorkspace={(wsIdx) => {
+          selectWorkspace(project.id, wsIdx);
+        }}
+        onRemoveWorktree={(ws, deleteBranch) =>
+          removeWorktreeWithToast(project, ws, deleteBranch)
+        }
+        onQuickMergeWorktree={(ws) => {
+          quickMergeWorktreeWithToast(project, ws);
+        }}
+        onRenameWorkspace={(ws, newName) =>
+          renameWorkspace(project.id, ws.path, newName)
+        }
+        onHideWorkspace={(ws) => {
+          hideWorkspaceAndNavigate(project.id, ws.path);
+        }}
+        onUnhideWorkspace={(ws) =>
+          setWorkspaceHidden(project.id, ws.path, false)
+        }
+        onCreateWorktree={(name, branch, baseBranch, useExistingBranch) =>
+          createWorktree(project.id, name, branch, undefined, undefined, baseBranch, useExistingBranch)
+        }
+        onOpenSettings={() => onOpenProjectSettings?.(project.id)}
+        onDragStart={onDragStart}
+        onOpenDiff={(wsIdx) => {
+          selectWorkspace(project.id, wsIdx);
+          openOrFocusDiff();
+        }}
+      />
+    );
   };
 
   // Resizable sidebar
@@ -342,8 +408,8 @@ export function Sidebar(props: SidebarProps) {
             )}
             <div className={styles.projectsScroll}>
               <div className={styles.projects}>
-                {projects.map((project, idx) => (
-                  <React.Fragment key={project.id}>
+                {entries.map((entry, idx) => (
+                  <React.Fragment key={entry.key}>
                     {idx > 0 && <div className={styles.projectSeparator} />}
                     <div
                       ref={(el) => {
@@ -357,52 +423,32 @@ export function Sidebar(props: SidebarProps) {
                           : undefined
                       }
                     >
-                      <ProjectItem
-                        project={project}
-                        isSelected={!homeActive && idx === selectedProjectIndex}
-                        collapsed={collapsedProjectIds.has(project.id)}
-                        onToggleCollapsed={() => {
-                          if (!projJustDragged.current)
-                            toggleProjectCollapsed(project.id);
-                        }}
-                        onSelect={() => {
-                          if (projJustDragged.current) return;
-                          selectProject(idx);
-                          setProjectExpanded(project.id);
-                          const wsIdx = project.selectedWorkspaceIndex;
-                          selectWorkspace(project.id, wsIdx >= 0 ? wsIdx : 0);
-                        }}
-                        onRemove={() => removeProject(project.id)}
-                        onSelectWorkspace={(wsIdx) => {
-                          selectWorkspace(project.id, wsIdx);
-                        }}
-                        onRemoveWorktree={(ws, deleteBranch) =>
-                          removeWorktreeWithToast(project, ws, deleteBranch)
-                        }
-                        onQuickMergeWorktree={(ws) => {
-                          quickMergeWorktreeWithToast(project, ws);
-                        }}
-                        onRenameWorkspace={(ws, newName) =>
-                          renameWorkspace(project.id, ws.path, newName)
-                        }
-                        onHideWorkspace={(ws) => {
-                          hideWorkspaceAndNavigate(project.id, ws.path);
-                        }}
-                        onUnhideWorkspace={(ws) =>
-                          setWorkspaceHidden(project.id, ws.path, false)
-                        }
-                        onCreateWorktree={(name, branch, baseBranch, useExistingBranch) =>
-                          createWorktree(project.id, name, branch, undefined, undefined, baseBranch, useExistingBranch)
-                        }
-                        onOpenSettings={() =>
-                          onOpenProjectSettings?.(project.id)
-                        }
-                        onDragStart={(e) => handleProjectDragStart(idx, e)}
-                        onOpenDiff={(wsIdx) => {
-                          selectWorkspace(project.id, wsIdx);
-                          openOrFocusDiff();
-                        }}
-                      />
+                      {entry.kind === "project" ? (
+                        renderProject(entry.project, "project", (e) =>
+                          handleProjectDragStart(idx, e),
+                        )
+                      ) : (
+                        <ProjectGroupItem
+                          entry={entry}
+                          isSelected={
+                            !homeActive &&
+                            entry.sections.some(
+                              (section) =>
+                                projects.indexOf(section.project) ===
+                                selectedProjectIndex,
+                            )
+                          }
+                          collapsed={collapsedProjectIds.has(entry.key)}
+                          onToggleCollapsed={() => {
+                            if (!projJustDragged.current)
+                              toggleProjectCollapsed(entry.key);
+                          }}
+                          onDragStart={(e) => handleProjectDragStart(idx, e)}
+                          renderSection={(section) =>
+                            renderProject(section.project, "section")
+                          }
+                        />
+                      )}
                     </div>
                   </React.Fragment>
                 ))}

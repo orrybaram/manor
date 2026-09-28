@@ -11,6 +11,7 @@ import { normalizeSidebarOrder } from "./workspace-folders";
 import type {
   CustomCommand,
   PersistedProject,
+  ProjectGroupInfo,
   ProjectInfo,
   WorkspaceFolder,
   WorkspaceInfo,
@@ -76,12 +77,13 @@ export async function seedCommands(
 /**
  * The renderer's view of `p`: its persisted settings over the workspaces
  * git lists now. Records those workspace paths with `paths`, which routes
- * by them.
+ * by them. `group` is the project's linked-project group (ADR-192).
  */
 export async function buildProjectInfo(
   p: PersistedProject,
   git: GitBackend,
   paths: PathRouter,
+  group: ProjectGroupInfo | null = null,
 ): Promise<ProjectInfo> {
   const rawWorkspaces = (await listGitWorkspaces(git, p.path)) ?? [
     { path: p.path, branch: p.defaultBranch, isMain: true, name: null },
@@ -149,5 +151,6 @@ export async function buildProjectInfo(
       rawWorkspacePaths,
       folders.map((f) => f.id),
     ),
+    group,
   };
 }

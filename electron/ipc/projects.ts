@@ -210,6 +210,19 @@ export function register(deps: IpcDeps): void {
     projectManager.reorderProjects(orderedIds);
   });
 
+  // ADR-192: link two projects on different hosts into one group, or take
+  // one out of its group. Both leave the projects' own records alone.
+  ipcMain.handle("projects:link", (_event, projectId: string, otherId: string) => {
+    assertString(projectId, "projectId");
+    assertString(otherId, "otherId");
+    return projectManager.linkProjects(projectId, otherId);
+  });
+
+  ipcMain.handle("projects:unlink", (_event, projectId: string) => {
+    assertString(projectId, "projectId");
+    projectManager.unlinkProject(projectId);
+  });
+
   ipcMain.handle(
     "projects:update",
     (

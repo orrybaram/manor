@@ -385,6 +385,20 @@ export interface ProjectInfo {
    * canonical shape of what the sidebar renders.
    */
   sidebarOrder: string[];
+  /**
+   * The linked-project group this project is in (ADR-192). Absent or null
+   * when it isn't linked; every member carries the same summary.
+   */
+  group?: ProjectGroupInfo | null;
+}
+
+/** Mirrors `ProjectGroupInfo` in `electron/projects/types.ts` (ADR-192). */
+export interface ProjectGroupInfo {
+  id: string;
+  name: string;
+  /** Member project ids, in the order their host sections render. */
+  memberIds: string[];
+  lastUsedHostId: string | null;
 }
 
 export type SetupStep = "prune" | "fetch" | "create-worktree" | "persist" | "switch" | "setup-script";
@@ -505,6 +519,13 @@ interface ProjectState {
   ) => Promise<void>;
   convertMainToWorktree: (projectId: string, name: string, branch: string) => Promise<string | null>;
   reorderProjects: (orderedIds: string[]) => Promise<void>;
+  /**
+   * ADR-192: link two projects on different hosts into one group. Errors
+   * (a second member for one host, say) are shown as a toast.
+   */
+  linkProjects: (projectId: string, otherId: string) => Promise<void>;
+  /** ADR-192: take a project out of its group. */
+  unlinkProject: (projectId: string) => Promise<void>;
   /** Persists a full sidebar order: workspace paths and folder ids. */
   reorderSidebar: (
     projectId: string,
@@ -904,6 +925,26 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         : s.selectedProjectIndex;
       return { projects: reordered, selectedProjectIndex: newSelectedIndex };
     });
+  },
+
+  linkProjects: async (projectId: string, otherId: string) => {
+    try {
+      await window.electronAPI.projects.link(projectId, otherId);
+    } catch (err) {
+      useToastStore.getState().addToast({
+        id: `link-projects-${projectId}`,
+        message: "Couldn't link projects",
+        status: "error",
+        detail: ipcErrorMessage(err),
+      });
+      return;
+    }
+    await get().loadProjects();
+  },
+
+  unlinkProject: async (projectId: string) => {
+    await window.electronAPI.projects.unlink(projectId);
+    await get().loadProjects();
   },
 
   reorderSidebar: async (projectId: string, orderedKeys: string[]) => {

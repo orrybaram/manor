@@ -20,7 +20,7 @@ import {
 } from "../../store/project-store";
 import { useAppStore } from "../../store/app-store";
 import {
-  applyDrop,
+  applyGroupDrop,
   buildSidebarItems,
   descendantWorkspaces,
   placeAfterFolder,
@@ -69,6 +69,10 @@ interface WorkspaceItemProps {
   /** True when this row is part of the sidebar multi-select (ADR-190). */
   isSelected: boolean;
   isDragging: boolean;
+  /** Another row of the live group drag: dimmed, not lifted (ADR-190 §3). */
+  isGroupDragging: boolean;
+  /** Size of the group this row is leading in a drag; badged when 2+. */
+  dragGroupCount: number;
   isDeleting: boolean;
   isEditing: boolean;
   editValue: string;
@@ -108,6 +112,8 @@ const WorkspaceItem = React.forwardRef<
     isActive,
     isSelected,
     isDragging,
+    isGroupDragging,
+    dragGroupCount,
     isDeleting,
     isEditing,
     editValue,
@@ -157,7 +163,7 @@ const WorkspaceItem = React.forwardRef<
       className={`${styles.workspace} ${isActive
           ? styles.workspaceActive
           : ""
-        } ${isSelected ? styles.workspaceSelected : ""} ${isDragging ? styles.workspaceDragging : ""} ${isDeleting ? styles.workspaceDeleting : ""}${rest.className ? ` ${rest.className}` : ""}`}
+        } ${isSelected ? styles.workspaceSelected : ""} ${isDragging ? styles.workspaceDragging : ""} ${isGroupDragging ? styles.workspaceGroupDragging : ""} ${isDeleting ? styles.workspaceDeleting : ""}${rest.className ? ` ${rest.className}` : ""}`}
       style={{ ...dragStyle, ...rest.style }}
       onClick={(e) => {
         if (justDragged.current) {
@@ -260,6 +266,15 @@ const WorkspaceItem = React.forwardRef<
               )}
             </div>
           </div>
+          {isDragging && dragGroupCount > 1 && (
+            <span
+              className={styles.dragCountBadge}
+              data-testid="drag-count-badge"
+              aria-hidden="true"
+            >
+              {dragGroupCount}
+            </span>
+          )}
         </>
       )}
     </div>
@@ -434,14 +449,29 @@ export function ProjectItem(props: ProjectItemProps) {
   }, [workspaces, projectId]);
 
   const handleDrop = useCallback(
-    (sourceKey: string, target: DropTarget, rows: Row[]) => {
-      applySidebarChange(projectId, applyDrop(items, sourceKey, target, rows));
+    (
+      sourceKey: string,
+      target: DropTarget,
+      rows: Row[],
+      groupKeys: string[] | undefined,
+    ) => {
+      // A group of one (or none) is exactly `applyDrop` (ADR-190 §3).
+      applySidebarChange(
+        projectId,
+        applyGroupDrop(items, sourceKey, groupKeys ?? [sourceKey], target, rows),
+      );
+      // The group has landed where the user put it; the selection has done
+      // its job.
+      if (groupKeys && groupKeys.length > 1) {
+        useSidebarSelectionStore.getState().clear();
+      }
     },
     [applySidebarChange, projectId, items],
   );
 
   const {
     dragKey,
+    dragGroupKeys,
     intoFolderId,
     justDragged,
     rowRefs,
@@ -563,6 +593,10 @@ export function ProjectItem(props: ProjectItemProps) {
         isActive={ws.path === activeWorkspacePath}
         isSelected={selectedPaths.has(ws.path)}
         isDragging={dragKey === ws.path}
+        isGroupDragging={
+          dragKey !== ws.path && (dragGroupKeys?.includes(ws.path) ?? false)
+        }
+        dragGroupCount={dragGroupKeys?.length ?? 0}
         isDeleting={isDeleting}
         isEditing={isEditing}
         editValue={editValue}
@@ -599,7 +633,21 @@ export function ProjectItem(props: ProjectItemProps) {
             return;
           }
           if (e.metaKey || e.ctrlKey) return;
-          handleDragStart(ws.path, "workspace", e);
+          // Grabbing a row of a 2+ selection drags the whole selection, in
+          // tree order: visible rows first, then any selected row a
+          // collapsed folder hides (ADR-190 §3).
+          let groupKeys: string[] | undefined;
+          if (selectedPaths.has(ws.path) && selectedPaths.size > 1) {
+            const visible = orderedVisiblePaths.filter((p) =>
+              selectedPaths.has(p),
+            );
+            const visibleSet = new Set(visible);
+            groupKeys = [
+              ...visible,
+              ...[...selectedPaths].filter((p) => !visibleSet.has(p)),
+            ];
+          }
+          handleDragStart(ws.path, "workspace", e, groupKeys);
         }}
         onEditChange={(e) => setEditValue(e.target.value)}
         onEditBlur={() => {

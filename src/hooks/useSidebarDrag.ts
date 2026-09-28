@@ -34,6 +34,10 @@ export function headerRefKey(folderId: string): string {
  *
  * The hook only measures geometry and turns the pointer into a `DropTarget`;
  * every placement decision lives in `applyDrop` (see `utils/sidebar-items.ts`).
+ *
+ * A multi-select drag (ADR-190 §3) passes the selection as `groupKeys`. The
+ * hook only forwards it to `onDrop` and exposes it as `dragGroupKeys` for
+ * dimming; the pointer and geometry math stay keyed on the grabbed row alone.
  */
 export function useSidebarDrag({
   items,
@@ -45,9 +49,16 @@ export function useSidebarDrag({
   collapsedFolderIds: Set<string>;
   /** Blocks new drags, e.g. while an inline rename input is open. */
   disabled: boolean;
-  onDrop: (sourceKey: string, target: DropTarget, rows: Row[]) => void;
+  onDrop: (
+    sourceKey: string,
+    target: DropTarget,
+    rows: Row[],
+    groupKeys: string[] | undefined,
+  ) => void;
 }) {
   const [dragKey, setDragKey] = useState<string | null>(null);
+  /** The group of the live drag (ADR-190 §3), null outside a group drag. */
+  const [dragGroupKeys, setDragGroupKeys] = useState<string[] | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [intoFolderId, setIntoFolderId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState(0);
@@ -70,9 +81,17 @@ export function useSidebarDrag({
   const openFolderIds = useRef<Set<string>>(new Set());
 
   const handleDragStart = useCallback(
-    (key: string, kind: "workspace" | "folder", e: ReactPointerEvent) => {
+    (
+      key: string,
+      kind: "workspace" | "folder",
+      e: ReactPointerEvent,
+      groupKeys?: string[],
+    ) => {
       if (disabled) return;
       if (e.button !== 0) return;
+
+      // Held for this gesture only; a group of one is an ordinary drag.
+      const group = groupKeys && groupKeys.length > 1 ? groupKeys : undefined;
 
       // The dragged key goes in so a folder drag never offers a slot inside
       // the block that is moving with the pointer (ADR-172).
@@ -133,6 +152,7 @@ export function useSidebarDrag({
           dragActive.current = true;
           useDragOverlayStore.getState().incrementDragCount();
           setDragKey(key);
+          setDragGroupKeys(group ?? null);
           setDropIndex(sourceIndex);
         }
 
@@ -210,9 +230,9 @@ export function useSidebarDrag({
           const into = intoFolderIdRef.current;
           const finalDrop = dropIndexRef.current ?? sourceIndex;
           if (into) {
-            onDrop(key, { type: "into", folderId: into }, rows);
+            onDrop(key, { type: "into", folderId: into }, rows, group);
           } else if (finalDrop !== sourceIndex) {
-            onDrop(key, { type: "slot", rowIndex: finalDrop }, rows);
+            onDrop(key, { type: "slot", rowIndex: finalDrop }, rows, group);
           }
           requestAnimationFrame(() => {
             justDragged.current = false;
@@ -222,6 +242,7 @@ export function useSidebarDrag({
         dropIndexRef.current = null;
         intoFolderIdRef.current = null;
         setDragKey(null);
+        setDragGroupKeys(null);
         setDropIndex(null);
         setIntoFolderId(null);
         setDragOffset(0);
@@ -280,6 +301,7 @@ export function useSidebarDrag({
 
   return {
     dragKey,
+    dragGroupKeys,
     intoFolderId,
     justDragged,
     rowRefs,

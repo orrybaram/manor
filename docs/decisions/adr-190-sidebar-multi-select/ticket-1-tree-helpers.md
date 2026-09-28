@@ -1,6 +1,6 @@
 ---
 title: Group tree helpers in sidebar-items
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

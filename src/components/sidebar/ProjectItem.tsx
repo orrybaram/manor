@@ -25,11 +25,17 @@ import {
   descendantWorkspaces,
   placeAfterFolder,
   placeInFolder,
+  placeManyAfterFolders,
+  placeManyInFolder,
   visibleWorkspacePaths,
   type DropTarget,
   type Row,
   type SidebarItem,
 } from "../../utils/sidebar-items";
+import {
+  hideWorkspacesAndNavigate,
+  removeWorktreesWithToast,
+} from "../../store/workspace-actions";
 import {
   EMPTY_SIDEBAR_SELECTION,
   useSidebarSelectionStore,
@@ -45,6 +51,8 @@ import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { DeleteWorktreeDialog } from "./DeleteWorktreeDialog";
+import { BulkDeleteWorktreesDialog } from "./BulkDeleteWorktreesDialog";
+import { WorkspaceBulkMenu } from "./WorkspaceBulkMenu";
 import { MergeWorktreeDialog } from "./MergeWorktreeDialog";
 import { ConvertToWorkspaceDialog } from "./ConvertToWorkspaceDialog";
 import { NewFolderDialog } from "./NewFolderDialog";
@@ -334,9 +342,12 @@ export function ProjectItem(props: ProjectItemProps) {
   const [newWorkspaceFolderId, setNewWorkspaceFolderId] = useState<string | null>(null);
   const [convertWorkspaceOpen, setConvertWorkspaceOpen] = useState(false);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
-  // Set when "New Folder…" is picked from a workspace's menu: the folder is
-  // created and that workspace moved into it in one step.
-  const [pendingMovePath, setPendingMovePath] = useState<string | null>(null);
+  // Set when "New Folder…" is picked from a workspace's (or a selection's)
+  // menu: the folder is created and those workspaces moved into it in one
+  // step. A single row is still an array of one (ADR-190 §2).
+  const [pendingMovePath, setPendingMovePath] = useState<string[] | null>(null);
+  const [confirmBulkDeleteWorkspaces, setConfirmBulkDeleteWorkspaces] =
+    useState<WorkspaceInfo[] | null>(null);
   // The folder the next new folder belongs in: a folder's "New Folder Inside…",
   // or the folder the "New Folder…" anchor already lives in, so the new group
   // appears where it was asked for rather than at the top level (ADR-172).
@@ -447,6 +458,30 @@ export function ProjectItem(props: ProjectItemProps) {
       .getState()
       .prune(projectId, new Set(workspaces.map((ws) => ws.path)));
   }, [workspaces, projectId]);
+
+  // The selection in tree order (ADR-190 §2): visible rows first, then any
+  // selected path a collapsed folder hides — the same rule the group drag
+  // uses to order its own block.
+  const orderedSelection = useMemo(() => {
+    const visible = orderedVisiblePaths.filter((p) => selectedPaths.has(p));
+    const visibleSet = new Set(visible);
+    return [
+      ...visible,
+      ...[...selectedPaths].filter((p) => !visibleSet.has(p)),
+    ];
+  }, [orderedVisiblePaths, selectedPaths]);
+  const selectedWorkspaces = useMemo(
+    () =>
+      orderedSelection
+        .map((path) => workspaces.find((ws) => ws.path === path))
+        .filter((ws): ws is WorkspaceInfo => ws != null),
+    [orderedSelection, workspaces],
+  );
+  const selectedNonMain = useMemo(
+    () => selectedWorkspaces.filter((ws) => !ws.isMain),
+    [selectedWorkspaces],
+  );
+  const selectionHasFolderMember = selectedWorkspaces.some((ws) => ws.folderId);
 
   const handleDrop = useCallback(
     (
@@ -634,19 +669,11 @@ export function ProjectItem(props: ProjectItemProps) {
           }
           if (e.metaKey || e.ctrlKey) return;
           // Grabbing a row of a 2+ selection drags the whole selection, in
-          // tree order: visible rows first, then any selected row a
-          // collapsed folder hides (ADR-190 §3).
-          let groupKeys: string[] | undefined;
-          if (selectedPaths.has(ws.path) && selectedPaths.size > 1) {
-            const visible = orderedVisiblePaths.filter((p) =>
-              selectedPaths.has(p),
-            );
-            const visibleSet = new Set(visible);
-            groupKeys = [
-              ...visible,
-              ...[...selectedPaths].filter((p) => !visibleSet.has(p)),
-            ];
-          }
+          // tree order (ADR-190 §3).
+          const groupKeys =
+            selectedPaths.has(ws.path) && selectedPaths.size > 1
+              ? orderedSelection
+              : undefined;
           handleDragStart(ws.path, "workspace", e, groupKeys);
         }}
         onEditChange={(e) => setEditValue(e.target.value)}
@@ -679,11 +706,31 @@ export function ProjectItem(props: ProjectItemProps) {
       />
     );
 
+    // A right-click on a row that is already part of a 2+ selection acts on
+    // the whole selection; anything else clears it and falls back to the
+    // single-workspace menu (ADR-190 §2).
+    const isBulkSelected = selectedPaths.has(ws.path) && selectedPaths.size > 1;
+
+    const closeAutoFocus = (e: Event) => {
+      if (workspaceMenuOpenedByKeyboard.current.has(ws.path)) {
+        e.preventDefault();
+        rowRefs.current.get(ws.path)?.focus();
+      }
+      workspaceMenuOpenedByKeyboard.current.delete(ws.path);
+    };
+
     return (
       <ContextMenu.Root
         key={ws.path}
         onOpenChange={(open) => {
-          if (open && !ws.isMain) {
+          if (!open) {
+            setMergeState(null);
+            return;
+          }
+          if (!selectedPaths.has(ws.path)) {
+            useSidebarSelectionStore.getState().clear();
+          }
+          if (!ws.isMain && !isBulkSelected) {
             setMergeState(null);
             useProjectStore
               .getState()
@@ -705,15 +752,48 @@ export function ProjectItem(props: ProjectItemProps) {
           {workspaceEl}
         </ContextMenu.Trigger>
         <ContextMenu.Portal>
+          {isBulkSelected ? (
+            <WorkspaceBulkMenu
+              selectedCount={orderedSelection.length}
+              folderChoices={folderChoices}
+              hasFolderMember={selectionHasFolderMember}
+              hideCount={selectedNonMain.length}
+              deleteCount={selectedNonMain.length}
+              onCloseAutoFocus={closeAutoFocus}
+              onMoveToFolder={(folderId) => {
+                applySidebarChange(
+                  projectId,
+                  placeManyInFolder(items, orderedSelection, folderId),
+                );
+                useSidebarSelectionStore.getState().clear();
+              }}
+              onNewFolder={() => {
+                setPendingMovePath(orderedSelection);
+                setNewFolderParentId(selectedWorkspaces[0]?.folderId ?? null);
+                setNewFolderOpen(true);
+              }}
+              onRemoveFromFolder={() => {
+                applySidebarChange(
+                  projectId,
+                  placeManyAfterFolders(items, orderedSelection),
+                );
+                useSidebarSelectionStore.getState().clear();
+              }}
+              onHide={() => {
+                hideWorkspacesAndNavigate(
+                  projectId,
+                  selectedNonMain.map((w) => w.path),
+                );
+                useSidebarSelectionStore.getState().clear();
+              }}
+              onDelete={() => {
+                setConfirmBulkDeleteWorkspaces(selectedNonMain);
+              }}
+            />
+          ) : (
           <ContextMenu.Content
             className={styles.contextMenu}
-            onCloseAutoFocus={(e) => {
-              if (workspaceMenuOpenedByKeyboard.current.has(ws.path)) {
-                e.preventDefault();
-                rowRefs.current.get(ws.path)?.focus();
-              }
-              workspaceMenuOpenedByKeyboard.current.delete(ws.path);
-            }}
+            onCloseAutoFocus={closeAutoFocus}
           >
             <ContextMenu.Item
               className={styles.contextMenuItem}
@@ -816,7 +896,7 @@ export function ProjectItem(props: ProjectItemProps) {
                   <ContextMenu.Item
                     className={styles.contextMenuItem}
                     onSelect={() => {
-                      setPendingMovePath(ws.path);
+                      setPendingMovePath([ws.path]);
                       setNewFolderParentId(ws.folderId ?? null);
                       setNewFolderOpen(true);
                     }}
@@ -881,6 +961,7 @@ export function ProjectItem(props: ProjectItemProps) {
               </>
             )}
           </ContextMenu.Content>
+          )}
         </ContextMenu.Portal>
       </ContextMenu.Root>
     );
@@ -1124,6 +1205,9 @@ export function ProjectItem(props: ProjectItemProps) {
             movePath ?? undefined,
             parentId,
           );
+          if (movePath && movePath.length > 1) {
+            useSidebarSelectionStore.getState().clear();
+          }
         }}
       />
 
@@ -1153,6 +1237,23 @@ export function ProjectItem(props: ProjectItemProps) {
         onConfirm={(ws, deleteBranch) => {
           setDeletingPaths((prev) => new Set(prev).add(ws.path));
           onRemoveWorktree(ws, deleteBranch);
+        }}
+      />
+
+      <BulkDeleteWorktreesDialog
+        open={confirmBulkDeleteWorkspaces !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmBulkDeleteWorkspaces(null);
+        }}
+        workspaces={confirmBulkDeleteWorkspaces ?? []}
+        onConfirm={(bulkWorkspaces, deleteBranch) => {
+          setDeletingPaths((prev) => {
+            const next = new Set(prev);
+            for (const ws of bulkWorkspaces) next.add(ws.path);
+            return next;
+          });
+          useSidebarSelectionStore.getState().clear();
+          removeWorktreesWithToast(project, bulkWorkspaces, deleteBranch);
         }}
       />
 

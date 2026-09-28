@@ -79,9 +79,17 @@ describe("RpcChannel", () => {
     void rpc.call({ type: "ping" }).catch(() => {});
     void rpc.call({ type: "listSessions" }).catch(() => {});
     void rpc.callConcurrent({ type: "readFile", path: "/f" }, null).catch(() => {});
+    void rpc
+      .callConcurrent({ type: "writeFile", path: "/f", base64: "" }, null)
+      .catch(() => {});
     await flush();
-    // listSessions waits behind ping's reply; readFile does not wait at all.
-    expect(written.map((m) => m.type).sort()).toEqual(["ping", "readFile"]);
+    // listSessions waits behind ping's reply; readFile/writeFile do not wait
+    // at all.
+    expect(written.map((m) => m.type).sort()).toEqual([
+      "ping",
+      "readFile",
+      "writeFile",
+    ]);
     rpc.close();
   });
 

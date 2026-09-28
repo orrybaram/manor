@@ -37,6 +37,9 @@ export type { ExecStreamCallbacks } from "./exec-stream-registry";
 /** Client-side timeout for `readFile` (up to 10 MiB, possibly over ssh). */
 const READ_FILE_TIMEOUT_MS = 30_000;
 
+/** Client-side timeout for `writeFile` (up to 20 MiB, possibly over ssh). */
+const WRITE_FILE_TIMEOUT_MS = 60_000;
+
 /**
  * Timeout for listing a stale daemon's sessions before replacing it
  * (ADR-185 §A). Short on purpose: a daemon too old to answer at all must
@@ -516,6 +519,20 @@ export class TerminalHostClient {
     await this.ensureConnected();
     const request = { type: "readFile", path: filePath } as const;
     return (await this.rpc.callConcurrent(request, READ_FILE_TIMEOUT_MS)).contents;
+  }
+
+  /**
+   * Write `data` to `filePath` on the daemon's host, atomically (ADR-187 §1).
+   * Creates the parent directory if needed.
+   */
+  async writeFile(filePath: string, data: Buffer): Promise<void> {
+    await this.ensureConnected();
+    const request = {
+      type: "writeFile",
+      path: filePath,
+      base64: data.toString("base64"),
+    } as const;
+    await this.rpc.callConcurrent(request, WRITE_FILE_TIMEOUT_MS);
   }
 
   /**

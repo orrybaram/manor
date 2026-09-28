@@ -42,6 +42,35 @@ describe("createSerializedHandler", () => {
     expect(completed).toEqual(["ping", "resize", "exec"]);
   });
 
+  it("lets ping and resize complete while a long writeFile is in flight", async () => {
+    const writeDone = deferred();
+    const completed: string[] = [];
+
+    const handle = createSerializedHandler(
+      async (req: Req) => {
+        if (req.type === "writeFile") await writeDone.promise;
+        completed.push(req.type);
+      },
+      vi.fn(),
+      vi.fn(),
+    );
+
+    handle(
+      JSON.stringify({ type: "writeFile", path: "/x", base64: "", requestId: "1" }),
+    );
+    handle(JSON.stringify({ type: "ping", requestId: "2" }));
+    handle(
+      JSON.stringify({ type: "resize", sessionId: "s", cols: 80, rows: 24, requestId: "3" }),
+    );
+    await flush();
+
+    expect(completed).toEqual(["ping", "resize"]);
+
+    writeDone.resolve();
+    await flush();
+    expect(completed).toEqual(["ping", "resize", "writeFile"]);
+  });
+
   it("keeps ordinary requests serialized", async () => {
     const firstDone = deferred();
     const completed: string[] = [];

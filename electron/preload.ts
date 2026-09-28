@@ -712,6 +712,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("clipboard:writeText", text),
   },
 
+  terminal: {
+    pasteClipboardImage: (paneId: string) =>
+      ipcRenderer.invoke("terminal:pasteClipboardImage", paneId),
+  },
+
   /** Main mutated the project list out-of-band (MCP, CLI) — refetch it. */
   onProjectsChanged: (callback: () => void) =>
     onChannel("projects-changed", callback),

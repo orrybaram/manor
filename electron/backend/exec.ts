@@ -1,5 +1,10 @@
 import { execFile, spawn } from "node:child_process";
-import { readFile as fsReadFile } from "node:fs/promises";
+import {
+  mkdir as fsMkdir,
+  readFile as fsReadFile,
+  writeFile as fsWriteFile,
+} from "node:fs/promises";
+import { dirname } from "node:path";
 import { promisify } from "node:util";
 import { errorMessage } from "../lib/errors";
 
@@ -65,6 +70,11 @@ export interface Exec {
     },
   ): { cancel: () => void };
   readFile(path: string, encoding: "utf-8"): Promise<string>;
+  /**
+   * Write `data` to `path`, creating its parent directories first and
+   * replacing any file already there (ADR-187).
+   */
+  writeFile(path: string, data: Buffer): Promise<void>;
 }
 
 /** How a streamed command (a push, a clone) ended. */
@@ -175,5 +185,10 @@ export const localExec: Exec = {
 
   async readFile(path, encoding) {
     return fsReadFile(path, encoding);
+  },
+
+  async writeFile(path, data) {
+    await fsMkdir(dirname(path), { recursive: true });
+    await fsWriteFile(path, data);
   },
 };

@@ -38,6 +38,9 @@ import { PTY_SUBPROCESS_PROTOCOL } from "./pty-subprocess-ipc";
 
 // ── Test daemon (same as daemon.integration.test.ts but with error handling fix) ──
 
+/** Mirrors index.ts's `MAX_WRITE_FILE_BYTES`. */
+const MAX_WRITE_FILE_BYTES = 20 * 1024 * 1024;
+
 class TestDaemon {
   private server: net.Server;
   private host = new TerminalHost();
@@ -282,6 +285,46 @@ class TestDaemon {
             ),
           delayMs,
         );
+        break;
+      }
+      case "readFile": {
+        try {
+          const contents = await fs.promises.readFile(req.path, "utf-8");
+          this.send(socket, { type: "fileContents", contents }, requestId);
+        } catch (err) {
+          this.send(
+            socket,
+            { type: "error", message: `readFile failed: ${err}` },
+            requestId,
+          );
+        }
+        break;
+      }
+      case "writeFile": {
+        // Mirrors index.ts's handler: mkdir the parent, write a temp file
+        // next to the target, then rename it over — so a reader never sees a
+        // partial file — and refuse anything over the same limit.
+        try {
+          const data = Buffer.from(req.base64, "base64");
+          if (data.length > MAX_WRITE_FILE_BYTES) {
+            throw new Error(
+              `file is ${data.length} bytes, over the ${MAX_WRITE_FILE_BYTES}-byte limit`,
+            );
+          }
+          await fs.promises.mkdir(path.dirname(req.path), { recursive: true });
+          const tmpPath = `${req.path}.${process.pid}.${crypto
+            .randomBytes(4)
+            .toString("hex")}.tmp`;
+          await fs.promises.writeFile(tmpPath, data);
+          await fs.promises.rename(tmpPath, req.path);
+          this.send(socket, { type: "fileWritten" }, requestId);
+        } catch (err) {
+          this.send(
+            socket,
+            { type: "error", message: `writeFile failed: ${err}` },
+            requestId,
+          );
+        }
         break;
       }
       case "handshake":
@@ -918,6 +961,46 @@ describe("TerminalHostClient", () => {
       expect(await client.ping()).toBe(true);
       client.disconnect();
     });
+  });
+
+  describe("writeFile", () => {
+    it("writes bytes, and reads them back", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+
+      const target = path.join(tmpDir, "pasted.png");
+      const data = Buffer.from("some image bytes", "utf-8");
+      await client.writeFile(target, data);
+
+      expect(fs.readFileSync(target)).toEqual(data);
+      client.disconnect();
+    });
+
+    it("creates the parent directory", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+
+      const target = path.join(tmpDir, "nested", "dir", "pasted.png");
+      await client.writeFile(target, Buffer.from("bytes"));
+
+      expect(fs.existsSync(target)).toBe(true);
+      client.disconnect();
+    });
+
+    it("rejects a payload over the size limit", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+
+      const target = path.join(tmpDir, "too-big.png");
+      const oversized = Buffer.alloc(MAX_WRITE_FILE_BYTES + 1);
+      await expect(client.writeFile(target, oversized)).rejects.toThrow(
+        /over the .* limit/,
+      );
+      expect(fs.existsSync(target)).toBe(false);
+      client.disconnect();
+      // A 20 MiB payload (~27 MB base64) through the socket can take a few
+      // seconds on a loaded machine — past vitest's 5s default.
+    }, 30_000);
   });
 
   describe("stream events", () => {

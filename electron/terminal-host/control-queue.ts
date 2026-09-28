@@ -5,13 +5,14 @@
  * handler (e.g. getSnapshot awaiting flushHeadless) must not let a later
  * request overtake it, since terminal operations depend on that order.
  *
- * `exec` and `readFile` are different: they can take as long as the command
- * they run, and holding the queue for that long would stall every other
- * request on the socket until the client's own timeout tore the connection
- * down. They are *started* in order — so an `exec` sent right after `auth`
- * still sees the socket authenticated — but the queue moves on without
- * waiting for them, and their responses go out whenever they finish. The
- * client matches responses by `requestId`, not by position.
+ * `exec`, `readFile` and `writeFile` are different: they can take as long as
+ * the command they run (or the file they move), and holding the queue for
+ * that long would stall every other request on the socket until the client's
+ * own timeout tore the connection down. They are *started* in order — so an
+ * `exec` sent right after `auth` still sees the socket authenticated — but
+ * the queue moves on without waiting for them, and their responses go out
+ * whenever they finish. The client matches responses by `requestId`, not by
+ * position.
  */
 
 import type { ControlRequest } from "./types";
@@ -21,7 +22,7 @@ type RequestWithId = ControlRequest & { requestId?: string };
 /** Request types whose completion does not hold up the socket's queue. */
 const UNSERIALIZED_REQUEST_TYPES: ReadonlySet<ControlRequest["type"]> = new Set<
   ControlRequest["type"]
->(["exec", "readFile"]);
+>(["exec", "readFile", "writeFile"]);
 
 function isUnserializedRequest(type: ControlRequest["type"]): boolean {
   return UNSERIALIZED_REQUEST_TYPES.has(type);

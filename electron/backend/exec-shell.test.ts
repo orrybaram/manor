@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ExecShellBackend } from "./exec-shell";
 import type { Exec } from "./exec";
 import { execFacts } from "./machine-facts";
@@ -13,6 +13,9 @@ function stubExec(home: string): Exec {
       throw new Error("not implemented");
     },
     async readFile() {
+      throw new Error("not implemented");
+    },
+    async writeFile() {
       throw new Error("not implemented");
     },
   };
@@ -57,5 +60,16 @@ describe("ExecShellBackend.homeDir", () => {
     const exec = stubExec("/home/orry");
     const backend = new ExecShellBackend(exec, execFacts(exec));
     expect(await backend.homeDir()).toBe("/home/orry");
+  });
+});
+
+describe("ExecShellBackend.writeFile", () => {
+  it("passes the write to its Exec", async () => {
+    const exec = stubExec("/home/orry");
+    const writeFile = vi.fn<Exec["writeFile"]>().mockResolvedValue(undefined);
+    const backend = new ExecShellBackend({ ...exec, writeFile }, execFacts(exec));
+    const data = Buffer.from("png");
+    await backend.writeFile("/home/orry/.manor/pasted-images/a.png", data);
+    expect(writeFile).toHaveBeenCalledWith("/home/orry/.manor/pasted-images/a.png", data);
   });
 });

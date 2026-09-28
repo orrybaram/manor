@@ -14,7 +14,8 @@
  * - `ports.kill` goes to the host whose last scan reported the pid;
  *   `ports.scan` is this machine's — `PortScanner` scans each host through
  *   the registry itself (ADR-183);
- * - `shell.which` is always local (it answers "is this CLI installed here").
+ * - `shell.which` is always local (it answers "is this CLI installed here");
+ *   `shell.writeFile` goes to the host its path belongs to.
  *
  * A cwd here is a bare path from outside (a pty cwd, a git call from the
  * renderer), so this is the one place a path's host is inferred (ADR-183);
@@ -136,6 +137,7 @@ export class RoutedBackend implements WorkspaceBackend {
       // No cwd to route by; callers that need a specific host's home
       // (ProjectManager, ADR-178 §3) go through the registry directly.
       homeDir: () => local().shell.homeDir(),
+      writeFile: (path, data) => byPath(path).shell.writeFile(path, data),
     };
 
     this.facts = local().facts;

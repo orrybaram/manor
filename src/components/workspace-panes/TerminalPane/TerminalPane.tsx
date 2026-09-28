@@ -20,6 +20,7 @@ import { PaneWindowMenuItems } from "../PaneWindowMenuItems";
 import { TerminalSearchBar } from "./TerminalSearchBar";
 import { HostOfflineBanner } from "./HostOfflineBanner";
 import { onUiRequest } from "../../../utils/ui-request";
+import { isRemotePane, pasteClipboardImage } from "../../../lib/remote-image-paste";
 import styles from "./TerminalPane.module.css";
 
 type TerminalPaneProps = {
@@ -129,9 +130,16 @@ export function TerminalPane(props: TerminalPaneProps) {
           <ContextMenu.Item
             className={styles.contextMenuItem}
             onSelect={() => {
-              navigator.clipboard.readText().then((text) => {
-                if (text) write(text);
-              });
+              const readClipboardText = () => {
+                navigator.clipboard.readText().then((text) => {
+                  if (text) write(text);
+                });
+              };
+              if (term && isRemotePane(paneId)) {
+                void pasteClipboardImage(term, paneId, readClipboardText);
+              } else {
+                readClipboardText();
+              }
             }}
           >
             <ClipboardPaste size={14} />

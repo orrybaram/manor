@@ -183,6 +183,14 @@ export type ControlRequest =
   /** Read a UTF-8 file of at most 10 MiB. Also answered out of order. */
   | { type: "readFile"; path: string }
   /**
+   * Write `base64`-decoded bytes to `path`, atomically: the daemon writes a
+   * temp file in the same directory and renames it over `path`, so a reader
+   * never sees a partial write (ADR-187 §1). Refused over
+   * `MAX_WRITE_FILE_BYTES` decoded. Also answered out of order, like
+   * `readFile`.
+   */
+  | { type: "writeFile"; path: string; base64: string }
+  /**
    * Report how the daemon's own host was set up for shell integration and
    * agent hooks (ADR-160 ticket 10): zdotdir, hook scripts, agent connector
    * registration. A remote daemon does that once at startup; this returns
@@ -276,6 +284,8 @@ export type ControlResponse =
       exitCode: number | null;
     }
   | { type: "fileContents"; contents: string }
+  /** `writeFile` succeeded; `path` now holds exactly the bytes sent. */
+  | { type: "fileWritten" }
   /**
    * `bootstrap` succeeded; `agents` lists the connectors registered.
    * `warnings`, when present, lists connectors that skipped registration
@@ -291,10 +301,10 @@ export type ControlResponse =
 /**
  * A control message on the wire: the payload plus the id the client assigned
  * the request. The daemon echoes the id on every reply — the client matches
- * replies by it, since `exec`/`readFile` replies may overtake others. The
- * only reply without one is an "Invalid JSON" error for a line whose id could
- * not be recovered, and the client answers that by failing every pending
- * request rather than guessing which one it was.
+ * replies by it, since `exec`/`readFile`/`writeFile` replies may overtake
+ * others. The only reply without one is an "Invalid JSON" error for a line
+ * whose id could not be recovered, and the client answers that by failing
+ * every pending request rather than guessing which one it was.
  */
 export type Envelope<T> = T & { requestId: string };
 
@@ -321,6 +331,7 @@ type ResponseMap = ExhaustiveResponseMap<{
   handshake: Reply<"handshake">;
   exec: Reply<"execResult">;
   readFile: Reply<"fileContents">;
+  writeFile: Reply<"fileWritten">;
   bootstrap: Reply<"bootstrapped">;
   replayHooks: Reply<"hookReplay">;
   getPaneFacts: Reply<"paneFacts">;
@@ -355,6 +366,7 @@ export const REPLY_TYPES = {
   handshake: ["handshake"],
   exec: ["execResult"],
   readFile: ["fileContents"],
+  writeFile: ["fileWritten"],
   bootstrap: ["bootstrapped"],
   replayHooks: ["hookReplay"],
   getPaneFacts: ["paneFacts"],

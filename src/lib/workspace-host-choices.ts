@@ -28,7 +28,7 @@ export interface WorkspaceHostChoice {
  * The host choices for creating a workspace in `project`'s group, in section
  * order, or null when `project` isn't linked (no picker). A remote host main
  * reports as anything but connected is disabled; one it hasn't reported yet
- * is not, the same rule as pane input (`isPaneInputBlocked`).
+ * is not, the same rule as pane input (`isHostOffline`).
  */
 export function workspaceHostChoices(
   project: GroupedProject | undefined,

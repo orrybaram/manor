@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   describeHost,
-  isPaneInputBlocked,
+  groupHostState,
+  isHostOffline,
   secondsUntilRetry,
 } from "../host-status";
 import type { HostStatusInfo } from "../../store/host-store";
@@ -126,16 +127,63 @@ describe("secondsUntilRetry", () => {
   });
 });
 
-describe("isPaneInputBlocked", () => {
-  const hosts = [host({ status: "reconnecting" }), host({ hostId: "up", status: "connected" })];
+describe("isHostOffline", () => {
+  const hosts = [
+    host({ status: "error" }),
+    host({ hostId: "up", status: "connected" }),
+    host({ hostId: "local", spec: null, status: "connected" }),
+  ];
 
-  it("drops input for a pane whose remote host is away", () => {
-    expect(isPaneInputBlocked("box", hosts)).toBe(true);
+  it("is true only for a reported remote host that is not connected", () => {
+    expect(isHostOffline("box", hosts)).toBe(true);
+    expect(isHostOffline("up", hosts)).toBe(false);
+    expect(isHostOffline("local", hosts)).toBe(false);
   });
 
-  it("lets input through for local panes, connected hosts and unreported hosts", () => {
-    expect(isPaneInputBlocked(undefined, hosts)).toBe(false);
-    expect(isPaneInputBlocked("up", hosts)).toBe(false);
-    expect(isPaneInputBlocked("unknown", hosts)).toBe(false);
+  it("counts a host still connecting or reconnecting as away", () => {
+    const pending = [
+      host({ hostId: "a", status: "connecting" }),
+      host({ hostId: "b", status: "reconnecting" }),
+    ];
+    expect(isHostOffline("a", pending)).toBe(true);
+    expect(isHostOffline("b", pending)).toBe(true);
+  });
+
+  it("never marks this machine or an unreported host offline", () => {
+    expect(isHostOffline(undefined, hosts)).toBe(false);
+    expect(isHostOffline(null, hosts)).toBe(false);
+    expect(isHostOffline("unknown", hosts)).toBe(false);
+  });
+});
+
+describe("groupHostState", () => {
+  const hosts = [
+    host({ hostId: "box", status: "reconnecting" }),
+    host({ hostId: "vm", status: "error" }),
+    host({ hostId: "up", status: "connected" }),
+  ];
+
+  it("is connected when every member's host is up", () => {
+    expect(groupHostState(["local", "up"], hosts)).toBe("connected");
+    expect(groupHostState([undefined, "up"], hosts)).toBe("connected");
+  });
+
+  it("is offline when every member's host is away", () => {
+    expect(groupHostState(["box", "vm"], hosts)).toBe("offline");
+  });
+
+  it("is partially offline when some but not all hosts are away", () => {
+    expect(groupHostState(["local", "box"], hosts)).toBe("partially-offline");
+    expect(groupHostState(["up", "box", "vm"], hosts)).toBe("partially-offline");
+  });
+
+  it("treats a connecting host as away and an unreported one as up", () => {
+    const connecting = [host({ hostId: "box", status: "connecting" })];
+    expect(groupHostState(["local", "box"], connecting)).toBe("partially-offline");
+    expect(groupHostState(["local", "new"], connecting)).toBe("connected");
+  });
+
+  it("is connected for an empty member list", () => {
+    expect(groupHostState([], hosts)).toBe("connected");
   });
 });

@@ -1,14 +1,18 @@
 import React, { useMemo, type PointerEvent as ReactPointerEvent } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import Link2 from "lucide-react/dist/esm/icons/link-2";
+import CloudAlert from "lucide-react/dist/esm/icons/cloud-alert";
+import CloudOff from "lucide-react/dist/esm/icons/cloud-off";
+import type { LucideIcon } from "lucide-react";
 import { collapsedFolderIdsOf, useProjectStore } from "../../store/project-store";
 import type {
   GroupSection,
   SelectionScope,
   TopLevelEntry,
 } from "../../utils/sidebar-items";
-import { useWorkspacesAgentStatus } from "../../hooks/useProjectAgentStatus";
-import { workspaceKey } from "../../lib/workspace-key";
+import { useGroupAgentStatus } from "../../hooks/useProjectAgentStatus";
+import { useHostStore } from "../../store/host-store";
+import { groupHostState, isHostOffline, type GroupHostState } from "../../lib/host-status";
 import { projectColorStyle, useProjectHeaderRow } from "../../hooks/useProjectHeaderRow";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
@@ -51,14 +55,6 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
   const collapsedProjectIds = useProjectStore((s) => s.collapsedProjectIds);
   const header = useProjectHeaderRow(collapsed, onToggleCollapsed);
 
-  // Every host section's workspaces, each on its own host (ADR-191).
-  const allWorkspaceKeys = useMemo(
-    () =>
-      sections.flatMap(({ project }) =>
-        project.workspaces.map((ws) => workspaceKey(project.hostId, ws.path)),
-      ),
-    [sections],
-  );
   // One selection across every host section, keyed by group id: a range or
   // toggle can cross from one section into the next, and each section reads
   // its own share back out of it.
@@ -74,7 +70,13 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
     }),
     [group.id, sections, collapsedFolderKeys, collapsedProjectIds],
   );
-  const { status, pulse } = useWorkspacesAgentStatus(allWorkspaceKeys);
+  // Agents from every host section, each on its own host (ADR-191).
+  const members = useMemo(() => sections.map((section) => section.project), [sections]);
+  const { status, pulse } = useGroupAgentStatus(members);
+  const hosts = useHostStore((s) => s.hosts);
+  const hostState = groupHostState(members.map((m) => m.hostId), hosts);
+  const stateView = GROUP_HOST_STATE_VIEW[hostState];
+  const StateIcon = stateView.Icon;
   const indicator = toWorkspaceIndicator(status, pulse);
   // Shared settings live on the group from ADR-192 ticket 2; until then the
   // first member with a color stands for the group.
@@ -85,6 +87,7 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
       className={`${styles.project} ${isSelected ? styles.projectSelected : ""}`}
       data-testid="project-group"
       data-group-id={group.id}
+      data-host-state={hostState}
       style={projectColorStyle(color)}
     >
       <ContextMenu.Root>
@@ -102,13 +105,24 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
             style={{ touchAction: "none" }}
           >
             <ProjectChevron expanded={!collapsed} />
-            <span className={`${styles.projectName} ${styles.projectNameRemote}`}>
+            <span
+              className={`${styles.projectName} ${styles.projectNameRemote} ${
+                stateView.nameClass ?? ""
+              }`}
+            >
               {group.name}
             </span>
             <span className={styles.remoteHostIconSlot}>
-              <Tooltip label="Linked across hosts" side="right">
-                <span className={styles.groupLinkIcon} aria-label="Linked across hosts">
-                  <Link2 size={11} aria-hidden />
+              <Tooltip label={stateView.label} side="right">
+                <span
+                  className={`${styles.groupLinkIcon} ${stateView.iconClass ?? ""}`}
+                  aria-label={stateView.label}
+                  data-testid="project-group-host-state"
+                >
+                  <StateIcon size={11} aria-hidden />
+                  {stateView.badge && (
+                    <span className={styles.groupStateBadge}>{stateView.badge}</span>
+                  )}
                 </span>
               </Tooltip>
             </span>
@@ -131,13 +145,49 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
       </ContextMenu.Root>
       {!collapsed && (
         <div className={styles.groupSections}>
-          {sections.map((section) => (
-            <React.Fragment key={section.project.id}>
-              {renderSection(section, selectionScope)}
-            </React.Fragment>
-          ))}
+          {sections.map((section) => {
+            // An away host's section keeps its last known workspaces, dimmed;
+            // the other sections stay as they are (ADR-192 §5).
+            const offline = isHostOffline(section.project.hostId, hosts);
+            return (
+              <div
+                key={section.project.id}
+                className={offline ? styles.sectionOffline : undefined}
+                data-testid="group-section"
+                data-host-offline={offline || undefined}
+              >
+                {renderSection(section, selectionScope)}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
+
+/**
+ * How the group header shows each host state (ADR-192 §5). Partially and
+ * fully offline must be told apart at a glance (spec story 40), so each has
+ * its own icon and word, not only its own tooltip; only a group with every
+ * host away dims its name.
+ */
+const GROUP_HOST_STATE_VIEW: Record<
+  GroupHostState,
+  { label: string; Icon: LucideIcon; badge?: string; iconClass?: string; nameClass?: string }
+> = {
+  connected: { label: "Linked across hosts", Icon: Link2 },
+  "partially-offline": {
+    label: "Linked across hosts · Partially offline: some hosts are away",
+    Icon: CloudAlert,
+    badge: "Partial",
+    iconClass: styles.groupStateWarn,
+  },
+  offline: {
+    label: "Linked across hosts · Offline: every host is away",
+    Icon: CloudOff,
+    badge: "Offline",
+    iconClass: styles.groupStateWarn,
+    nameClass: styles.groupNameOffline,
+  },
+};

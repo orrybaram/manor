@@ -73,24 +73,37 @@ export function pickBestPaneStatus(
   return { status: best, pulse };
 }
 
-export function useTabAgentStatus(tabId: string): { status: AgentStatus | null; pulse: boolean } {
+/**
+ * The single best agent status across `paneIds` (see `pickBestPaneStatus`),
+ * kept current with the agent and pane-status stores. Memoize `paneIds`:
+ * the result is recomputed whenever the array changes identity.
+ */
+export function useBestStatusForPanes(
+  paneIds: readonly string[],
+): { status: AgentStatus | null; pulse: boolean } {
   const agents = useAgentStore((s) => s.agents);
   const unseenRespondedAgentIds = useAgentStore((s) => s.unseenRespondedAgentIds);
   const unseenInputAgentIds = useAgentStore((s) => s.unseenInputAgentIds);
+  const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
+
+  return useMemo(
+    () =>
+      pickBestPaneStatus(paneIds, {
+        paneAgentStatus,
+        agents,
+        unseenRespondedAgentIds,
+        unseenInputAgentIds,
+      }),
+    [paneIds, paneAgentStatus, agents, unseenRespondedAgentIds, unseenInputAgentIds],
+  );
+}
+
+export function useTabAgentStatus(tabId: string): { status: AgentStatus | null; pulse: boolean } {
   const tab = useAppStore((s) => {
     const ws = selectActiveWorkspace(s);
     return ws?.tabs.find((t) => t.id === tabId) ?? null;
   });
-  const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
-
-  return useMemo(() => {
-    if (!tab) return { status: null, pulse: true };
-
-    return pickBestPaneStatus(allPaneIds(tab.rootNode), {
-      paneAgentStatus,
-      agents,
-      unseenRespondedAgentIds,
-      unseenInputAgentIds,
-    });
-  }, [tab, paneAgentStatus, agents, unseenRespondedAgentIds, unseenInputAgentIds]);
+  // No tab, no panes: `pickBestPaneStatus` then gives { null, pulse: true }.
+  const paneIds = useMemo(() => (tab ? allPaneIds(tab.rootNode) : []), [tab]);
+  return useBestStatusForPanes(paneIds);
 }

@@ -9,7 +9,7 @@ type HostOfflineBannerProps = {
 /**
  * Slim banner over a terminal whose remote host is away (ADR-178 §6). The
  * terminal underneath keeps its last screen and ignores input until the host
- * is back (`isPaneInputBlocked`). Renders nothing for a local pane, so local
+ * is back (`isHostOffline`). Renders nothing for a local pane, so local
  * panes never subscribe to more than a missing map entry.
  */
 export function HostOfflineBanner(props: HostOfflineBannerProps) {

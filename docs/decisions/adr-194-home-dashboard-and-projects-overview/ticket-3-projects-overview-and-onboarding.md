@@ -1,6 +1,6 @@
 ---
 title: Projects overview cards, add section, and onboarding
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [1, 2]

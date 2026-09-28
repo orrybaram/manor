@@ -71,14 +71,20 @@ contextBridge.exposeInMainWorld("electronAPI", {
       cols: number,
       rows: number,
       agentKind?: string | null,
-    ) => ipcRenderer.invoke("pty:create", paneId, cwd, cols, rows, agentKind),
+      hostId?: string | null,
+    ) => ipcRenderer.invoke("pty:create", paneId, cwd, cols, rows, agentKind, hostId),
     write: (paneId: string, data: string) =>
       ipcRenderer.invoke("pty:write", paneId, data),
     resize: (paneId: string, cols: number, rows: number) =>
       ipcRenderer.invoke("pty:resize", paneId, cols, rows),
     close: (paneId: string) => ipcRenderer.invoke("pty:close", paneId),
-    reset: (paneId: string, cwd: string | null, cols: number, rows: number) =>
-      ipcRenderer.invoke("pty:reset", paneId, cwd, cols, rows),
+    reset: (
+      paneId: string,
+      cwd: string | null,
+      cols: number,
+      rows: number,
+      hostId?: string | null,
+    ) => ipcRenderer.invoke("pty:reset", paneId, cwd, cols, rows, hostId),
     detach: (paneId: string) => ipcRenderer.invoke("pty:detach", paneId),
     consumePrewarmed: (cwd: string | null, hostId: string) =>
       ipcRenderer.invoke("pty:consumePrewarmed", cwd, hostId),

@@ -1,5 +1,33 @@
 import { describe, it, expect } from "vitest";
-import { isLocalhostHttpUrl, remoteHostIdForWorkspace } from "../hosts";
+import { hostIdForWorkspace, isLocalhostHttpUrl, remoteHostIdForWorkspace } from "../hosts";
+
+describe("hostIdForWorkspace", () => {
+  // The same path on this machine and on "box", as two projects.
+  const shared = "/home/me/.manor/worktrees/app/feat";
+  const projects = [
+    { id: "p-local", path: "/home/me/app", hostId: "local", workspaces: [{ path: shared }] },
+    { id: "p-box", path: "/home/me/app", hostId: "box", workspaces: [{ path: shared }] },
+  ];
+
+  it("names local hosts too", () => {
+    expect(hostIdForWorkspace(projects, shared)).toBe("local");
+  });
+
+  it("prefers the given project when several have the path", () => {
+    expect(hostIdForWorkspace(projects, shared, "p-box")).toBe("box");
+    expect(hostIdForWorkspace(projects, shared, "p-local")).toBe("local");
+    expect(remoteHostIdForWorkspace(projects, shared, "p-box")).toBe("box");
+  });
+
+  it("ignores a preferred project that doesn't have the path", () => {
+    expect(hostIdForWorkspace(projects, shared, "p-other")).toBe("local");
+  });
+
+  it("is null for unknown paths and without a path", () => {
+    expect(hostIdForWorkspace(projects, "/nowhere")).toBeNull();
+    expect(hostIdForWorkspace(projects, null)).toBeNull();
+  });
+});
 
 describe("remoteHostIdForWorkspace", () => {
   const projects = [

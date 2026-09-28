@@ -344,9 +344,14 @@ function App() {
   // Keep the prewarmed session in sync with the active workspace.
   // Derive the agent command outside the effect so it only re-fires when the
   // command actually changes, not on every unrelated project mutation.
-  const activeProject = projects.find((p) =>
-    p.workspaces.some((w) => w.path === activeWorkspacePath),
-  );
+  // The selected project first: a local and a remote project can share a path.
+  const hasActiveWorkspace = (p: (typeof projects)[number]) =>
+    p.workspaces.some((w) => w.path === activeWorkspacePath);
+  const selectedProject = projects[selectedProjectIndex];
+  const activeProject =
+    selectedProject && hasActiveWorkspace(selectedProject)
+      ? selectedProject
+      : projects.find(hasActiveWorkspace);
   // The launch command for the active surface. Home has no owning project and
   // boots the configured home harness in ~/.manor/home (the pty boundary maps
   // its sentinel path to the real dir); a project workspace uses its

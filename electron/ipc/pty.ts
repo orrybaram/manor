@@ -54,6 +54,17 @@ function validatePtyArgs(paneId: string, cwd: string | null, cols: number, rows:
   return resolveSpawnCwd(cwd);
 }
 
+/**
+ * The host a new session should run on, as the renderer named it — the host
+ * of the workspace its pane belongs to — or undefined when it didn't, so
+ * `RoutedBackend` falls back to the host the cwd belongs to.
+ */
+function requestedHost(hostId: string | null | undefined): string | undefined {
+  if (hostId == null) return undefined;
+  assertString(hostId, "hostId");
+  return hostId;
+}
+
 export function register(deps: IpcDeps): void {
   const { backend } = deps;
 
@@ -66,8 +77,10 @@ export function register(deps: IpcDeps): void {
       cols: number,
       rows: number,
       agentKind?: string | null,
+      hostId?: string | null,
     ): Promise<PtyCreateResult> => {
       const resolvedCwd = validatePtyArgs(paneId, cwd, cols, rows);
+      const requestedHostId = requestedHost(hostId);
       const env: Record<string, string> | undefined = agentKind
         ? { MANOR_AGENT_KIND: agentKind }
         : undefined;
@@ -79,6 +92,7 @@ export function register(deps: IpcDeps): void {
           rows,
           undefined,
           env,
+          requestedHostId,
         );
         // Return snapshot to the renderer so it can write it exactly once,
         // avoiding duplicate writes from StrictMode double-mounting.
@@ -150,8 +164,10 @@ export function register(deps: IpcDeps): void {
       cwd: string | null,
       cols: number,
       rows: number,
+      hostId?: string | null,
     ) => {
       const resolvedCwd = validatePtyArgs(paneId, cwd, cols, rows);
+      const requestedHostId = requestedHost(hostId);
       try {
         try {
           await backend.pty.kill(paneId);
@@ -174,7 +190,7 @@ export function register(deps: IpcDeps): void {
           try { await backend.pty.disposeDead(); } catch { /* ignore */ }
 
           const result = await backend.pty.createOrAttach(
-            paneId, resolvedCwd, cols, rows,
+            paneId, resolvedCwd, cols, rows, undefined, undefined, requestedHostId,
           );
           if (!result.snapshot) {
             return {

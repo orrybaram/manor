@@ -409,6 +409,12 @@ export interface ElectronAPI {
       cols: number,
       rows: number,
       agentKind?: string | null,
+      /**
+       * The host a new session runs on: the host of the workspace the pane
+       * belongs to. Omitted, main guesses it from `cwd` (local wins a path
+       * both hosts have). An existing session stays where it runs.
+       */
+      hostId?: string | null,
     ) => Promise<PtyCreateResult>;
     write: (paneId: string, data: string) => Promise<void>;
     /** Resolves once the pty is actually at that size, not merely told to be. */
@@ -419,6 +425,8 @@ export interface ElectronAPI {
       cwd: string | null,
       cols: number,
       rows: number,
+      /** The host the fresh session runs on; see `create`. */
+      hostId?: string | null,
     ) => Promise<{
       ok: boolean;
       snapshot?: string | null;

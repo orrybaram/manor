@@ -36,29 +36,49 @@ export function remoteHostOptions(
     .map((h) => ({ value: h.hostId, label: h.spec?.target ?? h.hostId }));
 }
 
+/** What a project needs to say which host a workspace path is on. */
+interface HostedProject {
+  id?: string;
+  path: string;
+  hostId: string;
+  workspaces: readonly { path: string }[];
+}
+
 /**
- * The remote host `workspacePath` lives on — the `hostId` of the project
- * that has it as its root or one of its workspaces — or null when it is on
- * this machine (or unknown).
+ * The host `workspacePath` lives on — the `hostId` of the project that has
+ * it as its root or one of its workspaces — or null when no project has it.
+ *
+ * A local and a remote project can have the very same path (same username,
+ * same default roots). Then `preferredProjectId`'s project wins when it has
+ * the path — the caller's own project, typically the selected one — and
+ * otherwise the first project that has it.
  */
-export function remoteHostIdForWorkspace(
-  projects: readonly {
-    path: string;
-    hostId: string;
-    workspaces: readonly { path: string }[];
-  }[],
-  workspacePath: string | undefined,
+export function hostIdForWorkspace(
+  projects: readonly HostedProject[],
+  workspacePath: string | null | undefined,
+  preferredProjectId?: string | null,
 ): string | null {
   if (!workspacePath) return null;
-  for (const project of projects) {
-    if (
-      project.path === workspacePath ||
-      project.workspaces.some((w) => w.path === workspacePath)
-    ) {
-      return project.hostId !== LOCAL_HOST_ID ? project.hostId : null;
-    }
-  }
-  return null;
+  const has = (project: HostedProject) =>
+    project.path === workspacePath ||
+    project.workspaces.some((w) => w.path === workspacePath);
+  const preferred = preferredProjectId
+    ? projects.find((p) => p.id === preferredProjectId && has(p))
+    : undefined;
+  return (preferred ?? projects.find(has))?.hostId ?? null;
+}
+
+/**
+ * The remote host `workspacePath` lives on (see `hostIdForWorkspace`), or
+ * null when it is on this machine (or unknown).
+ */
+export function remoteHostIdForWorkspace(
+  projects: readonly HostedProject[],
+  workspacePath: string | undefined,
+  preferredProjectId?: string | null,
+): string | null {
+  const hostId = hostIdForWorkspace(projects, workspacePath, preferredProjectId);
+  return isRemoteHost(hostId) ? hostId : null;
 }
 
 /**

@@ -16,7 +16,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { terminalOptions } from "../terminal/config";
 import { createFileLinkProvider } from "../terminal/file-link-provider";
 import { useAppStore, type PendingPaneCommand } from "../store/app-store";
-import { useProjectStore } from "../store/project-store";
+import { useProjectStore, workspaceHostId } from "../store/project-store";
 import { usePreferencesStore } from "../store/preferences-store";
 import { getAgentKindForCommand } from "../agent-defaults";
 import { isHomePath } from "../lib/home";
@@ -65,6 +65,8 @@ export function useTerminalLifecycle(
   cwd: string | undefined,
   theme: ITheme | null,
   onOpenSearch?: () => void,
+  /** The workspace the pane belongs to; its host is where the pane runs. */
+  workspacePath?: string,
 ) {
   const [term, setTerm] = useState<Terminal | null>(null);
   const [fitAddon, setFitAddon] = useState<FitAddon | null>(null);
@@ -74,7 +76,7 @@ export function useTerminalLifecycle(
   const resettingRef = useRef(false);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { write, requeueUndelivered, resize, create, detach } =
-    useTerminalConnection(paneId);
+    useTerminalConnection(paneId, workspacePath);
   const { attachHandler } = useTerminalHotkeys(onOpenSearch);
 
   // Subscribe to stream events (pass write so the stream handler can
@@ -509,11 +511,13 @@ export function useTerminalLifecycle(
     resettingRef.current = true;
     try {
       t.reset();
+      // A reset is a fresh session, so it goes to the workspace's host.
       const result = await window.electronAPI.pty.reset(
         paneId,
         cwd ?? null,
         t.cols,
         t.rows,
+        workspaceHostId(workspacePath ?? cwd),
       );
       if (!result.ok) {
         setPtyError(result.error ?? "Failed to create terminal session");
@@ -530,7 +534,7 @@ export function useTerminalLifecycle(
         resettingRef.current = false;
       }, 1_000);
     }
-  }, [paneId, cwd]);
+  }, [paneId, cwd, workspacePath]);
 
   return { term, fitAddon, searchAddon, ptyError, write, reset };
 }

@@ -68,7 +68,13 @@ export function LeafPane(props: LeafPaneProps) {
   // through port forwards (ADR-178 §5). Null — and a stable primitive, so
   // local-only users never re-render on it — for this machine.
   const remoteHostId = useProjectStore((s) =>
-    contentType === "browser" ? remoteHostIdForWorkspace(s.projects, workspacePath) : null,
+    contentType === "browser"
+      ? remoteHostIdForWorkspace(
+          s.projects,
+          workspacePath,
+          s.projects[s.selectedProjectIndex]?.id,
+        )
+      : null,
   );
   const recordingStartedAt = useAppStore((s) => s.paneRecordingStartedAt[paneId]);
   // Bumped when this pane's remote host comes back, to remount its terminal
@@ -652,6 +658,7 @@ export function LeafPane(props: LeafPaneProps) {
             key={reattachEpoch}
             paneId={paneId}
             cwd={paneCwd || workspacePath}
+            workspacePath={workspacePath}
           />
         )}
       </div>

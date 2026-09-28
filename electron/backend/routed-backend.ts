@@ -8,8 +8,10 @@
  * owns it, so none of them has to learn about hosts:
  *
  * - pty calls go to the host that owns the session — the one it was
- *   created on, or for a new session the host its cwd belongs to (the
- *   host of the project containing it);
+ *   created on. A new session goes to the host its caller named (the host
+ *   of the workspace its pane belongs to), or, when the caller doesn't
+ *   know, the host its cwd belongs to (the host of the project containing
+ *   it);
  * - git calls go to the host their cwd belongs to;
  * - `ports.kill` goes to the host whose last scan reported the pid;
  *   `ports.scan` is this machine's — `PortScanner` scans each host through
@@ -43,10 +45,19 @@ export type HostForPath = (path: string) => string;
 /** The hosts whose latest port scan reported a pid (`PortScanner`). */
 export type PidHosts = (pid: number) => string[];
 
-/** A `PtyBackend` whose `createOrAttach` also says which host it used. */
+/**
+ * A `PtyBackend` whose `createOrAttach` also says which host it used, and
+ * takes the host a new session should run on when the caller knows it.
+ */
 export interface RoutedPtyBackend extends PtyBackend {
+  /**
+   * `hostId` is where a NEW session is created. An existing session stays
+   * on the host that owns it, whatever `hostId` says: a pane moved to
+   * another host (ADR-183) keeps running, and reporting, where it really
+   * is. Without `hostId`, a new session goes to the host its cwd belongs to.
+   */
   createOrAttach(
-    ...args: Parameters<PtyBackend["createOrAttach"]>
+    ...args: [...Parameters<PtyBackend["createOrAttach"]>, hostId?: string]
   ): Promise<Awaited<ReturnType<PtyBackend["createOrAttach"]>> & { hostId: string }>;
 }
 
@@ -73,8 +84,12 @@ export class RoutedBackend implements WorkspaceBackend {
     const byPath = (cwd: string) => registry.get(hostForPath(cwd));
 
     this.pty = {
-      createOrAttach: async (sessionId, cwd, cols, rows, shellArgs, env) => {
-        const hostId = sessions.ownerOf(sessionId) ?? hostForPath(cwd);
+      createOrAttach: async (sessionId, cwd, cols, rows, shellArgs, env, requestedHostId) => {
+        // The owner first: an existing session is attached where it runs.
+        // Then the host the caller asked for, since a path alone can't tell
+        // two hosts with the same directory apart (local wins that tie).
+        const hostId =
+          sessions.ownerOf(sessionId) ?? requestedHostId ?? hostForPath(cwd);
         const result = await registry
           .get(hostId)
           .pty.createOrAttach(sessionId, cwd, cols, rows, shellArgs, env);

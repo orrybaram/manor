@@ -260,12 +260,6 @@ function App() {
     [selectProject, selectWorkspace],
   );
 
-  const handleDropFolder = useCallback(async (folderPath: string) => {
-    const name = folderPath.split("/").pop() || "Untitled";
-    await addProject(name, folderPath);
-    openWizardForLatestProject();
-  }, [addProject, openWizardForLatestProject]);
-
   const handleOpenSettings = useCallback((page?: SettingsPageId) => {
     setSettingsPage(page ?? null);
     setSettingsOpen(true);
@@ -723,7 +717,7 @@ function App() {
                     {wizardStillValid && wizardProjectId
                       ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
                       : showProjectsOverview
-                      ? <ProjectsOverview onAddLocal={handleAddLocalProject} onAddRemote={handleCloneRepository} onDropFolder={handleDropFolder} />
+                      ? <ProjectsOverview onAddLocal={handleAddLocalProject} onClone={handleCloneRepository} />
                       : !hasTabs &&
                         (isHomePath(activeWorkspacePath)
                           ? (

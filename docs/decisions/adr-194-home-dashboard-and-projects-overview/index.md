@@ -139,11 +139,12 @@ branch.
 
   Clicking a card selects the project and its selected workspace. The card
   data comes from a pure `projectCardSummary()` in `home-dashboard.ts`.
-- **Add a project:** section rows in the same style as the Home launchers:
+- **Add a project:** a dashed card at the end of the card grid, the same
+  size as a project card, with rows in the style of the Home launchers:
   - **"Open a folder"** → `handleAddLocalProject` (directory picker directly)
-  - **"Clone onto a remote host"** → `AddProjectDialog` with a new
-    `initialMode="remote"` prop
-  - a **drop zone** → `handleDropFolder`
+  - **"Clone from a repo"** → `AddProjectDialog` opened on its clone tab
+    (`initialMode="clone"`), which covers this machine and remote hosts
+  - no drop zone
 
 ### 3. Onboarding consolidates into the overview
 

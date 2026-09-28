@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useState, type DragEvent } from "react";
+import { useCallback, useMemo } from "react";
 import FolderPlus from "lucide-react/dist/esm/icons/folder-plus";
-import Server from "lucide-react/dist/esm/icons/server";
+import FolderGit2 from "lucide-react/dist/esm/icons/folder-git-2";
 import { ManorLogo } from "../ui/ManorLogo";
 import { Button } from "../ui/Button/Button";
 import { useProjectStore, type ProjectInfo } from "../../store/project-store";
@@ -17,10 +17,8 @@ import styles from "./ProjectsOverview.module.css";
 export interface ProjectsOverviewProps {
   /** "Open a folder": the directory picker, straight away. */
   onAddLocal: () => void;
-  /** "Clone a repository": `AddProjectDialog` in remote mode. */
-  onAddRemote: () => void;
-  /** A folder dropped on the drop zone. */
-  onDropFolder: (folderPath: string) => void;
+  /** "Clone from a repo": `AddProjectDialog` on its clone tab. */
+  onClone: () => void;
 }
 
 /** The project a card opens: the entry itself, or a group's `lastUsedHostId` member. */
@@ -40,10 +38,10 @@ function plural(n: number, word: string): string {
  * The Projects overview (ADR-194 §2–§3): an app-level surface shown from the
  * sidebar's Projects row, over whatever workspace is active — and, with zero
  * projects, the onboarding screen. One card per top-level sidebar entry, then
- * the "Add a project" section.
+ * the "Add a project" card.
  */
 export function ProjectsOverview(props: ProjectsOverviewProps) {
-  const { onAddLocal, onAddRemote, onDropFolder } = props;
+  const { onAddLocal, onClone } = props;
 
   const projects = useProjectStore((s) => s.projects);
   const selectProject = useProjectStore((s) => s.selectProject);
@@ -86,36 +84,6 @@ export function ProjectsOverview(props: ProjectsOverviewProps) {
     [selectProject, selectWorkspace],
   );
 
-  const [dragging, setDragging] = useState(false);
-
-  const handleDragOver = useCallback((e: DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragging(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e: DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragging(false);
-  }, []);
-
-  const handleDrop = useCallback(
-    (e: DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setDragging(false);
-      // A dropped folder shows up as a File with no type and no size.
-      const folder = Array.from(e.dataTransfer.files).find(
-        (f) => f.type === "" && f.size === 0,
-      );
-      // Electron exposes the real path on the File object.
-      const folderPath = (folder as (File & { path?: string }) | undefined)?.path;
-      if (folderPath) onDropFolder(folderPath);
-    },
-    [onDropFolder],
-  );
-
   const empty = cards.length === 0;
 
   return (
@@ -137,45 +105,34 @@ export function ProjectsOverview(props: ProjectsOverviewProps) {
               : `${plural(cards.length, "project")} · ${plural(hostCount, "host")}`}
           </span>
         </div>
-        {!empty && (
-          <div className={styles.cards}>
-            {cards.map(({ entry, summary }) => (
-              <ProjectCard key={summary.key} summary={summary} onOpen={() => openEntry(entry)} />
-            ))}
-          </div>
-        )}
-        <div className={shared.section}>
-          <div className={shared.sectionHeader}>Add a project</div>
-          <Button
-            variant="ghost"
-            className={`${shared.action} ${styles.row}`}
-            onClick={onAddLocal}
-            data-testid="import-project-button"
-          >
-            <span className={shared.actionIcon}>
-              <FolderPlus size={16} />
-            </span>
-            <span className={shared.actionLabel}>Open a folder</span>
-          </Button>
-          <Button
-            variant="ghost"
-            className={`${shared.action} ${styles.row}`}
-            onClick={onAddRemote}
-            data-testid="add-remote-project-button"
-          >
-            <span className={shared.actionIcon}>
-              <Server size={16} />
-            </span>
-            <span className={shared.actionLabel}>Clone a repository</span>
-          </Button>
-          <div
-            className={`${styles.dropZone} ${dragging ? styles.dragging : ""}`}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            data-testid="project-drop-zone"
-          >
-            or drop a folder here
+        <div className={`${styles.cards} ${empty ? styles.cardsSingle : ""}`}>
+          {cards.map(({ entry, summary }) => (
+            <ProjectCard key={summary.key} summary={summary} onOpen={() => openEntry(entry)} />
+          ))}
+          <div className={styles.addCard} data-testid="add-project-card">
+            <span className={styles.addCardTitle}>Add a project</span>
+            <Button
+              variant="ghost"
+              className={`${shared.action} ${styles.row}`}
+              onClick={onAddLocal}
+              data-testid="import-project-button"
+            >
+              <span className={shared.actionIcon}>
+                <FolderPlus size={16} />
+              </span>
+              <span className={shared.actionLabel}>Open a folder</span>
+            </Button>
+            <Button
+              variant="ghost"
+              className={`${shared.action} ${styles.row}`}
+              onClick={onClone}
+              data-testid="add-remote-project-button"
+            >
+              <span className={shared.actionIcon}>
+                <FolderGit2 size={16} />
+              </span>
+              <span className={shared.actionLabel}>Clone from a repo</span>
+            </Button>
           </div>
         </div>
       </div>

@@ -204,7 +204,31 @@
   background: var(--cyan);
 }
 
+/* Zero projects: the add card alone fills the onboarding column. */
+.cardsSingle {
+  grid-template-columns: 1fr;
+}
+
 /* ── Add a project ── */
+
+/* Sits in the card grid, so it takes a project card's width and its row's
+   height; dashed so it reads as an action, not a project. */
+.addCard {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 14px 8px 8px;
+  border-radius: 8px;
+  border: 1px dashed var(--border);
+}
+
+.addCardTitle {
+  padding: 0 6px 6px;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text-selected);
+}
 
 /* Home-launcher row look (EmptyState.module.css `.action`) on a <Button>;
    doubled class outranks the ghost variant's padding / colours. */
@@ -213,28 +237,11 @@
   width: 100%;
   padding: 6px;
   border-radius: 8px;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-primary);
 }
 
 .row.row:hover:not(:disabled) {
   background: var(--hover);
   color: var(--text-selected);
-}
-
-.dropZone {
-  margin: 4px 6px 0;
-  padding: 14px;
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-  text-align: center;
-  font-size: 12.5px;
-  color: var(--text-dim);
-  transition: border-color 0.15s, background 0.15s;
-  -webkit-app-region: no-drag;
-}
-
-.dropZone.dragging {
-  border-color: var(--accent);
-  background: var(--surface);
 }

@@ -93,6 +93,14 @@
   flex-shrink: 0;
 }
 
+/* ── this machine ── */
+
+.local {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 /* ── banner ── */
 
 .banner {

@@ -1,5 +1,6 @@
 import Cloud from "lucide-react/dist/esm/icons/cloud";
 import CloudOff from "lucide-react/dist/esm/icons/cloud-off";
+import Laptop from "lucide-react/dist/esm/icons/laptop";
 import { useHostStore } from "../../store/host-store";
 import { useHostDisplay } from "../../hooks/useHostDisplay";
 import type { HostDisplay } from "../../lib/host-status";
@@ -45,6 +46,20 @@ export function HostIndicator(props: HostIndicatorProps) {
   if (variant === "chip") return <HostChip {...common} />;
   if (variant === "label") return <HostLabel {...common} />;
   return <HostBanner {...common} />;
+}
+
+/**
+ * This machine's counterpart to a remote host's chip, where a list shows
+ * every host of a linked group (ADR-192): the sidebar's host sections and
+ * the New Workspace host picker.
+ */
+export function LocalHostLabel() {
+  return (
+    <span className={styles.local} data-testid="local-host-label">
+      <Laptop size={11} aria-hidden />
+      This machine
+    </span>
+  );
 }
 
 type VariantProps = {

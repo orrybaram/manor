@@ -427,6 +427,17 @@ export interface ProjectGroupInfo {
   lastUsedHostId: string | null;
 }
 
+/** The optional parts of `createWorktree`, named so callers skip what they don't use. */
+export interface CreateWorktreeOptions {
+  /** Run in the new workspace once it (and any setup script) is ready. */
+  agentCommand?: string;
+  linkedIssue?: LinkedIssue;
+  /** What a new branch starts from; the default branch when omitted. */
+  baseBranch?: string;
+  /** Check out `branch` as it is instead of creating it. */
+  useExistingBranch?: boolean;
+}
+
 export type SetupStep = "prune" | "fetch" | "create-worktree" | "persist" | "switch" | "setup-script";
 export type StepStatus = "pending" | "in-progress" | "done" | "error";
 export type SetupProgressEvent = { step: SetupStep; status: StepStatus; message?: string };
@@ -498,10 +509,7 @@ interface ProjectState {
     projectId: string,
     name: string,
     branch?: string,
-    agentCommand?: string,
-    linkedIssue?: LinkedIssue,
-    baseBranch?: string,
-    useExistingBranch?: boolean,
+    options?: CreateWorktreeOptions,
   ) => Promise<string | null>;
   removeWorktree: (
     projectId: string,
@@ -814,11 +822,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     projectId: string,
     name: string,
     branch?: string,
-    agentCommand?: string,
-    linkedIssue?: LinkedIssue,
-    baseBranch?: string,
-    useExistingBranch?: boolean,
+    options: CreateWorktreeOptions = {},
   ) => {
+    const { agentCommand, linkedIssue, baseBranch, useExistingBranch } = options;
     const project = get().projects.find((p) => p.id === projectId);
     const startScript = project?.worktreeStartScript ?? null;
 
@@ -1096,9 +1102,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   setGroupLastUsedHost: async (groupId: string, hostId: string) => {
-    const isCurrent = (p: ProjectInfo) =>
+    const alreadyRecorded = (p: ProjectInfo) =>
       p.group?.id !== groupId || p.group.lastUsedHostId === hostId;
-    if (get().projects.every(isCurrent)) return;
+    if (get().projects.every(alreadyRecorded)) return;
     try {
       await window.electronAPI.projects.setGroupLastUsedHost(groupId, hostId);
     } catch {
@@ -1107,7 +1113,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
     set((s) => ({
       projects: s.projects.map((p) =>
-        isCurrent(p) ? p : { ...p, group: { ...p.group!, lastUsedHostId: hostId } },
+        alreadyRecorded(p) || !p.group ? p : { ...p, group: { ...p.group, lastUsedHostId: hostId } },
       ),
     }));
   },

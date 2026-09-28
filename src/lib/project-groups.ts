@@ -60,6 +60,11 @@ export function splitShared<U extends object>(
   };
 }
 
+/** The one wording for "no member of this group is on that host". */
+export function noMemberOnHostMessage(groupName: string, hostLabel: string): string {
+  return `"${groupName}" has no project on ${hostLabel}.`;
+}
+
 /** The one wording for "a group can't take a second project on this host". */
 export function hostTakenMessage(
   groupName: string,

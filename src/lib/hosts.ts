@@ -27,6 +27,18 @@ export function isRemoteHost(hostId: string | null | undefined): boolean {
 }
 
 /**
+ * How a host is named in a sentence: its ssh target, or "this machine".
+ * A remote host main hasn't reported yet is named by its id.
+ */
+export function hostLabel(
+  hostId: string,
+  hosts: readonly { hostId: string; spec?: { target?: string } | null }[],
+): string {
+  if (!isRemoteHost(hostId)) return "this machine";
+  return hosts.find((h) => h.hostId === hostId)?.spec?.target ?? hostId;
+}
+
+/**
  * `{ value, label }` options for every remote host, for the searchable
  * selects in `AddProjectDialog` and `ProjectHostSection` (ADR-183 ticket 10).
  */

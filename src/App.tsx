@@ -755,15 +755,12 @@ function App() {
                 .replace(/!/g, "\\!");
               agentCommand = `${baseCommand} "${escaped}"`;
             }
-            const result = await createWorktree(
-              projectId,
-              name,
-              branch,
+            const result = await createWorktree(projectId, name, branch, {
               agentCommand,
-              pendingLinkedIssueRef.current ?? undefined,
+              linkedIssue: pendingLinkedIssueRef.current ?? undefined,
               baseBranch,
               useExistingBranch,
-            );
+            });
             if (result) {
               if (folderId) {
                 await placeNewWorkspaceInFolder(projectId, result, folderId);

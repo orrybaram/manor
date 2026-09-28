@@ -12,10 +12,10 @@ import Check from "lucide-react/dist/esm/icons/check";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import FolderGit2 from "lucide-react/dist/esm/icons/folder-git-2";
-import Laptop from "lucide-react/dist/esm/icons/laptop";
 import {
   collapsedFolderIdsOf,
   useProjectStore,
+  type CreateWorktreeOptions,
   type ProjectInfo,
   type WorkspaceInfo,
 } from "../../store/project-store";
@@ -55,7 +55,7 @@ import { ProjectChevron } from "./ProjectChevron";
 import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
-import { HostIndicator } from "../hosts/HostIndicator";
+import { HostIndicator, LocalHostLabel } from "../hosts/HostIndicator";
 import { isRemoteHost } from "../../lib/hosts";
 import { useHostStore, selectHost } from "../../store/host-store";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
@@ -303,8 +303,7 @@ type ProjectItemProps = {
     projectId: string,
     name: string,
     branch: string,
-    baseBranch?: string,
-    useExistingBranch?: boolean,
+    options: Pick<CreateWorktreeOptions, "baseBranch" | "useExistingBranch">,
   ) => Promise<string | null>;
   onOpenSettings?: () => void;
   onDragStart?: (e: ReactPointerEvent) => void;
@@ -1117,10 +1116,7 @@ export function ProjectItem(props: ProjectItemProps) {
                     projectId={project.id}
                   />
                 ) : (
-                  <span className={styles.sectionLocal}>
-                    <Laptop size={11} aria-hidden />
-                    This machine
-                  </span>
+                  <LocalHostLabel />
                 )}
               </span>
             ) : (
@@ -1272,13 +1268,10 @@ export function ProjectItem(props: ProjectItemProps) {
         preferredMemberId={isSection ? project.id : null}
         initialFolderId={newWorkspaceFolderId}
         onSubmit={async (createInId, name, branch, baseBranch, useExistingBranch, folderId) => {
-          const result = await onCreateWorktree(
-            createInId,
-            name,
-            branch,
+          const result = await onCreateWorktree(createInId, name, branch, {
             baseBranch,
             useExistingBranch,
-          );
+          });
           if (result) {
             setNewWorkspaceOpen(false);
             setNewWorkspaceFolderId(null);

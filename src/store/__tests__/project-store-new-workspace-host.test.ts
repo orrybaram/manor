@@ -2,11 +2,20 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useAppStore } from "../app-store";
 import { useHostStore, type HostStatusInfo } from "../host-store";
 import { useProjectStore, type ProjectGroupInfo, type ProjectInfo } from "../project-store";
-import { defaultHostChoice, workspaceHostChoices } from "../../lib/workspace-host-choices";
+import { hostLabel } from "../../lib/hosts";
+import {
+  checkBranchOnHost,
+  projectForSelectValue,
+  projectSelectOptions,
+  reseedBaseBranch,
+} from "../../lib/new-workspace";
+import { startingMemberId, workspaceHostChoices } from "../../lib/workspace-host-choices";
 
-// The New Workspace host picker for a linked group (ADR-192 ticket 3): which
-// member a workspace is created in, the remembered last-used host, and a
-// disconnected host shown but not choosable.
+// The New Workspace dialog for a linked group (ADR-192 ticket 3): which
+// member a workspace is created in, the remembered last-used host, a
+// disconnected host shown but not choosable, the base branch after a host
+// change, and the "push it first" gate. Each decision is read off the store
+// the way the dialog reads it.
 
 const api = {
   createWorktree: vi.fn(),
@@ -31,6 +40,7 @@ function project(
   hostId: string,
   groupInfo: ProjectGroupInfo | null,
   extraWorkspaces: string[] = [],
+  defaultBranch = "main",
 ): ProjectInfo {
   const ws = (path: string, isMain: boolean) => ({
     path,
@@ -43,7 +53,7 @@ function project(
     name: id,
     path: `/code/${id}`,
     hostId,
-    defaultBranch: "main",
+    defaultBranch,
     workspaces: [ws(`/code/${id}`, true), ...extraWorkspaces.map((p) => ws(p, false))],
     selectedWorkspaceIndex: 0,
     defaultRunCommand: null,
@@ -63,12 +73,20 @@ function project(
   };
 }
 
+/** `local-app` (on `main`) and `box-app` (on `master`), linked unless `grouped` is false. */
 function seed(lastUsedHostId: string | null, grouped = true): void {
   const g = grouped ? group(lastUsedHostId) : null;
   useProjectStore.setState({
-    projects: [project("local-app", "local", g), project("box-app", "box", g)],
+    projects: [
+      project("local-app", "local", g),
+      project("box-app", "box", g, [], "master"),
+    ],
     selectedProjectIndex: 0,
   });
+}
+
+function member(id: string): ProjectInfo {
+  return useProjectStore.getState().projects.find((p) => p.id === id)!;
 }
 
 function setBox(status: HostStatusInfo["status"]): void {
@@ -84,10 +102,28 @@ function pickerFor(projectId: string) {
   return workspaceHostChoices(opened, projects, useHostStore.getState().hosts);
 }
 
+/** The member the dialog starts on, opened for `projectId`. */
 function startingMember(projectId: string, preferred?: string): string {
-  const choices = pickerFor(projectId)!;
-  const opened = useProjectStore.getState().projects.find((p) => p.id === projectId)!;
-  return defaultHostChoice(choices, opened.group!.lastUsedHostId, projectId, preferred);
+  const { projects } = useProjectStore.getState();
+  return startingMemberId(projectId, projects, useHostStore.getState().hosts, preferred);
+}
+
+/** The dialog's branch gate for `memberId`, with that host's branch lists. */
+function branchGate(
+  memberId: string,
+  mode: "new" | "existing",
+  branch: string,
+  lists: { local?: string[]; remote?: string[] },
+) {
+  const chosen = member(memberId);
+  return checkBranchOnHost({
+    mode,
+    branch,
+    defaultBranch: chosen.defaultBranch,
+    localBranches: lists.local,
+    remoteBranches: lists.remote,
+    hostName: hostLabel(chosen.hostId, useHostStore.getState().hosts),
+  });
 }
 
 describe("New Workspace host picker", () => {
@@ -121,7 +157,7 @@ describe("New Workspace host picker", () => {
 
     const wsPath = await useProjectStore
       .getState()
-      .createWorktree(chosen.projectId, "feat", "feat", undefined, undefined, "main");
+      .createWorktree(chosen.projectId, "feat", "feat", { baseBranch: "main" });
 
     expect(wsPath).toBe("/code/box-app/feat");
     expect(api.createWorktree).toHaveBeenCalledWith(
@@ -185,5 +221,72 @@ describe("New Workspace host picker", () => {
     await useProjectStore.getState().setGroupLastUsedHost("g1", "box");
 
     expect(startingMember("local-app")).toBe("local-app");
+  });
+
+  it("lists a linked group once in the project select, and picks its member from there", () => {
+    seed("box");
+    useProjectStore.setState((st) => ({
+      projects: [...st.projects, project("other", "local", null)],
+    }));
+    const { projects } = useProjectStore.getState();
+
+    expect(projectSelectOptions(projects)).toEqual([
+      { value: "group:g1", label: "App" },
+      { value: "project:other", label: "other" },
+    ]);
+    const opened = projectForSelectValue("group:g1", projects)!;
+    expect(startingMember(opened)).toBe("box-app");
+    expect(projectForSelectValue("project:other", projects)).toBe("other");
+    // A bare id is neither kind of value.
+    expect(projectForSelectValue("g1", projects)).toBeUndefined();
+  });
+
+  it("reseeds the base branch from the chosen member unless the user picked one", () => {
+    seed("local");
+
+    expect(reseedBaseBranch("main", false, member("box-app"))).toBe("master");
+    expect(reseedBaseBranch("origin/feat", true, member("box-app"))).toBe("origin/feat");
+  });
+
+  it("doesn't flag the chosen host's own default branch after a host change", () => {
+    seed("local");
+    const base = reseedBaseBranch("main", false, member("box-app"));
+
+    expect(branchGate("box-app", "new", base, { local: ["master"], remote: ["master"] })).toEqual({
+      state: "ok",
+    });
+  });
+
+  it("says a branch the chosen host doesn't have must be pushed first", () => {
+    seed("local");
+
+    const gate = branchGate("box-app", "existing", "feat", {
+      local: ["master"],
+      remote: ["master", "other"],
+    });
+
+    expect(gate).toEqual({
+      state: "missing",
+      message: `"feat" isn't on me@box. Push it to origin first, then create the workspace there.`,
+    });
+    expect(
+      branchGate("box-app", "new", "origin/feat", { local: [], remote: ["feat"] }).state,
+    ).toBe("ok");
+  });
+
+  it("holds Create until the chosen host's branch lists load, except for the default base", () => {
+    seed("local");
+
+    expect(branchGate("box-app", "new", "origin/feat", {}).state).toBe("pending");
+    expect(branchGate("box-app", "existing", "feat", { local: ["feat"] }).state).toBe("pending");
+    expect(branchGate("box-app", "new", "origin/master", {}).state).toBe("ok");
+  });
+
+  it("with no remote branches, only a new branch on the default base passes", () => {
+    seed("local");
+    const empty = { local: ["master"], remote: [] };
+
+    expect(branchGate("box-app", "new", "master", empty).state).toBe("ok");
+    expect(branchGate("box-app", "new", "origin/feat", empty).state).toBe("missing");
   });
 });

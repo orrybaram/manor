@@ -16,7 +16,11 @@
  */
 
 import crypto from "node:crypto";
-import { hostTakenMessage, memberOnHost } from "../../src/lib/project-groups";
+import {
+  hostTakenMessage,
+  memberOnHost,
+  noMemberOnHostMessage,
+} from "../../src/lib/project-groups";
 import { isLinearAssociation } from "../ipc-validate";
 import type { ProjectContext } from "./context";
 import type {
@@ -271,7 +275,7 @@ export function setGroupLastUsedHost(
   if (!group) throw new Error(`Unknown project group "${groupId}".`);
   if (group.lastUsedHostId === hostId) return;
   if (memberOnHost(group.memberIds, hostId, (id) => ctx.find(id)?.hostId) === undefined) {
-    throw new Error(`"${group.name}" has no project on ${ctx.hosts.label(hostId)}.`);
+    throw new Error(noMemberOnHostMessage(group.name, ctx.hosts.label(hostId)));
   }
   group.lastUsedHostId = hostId;
   ctx.store.save();

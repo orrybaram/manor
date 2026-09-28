@@ -2,7 +2,7 @@
  * The New Workspace dialog's host picker for a linked-project group
  * (ADR-192): one choice per member, each naming the member project a new
  * workspace would be created in. DOM-free, so the project-store tests drive
- * it directly.
+ * it directly. The rest of the dialog's decisions are in `new-workspace.ts`.
  */
 
 import type { HostStatusInfo } from "../store/host-store";
@@ -22,12 +22,6 @@ export interface WorkspaceHostChoice {
   hostId: string;
   /** Why no workspace can be created on this host now; null when it can. */
   disabledReason: string | null;
-}
-
-/** How a host is named in picker messages: its ssh target, or "this machine". */
-export function hostLabel(hostId: string, hosts: readonly HostStatusInfo[]): string {
-  if (!isRemoteHost(hostId)) return "this machine";
-  return hosts.find((h) => h.hostId === hostId)?.spec?.target ?? hostId;
 }
 
 /**
@@ -68,7 +62,7 @@ export function workspaceHostChoices(
  * offline it falls back to the last-used member, so the picker still shows
  * a selection and create explains why it can't go ahead.
  */
-export function defaultHostChoice(
+function defaultHostChoice(
   choices: readonly WorkspaceHostChoice[],
   lastUsedHostId: string | null,
   openedForProjectId: string,
@@ -86,7 +80,18 @@ export function defaultHostChoice(
   return candidates.find((c) => c !== undefined)?.projectId ?? openedForProjectId;
 }
 
-/** Why a branch can't be used on `label`'s host: it has to be pushed first. */
-export function branchNotOnHostMessage(branch: string, label: string): string {
-  return `"${branch}" isn't on ${label}. Push it to origin first, then create the workspace there.`;
+/**
+ * The member the dialog starts on when opened for `openedForId`, or
+ * `openedForId` itself when it isn't linked. See `defaultHostChoice`.
+ */
+export function startingMemberId(
+  openedForId: string,
+  projects: readonly GroupedProject[],
+  hosts: readonly HostStatusInfo[],
+  preferredMemberId?: string | null,
+): string {
+  const project = projects.find((p) => p.id === openedForId);
+  const choices = workspaceHostChoices(project, projects, hosts);
+  if (!choices || !project?.group) return openedForId;
+  return defaultHostChoice(choices, project.group.lastUsedHostId, openedForId, preferredMemberId);
 }

@@ -4,7 +4,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
 import { ProjectManager } from "./project-manager";
-import { normalizeOriginUrl, validateRemoteDir, validateRepoUrl } from "./remote-clone";
+import { normalizeOriginUrl, resolveCloneDir, validateRemoteDir, validateRepoUrl } from "./remote-clone";
 import type { GitBackend, ShellBackend } from "../backend/types";
 import { hostsOf } from "./test-fakes";
 
@@ -89,7 +89,33 @@ describe("normalizeOriginUrl (ADR-178 ticket 5 review)", () => {
   });
 });
 
-describe("ProjectManager.addRemoteProject (ADR-178 ticket 5)", () => {
+describe("resolveCloneDir (ADR-194)", () => {
+  const home = async () => "/home/me";
+  const join = (...parts: string[]) => path.posix.join(...parts);
+
+  it("uses the strict rule for a remote host", async () => {
+    await expect(resolveCloneDir(false, "~/my code", home, join)).rejects.toThrow(/Remote directory/);
+    await expect(resolveCloneDir(false, "~/code/app", home, join)).resolves.toBe("/home/me/code/app");
+  });
+
+  it("expands ~ and trims for the local host", async () => {
+    await expect(resolveCloneDir(true, "  ~/my code/app ", home, join)).resolves.toBe(
+      "/home/me/my code/app",
+    );
+    await expect(resolveCloneDir(true, "~", home, join)).resolves.toBe("/home/me");
+    await expect(resolveCloneDir(true, "/srv/app", home, join)).resolves.toBe("/srv/app");
+  });
+
+  it.each(["relative/path", "-oFoo", "", "~user/x"])("rejects %j locally", async (dir) => {
+    await expect(resolveCloneDir(true, dir, home, join)).rejects.toThrow();
+  });
+
+  it("rejects a local target that resolves to /", async () => {
+    await expect(resolveCloneDir(true, "/", home, join)).rejects.toThrow(/other than "\/"/);
+  });
+});
+
+describe("ProjectManager.cloneProject (ADR-178 ticket 5)", () => {
   let tmpDir: string;
 
   beforeEach(() => {
@@ -173,16 +199,30 @@ describe("ProjectManager.addRemoteProject (ADR-178 ticket 5)", () => {
     } as unknown as ShellBackend;
   }
 
-  it("rejects a project on the local host", async () => {
+  it("clones onto the local host too (ADR-194)", async () => {
+    const git = fakeGit();
+    const mgr = new ProjectManager(hostsOf(git, fakeShell("/home/u")), tmpDir);
+    const project = await mgr.cloneProject({
+      hostId: "local",
+      repoUrl: "https://github.com/org/repo.git",
+      targetDir: "~/my code/app",
+      name: "App",
+    });
+    const expected = path.join(os.homedir(), "my code/app");
+    expect(git.cloneCalls[0][1]).toBe(expected);
+    expect(project.path).toBe(expected);
+  });
+
+  it("rejects an unknown host", async () => {
     const mgr = new ProjectManager(hostsOf(fakeGit(), fakeShell("/home/u")), tmpDir);
     await expect(
-      mgr.addRemoteProject({
-        hostId: "local",
+      mgr.cloneProject({
+        hostId: "nope",
         repoUrl: "https://github.com/org/repo.git",
-        remoteDir: "/srv/app",
+        targetDir: "/srv/app",
         name: "App",
       }),
-    ).rejects.toThrow(/remote host/);
+    ).rejects.toThrow(/Unknown host/);
   });
 
   it("rejects an invalid repo URL before touching the host", async () => {
@@ -190,10 +230,10 @@ describe("ProjectManager.addRemoteProject (ADR-178 ticket 5)", () => {
     const mgr = new ProjectManager(hostsOf(git, fakeShell("/home/u")), tmpDir);
     mgr.saveHost("box", { kind: "ssh", target: "me@box" });
     await expect(
-      mgr.addRemoteProject({
+      mgr.cloneProject({
         hostId: "box",
         repoUrl: "not a url",
-        remoteDir: "/srv/app",
+        targetDir: "/srv/app",
         name: "App",
       }),
     ).rejects.toThrow(/Repo URL/);
@@ -205,10 +245,10 @@ describe("ProjectManager.addRemoteProject (ADR-178 ticket 5)", () => {
     const mgr = new ProjectManager(hostsOf(git, fakeShell("/home/u")), tmpDir);
     mgr.saveHost("box", { kind: "ssh", target: "me@box" });
     await expect(
-      mgr.addRemoteProject({
+      mgr.cloneProject({
         hostId: "box",
         repoUrl: "https://github.com/org/repo.git",
-        remoteDir: "relative/path",
+        targetDir: "relative/path",
         name: "App",
       }),
     ).rejects.toThrow(/Remote directory/);
@@ -221,10 +261,10 @@ describe("ProjectManager.addRemoteProject (ADR-178 ticket 5)", () => {
     const mgr = new ProjectManager(hostsOf(git, shell), tmpDir);
     mgr.saveHost("box", { kind: "ssh", target: "me@box" });
 
-    const project = await mgr.addRemoteProject({
+    const project = await mgr.cloneProject({
       hostId: "box",
       repoUrl: "https://github.com/org/repo.git",
-      remoteDir: "~/code/repo",
+      targetDir: "~/code/repo",
       name: "Repo",
     });
 
@@ -244,10 +284,10 @@ describe("ProjectManager.addRemoteProject (ADR-178 ticket 5)", () => {
     mgr.saveHost("box", { kind: "ssh", target: "me@box" });
 
     await expect(
-      mgr.addRemoteProject({
+      mgr.cloneProject({
         hostId: "box",
         repoUrl: "https://github.com/org/repo.git",
-        remoteDir: "/srv/app",
+        targetDir: "/srv/app",
         name: "App",
       }),
     ).rejects.toThrow(/already exists and is not empty/);
@@ -262,10 +302,10 @@ describe("ProjectManager.addRemoteProject (ADR-178 ticket 5)", () => {
     const mgr = new ProjectManager(hostsOf(git, shell), tmpDir);
     mgr.saveHost("box", { kind: "ssh", target: "me@box" });
 
-    const project = await mgr.addRemoteProject({
+    const project = await mgr.cloneProject({
       hostId: "box",
       repoUrl: "https://github.com/org/repo.git",
-      remoteDir: "/srv/app",
+      targetDir: "/srv/app",
       name: "App",
     });
 
@@ -282,10 +322,10 @@ describe("ProjectManager.addRemoteProject (ADR-178 ticket 5)", () => {
     const mgr = new ProjectManager(hostsOf(git, shell), tmpDir);
     mgr.saveHost("box", { kind: "ssh", target: "me@box" });
 
-    const project = await mgr.addRemoteProject({
+    const project = await mgr.cloneProject({
       hostId: "box",
       repoUrl: "https://github.com/org/repo.git",
-      remoteDir: "/srv/app",
+      targetDir: "/srv/app",
       name: "App",
     });
 
@@ -301,16 +341,16 @@ describe("ProjectManager.addRemoteProject (ADR-178 ticket 5)", () => {
     const mgr = new ProjectManager(hostsOf(git, shell), tmpDir);
     mgr.saveHost("box", { kind: "ssh", target: "me@box" });
 
-    const first = await mgr.addRemoteProject({
+    const first = await mgr.cloneProject({
       hostId: "box",
       repoUrl: "https://github.com/org/repo.git",
-      remoteDir: "/srv/app",
+      targetDir: "/srv/app",
       name: "App",
     });
-    const second = await mgr.addRemoteProject({
+    const second = await mgr.cloneProject({
       hostId: "box",
       repoUrl: "https://github.com/org/repo.git",
-      remoteDir: "/srv/app",
+      targetDir: "/srv/app",
       name: "App",
     });
 
@@ -325,10 +365,10 @@ describe("ProjectManager.addRemoteProject (ADR-178 ticket 5)", () => {
     const mgr = new ProjectManager(hostsOf(git, shell), tmpDir);
     mgr.saveHost("box", { kind: "ssh", target: "me@box" });
 
-    await mgr.addRemoteProject({
+    await mgr.cloneProject({
       hostId: "box",
       repoUrl: "https://github.com/org/repo.git",
-      remoteDir: "/srv/app",
+      targetDir: "/srv/app",
       name: "App",
     });
 
@@ -342,10 +382,10 @@ describe("ProjectManager.addRemoteProject (ADR-178 ticket 5)", () => {
     mgr.saveHost("box", { kind: "ssh", target: "me@box" });
 
     await expect(
-      mgr.addRemoteProject({
+      mgr.cloneProject({
         hostId: "box",
         repoUrl: "https://github.com/org/repo.git",
-        remoteDir: "/srv/app",
+        targetDir: "/srv/app",
         name: "App",
       }),
     ).rejects.toThrow(/could not read from remote/);

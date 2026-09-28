@@ -10,6 +10,7 @@ import {
 import { killCounters } from "../stats-signals";
 import { cleanAgentTitle } from "../title-utils";
 import { agentHostId, type AgentInfo } from "../agent-persistence";
+import { paneContextBackfill } from "../agent-status/effects";
 import { LOCAL_HOST_ID } from "../backend/types";
 import type { IpcDeps } from "./types";
 
@@ -181,6 +182,12 @@ export function register(deps: IpcDeps): void {
       assertString(context.projectName, "projectName");
       assertString(context.workspacePath, "workspacePath");
       paneContextMap.set(paneId, context);
+      // An Agent created before this call (a live session's hooks after a
+      // restart) has no project; fill it in now that the pane's is known.
+      const agent = agentManager.getAgentByPaneId(paneId);
+      const backfill = agent ? paneContextBackfill(agent, context) : null;
+      const updated = agent && backfill ? agentManager.updateAgent(agent.id, backfill) : null;
+      if (updated) sendAgentUpdate(deps.mainWindow, updated, preferencesManager);
     },
   );
 

@@ -8,6 +8,7 @@ import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Columns2 from "lucide-react/dist/esm/icons/columns-2";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import FolderPlus from "lucide-react/dist/esm/icons/folder-plus";
+import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import Keyboard from "lucide-react/dist/esm/icons/keyboard";
@@ -426,6 +427,17 @@ export function useCommands({
         action: () => {
           onClose();
           void useProjectStore.getState().addProjectFromDirectory();
+        },
+      },
+      {
+        id: "clone-repository",
+        label: "Clone Repository…",
+        icon: <GitBranch size={14} />,
+        keywords: ["clone", "git", "github", "repo", "repository", "project", "new", "add"],
+        action: () => {
+          onClose();
+          // The Add Project dialog is `App` state; ask it over the UI bus.
+          requestUi({ type: "clone-repository" });
         },
       },
       {

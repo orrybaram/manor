@@ -24,7 +24,7 @@ vi.mock("../link-suggestions", () => ({
 const api = {
   getAll: vi.fn(),
   getSelectedIndex: vi.fn(async () => 0),
-  addRemote: vi.fn(),
+  clone: vi.fn(),
   link: vi.fn(),
   select: vi.fn(),
   selectWorkspace: vi.fn(),
@@ -155,7 +155,7 @@ describe("Clone onto another host", () => {
   it("links a successful clone into the group, and the dialog moves to it", async () => {
     const before = seed();
     const cloned = project("cloud-app", "cloud", null);
-    api.addRemote.mockResolvedValue(cloned);
+    api.clone.mockResolvedValue(cloned);
     api.link.mockResolvedValue(THREE);
     api.getAll.mockResolvedValue([
       ...before.map((p) => ({ ...p, group: THREE })),
@@ -164,7 +164,12 @@ describe("Clone onto another host", () => {
 
     const result = await useProjectStore.getState().cloneIntoGroup("local-app", OPTS);
 
-    expect(api.addRemote).toHaveBeenCalledWith({ ...OPTS, name: "local-app" });
+    expect(api.clone).toHaveBeenCalledWith({
+      hostId: OPTS.hostId,
+      repoUrl: OPTS.repoUrl,
+      targetDir: OPTS.remoteDir,
+      name: "local-app",
+    });
     expect(api.link).toHaveBeenCalledWith("cloud-app", "local-app");
     // Any open suggestion naming either side is stale now.
     expect(clearLinkSuggestionsFor).toHaveBeenCalledWith(["cloud-app", "local-app"]);
@@ -183,7 +188,7 @@ describe("Clone onto another host", () => {
 
   it("leaves the group unchanged when the clone fails", async () => {
     const before = seed();
-    api.addRemote.mockRejectedValue(new Error("git clone exited with code 128"));
+    api.clone.mockRejectedValue(new Error("git clone exited with code 128"));
 
     await expect(
       useProjectStore.getState().cloneIntoGroup("local-app", OPTS),
@@ -198,7 +203,7 @@ describe("Clone onto another host", () => {
   it("keeps a clone that couldn't be linked, unlinked, and says so", async () => {
     const before = seed();
     const cloned = project("cloud-app", "cloud", null);
-    api.addRemote.mockResolvedValue(cloned);
+    api.clone.mockResolvedValue(cloned);
     api.link.mockRejectedValue(new Error("already linked"));
     api.getAll.mockResolvedValue([...before, cloned]);
 
@@ -219,7 +224,7 @@ describe("Clone onto another host", () => {
     seed(false);
 
     await expect(useProjectStore.getState().cloneIntoGroup("local-app", OPTS)).rejects.toThrow();
-    expect(api.addRemote).not.toHaveBeenCalled();
+    expect(api.clone).not.toHaveBeenCalled();
   });
 });
 

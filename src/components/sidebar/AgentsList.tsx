@@ -207,7 +207,7 @@ export function AgentsList(props: AgentsListProps) {
   const groups = useMemo(() => {
     const map = new Map<string, AgentInfo[]>();
     for (const agent of visibleAgents) {
-      const key = agent.projectName ?? "Unknown";
+      const key = agent.projectName;
       let list = map.get(key);
       if (!list) {
         list = [];

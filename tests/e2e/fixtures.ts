@@ -292,7 +292,7 @@ export async function importSeededProject(
   }, seededProjectPath);
 
   await window.locator('[data-testid="import-project-button"]').click();
-  // Import opens the Add Project dialog (ADR-178); "On this Mac" is the
+  // Import opens the Add Project dialog (ADR-178); "Open folder" is the
   // default mode, and its button runs the (stubbed) folder picker.
   const addDialog = window.getByTestId("add-project-dialog");
   await expect(addDialog).toBeVisible({ timeout: 10_000 });

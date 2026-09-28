@@ -1,17 +1,11 @@
-import {
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
-  lazy,
-  Suspense,
-} from "react";
+import { useState, useCallback, useRef, useEffect, lazy, Suspense } from "react";
 import { PaneDragProvider } from "./components/workspace-panes/PaneDragContext";
 import { StatusBar } from "./components/statusbar/StatusBar/StatusBar";
 import { PanelLayout } from "./components/panels/PanelLayout";
 import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
 import { SidebarRail } from "./components/sidebar/SidebarRail/SidebarRail";
 import type { PaletteView } from "./components/command-palette/types";
+import type { AddProjectMode } from "./components/sidebar/AddProjectDialog/AddProjectDialog";
 import { onPaletteViewRequest } from "./utils/palette-request";
 import { onUiRequest } from "./utils/ui-request";
 import { GhostsOverlay } from "./components/GhostsOverlay/GhostsOverlay";
@@ -23,43 +17,14 @@ import { CloseAgentPaneDialog } from "./components/CloseAgentPaneDialog";
 import { ToastContainer } from "./components/ui/Toast/Toast";
 import { TooltipProvider } from "./components/ui/Tooltip/Tooltip";
 
-const CommandPalette = lazy(() =>
-  import("./components/command-palette/CommandPalette").then((m) => ({
-    default: m.CommandPalette,
-  })),
-);
-const SettingsModal = lazy(() =>
-  import("./components/settings/SettingsModal/SettingsModal").then((m) => ({
-    default: m.SettingsModal,
-  })),
-);
-type SettingsPageId =
-  import("./components/settings/SettingsModal/SettingsModal").SettingsPageId;
-const NewWorkspaceDialog = lazy(() =>
-  import("./components/sidebar/NewWorkspaceDialog/NewWorkspaceDialog").then(
-    (m) => ({ default: m.NewWorkspaceDialog }),
-  ),
-);
-const AddProjectDialog = lazy(() =>
-  import("./components/sidebar/AddProjectDialog/AddProjectDialog").then(
-    (m) => ({ default: m.AddProjectDialog }),
-  ),
-);
-const ProjectSetupWizard = lazy(() =>
-  import("./components/sidebar/ProjectSetupWizard/ProjectSetupWizard").then(
-    (m) => ({ default: m.ProjectSetupWizard }),
-  ),
-);
-const AgentsModal = lazy(() =>
-  import("./components/sidebar/AgentsView/AgentsView").then((m) => ({
-    default: m.AgentsModal,
-  })),
-);
-const FeedbackModal = lazy(() =>
-  import("./components/statusbar/FeedbackModal/FeedbackModal").then((m) => ({
-    default: m.FeedbackModal,
-  })),
-);
+const CommandPalette = lazy(() => import("./components/command-palette/CommandPalette").then(m => ({ default: m.CommandPalette })));
+const SettingsModal = lazy(() => import("./components/settings/SettingsModal/SettingsModal").then(m => ({ default: m.SettingsModal })));
+type SettingsPageId = import("./components/settings/SettingsModal/SettingsModal").SettingsPageId;
+const NewWorkspaceDialog = lazy(() => import("./components/sidebar/NewWorkspaceDialog/NewWorkspaceDialog").then(m => ({ default: m.NewWorkspaceDialog })));
+const AddProjectDialog = lazy(() => import("./components/sidebar/AddProjectDialog/AddProjectDialog").then(m => ({ default: m.AddProjectDialog })));
+const ProjectSetupWizard = lazy(() => import("./components/sidebar/ProjectSetupWizard/ProjectSetupWizard").then(m => ({ default: m.ProjectSetupWizard })));
+const AgentsModal = lazy(() => import("./components/sidebar/AgentsView/AgentsView").then(m => ({ default: m.AgentsModal })));
+const FeedbackModal = lazy(() => import("./components/statusbar/FeedbackModal/FeedbackModal").then(m => ({ default: m.FeedbackModal })));
 import {
   useAppStore,
   selectActiveWorkspace,
@@ -93,6 +58,7 @@ import { useMountEffect } from "./hooks/useMountEffect";
 import { useMenuContextSync } from "./hooks/useMenuContextSync";
 import { useUpdaterToasts } from "./hooks/useUpdaterToasts";
 import { useRemoteRecovery } from "./hooks/useRemoteRecovery";
+import { useAgentContextRepair } from "./hooks/useAgentContextRepair";
 import {
   useNavigationHistory,
   navigateBack,
@@ -101,10 +67,7 @@ import {
 import type { AgentInfo } from "./electron.d";
 import { agentWorkspaceKey, navigateToAgent } from "./utils/agent-navigation";
 import { hasPaneId } from "./store/pane-tree";
-import {
-  DEFAULT_AGENT_COMMAND,
-  getAgentKindForCommand,
-} from "./agent-defaults";
+import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults";
 import {
   escapeShellDoubleQuoted,
   isHomePath,
@@ -149,16 +112,12 @@ function App() {
   useUpdaterToasts();
   useNavigationHistory();
   useRemoteRecovery();
+  useAgentContextRepair();
 
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [paletteInitialView, setPaletteInitialView] = useState<
-    PaletteView | undefined
-  >();
-  const [paletteInitialIssueId, setPaletteInitialIssueId] = useState<
-    string | null
-  >(null);
-  const [paletteInitialGitHubIssueNumber, setPaletteInitialGitHubIssueNumber] =
-    useState<number | null>(null);
+  const [paletteInitialView, setPaletteInitialView] = useState<PaletteView | undefined>();
+  const [paletteInitialIssueId, setPaletteInitialIssueId] = useState<string | null>(null);
+  const [paletteInitialGitHubIssueNumber, setPaletteInitialGitHubIssueNumber] = useState<number | null>(null);
   const closePalette = useCallback(() => {
     setPaletteOpen(false);
     setPaletteInitialView(undefined);
@@ -181,9 +140,9 @@ function App() {
     // theme (null).
     const activeTheme = isHomePath(useAppStore.getState().activeWorkspacePath)
       ? null
-      : (useProjectStore.getState().projects[
+      : useProjectStore.getState().projects[
           useProjectStore.getState().selectedProjectIndex
-        ]?.themeName ?? null);
+        ]?.themeName ?? null;
     applyProjectTheme(activeTheme);
   }, [applyProjectTheme]);
   // Help > "Ghosts!?" easter egg (ADR-170 §8). Owned here rather than the
@@ -203,13 +162,9 @@ function App() {
   const [initialName, setInitialName] = useState("");
   const [initialBranch, setInitialBranch] = useState("");
   const [_agentPrompt, setAgentPrompt] = useState<string | null>(null);
-  const [_pendingLinkedIssue, setPendingLinkedIssue] = useState<
-    import("./store/project-store").LinkedIssue | null
-  >(null);
+  const [_pendingLinkedIssue, setPendingLinkedIssue] = useState<import("./store/project-store").LinkedIssue | null>(null);
   const agentPromptRef = useRef<string | null>(null);
-  const pendingLinkedIssueRef = useRef<
-    import("./store/project-store").LinkedIssue | null
-  >(null);
+  const pendingLinkedIssueRef = useRef<import("./store/project-store").LinkedIssue | null>(null);
   const closeNewWorkspace = useCallback(() => {
     setNewWorkspaceOpen(false);
     setPreselectedProjectId(null);
@@ -236,19 +191,28 @@ function App() {
     setWizardProjectId(null);
   }, [wizardProjectId, updateProject]);
 
+  const openWizardForProject = useCallback(
+    (projectId: string) => {
+      const newProjects = useProjectStore.getState().projects;
+      const newIndex = newProjects.findIndex((p) => p.id === projectId);
+      const newProject = newProjects[newIndex];
+      if (newProject) {
+        selectProject(newIndex);
+        if (newProject.workspaces[0]) {
+          selectWorkspace(newProject.id, 0);
+        }
+        setWizardProjectId(newProject.id);
+        setWizardOpen(true);
+      }
+    },
+    [selectProject, selectWorkspace],
+  );
+
   const openWizardForLatestProject = useCallback(() => {
     const newProjects = useProjectStore.getState().projects;
-    const newIndex = newProjects.length - 1;
-    const newProject = newProjects[newIndex];
-    if (newProject) {
-      selectProject(newIndex);
-      if (newProject.workspaces[0]) {
-        selectWorkspace(newProject.id, 0);
-      }
-      setWizardProjectId(newProject.id);
-      setWizardOpen(true);
-    }
-  }, [selectProject, selectWorkspace]);
+    const newProject = newProjects[newProjects.length - 1];
+    if (newProject) openWizardForProject(newProject.id);
+  }, [openWizardForProject]);
 
   const handleAddLocalProject = useCallback(async () => {
     const selected = await window.electronAPI.dialog.openDirectory();
@@ -261,9 +225,21 @@ function App() {
   }, [addProject, openWizardForLatestProject]);
 
   const [addProjectDialogOpen, setAddProjectDialogOpen] = useState(false);
+  const [addProjectDialogMode, setAddProjectDialogMode] = useState<AddProjectMode>("folder");
   const handleAddProject = useCallback(() => {
+    setAddProjectDialogMode("folder");
     setAddProjectDialogOpen(true);
   }, []);
+  // ADR-194: the palette's "Clone Repository…" opens straight onto cloning.
+  const handleCloneRepository = useCallback(() => {
+    setAddProjectDialogMode("clone");
+    setAddProjectDialogOpen(true);
+  }, []);
+  // A clone onto this machine gets the same setup wizard as "Open folder".
+  const handleLocalProjectCloned = useCallback(
+    (project: ProjectInfo) => openWizardForProject(project.id),
+    [openWizardForProject],
+  );
   const closeAddProjectDialog = useCallback(() => {
     setAddProjectDialogOpen(false);
   }, []);
@@ -282,14 +258,11 @@ function App() {
     [selectProject, selectWorkspace],
   );
 
-  const handleDropFolder = useCallback(
-    async (folderPath: string) => {
-      const name = folderPath.split("/").pop() || "Untitled";
-      await addProject(name, folderPath);
-      openWizardForLatestProject();
-    },
-    [addProject, openWizardForLatestProject],
-  );
+  const handleDropFolder = useCallback(async (folderPath: string) => {
+    const name = folderPath.split("/").pop() || "Untitled";
+    await addProject(name, folderPath);
+    openWizardForLatestProject();
+  }, [addProject, openWizardForLatestProject]);
 
   const handleOpenSettings = useCallback((page?: SettingsPageId) => {
     setSettingsPage(page ?? null);
@@ -329,10 +302,13 @@ function App() {
     [],
   );
 
-  const handleOpenPaletteView = useCallback((view: PaletteView) => {
-    setPaletteInitialView(view);
-    setPaletteOpen(true);
-  }, []);
+  const handleOpenPaletteView = useCallback(
+    (view: PaletteView) => {
+      setPaletteInitialView(view);
+      setPaletteOpen(true);
+    },
+    [],
+  );
 
   const handleOpenStats = useCallback(
     () => handleOpenPaletteView("stats"),
@@ -350,12 +326,13 @@ function App() {
     () =>
       onUiRequest((request) => {
         if (request.type === "ghosts") triggerGhosts();
+        if (request.type === "clone-repository") handleCloneRepository();
         // Host indicators (sidebar cloud, status-bar chip) open the host section.
         if (request.type === "open-project-settings") {
           handleOpenProjectSettings(request.projectId, request.section);
         }
       }),
-    [triggerGhosts, handleOpenProjectSettings],
+    [triggerGhosts, handleOpenProjectSettings, handleCloneRepository],
   );
 
   const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
@@ -367,35 +344,24 @@ function App() {
 
   const addTab = useAppStore((s) => s.addTab);
   const closeTab = useAppStore((s) => s.closeTab);
-  const pendingCloseConfirmPaneId = useAppStore(
-    (s) => s.pendingCloseConfirmPaneId,
-  );
-  const setPendingCloseConfirmPaneId = useAppStore(
-    (s) => s.setPendingCloseConfirmPaneId,
-  );
+  const pendingCloseConfirmPaneId = useAppStore((s) => s.pendingCloseConfirmPaneId);
+  const setPendingCloseConfirmPaneId = useAppStore((s) => s.setPendingCloseConfirmPaneId);
   const closePaneById = useAppStore((s) => s.closePaneById);
-  const pendingCloseConfirmTabId = useAppStore(
-    (s) => s.pendingCloseConfirmTabId,
-  );
-  const setPendingCloseConfirmTabId = useAppStore(
-    (s) => s.setPendingCloseConfirmTabId,
-  );
+  const pendingCloseConfirmTabId = useAppStore((s) => s.pendingCloseConfirmTabId);
+  const setPendingCloseConfirmTabId = useAppStore((s) => s.setPendingCloseConfirmTabId);
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const createWorktree = useProjectStore((s) => s.createWorktree);
 
   // Clean up wizard state if the project is removed while wizard is open
-  const wizardStillValid =
-    wizardOpen &&
-    wizardProjectId &&
-    projects.some((p) => p.id === wizardProjectId);
+  const wizardStillValid = wizardOpen && wizardProjectId && projects.some((p) => p.id === wizardProjectId);
 
   // Reactively apply the active surface's theme. Projects carry an optional
   // theme override; the home surface has no owning project, so it inherits the
   // global theme (null override) — switching to/from home re-applies here.
   const effectiveThemeName = isHomePath(activeWorkspacePath)
     ? null
-    : (projects[selectedProjectIndex]?.themeName ?? null);
+    : projects[selectedProjectIndex]?.themeName ?? null;
   const prevThemeRef = useRef(effectiveThemeName);
   if (effectiveThemeName !== prevThemeRef.current) {
     prevThemeRef.current = effectiveThemeName;
@@ -416,15 +382,11 @@ function App() {
   // its sentinel path to the real dir); a project workspace uses its
   // agentCommand. Shared by prewarming and both new-agent handlers below.
   const homeHarness = usePreferencesStore((s) => s.preferences.homeHarness);
-  const homeCustomCommand = usePreferencesStore(
-    (s) => s.preferences.homeCustomCommand,
-  );
-  const homeCustomInterrupt = usePreferencesStore(
-    (s) => s.preferences.homeCustomInterrupt,
-  );
+  const homeCustomCommand = usePreferencesStore((s) => s.preferences.homeCustomCommand);
+  const homeCustomInterrupt = usePreferencesStore((s) => s.preferences.homeCustomInterrupt);
   const activeWorkspaceCommand = isHomePath(activeWorkspacePath)
     ? homeLaunchCommand({ homeHarness, homeCustomCommand, homeCustomInterrupt })
-    : (activeProject?.agentCommand ?? DEFAULT_AGENT_COMMAND);
+    : activeProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
   useEffect(() => {
     if (!activeWorkspacePath) return;
     const prewarmKind = getAgentKindForCommand(activeWorkspaceCommand);
@@ -439,13 +401,9 @@ function App() {
   // Projects mutated outside the renderer (MCP, CLI) — the store never saw the
   // result, so refetch it. Creating a workspace this way must show up in the
   // sidebar without a manual refresh.
-  useEffect(
-    () =>
-      window.electronAPI.onProjectsChanged(() => {
-        void loadProjects();
-      }),
-    [loadProjects],
-  );
+  useEffect(() => window.electronAPI.onProjectsChanged(() => {
+    void loadProjects();
+  }), [loadProjects]);
 
   // Backstop for worktree changes main can't watch — a remote project's git
   // lives on another machine. Coming back to the window is when a stale
@@ -491,9 +449,7 @@ function App() {
     () =>
       window.electronAPI.webview.onRecordingCommand((command) => {
         if (command.cmd === "stop") {
-          useAppStore
-            .getState()
-            .setPaneRecordingStartedAt(command.paneId, null);
+          useAppStore.getState().setPaneRecordingStartedAt(command.paneId, null);
         }
         void handleRecordingCommand(command).then((result) => {
           if (command.cmd === "start") {
@@ -533,11 +489,7 @@ function App() {
           // replying `ok: true` to an unknown cmd hangs main until its timeout.
           if (!handler) throw new Error(`Unknown command: ${cmd}`);
           const data = await handler(args ?? {});
-          window.electronAPI.sendAppCommandResult({
-            requestId,
-            ok: true,
-            data,
-          });
+          window.electronAPI.sendAppCommandResult({ requestId, ok: true, data });
         } catch (err) {
           window.electronAPI.sendAppCommandResult({
             requestId,
@@ -711,200 +663,174 @@ function App() {
 
   return (
     <TooltipProvider>
-      <div className="app">
-        <div className="app-body">
-          {sidebarMode === "rail" && hasProjects && (
-            <SidebarRail onShowAgents={() => setAgentsOpen(true)} />
-          )}
-          {sidebarMode === "full" && hasProjects && (
-            <Sidebar
-              onShowAgents={() => setAgentsOpen(true)}
-              onOpenProjectSettings={handleOpenProjectSettings}
-              onAddProject={handleAddProject}
-            />
-          )}
-          <PaneDragProvider>
-            <div className="main-content">
-              {/* Every workspace renders through the same PanelLayout in a single
+    <div className="app">
+      <div className="app-body">
+        {sidebarMode === "rail" && hasProjects && (
+          <SidebarRail onShowAgents={() => setAgentsOpen(true)} />
+        )}
+        {sidebarMode === "full" && hasProjects && (
+          <Sidebar
+            onShowAgents={() => setAgentsOpen(true)}
+            onOpenProjectSettings={handleOpenProjectSettings}
+            onAddProject={handleAddProject}
+          />
+        )}
+        <PaneDragProvider>
+          <div className="main-content">
+            {/* Every workspace renders through the same PanelLayout in a single
                 positioned stack, active or not. Inactive ones are only hidden,
                 never unmounted or re-parented, so their terminals keep the exact
                 pixel box the active workspace has. Any geometry difference here
                 resizes the PTY on every workspace switch, and a SIGWINCH makes
                 full-screen TUIs repaint their frame into the scrollback — which
                 shows up as the same output duplicated over and over. */}
-              <div className="workspace-stack">
-                {/* `workspaceLayouts` is keyed by `WorkspaceKey` (ADR-191). */}
-                {Object.entries(workspaceLayouts).map(([key, wsLayout]) => (
-                  <div
-                    key={key}
-                    style={
-                      key === activeWorkspaceKey && hasTabs
-                        ? TAB_VISIBLE_STYLE
-                        : TAB_HIDDEN_STYLE
-                    }
-                  >
-                    <PanelLayout
-                      node={wsLayout.panelTree}
-                      workspaceKey={key as WorkspaceKey}
-                      onNewAgent={handleNewAgent}
-                    />
+            <div className="workspace-stack">
+              {/* `workspaceLayouts` is keyed by `WorkspaceKey` (ADR-191). */}
+              {Object.entries(workspaceLayouts).map(([key, wsLayout]) => (
+                <div
+                  key={key}
+                  style={
+                    key === activeWorkspaceKey && hasTabs
+                      ? TAB_VISIBLE_STYLE
+                      : TAB_HIDDEN_STYLE
+                  }
+                >
+                  <PanelLayout
+                    node={wsLayout.panelTree}
+                    workspaceKey={key as WorkspaceKey}
+                    onNewAgent={handleNewAgent}
+                  />
+                </div>
+              ))}
+              {!(activeWorkspacePath && hasTabs) && (
+                <div className="empty-surface">
+                  <div className="drag-region" />
+                  <div className="terminal-container">
+                    {wizardStillValid && wizardProjectId
+                      ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
+                      : !hasTabs &&
+                        (isHomePath(activeWorkspacePath)
+                          ? <HomeEmptyState onNewAgent={handleNewAgent} onAddProject={handleAddProject} onOpenPaletteView={handleOpenPaletteView} />
+                          : hasProjects
+                            ? <WorkspaceEmptyState onOpenPaletteView={handleOpenPaletteView} onNewWorkspace={handleNewWorkspace} />
+                            : <WelcomeEmptyState onAddProject={handleAddProject} onDropFolder={handleDropFolder} />)}
                   </div>
-                ))}
-                {!(activeWorkspacePath && hasTabs) && (
-                  <div className="empty-surface">
-                    <div className="drag-region" />
-                    <div className="terminal-container">
-                      {wizardStillValid && wizardProjectId ? (
-                        <Suspense fallback={null}>
-                          <ProjectSetupWizard
-                            projectId={wizardProjectId}
-                            onClose={closeWizard}
-                          />
-                        </Suspense>
-                      ) : (
-                        !hasTabs &&
-                        (isHomePath(activeWorkspacePath) ? (
-                          <HomeEmptyState
-                            onNewAgent={handleNewAgent}
-                            onAddProject={handleAddProject}
-                            onOpenPaletteView={handleOpenPaletteView}
-                          />
-                        ) : hasProjects ? (
-                          <WorkspaceEmptyState
-                            onOpenPaletteView={handleOpenPaletteView}
-                            onNewWorkspace={handleNewWorkspace}
-                          />
-                        ) : (
-                          <WelcomeEmptyState
-                            onAddProject={handleAddProject}
-                            onDropFolder={handleDropFolder}
-                          />
-                        ))
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-              <StatusBar
-                onNewWorkspace={handleNewWorkspace}
-                onNewAgentWithPrompt={handleNewAgentWithPrompt}
-                onOpenStats={handleOpenStats}
-              />
+                </div>
+              )}
             </div>
-          </PaneDragProvider>
-        </div>
-        <Suspense fallback={null}>
-          <CommandPalette
-            open={paletteOpen}
-            onClose={closePalette}
-            onOpenSettings={handleOpenSettings}
-            onOpenFeedback={handleOpenFeedback}
-            onNewWorkspace={handleNewWorkspace}
-            initialView={paletteInitialView}
-            initialIssueId={paletteInitialIssueId}
-            initialGitHubIssueNumber={paletteInitialGitHubIssueNumber}
-            onResumeAgent={handleResumeAgent}
-            onViewAllAgents={() => setAgentsOpen(true)}
-            onNewAgent={handleNewAgent}
-            onNewAgentWithPrompt={handleNewAgentWithPrompt}
-          />
-          <SettingsModal
-            open={settingsOpen}
-            onClose={closeSettings}
-            initialProjectId={settingsProjectId}
-            initialPage={settingsPage}
-            initialSection={settingsSection}
-          />
-          <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
-          <AgentsModal
-            open={agentsOpen}
-            onClose={closeAgents}
-            onResumeAgent={handleResumeAgent}
-          />
-          <AddProjectDialog
-            open={addProjectDialogOpen}
-            onClose={closeAddProjectDialog}
-            onAddLocal={handleAddLocalProject}
-            onRemoteProjectAdded={handleRemoteProjectAdded}
-          />
-          <NewWorkspaceDialog
-            open={newWorkspaceOpen}
-            onClose={closeNewWorkspace}
-            projects={projects}
-            selectedProjectIndex={selectedProjectIndex}
-            preselectedProjectId={preselectedProjectId}
-            initialName={initialName}
-            initialBranch={initialBranch}
-            onSubmit={async (
-              projectId,
-              name,
-              branch,
+            <StatusBar
+              onNewWorkspace={handleNewWorkspace}
+              onNewAgentWithPrompt={handleNewAgentWithPrompt}
+              onOpenStats={handleOpenStats}
+            />
+          </div>
+        </PaneDragProvider>
+      </div>
+      <Suspense fallback={null}>
+        <CommandPalette
+          open={paletteOpen}
+          onClose={closePalette}
+          onOpenSettings={handleOpenSettings}
+          onOpenFeedback={handleOpenFeedback}
+          onNewWorkspace={handleNewWorkspace}
+          initialView={paletteInitialView}
+          initialIssueId={paletteInitialIssueId}
+          initialGitHubIssueNumber={paletteInitialGitHubIssueNumber}
+          onResumeAgent={handleResumeAgent}
+          onViewAllAgents={() => setAgentsOpen(true)}
+          onNewAgent={handleNewAgent}
+          onNewAgentWithPrompt={handleNewAgentWithPrompt}
+        />
+        <SettingsModal
+          open={settingsOpen}
+          onClose={closeSettings}
+          initialProjectId={settingsProjectId}
+          initialPage={settingsPage}
+          initialSection={settingsSection}
+        />
+        <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+        <AgentsModal
+          open={agentsOpen}
+          onClose={closeAgents}
+          onResumeAgent={handleResumeAgent}
+        />
+        <AddProjectDialog
+          open={addProjectDialogOpen}
+          onClose={closeAddProjectDialog}
+          initialMode={addProjectDialogMode}
+          onAddLocal={handleAddLocalProject}
+          onLocalProjectCloned={handleLocalProjectCloned}
+          onRemoteProjectAdded={handleRemoteProjectAdded}
+        />
+        <NewWorkspaceDialog
+          open={newWorkspaceOpen}
+          onClose={closeNewWorkspace}
+          projects={projects}
+          selectedProjectIndex={selectedProjectIndex}
+          preselectedProjectId={preselectedProjectId}
+          initialName={initialName}
+          initialBranch={initialBranch}
+          onSubmit={async (projectId, name, branch, baseBranch, useExistingBranch, folderId) => {
+            let agentCommand: string | undefined;
+            const prompt = agentPromptRef.current;
+            if (prompt) {
+              const project = projects.find((p) => p.id === projectId);
+              const baseCommand =
+                project?.agentCommand ?? DEFAULT_AGENT_COMMAND;
+              const escaped = prompt
+                .replace(/\\/g, "\\\\")
+                .replace(/"/g, '\\"')
+                .replace(/\$/g, "\\$")
+                .replace(/`/g, "\\`")
+                .replace(/!/g, "\\!");
+              agentCommand = `${baseCommand} "${escaped}"`;
+            }
+            const result = await createWorktree(projectId, name, branch, {
+              agentCommand,
+              linkedIssue: pendingLinkedIssueRef.current ?? undefined,
               baseBranch,
               useExistingBranch,
-              folderId,
-            ) => {
-              let agentCommand: string | undefined;
-              const prompt = agentPromptRef.current;
-              if (prompt) {
-                const project = projects.find((p) => p.id === projectId);
-                const baseCommand =
-                  project?.agentCommand ?? DEFAULT_AGENT_COMMAND;
-                const escaped = prompt
-                  .replace(/\\/g, "\\\\")
-                  .replace(/"/g, '\\"')
-                  .replace(/\$/g, "\\$")
-                  .replace(/`/g, "\\`")
-                  .replace(/!/g, "\\!");
-                agentCommand = `${baseCommand} "${escaped}"`;
+            });
+            if (result) {
+              if (folderId) {
+                await placeNewWorkspaceInFolder(projectId, result, folderId);
               }
-              const result = await createWorktree(projectId, name, branch, {
-                agentCommand,
-                linkedIssue: pendingLinkedIssueRef.current ?? undefined,
-                baseBranch,
-                useExistingBranch,
-              });
-              if (result) {
-                if (folderId) {
-                  await placeNewWorkspaceInFolder(projectId, result, folderId);
-                }
-                // Ensure the project is selected so the new workspace is visible
-                const projIdx = useProjectStore
-                  .getState()
-                  .projects.findIndex((p) => p.id === projectId);
-                if (projIdx >= 0) selectProject(projIdx);
-                setNewWorkspaceOpen(false);
-              }
-              return !!result;
-            }}
-          />
-        </Suspense>
-        <CloseAgentPaneDialog
-          open={pendingCloseConfirmPaneId !== null}
-          onOpenChange={(open) => {
-            if (!open) setPendingCloseConfirmPaneId(null);
-          }}
-          onConfirm={() => {
-            if (pendingCloseConfirmPaneId !== null) {
-              closePaneById(pendingCloseConfirmPaneId);
-              setPendingCloseConfirmPaneId(null);
+              // Ensure the project is selected so the new workspace is visible
+              const projIdx = useProjectStore.getState().projects.findIndex((p) => p.id === projectId);
+              if (projIdx >= 0) selectProject(projIdx);
+              setNewWorkspaceOpen(false);
             }
+            return !!result;
           }}
         />
-        <CloseAgentPaneDialog
-          open={pendingCloseConfirmTabId !== null}
-          onOpenChange={(open) => {
-            if (!open) setPendingCloseConfirmTabId(null);
-          }}
-          onConfirm={() => {
-            if (pendingCloseConfirmTabId !== null) {
-              closeTab(pendingCloseConfirmTabId);
-              setPendingCloseConfirmTabId(null);
-            }
-          }}
-        />
-        <ToastContainer />
-        {showGhosts && <GhostsOverlay />}
-      </div>
+      </Suspense>
+      <CloseAgentPaneDialog
+        open={pendingCloseConfirmPaneId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingCloseConfirmPaneId(null);
+        }}
+        onConfirm={() => {
+          if (pendingCloseConfirmPaneId !== null) {
+            closePaneById(pendingCloseConfirmPaneId);
+            setPendingCloseConfirmPaneId(null);
+          }
+        }}
+      />
+      <CloseAgentPaneDialog
+        open={pendingCloseConfirmTabId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingCloseConfirmTabId(null);
+        }}
+        onConfirm={() => {
+          if (pendingCloseConfirmTabId !== null) {
+            closeTab(pendingCloseConfirmTabId);
+            setPendingCloseConfirmTabId(null);
+          }
+        }}
+      />
+      <ToastContainer />
+      {showGhosts && <GhostsOverlay />}
+    </div>
     </TooltipProvider>
   );
 }

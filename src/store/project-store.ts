@@ -528,11 +528,11 @@ interface ProjectState {
   loadProjects: () => Promise<void>;
   addProject: (name: string, path: string) => Promise<ProjectInfo>;
   addProjectFromDirectory: () => Promise<void>;
-  /** ADR-178 ticket 5: clone a repo onto a remote host, then add it. */
-  addRemoteProject: (opts: {
+  /** ADR-178 ticket 5, ADR-194: clone a repo onto any host, then add it. */
+  cloneProject: (opts: {
     hostId: string;
     repoUrl: string;
-    remoteDir: string;
+    targetDir: string;
     name: string;
   }) => Promise<ProjectInfo>;
   /** ADR-179: clone an existing project onto a remote host, keeping its record. */
@@ -832,8 +832,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
   },
 
-  addRemoteProject: async (opts) => {
-    const project = await window.electronAPI.projects.addRemote(opts);
+  cloneProject: async (opts) => {
+    const project = await window.electronAPI.projects.clone(opts);
     set((s) => ({
       projects: [...s.projects, project],
       selectedProjectIndex: s.projects.length,
@@ -1166,10 +1166,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   cloneIntoGroup: async (memberId, opts) => {
     const member = get().projects.find((p) => p.id === memberId);
-    if (!member?.group)
-      throw new Error("This project isn't linked to a group.");
-    const cloned = await window.electronAPI.projects.addRemote({
-      ...opts,
+    if (!member?.group) throw new Error("This project isn't linked to a group.");
+    const cloned = await window.electronAPI.projects.clone({
+      hostId: opts.hostId,
+      repoUrl: opts.repoUrl,
+      targetDir: opts.remoteDir,
       name: member.name,
     });
     try {

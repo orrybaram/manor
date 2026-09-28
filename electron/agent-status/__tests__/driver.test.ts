@@ -14,7 +14,7 @@ import type { AgentInfo } from "../../agent-persistence";
 import type { AgentHookEvent } from "../../agent-hook-events";
 import type { AgentKind, PaneFacts } from "../../terminal-host/types";
 import { createAgentStatusDriver, type AgentStatusDriverDeps } from "../driver";
-import type { PaneStatusUpdate } from "../effects";
+import { paneContextBackfill, type PaneStatusUpdate } from "../effects";
 import { STALE_ACTIVE_MS, STALE_STOP_MS } from "../reconciler";
 
 // ── Fake AgentManager ──
@@ -506,6 +506,49 @@ describe("driver — lifecycle (ported)", () => {
       `notify:${active[0].id}:null->thinking`,
       `broadcast:${active[0].id}:active/thinking`,
     ]);
+  });
+  it("a session handoff with no pane context inherits the retired Agent's project", () => {
+    t.agentManager.seed({
+      agentSessionId: "old",
+      paneId: "pane-1",
+      projectId: "proj-1",
+      projectName: "tango",
+      workspacePath: "/w/tango",
+      cwd: "/w/tango",
+      agentCommand: "claude",
+    });
+    t.driver.hook(sessionStart({ sessionId: "new" }));
+    t.driver.hook(userPromptSubmit({ sessionId: "new" }));
+
+    const created = t.agentManager.getAgentBySessionId("new")!;
+    expect(created).toMatchObject({
+      projectId: "proj-1",
+      projectName: "tango",
+      workspacePath: "/w/tango",
+      cwd: "/w/tango",
+      agentCommand: "claude",
+    });
+  });
+});
+
+describe("paneContextBackfill", () => {
+  const context = { projectId: "p", projectName: "tango", workspacePath: "/w", agentCommand: "claude" };
+  const agent = (over: Partial<AgentInfo>): AgentInfo => ({
+    id: "a", name: null, status: "active", createdAt: "", updatedAt: "", completedAt: null,
+    activatedAt: null, projectId: null, projectName: null, hostId: "local", workspacePath: null,
+    cwd: "", agentKind: "claude", agentCommand: null, paneId: "pane-1", lastAgentStatus: null,
+    resumedAt: null, ...over,
+  });
+
+  it("fills every empty field of an Agent created without a context", () => {
+    expect(paneContextBackfill(agent({}), context)).toEqual({
+      projectId: "p", projectName: "tango", workspacePath: "/w", cwd: "/w", agentCommand: "claude",
+    });
+  });
+
+  it("leaves an Agent that already knows its project alone", () => {
+    const known = agent({ projectId: "q", projectName: "other", workspacePath: "/x", cwd: "/x", agentCommand: "codex" });
+    expect(paneContextBackfill(known, context)).toBeNull();
   });
 });
 

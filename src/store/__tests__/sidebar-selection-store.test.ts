@@ -35,6 +35,24 @@ describe("toggle", () => {
     expect(state().paths).toEqual(new Set());
   });
 
+  it("takes the anchor along when it starts a selection", () => {
+    state().setAnchor(PROJECT, "/a");
+    state().toggle(PROJECT, "/b");
+    expect(state().paths).toEqual(new Set(["/a", "/b"]));
+    expect(state().anchorPath).toBe("/b");
+  });
+
+  it("falls back to the active workspace when there is no anchor", () => {
+    state().toggle(PROJECT, "/b", "/a");
+    expect(state().paths).toEqual(new Set(["/a", "/b"]));
+  });
+
+  it("selects just the anchor when the anchor itself is toggled", () => {
+    state().setAnchor(PROJECT, "/a");
+    state().toggle(PROJECT, "/a");
+    expect(state().paths).toEqual(new Set(["/a"]));
+  });
+
   it("starts a fresh selection when the project changes", () => {
     state().toggle(PROJECT, "/a");
     state().toggle(OTHER_PROJECT, "/z");

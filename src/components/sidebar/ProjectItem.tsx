@@ -184,7 +184,9 @@ const WorkspaceItem = React.forwardRef<
             .getState()
             .selectRange(projectId, orderedVisiblePaths, ws.path, activeWorkspacePath);
         } else if (e.metaKey || e.ctrlKey) {
-          useSidebarSelectionStore.getState().toggle(projectId, ws.path);
+          useSidebarSelectionStore
+            .getState()
+            .toggle(projectId, ws.path, activeWorkspacePath);
         } else {
           useSidebarSelectionStore.getState().setAnchor(projectId, ws.path);
           onSelectWorkspace(idx);

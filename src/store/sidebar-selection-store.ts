@@ -21,8 +21,12 @@ interface SidebarSelectionState {
    * Cmd/Ctrl+click: toggles `path` in the selection and moves the anchor to
    * it. A click in a different project starts a fresh one-row selection
    * rather than toggling against the old project's set.
+   *
+   * Starting a selection takes the row the user was already on with it — the
+   * anchor, else `fallbackAnchor` (the active workspace) — so click-then-
+   * Cmd/Ctrl-click selects both, as in a file manager.
    */
-  toggle: (projectId: string, path: string) => void;
+  toggle: (projectId: string, path: string, fallbackAnchor?: string | null) => void;
   /**
    * Shift+click: selects the contiguous range of `orderedVisiblePaths`
    * between the anchor and `toPath`. `fallbackAnchor` (the active workspace)
@@ -53,12 +57,14 @@ export const useSidebarSelectionStore = create<SidebarSelectionState>(
     setAnchor: (projectId, path) =>
       set({ projectId, paths: new Set(), anchorPath: path }),
 
-    toggle: (projectId, path) =>
+    toggle: (projectId, path, fallbackAnchor = null) =>
       set((s) => {
-        if (s.projectId !== projectId) {
-          return { projectId, paths: new Set([path]), anchorPath: path };
+        const sameProject = s.projectId === projectId;
+        const paths = sameProject ? new Set(s.paths) : new Set<string>();
+        if (paths.size === 0) {
+          const seed = (sameProject ? s.anchorPath : null) ?? fallbackAnchor;
+          if (seed !== null && seed !== path) paths.add(seed);
         }
-        const paths = new Set(s.paths);
         if (paths.has(path)) paths.delete(path);
         else paths.add(path);
         return { projectId, paths, anchorPath: path };

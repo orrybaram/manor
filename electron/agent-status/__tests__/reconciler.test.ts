@@ -69,6 +69,7 @@ const agent = (overrides: Partial<AgentInfo> = {}): AgentInfo => ({
   activatedAt: null,
   projectId: null,
   projectName: null,
+  hostId: "local",
   workspacePath: null,
   cwd: "",
   agentKind: "claude",

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
+import { LOCAL_HOST_ID } from "./backend/types";
 import { manorDataDir } from "./paths";
 
 /**
@@ -42,6 +43,13 @@ export interface AgentInfo {
   activatedAt: string | null;
   projectId: string | null;
   projectName: string | null;
+  /**
+   * The host the agent's terminal runs on (ADR-191 §5): the pane's session
+   * owner when the agent was created, kept in step if the pane moves. A
+   * record saved without one predates ADR-191 and is migrated on load to its
+   * project's host.
+   */
+  hostId: string;
   workspacePath: string | null;
   cwd: string;
   agentKind: "claude" | "opencode" | "codex" | "pi";
@@ -56,6 +64,14 @@ export interface AgentInfo {
    */
   namePinned?: boolean;
 }
+
+/** What `createAgent` takes: `hostId` defaults to the project's host. */
+export type NewAgent = Omit<AgentInfo, "id" | "createdAt" | "updatedAt" | "activatedAt" | "hostId"> & {
+  hostId?: string;
+};
+
+/** The host a project lives on (`ProjectManager.getProjectHostId`). */
+export type ProjectHostLookup = (projectId: string | null) => string;
 
 interface PersistedState {
   agents: AgentInfo[];
@@ -79,10 +95,21 @@ export class AgentManager {
    * rewritten file no longer contains the legacy key on disk.
    */
   private migrationPerformed = false;
+  private hostOfProject: ProjectHostLookup;
 
-  constructor(dataDir?: string, retentionDays = 90) {
+  /**
+   * `hostOfProject` resolves the host of an agent whose own host is unknown:
+   * a record saved before ADR-191, or a new agent whose pane has no owner
+   * yet. Defaults to local.
+   */
+  constructor(
+    dataDir?: string,
+    retentionDays = 90,
+    hostOfProject: ProjectHostLookup = () => LOCAL_HOST_ID,
+  ) {
     this.dataDir = dataDir ?? manorDataDir();
     this.retentionDays = retentionDays;
+    this.hostOfProject = hostOfProject;
     this.agents = this.loadState();
     if (this.migrationPerformed) {
       // Bypass the debounce: write immediately so future loads don't re-migrate.
@@ -131,6 +158,13 @@ export class AgentManager {
           delete migrated.claudeSessionId;
           this.migrationPerformed = true;
         }
+        // ADR-191 §5: a record with no host predates host-qualified
+        // identity. It ran on its project's host, the only host Manor
+        // tracked for it then. Written back at once, so it migrates once.
+        if (!migrated.hostId) {
+          migrated.hostId = this.hostOfProject(migrated.projectId);
+          this.migrationPerformed = true;
+        }
         map.set(migrated.agentSessionId, migrated);
         idIndex.set(migrated.id, migrated.agentSessionId);
       }
@@ -171,12 +205,11 @@ export class AgentManager {
     this.writeStateSync();
   }
 
-  createAgent(
-    data: Omit<AgentInfo, "id" | "createdAt" | "updatedAt" | "activatedAt">,
-  ): AgentInfo {
+  createAgent(data: NewAgent): AgentInfo {
     const now = new Date().toISOString();
     const agent: AgentInfo = {
       ...data,
+      hostId: data.hostId || this.hostOfProject(data.projectId),
       id: crypto.randomUUID(),
       createdAt: now,
       updatedAt: now,

@@ -13,14 +13,14 @@
  *   persist → unseen add/clear → notify → broadcast
  */
 
-import type { AgentInfo } from "../agent-persistence";
+import type { AgentInfo, NewAgent } from "../agent-persistence";
 import { cleanAgentTitle } from "../title-utils";
 import type { AgentStatus as WireAgentStatus } from "../terminal-host/types";
 import type { AgentKind, AgentStatus, AgentStatusTransition, Effect } from "./types";
 
 /** Structural interface for the Agent persistence layer (fakes in tests). */
 export interface IAgentManager {
-  createAgent(data: Omit<AgentInfo, "id" | "createdAt" | "updatedAt" | "activatedAt">): AgentInfo;
+  createAgent(data: NewAgent): AgentInfo;
   updateAgent(id: string, updates: Partial<AgentInfo>): AgentInfo | null;
   getAgentBySessionId(sessionId: string): AgentInfo | null;
   getAgentByPaneId(paneId: string): AgentInfo | null;
@@ -47,6 +47,11 @@ export interface PaneStatusUpdate {
 export interface EffectApplierDeps {
   agentManager: IAgentManager;
   getPaneContext: (paneId: string) => PaneContext | undefined;
+  /**
+   * The host that runs a pane's terminal: its session owner, if any host has
+   * claimed it (ADR-191 §5).
+   */
+  getPaneHostId: (paneId: string) => string | undefined;
   unseenRespondedAgents: Set<string>;
   unseenInputAgents: Set<string>;
   /** Broadcast an `agent-updated` event and refresh the dock badge. */
@@ -137,6 +142,9 @@ function applyCreateAgent(
     completedAt: null,
     projectId: paneContext?.projectId ?? null,
     projectName: paneContext?.projectName ?? null,
+    // Undefined when no host owns the pane yet: the Agent manager then
+    // records the project's host.
+    hostId: deps.getPaneHostId(effect.paneId),
     workspacePath: paneContext?.workspacePath ?? null,
     cwd: paneContext?.workspacePath ?? "",
     agentKind: effect.agentKind,
@@ -157,6 +165,19 @@ function applyCreateAgent(
   }
 }
 
+/**
+ * Keep an Agent's recorded host in step with its pane's session owner
+ * (ADR-191 §5), so an Agent whose pane moved host (ADR-183) is judged by the
+ * new host after a restart too. The transition's own write broadcasts it.
+ */
+function followPaneHost(agent: AgentInfo, deps: EffectApplierDeps): void {
+  if (!agent.paneId) return;
+  const owner = deps.getPaneHostId(agent.paneId);
+  if (owner && owner !== agent.hostId) {
+    deps.agentManager.updateAgent(agent.id, { hostId: owner });
+  }
+}
+
 function applyTransition(
   sessionId: string,
   transition: AgentStatusTransition,
@@ -164,6 +185,7 @@ function applyTransition(
 ): void {
   const existing = deps.agentManager.getAgentBySessionId(sessionId);
   if (!existing) return;
+  followPaneHost(existing, deps);
   const prevStatus = existing.lastAgentStatus;
   const now = new Date().toISOString();
 

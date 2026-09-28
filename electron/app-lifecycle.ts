@@ -393,9 +393,11 @@ export function initApp(devTitle: string | null): void {
   // PreferencesManager must be constructed before AgentManager so we can pass
   // the user's configured retention into the prune step.
   const preferencesManager = new PreferencesManager();
+  // An agent saved before ADR-191 has no host: it takes its project's.
   const agentManager = new AgentManager(
     undefined,
     preferencesManager.get("agentRetentionDays"),
+    (projectId) => projectManager.getProjectHostId(projectId),
   );
   const keybindingsManager = new KeybindingsManager();
   // ADR-162's durable notification log. Handed to `notifications.ts` so the
@@ -542,6 +544,7 @@ export function initApp(devTitle: string | null): void {
   const agentStatusDriver: AgentStatusDriver = createAgentStatusDriver({
     agentManager,
     getPaneContext: (paneId) => paneContextMap.get(paneId),
+    getPaneHostId: (paneId) => backendRegistry.sessions.ownerOf(paneId),
     unseenRespondedAgents,
     unseenInputAgents,
     broadcastAgent,

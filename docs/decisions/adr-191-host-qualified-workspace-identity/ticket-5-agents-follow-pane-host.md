@@ -1,6 +1,6 @@
 ---
 title: Agents follow the host their terminal actually runs on
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [1]

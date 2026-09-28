@@ -1,9 +1,11 @@
 /* ── ProjectItem ── */
 
-/* Projects are set apart by padding and type weight alone — no border,
-   no separator, no selection bar (ADR-193 §3). */
-.project {
-  padding-block: 12px;
+/* Projects are set apart by space and type weight alone — no border, no
+   separator, no selection bar (ADR-193 §3). Only an expanded project's list
+   takes bottom padding, so collapsed projects stay tight. */
+.project > .workspaces,
+.project > .groupSections {
+  padding-bottom: 14px;
 }
 
 .projectHeader {
@@ -524,10 +526,12 @@
   background: var(--yellow, #d29922);
 }
 
+/* Each host section after the first starts well clear of the previous
+   host's last workspace. */
 .groupSections {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 20px;
   margin-top: 4px;
 }
 

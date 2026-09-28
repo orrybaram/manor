@@ -99,14 +99,15 @@ Only styling/markup in `ProjectGroupItem`, the `section` variant of
 `ProjectItem`, and `ProjectItem.module.css`:
 
 - **Projects** are set apart by space and weight, not lines: project names
-  are 13.5px semibold, each project has 12px of vertical padding, and the
+  are 13.5px semibold, an expanded project's list has 14px of bottom padding
+  (collapsed projects stay tight), and the
   separators between projects and the selected project's left color bar are
   removed. The selected project is marked by its colored name.
 - **Section header** is a faint sentence-case label (11px, weight 500,
   `--text-dim`): host icon (`Laptop` / `Cloud`) + host name, and a connection
   dot on the right for a remote host. No chip, no rule, no chevron; clicking
   the label collapses the section, and a collapsed section shows its
-  workspace count. Sections are 12px apart.
+  workspace count. Sections are 20px apart.
 - **Indentation.** Host labels and workspace rows (in every project, linked
   or not) start under the project name, past the chevron.
 - (Revised twice after review, using mockups: the first cut left host labels

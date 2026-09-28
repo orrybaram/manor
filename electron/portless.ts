@@ -117,31 +117,68 @@ export class PortlessManager {
    * Base slug: `projectName` or `basename(workspacePath)`, sanitized
    * (lowercase, non-alphanumeric → hyphens, max 63 chars).
    *
-   * If `branch` is set and `!isMain`, returns `${branch}.${base}.localhost`.
-   * Otherwise returns `${base}.localhost`.
+   * `hostSegment` is the workspace's host's segment from `hostSegments`, or
+   * null for this machine. A remote workspace's hostname ends in
+   * `.${hostSegment}.localhost`, so a local and a remote main of one project
+   * don't both claim `${base}.localhost` (ADR-191 §6); a local one is
+   * unchanged.
+   *
+   * If `branch` is set and `!isMain`, returns `${branch}.${base}` plus the
+   * suffix. Otherwise returns `${base}` plus the suffix.
    */
   hostnameForPort(
     workspacePath: string,
     projectName: string | undefined | null,
     branch: string | undefined | null,
     isMain: boolean,
+    hostSegment: string | null,
   ): string {
-    const sanitize = (s: string): string =>
-      s
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-        .slice(0, 63);
-
-    const rawBase = projectName || path.basename(workspacePath);
-    const base = sanitize(rawBase);
+    const base = sanitizeLabel(projectName || path.basename(workspacePath));
+    const suffix = hostSegment ? `${hostSegment}.localhost` : "localhost";
 
     if (branch && !isMain) {
-      return `${sanitize(branch)}.${base}.localhost`;
+      return `${sanitizeLabel(branch)}.${base}.${suffix}`;
     }
 
-    return `${base}.localhost`;
+    return `${base}.${suffix}`;
   }
+}
+
+/** A DNS label: lowercase, non-alphanumeric runs → hyphens, max 63 chars. */
+function sanitizeLabel(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 63);
+}
+
+/** How many characters of a host id its hostname segment keeps. */
+const HOST_SEGMENT_LENGTH = 8;
+
+/**
+ * Each remote host's hostname segment (ADR-191 §6): the first 8 characters
+ * of its id, lowercased, or its whole sanitized id when another host's id
+ * starts the same way. Derived from the id, never the host's name, which can
+ * be edited and need not be unique.
+ *
+ * Takes every registered remote host, not only those with ports, so a
+ * host's segment doesn't change as other hosts' dev servers come and go.
+ */
+export function hostSegments(remoteHostIds: readonly string[]): Map<string, string> {
+  const prefixOf = (id: string) => sanitizeLabel(id.slice(0, HOST_SEGMENT_LENGTH));
+  const counts = new Map<string, number>();
+  for (const id of remoteHostIds) {
+    const prefix = prefixOf(id);
+    counts.set(prefix, (counts.get(prefix) ?? 0) + 1);
+  }
+  const segments = new Map<string, string>();
+  for (const id of remoteHostIds) {
+    const prefix = prefixOf(id);
+    const shared = prefix === "" || (counts.get(prefix) ?? 0) > 1;
+    segments.set(id, shared ? sanitizeLabel(id) : prefix);
+  }
+  return segments;
 }
 
 export const portlessManager = new PortlessManager();

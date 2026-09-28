@@ -37,6 +37,7 @@ export async function fetchPrs() {
       const results = await window.electronAPI.github.getPrsForBranches(
         project.path,
         branches,
+        project.hostId,
       );
 
       for (const [branch, pr] of results) {

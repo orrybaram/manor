@@ -24,6 +24,8 @@ import type { AppMenuController } from "../app-menu";
 
 export interface WorkspaceMeta {
   path: string;
+  /** The workspace's project's host (ADR-191). Missing means local. */
+  hostId?: string;
   projectName: string | null;
   branch: string | null;
   isMain: boolean;

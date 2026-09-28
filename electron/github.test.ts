@@ -768,10 +768,16 @@ describe("GitHubManager", () => {
   // here against the repo the resolver names instead of inside the path.
   // -------------------------------------------------------------------------
   describe("remote projects", () => {
+    /** Paths under `/remote` are the remote host `box`'s; the rest are local. */
+    function resolver(repoFor: (hostId: string, path: string) => Promise<string>) {
+      return {
+        hostIdForPath: (p: string) => (p.startsWith("/remote") ? "box" : "local"),
+        repoFor: vi.fn(repoFor),
+      };
+    }
+
     it("targets the resolved repo instead of running in the remote path", async () => {
-      const remote = new GitHubManager(async (p) =>
-        p === "/remote/repo" ? "owner/repo" : null,
-      );
+      const remote = new GitHubManager(resolver(async () => "owner/repo"));
       setupExecFileCalls([success("[]")]);
 
       await remote.getPrForBranch("/remote/repo", "feat/x");
@@ -783,32 +789,75 @@ describe("GitHubManager", () => {
     });
 
     it("keeps running local paths in their directory", async () => {
-      const remote = new GitHubManager(async () => null);
+      const r = resolver(async () => "owner/repo");
+      const remote = new GitHubManager(r);
       setupExecFileCalls([success("[]")]);
 
       await remote.getAllIssues("/local/repo");
 
       expect(mockState.calls[0]).not.toContain("--repo");
       expect(mockState.cwds[0]).toBe("/local/repo");
+      expect(r.repoFor).not.toHaveBeenCalled();
     });
 
     it("resolves a remote path's repo once", async () => {
-      const resolve = vi.fn(async () => "owner/repo");
-      const remote = new GitHubManager(resolve);
+      const r = resolver(async () => "owner/repo");
+      const remote = new GitHubManager(r);
       setupExecFileCalls([success("[]"), success("[]")]);
 
       await remote.getMyIssues("/remote/repo");
-      await remote.getMyIssues("/remote/repo");
+      await remote.getMyIssues({ path: "/remote/repo", hostId: "box" });
 
-      expect(resolve).toHaveBeenCalledTimes(1);
+      expect(r.repoFor).toHaveBeenCalledTimes(1);
+      expect(r.repoFor).toHaveBeenCalledWith("box", "/remote/repo");
     });
 
     it("reports no PR when the repo cannot be resolved", async () => {
-      const remote = new GitHubManager(async () => {
-        throw new Error("no origin");
-      });
+      const remote = new GitHubManager(
+        resolver(async () => {
+          throw new Error("no origin");
+        }),
+      );
 
       await expect(remote.getPrForBranch("/remote/repo", "feat/x")).resolves.toBeNull();
+    });
+
+    // ADR-191: the same path on two hosts is two checkouts.
+    it("keeps separate cache entries for the same path on two hosts", async () => {
+      const r = resolver(async (hostId) => `owner/${hostId}-repo`);
+      const remote = new GitHubManager(r);
+      setupExecFileCalls([success("[]"), success("[]"), success("[]"), success("[]")]);
+
+      await remote.getMyIssues({ path: "/srv/repo", hostId: "box" });
+      await remote.getMyIssues({ path: "/srv/repo", hostId: "other" });
+      await remote.getMyIssues({ path: "/srv/repo", hostId: "box" });
+      await remote.getMyIssues({ path: "/srv/repo", hostId: "other" });
+
+      expect(r.repoFor).toHaveBeenCalledTimes(2);
+      expect(mockState.calls.map((args) => args[args.indexOf("--repo") + 1])).toEqual([
+        "owner/box-repo",
+        "owner/other-repo",
+        "owner/box-repo",
+        "owner/other-repo",
+      ]);
+    });
+
+    it("uses the caller's host over the one guessed from the path", async () => {
+      const r = resolver(async () => "owner/repo");
+      const remote = new GitHubManager(r);
+      setupExecFileCalls([success("[]"), success("[]")]);
+
+      // `/local/repo` guesses local, but the caller says it is on `box`.
+      await remote.getMyIssues({ path: "/local/repo", hostId: "box" });
+      // And a remote-looking path the caller says is local runs in place.
+      await remote.getMyIssues({ path: "/remote/repo", hostId: "local" });
+
+      expect(r.repoFor).toHaveBeenCalledOnce();
+      expect(r.repoFor).toHaveBeenCalledWith("box", "/local/repo");
+      expect(mockState.calls[0]).toEqual(expect.arrayContaining(["--repo", "owner/repo"]));
+      expect(mockState.cwds[0]).toBeUndefined();
+      expect(mockState.calls[1]).not.toContain("--repo");
+      expect(mockState.cwds[1]).toBe("/remote/repo");
     });
   });
 });

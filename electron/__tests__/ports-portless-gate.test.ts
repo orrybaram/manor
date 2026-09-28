@@ -16,23 +16,21 @@ vi.mock("electron", () => ({
 // ── Mock the portless proxy ────────────────────────────────────────────────────
 const updateRoutes = vi.fn();
 
-vi.mock("../portless", () => ({
-  portlessManager: {
-    get proxyPort() {
-      return 7999;
+vi.mock("../portless", async (importOriginal) => {
+  // The real hostname rules, so these tests pin the hostnames users see.
+  const real = await importOriginal<typeof import("../portless")>();
+  const manager = new real.PortlessManager();
+  return {
+    hostSegments: real.hostSegments,
+    portlessManager: {
+      get proxyPort() {
+        return 7999;
+      },
+      updateRoutes: (routes: unknown) => updateRoutes(routes),
+      hostnameForPort: manager.hostnameForPort.bind(manager),
     },
-    updateRoutes: (routes: unknown) => updateRoutes(routes),
-    hostnameForPort: (
-      _path: string,
-      projectName: string | null,
-      branch: string | null,
-      isMain: boolean,
-    ) =>
-      branch && !isMain
-        ? `${branch}.${projectName}.localhost`
-        : `${projectName}.localhost`,
-  },
-}));
+  };
+});
 
 vi.mock("../ipc-validate", () => ({
   assertHostPaths: vi.fn(),
@@ -41,6 +39,7 @@ vi.mock("../ipc-validate", () => ({
 }));
 
 import { register } from "../ipc/ports";
+import { hostSegments } from "../portless";
 import { RemoteUrlResolver } from "../remote-forwards";
 import type { WorkspaceMeta } from "../ipc/types";
 
@@ -73,6 +72,8 @@ function makeDeps(
     { port: 3000, workspacePath: "/repo" },
   ],
   forwarded: Map<string, number> = new Map(),
+  /** Registered remote hosts, for their hostname segments. */
+  remoteHostIds: string[] = ["box"],
 ) {
   const changeListeners: (() => void)[] = [];
   const statusListeners: (() => void)[] = [];
@@ -93,6 +94,7 @@ function makeDeps(
 
   const backendRegistry = {
     provider: () => undefined,
+    remoteHostIds: () => remoteHostIds,
     status: (hostId: string) => statuses.get(hostId),
     onStatusChange: (listener: () => void) => {
       statusListeners.push(listener);
@@ -274,14 +276,14 @@ describe("remote ports", () => {
 
   it("routes a remote port only once it is forwarded, then to the forward", async () => {
     const deps = makeDeps(
-      [meta(), meta({ path: "/local", projectName: "loc" })],
+      [meta({ hostId: "box" }), meta({ path: "/local", projectName: "loc" })],
       remoteScan,
     );
     register(deps as never);
 
     const ports = await scan();
     // The hostname is shown either way; the route waits for the forward.
-    expect(ports.find((p) => p.port === 3000)!.hostname).toBe("acme.localhost:7999");
+    expect(ports.find((p) => p.port === 3000)!.hostname).toBe("acme.box.localhost:7999");
     expect(updateRoutes).toHaveBeenLastCalledWith([
       { hostname: "loc.localhost", port: 4000 },
     ]);
@@ -289,15 +291,15 @@ describe("remote ports", () => {
     // Opening the portless URL makes the forward, which re-routes.
     const url = await handlers.get("ports:resolveUrl")!(
       {} as never,
-      "http://acme.localhost:7999/",
+      "http://acme.box.localhost:7999/",
       "box",
     );
-    expect(url).toBe("http://acme.localhost:7999/");
+    expect(url).toBe("http://acme.box.localhost:7999/");
     expect(deps.remoteForwards.ensure).toHaveBeenCalledWith("box", 3000, {
       remoteHost: undefined,
     });
     expect(updateRoutes).toHaveBeenLastCalledWith([
-      { hostname: "acme.localhost", port: 53000 },
+      { hostname: "acme.box.localhost", port: 53000 },
       { hostname: "loc.localhost", port: 4000 },
     ]);
   });
@@ -455,5 +457,140 @@ describe("remote ports", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// ADR-191 §6: a local and a remote checkout of one project can share a path
+// and a name, so a remote hostname carries a segment from its host's id.
+describe("hostnames by host", () => {
+  beforeEach(() => {
+    handlers.clear();
+    updateRoutes.mockClear();
+  });
+
+  const HOST = "3F1C2A9E-7b1d-4c2a-9e3f-000000000001";
+  const OTHER = "3f1c2a9e-0000-4c2a-9e3f-000000000002";
+
+  it("gives a local and a remote main at the same path distinct, working hostnames", async () => {
+    const deps = makeDeps(
+      [meta(), meta({ hostId: HOST })],
+      [
+        { port: 3000, workspacePath: "/repo" },
+        { port: 3000, workspacePath: "/repo", hostId: HOST },
+      ],
+      new Map([[`${HOST}:3000`, 53000]]),
+      [HOST],
+    );
+    register(deps as never);
+
+    const ports = await scan();
+
+    expect(ports.map((p) => p.hostname)).toEqual([
+      "acme.localhost:7999",
+      "acme.3f1c2a9e.localhost:7999",
+    ]);
+    // Each hostname routes to its own host's server.
+    expect(updateRoutes).toHaveBeenLastCalledWith([
+      { hostname: "acme.localhost", port: 3000 },
+      { hostname: "acme.3f1c2a9e.localhost", port: 53000 },
+    ]);
+  });
+
+  it("puts the host segment after the project for a remote branch", async () => {
+    const deps = makeDeps(
+      [meta({ hostId: HOST, branch: "feat-x", isMain: false })],
+      [{ port: 3000, workspacePath: "/repo", hostId: HOST }],
+      new Map(),
+      [HOST],
+    );
+    register(deps as never);
+
+    expect((await scan())[0].hostname).toBe("feat-x.acme.3f1c2a9e.localhost:7999");
+  });
+
+  it("leaves local hostnames unchanged when remote hosts are registered", async () => {
+    const deps = makeDeps(
+      [meta({ branch: "feat-x", isMain: false })],
+      [{ port: 3000, workspacePath: "/repo" }],
+      new Map(),
+      [HOST, OTHER],
+    );
+    register(deps as never);
+
+    expect((await scan())[0].hostname).toBe("feat-x.acme.localhost:7999");
+  });
+
+  it("uses each host's full id when two hosts share the prefix", async () => {
+    const deps = makeDeps(
+      [meta({ hostId: HOST }), meta({ hostId: OTHER })],
+      [
+        { port: 3000, workspacePath: "/repo", hostId: HOST },
+        { port: 3000, workspacePath: "/repo", hostId: OTHER },
+      ],
+      new Map(),
+      [HOST, OTHER],
+    );
+    register(deps as never);
+
+    expect((await scan()).map((p) => p.hostname)).toEqual([
+      "acme.3f1c2a9e-7b1d-4c2a-9e3f-000000000001.localhost:7999",
+      "acme.3f1c2a9e-0000-4c2a-9e3f-000000000002.localhost:7999",
+    ]);
+  });
+
+  it("matches metadata by host as well as path", async () => {
+    // Only the remote project has portless on: the local port at the same
+    // path must not borrow its metadata.
+    const deps = makeDeps(
+      [meta({ portlessEnabled: false }), meta({ hostId: HOST, projectName: "remote" })],
+      [
+        { port: 3000, workspacePath: "/repo" },
+        { port: 4000, workspacePath: "/repo", hostId: HOST },
+      ],
+      new Map(),
+      [HOST],
+    );
+    register(deps as never);
+
+    const ports = await scan();
+
+    expect(ports.find((p) => p.port === 3000)!.hostname).toBeUndefined();
+    expect(ports.find((p) => p.port === 4000)!.hostname).toBe(
+      "remote.3f1c2a9e.localhost:7999",
+    );
+  });
+
+  it("gives a port from an unregistered host no hostname", async () => {
+    const deps = makeDeps(
+      [meta({ hostId: "gone" })],
+      [{ port: 3000, workspacePath: "/repo", hostId: "gone" }],
+      new Map(),
+      [],
+    );
+    register(deps as never);
+
+    expect((await scan())[0].hostname).toBeUndefined();
+    expect(updateRoutes).toHaveBeenLastCalledWith([]);
+  });
+});
+
+describe("hostSegments", () => {
+  it("keeps the first 8 characters of a host id, lowercased", () => {
+    expect(hostSegments(["3F1C2A9E-aaaa", "b0x"])).toEqual(
+      new Map([
+        ["3F1C2A9E-aaaa", "3f1c2a9e"],
+        ["b0x", "b0x"],
+      ]),
+    );
+  });
+
+  it("falls back to the full sanitized id only for hosts sharing a prefix", () => {
+    expect(hostSegments(["abcdefgh-1", "ABCDEFGH-2", "12345678-3"])).toEqual(
+      new Map([
+        ["abcdefgh-1", "abcdefgh-1"],
+        ["ABCDEFGH-2", "abcdefgh-2"],
+        ["12345678-3", "12345678"],
+      ]),
+    );
   });
 });

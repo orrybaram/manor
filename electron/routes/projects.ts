@@ -221,7 +221,7 @@ async function batchCreateWorkspaces(
   const details = await Promise.all(
     numbers.map(async (number) => {
       try {
-        const detail = await github.getIssueDetail(project.path, number);
+        const detail = await github.getIssueDetail({ path: project.path, hostId: project.hostId }, number);
         return { number, detail };
       } catch (err) {
         return { number, error: String(err) };
@@ -282,7 +282,7 @@ async function batchCreateWorkspaces(
     }
     if (assign) {
       try {
-        await github.assignIssue(project.path, d.number);
+        await github.assignIssue({ path: project.path, hostId: project.hostId }, d.number);
       } catch (err) {
         entry.assignError = String(err);
       }

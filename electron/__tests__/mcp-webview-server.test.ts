@@ -540,6 +540,7 @@ describe("WebviewServer agent orchestration routes", () => {
     id: "proj-1",
     name: "demo",
     path: "/repos/demo",
+    hostId: "local",
     defaultBranch: "main",
     workspaces: [
       { path: "/repos/demo", branch: "main", isMain: true, name: null },
@@ -682,7 +683,7 @@ describe("WebviewServer agent orchestration routes", () => {
       )) as unknown[];
       expect(issues).toHaveLength(1);
       expect(github.getMyIssues).toHaveBeenCalledWith(
-        "/repos/demo",
+        { path: "/repos/demo", hostId: "local" },
         50,
         "open",
       );
@@ -696,7 +697,7 @@ describe("WebviewServer agent orchestration routes", () => {
       )) as unknown[];
       expect(issues).toHaveLength(1);
       expect(github.getAllIssues).toHaveBeenCalledWith(
-        "/repos/demo",
+        { path: "/repos/demo", hostId: "local" },
         50,
         "open",
       );
@@ -860,7 +861,7 @@ describe("WebviewServer agent orchestration routes", () => {
         baseUrl,
         "/projects/proj-1/issues/42?source=github",
       )) as { source: string; ref: string };
-      expect(github.getIssueDetail).toHaveBeenCalledWith("/repos/demo", 42);
+      expect(github.getIssueDetail).toHaveBeenCalledWith({ path: "/repos/demo", hostId: "local" }, 42);
       expect(detail).toMatchObject({ source: "github", ref: "#42" });
     });
 
@@ -871,7 +872,7 @@ describe("WebviewServer agent orchestration routes", () => {
         baseUrl,
         "/projects/proj-1/issues/%2342?source=github",
       )) as { source: string; ref: string };
-      expect(github.getIssueDetail).toHaveBeenCalledWith("/repos/demo", 42);
+      expect(github.getIssueDetail).toHaveBeenCalledWith({ path: "/repos/demo", hostId: "local" }, 42);
       expect(detail).toMatchObject({ source: "github", ref: "#42" });
     });
 
@@ -1031,8 +1032,8 @@ describe("WebviewServer agent orchestration routes", () => {
         undefined,
       );
 
-      expect(github.assignIssue).toHaveBeenCalledWith("/repos/demo", 10);
-      expect(github.assignIssue).toHaveBeenCalledWith("/repos/demo", 20);
+      expect(github.assignIssue).toHaveBeenCalledWith({ path: "/repos/demo", hostId: "local" }, 10);
+      expect(github.assignIssue).toHaveBeenCalledWith({ path: "/repos/demo", hostId: "local" }, 20);
 
       expect(result.results).toHaveLength(2);
       expect(result.results[0]).toMatchObject({

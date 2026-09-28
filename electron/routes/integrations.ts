@@ -99,7 +99,7 @@ export const integrationRoutes: Route[] = [
           title,
           issueBody,
           (labels as string[]) ?? [],
-          project.path,
+          { path: project.path, hostId: project.hostId },
         );
         // `createIssue` swallows `gh`'s error and returns null — all this side
         // knows is that it did not happen.

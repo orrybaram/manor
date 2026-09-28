@@ -13,10 +13,14 @@ export function register(deps: IpcDeps): void {
     },
   );
 
+  // The PR poller names the project's host, so a local and a remote checkout
+  // at the same path are not both answered from one of them (ADR-191).
   ipcMain.handle(
     "github:getPrsForBranches",
-    (_event, repoPath: string, branches: string[]) => {
-      return githubManager.getPrsForBranches(repoPath, branches);
+    (_event, repoPath: string, branches: string[], hostId?: unknown) => {
+      if (hostId === undefined) return githubManager.getPrsForBranches(repoPath, branches);
+      assertString(hostId, "hostId");
+      return githubManager.getPrsForBranches({ path: repoPath, hostId }, branches);
     },
   );
 

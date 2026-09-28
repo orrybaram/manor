@@ -684,6 +684,7 @@ export interface ElectronAPI {
     updateWorkspaceMetadata: (
       meta: Array<{
         path: string;
+        hostId: string;
         projectName: string | null;
         branch: string | null;
         isMain: boolean;
@@ -761,9 +762,11 @@ export interface ElectronAPI {
 
   github: {
     getPrForBranch: (repoPath: string, branch: string) => Promise<unknown>;
+    /** `hostId` is the project's host; without it the host is guessed from the path. */
     getPrsForBranches: (
       repoPath: string,
       branches: string[],
+      hostId?: string,
     ) => Promise<[string, PrInfo | null][]>;
     checkStatus: () => Promise<{
       installed: boolean;

@@ -1,8 +1,9 @@
 import { ipcMain } from "electron";
 import type { ActivePort } from "../ports";
-import { portlessManager } from "../portless";
+import { hostSegments, portlessManager } from "../portless";
 import { remoteFormOfUrl } from "../remote-forwards";
 import { LOCAL_HOST_ID } from "../backend/types";
+import { normalizeHostId } from "../../src/lib/host-id";
 import {
   assertHostPaths,
   assertPositiveInt,
@@ -11,7 +12,7 @@ import {
 import type { IpcDeps, WorkspaceMeta } from "./types";
 
 export function register(deps: IpcDeps): void {
-  const { portScanner, backend, remoteForwards, remoteUrlResolver } = deps;
+  const { portScanner, backend, backendRegistry, remoteForwards, remoteUrlResolver } = deps;
 
   function getMainWindow() {
     return deps.mainWindow;
@@ -28,16 +29,29 @@ export function register(deps: IpcDeps): void {
   function enrichPorts(ports: ActivePort[]): ActivePort[] {
     const proxyPort = portlessManager.proxyPort;
     const routes: { hostname: string; port: number }[] = [];
+    const segments = hostSegments(backendRegistry.remoteHostIds());
     const enriched = ports.map((port) => {
-      const meta = workspaceMeta.find((m) => m.path === port.workspacePath);
+      // By host and path: a local and a remote workspace can share a path
+      // (ADR-191).
+      const meta = workspaceMeta.find(
+        (m) =>
+          m.path === port.workspacePath &&
+          normalizeHostId(m.hostId) === port.hostId,
+      );
       // portlessEnabled === false opts the project out — its ports keep the
       // plain `localhost:<port>` URL and contribute no proxy route.
       if (!meta || !proxyPort || meta.portlessEnabled === false) return port;
+      // Null for this machine; undefined for a host no longer registered,
+      // which has no segment to claim a hostname with.
+      const hostSegment =
+        port.hostId === LOCAL_HOST_ID ? null : segments.get(port.hostId);
+      if (hostSegment === undefined) return port;
       const hostname = portlessManager.hostnameForPort(
         meta.path,
         meta.projectName,
         meta.branch,
         meta.isMain,
+        hostSegment,
       );
       // A remote port is only reachable through its forward: the route
       // exists once the port has been opened (see `ports:resolveUrl`).

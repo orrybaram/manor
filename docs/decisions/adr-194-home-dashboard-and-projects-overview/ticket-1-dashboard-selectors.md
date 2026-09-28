@@ -1,6 +1,6 @@
 ---
 title: Pure dashboard selectors with tests
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

@@ -110,7 +110,7 @@ export interface CloneHostChoice {
  * never offered. A host whose last connect failed (`error`) is shown
  * disabled, with the reason, since a clone there would fail the same way.
  * A host that is merely disconnected, connecting or reconnecting is not:
- * `projects:addRemote` connects it before cloning, and a host with no
+ * `projects:clone` connects it before cloning, and a host with no
  * project on it yet usually sits disconnected. Empty when `project` isn't
  * linked, so an unlinked project never gets the action (a clone there would
  * have to create a group), and when every registered host already has a

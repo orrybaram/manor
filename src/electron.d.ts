@@ -206,6 +206,16 @@ export interface GitHubIssue {
   assignees: Array<{ login: string }>;
 }
 
+export interface GitHubRepo {
+  nameWithOwner: string;
+  description: string | null;
+  private: boolean;
+  sshUrl: string;
+  httpsUrl: string;
+  pushedAt: string | null;
+  cloneUrl: string;
+}
+
 export interface GitHubIssueDetail extends GitHubIssue {
   body: string | null;
   milestone: { title: string } | null;
@@ -512,7 +522,7 @@ export interface ElectronAPI {
     ) => () => void;
     /**
      * ADR-183 ticket 1: clone progress on its own channel, separate from
-     * worktree setup — used by `addRemote` and `moveToHost`.
+     * worktree setup — used by `clone` and `moveToHost`.
      */
     onCloneProgress: (
       callback: (event: {
@@ -622,11 +632,11 @@ export interface ElectronAPI {
       projectId: string,
       updates: import("./store/project-store").ProjectUpdatableFields,
     ) => Promise<import("./store/project-store").ProjectInfo | null>;
-    /** ADR-178 ticket 5: clone a repo onto a remote host, then add it. */
-    addRemote: (opts: {
+    /** ADR-178 ticket 5, ADR-194: clone a repo onto any host, then add it. */
+    clone: (opts: {
       hostId: string;
       repoUrl: string;
-      remoteDir: string;
+      targetDir: string;
       name: string;
     }) => Promise<import("./store/project-store").ProjectInfo>;
     /** ADR-179: clone an existing project onto a remote host, keeping its record. */
@@ -793,6 +803,8 @@ export interface ElectronAPI {
       repo: GhRepo,
       branches: string[],
     ) => Promise<[string, PrInfo | null][]>;
+    /** The user's clonable repos, newest push first; `[]` when gh is unusable. */
+    listRepos: () => Promise<GitHubRepo[]>;
     checkStatus: () => Promise<{
       installed: boolean;
       authenticated: boolean;

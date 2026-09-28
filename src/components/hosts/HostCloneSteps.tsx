@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { HealthCheckResult } from "../../lib/hosts";
 import { Button } from "../ui/Button/Button";
 import { Input } from "../ui/Input";
@@ -18,7 +19,7 @@ type HostCloneStepsProps = {
 
 /**
  * The cloning-progress and post-clone health-check views shared by
- * `AddProjectDialog`'s remote flow and `CloneToHostDialog` (ADR-183 ticket
+ * `AddProjectDialog`'s remote clone and `CloneToHostDialog` (ADR-183 ticket
  * 10) — everything after the form, driven by `useHostCloneFlow`.
  */
 export function HostCloneSteps(props: HostCloneStepsProps) {
@@ -40,6 +41,77 @@ export function HostCloneSteps(props: HostCloneStepsProps) {
   );
 }
 
+type RepoUrlFieldProps = {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  /** Overrides the "Repo URL" label, e.g. when a repo picker sits above it. */
+  label?: string;
+};
+
+/** The "Repo URL" field shared by both clone dialogs (ADR-183 ticket 10). */
+export function RepoUrlField(props: RepoUrlFieldProps) {
+  const { id, value, onChange, label = "Repo URL" } = props;
+
+  return (
+    <Stack>
+      <label className={styles.fieldLabel} htmlFor={id}>
+        {label}
+      </label>
+      <Input
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="git@github.com:org/repo.git"
+      />
+    </Stack>
+  );
+}
+
+type CloneDirFieldProps = {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  /** Rendered beside the input — `AddProjectDialog`'s "Browse…" (ADR-194). */
+  action?: ReactNode;
+};
+
+/**
+ * Where the clone goes: "Remote directory" in `CloneToHostDialog`,
+ * "Location" in `AddProjectDialog` (ADR-194), which can target this machine.
+ */
+export function CloneDirField(props: CloneDirFieldProps) {
+  const { id, label, value, onChange, placeholder = "~/code/repo", action } = props;
+
+  const input = (
+    <Input
+      id={id}
+      className={action ? styles.fieldGrow : undefined}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+    />
+  );
+
+  return (
+    <Stack>
+      <label className={styles.fieldLabel} htmlFor={id}>
+        {label}
+      </label>
+      {action ? (
+        <Row gap="sm" align="center">
+          {input}
+          {action}
+        </Row>
+      ) : (
+        input
+      )}
+    </Stack>
+  );
+}
+
 type RepoUrlAndRemoteDirFieldsProps = {
   idPrefix: string;
   repoUrl: string;
@@ -48,37 +120,19 @@ type RepoUrlAndRemoteDirFieldsProps = {
   onRemoteDirChange: (value: string) => void;
 };
 
-/**
- * The "Repo URL" / "Remote directory" field pair shared by both clone
- * dialogs (ADR-183 ticket 10).
- */
+/** The "Repo URL" / "Remote directory" field pair `CloneToHostDialog` uses. */
 export function RepoUrlAndRemoteDirFields(props: RepoUrlAndRemoteDirFieldsProps) {
   const { idPrefix, repoUrl, onRepoUrlChange, remoteDir, onRemoteDirChange } = props;
 
   return (
     <>
-      <Stack>
-        <label className={styles.fieldLabel} htmlFor={`${idPrefix}-repo-url`}>
-          Repo URL
-        </label>
-        <Input
-          id={`${idPrefix}-repo-url`}
-          value={repoUrl}
-          onChange={(e) => onRepoUrlChange(e.target.value)}
-          placeholder="git@github.com:org/repo.git"
-        />
-      </Stack>
-      <Stack>
-        <label className={styles.fieldLabel} htmlFor={`${idPrefix}-remote-dir`}>
-          Remote directory
-        </label>
-        <Input
-          id={`${idPrefix}-remote-dir`}
-          value={remoteDir}
-          onChange={(e) => onRemoteDirChange(e.target.value)}
-          placeholder="~/code/repo"
-        />
-      </Stack>
+      <RepoUrlField id={`${idPrefix}-repo-url`} value={repoUrl} onChange={onRepoUrlChange} />
+      <CloneDirField
+        id={`${idPrefix}-remote-dir`}
+        label="Remote directory"
+        value={remoteDir}
+        onChange={onRemoteDirChange}
+      />
     </>
   );
 }

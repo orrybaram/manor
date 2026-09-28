@@ -52,21 +52,22 @@ export function register(deps: IpcDeps): void {
   });
 
   ipcMain.handle(
-    "projects:addRemote",
+    "projects:clone",
     async (
       _event,
-      opts: { hostId: string; repoUrl: string; remoteDir: string; name: string },
+      opts: { hostId: string; repoUrl: string; targetDir: string; name: string },
     ) => {
       assertString(opts?.hostId, "hostId");
       assertString(opts?.repoUrl, "repoUrl");
-      assertString(opts?.remoteDir, "remoteDir");
+      assertString(opts?.targetDir, "targetDir");
       assertString(opts?.name, "name");
-      projectManager.assertRemoteHost(opts.hostId);
+      projectManager.assertKnownHost(opts.hostId);
       // Connect (and start the box, for a managed provider) before cloning —
       // a clone against a host that never got the chance to connect would
-      // just fail with a confusing "unavailable" error.
-      await backendRegistry.ensureConnected(opts.hostId);
-      return projectManager.addRemoteProject(opts);
+      // just fail with a confusing "unavailable" error. This machine is
+      // always connected.
+      if (opts.hostId !== LOCAL_HOST_ID) await backendRegistry.ensureConnected(opts.hostId);
+      return projectManager.cloneProject(opts);
     },
   );
 

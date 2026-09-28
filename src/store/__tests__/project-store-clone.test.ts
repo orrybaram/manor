@@ -5,7 +5,7 @@ const electronAPI = (window as unknown as { electronAPI: Record<string, unknown>
   .electronAPI;
 const originalProjects = electronAPI.projects;
 
-describe("addRemoteProject (ADR-178 ticket 5)", () => {
+describe("cloneProject (ADR-178 ticket 5)", () => {
   beforeEach(() => {
     useProjectStore.setState({ projects: [], selectedProjectIndex: 0 } as never);
   });
@@ -22,20 +22,20 @@ describe("addRemoteProject (ADR-178 ticket 5)", () => {
       hostId: "box",
       workspaces: [{ path: "/home/user/repo", branch: "main", isMain: true, name: null }],
     };
-    const addRemote = vi.fn().mockResolvedValue(newProject);
-    electronAPI.projects = { addRemote };
+    const clone = vi.fn().mockResolvedValue(newProject);
+    electronAPI.projects = { clone };
 
-    const result = await useProjectStore.getState().addRemoteProject({
+    const result = await useProjectStore.getState().cloneProject({
       hostId: "box",
       repoUrl: "https://github.com/org/repo.git",
-      remoteDir: "~/repo",
+      targetDir: "~/repo",
       name: "Repo",
     });
 
-    expect(addRemote).toHaveBeenCalledWith({
+    expect(clone).toHaveBeenCalledWith({
       hostId: "box",
       repoUrl: "https://github.com/org/repo.git",
-      remoteDir: "~/repo",
+      targetDir: "~/repo",
       name: "Repo",
     });
     expect(result).toEqual(newProject);
@@ -45,14 +45,14 @@ describe("addRemoteProject (ADR-178 ticket 5)", () => {
 
   it("propagates a failure (e.g. clone or validation error) without adding a project", async () => {
     electronAPI.projects = {
-      addRemote: vi.fn().mockRejectedValue(new Error("git clone exited with code 128")),
+      clone: vi.fn().mockRejectedValue(new Error("git clone exited with code 128")),
     };
 
     await expect(
-      useProjectStore.getState().addRemoteProject({
+      useProjectStore.getState().cloneProject({
         hostId: "box",
         repoUrl: "https://github.com/org/repo.git",
-        remoteDir: "/srv/app",
+        targetDir: "/srv/app",
         name: "App",
       }),
     ).rejects.toThrow("git clone exited with code 128");

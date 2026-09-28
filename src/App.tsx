@@ -4,6 +4,7 @@ import { StatusBar } from "./components/statusbar/StatusBar/StatusBar";
 import { PanelLayout } from "./components/panels/PanelLayout";
 import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
 import type { PaletteView } from "./components/command-palette/types";
+import type { AddProjectMode } from "./components/sidebar/AddProjectDialog/AddProjectDialog";
 import { onPaletteViewRequest } from "./utils/palette-request";
 import { onUiRequest } from "./utils/ui-request";
 import { GhostsOverlay } from "./components/GhostsOverlay/GhostsOverlay";
@@ -189,19 +190,28 @@ function App() {
     setWizardProjectId(null);
   }, [wizardProjectId, updateProject]);
 
+  const openWizardForProject = useCallback(
+    (projectId: string) => {
+      const newProjects = useProjectStore.getState().projects;
+      const newIndex = newProjects.findIndex((p) => p.id === projectId);
+      const newProject = newProjects[newIndex];
+      if (newProject) {
+        selectProject(newIndex);
+        if (newProject.workspaces[0]) {
+          selectWorkspace(newProject.id, 0);
+        }
+        setWizardProjectId(newProject.id);
+        setWizardOpen(true);
+      }
+    },
+    [selectProject, selectWorkspace],
+  );
+
   const openWizardForLatestProject = useCallback(() => {
     const newProjects = useProjectStore.getState().projects;
-    const newIndex = newProjects.length - 1;
-    const newProject = newProjects[newIndex];
-    if (newProject) {
-      selectProject(newIndex);
-      if (newProject.workspaces[0]) {
-        selectWorkspace(newProject.id, 0);
-      }
-      setWizardProjectId(newProject.id);
-      setWizardOpen(true);
-    }
-  }, [selectProject, selectWorkspace]);
+    const newProject = newProjects[newProjects.length - 1];
+    if (newProject) openWizardForProject(newProject.id);
+  }, [openWizardForProject]);
 
   const handleAddLocalProject = useCallback(async () => {
     const selected = await window.electronAPI.dialog.openDirectory();
@@ -214,9 +224,21 @@ function App() {
   }, [addProject, openWizardForLatestProject]);
 
   const [addProjectDialogOpen, setAddProjectDialogOpen] = useState(false);
+  const [addProjectDialogMode, setAddProjectDialogMode] = useState<AddProjectMode>("folder");
   const handleAddProject = useCallback(() => {
+    setAddProjectDialogMode("folder");
     setAddProjectDialogOpen(true);
   }, []);
+  // ADR-194: the palette's "Clone Repository…" opens straight onto cloning.
+  const handleCloneRepository = useCallback(() => {
+    setAddProjectDialogMode("clone");
+    setAddProjectDialogOpen(true);
+  }, []);
+  // A clone onto this machine gets the same setup wizard as "Open folder".
+  const handleLocalProjectCloned = useCallback(
+    (project: ProjectInfo) => openWizardForProject(project.id),
+    [openWizardForProject],
+  );
   const closeAddProjectDialog = useCallback(() => {
     setAddProjectDialogOpen(false);
   }, []);
@@ -303,12 +325,13 @@ function App() {
     () =>
       onUiRequest((request) => {
         if (request.type === "ghosts") triggerGhosts();
+        if (request.type === "clone-repository") handleCloneRepository();
         // Host indicators (sidebar cloud, status-bar chip) open the host section.
         if (request.type === "open-project-settings") {
           handleOpenProjectSettings(request.projectId, request.section);
         }
       }),
-    [triggerGhosts, handleOpenProjectSettings],
+    [triggerGhosts, handleOpenProjectSettings, handleCloneRepository],
   );
 
   const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
@@ -730,7 +753,9 @@ function App() {
         <AddProjectDialog
           open={addProjectDialogOpen}
           onClose={closeAddProjectDialog}
+          initialMode={addProjectDialogMode}
           onAddLocal={handleAddLocalProject}
+          onLocalProjectCloned={handleLocalProjectCloned}
           onRemoteProjectAdded={handleRemoteProjectAdded}
         />
         <NewWorkspaceDialog

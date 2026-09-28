@@ -62,18 +62,16 @@ export function validateRemoteDir(dir: string): void {
  * A repo's identity as `host/path`, so `git@host:path`, `ssh://git@host/path`
  * and `https://host/path` (ADR-178 ticket 5 review) compare equal even
  * though `git remote get-url origin` and a user-typed repo URL rarely agree
- * on form. Strips scheme, user, port and a trailing `.git`/`/`; case-folds,
- * since host names are case-insensitive.
+ * on form. Strips scheme, user, port and a trailing `.git`/`/` (in either
+ * order); case-folds, since host names are case-insensitive.
  */
 export function normalizeOriginUrl(url: string): string {
-  let rest = url.trim().replace(/\.git$/i, "").replace(/\/+$/, "");
-  if (/^https?:\/\//i.test(rest)) {
-    rest = rest.replace(/^https?:\/\//i, "");
-  } else if (/^ssh:\/\//i.test(rest)) {
-    rest = rest.replace(/^ssh:\/\//i, "");
+  let rest = url.trim().replace(/\/+$/, "").replace(/\.git$/i, "").replace(/\/+$/, "");
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(rest)) {
+    rest = rest.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
   } else {
-    // scp-style `user@host:path` — turn the `:` before the path into `/`.
-    rest = rest.replace(/^([^@/]+@[^@/:]+):/, "$1/");
+    // scp-style `[user@]host:path` — turn the `:` before the path into `/`.
+    rest = rest.replace(/^((?:[^@/]+@)?[^@/:]+):/, "$1/");
   }
   // Drop a leading `user@`, then a `:port` right after the host.
   rest = rest.replace(/^[^@/]+@/, "").replace(/^([^/:]+):\d+/, "$1");

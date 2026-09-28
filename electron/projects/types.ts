@@ -127,6 +127,20 @@ export interface ProjectGroupInfo {
   lastUsedHostId: string | null;
 }
 
+/**
+ * A project or group Manor suggests linking a project with, because their
+ * `origin` URLs match (ADR-192 ticket 5). Only a suggestion: nothing is
+ * linked until the user accepts.
+ */
+export interface LinkSuggestion {
+  /** The project to pass to `linkProjects`: a lone project, or a group's first member. */
+  projectId: string;
+  /** The project's name, or its group's. */
+  name: string;
+  /** Where it lives, for the prompt: its host's label, or a group's hosts' labels. */
+  hostLabel: string;
+}
+
 export type ProjectUpdatableFields = Partial<
   Pick<
     ProjectInfo,
@@ -230,6 +244,13 @@ export interface PersistedProjectGroup {
   color?: string | null;
   agentCommand?: string | null;
   linearAssociations?: LinearAssociation[];
+  /**
+   * The group's repo as a normalized `origin` key (`originKey` in
+   * `origin-links.ts`, ADR-192 ticket 5), so link suggestions can match it
+   * while its hosts are away. Absent until a member's host has reported one;
+   * cleared when a member leaves, and derived again from those that remain.
+   */
+  originKey?: string;
 }
 
 export interface PersistedState {
@@ -239,6 +260,11 @@ export interface PersistedState {
   hosts?: Record<string, PersistedHost>;
   /** Linked-project groups (ADR-192). Absent when there are none. */
   groups?: PersistedProjectGroup[];
+  /**
+   * Pairs of project ids the user declined to link when it was suggested
+   * (ADR-192 ticket 5), each in sorted order. Absent when there are none.
+   */
+  dismissedLinkSuggestions?: Array<[string, string]>;
 }
 
 /**

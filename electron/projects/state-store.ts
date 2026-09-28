@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { LOCAL_HOST_ID } from "../backend/types";
+import { normalizeLinkDismissals } from "./origin-links";
 import { normalizeGroups } from "./project-groups";
 import type { PersistedProject, PersistedState } from "./types";
 
@@ -25,8 +26,9 @@ export class StateStore {
   /**
    * Every project comes out with a `hostId` — `"local"` where the file has
    * none (ADR-183) — so nothing downstream re-defaults it. Linked-project
-   * groups are brought back in line with their invariants (ADR-192); a file
-   * without any keeps no `groups` key, so it is written back unchanged.
+   * groups and dismissed link suggestions are brought back in line with
+   * their invariants (ADR-192); a file without any keeps neither key, so it
+   * is written back unchanged.
    */
   private load(): PersistedState {
     let state: PersistedState;
@@ -39,6 +41,7 @@ export class StateStore {
       project.hostId ??= LOCAL_HOST_ID;
     }
     if ("groups" in state) normalizeGroups(state);
+    if ("dismissedLinkSuggestions" in state) normalizeLinkDismissals(state);
     return state;
   }
 

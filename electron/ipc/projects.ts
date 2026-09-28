@@ -275,6 +275,22 @@ export function register(deps: IpcDeps): void {
     },
   );
 
+  // ADR-192 ticket 5: projects on other hosts with the same `origin`, to
+  // offer as links after an add or clone. Suggests only; never links.
+  ipcMain.handle("projects:suggestLinks", (_event, projectId: string) => {
+    assertString(projectId, "projectId");
+    return projectManager.suggestLinks(projectId);
+  });
+
+  ipcMain.handle(
+    "projects:dismissLinkSuggestion",
+    (_event, projectId: string, otherId: string) => {
+      assertString(projectId, "projectId");
+      assertString(otherId, "otherId");
+      projectManager.dismissLinkSuggestion(projectId, otherId);
+    },
+  );
+
   ipcMain.handle(
     "projects:update",
     (

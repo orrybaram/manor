@@ -2,6 +2,11 @@ import { create } from "zustand";
 import { selectActiveWorkspaceKey, useAppStore } from "./app-store";
 import { workspaceKey } from "../lib/workspace-key";
 import { useToastStore } from "./toast-store";
+import {
+  clearLinkSuggestionsFor,
+  offerLinkSuggestions,
+  startLinkSuggestions,
+} from "./link-suggestions";
 import { branchesEqual } from "../utils/branch-name";
 import { ipcErrorMessage } from "../lib/ipc-error";
 import { splitShared } from "../lib/project-groups";
@@ -724,12 +729,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const projects = await window.electronAPI.projects.getAll();
       const selectedIndex =
         await window.electronAPI.projects.getSelectedIndex();
+      const firstLoad = !get().initialLoadDone;
       set((s) => ({
         projects: keepWatchedState(projects, s.projects),
         selectedProjectIndex: selectedIndex,
         loading: false,
         initialLoadDone: true,
       }));
+      // ADR-192 ticket 5: offer links between existing duplicates, now and
+      // as each remote host first connects.
+      if (firstLoad) void startLinkSuggestions(() => get().projects, get().linkProjects);
     } catch {
       set({ loading: false, initialLoadDone: true });
     }
@@ -741,6 +750,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projects: [...s.projects, project],
       selectedProjectIndex: s.projects.length,
     }));
+    void offerLinkSuggestions(project.id, get().linkProjects);
   },
 
   addProjectFromDirectory: async () => {
@@ -757,6 +767,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projects: [...s.projects, project],
       selectedProjectIndex: s.projects.length,
     }));
+    void offerLinkSuggestions(project.id, get().linkProjects);
     return project;
   },
 
@@ -1038,6 +1049,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       groupErrorToast(`link-projects-${projectId}`, "Couldn't link projects", err);
       return;
     }
+    clearLinkSuggestionsFor([projectId, otherId]);
     await get().loadProjects();
   },
 

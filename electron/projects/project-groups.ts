@@ -138,6 +138,9 @@ export function normalizeGroups(state: PersistedState): void {
       memberIds,
       lastUsedHostId: typeof lastUsed === "string" && hosts.has(lastUsed) ? lastUsed : null,
       ...shared,
+      ...(typeof raw.originKey === "string" && raw.originKey !== ""
+        ? { originKey: raw.originKey }
+        : {}),
     });
   }
   // After the loop: a later group may still have claimed the survivor.
@@ -323,6 +326,9 @@ export function forgetProject(state: PersistedState, projectId: string): boolean
   const leaving = byId(projectId);
   if (leaving) copySharedOnto(group, leaving);
   group.memberIds = group.memberIds.filter((id) => id !== projectId);
+  // The origin key may have come from the member that left (ticket 5); the
+  // caller derives it again from the rest.
+  delete group.originKey;
   if (group.memberIds.length < 2) {
     for (const id of group.memberIds) {
       const last = byId(id);

@@ -609,6 +609,15 @@ export interface ElectronAPI {
     ) => Promise<import("./store/project-store").ProjectInfo[]>;
     /** ADR-192: remember the host a group last made a workspace on. */
     setGroupLastUsedHost: (groupId: string, hostId: string) => Promise<void>;
+    /**
+     * ADR-192 ticket 5: projects or groups on other hosts whose `origin`
+     * matches this project's, minus dismissed ones. Never links.
+     */
+    suggestLinks: (
+      projectId: string,
+    ) => Promise<import("./store/link-suggestions").LinkSuggestion[]>;
+    /** ADR-192 ticket 5: don't suggest linking these two again. */
+    dismissLinkSuggestion: (projectId: string, otherId: string) => Promise<void>;
     update: (
       projectId: string,
       updates: import("./store/project-store").ProjectUpdatableFields,

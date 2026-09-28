@@ -204,7 +204,30 @@ rule.
   existing clone flow and links the result.
 - **Link suggestions by `origin` (ticket 5).** Normalized with the existing
   GitHub remote parsing, stored on the group, and suggested for the user to
-  confirm. Manor never links on its own.
+  confirm. Manor never links on its own. The logic lives in
+  `electron/projects/origin-links.ts`. `originKey` is `normalizeOriginUrl`
+  plus a guard: a remote that is only a path on disk (absolute, relative, a
+  Windows drive or `file://`) is never matched, because it names a different
+  directory on each host. The group stores it as `originKey`. A member
+  leaving clears it, and it is derived again from the members that remain.
+  A group is offered once, under its first member. Dismissed pairs of project
+  ids are persisted as `dismissedLinkSuggestions`. The key is absent until
+  the first dismissal and is dropped with the last one, so files of users who
+  never dismiss stay unchanged. A dismissal with any member of a group
+  covers the whole group. The renderer offers each suggestion as a
+  persistent, neutral `info` toast, one per pair. It does this after
+  `addProject` and `addRemoteProject`, and once per launch for ungrouped
+  projects after they load, so duplicates added before linking existed are
+  found too. A remote host is usually still connecting at that point, so
+  when a host first connects in a session its ungrouped projects are asked
+  again. A pair is offered at most once per session. A successful link
+  closes the other open suggestions that name either project. A launch or
+  host-connect pass that finds three or more new pairs shows one summary
+  toast ("3 possible project links") instead of a toast per pair. Later
+  passes fold their pairs into an open summary. Its "Review" shows the next
+  pair. Its "Dismiss" and its close button both hide it for the session
+  without remembering anything, and later bursts then stay quiet. Suggestions after an add or clone
+  are always shown one by one.
 - **Host status for groups (ticket 6).** Connected / offline / partially
   offline, derived from members. The offline section dims. The status bar chip
   and the tab badge follow the workspace's host, and the collapsed-group agent

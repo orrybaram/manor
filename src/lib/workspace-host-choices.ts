@@ -95,3 +95,33 @@ export function startingMemberId(
   if (!choices || !project?.group) return openedForId;
   return defaultHostChoice(choices, project.group.lastUsedHostId, openedForId, preferredMemberId);
 }
+
+/**
+ * The registered hosts "Clone onto another host…" offers for `project`'s
+ * group (ADR-192 ticket 4): every one with no member in the group yet, in
+ * the host list's order. Empty when `project` isn't linked, so an unlinked
+ * project never gets the action (a clone there would have to create a
+ * group), and when every registered host already has a member.
+ */
+export function hostsToCloneOnto(
+  project: GroupedProject | undefined,
+  projects: readonly GroupedProject[],
+  hosts: readonly HostStatusInfo[],
+): string[] {
+  if (!project?.group) return [];
+  const memberIds = new Set(project.group.memberIds);
+  const taken = new Set(projects.filter((p) => memberIds.has(p.id)).map((p) => p.hostId));
+  return hosts.map((h) => h.hostId).filter((id) => isRemoteHost(id) && !taken.has(id));
+}
+
+/**
+ * The member the New Workspace dialog moves to once "Clone onto another
+ * host…" succeeds: the clone, when it joined `groupId`. Null when linking
+ * failed, so the dialog stays where it was.
+ */
+export function memberAfterClone(
+  cloned: { id: string; group?: { id: string } | null },
+  groupId: string | undefined,
+): string | null {
+  return groupId && cloned.group?.id === groupId ? cloned.id : null;
+}

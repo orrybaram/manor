@@ -206,6 +206,16 @@ export interface GitHubIssue {
   assignees: Array<{ login: string }>;
 }
 
+export interface GitHubRepo {
+  nameWithOwner: string;
+  description: string | null;
+  private: boolean;
+  sshUrl: string;
+  httpsUrl: string;
+  pushedAt: string | null;
+  cloneUrl: string;
+}
+
 export interface GitHubIssueDetail extends GitHubIssue {
   body: string | null;
   milestone: { title: string } | null;
@@ -793,6 +803,8 @@ export interface ElectronAPI {
       repo: GhRepo,
       branches: string[],
     ) => Promise<[string, PrInfo | null][]>;
+    /** The user's clonable repos, newest push first; `[]` when gh is unusable. */
+    listRepos: () => Promise<GitHubRepo[]>;
     checkStatus: () => Promise<{
       installed: boolean;
       authenticated: boolean;

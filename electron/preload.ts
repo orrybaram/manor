@@ -483,6 +483,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   github: {
     getPrsForBranches: (repo: GhRepo, branches: string[]) =>
       ipcRenderer.invoke("github:getPrsForBranches", repo, branches),
+    listRepos: () => ipcRenderer.invoke("github:listRepos"),
     checkStatus: () => ipcRenderer.invoke("github:checkStatus"),
     getMyIssues: (
       repo: GhRepo,

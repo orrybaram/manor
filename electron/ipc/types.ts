@@ -21,12 +21,12 @@ import type { WebviewServer } from "../webview-server";
 import type { PrewarmManager } from "../prewarm-manager";
 import type { RemoteControlController } from "../remote-control/controller";
 import type { AppMenuController } from "../app-menu";
+import type { PortlessWorkspace } from "../../src/lib/portless-hostname";
 
-export interface WorkspaceMeta {
-  path: string;
-  projectName: string | null;
-  branch: string | null;
-  isMain: boolean;
+/** A workspace as the renderer describes it for portless hostnames. */
+export interface WorkspaceMeta extends PortlessWorkspace {
+  /** The workspace's project's host (ADR-191). */
+  hostId: string;
   /** When false, this workspace's ports get no `.localhost` preview hostname. */
   portlessEnabled: boolean;
 }

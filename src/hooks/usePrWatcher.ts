@@ -1,4 +1,5 @@
 import { useProjectStore } from "../store/project-store";
+import { ghRepoOf } from "../lib/gh-repo";
 import { branchesEqual } from "../utils/branch-name";
 import { deliverPrNotifications } from "../utils/pr-notifications";
 import { usePreferencesStore } from "../store/preferences-store";
@@ -35,7 +36,7 @@ export async function fetchPrs() {
 
     try {
       const results = await window.electronAPI.github.getPrsForBranches(
-        project.path,
+        ghRepoOf(project),
         branches,
       );
 

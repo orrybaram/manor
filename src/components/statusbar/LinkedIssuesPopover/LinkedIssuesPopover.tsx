@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as ContextMenu from "@radix-ui/react-context-menu";
@@ -12,6 +12,7 @@ import { GitHubIssueDetailView } from "../../command-palette/GitHubIssueDetailVi
 import { LinearIcon } from "../../command-palette/LinearIcon";
 import { GitHubIcon } from "../../command-palette/GitHubIcon";
 import { useProjectStore } from "../../../store/project-store";
+import { ghRepoOf } from "../../../lib/gh-repo";
 import { addErrorToast, useToastStore } from "../../../store/toast-store";
 import styles from "./LinkedIssuesPopover.module.css";
 
@@ -190,7 +191,14 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
 
   // Look up project and workspace info
   const project = projects.find((p) => p.id === projectId);
-  const repoPath = project?.path ?? "";
+  // On the project's host: a local and a remote checkout can share a path.
+  // Memoized on the strings, so a store update doesn't make a new repo.
+  const repoPath = project?.path;
+  const repoHostId = project?.hostId;
+  const repo = useMemo(
+    () => (repoPath === undefined ? null : ghRepoOf({ path: repoPath, hostId: repoHostId })),
+    [repoPath, repoHostId],
+  );
   const workspace = project?.workspaces.find((w) => w.path === workspacePath);
   const workspaceLabel = workspace?.name ?? workspace?.branch ?? "";
 
@@ -211,10 +219,11 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
       await Promise.all([
         // Fetch GitHub issue details
         ...githubIssues.map(async (issue) => {
+          if (!repo) return;
           try {
             const number = parseInt(issue.id.replace("gh-", ""), 10);
             const detail = await window.electronAPI.github.getIssueDetail(
-              repoPath,
+              repo,
               number,
               issue.url,
             );
@@ -309,7 +318,8 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
       try {
         if (issueId.startsWith("gh-")) {
           const number = parseInt(issueId.replace("gh-", ""), 10);
-          await window.electronAPI.github.closeIssue(repoPath, number);
+          if (!repo) throw new Error("The issue's project no longer exists.");
+          await window.electronAPI.github.closeIssue(repo, number);
         } else {
           await window.electronAPI.linear.closeIssue(issueId);
         }
@@ -337,7 +347,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
       }
       useProjectStore.getState().loadProjects();
     },
-    [projectId, workspacePath, repoPath, visibleIssues, onClose, revertRemoval],
+    [projectId, workspacePath, repo, visibleIssues, onClose, revertRemoval],
   );
 
   const handleRowClick = useCallback((issueId: string) => {
@@ -415,8 +425,8 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
             </Dialog.Title>
             {dialogIssueId && (
               selectedIsGitHub ? (
-                <GitHubIssueDetailView
-                  repoPath={repoPath}
+                repo && <GitHubIssueDetailView
+                  repo={repo}
                   issueNumber={parseInt(
                     dialogIssueId.replace("gh-", ""),
                     10,

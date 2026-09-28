@@ -1,5 +1,6 @@
 import type { PaneNode } from "./pane-tree";
 import type { PaneAgentStatus, PickedElementResult } from "../electron.d";
+import type { WorkspaceKey } from "../lib/workspace-key";
 
 /**
  * Serialized form of a single tab handed across the process boundary when a tab
@@ -29,13 +30,11 @@ export interface DetachedTabPayload {
     audioMuted: Record<string, boolean>;
     pickedElement: Record<string, PickedElementResult | null>;
   };
-  /** Workspace the tab was detached from (informational; ephemeral windows). */
-  sourceWorkspacePath: string;
   /**
-   * The host of that workspace, so the detached window keys the tab's layout
-   * as the source did (ADR-191). Missing means local.
+   * Key (ADR-191) of the workspace the tab was detached from, so the window
+   * keys the tab's layout as the source did (informational; ephemeral windows).
    */
-  sourceWorkspaceHostId?: string;
+  sourceWorkspaceKey: WorkspaceKey;
   /**
    * The source workspace's effective theme override (its project's `themeName`,
    * or null for the global theme). Lets a detached window paint in the same

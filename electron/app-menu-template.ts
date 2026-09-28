@@ -245,9 +245,11 @@ export function buildMenuTemplate(
         label: project.name,
         submenu: project.workspaces.map((ws) =>
           cmd("switch-workspace", ws.label, {
-            args: { path: ws.path },
+            // The project names the workspace's host (ADR-191).
+            args: { path: ws.path, projectId: project.id },
             type: "radio",
-            checked: ws.path === context?.activeWorkspacePath,
+            checked:
+              ws.path === context?.activeWorkspacePath && project.id === context?.project?.id,
           }),
         ),
       }))

@@ -9,7 +9,7 @@ import {
   useRemotePaneStore,
 } from "../store/remote-pane-store";
 import { isRemoteHost, type HostId } from "../lib/hosts";
-import { parseWorkspaceKey } from "../lib/workspace-key";
+import { parseWorkspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import { useHostStore } from "../store/host-store";
 import { isPaneInputBlocked } from "../lib/host-status";
 import { useAppStore, type PendingPaneCommand } from "../store/app-store";
@@ -42,7 +42,7 @@ export function paneCreateHostId(
  * cwd, which can be anywhere): its host is where the pane's session is
  * created.
  */
-export function useTerminalConnection(paneId: string, workspaceKey?: string | null) {
+export function useTerminalConnection(paneId: string, workspaceKey?: WorkspaceKey | null) {
   const paneIdRef = useRef(paneId);
   paneIdRef.current = paneId;
   const workspaceKeyRef = useRef(workspaceKey);

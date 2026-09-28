@@ -11,6 +11,7 @@
 
 import { proxyToRenderer } from "../renderer-bridge";
 import type { Route } from "./types";
+import { withWorkspaceHost } from "./workspace-host";
 
 export const paneRoutes: Route[] = [
   {
@@ -123,8 +124,12 @@ const workspaceRoutes: Route[] = [
   {
     method: "POST",
     path: "/workspaces/active",
-    async handler({ json, readBody }) {
-      await proxyToRenderer(json, "set-active-workspace", await readBody());
+    async handler({ deps, json, readBody }) {
+      await proxyToRenderer(
+        json,
+        "set-active-workspace",
+        withWorkspaceHost(deps, await readBody()),
+      );
     },
   },
 ];
@@ -133,8 +138,8 @@ export const tabRoutes: Route[] = [
   {
     method: "POST",
     path: "/tabs",
-    async handler({ json, readBody }) {
-      await proxyToRenderer(json, "new-tab", await readBody());
+    async handler({ deps, json, readBody }) {
+      await proxyToRenderer(json, "new-tab", withWorkspaceHost(deps, await readBody()));
     },
   },
 

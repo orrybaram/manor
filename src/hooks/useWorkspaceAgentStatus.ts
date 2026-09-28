@@ -4,10 +4,11 @@ import { useAgentStore } from "../store/agent-store";
 import { allPaneIds } from "../store/pane-tree";
 import { pickBestPaneStatus } from "./useTabAgentStatus";
 import type { AgentStatus } from "../electron.d";
+import type { WorkspaceKey } from "../lib/workspace-key";
 
 /** Agent status of the workspace keyed `key` (ADR-191). */
 export function useWorkspaceAgentStatus(
-  key: string,
+  key: WorkspaceKey,
 ): { status: AgentStatus | null; pulse: boolean } {
   const agents = useAgentStore((s) => s.agents);
   const unseenRespondedAgentIds = useAgentStore((s) => s.unseenRespondedAgentIds);

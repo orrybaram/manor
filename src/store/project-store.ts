@@ -633,6 +633,8 @@ function closeWorkspacesLeftBehind(
 ): void {
   const app = useAppStore.getState();
   const kept = new Set(updated.workspaces.map((ws) => ws.path));
+  // The same [old key, new key] pairs main's `moveLayouts`
+  // (`electron/ipc/projects.ts`) moves in `layout.json`; keep them in step.
   for (const ws of previous.workspaces) {
     if (!kept.has(ws.path)) continue;
     app.moveWorkspaceLayout(

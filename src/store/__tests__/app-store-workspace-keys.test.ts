@@ -3,6 +3,7 @@ import { selectActiveWorkspaceKey, useAppStore } from "../app-store";
 import { useProjectStore } from "../project-store";
 import { workspaceKey } from "../../lib/workspace-key";
 import { paneCreateHostId } from "../../hooks/useTerminalConnection";
+import type { ProjectInfo } from "../project-store";
 
 // ADR-191: a local and a remote workspace at the same path keep separate
 // layouts, keyed by host plus path, and each restored pane comes back on the
@@ -141,3 +142,102 @@ describe("layouts keyed by host plus path", () => {
     });
   });
 });
+
+/** Load `workspaces` as `layout.json` at `version`, with nothing open. */
+async function loadLayout(version: 2 | 3, workspaces: object[]): Promise<void> {
+  useAppStore.setState({
+    workspaceLayouts: {},
+    activeWorkspacePath: null,
+    activeWorkspaceHostId: "local",
+  });
+  vi.mocked(window.electronAPI.layout.load).mockResolvedValueOnce({
+    version,
+    workspaces,
+  } as never);
+  await useAppStore.getState().loadPersistedLayout();
+}
+
+/** The workspace key the active layout was last saved under. */
+function lastSavedKey(): string {
+  vi.advanceTimersByTime(600);
+  const calls = vi.mocked(window.electronAPI.layout.save).mock.calls;
+  return (calls[calls.length - 1][0] as { workspacePath: string }).workspacePath;
+}
+
+// Main leaves layout.json at version 2 while a remote host can't say what it
+// owns. Until the migration runs, the workspace it will give a bare path to
+// reads and saves under that path, so no empty qualified entry can later
+// compete with the legacy one.
+describe("a layout file not yet migrated (v2)", () => {
+  const REMOTE_ONLY = "/srv/worktrees/app/fix";
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    useProjectStore.setState({
+      projects: [
+        project("p-local", "local"),
+        { ...project("p-box", "box"), workspaces: [
+          { path: SHARED, branch: "feat", isMain: false, name: null },
+          { path: REMOTE_ONLY, branch: "fix", isMain: false, name: null },
+        ] },
+      ],
+      selectedProjectIndex: 0,
+    } as never);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("restores a remote workspace's legacy layout and saves it under its bare path", async () => {
+    await loadLayout(2, [persistedWorkspace(REMOTE_ONLY, "legacy-pane")]);
+
+    useAppStore.getState().setActiveWorkspace(REMOTE_ONLY, "box");
+
+    expect(paneIds(workspaceKey("box", REMOTE_ONLY))).toEqual(["legacy-pane"]);
+    expect(lastSavedKey()).toBe(REMOTE_ONLY);
+  });
+
+  it("gives a path both hosts have to local, and the other host its own key", async () => {
+    await loadLayout(2, [persistedWorkspace(SHARED, "legacy-pane")]);
+
+    useAppStore.getState().setActiveWorkspace(SHARED, "box");
+    expect(paneIds(BOX)).toEqual([]);
+    // Not the bare path: that is the local workspace's legacy layout.
+    expect(lastSavedKey()).toBe(BOX);
+
+    useAppStore.getState().setActiveWorkspace(SHARED, "local");
+    expect(paneIds(SHARED)).toEqual(["legacy-pane"]);
+    expect(lastSavedKey()).toBe(SHARED);
+  });
+});
+
+// ADR-191 §3: main moves a moved project's saved layouts in layout.json;
+// the renderer's copy of it must follow, or picking a moved workspace that
+// wasn't open would start empty and save over the moved layout.
+describe("a host move for a workspace that isn't open", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("restores the moved layout under its new key", async () => {
+    const local = { ...project("p1", "local"), path: SHARED } as unknown as ProjectInfo;
+    useProjectStore.setState({ projects: [local], selectedProjectIndex: 0 } as never);
+    await loadLayout(3, [persistedWorkspace(SHARED, "kept-pane")]);
+    vi.stubGlobal("window", {
+      ...window,
+      electronAPI: {
+        ...window.electronAPI,
+        projects: {
+          ...window.electronAPI.projects,
+          switchHost: vi.fn().mockResolvedValue({ ...local, hostId: "box" }),
+          selectWorkspace: vi.fn(),
+        },
+      },
+    });
+
+    await useProjectStore.getState().switchProjectHost("p1", "box");
+    useAppStore.getState().setActiveWorkspace(SHARED, "box");
+
+    expect(paneIds(BOX)).toEqual(["kept-pane"]);
+    expect(lastSavedKey()).toBe(BOX);
+    vi.unstubAllGlobals();
+  });
+});
+

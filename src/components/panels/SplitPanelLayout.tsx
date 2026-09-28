@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import type { WorkspaceKey } from "../../lib/workspace-key";
 import type { PanelNode } from "../../store/panel-tree";
 import type { SplitDirection } from "../../store/pane-tree";
 import { useAppStore } from "../../store/app-store";
@@ -17,7 +18,7 @@ type SplitPanelLayoutProps = {
   ratio: number;
   first: PanelNode;
   second: PanelNode;
-  workspaceKey: string;
+  workspaceKey: WorkspaceKey;
   onNewAgent: () => void;
 };
 

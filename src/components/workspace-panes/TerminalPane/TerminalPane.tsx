@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { WorkspaceKey } from "../../../lib/workspace-key";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import "@xterm/xterm/css/xterm.css";
@@ -27,7 +28,7 @@ type TerminalPaneProps = {
   paneId: string;
   cwd?: string;
   /** Key of the workspace the pane belongs to; its session runs on that host. */
-  workspaceKey?: string;
+  workspaceKey?: WorkspaceKey;
 };
 
 export function TerminalPane(props: TerminalPaneProps) {

@@ -8,14 +8,14 @@ import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { isContextMenuKey } from "../../../lib/keyboard-context-menu";
 import {
   useAppStore,
-  selectActiveLayout,
   selectActiveWorkspace,
   selectActiveWorkspaceKey,
 } from "../../../store/app-store";
-import { parseWorkspaceKey } from "../../../lib/workspace-key";
+import { parseWorkspaceKey, type WorkspaceKey } from "../../../lib/workspace-key";
 import { useProjectStore } from "../../../store/project-store";
 import { usePaneDrag } from "../../workspace-panes/PaneDragContext";
 import {
+  countTabsInWindow,
   detachTabToNewWindow,
   trackHandoff,
 } from "../../../lib/window-handoff";
@@ -23,14 +23,6 @@ import { TabButton } from "../TabButton";
 import styles from "./TabBar.module.css";
 
 const TAB_GAP = 2; // matches .tabs CSS gap
-/** Total tabs across every panel of the workspace this window is showing. */
-function countTabsInWindow(): number {
-  const state = useAppStore.getState();
-  const layout = selectActiveLayout(state);
-  if (!layout) return 0;
-  return Object.values(layout.panels).reduce((n, p) => n + p.tabs.length, 0);
-}
-
 /**
  * The tab's displayed title, computed the same way `useTabTitle` does. The drag
  * chip must show this — not the raw `tab.title`, which is a stale placeholder
@@ -99,7 +91,7 @@ type TabBarProps = {
   onNewAgent: () => void;
   panelId?: string;
   /** Key of the workspace the panel is in (ADR-191); the active one if absent. */
-  workspaceKey?: string;
+  workspaceKey?: WorkspaceKey;
 };
 
 export function TabBar(props: TabBarProps) {

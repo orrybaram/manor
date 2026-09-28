@@ -22,6 +22,8 @@ import styles from "./ReviewBar.module.css";
 
 type ReviewBarProps = {
   workspacePath: string;
+  /** The workspace's host (ADR-191): a review sent to a new agent runs there. */
+  hostId?: string;
   /** Scroll a comment back into view. Owned by the pane that renders it. */
   onJumpToComment: (comment: DraftComment) => void;
 };
@@ -44,7 +46,7 @@ function basename(filePath: string): string {
  * click and the popover is the override.
  */
 export function ReviewBar(props: ReviewBarProps) {
-  const { workspacePath, onJumpToComment } = props;
+  const { workspacePath, hostId, onJumpToComment } = props;
 
   const comments = useReviewStore((s) => s.drafts[workspacePath] ?? NO_DRAFTS);
   const allAgents = useAgentStore((s) => s.agents);
@@ -74,10 +76,10 @@ export function ReviewBar(props: ReviewBarProps) {
   const submit = useCallback(
     (target: ReviewTarget) => {
       setMenuOpen(false);
-      submitReview(workspacePath, comments, target);
+      submitReview(workspacePath, comments, target, hostId);
       useReviewStore.getState().clearWorkspace(workspacePath);
     },
-    [workspacePath, comments],
+    [workspacePath, hostId, comments],
   );
 
   /** A confirm that is never answered should go away, not sit there armed. */

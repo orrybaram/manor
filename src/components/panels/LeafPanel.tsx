@@ -1,16 +1,18 @@
 import { useAppStore } from "../../store/app-store";
+import type { WorkspaceKey } from "../../lib/workspace-key";
 import { TabBar } from "../tabbar/TabBar/TabBar";
 import { PaneLayout } from "../workspace-panes/PaneLayout/PaneLayout";
 import { TAB_VISIBLE_STYLE, TAB_HIDDEN_STYLE } from "../../lib/tab-styles";
 import styles from "./PanelLayout.module.css";
 
-interface LeafPanelProps {
+type LeafPanelProps = {
   panelId: string;
-  workspaceKey: string;
+  workspaceKey: WorkspaceKey;
   onNewAgent: () => void;
-}
+};
 
-export function LeafPanel({ panelId, workspaceKey, onNewAgent }: LeafPanelProps) {
+export function LeafPanel(props: LeafPanelProps) {
+  const { panelId, workspaceKey, onNewAgent } = props;
   const panel = useAppStore((s) => s.workspaceLayouts[workspaceKey]?.panels[panelId]);
   const isActivePanel = useAppStore(
     (s) => s.workspaceLayouts[workspaceKey]?.activePanelId === panelId,

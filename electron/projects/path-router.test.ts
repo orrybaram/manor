@@ -222,7 +222,7 @@ describe("ProjectManager host-relative paths (ADR-178)", () => {
     ]);
   });
 
-  it("leaves out the worktree root of a host that doesn't answer in time", async () => {
+  it("names no owners while a remote host can't say where its worktrees are", async () => {
     const git = fullGit();
     const shell = fakeShell("/home/remoteuser");
     vi.mocked(shell.homeDir).mockImplementation(() => new Promise(() => {}));
@@ -230,10 +230,35 @@ describe("ProjectManager host-relative paths (ADR-178)", () => {
     mgr.saveHost("box", { kind: "ssh", target: "me@box" });
     await mgr.addProject("Remote App", "/srv/app", "box");
 
-    const owners = await mgr.workspaceKeyOwners(10);
+    // A partial list would send some of its paths to the wrong host for good.
+    expect(await mgr.workspaceKeyOwners(10)).toBeNull();
+  });
 
-    expect(owners[0].worktreeRoot).toBeNull();
-    expect(owners[0].path).toBe("/srv/app");
+  it("names no owners while a remote host can't list its workspaces", async () => {
+    const git = fullGit();
+    vi.mocked(git.worktreeList).mockRejectedValue(new Error("connection lost"));
+    const mgr = new ProjectManager(hostsOf(git, fakeShell("/home/remoteuser")), tmpDir);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    await mgr.addProject("Remote App", "/srv/app", "box");
+
+    expect(await mgr.workspaceKeyOwners(1000)).toBeNull();
+  });
+
+  it("lists each project's workspaces from its host's git", async () => {
+    const git = fullGit();
+    vi.mocked(git.worktreeList).mockResolvedValue([
+      { path: "/srv/app", branch: "main", isMain: true },
+      { path: "/elsewhere/listed", branch: "feat", isMain: false },
+    ] as never);
+    const mgr = new ProjectManager(hostsOf(git, fakeShell("/home/remoteuser")), tmpDir);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    await mgr.addProject("Remote App", "/srv/app", "box");
+
+    const owners = await mgr.workspaceKeyOwners(1000);
+
+    expect(owners?.[0].workspaces).toEqual(
+      expect.arrayContaining([{ path: "/elsewhere/listed" }]),
+    );
   });
 
   it("names no owners when every project is local", async () => {

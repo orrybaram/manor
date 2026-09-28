@@ -12,8 +12,13 @@
  * layouts, projects and agents in the same tick).
  */
 
-import { selectActiveLayout, useAppStore, type AppState } from "../store/app-store";
-import { normalizeHostId } from "../lib/host-id";
+import {
+  selectActiveLayout,
+  selectActiveWorkspaceKey,
+  useAppStore,
+  type AppState,
+} from "../store/app-store";
+import { projectForWorkspaceKey } from "../lib/hosts";
 import {
   useProjectStore,
   type ProjectInfo,
@@ -100,13 +105,8 @@ export function deriveMenuContext(
   const isHome = isHomePath(path);
 
   const project =
-    (!isHome && path
-      ? projects.find(
-          (p) =>
-            normalizeHostId(p.hostId) === app.activeWorkspaceHostId &&
-            p.workspaces.some((w) => w.path === path),
-        )
-      : undefined) ?? null;
+    (!isHome ? projectForWorkspaceKey(projects, selectActiveWorkspaceKey(app)) : undefined) ??
+    null;
   const workspace = project?.workspaces.find((w) => w.path === path) ?? null;
 
   const layout = selectActiveLayout(app);

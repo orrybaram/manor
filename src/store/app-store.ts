@@ -38,8 +38,18 @@ import type { SetupStep, StepStatus } from "./project-store";
 import type { Location } from "./navigation-history-store";
 import type { DetachedTabPayload } from "./detach-types";
 import { isHomePath } from "../lib/home-path";
-import { LOCAL_HOST_ID, workspaceHostId, type HostId } from "../lib/hosts";
-import { parseWorkspaceKey, workspaceKey, type WorkspaceKey } from "../lib/workspace-key";
+import {
+  LOCAL_HOST_ID,
+  projectForWorkspaceKey,
+  workspaceHostId,
+  type HostId,
+} from "../lib/hosts";
+import {
+  migrateWorkspaceKey,
+  parseWorkspaceKey,
+  workspaceKey,
+  type WorkspaceKey,
+} from "../lib/workspace-key";
 import { useProjectStore } from "./project-store";
 import { useRemotePaneStore } from "./remote-pane-store";
 
@@ -58,7 +68,7 @@ export interface ClosedPaneSnapshot {
   tabId: string;
   panelId: string;
   /** The workspace it was closed in (ADR-191 key). */
-  workspaceKey: string;
+  workspaceKey: WorkspaceKey;
   contentType?: "terminal" | "browser" | "diff";
   url?: string;
   cwd?: string;
@@ -70,7 +80,7 @@ export interface ClosedTabSnapshot {
   tab: Tab;
   panelId: string;
   /** The workspace it was closed in (ADR-191 key). */
-  workspaceKey: string;
+  workspaceKey: WorkspaceKey;
   /** Per-pane metadata to restore */
   paneMetadata: Record<string, {
     contentType?: "terminal" | "browser" | "diff";
@@ -426,7 +436,7 @@ export interface AppState {
 
   // Workspace cleanup
   /** Close every pane of the workspace keyed `key` and drop its layout. */
-  removeWorkspaceLayout: (key: string) => void;
+  removeWorkspaceLayout: (key: WorkspaceKey) => void;
   /**
    * Move the layout keyed `from` to `to` — a workspace whose project moved
    * to another host keeps its tabs (ADR-191 §3). No-op when `to` already
@@ -620,8 +630,8 @@ export function selectVisiblePaneIds(
  * maps to its active panel's selected tab.
  */
 export function selectCurrentLocation(state: AppState): Location {
-  const path = selectActiveWorkspaceKey(state);
-  if (!path || isHomePath(path)) {
+  const key = selectActiveWorkspaceKey(state);
+  if (!key || isHomePath(key)) {
     return { kind: "surface", surface: "home" };
   }
   const ctx = getActivePanelContext(state);
@@ -630,29 +640,29 @@ export function selectCurrentLocation(state: AppState): Location {
   }
   return {
     kind: "workspace",
-    workspaceKey: ctx.path,
+    workspaceKey: ctx.key,
     panelId: ctx.panel.id,
     tabId: ctx.panel.selectedTabId,
   };
 }
 
 // Internal helpers for active panel context
-function getActivePanelContext(state: AppState): { path: WorkspaceKey; layout: WorkspaceLayout; panel: Panel } | null {
-  const path = selectActiveWorkspaceKey(state);
-  if (!path) return null;
-  const layout = state.workspaceLayouts[path];
+function getActivePanelContext(state: AppState): { key: WorkspaceKey; layout: WorkspaceLayout; panel: Panel } | null {
+  const key = selectActiveWorkspaceKey(state);
+  if (!key) return null;
+  const layout = state.workspaceLayouts[key];
   if (!layout) return null;
   const panel = layout.panels[layout.activePanelId];
   if (!panel) return null;
-  return { path, layout, panel };
+  return { key, layout, panel };
 }
 
-function getActiveLayoutContext(state: AppState): { path: WorkspaceKey; layout: WorkspaceLayout } | null {
-  const path = selectActiveWorkspaceKey(state);
-  if (!path) return null;
-  const layout = state.workspaceLayouts[path];
+function getActiveLayoutContext(state: AppState): { key: WorkspaceKey; layout: WorkspaceLayout } | null {
+  const key = selectActiveWorkspaceKey(state);
+  if (!key) return null;
+  const layout = state.workspaceLayouts[key];
   if (!layout) return null;
-  return { path, layout };
+  return { key, layout };
 }
 
 /** Build a flat list of { tabId, panelId } in tree-traversal order across all panels. */
@@ -687,7 +697,7 @@ function findPanelWithTab(layout: WorkspaceLayout, tabId: string): { panel: Pane
 
 function updatePanel(
   state: AppState,
-  path: string,
+  key: WorkspaceKey,
   layout: WorkspaceLayout,
   panelId: string,
   updater: (panel: Panel) => Panel,
@@ -697,7 +707,7 @@ function updatePanel(
   return {
     workspaceLayouts: {
       ...state.workspaceLayouts,
-      [path]: {
+      [key]: {
         ...layout,
         panels: { ...layout.panels, [panelId]: updater(panel) },
       },
@@ -707,6 +717,45 @@ function updatePanel(
 
 // Cache the loaded layout so setActiveWorkspace can check it synchronously
 let _cachedLayout: PersistedLayout | null = null;
+
+/** The layout file version from which workspaces are keyed by `WorkspaceKey`. */
+const KEYED_LAYOUT_VERSION = 3;
+
+/**
+ * The key `layout.json` holds workspace `key` under. Main migrates the file
+ * to host-qualified keys before handing it over (ADR-191), but leaves it at
+ * version 2, keyed by bare path, while a remote host can't say what it owns.
+ * Until then the workspace the migration will give a bare path to — the one
+ * on the host of the project that owns it — is read and saved under that
+ * bare path, as before. Any other host's workspace at the path keeps its
+ * qualified key, which the migration leaves alone. So no layout is saved
+ * under a qualified key that would later compete with the legacy one, and
+ * two hosts never restore the same legacy panes.
+ */
+function persistedKey(key: WorkspaceKey): string {
+  const legacy = _cachedLayout !== null && _cachedLayout.version < KEYED_LAYOUT_VERSION;
+  if (!legacy) return key;
+  const { path } = parseWorkspaceKey(key);
+  const owners = useProjectStore.getState().projects;
+  return migrateWorkspaceKey(path, owners) === key ? path : key;
+}
+
+/**
+ * Move the not-yet-opened layouts `layout.json` held under each `from` key
+ * to `to`, as main's `moveLayouts` did on disk, so picking a moved workspace
+ * restores it. A no-op for a bare-path (version 2) file.
+ */
+function moveCachedLayout(from: WorkspaceKey, to: WorkspaceKey): void {
+  const cached = _cachedLayout;
+  if (!cached || cached.version < KEYED_LAYOUT_VERSION || from === to) return;
+  if (cached.workspaces.some((w) => w.workspacePath === to)) return;
+  _cachedLayout = {
+    ...cached,
+    workspaces: cached.workspaces.map((w) =>
+      w.workspacePath === from ? { ...w, workspacePath: to } : w,
+    ),
+  };
+}
 
 /**
  * The workspace/surface path that was active when the layout was last persisted
@@ -828,7 +877,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Check persisted layout for this workspace
       if (_cachedLayout) {
         const persisted = _cachedLayout.workspaces.find(
-          (w) => w.workspacePath === key,
+          (w) => w.workspacePath === persistedKey(key),
         );
         if (persisted) {
           const restored = restoreWorkspaceState(persisted);
@@ -896,10 +945,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   addTab: (adoptPaneId?: string) => {
     const ctx = getActivePanelContext(get());
     if (!ctx) return null;
-    const { path, layout, panel } = ctx;
+    const { key, layout, panel } = ctx;
     const tab = createTab(undefined, adoptPaneId);
     set(
-      updatePanel(get(), path, layout, panel.id, (p) => ({
+      updatePanel(get(), key, layout, panel.id, (p) => ({
         ...p,
         tabs: [...p.tabs, tab],
         selectedTabId: tab.id,
@@ -911,12 +960,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   addTerminalTab: (command: string, opts?: { submit?: boolean }) => {
     const ctx = getActivePanelContext(get());
     if (!ctx) return null;
-    const { path, layout, panel } = ctx;
+    const { key, layout, panel } = ctx;
     const tab = createTab();
     const tabPaneId = tab.focusedPaneId;
     const state = get();
     set({
-      ...updatePanel(state, path, layout, panel.id, (p) => ({
+      ...updatePanel(state, key, layout, panel.id, (p) => ({
         ...p,
         tabs: [...p.tabs, tab],
         selectedTabId: tab.id,
@@ -932,7 +981,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   addBrowserTab: (url: string, opts?: { background?: boolean }) => {
     const ctx = getActivePanelContext(get());
     if (!ctx) return null;
-    const { path, layout, panel } = ctx;
+    const { key, layout, panel } = ctx;
     const paneId = newPaneId();
     let title: string;
     try {
@@ -952,7 +1001,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       paneContentType: { ...state.paneContentType, [paneId]: "browser" },
       paneUrl: { ...state.paneUrl, [paneId]: url },
-      ...updatePanel(state, path, layout, panel.id, (p) => ({
+      ...updatePanel(state, key, layout, panel.id, (p) => ({
         ...p,
         tabs: [...p.tabs, tab],
         ...(background ? {} : { selectedTabId: tab.id }),
@@ -965,7 +1014,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const ctx = getActivePanelContext(state);
       if (!ctx) return state;
-      const { path, layout, panel } = ctx;
+      const { key, layout, panel } = ctx;
       const paneId = newPaneId();
       const tab: Tab = {
         id: newTabId(),
@@ -975,7 +1024,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
       return {
         paneContentType: { ...state.paneContentType, [paneId]: "diff" },
-        ...updatePanel(state, path, layout, panel.id, (p) => ({
+        ...updatePanel(state, key, layout, panel.id, (p) => ({
           ...p,
           tabs: [...p.tabs, tab],
           selectedTabId: tab.id,
@@ -985,9 +1034,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   duplicateTab: (tabId: string) =>
     set((state) => {
-      const wsPath = selectActiveWorkspaceKey(state);
-      if (!wsPath) return state;
-      const layout = state.workspaceLayouts[wsPath];
+      const key = selectActiveWorkspaceKey(state);
+      if (!key) return state;
+      const layout = state.workspaceLayouts[key];
       if (!layout) return state;
       let sourcePanel: Panel | undefined;
       let sourceTab: Tab | undefined;
@@ -1023,7 +1072,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         paneContentType: nextContentType,
         paneUrl: nextUrl,
-        ...updatePanel(state, wsPath, layout, sourcePanel.id, (p) => ({
+        ...updatePanel(state, key, layout, sourcePanel.id, (p) => ({
           ...p,
           tabs: [...p.tabs, tab],
           selectedTabId: tab.id,
@@ -1033,9 +1082,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   openOrFocusDiff: () =>
     set((state) => {
-      const path = selectActiveWorkspaceKey(state);
-      if (!path) return state;
-      const layout = state.workspaceLayouts[path];
+      const key = selectActiveWorkspaceKey(state);
+      if (!key) return state;
+      const layout = state.workspaceLayouts[key];
       if (!layout) return state;
 
       // Look for an existing diff pane across ALL panels' tabs
@@ -1046,7 +1095,7 @@ export const useAppStore = create<AppState>((set, get) => ({
               return {
                 workspaceLayouts: {
                   ...state.workspaceLayouts,
-                  [path]: {
+                  [key]: {
                     ...layout,
                     activePanelId: pId,
                     panels: {
@@ -1079,7 +1128,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
       return {
         paneContentType: { ...state.paneContentType, [paneId]: "diff" },
-        ...updatePanel(state, ctx.path, ctx.layout, ctx.panel.id, (p) => ({
+        ...updatePanel(state, ctx.key, ctx.layout, ctx.panel.id, (p) => ({
           ...p,
           tabs: [...p.tabs, tab],
           selectedTabId: tab.id,
@@ -1089,9 +1138,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   openDiffInNewPanel: () =>
     set((state) => {
-      const path = selectActiveWorkspaceKey(state);
-      if (!path) return state;
-      const layout = state.workspaceLayouts[path];
+      const key = selectActiveWorkspaceKey(state);
+      if (!key) return state;
+      const layout = state.workspaceLayouts[key];
       if (!layout) return state;
 
       // Look for an existing diff pane across ALL panels' tabs
@@ -1102,7 +1151,7 @@ export const useAppStore = create<AppState>((set, get) => ({
               return {
                 workspaceLayouts: {
                   ...state.workspaceLayouts,
-                  [path]: {
+                  [key]: {
                     ...layout,
                     activePanelId: pId,
                     panels: {
@@ -1140,7 +1189,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneContentType: { ...state.paneContentType, [paneId]: "diff" },
         workspaceLayouts: {
           ...state.workspaceLayouts,
-          [path]: {
+          [key]: {
             ...layout,
             panelTree: newPanelTree,
             panels: {
@@ -1157,7 +1206,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
-      const { path, layout } = ctx;
+      const { key, layout } = ctx;
       // The tab may live in any panel — `closePaneById` delegates here for the
       // last pane in a tab, and it resolves panes across every panel.
       const found = findPanelWithTab(layout, tabId);
@@ -1198,7 +1247,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         kind: "tab",
         tab: closingTab,
         panelId: panel.id,
-        workspaceKey: path,
+        workspaceKey: key,
         paneMetadata,
         ...(willRemovePanel && {
           panelSplitContext: findPanelSplitContext(layout.panelTree, panel.id) ?? undefined,
@@ -1241,7 +1290,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           pendingPaneCommands: newPendingCommands,
           workspaceLayouts: {
             ...state.workspaceLayouts,
-            [path]: {
+            [key]: {
               ...layout,
               panelTree: newPanelTree ?? layout.panelTree,
               panels: remainingPanels,
@@ -1260,7 +1309,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneContentType: newContentType,
         paneUrl: newPaneUrl,
         pendingPaneCommands: newPendingCommands,
-        ...updatePanel(state, path, layout, panel.id, (p) => ({
+        ...updatePanel(state, key, layout, panel.id, (p) => ({
           ...p,
           tabs: newTabs,
           selectedTabId: newSelected,
@@ -1306,8 +1355,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const ctx = getActivePanelContext(state);
       if (!ctx) return state;
-      const { path, layout, panel } = ctx;
-      return updatePanel(state, path, layout, panel.id, (p) => ({
+      const { key, layout, panel } = ctx;
+      return updatePanel(state, key, layout, panel.id, (p) => ({
         ...p,
         selectedTabId: tabId,
       }));
@@ -1317,14 +1366,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
-      const { path, layout } = ctx;
+      const { key, layout } = ctx;
       const tabs = globalTabList(layout);
       if (index < 0 || index >= tabs.length) return state;
       const { tabId, panelId } = tabs[index];
       return {
         workspaceLayouts: {
           ...state.workspaceLayouts,
-          [path]: {
+          [key]: {
             ...layout,
             activePanelId: panelId,
             panels: {
@@ -1340,7 +1389,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
-      const { path, layout } = ctx;
+      const { key, layout } = ctx;
       const tabs = globalTabList(layout);
       if (tabs.length === 0) return state;
       const panel = layout.panels[layout.activePanelId];
@@ -1351,7 +1400,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         workspaceLayouts: {
           ...state.workspaceLayouts,
-          [path]: {
+          [key]: {
             ...layout,
             activePanelId: panelId,
             panels: {
@@ -1367,7 +1416,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
-      const { path, layout } = ctx;
+      const { key, layout } = ctx;
       const tabs = globalTabList(layout);
       if (tabs.length === 0) return state;
       const panel = layout.panels[layout.activePanelId];
@@ -1378,7 +1427,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         workspaceLayouts: {
           ...state.workspaceLayouts,
-          [path]: {
+          [key]: {
             ...layout,
             activePanelId: panelId,
             panels: {
@@ -1394,13 +1443,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const ctx = getActivePanelContext(state);
       if (!ctx) return state;
-      const { path, layout, panel } = ctx;
+      const { key, layout, panel } = ctx;
       const lookup = new Map(panel.tabs.map((s) => [s.id, s]));
       const reordered = tabIds
         .map((id) => lookup.get(id))
         .filter(Boolean) as Tab[];
       if (reordered.length !== panel.tabs.length) return state;
-      return updatePanel(state, path, layout, panel.id, (p) => ({
+      return updatePanel(state, key, layout, panel.id, (p) => ({
         ...p,
         tabs: reordered,
       }));
@@ -1410,7 +1459,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const ctx = getActivePanelContext(state);
       if (!ctx) return state;
-      const { path, layout, panel } = ctx;
+      const { key, layout, panel } = ctx;
       const pinned = panel.pinnedTabIds ?? [];
       const isPinned = pinned.includes(tabId);
       let newPinned: string[];
@@ -1439,7 +1488,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...others.slice(insertIdx),
         ];
       }
-      return updatePanel(state, path, layout, panel.id, (p) => ({
+      return updatePanel(state, key, layout, panel.id, (p) => ({
         ...p,
         tabs: newTabs,
         pinnedTabIds: newPinned,
@@ -1450,7 +1499,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const ctx = getActivePanelContext(state);
       if (!ctx) return state;
-      const { path, layout, panel } = ctx;
+      const { key, layout, panel } = ctx;
       const tab = panel.tabs.find((s) => s.id === panel.selectedTabId);
       if (!tab) return state;
       const newPane = newPaneId();
@@ -1460,7 +1509,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         direction,
         newPane,
       );
-      return updatePanel(state, path, layout, panel.id, (p) => ({
+      return updatePanel(state, key, layout, panel.id, (p) => ({
         ...p,
         tabs: p.tabs.map((s) =>
           s.id === tab.id
@@ -1483,7 +1532,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const state = get();
     const ctx = getActiveLayoutContext(state);
     if (!ctx) return null;
-    const { path, layout } = ctx;
+    const { key, layout } = ctx;
     // The pane may live in any panel, not just the active one.
     const found = findPanelWithPane(layout, targetPaneId);
     if (!found) return null;
@@ -1504,7 +1553,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       url,
     );
     set({
-      ...updatePanel(state, path, layout, panel.id, (p) => ({
+      ...updatePanel(state, key, layout, panel.id, (p) => ({
         ...p,
         tabs: p.tabs.map((s) =>
           s.id === tab.id
@@ -1543,7 +1592,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
-      const { path, layout } = ctx;
+      const { key, layout } = ctx;
 
       const src = findPanelWithPane(layout, sourcePaneId);
       const tgt = findPanelWithPane(layout, targetPaneId);
@@ -1555,7 +1604,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (sourcePanel.id === targetPanel.id && sourceTab.id === targetTab.id) {
         const newRoot = movePane(sourceTab.rootNode, sourcePaneId, targetPaneId, direction, position);
         if (newRoot === null) return state;
-        return updatePanel(state, path, layout, sourcePanel.id, (p) => ({
+        return updatePanel(state, key, layout, sourcePanel.id, (p) => ({
           ...p,
           tabs: p.tabs.map((s) =>
             s.id === sourceTab.id ? { ...s, rootNode: newRoot, focusedPaneId: sourcePaneId } : s,
@@ -1588,7 +1637,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           sourcePanel.selectedTabId === sourceTab.id && sourceRootAfterRemove === null
             ? targetTab.id : sourcePanel.selectedTabId;
 
-        return updatePanel(state, path, layout, sourcePanel.id, (p) => ({
+        return updatePanel(state, key, layout, sourcePanel.id, (p) => ({
           ...p,
           tabs: newTabs,
           selectedTabId: newSelectedTabId,
@@ -1649,7 +1698,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         workspaceLayouts: {
           ...state.workspaceLayouts,
-          [path]: { ...layout, panelTree: newPanelTree, panels: newPanels, activePanelId: targetPanel.id },
+          [key]: { ...layout, panelTree: newPanelTree, panels: newPanels, activePanelId: targetPanel.id },
         },
       };
     }),
@@ -1663,7 +1712,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
-      const { path, layout } = ctx;
+      const { key, layout } = ctx;
 
       const src = findPanelWithTab(layout, tabId);
       const tgt = findPanelWithPane(layout, targetPaneId);
@@ -1689,7 +1738,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           .filter((s) => s.id !== sourceTab.id)
           .map((s) => s.id === targetTab.id ? { ...s, rootNode: newTargetRoot, focusedPaneId: focusPaneId } : s);
         const newSelectedTabId = sourcePanel.selectedTabId === sourceTab.id ? targetTab.id : sourcePanel.selectedTabId;
-        return updatePanel(state, path, layout, sourcePanel.id, (p) => ({
+        return updatePanel(state, key, layout, sourcePanel.id, (p) => ({
           ...p,
           tabs: newTabs,
           selectedTabId: newSelectedTabId,
@@ -1731,7 +1780,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         workspaceLayouts: {
           ...state.workspaceLayouts,
-          [path]: { ...layout, panelTree: newPanelTree, panels: newPanels, activePanelId: targetPanel.id },
+          [key]: { ...layout, panelTree: newPanelTree, panels: newPanels, activePanelId: targetPanel.id },
         },
       };
     }),
@@ -1740,7 +1789,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
-      const { path, layout } = ctx;
+      const { key, layout } = ctx;
 
       const src = findPanelWithPane(layout, paneId);
       if (!src) return state;
@@ -1755,7 +1804,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         sourceTab.rootNode.type === "leaf" &&
         sourceTab.rootNode.paneId === paneId
       ) {
-        return updatePanel(state, path, layout, sourcePanel.id, (p) => ({
+        return updatePanel(state, key, layout, sourcePanel.id, (p) => ({
           ...p,
           selectedTabId: sourceTab.id,
         }));
@@ -1794,7 +1843,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         return {
           workspaceLayouts: {
             ...state.workspaceLayouts,
-            [path]: { ...layout, panelTree: newPanelTree, panels: newPanels, activePanelId: destPanelId },
+            [key]: { ...layout, panelTree: newPanelTree, panels: newPanels, activePanelId: destPanelId },
           },
         };
       }
@@ -1819,7 +1868,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           s.id === sourceTab.id ? { ...s, rootNode: remaining, focusedPaneId: newFocused } : s,
         );
         newTabs.push(newTab);
-        return updatePanel(state, path, layout, sourcePanel.id, (p) => ({
+        return updatePanel(state, key, layout, sourcePanel.id, (p) => ({
           ...p,
           tabs: newTabs,
           selectedTabId: newTab.id,
@@ -1843,7 +1892,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         workspaceLayouts: {
           ...state.workspaceLayouts,
-          [path]: { ...layout, panels: newPanels, activePanelId: destPanelId },
+          [key]: { ...layout, panels: newPanels, activePanelId: destPanelId },
         },
       };
     }),
@@ -1864,7 +1913,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const state = get();
     const ctx = getActiveLayoutContext(state);
     if (!ctx) return;
-    const { path, layout } = ctx;
+    const { key, layout } = ctx;
 
     // The pane may live in any panel, not just the active one.
     const found = findPanelWithPane(layout, paneId);
@@ -1883,7 +1932,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       paneId,
       tabId: tab.id,
       panelId: panel.id,
-      workspaceKey: path,
+      workspaceKey: key,
       contentType: state.paneContentType[paneId],
       url: state.paneUrl[paneId],
       cwd: state.paneCwd[paneId],
@@ -1921,7 +1970,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneContentType: newContentType,
         paneUrl: newPaneUrl,
         pendingPaneCommands: newPendingCommands,
-        ...updatePanel(s, currentCtx.path, currentCtx.layout, panel.id, (p) => ({
+        ...updatePanel(s, currentCtx.key, currentCtx.layout, panel.id, (p) => ({
           ...p,
           tabs: p.tabs.map((t) =>
             t.id === tab.id
@@ -1935,13 +1984,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   reopenClosedPane: () => {
     const state = get();
-    const path = selectActiveWorkspaceKey(state);
-    if (!path) return;
+    const key = selectActiveWorkspaceKey(state);
+    if (!key) return;
     const ctx = getActivePanelContext(state);
     if (!ctx) return;
     const { layout, panel } = ctx;
 
-    const idx = state.closedPaneStack.findIndex((s) => s.workspaceKey === path);
+    const idx = state.closedPaneStack.findIndex((s) => s.workspaceKey === key);
     if (idx === -1) return;
     const snapshot = state.closedPaneStack[idx];
 
@@ -1955,7 +2004,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set((s) => {
         const currentCtx = getActiveLayoutContext(s);
         if (!currentCtx) return s;
-        const { path: ctxPath, layout: ctxLayout } = currentCtx;
+        const { key: ctxKey, layout: ctxLayout } = currentCtx;
         const newStack = [...s.closedPaneStack];
         newStack.splice(idx, 1);
 
@@ -2001,7 +2050,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             paneTitle: newTitle,
             workspaceLayouts: {
               ...s.workspaceLayouts,
-              [ctxPath]: {
+              [ctxKey]: {
                 ...ctxLayout,
                 panelTree: finalTree,
                 panels: { ...ctxLayout.panels, [restoredPanelId]: newPanel },
@@ -2019,7 +2068,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           paneCwd: newCwd,
           paneUrl: newUrl,
           paneTitle: newTitle,
-          ...updatePanel(s, ctxPath, ctxLayout, targetPanelId, (p) => ({
+          ...updatePanel(s, ctxKey, ctxLayout, targetPanelId, (p) => ({
             ...p,
             tabs: [...p.tabs, snapshot.tab],
             selectedTabId: snapshot.tab.id,
@@ -2083,7 +2132,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         ...(snapshot.url && {
           paneUrl: { ...s.paneUrl, [restoredPaneId]: snapshot.url },
         }),
-        ...updatePanel(s, currentCtx.path, currentCtx.layout, targetPanelId, (p) => ({
+        ...updatePanel(s, currentCtx.key, currentCtx.layout, targetPanelId, (p) => ({
           ...p,
           selectedTabId,
           tabs: tabsUpdater(p.tabs),
@@ -2143,9 +2192,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   focusPane: (paneId: string) =>
     set((state) => {
-      const path = selectActiveWorkspaceKey(state);
-      if (!path) return state;
-      const layout = state.workspaceLayouts[path];
+      const key = selectActiveWorkspaceKey(state);
+      if (!key) return state;
+      const layout = state.workspaceLayouts[key];
       if (!layout) return state;
 
       // Search all panels for the pane, not just the active one
@@ -2155,7 +2204,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           return {
             workspaceLayouts: {
               ...state.workspaceLayouts,
-              [path]: {
+              [key]: {
                 ...layout,
                 activePanelId: panelId,
                 panels: {
@@ -2180,12 +2229,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const ctx = getActivePanelContext(state);
       if (!ctx) return state;
-      const { path, layout, panel } = ctx;
+      const { key, layout, panel } = ctx;
       const tab = panel.tabs.find((s) => s.id === panel.selectedTabId);
       if (!tab) return state;
       const next = nextPaneId(tab.rootNode, tab.focusedPaneId);
       if (!next) return state;
-      return updatePanel(state, path, layout, panel.id, (p) => ({
+      return updatePanel(state, key, layout, panel.id, (p) => ({
         ...p,
         tabs: p.tabs.map((s) =>
           s.id === tab.id ? { ...s, focusedPaneId: next } : s,
@@ -2197,12 +2246,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const ctx = getActivePanelContext(state);
       if (!ctx) return state;
-      const { path, layout, panel } = ctx;
+      const { key, layout, panel } = ctx;
       const tab = panel.tabs.find((s) => s.id === panel.selectedTabId);
       if (!tab) return state;
       const prev = prevPaneId(tab.rootNode, tab.focusedPaneId);
       if (!prev) return state;
-      return updatePanel(state, path, layout, panel.id, (p) => ({
+      return updatePanel(state, key, layout, panel.id, (p) => ({
         ...p,
         tabs: p.tabs.map((s) =>
           s.id === tab.id ? { ...s, focusedPaneId: prev } : s,
@@ -2294,7 +2343,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Also update the url in the rootNode leaf so it persists
       const ctx = getActivePanelContext(state);
       if (ctx) {
-        const { path, layout, panel } = ctx;
+        const { key, layout, panel } = ctx;
         const updateLeafUrl = (node: PaneNode): PaneNode => {
           if (node.type === "leaf") {
             return node.paneId === paneId ? { ...node, url } : node;
@@ -2309,7 +2358,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           return newRoot === s.rootNode ? s : { ...s, rootNode: newRoot };
         });
         if (updatedTabs.some((t, i) => t !== panel.tabs[i])) {
-          Object.assign(newState, updatePanel(state, path, layout, panel.id, (p) => ({
+          Object.assign(newState, updatePanel(state, key, layout, panel.id, (p) => ({
             ...p,
             tabs: updatedTabs,
           })));
@@ -2336,13 +2385,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       const newState: Partial<AppState> = { paneContentType: newContentType };
       const ctx = getActivePanelContext(state);
       if (ctx) {
-        const { path, layout, panel } = ctx;
+        const { key, layout, panel } = ctx;
         const treeType = contentType === "terminal" ? undefined : contentType;
         const updatedTabs = panel.tabs.map((s) => {
           const newRoot = updateLeafContentType(s.rootNode, paneId, treeType);
           return newRoot === s.rootNode ? s : { ...s, rootNode: newRoot };
         });
-        Object.assign(newState, updatePanel(state, path, layout, panel.id, (p) => ({
+        Object.assign(newState, updatePanel(state, key, layout, panel.id, (p) => ({
           ...p,
           tabs: updatedTabs,
         })));
@@ -2416,7 +2465,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     return cmd;
   },
 
-  moveWorkspaceLayout: (from: WorkspaceKey, to: WorkspaceKey) =>
+  moveWorkspaceLayout: (from: WorkspaceKey, to: WorkspaceKey) => {
+    moveCachedLayout(from, to);
     set((state) => {
       const layout = state.workspaceLayouts[from];
       if (from === to || !layout || state.workspaceLayouts[to]) return state;
@@ -2426,9 +2476,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         workspaceLayouts: { ...rest, [to]: layout },
         ...(movesActive && { activeWorkspaceHostId: parseWorkspaceKey(to).hostId }),
       };
-    }),
+    });
+  },
 
-  removeWorkspaceLayout: (key: string) =>
+  removeWorkspaceLayout: (key: WorkspaceKey) =>
     set((state) => {
       const layout = state.workspaceLayouts[key];
       if (!layout) {
@@ -2480,7 +2531,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const ctx = getActivePanelContext(state);
       if (!ctx) return state;
-      const { path, layout, panel } = ctx;
+      const { key, layout, panel } = ctx;
 
       const newPId = newPanelId();
 
@@ -2514,7 +2565,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         workspaceLayouts: {
           ...state.workspaceLayouts,
-          [path]: {
+          [key]: {
             ...layout,
             panelTree: newPanelTree,
             panels: {
@@ -2530,9 +2581,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   closePanel: (panelId: string) =>
     set((state) => {
-      const path = selectActiveWorkspaceKey(state);
-      if (!path) return state;
-      const layout = state.workspaceLayouts[path];
+      const key = selectActiveWorkspaceKey(state);
+      if (!key) return state;
+      const layout = state.workspaceLayouts[key];
       if (!layout) return state;
       const panel = layout.panels[panelId];
       if (!panel) return state;
@@ -2576,7 +2627,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           paneUrl: newPaneUrl,
           workspaceLayouts: {
             ...state.workspaceLayouts,
-            [path]: createEmptyLayout(),
+            [key]: createEmptyLayout(),
           },
         };
       }
@@ -2597,7 +2648,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneUrl: newPaneUrl,
         workspaceLayouts: {
           ...state.workspaceLayouts,
-          [path]: {
+          [key]: {
             ...layout,
             panelTree: newPanelTree,
             panels: remainingPanels,
@@ -2609,60 +2660,60 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   focusPanel: (panelId: string) =>
     set((state) => {
-      const path = selectActiveWorkspaceKey(state);
-      if (!path) return state;
-      const layout = state.workspaceLayouts[path];
+      const key = selectActiveWorkspaceKey(state);
+      if (!key) return state;
+      const layout = state.workspaceLayouts[key];
       if (!layout || !layout.panels[panelId]) return state;
       return {
         workspaceLayouts: {
           ...state.workspaceLayouts,
-          [path]: { ...layout, activePanelId: panelId },
+          [key]: { ...layout, activePanelId: panelId },
         },
       };
     }),
 
   focusNextPanel: () =>
     set((state) => {
-      const path = selectActiveWorkspaceKey(state);
-      if (!path) return state;
-      const layout = state.workspaceLayouts[path];
+      const key = selectActiveWorkspaceKey(state);
+      if (!key) return state;
+      const layout = state.workspaceLayouts[key];
       if (!layout) return state;
       const next = nextPanelId(layout.panelTree, layout.activePanelId);
       if (!next) return state;
       return {
         workspaceLayouts: {
           ...state.workspaceLayouts,
-          [path]: { ...layout, activePanelId: next },
+          [key]: { ...layout, activePanelId: next },
         },
       };
     }),
 
   focusPrevPanel: () =>
     set((state) => {
-      const path = selectActiveWorkspaceKey(state);
-      if (!path) return state;
-      const layout = state.workspaceLayouts[path];
+      const key = selectActiveWorkspaceKey(state);
+      if (!key) return state;
+      const layout = state.workspaceLayouts[key];
       if (!layout) return state;
       const prev = prevPanelId(layout.panelTree, layout.activePanelId);
       if (!prev) return state;
       return {
         workspaceLayouts: {
           ...state.workspaceLayouts,
-          [path]: { ...layout, activePanelId: prev },
+          [key]: { ...layout, activePanelId: prev },
         },
       };
     }),
 
   updatePanelSplitRatio: (firstPanelId: string, ratio: number) =>
     set((state) => {
-      const path = selectActiveWorkspaceKey(state);
-      if (!path) return state;
-      const layout = state.workspaceLayouts[path];
+      const key = selectActiveWorkspaceKey(state);
+      if (!key) return state;
+      const layout = state.workspaceLayouts[key];
       if (!layout) return state;
       return {
         workspaceLayouts: {
           ...state.workspaceLayouts,
-          [path]: {
+          [key]: {
             ...layout,
             panelTree: updatePanelRatio(layout.panelTree, firstPanelId, ratio),
           },
@@ -2674,7 +2725,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
-      const { path, layout } = ctx;
+      const { key, layout } = ctx;
 
       const src = findPanelWithTab(layout, tabId);
       if (!src) return state;
@@ -2699,7 +2750,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         return {
           workspaceLayouts: {
             ...state.workspaceLayouts,
-            [path]: {
+            [key]: {
               ...layout,
               panelTree: newPanelTree,
               panels: {
@@ -2715,7 +2766,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         workspaceLayouts: {
           ...state.workspaceLayouts,
-          [path]: {
+          [key]: {
             ...layout,
             panels: {
               ...layout.panels,
@@ -2737,7 +2788,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
-      const { path, layout } = ctx;
+      const { key, layout } = ctx;
 
       const src = findPanelWithTab(layout, tabId);
       if (!src) return state;
@@ -2781,7 +2832,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         workspaceLayouts: {
           ...state.workspaceLayouts,
-          [path]: {
+          [key]: {
             ...layout,
             panelTree: newPanelTree,
             panels,
@@ -2795,7 +2846,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
-      const { path, layout } = ctx;
+      const { key, layout } = ctx;
       if (sourceTabId === targetTabId) return state;
 
       const src = findPanelWithTab(layout, sourceTabId);
@@ -2819,7 +2870,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         const newTabs = sourcePanel.tabs
           .filter((t) => t.id !== sourceTabId)
           .map((t) => t.id === targetTabId ? { ...t, rootNode: newTargetRoot, focusedPaneId: focusPaneId } : t);
-        return updatePanel(state, path, layout, sourcePanel.id, (p) => ({
+        return updatePanel(state, key, layout, sourcePanel.id, (p) => ({
           ...p,
           tabs: newTabs,
           selectedTabId: targetTabId,
@@ -2859,7 +2910,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         workspaceLayouts: {
           ...state.workspaceLayouts,
-          [path]: { ...layout, panelTree: newPanelTree, panels: newPanels, activePanelId: targetPanel.id },
+          [key]: { ...layout, panelTree: newPanelTree, panels: newPanels, activePanelId: targetPanel.id },
         },
       };
     }),
@@ -2868,12 +2919,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const ctx = getActivePanelContext(state);
       if (!ctx) return state;
-      const { path, layout, panel } = ctx;
+      const { key, layout, panel } = ctx;
       const tab = panel.tabs.find((t) => t.id === panel.selectedTabId);
       if (!tab) return state;
       const newRoot = updateRatio(tab.rootNode, firstPaneId, ratio);
       if (newRoot === tab.rootNode) return state;
-      return updatePanel(state, path, layout, panel.id, (p) => ({
+      return updatePanel(state, key, layout, panel.id, (p) => ({
         ...p,
         tabs: p.tabs.map((t) =>
           t.id === tab.id ? { ...t, rootNode: newRoot } : t,
@@ -3027,16 +3078,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     // Resolve the theme the tab is currently painted with — its owning
     // project's override (or null = global). The detached window applies this so
     // it matches the workspace instead of falling back to the global theme.
-    const sourceWorkspacePath = state.activeWorkspacePath ?? "";
-    const themeName = isHomePath(sourceWorkspacePath)
+    const sourceWorkspaceKey = selectActiveWorkspaceKey(state) ?? workspaceKey(null, "");
+    const themeName = isHomePath(state.activeWorkspacePath)
       ? null
-      : useProjectStore
-          .getState()
-          .projects.find(
-            (p) =>
-              p.hostId === state.activeWorkspaceHostId &&
-              p.workspaces.some((w) => w.path === sourceWorkspacePath),
-          )?.themeName ?? null;
+      : projectForWorkspaceKey(useProjectStore.getState().projects, sourceWorkspaceKey)
+          ?.themeName ?? null;
 
     const payload: DetachedTabPayload = {
       tab: {
@@ -3046,8 +3092,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         focusedPaneId: foundTab.focusedPaneId,
       },
       paneState,
-      sourceWorkspacePath,
-      sourceWorkspaceHostId: state.activeWorkspaceHostId,
+      sourceWorkspaceKey,
       themeName,
     };
 
@@ -3084,7 +3129,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => {
       const currentCtx = getActiveLayoutContext(s);
       if (!currentCtx) return s;
-      const { path, layout } = currentCtx;
+      const { key, layout } = currentCtx;
       const currentFound = findPanelWithTab(layout, tabId);
       if (!currentFound) return s;
       const { panel } = currentFound;
@@ -3149,7 +3194,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...sideMaps,
           workspaceLayouts: {
             ...s.workspaceLayouts,
-            [path]: {
+            [key]: {
               ...layout,
               panelTree: newPanelTree ?? layout.panelTree,
               panels: remainingPanels,
@@ -3161,7 +3206,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       return {
         ...sideMaps,
-        ...updatePanel(s, path, layout, panel.id, (p) => ({
+        ...updatePanel(s, key, layout, panel.id, (p) => ({
           ...p,
           tabs: newTabs,
           selectedTabId: newSelected,
@@ -3211,16 +3256,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (state.panePickedElement[paneId] !== undefined) paneState.pickedElement[paneId] = state.panePickedElement[paneId];
 
     // Resolve the theme/workspace exactly as serializeTabForDetach does.
-    const sourceWorkspacePath = state.activeWorkspacePath ?? "";
-    const themeName = isHomePath(sourceWorkspacePath)
+    const sourceWorkspaceKey = selectActiveWorkspaceKey(state) ?? workspaceKey(null, "");
+    const themeName = isHomePath(state.activeWorkspacePath)
       ? null
-      : useProjectStore
-          .getState()
-          .projects.find(
-            (p) =>
-              p.hostId === state.activeWorkspaceHostId &&
-              p.workspaces.some((w) => w.path === sourceWorkspacePath),
-          )?.themeName ?? null;
+      : projectForWorkspaceKey(useProjectStore.getState().projects, sourceWorkspaceKey)
+          ?.themeName ?? null;
 
     const payload: DetachedTabPayload = {
       tab: {
@@ -3230,8 +3270,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         focusedPaneId: paneId,
       },
       paneState,
-      sourceWorkspacePath,
-      sourceWorkspaceHostId: state.activeWorkspaceHostId,
+      sourceWorkspaceKey,
       themeName,
     };
 
@@ -3264,7 +3303,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => {
       const currentCtx = getActiveLayoutContext(s);
       if (!currentCtx) return s;
-      const { path, layout } = currentCtx;
+      const { key, layout } = currentCtx;
       const currentFound = findPanelWithPane(layout, paneId);
       if (!currentFound) return s;
       const { panel, tab } = currentFound;
@@ -3282,7 +3321,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           tab.focusedPaneId === paneId ? ids[0] : tab.focusedPaneId;
         return {
           pendingPaneCommands,
-          ...updatePanel(s, path, layout, panel.id, (p) => ({
+          ...updatePanel(s, key, layout, panel.id, (p) => ({
             ...p,
             tabs: p.tabs.map((t) =>
               t.id === tab.id
@@ -3350,7 +3389,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...sideMaps,
           workspaceLayouts: {
             ...s.workspaceLayouts,
-            [path]: {
+            [key]: {
               ...layout,
               panelTree: newPanelTree ?? layout.panelTree,
               panels: remainingPanels,
@@ -3362,7 +3401,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       return {
         ...sideMaps,
-        ...updatePanel(s, path, layout, panel.id, (p) => ({
+        ...updatePanel(s, key, layout, panel.id, (p) => ({
           ...p,
           tabs: newTabs,
           selectedTabId: newSelected,
@@ -3381,8 +3420,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         focusedPaneId: payload.tab.focusedPaneId,
       };
       const layout = createSinglePanelLayout([tab], tab.id, []);
-      const hostId = payload.sourceWorkspaceHostId ?? LOCAL_HOST_ID;
-      const key = workspaceKey(hostId, payload.sourceWorkspacePath);
+      const key = payload.sourceWorkspaceKey;
+      const { hostId, path } = parseWorkspaceKey(key);
       const ps = payload.paneState;
 
       // Side-map value types are non-null; skip any null entries when merging.
@@ -3399,7 +3438,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       return {
         workspaceLayouts: { ...state.workspaceLayouts, [key]: layout },
-        activeWorkspacePath: payload.sourceWorkspacePath,
+        activeWorkspacePath: path,
         activeWorkspaceHostId: hostId,
         layoutLoaded: true,
         paneCwd: mergeDefined(state.paneCwd, ps.cwd),
@@ -3418,7 +3457,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
-      const { path, layout } = ctx;
+      const { key, layout } = ctx;
 
       const targetPanel = layout.panels[layout.activePanelId];
       if (!targetPanel) return state;
@@ -3450,7 +3489,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         workspaceLayouts: {
           ...state.workspaceLayouts,
-          [path]: {
+          [key]: {
             ...layout,
             panels: {
               ...layout.panels,
@@ -3482,9 +3521,9 @@ let saveLayoutTimer: ReturnType<typeof setTimeout> | null = null;
 /** Immediately persist the active workspace's layout to disk. */
 function flushLayoutSave(): void {
   const state = useAppStore.getState();
-  const wsPath = selectActiveWorkspaceKey(state);
-  if (!wsPath) return;
-  const layout = state.workspaceLayouts[wsPath];
+  const key = selectActiveWorkspaceKey(state);
+  if (!key) return;
+  const layout = state.workspaceLayouts[key];
   if (!layout) return;
 
   // Serialize all panels in the layout
@@ -3525,7 +3564,7 @@ function flushLayoutSave(): void {
   }
 
   const persisted: PersistedWorkspace = {
-    workspacePath: wsPath,
+    workspacePath: persistedKey(key),
     panelTree: layout.panelTree,
     panels: persistedPanels,
     activePanelId: layout.activePanelId,

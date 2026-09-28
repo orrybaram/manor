@@ -13,6 +13,8 @@ export function register(deps: IpcDeps): void {
   /**
    * A project that moved from `oldHostId` keeps the saved layouts of the
    * workspaces it still has, under their keys on its new host (ADR-191 §3).
+   * The renderer's `closeWorkspacesLeftBehind` (`src/store/project-store.ts`)
+   * makes the same [old key, new key] moves in memory; keep them in step.
    */
   async function moveLayouts(oldHostId: string, moved: ProjectInfo): Promise<ProjectInfo> {
     if (oldHostId !== moved.hostId) {

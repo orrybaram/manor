@@ -16,6 +16,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { terminalOptions } from "../terminal/config";
 import { createFileLinkProvider } from "../terminal/file-link-provider";
 import { selectActiveLayout, useAppStore, type PendingPaneCommand } from "../store/app-store";
+import type { WorkspaceKey } from "../lib/workspace-key";
 import { useProjectStore } from "../store/project-store";
 import { usePreferencesStore } from "../store/preferences-store";
 import { getAgentKindForCommand } from "../agent-defaults";
@@ -66,7 +67,7 @@ export function useTerminalLifecycle(
   theme: ITheme | null,
   onOpenSearch?: () => void,
   /** Key of the workspace the pane belongs to; its host is where the pane runs. */
-  workspaceKey?: string,
+  workspaceKey?: WorkspaceKey,
 ) {
   const [term, setTerm] = useState<Terminal | null>(null);
   const [fitAddon, setFitAddon] = useState<FitAddon | null>(null);

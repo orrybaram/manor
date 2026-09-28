@@ -9,6 +9,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import type { WorkspaceKey } from "../../src/lib/workspace-key";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { PassThrough } from "node:stream";
@@ -523,7 +524,7 @@ describe("E2E: layout persistence + reconciliation", () => {
 
     const panelId = "panel-default";
     return {
-      workspacePath: "/project/main",
+      workspacePath: "/project/main" as WorkspaceKey,
       panelTree: { type: "leaf", panelId },
       panels: {
         [panelId]: {
@@ -732,7 +733,7 @@ describe("E2E: layout persistence + reconciliation", () => {
     // Layout has 3 panes: A (daemon alive), B (scrollback on disk), C (nothing)
     const panelId = "panel-default";
     const workspace: PersistedWorkspace = {
-      workspacePath: "/project/main",
+      workspacePath: "/project/main" as WorkspaceKey,
       panelTree: { type: "leaf", panelId },
       panels: {
         [panelId]: {

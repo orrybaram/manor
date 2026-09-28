@@ -49,6 +49,8 @@ export type DiffPaneRef = {
 type DiffPaneProps = {
   paneId?: string;
   workspacePath?: string;
+  /** The workspace's host (ADR-191). */
+  hostId?: string;
 };
 
 /** Shared empty set so a workspace with no staged files keeps a stable identity. */
@@ -56,7 +58,7 @@ const NO_STAGED_FILES: Set<string> = new Set();
 
 export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
   function DiffPane(props: DiffPaneProps, ref) {
-    const { paneId, workspacePath } = props;
+    const { paneId, workspacePath, hostId } = props;
     const [raw, setRaw] = useState<string | null>(null);
     const [diffMode, setDiffMode] = useState<DiffMode>("local");
     const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -638,6 +640,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             <div className={styles.bottomDock}>
               <ReviewBar
                 workspacePath={workspacePath}
+                hostId={hostId}
                 onJumpToComment={review.jumpToComment}
               />
             </div>
@@ -665,6 +668,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             <div className={styles.bottomDock}>
               <ReviewBar
                 workspacePath={workspacePath}
+                hostId={hostId}
                 onJumpToComment={review.jumpToComment}
               />
             </div>
@@ -843,6 +847,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
           {workspacePath && (
             <ReviewBar
               workspacePath={workspacePath}
+              hostId={hostId}
               onJumpToComment={review.jumpToComment}
             />
           )}

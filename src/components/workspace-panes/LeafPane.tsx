@@ -36,7 +36,7 @@ import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { Row } from "../ui/Layout/Layout";
 import { registerBrowserPane, unregisterBrowserPane } from "../../lib/browser-pane-registry";
 import { isRemoteHost } from "../../lib/hosts";
-import { parseWorkspaceKey } from "../../lib/workspace-key";
+import { parseWorkspaceKey, type WorkspaceKey } from "../../lib/workspace-key";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { useRemotePaneStore } from "../../store/remote-pane-store";
 
@@ -50,7 +50,7 @@ function stripUrlForDisplay(url: string): string {
 type LeafPaneProps = {
   paneId: string;
   /** Key of the workspace the pane belongs to (ADR-191). */
-  workspaceKey?: string;
+  workspaceKey?: WorkspaceKey;
 };
 
 export function LeafPane(props: LeafPaneProps) {
@@ -638,7 +638,12 @@ export function LeafPane(props: LeafPaneProps) {
       <div className={`${styles.leafTerminal} ${contentType !== "diff" && contentType !== "browser" ? styles.leafTerminalInset : ""} ${navState?.webviewFocused ? browserStyles.webviewFocused : ""}`}>
         {contentType === "diff" ? (
           <PaneContextMenu paneId={paneId} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
-            <DiffPane ref={diffRef} paneId={paneId} workspacePath={workspacePath} />
+            <DiffPane
+              ref={diffRef}
+              paneId={paneId}
+              workspacePath={workspacePath}
+              hostId={workspace?.hostId}
+            />
           </PaneContextMenu>
         ) : contentType === "browser" ? (
           <PaneContextMenu paneId={paneId} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>

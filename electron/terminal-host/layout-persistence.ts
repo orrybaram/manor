@@ -12,8 +12,9 @@ import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { layoutFile } from "../paths";
 import {
+  isRemoteWorkspaceKey,
   migrateWorkspaceKey,
-  migrateWorkspaceKeyedRecord,
+  type WorkspaceKey,
   type WorkspaceKeyOwner,
 } from "../../src/lib/workspace-key";
 /**
@@ -99,7 +100,7 @@ export interface PersistedWorkspace {
    * `migrateWorkspaceKeys` runs. The field keeps its name so a downgrade
    * still finds every local workspace.
    */
-  workspacePath: string;
+  workspacePath: WorkspaceKey;
   panelTree: PanelNode;
   panels: Record<string, PersistedPanel>;
   activePanelId: string;
@@ -132,7 +133,8 @@ function migrateV1toV2(v1: PersistedLayoutV1): PersistedLayout {
     workspaces: v1.workspaces.map((ws) => {
       const panelId = `panel-${crypto.randomUUID()}`;
       return {
-        workspacePath: ws.workspacePath,
+        // A bare path: a legacy key, until `migrateWorkspaceKeys` runs.
+        workspacePath: ws.workspacePath as WorkspaceKey,
         panelTree: { type: "leaf" as const, panelId },
         panels: {
           [panelId]: {
@@ -148,26 +150,40 @@ function migrateV1toV2(v1: PersistedLayoutV1): PersistedLayout {
   };
 }
 
+/** Whether `ws` has any tab: an empty layout is what a fresh workspace gets. */
+function hasTabs(ws: PersistedWorkspace): boolean {
+  return Object.values(ws.panels ?? {}).some((panel) => (panel?.tabs ?? []).length > 0);
+}
+
 /**
  * `layout` with every workspace rekeyed from its bare path to its
  * host-qualified key (version 2 → 3, ADR-191). A bare path goes to the host
  * of the project that owns it, local when none does or on a tie. Never drops
- * a workspace: two entries could only land on one key if the file already
- * held a qualified key, and then the qualified one, the newer, wins.
+ * a layout with tabs: two entries land on one key only if the file already
+ * held a qualified key, and then one with tabs beats an empty one, and
+ * otherwise the qualified one, the newer, wins.
  */
 export function migrateLayoutV2toV3(
   layout: PersistedLayout,
   owners: readonly WorkspaceKeyOwner[],
 ): PersistedLayout {
-  const byKey = migrateWorkspaceKeyedRecord(
-    Object.fromEntries(layout.workspaces.map((ws) => [ws.workspacePath, ws])),
-    owners,
-  );
+  const byKey = new Map<string, { ws: PersistedWorkspace; qualified: boolean }>();
+  for (const ws of layout.workspaces) {
+    const key = migrateWorkspaceKey(ws.workspacePath, owners);
+    const qualified = isRemoteWorkspaceKey(ws.workspacePath);
+    const held = byKey.get(key);
+    if (held) {
+      const heldWins =
+        hasTabs(held.ws) !== hasTabs(ws) ? hasTabs(held.ws) : held.qualified && !qualified;
+      if (heldWins) continue;
+    }
+    byKey.set(key, { ws: { ...ws, workspacePath: key }, qualified });
+  }
   const last = layout.lastActiveWorkspacePath;
   return {
     ...layout,
     version: LAYOUT_VERSION,
-    workspaces: Object.entries(byKey).map(([key, ws]) => ({ ...ws, workspacePath: key })),
+    workspaces: [...byKey.values()].map(({ ws }) => ws),
     ...(last ? { lastActiveWorkspacePath: migrateWorkspaceKey(last, owners) } : {}),
   };
 }
@@ -183,15 +199,22 @@ export class LayoutPersistence {
   /**
    * Run the one-time version 2 → 3 workspace-key migration in the
    * background, asking `owners` for the projects only when the file needs
-   * it. `whenReady` resolves once it is done (or has failed, leaving the file
-   * at version 2 to try again next launch).
+   * it. `whenReady` resolves once it is done. When `owners` can't tell every
+   * path's host (null: a remote host did not answer) or fails, the file stays
+   * at version 2 to try again next launch: a guess written as version 3
+   * could never be corrected.
    */
   startWorkspaceKeyMigration(
-    owners: () => Promise<readonly WorkspaceKeyOwner[]>,
+    owners: () => Promise<readonly WorkspaceKeyOwner[] | null>,
   ): Promise<void> {
     this.ready = (async () => {
       if (!this.needsWorkspaceKeyMigration()) return;
-      this.migrateWorkspaceKeys(await owners());
+      const known = await owners();
+      if (!known) {
+        console.warn("[layout] a host did not answer; workspace-key migration retries next launch");
+        return;
+      }
+      this.migrateWorkspaceKeys(known);
     })().catch((err: unknown) => {
       console.error("[layout] workspace-key migration failed:", err);
     });
@@ -223,12 +246,15 @@ export class LayoutPersistence {
 
   /**
    * Move each `[from, to]` workspace key's layout to `to` — a project moved
-   * to another host keeps its workspaces' layouts (ADR-191 §3). A `to` that
+   * to another host keeps its workspaces' layouts (ADR-191 §3). The renderer
+   * makes the same moves in `closeWorkspacesLeftBehind`. A `to` that
    * already has a layout keeps it, and `from` is then left in place.
    */
-  moveWorkspaces(moves: ReadonlyArray<readonly [string, string]>): void {
+  moveWorkspaces(moves: ReadonlyArray<readonly [WorkspaceKey, WorkspaceKey]>): void {
     const layout = this.load();
-    if (!layout) return;
+    // A file not yet migrated holds bare paths, which the migration will
+    // give to whichever host owns them then: the moved project's new one.
+    if (!layout || layout.version < LAYOUT_VERSION) return;
     let changed = false;
     for (const [from, to] of moves) {
       if (from === to) continue;
@@ -297,7 +323,7 @@ export class LayoutPersistence {
   }
 
   /** Remove a workspace's layout, by its workspace key */
-  removeWorkspace(key: string): void {
+  removeWorkspace(key: WorkspaceKey): void {
     const layout = this.load();
     if (!layout) return;
 

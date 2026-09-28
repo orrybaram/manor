@@ -13,7 +13,12 @@
  * search) go out over the `ui-request` bus instead.
  */
 
-import { selectActiveLayout, useAppStore } from "../store/app-store";
+import {
+  layoutKeyFor,
+  selectActiveLayout,
+  selectActiveWorkspaceKey,
+  useAppStore,
+} from "../store/app-store";
 import {
   useProjectStore,
   runWorkspaceSetupScript,
@@ -21,8 +26,8 @@ import {
   type WorkspaceInfo,
 } from "../store/project-store";
 import { useToastStore } from "../store/toast-store";
-import { projectForWorkspace } from "./hosts";
-import { normalizeHostId } from "./host-id";
+import { LOCAL_HOST_ID, projectForWorkspaceKey } from "./hosts";
+import { parseWorkspaceKey, workspaceKey, type WorkspaceKey } from "./workspace-key";
 import { hideWorkspaceAndNavigate } from "../store/workspace-actions";
 import {
   createSharedKeybindingHandlers,
@@ -78,15 +83,12 @@ interface ActiveWorkspace {
 
 /** The active surface, resolved back to its owning project and workspace. */
 function activeWorkspace(): ActiveWorkspace {
-  const { activeWorkspacePath: path, activeWorkspaceHostId } = useAppStore.getState();
-  // Only the active workspace's host: a local and a remote project can share a path.
+  const app = useAppStore.getState();
+  const path = app.activeWorkspacePath;
+  // By key: a local and a remote project can share a path (ADR-191).
   const project =
-    projectForWorkspace(
-      useProjectStore
-        .getState()
-        .projects.filter((p) => normalizeHostId(p.hostId) === activeWorkspaceHostId),
-      path,
-    ) ?? null;
+    projectForWorkspaceKey(useProjectStore.getState().projects, selectActiveWorkspaceKey(app)) ??
+    null;
   const workspace = project?.workspaces.find((w) => w.path === path) ?? null;
   return { project, workspace, path };
 }
@@ -108,45 +110,46 @@ function stringArg(
 }
 
 /**
- * Every workspace the menu can switch between, in the order the sidebar shows
- * them: Home first, then each project's visible workspaces with folders — at
- * any depth — flattened into the folder's slot.
+ * Every workspace the menu can switch between, by key (ADR-191), in the
+ * order the sidebar shows them: Home first, then each project's visible
+ * workspaces with folders — at any depth — flattened into the folder's slot.
  */
-export function orderedWorkspacePaths(projects: ProjectInfo[]): string[] {
-  const paths: string[] = [HOME_PATH];
-  const walk = (items: SidebarItem[]) => {
-    for (const item of items) {
-      if (item.kind === "folder") walk(item.children);
-      else paths.push(item.ws.path);
-    }
-  };
-  for (const project of projects) walk(buildSidebarItems(project));
-  return paths;
+export function orderedWorkspaceKeys(projects: ProjectInfo[]): WorkspaceKey[] {
+  const keys: WorkspaceKey[] = [workspaceKey(LOCAL_HOST_ID, HOME_PATH)];
+  for (const project of projects) {
+    const walk = (items: SidebarItem[]) => {
+      for (const item of items) {
+        if (item.kind === "folder") walk(item.children);
+        else keys.push(workspaceKey(project.hostId, item.ws.path));
+      }
+    };
+    walk(buildSidebarItems(project));
+  }
+  return keys;
 }
 
-/** Switch to a workspace by path, keeping the project selection in sync. */
-function switchToWorkspace(path: string): void {
-  const projects = useProjectStore.getState().projects;
-  for (const project of projects) {
-    const index = project.workspaces.findIndex((w) => w.path === path);
-    if (index >= 0) {
-      useProjectStore.getState().selectWorkspace(project.id, index);
-      return;
-    }
+/** Switch to the workspace keyed `key`, keeping the project selection in sync. */
+function switchToWorkspace(key: WorkspaceKey): void {
+  const { hostId, path } = parseWorkspaceKey(key);
+  const project = projectForWorkspaceKey(useProjectStore.getState().projects, key);
+  const index = project?.workspaces.findIndex((w) => w.path === path) ?? -1;
+  if (project && index >= 0) {
+    useProjectStore.getState().selectWorkspace(project.id, index);
+    return;
   }
   // Home, or a path no project claims — activate it directly.
-  useAppStore.getState().setActiveWorkspace(path);
+  useAppStore.getState().setActiveWorkspace(path, hostId);
 }
 
-/** Step through `orderedWorkspacePaths` with wrap-around. */
+/** Step through `orderedWorkspaceKeys` with wrap-around. */
 function stepWorkspace(delta: 1 | -1): void {
-  const paths = orderedWorkspacePaths(useProjectStore.getState().projects);
-  if (paths.length === 0) return;
-  const current = useAppStore.getState().activeWorkspacePath;
-  const index = current ? paths.indexOf(current) : -1;
+  const keys = orderedWorkspaceKeys(useProjectStore.getState().projects);
+  if (keys.length === 0) return;
+  const current = selectActiveWorkspaceKey(useAppStore.getState());
+  const index = current ? keys.indexOf(current) : -1;
   // Nothing active (or an unlisted surface): "next" starts at the top.
   const from = index === -1 ? (delta === 1 ? -1 : 0) : index;
-  switchToWorkspace(paths[(from + delta + paths.length) % paths.length]);
+  switchToWorkspace(keys[(from + delta + keys.length) % keys.length]);
 }
 
 /**
@@ -247,7 +250,11 @@ export function createMenuHandlers(
     // ── Workspace ─────────────────────────────────────────────────────────
     "switch-workspace": (args) => {
       const path = stringArg(args, "path");
-      if (path) switchToWorkspace(path);
+      // The menu names the workspace's project, so its host (ADR-191).
+      const project = useProjectStore
+        .getState()
+        .projects.find((p) => p.id === stringArg(args, "projectId"));
+      if (path) switchToWorkspace(layoutKeyFor(path, project?.hostId));
     },
     "next-workspace": () => stepWorkspace(1),
     "prev-workspace": () => stepWorkspace(-1),

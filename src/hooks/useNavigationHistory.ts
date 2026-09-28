@@ -7,7 +7,7 @@ import {
 } from "../store/navigation-history-store";
 import { HOME_PATH } from "../lib/home-path";
 import { parseWorkspaceKey } from "../lib/workspace-key";
-import { normalizeHostId } from "../lib/host-id";
+import { projectForWorkspaceKey } from "../lib/hosts";
 import { useProjectStore } from "../store/project-store";
 import { useMountEffect } from "./useMountEffect";
 
@@ -59,13 +59,9 @@ function applyLocation(loc: Location): void {
   // `setActiveWorkspace` alone leaves the sidebar pointed at the old workspace,
   // so replaying between two empty workspaces looks like nothing happened.
   const { hostId, path } = parseWorkspaceKey(loc.workspaceKey);
-  const projects = useProjectStore.getState().projects;
-  const project = projects.find(
-    (p) =>
-      normalizeHostId(p.hostId) === hostId && p.workspaces.some((w) => w.path === path),
-  );
-  if (project) {
-    const wsIndex = project.workspaces.findIndex((w) => w.path === path);
+  const project = projectForWorkspaceKey(useProjectStore.getState().projects, loc.workspaceKey);
+  const wsIndex = project?.workspaces.findIndex((w) => w.path === path) ?? -1;
+  if (project && wsIndex >= 0) {
     useProjectStore.getState().selectWorkspace(project.id, wsIndex);
   } else {
     // Fallback: path not owned by any project (shouldn't happen post-prune).

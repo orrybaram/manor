@@ -1,4 +1,6 @@
-import { useAppStore } from "../store/app-store";
+import { layoutKeyFor, selectActiveWorkspaceKey, useAppStore } from "../store/app-store";
+import { projectForWorkspaceKey, type HostId } from "./hosts";
+import { parseWorkspaceKey } from "./workspace-key";
 import { useProjectStore } from "../store/project-store";
 import { getAgentCommand } from "../agent-defaults";
 import { escapeShellDoubleQuoted } from "./home";
@@ -32,23 +34,23 @@ export function flattenPrompt(prompt: string): string {
  * (which reports the created tab/pane back to main and may carry an explicit
  * `agentCommand`) — the two callers that used to hand-roll this sequence with
  * different gaps (ADR-176).
+ *
+ * `hostId` is the workspace's host: the same path can be on two (ADR-191).
  */
 export function launchAgentInWorkspace(
   workspacePath: string,
-  options: { prompt?: string; agentCommand?: string } = {},
+  options: { prompt?: string; agentCommand?: string; hostId?: HostId | null } = {},
 ): { tabId: string; paneId: string } | null {
-  const projects = useProjectStore.getState().projects;
-  for (const project of projects) {
-    const index = project.workspaces.findIndex((w) => w.path === workspacePath);
-    if (index >= 0) {
-      useProjectStore.getState().selectWorkspace(project.id, index);
-      break;
-    }
+  const key = layoutKeyFor(workspacePath, options.hostId);
+  const project = projectForWorkspaceKey(useProjectStore.getState().projects, key);
+  const index = project?.workspaces.findIndex((w) => w.path === workspacePath) ?? -1;
+  if (project && index >= 0) {
+    useProjectStore.getState().selectWorkspace(project.id, index);
   }
 
   const app = useAppStore.getState();
-  if (app.activeWorkspacePath !== workspacePath) {
-    app.setActiveWorkspace(workspacePath);
+  if (selectActiveWorkspaceKey(app) !== key) {
+    app.setActiveWorkspace(workspacePath, parseWorkspaceKey(key).hostId);
   }
 
   const base = getAgentCommand(workspacePath, options.agentCommand);
@@ -69,6 +71,7 @@ export function launchAgentInWorkspace(
 export function startAgentWithPrompt(
   workspacePath: string,
   prompt: string,
+  hostId?: HostId | null,
 ): void {
-  launchAgentInWorkspace(workspacePath, { prompt });
+  launchAgentInWorkspace(workspacePath, { prompt, hostId });
 }

@@ -4,7 +4,11 @@ import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
 import type { PaneNode } from "../../src/store/pane-tree";
-import { workspaceKey, type WorkspaceKeyOwner } from "../../src/lib/workspace-key";
+import {
+  workspaceKey,
+  type WorkspaceKey,
+  type WorkspaceKeyOwner,
+} from "../../src/lib/workspace-key";
 import {
   LayoutPersistence,
   LAYOUT_VERSION,
@@ -85,7 +89,7 @@ describe("LayoutPersistence", () => {
   ): PersistedWorkspace {
     const panelId = `panel-${crypto.randomUUID()}`;
     return {
-      workspacePath,
+      workspacePath: workspacePath as WorkspaceKey,
       panelTree: { type: "leaf", panelId },
       panels: {
         [panelId]: {
@@ -302,7 +306,7 @@ describe("LayoutPersistence", () => {
       };
       persistence.save(layout);
 
-      persistence.removeWorkspace("/project/feature");
+      persistence.removeWorkspace("/project/feature" as WorkspaceKey);
 
       const loaded = persistence.load();
       expect(loaded!.workspaces).toHaveLength(1);
@@ -318,7 +322,7 @@ describe("LayoutPersistence", () => {
       };
       persistence.save(layout);
 
-      persistence.removeWorkspace("/nonexistent");
+      persistence.removeWorkspace("/nonexistent" as WorkspaceKey);
 
       const loaded = persistence.load();
       expect(loaded!.workspaces).toHaveLength(1);
@@ -681,7 +685,7 @@ describe("LayoutPersistence", () => {
       const loaded = new LayoutPersistence(layoutFile).load()!;
 
       expect(loaded.version).toBe(LAYOUT_VERSION);
-      const byKey = new Map(loaded.workspaces.map((w) => [w.workspacePath, w]));
+      const byKey = new Map<string, PersistedWorkspace>(loaded.workspaces.map((w) => [w.workspacePath, w]));
       expect(byKey.size).toBe(2);
       expect(paneIdsOf(byKey.get(SHARED)!)).toEqual(["local-pane"]);
       expect(paneIdsOf(byKey.get(box)!)).toEqual(["box-pane"]);
@@ -801,6 +805,60 @@ describe("LayoutPersistence", () => {
       );
     });
 
+    it("keeps the file at v2 while a remote host can't say what it owns", async () => {
+      const t = makeLeafTab("p1", "ds1");
+      writeRaw({ version: 2, workspaces: [makeV2Workspace("/srv/app", [t], t.id)] });
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      await persistence.startWorkspaceKeyMigration(async () => null);
+
+      // Retried next launch, not guessed now: a guess at v3 is permanent.
+      expect(readRaw().version).toBe(2);
+      expect(readRaw().workspaces[0].workspacePath).toBe("/srv/app");
+      warn.mockRestore();
+    });
+
+    it("keeps the layout with tabs when a legacy and a qualified entry meet", () => {
+      const t = makeLeafTab("p1", "ds1");
+      const empty = makeV2Workspace(workspaceKey("box", "/srv/app"), [], "");
+      writeRaw({
+        version: 2,
+        workspaces: [makeV2Workspace("/srv/app", [t], t.id), empty],
+      });
+
+      persistence.migrateWorkspaceKeys(owners);
+
+      const raw = readRaw();
+      expect(raw.workspaces).toHaveLength(1);
+      expect(raw.workspaces[0].workspacePath).toBe(workspaceKey("box", "/srv/app"));
+      expect(paneIdsOf(raw.workspaces[0])).toEqual(["p1"]);
+    });
+
+    it("keeps the qualified layout when both have tabs", () => {
+      const legacy = makeLeafTab("legacy", "ds1");
+      const newer = makeLeafTab("newer", "ds2");
+      writeRaw({
+        version: 2,
+        workspaces: [
+          makeV2Workspace(workspaceKey("box", "/srv/app"), [newer], newer.id),
+          makeV2Workspace("/srv/app", [legacy], legacy.id),
+        ],
+      });
+
+      persistence.migrateWorkspaceKeys(owners);
+
+      expect(readRaw().workspaces.map(paneIdsOf)).toEqual([["newer"]]);
+    });
+
+    it("moves nothing in a file not yet migrated", () => {
+      const t = makeLeafTab("p1", "ds1");
+      writeRaw({ version: 2, workspaces: [makeV2Workspace("/srv/app", [t], t.id)] });
+
+      persistence.moveWorkspaces([["/srv/app" as WorkspaceKey, workspaceKey("box", "/srv/app")]]);
+
+      expect(readRaw().workspaces[0].workspacePath).toBe("/srv/app");
+    });
+
     it("keeps the file at v2 when the projects can't be read", async () => {
       const t = makeLeafTab("p1", "ds1");
       writeRaw({ version: 2, workspaces: [makeV2Workspace("/srv/app", [t], t.id)] });
@@ -833,7 +891,9 @@ describe("LayoutPersistence", () => {
 
       persistence.moveWorkspaces([[workspaceKey("local", SHARED), box]]);
 
-      const byKey = new Map(persistence.load()!.workspaces.map((w) => [w.workspacePath, w]));
+      const byKey = new Map<string, PersistedWorkspace>(
+        persistence.load()!.workspaces.map((w) => [w.workspacePath, w]),
+      );
       expect(paneIdsOf(byKey.get(SHARED)!)).toEqual(["a"]);
       expect(paneIdsOf(byKey.get(box)!)).toEqual(["b"]);
     });

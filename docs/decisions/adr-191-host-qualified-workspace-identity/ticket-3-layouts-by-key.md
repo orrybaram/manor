@@ -43,10 +43,15 @@ GitHub issue #240. See ADR-191 §3.
 - Main runs the migration once at launch
   (`LayoutPersistence.startWorkspaceKeyMigration`); `layout:load` and
   `layout:save` wait for it. The owners are `projects.json`'s projects with
-  their worktree roots expanded on their hosts and the workspace paths the
-  file remembers. A host that doesn't answer within 5 seconds has its
-  worktree root left out, so the first launch after the upgrade never hangs
-  on a dead connection.
+  their worktree roots expanded on their hosts, their workspaces as their
+  hosts' git lists them, and the workspace paths the file remembers. If a
+  remote host doesn't answer within 5 seconds, the file stays at version 2
+  and the migration runs again next launch: a partial owner list would send
+  some paths to the wrong host for good.
+- While the file is still at version 2, the renderer reads and saves the
+  workspace the migration will give a bare path to under that bare path, and
+  any other host's workspace at that path under its qualified key. The
+  migration keeps a layout with tabs over an empty one when two entries meet.
 - The renderer keeps `activeWorkspacePath` as a path and adds
   `activeWorkspaceHostId`; `selectActiveWorkspaceKey` combines them. Panes
   take their host from the key of the layout they are in
@@ -54,3 +59,7 @@ GitHub issue #240. See ADR-191 §3.
 - A host move (`projects:moveToHost`, `projects:switchHost`) moves the saved
   layouts of the workspaces the project keeps to their keys on the new host,
   in `layout.json` and in the renderer.
+- Downgrading: an older build keeps the `<hostId>:<path>` entries in
+  `layout.json` but ignores them. A remote workspace's layout that it saves
+  under a bare path is read as local after upgrading again, since the file
+  is already at version 3.

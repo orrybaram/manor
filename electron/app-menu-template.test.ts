@@ -219,6 +219,22 @@ describe("buildMenuTemplate", () => {
       expect(item(workspaces, "feature")?.checked).toBe(true);
     });
 
+    it("checks only the active project's row when two share a path", () => {
+      const template = build({
+        context: makeContext({
+          activeWorkspacePath: "/repo/shared",
+          project: { ...makeContext().project!, id: "p-box" },
+          projects: [
+            { id: "p-local", name: "local", workspaces: [{ path: "/repo/shared", label: "main" }] },
+            { id: "p-box", name: "box", workspaces: [{ path: "/repo/shared", label: "main" }] },
+          ],
+        }),
+      });
+      const projects = submenu(item(menu(template, "Workspace"), "Switch Workspace"));
+      expect(item(submenu(projects[0]), "main")?.checked).toBe(false);
+      expect(item(submenu(projects[1]), "main")?.checked).toBe(true);
+    });
+
     it("sends switch-workspace with the clicked path", () => {
       const actions = makeActions();
       const template = build({}, actions);
@@ -226,8 +242,10 @@ describe("buildMenuTemplate", () => {
         item(menu(template, "Workspace"), "Switch Workspace"),
       );
       click(item(submenu(projects[0]), "main"));
+      // The project names the workspace's host (ADR-191).
       expect(actions.send).toHaveBeenCalledWith("switch-workspace", {
         path: "/repo/main",
+        projectId: "proj-1",
       });
     });
 

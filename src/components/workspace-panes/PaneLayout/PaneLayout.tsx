@@ -1,11 +1,12 @@
 import type { PaneNode } from "../../../store/pane-tree";
+import type { WorkspaceKey } from "../../../lib/workspace-key";
 import { LeafPane } from "../LeafPane";
 import { SplitLayout } from "../SplitLayout";
 
-interface PaneLayoutProps {
+type PaneLayoutProps = {
   node: PaneNode;
-  workspaceKey?: string;
-}
+  workspaceKey?: WorkspaceKey;
+};
 
 export function PaneLayout(props: PaneLayoutProps) {
   const { node, workspaceKey } = props;

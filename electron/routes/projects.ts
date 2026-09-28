@@ -470,6 +470,8 @@ async function batchCreateWorkspaces(
       const result = await startAgent(
         ws.worktreePath,
         renderPrompt(promptTemplate, ws),
+        undefined,
+        project.hostId,
       );
       entry.started = result.ok;
       if (result.ok) {

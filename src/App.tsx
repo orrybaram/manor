@@ -25,7 +25,6 @@ const AgentsModal = lazy(() => import("./components/sidebar/AgentsView/AgentsVie
 const FeedbackModal = lazy(() => import("./components/statusbar/FeedbackModal/FeedbackModal").then(m => ({ default: m.FeedbackModal })));
 import {
   useAppStore,
-  layoutKeyFor,
   selectActiveWorkspace,
   selectActiveWorkspaceKey,
   getPersistedActiveWorkspacePath,
@@ -35,8 +34,8 @@ import {
   runWorkspaceSetupScript,
   type ProjectInfo,
 } from "./store/project-store";
-import { projectForWorkspace } from "./lib/hosts";
-import { normalizeHostId } from "./lib/host-id";
+import { projectForWorkspaceKey } from "./lib/hosts";
+import { parseWorkspaceKey, type WorkspaceKey } from "./lib/workspace-key";
 import { appCommandHandlers } from "./lib/app-commands";
 import { handleRecordingCommand } from "./lib/webview-recorder";
 import {
@@ -63,7 +62,7 @@ import {
   navigateForward,
 } from "./hooks/useNavigationHistory";
 import type { AgentInfo } from "./electron.d";
-import { navigateToAgent } from "./utils/agent-navigation";
+import { agentWorkspaceKey, navigateToAgent } from "./utils/agent-navigation";
 import { hasPaneId } from "./store/pane-tree";
 import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults";
 import {
@@ -350,12 +349,8 @@ function App() {
   // Keep the prewarmed session in sync with the active workspace.
   // Derive the agent command outside the effect so it only re-fires when the
   // command actually changes, not on every unrelated project mutation.
-  // Only the active workspace's host's projects: a local and a remote
-  // project can share a path.
-  const activeProject = projectForWorkspace(
-    projects.filter((p) => normalizeHostId(p.hostId) === activeWorkspaceHostId),
-    activeWorkspacePath,
-  );
+  // By key: a local and a remote project can share a path (ADR-191).
+  const activeProject = projectForWorkspaceKey(projects, activeWorkspaceKey);
   // The launch command for the active surface. Home has no owning project and
   // boots the configured home harness in ~/.manor/home (the pty boundary maps
   // its sentinel path to the real dir); a project workspace uses its
@@ -566,14 +561,11 @@ function App() {
 
   const handleResumeAgent = useCallback(
     async (agent: AgentInfo) => {
-      // The agent's workspace is on its project's host (ADR-191).
-      const agentHostId = projects.find((p) => p.id === agent.projectId)?.hostId;
+      // The agent's workspace, on its host (ADR-191).
+      const agentKey = agentWorkspaceKey(agent, projects);
       // If the agent is active and has a pane, switch to it instead of opening a new tab
-      if (agent.status === "active" && agent.paneId && agent.workspacePath) {
-        const wsLayout =
-          useAppStore.getState().workspaceLayouts[
-            layoutKeyFor(agent.workspacePath, agentHostId)
-          ];
+      if (agent.status === "active" && agent.paneId && agentKey) {
+        const wsLayout = useAppStore.getState().workspaceLayouts[agentKey];
         if (wsLayout) {
           const paneExists = Object.values(wsLayout.panels).some((panel) =>
             panel.tabs.some((tab) => hasPaneId(tab.rootNode, agent.paneId!)),
@@ -586,14 +578,12 @@ function App() {
       }
 
       const wsPath = agent.workspacePath;
-      if (wsPath) {
-        setActiveWorkspace(wsPath, agentHostId);
+      if (wsPath && agentKey) {
+        setActiveWorkspace(wsPath, parseWorkspaceKey(agentKey).hostId);
       }
       const activePath = wsPath ?? useAppStore.getState().activeWorkspacePath;
       if (activePath) {
-        const agentProject = projects.find((p) =>
-          p.workspaces.some((w) => w.path === wsPath),
-        );
+        const agentProject = projectForWorkspaceKey(projects, agentKey);
         const agentCommand =
           agent.agentCommand ??
           agentProject?.agentCommand ??
@@ -666,18 +656,19 @@ function App() {
                 full-screen TUIs repaint their frame into the scrollback — which
                 shows up as the same output duplicated over and over. */}
             <div className="workspace-stack">
-              {Object.entries(workspaceLayouts).map(([wpath, wsLayout]) => (
+              {/* `workspaceLayouts` is keyed by `WorkspaceKey` (ADR-191). */}
+              {Object.entries(workspaceLayouts).map(([key, wsLayout]) => (
                 <div
-                  key={wpath}
+                  key={key}
                   style={
-                    wpath === activeWorkspaceKey && hasTabs
+                    key === activeWorkspaceKey && hasTabs
                       ? TAB_VISIBLE_STYLE
                       : TAB_HIDDEN_STYLE
                   }
                 >
                   <PanelLayout
                     node={wsLayout.panelTree}
-                    workspaceKey={wpath}
+                    workspaceKey={key as WorkspaceKey}
                     onNewAgent={handleNewAgent}
                   />
                 </div>

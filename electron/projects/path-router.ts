@@ -199,25 +199,43 @@ export class PathRouter {
    * Every project as a `WorkspaceKeyOwner`, for a one-time migration of
    * path-keyed data to workspace keys (ADR-191): its root, its worktree
    * directory expanded for its host, and every workspace path it is known to
-   * have. A host that does not answer within `timeoutMs` has its worktree
-   * directory left out, so the migration never waits on a dead connection.
+   * have — remembered in `projects.json` and listed by `listWorkspaces`.
+   *
+   * Null when a remote project's worktree directory or listing is not known
+   * within `timeoutMs`: an owner that is missing a path would send that
+   * path's data to the wrong host for good, so the caller must retry later
+   * instead. A local project that can't be listed (its checkout was deleted,
+   * say) still counts: its paths already read as local.
    */
-  async workspaceKeyOwners(timeoutMs: number): Promise<WorkspaceKeyOwner[]> {
-    return Promise.all(
-      this.projects().map(async (project) => ({
-        hostId: project.hostId,
-        path: project.path,
-        worktreeRoot: await within<string | null>(
-          this.worktreeBaseDir(project),
-          timeoutMs,
-          null,
-        ),
-        workspaces: [
-          ...rememberedWorkspacePaths(project),
-          ...(this.workspacePaths.get(project.id) ?? []),
-        ].map((path) => ({ path })),
-      })),
+  async workspaceKeyOwners(
+    timeoutMs: number,
+    listWorkspaces: (project: PersistedProject) => Promise<string[]>,
+  ): Promise<WorkspaceKeyOwner[] | null> {
+    const described = await Promise.all(
+      this.projects().map(async (project) => {
+        const [worktreeRoot, listed] = await Promise.all([
+          within<string | null>(this.worktreeBaseDir(project), timeoutMs, null),
+          within<string[] | null>(listWorkspaces(project), timeoutMs, null),
+        ]);
+        const owner: WorkspaceKeyOwner = {
+          hostId: project.hostId,
+          path: project.path,
+          worktreeRoot,
+          workspaces: [
+            ...new Set([
+              ...rememberedWorkspacePaths(project),
+              ...(this.workspacePaths.get(project.id) ?? []),
+              ...(listed ?? []),
+            ]),
+          ].map((path) => ({ path })),
+        };
+        const complete =
+          project.hostId === LOCAL_HOST_ID || (worktreeRoot !== null && listed !== null);
+        return { owner, complete };
+      }),
     );
+    if (described.some((d) => !d.complete)) return null;
+    return described.map((d) => d.owner);
   }
 
   /**

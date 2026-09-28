@@ -260,6 +260,7 @@ const WorkspaceItem = React.forwardRef<
                 <PrPopover
                   pr={ws.pr}
                   workspacePath={ws.path}
+                  hostId={hostId}
                   onOpen={() =>
                     window.electronAPI.shell.openExternal(ws.pr!.url)
                   }

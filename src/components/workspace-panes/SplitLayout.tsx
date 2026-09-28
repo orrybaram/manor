@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import type { WorkspaceKey } from "../../lib/workspace-key";
 import type { PaneNode } from "../../store/pane-tree";
 import { useDragOverlayStore } from "../../store/drag-overlay-store";
 import { PaneLayout } from "./PaneLayout/PaneLayout";
@@ -9,7 +10,7 @@ type SplitLayoutProps = {
   ratio: number;
   first: PaneNode;
   second: PaneNode;
-  workspaceKey?: string;
+  workspaceKey?: WorkspaceKey;
 };
 
 export function SplitLayout(props: SplitLayoutProps) {

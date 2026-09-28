@@ -1,5 +1,6 @@
 import { isHomePath } from "./home-path";
-import { LOCAL_HOST_ID, type HostId } from "./host-id";
+import { LOCAL_HOST_ID, normalizeHostId, type HostId } from "./host-id";
+import { parseWorkspaceKey } from "./workspace-key";
 
 export { LOCAL_HOST_ID };
 export type { HostId };
@@ -103,6 +104,22 @@ export function hostIdForWorkspace(
   preferredProjectId?: string,
 ): HostId | undefined {
   return projectForWorkspace(projects, workspacePath, preferredProjectId)?.hostId;
+}
+
+/**
+ * The project that has the workspace keyed `key` (ADR-191): on the key's
+ * host, with the key's path as its main checkout or one of its workspaces.
+ * Undefined for Home and for a path no project on that host has.
+ */
+export function projectForWorkspaceKey<P extends HostedProject>(
+  projects: readonly P[],
+  key: string | null | undefined,
+): P | undefined {
+  if (!key) return undefined;
+  const { hostId, path } = parseWorkspaceKey(key);
+  return projects.find(
+    (p) => normalizeHostId(p.hostId) === hostId && hasWorkspace(p, path),
+  );
 }
 
 /** The id of the selected project, if any. */

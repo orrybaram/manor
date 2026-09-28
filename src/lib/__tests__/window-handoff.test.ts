@@ -115,7 +115,7 @@ describe("movePaneToNewWindow", () => {
     expect(detachTab).toHaveBeenCalledTimes(1);
     const [payload, spawnBounds] = detachTab.mock.calls[0];
     expect(hasPaneId(payload.tab.rootNode, "pane-2")).toBe(true);
-    expect(payload.sourceWorkspacePath).toBe(WS_PATH);
+    expect(payload.sourceWorkspaceKey).toBe(WS_PATH);
     // Offset from this window's bounds so the popout doesn't land exactly on it.
     expect(spawnBounds).toMatchObject({ x: 140, y: 240 });
 

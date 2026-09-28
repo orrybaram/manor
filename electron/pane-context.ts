@@ -28,7 +28,7 @@ export function findWorkspaceForPane(
       for (const tab of tabs) {
         const paneSessions = tab?.paneSessions ?? {};
         if (paneId in paneSessions) {
-          return workspace.workspacePath as WorkspaceKey;
+          return workspace.workspacePath;
         }
       }
     }

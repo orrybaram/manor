@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import type { WorkspaceKey } from "../src/lib/workspace-key";
 import { findWorkspaceForPane, matchProjectByPath } from "./pane-context";
 import type {
   PersistedLayout,
@@ -43,7 +44,7 @@ function workspace(
 ): PersistedWorkspace {
   const firstPanelId = Object.keys(panels)[0] ?? "panel-1";
   return {
-    workspacePath,
+    workspacePath: workspacePath as WorkspaceKey,
     panelTree: { type: "leaf", panelId: firstPanelId },
     panels,
     activePanelId: firstPanelId,

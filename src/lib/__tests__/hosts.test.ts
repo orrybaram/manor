@@ -3,6 +3,7 @@ import {
   hostIdForWorkspace,
   isLocalhostHttpUrl,
   projectForWorkspace,
+  projectForWorkspaceKey,
   workspaceHostId,
 } from "../hosts";
 import { HOME_PATH } from "../home-path";
@@ -34,6 +35,25 @@ describe("projectForWorkspace", () => {
   it("is undefined for unknown paths and without a path", () => {
     expect(projectForWorkspace(sharedProjects, "/nowhere")).toBeUndefined();
     expect(projectForWorkspace(sharedProjects, null)).toBeUndefined();
+  });
+});
+
+describe("projectForWorkspaceKey", () => {
+  it("finds the project on the key's host, whichever is selected", () => {
+    expect(projectForWorkspaceKey(sharedProjects, SHARED)).toBe(localApp);
+    expect(projectForWorkspaceKey(sharedProjects, `box:${SHARED}`)).toBe(boxApp);
+    expect(projectForWorkspaceKey(sharedProjects, `box:${MAIN}`)).toBe(boxApp);
+  });
+
+  it("reads a project with no host as local", () => {
+    const hostless = { ...localApp, hostId: undefined as unknown as string };
+    expect(projectForWorkspaceKey([hostless], SHARED)).toBe(hostless);
+  });
+
+  it("is undefined for Home, no key, or a host no project is on", () => {
+    expect(projectForWorkspaceKey(sharedProjects, HOME_PATH)).toBeUndefined();
+    expect(projectForWorkspaceKey(sharedProjects, null)).toBeUndefined();
+    expect(projectForWorkspaceKey(sharedProjects, `other:${SHARED}`)).toBeUndefined();
   });
 });
 

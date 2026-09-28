@@ -1,6 +1,8 @@
-import { LOCAL_HOST_ID } from "./host-id";
+import { isHomePath } from "./home-path";
+import { LOCAL_HOST_ID, type HostId } from "./host-id";
 
 export { LOCAL_HOST_ID };
+export type { HostId };
 
 /** Mirrors `HealthCheckResult` in `electron/backend/health-check.ts`. */
 export interface HealthCheckResult {
@@ -37,35 +39,84 @@ export function remoteHostOptions(
 }
 
 /** What a project needs to say which host a workspace path is on. */
-interface HostedProject {
+export interface HostedProject {
   id?: string;
   path: string;
-  hostId: string;
+  hostId: HostId;
   workspaces: readonly { path: string }[];
 }
 
+/** The project list and which project is selected, as the project store has them. */
+export interface ProjectSelection<P extends HostedProject = HostedProject> {
+  projects: readonly P[];
+  selectedProjectIndex: number;
+}
+
+/** Whether `project` has `workspacePath`: its main checkout or one of its workspaces. */
+function hasWorkspace(project: HostedProject, workspacePath: string): boolean {
+  return (
+    project.path === workspacePath ||
+    project.workspaces.some((w) => w.path === workspacePath)
+  );
+}
+
 /**
- * The host `workspacePath` lives on — the `hostId` of the project that has
- * it as its root or one of its workspaces — or null when no project has it.
+ * The project that has `workspacePath` as its main checkout or one of its
+ * workspaces, or undefined when none does.
  *
  * A local and a remote project can have the very same path (same username,
  * same default roots). Then `preferredProjectId`'s project wins when it has
  * the path — the caller's own project, typically the selected one — and
  * otherwise the first project that has it.
  */
+export function projectForWorkspace<P extends HostedProject>(
+  projects: readonly P[],
+  workspacePath: string | null | undefined,
+  preferredProjectId?: string,
+): P | undefined {
+  if (!workspacePath) return undefined;
+  const preferred = preferredProjectId
+    ? projects.find((p) => p.id === preferredProjectId && hasWorkspace(p, workspacePath))
+    : undefined;
+  return preferred ?? projects.find((p) => hasWorkspace(p, workspacePath));
+}
+
+/**
+ * The host `workspacePath` lives on — the `hostId` of its project (see
+ * `projectForWorkspace`) — or undefined when no project has it.
+ */
 export function hostIdForWorkspace(
   projects: readonly HostedProject[],
   workspacePath: string | null | undefined,
-  preferredProjectId?: string | null,
-): string | null {
-  if (!workspacePath) return null;
-  const has = (project: HostedProject) =>
-    project.path === workspacePath ||
-    project.workspaces.some((w) => w.path === workspacePath);
-  const preferred = preferredProjectId
-    ? projects.find((p) => p.id === preferredProjectId && has(p))
-    : undefined;
-  return (preferred ?? projects.find(has))?.hostId ?? null;
+  preferredProjectId?: string,
+): HostId | undefined {
+  return projectForWorkspace(projects, workspacePath, preferredProjectId)?.hostId;
+}
+
+/** The id of the selected project, if any. */
+export function selectedProjectId(selection: ProjectSelection): string | undefined {
+  return selection.projects[selection.selectedProjectIndex]?.id;
+}
+
+/**
+ * The host a new terminal in workspace `workspacePath` runs on: the host of
+ * the project that has it, the selected project first when two share the
+ * path — it is the one whose workspace the user opened. Home is on this
+ * machine. Undefined when no project has the path, so main falls back to
+ * the host the path belongs to.
+ *
+ * Known limitation: a pane of a workspace in a project that is NOT selected,
+ * sharing its path with the selected project, is sent to the selected
+ * project's host. Just after a restart, before the pane's own host reclaims
+ * its sessions, a remote pane can so be created locally. Keying layouts by
+ * host plus path (#240) closes this.
+ */
+export function workspaceHostId(
+  selection: ProjectSelection,
+  workspacePath: string | null | undefined,
+): HostId | undefined {
+  if (isHomePath(workspacePath)) return LOCAL_HOST_ID;
+  return hostIdForWorkspace(selection.projects, workspacePath, selectedProjectId(selection));
 }
 
 /**
@@ -75,10 +126,10 @@ export function hostIdForWorkspace(
 export function remoteHostIdForWorkspace(
   projects: readonly HostedProject[],
   workspacePath: string | undefined,
-  preferredProjectId?: string | null,
-): string | null {
+  preferredProjectId?: string,
+): HostId | null {
   const hostId = hostIdForWorkspace(projects, workspacePath, preferredProjectId);
-  return isRemoteHost(hostId) ? hostId : null;
+  return hostId && isRemoteHost(hostId) ? hostId : null;
 }
 
 /**

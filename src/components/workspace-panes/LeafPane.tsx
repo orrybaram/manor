@@ -36,7 +36,7 @@ import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { Row } from "../ui/Layout/Layout";
 import { registerBrowserPane, unregisterBrowserPane } from "../../lib/browser-pane-registry";
 import { useProjectStore } from "../../store/project-store";
-import { remoteHostIdForWorkspace } from "../../lib/hosts";
+import { remoteHostIdForWorkspace, selectedProjectId } from "../../lib/hosts";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { useRemotePaneStore } from "../../store/remote-pane-store";
 
@@ -69,11 +69,7 @@ export function LeafPane(props: LeafPaneProps) {
   // local-only users never re-render on it — for this machine.
   const remoteHostId = useProjectStore((s) =>
     contentType === "browser"
-      ? remoteHostIdForWorkspace(
-          s.projects,
-          workspacePath,
-          s.projects[s.selectedProjectIndex]?.id,
-        )
+      ? remoteHostIdForWorkspace(s.projects, workspacePath, selectedProjectId(s))
       : null,
   );
   const recordingStartedAt = useAppStore((s) => s.paneRecordingStartedAt[paneId]);

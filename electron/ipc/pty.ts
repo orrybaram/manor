@@ -4,10 +4,14 @@ import path from "node:path";
 import { assertString, assertPositiveInt } from "../ipc-validate";
 import { resolveSpawnCwd } from "../paths";
 import { HostUnavailableError } from "../backend/host-view";
-import { LOCAL_HOST_ID } from "../backend/types";
+import { LOCAL_HOST_ID, type HostId } from "../backend/types";
 import { errorMessage } from "../lib/errors";
 import type { IpcDeps } from "./types";
-import type { PtyCreateResult } from "../../src/electron.d";
+import type {
+  PtyCreateOptions,
+  PtyCreateResult,
+  PtyResetOptions,
+} from "../../src/electron.d";
 
 /**
  * Read git branch synchronously from a repo or worktree root, for this
@@ -59,10 +63,12 @@ function validatePtyArgs(paneId: string, cwd: string | null, cols: number, rows:
  * of the workspace its pane belongs to — or undefined when it didn't, so
  * `RoutedBackend` falls back to the host the cwd belongs to.
  */
-function requestedHost(hostId: string | null | undefined): string | undefined {
-  if (hostId == null) return undefined;
-  assertString(hostId, "hostId");
-  return hostId;
+function requestedHost(opts: PtyResetOptions | undefined): HostId | undefined {
+  if (opts === undefined || opts === null) return undefined;
+  if (typeof opts !== "object") throw new Error("opts must be an object");
+  if (opts.hostId === undefined) return undefined;
+  assertString(opts.hostId, "hostId");
+  return opts.hostId;
 }
 
 export function register(deps: IpcDeps): void {
@@ -76,23 +82,21 @@ export function register(deps: IpcDeps): void {
       cwd: string | null,
       cols: number,
       rows: number,
-      agentKind?: string | null,
-      hostId?: string | null,
+      opts?: PtyCreateOptions,
     ): Promise<PtyCreateResult> => {
       const resolvedCwd = validatePtyArgs(paneId, cwd, cols, rows);
-      const requestedHostId = requestedHost(hostId);
+      const hostId = requestedHost(opts);
+      const agentKind = opts?.agentKind;
       const env: Record<string, string> | undefined = agentKind
         ? { MANOR_AGENT_KIND: agentKind }
         : undefined;
       try {
-        const result = await backend.pty.createOrAttach(
+        const result = await backend.pty.createOrAttachWith(
           paneId,
           resolvedCwd,
           cols,
           rows,
-          undefined,
-          env,
-          requestedHostId,
+          { env, hostId },
         );
         // Return snapshot to the renderer so it can write it exactly once,
         // avoiding duplicate writes from StrictMode double-mounting.
@@ -164,10 +168,10 @@ export function register(deps: IpcDeps): void {
       cwd: string | null,
       cols: number,
       rows: number,
-      hostId?: string | null,
+      opts?: PtyResetOptions,
     ) => {
       const resolvedCwd = validatePtyArgs(paneId, cwd, cols, rows);
-      const requestedHostId = requestedHost(hostId);
+      const hostId = requestedHost(opts);
       try {
         try {
           await backend.pty.kill(paneId);
@@ -189,8 +193,8 @@ export function register(deps: IpcDeps): void {
 
           try { await backend.pty.disposeDead(); } catch { /* ignore */ }
 
-          const result = await backend.pty.createOrAttach(
-            paneId, resolvedCwd, cols, rows, undefined, undefined, requestedHostId,
+          const result = await backend.pty.createOrAttachWith(
+            paneId, resolvedCwd, cols, rows, { hostId },
           );
           if (!result.snapshot) {
             return {

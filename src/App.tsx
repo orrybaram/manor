@@ -33,7 +33,7 @@ import {
   runWorkspaceSetupScript,
   type ProjectInfo,
 } from "./store/project-store";
-import { LOCAL_HOST_ID } from "./lib/hosts";
+import { LOCAL_HOST_ID, projectForWorkspace, selectedProjectId } from "./lib/hosts";
 import { appCommandHandlers } from "./lib/app-commands";
 import { handleRecordingCommand } from "./lib/webview-recorder";
 import {
@@ -345,13 +345,11 @@ function App() {
   // Derive the agent command outside the effect so it only re-fires when the
   // command actually changes, not on every unrelated project mutation.
   // The selected project first: a local and a remote project can share a path.
-  const hasActiveWorkspace = (p: (typeof projects)[number]) =>
-    p.workspaces.some((w) => w.path === activeWorkspacePath);
-  const selectedProject = projects[selectedProjectIndex];
-  const activeProject =
-    selectedProject && hasActiveWorkspace(selectedProject)
-      ? selectedProject
-      : projects.find(hasActiveWorkspace);
+  const activeProject = projectForWorkspace(
+    projects,
+    activeWorkspacePath,
+    selectedProjectId({ projects, selectedProjectIndex }),
+  );
   // The launch command for the active surface. Home has no owning project and
   // boots the configured home harness in ~/.manor/home (the pty boundary maps
   // its sentinel path to the real dir); a project workspace uses its
@@ -449,11 +447,13 @@ function App() {
   // because it needs this component's `runWorkspaceSetupScript`.
   useEffect(() => {
     const cleanup = window.electronAPI.onAppCommand(
-      async ({ cmd, requestId, workspacePath, script, args }) => {
+      async ({ cmd, requestId, workspacePath, hostId, script, args }) => {
         if (cmd === "run-setup-script" && workspacePath && script) {
           await loadProjects(); // ensure a freshly-created workspace is visible
           setActiveWorkspace(workspacePath);
-          runWorkspaceSetupScript(workspacePath, script);
+          // Main names the workspace's project host: the path alone may be
+          // on two hosts.
+          runWorkspaceSetupScript(workspacePath, script, hostId);
           return;
         }
 

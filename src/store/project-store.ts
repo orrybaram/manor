@@ -3,8 +3,7 @@ import { useAppStore } from "./app-store";
 import { useToastStore } from "./toast-store";
 import { branchesEqual } from "../utils/branch-name";
 import { ipcErrorMessage } from "../lib/ipc-error";
-import { hostIdForWorkspace, LOCAL_HOST_ID } from "../lib/hosts";
-import { isHomePath } from "../lib/home-path";
+import { workspaceHostId, type HostId } from "../lib/hosts";
 import {
   buildSidebarItems,
   folderParentsOf,
@@ -176,7 +175,7 @@ function saveCollapsedFolderKeys(keys: Set<string>): void {
  * rendered by WorkspaceSetupView attaches (via `attach` prop) to the same
  * session for live display but never creates or closes the PTY.
  */
-function startSetupScript(wsPath: string, script: string, hostId?: string): void {
+function startSetupScript(wsPath: string, script: string, hostId?: HostId): void {
   const sessionId = `setup-${wsPath.replace(/\//g, "-")}`;
   // Reasonable defaults; the view re-fits xterm when/if it mounts.
   const DEFAULT_COLS = 80;
@@ -245,8 +244,7 @@ function startSetupScript(wsPath: string, script: string, hostId?: string): void
     wsPath,
     DEFAULT_COLS,
     DEFAULT_ROWS,
-    null,
-    hostId ?? workspaceHostId(wsPath),
+    { hostId: hostId ?? workspaceHostId(useProjectStore.getState(), wsPath) },
   );
 }
 
@@ -258,7 +256,7 @@ function startSetupScript(wsPath: string, script: string, hostId?: string): void
 export function runWorkspaceSetupScript(
   wsPath: string,
   script: string,
-  hostId?: string,
+  hostId?: HostId,
 ): void {
   const app = useAppStore.getState();
   app.initWorktreeSetup(wsPath, true, script);
@@ -600,24 +598,6 @@ function keepWatchedState(
       };
     }),
   }));
-}
-
-/**
- * The host a new terminal in workspace `workspacePath` runs on: the host of
- * the project that has the workspace. When a local and a remote project have
- * the same path, the selected project's wins — it is the one whose workspace
- * the user opened. Home is on this machine. Undefined when no project has the
- * path, so main falls back to the host the path belongs to.
- */
-export function workspaceHostId(
-  workspacePath: string | null | undefined,
-): string | undefined {
-  if (isHomePath(workspacePath)) return LOCAL_HOST_ID;
-  const { projects, selectedProjectIndex } = useProjectStore.getState();
-  return (
-    hostIdForWorkspace(projects, workspacePath, projects[selectedProjectIndex]?.id) ??
-    undefined
-  );
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => ({

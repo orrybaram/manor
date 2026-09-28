@@ -30,6 +30,7 @@
 import type { BackendRegistry } from "./registry";
 import {
   LOCAL_HOST_ID,
+  type HostId,
   type GitBackend,
   type MachineFacts,
   type PortsBackend,
@@ -45,20 +46,38 @@ export type HostForPath = (path: string) => string;
 /** The hosts whose latest port scan reported a pid (`PortScanner`). */
 export type PidHosts = (pid: number) => string[];
 
-/**
- * A `PtyBackend` whose `createOrAttach` also says which host it used, and
- * takes the host a new session should run on when the caller knows it.
- */
-export interface RoutedPtyBackend extends PtyBackend {
+/** How `RoutedPtyBackend.createOrAttachWith` creates a new session. */
+export interface RoutedCreateOptions {
+  shellArgs?: string[];
+  /** Applied only when a fresh session is spawned (see `PtyBackend`). */
+  env?: Record<string, string>;
   /**
-   * `hostId` is where a NEW session is created. An existing session stays
-   * on the host that owns it, whatever `hostId` says: a pane moved to
-   * another host (ADR-183) keeps running, and reporting, where it really
-   * is. Without `hostId`, a new session goes to the host its cwd belongs to.
+   * The host a NEW session is created on — the host of the workspace its
+   * pane belongs to. An existing session stays on the host that owns it,
+   * whatever this says: a pane moved to another host (ADR-183) keeps
+   * running, and reporting, where it really is. Without it, a new session
+   * goes to the host its cwd belongs to (local wins a path both hosts have).
    */
+  hostId?: HostId;
+}
+
+type CreateOrAttachResult = Awaited<ReturnType<PtyBackend["createOrAttach"]>> & {
+  hostId: HostId;
+};
+
+/** A `PtyBackend` whose `createOrAttach` also says which host it used. */
+export interface RoutedPtyBackend extends PtyBackend {
   createOrAttach(
-    ...args: [...Parameters<PtyBackend["createOrAttach"]>, hostId?: string]
-  ): Promise<Awaited<ReturnType<PtyBackend["createOrAttach"]>> & { hostId: string }>;
+    ...args: Parameters<PtyBackend["createOrAttach"]>
+  ): Promise<CreateOrAttachResult>;
+  /** `createOrAttach`, told which host a new session runs on. */
+  createOrAttachWith(
+    sessionId: string,
+    cwd: string,
+    cols: number,
+    rows: number,
+    opts?: RoutedCreateOptions,
+  ): Promise<CreateOrAttachResult>;
 }
 
 export class RoutedBackend implements WorkspaceBackend {
@@ -84,18 +103,19 @@ export class RoutedBackend implements WorkspaceBackend {
     const byPath = (cwd: string) => registry.get(hostForPath(cwd));
 
     this.pty = {
-      createOrAttach: async (sessionId, cwd, cols, rows, shellArgs, env, requestedHostId) => {
+      createOrAttachWith: async (sessionId, cwd, cols, rows, opts = {}) => {
         // The owner first: an existing session is attached where it runs.
         // Then the host the caller asked for, since a path alone can't tell
         // two hosts with the same directory apart (local wins that tie).
-        const hostId =
-          sessions.ownerOf(sessionId) ?? requestedHostId ?? hostForPath(cwd);
+        const hostId = sessions.ownerOf(sessionId) ?? opts.hostId ?? hostForPath(cwd);
         const result = await registry
           .get(hostId)
-          .pty.createOrAttach(sessionId, cwd, cols, rows, shellArgs, env);
+          .pty.createOrAttach(sessionId, cwd, cols, rows, opts.shellArgs, opts.env);
         sessions.claim(sessionId, hostId);
         return { ...result, hostId };
       },
+      createOrAttach: (sessionId, cwd, cols, rows, shellArgs, env) =>
+        this.pty.createOrAttachWith(sessionId, cwd, cols, rows, { shellArgs, env }),
       write: (sessionId, data) => bySession(sessionId).write(sessionId, data),
       resize: (sessionId, cols, rows) =>
         bySession(sessionId).resize(sessionId, cols, rows),

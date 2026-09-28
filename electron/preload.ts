@@ -7,6 +7,7 @@ import type {
   MenuContext,
 } from "../src/lib/menu-commands";
 import type { HostStatusInfo } from "../src/store/host-store";
+import type { PtyCreateOptions, PtyResetOptions } from "../src/electron.d";
 
 interface WindowBounds {
   x: number;
@@ -70,9 +71,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       cwd: string | null,
       cols: number,
       rows: number,
-      agentKind?: string | null,
-      hostId?: string | null,
-    ) => ipcRenderer.invoke("pty:create", paneId, cwd, cols, rows, agentKind, hostId),
+      opts?: PtyCreateOptions,
+    ) => ipcRenderer.invoke("pty:create", paneId, cwd, cols, rows, opts),
     write: (paneId: string, data: string) =>
       ipcRenderer.invoke("pty:write", paneId, data),
     resize: (paneId: string, cols: number, rows: number) =>
@@ -83,8 +83,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       cwd: string | null,
       cols: number,
       rows: number,
-      hostId?: string | null,
-    ) => ipcRenderer.invoke("pty:reset", paneId, cwd, cols, rows, hostId),
+      opts?: PtyResetOptions,
+    ) => ipcRenderer.invoke("pty:reset", paneId, cwd, cols, rows, opts),
     detach: (paneId: string) => ipcRenderer.invoke("pty:detach", paneId),
     consumePrewarmed: (cwd: string | null, hostId: string) =>
       ipcRenderer.invoke("pty:consumePrewarmed", cwd, hostId),

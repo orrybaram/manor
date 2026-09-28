@@ -8,8 +8,13 @@ import {
   remoteHostByPane,
   useRemotePaneStore,
 } from "../store/remote-pane-store";
-import { workspaceHostId } from "../store/project-store";
-import { isRemoteHost } from "../lib/hosts";
+import { useProjectStore } from "../store/project-store";
+import {
+  isRemoteHost,
+  workspaceHostId,
+  type HostId,
+  type ProjectSelection,
+} from "../lib/hosts";
 import { useHostStore } from "../store/host-store";
 import { isPaneInputBlocked } from "../lib/host-status";
 import { useAppStore, type PendingPaneCommand } from "../store/app-store";
@@ -17,19 +22,19 @@ import { shouldRequeuePaneCommand, windowPaneIds } from "../lib/remote-recovery"
 import type { PtyCreateResult } from "../electron.d";
 
 /**
- * The host a pane's new session runs on. A pane known to run on a remote
- * host keeps it — it may have been moved there, or its project moved away
- * from it (ADR-183) — else it is the host of the workspace it belongs to.
- * Main attaches an existing session wherever it already runs regardless.
+ * The host a pane's new session runs on, for create and reset alike. A pane
+ * known to run on a remote host keeps it — it may have been moved there, or
+ * its project moved away from it (ADR-183) — else it is the host of the
+ * workspace it belongs to (`workspaceHostId`). Main attaches an existing
+ * session wherever it already runs regardless.
  */
 export function paneCreateHostId(
   paneId: string,
   workspacePath: string | null | undefined,
-): string | undefined {
-  return (
-    paneRemoteHost(useRemotePaneStore.getState(), paneId) ??
-    workspaceHostId(workspacePath)
-  );
+  remotePanes: Parameters<typeof paneRemoteHost>[0] = useRemotePaneStore.getState(),
+  selection: ProjectSelection = useProjectStore.getState(),
+): HostId | undefined {
+  return paneRemoteHost(remotePanes, paneId) ?? workspaceHostId(selection, workspacePath);
 }
 
 /**
@@ -94,11 +99,11 @@ export function useTerminalConnection(paneId: string, workspacePath?: string | n
       // to run there until create says otherwise, so a slow connect (the app
       // launched while the host is down) shows the host's banner meanwhile.
       const panes = useRemotePaneStore.getState();
-      if (isRemoteHost(hostId) && !paneRemoteHost(panes, paneId)) {
+      if (hostId && isRemoteHost(hostId) && !paneRemoteHost(panes, paneId)) {
         panes.setPaneHost(paneId, hostId);
       }
       return window.electronAPI.pty
-        .create(paneId, cwd, cols, rows, agentKind, hostId)
+        .create(paneId, cwd, cols, rows, { agentKind, hostId })
         .then((result: PtyCreateResult) => {
           // Badge the tab from where the session really runs (ADR-160).
           if (result.ok) useRemotePaneStore.getState().setPaneHost(paneId, result.hostId);

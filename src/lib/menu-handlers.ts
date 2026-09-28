@@ -21,6 +21,7 @@ import {
   type WorkspaceInfo,
 } from "../store/project-store";
 import { useToastStore } from "../store/toast-store";
+import { projectForWorkspace, selectedProjectId } from "./hosts";
 import { hideWorkspaceAndNavigate } from "../store/workspace-actions";
 import {
   createSharedKeybindingHandlers,
@@ -78,10 +79,9 @@ interface ActiveWorkspace {
 function activeWorkspace(): ActiveWorkspace {
   const path = useAppStore.getState().activeWorkspacePath;
   // The selected project first: a local and a remote project can share a path.
-  const { projects, selectedProjectIndex } = useProjectStore.getState();
-  const has = (p: (typeof projects)[number]) => p.workspaces.some((w) => w.path === path);
-  const selected = projects[selectedProjectIndex];
-  const project = (selected && has(selected) ? selected : projects.find(has)) ?? null;
+  const selection = useProjectStore.getState();
+  const project =
+    projectForWorkspace(selection.projects, path, selectedProjectId(selection)) ?? null;
   const workspace = project?.workspaces.find((w) => w.path === path) ?? null;
   return { project, workspace, path };
 }

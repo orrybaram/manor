@@ -7,10 +7,13 @@
  * in `electron/projects/workspace-key.test.ts` pins the two together.
  */
 
+/** Mirrors `HostId` in `electron/backend/types.ts`: a host's id. */
+export type HostId = string;
+
 /** The host every project without a `hostId` lives on: this machine. */
 export const LOCAL_HOST_ID = "local";
 
 /** `hostId`, with a missing or empty one read as `LOCAL_HOST_ID`. */
-export function normalizeHostId(hostId: string | null | undefined): string {
+export function normalizeHostId(hostId: HostId | null | undefined): HostId {
   return hostId || LOCAL_HOST_ID;
 }

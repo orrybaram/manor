@@ -16,13 +16,13 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { terminalOptions } from "../terminal/config";
 import { createFileLinkProvider } from "../terminal/file-link-provider";
 import { useAppStore, type PendingPaneCommand } from "../store/app-store";
-import { useProjectStore, workspaceHostId } from "../store/project-store";
+import { useProjectStore } from "../store/project-store";
 import { usePreferencesStore } from "../store/preferences-store";
 import { getAgentKindForCommand } from "../agent-defaults";
 import { isHomePath } from "../lib/home";
 import { isNavRegionFocused } from "../lib/focus-regions";
 import { resolveHomeAdapter } from "../lib/harness";
-import { useTerminalConnection } from "./useTerminalConnection";
+import { paneCreateHostId, useTerminalConnection } from "./useTerminalConnection";
 import { useRemotePaneStore } from "../store/remote-pane-store";
 import { isRemotePane, pasteClipboardImage } from "../lib/remote-image-paste";
 import { useTerminalStream } from "./useTerminalStream";
@@ -511,18 +511,19 @@ export function useTerminalLifecycle(
     resettingRef.current = true;
     try {
       t.reset();
-      // A reset is a fresh session, so it goes to the workspace's host.
+      // A fresh session on the host the pane runs on, as create picks it: a
+      // pane moved to another host (ADR-183) stays there.
       const result = await window.electronAPI.pty.reset(
         paneId,
         cwd ?? null,
         t.cols,
         t.rows,
-        workspaceHostId(workspacePath ?? cwd),
+        { hostId: paneCreateHostId(paneId, workspacePath ?? cwd) },
       );
       if (!result.ok) {
         setPtyError(result.error ?? "Failed to create terminal session");
       } else {
-        // A reset spawns on the project's current host, which may differ.
+        // Record where the fresh session really runs.
         useRemotePaneStore.getState().setPaneHost(paneId, result.hostId);
       }
     } finally {

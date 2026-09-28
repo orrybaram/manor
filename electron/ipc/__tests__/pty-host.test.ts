@@ -22,7 +22,7 @@ import type { PersistedProject } from "../../projects/types";
 function setup(hostId: string) {
   const backend = {
     pty: {
-      createOrAttach: vi.fn().mockResolvedValue({ snapshot: null, hostId }),
+      createOrAttachWith: vi.fn().mockResolvedValue({ snapshot: null, hostId }),
     },
   };
   register({ backend } as never);
@@ -51,7 +51,7 @@ describe("pty:create on a remote host that is not connected (ADR-178 §6)", () =
   function failing(err: Error) {
     const backend = {
       pty: {
-        createOrAttach: vi.fn().mockRejectedValue(err),
+        createOrAttachWith: vi.fn().mockRejectedValue(err),
       },
     };
     register({ backend } as never);
@@ -124,14 +124,14 @@ describe("pty:create on the host it was asked for (ADR-191)", () => {
 
   it("creates a pane of the remote workspace on the remote host", async () => {
     const { create, created } = routed();
-    const result = await create(null, "pane-r", SHARED, 80, 24, null, "box");
+    const result = await create(null, "pane-r", SHARED, 80, 24, { hostId: "box" });
     expect(result).toMatchObject({ ok: true, hostId: "box" });
     expect(created).toEqual({ local: [], box: ["pane-r"] });
   });
 
   it("creates a pane of the local workspace locally", async () => {
     const { create, created } = routed();
-    const result = await create(null, "pane-l", SHARED, 80, 24, null, "local");
+    const result = await create(null, "pane-l", SHARED, 80, 24, { hostId: "local" });
     expect(result).toMatchObject({ ok: true, hostId: "local" });
     expect(created).toEqual({ local: ["pane-l"], box: [] });
   });
@@ -148,7 +148,7 @@ describe("pty:create on the host it was asked for (ADR-191)", () => {
     // A pane whose project moved host keeps running where it started.
     const { create, created, sessions } = routed();
     sessions.claim("pane-moved", "box");
-    const result = await create(null, "pane-moved", SHARED, 80, 24, null, "local");
+    const result = await create(null, "pane-moved", SHARED, 80, 24, { hostId: "local" });
     expect(result).toMatchObject({ ok: true, hostId: "box" });
     expect(created).toEqual({ local: [], box: ["pane-moved"] });
   });
@@ -156,13 +156,13 @@ describe("pty:create on the host it was asked for (ADR-191)", () => {
   it("resets a pane onto the host it was asked for", async () => {
     const { created } = routed();
     const reset = handlers.get("pty:reset")!;
-    const result = await reset(null, "pane-r", SHARED, 80, 24, "box");
+    const result = await reset(null, "pane-r", SHARED, 80, 24, { hostId: "box" });
     expect(result).toMatchObject({ ok: true, hostId: "box" });
     expect(created.box).toEqual(["pane-r"]);
   });
 
   it("rejects a host id that is not a string", async () => {
     const { create } = routed();
-    await expect(create(null, "pane-a", SHARED, 80, 24, null, 42)).rejects.toThrow();
+    await expect(create(null, "pane-a", SHARED, 80, 24, { hostId: 42 })).rejects.toThrow();
   });
 });

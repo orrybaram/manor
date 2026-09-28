@@ -1,5 +1,5 @@
 import { useAppStore } from "../store/app-store";
-import { useProjectStore, workspaceHostId } from "../store/project-store";
+import { useProjectStore } from "../store/project-store";
 import { usePreferencesStore } from "../store/preferences-store";
 import { useKeybindingsStore } from "../store/keybindings-store";
 import { useToastStore } from "../store/toast-store";
@@ -7,7 +7,7 @@ import { getBrowserPaneRef } from "./browser-pane-registry";
 import type { BrowserPaneRef } from "../components/workspace-panes/BrowserPane/BrowserPane";
 import { DEFAULT_AGENT_COMMAND } from "../agent-defaults";
 import { isHomePath, homeLaunchCommand } from "./home";
-import { LOCAL_HOST_ID } from "./hosts";
+import { LOCAL_HOST_ID, workspaceHostId } from "./hosts";
 import {
   PAGE_BROWSER_COMMANDS,
   comboFromEvent,
@@ -99,7 +99,8 @@ export async function startNewAgent(
 ): Promise<void> {
   const activeWorkspacePath = useAppStore.getState().activeWorkspacePath;
   const command = resolveWorkspaceCommand(activeWorkspacePath);
-  const hostId = workspaceHostId(activeWorkspacePath) ?? LOCAL_HOST_ID;
+  const hostId =
+    workspaceHostId(useProjectStore.getState(), activeWorkspacePath) ?? LOCAL_HOST_ID;
   const prewarmed = prewarm
     ? await window.electronAPI.pty.consumePrewarmed(activeWorkspacePath, hostId)
     : null;

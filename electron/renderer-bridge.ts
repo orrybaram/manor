@@ -11,6 +11,7 @@
 import crypto from "node:crypto";
 import { BrowserWindow, ipcMain } from "electron";
 import type { Json } from "./routes/types";
+import type { HostId } from "./backend/types";
 
 /**
  * Payload of the main→renderer "app-command" channel.
@@ -25,6 +26,8 @@ export interface AppCommand {
   /** Present iff main expects a reply on "app-command-result". */
   requestId?: string;
   workspacePath?: string;
+  /** The host of `workspacePath`'s project: the path may be on two hosts. */
+  hostId?: HostId;
   prompt?: string;
   script?: string;
   /** Free-form args for correlated pane/tab commands. */
@@ -192,12 +195,17 @@ export async function startAgent(
  * hands it off over the "app-command" channel. Best-effort: with no window
  * open there is nowhere to run it.
  */
-export function runSetupScript(workspacePath: string, script: string): void {
+export function runSetupScript(
+  workspacePath: string,
+  script: string,
+  hostId: HostId,
+): void {
   const win = BrowserWindow.getAllWindows()[0];
   if (!win) return;
   const command: AppCommand = {
     cmd: "run-setup-script",
     workspacePath,
+    hostId,
     script,
   };
   win.webContents.send("app-command", command);

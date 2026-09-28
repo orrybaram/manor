@@ -593,23 +593,44 @@ export function placeManyAfterFolders(
 
   let result = items;
   for (const [folderId, keysInFolder] of byFolder) {
-    const removed: SidebarItem[] = [];
-    for (const key of keysInFolder) {
-      const { items: next, item } = removeItem(result, key);
-      if (item) {
-        result = next;
-        removed.push(item);
-      }
-    }
-    if (removed.length === 0) continue;
-    const at = locate(result, folderId);
-    const parentId = at ? at.parentId : null;
-    const startIndex = at ? at.index + 1 : result.length;
-    removed.forEach((item, i) => {
-      result = insertItem(result, parentId, startIndex + i, item);
-    });
+    const { items: base, block } = removeBlock(result, keysInFolder);
+    if (block.length === 0) continue;
+    const at = locate(base, folderId);
+    result = at
+      ? insertBlock(base, at.parentId, at.index + 1, block)
+      : insertBlock(base, null, base.length, block);
   }
   return result;
+}
+
+/** Pulls every present key out of the tree, returning them as a block in `keys` order. */
+function removeBlock(
+  items: SidebarItem[],
+  keys: string[],
+): { items: SidebarItem[]; block: SidebarItem[] } {
+  let base = items;
+  const block: SidebarItem[] = [];
+  for (const key of keys) {
+    const { items: next, item } = removeItem(base, key);
+    if (item) {
+      base = next;
+      block.push(item);
+    }
+  }
+  return { items: base, block };
+}
+
+/** Inserts `block` contiguously at `index` under `parentId` (null = top level). */
+function insertBlock(
+  items: SidebarItem[],
+  parentId: string | null,
+  index: number,
+  block: SidebarItem[],
+): SidebarItem[] {
+  return block.reduce(
+    (tree, item, i) => insertItem(tree, parentId, index + i, item),
+    items,
+  );
 }
 
 /** Every key in `keys` present in the tree, in depth-first tree order. */
@@ -672,30 +693,10 @@ export function applyGroupDrop(
   const pred = predIndex >= 0 ? rest[predIndex] : undefined;
 
   // Pull the whole group out as one block, in its original tree order.
-  let base = items;
-  const block: SidebarItem[] = [];
-  for (const key of orderedKeys) {
-    const { items: next, item } = removeItem(base, key);
-    if (item) {
-      base = next;
-      block.push(item);
-    }
-  }
+  const { items: base, block } = removeBlock(items, orderedKeys);
   if (block.length === 0) return items;
 
-  const insertBlock = (
-    tree: SidebarItem[],
-    parentId: string | null,
-    startIndex: number,
-  ): SidebarItem[] => {
-    let result = tree;
-    block.forEach((blockItem, i) => {
-      result = insertItem(result, parentId, startIndex + i, blockItem);
-    });
-    return result;
-  };
-
-  if (!pred) return insertBlock(base, null, 0);
+  if (!pred) return insertBlock(base, null, 0, block);
 
   if (
     pred.kind === "folder" &&
@@ -703,10 +704,10 @@ export function applyGroupDrop(
     findFolder(base, pred.key)
   ) {
     // Landing right under an expanded header means "first children".
-    return insertBlock(base, pred.key, 0);
+    return insertBlock(base, pred.key, 0, block);
   }
 
   const at = locate(base, pred.key);
-  if (!at) return insertBlock(base, null, base.length);
-  return insertBlock(base, at.parentId, at.index + 1);
+  if (!at) return insertBlock(base, null, base.length, block);
+  return insertBlock(base, at.parentId, at.index + 1, block);
 }

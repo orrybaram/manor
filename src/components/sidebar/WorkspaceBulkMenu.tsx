@@ -9,10 +9,8 @@ type WorkspaceBulkMenuProps = {
   folderChoices: { id: string; label: string }[];
   /** True when any selected workspace sits in a folder. */
   hasFolderMember: boolean;
-  /** Selection size excluding main — 0 hides "Hide N Workspaces". */
-  hideCount: number;
-  /** Selection size excluding main — 0 hides "Delete N Workspaces…". */
-  deleteCount: number;
+  /** Selection size excluding main, which can't be hidden or deleted; 0 hides both items. */
+  removableCount: number;
   onMoveToFolder: (folderId: string) => void;
   onNewFolder: () => void;
   onRemoveFromFolder: () => void;
@@ -32,8 +30,7 @@ export function WorkspaceBulkMenu(props: WorkspaceBulkMenuProps) {
     selectedCount,
     folderChoices,
     hasFolderMember,
-    hideCount,
-    deleteCount,
+    removableCount,
     onMoveToFolder,
     onNewFolder,
     onRemoveFromFolder,
@@ -41,6 +38,7 @@ export function WorkspaceBulkMenu(props: WorkspaceBulkMenuProps) {
     onDelete,
     onCloseAutoFocus,
   } = props;
+  const removableNoun = removableCount === 1 ? "Workspace" : "Workspaces";
 
   return (
     <ContextMenu.Content
@@ -93,18 +91,18 @@ export function WorkspaceBulkMenu(props: WorkspaceBulkMenuProps) {
         </ContextMenu.Item>
       )}
       <ContextMenu.Separator className={styles.contextMenuSeparator} />
-      {hideCount > 0 && (
-        <ContextMenu.Item className={styles.contextMenuItem} onSelect={onHide}>
-          Hide {hideCount} {hideCount === 1 ? "Workspace" : "Workspaces"}
-        </ContextMenu.Item>
-      )}
-      {deleteCount > 0 && (
-        <ContextMenu.Item
-          className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
-          onSelect={onDelete}
-        >
-          Delete {deleteCount} {deleteCount === 1 ? "Workspace" : "Workspaces"}…
-        </ContextMenu.Item>
+      {removableCount > 0 && (
+        <>
+          <ContextMenu.Item className={styles.contextMenuItem} onSelect={onHide}>
+            Hide {removableCount} {removableNoun}
+          </ContextMenu.Item>
+          <ContextMenu.Item
+            className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+            onSelect={onDelete}
+          >
+            Delete {removableCount} {removableNoun}…
+          </ContextMenu.Item>
+        </>
       )}
     </ContextMenu.Content>
   );

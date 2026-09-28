@@ -71,7 +71,6 @@ import styles from "./ProjectItem.module.css";
 
 interface WorkspaceItemProps {
   ws: WorkspaceInfo;
-  idx: number;
   /** True for the workspace currently open — matched by path, never by index. */
   isActive: boolean;
   /** True when this row is part of the sidebar multi-select (ADR-190). */
@@ -90,7 +89,8 @@ interface WorkspaceItemProps {
   dragStyle: React.CSSProperties | undefined;
   justDragged: React.RefObject<boolean>;
   itemRefCallback: (el: HTMLDivElement | null) => void;
-  onSelectWorkspace: (index: number) => void;
+  /** A click the drag didn't swallow; plain, Shift or Cmd/Ctrl (ADR-190 §1). */
+  onRowClick: (e: React.MouseEvent) => void;
   onRowKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => void;
   onPointerDown: (e: React.PointerEvent) => void;
   onEditChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -99,12 +99,6 @@ interface WorkspaceItemProps {
   onEditClick: (e: React.MouseEvent) => void;
   onEditPointerDown: (e: React.PointerEvent) => void;
   onOpenDiff?: () => void;
-  /** The project this row belongs to, for the selection store (ADR-190). */
-  projectId: string;
-  /** Depth-first order of every visible workspace, for a shift-click range. */
-  orderedVisiblePaths: string[];
-  /** Shift-click's fallback anchor when there is none in this project yet. */
-  activeWorkspacePath: string | null;
 }
 
 const WorkspaceItem = React.forwardRef<
@@ -116,7 +110,6 @@ const WorkspaceItem = React.forwardRef<
 ) {
   const {
     ws,
-    idx,
     isActive,
     isSelected,
     isDragging,
@@ -130,7 +123,7 @@ const WorkspaceItem = React.forwardRef<
     dragStyle,
     justDragged,
     itemRefCallback,
-    onSelectWorkspace,
+    onRowClick,
     onRowKeyDown,
     onPointerDown,
     onEditChange,
@@ -139,9 +132,6 @@ const WorkspaceItem = React.forwardRef<
     onEditClick,
     onEditPointerDown,
     onOpenDiff,
-    projectId,
-    orderedVisiblePaths,
-    activeWorkspacePath,
     ...rest
   } = props;
 
@@ -174,23 +164,7 @@ const WorkspaceItem = React.forwardRef<
         } ${isSelected ? styles.workspaceSelected : ""} ${isDragging ? styles.workspaceDragging : ""} ${isGroupDragging ? styles.workspaceGroupDragging : ""} ${isDeleting ? styles.workspaceDeleting : ""}${rest.className ? ` ${rest.className}` : ""}`}
       style={{ ...dragStyle, ...rest.style }}
       onClick={(e) => {
-        if (justDragged.current) {
-          rest.onClick?.(e);
-          return;
-        }
-        if (e.shiftKey) {
-          // Selects a range; it never navigates (ADR-190 §1).
-          useSidebarSelectionStore
-            .getState()
-            .selectRange(projectId, orderedVisiblePaths, ws.path, activeWorkspacePath);
-        } else if (e.metaKey || e.ctrlKey) {
-          useSidebarSelectionStore
-            .getState()
-            .toggle(projectId, ws.path, activeWorkspacePath);
-        } else {
-          useSidebarSelectionStore.getState().setAnchor(projectId, ws.path);
-          onSelectWorkspace(idx);
-        }
+        if (!justDragged.current) onRowClick(e);
         rest.onClick?.(e);
       }}
       onKeyDown={(e) => {
@@ -347,7 +321,7 @@ export function ProjectItem(props: ProjectItemProps) {
   // Set when "New Folder…" is picked from a workspace's (or a selection's)
   // menu: the folder is created and those workspaces moved into it in one
   // step. A single row is still an array of one (ADR-190 §2).
-  const [pendingMovePath, setPendingMovePath] = useState<string[] | null>(null);
+  const [pendingMovePaths, setPendingMovePaths] = useState<string[] | null>(null);
   const [confirmBulkDeleteWorkspaces, setConfirmBulkDeleteWorkspaces] =
     useState<WorkspaceInfo[] | null>(null);
   // The folder the next new folder belongs in: a folder's "New Folder Inside…",
@@ -628,7 +602,6 @@ export function ProjectItem(props: ProjectItemProps) {
     const workspaceEl = (
       <WorkspaceItem
         ws={ws}
-        idx={globalIdx}
         isActive={ws.path === activeWorkspacePath}
         isSelected={selectedPaths.has(ws.path)}
         isDragging={dragKey === ws.path}
@@ -644,10 +617,23 @@ export function ProjectItem(props: ProjectItemProps) {
         dragStyle={getTransformStyle(ws.path)}
         justDragged={justDragged}
         itemRefCallback={registerRow(ws.path)}
-        onSelectWorkspace={onSelectWorkspace}
-        projectId={projectId}
-        orderedVisiblePaths={orderedVisiblePaths}
-        activeWorkspacePath={activeWorkspacePath}
+        onRowClick={(e) => {
+          const selection = useSidebarSelectionStore.getState();
+          if (e.shiftKey) {
+            // Modifier clicks select; they never navigate (ADR-190 §1).
+            selection.selectRange(
+              projectId,
+              orderedVisiblePaths,
+              ws.path,
+              activeWorkspacePath,
+            );
+          } else if (e.metaKey || e.ctrlKey) {
+            selection.toggle(projectId, ws.path, activeWorkspacePath);
+          } else {
+            selection.setAnchor(projectId, ws.path);
+            onSelectWorkspace(globalIdx);
+          }
+        }}
         onRowKeyDown={(e) => {
           if (isEditing) return;
           // Escape clears the selection before handing off to the shared
@@ -761,8 +747,7 @@ export function ProjectItem(props: ProjectItemProps) {
               selectedCount={orderedSelection.length}
               folderChoices={folderChoices}
               hasFolderMember={selectionHasFolderMember}
-              hideCount={selectedNonMain.length}
-              deleteCount={selectedNonMain.length}
+              removableCount={selectedNonMain.length}
               onCloseAutoFocus={closeAutoFocus}
               onMoveToFolder={(folderId) => {
                 applySidebarChange(
@@ -772,7 +757,7 @@ export function ProjectItem(props: ProjectItemProps) {
                 useSidebarSelectionStore.getState().clear();
               }}
               onNewFolder={() => {
-                setPendingMovePath(orderedSelection);
+                setPendingMovePaths(orderedSelection);
                 setNewFolderParentId(selectedWorkspaces[0]?.folderId ?? null);
                 setNewFolderOpen(true);
               }}
@@ -900,7 +885,7 @@ export function ProjectItem(props: ProjectItemProps) {
                   <ContextMenu.Item
                     className={styles.contextMenuItem}
                     onSelect={() => {
-                      setPendingMovePath([ws.path]);
+                      setPendingMovePaths([ws.path]);
                       setNewFolderParentId(ws.folderId ?? null);
                       setNewFolderOpen(true);
                     }}
@@ -997,7 +982,7 @@ export function ProjectItem(props: ProjectItemProps) {
           setNewWorkspaceOpen(true);
         }}
         onNewSubfolder={() => {
-          setPendingMovePath(null);
+          setPendingMovePaths(null);
           setNewFolderParentId(folder.id);
           setNewFolderOpen(true);
         }}
@@ -1103,7 +1088,7 @@ export function ProjectItem(props: ProjectItemProps) {
             <ContextMenu.Item
               className={styles.contextMenuItem}
               onSelect={() => {
-                setPendingMovePath(null);
+                setPendingMovePaths(null);
                 setNewFolderParentId(null);
                 setNewFolderOpen(true);
               }}
@@ -1193,23 +1178,23 @@ export function ProjectItem(props: ProjectItemProps) {
         onOpenChange={(open) => {
           setNewFolderOpen(open);
           if (!open) {
-            setPendingMovePath(null);
+            setPendingMovePaths(null);
             setNewFolderParentId(null);
           }
         }}
         onConfirm={async (name) => {
           setNewFolderOpen(false);
-          const movePath = pendingMovePath;
+          const movePaths = pendingMovePaths;
           const parentId = newFolderParentId;
-          setPendingMovePath(null);
+          setPendingMovePaths(null);
           setNewFolderParentId(null);
           await createWorkspaceFolder(
             projectId,
             name,
-            movePath ?? undefined,
+            movePaths ?? undefined,
             parentId,
           );
-          if (movePath && movePath.length > 1) {
+          if (movePaths && movePaths.length > 1) {
             useSidebarSelectionStore.getState().clear();
           }
         }}

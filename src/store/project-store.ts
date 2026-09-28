@@ -8,7 +8,6 @@ import {
   folderParentsOf,
   insertFolderBefore,
   membershipOf,
-  placeInFolder,
   placeManyInFolder,
   serializeOrder,
   type SidebarItem,
@@ -486,11 +485,10 @@ interface ProjectState {
     projectId: string,
     name: string,
     /**
-     * When given, the new folder takes this row's slot and swallows it. An
-     * array (ADR-190 §2) inserts the folder before the first key and places
-     * every key in the array into it, for a bulk "New Folder…".
+     * When given, the new folder takes the first key's slot and swallows
+     * every key — one row from a row's menu, a whole selection (ADR-190 §2).
      */
-    anchorKey?: string | string[],
+    anchorKeys?: string[],
     /** Enclosing folder for the new folder; top level when omitted. */
     parentId?: string | null,
   ) => Promise<WorkspaceFolder | null>;
@@ -1054,7 +1052,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   createWorkspaceFolder: async (
     projectId: string,
     name: string,
-    anchorKey?: string | string[],
+    anchorKeys?: string[],
     parentId?: string | null,
   ) => {
     const folder = await window.electronAPI.projects.createWorkspaceFolder(
@@ -1077,32 +1075,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       ),
     }));
 
-    if (anchorKey) {
+    if (anchorKeys && anchorKeys.length > 0) {
       const project = get().projects.find((p) => p.id === projectId);
       if (project) {
         const items = buildSidebarItems(project);
-        if (Array.isArray(anchorKey)) {
-          // The new folder takes the first key's slot, then swallows every
-          // key in the group (ADR-190 §2).
-          const [firstKey] = anchorKey;
-          await get().applySidebarChange(
-            projectId,
-            placeManyInFolder(
-              insertFolderBefore(items, folder, firstKey),
-              anchorKey,
-              folder.id,
-            ),
-          );
-        } else {
-          await get().applySidebarChange(
-            projectId,
-            placeInFolder(
-              insertFolderBefore(items, folder, anchorKey),
-              anchorKey,
-              folder.id,
-            ),
-          );
-        }
+        await get().applySidebarChange(
+          projectId,
+          placeManyInFolder(
+            insertFolderBefore(items, folder, anchorKeys[0]),
+            anchorKeys,
+            folder.id,
+          ),
+        );
       }
     }
 

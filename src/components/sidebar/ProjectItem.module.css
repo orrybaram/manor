@@ -131,8 +131,6 @@
   font-weight: 500;
 }
 
-/* The sidebar multi-select (ADR-190). Tinted rather than opaque so it still
-   reads as distinct alongside .workspaceActive on the open workspace. */
 /* The rest of a multi-select drag (ADR-190 §3): dimmed like the grabbed row,
    but not lifted — they stay in place while the grabbed row carries the group. */
 .workspaceGroupDragging {
@@ -158,6 +156,8 @@
   pointer-events: none;
 }
 
+/* The sidebar multi-select (ADR-190). Tinted rather than opaque so it still
+   reads as distinct alongside .workspaceActive on the open workspace. */
 .workspaceSelected {
   background: color-mix(in srgb, var(--project-color, var(--accent)) 18%, transparent);
 }

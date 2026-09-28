@@ -73,6 +73,25 @@ export function removeWorktreeWithToast(
 }
 
 /**
+ * Before a bulk hide or delete (ADR-190 §2): if the active workspace is one
+ * of `targetPaths`, switch to main — or the first workspace that stays — so
+ * the window never sits on, or steps onto, a row that is about to go.
+ */
+function navigateAwayFrom(
+  project: ProjectInfo,
+  targetPaths: ReadonlySet<string>,
+): void {
+  const active = useAppStore.getState().activeWorkspacePath;
+  if (!active || !targetPaths.has(active)) return;
+  const remaining = project.workspaces.filter((ws) => !targetPaths.has(ws.path));
+  const next = remaining.find((ws) => ws.isMain) ?? remaining[0];
+  if (!next) return;
+  useProjectStore
+    .getState()
+    .selectWorkspace(project.id, project.workspaces.indexOf(next));
+}
+
+/**
  * Remove several worktrees in one gesture (ADR-190 §2): main is never a
  * target, and — when the active workspace is among the rest — the window
  * navigates away before any teardown starts, so the per-item "select next"
@@ -88,25 +107,7 @@ export async function removeWorktreesWithToast(
   const targets = workspaces.filter((ws) => !ws.isMain);
   if (targets.length === 0) return;
 
-  const appStore = useAppStore.getState();
-  const projectStore = useProjectStore.getState();
-  const targetPaths = new Set(targets.map((ws) => ws.path));
-
-  if (
-    appStore.activeWorkspacePath &&
-    targetPaths.has(appStore.activeWorkspacePath)
-  ) {
-    const remaining = project.workspaces.filter(
-      (ws) => !targetPaths.has(ws.path),
-    );
-    const next = remaining.find((ws) => ws.isMain) ?? remaining[0];
-    if (next) {
-      const nextIdx = project.workspaces.findIndex(
-        (ws) => ws.path === next.path,
-      );
-      if (nextIdx >= 0) projectStore.selectWorkspace(project.id, nextIdx);
-    }
-  }
+  navigateAwayFrom(project, new Set(targets.map((ws) => ws.path)));
 
   for (const ws of targets) {
     await removeWorktreeWithToast(project, ws, deleteBranch);
@@ -217,15 +218,7 @@ export async function hideWorkspacesAndNavigate(
   });
   if (targets.length === 0) return;
 
-  const appStore = useAppStore.getState();
-  const targetPaths = new Set(targets);
-  if (
-    appStore.activeWorkspacePath &&
-    targetPaths.has(appStore.activeWorkspacePath)
-  ) {
-    const mainIndex = project.workspaces.findIndex((w) => w.isMain);
-    if (mainIndex >= 0) projectStore.selectWorkspace(projectId, mainIndex);
-  }
+  navigateAwayFrom(project, new Set(targets));
 
   for (const path of targets) {
     await projectStore.setWorkspaceHidden(projectId, path, true);

@@ -1,8 +1,8 @@
-import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import type { WorkspaceInfo } from "../../store/project-store";
 import styles from "./dialogs.module.css";
 import { Button } from "../ui/Button/Button";
+import { useDeleteBranchPreference } from "./useDeleteBranchPreference";
 
 type BulkDeleteWorktreesDialogProps = {
   open: boolean;
@@ -14,19 +14,14 @@ type BulkDeleteWorktreesDialogProps = {
 /**
  * Bulk sibling of `DeleteWorktreeDialog` (ADR-190 §2): lists every workspace
  * about to go instead of naming one, but shares the same "also delete local
- * branches" checkbox, backed by the same `localStorage` key, so the choice
- * made in one dialog carries over to the other.
+ * branches" checkbox (`useDeleteBranchPreference`), so the choice made in
+ * one dialog carries over to the other.
  */
 export function BulkDeleteWorktreesDialog(props: BulkDeleteWorktreesDialogProps) {
   const { open, onOpenChange, workspaces, onConfirm } = props;
 
-  const [deleteBranchChecked, setDeleteBranchChecked] = useState(() => {
-    try {
-      return localStorage.getItem("manor:deleteBranchOnWorktreeRemove") === "true";
-    } catch {
-      return false;
-    }
-  });
+  const [deleteBranchChecked, setDeleteBranchChecked] =
+    useDeleteBranchPreference();
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -58,17 +53,7 @@ export function BulkDeleteWorktreesDialog(props: BulkDeleteWorktreesDialogProps)
               <input
                 type="checkbox"
                 checked={deleteBranchChecked}
-                onChange={(e) => {
-                  setDeleteBranchChecked(e.target.checked);
-                  try {
-                    localStorage.setItem(
-                      "manor:deleteBranchOnWorktreeRemove",
-                      String(e.target.checked),
-                    );
-                  } catch {
-                    // ignore
-                  }
-                }}
+                onChange={(e) => setDeleteBranchChecked(e.target.checked)}
               />
               Also delete local branches
             </label>

@@ -95,3 +95,56 @@ export function startingMemberId(
   if (!choices || !project?.group) return openedForId;
   return defaultHostChoice(choices, project.group.lastUsedHostId, openedForId, preferredMemberId);
 }
+
+/** A host "Clone onto another host…" offers (ADR-192 ticket 4). */
+export interface CloneHostChoice {
+  hostId: string;
+  /** Why a clone onto this host can't run now; null when it can. */
+  disabledReason: string | null;
+}
+
+/**
+ * The registered hosts "Clone onto another host…" offers for `project`'s
+ * group (ADR-192 ticket 4): every one with no member in the group yet, in
+ * the host list's order. Only remote hosts are registered, so `local` is
+ * never offered. A host whose last connect failed (`error`) is shown
+ * disabled, with the reason, since a clone there would fail the same way.
+ * A host that is merely disconnected, connecting or reconnecting is not:
+ * `projects:addRemote` connects it before cloning, and a host with no
+ * project on it yet usually sits disconnected. Empty when `project` isn't
+ * linked, so an unlinked project never gets the action (a clone there would
+ * have to create a group), and when every registered host already has a
+ * member.
+ */
+export function hostsToCloneOnto(
+  project: GroupedProject | undefined,
+  projects: readonly GroupedProject[],
+  hosts: readonly HostStatusInfo[],
+): CloneHostChoice[] {
+  if (!project?.group) return [];
+  const memberIds = new Set(project.group.memberIds);
+  const taken = new Set(projects.filter((p) => memberIds.has(p.id)).map((p) => p.hostId));
+  return hosts
+    .filter((h) => isRemoteHost(h.hostId) && !taken.has(h.hostId))
+    .map((host) => {
+      const display = host.status === "error" ? describeHost(host, Date.now()) : undefined;
+      return {
+        hostId: host.hostId,
+        disabledReason: display
+          ? `Can't connect to ${display.target} (${display.status.toLowerCase()}). Reconnect it to clone there.`
+          : null,
+      };
+    });
+}
+
+/**
+ * The member the New Workspace dialog moves to once "Clone onto another
+ * host…" succeeds: the clone, when it joined `groupId`. Null when linking
+ * failed, so the dialog stays where it was.
+ */
+export function memberAfterClone(
+  cloned: { id: string; group?: { id: string } | null },
+  groupId: string | undefined,
+): string | null {
+  return groupId && cloned.group?.id === groupId ? cloned.id : null;
+}

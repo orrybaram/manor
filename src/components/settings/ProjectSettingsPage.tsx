@@ -6,6 +6,7 @@ import GripVertical from "lucide-react/dist/esm/icons/grip-vertical";
 import {
   useProjectStore,
   type ProjectInfo,
+  type ProjectGroupInfo,
   type CustomCommand,
 } from "../../store/project-store";
 import { useListDrag } from "../../hooks/useListDrag";
@@ -68,17 +69,12 @@ interface ThemeEntry {
 }
 
 type ProjectThemeSelectorProps = {
+  /** The project, or on a group's page its lead member (the theme is shared). */
   project: ProjectInfo;
-  /**
-   * Whether a pick restyles the window now. Only for the project the page
-   * is open for: on a linked group's page, another member's theme is saved
-   * but not applied (ADR-192).
-   */
-  applyNow?: boolean;
 };
 
 function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
-  const { project, applyNow = true } = props;
+  const { project } = props;
 
   const updateProject = useProjectStore((s) => s.updateProject);
   const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
@@ -136,9 +132,9 @@ function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
     (name: string) => {
       const themeValue = name === "__global__" ? null : name;
       updateProject(project.id, { themeName: themeValue });
-      if (applyNow) applyProjectTheme(themeValue);
+      applyProjectTheme(themeValue);
     },
-    [project.id, updateProject, applyProjectTheme, applyNow],
+    [project.id, updateProject, applyProjectTheme],
   );
 
   const handleSelectByIndex = useCallback(
@@ -283,15 +279,6 @@ function defaultWorktreePath(projectName: string): string {
   return `~/.manor/worktrees/${slug}`;
 }
 
-/**
- * A section's search anchor on this page. A linked group's page shows the
- * per-host sections once per member; the member the page was opened for
- * keeps the plain ids search jumps to, the others get their own.
- */
-type SectionAnchor = (id: string) => string;
-
-const plainAnchor: SectionAnchor = (id) => id;
-
 type ProjectFieldProps = {
   project: ProjectInfo;
 };
@@ -383,19 +370,15 @@ function AgentSection(props: ProjectFieldProps) {
   );
 }
 
-type HostSectionProps = ProjectFieldProps & {
-  anchor: SectionAnchor;
-};
-
-function PortsSection(props: HostSectionProps) {
-  const { project, anchor } = props;
+function PortsSection(props: ProjectFieldProps) {
+  const { project } = props;
 
   const updateProject = useProjectStore((s) => s.updateProject);
   const hosts = useHostStore((s) => s.hosts);
 
   return (
     <Stack gap="xs">
-      <SectionTitle id={anchor("project-ports")}>Ports</SectionTitle>
+      <SectionTitle id="project-ports">Ports</SectionTitle>
       <label className={styles.notifRow}>
         <span>Named preview URLs</span>
         <Switch
@@ -415,8 +398,8 @@ function PortsSection(props: HostSectionProps) {
   );
 }
 
-function CommandsSection(props: HostSectionProps) {
-  const { project, anchor } = props;
+function CommandsSection(props: ProjectFieldProps) {
+  const { project } = props;
 
   const updateProject = useProjectStore((s) => s.updateProject);
   const [newCommandId, setNewCommandId] = useState<string | null>(null);
@@ -443,7 +426,7 @@ function CommandsSection(props: HostSectionProps) {
 
   return (
     <Stack gap="xs">
-      <SectionTitle id={anchor("project-commands")}>Commands</SectionTitle>
+      <SectionTitle id="project-commands">Commands</SectionTitle>
       <div className={styles.commandList}>
         {commands.map((cmd: CustomCommand, idx: number) => (
           <div
@@ -527,8 +510,8 @@ function CommandsSection(props: HostSectionProps) {
   );
 }
 
-function WorktreesSection(props: HostSectionProps) {
-  const { project, anchor } = props;
+function WorktreesSection(props: ProjectFieldProps) {
+  const { project } = props;
 
   const updateProject = useProjectStore((s) => s.updateProject);
 
@@ -544,7 +527,7 @@ function WorktreesSection(props: HostSectionProps) {
 
   return (
     <Stack gap="xl">
-      <SectionTitle id={anchor("project-worktrees")}>Worktrees</SectionTitle>
+      <SectionTitle id="project-worktrees">Worktrees</SectionTitle>
       <Stack gap="xs">
         <label className={styles.fieldLabel}>Worktree Path</label>
         <Input
@@ -573,31 +556,70 @@ function WorktreesSection(props: HostSectionProps) {
   );
 }
 
-type MemberSettingsProps = ProjectFieldProps & {
-  /** Whether this is the member the page was opened for. */
-  isPageProject: boolean;
+type GroupSettingsPageProps = {
+  group: ProjectGroupInfo;
+  /** The group's members in `memberIds` order; at least one. */
+  members: ProjectInfo[];
 };
 
 /**
- * One member's per-host settings on a linked group's page (ADR-192): what
- * differs between machines — path, theme, host, ports, commands, worktrees.
+ * A linked group's page (ADR-193): the settings every member shares, and the
+ * members themselves. Every member carries the group's values for the shared
+ * fields, and `updateProject` sends them to the group, so the fields read
+ * and write through the first member.
  */
-function MemberSettings(props: MemberSettingsProps) {
-  const { project, isPageProject } = props;
+export function GroupSettingsPage(props: GroupSettingsPageProps) {
+  const { group, members } = props;
 
-  const anchor: SectionAnchor = isPageProject
-    ? plainAnchor
-    : (id) => `${id}-${project.id}`;
+  const lead = members[0];
+  if (!lead) return null;
+
+  // The name field is keyed by the group's name, so a rename made
+  // elsewhere (the CLI, say) shows here instead of the stale value.
+  return (
+    <Stack className={styles.pageContent}>
+      <Stack gap="xs">
+        <SectionTitle id="project-general">Shared</SectionTitle>
+        <div className={styles.sectionDescription}>
+          Shared by every host in this group. What differs per machine (path,
+          host, worktrees, ports) is on each host's page.
+        </div>
+        <NameField key={group.name} project={lead} />
+        <ColorField project={lead} />
+        <ProjectThemeSelector project={lead} />
+      </Stack>
+      <LinearProjectSection project={lead} />
+      <AgentSection project={lead} />
+      <CommandsSection project={lead} />
+      <ProjectLinksSection project={lead} members={members} />
+    </Stack>
+  );
+}
+
+type MemberSettingsPageProps = ProjectFieldProps & {
+  group: ProjectGroupInfo;
+};
+
+/**
+ * A linked member's page (ADR-193): only what can differ between machines —
+ * where the clone lives, its host, worktrees and ports. The shared settings
+ * are on the group's page.
+ */
+function MemberSettingsPage(props: MemberSettingsPageProps) {
+  const { project, group } = props;
 
   const unlinkProject = useProjectStore((s) => s.unlinkProject);
 
   return (
-    <Stack className={styles.hostSettings}>
+    <Stack className={styles.pageContent}>
+      <Row gap="xs" align="center" className={styles.memberHeading}>
+        <span>{group.name} on</span>
+        <HostLabel hostId={project.hostId} />
+      </Row>
       <Stack gap="xs">
-        <Row gap="sm" align="center" justify="space-between">
-          <Row gap="xs" align="center" className={styles.hostSettingsHeading}>
-            <HostLabel hostId={project.hostId} />
-          </Row>
+        <SectionTitle id="project-location">Location</SectionTitle>
+        <PathFields project={project} />
+        <div className={styles.fieldAction}>
           <Button
             variant="secondary"
             size="sm"
@@ -605,14 +627,11 @@ function MemberSettings(props: MemberSettingsProps) {
           >
             Unlink
           </Button>
-        </Row>
-        <PathFields project={project} />
-        <ProjectThemeSelector project={project} applyNow={isPageProject} />
+        </div>
       </Stack>
-      <ProjectHostSection project={project} sectionId={anchor("project-host")} />
-      <PortsSection project={project} anchor={anchor} />
-      <CommandsSection project={project} anchor={anchor} />
-      <WorktreesSection project={project} anchor={anchor} />
+      <ProjectHostSection project={project} />
+      <WorktreesSection project={project} />
+      <PortsSection project={project} />
     </Stack>
   );
 }
@@ -621,45 +640,12 @@ type ProjectSettingsPageProps = {
   project: ProjectInfo;
 };
 
+/** A lone project's page, or a linked member's machine-specific page. */
 export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
   const { project } = props;
 
-  const projects = useProjectStore((s) => s.projects);
-  const memberIds = project.group?.memberIds;
-  const members = useMemo(() => {
-    if (!memberIds) return [];
-    const byId = new Map(projects.map((p) => [p.id, p]));
-    return memberIds
-      .map((id) => byId.get(id))
-      .filter((p): p is ProjectInfo => p !== undefined);
-  }, [memberIds, projects]);
-
   if (project.group) {
-    // The name field is keyed by the group's name, so a rename made
-    // elsewhere (the CLI, say) shows here instead of the stale value.
-    return (
-      <Stack className={styles.pageContent}>
-        <Stack gap="xs">
-          <SectionTitle id="project-general">Shared</SectionTitle>
-          <div className={styles.sectionDescription}>
-            Shared by every host in this group. Each host's own settings
-            follow below.
-          </div>
-          <NameField key={project.name} project={project} />
-          <ColorField project={project} />
-        </Stack>
-        <LinearProjectSection project={project} />
-        <AgentSection project={project} />
-        <ProjectLinksSection project={project} members={members} />
-        {members.map((member) => (
-          <MemberSettings
-            key={member.id}
-            project={member}
-            isPageProject={member.id === project.id}
-          />
-        ))}
-      </Stack>
-    );
+    return <MemberSettingsPage project={project} group={project.group} />;
   }
 
   return (
@@ -674,10 +660,10 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
       <LinearProjectSection project={project} />
       <ProjectHostSection project={project} />
       <AgentSection project={project} />
-      <PortsSection project={project} anchor={plainAnchor} />
-      <CommandsSection project={project} anchor={plainAnchor} />
-      <WorktreesSection project={project} anchor={plainAnchor} />
-      <ProjectLinksSection project={project} members={members} />
+      <PortsSection project={project} />
+      <CommandsSection project={project} />
+      <WorktreesSection project={project} />
+      <ProjectLinksSection project={project} members={[]} />
     </Stack>
   );
 }

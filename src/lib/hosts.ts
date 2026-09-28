@@ -40,6 +40,17 @@ export function hostLabel(
 }
 
 /**
+ * A linked member's host as a label, as the sidebar's group sections name
+ * it (ADR-193): "This machine", or the remote host's ssh target.
+ */
+export function memberHostName(
+  hostId: string,
+  hosts: readonly { hostId: string; spec?: { target?: string } | null }[],
+): string {
+  return isRemoteHost(hostId) ? hostLabel(hostId, hosts) : "This machine";
+}
+
+/**
  * `{ value, label }` options for every remote host, for the searchable
  * selects in `AddProjectDialog` and `ProjectHostSection` (ADR-183 ticket 10).
  */

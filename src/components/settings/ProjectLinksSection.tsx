@@ -36,7 +36,8 @@ type ProjectLinksSectionProps = {
 
 /**
  * Link and Unlink from project settings (ADR-192): the same choices as the
- * sidebar's "Link with…" menu, and an Unlink per member of a group.
+ * sidebar's "Link with…" menu. On a group's page (ADR-193) it also lists the
+ * members with an Unlink each, and "Unlink all".
  */
 export function ProjectLinksSection(props: ProjectLinksSectionProps) {
   const { project, members } = props;
@@ -44,6 +45,7 @@ export function ProjectLinksSection(props: ProjectLinksSectionProps) {
   const projects = useProjectStore((s) => s.projects);
   const linkProjects = useProjectStore((s) => s.linkProjects);
   const unlinkProject = useProjectStore((s) => s.unlinkProject);
+  const unlinkGroup = useProjectStore((s) => s.unlinkGroup);
   const hosts = useHostStore((s) => s.hosts);
 
   const choices = useMemo(() => linkChoices(project, projects), [project, projects]);
@@ -71,21 +73,41 @@ export function ProjectLinksSection(props: ProjectLinksSectionProps) {
             One sidebar entry with a section per host. Unlinking a project
             keeps the shared settings as its own.
           </div>
-          {members.map((member) => (
-            <Row key={member.id} gap="sm" align="center">
-              <HostLabel hostId={member.hostId} />
-              <span className={styles.linkedMemberPath} title={member.path}>
-                {member.path}
-              </span>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => void unlinkProject(member.id)}
+          <div className={styles.linkedMemberList}>
+            {members.map((member) => (
+              <Row
+                key={member.id}
+                gap="sm"
+                align="center"
+                className={styles.linkedMemberRow}
               >
-                Unlink
-              </Button>
-            </Row>
-          ))}
+                <span className={styles.linkedMemberHost}>
+                  <HostLabel hostId={member.hostId} />
+                </span>
+                <span className={styles.linkedMemberPath} title={member.path}>
+                  {member.path}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void unlinkProject(member.id)}
+                >
+                  Unlink
+                </Button>
+              </Row>
+            ))}
+          </div>
+          <div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                if (project.group) void unlinkGroup(project.group.id);
+              }}
+            >
+              Unlink all
+            </Button>
+          </div>
         </>
       ) : (
         <div className={styles.sectionDescription}>

@@ -20,11 +20,19 @@ export type SettingsSection = {
   keywords: string[];
 };
 
+/**
+ * A page of the settings modal: a fixed page, a project's (a lone project's
+ * whole page, or a linked member's machine-specific page), or a linked
+ * group's shared page (ADR-193).
+ */
+export type SettingsPage =
+  | { type: SettingsPageId }
+  | { type: "project"; projectId: string }
+  | { type: "group"; groupId: string };
+
 type SectionEntry = SettingsSection & {
   pageLabel: string;
-  page:
-    | { type: SettingsPageId }
-    | { type: "project"; projectId: string };
+  page: SettingsPage;
 };
 
 export type SettingsSearchResult = SectionEntry;
@@ -196,11 +204,62 @@ const PROJECT_SECTIONS: SettingsSection[] = [
 ];
 
 /**
- * Every searchable entry, including one set per project. Each page leads its own
- * sections, so a page and its sections tie-break in nav order.
+ * The section ids that are per machine on a linked group (ADR-193): they
+ * live on each member's page, every other project section on the group's.
+ */
+export const MACHINE_SECTION_IDS: readonly string[] = [
+  "project-location",
+  "project-host",
+  "project-worktrees",
+  "project-ports",
+];
+
+const sectionById = new Map(PROJECT_SECTIONS.map((s) => [s.id, s]));
+const projectSection = (id: string): SettingsSection => sectionById.get(id)!;
+
+/** A linked group's shared page. */
+const GROUP_SECTIONS: SettingsSection[] = [
+  {
+    id: "project-general",
+    label: "Shared",
+    keywords: ["name", "color", "theme", "shared"],
+  },
+  ...["project-linear", "project-agent", "project-commands", "project-links"].map(
+    projectSection,
+  ),
+];
+
+/** A linked member's machine-specific page. */
+const MEMBER_SECTIONS: SettingsSection[] = [
+  {
+    id: "project-location",
+    label: "Location",
+    keywords: ["path", "folder", "directory", "branch", "unlink"],
+  },
+  ...["project-host", "project-worktrees", "project-ports"].map(projectSection),
+];
+
+/**
+ * The Projects part of the nav, in sidebar order: a lone project, or a
+ * linked group listed once where its first member would be, with its
+ * members (in `memberIds` order) nested under it.
+ */
+export type SettingsProjectEntry =
+  | { kind: "project"; id: string; name: string }
+  | {
+      kind: "group";
+      id: string;
+      name: string;
+      members: { id: string; hostId: string; hostLabel: string }[];
+    };
+
+/**
+ * Every searchable entry, including one set per project, group and group
+ * member. Each page leads its own sections, so a page and its sections
+ * tie-break in nav order.
  */
 export function buildSettingsIndex(
-  projects: { id: string; name: string }[],
+  projects: readonly SettingsProjectEntry[],
 ): SectionEntry[] {
   const fixed = PAGE_SECTIONS.flatMap(
     ({ page, pageLabel, pageKeywords, sections }) => [
@@ -222,20 +281,40 @@ export function buildSettingsIndex(
     ],
   );
 
-  const perProject = projects.flatMap((project) => [
+  const pageEntries = (
+    label: string,
+    page: SettingsPage,
+    sections: SettingsSection[],
+  ): SectionEntry[] => [
     {
       id: null,
-      label: project.name,
+      label,
       keywords: ["project", "repository", "repo"],
-      pageLabel: project.name,
-      page: { type: "project", projectId: project.id } as const,
+      pageLabel: label,
+      page,
     },
-    ...PROJECT_SECTIONS.map((section) => ({
-      ...section,
-      pageLabel: project.name,
-      page: { type: "project", projectId: project.id } as const,
-    })),
-  ]);
+    ...sections.map((section) => ({ ...section, pageLabel: label, page })),
+  ];
+
+  const perProject = projects.flatMap((entry) => {
+    if (entry.kind === "project") {
+      return pageEntries(
+        entry.name,
+        { type: "project", projectId: entry.id },
+        PROJECT_SECTIONS,
+      );
+    }
+    return [
+      ...pageEntries(entry.name, { type: "group", groupId: entry.id }, GROUP_SECTIONS),
+      ...entry.members.flatMap((member) =>
+        pageEntries(
+          `${entry.name} · ${member.hostLabel}`,
+          { type: "project", projectId: member.id },
+          MEMBER_SECTIONS,
+        ),
+      ),
+    ];
+  });
 
   return [...fixed, ...perProject];
 }

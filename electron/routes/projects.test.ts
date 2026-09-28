@@ -152,6 +152,18 @@ describe("GET /projects", () => {
   });
 });
 
+describe("GET /projects/:projectId", () => {
+  it("includes the host label, like the list", async () => {
+    const res = await call(
+      route("GET", "/projects/:projectId"),
+      deps(makeProjectManager()),
+      { projectId: "box-app" },
+    );
+    expect(res.status).toBe(200);
+    expect((res.body as { host: string }).host).toBe("me@box");
+  });
+});
+
 describe("POST /projects/:projectId/workspaces", () => {
   const create = route("POST", "/projects/:projectId/workspaces");
   let pm: Pm;
@@ -193,6 +205,14 @@ describe("POST /projects/:projectId/workspaces", () => {
   it("falls back to the named project when the group has no last-used host", async () => {
     pm = makeProjectManager(null);
     await call(create, deps(pm), { projectId: "local-app" }, { name: "feat" });
+    expect(pm.createWorktree.mock.calls[0][0]).toBe("local-app");
+  });
+
+  it("accepts the local host's label as listings show it", async () => {
+    await call(create, deps(pm), { projectId: "box-app" }, {
+      name: "feat",
+      host: "this Mac",
+    });
     expect(pm.createWorktree.mock.calls[0][0]).toBe("local-app");
   });
 

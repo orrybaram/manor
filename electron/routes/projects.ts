@@ -168,13 +168,15 @@ type HostArg =
   | { ok: false; reason: "unknown" | "ambiguous" };
 
 /**
- * The hostId a `host` argument names: a host id (`local` for this machine)
- * or a remote host's ssh target. Ambiguous when it names more than one host
- * — two hosts sharing a target, or one's id being another's target.
+ * The hostId a `host` argument names: a host id (`local` for this machine),
+ * a remote host's ssh target, or a host's label as listings show it.
+ * Ambiguous when it names more than one host — two hosts sharing a target,
+ * or one's id being another's target.
  */
 function resolveHostArg(pm: ProjectManager, arg: string): HostArg {
   const hosts = [
-    { hostId: LOCAL_HOST_ID, target: undefined as string | undefined },
+    // The local label ("this Mac") is what listings show, so it names local too.
+    { hostId: LOCAL_HOST_ID, target: pm.hostLabel(LOCAL_HOST_ID) as string | undefined },
     ...pm.getHosts().map(({ hostId, spec }) => ({ hostId, target: spec.target })),
   ];
   const matches = new Set(
@@ -513,8 +515,8 @@ export const projectRoutes: Route[] = [
   {
     method: "GET",
     path: "/projects/:projectId",
-    handler: withProject(async ({ json }, _pm, project) => {
-      json(200, project);
+    handler: withProject(async ({ json }, pm, project) => {
+      json(200, withHostLabel(pm, project));
     }),
   },
 

@@ -7,6 +7,7 @@
 import { detectDefaultBranch } from "./branches";
 import type { ProjectContext } from "./context";
 import { emitCloneProgress } from "./progress";
+import { assertGroupHostFree } from "./project-groups";
 import {
   prepareRemoteClone,
   resolveRemoteDir,
@@ -79,6 +80,7 @@ export async function moveProjectToHost(
   ctx.hosts.assertRemote(hostId);
   const project = ctx.find(projectId);
   if (!project) throw new Error(`Unknown project "${projectId}".`);
+  assertGroupHostFree(ctx, projectId, hostId);
 
   const plan = await planRemoteClone(ctx, hostId, opts);
   if (plan.owner && plan.owner.id !== projectId) {
@@ -113,6 +115,7 @@ export async function switchProjectHost(
   if (hostId === project.hostId && targetPath === project.path) {
     return ctx.info(project);
   }
+  assertGroupHostFree(ctx, projectId, hostId);
   const label = ctx.hosts.label(hostId);
   if (!(await ctx.host(hostId).facts.exists(targetPath))) {
     throw new Error(`Project path "${targetPath}" does not exist on ${label}.`);

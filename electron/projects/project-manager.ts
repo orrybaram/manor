@@ -16,6 +16,7 @@ import type { ProjectContext } from "./context";
 import { HostRecords } from "./host-records";
 import { moveProjectToHost, planRemoteClone, runRemoteClone, switchProjectHost } from "./host-move";
 import { PathRouter } from "./path-router";
+import * as groups from "./project-groups";
 import { buildProjectInfo, listGitWorkspaces, seedCommands } from "./project-info";
 import { StateStore } from "./state-store";
 import * as folders from "./workspace-folders";
@@ -24,6 +25,7 @@ import type {
   IssueSeed,
   LinkedIssue,
   PersistedProject,
+  ProjectGroupInfo,
   ProjectHostResolver,
   ProjectInfo,
   ProjectUpdatableFields,
@@ -74,7 +76,12 @@ export class ProjectManager {
   }
 
   private buildProjectInfo(p: PersistedProject): Promise<ProjectInfo> {
-    return buildProjectInfo(p, this.hostFor(p.hostId).git, this.paths);
+    return buildProjectInfo(
+      p,
+      this.hostFor(p.hostId).git,
+      this.paths,
+      groups.groupInfoFor(this.store.state, p.id),
+    );
   }
 
   // ── Hosts ──
@@ -236,6 +243,7 @@ export class ProjectManager {
       hostId,
       folders: [],
       sidebarOrder: [],
+      group: null,
     };
   }
 
@@ -314,6 +322,7 @@ export class ProjectManager {
 
   removeProject(projectId: string): void {
     const state = this.store.state;
+    groups.forgetProject(state, projectId);
     state.projects = state.projects.filter((p) => p.id !== projectId);
     if (state.selectedProjectIndex >= state.projects.length) {
       state.selectedProjectIndex = Math.max(0, state.projects.length - 1);
@@ -355,6 +364,27 @@ export class ProjectManager {
       if (newIdx >= 0) state.selectedProjectIndex = newIdx;
     }
     this.store.save();
+  }
+
+  // ── Linked-project groups (see `project-groups.ts`, ADR-192) ──
+
+  /**
+   * Link two projects on different hosts: `projectId` joins `otherId`'s
+   * group, `otherId` joins `projectId`'s, or a new group starts. Throws on
+   * a second member for one host.
+   */
+  linkProjects(projectId: string, otherId: string): ProjectGroupInfo {
+    return groups.linkProjects(this.ctx, projectId, otherId);
+  }
+
+  /** Take a project out of its group; its workspaces and settings stay. */
+  unlinkProject(projectId: string): void {
+    groups.unlinkProject(this.ctx, projectId);
+  }
+
+  /** Dissolve a group; every member stays as it is, just unlinked. */
+  unlinkGroup(groupId: string): void {
+    groups.unlinkGroup(this.ctx, groupId);
   }
 
   // ── Workspaces and folders (see `workspace-folders.ts`) ──

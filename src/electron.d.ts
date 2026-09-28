@@ -579,6 +579,19 @@ export interface ElectronAPI {
       orderedKeys: string[],
     ) => Promise<void>;
     reorder: (orderedIds: string[]) => Promise<void>;
+    /**
+     * ADR-192: link two projects on different hosts. The one not yet in a
+     * group joins the other's, or a new group starts. Rejects on a second
+     * member for one host.
+     */
+    link: (
+      projectId: string,
+      otherId: string,
+    ) => Promise<import("./store/project-store").ProjectGroupInfo>;
+    /** ADR-192: take a project out of its group; its workspaces and settings stay. */
+    unlink: (projectId: string) => Promise<void>;
+    /** ADR-192: dissolve a group; every member stays as it is, just unlinked. */
+    unlinkGroup: (groupId: string) => Promise<void>;
     update: (
       projectId: string,
       updates: import("./store/project-store").ProjectUpdatableFields,

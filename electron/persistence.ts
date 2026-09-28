@@ -20,6 +20,7 @@ export type {
   IssueSeed,
   LinkedIssue,
   ProjectHost,
+  ProjectGroupInfo,
   ProjectHostResolver,
   ProjectInfo,
   ProjectUpdatableFields,

@@ -294,6 +294,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("projects:reorderWorkspaces", projectId, orderedKeys),
     reorder: (orderedIds: string[]) =>
       ipcRenderer.invoke("projects:reorder", orderedIds),
+    // ADR-192: link two projects on different hosts into one group.
+    link: (projectId: string, otherId: string) =>
+      ipcRenderer.invoke("projects:link", projectId, otherId),
+    unlink: (projectId: string) =>
+      ipcRenderer.invoke("projects:unlink", projectId),
+    unlinkGroup: (groupId: string) =>
+      ipcRenderer.invoke("projects:unlinkGroup", groupId),
     update: (
       projectId: string,
       updates: Partial<{

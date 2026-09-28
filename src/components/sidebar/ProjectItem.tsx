@@ -289,25 +289,30 @@ const WorkspaceItem = React.forwardRef<
 });
 
 /**
- * A section header's host label (ADR-193 §3): the plain-text counterpart to
- * `HostIndicator`'s chip — same host icon and name, no chip background or
- * project color, plus a small state dot for a remote host. Kept local to
- * this file rather than folded into `LocalHostLabel`/`HostIndicator`, which
- * other callers (the New Workspace host picker) still use as chips.
+ * A section header's host label (ADR-193 §3): a small-caps divider — host
+ * icon and name, a rule running to the edge, and a state dot for a remote
+ * host. A collapsed section shows its workspace count after the name. Kept
+ * local to this file rather than folded into `LocalHostLabel`/`HostIndicator`,
+ * which other callers (the New Workspace host picker) still use as chips.
  */
 function SectionHostLabel(props: {
   hostId: string;
   path: string;
   label: string;
   offline: boolean;
+  collapsedCount: number | null;
 }) {
-  const { hostId, path, label, offline } = props;
+  const { hostId, path, label, offline, collapsedCount } = props;
   const remote = isRemoteHost(hostId);
 
   return (
     <span className={styles.sectionHost} title={path}>
       {remote ? <Cloud size={11} aria-hidden /> : <Laptop size={11} aria-hidden />}
       <span className={styles.sectionHostName}>{label}</span>
+      {collapsedCount !== null && (
+        <span className={styles.sectionHostCount}>{collapsedCount}</span>
+      )}
+      <span className={styles.sectionHostRule} aria-hidden />
       {remote && (
         <span
           className={`${styles.sectionHostDot} ${offline ? styles.sectionHostDotOffline : ""}`}
@@ -1167,13 +1172,14 @@ export function ProjectItem(props: ProjectItemProps) {
             onPointerDown={isSection ? undefined : onDragStart}
             style={{ touchAction: "none" }}
           >
-            <ProjectChevron expanded={expanded} />
+            {!isSection && <ProjectChevron expanded={expanded} />}
             {isSection ? (
               <SectionHostLabel
                 hostId={project.hostId}
                 path={project.path}
                 label={isRemoteHost(project.hostId) ? remoteTarget ?? project.hostId : "This machine"}
                 offline={isHostOffline(project.hostId, hosts)}
+                collapsedCount={expanded ? null : project.workspaces.length}
               />
             ) : (
             <span

@@ -101,19 +101,20 @@ Only styling/markup in `ProjectGroupItem`, the `section` variant of
 - **Group header** stays a normal project header (chevron, name in project
   color). The link icon is shown dimmed; the partial/offline state icon and
   badge stay.
-- **Section header** becomes a quiet sub-label, not a row that looks like a
-  project: 20px tall, 11px, `--text-dim`, weight 500, no chip background, no
-  project color. Content: host icon (`Laptop` for this machine, `Cloud` for a
-  remote host) + host name ("This machine" / host label), then a small
-  connection dot for a remote host on the right. The chevron is hidden until
-  hover/focus or when the section is collapsed, so it doesn't compete with
-  the group chevron.
+- **Section header** becomes a labeled divider, not a row that looks like a
+  project: 20px tall, 10.5px uppercase with letter-spacing, `--text-dim`, no
+  chip background, no project color, no chevron. Content: host icon
+  (`Laptop` for this machine, `Cloud` for a remote host) + host name, a 1px
+  rule running to the right edge, then a connection dot for a remote host.
+  Clicking the label collapses the section; a collapsed section shows its
+  workspace count after the name. (Revised after review: the first cut kept
+  a hover-only chevron, which left host labels at the same x as workspace
+  names and made them hard to tell apart.)
 - **One border.** A section no longer renders the `.project` wrapper's left
   border or `.projectSelected`; only the group shows the selection border.
 - **Alignment.** Remove `.groupSections { padding-left: 8px }`; workspace rows
   in a section line up with workspace rows of a lone project. Sections are
-  separated by 6px of space; the section header's left edge aligns with
-  workspace row text.
+  separated by 16px of space.
 - Offline dimming (`.sectionOffline`) and all behavior (context menu,
   multi-select, keyboard nav, collapse keys, test ids) are unchanged.
 

@@ -468,16 +468,24 @@
   display: block;
 }
 
-/* A member's section header inside a group: a quiet sub-label, not a row
-   that looks like a project (ADR-193 §3) — small, dim and background-free
-   even when the group above it is selected. */
+/* A member's section header inside a group: a small-caps divider label with
+   a rule to the edge, not a row that looks like a project or a workspace
+   (ADR-193 §3). No chevron and no extra indent, so the section's workspace
+   rows line up with a lone project's; clicking the label collapses it. */
 .sectionHeader {
   height: 20px;
   padding: 0 6px;
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--text-dim);
   background: none;
+}
+
+.sectionHeader:hover {
+  background: none;
+  color: var(--text-primary);
 }
 
 /* Belt-and-braces: a section header never takes the group's project-color
@@ -491,7 +499,7 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
 .sectionHostName {
@@ -500,10 +508,22 @@
   white-space: nowrap;
 }
 
-/* Right-aligned within the header, so it never competes with the host name
-   for space. */
+/* A collapsed section's workspace count, after the host name. */
+.sectionHostCount {
+  font-weight: 500;
+  letter-spacing: 0;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.sectionHostRule {
+  flex: 1;
+  min-width: 12px;
+  height: 1px;
+  background: var(--border);
+}
+
 .sectionHostDot {
-  margin-left: auto;
   width: 5px;
   height: 5px;
   border-radius: 50%;
@@ -515,27 +535,14 @@
   background: var(--yellow, #d29922);
 }
 
-/* Hidden until the header is hovered/focused or the section is collapsed, so
-   it doesn't compete with the group's own chevron — the layout width stays
-   reserved so the host label doesn't shift when it appears. */
-.sectionHeader .projectChevron {
-  opacity: 0;
-  transition: opacity 100ms ease;
-}
-
-.sectionHeader:hover .projectChevron,
-.sectionHeader:focus-visible .projectChevron,
-.sectionHeader[aria-expanded="false"] .projectChevron {
-  opacity: 1;
-}
-
-/* Sections of a group stack with breathing room between them, aligned flush
-   with the group's own left edge — a lone project's workspace rows line up
-   the same distance from their `.project` wrapper's border. */
+/* Host sections stack with clear space between them, flush with the group's
+   own left edge — a lone project's workspace rows line up the same distance
+   from their `.project` wrapper's border. */
 .groupSections {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 16px;
+  margin-top: 6px;
 }
 
 .groupLinkIcon {

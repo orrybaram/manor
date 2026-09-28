@@ -16,7 +16,7 @@ import type {
   ProjectGroupInfo,
 } from "../persistence";
 import { LOCAL_HOST_ID } from "../backend/types";
-import { callerMaySee } from "./caller-host";
+import { callerMaySee, OWN_HOST_ONLY } from "./caller-host";
 import { isIssueSource } from "../issue-sources";
 import { ghRepoOf } from "../../src/lib/gh-repo";
 import {
@@ -203,10 +203,6 @@ interface WorkspaceTargetRequest {
 type WorkspaceTargetResult =
   | { ok: true; project: ProjectInfo }
   | { ok: false; status: number; error: string };
-
-/** What a relayed caller hears for any host but its own, known or not. */
-const OWN_HOST_ONLY =
-  "A remote host can only create workspaces on its own host.";
 
 /**
  * Which project a create-workspace request lands in. An unlinked project is

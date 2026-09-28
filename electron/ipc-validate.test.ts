@@ -177,16 +177,28 @@ describe("assertPositiveInt", () => {
 describe("assertGroupUpdates", () => {
   const TEAM = { teamId: "t1", teamName: "Team", teamKey: "TM" };
 
+  const COMMAND = { id: "c1", name: "Build", command: "npm run build" };
+
   it("passes for a well-formed update, a partial one and nulls", () => {
     expect(() =>
       assertGroupUpdates(
-        { name: "App", color: "blue", agentCommand: "codex", linearAssociations: [TEAM] },
+        {
+          name: "App",
+          color: "blue",
+          agentCommand: "codex",
+          themeName: "dracula",
+          linearAssociations: [TEAM],
+          commands: [COMMAND],
+        },
         "updates",
       ),
     ).not.toThrow();
     expect(() => assertGroupUpdates({}, "updates")).not.toThrow();
     expect(() =>
-      assertGroupUpdates({ color: null, agentCommand: null, linearAssociations: null }, "updates"),
+      assertGroupUpdates(
+        { color: null, agentCommand: null, themeName: null, linearAssociations: null },
+        "updates",
+      ),
     ).not.toThrow();
   });
 
@@ -205,6 +217,10 @@ describe("assertGroupUpdates", () => {
     expect(() => assertGroupUpdates({ linearAssociations: "TM" }, "updates")).toThrow(
       "updates.linearAssociations",
     );
+    expect(() => assertGroupUpdates({ themeName: 3 }, "updates")).toThrow("updates.themeName");
+    expect(() => assertGroupUpdates({ commands: "nope" }, "updates")).toThrow(
+      "updates.commands",
+    );
   });
 
   it("throws for a malformed Linear association", () => {
@@ -214,6 +230,15 @@ describe("assertGroupUpdates", () => {
     expect(() =>
       assertGroupUpdates({ linearAssociations: [{ ...TEAM, teamKey: 1 }] }, "updates"),
     ).toThrow("updates.linearAssociations[0]");
+  });
+
+  it("throws for a malformed custom command", () => {
+    expect(() => assertGroupUpdates({ commands: [COMMAND, null] }, "updates")).toThrow(
+      "updates.commands[1]",
+    );
+    expect(() =>
+      assertGroupUpdates({ commands: [{ ...COMMAND, command: 1 }] }, "updates"),
+    ).toThrow("updates.commands[0]");
   });
 });
 

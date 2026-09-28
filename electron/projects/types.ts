@@ -107,12 +107,13 @@ export interface ProjectInfo {
 
 /**
  * The settings a linked-project group shares across its members (ADR-192
- * ticket 2). A grouped project's `ProjectInfo` carries the group's values
- * for these; everything else stays per member, per host.
+ * ticket 2; `themeName` and `commands` joined in ADR-193 ticket 1). A
+ * grouped project's `ProjectInfo` carries the group's values for these;
+ * everything else stays per member, per host.
  */
 export type GroupSharedFields = Pick<
   ProjectInfo,
-  "name" | "color" | "agentCommand" | "linearAssociations"
+  "name" | "color" | "agentCommand" | "linearAssociations" | "themeName" | "commands"
 >;
 
 export type GroupUpdatableFields = Partial<GroupSharedFields>;
@@ -244,6 +245,10 @@ export interface PersistedProjectGroup {
   color?: string | null;
   agentCommand?: string | null;
   linearAssociations?: LinearAssociation[];
+  /** ADR-193 ticket 1: shared like `color` (absent falls through, null is a value). */
+  themeName?: string | null;
+  /** ADR-193 ticket 1: shared like `linearAssociations`. */
+  commands?: CustomCommand[];
   /**
    * The group's repo as a normalized `origin` key (`originKey` in
    * `origin-links.ts`, ADR-192 ticket 5), so link suggestions can match it

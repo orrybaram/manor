@@ -10,8 +10,10 @@ import React, {
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import Check from "lucide-react/dist/esm/icons/check";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
+import Cloud from "lucide-react/dist/esm/icons/cloud";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import FolderGit2 from "lucide-react/dist/esm/icons/folder-git-2";
+import Laptop from "lucide-react/dist/esm/icons/laptop";
 import {
   collapsedFolderIdsOf,
   useProjectStore,
@@ -24,6 +26,7 @@ import {
   applyGroupDrop,
   buildSidebarItems,
   descendantWorkspaces,
+  canLinkLocalFolder,
   linkChoices as buildLinkChoices,
   placeAfterFolder,
   placeInFolder,
@@ -55,8 +58,10 @@ import { ProjectChevron } from "./ProjectChevron";
 import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
-import { HostIndicator, LocalHostLabel } from "../hosts/HostIndicator";
+import { HostIndicator } from "../hosts/HostIndicator";
+import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { isRemoteHost } from "../../lib/hosts";
+import { isHostOffline } from "../../lib/host-status";
 import { workspaceKey } from "../../lib/workspace-key";
 import { normalizeHostId } from "../../lib/host-id";
 import { useHostStore, selectHost } from "../../store/host-store";
@@ -285,6 +290,40 @@ const WorkspaceItem = React.forwardRef<
 });
 
 /**
+ * A host heading's label (ADR-193 §3): host icon and name in small caps,
+ * and a yellow dot while a remote host is away. Used by a linked group's section
+ * headers and above a remote-only project's workspaces. A collapsed section shows its workspace count after the name. Kept
+ * local to this file rather than folded into `LocalHostLabel`/`HostIndicator`,
+ * which other callers (the New Workspace host picker) still use as chips.
+ */
+function SectionHostLabel(props: {
+  hostId: string;
+  path: string;
+  label: string;
+  offline: boolean;
+  collapsedCount: number | null;
+}) {
+  const { hostId, path, label, offline, collapsedCount } = props;
+  const remote = isRemoteHost(hostId);
+
+  return (
+    <span className={styles.sectionHost} title={path}>
+      {remote ? <Cloud size={11} aria-hidden /> : <Laptop size={11} aria-hidden />}
+      <span className={styles.sectionHostName}>{label}</span>
+      {collapsedCount !== null && (
+        <span className={styles.sectionHostCount}>{collapsedCount}</span>
+      )}
+      {/* Only an away host shows a dot; a connected one needs no mark. */}
+      {remote && offline && (
+        <Tooltip label="Offline — host is unreachable" side="right">
+          <span className={styles.sectionHostDot} aria-label="Offline" />
+        </Tooltip>
+      )}
+    </span>
+  );
+}
+
+/**
  * `project`: a lone project's entry. `section`: one host's section of a
  * linked group (ADR-192).
  */
@@ -362,6 +401,9 @@ export function ProjectItem(props: ProjectItemProps) {
     const host = selectHost(project.hostId)(state);
     return host?.spec?.target ?? project.hostId;
   });
+  // A section's connection dot (ADR-193 §3) reads the same away state as the
+  // group header's own icon.
+  const hosts = useHostStore((s) => s.hosts);
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -423,9 +465,14 @@ export function ProjectItem(props: ProjectItemProps) {
     return members.some((p) => p.id === project.id) ? members : [project];
   }, [project, allProjects]);
   const linkProjects = useProjectStore((s) => s.linkProjects);
+  const linkLocalFolder = useProjectStore((s) => s.linkLocalFolder);
   const unlinkProject = useProjectStore((s) => s.unlinkProject);
   const linkChoices = useMemo(
     () => buildLinkChoices(project, allProjects),
+    [project, allProjects],
+  );
+  const localFolderEligible = useMemo(
+    () => canLinkLocalFolder(project, allProjects),
     [project, allProjects],
   );
 
@@ -1100,9 +1147,19 @@ export function ProjectItem(props: ProjectItemProps) {
     );
   };
 
+  const workspaceList = (
+    <div className={styles.workspaces}>
+      {items.map((item) => renderItem(item, 0))}
+    </div>
+  );
+
   return (
     <div
-      className={`${styles.project} ${isSelected ? styles.projectSelected : ""}`}
+      className={
+        isSection
+          ? styles.section
+          : `${styles.project} ${isSelected ? styles.projectSelected : ""}`
+      }
       style={projectColorStyle(project.color)}
     >
       <ContextMenu.Root>
@@ -1121,33 +1178,22 @@ export function ProjectItem(props: ProjectItemProps) {
             onPointerDown={isSection ? undefined : onDragStart}
             style={{ touchAction: "none" }}
           >
-            <ProjectChevron expanded={expanded} />
+            {!isSection && <ProjectChevron expanded={expanded} />}
             {isSection ? (
-              <span className={styles.sectionHost} title={project.path}>
-                {isRemoteHost(project.hostId) ? (
-                  <HostIndicator
-                    hostId={project.hostId}
-                    variant="chip"
-                    projectId={project.id}
-                  />
-                ) : (
-                  <LocalHostLabel />
-                )}
-              </span>
+              <SectionHostLabel
+                hostId={project.hostId}
+                path={project.path}
+                label={isRemoteHost(project.hostId) ? remoteTarget ?? project.hostId : "This machine"}
+                offline={isHostOffline(project.hostId, hosts)}
+                collapsedCount={expanded ? null : project.workspaces.length}
+              />
             ) : (
             <span
-              className={`${styles.projectName} ${
-                isRemoteHost(project.hostId) ? styles.projectNameRemote : ""
-              }`}
+              className={styles.projectName}
               title={project.path}
             >
               {project.name}
             </span>
-            )}
-            {!isSection && isRemoteHost(project.hostId) && (
-              <span className={styles.remoteHostIconSlot}>
-                <HostIndicator hostId={project.hostId} variant="icon" projectId={project.id} />
-              </span>
             )}
             {collapsed && projectIndicator && (
               <WorkspaceIndicatorDot indicator={projectIndicator} />
@@ -1173,7 +1219,7 @@ export function ProjectItem(props: ProjectItemProps) {
                 setNewFolderOpen(true);
               }}
             >
-              New Folder…
+              New Folder
             </ContextMenu.Item>
             <ContextMenu.Item
               className={styles.contextMenuItem}
@@ -1215,60 +1261,96 @@ export function ProjectItem(props: ProjectItemProps) {
                 </ContextMenu.Portal>
               </ContextMenu.Sub>
             )}
-            <ContextMenu.Separator className={styles.contextMenuSeparator} />
-            <ContextMenu.Sub>
-              <ContextMenu.SubTrigger
-                className={styles.contextMenuItem}
-                style={{ display: "flex", alignItems: "center" }}
-                disabled={linkChoices.length === 0}
-              >
-                Link with…
-                <ChevronRight size={14} style={{ marginLeft: "auto" }} />
-              </ContextMenu.SubTrigger>
-              <ContextMenu.Portal>
-                <ContextMenu.SubContent
-                  className={styles.contextMenu}
-                  style={{ maxWidth: 260 }}
-                >
-                  {linkChoices.map((choice) => (
-                    <ContextMenu.Item
-                      key={choice.key}
-                      className={styles.contextMenuItem}
-                      style={{ display: "flex", alignItems: "center", gap: 6 }}
-                      onSelect={() => void linkProjects(project.id, choice.targetId)}
+            {/* A host section's menu covers only that host's workspaces;
+                linking and removal live on the group header. */}
+            {!isSection && (
+              <>
+                <ContextMenu.Separator className={styles.contextMenuSeparator} />
+                <ContextMenu.Sub>
+                  <ContextMenu.SubTrigger
+                    className={styles.contextMenuItem}
+                    style={{ display: "flex", alignItems: "center" }}
+                    disabled={linkChoices.length === 0 && !localFolderEligible}
+                  >
+                    Link with…
+                    <ChevronRight size={14} style={{ marginLeft: "auto" }} />
+                  </ContextMenu.SubTrigger>
+                  <ContextMenu.Portal>
+                    <ContextMenu.SubContent
+                      className={styles.contextMenu}
+                      style={{ maxWidth: 260 }}
                     >
-                      {choice.label}
-                      {choice.hostIds.filter(isRemoteHost).map((hostId) => (
-                        <HostIndicator key={hostId} hostId={hostId} variant="icon" />
+                      {linkChoices.map((choice) => (
+                        <ContextMenu.Item
+                          key={choice.key}
+                          className={styles.contextMenuItem}
+                          style={{ display: "flex", alignItems: "center", gap: 6 }}
+                          onSelect={() => void linkProjects(project.id, choice.targetId)}
+                        >
+                          {choice.label}
+                          {choice.hostIds.filter(isRemoteHost).map((hostId) => (
+                            <HostIndicator key={hostId} hostId={hostId} variant="icon" />
+                          ))}
+                        </ContextMenu.Item>
                       ))}
-                    </ContextMenu.Item>
-                  ))}
-                </ContextMenu.SubContent>
-              </ContextMenu.Portal>
-            </ContextMenu.Sub>
-            {project.group && (
-              <ContextMenu.Item
-                className={styles.contextMenuItem}
-                onSelect={() => void unlinkProject(project.id)}
-              >
-                Unlink
-              </ContextMenu.Item>
+                      {localFolderEligible && (
+                        <>
+                          {linkChoices.length > 0 && (
+                            <ContextMenu.Separator className={styles.contextMenuSeparator} />
+                          )}
+                          <ContextMenu.Item
+                            className={styles.contextMenuItem}
+                            onSelect={() => void linkLocalFolder(project.id)}
+                          >
+                            Choose local folder…
+                          </ContextMenu.Item>
+                        </>
+                      )}
+                    </ContextMenu.SubContent>
+                  </ContextMenu.Portal>
+                </ContextMenu.Sub>
+                {project.group && (
+                  <ContextMenu.Item
+                    className={styles.contextMenuItem}
+                    onSelect={() => void unlinkProject(project.id)}
+                  >
+                    Unlink
+                  </ContextMenu.Item>
+                )}
+                <ContextMenu.Separator className={styles.contextMenuSeparator} />
+                <ContextMenu.Item
+                  className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+                  onSelect={() => setConfirmRemove(true)}
+                >
+                  Remove Project
+                </ContextMenu.Item>
+              </>
             )}
-            <ContextMenu.Separator className={styles.contextMenuSeparator} />
-            <ContextMenu.Item
-              className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
-              onSelect={() => setConfirmRemove(true)}
-            >
-              Remove Project
-            </ContextMenu.Item>
           </ContextMenu.Content>
         </ContextMenu.Portal>
       </ContextMenu.Root>
-      {expanded && items.length > 0 && (
-        <div className={styles.workspaces}>
-          {items.map((item) => renderItem(item, 0))}
-        </div>
-      )}
+      {isSection
+        ? expanded && items.length > 0 && workspaceList
+        : expanded &&
+          (isRemoteHost(project.hostId) || items.length > 0) && (
+            // Hangs off a guide line under the chevron (ADR-193 §3).
+            <div className={styles.projectBody}>
+              {/* A remote-only project names its host above its workspaces,
+                  the way a linked group's sections do. */}
+              {isRemoteHost(project.hostId) && (
+                <div className={styles.hostHeading} data-testid="project-host-heading">
+                  <SectionHostLabel
+                    hostId={project.hostId}
+                    path={project.path}
+                    label={remoteTarget ?? project.hostId}
+                    offline={isHostOffline(project.hostId, hosts)}
+                    collapsedCount={null}
+                  />
+                </div>
+              )}
+              {items.length > 0 && workspaceList}
+            </div>
+          )}
 
       <NewWorkspaceDialog
         open={newWorkspaceOpen}
@@ -1307,14 +1389,20 @@ export function ProjectItem(props: ProjectItemProps) {
             setNewFolderParentId(null);
           }
         }}
-        onConfirm={async (name) => {
+        // Moving rows or nesting in a folder ties the new folder to this
+        // host; a bare "New Folder" can go on any of the group's hosts.
+        hostChoices={(pendingMovePaths || newFolderParentId ? [project] : dialogProjects).map(
+          (p) => ({ projectId: p.id, hostId: p.hostId, disabledReason: null }),
+        )}
+        initialProjectId={project.id}
+        onConfirm={async (name, chosenId) => {
           setNewFolderOpen(false);
           const movePaths = pendingMovePaths;
           const parentId = newFolderParentId;
           setPendingMovePaths(null);
           setNewFolderParentId(null);
           await createWorkspaceFolder(
-            projectId,
+            chosenId ?? projectId,
             name,
             movePaths ?? undefined,
             parentId,

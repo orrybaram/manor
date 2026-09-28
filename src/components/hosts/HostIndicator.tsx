@@ -62,6 +62,23 @@ export function LocalHostLabel() {
   );
 }
 
+/**
+ * A remote host drawn like `LocalHostLabel`: cloud + ssh target, no chip,
+ * so the two sit side by side as equals (the New Folder host toggle).
+ */
+export function RemoteHostLabel(props: { hostId: string }) {
+  const { hostId } = props;
+  const target = useHostStore(
+    (s) => s.hosts.find((h) => h.hostId === hostId)?.spec?.target ?? hostId,
+  );
+  return (
+    <span className={styles.local} data-testid="remote-host-label">
+      <Cloud size={11} aria-hidden />
+      {target}
+    </span>
+  );
+}
+
 type VariantProps = {
   hostId: string;
   display: HostDisplay;

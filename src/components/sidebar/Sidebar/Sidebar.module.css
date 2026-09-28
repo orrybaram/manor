@@ -66,6 +66,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 4px 6px;
+  /* Same side inset as the project list below. */
+  margin-inline: 8px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -126,13 +128,17 @@
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
+  gap: 4px;
+  margin: 0 8px 6px;
   padding: 4px 6px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 12px;
-  color: var(--text-primary);
+  /* Set like the Projects heading below it. */
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
 }
 
 .homeRow:hover {
@@ -153,7 +159,6 @@
 .homeRowActive {
   background: var(--surface);
   color: var(--text-selected);
-  font-weight: 500;
 }
 
 .homeIcon {
@@ -187,15 +192,13 @@
   overflow-y: auto;
 }
 
+/* Side padding keeps hovered and active rows' backgrounds off the sidebar's
+   edges. */
 .projects {
   display: flex;
   flex-direction: column;
   gap: 2px;
-}
-
-.projectSeparator {
-  height: 1px;
-  background: var(--surface);
+  padding-inline: 8px;
 }
 
 .projectDragging {

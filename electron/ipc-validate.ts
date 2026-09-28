@@ -69,11 +69,25 @@ export function isLinearAssociation(
   );
 }
 
+/** A well-formed `{ id, name, command }` custom command. */
+export function isCustomCommand(
+  value: unknown,
+): value is { id: string; name: string; command: string } {
+  if (typeof value !== "object" || value === null) return false;
+  const entry = value as Record<string, unknown>;
+  return (
+    typeof entry.id === "string" &&
+    typeof entry.name === "string" &&
+    typeof entry.command === "string"
+  );
+}
+
 /**
- * A linked-project group's shared-settings update (ADR-192): an object
- * whose `name` is a string, `color` and `agentCommand` a string or null,
- * and `linearAssociations` null (no teams) or an array of associations.
- * Absent keys are left alone.
+ * A linked-project group's shared-settings update (ADR-192; `themeName` and
+ * `commands` joined in ADR-193 ticket 1): an object whose `name` is a
+ * string, `color`, `agentCommand` and `themeName` a string or null,
+ * `linearAssociations` null (no teams) or an array of associations, and
+ * `commands` an array of custom commands. Absent keys are left alone.
  */
 export function assertGroupUpdates(
   value: unknown,
@@ -82,29 +96,42 @@ export function assertGroupUpdates(
   name?: string;
   color?: string | null;
   agentCommand?: string | null;
+  themeName?: string | null;
   linearAssociations?: Array<{ teamId: string; teamName: string; teamKey: string }> | null;
+  commands?: Array<{ id: string; name: string; command: string }>;
 } {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(`${name}: expected object, got ${value === null ? "null" : typeof value}`);
   }
   const updates = value as Record<string, unknown>;
   if (updates.name !== undefined) assertString(updates.name, `${name}.name`);
-  for (const key of ["color", "agentCommand"]) {
+  for (const key of ["color", "agentCommand", "themeName"]) {
     const field = updates[key];
     if (field !== undefined && field !== null && typeof field !== "string") {
       throw new Error(`${name}.${key}: expected string or null, got ${typeof field}`);
     }
   }
   const linear = updates.linearAssociations;
-  if (linear === undefined || linear === null) return;
-  if (!Array.isArray(linear)) {
-    throw new Error(`${name}.linearAssociations: expected array or null, got ${typeof linear}`);
+  if (linear !== undefined && linear !== null) {
+    if (!Array.isArray(linear)) {
+      throw new Error(`${name}.linearAssociations: expected array or null, got ${typeof linear}`);
+    }
+    linear.forEach((entry, i) => {
+      if (!isLinearAssociation(entry)) {
+        throw new Error(
+          `${name}.linearAssociations[${i}]: expected { teamId, teamName, teamKey } strings`,
+        );
+      }
+    });
   }
-  linear.forEach((entry, i) => {
-    if (!isLinearAssociation(entry)) {
-      throw new Error(
-        `${name}.linearAssociations[${i}]: expected { teamId, teamName, teamKey } strings`,
-      );
+  const commands = updates.commands;
+  if (commands === undefined) return;
+  if (!Array.isArray(commands)) {
+    throw new Error(`${name}.commands: expected array, got ${typeof commands}`);
+  }
+  commands.forEach((entry, i) => {
+    if (!isCustomCommand(entry)) {
+      throw new Error(`${name}.commands[${i}]: expected { id, name, command } strings`);
     }
   });
 }

@@ -5,7 +5,7 @@ import React, {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import Boxes from "lucide-react/dist/esm/icons/boxes";
+import Folders from "lucide-react/dist/esm/icons/folders";
 import House from "lucide-react/dist/esm/icons/house";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
 import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
@@ -384,7 +384,7 @@ export function Sidebar(props: SidebarProps) {
                   also carries; a click does nothing, so no pointer cursor. */}
               <div className={styles.sectionHeader}>
                 <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <Boxes size={12} />
+                  <Folders size={12} />
                   Projects
                 </span>
               </div>
@@ -423,7 +423,6 @@ export function Sidebar(props: SidebarProps) {
               <div className={styles.projects}>
                 {entries.map((entry, idx) => (
                   <React.Fragment key={entry.key}>
-                    {idx > 0 && <div className={styles.projectSeparator} />}
                     <div
                       ref={(el) => {
                         if (el) projItemRefs.current.set(idx, el);
@@ -465,6 +464,22 @@ export function Sidebar(props: SidebarProps) {
                               selectionScope,
                             )
                           }
+                          onCreateWorktree={(projectId, name, branch, options) =>
+                            createWorktree(projectId, name, branch, options)
+                          }
+                          onUnhideWorkspace={(project, ws) =>
+                            setWorkspaceHidden(project.id, ws.path, false)
+                          }
+                          onOpenSettings={() =>
+                            onOpenProjectSettings?.(entry.sections[0].project.id)
+                          }
+                          onRemove={() => {
+                            void (async () => {
+                              for (const section of entry.sections) {
+                                await removeProject(section.project.id);
+                              }
+                            })();
+                          }}
                         />
                       )}
                     </div>

@@ -1,11 +1,25 @@
 /* ── ProjectItem ── */
 
-.project {
-  border-left: 2px solid transparent;
+/* Projects are set apart by space and type weight alone — no border, no
+   separator, no selection bar (ADR-193 §3). An expanded project's contents
+   hang off a guide line under its chevron (6px header padding + half the
+   12px chevron) and sit indented to its right; only an expanded project
+   takes space below, so collapsed projects stay tight. */
+.projectBody,
+.groupSections {
+  margin: 4px 0 14px 11px;
+  padding-left: 7px;
+  border-left: 1px solid var(--border);
 }
 
-.projectSelected {
+/* The selected project's guide takes its project color. */
+.projectSelected > .projectBody,
+.projectSelected > .groupSections {
   border-left-color: var(--project-color, var(--accent));
+}
+
+.projectBody > :first-child {
+  margin-top: 0;
 }
 
 .projectHeader {
@@ -15,7 +29,8 @@
   padding: 4px 6px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 13.5px;
+  font-weight: 600;
 }
 
 .projectHeader:hover {
@@ -48,19 +63,6 @@
   white-space: nowrap;
 }
 
-/* A remote project's name shrinks to its text so the cloud sits right after
-   it; the icon's slot takes the free space instead. */
-.projectNameRemote {
-  flex: 0 1 auto;
-}
-
-.remoteHostIconSlot {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-}
-
 .projectAction {
   border: none;
   background: transparent;
@@ -86,8 +88,10 @@
 
 /* ── Workspaces ── */
 
+/* A small step in from the guide line, so workspace rows sit inside their
+   host heading. */
 .workspaces {
-  padding-left: 0;
+  padding-left: 6px;
   margin-top: 8px;
   display: flex;
   flex-direction: column;
@@ -385,10 +389,13 @@
   border-radius: 4px;
 }
 
+/* Same padding and gap as .workspace, so the folder icon and name line up
+   with workspace icons and names in the list. The open/closed folder icon
+   shows the state; there is no chevron. */
 .folderHeader {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   padding: 4px 6px;
   border-radius: 4px;
   cursor: pointer;
@@ -397,20 +404,6 @@
 
 .folderHeader:hover {
   background: var(--surface);
-}
-
-.folderChevron {
-  font-size: 10px;
-  width: 12px;
-  color: var(--text-dim);
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  transition: transform 120ms ease;
-}
-
-.folderChevronOpen {
-  transform: rotate(90deg);
 }
 
 .folderIcon {
@@ -427,13 +420,6 @@
   white-space: nowrap;
 }
 
-.folderCount {
-  flex-shrink: 0;
-  font-size: 10px;
-  color: var(--text-dim);
-  font-variant-numeric: tabular-nums;
-}
-
 .folderActive {
   color: var(--project-color, var(--accent));
 }
@@ -443,11 +429,11 @@
 }
 
 .folderBody {
-  /* chevron (12px) + header gap (4px): member icons sit under the folder icon.
-     Nested bodies sit inside one another, so the step shrinks as `--folder-depth`
-     grows and reaches zero four levels in — past that, depth is carried by the
-     chevrons alone and labels keep the width they have left (ADR-172). */
-  padding-left: calc(16px - var(--folder-depth, 0) * 4px);
+  /* folder icon (12px) + header gap (6px): member icons sit under the folder
+     name. Nested bodies sit inside one another, so the step shrinks as
+     `--folder-depth` grows and nearly vanishes four levels in — past that,
+     labels keep the width they have left (ADR-172). */
+  padding-left: calc(18px - var(--folder-depth, 0) * 4px);
 }
 
 /* Members repeat the 8px row rhythm of .workspaces without its margin. */
@@ -460,10 +446,54 @@
 
 /* ── Linked-project groups (ADR-192) ── */
 
-/* A member's section header inside a group: the host, not the project. */
-.sectionHeader {
-  font-size: 11px;
-  padding: 2px 6px;
+/* A member's section: no `.project` padding of its own (ADR-193 §3). */
+.section {
+  display: block;
+}
+
+/* A host heading: a linked group's section header, or the host line above a
+   remote-only project's workspaces. Small spaced caps at the guide's
+   content edge, with its workspaces a step further in, so it reads as a
+   heading rather than another row (ADR-193 §3). */
+.sectionHeader,
+.hostHeading {
+  height: 18px;
+  padding: 0 6px;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: none;
+}
+
+.sectionHeader:hover {
+  background: none;
+  color: var(--text-primary);
+}
+
+.hostHeading {
+  display: flex;
+  align-items: center;
+}
+
+/* A host heading sits close to its first workspace. */
+.sectionHeader + .workspaces,
+.hostHeading + .workspaces {
+  margin-top: 2px;
+}
+
+/* Inside the guided body the host heading starts right at the content edge;
+   its workspaces step in from there. */
+.sectionHeader,
+.hostHeading {
+  padding-left: 0;
+}
+
+/* Belt-and-braces: a section header never takes the group's project-color
+   text, however selection styling reaches it. */
+.projectSelected > .projectHeader.sectionHeader {
   color: var(--text-dim);
 }
 
@@ -472,30 +502,49 @@
   min-width: 0;
   display: flex;
   align-items: center;
+  gap: 4px;
 }
 
+/* The host icon takes the chevron's 12px column, centered under it. */
+.sectionHost > svg {
+  width: 12px;
+  flex-shrink: 0;
+}
+
+.sectionHostName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A collapsed section's workspace count, after the host name. */
+.sectionHostCount {
+  letter-spacing: 0;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+/* An away host's dot, right-aligned so it never competes with the name. */
+.sectionHostDot {
+  margin-left: auto;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--yellow, #d29922);
+}
+
+/* Host sections sit close together; an expanded section's list carries the
+   space below it, so collapsed hosts don't leave gaps. The last section's
+   space comes from the project's own bottom padding. */
 .groupSections {
-  padding-left: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.groupLinkIcon {
-  display: inline-flex;
-  align-items: center;
-  color: var(--text-dim);
-}
-
-/* Some or all of the group's hosts are away (ADR-192 §5). */
-.groupStateWarn {
-  color: var(--yellow, #d29922);
-}
-
-/* "Partial" / "Offline" beside the state icon, so the two read apart. */
-.groupStateBadge {
-  margin-left: 3px;
-  font-size: 9px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
+.groupSections > :not(:last-child) .section > .workspaces {
+  padding-bottom: 16px;
 }
 
 /* Every host of the group is away. */

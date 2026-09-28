@@ -18,6 +18,7 @@ import type {
   WorkspaceInfo,
 } from "../store/project-store";
 import { groupHostIds } from "../lib/project-groups";
+import { isRemoteHost, LOCAL_HOST_ID } from "../lib/hosts";
 
 export type SidebarItem =
   | { kind: "workspace"; ws: WorkspaceInfo }
@@ -1005,4 +1006,20 @@ export function linkChoices<
     choices.push(choice);
   }
   return choices;
+}
+
+/**
+ * Whether "Link with…" should offer "Choose local folder…" for `project`
+ * (ADR-193 ticket 4): it is on a remote host, and its group — if it has one
+ * — has no local member yet. A local project is never eligible; it is what
+ * "Choose local folder…" would create or find.
+ */
+export function canLinkLocalFolder<
+  P extends Pick<ProjectInfo, "id" | "hostId" | "group">,
+>(project: P, projects: readonly P[]): boolean {
+  if (!isRemoteHost(project.hostId)) return false;
+  const group = project.group;
+  if (!group) return true;
+  const hostOf = new Map(projects.map((p) => [p.id, p.hostId]));
+  return !groupHostIds(group.memberIds, (id) => hostOf.get(id)).has(LOCAL_HOST_ID);
 }

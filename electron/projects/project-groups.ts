@@ -9,10 +9,11 @@
  * - a group has at most one member per host;
  * - a group has at least two members (the last-but-one leaving dissolves it).
  *
- * A group also holds the settings its members share (ticket 2): name,
- * color, agent command and Linear association. Reads resolve group first,
- * then project (`resolveShared`); a project leaving takes the group's
- * values with it, so it keeps its look (`copySharedOnto`).
+ * A group also holds the settings its members share (ticket 2; theme and
+ * commands joined in ADR-193 ticket 1): name, color, agent command, Linear
+ * association, theme and custom commands. Reads resolve group first, then
+ * project (`resolveShared`); a project leaving takes the group's values
+ * with it, so it keeps its look (`copySharedOnto`).
  */
 
 import crypto from "node:crypto";
@@ -21,7 +22,7 @@ import {
   memberOnHost,
   noMemberOnHostMessage,
 } from "../../src/lib/project-groups";
-import { isLinearAssociation } from "../ipc-validate";
+import { isCustomCommand, isLinearAssociation } from "../ipc-validate";
 import type { ProjectContext } from "./context";
 import type {
   GroupSharedFields,
@@ -75,22 +76,37 @@ export function resolveShared(
       (group?.agentCommand !== undefined ? group.agentCommand : project.agentCommand) ??
       null,
     linearAssociations: group?.linearAssociations ?? project.linearAssociations ?? [],
+    themeName:
+      (group?.themeName !== undefined ? group.themeName : project.themeName) ?? null,
+    commands: group?.commands ?? project.commands ?? [],
   };
 }
 
 /** The shared settings a group read from disk actually has, type-checked. */
 function sharedFrom(
   raw: Partial<PersistedProjectGroup>,
-): Pick<PersistedProjectGroup, "color" | "agentCommand" | "linearAssociations"> {
-  const out: Pick<PersistedProjectGroup, "color" | "agentCommand" | "linearAssociations"> =
-    {};
+): Pick<
+  PersistedProjectGroup,
+  "color" | "agentCommand" | "linearAssociations" | "themeName" | "commands"
+> {
+  const out: Pick<
+    PersistedProjectGroup,
+    "color" | "agentCommand" | "linearAssociations" | "themeName" | "commands"
+  > = {};
   if (raw.color === null || typeof raw.color === "string") out.color = raw.color;
   if (raw.agentCommand === null || typeof raw.agentCommand === "string") {
     out.agentCommand = raw.agentCommand;
   }
+  if (raw.themeName === null || typeof raw.themeName === "string") {
+    out.themeName = raw.themeName;
+  }
   if (Array.isArray(raw.linearAssociations)) {
     // A malformed entry would break every later read of `teamId`.
     out.linearAssociations = raw.linearAssociations.filter(isLinearAssociation);
+  }
+  if (Array.isArray(raw.commands)) {
+    // A malformed entry would break every later read of `id`/`name`/`command`.
+    out.commands = raw.commands.filter(isCustomCommand);
   }
   return out;
 }
@@ -221,6 +237,8 @@ export function linkProjects(
         color: other.color ?? null,
         agentCommand: other.agentCommand ?? null,
         linearAssociations: [...(other.linearAssociations ?? [])],
+        themeName: other.themeName ?? null,
+        commands: [...(other.commands ?? [])],
       },
     ];
   }
@@ -243,8 +261,12 @@ export function updateGroup(
   if (name) group.name = name;
   if (updates.color !== undefined) group.color = updates.color;
   if (updates.agentCommand !== undefined) group.agentCommand = updates.agentCommand;
+  if (updates.themeName !== undefined) group.themeName = updates.themeName;
   if (updates.linearAssociations !== undefined) {
     group.linearAssociations = [...updates.linearAssociations];
+  }
+  if (updates.commands !== undefined) {
+    group.commands = [...updates.commands];
   }
   ctx.store.save();
   return group;
@@ -259,8 +281,12 @@ function copySharedOnto(group: PersistedProjectGroup, project: PersistedProject)
   project.name = group.name;
   if (group.color !== undefined) project.color = group.color;
   if (group.agentCommand !== undefined) project.agentCommand = group.agentCommand;
+  if (group.themeName !== undefined) project.themeName = group.themeName;
   if (group.linearAssociations !== undefined) {
     project.linearAssociations = [...group.linearAssociations];
+  }
+  if (group.commands !== undefined) {
+    project.commands = [...group.commands];
   }
 }
 

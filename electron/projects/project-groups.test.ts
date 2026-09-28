@@ -167,7 +167,7 @@ describe("ProjectManager linked-project groups (ADR-192)", () => {
     expect(await groupOf(mgr, "box-app")).toBeNull();
     const after = readState();
     // Each keeps the group's shared settings as its own; nothing else moves.
-    const shared = { name: "Project local-app", color: "blue", agentCommand: null, linearAssociations: [] };
+    const shared = { name: "Project local-app", color: "blue", agentCommand: null, linearAssociations: [], themeName: null, commands: [] };
     expect(after.projects).toEqual(
       before.map((p) =>
         p.id === "local-app" || p.id === "box-app" ? { ...p, ...shared } : p,
@@ -217,6 +217,8 @@ describe("ProjectManager linked-project groups (ADR-192)", () => {
         color: "blue",
         agentCommand: null,
         linearAssociations: [],
+        themeName: null,
+        commands: [],
       },
     ]);
     const reloaded = manager();
@@ -270,7 +272,7 @@ describe("ProjectManager linked-project groups (ADR-192)", () => {
     for (const pid of ["local-app", "box-app", "mac-app"]) {
       expect(await groupOf(mgr, pid)).toBeNull();
     }
-    const shared = { name: "Project local-app", color: "blue", agentCommand: null, linearAssociations: [] };
+    const shared = { name: "Project local-app", color: "blue", agentCommand: null, linearAssociations: [], themeName: null, commands: [] };
     expect(readState().projects).toEqual(
       before.map((p) => (p.id === "box-other" ? p : { ...p, ...shared })),
     );
@@ -493,6 +495,134 @@ describe("ProjectManager linked-project groups (ADR-192)", () => {
         agentCommand: "codex",
         linearAssociations: [],
       });
+    });
+  });
+
+  describe("shared theme and commands (ADR-193 ticket 1)", () => {
+    const CMD = { id: "c1", name: "Build", command: "npm run build" };
+
+    async function info(mgr: ProjectManager, id: string) {
+      return (await mgr.getProjects()).find((p) => p.id === id)!;
+    }
+
+    it("resolves themeName group first, then project; commands like linearAssociations", async () => {
+      seed({
+        groups: [
+          // A null theme on the group is a value; no commands, so members
+          // show their own.
+          { id: "g1", name: "App", memberIds: ["local-app", "box-app"], lastUsedHostId: null, themeName: null },
+        ],
+      });
+      const disk = JSON.parse(fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8"));
+      disk.projects[1] = { ...disk.projects[1], commands: [CMD], themeName: "dracula" };
+      fs.writeFileSync(path.join(tmpDir, "projects.json"), JSON.stringify(disk));
+      const mgr = manager();
+
+      const local = await info(mgr, "local-app");
+      const box = await info(mgr, "box-app");
+      // The group's null theme wins over box-app's own "dracula".
+      expect(local).toMatchObject({ themeName: null, commands: [] });
+      expect(box).toMatchObject({ themeName: null, commands: [CMD] });
+      // An ungrouped project reads its own.
+      expect(await info(mgr, "mac-app")).toMatchObject({ themeName: null, commands: [] });
+    });
+
+    it("a new group takes its first member's theme and commands", async () => {
+      seed({
+        projects: [
+          project("local-app", undefined, { themeName: "dracula", commands: [CMD] }),
+          project("box-app", "box"),
+          project("box-other", "box"),
+          project("mac-app", "mac"),
+        ],
+      });
+      const mgr = manager();
+
+      mgr.linkProjects("box-app", "local-app");
+
+      expect(await info(mgr, "box-app")).toMatchObject({ themeName: "dracula", commands: [CMD] });
+    });
+
+    it("writes group theme and commands to the group, not the members", async () => {
+      seed();
+      const mgr = manager();
+      const { id } = mgr.linkProjects("box-app", "local-app");
+      const before = readState().projects;
+
+      const members = await mgr.updateGroup(id, { themeName: "dracula", commands: [CMD] });
+
+      for (const p of members) expect(p).toMatchObject({ themeName: "dracula", commands: [CMD] });
+      const after = readState() as { groups: Array<Record<string, unknown>>; projects: unknown[] };
+      expect(after.groups[0]).toMatchObject({ themeName: "dracula", commands: [CMD] });
+      expect(after.projects).toEqual(before);
+    });
+
+    it("sends a grouped project's theme and commands updates to its group", async () => {
+      seed();
+      const mgr = manager();
+      mgr.linkProjects("box-app", "local-app");
+
+      const updated = await mgr.updateProject("box-app", { themeName: "dracula", commands: [CMD] });
+
+      expect(updated).toMatchObject({ themeName: "dracula", commands: [CMD] });
+      // The other member shows the shared theme and commands too.
+      expect(await info(mgr, "local-app")).toMatchObject({ themeName: "dracula", commands: [CMD] });
+      const box = readState().projects.find((p) => p.id === "box-app")!;
+      expect(box).not.toHaveProperty("themeName");
+      expect(box).not.toHaveProperty("commands");
+    });
+
+    it("copies the group's theme and commands onto the project that leaves", async () => {
+      seed();
+      const mgr = manager();
+      const { id } = mgr.linkProjects("box-app", "local-app");
+      await mgr.updateGroup(id, { themeName: "dracula", commands: [CMD] });
+
+      mgr.unlinkProject("box-app");
+
+      expect(await info(mgr, "box-app")).toMatchObject({
+        themeName: "dracula",
+        commands: [CMD],
+        group: null,
+      });
+      expect(readState().projects.find((p) => p.id === "box-app")).toMatchObject({
+        themeName: "dracula",
+        commands: [CMD],
+      });
+    });
+
+    it("drops malformed custom commands on a group read from disk", async () => {
+      seed({
+        groups: [
+          {
+            id: "g1",
+            name: "App",
+            memberIds: ["local-app", "box-app"],
+            lastUsedHostId: null,
+            commands: [null, { id: "c1" }, CMD],
+          },
+        ],
+      });
+
+      expect((await info(manager(), "box-app")).commands).toEqual([CMD]);
+    });
+
+    it("loads a group's malformed theme and commands from disk, falling through to the member's own", async () => {
+      seed({
+        groups: [
+          {
+            id: "g1",
+            name: "App",
+            memberIds: ["local-app", "box-app"],
+            lastUsedHostId: null,
+            themeName: 7,
+            commands: "nope",
+          },
+        ],
+      });
+      const mgr = manager();
+
+      expect(await info(mgr, "local-app")).toMatchObject({ themeName: null, commands: [] });
     });
   });
 

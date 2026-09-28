@@ -174,6 +174,17 @@
   padding-left: 32px;
 }
 
+/* A linked group's member row, one level under its group row (ADR-193). */
+.navItemNested2 {
+  padding-left: 44px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.navItemNested2 svg {
+  flex-shrink: 0;
+}
+
 .navItemLabel {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -984,31 +995,69 @@ button.keybindingActionBtn:hover:not(:disabled) {
 
 /* ── Linked-project groups (ADR-192) ── */
 
-.hostLabelLocal {
-  font-size: 12px;
+/* Linked projects on a group's settings page (ADR-193): one row per host,
+   host name over its path, Unlink on the right. */
+.linkedMemberList {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--surface);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.linkedMemberRow {
+  min-width: 0;
+  padding: 10px 8px 10px 14px;
+  border-bottom: 1px solid var(--surface);
+}
+
+.linkedMemberRow:last-child {
+  border-bottom: none;
+}
+
+.linkedMemberIcon {
+  flex-shrink: 0;
   color: var(--text-dim);
-  white-space: nowrap;
+}
+
+.linkedMemberText {
+  flex: 1;
+  min-width: 0;
+}
+
+.linkedMemberHost {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
 }
 
 .linkedMemberPath {
-  flex: 1;
-  min-width: 0;
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
   color: var(--text-dim);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* One member's per-host settings on a group's settings page. */
-.hostSettings {
-  gap: 28px;
-  padding-top: 20px;
-  border-top: 1px solid var(--surface);
+/* A linked member's page heading: "<group> on <host>" (ADR-193). */
+.memberHeading {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-selected);
 }
 
-.hostSettingsHeading {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
+.memberHeadingOn {
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.memberHeadingIcon {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+/* A hint on the same row as a control: no top offset, so it centers. */
+.fieldHintInline {
+  margin-top: 0;
 }

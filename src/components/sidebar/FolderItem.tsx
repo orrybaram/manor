@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Folder from "lucide-react/dist/esm/icons/folder";
+import FolderOpen from "lucide-react/dist/esm/icons/folder-open";
 import type { WorkspaceFolder, WorkspaceInfo } from "../../store/project-store";
 import { handleSidebarRowKeyDown } from "../../lib/sidebar-row";
 import { openContextMenuFromKeyboard } from "../../lib/keyboard-context-menu";
 import { useWorkspaceKeys, useWorkspacesAgentStatus } from "../../hooks/useProjectAgentStatus";
-import { AgentDot } from "../ui/AgentDot/AgentDot";
+import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
+import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import { useEmojiAutocomplete } from "../ui/EmojiAutocomplete/useEmojiAutocomplete";
 import { composeHandlers } from "../ui/EmojiAutocomplete/compose";
 import styles from "./ProjectItem.module.css";
@@ -118,6 +119,7 @@ export function FolderItem(props: FolderItemProps) {
   }, [collapsed]);
 
   const { status, pulse } = useWorkspacesAgentStatus(useWorkspaceKeys(workspaces, hostId));
+  const indicator = toWorkspaceIndicator(status, pulse);
 
   const setEditingState = (next: boolean) => {
     setEditing(next);
@@ -208,13 +210,8 @@ export function FolderItem(props: FolderItemProps) {
             }}
             onPointerDown={onDragStart}
           >
-            <span
-              className={`${styles.folderChevron} ${collapsed ? "" : styles.folderChevronOpen}`}
-            >
-              <ChevronRight size={12} />
-            </span>
             <span className={styles.folderIcon}>
-              <Folder size={12} />
+              {collapsed ? <Folder size={12} /> : <FolderOpen size={12} />}
             </span>
             {editing ? (
               <>
@@ -252,10 +249,8 @@ export function FolderItem(props: FolderItemProps) {
                 <span className={styles.folderName} title={folder.name}>
                   {folder.name}
                 </span>
-                <span className={styles.folderCount}>{workspaces.length}</span>
-                {collapsed && status && (
-                  <AgentDot status={status} size="sidebar" pulse={pulse} />
-                )}
+                {/* Same rule as a collapsed project: idle shows nothing. */}
+                {collapsed && indicator && <WorkspaceIndicatorDot indicator={indicator} />}
               </>
             )}
           </div>

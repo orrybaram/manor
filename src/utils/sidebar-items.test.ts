@@ -4,6 +4,7 @@ import {
   applyGroupDrop,
   buildSidebarItems,
   buildTopLevelEntries,
+  canLinkLocalFolder,
   descendantWorkspaces,
   expandTopLevelOrder,
   flattenRows,
@@ -1172,6 +1173,38 @@ describe("linked-project groups at the top level (ADR-192)", () => {
       "local-2",
     ]);
     expect(ids(linkCandidates(projects[2], projects))).toEqual(["mac-app", "local-2"]);
+  });
+
+  it("offers 'Choose local folder…' for a remote project with no local member", () => {
+    const localAppGroup: ProjectGroupInfo = {
+      id: "g-app",
+      name: "App",
+      memberIds: ["app-local", "app-box"],
+      lastUsedHostId: "local",
+    };
+    const remoteOnlyGroup: ProjectGroupInfo = {
+      id: "g-three",
+      name: "Three",
+      memberIds: ["t-box", "t-mac"],
+      lastUsedHostId: null,
+    };
+    const projects = [
+      member("app-local", "local", localAppGroup),
+      member("app-box", "box", localAppGroup),
+      member("t-box", "box", remoteOnlyGroup),
+      member("t-mac", "mac", remoteOnlyGroup),
+      member("solo-box", "box"),
+    ];
+
+    // A local project is never eligible.
+    expect(canLinkLocalFolder(projects[0], projects)).toBe(false);
+    // A remote member whose group already has a local member.
+    expect(canLinkLocalFolder(projects[1], projects)).toBe(false);
+    // A remote member whose group has no local member yet.
+    expect(canLinkLocalFolder(projects[2], projects)).toBe(true);
+    expect(canLinkLocalFolder(projects[3], projects)).toBe(true);
+    // An unlinked remote project.
+    expect(canLinkLocalFolder(projects[4], projects)).toBe(true);
   });
 });
 

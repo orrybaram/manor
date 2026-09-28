@@ -1299,10 +1299,22 @@ describe("selection across a linked group's host sections (ADR-192 ticket 7)", (
   it("finds the active workspace's key, preferring the given section", () => {
     const all = sections();
     expect(selectionKeyForPath(all, "/repo/wip")).toBe(B("/repo/wip"));
-    expect(selectionKeyForPath(all, "/repo/main", "app-box")).toBe(B("/repo/main"));
+    expect(selectionKeyForPath(all, "/repo/main", ["app-box"])).toBe(B("/repo/main"));
     expect(selectionKeyForPath(all, "/repo/main")).toBe(L("/repo/main"));
     expect(selectionKeyForPath(all, "/repo/old")).toBeNull();
     expect(selectionKeyForPath(all, null)).toBeNull();
+  });
+
+  it("keys a shared active path to the project that has it open, not the clicked section", () => {
+    const all = sections();
+    // Open on the box; the Cmd-click lands in the local section.
+    expect(selectionKeyForPath(all, "/repo/main", ["app-box", "app-local"])).toBe(
+      B("/repo/main"),
+    );
+    // The open project is outside the group: the clicked section stands in.
+    expect(selectionKeyForPath(all, "/repo/main", ["other", "app-box"])).toBe(
+      B("/repo/main"),
+    );
   });
 
   it("moves only a section's own rows when each member applies its share", () => {

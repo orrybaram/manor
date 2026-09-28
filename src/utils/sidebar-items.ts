@@ -769,20 +769,24 @@ export function visibleSelectionKeys(
 
 /**
  * The selection key of the workspace at `path` (the active one, standing in
- * as an anchor), or null when no section shows it. `preferProjectId`'s
- * section wins a path two hosts share.
+ * as an anchor), or null when no section shows it. When two hosts share the
+ * path, the first of `preferProjectIds` to own it wins — the project whose
+ * workspace is actually open should come first, so a Cmd-click in one
+ * section never seeds its twin of a row the user was never on.
  */
 export function selectionKeyForPath(
   sections: readonly SelectionSection<Pick<ProjectInfo, "id">>[],
   path: string | null,
-  preferProjectId?: string,
+  preferProjectIds: readonly (string | null | undefined)[] = [],
 ): string | null {
   if (path === null) return null;
   const owners = sections.filter((section) =>
     visibleWorkspacePaths(section.items, new Set()).includes(path),
   );
-  const owner =
-    owners.find((section) => section.project.id === preferProjectId) ?? owners[0];
+  const preferred = preferProjectIds
+    .map((id) => owners.find((section) => section.project.id === id))
+    .find((section) => section !== undefined);
+  const owner = preferred ?? owners[0];
   return owner ? selectionKey(owner.project.id, path) : null;
 }
 

@@ -5,14 +5,21 @@
 // path on two hosts dims only the row being removed.
 //
 // A key is marked before its removal starts and unmarked once the removal
-// settles. A removal resolves only after the project list has been refreshed,
-// so a removed row is already gone when it is unmarked, and a failed one —
-// still in the list — comes back undimmed.
+// settles. Marks are counted, so overlapping removals of one row keep it dim
+// until the last of them settles. A removal resolves only after the project
+// list has been refreshed, so a removed row is already gone when it is
+// unmarked, and a failed one — still in the list — comes back undimmed.
 
 import { create } from "zustand";
 
 interface DeletingWorkspacesState {
+  /** Keys with at least one removal in flight. */
   keys: ReadonlySet<string>;
+  /**
+   * In-flight removals per key. A single delete and a bulk delete can both be
+   * removing the same row; it stays dimmed until the last of them settles.
+   */
+  counts: ReadonlyMap<string, number>;
   mark: (keys: string[]) => void;
   unmark: (keys: string[]) => void;
 }
@@ -20,13 +27,22 @@ interface DeletingWorkspacesState {
 export const useDeletingWorkspacesStore = create<DeletingWorkspacesState>(
   (set) => ({
     keys: new Set(),
+    counts: new Map(),
     mark: (keys) =>
-      set((s) => ({ keys: new Set([...s.keys, ...keys]) })),
+      set((s) => {
+        const counts = new Map(s.counts);
+        for (const key of keys) counts.set(key, (counts.get(key) ?? 0) + 1);
+        return { counts, keys: new Set(counts.keys()) };
+      }),
     unmark: (keys) =>
       set((s) => {
-        const next = new Set(s.keys);
-        for (const key of keys) next.delete(key);
-        return { keys: next };
+        const counts = new Map(s.counts);
+        for (const key of keys) {
+          const left = (counts.get(key) ?? 0) - 1;
+          if (left > 0) counts.set(key, left);
+          else counts.delete(key);
+        }
+        return { counts, keys: new Set(counts.keys()) };
       }),
   }),
 );

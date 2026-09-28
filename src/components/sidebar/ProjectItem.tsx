@@ -652,8 +652,16 @@ export function ProjectItem(props: ProjectItemProps) {
         itemRefCallback={registerRow(ws.path)}
         onRowClick={(e) => {
           const selection = useSidebarSelectionStore.getState();
-          const activeKey = () =>
-            selectionKeyForPath(scope.sections, activeWorkspacePath, projectId);
+          // The active path's key belongs to the project that has it open
+          // (`selectWorkspace` moves `selectedProjectIndex` with it); this
+          // section stands in only when that project is outside the scope.
+          const activeKey = () => {
+            const { projects, selectedProjectIndex } = useProjectStore.getState();
+            return selectionKeyForPath(scope.sections, activeWorkspacePath, [
+              projects[selectedProjectIndex]?.id,
+              projectId,
+            ]);
+          };
           if (e.shiftKey) {
             // Modifier clicks select; they never navigate (ADR-190 §1).
             selection.selectRange(
@@ -1320,8 +1328,14 @@ export function ProjectItem(props: ProjectItemProps) {
         onOpenChange={(open) => {
           if (!open) setConfirmBulkDelete(null);
         }}
-        workspaces={confirmBulkDelete?.flatMap((s) => s.workspaces) ?? []}
+        workspaces={
+          confirmBulkDelete?.flatMap(({ section, workspaces: targets }) =>
+            targets.map((ws) => ({ projectId: section.project.id, ws })),
+          ) ?? []
+        }
         onConfirm={(_workspaces, deleteBranch) => {
+          // State, not `_workspaces`: the sections already hold each row's
+          // owning project, grouped the way the removals must run.
           const bySection = confirmBulkDelete ?? [];
           useSidebarSelectionStore.getState().clear();
           const deleting = useDeletingWorkspacesStore.getState();

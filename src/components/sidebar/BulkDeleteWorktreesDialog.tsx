@@ -7,9 +7,15 @@ import { useDeleteBranchPreference } from "./useDeleteBranchPreference";
 type BulkDeleteWorktreesDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  workspaces: WorkspaceInfo[];
-  onConfirm: (workspaces: WorkspaceInfo[], deleteBranch: boolean) => void;
+  /**
+   * The workspaces to delete, each with the project that owns it: two hosts
+   * of a linked group can share a path (ADR-192 ticket 7).
+   */
+  workspaces: BulkDeleteTarget[];
+  onConfirm: (workspaces: BulkDeleteTarget[], deleteBranch: boolean) => void;
 };
+
+type BulkDeleteTarget = { projectId: string; ws: WorkspaceInfo };
 
 /**
  * Bulk sibling of `DeleteWorktreeDialog` (ADR-190 §2): lists every workspace
@@ -37,9 +43,8 @@ export function BulkDeleteWorktreesDialog(props: BulkDeleteWorktreesDialogProps)
             {workspaces.length === 1 ? "worktree" : "worktrees"} from disk.
           </Dialog.Description>
           <ul className={styles.bulkDeleteList}>
-            {workspaces.map((ws, i) => (
-              // Two hosts of a linked group can share a path (ADR-192 ticket 7).
-              <li key={`${i}:${ws.path}`} className={styles.bulkDeleteItem}>
+            {workspaces.map(({ projectId, ws }) => (
+              <li key={`${projectId}:${ws.path}`} className={styles.bulkDeleteItem}>
                 <span className={styles.bulkDeleteName}>
                   {ws.name || ws.branch || ws.path.split("/").pop() || "workspace"}
                 </span>

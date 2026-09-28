@@ -48,4 +48,9 @@ ADR-190 sidebar multi-select work being merged.
   and is disabled with it. A selection within one section works as before.
 - **Drag.** A group drag moves only the grabbed section's share of the
   selection. Rows selected in other sections stay put, so no workspace moves
-  between member projects.
+  between member projects. Dropping a share of two or more rows clears the
+  whole group selection, including the rows selected in other sections.
+- **Active anchor.** When the active workspace stands in as the anchor and
+  its path exists on two hosts, the key is the one in the project that has
+  it open (`selectedProjectIndex`). The clicked section stands in only when
+  that project is outside the group.

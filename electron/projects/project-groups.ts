@@ -16,7 +16,11 @@
  */
 
 import crypto from "node:crypto";
-import { hostTakenMessage, memberOnHost } from "../../src/lib/project-groups";
+import {
+  hostTakenMessage,
+  memberOnHost,
+  noMemberOnHostMessage,
+} from "../../src/lib/project-groups";
 import { isLinearAssociation } from "../ipc-validate";
 import type { ProjectContext } from "./context";
 import type {
@@ -255,6 +259,26 @@ function copySharedOnto(group: PersistedProjectGroup, project: PersistedProject)
   if (group.linearAssociations !== undefined) {
     project.linearAssociations = [...group.linearAssociations];
   }
+}
+
+/**
+ * Remember `hostId` as the host `groupId` last made a workspace on, so the
+ * New Workspace host picker starts there next time. Throws for an unknown
+ * group or a host none of its members is on; the same host again is a no-op.
+ */
+export function setGroupLastUsedHost(
+  ctx: ProjectContext,
+  groupId: string,
+  hostId: string,
+): void {
+  const group = ctx.store.state.groups?.find((g) => g.id === groupId);
+  if (!group) throw new Error(`Unknown project group "${groupId}".`);
+  if (group.lastUsedHostId === hostId) return;
+  if (memberOnHost(group.memberIds, hostId, (id) => ctx.find(id)?.hostId) === undefined) {
+    throw new Error(noMemberOnHostMessage(group.name, ctx.hosts.label(hostId)));
+  }
+  group.lastUsedHostId = hostId;
+  ctx.store.save();
 }
 
 /**

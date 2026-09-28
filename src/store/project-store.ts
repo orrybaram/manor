@@ -427,6 +427,17 @@ export interface ProjectGroupInfo {
   lastUsedHostId: string | null;
 }
 
+/** The optional parts of `createWorktree`, named so callers skip what they don't use. */
+export interface CreateWorktreeOptions {
+  /** Run in the new workspace once it (and any setup script) is ready. */
+  agentCommand?: string;
+  linkedIssue?: LinkedIssue;
+  /** What a new branch starts from; the default branch when omitted. */
+  baseBranch?: string;
+  /** Check out `branch` as it is instead of creating it. */
+  useExistingBranch?: boolean;
+}
+
 export type SetupStep = "prune" | "fetch" | "create-worktree" | "persist" | "switch" | "setup-script";
 export type StepStatus = "pending" | "in-progress" | "done" | "error";
 export type SetupProgressEvent = { step: SetupStep; status: StepStatus; message?: string };
@@ -498,10 +509,7 @@ interface ProjectState {
     projectId: string,
     name: string,
     branch?: string,
-    agentCommand?: string,
-    linkedIssue?: LinkedIssue,
-    baseBranch?: string,
-    useExistingBranch?: boolean,
+    options?: CreateWorktreeOptions,
   ) => Promise<string | null>;
   removeWorktree: (
     projectId: string,
@@ -567,6 +575,12 @@ interface ProjectState {
    * at once. Errors roll the change back and are shown as a toast.
    */
   updateGroup: (groupId: string, updates: GroupUpdatableFields) => Promise<void>;
+  /**
+   * ADR-192: remember the host a group last made a workspace on, where the
+   * New Workspace host picker starts next time. `createWorktree` calls it
+   * for a linked project; a failure only loses the default, so it is quiet.
+   */
+  setGroupLastUsedHost: (groupId: string, hostId: string) => Promise<void>;
   /** Persists a full sidebar order: workspace paths and folder ids. */
   reorderSidebar: (
     projectId: string,
@@ -808,11 +822,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     projectId: string,
     name: string,
     branch?: string,
-    agentCommand?: string,
-    linkedIssue?: LinkedIssue,
-    baseBranch?: string,
-    useExistingBranch?: boolean,
+    options: CreateWorktreeOptions = {},
   ) => {
+    const { agentCommand, linkedIssue, baseBranch, useExistingBranch } = options;
     const project = get().projects.find((p) => p.id === projectId);
     const startScript = project?.worktreeStartScript ?? null;
 
@@ -857,6 +869,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set((s) => ({
       projects: s.projects.map((p) => (p.id === projectId ? updated : p)),
     }));
+
+    // A linked project's host picker starts here next time (ADR-192).
+    if (updated.group) void get().setGroupLastUsedHost(updated.group.id, updated.hostId);
 
     // Find the new workspace by name or branch.
     const branchName = branch || name;
@@ -1083,6 +1098,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         const { name, color, agentCommand, linearAssociations, group } = fresh;
         return { ...p, name, color, agentCommand, linearAssociations, group };
       }),
+    }));
+  },
+
+  setGroupLastUsedHost: async (groupId: string, hostId: string) => {
+    const alreadyRecorded = (p: ProjectInfo) =>
+      p.group?.id !== groupId || p.group.lastUsedHostId === hostId;
+    if (get().projects.every(alreadyRecorded)) return;
+    try {
+      await window.electronAPI.projects.setGroupLastUsedHost(groupId, hostId);
+    } catch {
+      // Only the picker's default is lost; the workspace was made.
+      return;
+    }
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        alreadyRecorded(p) || !p.group ? p : { ...p, group: { ...p.group, lastUsedHostId: hostId } },
+      ),
     }));
   },
 

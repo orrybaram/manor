@@ -424,6 +424,11 @@ export class ProjectManager {
     groups.unlinkGroup(this.ctx, groupId);
   }
 
+  /** Remember the host a group last made a workspace on (New Workspace picker). */
+  setGroupLastUsedHost(groupId: string, hostId: string): void {
+    groups.setGroupLastUsedHost(this.ctx, groupId, hostId);
+  }
+
   // ── Workspaces and folders (see `workspace-folders.ts`) ──
 
   selectWorkspace(projectId: string, workspaceIndex: number): void {

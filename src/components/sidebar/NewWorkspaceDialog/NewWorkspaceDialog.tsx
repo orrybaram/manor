@@ -16,8 +16,23 @@ import styles from "./NewWorkspaceDialog.module.css";
 import { Row, Stack } from "../../ui/Layout/Layout";
 import { sanitizeBranchName } from "../../../utils/branch-name";
 import { useRestoreFocus } from "../../../hooks/useRestoreFocus";
+import { useHostStore } from "../../../store/host-store";
+import { hostLabel } from "../../../lib/hosts";
+import { startingMemberId, workspaceHostChoices } from "../../../lib/workspace-host-choices";
+import {
+  baseBranchOptions,
+  checkBranchOnHost,
+  existingBranchOptions as listExistingBranchOptions,
+  projectForSelectValue,
+  projectSelectOptions,
+  projectSelectValue,
+  reseedBaseBranch,
+} from "../../../lib/new-workspace";
+import { HostPicker } from "./HostPicker";
 
 type Mode = "new" | "existing";
+
+const NO_BRANCHES: string[] = [];
 
 type NewWorkspaceDialogProps = {
   open: boolean;
@@ -38,6 +53,12 @@ type NewWorkspaceDialogProps = {
   initialBranch?: string;
   /** Folder preselected when the dialog opens from a folder's own menu. */
   initialFolderId?: string | null;
+  /**
+   * For a linked project (ADR-192): the member the host picker starts on
+   * ahead of the group's last-used host, because the dialog was opened from
+   * that member's own section or folder.
+   */
+  preferredMemberId?: string | null;
 };
 
 export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
@@ -51,6 +72,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     initialName = "",
     initialBranch = "",
     initialFolderId = null,
+    preferredMemberId = null,
   } = props;
 
   const { onCloseAutoFocus: restoreFocusOnClose } = useRestoreFocus(open);
@@ -60,6 +82,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   const [branchName, setBranchName] = useState("");
   const [branchManuallyEdited, setBranchManuallyEdited] = useState(false);
   const [baseBranch, setBaseBranch] = useState("");
+  const [baseBranchEdited, setBaseBranchEdited] = useState(false);
   const [existingBranch, setExistingBranch] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [folderId, setFolderId] = useState<string | null>(null);
@@ -74,16 +97,33 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     [onClose, isCreating],
   );
 
-  const defaultProjectId =
-    preselectedProjectId || projects[selectedProjectIndex]?.id || "";
+  const hosts = useHostStore((s) => s.hosts);
+
+  // A linked project creates in one member: the one the host picker starts
+  // on (ADR-192). Anything else is created in as it is.
+  const defaultProjectId = startingMemberId(
+    preselectedProjectId || projects[selectedProjectIndex]?.id || "",
+    projects,
+    hosts,
+    preferredMemberId,
+  );
 
   const activeProjectId = selectedProjectId || defaultProjectId;
 
   const activeProject = projects.find((p) => p.id === activeProjectId);
   const defaultBranch = activeProject?.defaultBranch ?? "main";
+  const hostChoices = useMemo(
+    () => workspaceHostChoices(activeProject, projects, hosts),
+    [activeProject, projects, hosts],
+  );
+  const activeHostChoice = hostChoices?.find((c) => c.projectId === activeProjectId);
 
   // Fetch remote branches when dialog opens or project changes
-  const { data: remoteBranches = [], isLoading: loadingRemote } = useQuery({
+  const {
+    data: remoteData,
+    isLoading: loadingRemote,
+    isError: remoteFailed,
+  } = useQuery({
     queryKey: ["remote-branches", activeProjectId],
     queryFn: () =>
       window.electronAPI.projects.listRemoteBranches(activeProjectId),
@@ -91,7 +131,11 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   });
 
   // Fetch local branches
-  const { data: localBranches = [], isLoading: loadingLocal } = useQuery({
+  const {
+    data: localData,
+    isLoading: loadingLocal,
+    isError: localFailed,
+  } = useQuery({
     queryKey: ["local-branches", activeProjectId],
     queryFn: () =>
       window.electronAPI.projects.listLocalBranches(activeProjectId),
@@ -99,45 +143,47 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   });
 
   const loadingBranches = loadingRemote || loadingLocal;
+  // Undefined until loaded; a failed load counts as no branches.
+  const remoteList = remoteFailed ? NO_BRANCHES : remoteData;
+  const localList = localFailed ? NO_BRANCHES : localData;
+  const remoteBranches = remoteList ?? NO_BRANCHES;
+  const localBranches = localList ?? NO_BRANCHES;
 
-  // Build the dropdown item list for base branch selection:
-  // 1. defaultBranch (local)
-  // 2. origin/{defaultBranch}
-  // 3. all other remote branches prefixed with "origin/" (skip one matching defaultBranch)
   const allBranchOptions = useMemo(
-    () => [
-      defaultBranch,
-      `origin/${defaultBranch}`,
-      ...remoteBranches
-        .filter((b) => b !== defaultBranch)
-        .map((b) => `origin/${b}`),
-    ],
+    () => baseBranchOptions(defaultBranch, remoteBranches),
     [defaultBranch, remoteBranches],
   );
-
-  // All branches for "existing branch" mode — local-only branches first, then remote-only
-  const existingBranchOptions = useMemo(() => {
-    const remoteSet = new Set(remoteBranches);
-    const localSet = new Set(localBranches);
-
-    // Local branches that don't exist on remote (truly local-only)
-    const localOnly = localBranches.filter(
-      (b) => b !== defaultBranch && !remoteSet.has(b),
-    );
-    // Remote branches (excluding default)
-    const remote = remoteBranches.filter((b) => b !== defaultBranch);
-    // Branches on both local and remote (excluding default)
-    const both = localBranches.filter(
-      (b) => b !== defaultBranch && remoteSet.has(b),
-    );
-
-    return [...both, ...localOnly, ...remote.filter((b) => !localSet.has(b))];
-  }, [remoteBranches, localBranches, defaultBranch]);
-
-  const projectOptions = useMemo(
-    () => projects.map((p) => ({ value: p.id, label: p.name })),
-    [projects],
+  const existingBranchOptions = useMemo(
+    () => listExistingBranchOptions(defaultBranch, localBranches, remoteBranches),
+    [defaultBranch, localBranches, remoteBranches],
   );
+
+  const projectOptions = useMemo(() => projectSelectOptions(projects), [projects]);
+
+  // For a linked member, the chosen host must have the branch (ADR-192).
+  // Create waits while its branch lists load.
+  const branchOnHost =
+    hostChoices && activeProject
+      ? checkBranchOnHost({
+          mode,
+          branch: mode === "existing" ? existingBranch : baseBranch,
+          defaultBranch,
+          localBranches: localList,
+          remoteBranches: remoteList,
+          hostName: hostLabel(activeProject.hostId, hosts),
+        })
+      : null;
+  const branchMissingMessage =
+    branchOnHost?.state === "missing" ? branchOnHost.message : null;
+  const waitingForBranches = branchOnHost?.state === "pending";
+
+  /** Move to another member or project, reseeding what belongs to it. */
+  const chooseProject = (projectId: string) => {
+    const next = projects.find((p) => p.id === projectId);
+    setSelectedProjectId(projectId);
+    if (next) setBaseBranch(reseedBaseBranch(baseBranch, baseBranchEdited, next));
+    setError(null);
+  };
 
   const folders = useMemo(() => activeProject?.folders ?? [], [activeProject]);
   const folderOptions = useMemo(
@@ -164,6 +210,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
           (preselectedProjectId || projects[selectedProjectIndex]?.id || ""),
       );
       setBaseBranch(proj?.defaultBranch ?? "main");
+      setBaseBranchEdited(false);
       setExistingBranch("");
       setSelectedProjectId(defaultProjectId);
       setFolderId(initialFolderId);
@@ -194,6 +241,15 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       const projectId = activeProjectId;
       if (!projectId) {
         setError("No project selected");
+        return;
+      }
+      if (activeHostChoice?.disabledReason) {
+        setError(activeHostChoice.disabledReason);
+        return;
+      }
+      if (waitingForBranches) return;
+      if (branchMissingMessage) {
+        setError(branchMissingMessage);
         return;
       }
 
@@ -245,7 +301,20 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
         setIsCreating(false);
       }
     },
-    [name, branchName, baseBranch, existingBranch, mode, activeProjectId, activeFolderId, onSubmit, isCreating],
+    [
+      name,
+      branchName,
+      baseBranch,
+      existingBranch,
+      mode,
+      activeProjectId,
+      activeFolderId,
+      activeHostChoice,
+      waitingForBranches,
+      branchMissingMessage,
+      onSubmit,
+      isCreating,
+    ],
   );
 
   return (
@@ -269,10 +338,18 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
           <form onSubmit={handleSubmit}>
             <Stack className={styles.body}>
               <fieldset disabled={isCreating} className={styles.fieldset}>
+                {hostChoices && (
+                  <HostPicker
+                    choices={hostChoices}
+                    value={activeProjectId}
+                    onChange={chooseProject}
+                  />
+                )}
                 <ToggleGroup
                   value={mode}
                   onChange={setMode}
                   size="sm"
+                  aria-label="New or existing branch"
                   options={[
                     { value: "new", label: "New branch" },
                     { value: "existing", label: "Existing branch" },
@@ -346,14 +423,24 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                     </Stack>
                   </>
                 )}
-                {error && <div className={styles.error}>{error}</div>}
+                {error ? (
+                  <div className={styles.error}>{error}</div>
+                ) : (
+                  branchMissingMessage && (
+                    <div className={styles.hint} data-testid="new-workspace-branch-missing">
+                      {branchMissingMessage}
+                    </div>
+                  )
+                )}
                 <Stack gap="md" className={styles.actions}>
                   <div className={styles.selects}>
-                    {projects.length > 1 && (
+                    {projectOptions.length > 1 && (
                       <SearchableSelect
-                        value={activeProjectId}
-                        onChange={(id) => {
-                          setSelectedProjectId(id);
+                        value={activeProject ? projectSelectValue(activeProject) : ""}
+                        onChange={(value) => {
+                          const target = projectForSelectValue(value, projects);
+                          if (!target) return;
+                          chooseProject(startingMemberId(target, projects, hosts));
                           setFolderId(null);
                         }}
                         options={projectOptions}
@@ -376,7 +463,11 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                     {mode === "new" && (
                       <SearchableSelect
                         value={baseBranch}
-                        onChange={setBaseBranch}
+                        onChange={(branch) => {
+                          setBaseBranch(branch);
+                          setBaseBranchEdited(true);
+                          setError(null);
+                        }}
                         options={allBranchOptions.map((b) => ({
                           value: b,
                           label: b,
@@ -396,7 +487,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                     <Button
                       type="submit"
                       variant="primary"
-                      disabled={isCreating}
+                      disabled={isCreating || waitingForBranches}
                       className={styles.submit}
                       data-testid="new-workspace-submit"
                     >

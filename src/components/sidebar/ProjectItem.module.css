@@ -474,12 +474,6 @@
   align-items: center;
 }
 
-.sectionLocal {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
 .groupSections {
   padding-left: 8px;
 }

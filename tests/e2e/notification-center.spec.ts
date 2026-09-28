@@ -215,9 +215,9 @@ test.describe("notification center", () => {
 
     // The type filter is a view over the same list — "Agents" hides these PR
     // records, "All" restores them, and nothing is mutated on the way.
-    await filterBar(window).getByRole("button", { name: "Agents" }).click();
+    await filterBar(window).getByRole("radio", { name: "Agents" }).click();
     await expect(rows(window)).toHaveCount(0);
-    await filterBar(window).getByRole("button", { name: "All" }).click();
+    await filterBar(window).getByRole("radio", { name: "All" }).click();
     await expect(rows(window)).toHaveCount(3);
 
     await popover(window).getByRole("button", { name: "Mark all read" }).click();
@@ -416,10 +416,10 @@ test.describe("notification center", () => {
 
     // Filtering is by family: these are all agent records, so "PRs" empties
     // the list and "Agents" brings every one of them back.
-    await filterBar(window).getByRole("button", { name: "PRs" }).click();
+    await filterBar(window).getByRole("radio", { name: "PRs" }).click();
     await expect(rows(window)).toHaveCount(0);
     await expect(window.getByTestId("notifications-empty")).toBeVisible();
-    await filterBar(window).getByRole("button", { name: "Agents" }).click();
+    await filterBar(window).getByRole("radio", { name: "Agents" }).click();
     await expect(rows(window)).toHaveCount(3);
 
     await closeBell(window);

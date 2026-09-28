@@ -148,7 +148,7 @@ describe("createWorktree setup script", () => {
 
     await useProjectStore
       .getState()
-      .createWorktree("proj-1", "feat", "feat", "claude");
+      .createWorktree("proj-1", "feat", "feat", { agentCommand: "claude" });
 
     // Setup state should exist with a setup-script step marked pending
     const setupState = useAppStore.getState().worktreeSetupState[worktreePath];

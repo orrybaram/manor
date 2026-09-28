@@ -14,6 +14,10 @@ export function ModeToggle(props: ModeToggleProps) {
     <ToggleGroup
       value={diffMode}
       onChange={onModeChange}
+      aria-label="Diff mode"
+      // Switching mode clears the file selection and refetches, so arrow
+      // keys only move focus; Enter or Space switches.
+      activationMode="manual"
       options={[
         {
           value: "local" as DiffMode,

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import X from "lucide-react/dist/esm/icons/x";
 import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
-import { useHostStore, selectHost } from "../../../store/host-store";
+import { useHostStore } from "../../../store/host-store";
+import { hostLabel } from "../../../lib/hosts";
 import { toDirSlug } from "../../../utils/branch-name";
 import { Button } from "../../ui/Button/Button";
 import { Row, Stack } from "../../ui/Layout/Layout";
@@ -29,8 +30,8 @@ export function CloneToHostDialog(props: CloneToHostDialogProps) {
   const { open, project, hostId, onClose, onMoved } = props;
 
   const moveProjectToHost = useProjectStore((s) => s.moveProjectToHost);
-  const host = useHostStore(selectHost(hostId));
-  const hostLabel = host?.spec?.target ?? hostId;
+  const hosts = useHostStore((s) => s.hosts);
+  const hostName = hostLabel(hostId, hosts);
 
   const [repoUrl, setRepoUrl] = useState("");
   const [remoteDir, setRemoteDir] = useState("");
@@ -111,7 +112,7 @@ export function CloneToHostDialog(props: CloneToHostDialogProps) {
               <Stack gap="sm">
                 <Stack>
                   <label className={styles.fieldLabel}>Host</label>
-                  <div className={styles.fieldStatic}>{hostLabel}</div>
+                  <div className={styles.fieldStatic}>{hostName}</div>
                 </Stack>
                 <RepoUrlAndRemoteDirFields
                   idPrefix="clone-to-host"
@@ -121,7 +122,7 @@ export function CloneToHostDialog(props: CloneToHostDialogProps) {
                   onRemoteDirChange={setRemoteDir}
                 />
                 <div className={styles.fieldHint}>
-                  The repo will be cloned on {hostLabel} — or an existing clone
+                  The repo will be cloned on {hostName} — or an existing clone
                   there will be adopted — and "{project.name}" will then run
                   from it. Manor doesn't copy your keys; log in on the box
                   first.

@@ -198,7 +198,8 @@ rule.
   project settings.
 - **New Workspace host picker (ticket 3).** It chooses which member project to
   create in and defaults to `lastUsedHostId`, which it records. Offline hosts
-  are disabled with a tooltip. Unlinked projects are unchanged.
+  are disabled with a tooltip. Unlinked projects are unchanged. Opened from
+  one host's own section, it starts on that host instead (see the ticket).
 - **"Clone onto another host…" (ticket 4)** from the picker. It reuses the
   existing clone flow and links the result.
 - **Link suggestions by `origin` (ticket 5).** Normalized with the existing

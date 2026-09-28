@@ -1,6 +1,6 @@
 ---
 title: Control relay listener and stream messages on the remote daemon
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: []

@@ -1,6 +1,6 @@
 ---
 title: Answer relayed control requests in main with an allowlist
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [1]

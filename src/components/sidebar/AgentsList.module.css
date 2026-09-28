@@ -48,6 +48,20 @@
   color: var(--text-dim);
 }
 
+/* Duplicated in Ports.module.css (`.projectChevron`) — candidate for a shared <Chevron> UI component */
+.chevron {
+  width: 12px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  transition: transform 120ms ease;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
 /* Duplicated in Sidebar.module.css — candidate for a shared <SectionHeader> UI component */
 .action {
   border: none;

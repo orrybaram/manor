@@ -5,6 +5,7 @@ import {
   openContextMenuFromKeyboard,
 } from "../../lib/keyboard-context-menu";
 import Bot from "lucide-react/dist/esm/icons/bot";
+import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import X from "lucide-react/dist/esm/icons/x";
 import type { AgentInfo } from "../../electron.d";
 import { useAgentStore } from "../../store/agent-store";
@@ -162,6 +163,17 @@ export function AgentsList(props: AgentsListProps) {
 
   const agentsHeight = useProjectStore((s) => s.agentsHeight);
   const setAgentsHeight = useProjectStore((s) => s.setAgentsHeight);
+  // Folded to its header, like Ports; persisted. The rail's popover always
+  // shows the list, so it ignores this.
+  const agentsCollapsed = useProjectStore((s) => s.agentsCollapsed);
+  const setAgentsCollapsed = useProjectStore((s) => s.setAgentsCollapsed);
+  const collapsed = !fitContent && agentsCollapsed;
+  const setCollapsed = useCallback(
+    (next: boolean) => {
+      if (useProjectStore.getState().agentsCollapsed !== next) setAgentsCollapsed(next);
+    },
+    [setAgentsCollapsed],
+  );
   const [isResizing, setIsResizing] = useState(false);
   const startY = useRef(0);
   const startHeight = useRef(0);
@@ -176,9 +188,14 @@ export function AgentsList(props: AgentsListProps) {
 
       const onMouseMove = (ev: MouseEvent) => {
         const delta = startY.current - ev.clientY;
-        setAgentsHeight(
-          Math.max(MIN_AGENTS_HEIGHT, startHeight.current + delta),
-        );
+        const newHeight = startHeight.current + delta;
+        // Dragging below the minimum folds the pane, as Ports does.
+        if (newHeight < MIN_AGENTS_HEIGHT) {
+          setCollapsed(true);
+        } else {
+          setCollapsed(false);
+          setAgentsHeight(newHeight);
+        }
       };
 
       const cleanup = () => {
@@ -193,7 +210,7 @@ export function AgentsList(props: AgentsListProps) {
       document.addEventListener("mouseup", cleanup);
       window.addEventListener("blur", cleanup);
     },
-    [agentsHeight, setAgentsHeight],
+    [agentsHeight, setAgentsHeight, setCollapsed],
   );
 
   const visibleAgents = useVisibleAgents();
@@ -225,15 +242,46 @@ export function AgentsList(props: AgentsListProps) {
           data-testid="sidebar-agents-resize-handle"
         />
       )}
-      <div className={styles.sectionHeader}>
+      <div
+        className={styles.sectionHeader}
+        {...(fitContent
+          ? {}
+          : {
+              style: { cursor: "pointer" },
+              role: "button",
+              tabIndex: 0,
+              "aria-expanded": !collapsed,
+              "aria-label": collapsed ? "Expand agents" : "Collapse agents",
+              "data-testid": "sidebar-agents-header",
+              onClick: () => setCollapsed(!collapsed),
+              onKeyDown: (e: React.KeyboardEvent) => {
+                if (e.target !== e.currentTarget) return;
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setCollapsed(!collapsed);
+                }
+              },
+            })}
+      >
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          {!fitContent && (
+            <span
+              className={`${styles.chevron} ${!collapsed ? styles.chevronOpen : ""}`}
+            >
+              <ChevronRight size={12} />
+            </span>
+          )}
           <Bot size={12} />
           Agents
         </span>
         {onShowAll && (
           <button
             className={styles.action}
-            onClick={onShowAll}
+            onClick={(e) => {
+              // The header around it folds the pane on click.
+              e.stopPropagation();
+              onShowAll();
+            }}
             title="View all agents"
             data-testid="sidebar-agents-view-all"
             style={{ fontSize: 10, opacity: 0.6 }}
@@ -242,33 +290,35 @@ export function AgentsList(props: AgentsListProps) {
           </button>
         )}
       </div>
-      <div className={styles.agentGroups} style={fitContent ? undefined : { height: agentsHeight }}>
-        {Array.from(groups.entries()).map(([projectName, groupAgents]) => (
-          <div key={projectName} className={styles.agentGroup}>
-            <div className={styles.agentGroupHeader}>{projectName}</div>
-            {groupAgents.map((agent) => (
-              <AgentRow
-                key={agent.id}
-                agent={agent}
-                shouldPulse={shouldPulse(agent)}
-                onClick={() => {
-                  navigateToAgent(agent);
-                  onAgentSelect?.();
-                }}
-                onRename={(name) =>
-                  useAgentStore.getState().renameAgent(agent.id, name)
-                }
-                onClose={() => {
-                  if (agent.paneId) {
-                    useAppStore.getState().closePaneById(agent.paneId);
+      {!collapsed && (
+        <div className={styles.agentGroups} style={fitContent ? undefined : { height: agentsHeight }}>
+          {Array.from(groups.entries()).map(([projectName, groupAgents]) => (
+            <div key={projectName} className={styles.agentGroup}>
+              <div className={styles.agentGroupHeader}>{projectName}</div>
+              {groupAgents.map((agent) => (
+                <AgentRow
+                  key={agent.id}
+                  agent={agent}
+                  shouldPulse={shouldPulse(agent)}
+                  onClick={() => {
+                    navigateToAgent(agent);
+                    onAgentSelect?.();
+                  }}
+                  onRename={(name) =>
+                    useAgentStore.getState().renameAgent(agent.id, name)
                   }
-                  useAgentStore.getState().removeAgent(agent.id);
-                }}
-              />
-            ))}
-          </div>
-        ))}
-      </div>
+                  onClose={() => {
+                    if (agent.paneId) {
+                      useAppStore.getState().closePaneById(agent.paneId);
+                    }
+                    useAgentStore.getState().removeAgent(agent.id);
+                  }}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

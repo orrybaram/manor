@@ -12,8 +12,7 @@ import { useBranchWatcher } from "../../../hooks/useBranchWatcher";
 import { useDiffWatcher } from "../../../hooks/useDiffWatcher";
 import { usePrWatcher } from "../../../hooks/usePrWatcher";
 import { useVisibleAgents } from "../../../hooks/useVisibleAgents";
-import { useDragOverlayStore } from "../../../store/drag-overlay-store";
-import { RAIL_SNAP_X } from "../../../lib/sidebar-rail";
+import { SidebarResizeHandle } from "../SidebarResizeHandle/SidebarResizeHandle";
 import { NotificationsPopover } from "../../notifications/NotificationsPopover";
 import { RailProjectTile } from "./RailProjectTile";
 import { useRailPopover } from "./useRailPopover";
@@ -60,34 +59,6 @@ export function SidebarRail(props: SidebarRailProps) {
   useRovingRows(railRef);
 
   const goHome = () => setActiveWorkspace(HOME_PATH);
-
-  // Dragging the edge right past the snap point expands to the full sidebar,
-  // and the same drag goes on sizing it. The listeners live on the document
-  // and read the stores directly, so they outlive the rail unmounting.
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    useDragOverlayStore.getState().incrementDragCount();
-
-    const onMouseMove = (ev: MouseEvent) => {
-      const store = useProjectStore.getState();
-      if (store.sidebarMode === "rail") {
-        if (ev.clientX <= RAIL_SNAP_X) return;
-        store.setSidebarMode("full");
-      }
-      store.setSidebarWidth(Math.max(160, Math.min(400, ev.clientX)));
-    };
-
-    const cleanup = () => {
-      useDragOverlayStore.getState().decrementDragCount();
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", cleanup);
-      window.removeEventListener("blur", cleanup);
-    };
-
-    document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", cleanup);
-    window.addEventListener("blur", cleanup);
-  }, []);
 
   const { setOpen } = popover;
   const onAgentsOpenChange = useCallback(
@@ -203,11 +174,7 @@ export function SidebarRail(props: SidebarRailProps) {
         )}
         <NotificationsPopover />
       </div>
-      <div
-        className={styles.resizeHandle}
-        data-testid="rail-resize-handle"
-        onMouseDown={handleResizeStart}
-      />
+      <SidebarResizeHandle />
     </div>
   );
 }

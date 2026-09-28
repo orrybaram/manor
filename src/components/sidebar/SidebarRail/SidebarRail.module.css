@@ -14,24 +14,6 @@
   overflow: hidden;
 }
 
-/* Like the full sidebar's `.resizeHandle`, but inside the edge: the rail
-   clips its overflow. */
-.resizeHandle {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 4px;
-  height: 100%;
-  cursor: col-resize;
-  z-index: 20;
-  background: transparent;
-  transition: background 0.15s ease;
-}
-
-.resizeHandle:hover {
-  background: var(--accent);
-}
-
 /* Room for the macOS traffic lights, draggable like `.titlebar`. */
 .dragSpacer {
   height: 32px;

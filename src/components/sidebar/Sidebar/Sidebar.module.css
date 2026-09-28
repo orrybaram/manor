@@ -245,21 +245,3 @@
   display: block;
 }
 
-.resizeHandle {
-  position: absolute;
-  top: 0;
-  right: -3px;
-  width: 6px;
-  height: 100%;
-  cursor: col-resize;
-  z-index: 20;
-  background: transparent;
-  transition: background 0.15s ease;
-}
-
-.resizeHandle:hover,
-.resizeHandleActive {
-  background: var(--accent);
-  width: 6px;
-  right: -3px;
-}

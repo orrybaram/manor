@@ -11,7 +11,15 @@ import "./xterm-env-polyfill";
 import * as net from "node:net";
 import * as fs from "node:fs";
 import * as crypto from "node:crypto";
-import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
+import { dirname } from "node:path";
+import {
+  mkdir as fsMkdir,
+  readFile as fsReadFile,
+  rename as fsRename,
+  stat as fsStat,
+  unlink as fsUnlink,
+  writeFile as fsWriteFile,
+} from "node:fs/promises";
 import { TerminalHost } from "./terminal-host";
 import { TERMINAL_HOST_PROTOCOL } from "./types";
 import { PTY_SUBPROCESS_PROTOCOL } from "./pty-subprocess-ipc";
@@ -32,6 +40,9 @@ const daemonVersion = process.env.MANOR_VERSION;
 
 /** `readFile` refuses files larger than this rather than buffering them. */
 const MAX_READ_FILE_BYTES = 10 * 1024 * 1024;
+
+/** `writeFile` refuses a decoded payload larger than this. */
+const MAX_WRITE_FILE_BYTES = 20 * 1024 * 1024;
 
 function log(msg: string): void {
   const ts = new Date().toISOString();
@@ -227,8 +238,9 @@ async function handleControlMessage(
       return { type: "envUpdated" };
     }
 
-    // exec and readFile are dispatched outside the serial queue (see
-    // control-queue.ts) — their responses may go out after later requests'.
+    // exec, readFile and writeFile are dispatched outside the serial queue
+    // (see control-queue.ts) — their responses may go out after later
+    // requests'.
     case "exec": {
       log(`exec: ${request.cmd}`);
       const aborter = new AbortController();
@@ -263,6 +275,33 @@ async function handleControlMessage(
         return { type: "fileContents", contents };
       } catch (err) {
         return { type: "error", message: `readFile failed: ${errorMessage(err)}` };
+      }
+    }
+
+    case "writeFile": {
+      try {
+        const data = Buffer.from(request.base64, "base64");
+        if (data.length > MAX_WRITE_FILE_BYTES) {
+          throw new Error(
+            `file is ${data.length} bytes, over the ${MAX_WRITE_FILE_BYTES}-byte limit`,
+          );
+        }
+        await fsMkdir(dirname(request.path), { recursive: true });
+        // Write next to the target and rename over it, so a reader never
+        // sees a partial file (ADR-187 §1).
+        const tmpPath = `${request.path}.${process.pid}.${crypto
+          .randomBytes(4)
+          .toString("hex")}.tmp`;
+        try {
+          await fsWriteFile(tmpPath, data);
+          await fsRename(tmpPath, request.path);
+        } catch (err) {
+          await fsUnlink(tmpPath).catch(() => {});
+          throw err;
+        }
+        return { type: "fileWritten" };
+      } catch (err) {
+        return { type: "error", message: `writeFile failed: ${errorMessage(err)}` };
       }
     }
 

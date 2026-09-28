@@ -18,7 +18,10 @@ import { REPLY_TYPES } from "./types";
 export const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 
 /** Request types the daemon answers out of order (see `callConcurrent`). */
-type ConcurrentRequest = Extract<ControlRequest, { type: "exec" | "readFile" }>;
+type ConcurrentRequest = Extract<
+  ControlRequest,
+  { type: "exec" | "readFile" | "writeFile" }
+>;
 
 interface PendingRequest {
   resolve: (resp: ControlResponse) => void;
@@ -62,8 +65,8 @@ export class RpcChannel {
   private requestIdCounter = 0;
   /** Serializes ordinary requests so only one is in flight at a time —
    *  terminal operations depend on the daemon seeing them in order.
-   *  `exec`/`readFile` bypass it (see `callConcurrent`); replies are
-   *  matched by `requestId`, so they may arrive in any order. */
+   *  `exec`/`readFile`/`writeFile` bypass it (see `callConcurrent`); replies
+   *  are matched by `requestId`, so they may arrive in any order. */
   private mutex: Promise<void> = Promise.resolve();
 
   /**
@@ -121,9 +124,9 @@ export class RpcChannel {
 
   /**
    * `call` without queueing behind the mutex. Only for request types the
-   * daemon answers out of order (`exec`, `readFile`); anything else relies on
-   * the daemon seeing requests in order. `timeoutMs: null` waits until the
-   * reply or a disconnect.
+   * daemon answers out of order (`exec`, `readFile`, `writeFile`); anything
+   * else relies on the daemon seeing requests in order. `timeoutMs: null`
+   * waits until the reply or a disconnect.
    */
   async callConcurrent<R extends ConcurrentRequest>(
     req: R,
@@ -172,10 +175,11 @@ export class RpcChannel {
 
   /**
    * Hand a reply to the request it answers, matched by `requestId`
-   * (exec/readFile replies can overtake others). A reply to a request that
-   * already timed out is dropped. A reply without an id — the daemon could
-   * not read one out of a garbled line — could answer any pending request,
-   * so every one of them fails rather than one getting the wrong answer.
+   * (exec/readFile/writeFile replies can overtake others). A reply to a
+   * request that already timed out is dropped. A reply without an id — the
+   * daemon could not read one out of a garbled line — could answer any
+   * pending request, so every one of them fails rather than one getting the
+   * wrong answer.
    */
   private dispatch(resp: Partial<Envelope<ControlResponse>>): void {
     if (resp.requestId === undefined) {

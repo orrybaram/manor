@@ -388,10 +388,13 @@
   border-radius: 4px;
 }
 
+/* Same padding and gap as .workspace, so the folder icon and name line up
+   with workspace icons and names in the list. The open/closed folder icon
+   shows the state; there is no chevron. */
 .folderHeader {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   padding: 4px 6px;
   border-radius: 4px;
   cursor: pointer;
@@ -400,20 +403,6 @@
 
 .folderHeader:hover {
   background: var(--surface);
-}
-
-.folderChevron {
-  font-size: 10px;
-  width: 12px;
-  color: var(--text-dim);
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  transition: transform 120ms ease;
-}
-
-.folderChevronOpen {
-  transform: rotate(90deg);
 }
 
 .folderIcon {
@@ -446,11 +435,11 @@
 }
 
 .folderBody {
-  /* chevron (12px) + header gap (4px): member icons sit under the folder icon.
-     Nested bodies sit inside one another, so the step shrinks as `--folder-depth`
-     grows and reaches zero four levels in — past that, depth is carried by the
-     chevrons alone and labels keep the width they have left (ADR-172). */
-  padding-left: calc(16px - var(--folder-depth, 0) * 4px);
+  /* folder icon (12px) + header gap (6px): member icons sit under the folder
+     name. Nested bodies sit inside one another, so the step shrinks as
+     `--folder-depth` grows and nearly vanishes four levels in — past that,
+     labels keep the width they have left (ADR-172). */
+  padding-left: calc(18px - var(--folder-depth, 0) * 4px);
 }
 
 /* Members repeat the 8px row rhythm of .workspaces without its margin. */

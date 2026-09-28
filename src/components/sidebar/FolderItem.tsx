@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Folder from "lucide-react/dist/esm/icons/folder";
+import FolderOpen from "lucide-react/dist/esm/icons/folder-open";
 import type { WorkspaceFolder, WorkspaceInfo } from "../../store/project-store";
 import { handleSidebarRowKeyDown } from "../../lib/sidebar-row";
 import { openContextMenuFromKeyboard } from "../../lib/keyboard-context-menu";
@@ -208,13 +208,8 @@ export function FolderItem(props: FolderItemProps) {
             }}
             onPointerDown={onDragStart}
           >
-            <span
-              className={`${styles.folderChevron} ${collapsed ? "" : styles.folderChevronOpen}`}
-            >
-              <ChevronRight size={12} />
-            </span>
             <span className={styles.folderIcon}>
-              <Folder size={12} />
+              {collapsed ? <Folder size={12} /> : <FolderOpen size={12} />}
             </span>
             {editing ? (
               <>

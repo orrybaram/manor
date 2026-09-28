@@ -316,6 +316,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
         }>;
       }>,
     ) => ipcRenderer.invoke("projects:updateGroup", groupId, updates),
+    setGroupLastUsedHost: (groupId: string, hostId: string) =>
+      ipcRenderer.invoke("projects:setGroupLastUsedHost", groupId, hostId),
     update: (
       projectId: string,
       updates: Partial<{

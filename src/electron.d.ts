@@ -606,6 +606,8 @@ export interface ElectronAPI {
       groupId: string,
       updates: import("./store/project-store").GroupUpdatableFields,
     ) => Promise<import("./store/project-store").ProjectInfo[]>;
+    /** ADR-192: remember the host a group last made a workspace on. */
+    setGroupLastUsedHost: (groupId: string, hostId: string) => Promise<void>;
     update: (
       projectId: string,
       updates: import("./store/project-store").ProjectUpdatableFields,

@@ -258,6 +258,26 @@ function copySharedOnto(group: PersistedProjectGroup, project: PersistedProject)
 }
 
 /**
+ * Remember `hostId` as the host `groupId` last made a workspace on, so the
+ * New Workspace host picker starts there next time. Throws for an unknown
+ * group or a host none of its members is on; the same host again is a no-op.
+ */
+export function setGroupLastUsedHost(
+  ctx: ProjectContext,
+  groupId: string,
+  hostId: string,
+): void {
+  const group = ctx.store.state.groups?.find((g) => g.id === groupId);
+  if (!group) throw new Error(`Unknown project group "${groupId}".`);
+  if (group.lastUsedHostId === hostId) return;
+  if (memberOnHost(group.memberIds, hostId, (id) => ctx.find(id)?.hostId) === undefined) {
+    throw new Error(`"${group.name}" has no project on ${ctx.hosts.label(hostId)}.`);
+  }
+  group.lastUsedHostId = hostId;
+  ctx.store.save();
+}
+
+/**
  * Take `projectId` out of its group, dissolving a group left with one
  * member. The project leaving — and the last member of a dissolved group —
  * takes the group's shared settings with it; its workspaces, folders and

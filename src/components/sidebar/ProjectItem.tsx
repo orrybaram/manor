@@ -295,7 +295,17 @@ type ProjectItemProps = {
   onRenameWorkspace: (ws: WorkspaceInfo, newName: string) => void;
   onHideWorkspace: (ws: WorkspaceInfo, idx: number) => void;
   onUnhideWorkspace: (ws: WorkspaceInfo) => void;
-  onCreateWorktree: (name: string, branch: string, baseBranch?: string, useExistingBranch?: boolean) => Promise<string | null>;
+  /**
+   * `projectId` is this project, or — for a linked project — the member the
+   * New Workspace host picker chose (ADR-192).
+   */
+  onCreateWorktree: (
+    projectId: string,
+    name: string,
+    branch: string,
+    baseBranch?: string,
+    useExistingBranch?: boolean,
+  ) => Promise<string | null>;
   onOpenSettings?: () => void;
   onDragStart?: (e: ReactPointerEvent) => void;
   onQuickMergeWorktree?: (ws: WorkspaceInfo) => void;
@@ -397,6 +407,14 @@ export function ProjectItem(props: ProjectItemProps) {
   const deleteWorkspaceFolder = useProjectStore((s) => s.deleteWorkspaceFolder);
   const applySidebarChange = useProjectStore((s) => s.applySidebarChange);
   const allProjects = useProjectStore((s) => s.projects);
+  // The New Workspace dialog offers every member of a linked group, so its
+  // host picker can create on another host (ADR-192).
+  const dialogProjects = useMemo(() => {
+    const memberIds = project.group?.memberIds;
+    if (!memberIds) return [project];
+    const members = allProjects.filter((p) => memberIds.includes(p.id));
+    return members.some((p) => p.id === project.id) ? members : [project];
+  }, [project, allProjects]);
   const linkProjects = useProjectStore((s) => s.linkProjects);
   const unlinkProject = useProjectStore((s) => s.unlinkProject);
   const linkChoices = useMemo(
@@ -1247,16 +1265,25 @@ export function ProjectItem(props: ProjectItemProps) {
           setNewWorkspaceOpen(false);
           setNewWorkspaceFolderId(null);
         }}
-        projects={[project]}
+        projects={dialogProjects}
         selectedProjectIndex={0}
+        preselectedProjectId={project.id}
+        // Opened from this host's own section or folder: start there.
+        preferredMemberId={isSection ? project.id : null}
         initialFolderId={newWorkspaceFolderId}
-        onSubmit={async (_projectId, name, branch, baseBranch, useExistingBranch, folderId) => {
-          const result = await onCreateWorktree(name, branch, baseBranch, useExistingBranch);
+        onSubmit={async (createInId, name, branch, baseBranch, useExistingBranch, folderId) => {
+          const result = await onCreateWorktree(
+            createInId,
+            name,
+            branch,
+            baseBranch,
+            useExistingBranch,
+          );
           if (result) {
             setNewWorkspaceOpen(false);
             setNewWorkspaceFolderId(null);
             if (folderId) {
-              await placeNewWorkspaceInFolder(projectId, result, folderId);
+              await placeNewWorkspaceInFolder(createInId, result, folderId);
             }
           }
           return !!result;

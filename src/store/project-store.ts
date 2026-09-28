@@ -567,6 +567,12 @@ interface ProjectState {
    * at once. Errors roll the change back and are shown as a toast.
    */
   updateGroup: (groupId: string, updates: GroupUpdatableFields) => Promise<void>;
+  /**
+   * ADR-192: remember the host a group last made a workspace on, where the
+   * New Workspace host picker starts next time. `createWorktree` calls it
+   * for a linked project; a failure only loses the default, so it is quiet.
+   */
+  setGroupLastUsedHost: (groupId: string, hostId: string) => Promise<void>;
   /** Persists a full sidebar order: workspace paths and folder ids. */
   reorderSidebar: (
     projectId: string,
@@ -858,6 +864,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projects: s.projects.map((p) => (p.id === projectId ? updated : p)),
     }));
 
+    // A linked project's host picker starts here next time (ADR-192).
+    if (updated.group) void get().setGroupLastUsedHost(updated.group.id, updated.hostId);
+
     // Find the new workspace by name or branch.
     const branchName = branch || name;
     const newWs = updated.workspaces.find(
@@ -1083,6 +1092,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         const { name, color, agentCommand, linearAssociations, group } = fresh;
         return { ...p, name, color, agentCommand, linearAssociations, group };
       }),
+    }));
+  },
+
+  setGroupLastUsedHost: async (groupId: string, hostId: string) => {
+    const isCurrent = (p: ProjectInfo) =>
+      p.group?.id !== groupId || p.group.lastUsedHostId === hostId;
+    if (get().projects.every(isCurrent)) return;
+    try {
+      await window.electronAPI.projects.setGroupLastUsedHost(groupId, hostId);
+    } catch {
+      // Only the picker's default is lost; the workspace was made.
+      return;
+    }
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        isCurrent(p) ? p : { ...p, group: { ...p.group!, lastUsedHostId: hostId } },
+      ),
     }));
   },
 

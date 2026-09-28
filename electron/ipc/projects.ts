@@ -243,6 +243,16 @@ export function register(deps: IpcDeps): void {
     },
   );
 
+  // ADR-192: the host the New Workspace picker starts on next time.
+  ipcMain.handle(
+    "projects:setGroupLastUsedHost",
+    (_event, groupId: string, hostId: string) => {
+      assertString(groupId, "groupId");
+      assertString(hostId, "hostId");
+      projectManager.setGroupLastUsedHost(groupId, hostId);
+    },
+  );
+
   ipcMain.handle(
     "projects:update",
     (

@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.15.0] - 2026-09-28
+
+### Features
+- Link two projects into a group that appears as one entry in the sidebar
+- Manor suggests linking projects that share the same origin URL, and suggests again when a host connects
+- Linked groups show the status of each host
+- Shared settings now live on the project group
+- Pick a host in the New Workspace dialog
+- Clone a project onto another host from the host picker
+- Select multiple workspaces in the sidebar with Cmd/Ctrl-click and Shift-click
+- Right-click a multi-selection to delete it, hide it, or move it to a folder
+- Drag a multi-selection into and out of folders
+- Multi-select works across a group's host sections
+- Run the `manor` CLI from remote hosts, with a hint when a remote session starts
+- The CLI can list groups and create workspaces on a chosen host with `--host`
+- Workspaces created from the CLI record the group's last-used host
+
+### Fixes
+- New terminals open on the host they were requested for
+- Agents now follow the host their terminal runs on
+- Saved layouts, the GitHub cache and portless hostnames are kept separate per host, so workspaces with the same path on different hosts no longer collide
+- Workspace context now matches on both host and path
+- A remote project's main workspace is named after its host
+- The active row is highlighted only in its own host's section
+- A workspace whose removal failed is no longer left dimmed
+- PR badges stay in place when a workspace is removed
+- Cmd/Ctrl-click keeps the clicked row selected
+- A closed link summary stays closed
+- Diff selection is kept when using the arrow keys
+- Malformed agent records no longer break the group agent count
+
+### Improvements
+- CLI errors show a readable message instead of raw JSON
+- Commands relayed from a remote host are limited to that host
+- `--host` accepts the local host's label
+
 ## [0.14.5] - 2026-09-27
 
 ### Features

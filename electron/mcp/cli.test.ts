@@ -531,6 +531,13 @@ describe("parseArgs", () => {
     ).toEqual({ issues: [1, 2] });
   });
 
+  it("gives create-workspace a --host flag", () => {
+    const tool = toolFor("create-workspace");
+    expect(
+      parseArgs("create-workspace", tool, ["--name", "feat", "--host", "box"]),
+    ).toEqual({ name: "feat", host: "box" });
+  });
+
   it("rejects a non-numeric array item", () => {
     const tool = toolFor("batch-create-workspaces");
     expect(() =>

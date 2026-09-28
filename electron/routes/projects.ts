@@ -13,7 +13,10 @@ import type {
   WorkspaceFromIssue,
   LinkedIssue,
   ProjectUpdatableFields,
+  ProjectGroupInfo,
 } from "../persistence";
+import { LOCAL_HOST_ID } from "../backend/types";
+import { callerMaySee } from "./caller-host";
 import { isIssueSource } from "../issue-sources";
 import { ghRepoOf } from "../../src/lib/gh-repo";
 import {
@@ -73,6 +76,7 @@ export function withProject(
     ctx: RouteContext,
     pm: ProjectManager,
     project: ProjectInfo,
+    projects: ProjectInfo[],
   ) => Promise<void>,
 ): Route["handler"] {
   return withProjectManager(async (ctx, pm) => {
@@ -82,8 +86,182 @@ export function withProject(
       ctx.json(404, { error: "Project not found" });
       return;
     }
-    await handler(ctx, pm, project);
+    await handler(ctx, pm, project, projects);
   });
+}
+
+// ── Linked-project groups on the control surface (ADR-192 ticket 8) ──
+
+/** One member of a linked group as `GET /projects` lists it. */
+interface GroupMemberListing {
+  projectId: string;
+  name: string;
+  hostId: string;
+  /** The host's label: its ssh target, or "this Mac". */
+  host: string;
+}
+
+/** A project's group summary, widened with each member's host for the CLI. */
+interface GroupListing extends ProjectGroupInfo {
+  members: GroupMemberListing[];
+}
+
+/** A project as `GET /projects` lists it: with its host's label and group. */
+type ProjectListing = ProjectInfo & {
+  host: string;
+  group: GroupListing | null;
+};
+
+/** `project` with its host's label, the way every listing names hosts. */
+function withHostLabel(
+  pm: ProjectManager,
+  project: ProjectInfo,
+): ProjectInfo & { host: string } {
+  return { ...project, host: pm.hostLabel(project.hostId) };
+}
+
+/**
+ * `projects` with each group's `members` spelled out: id, name and host.
+ * A relayed caller (ADR-189) sees only its own host (`callerMaySee`), so
+ * its groups list only its own host's members, and a last-used host that
+ * isn't its own reads as null.
+ */
+function withGroupMembers(
+  pm: ProjectManager,
+  projects: ProjectInfo[],
+  callerHostId: string | undefined,
+): ProjectListing[] {
+  const byId = new Map(projects.map((p) => [p.id, p]));
+  return projects.map((project) => {
+    const listed = withHostLabel(pm, project);
+    const group = project.group;
+    if (!group) return { ...listed, group: null };
+    const members = group.memberIds.flatMap((id): GroupMemberListing[] => {
+      const member = byId.get(id);
+      if (!member || !callerMaySee(callerHostId, member.hostId)) return [];
+      return [
+        {
+          projectId: member.id,
+          name: member.name,
+          hostId: member.hostId,
+          host: pm.hostLabel(member.hostId),
+        },
+      ];
+    });
+    return {
+      ...listed,
+      group: {
+        id: group.id,
+        name: group.name,
+        memberIds: members.map((m) => m.projectId),
+        lastUsedHostId: callerMaySee(callerHostId, group.lastUsedHostId)
+          ? group.lastUsedHostId
+          : null,
+        members,
+      },
+    };
+  });
+}
+
+type HostArg =
+  | { ok: true; hostId: string }
+  | { ok: false; reason: "unknown" | "ambiguous" };
+
+/**
+ * The hostId a `host` argument names: a host id (`local` for this machine),
+ * a remote host's ssh target, or a host's label as listings show it.
+ * Ambiguous when it names more than one host — two hosts sharing a target,
+ * or one's id being another's target.
+ */
+function resolveHostArg(pm: ProjectManager, arg: string): HostArg {
+  const hosts = [
+    // The local label ("this Mac") is what listings show, so it names local too.
+    { hostId: LOCAL_HOST_ID, target: pm.hostLabel(LOCAL_HOST_ID) as string | undefined },
+    ...pm.getHosts().map(({ hostId, spec }) => ({ hostId, target: spec.target })),
+  ];
+  const matches = new Set(
+    hosts
+      .filter((h) => h.hostId === arg || h.target === arg)
+      .map((h) => h.hostId),
+  );
+  if (matches.size === 0) return { ok: false, reason: "unknown" };
+  if (matches.size > 1) return { ok: false, reason: "ambiguous" };
+  return { ok: true, hostId: [...matches][0] };
+}
+
+interface WorkspaceTargetRequest {
+  /** The project named in the path. */
+  project: ProjectInfo;
+  /** Every project, to find the group's members among. */
+  projects: ProjectInfo[];
+  /** The `host` argument, if the caller passed one. */
+  host?: string;
+  /** Set when the request was relayed from a remote host (ADR-189). */
+  callerHostId?: string;
+}
+
+type WorkspaceTargetResult =
+  | { ok: true; project: ProjectInfo }
+  | { ok: false; status: number; error: string };
+
+/** What a relayed caller hears for any host but its own, known or not. */
+const OWN_HOST_ONLY =
+  "A remote host can only create workspaces on its own host.";
+
+/**
+ * Which project a create-workspace request lands in. An unlinked project is
+ * its own and only target. For a linked one, `host` picks that host's
+ * member; without it, the caller's own host (a relayed remote CLI), then the
+ * group's last-used host, then the project named in the path.
+ */
+function workspaceTarget(
+  pm: ProjectManager,
+  { project, projects, host, callerHostId }: WorkspaceTargetRequest,
+): WorkspaceTargetResult {
+  const members = (project.group?.memberIds ?? [project.id])
+    .map((id) => projects.find((p) => p.id === id))
+    .filter(
+      (p): p is ProjectInfo =>
+        p !== undefined && callerMaySee(callerHostId, p.hostId),
+    );
+  const onHost = (hostId: string | null | undefined) =>
+    hostId ? members.find((m) => m.hostId === hostId) : undefined;
+
+  if (host === undefined) {
+    const target =
+      onHost(callerHostId) ??
+      onHost(project.group?.lastUsedHostId) ??
+      project;
+    return { ok: true, project: target };
+  }
+
+  const resolved = resolveHostArg(pm, host);
+  // A relayed caller must not learn which other hosts exist, so every host
+  // but its own — unknown, ambiguous or real — gets the same answer.
+  if (
+    callerHostId &&
+    !(resolved.ok && callerMaySee(callerHostId, resolved.hostId))
+  ) {
+    return { ok: false, status: 403, error: OWN_HOST_ONLY };
+  }
+  if (!resolved.ok) {
+    return {
+      ok: false,
+      status: 400,
+      error:
+        resolved.reason === "unknown"
+          ? `Unknown host '${host}'.`
+          : `'${host}' names more than one host. Pass the host id instead.`,
+    };
+  }
+  const target = onHost(resolved.hostId);
+  if (target) return { ok: true, project: target };
+  const label = (hostId: string) => pm.hostLabel(hostId);
+  const wanted = label(resolved.hostId);
+  const error = project.group
+    ? `Group "${project.group.name}" has no project on ${wanted}. Available hosts: ${members.map((m) => label(m.hostId)).join(", ")}.`
+    : `Project "${project.name}" is on ${label(project.hostId)}, not ${wanted}, and isn't linked with a project there.`;
+  return { ok: false, status: 400, error };
 }
 
 export interface BatchResultEntry {
@@ -309,8 +487,11 @@ export const projectRoutes: Route[] = [
   {
     method: "GET",
     path: "/projects",
-    handler: withProjectManager(async ({ json }, pm) => {
-      json(200, await pm.getProjects());
+    handler: withProjectManager(async ({ deps, json }, pm) => {
+      json(
+        200,
+        withGroupMembers(pm, await pm.getProjects(), deps.callerHostId),
+      );
     }),
   },
 
@@ -334,8 +515,8 @@ export const projectRoutes: Route[] = [
   {
     method: "GET",
     path: "/projects/:projectId",
-    handler: withProject(async ({ json }, _pm, project) => {
-      json(200, project);
+    handler: withProject(async ({ json }, pm, project) => {
+      json(200, withHostLabel(pm, project));
     }),
   },
 
@@ -356,8 +537,13 @@ export const projectRoutes: Route[] = [
   {
     method: "POST",
     path: "/projects/:projectId/workspaces",
-    handler: withProject(async ({ params, json, readBody }, pm, project) => {
+    handler: withProject(async ({ deps, json, readBody }, pm, named, projects) => {
       const body = await readBody();
+      if (body.host !== undefined && typeof body.host !== "string") {
+        json(400, { error: "'host' must be a string" });
+        return;
+      }
+      const host = typeof body.host === "string" && body.host ? body.host : undefined;
       const branch = typeof body.branch === "string" ? body.branch : undefined;
       // Either field alone is enough — each falls back to the other, matching
       // the new-workspace dialog where the branch tracks the name.
@@ -374,9 +560,20 @@ export const projectRoutes: Route[] = [
         typeof body.useExistingBranch === "boolean"
           ? body.useExistingBranch
           : undefined;
+      const target = workspaceTarget(pm, {
+        project: named,
+        projects,
+        host,
+        callerHostId: deps.callerHostId,
+      });
+      if (!target.ok) {
+        json(target.status, { error: target.error });
+        return;
+      }
+      const project = target.project;
       const before = new Set(project.workspaces.map((ws) => ws.path));
       const updated = await pm.createWorktree(
-        params.projectId,
+        project.id,
         name,
         branch,
         undefined,
@@ -390,7 +587,7 @@ export const projectRoutes: Route[] = [
       if (created && updated?.worktreeStartScript) {
         runSetupScript(created.path, updated.worktreeStartScript, updated.hostId);
       }
-      json(200, updated);
+      json(200, updated && withHostLabel(pm, updated));
     }),
   },
 

@@ -42,6 +42,7 @@ function deps(): ControlDeps {
   return {
     projectManager: {
       getProjects: async () => [project("local-p", "local"), project("box-p", "box")],
+      hostLabel: (hostId: string) => hostId,
     },
     layoutPersistence: null,
     githubManager: null,

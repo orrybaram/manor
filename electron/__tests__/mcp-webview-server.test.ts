@@ -310,6 +310,7 @@ describe("WebviewServer project/workspace routes", () => {
   let baseUrl: string;
   let pm: {
     getProjects: ReturnType<typeof vi.fn>;
+    hostLabel: (hostId: string) => string;
     addProject: ReturnType<typeof vi.fn>;
     createWorktree: ReturnType<typeof vi.fn>;
     removeWorktree: ReturnType<typeof vi.fn>;
@@ -318,6 +319,7 @@ describe("WebviewServer project/workspace routes", () => {
   beforeEach(async () => {
     pm = {
       getProjects: vi.fn(async () => [PROJECT]),
+      hostLabel: () => "this Mac",
       addProject: vi.fn(async (name: string, p: string) => ({
         ...PROJECT,
         id: "proj-new",

@@ -100,6 +100,11 @@ export class ProjectManager {
     this.paths.forgetHost(hostId);
   }
 
+  /** How `hostId` is named to people: its ssh target, or "this Mac". */
+  hostLabel(hostId: string): string {
+    return this.hosts.label(hostId);
+  }
+
   /** Throws unless `hostId` is this machine or a registered host. */
   assertKnownHost(hostId: string): void {
     this.hosts.assertKnown(hostId);

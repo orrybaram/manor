@@ -2,6 +2,7 @@
  * MCP tools for project and workspace management.
  */
 
+import { LOCAL_HOST_ID } from "../backend/types";
 import {
   resolveContext,
   resolveProjectId,
@@ -43,6 +44,72 @@ export interface ProjectInfo {
   worktreeStartScript?: string | null;
   folders?: WorkspaceFolder[];
   sidebarOrder?: string[];
+  /** The host the project lives on (ADR-160). */
+  hostId?: string;
+  /** That host's label: its ssh target, or "this Mac". */
+  host?: string;
+  /** Its linked-project group, as `GET /projects` lists it (ADR-192). */
+  group?: ProjectGroupListing | null;
+}
+
+/** One member of a linked-project group: a project on one host. */
+interface ProjectGroupMember {
+  projectId: string;
+  name: string;
+  hostId: string;
+  /** The host's label: its ssh target, or "this Mac". */
+  host: string;
+}
+
+interface ProjectGroupListing {
+  id: string;
+  name: string;
+  members?: ProjectGroupMember[];
+  lastUsedHostId: string | null;
+}
+
+/** " on <host>" for a reply naming where something landed, or "". */
+function hostOf(p: ProjectInfo): string {
+  const host = p.host ?? p.hostId;
+  return host ? ` on ${host}` : "";
+}
+
+function projectLine(p: ProjectInfo, host?: string): string {
+  const on = host ? ` on ${host}` : "";
+  return `${p.id}: ${p.name} (${p.path})${on} — ${p.workspaces.length} workspace(s)`;
+}
+
+/**
+ * `list_projects`' text: each linked group once, where its first member
+ * sits, with a line per member naming its host; unlinked projects one line
+ * each, with their host when it isn't this machine.
+ */
+function formatProjectListing(projects: ProjectInfo[]): string {
+  const lines: string[] = [];
+  const seenGroups = new Set<string>();
+  for (const p of projects) {
+    const group = p.group;
+    if (!group) {
+      const remote = p.hostId !== undefined && p.hostId !== LOCAL_HOST_ID;
+      lines.push(projectLine(p, remote ? (p.host ?? p.hostId) : undefined));
+      continue;
+    }
+    if (seenGroups.has(group.id)) continue;
+    seenGroups.add(group.id);
+    const lastUsed = group.members?.find((m) => m.hostId === group.lastUsedHostId);
+    lines.push(
+      `group ${group.id}: ${group.name}${lastUsed ? ` (last used: ${lastUsed.host})` : ""}`,
+    );
+    for (const member of group.members ?? []) {
+      const project = projects.find((q) => q.id === member.projectId);
+      lines.push(
+        project
+          ? `  ${projectLine(project, member.host)}`
+          : `  ${member.projectId}: ${member.name} on ${member.host}`,
+      );
+    }
+  }
+  return lines.join("\n");
 }
 
 export function formatWorkspace(
@@ -83,7 +150,7 @@ const tools: ToolDef[] = [
   {
     name: "list_projects",
     description:
-      "List all projects in Manor with their IDs, names, paths, and workspace counts.",
+      "List all projects in Manor with their IDs, names, paths, hosts, and workspace counts. Linked projects (the same repo on several hosts) are listed under their group, one member per host.",
     inputSchema: {
       type: "object" as const,
       properties: {},
@@ -141,6 +208,11 @@ const tools: ToolDef[] = [
           type: "boolean",
           description:
             "Check out an existing branch instead of creating a new one.",
+        },
+        host: {
+          type: "string",
+          description:
+            "For a linked project: the host to create on (a host id or ssh target, or 'local'), which picks that host's member of the group. Defaults to the caller's own host when it is a remote pane, then the group's last-used host.",
         },
       },
     },
@@ -557,13 +629,7 @@ const handlers: ToolModule["handlers"] = {
     if (projects.length === 0) {
       return text("No projects in Manor yet.");
     }
-    const listing = projects
-      .map(
-        (p) =>
-          `${p.id}: ${p.name} (${p.path}) — ${p.workspaces.length} workspace(s)`,
-      )
-      .join("\n");
-    return text(listing);
+    return text(formatProjectListing(projects));
   },
 
   async get_project(args, http) {
@@ -599,6 +665,7 @@ const handlers: ToolModule["handlers"] = {
     if (args.baseBranch !== undefined) body.baseBranch = args.baseBranch;
     if (args.useExistingBranch !== undefined)
       body.useExistingBranch = args.useExistingBranch;
+    if (args.host !== undefined) body.host = args.host;
     const project = (await http.post(
       `/projects/${encodeURIComponent(projectId)}/workspaces`,
       body,
@@ -607,7 +674,7 @@ const handlers: ToolModule["handlers"] = {
       ? "\n\nThe project's setup script is running in the new workspace."
       : "";
     return text(
-      `Created workspace "${label}" in project "${project.name}".${setupNote}\n\nWorkspaces now:\n${project.workspaces
+      `Created workspace "${label}" in project "${project.name}" (${project.id}${hostOf(project)}).${setupNote}\n\nWorkspaces now:\n${project.workspaces
         .map((ws) => formatWorkspace(ws, project.folders))
         .join("\n")}`,
     );

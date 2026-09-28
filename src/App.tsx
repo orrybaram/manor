@@ -666,7 +666,10 @@ function App() {
     <div className="app">
       <div className="app-body">
         {sidebarMode === "rail" && hasProjects && (
-          <SidebarRail onShowAgents={() => setAgentsOpen(true)} />
+          <SidebarRail
+            onShowAgents={() => setAgentsOpen(true)}
+            onOpenProjectSettings={handleOpenProjectSettings}
+          />
         )}
         {sidebarMode === "full" && hasProjects && (
           <Sidebar

@@ -300,7 +300,7 @@ const WorkspaceItem = React.forwardRef<
  * here (exported for the collapsed rail's popover, ADR-195) rather than folded into `LocalHostLabel`/`HostIndicator`,
  * which other callers (the New Workspace host picker) still use as chips.
  */
-export function SectionHostLabel(props: {
+function SectionHostLabel(props: {
   hostId: string;
   path: string;
   label: string;

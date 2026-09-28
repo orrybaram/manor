@@ -18,15 +18,17 @@ import styles from "./SidebarRail.module.css";
 
 type SidebarRailProps = {
   onShowAgents: () => void;
+  onOpenProjectSettings?: (projectId: string) => void;
 };
 
 /**
  * The collapsed sidebar (ADR-195): a 52px strip with Home, one tile per
  * project or linked group carrying its agent status, and Agents and
- * Notifications at the bottom. A tile opens a popover of its workspaces.
+ * Notifications at the bottom. A tile opens a popover with the entry as the
+ * full sidebar shows it, on click or after resting the pointer on it.
  */
 export function SidebarRail(props: SidebarRailProps) {
-  const { onShowAgents } = props;
+  const { onShowAgents, onOpenProjectSettings } = props;
 
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
@@ -78,6 +80,7 @@ export function SidebarRail(props: SidebarRailProps) {
           <RailProjectTile
             key={entry.key}
             entry={entry}
+            onOpenProjectSettings={onOpenProjectSettings}
             isSelected={
               !homeActive &&
               selectedProject !== undefined &&

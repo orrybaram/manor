@@ -31,23 +31,15 @@ import {
   handleSidebarRowKeyDown,
   useRovingRows,
 } from "../../../lib/sidebar-row";
-import {
-  removeWorktreeWithToast,
-  quickMergeWorktreeWithToast,
-  hideWorkspaceAndNavigate,
-} from "../../../store/workspace-actions";
 import { useBranchWatcher } from "../../../hooks/useBranchWatcher";
 import { useDiffWatcher } from "../../../hooks/useDiffWatcher";
 import { usePrWatcher } from "../../../hooks/usePrWatcher";
-import { ProjectItem, type ProjectItemVariant } from "../ProjectItem";
-import { ProjectGroupItem } from "../ProjectGroupItem";
+import { SidebarEntry } from "../SidebarEntry";
 import {
   buildTopLevelEntries,
   expandTopLevelOrder,
   topLevelKeys,
-  type SelectionScope,
 } from "../../../utils/sidebar-items";
-import type { ProjectInfo } from "../../../store/project-store";
 import { PortsList } from "../../ports/PortsList";
 import { AgentsList } from "../AgentsList";
 import { NotificationsPopover } from "../../notifications/NotificationsPopover";
@@ -72,22 +64,9 @@ export function Sidebar(props: SidebarProps) {
   const forwardLabel = bindings["history-forward"]
     ? `Forward (${formatCombo(bindings["history-forward"])})`
     : "Forward";
-  const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
-  const removeProject = useProjectStore((s) => s.removeProject);
-  const selectProject = useProjectStore((s) => s.selectProject);
-  const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
-  const renameWorkspace = useProjectStore((s) => s.renameWorkspace);
-  const setWorkspaceHidden = useProjectStore((s) => s.setWorkspaceHidden);
   const reorderProjects = useProjectStore((s) => s.reorderProjects);
-  const createWorktree = useProjectStore((s) => s.createWorktree);
-  const collapsedProjectIds = useProjectStore((s) => s.collapsedProjectIds);
-  const toggleProjectCollapsed = useProjectStore(
-    (s) => s.toggleProjectCollapsed,
-  );
-  const setProjectExpanded = useProjectStore((s) => s.setProjectExpanded);
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
   const setSidebarWidth = useProjectStore((s) => s.setSidebarWidth);
-  const openOrFocusDiff = useAppStore((s) => s.openOrFocusDiff);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const homeActive = isHomePath(activeWorkspacePath);
@@ -231,62 +210,6 @@ export function Sidebar(props: SidebarProps) {
       };
     }
     return { transition: "transform 150ms ease" };
-  };
-
-  const renderProject = (
-    project: ProjectInfo,
-    variant: ProjectItemVariant,
-    onDragStart?: (e: ReactPointerEvent) => void,
-    selectionScope?: SelectionScope,
-  ) => {
-    const idx = projects.indexOf(project);
-    return (
-      <ProjectItem
-        project={project}
-        variant={variant}
-        selectionScope={selectionScope}
-        isSelected={!homeActive && idx === selectedProjectIndex}
-        collapsed={collapsedProjectIds.has(project.id)}
-        onToggleCollapsed={() => {
-          if (!projJustDragged.current) toggleProjectCollapsed(project.id);
-        }}
-        onSelect={() => {
-          if (projJustDragged.current) return;
-          selectProject(idx);
-          setProjectExpanded(project.id);
-          const wsIdx = project.selectedWorkspaceIndex;
-          selectWorkspace(project.id, wsIdx >= 0 ? wsIdx : 0);
-        }}
-        onRemove={() => removeProject(project.id)}
-        onSelectWorkspace={(wsIdx) => {
-          selectWorkspace(project.id, wsIdx);
-        }}
-        onRemoveWorktree={(ws, deleteBranch) =>
-          removeWorktreeWithToast(project, ws, deleteBranch)
-        }
-        onQuickMergeWorktree={(ws) => {
-          quickMergeWorktreeWithToast(project, ws);
-        }}
-        onRenameWorkspace={(ws, newName) =>
-          renameWorkspace(project.id, ws.path, newName)
-        }
-        onHideWorkspace={(ws) => {
-          hideWorkspaceAndNavigate(project.id, ws.path);
-        }}
-        onUnhideWorkspace={(ws) =>
-          setWorkspaceHidden(project.id, ws.path, false)
-        }
-        onCreateWorktree={(projectId, name, branch, options) =>
-          createWorktree(projectId, name, branch, options)
-        }
-        onOpenSettings={() => onOpenProjectSettings?.(project.id)}
-        onDragStart={onDragStart}
-        onOpenDiff={(wsIdx) => {
-          selectWorkspace(project.id, wsIdx);
-          openOrFocusDiff();
-        }}
-      />
-    );
   };
 
   // Resizable sidebar
@@ -435,53 +358,12 @@ export function Sidebar(props: SidebarProps) {
                           : undefined
                       }
                     >
-                      {entry.kind === "project" ? (
-                        renderProject(entry.project, "project", (e) =>
-                          handleProjectDragStart(idx, e),
-                        )
-                      ) : (
-                        <ProjectGroupItem
-                          entry={entry}
-                          isSelected={
-                            !homeActive &&
-                            entry.sections.some(
-                              (section) =>
-                                projects.indexOf(section.project) ===
-                                selectedProjectIndex,
-                            )
-                          }
-                          collapsed={collapsedProjectIds.has(entry.key)}
-                          onToggleCollapsed={() => {
-                            if (!projJustDragged.current)
-                              toggleProjectCollapsed(entry.key);
-                          }}
-                          onDragStart={(e) => handleProjectDragStart(idx, e)}
-                          renderSection={(section, selectionScope) =>
-                            renderProject(
-                              section.project,
-                              "section",
-                              undefined,
-                              selectionScope,
-                            )
-                          }
-                          onCreateWorktree={(projectId, name, branch, options) =>
-                            createWorktree(projectId, name, branch, options)
-                          }
-                          onUnhideWorkspace={(project, ws) =>
-                            setWorkspaceHidden(project.id, ws.path, false)
-                          }
-                          onOpenSettings={() =>
-                            onOpenProjectSettings?.(entry.sections[0].project.id)
-                          }
-                          onRemove={() => {
-                            void (async () => {
-                              for (const section of entry.sections) {
-                                await removeProject(section.project.id);
-                              }
-                            })();
-                          }}
-                        />
-                      )}
+                      <SidebarEntry
+                        entry={entry}
+                        onOpenProjectSettings={onOpenProjectSettings}
+                        onDragStart={(e) => handleProjectDragStart(idx, e)}
+                        justDraggedRef={projJustDragged}
+                      />
                     </div>
                   </React.Fragment>
                 ))}

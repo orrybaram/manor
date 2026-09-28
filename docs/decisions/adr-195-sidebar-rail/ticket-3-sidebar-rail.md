@@ -1,6 +1,6 @@
 ---
 title: SidebarRail component with project tiles and workspace popover
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [1, 2]

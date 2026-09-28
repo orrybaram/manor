@@ -16,6 +16,7 @@ import {
   comboMatches,
   isFunctionKey,
 } from "../lib/keybindings";
+import { isRemotePane, pasteClipboardImage } from "../lib/remote-image-paste";
 
 export function useTerminalHotkeys(onOpenSearch?: () => void) {
   const bindings = useKeybindingsStore((s) => s.bindings);
@@ -27,7 +28,7 @@ export function useTerminalHotkeys(onOpenSearch?: () => void) {
   onOpenSearchRef.current = onOpenSearch;
 
   const attachHandler = useCallback(
-    (term: Terminal, ptyWrite: (data: string) => void) => {
+    (term: Terminal, paneId: string, ptyWrite: (data: string) => void) => {
       term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
         // Shift+Enter: send CSI u sequence so CLI tools (e.g. Claude) can
         // distinguish it from plain Enter and treat it as a newline.
@@ -40,6 +41,26 @@ export function useTerminalHotkeys(onOpenSearch?: () => void) {
         ) {
           if (e.type === "keydown") {
             ptyWrite("\x1b[13;2u");
+          }
+          return false;
+        }
+
+        // Ctrl+V on a remote pane: Claude Code binds this to image paste, but
+        // it reads the clipboard of the box it runs on, which has no
+        // clipboard of its own (ADR-187). Swallow every event type so xterm
+        // never also sends \x16, and read remote status live — this handler
+        // is wired once at mount, so a closed-over value would go stale the
+        // moment the pane's host changes.
+        if (
+          e.key.toLowerCase() === "v" &&
+          e.ctrlKey &&
+          !e.shiftKey &&
+          !e.altKey &&
+          !e.metaKey &&
+          isRemotePane(paneId)
+        ) {
+          if (e.type === "keydown") {
+            void pasteClipboardImage(term, paneId, () => ptyWrite("\x16"));
           }
           return false;
         }

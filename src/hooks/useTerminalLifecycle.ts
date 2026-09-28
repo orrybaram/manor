@@ -24,6 +24,7 @@ import { isNavRegionFocused } from "../lib/focus-regions";
 import { resolveHomeAdapter } from "../lib/harness";
 import { useTerminalConnection } from "./useTerminalConnection";
 import { useRemotePaneStore } from "../store/remote-pane-store";
+import { isRemotePane, pasteClipboardImage } from "../lib/remote-image-paste";
 import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
 import { useTerminalResize } from "./useTerminalResize";
@@ -182,6 +183,25 @@ export function useTerminalLifecycle(
 
     t.open(container);
 
+    // Intercept the DOM paste event on remote panes when the clipboard holds
+    // an image and no text (Cmd+V on macOS, Ctrl+Shift+V, the Edit menu —
+    // Ctrl+V is handled by attachHandler above and never reaches here on
+    // Linux/Windows). Capture phase so this runs before xterm's own paste
+    // listener on the same element (ADR-187 §4).
+    const onDomPaste = (e: ClipboardEvent) => {
+      if (!isRemotePane(paneId)) return;
+      const items = e.clipboardData?.items;
+      const hasImage = items
+        ? Array.from(items).some((item) => item.type.startsWith("image/"))
+        : false;
+      const hasText = !!e.clipboardData?.getData("text/plain");
+      if (!hasImage || hasText) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void pasteClipboardImage(t, paneId, () => {});
+    };
+    container.addEventListener("paste", onDomPaste, true);
+
     // Post-open addons (require DOM/canvas)
     try {
       const webgl = new WebglAddon();
@@ -224,7 +244,7 @@ export function useTerminalLifecycle(
     );
 
     // Hotkeys
-    attachHandler(t, write);
+    attachHandler(t, paneId, write);
 
     termRef.current = t;
     setTerm(t);
@@ -454,6 +474,7 @@ export function useTerminalLifecycle(
 
     return () => {
       disposed = true;
+      container.removeEventListener("paste", onDomPaste, true);
       // Queue output again for whoever attaches next: the ordering guarantee
       // belongs to each attach, not to the first one of this component's life.
       closeOutput();

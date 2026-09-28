@@ -127,16 +127,27 @@ describe("GET /context", () => {
     expect(body.projectId).toBe("box-p");
   });
 
-  it("rung 1 resolves a bare (local) workspace key to the local project, even for a relayed caller", async () => {
-    // The opposite pairing: the pane's own key is local, so it must win
-    // even though the request was relayed from "box".
+  it("rung 1 never hands a relayed caller another host's pane (ADR-189 §2)", async () => {
+    // The pane's own key is local, but the request was relayed from "box":
+    // naming a local pane id must not reveal the local project, so rung 1
+    // misses and cwd resolves on the caller's own host.
     const layoutPersistence = { load: () => layoutWithPane("pane-1", "/repo") };
+    const [status, body] = await getContext("paneId=pane-1&cwd=/repo/src", {
+      layoutPersistence: layoutPersistence as unknown as ControlDeps["layoutPersistence"],
+      callerHostId: "box",
+    });
+    expect(status).toBe(200);
+    expect(body.projectId).toBe("box-p");
+  });
+
+  it("rung 1 resolves a relayed caller's own-host pane key", async () => {
+    const layoutPersistence = { load: () => layoutWithPane("pane-1", "box:/repo") };
     const [status, body] = await getContext("paneId=pane-1", {
       layoutPersistence: layoutPersistence as unknown as ControlDeps["layoutPersistence"],
       callerHostId: "box",
     });
     expect(status).toBe(200);
-    expect(body.projectId).toBe("local-p");
+    expect(body.projectId).toBe("box-p");
   });
 
   it("rung 1 falls through to cwd when the pane's own key's host has no project at that path", async () => {

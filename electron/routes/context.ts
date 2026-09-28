@@ -36,21 +36,23 @@ import type { Route } from "./types";
  * The workspace key names its own host, so it — not the caller's guessed
  * host — is what `matchProjectByPath` matches against: a pane recorded on
  * "box" resolves against "box"'s projects even if the caller somehow looked
- * local.
+ * local. A relayed caller still only ever sees its own host's panes.
  */
 function resolveByPane(
   layoutPersistence: LayoutPersistence | null,
   projects: ProjectInfo[],
   paneId: string | null,
+  relayedFrom: string | undefined,
 ): { project: ProjectInfo; workspace: WorkspaceInfo } | null {
   if (!paneId) return null;
   const layout = layoutPersistence?.load() ?? null;
   const key = layout ? findWorkspaceForPane(layout, paneId) : null;
   if (!key) return null;
   const { hostId, path } = parseWorkspaceKey(key);
-  const match = matchProjectByPath(projects, hostId, path);
-  if (!match) return null;
-  return match;
+  // A relayed caller sees only its own host (ADR-189 §2): naming another
+  // host's pane id must not hand it that host's project.
+  if (!callerMaySee(relayedFrom, normalizeHostId(hostId))) return null;
+  return matchProjectByPath(projects, hostId, path);
 }
 
 export const contextRoutes: Route[] = [
@@ -79,7 +81,7 @@ export const contextRoutes: Route[] = [
         callerMaySee(callerHostId, normalizeHostId(p.hostId)),
       );
       const resolved =
-        resolveByPane(deps.layoutPersistence, projects, paneId) ??
+        resolveByPane(deps.layoutPersistence, projects, paneId, deps.callerHostId) ??
         (cwd ? matchProjectByPath(projects, callerHostId, cwd) : null);
 
       // Rung 3: hand back the candidate list so the model can retry explicitly.

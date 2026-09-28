@@ -448,18 +448,20 @@ export function ProjectItem(props: ProjectItemProps) {
     [items, collapsedFolderIds],
   );
   // Read only when the selection belongs to this project: a selection made in
-  // another project highlights nothing here.
-  const selectedPaths = useSidebarSelectionStore((s) =>
+  // another project highlights nothing here. A path that has since left the
+  // sidebar (deleted, or hidden from anywhere) is dropped here, at read time,
+  // so a stale entry can never drive a bulk action on a row that isn't shown.
+  const storedPaths = useSidebarSelectionStore((s) =>
     s.projectId === projectId ? s.paths : EMPTY_SIDEBAR_SELECTION,
   );
-  // A workspace leaving the project (hidden, deleted) leaves the selection
-  // too, else a stale path could still drive a bulk action on a row that no
-  // longer exists.
-  useEffect(() => {
-    useSidebarSelectionStore
-      .getState()
-      .prune(projectId, new Set(workspaces.map((ws) => ws.path)));
-  }, [workspaces, projectId]);
+  const selectedPaths = useMemo(() => {
+    if (storedPaths.size === 0) return storedPaths;
+    const shown = new Set(
+      workspaces.filter((ws) => !ws.hidden).map((ws) => ws.path),
+    );
+    const live = new Set([...storedPaths].filter((path) => shown.has(path)));
+    return live.size === storedPaths.size ? storedPaths : live;
+  }, [storedPaths, workspaces]);
 
   // The selection in tree order (ADR-190 §2): visible rows first, then any
   // selected path a collapsed folder hides — the same rule the group drag

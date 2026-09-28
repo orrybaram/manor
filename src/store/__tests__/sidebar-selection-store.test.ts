@@ -53,6 +53,16 @@ describe("toggle", () => {
     expect(state().paths).toEqual(new Set(["/a"]));
   });
 
+  it("never brings back a row that was toggled off", () => {
+    state().setAnchor(PROJECT, "/a");
+    state().toggle(PROJECT, "/b");
+    state().toggle(PROJECT, "/a");
+    state().toggle(PROJECT, "/b");
+    expect(state().paths).toEqual(new Set());
+    state().toggle(PROJECT, "/c", "/active");
+    expect(state().paths).toEqual(new Set(["/c"]));
+  });
+
   it("starts a fresh selection when the project changes", () => {
     state().toggle(PROJECT, "/a");
     state().toggle(OTHER_PROJECT, "/z");
@@ -99,20 +109,5 @@ describe("clear", () => {
     expect(state().projectId).toBeNull();
     expect(state().paths).toEqual(new Set());
     expect(state().anchorPath).toBeNull();
-  });
-});
-
-describe("prune", () => {
-  it("drops paths no longer present", () => {
-    state().toggle(PROJECT, "/a");
-    state().toggle(PROJECT, "/b");
-    state().prune(PROJECT, new Set(["/a"]));
-    expect(state().paths).toEqual(new Set(["/a"]));
-  });
-
-  it("does nothing for a different project", () => {
-    state().toggle(PROJECT, "/a");
-    state().prune(OTHER_PROJECT, new Set());
-    expect(state().paths).toEqual(new Set(["/a"]));
   });
 });

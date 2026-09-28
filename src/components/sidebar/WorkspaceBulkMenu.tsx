@@ -2,7 +2,7 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import styles from "./ProjectItem.module.css";
 
-export interface WorkspaceBulkMenuProps {
+type WorkspaceBulkMenuProps = {
   /** Rows in the selection, main included. */
   selectedCount: number;
   /** Folder choices for "Move to Folder", tree order (ADR-172). */
@@ -19,7 +19,7 @@ export interface WorkspaceBulkMenuProps {
   onHide: () => void;
   onDelete: () => void;
   onCloseAutoFocus?: (e: Event) => void;
-}
+};
 
 /**
  * The context menu for a 2+ workspace selection (ADR-190 §2). Split out of
@@ -95,7 +95,7 @@ export function WorkspaceBulkMenu(props: WorkspaceBulkMenuProps) {
       <ContextMenu.Separator className={styles.contextMenuSeparator} />
       {hideCount > 0 && (
         <ContextMenu.Item className={styles.contextMenuItem} onSelect={onHide}>
-          Hide {hideCount} Workspaces
+          Hide {hideCount} {hideCount === 1 ? "Workspace" : "Workspaces"}
         </ContextMenu.Item>
       )}
       {deleteCount > 0 && (
@@ -103,7 +103,7 @@ export function WorkspaceBulkMenu(props: WorkspaceBulkMenuProps) {
           className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
           onSelect={onDelete}
         >
-          Delete {deleteCount} Workspaces…
+          Delete {deleteCount} {deleteCount === 1 ? "Workspace" : "Workspaces"}…
         </ContextMenu.Item>
       )}
     </ContextMenu.Content>

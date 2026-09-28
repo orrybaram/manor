@@ -34,10 +34,12 @@ export function BulkDeleteWorktreesDialog(props: BulkDeleteWorktreesDialogProps)
         <Dialog.Overlay className={styles.confirmOverlay} />
         <Dialog.Content className={styles.confirmDialog}>
           <Dialog.Title className={styles.confirmTitle}>
-            Delete {workspaces.length} Workspaces
+            Delete {workspaces.length}{" "}
+            {workspaces.length === 1 ? "Workspace" : "Workspaces"}
           </Dialog.Title>
           <Dialog.Description className={styles.confirmDescription}>
-            This will remove {workspaces.length} worktrees from disk.
+            This will remove {workspaces.length}{" "}
+            {workspaces.length === 1 ? "worktree" : "worktrees"} from disk.
           </Dialog.Description>
           <ul className={styles.bulkDeleteList}>
             {workspaces.map((ws) => (

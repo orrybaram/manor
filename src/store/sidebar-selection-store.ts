@@ -14,6 +14,12 @@ interface SidebarSelectionState {
   projectId: string | null;
   paths: Set<string>;
   anchorPath: string | null;
+  /**
+   * True while the anchor comes from a plain click, i.e. it is the row the
+   * user is on rather than one they just toggled off — only then may a
+   * Cmd/Ctrl-click take it along.
+   */
+  anchorClicked: boolean;
 
   /** Plain click: clears the selection and sets the anchor to `path`. */
   setAnchor: (projectId: string, path: string) => void;
@@ -22,9 +28,10 @@ interface SidebarSelectionState {
    * it. A click in a different project starts a fresh one-row selection
    * rather than toggling against the old project's set.
    *
-   * Starting a selection takes the row the user was already on with it — the
-   * anchor, else `fallbackAnchor` (the active workspace) — so click-then-
-   * Cmd/Ctrl-click selects both, as in a file manager.
+   * Starting a selection takes the row the user was already on with it — a
+   * plain click's anchor, else `fallbackAnchor` (the active workspace) when
+   * there is no anchor at all — so click-then-Cmd/Ctrl-click selects both, as
+   * in a file manager. A row toggled off is never brought back.
    */
   toggle: (projectId: string, path: string, fallbackAnchor?: string | null) => void;
   /**
@@ -41,8 +48,6 @@ interface SidebarSelectionState {
   ) => void;
   /** Escape, or a click on empty sidebar space. */
   clear: () => void;
-  /** Drops paths `existingPaths` no longer has, e.g. after a delete or hide. */
-  prune: (projectId: string, existingPaths: ReadonlySet<string>) => void;
 }
 
 /** A stable empty set so a mismatched-project read never allocates. */
@@ -53,21 +58,24 @@ export const useSidebarSelectionStore = create<SidebarSelectionState>(
     projectId: null,
     paths: new Set(),
     anchorPath: null,
+    anchorClicked: false,
 
     setAnchor: (projectId, path) =>
-      set({ projectId, paths: new Set(), anchorPath: path }),
+      set({ projectId, paths: new Set(), anchorPath: path, anchorClicked: true }),
 
     toggle: (projectId, path, fallbackAnchor = null) =>
       set((s) => {
         const sameProject = s.projectId === projectId;
         const paths = sameProject ? new Set(s.paths) : new Set<string>();
         if (paths.size === 0) {
-          const seed = (sameProject ? s.anchorPath : null) ?? fallbackAnchor;
+          const anchor = sameProject ? s.anchorPath : null;
+          const seed =
+            anchor === null ? fallbackAnchor : s.anchorClicked ? anchor : null;
           if (seed !== null && seed !== path) paths.add(seed);
         }
         if (paths.has(path)) paths.delete(path);
         else paths.add(path);
-        return { projectId, paths, anchorPath: path };
+        return { projectId, paths, anchorPath: path, anchorClicked: false };
       }),
 
     selectRange: (projectId, orderedVisiblePaths, toPath, fallbackAnchor) =>
@@ -87,7 +95,12 @@ export const useSidebarSelectionStore = create<SidebarSelectionState>(
         const anchorIdx = orderedVisiblePaths.indexOf(anchor);
         const toIdx = orderedVisiblePaths.indexOf(toPath);
         if (anchorIdx === -1 || toIdx === -1) {
-          return { projectId, paths: new Set([toPath]), anchorPath: toPath };
+          return {
+            projectId,
+            paths: new Set([toPath]),
+            anchorPath: toPath,
+            anchorClicked: false,
+          };
         }
         const [start, end] =
           anchorIdx <= toIdx ? [anchorIdx, toIdx] : [toIdx, anchorIdx];
@@ -95,19 +108,16 @@ export const useSidebarSelectionStore = create<SidebarSelectionState>(
           projectId,
           paths: new Set(orderedVisiblePaths.slice(start, end + 1)),
           anchorPath: anchor,
+          anchorClicked: false,
         };
       }),
 
-    clear: () => set({ projectId: null, paths: new Set(), anchorPath: null }),
-
-    prune: (projectId, existingPaths) =>
-      set((s) => {
-        if (s.projectId !== projectId) return s;
-        const next = new Set(
-          [...s.paths].filter((path) => existingPaths.has(path)),
-        );
-        if (next.size === s.paths.size) return s;
-        return { ...s, paths: next };
+    clear: () =>
+      set({
+        projectId: null,
+        paths: new Set(),
+        anchorPath: null,
+        anchorClicked: false,
       }),
   }),
 );

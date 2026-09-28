@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.16.0] - 2026-09-28
+
+### Features
+- New Home dashboard with a "Needs you" section, an "Up next" list built from your assigned GitHub issues, and a summary line
+- New Projects overview with project cards, onboarding for first-time users, and a sidebar entry to open it
+- Create a project by cloning a repository onto any host, including this machine
+- The Add Project dialog lists your GitHub repositories so you can pick one to clone
+- Add a project from a card in the Projects overview grid; this replaces the drop zone
+- The sidebar can collapse into a compact rail of project tiles
+- Hover a project tile in the rail to see its full sidebar entry in a popover
+- The rail has an Agents popover that shows the sidebar's agents panel
+- Drag the sidebar edge past its minimum width to collapse it to the rail, and drag the rail's edge to expand it again
+- The Agents pane in the sidebar is now collapsible, and the collapsed state of the Agents and Ports panes is remembered between sessions
+
+### Fixes
+- Agents recorded without a project are now matched to their project instead of being listed under "Unknown"
+- Agent status dots in the modal now pulse the same way as in the sidebar
+- The Home empty state no longer shows while issues are still loading
+- Close shortcuts no longer act on content hidden behind the overview
+- The Agents pane header and spacing now match the Ports pane
+
+### Improvements
+- The sidebar and the rail share one resize edge, so resizing and collapsing feel the same in both
+- The rail popover is wider and switches between tiles instantly, and tile tooltips are gone
+- The rail's Agents icon no longer shows a count
+- Idle agents you've already read now show a plain outline ring
+- Trimmed the launchers on the Home screen
+
 ## [0.15.1] - 2026-09-28
 
 ### Features

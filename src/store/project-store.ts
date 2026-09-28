@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { selectActiveWorkspaceKey, useAppStore } from "./app-store";
 import { workspaceKey } from "../lib/workspace-key";
 import { useToastStore } from "./toast-store";
+import { offerLinkSuggestions } from "./link-suggestions";
 import { branchesEqual } from "../utils/branch-name";
 import { ipcErrorMessage } from "../lib/ipc-error";
 import { splitShared } from "../lib/project-groups";
@@ -741,6 +742,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projects: [...s.projects, project],
       selectedProjectIndex: s.projects.length,
     }));
+    void offerLinkSuggestions(project.id, get().linkProjects);
   },
 
   addProjectFromDirectory: async () => {
@@ -757,6 +759,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projects: [...s.projects, project],
       selectedProjectIndex: s.projects.length,
     }));
+    void offerLinkSuggestions(project.id, get().linkProjects);
     return project;
   },
 

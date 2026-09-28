@@ -15,6 +15,7 @@ import type { HostPath } from "../per-host-poller";
 import { detectDefaultBranch, listLocalBranches, listRemoteBranches, resyncDefaultBranches } from "./branches";
 import type { ProjectContext } from "./context";
 import { HostRecords } from "./host-records";
+import { OriginLinks, forgetLinkDismissals } from "./origin-links";
 import { moveProjectToHost, planRemoteClone, runRemoteClone, switchProjectHost } from "./host-move";
 import { PathRouter } from "./path-router";
 import type { WorkspaceKeyOwner } from "../../src/lib/workspace-key";
@@ -27,6 +28,7 @@ import type {
   GroupUpdatableFields,
   IssueSeed,
   LinkedIssue,
+  LinkSuggestion,
   PersistedProject,
   ProjectGroupInfo,
   ProjectHostResolver,
@@ -41,6 +43,7 @@ export class ProjectManager {
   private readonly hosts: HostRecords;
   private readonly paths: PathRouter;
   private readonly ctx: ProjectContext;
+  private readonly origins: OriginLinks;
   private readonly hostFor: ProjectHostResolver;
   private resyncDone = false;
 
@@ -72,6 +75,7 @@ export class ProjectManager {
         this.store.state.projects.find((p) => p.path === dir && p.hostId === hostId),
       info: (project) => this.buildProjectInfo(project),
     };
+    this.origins = new OriginLinks(this.ctx);
   }
 
   private findProject(projectId: string): PersistedProject | undefined {
@@ -344,6 +348,7 @@ export class ProjectManager {
   removeProject(projectId: string): void {
     const state = this.store.state;
     groups.forgetProject(state, projectId);
+    forgetLinkDismissals(state, projectId);
     state.projects = state.projects.filter((p) => p.id !== projectId);
     if (state.selectedProjectIndex >= state.projects.length) {
       state.selectedProjectIndex = Math.max(0, state.projects.length - 1);
@@ -407,7 +412,10 @@ export class ProjectManager {
    * a second member for one host.
    */
   linkProjects(projectId: string, otherId: string): ProjectGroupInfo {
-    return groups.linkProjects(this.ctx, projectId, otherId);
+    const group = groups.linkProjects(this.ctx, projectId, otherId);
+    // Record the group's `origin` once a member's host reports it (ticket 5).
+    void this.origins.rememberGroupOrigin(group.id);
+    return group;
   }
 
   /**
@@ -441,6 +449,21 @@ export class ProjectManager {
   /** Remember the host a group last made a workspace on (New Workspace picker). */
   setGroupLastUsedHost(groupId: string, hostId: string): void {
     groups.setGroupLastUsedHost(this.ctx, groupId, hostId);
+  }
+
+  // ── Link suggestions by `origin` (see `origin-links.ts`, ADR-192 ticket 5) ──
+
+  /**
+   * Projects and groups on other hosts whose `origin` matches `projectId`'s,
+   * minus dismissed ones. Only candidates: nothing is linked.
+   */
+  suggestLinks(projectId: string): Promise<LinkSuggestion[]> {
+    return this.origins.suggest(projectId);
+  }
+
+  /** Stop suggesting `projectId` be linked with `otherId` (or its group). */
+  dismissLinkSuggestion(projectId: string, otherId: string): void {
+    this.origins.dismiss(projectId, otherId);
   }
 
   // ── Workspaces and folders (see `workspace-folders.ts`) ──

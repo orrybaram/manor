@@ -138,6 +138,9 @@ export function normalizeGroups(state: PersistedState): void {
       memberIds,
       lastUsedHostId: typeof lastUsed === "string" && hosts.has(lastUsed) ? lastUsed : null,
       ...shared,
+      ...(typeof raw.originUrl === "string" && raw.originUrl !== ""
+        ? { originUrl: raw.originUrl }
+        : {}),
     });
   }
   // After the loop: a later group may still have claimed the survivor.

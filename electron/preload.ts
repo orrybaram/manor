@@ -318,6 +318,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ) => ipcRenderer.invoke("projects:updateGroup", groupId, updates),
     setGroupLastUsedHost: (groupId: string, hostId: string) =>
       ipcRenderer.invoke("projects:setGroupLastUsedHost", groupId, hostId),
+    // ADR-192 ticket 5: link candidates by `origin`, and declining one.
+    suggestLinks: (projectId: string) =>
+      ipcRenderer.invoke("projects:suggestLinks", projectId),
+    dismissLinkSuggestion: (projectId: string, otherId: string) =>
+      ipcRenderer.invoke("projects:dismissLinkSuggestion", projectId, otherId),
     update: (
       projectId: string,
       updates: Partial<{

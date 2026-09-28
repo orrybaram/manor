@@ -1,6 +1,6 @@
 ---
 title: Suggest links when two projects share an origin URL
-status: todo
+status: done
 priority: medium
 assignee: opus
 blocked_by: [1]

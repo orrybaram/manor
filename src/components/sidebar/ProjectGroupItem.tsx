@@ -16,7 +16,7 @@ import {
   type TopLevelEntry,
 } from "../../utils/sidebar-items";
 import { isRemoteHost, memberHostName } from "../../lib/hosts";
-import type { WorkspaceHostChoice } from "../../lib/workspace-host-choices";
+import { startingMemberId, type WorkspaceHostChoice } from "../../lib/workspace-host-choices";
 import { HostIndicator } from "../hosts/HostIndicator";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { NewFolderDialog } from "./NewFolderDialog";
@@ -130,6 +130,8 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
       members.map((m) => ({ projectId: m.id, hostId: m.hostId, disabledReason: null })),
     [members],
   );
+  // The host New Workspace would start on: the group's last used.
+  const folderStartId = lead ? startingMemberId(lead.id, allProjects, hosts) : null;
   const hiddenWorkspaces = members.flatMap((project) =>
     project.workspaces.filter((ws) => ws.hidden).map((ws) => ({ project, ws })),
   );
@@ -323,6 +325,7 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
         open={newFolderOpen}
         onOpenChange={setNewFolderOpen}
         hostChoices={folderHostChoices}
+        initialProjectId={folderStartId}
         onConfirm={(name, projectId) => {
           setNewFolderOpen(false);
           if (projectId) void createWorkspaceFolder(projectId, name);

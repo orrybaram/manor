@@ -5,7 +5,7 @@ import { Button } from "../ui/Button/Button";
 import { EmojiInput } from "../ui/EmojiAutocomplete";
 import type { WorkspaceHostChoice } from "../../lib/workspace-host-choices";
 import { isRemoteHost } from "../../lib/hosts";
-import { HostIndicator, LocalHostLabel } from "../hosts/HostIndicator";
+import { LocalHostLabel, RemoteHostLabel } from "../hosts/HostIndicator";
 import { ToggleGroup } from "../ui/ToggleGroup";
 
 type NewFolderDialogProps = {
@@ -14,14 +14,16 @@ type NewFolderDialogProps = {
   /** `projectId` is the chosen host's member when `hostChoices` is given. */
   onConfirm: (name: string, projectId: string | null) => void;
   /**
-   * A linked group's members, one per host: opened from the group header,
-   * the folder goes in whichever host's section is picked.
+   * Where the folder can go, one member project per host; the folder goes in
+   * whichever host's section is picked.
    */
   hostChoices?: WorkspaceHostChoice[];
+  /** The member selected when the dialog opens: the host it was opened from. */
+  initialProjectId?: string | null;
 };
 
 export function NewFolderDialog(props: NewFolderDialogProps) {
-  const { open, onOpenChange, onConfirm, hostChoices } = props;
+  const { open, onOpenChange, onConfirm, hostChoices, initialProjectId = null } = props;
 
   const [name, setName] = useState("");
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -36,7 +38,11 @@ export function NewFolderDialog(props: NewFolderDialogProps) {
     }
   }
 
-  const chosenProjectId = projectId ?? hostChoices?.[0]?.projectId ?? null;
+  const chosenProjectId =
+    projectId ??
+    hostChoices?.find((c) => c.projectId === initialProjectId)?.projectId ??
+    hostChoices?.[0]?.projectId ??
+    null;
 
   const submit = () => {
     const trimmed = name.trim();
@@ -63,7 +69,7 @@ export function NewFolderDialog(props: NewFolderDialogProps) {
             placeholder="Folder name"
             className={styles.convertInput}
           />
-          {hostChoices && hostChoices.length > 1 && chosenProjectId && (
+          {hostChoices && chosenProjectId && (
             <ToggleGroup
               value={chosenProjectId}
               onChange={setProjectId}
@@ -73,7 +79,7 @@ export function NewFolderDialog(props: NewFolderDialogProps) {
               options={hostChoices.map((choice) => ({
                 value: choice.projectId,
                 label: isRemoteHost(choice.hostId) ? (
-                  <HostIndicator hostId={choice.hostId} variant="label" />
+                  <RemoteHostLabel hostId={choice.hostId} />
                 ) : (
                   <LocalHostLabel />
                 ),

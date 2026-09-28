@@ -1389,14 +1389,20 @@ export function ProjectItem(props: ProjectItemProps) {
             setNewFolderParentId(null);
           }
         }}
-        onConfirm={async (name) => {
+        // Moving rows or nesting in a folder ties the new folder to this
+        // host; a bare "New Folder" can go on any of the group's hosts.
+        hostChoices={(pendingMovePaths || newFolderParentId ? [project] : dialogProjects).map(
+          (p) => ({ projectId: p.id, hostId: p.hostId, disabledReason: null }),
+        )}
+        initialProjectId={project.id}
+        onConfirm={async (name, chosenId) => {
           setNewFolderOpen(false);
           const movePaths = pendingMovePaths;
           const parentId = newFolderParentId;
           setPendingMovePaths(null);
           setNewFolderParentId(null);
           await createWorkspaceFolder(
-            projectId,
+            chosenId ?? projectId,
             name,
             movePaths ?? undefined,
             parentId,

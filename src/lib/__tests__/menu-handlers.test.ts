@@ -89,7 +89,7 @@ beforeEach(() => {
   useProjectStore.setState({
     projects: [],
     selectedProjectIndex: 0,
-    sidebarVisible: true,
+    sidebarMode: "full",
   });
   useAppStore.setState({
     activeWorkspacePath: WS_PATH,
@@ -321,10 +321,10 @@ describe("createMenuHandlers", () => {
   it("un-hides the sidebar before asking it to rename a workspace", () => {
     useProjectStore.setState({
       projects: [makeProject("a", [ws(WS_PATH)])],
-      sidebarVisible: false,
+      sidebarMode: "hidden",
     });
     createMenuHandlers(makeChrome())["rename-workspace"]();
-    expect(useProjectStore.getState().sidebarVisible).toBe(true);
+    expect(useProjectStore.getState().sidebarMode).toBe("full");
   });
 });
 

@@ -188,7 +188,8 @@ export function buildMenuTemplate(
     label: "View",
     submenu: [
       cmd("command-palette", "Command Palette"),
-      cmd("toggle-sidebar", "Toggle Sidebar"),
+      cmd("toggle-sidebar", "Collapse Sidebar"),
+      cmd("hide-sidebar", "Hide Sidebar"),
       cmd("focus-sidebar", "Focus Sidebar"),
       cmd("focus-tabbar", "Focus Tab Bar"),
       cmd("focus-next-region", "Focus Next Region"),

@@ -17,7 +17,7 @@ import styles from "./ProjectsOverview.module.css";
 export interface ProjectsOverviewProps {
   /** "Open a folder": the directory picker, straight away. */
   onAddLocal: () => void;
-  /** "Clone onto a remote host": `AddProjectDialog` in remote mode. */
+  /** "Clone a repository": `AddProjectDialog` in remote mode. */
   onAddRemote: () => void;
   /** A folder dropped on the drop zone. */
   onDropFolder: (folderPath: string) => void;
@@ -166,7 +166,7 @@ export function ProjectsOverview(props: ProjectsOverviewProps) {
             <span className={shared.actionIcon}>
               <Server size={16} />
             </span>
-            <span className={shared.actionLabel}>Clone onto a remote host</span>
+            <span className={shared.actionLabel}>Clone a repository</span>
           </Button>
           <div
             className={`${styles.dropZone} ${dragging ? styles.dragging : ""}`}

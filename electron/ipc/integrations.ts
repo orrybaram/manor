@@ -17,6 +17,8 @@ export function register(deps: IpcDeps): void {
     },
   );
 
+  ipcMain.handle("github:listRepos", () => githubManager.listRepos());
+
   ipcMain.handle("github:checkStatus", () => githubManager.checkStatus());
 
   ipcMain.handle(

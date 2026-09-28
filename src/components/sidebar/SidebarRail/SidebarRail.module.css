@@ -1,0 +1,158 @@
+/* ── Collapsed sidebar rail (ADR-195) ── */
+
+/* Same surface and edge as `.sidebar` in Sidebar.module.css. */
+.rail {
+  width: 52px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--dim);
+  border-right: 1px solid var(--border);
+  position: relative;
+  user-select: none;
+  overflow: hidden;
+}
+
+/* Room for the macOS traffic lights, draggable like `.titlebar`. */
+.dragSpacer {
+  height: 32px;
+  width: 100%;
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+}
+
+.divider {
+  width: 24px;
+  height: 1px;
+  flex-shrink: 0;
+  margin: 8px 0;
+  background: var(--border);
+}
+
+.tiles {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.tiles::-webkit-scrollbar {
+  display: none;
+}
+
+.footer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 0 10px;
+}
+
+/* One tile plus its active marker, full rail width so the marker sits on the
+   rail's left edge. */
+.tileSlot {
+  position: relative;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.activeMarker {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 20px;
+  border-radius: 0 2px 2px 0;
+  background: var(--project-color, var(--accent));
+}
+
+/* `.rail` raises specificity over the ghost Button's own background/color. */
+.rail .tile {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--project-color, var(--text-dim)) 22%, var(--surface));
+  color: var(--project-color, var(--text-primary));
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.rail .tile:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--project-color, var(--text-dim)) 36%, var(--surface));
+  color: var(--project-color, var(--text-selected));
+}
+
+.rail .tileSelected {
+  box-shadow: inset 0 0 0 1px var(--project-color, var(--accent));
+}
+
+/* Status badge in the tile's bottom-right corner, ringed in the rail colour so
+   it reads against any project tint. */
+.badge {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--dim);
+  pointer-events: none;
+}
+
+.badge > span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: scale(0.85);
+}
+
+.rail .iconButton {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.rail .homeActive {
+  background: var(--surface);
+  color: var(--accent);
+}
+
+/* ── Project popover ── */
+
+/* Gives the Radix anchor a box to measure; the tile sets its size. */
+.anchor {
+  display: flex;
+}
+
+/* The entry as the full sidebar shows it, at the sidebar's width (set
+   inline) and on its background. */
+.popover {
+  background: var(--dim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding-block: 6px;
+  max-height: min(640px, var(--radix-popover-content-available-height, 100vh));
+  overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  user-select: none;
+}

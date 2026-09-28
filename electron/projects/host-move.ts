@@ -4,13 +4,14 @@
  * the same project record (ADR-183 split this out of `ProjectManager`).
  */
 
+import { LOCAL_HOST_ID } from "../backend/types";
 import { detectDefaultBranch } from "./branches";
 import type { ProjectContext } from "./context";
 import { emitCloneProgress } from "./progress";
 import { assertGroupHostFree } from "./project-groups";
 import {
   prepareRemoteClone,
-  resolveRemoteDir,
+  resolveCloneDir,
   validateRepoUrl,
 } from "./remote-clone";
 import type { PersistedProject, ProjectHost, ProjectInfo } from "./types";
@@ -29,8 +30,8 @@ export function rekeyRecord<T>(
   delete record[from];
 }
 
-/** Where a clone onto a remote host goes, resolved before anything is cloned. */
-export interface RemoteClonePlan {
+/** Where a clone onto a host goes, resolved before anything is cloned. */
+export interface ClonePlan {
   host: ProjectHost;
   repoUrl: string;
   targetDir: string;
@@ -41,18 +42,19 @@ export interface RemoteClonePlan {
 /**
  * Validate a clone request and resolve its target, expanding `~` against
  * the host's home, so the owner check runs without touching the host's
- * filesystem. `hostId` must already be known to be remote.
+ * filesystem. `hostId` must already be known.
  */
-export async function planRemoteClone(
+export async function planClone(
   ctx: ProjectContext,
   hostId: string,
-  opts: { repoUrl: string; remoteDir: string },
-): Promise<RemoteClonePlan> {
+  opts: { repoUrl: string; targetDir: string },
+): Promise<ClonePlan> {
   const repoUrl = opts.repoUrl.trim();
   validateRepoUrl(repoUrl);
   const host = ctx.host(hostId);
-  const targetDir = await resolveRemoteDir(
-    opts.remoteDir,
+  const targetDir = await resolveCloneDir(
+    hostId === LOCAL_HOST_ID,
+    opts.targetDir,
     () => ctx.paths.homeDir(hostId),
     host.facts.join,
   );
@@ -60,7 +62,7 @@ export async function planRemoteClone(
 }
 
 /** Clone (or adopt) per `plan`, with progress on `projects:clone-progress`. */
-export function runRemoteClone(plan: RemoteClonePlan): Promise<void> {
+export function runClone(plan: ClonePlan): Promise<void> {
   return prepareRemoteClone(plan.host, plan.repoUrl, plan.targetDir, emitCloneProgress);
 }
 
@@ -82,14 +84,17 @@ export async function moveProjectToHost(
   if (!project) throw new Error(`Unknown project "${projectId}".`);
   assertGroupHostFree(ctx, projectId, hostId);
 
-  const plan = await planRemoteClone(ctx, hostId, opts);
+  const plan = await planClone(ctx, hostId, {
+    repoUrl: opts.repoUrl,
+    targetDir: opts.remoteDir,
+  });
   if (plan.owner && plan.owner.id !== projectId) {
     throw new Error(
       `"${plan.targetDir}" on this host already belongs to project "${plan.owner.name}".`,
     );
   }
 
-  await runRemoteClone(plan);
+  await runClone(plan);
   await repointProject(ctx, project, hostId, plan.targetDir);
   ctx.store.save();
   return ctx.info(project);

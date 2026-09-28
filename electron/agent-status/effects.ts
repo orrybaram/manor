@@ -107,6 +107,37 @@ export function applyStatusEffects(
   }
 }
 
+/** The Pane context an Agent was created with, if it has one. */
+function paneContextOf(agent: AgentInfo): PaneContext | undefined {
+  if (!agent.workspacePath) return undefined;
+  return {
+    projectId: agent.projectId ?? "",
+    projectName: agent.projectName ?? "",
+    workspacePath: agent.workspacePath,
+    agentCommand: agent.agentCommand,
+  };
+}
+
+/**
+ * The fields `context` would fill on an Agent created without it, or null
+ * when there is nothing to fill. Only empty fields are written: an Agent that
+ * already knows its project keeps it.
+ */
+export function paneContextBackfill(
+  agent: AgentInfo,
+  context: PaneContext,
+): Partial<AgentInfo> | null {
+  const updates: Partial<AgentInfo> = {};
+  if (!agent.projectId && context.projectId) updates.projectId = context.projectId;
+  if (!agent.projectName && context.projectName) updates.projectName = context.projectName;
+  if (!agent.workspacePath && context.workspacePath) {
+    updates.workspacePath = context.workspacePath;
+    if (!agent.cwd) updates.cwd = context.workspacePath;
+  }
+  if (!agent.agentCommand && context.agentCommand) updates.agentCommand = context.agentCommand;
+  return Object.keys(updates).length > 0 ? updates : null;
+}
+
 function findAgentById(agentManager: IAgentManager, agentId: string): AgentInfo | null {
   if (agentManager.getAgentById) return agentManager.getAgentById(agentId);
   return agentManager.getActiveAgents().find((a) => a.id === agentId) ?? null;
@@ -132,7 +163,13 @@ function applyCreateAgent(
     if (retired) deps.broadcastAgent(retired);
   }
 
-  const paneContext = deps.getPaneContext(effect.paneId);
+  // The pane's context is registered by the renderer once the pane mounts.
+  // After a restart, a live session's hooks can beat that (the pane may sit
+  // in a workspace nobody has opened yet), so fall back to the Agent this one
+  // replaces on the same pane — without it the record has no project and
+  // lands in the sidebar's "Unknown" group.
+  const paneContext =
+    deps.getPaneContext(effect.paneId) ?? (prevPaneAgent ? paneContextOf(prevPaneAgent) : undefined);
   let agent: AgentInfo | null = deps.agentManager.createAgent({
     agentSessionId: effect.sessionId,
     // Named from the pane's title at creation: the title usually lands before

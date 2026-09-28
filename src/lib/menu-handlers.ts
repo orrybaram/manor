@@ -27,7 +27,11 @@ import {
 } from "../store/project-store";
 import { useToastStore } from "../store/toast-store";
 import { LOCAL_HOST_ID, projectForWorkspaceKey } from "./hosts";
-import { parseWorkspaceKey, workspaceKey, type WorkspaceKey } from "./workspace-key";
+import {
+  parseWorkspaceKey,
+  workspaceKey,
+  type WorkspaceKey,
+} from "./workspace-key";
 import { hideWorkspaceAndNavigate } from "../store/workspace-actions";
 import {
   createSharedKeybindingHandlers,
@@ -88,8 +92,10 @@ function activeWorkspace(): ActiveWorkspace {
   const path = app.activeWorkspacePath;
   // By key: a local and a remote project can share a path (ADR-191).
   const project =
-    projectForWorkspaceKey(useProjectStore.getState().projects, selectActiveWorkspaceKey(app)) ??
-    null;
+    projectForWorkspaceKey(
+      useProjectStore.getState().projects,
+      selectActiveWorkspaceKey(app),
+    ) ?? null;
   const workspace = project?.workspaces.find((w) => w.path === path) ?? null;
   return { project, workspace, path };
 }
@@ -132,7 +138,10 @@ export function orderedWorkspaceKeys(projects: ProjectInfo[]): WorkspaceKey[] {
 /** Switch to the workspace keyed `key`, keeping the project selection in sync. */
 function switchToWorkspace(key: WorkspaceKey): void {
   const { hostId, path } = parseWorkspaceKey(key);
-  const project = projectForWorkspaceKey(useProjectStore.getState().projects, key);
+  const project = projectForWorkspaceKey(
+    useProjectStore.getState().projects,
+    key,
+  );
   const index = project?.workspaces.findIndex((w) => w.path === path) ?? -1;
   if (project && index >= 0) {
     useProjectStore.getState().selectWorkspace(project.id, index);
@@ -159,7 +168,7 @@ function stepWorkspace(delta: 1 | -1): void {
  */
 function ensureSidebarVisible(): void {
   const store = useProjectStore.getState();
-  if (!store.sidebarVisible) store.toggleSidebar();
+  if (store.sidebarMode !== "full") store.setSidebarMode("full");
 }
 
 function copyToClipboard(text: string, label: string): void {
@@ -188,7 +197,8 @@ export function createMenuHandlers(
     // ── Primary-window keybindings ─────────────────────────────────────────
     settings: () => chrome.openSettings(),
     "command-palette": () => chrome.togglePalette(),
-    "toggle-sidebar": () => useProjectStore.getState().toggleSidebar(),
+    "toggle-sidebar": () => useProjectStore.getState().toggleSidebarRail(),
+    "hide-sidebar": () => useProjectStore.getState().toggleSidebarHidden(),
     "focus-sidebar": () => {
       // A visible sidebar takes focus now: the key that follows ⌘⇧E (an arrow,
       // Home) can arrive before the next frame, and would reach the terminal.
@@ -332,7 +342,11 @@ export function createMenuHandlers(
     "run-setup-script": () => {
       const { project, path } = activeWorkspace();
       if (project?.worktreeStartScript && path) {
-        runWorkspaceSetupScript(path, project.worktreeStartScript, project.hostId);
+        runWorkspaceSetupScript(
+          path,
+          project.worktreeStartScript,
+          project.hostId,
+        );
       }
     },
     "view-all-agents": () => chrome.openAgents(),

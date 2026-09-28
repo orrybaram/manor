@@ -22,6 +22,8 @@ export type UiRequest =
   | { type: "open-notifications" }
   | { type: "pane-search"; paneId: string }
   | { type: "ghosts" }
+  /** Open the Add Project dialog on its "Clone repository" tab (ADR-194). */
+  | { type: "clone-repository" }
   /** Open a project's settings, scrolled to `section` (a `data-settings-section` id). */
   | { type: "open-project-settings"; projectId: string; section?: string };
 

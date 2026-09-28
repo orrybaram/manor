@@ -41,11 +41,28 @@
   align-items: center;
   justify-content: space-between;
   padding: 4px 6px;
+  /* Agents and Ports headers match whether they hold a count or "View All". */
+  min-height: 24px;
+  box-sizing: border-box;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-dim);
+}
+
+/* Duplicated in Ports.module.css (`.projectChevron`) — candidate for a shared <Chevron> UI component */
+.chevron {
+  width: 12px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  transition: transform 120ms ease;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
 }
 
 /* Duplicated in Sidebar.module.css — candidate for a shared <SectionHeader> UI component */

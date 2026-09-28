@@ -29,11 +29,7 @@ const { mockState } = vi.hoisted(() => {
 vi.mock("node:child_process", async () => {
   const { promisify } = await import("node:util");
 
-  type ExecFileCb = (
-    err: Error | null,
-    stdout: string,
-    stderr: string,
-  ) => void;
+  type ExecFileCb = (err: Error | null, stdout: string, stderr: string) => void;
 
   // The callback-based execFile mock — consumed by the promisify.custom below
   function execFile(
@@ -467,7 +463,10 @@ describe("GitHubManager", () => {
       manager.setPrMergedListener(() => {
         throw new Error("stats exploded");
       });
-      setupExecFileCalls([success(pr({ state: "MERGED" })), success(graphql(0))]);
+      setupExecFileCalls([
+        success(pr({ state: "MERGED" })),
+        success(graphql(0)),
+      ]);
 
       const result = await manager.getPrForBranch(REPO, "b");
       expect(result!.state).toBe("merged");
@@ -771,7 +770,9 @@ describe("GitHubManager", () => {
   // here against the repo the resolver names instead of inside the path.
   // -------------------------------------------------------------------------
   describe("remote projects", () => {
-    function resolver(repoFor: (hostId: string, path: string) => Promise<string>) {
+    function resolver(
+      repoFor: (hostId: string, path: string) => Promise<string>,
+    ) {
       return vi.fn(repoFor);
     }
 
@@ -779,7 +780,10 @@ describe("GitHubManager", () => {
       const remote = new GitHubManager(resolver(async () => "owner/repo"));
       setupExecFileCalls([success("[]")]);
 
-      await remote.getPrForBranch({ path: "/remote/repo", hostId: "box" }, "feat/x");
+      await remote.getPrForBranch(
+        { path: "/remote/repo", hostId: "box" },
+        "feat/x",
+      );
 
       expect(mockState.calls[0]).toEqual(
         expect.arrayContaining(["pr", "list", "--repo", "owner/repo"]),
@@ -819,7 +823,10 @@ describe("GitHubManager", () => {
       );
 
       await expect(
-        remote.getPrForBranch({ path: "/remote/repo", hostId: "box" }, "feat/x"),
+        remote.getPrForBranch(
+          { path: "/remote/repo", hostId: "box" },
+          "feat/x",
+        ),
       ).resolves.toBeNull();
     });
 
@@ -827,7 +834,13 @@ describe("GitHubManager", () => {
     it("keeps separate cache entries for the same path on two hosts", async () => {
       const resolve = resolver(async (hostId) => `owner/${hostId}-repo`);
       const remote = new GitHubManager(resolve);
-      setupExecFileCalls([success("[]"), success("[]"), success("[]"), success("[]"), success("[]")]);
+      setupExecFileCalls([
+        success("[]"),
+        success("[]"),
+        success("[]"),
+        success("[]"),
+        success("[]"),
+      ]);
 
       await remote.getMyIssues({ path: "/srv/repo", hostId: "box" });
       await remote.getMyIssues({ path: "/srv/repo", hostId: "other" });
@@ -865,5 +878,49 @@ describe("ghRepoFromRemoteUrl", () => {
   it("rejects a URL without an owner/repo path", () => {
     expect(ghRepoFromRemoteUrl("/srv/git/repo.git")).toBeNull();
     expect(ghRepoFromRemoteUrl("https://github.com/owner")).toBeNull();
+  });
+});
+
+describe("GitHubManager.listRepos", () => {
+  const line = (name: string, pushed: string | null) =>
+    JSON.stringify({
+      full_name: name,
+      description: null,
+      private: false,
+      ssh_url: `git@github.com:${name}.git`,
+      clone_url: `https://github.com/${name}.git`,
+      pushed_at: pushed,
+    });
+
+  it("parses one object per line, newest push first, https by default", async () => {
+    setupExecFileCalls([
+      success("\n"),
+      success(
+        [
+          line("a/old", "2024-01-01T00:00:00Z"),
+          line("a/new", "2025-01-01T00:00:00Z"),
+        ].join("\n") + "\n",
+      ),
+    ]);
+    const repos = await new GitHubManager().listRepos();
+    expect(repos.map((r) => r.nameWithOwner)).toEqual(["a/new", "a/old"]);
+    expect(repos[0].cloneUrl).toBe("https://github.com/a/new.git");
+  });
+
+  it("uses the ssh url when git_protocol is ssh", async () => {
+    setupExecFileCalls([success("ssh\n"), success(line("a/b", null) + "\n")]);
+    const repos = await new GitHubManager().listRepos();
+    expect(repos[0].cloneUrl).toBe("git@github.com:a/b.git");
+  });
+
+  it("returns [] when gh fails, and caches successes", async () => {
+    setupExecFileCalls([failure("nope"), failure("nope")]);
+    expect(await new GitHubManager().listRepos()).toEqual([]);
+
+    setupExecFileCalls([success("ssh"), success(line("a/b", null))]);
+    const mgr = new GitHubManager();
+    await mgr.listRepos();
+    await mgr.listRepos();
+    expect(mockState.calls).toHaveLength(2);
   });
 });

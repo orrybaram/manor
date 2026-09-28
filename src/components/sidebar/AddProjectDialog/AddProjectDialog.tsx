@@ -1,96 +1,166 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import X from "lucide-react/dist/esm/icons/x";
 import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
 import { useHostStore } from "../../../store/host-store";
 import { addErrorToast } from "../../../store/toast-store";
-import { remoteHostOptions } from "../../../lib/hosts";
+import { LOCAL_HOST_ID, isRemoteHost, remoteHostOptions } from "../../../lib/hosts";
+import type { GitHubRepo } from "../../../electron.d.ts";
 import { Button } from "../../ui/Button/Button";
 import { Input } from "../../ui/Input";
 import { SearchableSelect } from "../../ui/SearchableSelect";
 import { ToggleGroup } from "../../ui/ToggleGroup";
 import { Row, Stack } from "../../ui/Layout/Layout";
 import { useHostCloneFlow } from "../../hosts/useHostCloneFlow";
-import { HostCloneSteps, RepoUrlAndRemoteDirFields } from "../../hosts/HostCloneSteps";
+import { CloneDirField, HostCloneSteps, RepoUrlField } from "../../hosts/HostCloneSteps";
 import styles from "../../hosts/HostCloneSteps.module.css";
 
-type Mode = "local" | "remote";
+export type AddProjectMode = "folder" | "clone";
 
 type AddProjectDialogProps = {
   open: boolean;
   onClose: () => void;
-  /** "This Mac" picks a directory and adds it; mirrors the old flow. */
+  /** Which tab the dialog opens on; "folder" unless the caller asks to clone. */
+  initialMode?: AddProjectMode;
+  /** "Open folder" picks a directory and adds it; mirrors the old flow. */
   onAddLocal: () => Promise<void>;
+  /** Called once a clone onto this machine finishes; the dialog has closed. */
+  onLocalProjectCloned?: (project: ProjectInfo) => void;
   /** Called once the remote clone finishes and the project is added. */
   onRemoteProjectAdded?: (project: ProjectInfo) => void;
-  /**
-   * The mode the dialog opens in (default "local"). Applied each time `open`
-   * goes false → true, e.g. "remote" from the Projects overview's "Clone
-   * onto a remote host" (ADR-194).
-   */
-  initialMode?: Mode;
 };
+
+const DEFAULT_CLONE_PARENT = "~/code";
+
+/** A repo URL's last path segment without `.git`, or "" when there is none. */
+function repoNameFromUrl(repoUrl: string): string {
+  const trimmed = repoUrl.trim().replace(/\/+$/, "").replace(/\.git$/, "");
+  return trimmed.split(/[/:]/).pop() ?? "";
+}
 
 /** Derive a project name from a repo URL's last path segment. */
 function nameFromRepoUrl(repoUrl: string): string {
-  const trimmed = repoUrl.trim().replace(/\.git$/, "");
-  const last = trimmed.split(/[/:]/).pop() ?? "";
-  return last || "project";
+  return repoNameFromUrl(repoUrl) || "project";
+}
+
+/** `path` without its last segment; "/" for a top-level path. */
+function parentDir(path: string): string {
+  const trimmed = path.replace(/\/+$/, "");
+  const idx = trimmed.lastIndexOf("/");
+  return idx > 0 ? trimmed.slice(0, idx) : "/";
+}
+
+/** `name` inside `dir`, without doubling a trailing slash. */
+function joinPath(dir: string, name: string): string {
+  return dir.endsWith("/") ? `${dir}${name}` : `${dir}/${name}`;
 }
 
 /**
- * "Add Project" now offers a choice: a local directory (the pre-ADR-178
- * flow) or a repo cloned onto a remote host, with clone progress and a
- * post-clone health check (ADR-178 ticket 5). The remote flow's form →
+ * "Add Project" offers two things to do (ADR-194): open a folder already on
+ * this machine (the pre-ADR-178 flow), or clone a repo onto any host — this
+ * machine or a remote one (ADR-178 ticket 5). The repo can be picked from the
+ * user's GitHub repos (via `gh`) or pasted as a URL. The clone's form →
  * cloning → health state machine is shared with `CloneToHostDialog` via
- * `useHostCloneFlow` (ADR-183 ticket 10).
+ * `useHostCloneFlow` (ADR-183 ticket 10); a local clone skips the health step
+ * and hands off to `ProjectSetupWizard`, like "Open folder" does.
  */
 export function AddProjectDialog(props: AddProjectDialogProps) {
-  const { open, onClose, onAddLocal, onRemoteProjectAdded, initialMode } = props;
+  const {
+    open,
+    onClose,
+    initialMode = "folder",
+    onAddLocal,
+    onLocalProjectCloned,
+    onRemoteProjectAdded,
+  } = props;
 
-  const [mode, setMode] = useState<Mode>(initialMode ?? "local");
-
-  // Apply `initialMode` when the dialog opens (render-time, ref-guarded):
-  // `reset()` forces "local" on close, so the initial state alone only
-  // covers the first open.
-  const prevOpenRef = useRef(open);
-  if (open && !prevOpenRef.current) {
-    setMode(initialMode ?? "local");
-  }
-  prevOpenRef.current = open;
+  const [mode, setMode] = useState<AddProjectMode>(initialMode);
   const [addingLocal, setAddingLocal] = useState(false);
 
+  // Each open starts on the tab the caller asked for (the palette's
+  // "Clone Repository…" opens straight onto "clone").
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setMode(initialMode);
+  }
+
   const hosts = useHostStore((s) => s.hosts);
-  const addRemoteProject = useProjectStore((s) => s.addRemoteProject);
+  const projects = useProjectStore((s) => s.projects);
+  const cloneProject = useProjectStore((s) => s.cloneProject);
 
-  const options = useMemo(() => remoteHostOptions(hosts), [hosts]);
+  const hostOptions = useMemo(
+    () => [{ value: LOCAL_HOST_ID, label: "This Mac" }, ...remoteHostOptions(hosts)],
+    [hosts],
+  );
 
-  const [hostId, setHostId] = useState("");
+  const [hostId, setHostId] = useState<string>(LOCAL_HOST_ID);
   const [repoUrl, setRepoUrl] = useState("");
-  const [remoteDir, setRemoteDir] = useState("");
+  const [pickedRepo, setPickedRepo] = useState("");
   const [name, setName] = useState("");
   const [nameEdited, setNameEdited] = useState(false);
+  // Location follows `<parent>/<repo name>` until the user types in it;
+  // Browse… only swaps the parent, so it keeps following the repo.
+  const [location, setLocation] = useState("");
+  const [locationEdited, setLocationEdited] = useState(false);
+  const [browsedParent, setBrowsedParent] = useState<string | null>(null);
+
+  // `null` until `gh` answers; `[]` when it's missing, unauthed or empty.
+  const [repos, setRepos] = useState<GitHubRepo[] | null>(null);
+  const [reposRequested, setReposRequested] = useState(false);
+
+  const isLocal = !isRemoteHost(hostId);
+  const repoName = repoNameFromUrl(repoUrl);
+  const effectiveName = nameEdited ? name : repoName;
+
+  const defaultParent = useMemo(() => {
+    const latest = [...projects].reverse().find((p) => p.hostId === hostId);
+    return latest ? parentDir(latest.path) : DEFAULT_CLONE_PARENT;
+  }, [projects, hostId]);
+  const parent = (isLocal ? browsedParent : null) ?? defaultParent;
+  const targetDir = locationEdited ? location : repoName ? joinPath(parent, repoName) : "";
+
+  // Fetched once, the first time the clone form is shown; the main process
+  // caches it for a few minutes on top of that.
+  useEffect(() => {
+    if (!open || mode !== "clone" || reposRequested) return;
+    setReposRequested(true);
+    window.electronAPI.github.listRepos().then(setRepos, () => setRepos([]));
+  }, [open, mode, reposRequested]);
+
+  const repoOptions = useMemo(
+    () =>
+      (repos ?? []).map((r) => ({
+        value: r.nameWithOwner,
+        label: r.private ? `${r.nameWithOwner} · private` : r.nameWithOwner,
+      })),
+    [repos],
+  );
 
   const flow = useHostCloneFlow({
     hostId,
+    skipHealthChecks: isLocal,
     run: () =>
-      addRemoteProject({
+      cloneProject({
         hostId,
         repoUrl: repoUrl.trim(),
-        remoteDir: remoteDir.trim(),
-        name: name.trim() || nameFromRepoUrl(repoUrl),
+        targetDir: targetDir.trim(),
+        name: effectiveName.trim() || nameFromRepoUrl(repoUrl),
       }),
   });
 
   const reset = useCallback(() => {
-    setMode("local");
-    setHostId("");
+    setMode(initialMode);
+    setHostId(LOCAL_HOST_ID);
     setRepoUrl("");
-    setRemoteDir("");
+    setPickedRepo("");
     setName("");
     setNameEdited(false);
+    setLocation("");
+    setLocationEdited(false);
+    setBrowsedParent(null);
     flow.reset();
-  }, [flow]);
+  }, [flow, initialMode]);
 
   const handleOpenChange = useCallback(
     (isOpen: boolean) => {
@@ -120,11 +190,40 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
     }
   }, [onAddLocal, onClose, reset]);
 
+  const handlePickRepo = useCallback(
+    (nameWithOwner: string) => {
+      const repo = repos?.find((r) => r.nameWithOwner === nameWithOwner);
+      if (!repo) return;
+      setPickedRepo(nameWithOwner);
+      setRepoUrl(repo.cloneUrl);
+    },
+    [repos],
+  );
+
+  const handleBrowse = useCallback(async () => {
+    const picked = await window.electronAPI.dialog.openDirectory();
+    if (!picked) return;
+    setBrowsedParent(picked);
+    // A typed location is replaced by the browsed one, which then follows
+    // the repo name again.
+    setLocationEdited(false);
+  }, []);
+
+  const canClone = !!hostId && !!repoUrl.trim() && !!targetDir.trim();
+
   const handleClone = useCallback(async () => {
-    if (!hostId || !repoUrl.trim() || !remoteDir.trim()) return;
+    if (!canClone) return;
     const project = await flow.start();
-    if (project) onRemoteProjectAdded?.(project);
-  }, [hostId, repoUrl, remoteDir, flow, onRemoteProjectAdded]);
+    if (!project) return;
+    if (isLocal) {
+      // Like "Open folder": the setup wizard takes over, so get out of its way.
+      onClose();
+      reset();
+      onLocalProjectCloned?.(project);
+    } else {
+      onRemoteProjectAdded?.(project);
+    }
+  }, [canClone, flow, isLocal, onClose, reset, onLocalProjectCloned, onRemoteProjectAdded]);
 
   const handleFixInTerminal = useCallback(
     (check: Parameters<typeof flow.fix>[0]) => {
@@ -163,13 +262,13 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
                   value={mode}
                   onChange={setMode}
                   size="sm"
-                  aria-label="Where the project lives"
+                  aria-label="How to add the project"
                   options={[
-                    { value: "local", label: "On this Mac" },
-                    { value: "remote", label: "On a remote host" },
+                    { value: "folder", label: "Open folder" },
+                    { value: "clone", label: "Clone repository" },
                   ]}
                 />
-                {mode === "local" ? (
+                {mode === "folder" ? (
                   <Stack gap="sm">
                     <div className={styles.fieldHint}>
                       Choose a folder on this machine.
@@ -194,20 +293,52 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
                         id="add-project-host"
                         value={hostId}
                         onChange={setHostId}
-                        options={options}
-                        emptyMessage="Add a host in Project Settings → Host first"
+                        options={hostOptions}
+                        maxWidth={440}
                         placeholder="Select a host…"
                       />
                     </Stack>
-                    <RepoUrlAndRemoteDirFields
-                      idPrefix="add-project"
-                      repoUrl={repoUrl}
-                      onRepoUrlChange={(value) => {
+                    {(repos === null || repos.length > 0) && (
+                      <Stack>
+                        <label className={styles.fieldLabel} htmlFor="add-project-repo">
+                          Repository
+                        </label>
+                        <SearchableSelect
+                          id="add-project-repo"
+                          value={pickedRepo}
+                          onChange={handlePickRepo}
+                          options={repoOptions}
+                          loading={repos === null}
+                          maxWidth={440}
+                          placeholder="Search your GitHub repos…"
+                        />
+                      </Stack>
+                    )}
+                    <RepoUrlField
+                      id="add-project-repo-url"
+                      label={repos && repos.length > 0 ? "Or paste a URL" : "Repo URL"}
+                      value={repoUrl}
+                      onChange={(value) => {
                         setRepoUrl(value);
-                        if (!nameEdited) setName(nameFromRepoUrl(value));
+                        setPickedRepo("");
                       }}
-                      remoteDir={remoteDir}
-                      onRemoteDirChange={setRemoteDir}
+                    />
+                    <CloneDirField
+                      id="add-project-location"
+                      label="Location"
+                      value={targetDir}
+                      onChange={(value) => {
+                        setLocation(value);
+                        setLocationEdited(true);
+                      }}
+                      placeholder={joinPath(parent, "repo")}
+                      action={
+                        isLocal ? (
+                          <Button variant="secondary" onClick={handleBrowse}>
+                            Browse…
+                          </Button>
+                        ) : undefined
+                      }
                     />
                     <Stack>
                       <label className={styles.fieldLabel} htmlFor="add-project-name">
@@ -215,27 +346,25 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
                       </label>
                       <Input
                         id="add-project-name"
-                        value={name}
+                        value={effectiveName}
                         onChange={(e) => {
                           setName(e.target.value);
                           setNameEdited(true);
                         }}
-                        placeholder={nameFromRepoUrl(repoUrl) || "Project name"}
+                        placeholder="Project name"
                       />
                     </Stack>
-                    <div className={styles.fieldHint}>
-                      Log in on the box — Manor doesn't copy your keys.
-                    </div>
+                    {!isLocal && (
+                      <div className={styles.fieldHint}>
+                        Log in on the box — Manor doesn't copy your keys.
+                      </div>
+                    )}
                     {flow.error && <div className={styles.error}>{flow.error}</div>}
                     <Row gap="sm" justify="flex-end">
-                      <Button variant="secondary" onClick={onClose}>
+                      <Button variant="secondary" onClick={handleDone}>
                         Cancel
                       </Button>
-                      <Button
-                        variant="primary"
-                        disabled={!hostId || !repoUrl.trim() || !remoteDir.trim()}
-                        onClick={handleClone}
-                      >
+                      <Button variant="primary" disabled={!canClone} onClick={handleClone}>
                         Clone
                       </Button>
                     </Row>

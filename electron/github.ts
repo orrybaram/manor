@@ -32,6 +32,20 @@ export interface GitHubIssueDetail extends GitHubIssue {
   milestone: { title: string } | null;
 }
 
+/** A repo the signed-in user can clone, from `GitHubManager.listRepos`. */
+export interface GitHubRepo {
+  nameWithOwner: string;
+  description: string | null;
+  private: boolean;
+  sshUrl: string;
+  httpsUrl: string;
+  pushedAt: string | null;
+  /** `sshUrl` or `httpsUrl`, whichever `gh config get git_protocol` prefers. */
+  cloneUrl: string;
+}
+
+const REPOS_CACHE_MS = 5 * 60_000;
+
 /**
  * How stale an open PR's cached conversation may get before it is re-fetched
  * even though the PR's `updatedAt` has not moved. Resolving a review thread
@@ -109,6 +123,8 @@ export class GitHubManager {
   }
 
   private readyPromise: Promise<boolean> | null = null;
+
+  private reposCache: { at: number; repos: GitHubRepo[] } | null = null;
 
   /** See `setPrMergedListener`. */
   private onPrMerged: ((prUrl: string) => void) | undefined;
@@ -544,6 +560,69 @@ export class GitHubManager {
     }
 
     return urls;
+  }
+
+  /**
+   * The repos the signed-in user can clone, most recently pushed first. Any
+   * failure (gh missing, not signed in, offline) yields `[]` rather than
+   * throwing: the caller falls back to pasting a URL. Cached for 5 minutes.
+   */
+  async listRepos(): Promise<GitHubRepo[]> {
+    if (this.reposCache && Date.now() - this.reposCache.at < REPOS_CACHE_MS) {
+      return this.reposCache.repos;
+    }
+    try {
+      let protocol = "";
+      try {
+        const { stdout } = await execFileAsync(
+          "gh",
+          ["config", "get", "git_protocol"],
+          { encoding: "utf-8", timeout: 5000 },
+        );
+        protocol = stdout.trim();
+      } catch {
+        // Unset or unreadable: default to https.
+      }
+      // `--paginate` joins pages as `][`; one object per line sidesteps it.
+      const { stdout } = await execFileAsync(
+        "gh",
+        [
+          "api",
+          "user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member",
+          "--paginate",
+          "--jq",
+          ".[] | {full_name, description, private, ssh_url, clone_url, pushed_at}",
+        ],
+        { encoding: "utf-8", timeout: 60000, maxBuffer: 50 * 1024 * 1024 },
+      );
+      const repos: GitHubRepo[] = [];
+      for (const line of stdout.split("\n")) {
+        if (!line.trim()) continue;
+        const raw = JSON.parse(line) as {
+          full_name: string;
+          description: string | null;
+          private: boolean;
+          ssh_url: string;
+          clone_url: string;
+          pushed_at: string | null;
+        };
+        repos.push({
+          nameWithOwner: raw.full_name,
+          description: raw.description,
+          private: raw.private,
+          sshUrl: raw.ssh_url,
+          httpsUrl: raw.clone_url,
+          pushedAt: raw.pushed_at,
+          cloneUrl: protocol === "ssh" ? raw.ssh_url : raw.clone_url,
+        });
+      }
+      repos.sort((a, b) => (b.pushedAt ?? "").localeCompare(a.pushedAt ?? ""));
+      this.reposCache = { at: Date.now(), repos };
+      return repos;
+    } catch (err) {
+      console.error("[github] listRepos failed:", err);
+      return [];
+    }
   }
 
   async checkStatus(): Promise<{

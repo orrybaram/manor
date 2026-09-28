@@ -42,3 +42,8 @@ issue #242 (layer 1, ADR-191).
   counts as away, as for pane input (`isHostOffline`).
 - The offline section is dimmed by a wrapper in `ProjectGroupItem`, so
   `ProjectItem` is not touched.
+- After ADR-191 keyed layouts by host plus path: the status bar chip follows
+  `activeWorkspaceHostId`, the tab badge reads the host from its layout's
+  `WorkspaceKey`, and the collapsed group reads each member's layouts by
+  `workspaceKey(member.hostId, path)`, so linked members at the same path
+  never share a layout.

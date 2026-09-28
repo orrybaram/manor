@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { tabBadgeHostId } from "../tab-host-badge";
-import { workspaceHostId } from "../../../lib/hosts";
+import { parseWorkspaceKey, workspaceKey } from "../../../lib/workspace-key";
 
 describe("tabBadgeHostId", () => {
   it("names the pane's host when it differs from the workspace's", () => {
@@ -19,19 +19,19 @@ describe("tabBadgeHostId", () => {
   });
 });
 
-describe("the tab badge against the workspace's host", () => {
+describe("the tab badge against the layout's workspace key", () => {
   // A linked group (ADR-192) whose two members share a workspace path: the
-  // badge compares against the member whose workspace the user opened.
+  // tab bar reads the host from its layout's key (ADR-191), so the same path
+  // open on each host badges against that host.
   const SHARED = "/home/me/.manor/worktrees/app/feat";
-  const projects = [
-    { id: "p-local", path: "/home/me/app", hostId: "local", workspaces: [{ path: SHARED }] },
-    { id: "p-box", path: "/home/me/app", hostId: "box", workspaces: [{ path: SHARED }] },
-  ];
+  const hostOf = (key: string) => parseWorkspaceKey(key).hostId;
 
-  it("badges a box pane's tab only when the local member's workspace is open", () => {
-    const onBox = workspaceHostId({ projects, selectedProjectIndex: 1 }, SHARED);
-    const onLocal = workspaceHostId({ projects, selectedProjectIndex: 0 }, SHARED);
-    expect(tabBadgeHostId("box", onBox)).toBeNull();
-    expect(tabBadgeHostId("box", onLocal)).toBe("box");
+  it("badges a box pane's tab only in the local workspace's layout", () => {
+    expect(tabBadgeHostId("box", hostOf(workspaceKey("box", SHARED)))).toBeNull();
+    expect(tabBadgeHostId("box", hostOf(workspaceKey("local", SHARED)))).toBe("box");
+  });
+
+  it("badges a box pane's tab in another remote host's layout", () => {
+    expect(tabBadgeHostId("box", hostOf(workspaceKey("vm", SHARED)))).toBe("box");
   });
 });

@@ -2,6 +2,7 @@
  * MCP tools for project and workspace management.
  */
 
+import { LOCAL_HOST_ID } from "../backend/types";
 import {
   resolveContext,
   resolveProjectId,
@@ -45,6 +46,8 @@ export interface ProjectInfo {
   sidebarOrder?: string[];
   /** The host the project lives on (ADR-160). */
   hostId?: string;
+  /** That host's label: its ssh target, or "this Mac". */
+  host?: string;
   /** Its linked-project group, as `GET /projects` lists it (ADR-192). */
   group?: ProjectGroupListing | null;
 }
@@ -54,7 +57,7 @@ interface ProjectGroupMember {
   projectId: string;
   name: string;
   hostId: string;
-  /** The host's ssh target, or "local". */
+  /** The host's label: its ssh target, or "this Mac". */
   host: string;
 }
 
@@ -63,6 +66,12 @@ interface ProjectGroupListing {
   name: string;
   members?: ProjectGroupMember[];
   lastUsedHostId: string | null;
+}
+
+/** " on <host>" for a reply naming where something landed, or "". */
+function hostOf(p: ProjectInfo): string {
+  const host = p.host ?? p.hostId;
+  return host ? ` on ${host}` : "";
 }
 
 function projectLine(p: ProjectInfo, host?: string): string {
@@ -81,7 +90,8 @@ function formatProjectListing(projects: ProjectInfo[]): string {
   for (const p of projects) {
     const group = p.group;
     if (!group) {
-      lines.push(projectLine(p, p.hostId && p.hostId !== "local" ? p.hostId : undefined));
+      const remote = p.hostId !== undefined && p.hostId !== LOCAL_HOST_ID;
+      lines.push(projectLine(p, remote ? (p.host ?? p.hostId) : undefined));
       continue;
     }
     if (seenGroups.has(group.id)) continue;
@@ -664,7 +674,7 @@ const handlers: ToolModule["handlers"] = {
       ? "\n\nThe project's setup script is running in the new workspace."
       : "";
     return text(
-      `Created workspace "${label}" in project "${project.name}" (${project.id}${project.hostId ? ` on ${project.hostId}` : ""}).${setupNote}\n\nWorkspaces now:\n${project.workspaces
+      `Created workspace "${label}" in project "${project.name}" (${project.id}${hostOf(project)}).${setupNote}\n\nWorkspaces now:\n${project.workspaces
         .map((ws) => formatWorkspace(ws, project.folders))
         .join("\n")}`,
     );

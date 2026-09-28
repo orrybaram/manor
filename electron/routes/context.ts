@@ -15,6 +15,7 @@ import type { ProjectInfo, WorkspaceInfo } from "../persistence";
 import type { LayoutPersistence } from "../terminal-host/layout-persistence";
 import { findWorkspaceForPane, matchProjectByPath } from "../pane-context";
 import { availableSources } from "../issue-backends";
+import { callerMaySee } from "./caller-host";
 import type { Route } from "./types";
 
 /**
@@ -52,9 +53,9 @@ export const contextRoutes: Route[] = [
       const cwd = url.searchParams.get("cwd");
       const projects = await pm.getProjects();
 
-      const candidates = deps.callerHostId
-        ? projects.filter((p) => p.hostId === deps.callerHostId)
-        : projects;
+      const candidates = projects.filter((p) =>
+        callerMaySee(deps.callerHostId, p.hostId),
+      );
       const resolved =
         resolveByPane(deps.layoutPersistence, candidates, paneId) ??
         (cwd ? matchProjectByPath(candidates, cwd) : null);

@@ -168,7 +168,7 @@ describe("list_projects", () => {
     lastUsedHostId: "box",
     memberIds: ["local-app", "box-app"],
     members: [
-      { projectId: "local-app", name: "App", hostId: "local", host: "local" },
+      { projectId: "local-app", name: "App", hostId: "local", host: "this Mac" },
       { projectId: "box-app", name: "App", hostId: "box", host: "me@box" },
     ],
   };
@@ -177,7 +177,7 @@ describe("list_projects", () => {
     const http = fakeHttp({
       get: async () => [
         { id: "local-app", name: "App", path: "/app", hostId: "local", workspaces: ws(2), group },
-        { id: "solo", name: "Solo", path: "/solo", hostId: "mini", workspaces: ws(1), group: null },
+        { id: "solo", name: "Solo", path: "/solo", hostId: "mini", host: "me@mini", workspaces: ws(1), group: null },
         { id: "box-app", name: "App", path: "/home/me/app", hostId: "box", workspaces: ws(1), group },
       ],
     });
@@ -187,9 +187,9 @@ describe("list_projects", () => {
     expect(result.content[0].text).toBe(
       [
         "group g1: App (last used: me@box)",
-        "  local-app: App (/app) on local — 2 workspace(s)",
+        "  local-app: App (/app) on this Mac — 2 workspace(s)",
         "  box-app: App (/home/me/app) on me@box — 1 workspace(s)",
-        "solo: Solo (/solo) on mini — 1 workspace(s)",
+        "solo: Solo (/solo) on me@mini — 1 workspace(s)",
       ].join("\n"),
     );
   });
@@ -198,7 +198,7 @@ describe("list_projects", () => {
 describe("create_workspace", () => {
   it("passes --host through to the route", async () => {
     const http = fakeHttp({
-      post: async () => ({ id: "box-app", name: "App", hostId: "box", workspaces: [] }),
+      post: async () => ({ id: "box-app", name: "App", hostId: "box", host: "me@box", workspaces: [] }),
     });
 
     const result = await projectsModule.handlers.create_workspace(
@@ -211,6 +211,6 @@ describe("create_workspace", () => {
       path: "/projects/local-app/workspaces",
       body: { name: "feat", host: "box" },
     });
-    expect(result.content[0].text).toContain('in project "App" (box-app on box)');
+    expect(result.content[0].text).toContain('in project "App" (box-app on me@box)');
   });
 });

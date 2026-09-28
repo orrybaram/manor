@@ -153,3 +153,64 @@ describe("rename_workspace", () => {
     });
   });
 });
+
+describe("list_projects", () => {
+  const ws = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      path: `/w${i}`,
+      branch: "b",
+      isMain: i === 0,
+      name: null,
+    }));
+  const group = {
+    id: "g1",
+    name: "App",
+    lastUsedHostId: "box",
+    memberIds: ["local-app", "box-app"],
+    members: [
+      { projectId: "local-app", name: "App", hostId: "local", host: "local" },
+      { projectId: "box-app", name: "App", hostId: "box", host: "me@box" },
+    ],
+  };
+
+  it("lists a group once with a line per member and its host", async () => {
+    const http = fakeHttp({
+      get: async () => [
+        { id: "local-app", name: "App", path: "/app", hostId: "local", workspaces: ws(2), group },
+        { id: "solo", name: "Solo", path: "/solo", hostId: "mini", workspaces: ws(1), group: null },
+        { id: "box-app", name: "App", path: "/home/me/app", hostId: "box", workspaces: ws(1), group },
+      ],
+    });
+
+    const result = await projectsModule.handlers.list_projects({}, http);
+
+    expect(result.content[0].text).toBe(
+      [
+        "group g1: App (last used: me@box)",
+        "  local-app: App (/app) on local — 2 workspace(s)",
+        "  box-app: App (/home/me/app) on me@box — 1 workspace(s)",
+        "solo: Solo (/solo) on mini — 1 workspace(s)",
+      ].join("\n"),
+    );
+  });
+});
+
+describe("create_workspace", () => {
+  it("passes --host through to the route", async () => {
+    const http = fakeHttp({
+      post: async () => ({ id: "box-app", name: "App", hostId: "box", workspaces: [] }),
+    });
+
+    const result = await projectsModule.handlers.create_workspace(
+      { projectId: "local-app", name: "feat", host: "box" },
+      http,
+    );
+
+    expect(http.calls[0]).toMatchObject({
+      method: "POST",
+      path: "/projects/local-app/workspaces",
+      body: { name: "feat", host: "box" },
+    });
+    expect(result.content[0].text).toContain('in project "App" (box-app on box)');
+  });
+});

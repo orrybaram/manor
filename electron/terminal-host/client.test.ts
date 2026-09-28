@@ -998,7 +998,9 @@ describe("TerminalHostClient", () => {
       );
       expect(fs.existsSync(target)).toBe(false);
       client.disconnect();
-    });
+      // A 20 MiB payload (~27 MB base64) through the socket can take a few
+      // seconds on a loaded machine — past vitest's 5s default.
+    }, 30_000);
   });
 
   describe("stream events", () => {

@@ -9,12 +9,12 @@ import X from "lucide-react/dist/esm/icons/x";
 import type { AgentInfo } from "../../electron.d";
 import { useAgentStore } from "../../store/agent-store";
 import { useAppStore, selectVisiblePaneIds } from "../../store/app-store";
+import { useVisibleAgents } from "../../hooks/useVisibleAgents";
 import { useProjectStore, MIN_AGENTS_HEIGHT } from "../../store/project-store";
 import { useDragOverlayStore } from "../../store/drag-overlay-store";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
 import { Button } from "../ui/Button/Button";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
-import { allPaneIds } from "../../store/pane-tree";
 import { navigateToAgent } from "../../utils/agent-navigation";
 import { useAgentDisplay } from "../../hooks/useAgentDisplay";
 import { useInlineRename } from "../../hooks/useInlineRename";
@@ -152,7 +152,7 @@ type AgentsListProps = {
 export function AgentsList(props: AgentsListProps) {
   const { onShowAll } = props;
 
-  const { agents, unseenRespondedAgentIds, unseenInputAgentIds } = useAgentStore();
+  const { unseenRespondedAgentIds, unseenInputAgentIds } = useAgentStore();
   const agentsHeight = useProjectStore((s) => s.agentsHeight);
   const setAgentsHeight = useProjectStore((s) => s.setAgentsHeight);
   const [isResizing, setIsResizing] = useState(false);
@@ -189,24 +189,10 @@ export function AgentsList(props: AgentsListProps) {
     [agentsHeight, setAgentsHeight],
   );
 
+  const visibleAgents = useVisibleAgents();
   const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const activeWorkspaceHostId = useAppStore((s) => s.activeWorkspaceHostId);
-
-  // Collect all active pane IDs across all workspace layouts
-  const activePaneIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const layout of Object.values(workspaceLayouts)) {
-      for (const panel of Object.values(layout.panels)) {
-        for (const tab of panel.tabs) {
-          for (const id of allPaneIds(tab.rootNode)) {
-            ids.add(id);
-          }
-        }
-      }
-    }
-    return ids;
-  }, [workspaceLayouts]);
 
   // Panes the user can currently see. Shares `selectVisiblePaneIds` with the
   // read-state sweep in the agent store, so the sidebar dot and main's unseen
@@ -215,26 +201,6 @@ export function AgentsList(props: AgentsListProps) {
     () =>
       selectVisiblePaneIds({ activeWorkspacePath, activeWorkspaceHostId, workspaceLayouts }),
     [activeWorkspacePath, activeWorkspaceHostId, workspaceLayouts],
-  );
-
-  // Show active agents only while they still own a pane; show completed/error/abandoned
-  // only if their pane is still active. Orphaned active records (paneId null) are
-  // hidden because they have no pane to navigate to.
-  //
-  // Pagination note (ADR-136): the agent store loads `agents:getActive` (all active)
-  // plus the first page of `agents:getAll` (most recent N). A non-active agent whose
-  // paneId is still in the current layout is by construction recent — its pane
-  // hasn't been closed yet — and is therefore expected to be inside the first
-  // page. If a user closes the modal before scrolling far enough to load older
-  // agents, the visible set here is unaffected.
-  const visibleAgents = useMemo(
-    () =>
-      agents.filter(
-        (t) =>
-          (t.status === "active" && t.paneId != null) ||
-          (t.paneId != null && activePaneIds.has(t.paneId)),
-      ),
-    [agents, activePaneIds],
   );
 
   // Group agents by projectName

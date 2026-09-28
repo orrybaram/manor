@@ -10,6 +10,7 @@ import { PaneDragProvider } from "./components/workspace-panes/PaneDragContext";
 import { StatusBar } from "./components/statusbar/StatusBar/StatusBar";
 import { PanelLayout } from "./components/panels/PanelLayout";
 import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
+import { SidebarRail } from "./components/sidebar/SidebarRail/SidebarRail";
 import type { PaletteView } from "./components/command-palette/types";
 import { onPaletteViewRequest } from "./utils/palette-request";
 import { onUiRequest } from "./utils/ui-request";
@@ -712,7 +713,9 @@ function App() {
     <TooltipProvider>
       <div className="app">
         <div className="app-body">
-          {/* ADR-195 ticket 3: render the collapsed rail here when sidebarMode === "rail". */}
+          {sidebarMode === "rail" && hasProjects && (
+            <SidebarRail onShowAgents={() => setAgentsOpen(true)} />
+          )}
           {sidebarMode === "full" && hasProjects && (
             <Sidebar
               onShowAgents={() => setAgentsOpen(true)}

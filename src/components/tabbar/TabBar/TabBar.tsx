@@ -575,7 +575,7 @@ export function TabBar(props: TabBarProps) {
           data-focus-region="tabbar"
           role="tablist"
           aria-orientation="horizontal"
-          className={`${styles.tabBar} ${sidebarMode !== "full" ? styles.noSidebar : ""} ${isDragActive ? styles.tabBarDropTarget : ""} ${splitDropHint ? styles.tabBarSplitHint : ""}`}
+          className={`${styles.tabBar} ${sidebarMode === "hidden" ? styles.noSidebar : sidebarMode === "rail" ? styles.railSidebar : ""} ${isDragActive ? styles.tabBarDropTarget : ""} ${splitDropHint ? styles.tabBarSplitHint : ""}`}
           onDragOver={handleBarDragOver}
           onDragLeave={handleBarDragLeave}
           onDrop={handleBarDrop}

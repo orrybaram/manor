@@ -14,6 +14,12 @@
   padding-left: 78px;
 }
 
+/* The macOS traffic lights start at x=13 and run past the 52px rail
+   (ADR-195), so the first tab steps in a little further. */
+.railSidebar {
+  padding-left: 26px;
+}
+
 .tabBarDropTarget {
   background: color-mix(in srgb, var(--accent) 10%, var(--dim));
 }

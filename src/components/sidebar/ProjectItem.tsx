@@ -297,10 +297,10 @@ const WorkspaceItem = React.forwardRef<
  * A host heading's label (ADR-193 §3): host icon and name in small caps,
  * and a yellow dot while a remote host is away. Used by a linked group's section
  * headers and above a remote-only project's workspaces. A collapsed section shows its workspace count after the name. Kept
- * local to this file rather than folded into `LocalHostLabel`/`HostIndicator`,
+ * here (exported for the collapsed rail's popover, ADR-195) rather than folded into `LocalHostLabel`/`HostIndicator`,
  * which other callers (the New Workspace host picker) still use as chips.
  */
-function SectionHostLabel(props: {
+export function SectionHostLabel(props: {
   hostId: string;
   path: string;
   label: string;

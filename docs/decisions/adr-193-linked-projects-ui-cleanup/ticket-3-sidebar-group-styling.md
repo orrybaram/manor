@@ -1,6 +1,6 @@
 ---
 title: Clean up linked group rendering in the sidebar
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

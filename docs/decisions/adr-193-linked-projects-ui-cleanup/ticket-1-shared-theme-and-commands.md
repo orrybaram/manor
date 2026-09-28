@@ -1,6 +1,6 @@
 ---
 title: Share theme and commands across a linked group
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

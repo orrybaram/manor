@@ -423,7 +423,6 @@ export function Sidebar(props: SidebarProps) {
               <div className={styles.projects}>
                 {entries.map((entry, idx) => (
                   <React.Fragment key={entry.key}>
-                    {idx > 0 && <div className={styles.projectSeparator} />}
                     <div
                       ref={(el) => {
                         if (el) projItemRefs.current.set(idx, el);

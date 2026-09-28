@@ -98,23 +98,20 @@ Projects
 Only styling/markup in `ProjectGroupItem`, the `section` variant of
 `ProjectItem`, and `ProjectItem.module.css`:
 
-- **Group header** stays a normal project header (chevron, name in project
-  color). The link icon is shown dimmed; the partial/offline state icon and
-  badge stay.
-- **Section header** becomes a labeled divider, not a row that looks like a
-  project: 20px tall, 10.5px uppercase with letter-spacing, `--text-dim`, no
-  chip background, no project color, no chevron. Content: host icon
-  (`Laptop` for this machine, `Cloud` for a remote host) + host name, a 1px
-  rule running to the right edge, then a connection dot for a remote host.
-  Clicking the label collapses the section; a collapsed section shows its
-  workspace count after the name. (Revised after review: the first cut kept
-  a hover-only chevron, which left host labels at the same x as workspace
-  names and made them hard to tell apart.)
-- **One border.** A section no longer renders the `.project` wrapper's left
-  border or `.projectSelected`; only the group shows the selection border.
-- **Alignment.** Remove `.groupSections { padding-left: 8px }`; workspace rows
-  in a section line up with workspace rows of a lone project. Sections are
-  separated by 16px of space.
+- **Projects** are set apart by space and weight, not lines: project names
+  are 13.5px semibold, each project has 12px of vertical padding, and the
+  separators between projects and the selected project's left color bar are
+  removed. The selected project is marked by its colored name.
+- **Section header** is a faint sentence-case label (11px, weight 500,
+  `--text-dim`): host icon (`Laptop` / `Cloud`) + host name, and a connection
+  dot on the right for a remote host. No chip, no rule, no chevron; clicking
+  the label collapses the section, and a collapsed section shows its
+  workspace count. Sections are 12px apart.
+- **Indentation.** Host labels and workspace rows (in every project, linked
+  or not) start under the project name, past the chevron.
+- (Revised twice after review, using mockups: the first cut left host labels
+  at the same x as workspace names; a small-caps divider version made host
+  labels as loud as project names, so projects blended together.)
 - Offline dimming (`.sectionOffline`) and all behavior (context menu,
   multi-select, keyboard nav, collapse keys, test ids) are unchanged.
 

@@ -289,9 +289,8 @@ const WorkspaceItem = React.forwardRef<
 });
 
 /**
- * A section header's host label (ADR-193 §3): a small-caps divider — host
- * icon and name, a rule running to the edge, and a state dot for a remote
- * host. A collapsed section shows its workspace count after the name. Kept
+ * A section header's host label (ADR-193 §3): a faint host icon and name,
+ * and a state dot for a remote host. A collapsed section shows its workspace count after the name. Kept
  * local to this file rather than folded into `LocalHostLabel`/`HostIndicator`,
  * which other callers (the New Workspace host picker) still use as chips.
  */
@@ -312,7 +311,6 @@ function SectionHostLabel(props: {
       {collapsedCount !== null && (
         <span className={styles.sectionHostCount}>{collapsedCount}</span>
       )}
-      <span className={styles.sectionHostRule} aria-hidden />
       {remote && (
         <span
           className={`${styles.sectionHostDot} ${offline ? styles.sectionHostDotOffline : ""}`}

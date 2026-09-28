@@ -1,11 +1,9 @@
 /* ── ProjectItem ── */
 
+/* Projects are set apart by padding and type weight alone — no border,
+   no separator, no selection bar (ADR-193 §3). */
 .project {
-  border-left: 2px solid transparent;
-}
-
-.projectSelected {
-  border-left-color: var(--project-color, var(--accent));
+  padding-block: 12px;
 }
 
 .projectHeader {
@@ -15,7 +13,8 @@
   padding: 4px 6px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 13.5px;
+  font-weight: 600;
 }
 
 .projectHeader:hover {
@@ -86,8 +85,10 @@
 
 /* ── Workspaces ── */
 
+/* Indented to start under the project name, past the chevron (6px header
+   padding + 12px chevron + 4px gap, less the row's own 6px padding). */
 .workspaces {
-  padding-left: 0;
+  padding-left: 16px;
   margin-top: 8px;
   display: flex;
   flex-direction: column;
@@ -460,25 +461,20 @@
 
 /* ── Linked-project groups (ADR-192) ── */
 
-/* A member's section: no `.project` border or `.projectSelected` tint of
-   its own (ADR-193 §3) — the group's own border already offsets its
-   content by the same amount, so a section's rows land flush with a lone
-   project's. */
+/* A member's section: no `.project` padding of its own (ADR-193 §3). */
 .section {
   display: block;
 }
 
-/* A member's section header inside a group: a small-caps divider label with
-   a rule to the edge, not a row that looks like a project or a workspace
-   (ADR-193 §3). No chevron and no extra indent, so the section's workspace
-   rows line up with a lone project's; clicking the label collapses it. */
+/* A member's section header inside a group: a faint sentence-case host
+   label, quieter than the semibold project name above it (ADR-193 §3). It
+   starts under the project name, like the section's workspaces; no chevron —
+   clicking the label collapses the section. */
 .sectionHeader {
-  height: 20px;
-  padding: 0 6px;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  height: 18px;
+  padding: 0 6px 0 22px;
+  font-size: 11px;
+  font-weight: 500;
   color: var(--text-dim);
   background: none;
 }
@@ -499,7 +495,7 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 
 .sectionHostName {
@@ -510,20 +506,13 @@
 
 /* A collapsed section's workspace count, after the host name. */
 .sectionHostCount {
-  font-weight: 500;
-  letter-spacing: 0;
   opacity: 0.7;
   font-variant-numeric: tabular-nums;
 }
 
-.sectionHostRule {
-  flex: 1;
-  min-width: 12px;
-  height: 1px;
-  background: var(--border);
-}
-
+/* Right-aligned, so it never competes with the host name for space. */
 .sectionHostDot {
+  margin-left: auto;
   width: 5px;
   height: 5px;
   border-radius: 50%;
@@ -535,14 +524,11 @@
   background: var(--yellow, #d29922);
 }
 
-/* Host sections stack with clear space between them, flush with the group's
-   own left edge — a lone project's workspace rows line up the same distance
-   from their `.project` wrapper's border. */
 .groupSections {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  margin-top: 6px;
+  gap: 12px;
+  margin-top: 4px;
 }
 
 .groupLinkIcon {

@@ -39,4 +39,9 @@ export class ExecShellBackend implements ShellBackend {
   async homeDir(): Promise<string> {
     return this.facts.homeDir();
   }
+
+  /** Write a file on the machine (see `Exec.writeFile`). */
+  async writeFile(path: string, data: Buffer): Promise<void> {
+    return this.execImpl.writeFile(path, data);
+  }
 }

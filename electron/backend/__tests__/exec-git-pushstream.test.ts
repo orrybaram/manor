@@ -51,6 +51,7 @@ function makeFakeExec() {
     file: fileMock,
     stream: streamMock,
     readFile: vi.fn(),
+    writeFile: vi.fn(),
   };
 
   return {

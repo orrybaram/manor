@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
-import { createRemoteExec, type RemoteExecClient } from "../remote-exec";
+import {
+  createRemoteExec,
+  WRITE_FILE_CHUNK_CHARS,
+  type RemoteExecClient,
+} from "../remote-exec";
 import type { ExecError } from "../exec";
 
 function fakeClient() {
@@ -8,6 +12,7 @@ function fakeClient() {
     exec: vi.fn<RemoteExecClient["exec"]>(),
     execStream: vi.fn<RemoteExecClient["execStream"]>(() => ({ cancel })),
     readFile: vi.fn<RemoteExecClient["readFile"]>(),
+    writeFile: vi.fn<RemoteExecClient["writeFile"]>(),
   };
   return { client, cancel, exec: createRemoteExec(client) };
 }
@@ -124,5 +129,110 @@ describe("createRemoteExec", () => {
     client.readFile.mockResolvedValue("contents");
     await expect(exec.readFile("/repo/a.txt", "utf-8")).resolves.toBe("contents");
     expect(client.readFile).toHaveBeenCalledWith("/repo/a.txt");
+  });
+
+  describe("writeFile", () => {
+    /**
+     * A fake daemon `exec` that applies the fallback's commands to in-memory
+     * files, so a test can check the chunks reassemble to the original bytes.
+     */
+    function applyToFiles(files: Map<string, Buffer>): RemoteExecClient["exec"] {
+      return async (cmd, args) => {
+        const ok = { stdout: "", stderr: "", exitCode: 0 };
+        if (cmd === "sh" && args[1].includes(": >")) {
+          files.set(args[3], Buffer.alloc(0));
+        } else if (cmd === "sh" && args[1].includes("base64 -d")) {
+          const [, , , chunk, tmp] = args;
+          const prev = files.get(tmp) ?? Buffer.alloc(0);
+          files.set(tmp, Buffer.concat([prev, Buffer.from(chunk, "base64")]));
+        } else if (cmd === "mv") {
+          const [, from, to] = args;
+          files.set(to, files.get(from)!);
+          files.delete(from);
+        } else if (cmd === "rm") {
+          files.delete(args[1]);
+        } else {
+          throw new Error(`unexpected command: ${cmd}`);
+        }
+        return ok;
+      };
+    }
+
+    const unknownRequest = new Error("unknown request type: writeFile");
+
+    it("goes through the client's writeFile when the daemon has it", async () => {
+      const { client, exec } = fakeClient();
+      client.writeFile.mockResolvedValue(undefined);
+      const data = Buffer.from("png bytes");
+
+      await exec.writeFile("/home/me/.manor/pasted-images/a.png", data);
+
+      expect(client.writeFile).toHaveBeenCalledWith("/home/me/.manor/pasted-images/a.png", data);
+      expect(client.exec).not.toHaveBeenCalled();
+    });
+
+    it("propagates any other writeFile error without falling back", async () => {
+      const { client, exec } = fakeClient();
+      client.writeFile.mockRejectedValue(new Error("writeFile failed: EACCES"));
+
+      await expect(exec.writeFile("/x/a.png", Buffer.from("x"))).rejects.toThrow("EACCES");
+      expect(client.exec).not.toHaveBeenCalled();
+    });
+
+    it("falls back to chunked exec on an old daemon, and remembers it", async () => {
+      const { client, exec } = fakeClient();
+      const files = new Map<string, Buffer>();
+      client.writeFile.mockRejectedValue(unknownRequest);
+      client.exec.mockImplementation(applyToFiles(files));
+      // Enough bytes for several chunks, and not a multiple of 3 so the last
+      // chunk carries padding.
+      const data = Buffer.alloc(WRITE_FILE_CHUNK_CHARS * 2 + 1001);
+      for (let i = 0; i < data.length; i++) data[i] = (i * 31) & 0xff;
+
+      await exec.writeFile("/home/me/img/a.png", data);
+
+      expect(files.get("/home/me/img/a.png")?.equals(data)).toBe(true);
+      expect(files.has("/home/me/img/a.png.upload.tmp")).toBe(false);
+      const calls = client.exec.mock.calls;
+      expect(calls[0]).toEqual([
+        "sh",
+        ["-c", 'mkdir -p "$(dirname "$1")" && : > "$1"', "sh", "/home/me/img/a.png.upload.tmp"],
+        {},
+      ]);
+      // Every chunk but the last is full-sized and so decodes on its own.
+      const chunks = calls.slice(1, -1).map(([, args]) => args[3]);
+      expect(chunks.length).toBeGreaterThan(2);
+      for (const chunk of chunks.slice(0, -1)) {
+        expect(chunk.length).toBe(WRITE_FILE_CHUNK_CHARS);
+      }
+      expect(calls[calls.length - 1]).toEqual([
+        "mv",
+        ["-f", "/home/me/img/a.png.upload.tmp", "/home/me/img/a.png"],
+        {},
+      ]);
+
+      // A second write skips the request the daemon does not know.
+      await exec.writeFile("/home/me/img/b.png", Buffer.from("small"));
+      expect(client.writeFile).toHaveBeenCalledOnce();
+      expect(files.get("/home/me/img/b.png")?.toString()).toBe("small");
+    });
+
+    it("rejects with an ExecError and removes the temp file when a step fails", async () => {
+      const { client, exec } = fakeClient();
+      client.writeFile.mockRejectedValue(unknownRequest);
+      client.exec.mockImplementation(async (cmd) =>
+        cmd === "mv"
+          ? { stdout: "", stderr: "mv: permission denied", exitCode: 1 }
+          : { stdout: "", stderr: "", exitCode: 0 },
+      );
+
+      const err = (await exec
+        .writeFile("/ro/a.png", Buffer.from("x"))
+        .catch((e: unknown) => e)) as ExecError;
+      expect(err).toBeInstanceOf(Error);
+      expect(err.code).toBe(1);
+      expect(err.stderr).toBe("mv: permission denied");
+      expect(client.exec).toHaveBeenLastCalledWith("rm", ["-f", "/ro/a.png.upload.tmp"], {});
+    });
   });
 });

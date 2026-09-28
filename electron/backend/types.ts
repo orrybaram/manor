@@ -157,6 +157,13 @@ export interface ShellBackend {
    * §3): its `MachineFacts.homeDir` (ADR-183).
    */
   homeDir(): Promise<string>;
+
+  /**
+   * Write `data` to `path` on the machine this backend runs commands on,
+   * creating its parent directories and replacing any file already there
+   * (ADR-187: a pasted image uploaded to a remote host).
+   */
+  writeFile(path: string, data: Buffer): Promise<void>;
 }
 
 // ── Ports Backend ──

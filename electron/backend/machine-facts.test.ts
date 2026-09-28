@@ -36,6 +36,9 @@ function fakeExec(respond: (cmd: string, args: string[]) => Answer): {
     async readFile() {
       throw new Error("not used");
     },
+    async writeFile() {
+      throw new Error("not used");
+    },
   };
   return { exec, calls };
 }

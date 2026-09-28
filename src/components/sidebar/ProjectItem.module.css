@@ -457,15 +457,19 @@
   display: block;
 }
 
-/* A member's section header inside a group: a faint sentence-case host
-   label, quieter than the semibold project name above it (ADR-193 §3). It
-   starts under the project name, like the section's workspaces; no chevron —
-   clicking the label collapses the section. */
-.sectionHeader {
+/* A host heading: a linked group's section header, or the host line above a
+   remote-only project's workspaces. Small spaced caps, outdented under the
+   project's chevron while workspaces start under the project name, so it
+   reads as a heading rather than another row (ADR-193 §3). */
+.sectionHeader,
+.hostHeading {
   height: 18px;
-  padding: 0 6px 0 22px;
-  font-size: 11px;
-  font-weight: 500;
+  padding: 0 6px;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--text-dim);
   background: none;
 }
@@ -473,6 +477,12 @@
 .sectionHeader:hover {
   background: none;
   color: var(--text-primary);
+}
+
+.hostHeading {
+  display: flex;
+  align-items: center;
+  margin-top: 4px;
 }
 
 /* Belt-and-braces: a section header never takes the group's project-color
@@ -486,7 +496,13 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
+}
+
+/* The host icon takes the chevron's 12px column, centered under it. */
+.sectionHost > svg {
+  width: 12px;
+  flex-shrink: 0;
 }
 
 .sectionHostName {
@@ -497,6 +513,7 @@
 
 /* A collapsed section's workspace count, after the host name. */
 .sectionHostCount {
+  letter-spacing: 0;
   opacity: 0.7;
   font-variant-numeric: tabular-nums;
 }

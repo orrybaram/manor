@@ -103,13 +103,21 @@ Only styling/markup in `ProjectGroupItem`, the `section` variant of
   (collapsed projects stay tight), and the
   separators between projects and the selected project's left color bar are
   removed. The selected project is marked by its colored name.
-- **Section header** is a faint sentence-case label (11px, weight 500,
-  `--text-dim`): host icon (`Laptop` / `Cloud`) + host name, and a connection
-  dot on the right for a remote host. No chip, no rule, no chevron; clicking
-  the label collapses the section, and a collapsed section shows its
-  workspace count. An expanded section's list carries 16px of space below it; collapsed sections sit 4px apart.
-- **Indentation.** Host labels and workspace rows (in every project, linked
-  or not) start under the project name, past the chevron.
+- **Host heading** (a group's section header, and the host line above a
+  remote-only project's workspaces): 10px uppercase with letter-spacing,
+  `--text-dim`, host icon (`Laptop` / `Cloud`) + host name, and a connection
+  dot on the right for a remote host. It is outdented: its icon sits in the
+  chevron's column while workspaces start under the project name, so it reads
+  as a heading, not a row. No chip, rule or chevron; clicking a group's host
+  label collapses that section and shows its workspace count. An expanded
+  section's list carries 16px of space below it; collapsed sections sit 4px
+  apart.
+- **Project names carry no icons.** The link icon on a group and the cloud on
+  a remote project are removed; a remote-only project shows its host as a
+  host heading instead. A group with a host away still shows its
+  Partial/Offline state beside the name.
+- **Indentation.** Workspace rows (in every project, linked or not) start
+  under the project name, past the chevron.
 - (Revised twice after review, using mockups: the first cut left host labels
   at the same x as workspace names; a small-caps divider version made host
   labels as loud as project names, so projects blended together.)

@@ -112,19 +112,21 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
             >
               {group.name}
             </span>
+            {/* The name carries no link icon (ADR-193 §3); only a group with
+                a host away shows its state beside the name. */}
             <span className={styles.remoteHostIconSlot}>
-              <Tooltip label={stateView.label} side="right">
-                <span
-                  className={`${styles.groupLinkIcon} ${stateView.iconClass ?? ""}`}
-                  aria-label={stateView.label}
-                  data-testid="project-group-host-state"
-                >
-                  <StateIcon size={11} aria-hidden />
-                  {stateView.badge && (
+              {stateView.badge && (
+                <Tooltip label={stateView.label} side="right">
+                  <span
+                    className={`${styles.groupLinkIcon} ${stateView.iconClass ?? ""}`}
+                    aria-label={stateView.label}
+                    data-testid="project-group-host-state"
+                  >
+                    <StateIcon size={11} aria-hidden />
                     <span className={styles.groupStateBadge}>{stateView.badge}</span>
-                  )}
-                </span>
-              </Tooltip>
+                  </span>
+                </Tooltip>
+              )}
             </span>
             {collapsed && indicator && <WorkspaceIndicatorDot indicator={indicator} />}
           </div>

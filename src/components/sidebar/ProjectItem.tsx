@@ -289,8 +289,9 @@ const WorkspaceItem = React.forwardRef<
 });
 
 /**
- * A section header's host label (ADR-193 §3): a faint host icon and name,
- * and a state dot for a remote host. A collapsed section shows its workspace count after the name. Kept
+ * A host heading's label (ADR-193 §3): host icon and name in small caps,
+ * and a state dot for a remote host. Used by a linked group's section
+ * headers and above a remote-only project's workspaces. A collapsed section shows its workspace count after the name. Kept
  * local to this file rather than folded into `LocalHostLabel`/`HostIndicator`,
  * which other callers (the New Workspace host picker) still use as chips.
  */
@@ -1181,18 +1182,11 @@ export function ProjectItem(props: ProjectItemProps) {
               />
             ) : (
             <span
-              className={`${styles.projectName} ${
-                isRemoteHost(project.hostId) ? styles.projectNameRemote : ""
-              }`}
+              className={styles.projectName}
               title={project.path}
             >
               {project.name}
             </span>
-            )}
-            {!isSection && isRemoteHost(project.hostId) && (
-              <span className={styles.remoteHostIconSlot}>
-                <HostIndicator hostId={project.hostId} variant="icon" projectId={project.id} />
-              </span>
             )}
             {collapsed && projectIndicator && (
               <WorkspaceIndicatorDot indicator={projectIndicator} />
@@ -1322,6 +1316,19 @@ export function ProjectItem(props: ProjectItemProps) {
           </ContextMenu.Content>
         </ContextMenu.Portal>
       </ContextMenu.Root>
+      {/* A remote-only project names its host above its workspaces, the
+          way a linked group's sections do (ADR-193 §3). */}
+      {expanded && !isSection && isRemoteHost(project.hostId) && (
+        <div className={styles.hostHeading} data-testid="project-host-heading">
+          <SectionHostLabel
+            hostId={project.hostId}
+            path={project.path}
+            label={remoteTarget ?? project.hostId}
+            offline={isHostOffline(project.hostId, hosts)}
+            collapsedCount={null}
+          />
+        </div>
+      )}
       {expanded && items.length > 0 && (
         <div className={styles.workspaces}>
           {items.map((item) => renderItem(item, 0))}

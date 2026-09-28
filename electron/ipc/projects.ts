@@ -1,5 +1,5 @@
 import { ipcMain } from "electron";
-import { assertString } from "../ipc-validate";
+import { assertGroupUpdates, assertString } from "../ipc-validate";
 import type { GroupUpdatableFields, ProjectUpdatableFields } from "../persistence";
 import type { LinkedIssue } from "../linear";
 import { LOCAL_HOST_ID } from "../backend/types";
@@ -232,9 +232,14 @@ export function register(deps: IpcDeps): void {
   // ADR-192 ticket 2: set a group's shared settings. Returns every member.
   ipcMain.handle(
     "projects:updateGroup",
-    (_event, groupId: string, updates: GroupUpdatableFields) => {
+    (_event, groupId: unknown, updates: unknown) => {
       assertString(groupId, "groupId");
-      return projectManager.updateGroup(groupId, updates);
+      assertGroupUpdates(updates, "updates");
+      const { linearAssociations, ...rest } = updates;
+      const clean: GroupUpdatableFields = { ...rest };
+      // Null clears the group's teams.
+      if (linearAssociations !== undefined) clean.linearAssociations = linearAssociations ?? [];
+      return projectManager.updateGroup(groupId, clean);
     },
   );
 

@@ -17,6 +17,7 @@
 
 import crypto from "node:crypto";
 import { hostTakenMessage, memberOnHost } from "../../src/lib/project-groups";
+import { isLinearAssociation } from "../ipc-validate";
 import type { ProjectContext } from "./context";
 import type {
   GroupSharedFields,
@@ -84,7 +85,8 @@ function sharedFrom(
     out.agentCommand = raw.agentCommand;
   }
   if (Array.isArray(raw.linearAssociations)) {
-    out.linearAssociations = raw.linearAssociations;
+    // A malformed entry would break every later read of `teamId`.
+    out.linearAssociations = raw.linearAssociations.filter(isLinearAssociation);
   }
   return out;
 }
@@ -94,7 +96,9 @@ function sharedFrom(
  * unknown or repeated members, a second member on a host already taken,
  * members claimed by an earlier group, and groups left with fewer than two
  * members, and a `lastUsedHostId` no member is on any more. A hand-edited
- * or stale file loads as the nearest valid state.
+ * or stale file loads as the nearest valid state. A group dropped for
+ * having one member left dissolves as an unlink would: that member keeps
+ * the group's shared settings.
  */
 export function normalizeGroups(state: PersistedState): void {
   if (!Array.isArray(state.groups)) {
@@ -104,6 +108,7 @@ export function normalizeGroups(state: PersistedState): void {
   const byId = new Map(state.projects.map((p) => [p.id, p]));
   const claimed = new Set<string>();
   const groups: PersistedProjectGroup[] = [];
+  const dissolved: PersistedProjectGroup[] = [];
   for (const raw of state.groups as Array<Partial<PersistedProjectGroup>>) {
     if (!raw || typeof raw.id !== "string" || !Array.isArray(raw.memberIds)) continue;
     const hosts = new Set<string>();
@@ -114,7 +119,13 @@ export function normalizeGroups(state: PersistedState): void {
       hosts.add(project.hostId);
       memberIds.push(project.id);
     }
-    if (memberIds.length < 2) continue;
+    const shared = sharedFrom(raw);
+    if (memberIds.length < 2) {
+      if (memberIds.length === 1 && typeof raw.name === "string") {
+        dissolved.push({ ...shared, id: raw.id, name: raw.name, memberIds, lastUsedHostId: null });
+      }
+      continue;
+    }
     for (const id of memberIds) claimed.add(id);
     const lastUsed = raw.lastUsedHostId;
     groups.push({
@@ -122,8 +133,13 @@ export function normalizeGroups(state: PersistedState): void {
       name: typeof raw.name === "string" ? raw.name : byId.get(memberIds[0])!.name,
       memberIds,
       lastUsedHostId: typeof lastUsed === "string" && hosts.has(lastUsed) ? lastUsed : null,
-      ...sharedFrom(raw),
+      ...shared,
     });
+  }
+  // After the loop: a later group may still have claimed the survivor.
+  for (const group of dissolved) {
+    const survivor = byId.get(group.memberIds[0]);
+    if (survivor && !claimed.has(survivor.id)) copySharedOnto(group, survivor);
   }
   state.groups = groups;
   if (groups.length === 0) delete state.groups;

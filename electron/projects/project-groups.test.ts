@@ -426,6 +426,51 @@ describe("ProjectManager linked-project groups (ADR-192)", () => {
       expect(await info(mgr, "local-app")).toMatchObject({ name: "App", color: "blue" });
     });
 
+    it("keeps a group's shared settings on the one member left when it loads", async () => {
+      seed({
+        groups: [
+          // `ghost` is gone, so the group dissolves at load.
+          {
+            id: "g1",
+            name: "App",
+            memberIds: ["box-app", "ghost"],
+            lastUsedHostId: null,
+            color: "green",
+            agentCommand: "codex",
+            linearAssociations: [TEAM],
+          },
+        ],
+      });
+      const mgr = manager();
+
+      expect(await info(mgr, "box-app")).toMatchObject({
+        name: "App",
+        color: "green",
+        agentCommand: "codex",
+        linearAssociations: [TEAM],
+        group: null,
+      });
+      mgr.selectProject(0);
+      expect(readState()).not.toHaveProperty("groups");
+      expect(readState().projects.find((p) => p.id === "box-app")).toMatchObject({ name: "App", color: "green" });
+    });
+
+    it("drops malformed Linear entries on a group read from disk", async () => {
+      seed({
+        groups: [
+          {
+            id: "g1",
+            name: "App",
+            memberIds: ["local-app", "box-app"],
+            lastUsedHostId: null,
+            linearAssociations: [null, { teamId: 1 }, TEAM],
+          },
+        ],
+      });
+
+      expect((await info(manager(), "box-app")).linearAssociations).toEqual([TEAM]);
+    });
+
     it("loads a group's shared settings from disk, dropping malformed ones", async () => {
       seed({
         groups: [

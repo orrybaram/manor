@@ -137,6 +137,16 @@ describe("linked-project groups in the project store", () => {
       }
     });
 
+    it("trims the name it shows at once, and ignores a blank one, as main does", () => {
+      api.updateGroup.mockReturnValue(new Promise(() => {}));
+
+      void useProjectStore.getState().updateGroup("g1", { name: "  Renamed  " });
+      expect(byId("box-app")).toMatchObject({ name: "Renamed", group: { name: "Renamed" } });
+
+      void useProjectStore.getState().updateGroup("g1", { name: "   ", color: "red" });
+      expect(byId("box-app")).toMatchObject({ name: "Renamed", color: "red", group: { name: "Renamed" } });
+    });
+
     it("rolls a failed group edit back and shows a toast", async () => {
       api.updateGroup.mockRejectedValueOnce(new Error("nope"));
 

@@ -1026,10 +1026,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         .projects.filter((p) => p.group?.id === groupId)
         .map((p) => [p.id, p]),
     );
+    // As main does: the name is trimmed, and a blank one changes nothing.
+    const { name: rawName, ...rest } = updates;
+    const name = rawName?.trim();
+    const applied: GroupUpdatableFields = name ? { ...rest, name } : rest;
     const apply = (p: ProjectInfo): ProjectInfo => ({
       ...p,
-      ...updates,
-      group: p.group && updates.name ? { ...p.group, name: updates.name } : p.group,
+      ...applied,
+      group: p.group && name ? { ...p.group, name } : p.group,
     });
     set((s) => ({
       projects: s.projects.map((p) => (previous.has(p.id) ? apply(p) : p)),
@@ -1045,8 +1049,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           const before = previous.get(p.id);
           if (!before) return p;
           const undo: Partial<ProjectInfo> = {};
-          for (const key of Object.keys(updates) as (keyof GroupUpdatableFields)[]) {
-            if (p[key] === updates[key]) Object.assign(undo, { [key]: before[key] });
+          for (const key of Object.keys(applied) as (keyof GroupUpdatableFields)[]) {
+            if (p[key] === applied[key]) Object.assign(undo, { [key]: before[key] });
           }
           if (undo.name !== undefined) undo.group = before.group;
           return { ...p, ...undo };

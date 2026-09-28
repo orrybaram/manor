@@ -18,6 +18,7 @@ import { HostLabel, ProjectLinksSection } from "./ProjectLinksSection";
 import { DEFAULT_AGENT_COMMAND } from "../../agent-defaults";
 import { PROJECT_COLORS } from "../../project-colors";
 import { Input, Textarea } from "../ui/Input";
+import { EmojiInput } from "../ui/EmojiAutocomplete";
 import { Switch } from "../ui/Switch/Switch";
 import { Button } from "../ui/Button/Button";
 import { Stack, Row } from "../ui/Layout/Layout";
@@ -61,10 +62,16 @@ interface ThemeEntry {
 
 type ProjectThemeSelectorProps = {
   project: ProjectInfo;
+  /**
+   * Whether a pick restyles the window now. Only for the project the page
+   * is open for: on a linked group's page, another member's theme is saved
+   * but not applied (ADR-192).
+   */
+  applyNow?: boolean;
 };
 
 function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
-  const { project } = props;
+  const { project, applyNow = true } = props;
 
   const updateProject = useProjectStore((s) => s.updateProject);
   const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
@@ -122,9 +129,9 @@ function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
     (name: string) => {
       const themeValue = name === "__global__" ? null : name;
       updateProject(project.id, { themeName: themeValue });
-      applyProjectTheme(themeValue);
+      if (applyNow) applyProjectTheme(themeValue);
     },
-    [project.id, updateProject, applyProjectTheme],
+    [project.id, updateProject, applyProjectTheme, applyNow],
   );
 
   const handleSelectByIndex = useCallback(
@@ -279,7 +286,7 @@ function NameField(props: ProjectFieldProps) {
   return (
     <>
       <label className={styles.fieldLabel}>Name</label>
-      <Input
+      <EmojiInput
         defaultValue={project.name}
         onBlur={(e) => {
           const trimmed = e.target.value.trim();
@@ -548,7 +555,8 @@ function WorktreesSection(props: HostSectionProps) {
 }
 
 type MemberSettingsProps = ProjectFieldProps & {
-  anchor: SectionAnchor;
+  /** Whether this is the member the page was opened for. */
+  isPageProject: boolean;
 };
 
 /**
@@ -556,7 +564,11 @@ type MemberSettingsProps = ProjectFieldProps & {
  * differs between machines — path, theme, host, ports, commands, worktrees.
  */
 function MemberSettings(props: MemberSettingsProps) {
-  const { project, anchor } = props;
+  const { project, isPageProject } = props;
+
+  const anchor: SectionAnchor = isPageProject
+    ? plainAnchor
+    : (id) => `${id}-${project.id}`;
 
   const unlinkProject = useProjectStore((s) => s.unlinkProject);
 
@@ -576,7 +588,7 @@ function MemberSettings(props: MemberSettingsProps) {
           </Button>
         </Row>
         <PathFields project={project} />
-        <ProjectThemeSelector project={project} />
+        <ProjectThemeSelector project={project} applyNow={isPageProject} />
       </Stack>
       <ProjectHostSection project={project} sectionId={anchor("project-host")} />
       <PortsSection project={project} anchor={anchor} />
@@ -624,9 +636,7 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
           <MemberSettings
             key={member.id}
             project={member}
-            anchor={
-              member.id === project.id ? plainAnchor : (id) => `${id}-${member.id}`
-            }
+            isPageProject={member.id === project.id}
           />
         ))}
       </Stack>

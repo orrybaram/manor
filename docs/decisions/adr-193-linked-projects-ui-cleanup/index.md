@@ -105,16 +105,16 @@ Only styling/markup in `ProjectGroupItem`, the `section` variant of
   removed. The selected project is marked by its colored name.
 - **Host heading** (a group's section header, and the host line above a
   remote-only project's workspaces): 10px uppercase with letter-spacing,
-  `--text-dim`, host icon (`Laptop` / `Cloud`) + host name, and a connection
-  dot on the right for a remote host. Workspaces sit a step further in than
+  `--text-dim`, host icon (`Laptop` / `Cloud`) + host name, and a yellow
+  dot on the right only while a remote host is away. Workspaces sit a step further in than
   the heading, so it reads as a heading, not a row. No chip, rule or chevron; clicking a group's host
   label collapses that section and shows its workspace count. An expanded
   section's list carries 16px of space below it; collapsed sections sit 4px
   apart.
 - **Project names carry no icons.** The link icon on a group and the cloud on
   a remote project are removed; a remote-only project shows its host as a
-  host heading instead. There is no Partial/Offline badge either: each host
-  heading's dot shows its own state, and a group with every host away dims
+  host heading instead. There is no Partial/Offline badge either: an away host's
+  heading shows a yellow dot, and a group with every host away dims
   its name.
 - **Guide line.** An expanded project's contents (host headings, workspaces,
   folders) hang off a 1px `--border` line under the project's chevron and are

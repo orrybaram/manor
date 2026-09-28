@@ -59,6 +59,7 @@ import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import { HostIndicator } from "../hosts/HostIndicator";
+import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { isRemoteHost } from "../../lib/hosts";
 import { isHostOffline } from "../../lib/host-status";
 import { workspaceKey } from "../../lib/workspace-key";
@@ -290,7 +291,7 @@ const WorkspaceItem = React.forwardRef<
 
 /**
  * A host heading's label (ADR-193 §3): host icon and name in small caps,
- * and a state dot for a remote host. Used by a linked group's section
+ * and a yellow dot while a remote host is away. Used by a linked group's section
  * headers and above a remote-only project's workspaces. A collapsed section shows its workspace count after the name. Kept
  * local to this file rather than folded into `LocalHostLabel`/`HostIndicator`,
  * which other callers (the New Workspace host picker) still use as chips.
@@ -312,11 +313,11 @@ function SectionHostLabel(props: {
       {collapsedCount !== null && (
         <span className={styles.sectionHostCount}>{collapsedCount}</span>
       )}
-      {remote && (
-        <span
-          className={`${styles.sectionHostDot} ${offline ? styles.sectionHostDotOffline : ""}`}
-          aria-hidden
-        />
+      {/* Only an away host shows a dot; a connected one needs no mark. */}
+      {remote && offline && (
+        <Tooltip label="Offline — host is unreachable" side="right">
+          <span className={styles.sectionHostDot} aria-label="Offline" />
+        </Tooltip>
       )}
     </span>
   );

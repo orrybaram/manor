@@ -525,17 +525,13 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Right-aligned, so it never competes with the host name for space. */
+/* An away host's dot, right-aligned so it never competes with the name. */
 .sectionHostDot {
   margin-left: auto;
   width: 5px;
   height: 5px;
   border-radius: 50%;
   flex-shrink: 0;
-  background: var(--text-dim);
-}
-
-.sectionHostDotOffline {
   background: var(--yellow, #d29922);
 }
 

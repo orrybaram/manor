@@ -1,8 +1,12 @@
 import React, { useMemo, type PointerEvent as ReactPointerEvent } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import Link2 from "lucide-react/dist/esm/icons/link-2";
-import { useProjectStore } from "../../store/project-store";
-import type { GroupSection, TopLevelEntry } from "../../utils/sidebar-items";
+import { collapsedFolderIdsOf, useProjectStore } from "../../store/project-store";
+import type {
+  GroupSection,
+  SelectionScope,
+  TopLevelEntry,
+} from "../../utils/sidebar-items";
 import { useWorkspacesAgentStatus } from "../../hooks/useProjectAgentStatus";
 import { projectColorStyle, useProjectHeaderRow } from "../../hooks/useProjectHeaderRow";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
@@ -20,8 +24,14 @@ type ProjectGroupItemProps = {
   collapsed: boolean;
   onToggleCollapsed: () => void;
   onDragStart?: (e: ReactPointerEvent) => void;
-  /** Renders one member's section — a `ProjectItem` in `variant="section"`. */
-  renderSection: (section: GroupSection) => React.ReactNode;
+  /**
+   * Renders one member's section — a `ProjectItem` in `variant="section"` —
+   * sharing `selectionScope`, the group-wide multi-select (ADR-192 ticket 7).
+   */
+  renderSection: (
+    section: GroupSection,
+    selectionScope: SelectionScope,
+  ) => React.ReactNode;
 };
 
 /**
@@ -36,11 +46,28 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
 
   const { group, sections } = entry;
   const unlinkGroup = useProjectStore((s) => s.unlinkGroup);
+  const collapsedFolderKeys = useProjectStore((s) => s.collapsedFolderKeys);
+  const collapsedProjectIds = useProjectStore((s) => s.collapsedProjectIds);
   const header = useProjectHeaderRow(collapsed, onToggleCollapsed);
 
   const allWorkspaces = useMemo(
     () => sections.flatMap((section) => section.project.workspaces),
     [sections],
+  );
+  // One selection across every host section, keyed by group id: a range or
+  // toggle can cross from one section into the next, and each section reads
+  // its own share back out of it.
+  const selectionScope = useMemo<SelectionScope>(
+    () => ({
+      id: group.id,
+      sections: sections.map((section) => ({
+        project: section.project,
+        items: section.items,
+        collapsedFolderIds: collapsedFolderIdsOf(section.project, collapsedFolderKeys),
+        collapsed: collapsedProjectIds.has(section.project.id),
+      })),
+    }),
+    [group.id, sections, collapsedFolderKeys, collapsedProjectIds],
   );
   const { status, pulse } = useWorkspacesAgentStatus(allWorkspaces);
   const indicator = toWorkspaceIndicator(status, pulse);
@@ -101,7 +128,7 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
         <div className={styles.groupSections}>
           {sections.map((section) => (
             <React.Fragment key={section.project.id}>
-              {renderSection(section)}
+              {renderSection(section, selectionScope)}
             </React.Fragment>
           ))}
         </div>

@@ -37,8 +37,9 @@ export function BulkDeleteWorktreesDialog(props: BulkDeleteWorktreesDialogProps)
             {workspaces.length === 1 ? "worktree" : "worktrees"} from disk.
           </Dialog.Description>
           <ul className={styles.bulkDeleteList}>
-            {workspaces.map((ws) => (
-              <li key={ws.path} className={styles.bulkDeleteItem}>
+            {workspaces.map((ws, i) => (
+              // Two hosts of a linked group can share a path (ADR-192 ticket 7).
+              <li key={`${i}:${ws.path}`} className={styles.bulkDeleteItem}>
                 <span className={styles.bulkDeleteName}>
                   {ws.name || ws.branch || ws.path.split("/").pop() || "workspace"}
                 </span>

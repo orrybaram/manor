@@ -26,6 +26,7 @@ import {
   applyGroupDrop,
   buildSidebarItems,
   descendantWorkspaces,
+  canLinkLocalFolder,
   linkChoices as buildLinkChoices,
   placeAfterFolder,
   placeInFolder,
@@ -459,9 +460,14 @@ export function ProjectItem(props: ProjectItemProps) {
     return members.some((p) => p.id === project.id) ? members : [project];
   }, [project, allProjects]);
   const linkProjects = useProjectStore((s) => s.linkProjects);
+  const linkLocalFolder = useProjectStore((s) => s.linkLocalFolder);
   const unlinkProject = useProjectStore((s) => s.unlinkProject);
   const linkChoices = useMemo(
     () => buildLinkChoices(project, allProjects),
+    [project, allProjects],
+  );
+  const localFolderEligible = useMemo(
+    () => canLinkLocalFolder(project, allProjects),
     [project, allProjects],
   );
 
@@ -1255,7 +1261,7 @@ export function ProjectItem(props: ProjectItemProps) {
               <ContextMenu.SubTrigger
                 className={styles.contextMenuItem}
                 style={{ display: "flex", alignItems: "center" }}
-                disabled={linkChoices.length === 0}
+                disabled={linkChoices.length === 0 && !localFolderEligible}
               >
                 Link with…
                 <ChevronRight size={14} style={{ marginLeft: "auto" }} />
@@ -1278,6 +1284,19 @@ export function ProjectItem(props: ProjectItemProps) {
                       ))}
                     </ContextMenu.Item>
                   ))}
+                  {localFolderEligible && (
+                    <>
+                      {linkChoices.length > 0 && (
+                        <ContextMenu.Separator className={styles.contextMenuSeparator} />
+                      )}
+                      <ContextMenu.Item
+                        className={styles.contextMenuItem}
+                        onSelect={() => void linkLocalFolder(project.id)}
+                      >
+                        Choose local folder…
+                      </ContextMenu.Item>
+                    </>
+                  )}
                 </ContextMenu.SubContent>
               </ContextMenu.Portal>
             </ContextMenu.Sub>

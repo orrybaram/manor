@@ -10,7 +10,7 @@ import {
 import { branchesEqual } from "../utils/branch-name";
 import { ipcErrorMessage } from "../lib/ipc-error";
 import { splitShared } from "../lib/project-groups";
-import { workspaceHostId, type HostId } from "../lib/hosts";
+import { isRemoteHost, workspaceHostId, type HostId } from "../lib/hosts";
 import {
   buildSidebarItems,
   folderParentsOf,
@@ -488,7 +488,7 @@ interface ProjectState {
 
   // Actions
   loadProjects: () => Promise<void>;
-  addProject: (name: string, path: string) => Promise<void>;
+  addProject: (name: string, path: string) => Promise<ProjectInfo>;
   addProjectFromDirectory: () => Promise<void>;
   /** ADR-178 ticket 5: clone a repo onto a remote host, then add it. */
   addRemoteProject: (opts: {
@@ -586,6 +586,14 @@ interface ProjectState {
     memberId: string,
     opts: { hostId: string; repoUrl: string; remoteDir: string },
   ) => Promise<ProjectInfo>;
+  /**
+   * ADR-193 ticket 4: let a remote project pick a local checkout to link
+   * with, via a folder dialog rather than "Add project" first. Links an
+   * existing local project at the chosen path, or adds one there and links
+   * that. Cancelling the dialog is a no-op; errors (not a git repo, say) are
+   * shown as a toast.
+   */
+  linkLocalFolder: (projectId: string) => Promise<void>;
   /** ADR-192: take a project out of its group. Errors are shown as a toast. */
   unlinkProject: (projectId: string) => Promise<void>;
   /** ADR-192: dissolve a whole group. Errors are shown as a toast. */
@@ -765,6 +773,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       selectedProjectIndex: s.projects.length,
     }));
     void offerLinkSuggestions(project.id, get().linkProjects);
+    return project;
   },
 
   addProjectFromDirectory: async () => {
@@ -1081,6 +1090,41 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
     await get().loadProjects();
     return get().projects.find((p) => p.id === cloned.id) ?? cloned;
+  },
+
+  linkLocalFolder: async (projectId: string) => {
+    const remote = get().projects.find((p) => p.id === projectId);
+    if (!remote) return;
+    const selected = await window.electronAPI.dialog.openDirectory();
+    if (!selected) return;
+
+    // Already a Manor project at that path — link it as is.
+    const existingLocal = get().projects.find(
+      (p) => !isRemoteHost(p.hostId) && p.path === selected,
+    );
+
+    let localId: string;
+    if (existingLocal) {
+      localId = existingLocal.id;
+    } else {
+      const name = remote.group?.name ?? remote.name;
+      let created;
+      try {
+        created = await window.electronAPI.projects.add(name, selected);
+      } catch (err) {
+        groupErrorToast(`link-local-folder-${projectId}`, "Couldn't add local folder", err);
+        return;
+      }
+      // Append like `addProject` does, but without offering link suggestions
+      // for it (it is about to be linked here) or moving the selection off
+      // the remote project the user is looking at.
+      set((s) => ({ projects: [...s.projects, created] }));
+      localId = created.id;
+    }
+
+    // `otherId` wins the group's name/settings when neither side is grouped
+    // yet, so the remote project — the one the user started from — does.
+    await get().linkProjects(localId, projectId);
   },
 
   unlinkProject: async (projectId: string) => {

@@ -3,7 +3,7 @@ import Laptop from "lucide-react/dist/esm/icons/laptop";
 import { useProjectStore, type ProjectInfo } from "../../store/project-store";
 import { useHostStore } from "../../store/host-store";
 import { isRemoteHost, remoteHostOptions } from "../../lib/hosts";
-import { linkChoices } from "../../utils/sidebar-items";
+import { canLinkLocalFolder, linkChoices } from "../../utils/sidebar-items";
 import { HostIndicator } from "../hosts/HostIndicator";
 import { Button } from "../ui/Button/Button";
 import { SearchableSelect } from "../ui/SearchableSelect/SearchableSelect";
@@ -44,11 +44,19 @@ export function ProjectLinksSection(props: ProjectLinksSectionProps) {
 
   const projects = useProjectStore((s) => s.projects);
   const linkProjects = useProjectStore((s) => s.linkProjects);
+  const linkLocalFolder = useProjectStore((s) => s.linkLocalFolder);
   const unlinkProject = useProjectStore((s) => s.unlinkProject);
   const unlinkGroup = useProjectStore((s) => s.unlinkGroup);
   const hosts = useHostStore((s) => s.hosts);
 
   const choices = useMemo(() => linkChoices(project, projects), [project, projects]);
+  // `project` is the group's lead member on a group page, or the lone
+  // project itself — eligible only when it (so, when grouped, the group) has
+  // no local member yet (ADR-193 ticket 4).
+  const localFolderEligible = useMemo(
+    () => canLinkLocalFolder(project, projects),
+    [project, projects],
+  );
   const options = useMemo(() => {
     const remoteNames = new Map(remoteHostOptions(hosts).map((o) => [o.value, o.label]));
     const hostName = (hostId: string) =>
@@ -116,14 +124,25 @@ export function ProjectLinksSection(props: ProjectLinksSectionProps) {
         </div>
       )}
       <label className={styles.fieldLabel}>Link with</label>
-      <SearchableSelect
-        value=""
-        onChange={handleLink}
-        options={options}
-        placeholder={choices.length > 0 ? "Choose a project…" : "No project to link"}
-        emptyMessage="No project on another host to link"
-        maxWidth={320}
-      />
+      <Row gap="sm" align="center">
+        <SearchableSelect
+          value=""
+          onChange={handleLink}
+          options={options}
+          placeholder={choices.length > 0 ? "Choose a project…" : "No project to link"}
+          emptyMessage="No project on another host to link"
+          maxWidth={320}
+        />
+        {localFolderEligible && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void linkLocalFolder(project.id)}
+          >
+            Choose local folder…
+          </Button>
+        )}
+      </Row>
     </Stack>
   );
 }

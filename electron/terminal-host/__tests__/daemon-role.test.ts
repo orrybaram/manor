@@ -2,12 +2,18 @@ import { describe, it, expect, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { localRole, remoteRole, type DaemonRole } from "../daemon-role";
-import { daemonDir, hooksDir } from "../../paths";
+import { daemonDir, hooksDir, remoteControlPortFile } from "../../paths";
 import { ShellManager } from "../../shell";
+
+const startupContext = {
+  onHookEntry: () => {},
+  relayControlRequest: () => null,
+};
 
 const CLIENT_MACHINE_KEYS = [
   "MANOR_HOOK_PORT",
   "MANOR_HOOK_PORT_FILE",
+  "MANOR_CONTROL_PORT_FILE",
   "MANOR_WEBVIEW_PORT",
   "MANOR_PORTLESS_PORT",
 ];
@@ -36,8 +42,19 @@ describe("localRole", () => {
     fs.mkdirSync(role.paths.dir, { recursive: true });
     const flag = path.join(role.paths.dir, "remote-mode");
     fs.writeFileSync(flag, "stale\n");
-    role.onStartup({ onHookEntry: () => {} });
+    role.onStartup(startupContext);
     expect(fs.existsSync(flag)).toBe(false);
+  });
+
+  it("does not start the control relay listener (ADR-189 §1)", () => {
+    const saved = process.env.MANOR_CONTROL_PORT_FILE;
+    delete process.env.MANOR_CONTROL_PORT_FILE;
+    try {
+      localRole().onStartup(startupContext);
+      expect(process.env.MANOR_CONTROL_PORT_FILE).toBeUndefined();
+    } finally {
+      if (saved !== undefined) process.env.MANOR_CONTROL_PORT_FILE = saved;
+    }
   });
 });
 
@@ -46,6 +63,7 @@ describe("remoteRole", () => {
   const savedEnv = {
     port: process.env.MANOR_HOOK_PORT,
     portFile: process.env.MANOR_HOOK_PORT_FILE,
+    controlPortFile: process.env.MANOR_CONTROL_PORT_FILE,
   };
 
   afterEach(() => {
@@ -54,6 +72,7 @@ describe("remoteRole", () => {
     for (const [key, value] of [
       ["MANOR_HOOK_PORT", savedEnv.port],
       ["MANOR_HOOK_PORT_FILE", savedEnv.portFile],
+      ["MANOR_CONTROL_PORT_FILE", savedEnv.controlPortFile],
     ] as const) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
@@ -77,7 +96,7 @@ describe("remoteRole", () => {
     fs.rmSync(ShellManager.zdotdirPath(), { recursive: true, force: true });
     fs.rmSync(hooksDir(), { recursive: true, force: true });
 
-    role.onStartup({ onHookEntry: () => {} });
+    role.onStartup(startupContext);
     // Before any `bootstrap` request: a shell spawned now gets the zdotdir.
     expect(fs.existsSync(path.join(ShellManager.zdotdirPath(), ".zshrc"))).toBe(true);
     expect(fs.existsSync(path.join(hooksDir(), "notify.sh"))).toBe(true);
@@ -93,5 +112,10 @@ describe("remoteRole", () => {
 
     // The hook listener is up once `bootstrap` answers.
     expect(Number(process.env.MANOR_HOOK_PORT)).toBeGreaterThan(0);
+
+    // So is the control relay listener, published for the CLI (ADR-189 §1).
+    expect(process.env.MANOR_CONTROL_PORT_FILE).toBe(remoteControlPortFile());
+    const [port] = fs.readFileSync(remoteControlPortFile(), "utf-8").split("\n");
+    expect(Number(port)).toBeGreaterThan(0);
   });
 });

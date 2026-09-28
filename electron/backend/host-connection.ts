@@ -30,6 +30,11 @@
  *   (resnapshot) with their agents' status already right, and panes whose
  *   sessions are gone (the daemon restarted) can be recovered.
  * - **Its provider** (ADR-178 §1), released on disconnect and disposal.
+ * - **The control relay** (ADR-189 §2). A `manor` CLI on the host talks to
+ *   its daemon, which relays each request down the stream as a
+ *   `controlRequest`. The connection asks for them on every stream
+ *   (re)connect, hands each to the control relay sink, and answers with a
+ *   `controlResponse` on the same stream.
  */
 
 import { errorMessage } from "../lib/errors";
@@ -40,6 +45,10 @@ import type { HostProvider } from "./providers/types";
 import { classifyHostFailure } from "./remote-backend";
 import type { SessionOwners } from "./session-owners";
 import type { HookPayload } from "../terminal-host/types";
+import type {
+  ControlRelayResult,
+  RelayedControlRequest,
+} from "../terminal-host/control-relay-listener";
 import type {
   HostConnectionEvent,
   HostFailure,
@@ -85,7 +94,19 @@ export interface HostStatusInfo {
   warnings?: string[];
 }
 
+/**
+ * Answers a control request a remote host's `manor` CLI sent (ADR-189 §2),
+ * tagged with the host it came from so the answer can be scoped to it. Main
+ * wires this to its control routes, behind the remote allowlist.
+ */
+export type ControlRelaySink = (
+  hostId: string,
+  req: RelayedControlRequest,
+) => Promise<ControlRelayResult>;
+
 type HostState = Omit<HostStatusInfo, "hostId" | "spec" | "warnings">;
+
+type ControlRequestEvent = Extract<StreamEvent, { type: "controlRequest" }>;
 
 /**
  * How long a reconnect waits for the host's hook replay before announcing
@@ -119,6 +140,8 @@ export interface RemoteHostContext extends HostConnectionContext {
   hookSink: () => HookSink | null;
   /** Retry delay for a failed hook replay (see `HostHookFeed`). For tests. */
   hookReplayRetryDelayMs?: (attempt: number) => number;
+  /** Where relayed control requests go; null until the app wires it up. */
+  controlRelaySink: () => ControlRelaySink | null;
 }
 
 export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
@@ -234,6 +257,12 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
   /** A `hookEvent` from the host's daemon. The local daemon sends none. */
   protected onHookEvent(_seq: number, _payload: HookPayload): void {}
 
+  /**
+   * A `controlRequest` from the host's daemon. The local daemon sends none:
+   * a CLI on this machine talks to main directly.
+   */
+  protected onControlRequest(_event: ControlRequestEvent): void {}
+
   /** Release what the connection holds, after `dispose()`; never throws. */
   protected async release(): Promise<void> {
     try {
@@ -313,6 +342,10 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
       this.onHookEvent(event.seq, event.payload);
       return;
     }
+    if (event.type === "controlRequest") {
+      this.onControlRequest(event);
+      return;
+    }
     if (this.ctx.sessions.accept(this.hostId, event)) {
       this.ctx.streamEvents.emit(this.hostId, event);
     }
@@ -348,6 +381,13 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
       ...(ctx.hookReplayRetryDelayMs ? { retryDelayMs: ctx.hookReplayRetryDelayMs } : {}),
     });
     this.unsubscribes.push(backend.onHostEvent((event) => this.onHostEvent(event)));
+    // The daemon relays to the stream socket that last asked, and forgets
+    // one that closes, so every new socket has to ask again.
+    this.unsubscribes.push(
+      backend.onStreamConnected(() => {
+        backend.sendControlRelayCommand({ type: "enableControlRelay" });
+      }),
+    );
   }
 
   /** Latest bootstrap progress, shown while `connecting`. */
@@ -415,6 +455,10 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
     this.hookFeed.onLiveEvent(seq, payload);
   }
 
+  protected override onControlRequest(event: ControlRequestEvent): void {
+    void this.answerControlRequest(event);
+  }
+
   protected override async release(): Promise<void> {
     this.hookFeed.pause();
     await this.disposeProvider();
@@ -428,6 +472,34 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
     } catch (err) {
       console.warn(`[host-connection] disposing ${this.hostId}'s provider failed:`, err);
     }
+  }
+
+  /**
+   * Run a relayed request through the sink and send its answer back. The
+   * daemon's CLI is waiting on an HTTP reply, so every request gets one:
+   * 503 while no sink is wired up, 500 when the sink throws. An answer that
+   * outlives its stream (the host reconnected meanwhile) goes to the new
+   * socket, which the daemon ignores; the CLI already had its 503.
+   */
+  private async answerControlRequest({
+    id,
+    method,
+    path,
+    body,
+  }: ControlRequestEvent): Promise<void> {
+    const sink = this.ctx.controlRelaySink();
+    let result: ControlRelayResult;
+    if (!sink) {
+      result = { status: 503, body: { error: "Manor isn't ready for control requests yet" } };
+    } else {
+      try {
+        result = await sink(this.hostId, { method, path, body });
+      } catch (err) {
+        result = { status: 500, body: { error: errorMessage(err) } };
+      }
+    }
+    if (this.disposed) return;
+    this.backend.sendControlRelayCommand({ type: "controlResponse", id, ...result });
   }
 
   /** Claim every session the host's daemon reports. */

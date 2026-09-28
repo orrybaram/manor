@@ -20,6 +20,7 @@ import {
   parseVersion,
   pickNode,
   remoteHostEnsurer,
+  renderCliShim,
   renderLauncherShim,
   type BootstrapProgress,
 } from "../remote-bootstrap";
@@ -178,6 +179,20 @@ describe("buildInstallCommands", () => {
     );
   });
 
+  it("also writes the manor CLI shim, 0755, in the same commit", () => {
+    expect(cmds.commit).toContain('chmod 0755 "$HOME/.manor/bin/manor".tmp.$$');
+    expect(cmds.commit).toContain(
+      'mv -f "$HOME/.manor/bin/manor".tmp.$$ "$HOME/.manor/bin/manor"',
+    );
+    // Written after the host dir lands, and after the manor-host shim.
+    expect(cmds.commit.indexOf(`mv ${staging} "$HOME/.manor/host"`)).toBeLessThan(
+      cmds.commit.indexOf('"$HOME/.manor/bin/manor".tmp.$$'),
+    );
+    expect(cmds.commit.indexOf('"$HOME/.manor/bin/manor-host".tmp.$$')).toBeLessThan(
+      cmds.commit.indexOf('"$HOME/.manor/bin/manor".tmp.$$'),
+    );
+  });
+
   it("rejects staging ids that would need quoting", () => {
     expect(() => buildInstallCommands("1.0.0", "/n", "a b")).toThrow(/Invalid staging id/);
   });
@@ -189,6 +204,13 @@ describe("buildInstallCommands", () => {
     expect(shim).toContain(
       'exec /opt/node/bin/node "$HOME/.manor/host/terminal-host-index.js" "$@"',
     );
+  });
+
+  it("pins the node path in the CLI shim, without a version", () => {
+    const shim = renderCliShim("/opt/node/bin/node");
+    expect(shim.startsWith("#!/bin/sh\n")).toBe(true);
+    expect(shim).not.toContain("MANOR_VERSION");
+    expect(shim).toContain('exec /opt/node/bin/node "$HOME/.manor/host/manor-cli.js" "$@"');
   });
 
   // Run the real snippets against a scratch $HOME with sh, so quoting and
@@ -227,6 +249,10 @@ describe("buildInstallCommands", () => {
       expect(fs.readFileSync(shimPath, "utf-8")).toBe(
         renderLauncherShim("1.2.3", process.execPath),
       );
+
+      const cliShimPath = path.join(home, ".manor", "bin", "manor");
+      expect(fs.statSync(cliShimPath).mode & 0o777).toBe(0o755);
+      expect(fs.readFileSync(cliShimPath, "utf-8")).toBe(renderCliShim(process.execPath));
       // The install lock is released.
       expect(fs.existsSync(path.join(home, ".manor", ".host-install.lock"))).toBe(false);
     } finally {

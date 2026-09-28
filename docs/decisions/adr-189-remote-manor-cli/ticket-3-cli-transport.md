@@ -1,6 +1,6 @@
 ---
 title: CLI transport for the remote control port
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: []

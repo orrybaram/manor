@@ -1,6 +1,6 @@
 ---
 title: Ship manor-cli.js in the host package and install a manor shim
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: []

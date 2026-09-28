@@ -13,6 +13,7 @@ import type {
   TerminalSnapshot,
   HookReplay,
   PaneFacts,
+  StreamCommand,
 } from "./types";
 import { isDaemonStale } from "./types";
 import type { HostTransport } from "./transport";
@@ -115,6 +116,13 @@ export class TerminalHostClient {
   private readonly stream: StreamChannel = new StreamChannel((event) =>
     this.execStreams.dispatch(event),
   );
+  /**
+   * Told each time a stream socket is attached and the client connected —
+   * the first connect and every reconnect, however it happened (the
+   * supervisor's loop, or a call reconnecting on its own). For per-socket
+   * daemon state a caller has to set up again, like the control relay.
+   */
+  private readonly streamConnectedHandlers = new Set<() => void>();
   /** Env set through `updateEnv`, re-sent to the daemon on every connect. */
   private envOverrides: Record<string, string> = {};
   /** Filled by `createOrAttach`, emptied by `kill`/`detach`; survives `cleanup()`. */
@@ -227,6 +235,26 @@ export class TerminalHostClient {
     return this.stream.subscribe(handler);
   }
 
+  /**
+   * Called after every (re)connect's stream socket is up (see
+   * `streamConnectedHandlers`). Returns an unsubscribe.
+   */
+  onStreamConnected(handler: () => void): () => void {
+    this.streamConnectedHandlers.add(handler);
+    return () => {
+      this.streamConnectedHandlers.delete(handler);
+    };
+  }
+
+  /**
+   * Send a stream command on the current stream socket; false (nothing
+   * sent) when there is none. For commands whose answer belongs to that
+   * socket, like a `controlResponse` (ADR-189 §1).
+   */
+  sendStreamCommand(cmd: StreamCommand): boolean {
+    return this.stream.write(cmd);
+  }
+
   /** Connect to the daemon, spawning it if necessary */
   async connect(): Promise<void> {
     for (;;) {
@@ -316,6 +344,13 @@ export class TerminalHostClient {
     this.connected = true;
     this.connectionId++;
     this.startHeartbeat();
+    for (const handler of [...this.streamConnectedHandlers]) {
+      try {
+        handler();
+      } catch (err) {
+        console.error("[terminal-host] stream-connected handler threw:", err);
+      }
+    }
   }
 
   /**

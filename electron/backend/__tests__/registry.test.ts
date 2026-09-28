@@ -8,6 +8,7 @@ import {
 import { RoutedBackend } from "../routed-backend";
 import type { HostConnection } from "../host-connection";
 import type {
+  ControlRelayCommand,
   ScannedPort,
   HostConnectionEvent,
   HostSpec,
@@ -22,6 +23,7 @@ import type { HostProvider } from "../providers/types";
 function fakeBackend(name: string) {
   let streamHandler: ((event: StreamEvent) => void) | null = null;
   const hostHandlers: Array<(event: HostConnectionEvent) => void> = [];
+  const streamConnectedHandlers: Array<() => void> = [];
   const raw = {
     pty: {
       createOrAttach: vi.fn(async (sessionId: string, cwd: string) => ({
@@ -73,6 +75,14 @@ function fakeBackend(name: string) {
     }),
     retryNow: vi.fn(() => false),
     checkLiveness: vi.fn(async () => true),
+    onStreamConnected: vi.fn((handler: () => void) => {
+      streamConnectedHandlers.push(handler);
+      return () => {
+        const i = streamConnectedHandlers.indexOf(handler);
+        if (i >= 0) streamConnectedHandlers.splice(i, 1);
+      };
+    }),
+    sendControlRelayCommand: vi.fn((_cmd: ControlRelayCommand) => true),
   };
   return {
     raw,
@@ -81,8 +91,13 @@ function fakeBackend(name: string) {
     hostEvent: (event: HostConnectionEvent) => {
       for (const h of hostHandlers) h(event);
     },
+    /** The backend's stream socket (re)connected. */
+    streamConnected: () => {
+      for (const h of streamConnectedHandlers) h();
+    },
     /** Whether anything is still subscribed to this backend's events. */
-    listening: () => streamHandler !== null || hostHandlers.length > 0,
+    listening: () =>
+      streamHandler !== null || hostHandlers.length > 0 || streamConnectedHandlers.length > 0,
   };
 }
 
@@ -1019,5 +1034,87 @@ describe("BackendRegistry — away and back (ADR-178 §6)", () => {
 
       expect(seen).toEqual([]);
     });
+  });
+});
+
+describe("BackendRegistry — control relay (ADR-189 §2)", () => {
+  function relaySetup() {
+    const local = fakeBackend("local");
+    const remote = fakeBackend("box");
+    const registry = new BackendRegistry({
+      local: local.backend,
+      remoteVersion: "0.1.0",
+      createProvider: () => fakeProvider() as unknown as HostProvider,
+      createRemote: () => remote.backend,
+    });
+    registry.register("box", box);
+    const request = (id: string) =>
+      remote.stream({ type: "controlRequest", id, method: "GET", path: "/context?cwd=/x", body: undefined });
+    return { registry, local, remote, request };
+  }
+
+  it("asks for relayed requests on every stream (re)connect", () => {
+    const { remote } = relaySetup();
+    expect(remote.raw.sendControlRelayCommand).not.toHaveBeenCalled();
+    remote.streamConnected();
+    remote.streamConnected();
+    expect(remote.raw.sendControlRelayCommand.mock.calls).toEqual([
+      [{ type: "enableControlRelay" }],
+      [{ type: "enableControlRelay" }],
+    ]);
+  });
+
+  it("answers a request through the sink, tagged with the host, and does not re-publish it", async () => {
+    const { registry, remote, request } = relaySetup();
+    const listener = vi.fn();
+    registry.onEvent(listener);
+    const sink = vi.fn(async () => ({ status: 200, body: { projectId: "p1" } }));
+    registry.setControlRelaySink(sink);
+
+    request("r1");
+    await vi.waitFor(() =>
+      expect(remote.raw.sendControlRelayCommand).toHaveBeenCalledWith({
+        type: "controlResponse",
+        id: "r1",
+        status: 200,
+        body: { projectId: "p1" },
+      }),
+    );
+    expect(sink).toHaveBeenCalledWith("box", {
+      method: "GET",
+      path: "/context?cwd=/x",
+      body: undefined,
+    });
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("answers 503 with no sink and 500 when the sink throws", async () => {
+    const { registry, remote, request } = relaySetup();
+    request("r1");
+    await vi.waitFor(() =>
+      expect(remote.raw.sendControlRelayCommand).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "controlResponse", id: "r1", status: 503 }),
+      ),
+    );
+
+    registry.setControlRelaySink(async () => {
+      throw new Error("boom");
+    });
+    request("r2");
+    await vi.waitFor(() =>
+      expect(remote.raw.sendControlRelayCommand).toHaveBeenCalledWith({
+        type: "controlResponse",
+        id: "r2",
+        status: 500,
+        body: { error: "boom" },
+      }),
+    );
+  });
+
+  it("stops asking once the host is unregistered", async () => {
+    const { registry, remote } = relaySetup();
+    await registry.unregister("box");
+    remote.streamConnected();
+    expect(remote.raw.sendControlRelayCommand).not.toHaveBeenCalled();
   });
 });

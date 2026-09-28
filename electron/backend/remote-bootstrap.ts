@@ -18,6 +18,11 @@
  *   .host-staging-<id>/         an install in progress; renamed to host/
  *   bin/manor-host              launcher shim: pins MANOR_VERSION and the
  *                               absolute node path, then execs the daemon entry
+ *   bin/manor                   CLI shim: pins the absolute node path, then
+ *                               execs host/manor-cli.js (ADR-189 ticket 4) —
+ *                               written alongside manor-host in the same
+ *                               commit, so it always matches the installed
+ *                               host package
  *   remote/daemon/              the daemon `manor-host remote-bridge` spawns:
  *                               socket, token, pid, log, hook journal
  *   remote/hook-port            its hook listener's `<port>\n<token>`
@@ -68,6 +73,9 @@ const MAX_ERROR_DETAIL = 2_000;
 
 /** The daemon entry inside the package — `LocalTransport` respawns it by this name. */
 const HOST_ENTRY = "terminal-host-index.js";
+
+/** The CLI entry inside the package, run by the `manor` shim (ADR-189 ticket 4). */
+const CLI_ENTRY = "manor-cli.js";
 
 // ── Errors ──
 
@@ -198,6 +206,7 @@ const MANOR = '"$HOME/.manor"';
 const HOST_DIR = '"$HOME/.manor/host"';
 const BIN_DIR = '"$HOME/.manor/bin"';
 const HOST_BIN = '"$HOME/.manor/bin/manor-host"';
+const CLI_BIN = '"$HOME/.manor/bin/manor"';
 
 export const DETECT_COMMAND = "uname -sm";
 
@@ -255,6 +264,37 @@ export function renderLauncherShim(version: string, nodePath: string): string {
   ].join("\n");
 }
 
+/**
+ * The CLI shim written to `~/.manor/bin/manor` (ADR-189 ticket 4), put on
+ * every remote PTY's PATH the same way `manor-host` is (`session.ts`). Unlike
+ * the launcher shim it does not need to pin `MANOR_VERSION`: the CLI talks to
+ * whichever daemon is running over the control relay, not to itself.
+ */
+export function renderCliShim(nodePath: string): string {
+  return [
+    "#!/bin/sh",
+    "# Written by Manor's remote bootstrap. Reinstalled with each host update.",
+    `exec ${shellQuote(nodePath)} "$HOME/.manor/host/${CLI_ENTRY}" "$@"`,
+    "",
+  ].join("\n");
+}
+
+/**
+ * The atomic tmp-and-rename that writes a shim (`shimBody` is the shebang-less
+ * remainder of a `render*Shim` result, one printf argument per line — see
+ * `buildInstallCommands`) to `bin`, 0755. Shared by the `manor-host` and
+ * `manor` shims so the two stay in lockstep.
+ */
+function writeShimCommands(bin: string, shimBody: string[]): string[] {
+  return [
+    // The shebang is spelled with an octal escape: csh expands `!/…` as
+    // history even inside single quotes.
+    `{ printf '#\\041/bin/sh\\n'; printf '%s\\n' ${shimBody.map(shellQuote).join(" ")}; } > ${bin}.tmp.$$`,
+    `chmod 0755 ${bin}.tmp.$$`,
+    `mv -f ${bin}.tmp.$$ ${bin}`,
+  ];
+}
+
 export interface InstallCommands {
   /** Create an empty staging dir. Touches nothing in use. */
   prepare: string;
@@ -262,7 +302,7 @@ export interface InstallCommands {
   stream: string;
   /** `npm install` inside staging and prove node-pty loads. */
   install: string;
-  /** Swap staging into place and write the launcher shim. */
+  /** Swap staging into place and write the launcher and CLI shims. */
   commit: string;
   /** Best-effort removal of staging after a failure. */
   cleanup: string;
@@ -289,6 +329,8 @@ export function buildInstallCommands(
     .replace(/\n$/, "")
     .split("\n");
   if (shebang !== "#!/bin/sh") throw new Error(`Unexpected shim shebang: ${shebang}`);
+  const [cliShebang, ...cliShimBody] = renderCliShim(nodePath).replace(/\n$/, "").split("\n");
+  if (cliShebang !== "#!/bin/sh") throw new Error(`Unexpected CLI shim shebang: ${cliShebang}`);
   const installTimeoutS = INSTALL_TIMEOUT_MS / 1000 - REMOTE_TIMEOUT_MARGIN_S;
 
   return {
@@ -335,11 +377,10 @@ export function buildInstallCommands(
       `if [ -d ${HOST_DIR} ]; then mv ${HOST_DIR} ${MANOR}/host.old; fi`,
       `if ! mv ${staging} ${HOST_DIR}; then` +
         ` if [ -d ${MANOR}/host.old ]; then mv ${MANOR}/host.old ${HOST_DIR}; fi; exit 1; fi`,
-      // The shebang is spelled with an octal escape: csh expands `!/…` as
-      // history even inside single quotes.
-      `{ printf '#\\041/bin/sh\\n'; printf '%s\\n' ${shimBody.map(shellQuote).join(" ")}; } > ${HOST_BIN}.tmp.$$`,
-      `chmod 0755 ${HOST_BIN}.tmp.$$`,
-      `mv -f ${HOST_BIN}.tmp.$$ ${HOST_BIN}`,
+      // Both shims run entries inside the freshly-committed host/, so write
+      // them only once it has landed.
+      ...writeShimCommands(HOST_BIN, shimBody),
+      ...writeShimCommands(CLI_BIN, cliShimBody),
       `rm -rf ${MANOR}/host.old`,
     ].join("; "),
 

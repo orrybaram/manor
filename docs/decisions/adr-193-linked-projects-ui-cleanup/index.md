@@ -106,9 +106,8 @@ Only styling/markup in `ProjectGroupItem`, the `section` variant of
 - **Host heading** (a group's section header, and the host line above a
   remote-only project's workspaces): 10px uppercase with letter-spacing,
   `--text-dim`, host icon (`Laptop` / `Cloud`) + host name, and a connection
-  dot on the right for a remote host. It is outdented: its icon sits in the
-  chevron's column while workspaces start under the project name, so it reads
-  as a heading, not a row. No chip, rule or chevron; clicking a group's host
+  dot on the right for a remote host. Workspaces sit a step further in than
+  the heading, so it reads as a heading, not a row. No chip, rule or chevron; clicking a group's host
   label collapses that section and shows its workspace count. An expanded
   section's list carries 16px of space below it; collapsed sections sit 4px
   apart.
@@ -117,8 +116,9 @@ Only styling/markup in `ProjectGroupItem`, the `section` variant of
   host heading instead. There is no Partial/Offline badge either: each host
   heading's dot shows its own state, and a group with every host away dims
   its name.
-- **Indentation.** Workspace rows (in every project, linked or not) start
-  under the project name, past the chevron.
+- **Guide line.** An expanded project's contents (host headings, workspaces,
+  folders) hang off a 1px `--border` line under the project's chevron and are
+  indented to its right, in every project, linked or not.
 - (Revised twice after review, using mockups: the first cut left host labels
   at the same x as workspace names; a small-caps divider version made host
   labels as loud as project names, so projects blended together.)

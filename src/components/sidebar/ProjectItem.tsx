@@ -1146,6 +1146,12 @@ export function ProjectItem(props: ProjectItemProps) {
     );
   };
 
+  const workspaceList = (
+    <div className={styles.workspaces}>
+      {items.map((item) => renderItem(item, 0))}
+    </div>
+  );
+
   return (
     <div
       className={
@@ -1316,24 +1322,28 @@ export function ProjectItem(props: ProjectItemProps) {
           </ContextMenu.Content>
         </ContextMenu.Portal>
       </ContextMenu.Root>
-      {/* A remote-only project names its host above its workspaces, the
-          way a linked group's sections do (ADR-193 §3). */}
-      {expanded && !isSection && isRemoteHost(project.hostId) && (
-        <div className={styles.hostHeading} data-testid="project-host-heading">
-          <SectionHostLabel
-            hostId={project.hostId}
-            path={project.path}
-            label={remoteTarget ?? project.hostId}
-            offline={isHostOffline(project.hostId, hosts)}
-            collapsedCount={null}
-          />
-        </div>
-      )}
-      {expanded && items.length > 0 && (
-        <div className={styles.workspaces}>
-          {items.map((item) => renderItem(item, 0))}
-        </div>
-      )}
+      {isSection
+        ? expanded && items.length > 0 && workspaceList
+        : expanded &&
+          (isRemoteHost(project.hostId) || items.length > 0) && (
+            // Hangs off a guide line under the chevron (ADR-193 §3).
+            <div className={styles.projectBody}>
+              {/* A remote-only project names its host above its workspaces,
+                  the way a linked group's sections do. */}
+              {isRemoteHost(project.hostId) && (
+                <div className={styles.hostHeading} data-testid="project-host-heading">
+                  <SectionHostLabel
+                    hostId={project.hostId}
+                    path={project.path}
+                    label={remoteTarget ?? project.hostId}
+                    offline={isHostOffline(project.hostId, hosts)}
+                    collapsedCount={null}
+                  />
+                </div>
+              )}
+              {items.length > 0 && workspaceList}
+            </div>
+          )}
 
       <NewWorkspaceDialog
         open={newWorkspaceOpen}

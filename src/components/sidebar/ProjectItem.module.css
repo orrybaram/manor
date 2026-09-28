@@ -1,11 +1,19 @@
 /* ── ProjectItem ── */
 
 /* Projects are set apart by space and type weight alone — no border, no
-   separator, no selection bar (ADR-193 §3). Only an expanded project's list
-   takes bottom padding, so collapsed projects stay tight. */
-.project > .workspaces,
-.project > .groupSections {
-  padding-bottom: 14px;
+   separator, no selection bar (ADR-193 §3). An expanded project's contents
+   hang off a guide line under its chevron (6px header padding + half the
+   12px chevron) and sit indented to its right; only an expanded project
+   takes space below, so collapsed projects stay tight. */
+.projectBody,
+.groupSections {
+  margin: 4px 0 14px 11px;
+  padding-left: 7px;
+  border-left: 1px solid var(--border);
+}
+
+.projectBody > :first-child {
+  margin-top: 0;
 }
 
 .projectHeader {
@@ -74,10 +82,10 @@
 
 /* ── Workspaces ── */
 
-/* Indented to start under the project name, past the chevron (6px header
-   padding + 12px chevron + 4px gap, less the row's own 6px padding). */
+/* A small step in from the guide line, so workspace rows sit inside their
+   host heading. */
 .workspaces {
-  padding-left: 16px;
+  padding-left: 6px;
   margin-top: 8px;
   display: flex;
   flex-direction: column;
@@ -445,9 +453,9 @@
 }
 
 /* A host heading: a linked group's section header, or the host line above a
-   remote-only project's workspaces. Small spaced caps, outdented under the
-   project's chevron while workspaces start under the project name, so it
-   reads as a heading rather than another row (ADR-193 §3). */
+   remote-only project's workspaces. Small spaced caps at the guide's
+   content edge, with its workspaces a step further in, so it reads as a
+   heading rather than another row (ADR-193 §3). */
 .sectionHeader,
 .hostHeading {
   height: 18px;
@@ -469,7 +477,13 @@
 .hostHeading {
   display: flex;
   align-items: center;
-  margin-top: 4px;
+}
+
+/* Inside the guided body the host heading starts right at the content edge;
+   its workspaces step in from there. */
+.sectionHeader,
+.hostHeading {
+  padding-left: 0;
 }
 
 /* Belt-and-braces: a section header never takes the group's project-color
@@ -526,7 +540,6 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-top: 4px;
 }
 
 .groupSections > :not(:last-child) .section > .workspaces {

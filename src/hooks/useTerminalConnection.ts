@@ -11,7 +11,7 @@ import {
 import { isRemoteHost, type HostId } from "../lib/hosts";
 import { parseWorkspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import { useHostStore } from "../store/host-store";
-import { isPaneInputBlocked } from "../lib/host-status";
+import { isHostOffline } from "../lib/host-status";
 import { useAppStore, type PendingPaneCommand } from "../store/app-store";
 import { shouldRequeuePaneCommand, windowPaneIds } from "../lib/remote-recovery";
 import type { PtyCreateResult } from "../electron.d";
@@ -54,7 +54,7 @@ export function useTerminalConnection(paneId: string, workspaceKey?: WorkspaceKe
     // Read-only while the pane's remote host is away (ADR-178 §6): input is
     // dropped, not queued for a shell that may be gone by the time it lands.
     if (
-      isPaneInputBlocked(
+      isHostOffline(
         paneRemoteHost(useRemotePaneStore.getState(), paneId),
         useHostStore.getState().hosts,
       )

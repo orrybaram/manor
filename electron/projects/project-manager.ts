@@ -20,7 +20,12 @@ import { moveProjectToHost, planRemoteClone, runRemoteClone, switchProjectHost }
 import { PathRouter } from "./path-router";
 import type { WorkspaceKeyOwner } from "../../src/lib/workspace-key";
 import * as groups from "./project-groups";
-import { buildProjectInfo, listGitWorkspaces, seedCommands } from "./project-info";
+import {
+  buildProjectInfo,
+  listGitWorkspaces,
+  seedCommands,
+  LastKnownWorkspaces,
+} from "./project-info";
 import { StateStore } from "./state-store";
 import * as folders from "./workspace-folders";
 import * as worktrees from "./worktrees";
@@ -46,13 +51,25 @@ export class ProjectManager {
   private readonly origins: OriginLinks;
   private readonly hostFor: ProjectHostResolver;
   private resyncDone = false;
+  /** Remote projects' last workspace listings, for while a host is away. */
+  private readonly lastKnownWorkspaces: LastKnownWorkspaces;
 
   /**
    * `hosts` resolves a host id to its backend — `BackendRegistry.get` in
    * the app. A bare `GitBackend` is this machine's git for every project,
    * with this machine's shell and facts (local-only callers and tests).
+   *
+   * `isHostAway` says whether a host is not connected now — in the app,
+   * `BackendRegistry.status(hostId) !== "connected"`. Only while it is does
+   * a remote project fall back to its last workspace listing. Without it,
+   * no host is ever away.
    */
-  constructor(hosts: ProjectHostResolver | GitBackend, dataDir?: string) {
+  constructor(
+    hosts: ProjectHostResolver | GitBackend,
+    dataDir?: string,
+    options: { isHostAway?: (hostId: string) => boolean } = {},
+  ) {
+    this.lastKnownWorkspaces = new LastKnownWorkspaces(options.isHostAway ?? (() => false));
     if (typeof hosts === "function") {
       this.hostFor = hosts;
     } else {
@@ -88,6 +105,7 @@ export class ProjectManager {
       this.hostFor(p.hostId).git,
       this.paths,
       groups.groupOf(this.store.state, p.id),
+      this.lastKnownWorkspaces,
     );
   }
 
@@ -301,6 +319,7 @@ export class ProjectManager {
     projectId: string,
     opts: { hostId: string; repoUrl: string; remoteDir: string },
   ): Promise<ProjectInfo> {
+    this.lastKnownWorkspaces.forget(projectId);
     return moveProjectToHost(this.ctx, projectId, opts);
   }
 
@@ -310,6 +329,7 @@ export class ProjectManager {
     hostId: string,
     explicitPath?: string,
   ): Promise<ProjectInfo> {
+    this.lastKnownWorkspaces.forget(projectId);
     return switchProjectHost(this.ctx, projectId, hostId, explicitPath);
   }
 
@@ -350,6 +370,7 @@ export class ProjectManager {
     const groupId = groups.groupOf(state, projectId)?.id;
     groups.forgetProject(state, projectId);
     forgetLinkDismissals(state, projectId);
+    this.lastKnownWorkspaces.forget(projectId);
     state.projects = state.projects.filter((p) => p.id !== projectId);
     if (state.selectedProjectIndex >= state.projects.length) {
       state.selectedProjectIndex = Math.max(0, state.projects.length - 1);

@@ -139,17 +139,43 @@ export function secondsUntilRetry(
 }
 
 /**
- * Whether typing into a pane on remote host `hostId` (undefined for a local
- * pane) must be dropped: that host is not connected (ADR-178 §6). Input is
- * dropped, not queued — keystrokes replayed into a shell minutes later, into
- * whatever is then in the foreground, would do more harm than losing them.
- * A local pane, or one on a host main has not reported yet, is never blocked.
+ * Whether host `hostId` is away: main reported it and it is not connected.
+ * `connecting`, `reconnecting`, `error` and `disconnected` all count as away,
+ * as `describeHost` marks them `offline`. This machine (a missing id) and a
+ * host main has not reported yet are never away.
+ *
+ * Typing into a pane on an away host is dropped, not queued (ADR-178 §6):
+ * keystrokes replayed into a shell minutes later, into whatever is then in
+ * the foreground, would do more harm than losing them. A linked group's
+ * sections and host state (ADR-192 §5) read the same predicate.
  */
-export function isPaneInputBlocked(
-  hostId: string | undefined,
+export function isHostOffline(
+  hostId: string | null | undefined,
   hosts: readonly HostStatusInfo[],
 ): boolean {
   if (!hostId) return false;
   const host = hosts.find((h) => h.hostId === hostId);
   return host !== undefined && host.status !== "connected";
+}
+
+/**
+ * A linked group's host state, from its members' hosts (ADR-192 §5):
+ * `connected` when no member's host is away (`isHostOffline`, so a host
+ * still connecting or reconnecting counts as away), `offline` when every
+ * member's is, and `partially-offline` otherwise — one host dropped while the others
+ * work, which must not read like a project that is wholly unreachable.
+ */
+export type GroupHostState = "connected" | "partially-offline" | "offline";
+
+/**
+ * The state of a group whose members live on `memberHostIds` (a missing id
+ * is this machine). An empty group is `connected`: nothing is away.
+ */
+export function groupHostState(
+  memberHostIds: readonly (string | null | undefined)[],
+  hosts: readonly HostStatusInfo[],
+): GroupHostState {
+  const offline = memberHostIds.filter((id) => isHostOffline(id, hosts)).length;
+  if (offline === 0) return "connected";
+  return offline === memberHostIds.length ? "offline" : "partially-offline";
 }

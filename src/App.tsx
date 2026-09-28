@@ -56,6 +56,7 @@ import { useMountEffect } from "./hooks/useMountEffect";
 import { useMenuContextSync } from "./hooks/useMenuContextSync";
 import { useUpdaterToasts } from "./hooks/useUpdaterToasts";
 import { useRemoteRecovery } from "./hooks/useRemoteRecovery";
+import { useAgentContextRepair } from "./hooks/useAgentContextRepair";
 import {
   useNavigationHistory,
   navigateBack,
@@ -109,6 +110,7 @@ function App() {
   useUpdaterToasts();
   useNavigationHistory();
   useRemoteRecovery();
+  useAgentContextRepair();
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteInitialView, setPaletteInitialView] = useState<PaletteView | undefined>();

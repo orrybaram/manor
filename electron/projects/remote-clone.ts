@@ -99,6 +99,35 @@ export async function resolveRemoteDir(
   return targetDir;
 }
 
+/**
+ * Resolve a clone target on `isLocal` or a remote host. Remote follows the
+ * strict `resolveRemoteDir` rule. Local (ADR-194) is looser about characters
+ * (a user's own machine may have spaces) but still must be `~`, `~/…` or
+ * absolute, must not look like a flag, and must not resolve to `/`.
+ */
+export async function resolveCloneDir(
+  isLocal: boolean,
+  dir: string,
+  homeDir: () => Promise<string>,
+  join: (...parts: string[]) => string,
+): Promise<string> {
+  if (!isLocal) return resolveRemoteDir(dir, homeDir, join);
+  const input = dir.trim();
+  if (input.startsWith("-")) {
+    throw new Error("Directory must not start with \"-\".");
+  }
+  if (input !== "~" && !input.startsWith("~/") && !input.startsWith("/")) {
+    throw new Error("Directory must be an absolute path or start with ~/.");
+  }
+  const targetDir = expandHome(input, await homeDir(), join);
+  if (!targetDir.startsWith("/") || targetDir === "/") {
+    throw new Error(
+      `Directory must resolve to an absolute path other than "/" (got ${JSON.stringify(targetDir)}).`,
+    );
+  }
+  return targetDir;
+}
+
 /** Clone progress, for the `projects:clone-progress` channel (ADR-183 ticket 1). */
 export type CloneProgress = (
   status: "in-progress" | "done" | "error",

@@ -16,7 +16,7 @@ import { detectDefaultBranch, listLocalBranches, listRemoteBranches, resyncDefau
 import type { ProjectContext } from "./context";
 import { HostRecords } from "./host-records";
 import { OriginLinks, forgetLinkDismissals } from "./origin-links";
-import { moveProjectToHost, planRemoteClone, runRemoteClone, switchProjectHost } from "./host-move";
+import { moveProjectToHost, planClone, runClone, switchProjectHost } from "./host-move";
 import { PathRouter } from "./path-router";
 import type { WorkspaceKeyOwner } from "../../src/lib/workspace-key";
 import * as groups from "./project-groups";
@@ -291,25 +291,25 @@ export class ProjectManager {
   }
 
   /**
-   * Create a project on a remote host by cloning it there first (ADR-178
-   * ticket 5), with progress on `projects:clone-progress` (ADR-183 ticket
+   * Create a project on any host, this machine included, by cloning it
+   * there first (ADR-178 ticket 5, ADR-194), with progress on `projects:clone-progress` (ADR-183 ticket
    * 1), then the normal `addProject` path.
    *
-   * If `remoteDir` already exists and is a clone of `repoUrl`, cloning is
+   * If `targetDir` already exists and is a clone of `repoUrl`, cloning is
    * skipped and the existing checkout is adopted instead of clobbered. Any
    * other non-empty directory is refused. A checkout Manor already has a
    * project for returns that project rather than a second record for the
    * same host+path (ADR-178 ticket 5 review).
    */
-  async addRemoteProject(opts: {
+  async cloneProject(opts: {
     hostId: string;
     repoUrl: string;
-    remoteDir: string;
+    targetDir: string;
     name: string;
   }): Promise<ProjectInfo> {
-    this.hosts.assertRemote(opts.hostId);
-    const plan = await planRemoteClone(this.ctx, opts.hostId, opts);
-    await runRemoteClone(plan);
+    this.hosts.assertKnown(opts.hostId);
+    const plan = await planClone(this.ctx, opts.hostId, opts);
+    await runClone(plan);
     if (plan.owner) return this.buildProjectInfo(plan.owner);
     return this.addProject(opts.name, plan.targetDir, opts.hostId);
   }

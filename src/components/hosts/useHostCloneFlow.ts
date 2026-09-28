@@ -34,7 +34,7 @@ export type UseHostCloneFlowResult = {
  * The form → cloning → health state machine shared by `AddProjectDialog`'s
  * remote flow (ADR-178 ticket 5) and `CloneToHostDialog` (ADR-179), unified
  * by ADR-183 ticket 10. `run` is the only thing that differs between the two
- * callers: `addRemoteProject` or `moveProjectToHost`.
+ * callers: `cloneProject` or `moveProjectToHost`.
  */
 export function useHostCloneFlow(options: UseHostCloneFlowOptions): UseHostCloneFlowResult {
   const { hostId, run } = options;

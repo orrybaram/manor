@@ -340,15 +340,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
         hostId: string;
       }>,
     ) => ipcRenderer.invoke("projects:update", projectId, updates),
-    // ADR-178 ticket 5: clone a repo onto a remote host, then add it as a
-    // project there. Progress arrives on "projects:clone-progress"
-    // (`onCloneProgress`).
-    addRemote: (opts: {
+    // ADR-178 ticket 5, ADR-194: clone a repo onto any host (this machine
+    // included), then add it as a project there. Progress arrives on
+    // "projects:clone-progress" (`onCloneProgress`).
+    clone: (opts: {
       hostId: string;
       repoUrl: string;
-      remoteDir: string;
+      targetDir: string;
       name: string;
-    }) => ipcRenderer.invoke("projects:addRemote", opts),
+    }) => ipcRenderer.invoke("projects:clone", opts),
     // ADR-179: clone an existing project onto a remote host and point it
     // there. Progress arrives on "projects:clone-progress" (`onCloneProgress`).
     moveToHost: (

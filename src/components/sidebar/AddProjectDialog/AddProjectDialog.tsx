@@ -46,7 +46,7 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
   const [addingLocal, setAddingLocal] = useState(false);
 
   const hosts = useHostStore((s) => s.hosts);
-  const addRemoteProject = useProjectStore((s) => s.addRemoteProject);
+  const cloneProject = useProjectStore((s) => s.cloneProject);
 
   const options = useMemo(() => remoteHostOptions(hosts), [hosts]);
 
@@ -59,10 +59,10 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
   const flow = useHostCloneFlow({
     hostId,
     run: () =>
-      addRemoteProject({
+      cloneProject({
         hostId,
         repoUrl: repoUrl.trim(),
-        remoteDir: remoteDir.trim(),
+        targetDir: remoteDir.trim(),
         name: name.trim() || nameFromRepoUrl(repoUrl),
       }),
   });

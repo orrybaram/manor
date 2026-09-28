@@ -1,6 +1,6 @@
 ---
 title: Add "Choose local folder…" when linking a remote project
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [2, 3]

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, nativeImage, safeStorage } from "electron";
+import { app, BrowserWindow, nativeImage, powerMonitor, safeStorage } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -727,6 +727,17 @@ export function initApp(devTitle: string | null): void {
       checkForUpdates,
       saveZoomLevel,
     });
+
+    // A wake from sleep or an unlock can leave a remote host's connection up
+    // but wedged (ADR-188 §3): the transport never closed, so nothing would
+    // otherwise notice. `powerMonitor` is only available once the app is
+    // ready.
+    const checkRemoteHostsOnWake = (reason: "resume" | "unlock-screen"): void => {
+      console.log(`[power] ${reason}: checking remote hosts`);
+      backendRegistry.checkRemoteHosts();
+    };
+    powerMonitor.on("resume", () => checkRemoteHostsOnWake("resume"));
+    powerMonitor.on("unlock-screen", () => checkRemoteHostsOnWake("unlock-screen"));
 
     // Set Dock icon on macOS
     if (process.platform === "darwin") {

@@ -254,6 +254,18 @@ export class BackendRegistry {
     });
   }
 
+  /**
+   * Check every remote host is still there (ADR-188 §3) — called on the
+   * machine waking from sleep or unlocking, when a connection may be up but
+   * wedged, or a reconnect may be sitting mid-backoff on a delay that did not
+   * advance while asleep.
+   */
+  checkRemoteHosts(): void {
+    for (const conn of this.hosts.values()) {
+      if (conn instanceof RemoteHostConnection) conn.checkLiveness();
+    }
+  }
+
   /** Drop a remote host's connection. Its remote sessions keep running. */
   async disconnect(hostId: string): Promise<void> {
     await this.hosts.get(hostId)?.disconnect();

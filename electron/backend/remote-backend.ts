@@ -15,6 +15,7 @@
 import { errorMessage } from "../lib/errors";
 import {
   TerminalHostClient,
+  type HeartbeatOptions,
   type ReconnectPolicy,
 } from "../terminal-host/client";
 import type { HostTransport } from "../terminal-host/transport";
@@ -37,6 +38,17 @@ import type {
 
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_CAP_MS = 30_000;
+
+/**
+ * Heartbeat for a remote host's client (ADR-188 §2): ssh's own keepalives
+ * (`ServerAliveInterval`/`CountMax`) only catch a dead TCP peer, not a
+ * connection that is up but has stopped delivering — the failure mode a Mac
+ * waking from sleep hit. Pinging on the control channel notices that within
+ * about 25s (one interval plus one timeout), and within `HEARTBEAT_TIMEOUT_MS`
+ * of a wake check (ADR-188 §3).
+ */
+const HEARTBEAT_INTERVAL_MS = 15_000;
+const HEARTBEAT_TIMEOUT_MS = 10_000;
 
 /**
  * Backoff between reconnect attempts to a remote host: 1s, 2s, 4s, 8s, 16s,
@@ -86,6 +98,11 @@ export interface RemoteBackendOptions {
   transport: HostTransport;
   /** Replaces `remoteReconnectDelayMs`. For tests. */
   reconnectDelayMs?: ReconnectPolicy;
+  /**
+   * Replaces the default heartbeat (`HEARTBEAT_INTERVAL_MS`/
+   * `HEARTBEAT_TIMEOUT_MS`); `null` turns it off. For tests.
+   */
+  heartbeat?: HeartbeatOptions | null;
 }
 
 export class RemoteBackend implements RemoteHostBackend, HostBackend {
@@ -120,6 +137,11 @@ export class RemoteBackend implements RemoteHostBackend, HostBackend {
       // only re-runs the bootstrap; stop and tell the user instead.
       isPermanentFailure: (err) => classifyHostFailure(err) !== null,
     });
+    this.client.setHeartbeat(
+      opts.heartbeat === undefined
+        ? { intervalMs: HEARTBEAT_INTERVAL_MS, timeoutMs: HEARTBEAT_TIMEOUT_MS }
+        : opts.heartbeat,
+    );
     this.client.setConnectionListener({
       onLost: ({ sessionIds }) =>
         this.emitHostEvent({
@@ -190,6 +212,15 @@ export class RemoteBackend implements RemoteHostBackend, HostBackend {
   /** "Retry now": skip the rest of the reconnect loop's current wait. */
   retryNow(): boolean {
     return this.client.retryReconnectNow();
+  }
+
+  /**
+   * Ping the daemon once and resolve whether it answered (ADR-188 §3), for a
+   * wake check. A failure is reported through `onHostEvent`'s
+   * `hostDisconnected`, the same as a heartbeat tick going unanswered.
+   */
+  checkLiveness(): Promise<boolean> {
+    return this.client.checkLiveness();
   }
 
   /**

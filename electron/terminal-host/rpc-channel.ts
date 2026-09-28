@@ -70,10 +70,11 @@ export class RpcChannel {
   private mutex: Promise<void> = Promise.resolve();
 
   /**
-   * `onTimeout` runs after a request times out. A daemon that stops
-   * answering is presumed gone, so the owner tears the connection down.
+   * `onTimeout` runs after a request times out, with the request's type. A
+   * daemon that stops answering is presumed gone, so the owner tears the
+   * connection down.
    */
-  constructor(private readonly onTimeout: () => void) {}
+  constructor(private readonly onTimeout: (type: string) => void) {}
 
   /** Send requests over `socket` from now on. Replies on any other are dropped. */
   attach(socket: Duplex): void {
@@ -163,7 +164,7 @@ export class RpcChannel {
           : setTimeout(() => {
               this.pending.delete(requestId);
               reject(new Error(`Request timed out: ${req.type}`));
-              this.onTimeout();
+              this.onTimeout(req.type);
             }, timeoutMs);
 
       this.pending.set(requestId, { resolve, reject, timeout });

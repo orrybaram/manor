@@ -376,6 +376,23 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
     super.retryNow();
   }
 
+  /**
+   * Check the host is still there (ADR-188 §3), e.g. after the machine
+   * wakes: a connected host is pinged, which catches a connection that is up
+   * but has stopped delivering — a socket close never reports that. A host
+   * mid-backoff is retried now instead of waiting out the rest of its delay,
+   * since libuv timers do not advance while asleep, so the wait may still
+   * have most of itself left. Anything else (not yet connected, `error`) is
+   * left alone.
+   */
+  checkLiveness(): void {
+    if (this.status === "connected") {
+      void this.backend.checkLiveness();
+    } else if (this.status === "reconnecting") {
+      this.backend.retryNow();
+    }
+  }
+
   /** Drop the connection. The remote sessions keep running. */
   override async disconnect(): Promise<void> {
     this.autoConnect = false;

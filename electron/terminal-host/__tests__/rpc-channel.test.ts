@@ -105,6 +105,7 @@ describe("RpcChannel", () => {
       await vi.advanceTimersByTimeAsync(60);
       await assertion;
       expect(onTimeout).toHaveBeenCalledTimes(1);
+      expect(onTimeout).toHaveBeenCalledWith("ping");
     } finally {
       vi.useRealTimers();
     }

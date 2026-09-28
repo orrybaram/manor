@@ -72,6 +72,7 @@ function fakeBackend(name: string) {
       };
     }),
     retryNow: vi.fn(() => false),
+    checkLiveness: vi.fn(async () => true),
   };
   return {
     raw,
@@ -904,6 +905,59 @@ describe("BackendRegistry — away and back (ADR-178 §6)", () => {
     remote.hostEvent({ type: "hostFailed", sessionIds: [], reason: "auth", message: "denied" });
     registry.retryNow("box");
     await connectStarted(remote, 2);
+  });
+
+  describe("checkRemoteHosts (ADR-188 §3)", () => {
+    it("pings a connected host", async () => {
+      const { registry, remotes } = setup();
+      registry.register("box", box);
+      await registry.ensureConnected("box");
+      const remote = remotes.get("box")!;
+
+      registry.checkRemoteHosts();
+      expect(remote.raw.checkLiveness).toHaveBeenCalledTimes(1);
+      expect(remote.raw.retryNow).not.toHaveBeenCalled();
+    });
+
+    it("retries now instead of pinging a reconnecting host", async () => {
+      const { registry, remotes } = setup();
+      registry.register("box", box);
+      await registry.ensureConnected("box");
+      const remote = remotes.get("box")!;
+      remote.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
+
+      registry.checkRemoteHosts();
+      expect(remote.raw.retryNow).toHaveBeenCalledTimes(1);
+      expect(remote.raw.checkLiveness).not.toHaveBeenCalled();
+    });
+
+    it("does nothing for a host that is not connected or reconnecting", async () => {
+      const { registry, remotes } = setup();
+      registry.register("box", box);
+      await registry.ensureConnected("box");
+      const remote = remotes.get("box")!;
+      remote.hostEvent({ type: "hostFailed", sessionIds: [], reason: "auth", message: "denied" });
+
+      registry.checkRemoteHosts();
+      expect(remote.raw.checkLiveness).not.toHaveBeenCalled();
+      expect(remote.raw.retryNow).not.toHaveBeenCalled();
+    });
+
+    it("does nothing for a host that has never connected", () => {
+      const { registry, remotes } = setup();
+      registry.register("box", box);
+      registry.checkRemoteHosts();
+      const remote = remotes.get("box")!;
+      expect(remote.raw.checkLiveness).not.toHaveBeenCalled();
+      expect(remote.raw.retryNow).not.toHaveBeenCalled();
+    });
+
+    it("leaves the local host alone", () => {
+      const { registry, local } = setup();
+      registry.checkRemoteHosts();
+      expect(local.raw.checkLiveness).not.toHaveBeenCalled();
+      expect(local.raw.retryNow).not.toHaveBeenCalled();
+    });
   });
 
   describe("daemon replacing (ADR-185 §A)", () => {

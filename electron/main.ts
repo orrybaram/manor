@@ -3,6 +3,7 @@ import { app, crashReporter } from "electron";
 import { execFileSync } from "node:child_process";
 import { readBranchSync } from "./ipc/pty";
 import { initApp } from "./app-lifecycle";
+import { installMainLog } from "./main-log";
 
 // Local minidumps, uploaded nowhere. A browser-process crash leaves nothing
 // usable in Apple's report — the release Electron framework symbolicates to the
@@ -68,6 +69,17 @@ if (!app.isPackaged) {
     devTitle = `Manor (${branch})`;
     app.name = devTitle;
   }
+}
+
+// Mirror console output to disk (ADR-188 §4), so incidents survive a launch
+// from Finder/Dock where stdout goes nowhere. Must come after the app name is
+// set above, since `app.getPath("logs")` is name-dependent on macOS
+// (~/Library/Logs/<name>/main.log). Guarded so a logging failure can never
+// block startup — `installMainLog` also swallows its own fs errors.
+try {
+  installMainLog();
+} catch (err) {
+  console.error("[main] installMainLog failed:", err);
 }
 
 initApp(devTitle);

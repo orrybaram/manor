@@ -318,16 +318,22 @@ export class GitHubManager {
     return JSON.parse(stdout);
   }
 
+  /**
+   * Prefer `issueUrl` when the caller has one: a bare number resolves against
+   * whatever repo `repoPath`'s remote points at, so an issue linked from
+   * another repo (or a checkout whose default remote is a fork) fails to load.
+   */
   async getIssueDetail(
     repoPath: string,
     issueNumber: number,
+    issueUrl?: string,
   ): Promise<GitHubIssueDetail> {
     const { stdout } = await execFileAsync(
       "gh",
       [
         "issue",
         "view",
-        String(issueNumber),
+        issueUrl || String(issueNumber),
         "--json",
         "number,title,url,state,body,labels,assignees,milestone",
       ],

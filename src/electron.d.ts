@@ -744,6 +744,7 @@ export interface ElectronAPI {
     getIssueDetail: (
       repoPath: string,
       issueNumber: number,
+      issueUrl?: string,
     ) => Promise<GitHubIssueDetail>;
     assignIssue: (repoPath: string, issueNumber: number) => Promise<void>;
     closeIssue: (repoPath: string, issueNumber: number) => Promise<void>;

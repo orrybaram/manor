@@ -9,12 +9,16 @@ import { stripMarkdown } from "./utils";
 import { IssueDetailSkeleton } from "./IssueDetailSkeleton";
 import type { CommandPaletteProps } from "./types";
 import { Row, Stack } from "../ui/Layout/Layout";
+import { Button } from "../ui/Button/Button";
+import { Link } from "../ui/Link/Link";
 import { sanitizeBranchName, branchesEqual } from "../../utils/branch-name";
 import styles from "./CommandPalette.module.css";
 
 type GitHubIssueDetailViewProps = {
   repoPath: string;
   issueNumber: number;
+  /** When known, looked up by URL so an issue from another repo still resolves. */
+  issueUrl?: string;
   onBack: () => void;
   onClose: () => void;
   onNewWorkspace: CommandPaletteProps["onNewWorkspace"];
@@ -43,16 +47,20 @@ function assignIssueBestEffort(repoPath: string, issueNumber: number): void {
 }
 
 export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
-  const { repoPath, issueNumber, onBack, onClose, onNewWorkspace, onNewAgentWithPrompt, linkedTo, projectId, workspacePath } = props;
+  const { repoPath, issueNumber, issueUrl, onBack, onClose, onNewWorkspace, onNewAgentWithPrompt, linkedTo, projectId, workspacePath } = props;
 
   const projects = useProjectStore((s) => s.projects);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
 
-  const { data: issueDetail, isLoading } = useQuery({
-    queryKey: ["github-issue-detail", repoPath, issueNumber],
+  const { data: issueDetail, isLoading, error, refetch } = useQuery({
+    queryKey: ["github-issue-detail", repoPath, issueNumber, issueUrl],
     queryFn: () =>
-      window.electronAPI.github.getIssueDetail(repoPath, issueNumber),
+      window.electronAPI.github.getIssueDetail(repoPath, issueNumber, issueUrl),
     staleTime: 60_000,
+    // `gh` failures (wrong repo, not found, auth) are deterministic, and each
+    // attempt can take up to its 10s timeout — the default three retries with
+    // backoff left the skeleton up for most of a minute before going blank.
+    retry: false,
   });
 
   const findProject = useCallback(() => {
@@ -227,7 +235,17 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
     return <IssueDetailSkeleton onBack={onBack} />;
   }
 
-  if (!issueDetail) return null;
+  if (!issueDetail) {
+    return (
+      <GitHubIssueDetailError
+        issueNumber={issueNumber}
+        issueUrl={issueUrl}
+        error={error}
+        onBack={onBack}
+        onRetry={() => refetch()}
+      />
+    );
+  }
 
   const description = issueDetail.body ? stripMarkdown(issueDetail.body) : null;
 
@@ -329,5 +347,43 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
         </button>
       </div>
     </>
+  );
+}
+
+type GitHubIssueDetailErrorProps = {
+  issueNumber: number;
+  issueUrl?: string;
+  error: unknown;
+  onBack: () => void;
+  onRetry: () => void;
+};
+
+function GitHubIssueDetailError(props: GitHubIssueDetailErrorProps) {
+  const { issueNumber, issueUrl, error, onBack, onRetry } = props;
+
+  const message = error instanceof Error ? error.message : error ? String(error) : null;
+
+  return (
+    <div className={styles.detailLayout}>
+      <div className={styles.detailBack}>
+        <button className={styles.breadcrumbBack} onClick={onBack}>
+          <ArrowLeft size={14} />
+        </button>
+      </div>
+      <div className={styles.detailMain}>
+        <Stack gap="sm">
+          <h2 className={styles.detailTitle}>Couldn't load issue #{issueNumber}</h2>
+          {message && (
+            <div className={styles.detailDescription}>{message}</div>
+          )}
+          <Row gap="sm" align="center">
+            <Button size="sm" onClick={onRetry}>
+              Retry
+            </Button>
+            {issueUrl && <Link href={issueUrl}>Open on GitHub</Link>}
+          </Row>
+        </Stack>
+      </div>
+    </div>
   );
 }

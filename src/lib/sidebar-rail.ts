@@ -49,3 +49,10 @@ export function workspaceDisplayName(
     ? ws.name || remoteTarget || "local"
     : ws.name || ws.branch || "main";
 }
+
+/**
+ * Where a resize drag flips between the full sidebar and the rail: its x in
+ * px. Left of it the full sidebar collapses to the rail; right of it the
+ * rail expands. Sits between the rail's 52px and the sidebar's 160px minimum.
+ */
+export const RAIL_SNAP_X = 110;

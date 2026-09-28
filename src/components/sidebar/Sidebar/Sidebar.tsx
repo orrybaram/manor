@@ -43,13 +43,8 @@ import {
 import { PortsList } from "../../ports/PortsList";
 import { AgentsList } from "../AgentsList";
 import { NotificationsPopover } from "../../notifications/NotificationsPopover";
+import { RAIL_SNAP_X } from "../../../lib/sidebar-rail";
 import styles from "./Sidebar.module.css";
-
-/**
- * Dragging the resize handle left of this x (the sidebar's 160px minimum
- * less about half the gap to the 52px rail) collapses to the rail.
- */
-const COLLAPSE_TO_RAIL_X = 110;
 
 interface SidebarProps {
   onShowAgents?: () => void;
@@ -236,7 +231,7 @@ export function Sidebar(props: SidebarProps) {
 
       const onMouseMove = (ev: MouseEvent) => {
         // Dragged well past the minimum: snap to the rail (ADR-195).
-        if (ev.clientX < COLLAPSE_TO_RAIL_X) {
+        if (ev.clientX < RAIL_SNAP_X) {
           cleanup();
           setSidebarWidth(startWidth);
           setSidebarMode("rail");

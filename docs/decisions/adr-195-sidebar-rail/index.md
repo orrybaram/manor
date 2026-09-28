@@ -108,6 +108,7 @@ After the first build, the popover changed in two ways.
 - **Width.** The popover is the sidebar's width, but at least 340px.
 - **Agents popover.** When there are agents, the rail's Agents button opens a popover showing the sidebar's `AgentsList`, with the same hover intent and handoff as the tiles. The list sizes to its content (`fitContent`), without the resize handle. Picking an agent closes the popover, and "View All" opens the Agents view. With no agents, the button still opens the Agents view directly. Both popovers share `RailPopoverShell`.
 - **Drag to collapse.** Dragging the full sidebar's resize handle left of x=110 (below the 160px minimum) switches to the rail. The width from before the drag is kept, so expanding again restores it.
+- **Drag to expand.** The rail has its own resize handle. Dragging it right past the same point (`RAIL_SNAP_X`, x=110) switches to the full sidebar, and the same drag goes on to set its width.
 
 ## Tickets
 

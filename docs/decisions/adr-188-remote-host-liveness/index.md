@@ -71,10 +71,17 @@ better.
 
 ### 1. Unexpected loss always goes through the loss path (`client.ts`)
 
-- `RpcChannel`'s `onTimeout` becomes: while `connected`, `handleDisconnect()`
-  (tear down, log, `supervisor.connectionLost()`); otherwise `cleanup()`.
-  Before `connected` is set, a timeout happens inside `doConnect()`, whose
-  rejection is already handled by `connect()`.
+- `RpcChannel`'s `onTimeout` receives the timed-out request type. While
+  connected with a heartbeat set (a remote host), a timed-out request does
+  not drop the connection by itself. It triggers `checkLiveness()`, and only
+  an unanswered ping goes through `handleDisconnect()` (tear down, log,
+  `supervisor.connectionLost()`). A timed-out liveness ping is reported by the
+  code that sent it. Without a heartbeat (the local daemon) the old quiet
+  `cleanup()` stays. Before `connected`, a timeout happens inside
+  `doConnect()`, and `connect()` already handles that rejection.
+  *(Revised after code review: routing every timeout into the loss path let
+  one slow `writeAfterReady` (2s) force a remote reconnect, and could run the
+  local daemon's three-attempt policy out and report every session exited.)*
 - `handleDisconnect(reason?: string)` takes an optional reason for its log
   line, e.g. "request timed out: resize" or "heartbeat timed out".
 
@@ -133,10 +140,9 @@ connection is noticed within about 25s, and within 10s of a wake (see #3).
 - A wedged remote connection now recovers by itself: the heartbeat trips, the
   supervisor reconnects, and `hostReconnected` resnapshots the panes. It
   recovers whatever the underlying cause is, which is still unknown.
-- Fixing the timeout path changes behavior for the local daemon too: a
-  timed-out request now starts the local reconnect loop (three quick tries)
-  instead of silently disconnecting. That is what ADR-169 intended, but it
-  means a flaky local daemon now surfaces as a reconnect.
+- The local daemon's timeout behavior is unchanged: it still drops the
+  connection quietly and reconnects on the next call. The gap (no `onLost`,
+  and stream subscriptions dead until that call) remains for the local host.
 - A heartbeat only watches the control channel. A stall of just the stream
   channel (output) would not be detected. In the observed incident both
   shared one ssh session, and the control channel stalled. If stream-only

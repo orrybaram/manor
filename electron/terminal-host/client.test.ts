@@ -1172,8 +1172,48 @@ describe("TerminalHostClient", () => {
       vi.restoreAllMocks();
     });
 
-    it("a request timeout while connected starts the reconnect loop", async () => {
+    it("with a heartbeat, a request timeout on a daemon that still answers pings keeps the connection", async () => {
+      const { client, lost } = watchedClient();
+      client.setHeartbeat({ intervalMs: 60_000, timeoutMs: 100 });
+      await client.connect();
+
+      daemon.silentTypes.add("resize");
+      const rpc = (client as any).rpc;
+      const before = pings();
+      await expect(
+        rpc.call({ type: "resize", sessionId: "s", cols: 80, rows: 24 }, 50),
+      ).rejects.toThrow("Request timed out: resize");
+
+      await waitFor(() => pings() > before, "liveness ping");
+      await new Promise((r) => setTimeout(r, 150));
+      expect(lost).toHaveLength(0);
+      expect((client as any).connected).toBe(true);
+      client.disconnect();
+    });
+
+    it("with a heartbeat, a request timeout on a silent daemon starts the reconnect loop", async () => {
       const { client, lost, reconnected } = watchedClient();
+      client.setHeartbeat({ intervalMs: 60_000, timeoutMs: 100 });
+      await client.connect();
+
+      daemon.silentTypes.add("resize");
+      daemon.silentTypes.add("ping");
+      const rpc = (client as any).rpc;
+      await expect(
+        rpc.call({ type: "resize", sessionId: "s", cols: 80, rows: 24 }, 50),
+      ).rejects.toThrow("Request timed out: resize");
+
+      await waitFor(() => lost.length === 1, "onLost");
+      expect(console.warn).toHaveBeenCalledWith(
+        expect.stringContaining("request timed out: resize"),
+      );
+      await waitFor(() => reconnected.length === 1, "onReconnected");
+      expect((client as any).connected).toBe(true);
+      client.disconnect();
+    });
+
+    it("without a heartbeat, a request timeout drops the connection quietly (local daemon)", async () => {
+      const { client, lost } = watchedClient();
       await client.connect();
 
       daemon.silentTypes.add("resize");
@@ -1182,12 +1222,9 @@ describe("TerminalHostClient", () => {
         rpc.call({ type: "resize", sessionId: "s", cols: 80, rows: 24 }, 50),
       ).rejects.toThrow("Request timed out: resize");
 
-      expect(lost).toHaveLength(1);
-      expect(console.warn).toHaveBeenCalledWith(
-        expect.stringContaining("request timed out: resize"),
-      );
-      await waitFor(() => reconnected.length === 1, "onReconnected");
-      expect((client as any).connected).toBe(true);
+      expect((client as any).connected).toBe(false);
+      await new Promise((r) => setTimeout(r, 100));
+      expect(lost).toHaveLength(0);
       client.disconnect();
     });
 

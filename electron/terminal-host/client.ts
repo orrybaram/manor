@@ -88,13 +88,26 @@ export class TerminalHostClient {
   private connected = false;
   private connectPromise: Promise<void> | null = null;
   /**
-   * A timeout while connected is an unexpected loss like a closed socket, so
-   * it goes through `handleDisconnect` and the reconnect loop (ADR-188 §1).
-   * Before that it is a failed attempt, which `connect()` already reports.
+   * A request timed out. Before `connected` it is a failed attempt, which
+   * `connect()` already reports. With a heartbeat (a remote host), one slow
+   * request is not proof the connection is gone: ask the daemon for a pong
+   * (joining a liveness ping already in flight — the one that just timed
+   * out, possibly), and only an unanswered one goes through
+   * `handleDisconnect` and the reconnect loop (ADR-188 §1). Without a
+   * heartbeat (the local daemon) the connection is dropped quietly as
+   * before, and the next call reconnects: routing it through the loss path
+   * would let a busy daemon run the local policy out of attempts and report
+   * every pane's session as exited.
    */
   private readonly rpc = new RpcChannel((type) => {
-    if (this.connected) this.handleDisconnect(`request timed out: ${type}`);
-    else this.cleanup();
+    // The liveness ping reports its own failure as a loss.
+    if (this.connected && type === "ping" && this.livenessPing) return;
+    if (this.connected && this.heartbeat) {
+      console.warn(`[terminal-host] request timed out: ${type}; checking the daemon is alive`);
+      void this.checkLiveness();
+      return;
+    }
+    this.cleanup();
   });
   private readonly stream: StreamChannel = new StreamChannel((event) =>
     this.execStreams.dispatch(event),

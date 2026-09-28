@@ -71,11 +71,15 @@ export function installMainLog(opts?: MainLogOptions): void {
   /** (Re)open the append stream, starting the byte counter at `initialSize`. */
   function openStream(initialSize: number): void {
     try {
-      stream = fs.createWriteStream(logPath, { flags: "a" });
-      stream.on("error", () => {
+      const opened = fs.createWriteStream(logPath, { flags: "a" });
+      // Only the current stream's failure stops logging: a stream already
+      // ended by a rotation may still report a late error for its last write.
+      opened.on("error", () => {
+        if (stream !== opened) return;
         broken = true;
         stream = null;
       });
+      stream = opened;
       bytesWritten = initialSize;
     } catch {
       broken = true;

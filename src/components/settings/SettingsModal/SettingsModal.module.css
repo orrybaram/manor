@@ -981,3 +981,34 @@ button.keybindingActionBtn:hover:not(:disabled) {
     color: var(--text-dim);
   }
 }
+
+/* ── Linked-project groups (ADR-192) ── */
+
+.hostLabelLocal {
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.linkedMemberPath {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* One member's per-host settings on a group's settings page. */
+.hostSettings {
+  gap: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--surface);
+}
+
+.hostSettingsHeading {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}

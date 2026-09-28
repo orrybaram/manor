@@ -155,7 +155,7 @@ describe("ProjectManager linked-project groups (ADR-192)", () => {
     ]);
   });
 
-  it("unlinks without touching either project's workspaces or settings", async () => {
+  it("unlinks without touching either project's workspaces or per-host settings", async () => {
     seed();
     const mgr = manager();
     mgr.linkProjects("box-app", "local-app");
@@ -166,7 +166,13 @@ describe("ProjectManager linked-project groups (ADR-192)", () => {
     expect(await groupOf(mgr, "local-app")).toBeNull();
     expect(await groupOf(mgr, "box-app")).toBeNull();
     const after = readState();
-    expect(after.projects).toEqual(before);
+    // Each keeps the group's shared settings as its own; nothing else moves.
+    const shared = { name: "Project local-app", color: "blue", agentCommand: null, linearAssociations: [] };
+    expect(after.projects).toEqual(
+      before.map((p) =>
+        p.id === "local-app" || p.id === "box-app" ? { ...p, ...shared } : p,
+      ),
+    );
     // A group of one dissolves, and no empty list is left behind.
     expect(after).not.toHaveProperty("groups");
   });
@@ -207,6 +213,10 @@ describe("ProjectManager linked-project groups (ADR-192)", () => {
         name: "Project local-app",
         memberIds: ["local-app", "box-app"],
         lastUsedHostId: "local",
+        // A new group takes its first member's shared settings.
+        color: "blue",
+        agentCommand: null,
+        linearAssociations: [],
       },
     ]);
     const reloaded = manager();
@@ -247,7 +257,7 @@ describe("ProjectManager linked-project groups (ADR-192)", () => {
     expect(await groupOf(mgr, "box-other")).toBeNull();
   });
 
-  it("dissolves a whole group at once, leaving every member as it was", async () => {
+  it("dissolves a whole group at once, every member keeping the shared settings", async () => {
     seed();
     const mgr = manager();
     const { id } = mgr.linkProjects("box-app", "local-app");
@@ -260,7 +270,10 @@ describe("ProjectManager linked-project groups (ADR-192)", () => {
     for (const pid of ["local-app", "box-app", "mac-app"]) {
       expect(await groupOf(mgr, pid)).toBeNull();
     }
-    expect(readState().projects).toEqual(before);
+    const shared = { name: "Project local-app", color: "blue", agentCommand: null, linearAssociations: [] };
+    expect(readState().projects).toEqual(
+      before.map((p) => (p.id === "box-other" ? p : { ...p, ...shared })),
+    );
     expect(readState()).not.toHaveProperty("groups");
   });
 
@@ -297,5 +310,144 @@ describe("ProjectManager linked-project groups (ADR-192)", () => {
     await expect(mgr.switchProjectHost("local-app", "box", "/home/me/code/app")).rejects.toThrow(
       /already has a project on me@box/,
     );
+  });
+
+  describe("shared settings (ticket 2)", () => {
+    const TEAM = { teamId: "t1", teamName: "Team", teamKey: "TM" };
+
+    async function info(mgr: ProjectManager, id: string) {
+      return (await mgr.getProjects()).find((p) => p.id === id)!;
+    }
+
+    it("resolves shared settings group first, then project", async () => {
+      seed({
+        groups: [
+          // No agent command or Linear on the group: members show their own.
+          { id: "g1", name: "App", memberIds: ["local-app", "box-app"], lastUsedHostId: null, color: null },
+        ],
+      });
+      const disk = JSON.parse(fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8"));
+      disk.projects[1] = { ...disk.projects[1], agentCommand: "codex", linearAssociations: [TEAM] };
+      fs.writeFileSync(path.join(tmpDir, "projects.json"), JSON.stringify(disk));
+      const mgr = manager();
+
+      const local = await info(mgr, "local-app");
+      const box = await info(mgr, "box-app");
+      // The group's name, and its null color over local-app's own "blue".
+      expect(local).toMatchObject({ name: "App", color: null, agentCommand: null, linearAssociations: [] });
+      expect(box).toMatchObject({ name: "App", color: null, agentCommand: "codex", linearAssociations: [TEAM] });
+      // Per-host settings are each member's own.
+      expect(box.path).toBe("/home/me/code/box-app");
+      // An ungrouped project reads its own.
+      expect(await info(mgr, "mac-app")).toMatchObject({ name: "Project mac-app", color: null });
+    });
+
+    it("a new group takes its first member's shared settings", async () => {
+      seed();
+      const mgr = manager();
+
+      mgr.linkProjects("box-app", "local-app");
+
+      expect(await info(mgr, "box-app")).toMatchObject({ name: "Project local-app", color: "blue" });
+    });
+
+    it("writes group settings to the group, not the members", async () => {
+      seed();
+      const mgr = manager();
+      const { id } = mgr.linkProjects("box-app", "local-app");
+      const before = readState().projects;
+
+      const members = await mgr.updateGroup(id, {
+        name: "  App  ",
+        color: "green",
+        agentCommand: "claude --fast",
+        linearAssociations: [TEAM],
+      });
+
+      const shared = { name: "App", color: "green", agentCommand: "claude --fast", linearAssociations: [TEAM] };
+      expect(members.map((p) => p.id)).toEqual(["local-app", "box-app"]);
+      for (const p of members) expect(p).toMatchObject(shared);
+      expect(members[0].group?.name).toBe("App");
+      const after = readState() as { groups: Array<Record<string, unknown>>; projects: unknown[] };
+      expect(after.groups[0]).toMatchObject(shared);
+      expect(after.projects).toEqual(before);
+      // A blank name leaves the group's name alone.
+      await mgr.updateGroup(id, { name: "   " });
+      expect((await info(mgr, "box-app")).name).toBe("App");
+      await expect(mgr.updateGroup("no-such-group", { color: "red" })).rejects.toThrow(/Unknown group/);
+    });
+
+    it("sends a grouped project's shared updates to its group", async () => {
+      seed();
+      const mgr = manager();
+      mgr.linkProjects("box-app", "local-app");
+
+      const updated = await mgr.updateProject("box-app", { color: "red", worktreePath: "~/wt" });
+
+      expect(updated).toMatchObject({ color: "red", worktreePath: "~/wt" });
+      // The other member shows the shared color, not the per-host path.
+      expect(await info(mgr, "local-app")).toMatchObject({ color: "red", worktreePath: null });
+      const box = readState().projects.find((p) => p.id === "box-app")!;
+      expect(box.worktreePath).toBe("~/wt");
+      expect(box).not.toHaveProperty("color");
+    });
+
+    it("copies the group's shared settings onto the project that leaves", async () => {
+      seed();
+      const mgr = manager();
+      const { id } = mgr.linkProjects("box-app", "local-app");
+      mgr.linkProjects("mac-app", "local-app");
+      await mgr.updateGroup(id, { name: "App", color: "green", linearAssociations: [TEAM] });
+
+      mgr.unlinkProject("box-app");
+
+      const shared = { name: "App", color: "green", agentCommand: null, linearAssociations: [TEAM] };
+      expect(await info(mgr, "box-app")).toMatchObject({ ...shared, group: null });
+      expect(readState().projects.find((p) => p.id === "box-app")).toMatchObject(shared);
+      // The two left stay grouped and keep reading the group.
+      expect(await info(mgr, "mac-app")).toMatchObject({ ...shared, group: { id } });
+      // A later group edit no longer reaches the one that left.
+      await mgr.updateGroup(id, { color: "red" });
+      expect((await info(mgr, "box-app")).color).toBe("green");
+      // The last member of a dissolved group keeps them too.
+      mgr.removeProject("mac-app");
+      expect(await info(mgr, "local-app")).toMatchObject({ name: "App", color: "red", group: null });
+    });
+
+    it("leaves a member's own value when the group never had that setting", async () => {
+      seed({
+        groups: [{ id: "g1", name: "App", memberIds: ["local-app", "box-app"], lastUsedHostId: null }],
+      });
+      const mgr = manager();
+
+      mgr.unlinkProject("box-app");
+
+      // Only the name was the group's; local-app keeps its own color.
+      expect(await info(mgr, "local-app")).toMatchObject({ name: "App", color: "blue" });
+    });
+
+    it("loads a group's shared settings from disk, dropping malformed ones", async () => {
+      seed({
+        groups: [
+          {
+            id: "g1",
+            name: "App",
+            memberIds: ["local-app", "box-app"],
+            lastUsedHostId: null,
+            color: 7,
+            agentCommand: "codex",
+            linearAssociations: "TM",
+          },
+        ],
+      });
+      const mgr = manager();
+
+      // The bad color and Linear fall through to the member's own.
+      expect(await info(mgr, "local-app")).toMatchObject({
+        color: "blue",
+        agentCommand: "codex",
+        linearAssociations: [],
+      });
+    });
   });
 });

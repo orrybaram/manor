@@ -8,12 +8,20 @@
  * - a project belongs to at most one group;
  * - a group has at most one member per host;
  * - a group has at least two members (the last-but-one leaving dissolves it).
+ *
+ * A group also holds the settings its members share (ticket 2): name,
+ * color, agent command and Linear association. Reads resolve group first,
+ * then project (`resolveShared`); a project leaving takes the group's
+ * values with it, so it keeps its look (`copySharedOnto`).
  */
 
 import crypto from "node:crypto";
 import { hostTakenMessage, memberOnHost } from "../../src/lib/project-groups";
 import type { ProjectContext } from "./context";
 import type {
+  GroupSharedFields,
+  GroupUpdatableFields,
+  PersistedProject,
   PersistedProjectGroup,
   PersistedState,
   ProjectGroupInfo,
@@ -33,13 +41,52 @@ export function groupInfoFor(
   projectId: string,
 ): ProjectGroupInfo | null {
   const group = groupOf(state, projectId);
-  if (!group) return null;
+  return group ? summarizeGroup(group) : null;
+}
+
+/** What the renderer sees of `group`. */
+export function summarizeGroup(group: PersistedProjectGroup): ProjectGroupInfo {
   return {
     id: group.id,
     name: group.name,
     memberIds: [...group.memberIds],
     lastUsedHostId: group.lastUsedHostId,
   };
+}
+
+/**
+ * `project`'s shared settings as the renderer sees them: the group's value
+ * where the group has one, else the project's own. A null on the group is a
+ * value ("no color"), not a fall-through; only an absent one falls through.
+ */
+export function resolveShared(
+  group: PersistedProjectGroup | undefined,
+  project: PersistedProject,
+): GroupSharedFields {
+  return {
+    name: group?.name ?? project.name,
+    color: (group?.color !== undefined ? group.color : project.color) ?? null,
+    agentCommand:
+      (group?.agentCommand !== undefined ? group.agentCommand : project.agentCommand) ??
+      null,
+    linearAssociations: group?.linearAssociations ?? project.linearAssociations ?? [],
+  };
+}
+
+/** The shared settings a group read from disk actually has, type-checked. */
+function sharedFrom(
+  raw: Partial<PersistedProjectGroup>,
+): Pick<PersistedProjectGroup, "color" | "agentCommand" | "linearAssociations"> {
+  const out: Pick<PersistedProjectGroup, "color" | "agentCommand" | "linearAssociations"> =
+    {};
+  if (raw.color === null || typeof raw.color === "string") out.color = raw.color;
+  if (raw.agentCommand === null || typeof raw.agentCommand === "string") {
+    out.agentCommand = raw.agentCommand;
+  }
+  if (Array.isArray(raw.linearAssociations)) {
+    out.linearAssociations = raw.linearAssociations;
+  }
+  return out;
 }
 
 /**
@@ -75,6 +122,7 @@ export function normalizeGroups(state: PersistedState): void {
       name: typeof raw.name === "string" ? raw.name : byId.get(memberIds[0])!.name,
       memberIds,
       lastUsedHostId: typeof lastUsed === "string" && hosts.has(lastUsed) ? lastUsed : null,
+      ...sharedFrom(raw),
     });
   }
   state.groups = groups;
@@ -104,7 +152,7 @@ function assertRoomOnHost(
 /**
  * Link `projectId` with `otherId`. When either is already in a group the
  * other joins it; otherwise a new group starts with `other` first, named
- * after it. Throws when the two are the same or unknown, sit in different
+ * after it and taking its shared settings. Throws when the two are the same or unknown, sit in different
  * groups, or when the group already has a member on the joining project's
  * host. Linking two members of the same group changes nothing.
  */
@@ -147,6 +195,9 @@ export function linkProjects(
         name: other.name,
         memberIds: [other.id, project.id],
         lastUsedHostId: other.hostId,
+        color: other.color ?? null,
+        agentCommand: other.agentCommand ?? null,
+        linearAssociations: [...(other.linearAssociations ?? [])],
       },
     ];
   }
@@ -155,9 +206,46 @@ export function linkProjects(
 }
 
 /**
+ * Set a group's shared settings; its members show them from now on. Throws
+ * on an unknown group. A blank name is ignored — a group always has one.
+ */
+export function updateGroup(
+  ctx: ProjectContext,
+  groupId: string,
+  updates: GroupUpdatableFields,
+): PersistedProjectGroup {
+  const group = ctx.store.state.groups?.find((g) => g.id === groupId);
+  if (!group) throw new Error(`Unknown group "${groupId}".`);
+  const name = updates.name?.trim();
+  if (name) group.name = name;
+  if (updates.color !== undefined) group.color = updates.color;
+  if (updates.agentCommand !== undefined) group.agentCommand = updates.agentCommand;
+  if (updates.linearAssociations !== undefined) {
+    group.linearAssociations = [...updates.linearAssociations];
+  }
+  ctx.store.save();
+  return group;
+}
+
+/**
+ * Give `project` the group's shared settings as its own, so that once it
+ * is out of the group it still looks the way it did in it. A setting the
+ * group never had leaves the project's own value in place.
+ */
+function copySharedOnto(group: PersistedProjectGroup, project: PersistedProject): void {
+  project.name = group.name;
+  if (group.color !== undefined) project.color = group.color;
+  if (group.agentCommand !== undefined) project.agentCommand = group.agentCommand;
+  if (group.linearAssociations !== undefined) {
+    project.linearAssociations = [...group.linearAssociations];
+  }
+}
+
+/**
  * Take `projectId` out of its group, dissolving a group left with one
- * member. Nothing about either project — workspaces, folders, order,
- * settings — changes. An ungrouped project is a no-op.
+ * member. The project leaving — and the last member of a dissolved group —
+ * takes the group's shared settings with it; its workspaces, folders and
+ * order are untouched. An ungrouped project is a no-op.
  */
 export function unlinkProject(ctx: ProjectContext, projectId: string): void {
   if (!forgetProject(ctx.store.state, projectId)) return;
@@ -166,11 +254,17 @@ export function unlinkProject(ctx: ProjectContext, projectId: string): void {
 
 /**
  * Dissolve a whole group: every member becomes an ordinary unlinked
- * project again, with nothing about it changed. An unknown id is a no-op.
+ * project again, keeping the group's shared settings as its own and
+ * nothing else changed. An unknown id is a no-op.
  */
 export function unlinkGroup(ctx: ProjectContext, groupId: string): void {
   const state = ctx.store.state;
-  if (!state.groups?.some((g) => g.id === groupId)) return;
+  const group = state.groups?.find((g) => g.id === groupId);
+  if (!group || !state.groups) return;
+  for (const id of group.memberIds) {
+    const member = ctx.find(id);
+    if (member) copySharedOnto(group, member);
+  }
   state.groups = state.groups.filter((g) => g.id !== groupId);
   if (state.groups.length === 0) delete state.groups;
   ctx.store.save();
@@ -178,13 +272,22 @@ export function unlinkGroup(ctx: ProjectContext, groupId: string): void {
 
 /**
  * Drop `projectId` from its group without saving; true when it was in one.
- * Used by `unlinkProject` and when a project is removed.
+ * The project leaving, and the last member of a group it dissolves, keep
+ * the group's shared settings. Used by `unlinkProject` and when a project
+ * is removed.
  */
 export function forgetProject(state: PersistedState, projectId: string): boolean {
   const group = groupOf(state, projectId);
   if (!group) return false;
+  const byId = (id: string) => state.projects.find((p) => p.id === id);
+  const leaving = byId(projectId);
+  if (leaving) copySharedOnto(group, leaving);
   group.memberIds = group.memberIds.filter((id) => id !== projectId);
   if (group.memberIds.length < 2) {
+    for (const id of group.memberIds) {
+      const last = byId(id);
+      if (last) copySharedOnto(group, last);
+    }
     state.groups = state.groups!.filter((g) => g !== group);
   } else if (
     group.lastUsedHostId !== null &&

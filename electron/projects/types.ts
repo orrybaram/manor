@@ -105,6 +105,18 @@ export interface ProjectInfo {
   group?: ProjectGroupInfo | null;
 }
 
+/**
+ * The settings a linked-project group shares across its members (ADR-192
+ * ticket 2). A grouped project's `ProjectInfo` carries the group's values
+ * for these; everything else stays per member, per host.
+ */
+export type GroupSharedFields = Pick<
+  ProjectInfo,
+  "name" | "color" | "agentCommand" | "linearAssociations"
+>;
+
+export type GroupUpdatableFields = Partial<GroupSharedFields>;
+
 /** What the renderer sees of a project group (ADR-192). */
 export interface ProjectGroupInfo {
   id: string;
@@ -210,6 +222,14 @@ export interface PersistedProjectGroup {
   name: string;
   memberIds: string[];
   lastUsedHostId: string | null;
+  /**
+   * Shared settings (ticket 2). Absent means "not set on the group": a
+   * member then shows its own value. Groups linked before ticket 2 have
+   * none, so they load and write back unchanged.
+   */
+  color?: string | null;
+  agentCommand?: string | null;
+  linearAssociations?: LinearAssociation[];
 }
 
 export interface PersistedState {

@@ -3,6 +3,7 @@ import { useAppStore } from "./app-store";
 import { useToastStore } from "./toast-store";
 import { branchesEqual } from "../utils/branch-name";
 import { ipcErrorMessage } from "../lib/ipc-error";
+import { splitShared } from "../lib/project-groups";
 import { workspaceHostId, type HostId } from "../lib/hosts";
 import {
   buildSidebarItems,
@@ -434,6 +435,11 @@ export type ProjectUpdatableFields = Partial<
   >
 >;
 
+/** Mirrors `GroupUpdatableFields` in `electron/projects/types.ts` (ADR-192). */
+export type GroupUpdatableFields = Partial<
+  Pick<ProjectInfo, "name" | "color" | "agentCommand" | "linearAssociations">
+>;
+
 interface ProjectState {
   projects: ProjectInfo[];
   selectedProjectIndex: number;
@@ -542,6 +548,11 @@ interface ProjectState {
   unlinkProject: (projectId: string) => Promise<void>;
   /** ADR-192: dissolve a whole group. Errors are shown as a toast. */
   unlinkGroup: (groupId: string) => Promise<void>;
+  /**
+   * ADR-192 ticket 2: set a group's shared settings, shown on every member
+   * at once. Errors roll the change back and are shown as a toast.
+   */
+  updateGroup: (groupId: string, updates: GroupUpdatableFields) => Promise<void>;
   /** Persists a full sidebar order: workspace paths and folder ids. */
   reorderSidebar: (
     projectId: string,
@@ -1009,6 +1020,54 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     forgetDissolvedGroup(groupId);
   },
 
+  updateGroup: async (groupId: string, updates: GroupUpdatableFields) => {
+    const previous = new Map(
+      get()
+        .projects.filter((p) => p.group?.id === groupId)
+        .map((p) => [p.id, p]),
+    );
+    const apply = (p: ProjectInfo): ProjectInfo => ({
+      ...p,
+      ...updates,
+      group: p.group && updates.name ? { ...p.group, name: updates.name } : p.group,
+    });
+    set((s) => ({
+      projects: s.projects.map((p) => (previous.has(p.id) ? apply(p) : p)),
+    }));
+    let members: ProjectInfo[];
+    try {
+      members = await window.electronAPI.projects.updateGroup(groupId, updates);
+    } catch (err) {
+      // Put back only the fields still holding this call's values, so a
+      // newer update that landed meanwhile isn't clobbered.
+      set((s) => ({
+        projects: s.projects.map((p) => {
+          const before = previous.get(p.id);
+          if (!before) return p;
+          const undo: Partial<ProjectInfo> = {};
+          for (const key of Object.keys(updates) as (keyof GroupUpdatableFields)[]) {
+            if (p[key] === updates[key]) Object.assign(undo, { [key]: before[key] });
+          }
+          if (undo.name !== undefined) undo.group = before.group;
+          return { ...p, ...undo };
+        }),
+      }));
+      groupErrorToast(`update-group-${groupId}`, "Couldn't save shared settings", err);
+      return;
+    }
+    // Only the shared settings changed; take those, and keep the rest (the
+    // watchers' PR and diff state on each workspace, say) as it is.
+    const byId = new Map(members.map((p) => [p.id, p]));
+    set((s) => ({
+      projects: s.projects.map((p) => {
+        const fresh = byId.get(p.id);
+        if (!fresh) return p;
+        const { name, color, agentCommand, linearAssociations, group } = fresh;
+        return { ...p, name, color, agentCommand, linearAssociations, group };
+      }),
+    }));
+  },
+
   reorderSidebar: async (projectId: string, orderedKeys: string[]) => {
     await window.electronAPI.projects.reorderWorkspaces(
       projectId,
@@ -1294,6 +1353,19 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   updateProject: async (projectId: string, updates: ProjectUpdatableFields) => {
     const previous = get().projects.find((p) => p.id === projectId);
+    const groupId = previous?.group?.id;
+    if (groupId) {
+      // A grouped project's shared settings are its group's (ADR-192), so
+      // they go there and show on every member at once.
+      const { shared, own } = splitShared(updates);
+      if (Object.keys(shared).length > 0) {
+        await Promise.all([
+          get().updateGroup(groupId, shared),
+          Object.keys(own).length > 0 ? get().updateProject(projectId, own) : null,
+        ]);
+        return;
+      }
+    }
     // Optimistic update: apply changes immediately for instant UI feedback
     set((s) => ({
       projects: s.projects.map((p) =>

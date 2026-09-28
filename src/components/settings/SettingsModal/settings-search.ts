@@ -188,6 +188,11 @@ const PROJECT_SECTIONS: SettingsSection[] = [
     label: "Worktrees",
     keywords: ["worktree", "branch", "path", "setup", "git"],
   },
+  {
+    id: "project-links",
+    label: "Linked projects",
+    keywords: ["link", "unlink", "group", "host", "remote"],
+  },
 ];
 
 /**

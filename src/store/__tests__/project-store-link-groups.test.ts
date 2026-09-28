@@ -11,6 +11,8 @@ const api = {
   link: vi.fn(),
   unlink: vi.fn(),
   unlinkGroup: vi.fn(),
+  updateGroup: vi.fn(),
+  update: vi.fn(),
   select: vi.fn(),
   selectWorkspace: vi.fn(),
 };
@@ -104,5 +106,66 @@ describe("linked-project groups in the project store", () => {
       ["error", "Couldn't unlink projects", "nope"],
     ]);
     expect(api.getAll).not.toHaveBeenCalled();
+  });
+
+  describe("shared settings (ticket 2)", () => {
+    const byId = (id: string) => useProjectStore.getState().projects.find((p) => p.id === id)!;
+
+    it("shows a group edit on every member, keeping each member's workspaces", async () => {
+      const pr = { number: 1 } as unknown as ProjectInfo["workspaces"][number]["pr"];
+      useProjectStore.setState((s) => ({
+        projects: s.projects.map((p) => ({
+          ...p,
+          workspaces: p.workspaces.map((ws) => ({ ...ws, pr })),
+        })),
+      }));
+      const renamed = { ...GROUP, name: "Renamed" };
+      api.updateGroup.mockResolvedValue([
+        { ...project("local-app", "local", renamed), name: "Renamed", color: "green" },
+        { ...project("box-app", "box", renamed), name: "Renamed", color: "green" },
+      ]);
+
+      const pending = useProjectStore.getState().updateGroup("g1", { name: "Renamed", color: "green" });
+      // Optimistic: both members at once, before main answers.
+      expect(byId("box-app")).toMatchObject({ name: "Renamed", color: "green", group: { name: "Renamed" } });
+      await pending;
+
+      expect(api.updateGroup).toHaveBeenCalledWith("g1", { name: "Renamed", color: "green" });
+      for (const id of ["local-app", "box-app"]) {
+        expect(byId(id)).toMatchObject({ name: "Renamed", color: "green", group: renamed });
+        expect(byId(id).workspaces[0].pr).toBe(pr);
+      }
+    });
+
+    it("rolls a failed group edit back and shows a toast", async () => {
+      api.updateGroup.mockRejectedValueOnce(new Error("nope"));
+
+      await useProjectStore.getState().updateGroup("g1", { name: "Renamed", color: "green" });
+
+      expect(byId("local-app")).toMatchObject({ name: "local-app", color: null, group: GROUP });
+      expect(useToastStore.getState().toasts.map((t) => t.message)).toEqual([
+        "Couldn't save shared settings",
+      ]);
+    });
+
+    it("sends a grouped project's shared fields to the group and the rest to the project", async () => {
+      api.updateGroup.mockResolvedValue(linked());
+      api.update.mockResolvedValue(null);
+
+      await useProjectStore.getState().updateProject("box-app", { color: "red", worktreePath: "~/wt" });
+
+      expect(api.updateGroup).toHaveBeenCalledWith("g1", { color: "red" });
+      expect(api.update).toHaveBeenCalledWith("box-app", { worktreePath: "~/wt" });
+    });
+
+    it("updates an unlinked project's shared fields on the project itself", async () => {
+      useProjectStore.setState({ projects: unlinked() });
+      api.update.mockResolvedValue(null);
+
+      await useProjectStore.getState().updateProject("box-app", { color: "red" });
+
+      expect(api.update).toHaveBeenCalledWith("box-app", { color: "red" });
+      expect(api.updateGroup).not.toHaveBeenCalled();
+    });
   });
 });

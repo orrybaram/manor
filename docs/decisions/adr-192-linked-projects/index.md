@@ -109,10 +109,13 @@ optional fields, so they need no migration.
   in different groups, or when the group already has a member on the joining
   project's host. Linking two projects already in the same group is a no-op.
 - `unlinkGroup(groupId)`. Dissolves a whole group in one write. Every member
-  is left exactly as it was.
+  is left exactly as it was, except that (since ticket 2) it keeps the
+  group's shared settings as its own.
 - `unlinkProject(projectId)`. Removes the project from its group and dissolves
   a group left with one member. It never touches either project's workspaces,
-  folders, order or settings. An ungrouped project is a no-op.
+  folders, order or per-host settings; since ticket 2 the leaving project, and
+  the last member of a dissolved group, keep the group's shared settings. An
+  ungrouped project is a no-op.
 - `removeProject` also drops the project from its group.
 - `switchProjectHost` and `moveProjectToHost` refuse a move onto a host where
   another member of the project's group already lives, so the one-per-host

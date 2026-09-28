@@ -14,10 +14,12 @@ import { useThemeStore, type Theme } from "../../store/theme-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { LinearProjectSection } from "./LinearProjectSection";
 import { ProjectHostSection } from "./ProjectHostSection/ProjectHostSection";
+import { HostLabel, ProjectLinksSection } from "./ProjectLinksSection";
 import { DEFAULT_AGENT_COMMAND } from "../../agent-defaults";
 import { PROJECT_COLORS } from "../../project-colors";
 import { Input, Textarea } from "../ui/Input";
 import { Switch } from "../ui/Switch/Switch";
+import { Button } from "../ui/Button/Button";
 import { Stack, Row } from "../ui/Layout/Layout";
 import { SectionTitle } from "./SectionTitle";
 import styles from "./SettingsModal/SettingsModal.module.css";
@@ -256,62 +258,142 @@ function defaultWorktreePath(projectName: string): string {
   return `~/.manor/worktrees/${slug}`;
 }
 
-type ProjectSettingsPageProps = {
+/**
+ * A section's search anchor on this page. A linked group's page shows the
+ * per-host sections once per member; the member the page was opened for
+ * keeps the plain ids search jumps to, the others get their own.
+ */
+type SectionAnchor = (id: string) => string;
+
+const plainAnchor: SectionAnchor = (id) => id;
+
+type ProjectFieldProps = {
   project: ProjectInfo;
 };
 
-export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
+function NameField(props: ProjectFieldProps) {
   const { project } = props;
 
   const updateProject = useProjectStore((s) => s.updateProject);
-  const nameRef = useRef<HTMLInputElement>(null);
-  const agentCommandRef = useRef<HTMLInputElement>(null);
-  const worktreePathRef = useRef<HTMLInputElement>(null);
-  const fieldRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
-  const [newCommandId, setNewCommandId] = useState<string | null>(null);
 
-  const handleBlur = useCallback(
-    (
-      field:
-        | "name"
-        | "agentCommand"
-        | "worktreePath"
-        | "defaultRunCommand"
-        | "worktreeStartScript"
-        | "worktreeTeardownScript",
-    ) => {
-      if (field === "name") {
-        const el = nameRef.current;
-        if (!el) return;
-        const trimmed = el.value.trim();
-        if (trimmed && trimmed !== project.name) {
-          updateProject(project.id, { name: trimmed });
-        }
-      } else if (field === "agentCommand") {
-        const el = agentCommandRef.current;
-        if (!el) return;
-        const normalized = el.value.trim() || null;
-        if (normalized !== (project.agentCommand ?? null)) {
-          updateProject(project.id, { agentCommand: normalized });
-        }
-      } else if (field === "worktreePath") {
-        const el = worktreePathRef.current;
-        if (!el) return;
-        const normalized = el.value.trim() || null;
-        if (normalized !== (project.worktreePath ?? null)) {
-          updateProject(project.id, { worktreePath: normalized });
-        }
-      } else {
-        const el = fieldRefs.current[field];
-        if (!el) return;
-        const normalized = el.value.trim() || null;
-        if (normalized !== (project[field] ?? null)) {
-          updateProject(project.id, { [field]: normalized });
-        }
-      }
-    },
-    [project, updateProject],
+  return (
+    <>
+      <label className={styles.fieldLabel}>Name</label>
+      <Input
+        defaultValue={project.name}
+        onBlur={(e) => {
+          const trimmed = e.target.value.trim();
+          if (trimmed && trimmed !== project.name) {
+            updateProject(project.id, { name: trimmed });
+          }
+        }}
+      />
+    </>
   );
+}
+
+function PathFields(props: ProjectFieldProps) {
+  const { project } = props;
+
+  return (
+    <>
+      <label className={styles.fieldLabel}>Path</label>
+      <div className={styles.fieldStatic}>{project.path}</div>
+      <label className={styles.fieldLabel}>Default Branch</label>
+      <div className={styles.fieldStatic}>{project.defaultBranch}</div>
+    </>
+  );
+}
+
+function ColorField(props: ProjectFieldProps) {
+  const { project } = props;
+
+  const updateProject = useProjectStore((s) => s.updateProject);
+
+  return (
+    <>
+      <label className={styles.fieldLabel}>Color</label>
+      <Row gap="xxs" className={styles.colorPicker}>
+        {PROJECT_COLORS.map((c) => {
+          const isSelected = (project.color ?? null) === c.value;
+          return (
+            <button
+              key={c.value ?? "default"}
+              className={`${styles.colorOption} ${isSelected ? styles.colorOptionSelected : ""}`}
+              style={{ background: `var(${c.cssVar})` }}
+              title={c.label}
+              onClick={() => updateProject(project.id, { color: c.value })}
+            >
+              {isSelected && (
+                <Check size={10} strokeWidth={3} color="var(--bg)" />
+              )}
+            </button>
+          );
+        })}
+      </Row>
+    </>
+  );
+}
+
+function AgentSection(props: ProjectFieldProps) {
+  const { project } = props;
+
+  const updateProject = useProjectStore((s) => s.updateProject);
+
+  return (
+    <Stack gap="xs">
+      <SectionTitle id="project-agent">Agent</SectionTitle>
+      <label className={styles.fieldLabel}>Agent Command</label>
+      <Input
+        defaultValue={project.agentCommand ?? ""}
+        onBlur={(e) => {
+          const normalized = e.target.value.trim() || null;
+          if (normalized !== (project.agentCommand ?? null)) {
+            updateProject(project.id, { agentCommand: normalized });
+          }
+        }}
+        placeholder={DEFAULT_AGENT_COMMAND}
+      />
+    </Stack>
+  );
+}
+
+type HostSectionProps = ProjectFieldProps & {
+  anchor: SectionAnchor;
+};
+
+function PortsSection(props: HostSectionProps) {
+  const { project, anchor } = props;
+
+  const updateProject = useProjectStore((s) => s.updateProject);
+
+  return (
+    <Stack gap="xs">
+      <SectionTitle id={anchor("project-ports")}>Ports</SectionTitle>
+      <label className={styles.notifRow}>
+        <span>Named preview URLs</span>
+        <Switch
+          checked={project.portlessEnabled !== false}
+          onCheckedChange={(checked) =>
+            updateProject(project.id, { portlessEnabled: checked })
+          }
+        />
+      </label>
+      <div className={styles.fieldHint}>
+        Route this project's dev servers through the portless proxy so each
+        workspace gets a stable hostname like{" "}
+        <code>{previewHostname(project.name)}</code>. When off, ports open as{" "}
+        <code>localhost:&lt;port&gt;</code>.
+      </div>
+    </Stack>
+  );
+}
+
+function CommandsSection(props: HostSectionProps) {
+  const { project, anchor } = props;
+
+  const updateProject = useProjectStore((s) => s.updateProject);
+  const [newCommandId, setNewCommandId] = useState<string | null>(null);
 
   const commands = useMemo(() => project.commands ?? [], [project.commands]);
   const commandIds = useMemo(() => commands.map((c) => c.id), [commands]);
@@ -334,189 +416,239 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
   });
 
   return (
+    <Stack gap="xs">
+      <SectionTitle id={anchor("project-commands")}>Commands</SectionTitle>
+      <div className={styles.commandList}>
+        {commands.map((cmd: CustomCommand, idx: number) => (
+          <div
+            key={cmd.id}
+            ref={(el) => {
+              if (el) itemRefs.current.set(idx, el);
+              else itemRefs.current.delete(idx);
+            }}
+            className={styles.commandRow}
+            style={getTransformStyle(idx)}
+          >
+            <div
+              className={styles.commandDragHandle}
+              title="Drag to reorder"
+              onPointerDown={(e) => handleDragStart(idx, e)}
+            >
+              <GripVertical size={14} />
+            </div>
+            <Input
+              ref={(el) => {
+                if (el && cmd.id === newCommandId) {
+                  el.focus();
+                  setNewCommandId(null);
+                }
+              }}
+              className={styles.commandNameInput}
+              defaultValue={cmd.name}
+              placeholder="Name"
+              onBlur={(e) => {
+                const updatedCommands = (project.commands ?? []).map((c) =>
+                  c.id === cmd.id ? { ...c, name: e.target.value } : c,
+                );
+                updateProject(project.id, { commands: updatedCommands });
+              }}
+            />
+            <Input
+              className={styles.commandCmdInput}
+              defaultValue={cmd.command}
+              placeholder="Command"
+              onBlur={(e) => {
+                const updatedCommands = (project.commands ?? []).map((c) =>
+                  c.id === cmd.id ? { ...c, command: e.target.value } : c,
+                );
+                updateProject(project.id, { commands: updatedCommands });
+              }}
+            />
+            <button
+              className={styles.commandDeleteBtn}
+              aria-label="Delete command"
+              onClick={() => {
+                const filtered = (project.commands ?? []).filter(
+                  (c) => c.id !== cmd.id,
+                );
+                updateProject(project.id, { commands: filtered });
+              }}
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        ))}
+        <button
+          className={styles.addCommandBtn}
+          onClick={() => {
+            const id = crypto.randomUUID();
+            const newCommand: CustomCommand = {
+              id,
+              name: "",
+              command: "",
+            };
+            updateProject(project.id, {
+              commands: [...(project.commands ?? []), newCommand],
+            });
+            setNewCommandId(id);
+          }}
+        >
+          <Plus size={12} />
+          Add Command
+        </button>
+      </div>
+    </Stack>
+  );
+}
+
+function WorktreesSection(props: HostSectionProps) {
+  const { project, anchor } = props;
+
+  const updateProject = useProjectStore((s) => s.updateProject);
+
+  const saveField = (
+    field: "worktreePath" | "worktreeStartScript" | "worktreeTeardownScript",
+    value: string,
+  ) => {
+    const normalized = value.trim() || null;
+    if (normalized !== (project[field] ?? null)) {
+      updateProject(project.id, { [field]: normalized });
+    }
+  };
+
+  return (
+    <Stack gap="xl">
+      <SectionTitle id={anchor("project-worktrees")}>Worktrees</SectionTitle>
+      <Stack gap="xs">
+        <label className={styles.fieldLabel}>Worktree Path</label>
+        <Input
+          defaultValue={project.worktreePath ?? ""}
+          onBlur={(e) => saveField("worktreePath", e.target.value)}
+          placeholder={defaultWorktreePath(project.name)}
+        />
+        <div className={styles.fieldHint}>
+          Directory where new worktrees are created. Defaults to{" "}
+          {defaultWorktreePath(project.name)}
+        </div>
+      </Stack>
+      {worktreeScriptFields.map(({ field, label, placeholder }) => (
+        <Stack key={field} gap="xs">
+          <label className={styles.fieldLabel}>{label}</label>
+          <Textarea
+            monospace
+            defaultValue={project[field] ?? ""}
+            onBlur={(e) => saveField(field, e.target.value)}
+            placeholder={placeholder}
+            rows={4}
+          />
+        </Stack>
+      ))}
+    </Stack>
+  );
+}
+
+type MemberSettingsProps = ProjectFieldProps & {
+  anchor: SectionAnchor;
+};
+
+/**
+ * One member's per-host settings on a linked group's page (ADR-192): what
+ * differs between machines — path, theme, host, ports, commands, worktrees.
+ */
+function MemberSettings(props: MemberSettingsProps) {
+  const { project, anchor } = props;
+
+  const unlinkProject = useProjectStore((s) => s.unlinkProject);
+
+  return (
+    <Stack className={styles.hostSettings}>
+      <Stack gap="xs">
+        <Row gap="sm" align="center" justify="space-between">
+          <Row gap="xs" align="center" className={styles.hostSettingsHeading}>
+            <HostLabel hostId={project.hostId} />
+          </Row>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void unlinkProject(project.id)}
+          >
+            Unlink
+          </Button>
+        </Row>
+        <PathFields project={project} />
+        <ProjectThemeSelector project={project} />
+      </Stack>
+      <ProjectHostSection project={project} sectionId={anchor("project-host")} />
+      <PortsSection project={project} anchor={anchor} />
+      <CommandsSection project={project} anchor={anchor} />
+      <WorktreesSection project={project} anchor={anchor} />
+    </Stack>
+  );
+}
+
+type ProjectSettingsPageProps = {
+  project: ProjectInfo;
+};
+
+export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
+  const { project } = props;
+
+  const projects = useProjectStore((s) => s.projects);
+  const memberIds = project.group?.memberIds;
+  const members = useMemo(() => {
+    if (!memberIds) return [];
+    const byId = new Map(projects.map((p) => [p.id, p]));
+    return memberIds
+      .map((id) => byId.get(id))
+      .filter((p): p is ProjectInfo => p !== undefined);
+  }, [memberIds, projects]);
+
+  if (project.group) {
+    // The name field is keyed by the group's name, so a rename made
+    // elsewhere (the CLI, say) shows here instead of the stale value.
+    return (
+      <Stack className={styles.pageContent}>
+        <Stack gap="xs">
+          <SectionTitle id="project-general">Shared</SectionTitle>
+          <div className={styles.sectionDescription}>
+            Shared by every host in this group. Each host's own settings
+            follow below.
+          </div>
+          <NameField key={project.name} project={project} />
+          <ColorField project={project} />
+        </Stack>
+        <LinearProjectSection project={project} />
+        <AgentSection project={project} />
+        <ProjectLinksSection project={project} members={members} />
+        {members.map((member) => (
+          <MemberSettings
+            key={member.id}
+            project={member}
+            anchor={
+              member.id === project.id ? plainAnchor : (id) => `${id}-${member.id}`
+            }
+          />
+        ))}
+      </Stack>
+    );
+  }
+
+  return (
     <Stack className={styles.pageContent}>
       <Stack gap="xs">
         <SectionTitle id="project-general">General</SectionTitle>
-        <label className={styles.fieldLabel}>Name</label>
-        <Input
-          ref={nameRef}
-          defaultValue={project.name}
-          onBlur={() => handleBlur("name")}
-        />
-        <label className={styles.fieldLabel}>Path</label>
-        <div className={styles.fieldStatic}>{project.path}</div>
-        <label className={styles.fieldLabel}>Default Branch</label>
-        <div className={styles.fieldStatic}>{project.defaultBranch}</div>
-        <label className={styles.fieldLabel}>Color</label>
-        <Row gap="xxs" className={styles.colorPicker}>
-          {PROJECT_COLORS.map((c) => {
-            const isSelected = (project.color ?? null) === c.value;
-            return (
-              <button
-                key={c.value ?? "default"}
-                className={`${styles.colorOption} ${isSelected ? styles.colorOptionSelected : ""}`}
-                style={{ background: `var(${c.cssVar})` }}
-                title={c.label}
-                onClick={() => updateProject(project.id, { color: c.value })}
-              >
-                {isSelected && (
-                  <Check size={10} strokeWidth={3} color="var(--bg)" />
-                )}
-              </button>
-            );
-          })}
-        </Row>
+        <NameField project={project} />
+        <PathFields project={project} />
+        <ColorField project={project} />
         <ProjectThemeSelector project={project} />
       </Stack>
-
       <LinearProjectSection project={project} />
-
       <ProjectHostSection project={project} />
-
-      <Stack gap="xs">
-        <SectionTitle id="project-agent">Agent</SectionTitle>
-        <label className={styles.fieldLabel}>Agent Command</label>
-        <Input
-          ref={agentCommandRef}
-          defaultValue={project.agentCommand ?? ""}
-          onBlur={() => handleBlur("agentCommand")}
-          placeholder={DEFAULT_AGENT_COMMAND}
-        />
-      </Stack>
-
-      <Stack gap="xs">
-        <SectionTitle id="project-ports">Ports</SectionTitle>
-        <label className={styles.notifRow}>
-          <span>Named preview URLs</span>
-          <Switch
-            checked={project.portlessEnabled !== false}
-            onCheckedChange={(checked) =>
-              updateProject(project.id, { portlessEnabled: checked })
-            }
-          />
-        </label>
-        <div className={styles.fieldHint}>
-          Route this project's dev servers through the portless proxy so each
-          workspace gets a stable hostname like{" "}
-          <code>{previewHostname(project.name)}</code>. When off, ports open as{" "}
-          <code>localhost:&lt;port&gt;</code>.
-        </div>
-      </Stack>
-
-      <Stack gap="xs">
-        <SectionTitle id="project-commands">Commands</SectionTitle>
-        <div className={styles.commandList}>
-          {commands.map((cmd: CustomCommand, idx: number) => (
-            <div
-              key={cmd.id}
-              ref={(el) => {
-                if (el) itemRefs.current.set(idx, el);
-                else itemRefs.current.delete(idx);
-              }}
-              className={styles.commandRow}
-              style={getTransformStyle(idx)}
-            >
-              <div
-                className={styles.commandDragHandle}
-                title="Drag to reorder"
-                onPointerDown={(e) => handleDragStart(idx, e)}
-              >
-                <GripVertical size={14} />
-              </div>
-              <Input
-                ref={(el) => {
-                  if (el && cmd.id === newCommandId) {
-                    el.focus();
-                    setNewCommandId(null);
-                  }
-                }}
-                className={styles.commandNameInput}
-                defaultValue={cmd.name}
-                placeholder="Name"
-                onBlur={(e) => {
-                  const updatedCommands = (project.commands ?? []).map((c) =>
-                    c.id === cmd.id ? { ...c, name: e.target.value } : c,
-                  );
-                  updateProject(project.id, { commands: updatedCommands });
-                }}
-              />
-              <Input
-                className={styles.commandCmdInput}
-                defaultValue={cmd.command}
-                placeholder="Command"
-                onBlur={(e) => {
-                  const updatedCommands = (project.commands ?? []).map((c) =>
-                    c.id === cmd.id ? { ...c, command: e.target.value } : c,
-                  );
-                  updateProject(project.id, { commands: updatedCommands });
-                }}
-              />
-              <button
-                className={styles.commandDeleteBtn}
-                aria-label="Delete command"
-                onClick={() => {
-                  const filtered = (project.commands ?? []).filter(
-                    (c) => c.id !== cmd.id,
-                  );
-                  updateProject(project.id, { commands: filtered });
-                }}
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))}
-          <button
-            className={styles.addCommandBtn}
-            onClick={() => {
-              const id = crypto.randomUUID();
-              const newCommand: CustomCommand = {
-                id,
-                name: "",
-                command: "",
-              };
-              updateProject(project.id, {
-                commands: [...(project.commands ?? []), newCommand],
-              });
-              setNewCommandId(id);
-            }}
-          >
-            <Plus size={12} />
-            Add Command
-          </button>
-        </div>
-      </Stack>
-
-      <Stack gap="xl">
-        <SectionTitle id="project-worktrees">Worktrees</SectionTitle>
-        <Stack gap="xs">
-          <label className={styles.fieldLabel}>Worktree Path</label>
-          <Input
-            ref={worktreePathRef}
-            defaultValue={project.worktreePath ?? ""}
-            onBlur={() => handleBlur("worktreePath")}
-            placeholder={defaultWorktreePath(project.name)}
-          />
-          <div className={styles.fieldHint}>
-            Directory where new worktrees are created. Defaults to{" "}
-            {defaultWorktreePath(project.name)}
-          </div>
-        </Stack>
-        {worktreeScriptFields.map(({ field, label, placeholder }) => (
-          <Stack key={field} gap="xs">
-            <label className={styles.fieldLabel}>{label}</label>
-            <Textarea
-              ref={(el) => {
-                fieldRefs.current[field] = el;
-              }}
-              monospace
-              defaultValue={project[field] ?? ""}
-              onBlur={() => handleBlur(field)}
-              placeholder={placeholder}
-              rows={4}
-            />
-          </Stack>
-        ))}
-      </Stack>
+      <AgentSection project={project} />
+      <PortsSection project={project} anchor={plainAnchor} />
+      <CommandsSection project={project} anchor={plainAnchor} />
+      <WorktreesSection project={project} anchor={plainAnchor} />
+      <ProjectLinksSection project={project} members={members} />
     </Stack>
   );
 }

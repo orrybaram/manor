@@ -36,6 +36,11 @@ type PendingHostChange =
 
 type ProjectHostSectionProps = {
   project: ProjectInfo;
+  /**
+   * The search anchor for this section. A linked group's settings page
+   * shows one per member, so all but one need their own (ADR-192).
+   */
+  sectionId?: string;
 };
 
 /**
@@ -48,7 +53,7 @@ type ProjectHostSectionProps = {
  * ticket 10).
  */
 export function ProjectHostSection(props: ProjectHostSectionProps) {
-  const { project } = props;
+  const { project, sectionId = "project-host" } = props;
 
   const switchProjectHost = useProjectStore((s) => s.switchProjectHost);
   const hosts = useHostStore((s) => s.hosts);
@@ -195,7 +200,7 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
 
   return (
     <Stack gap="xs">
-      <SectionTitle id="project-host">Host</SectionTitle>
+      <SectionTitle id={sectionId}>Host</SectionTitle>
       <label className={styles.fieldLabel}>Host</label>
       <SearchableSelect
         value={currentHostId}

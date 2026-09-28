@@ -230,6 +230,15 @@ function restoreWorkspaceState(
   };
 }
 
+/** App-level surfaces that can fill the main area (ADR-194). */
+export type AppSurface = "workspace" | "projects";
+
+/**
+ * Spread into a `set()` patch by actions that activate a workspace or put a
+ * tab/pane in front of the user: they leave the Projects overview.
+ */
+const WORKSPACE_SURFACE = { activeSurface: "workspace" } as const;
+
 export interface AppState {
   /**
    * Every open workspace's layout, keyed by its host-qualified workspace key
@@ -244,6 +253,13 @@ export interface AppState {
    * the key of the active layout (`selectActiveWorkspaceKey`).
    */
   activeWorkspaceHostId: HostId;
+  /**
+   * Which app-level surface fills the main area (ADR-194). `"projects"` shows
+   * the Projects overview over the active workspace, which stays active
+   * underneath; anything that activates a workspace or opens a tab flips it
+   * back to `"workspace"`. Not persisted.
+   */
+  activeSurface: AppSurface;
   paneCwd: Record<string, string>;
   paneTitle: Record<string, string>;
   paneAgentStatus: Record<string, PaneAgentStatus>;
@@ -281,6 +297,9 @@ export interface AppState {
    * has the path (the selected project first, see `layoutKeyFor`).
    */
   setActiveWorkspace: (path: string, hostId?: HostId | null) => void;
+
+  /** Show the Projects overview surface (ADR-194). */
+  showProjectsOverview: () => void;
 
   /**
    * Atomically navigate to a specific pane inside a workspace.
@@ -630,6 +649,9 @@ export function selectVisiblePaneIds(
  * maps to its active panel's selected tab.
  */
 export function selectCurrentLocation(state: AppState): Location {
+  if (state.activeSurface === "projects") {
+    return { kind: "surface", surface: "projects" };
+  }
   const key = selectActiveWorkspaceKey(state);
   if (!key || isHomePath(key)) {
     return { kind: "surface", surface: "home" };
@@ -766,6 +788,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   workspaceLayouts: {},
   activeWorkspacePath: null,
   activeWorkspaceHostId: LOCAL_HOST_ID,
+  activeSurface: "workspace",
   paneCwd: {},
   paneTitle: {},
   paneAgentStatus: {},
@@ -861,6 +884,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const key = layoutKeyFor(path, hostId);
       const active = {
+        ...WORKSPACE_SURFACE,
         activeWorkspacePath: path,
         activeWorkspaceHostId: parseWorkspaceKey(key).hostId,
       };
@@ -902,6 +926,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }),
 
+  showProjectsOverview: () =>
+    set((state) =>
+      state.activeSurface === "projects" ? state : { activeSurface: "projects" },
+    ),
+
   navigateToContext: ({ workspaceKey: key, tabId, paneId }) =>
     set((state) => {
       const layout = state.workspaceLayouts[key];
@@ -915,6 +944,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       const { hostId, path } = parseWorkspaceKey(key);
       return {
+        ...WORKSPACE_SURFACE,
         activeWorkspacePath: path,
         activeWorkspaceHostId: hostId,
         workspaceLayouts: {
@@ -942,13 +972,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!ctx) return null;
     const { key, layout, panel } = ctx;
     const tab = createTab(undefined, adoptPaneId);
-    set(
-      updatePanel(get(), key, layout, panel.id, (p) => ({
+    set({
+      ...WORKSPACE_SURFACE,
+      ...updatePanel(get(), key, layout, panel.id, (p) => ({
         ...p,
         tabs: [...p.tabs, tab],
         selectedTabId: tab.id,
       })),
-    );
+    });
     return { tabId: tab.id, paneId: tab.focusedPaneId };
   },
 
@@ -960,6 +991,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const tabPaneId = tab.focusedPaneId;
     const state = get();
     set({
+      ...WORKSPACE_SURFACE,
       ...updatePanel(state, key, layout, panel.id, (p) => ({
         ...p,
         tabs: [...p.tabs, tab],
@@ -994,6 +1026,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const background = opts?.background ?? false;
     const state = get();
     set({
+      // A background tab doesn't take the user anywhere.
+      ...(background ? {} : WORKSPACE_SURFACE),
       paneContentType: { ...state.paneContentType, [paneId]: "browser" },
       paneUrl: { ...state.paneUrl, [paneId]: url },
       ...updatePanel(state, key, layout, panel.id, (p) => ({
@@ -1018,6 +1052,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         focusedPaneId: paneId,
       };
       return {
+        ...WORKSPACE_SURFACE,
         paneContentType: { ...state.paneContentType, [paneId]: "diff" },
         ...updatePanel(state, key, layout, panel.id, (p) => ({
           ...p,
@@ -1065,6 +1100,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         focusedPaneId: idMap[sourceTab.focusedPaneId] ?? allPaneIds(clonedRoot)[0],
       };
       return {
+        ...WORKSPACE_SURFACE,
         paneContentType: nextContentType,
         paneUrl: nextUrl,
         ...updatePanel(state, key, layout, sourcePanel.id, (p) => ({
@@ -1088,6 +1124,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           for (const paneId of allPaneIds(tab.rootNode)) {
             if (state.paneContentType[paneId] === "diff") {
               return {
+                ...WORKSPACE_SURFACE,
                 workspaceLayouts: {
                   ...state.workspaceLayouts,
                   [key]: {
@@ -1122,6 +1159,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         focusedPaneId: paneId,
       };
       return {
+        ...WORKSPACE_SURFACE,
         paneContentType: { ...state.paneContentType, [paneId]: "diff" },
         ...updatePanel(state, ctx.key, ctx.layout, ctx.panel.id, (p) => ({
           ...p,
@@ -1144,6 +1182,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           for (const paneId of allPaneIds(tab.rootNode)) {
             if (state.paneContentType[paneId] === "diff") {
               return {
+                ...WORKSPACE_SURFACE,
                 workspaceLayouts: {
                   ...state.workspaceLayouts,
                   [key]: {
@@ -1181,6 +1220,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
       const newPanelTree = insertPanelSplit(layout.panelTree, panel.id, "horizontal", newPId);
       return {
+        ...WORKSPACE_SURFACE,
         paneContentType: { ...state.paneContentType, [paneId]: "diff" },
         workspaceLayouts: {
           ...state.workspaceLayouts,
@@ -1351,10 +1391,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       const ctx = getActivePanelContext(state);
       if (!ctx) return state;
       const { key, layout, panel } = ctx;
-      return updatePanel(state, key, layout, panel.id, (p) => ({
-        ...p,
-        selectedTabId: tabId,
-      }));
+      return {
+        ...WORKSPACE_SURFACE,
+        ...updatePanel(state, key, layout, panel.id, (p) => ({
+          ...p,
+          selectedTabId: tabId,
+        })),
+      };
     }),
 
   selectTabByGlobalIndex: (index: number) =>
@@ -1366,6 +1409,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (index < 0 || index >= tabs.length) return state;
       const { tabId, panelId } = tabs[index];
       return {
+        ...WORKSPACE_SURFACE,
         workspaceLayouts: {
           ...state.workspaceLayouts,
           [key]: {
@@ -1393,6 +1437,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const nextIdx = (currentIdx + 1) % tabs.length;
       const { tabId, panelId } = tabs[nextIdx];
       return {
+        ...WORKSPACE_SURFACE,
         workspaceLayouts: {
           ...state.workspaceLayouts,
           [key]: {
@@ -1420,6 +1465,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const prevIdx = (currentIdx - 1 + tabs.length) % tabs.length;
       const { tabId, panelId } = tabs[prevIdx];
       return {
+        ...WORKSPACE_SURFACE,
         workspaceLayouts: {
           ...state.workspaceLayouts,
           [key]: {
@@ -1504,14 +1550,17 @@ export const useAppStore = create<AppState>((set, get) => ({
         direction,
         newPane,
       );
-      return updatePanel(state, key, layout, panel.id, (p) => ({
-        ...p,
-        tabs: p.tabs.map((s) =>
-          s.id === tab.id
-            ? { ...s, rootNode: newRoot, focusedPaneId: newPane }
-            : s,
-        ),
-      }));
+      return {
+        ...WORKSPACE_SURFACE,
+        ...updatePanel(state, key, layout, panel.id, (p) => ({
+          ...p,
+          tabs: p.tabs.map((s) =>
+            s.id === tab.id
+              ? { ...s, rootNode: newRoot, focusedPaneId: newPane }
+              : s,
+          ),
+        })),
+      };
     }),
 
   splitPaneAt: (
@@ -1548,6 +1597,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       url,
     );
     set({
+      ...WORKSPACE_SURFACE,
       ...updatePanel(state, key, layout, panel.id, (p) => ({
         ...p,
         tabs: p.tabs.map((s) =>
@@ -2558,6 +2608,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       const newPanelTree = insertPanelSplit(layout.panelTree, panel.id, direction, newPId);
       return {
+        ...WORKSPACE_SURFACE,
         workspaceLayouts: {
           ...state.workspaceLayouts,
           [key]: {
@@ -3482,6 +3533,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
 
       return {
+        ...WORKSPACE_SURFACE,
         workspaceLayouts: {
           ...state.workspaceLayouts,
           [key]: {

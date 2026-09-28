@@ -508,9 +508,12 @@ export function ProjectItem(props: ProjectItemProps) {
   }, [items]);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   // A path can be on two hosts (ADR-191): only the active host's section
-  // holds the active workspace.
+  // holds the active workspace. While the Projects overview is shown
+  // (ADR-194) no workspace row is the current one.
   const onActiveHost = useAppStore(
-    (s) => s.activeWorkspaceHostId === normalizeHostId(project.hostId),
+    (s) =>
+      s.activeSurface === "workspace" &&
+      s.activeWorkspaceHostId === normalizeHostId(project.hostId),
   );
   // Keyed by path, not by `selectedWorkspaceIndex`: that index addresses an
   // array the sidebar re-sorts on every reorder, so it drifts onto whichever

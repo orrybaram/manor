@@ -10,8 +10,8 @@ import { bootWorkspaceWithTerminal, expect, test } from "./fixtures";
  *
  * Selector contract the implementation honours:
  * - `[data-focus-region="sidebar|tabbar|pane|statusbar"]` on region roots
- * - `project-header`, `home-row`, `workspace-item` (`aria-current="true"` when
- *   active) test ids in the sidebar
+ * - `project-header`, `home-row`, `projects-row`, `workspace-item`
+ *   (`aria-current="true"` when active) test ids in the sidebar
  * - `role="tablist"` / `role="tab"` + `aria-selected`, `tab`, `tab-close`,
  *   and `aria-label="New tab"` on the "+" button
  * - `settings-nav-<section>` on every settings nav button
@@ -309,8 +309,8 @@ test.describe("regions", () => {
 
 test.describe("sidebar", () => {
   /**
-   * ↑ walks from the active row through the project header to Home;
-   * Home / End jump; the sidebar is a single Tab stop.
+   * ↑ walks from the active row through the project header and the Projects
+   * row to Home; Home / End jump; the sidebar is a single Tab stop.
    */
   test("arrows, Home/End and a single Tab stop", async ({
     app,
@@ -328,6 +328,8 @@ test.describe("sidebar", () => {
     await expect.poll(() => focusedTestId(window), FOCUS).toBe(
       "project-header",
     );
+    await window.keyboard.press("ArrowUp");
+    await expect.poll(() => focusedTestId(window), FOCUS).toBe("projects-row");
     await window.keyboard.press("ArrowUp");
     await expect.poll(() => focusedTestId(window), FOCUS).toBe("home-row");
 
@@ -349,6 +351,8 @@ test.describe("sidebar", () => {
     await expect.poll(() => focusedTestId(window), FOCUS).toBe("home-row");
 
     // Tab from a row leaves the rows altogether rather than visiting each.
+    await window.keyboard.press("ArrowDown");
+    await expect.poll(() => focusedTestId(window), FOCUS).toBe("projects-row");
     await window.keyboard.press("ArrowDown");
     await expect.poll(() => focusedTestId(window), FOCUS).toBe(
       "project-header",
@@ -444,6 +448,36 @@ test.describe("sidebar", () => {
     await expect.poll(() => focusedTestId(window), FOCUS).toBe("home-row");
     await window.keyboard.press("Enter");
     await expect(window.getByTestId("home-view")).toBeVisible(FOCUS);
+  });
+
+  /**
+   * Enter on the Projects row shows the Projects overview (ADR-194); the row
+   * becomes the current one and the workspace row stops being it.
+   */
+  test("Enter on Projects opens the Projects overview", async ({
+    app,
+    window,
+    tempHome,
+  }) => {
+    const { wsPath } = await boot(app, window, tempHome, "ws-projects");
+    const projectsRow = window.getByTestId("projects-row");
+
+    await window.keyboard.press("Meta+Shift+e");
+    await window.keyboard.press("Home");
+    await window.keyboard.press("ArrowDown");
+    await expect.poll(() => focusedTestId(window), FOCUS).toBe("projects-row");
+    await window.keyboard.press("Enter");
+    await expect(window.getByTestId("projects-overview")).toBeVisible(FOCUS);
+    await expect(projectsRow).toHaveAttribute("aria-current", "true", FOCUS);
+    await expect(workspaceRow(window, wsPath)).not.toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+
+    // Opening a workspace leaves the overview.
+    await workspaceRow(window, wsPath).click();
+    await expect(window.getByTestId("projects-overview")).toHaveCount(0, FOCUS);
+    await expect(projectsRow).not.toHaveAttribute("aria-current", "true");
   });
 });
 

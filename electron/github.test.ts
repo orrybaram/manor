@@ -20,6 +20,8 @@ const { mockState } = vi.hoisted(() => {
       }>,
       /** Args of every execFile call since the last `setupExecFileCalls`. */
       calls: [] as string[][],
+      /** The `cwd` option of each call in `calls`. */
+      cwds: [] as Array<string | undefined>,
     },
   };
 });
@@ -37,10 +39,11 @@ vi.mock("node:child_process", async () => {
   function execFile(
     _cmd: string,
     args: string[],
-    _opts: object,
+    opts: { cwd?: string },
     cb: ExecFileCb,
   ): void {
     mockState.calls.push(args);
+    mockState.cwds.push(opts?.cwd);
     const spec = mockState.queue.shift();
     if (!spec) {
       cb(new Error("unexpected execFile call — queue exhausted"), "", "");
@@ -84,7 +87,7 @@ vi.mock("node:fs/promises", () => ({
 }));
 
 // Import AFTER mocks
-import { GitHubManager } from "./github";
+import { GitHubManager, ghRepoFromRemoteUrl } from "./github";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -99,6 +102,7 @@ type CallSpec = {
 function setupExecFileCalls(calls: CallSpec[]) {
   mockState.queue = [...calls];
   mockState.calls = [];
+  mockState.cwds = [];
 }
 
 function success(stdout: string, stderr = ""): CallSpec {
@@ -757,5 +761,72 @@ describe("GitHubManager", () => {
 
       await expect(manager.closeIssue("/repo", 5)).resolves.toBeUndefined();
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Remote projects (ADR-160): the checkout is on another host, so `gh` runs
+  // here against the repo the resolver names instead of inside the path.
+  // -------------------------------------------------------------------------
+  describe("remote projects", () => {
+    it("targets the resolved repo instead of running in the remote path", async () => {
+      const remote = new GitHubManager(async (p) =>
+        p === "/remote/repo" ? "owner/repo" : null,
+      );
+      setupExecFileCalls([success("[]")]);
+
+      await remote.getPrForBranch("/remote/repo", "feat/x");
+
+      expect(mockState.calls[0]).toEqual(
+        expect.arrayContaining(["pr", "list", "--repo", "owner/repo"]),
+      );
+      expect(mockState.cwds[0]).toBeUndefined();
+    });
+
+    it("keeps running local paths in their directory", async () => {
+      const remote = new GitHubManager(async () => null);
+      setupExecFileCalls([success("[]")]);
+
+      await remote.getAllIssues("/local/repo");
+
+      expect(mockState.calls[0]).not.toContain("--repo");
+      expect(mockState.cwds[0]).toBe("/local/repo");
+    });
+
+    it("resolves a remote path's repo once", async () => {
+      const resolve = vi.fn(async () => "owner/repo");
+      const remote = new GitHubManager(resolve);
+      setupExecFileCalls([success("[]"), success("[]")]);
+
+      await remote.getMyIssues("/remote/repo");
+      await remote.getMyIssues("/remote/repo");
+
+      expect(resolve).toHaveBeenCalledTimes(1);
+    });
+
+    it("reports no PR when the repo cannot be resolved", async () => {
+      const remote = new GitHubManager(async () => {
+        throw new Error("no origin");
+      });
+
+      await expect(remote.getPrForBranch("/remote/repo", "feat/x")).resolves.toBeNull();
+    });
+  });
+});
+
+describe("ghRepoFromRemoteUrl", () => {
+  it.each([
+    ["https://github.com/owner/repo.git", "owner/repo"],
+    ["https://github.com/owner/repo", "owner/repo"],
+    ["git@github.com:owner/repo.git", "owner/repo"],
+    ["ssh://git@github.com/owner/repo.git", "owner/repo"],
+    ["ssh://git@github.com:22/owner/repo", "owner/repo"],
+    ["https://ghe.example.com/owner/repo.git", "ghe.example.com/owner/repo"],
+  ])("%s -> %s", (url, repo) => {
+    expect(ghRepoFromRemoteUrl(url)).toBe(repo);
+  });
+
+  it("rejects a URL without an owner/repo path", () => {
+    expect(ghRepoFromRemoteUrl("/srv/git/repo.git")).toBeNull();
+    expect(ghRepoFromRemoteUrl("https://github.com/owner")).toBeNull();
   });
 });

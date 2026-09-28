@@ -7,7 +7,7 @@ import { HostIndicator } from "../../hosts/HostIndicator";
 import { LOCAL_HOST_ID, isRemoteHost, remoteHostOptions } from "../../../lib/hosts";
 import { workspaceKey } from "../../../lib/workspace-key";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
-import { CloneToHostDialog } from "../CloneToHostDialog/CloneToHostDialog";
+import { CloneToHostDialog } from "../../hosts/CloneToHostDialog";
 import { Input } from "../../ui/Input";
 import { Button } from "../../ui/Button/Button";
 import { SearchableSelect } from "../../ui/SearchableSelect/SearchableSelect";
@@ -320,7 +320,7 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
         <CloneToHostDialog
           open
           project={project}
-          hostId={cloneDialogHostId}
+          hostChoices={[{ hostId: cloneDialogHostId, disabledReason: null }]}
           onClose={() => setCloneDialogHostId(null)}
         />
       )}

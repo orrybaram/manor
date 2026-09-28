@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useHostStore, type HostStatusInfo } from "../host-store";
 import { useProjectStore, type ProjectGroupInfo, type ProjectInfo } from "../project-store";
 import { useToastStore } from "../toast-store";
+import { clearLinkSuggestionsFor, offerLinkSuggestions } from "../link-suggestions";
 import {
   hostsToCloneOnto,
   memberAfterClone,
@@ -13,6 +14,12 @@ import {
 // becomes the dialog's selection, while a cancelled or failed one leaves the
 // group as it was. Each decision is read off the store the way the dialog
 // reads it.
+
+vi.mock("../link-suggestions", () => ({
+  clearLinkSuggestionsFor: vi.fn(),
+  offerLinkSuggestions: vi.fn(async () => {}),
+  startLinkSuggestions: vi.fn(async () => {}),
+}));
 
 const api = {
   getAll: vi.fn(),
@@ -83,11 +90,21 @@ function setHosts(...ids: string[]): void {
   });
 }
 
+function setStatus(hostId: string, status: HostStatusInfo["status"]): void {
+  useHostStore.setState((s) => ({
+    hosts: s.hosts.map((h) => (h.hostId === hostId ? { ...h, status } : h)),
+  }));
+}
+
 /** The hosts "Clone onto another host…" offers, opened on `projectId`. */
-function cloneTargets(projectId: string): string[] {
+function cloneChoices(projectId: string) {
   const { projects } = useProjectStore.getState();
   const opened = projects.find((p) => p.id === projectId);
   return hostsToCloneOnto(opened, projects, useHostStore.getState().hosts);
+}
+
+function cloneTargets(projectId: string): string[] {
+  return cloneChoices(projectId).map((c) => c.hostId);
 }
 
 const OPTS = { hostId: "cloud", repoUrl: "git@github.com:me/app.git", remoteDir: "~/code/app" };
@@ -104,6 +121,22 @@ describe("Clone onto another host", () => {
 
     expect(cloneTargets("local-app")).toEqual(["cloud", "spare"]);
     expect(cloneTargets("box-app")).toEqual(["cloud", "spare"]);
+  });
+
+  it("shows a host that can't connect disabled, with the reason", () => {
+    seed();
+    setStatus("cloud", "error");
+
+    const cloud = cloneChoices("local-app").find((c) => c.hostId === "cloud")!;
+    expect(cloud.disabledReason).toMatch(/^Can't connect to me@cloud/);
+  });
+
+  it("still offers a host that is only disconnected, since the clone connects it", () => {
+    seed();
+    setStatus("cloud", "disconnected");
+    setStatus("spare", "reconnecting");
+
+    expect(cloneChoices("local-app").map((c) => c.disabledReason)).toEqual([null, null]);
   });
 
   it("offers nothing once every registered host has a member", () => {
@@ -133,6 +166,9 @@ describe("Clone onto another host", () => {
 
     expect(api.addRemote).toHaveBeenCalledWith({ ...OPTS, name: "local-app" });
     expect(api.link).toHaveBeenCalledWith("cloud-app", "local-app");
+    // Any open suggestion naming either side is stale now.
+    expect(clearLinkSuggestionsFor).toHaveBeenCalledWith(["cloud-app", "local-app"]);
+    expect(offerLinkSuggestions).not.toHaveBeenCalled();
     expect(result.group?.memberIds).toEqual(["local-app", "box-app", "cloud-app"]);
     const selected = memberAfterClone(result, "g1");
     expect(selected).toBe("cloud-app");
@@ -154,6 +190,7 @@ describe("Clone onto another host", () => {
     ).rejects.toThrow("git clone exited with code 128");
 
     expect(api.link).not.toHaveBeenCalled();
+    expect(offerLinkSuggestions).not.toHaveBeenCalled();
     expect(useProjectStore.getState().projects).toEqual(before);
     expect(cloneTargets("local-app")).toEqual(["cloud", "spare"]);
   });
@@ -173,6 +210,9 @@ describe("Clone onto another host", () => {
     expect(useToastStore.getState().toasts.map((t) => t.message)).toEqual([
       "Cloned, but couldn't link the projects",
     ]);
+    // Standing alone, it gets the suggestions any new clone would.
+    expect(offerLinkSuggestions).toHaveBeenCalledWith("cloud-app", expect.any(Function));
+    expect(clearLinkSuggestionsFor).not.toHaveBeenCalled();
   });
 
   it("refuses to clone for a project that isn't linked", async () => {

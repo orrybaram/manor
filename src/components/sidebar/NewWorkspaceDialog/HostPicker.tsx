@@ -49,9 +49,7 @@ export function HostPicker(props: HostPickerProps) {
             ) : (
               <LocalHostLabel />
             ),
-            ...(choice.disabledReason
-              ? { disabledReason: choice.disabledReason }
-              : {}),
+            ...(choice.disabledReason ? { disabledReason: choice.disabledReason } : {}),
           }))}
         />
         {onCloneOntoAnotherHost && (

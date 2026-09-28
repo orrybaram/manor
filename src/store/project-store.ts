@@ -577,7 +577,7 @@ interface ProjectState {
    * new project into its group, then reload. Resolves with the new project
    * as reloaded: its `group` is set once it joined. A failed clone rejects
    * and leaves the group unchanged. A failed link is shown as a toast, and
-   * the new project stays, unlinked.
+   * the new project stays, unlinked, with link suggestions offered for it.
    */
   cloneIntoGroup: (
     memberId: string,
@@ -1070,8 +1070,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const cloned = await window.electronAPI.projects.addRemote({ ...opts, name: member.name });
     try {
       await window.electronAPI.projects.link(cloned.id, memberId);
+      clearLinkSuggestionsFor([cloned.id, memberId]);
     } catch (err) {
       groupErrorToast(`link-projects-${cloned.id}`, "Cloned, but couldn't link the projects", err);
+      // It stands alone now, like any other clone: offer what it could join.
+      void offerLinkSuggestions(cloned.id, get().linkProjects);
     }
     await get().loadProjects();
     return get().projects.find((p) => p.id === cloned.id) ?? cloned;

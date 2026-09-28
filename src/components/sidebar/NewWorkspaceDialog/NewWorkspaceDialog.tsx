@@ -34,7 +34,7 @@ import {
   reseedBaseBranch,
 } from "../../../lib/new-workspace";
 import { HostPicker } from "./HostPicker";
-import { CloneToHostDialog } from "../../settings/CloneToHostDialog/CloneToHostDialog";
+import { CloneToHostDialog } from "../../hosts/CloneToHostDialog";
 
 type Mode = "new" | "existing";
 
@@ -95,14 +95,17 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   /**
-   * The member and hosts "Clone onto another host…" was opened with, or
-   * null when it's closed. Pinned so the clone dialog keeps its place while
-   * the new member joins and becomes the selection.
+   * "Clone onto another host…": the member it was opened from, pinned so
+   * the clone keeps its source while the new member joins and becomes the
+   * selection. `key` gives each opening a fresh dialog, and `open` false
+   * keeps the closed one mounted while its exit animation plays.
    */
-  const [cloneSource, setCloneSource] = useState<{
-    project: ProjectInfo;
-    hostIds: string[];
+  const [cloneSession, setCloneSession] = useState<{
+    key: number;
+    projectId: string;
+    open: boolean;
   } | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
 
   const handleOpenChange = useCallback(
@@ -132,10 +135,38 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     [activeProject, projects, hosts],
   );
   const activeHostChoice = hostChoices?.find((c) => c.projectId === activeProjectId);
-  const cloneHostIds = useMemo(
+  const cloneTargets = useMemo(
     () => (hostChoices ? hostsToCloneOnto(activeProject, projects, hosts) : []),
     [hostChoices, activeProject, projects, hosts],
   );
+  const cloneSource = cloneSession
+    ? projects.find((p) => p.id === cloneSession.projectId)
+    : undefined;
+  const cloneSourceTargets = useMemo(
+    () => hostsToCloneOnto(cloneSource, projects, hosts),
+    [cloneSource, projects, hosts],
+  );
+
+  const openClone = (projectId: string) =>
+    setCloneSession((s) => ({ key: (s?.key ?? 0) + 1, projectId, open: true }));
+  const closeClone = () => setCloneSession((s) => s && { ...s, open: false });
+
+  /**
+   * Once the clone dialog has closed: back to "Clone onto another host…",
+   * or, when the clone took the last host and the button went with it, to
+   * the chosen host (the new member).
+   */
+  const focusAfterClone = (e: Event) => {
+    e.preventDefault();
+    const root = contentRef.current;
+    const target =
+      root?.querySelector<HTMLElement>('[data-testid="new-workspace-clone-onto-host"]') ??
+      root?.querySelector<HTMLElement>(
+        '[data-testid="new-workspace-host-picker"] [role="radio"][aria-checked="true"]',
+      ) ??
+      nameRef.current;
+    target?.focus();
+  };
 
   // Fetch remote branches when dialog opens or project changes
   const {
@@ -240,7 +271,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       setFolderId(initialFolderId);
       setError(null);
       setIsCreating(false);
-      setCloneSource(null);
+      setCloneSession(null);
       // Defer focus to the next frame: the setState calls above re-render the
       // dialog (e.g. switching back to "new" mode unmounts the existing-mode
       // input). Focusing synchronously here lands on the old, about-to-unmount
@@ -347,6 +378,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
         <Dialog.Content
+          ref={contentRef}
           className={styles.dialog}
           data-testid="new-workspace-dialog"
           onOpenAutoFocus={handleOpenAutoFocus}
@@ -369,9 +401,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                     value={activeProjectId}
                     onChange={chooseProject}
                     onCloneOntoAnotherHost={
-                      activeProject && cloneHostIds.length > 0
-                        ? () => setCloneSource({ project: activeProject, hostIds: cloneHostIds })
-                        : undefined
+                      cloneTargets.length > 0 ? () => openClone(activeProjectId) : undefined
                     }
                   />
                 )}
@@ -535,17 +565,18 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
               </fieldset>
             </Stack>
           </form>
-          {cloneSource && (
+          {cloneSession && cloneSource && (
             <CloneToHostDialog
-              open
+              key={cloneSession.key}
+              open={cloneSession.open}
               mode="addToGroup"
-              project={cloneSource.project}
-              hostId={cloneSource.hostIds[0] ?? ""}
-              hostIds={cloneSource.hostIds}
-              onClose={() => setCloneSource(null)}
+              project={cloneSource}
+              hostChoices={cloneSourceTargets}
+              onClose={closeClone}
+              onCloseAutoFocus={focusAfterClone}
               onCloned={(cloned) => {
                 // Continue on the new host, once it has joined the group.
-                const memberId = memberAfterClone(cloned, cloneSource.project.group?.id);
+                const memberId = memberAfterClone(cloned, cloneSource.group?.id);
                 if (memberId) chooseProject(memberId, cloned);
               }}
             />

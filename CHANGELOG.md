@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.1] - 2026-09-28
+
+### Fixes
+- Agents running long tool calls now keep showing as working instead of dropping out of that state partway through.
+
+### Improvements
+- The pulsing status dots now animate the same way everywhere they appear.
+
 ## [0.16.0] - 2026-09-28
 
 ### Features

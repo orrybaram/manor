@@ -114,8 +114,9 @@ Only styling/markup in `ProjectGroupItem`, the `section` variant of
   apart.
 - **Project names carry no icons.** The link icon on a group and the cloud on
   a remote project are removed; a remote-only project shows its host as a
-  host heading instead. A group with a host away still shows its
-  Partial/Offline state beside the name.
+  host heading instead. There is no Partial/Offline badge either: each host
+  heading's dot shows its own state, and a group with every host away dims
+  its name.
 - **Indentation.** Workspace rows (in every project, linked or not) start
   under the project name, past the chevron.
 - (Revised twice after review, using mockups: the first cut left host labels

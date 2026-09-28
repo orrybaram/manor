@@ -49,19 +49,6 @@
   white-space: nowrap;
 }
 
-/* A remote project's name shrinks to its text so the cloud sits right after
-   it; the icon's slot takes the free space instead. */
-.projectNameRemote {
-  flex: 0 1 auto;
-}
-
-.remoteHostIconSlot {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-}
-
 .projectAction {
   border: none;
   background: transparent;
@@ -544,26 +531,6 @@
 
 .groupSections > :not(:last-child) .section > .workspaces {
   padding-bottom: 16px;
-}
-
-.groupLinkIcon {
-  display: inline-flex;
-  align-items: center;
-  color: var(--text-dim);
-}
-
-/* Some or all of the group's hosts are away (ADR-192 §5). */
-.groupStateWarn {
-  color: var(--yellow, #d29922);
-}
-
-/* "Partial" / "Offline" beside the state icon, so the two read apart. */
-.groupStateBadge {
-  margin-left: 3px;
-  font-size: 9px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
 }
 
 /* Every host of the group is away. */

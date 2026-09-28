@@ -4,6 +4,7 @@ import { useAppStore } from "../store/app-store";
 import { useAgentStore } from "../store/agent-store";
 import { useToastStore } from "../store/toast-store";
 import { hasPaneId } from "../store/pane-tree";
+import { workspaceKey } from "../lib/workspace-key";
 
 export function navigateToAgent(agent: AgentInfo) {
   const { selectProject, setProjectExpanded, selectWorkspace, projects } =
@@ -26,9 +27,10 @@ export function navigateToAgent(agent: AgentInfo) {
   selectWorkspace(project.id, workspaceIndex);
 
   if (agent.workspacePath && agent.paneId) {
-    // Find the tab containing agent.paneId by searching all panels
-    const { workspaceLayouts } = useAppStore.getState();
-    const layout = workspaceLayouts[agent.workspacePath];
+    // Find the tab containing agent.paneId by searching all panels of the
+    // agent's workspace, on its project's host (ADR-191).
+    const key = workspaceKey(project.hostId, agent.workspacePath);
+    const layout = useAppStore.getState().workspaceLayouts[key];
     let tabId: string | null = null;
     if (layout) {
       for (const panel of Object.values(layout.panels)) {
@@ -45,7 +47,7 @@ export function navigateToAgent(agent: AgentInfo) {
     if (tabId) {
       // Atomically select tab and focus pane in one Zustand set() call
       useAppStore.getState().navigateToContext({
-        workspacePath: agent.workspacePath,
+        workspaceKey: key,
         tabId,
         paneId: agent.paneId,
       });

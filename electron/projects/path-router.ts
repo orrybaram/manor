@@ -9,7 +9,41 @@ import { LOCAL_HOST_ID, type MachineFacts } from "../backend/types";
 import { errorMessage } from "../lib/errors";
 import { toDirSlug } from "../branch-name";
 import type { PersistedProject } from "./types";
-import { ownerHostIdForPath } from "../../src/lib/workspace-key";
+import { ownerHostIdForPath, type WorkspaceKeyOwner } from "../../src/lib/workspace-key";
+
+/**
+ * The workspace paths `projects.json` remembers for `project` without asking
+ * git: every key of its per-workspace settings and its sidebar order. The
+ * order also holds folder ids, which no path lies within, so they are inert.
+ */
+function rememberedWorkspacePaths(project: PersistedProject): string[] {
+  return [
+    ...new Set([
+      ...Object.keys(project.workspaceNames ?? {}),
+      ...Object.keys(project.workspaceIssues ?? {}),
+      ...Object.keys(project.workspaceHidden ?? {}),
+      ...Object.keys(project.workspaceFolderIds ?? {}),
+      ...(project.workspaceOrder ?? []),
+    ]),
+  ];
+}
+
+/** `promise`'s value, or `fallback` once `ms` pass or it rejects. */
+function within<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(fallback);
+      },
+    );
+  });
+}
 
 /** Expands a leading `~` in `p` against `home`, joining as that host does. */
 export function expandHome(
@@ -159,6 +193,31 @@ export class PathRouter {
           );
         });
     }
+  }
+
+  /**
+   * Every project as a `WorkspaceKeyOwner`, for a one-time migration of
+   * path-keyed data to workspace keys (ADR-191): its root, its worktree
+   * directory expanded for its host, and every workspace path it is known to
+   * have. A host that does not answer within `timeoutMs` has its worktree
+   * directory left out, so the migration never waits on a dead connection.
+   */
+  async workspaceKeyOwners(timeoutMs: number): Promise<WorkspaceKeyOwner[]> {
+    return Promise.all(
+      this.projects().map(async (project) => ({
+        hostId: project.hostId,
+        path: project.path,
+        worktreeRoot: await within<string | null>(
+          this.worktreeBaseDir(project),
+          timeoutMs,
+          null,
+        ),
+        workspaces: [
+          ...rememberedWorkspacePaths(project),
+          ...(this.workspacePaths.get(project.id) ?? []),
+        ].map((path) => ({ path })),
+      })),
+    );
   }
 
   /**

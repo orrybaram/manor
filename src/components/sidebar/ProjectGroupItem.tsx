@@ -8,6 +8,7 @@ import type {
   TopLevelEntry,
 } from "../../utils/sidebar-items";
 import { useWorkspacesAgentStatus } from "../../hooks/useProjectAgentStatus";
+import { workspaceKey } from "../../lib/workspace-key";
 import { projectColorStyle, useProjectHeaderRow } from "../../hooks/useProjectHeaderRow";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
@@ -50,8 +51,12 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
   const collapsedProjectIds = useProjectStore((s) => s.collapsedProjectIds);
   const header = useProjectHeaderRow(collapsed, onToggleCollapsed);
 
-  const allWorkspaces = useMemo(
-    () => sections.flatMap((section) => section.project.workspaces),
+  // Every host section's workspaces, each on its own host (ADR-191).
+  const allWorkspaceKeys = useMemo(
+    () =>
+      sections.flatMap(({ project }) =>
+        project.workspaces.map((ws) => workspaceKey(project.hostId, ws.path)),
+      ),
     [sections],
   );
   // One selection across every host section, keyed by group id: a range or
@@ -69,7 +74,7 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
     }),
     [group.id, sections, collapsedFolderKeys, collapsedProjectIds],
   );
-  const { status, pulse } = useWorkspacesAgentStatus(allWorkspaces);
+  const { status, pulse } = useWorkspacesAgentStatus(allWorkspaceKeys);
   const indicator = toWorkspaceIndicator(status, pulse);
   // Shared settings live on the group from ADR-192 ticket 2; until then the
   // first member with a color stands for the group.

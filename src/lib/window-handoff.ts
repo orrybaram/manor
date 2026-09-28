@@ -8,7 +8,7 @@
  * the popout's self-close subscription gate on.
  */
 
-import { useAppStore } from "../store/app-store";
+import { selectActiveLayout, useAppStore } from "../store/app-store";
 import { allPaneIds } from "../store/pane-tree";
 
 // ── Outbound handoffs in flight ─────────────────────────────────────────────
@@ -48,10 +48,7 @@ export function whenHandoffsIdle(): Promise<void> {
 
 /** Total panes across every tab of every panel of this window's workspace. */
 export function countPanesInWindow(): number {
-  const state = useAppStore.getState();
-  const path = state.activeWorkspacePath;
-  if (!path) return 0;
-  const layout = state.workspaceLayouts[path];
+  const layout = selectActiveLayout(useAppStore.getState());
   if (!layout) return 0;
   return Object.values(layout.panels).reduce(
     (n, p) => n + p.tabs.reduce((m, t) => m + allPaneIds(t.rootNode).length, 0),
@@ -61,9 +58,7 @@ export function countPanesInWindow(): number {
 
 /** Total tabs across every panel of this window's workspace. */
 export function countTabsInWindow(): number {
-  const state = useAppStore.getState();
-  const path = state.activeWorkspacePath;
-  const layout = path ? state.workspaceLayouts[path] : undefined;
+  const layout = selectActiveLayout(useAppStore.getState());
   if (!layout) return 0;
   return Object.values(layout.panels).reduce((n, p) => n + p.tabs.length, 0);
 }

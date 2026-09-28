@@ -111,17 +111,14 @@ export function selectedProjectId(selection: ProjectSelection): string | undefin
 }
 
 /**
- * The host a new terminal in workspace `workspacePath` runs on: the host of
- * the project that has it, the selected project first when two share the
- * path — it is the one whose workspace the user opened. Home is on this
- * machine. Undefined when no project has the path, so main falls back to
- * the host the path belongs to.
+ * The host of workspace `workspacePath` for a caller that knows only its
+ * path: the host of the project that has it, the selected project first when
+ * two share the path — it is the one whose workspace the user opened. Home
+ * is on this machine. Undefined when no project has the path, so main falls
+ * back to the host the path belongs to.
  *
- * Known limitation: a pane of a workspace in a project that is NOT selected,
- * sharing its path with the selected project, is sent to the selected
- * project's host. Just after a restart, before the pane's own host reclaims
- * its sessions, a remote pane can so be created locally. Keying layouts by
- * host plus path (#240) closes this.
+ * A pane never needs this: it takes its host from the key of the workspace
+ * it belongs to (`paneCreateHostId`, ADR-191).
  */
 export function workspaceHostId(
   selection: ProjectSelection,
@@ -129,19 +126,6 @@ export function workspaceHostId(
 ): HostId | undefined {
   if (isHomePath(workspacePath)) return LOCAL_HOST_ID;
   return hostIdForWorkspace(selection.projects, workspacePath, selectedProjectId(selection));
-}
-
-/**
- * The remote host `workspacePath` lives on (see `hostIdForWorkspace`), or
- * null when it is on this machine (or unknown).
- */
-export function remoteHostIdForWorkspace(
-  projects: readonly HostedProject[],
-  workspacePath: string | undefined,
-  preferredProjectId?: string,
-): HostId | null {
-  const hostId = hostIdForWorkspace(projects, workspacePath, preferredProjectId);
-  return hostId && isRemoteHost(hostId) ? hostId : null;
 }
 
 /**

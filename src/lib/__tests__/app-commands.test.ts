@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { appCommandHandlers } from "../app-commands";
-import { useAppStore } from "../../store/app-store";
+import { selectActiveLayout, useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import type { ProjectInfo } from "../../store/project-store";
 import { usePreferencesStore } from "../../store/preferences-store";
@@ -133,7 +133,7 @@ function setupStore(layout: WorkspaceLayout, activePath: string = WS_PATH) {
 /** The tab currently holding `paneId`, across every panel of the active workspace. */
 function tabHolding(paneId: string): Tab | undefined {
   const state = useAppStore.getState();
-  const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
+  const layout = selectActiveLayout(state);
   for (const panel of Object.values(layout?.panels ?? {})) {
     const tab = panel.tabs.find((t) => hasPaneId(t.rootNode, paneId));
     if (tab) return tab;

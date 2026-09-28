@@ -32,6 +32,11 @@ export interface DetachedTabPayload {
   /** Workspace the tab was detached from (informational; ephemeral windows). */
   sourceWorkspacePath: string;
   /**
+   * The host of that workspace, so the detached window keys the tab's layout
+   * as the source did (ADR-191). Missing means local.
+   */
+  sourceWorkspaceHostId?: string;
+  /**
    * The source workspace's effective theme override (its project's `themeName`,
    * or null for the global theme). Lets a detached window paint in the same
    * theme as the workspace the tab came from instead of the global default.

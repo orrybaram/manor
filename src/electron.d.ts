@@ -372,20 +372,21 @@ export interface PersistedPanel {
   pinnedTabIds: string[];
 }
 
-/** Persisted workspace state (v2) */
+/** Persisted workspace state (v2 and v3) */
 export interface PersistedWorkspace {
+  /** The workspace's host-qualified key (`WorkspaceKey`, ADR-191) since v3. */
   workspacePath: string;
   panelTree: import("./store/panel-tree").PanelNode;
   panels: Record<string, PersistedPanel>;
   activePanelId: string;
 }
 
-/** Full persisted layout (v2) */
+/** Full persisted layout (v3; main migrates a v2 file before handing it over) */
 export interface PersistedLayout {
-  version: 2;
+  version: 2 | 3;
   workspaces: PersistedWorkspace[];
   /**
-   * Path of the workspace/surface active when the layout was last saved
+   * Key of the workspace/surface active when the layout was last saved
    * (includes the Home surface's `HOME_PATH`). Used to restore the last-active
    * surface on relaunch. Absent in layouts saved before this field existed.
    */

@@ -38,6 +38,8 @@ import type { SetupStep, StepStatus } from "./project-store";
 import type { Location } from "./navigation-history-store";
 import type { DetachedTabPayload } from "./detach-types";
 import { isHomePath } from "../lib/home-path";
+import { LOCAL_HOST_ID, workspaceHostId, type HostId } from "../lib/hosts";
+import { parseWorkspaceKey, workspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import { useProjectStore } from "./project-store";
 import { useRemotePaneStore } from "./remote-pane-store";
 
@@ -55,7 +57,8 @@ export interface ClosedPaneSnapshot {
   paneId: string;
   tabId: string;
   panelId: string;
-  workspacePath: string;
+  /** The workspace it was closed in (ADR-191 key). */
+  workspaceKey: string;
   contentType?: "terminal" | "browser" | "diff";
   url?: string;
   cwd?: string;
@@ -66,7 +69,8 @@ export interface ClosedTabSnapshot {
   kind: "tab";
   tab: Tab;
   panelId: string;
-  workspacePath: string;
+  /** The workspace it was closed in (ADR-191 key). */
+  workspaceKey: string;
   /** Per-pane metadata to restore */
   paneMetadata: Record<string, {
     contentType?: "terminal" | "browser" | "diff";
@@ -217,8 +221,19 @@ function restoreWorkspaceState(
 }
 
 export interface AppState {
+  /**
+   * Every open workspace's layout, keyed by its host-qualified workspace key
+   * (ADR-191): a local and a remote workspace with the same path each have
+   * their own. See `selectActiveWorkspaceKey` and `layoutKeyFor`.
+   */
   workspaceLayouts: Record<string, WorkspaceLayout>;
+  /** The active workspace's path (or Home's `HOME_PATH`). */
   activeWorkspacePath: string | null;
+  /**
+   * The host the active workspace is on; with `activeWorkspacePath` it makes
+   * the key of the active layout (`selectActiveWorkspaceKey`).
+   */
+  activeWorkspaceHostId: HostId;
   paneCwd: Record<string, string>;
   paneTitle: Record<string, string>;
   paneAgentStatus: Record<string, PaneAgentStatus>;
@@ -250,17 +265,22 @@ export interface AppState {
   /** Tab ID awaiting close confirmation (when agent is active in a pane) */
   pendingCloseConfirmTabId: string | null;
   // Workspace activation
-  setActiveWorkspace: (path: string) => void;
+  /**
+   * Activate workspace `path` on `hostId`. Callers that know the workspace's
+   * project pass its host; without one it is the host of the project that
+   * has the path (the selected project first, see `layoutKeyFor`).
+   */
+  setActiveWorkspace: (path: string, hostId?: HostId | null) => void;
 
   /**
    * Atomically navigate to a specific pane inside a workspace.
-   * Sets activeWorkspacePath, activePanelId, selectedTabId, and focusedPaneId
+   * Sets the active workspace, activePanelId, selectedTabId, and focusedPaneId
    * in a single Zustand set() call so subscribers see no intermediate states.
-   * Bails (no state change) if the workspacePath has no layout or the tabId
+   * Bails (no state change) if the workspace has no layout or the tabId
    * does not exist in any panel.
    */
   navigateToContext: (ctx: {
-    workspacePath: string;
+    workspaceKey: WorkspaceKey;
     tabId: string;
     paneId: string;
   }) => void;
@@ -405,7 +425,14 @@ export interface AppState {
   consumePendingPaneCommand: (paneId: string) => PendingPaneCommand | null;
 
   // Workspace cleanup
-  removeWorkspaceLayout: (workspacePath: string) => void;
+  /** Close every pane of the workspace keyed `key` and drop its layout. */
+  removeWorkspaceLayout: (key: string) => void;
+  /**
+   * Move the layout keyed `from` to `to` — a workspace whose project moved
+   * to another host keeps its tabs (ADR-191 §3). No-op when `to` already
+   * has a layout or `from` has none.
+   */
+  moveWorkspaceLayout: (from: WorkspaceKey, to: WorkspaceKey) => void;
 
   // Panel operations
   splitPanel: (direction: SplitDirection) => void;
@@ -502,12 +529,40 @@ export interface AppState {
   receiveReattachedTab: (payload: DetachedTabPayload) => void;
 }
 
+/**
+ * The key of workspace `path` (ADR-191) for looking up its layout: on
+ * `hostId` when the caller knows it, else on the host of the project that
+ * has the path, the selected project first (`workspaceHostId`). Local when
+ * no project has it.
+ */
+export function layoutKeyFor(path: string, hostId?: HostId | null): WorkspaceKey {
+  return workspaceKey(
+    hostId ?? workspaceHostId(useProjectStore.getState(), path) ?? LOCAL_HOST_ID,
+    path,
+  );
+}
+
+/** The key of the active workspace's layout, or null when none is active. */
+export function selectActiveWorkspaceKey(
+  state: Pick<AppState, "activeWorkspacePath" | "activeWorkspaceHostId">,
+): WorkspaceKey | null {
+  const path = state.activeWorkspacePath;
+  return path ? workspaceKey(state.activeWorkspaceHostId, path) : null;
+}
+
+/** The active workspace's layout, or null. */
+export function selectActiveLayout(
+  state: Pick<AppState, "activeWorkspacePath" | "activeWorkspaceHostId" | "workspaceLayouts">,
+): WorkspaceLayout | null {
+  const key = selectActiveWorkspaceKey(state);
+  return (key && state.workspaceLayouts[key]) || null;
+}
+
 // Selector for the active workspace's active panel (backward compat: same shape as old WorkspaceTabState)
 export function selectActiveWorkspace(
   state: AppState,
 ): Panel | null {
-  if (!state.activeWorkspacePath) return null;
-  const layout = state.workspaceLayouts[state.activeWorkspacePath];
+  const layout = selectActiveLayout(state);
   if (!layout) return null;
   return layout.panels[layout.activePanelId] ?? null;
 }
@@ -542,12 +597,10 @@ export function selectWebviewFocusVisible(state: AppState): boolean {
  * clicking the agent, switching tabs, focusing a pane, or changing workspace.
  */
 export function selectVisiblePaneIds(
-  state: Pick<AppState, "activeWorkspacePath" | "workspaceLayouts">,
+  state: Pick<AppState, "activeWorkspacePath" | "activeWorkspaceHostId" | "workspaceLayouts">,
 ): Set<string> {
   const ids = new Set<string>();
-  const path = state.activeWorkspacePath;
-  if (!path) return ids;
-  const layout = state.workspaceLayouts[path];
+  const layout = selectActiveLayout(state);
   if (!layout) return ids;
   for (const panel of Object.values(layout.panels)) {
     const tab = panel.tabs.find((t) => t.id === panel.selectedTabId);
@@ -567,7 +620,7 @@ export function selectVisiblePaneIds(
  * maps to its active panel's selected tab.
  */
 export function selectCurrentLocation(state: AppState): Location {
-  const path = state.activeWorkspacePath;
+  const path = selectActiveWorkspaceKey(state);
   if (!path || isHomePath(path)) {
     return { kind: "surface", surface: "home" };
   }
@@ -577,15 +630,15 @@ export function selectCurrentLocation(state: AppState): Location {
   }
   return {
     kind: "workspace",
-    workspacePath: ctx.path,
+    workspaceKey: ctx.path,
     panelId: ctx.panel.id,
     tabId: ctx.panel.selectedTabId,
   };
 }
 
 // Internal helpers for active panel context
-function getActivePanelContext(state: AppState): { path: string; layout: WorkspaceLayout; panel: Panel } | null {
-  const path = state.activeWorkspacePath;
+function getActivePanelContext(state: AppState): { path: WorkspaceKey; layout: WorkspaceLayout; panel: Panel } | null {
+  const path = selectActiveWorkspaceKey(state);
   if (!path) return null;
   const layout = state.workspaceLayouts[path];
   if (!layout) return null;
@@ -594,8 +647,8 @@ function getActivePanelContext(state: AppState): { path: string; layout: Workspa
   return { path, layout, panel };
 }
 
-function getActiveLayoutContext(state: AppState): { path: string; layout: WorkspaceLayout } | null {
-  const path = state.activeWorkspacePath;
+function getActiveLayoutContext(state: AppState): { path: WorkspaceKey; layout: WorkspaceLayout } | null {
+  const path = selectActiveWorkspaceKey(state);
   if (!path) return null;
   const layout = state.workspaceLayouts[path];
   if (!layout) return null;
@@ -668,6 +721,7 @@ export function getPersistedActiveWorkspacePath(): string | null {
 export const useAppStore = create<AppState>((set, get) => ({
   workspaceLayouts: {},
   activeWorkspacePath: null,
+  activeWorkspaceHostId: LOCAL_HOST_ID,
   paneCwd: {},
   paneTitle: {},
   paneAgentStatus: {},
@@ -759,17 +813,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  setActiveWorkspace: (path: string) =>
+  setActiveWorkspace: (path: string, hostId?: HostId | null) =>
     set((state) => {
+      const key = layoutKeyFor(path, hostId);
+      const active = {
+        activeWorkspacePath: path,
+        activeWorkspaceHostId: parseWorkspaceKey(key).hostId,
+      };
       // Already initialized for this workspace
-      if (state.workspaceLayouts[path]) {
-        return { activeWorkspacePath: path };
+      if (state.workspaceLayouts[key]) {
+        return active;
       }
 
       // Check persisted layout for this workspace
       if (_cachedLayout) {
         const persisted = _cachedLayout.workspaces.find(
-          (w) => w.workspacePath === path,
+          (w) => w.workspacePath === key,
         );
         if (persisted) {
           const restored = restoreWorkspaceState(persisted);
@@ -779,10 +838,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           );
           if (hasTabs) {
             return {
-              activeWorkspacePath: path,
+              ...active,
               workspaceLayouts: {
                 ...state.workspaceLayouts,
-                [path]: restored,
+                [key]: restored,
               },
             };
           }
@@ -791,17 +850,17 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       // No persisted state — start empty so WorkspaceEmptyState is shown
       return {
-        activeWorkspacePath: path,
+        ...active,
         workspaceLayouts: {
           ...state.workspaceLayouts,
-          [path]: createEmptyLayout(),
+          [key]: createEmptyLayout(),
         },
       };
     }),
 
-  navigateToContext: ({ workspacePath, tabId, paneId }) =>
+  navigateToContext: ({ workspaceKey: key, tabId, paneId }) =>
     set((state) => {
-      const layout = state.workspaceLayouts[workspacePath];
+      const layout = state.workspaceLayouts[key];
       if (!layout) return state;
 
       // Find the panel that contains the requested tab
@@ -810,11 +869,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       const { panel } = entry;
 
+      const { hostId, path } = parseWorkspaceKey(key);
       return {
-        activeWorkspacePath: workspacePath,
+        activeWorkspacePath: path,
+        activeWorkspaceHostId: hostId,
         workspaceLayouts: {
           ...state.workspaceLayouts,
-          [workspacePath]: {
+          [key]: {
             ...layout,
             activePanelId: panel.id,
             panels: {
@@ -924,7 +985,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   duplicateTab: (tabId: string) =>
     set((state) => {
-      const wsPath = state.activeWorkspacePath;
+      const wsPath = selectActiveWorkspaceKey(state);
       if (!wsPath) return state;
       const layout = state.workspaceLayouts[wsPath];
       if (!layout) return state;
@@ -972,7 +1033,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   openOrFocusDiff: () =>
     set((state) => {
-      const path = state.activeWorkspacePath;
+      const path = selectActiveWorkspaceKey(state);
       if (!path) return state;
       const layout = state.workspaceLayouts[path];
       if (!layout) return state;
@@ -1028,7 +1089,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   openDiffInNewPanel: () =>
     set((state) => {
-      const path = state.activeWorkspacePath;
+      const path = selectActiveWorkspaceKey(state);
       if (!path) return state;
       const layout = state.workspaceLayouts[path];
       if (!layout) return state;
@@ -1137,7 +1198,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         kind: "tab",
         tab: closingTab,
         panelId: panel.id,
-        workspacePath: path,
+        workspaceKey: path,
         paneMetadata,
         ...(willRemovePanel && {
           panelSplitContext: findPanelSplitContext(layout.panelTree, panel.id) ?? undefined,
@@ -1822,7 +1883,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       paneId,
       tabId: tab.id,
       panelId: panel.id,
-      workspacePath: path,
+      workspaceKey: path,
       contentType: state.paneContentType[paneId],
       url: state.paneUrl[paneId],
       cwd: state.paneCwd[paneId],
@@ -1874,13 +1935,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   reopenClosedPane: () => {
     const state = get();
-    const path = state.activeWorkspacePath;
+    const path = selectActiveWorkspaceKey(state);
     if (!path) return;
     const ctx = getActivePanelContext(state);
     if (!ctx) return;
     const { layout, panel } = ctx;
 
-    const idx = state.closedPaneStack.findIndex((s) => s.workspacePath === path);
+    const idx = state.closedPaneStack.findIndex((s) => s.workspaceKey === path);
     if (idx === -1) return;
     const snapshot = state.closedPaneStack[idx];
 
@@ -2082,7 +2143,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   focusPane: (paneId: string) =>
     set((state) => {
-      const path = state.activeWorkspacePath;
+      const path = selectActiveWorkspaceKey(state);
       if (!path) return state;
       const layout = state.workspaceLayouts[path];
       if (!layout) return state;
@@ -2355,11 +2416,23 @@ export const useAppStore = create<AppState>((set, get) => ({
     return cmd;
   },
 
-  removeWorkspaceLayout: (workspacePath: string) =>
+  moveWorkspaceLayout: (from: WorkspaceKey, to: WorkspaceKey) =>
     set((state) => {
-      const layout = state.workspaceLayouts[workspacePath];
+      const layout = state.workspaceLayouts[from];
+      if (from === to || !layout || state.workspaceLayouts[to]) return state;
+      const { [from]: _, ...rest } = state.workspaceLayouts;
+      const movesActive = selectActiveWorkspaceKey(state) === from;
+      return {
+        workspaceLayouts: { ...rest, [to]: layout },
+        ...(movesActive && { activeWorkspaceHostId: parseWorkspaceKey(to).hostId }),
+      };
+    }),
+
+  removeWorkspaceLayout: (key: string) =>
+    set((state) => {
+      const layout = state.workspaceLayouts[key];
       if (!layout) {
-        const { [workspacePath]: _, ...rest } = state.workspaceLayouts;
+        const { [key]: _, ...rest } = state.workspaceLayouts;
         return { workspaceLayouts: rest };
       }
 
@@ -2389,7 +2462,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         delete newPaneUrl[pid];
       }
 
-      const { [workspacePath]: _, ...rest } = state.workspaceLayouts;
+      const { [key]: _, ...rest } = state.workspaceLayouts;
       return {
         closedPaneIds: newClosedPaneIds,
         workspaceLayouts: rest,
@@ -2457,7 +2530,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   closePanel: (panelId: string) =>
     set((state) => {
-      const path = state.activeWorkspacePath;
+      const path = selectActiveWorkspaceKey(state);
       if (!path) return state;
       const layout = state.workspaceLayouts[path];
       if (!layout) return state;
@@ -2536,7 +2609,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   focusPanel: (panelId: string) =>
     set((state) => {
-      const path = state.activeWorkspacePath;
+      const path = selectActiveWorkspaceKey(state);
       if (!path) return state;
       const layout = state.workspaceLayouts[path];
       if (!layout || !layout.panels[panelId]) return state;
@@ -2550,7 +2623,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   focusNextPanel: () =>
     set((state) => {
-      const path = state.activeWorkspacePath;
+      const path = selectActiveWorkspaceKey(state);
       if (!path) return state;
       const layout = state.workspaceLayouts[path];
       if (!layout) return state;
@@ -2566,7 +2639,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   focusPrevPanel: () =>
     set((state) => {
-      const path = state.activeWorkspacePath;
+      const path = selectActiveWorkspaceKey(state);
       if (!path) return state;
       const layout = state.workspaceLayouts[path];
       if (!layout) return state;
@@ -2582,7 +2655,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   updatePanelSplitRatio: (firstPanelId: string, ratio: number) =>
     set((state) => {
-      const path = state.activeWorkspacePath;
+      const path = selectActiveWorkspaceKey(state);
       if (!path) return state;
       const layout = state.workspaceLayouts[path];
       if (!layout) return state;
@@ -2959,8 +3032,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       ? null
       : useProjectStore
           .getState()
-          .projects.find((p) =>
-            p.workspaces.some((w) => w.path === sourceWorkspacePath),
+          .projects.find(
+            (p) =>
+              p.hostId === state.activeWorkspaceHostId &&
+              p.workspaces.some((w) => w.path === sourceWorkspacePath),
           )?.themeName ?? null;
 
     const payload: DetachedTabPayload = {
@@ -2972,6 +3047,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       },
       paneState,
       sourceWorkspacePath,
+      sourceWorkspaceHostId: state.activeWorkspaceHostId,
       themeName,
     };
 
@@ -3140,8 +3216,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       ? null
       : useProjectStore
           .getState()
-          .projects.find((p) =>
-            p.workspaces.some((w) => w.path === sourceWorkspacePath),
+          .projects.find(
+            (p) =>
+              p.hostId === state.activeWorkspaceHostId &&
+              p.workspaces.some((w) => w.path === sourceWorkspacePath),
           )?.themeName ?? null;
 
     const payload: DetachedTabPayload = {
@@ -3153,6 +3231,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       },
       paneState,
       sourceWorkspacePath,
+      sourceWorkspaceHostId: state.activeWorkspaceHostId,
       themeName,
     };
 
@@ -3302,7 +3381,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         focusedPaneId: payload.tab.focusedPaneId,
       };
       const layout = createSinglePanelLayout([tab], tab.id, []);
-      const key = payload.sourceWorkspacePath;
+      const hostId = payload.sourceWorkspaceHostId ?? LOCAL_HOST_ID;
+      const key = workspaceKey(hostId, payload.sourceWorkspacePath);
       const ps = payload.paneState;
 
       // Side-map value types are non-null; skip any null entries when merging.
@@ -3319,7 +3399,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       return {
         workspaceLayouts: { ...state.workspaceLayouts, [key]: layout },
-        activeWorkspacePath: key,
+        activeWorkspacePath: payload.sourceWorkspacePath,
+        activeWorkspaceHostId: hostId,
         layoutLoaded: true,
         paneCwd: mergeDefined(state.paneCwd, ps.cwd),
         paneTitle: mergeDefined(state.paneTitle, ps.title),
@@ -3401,7 +3482,7 @@ let saveLayoutTimer: ReturnType<typeof setTimeout> | null = null;
 /** Immediately persist the active workspace's layout to disk. */
 function flushLayoutSave(): void {
   const state = useAppStore.getState();
-  const wsPath = state.activeWorkspacePath;
+  const wsPath = selectActiveWorkspaceKey(state);
   if (!wsPath) return;
   const layout = state.workspaceLayouts[wsPath];
   if (!layout) return;
@@ -3505,6 +3586,7 @@ useAppStore.subscribe((state, prevState) => {
   if (
     state.workspaceLayouts !== prevState.workspaceLayouts ||
     state.activeWorkspacePath !== prevState.activeWorkspacePath ||
+    state.activeWorkspaceHostId !== prevState.activeWorkspaceHostId ||
     state.paneAgentStatus !== prevState.paneAgentStatus
   ) {
     saveActiveWorkspaceLayout();

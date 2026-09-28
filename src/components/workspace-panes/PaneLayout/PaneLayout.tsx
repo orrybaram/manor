@@ -4,18 +4,18 @@ import { SplitLayout } from "../SplitLayout";
 
 interface PaneLayoutProps {
   node: PaneNode;
-  workspacePath?: string;
+  workspaceKey?: string;
 }
 
 export function PaneLayout(props: PaneLayoutProps) {
-  const { node, workspacePath } = props;
+  const { node, workspaceKey } = props;
 
   if (node.type === "leaf") {
     return (
       <LeafPane
         key={node.paneId}
         paneId={node.paneId}
-        workspacePath={workspacePath}
+        workspaceKey={workspaceKey}
       />
     );
   }
@@ -26,7 +26,7 @@ export function PaneLayout(props: PaneLayoutProps) {
       ratio={node.ratio}
       first={node.first}
       second={node.second}
-      workspacePath={workspacePath}
+      workspaceKey={workspaceKey}
     />
   );
 }

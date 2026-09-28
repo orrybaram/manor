@@ -1,6 +1,6 @@
 ---
 title: Saved layouts keyed by host plus path, in the renderer and the daemon
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]
@@ -34,3 +34,23 @@ GitHub issue #240. See ADR-191 §3.
 - `src/store/app-store.ts`, `src/store/layout-snapshot.ts`, and the layout tests.
 - `src/store/navigation-history-store.ts` and its test.
 - The main-process call site that loads the layout with the project list.
+
+## Implementation notes
+
+- The persisted field keeps its name, `workspacePath`, and holds the
+  workspace key from version 3, as does `lastActiveWorkspacePath`. A
+  downgrade still finds every local workspace.
+- Main runs the migration once at launch
+  (`LayoutPersistence.startWorkspaceKeyMigration`); `layout:load` and
+  `layout:save` wait for it. The owners are `projects.json`'s projects with
+  their worktree roots expanded on their hosts and the workspace paths the
+  file remembers. A host that doesn't answer within 5 seconds has its
+  worktree root left out, so the first launch after the upgrade never hangs
+  on a dead connection.
+- The renderer keeps `activeWorkspacePath` as a path and adds
+  `activeWorkspaceHostId`; `selectActiveWorkspaceKey` combines them. Panes
+  take their host from the key of the layout they are in
+  (`paneCreateHostId`), not from the selected project.
+- A host move (`projects:moveToHost`, `projects:switchHost`) moves the saved
+  layouts of the workspaces the project keeps to their keys on the new host,
+  in `layout.json` and in the renderer.

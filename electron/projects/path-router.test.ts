@@ -201,6 +201,48 @@ describe("ProjectManager host-relative paths (ADR-178)", () => {
     );
   });
 
+  // ADR-191: what migrating path-keyed data to workspace keys is told.
+  it("describes each project as a workspace-key owner, with its worktree root expanded on its host", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    const mgr = new ProjectManager(hostsOf(git, shell), tmpDir);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    const project = await mgr.addProject("Remote App", "/srv/app", "box");
+    mgr.renameWorkspace(project.id, "/elsewhere/feat", "Feat");
+
+    const owners = await mgr.workspaceKeyOwners(1000);
+
+    expect(owners).toEqual([
+      {
+        hostId: "box",
+        path: "/srv/app",
+        worktreeRoot: "/home/remoteuser/.manor/worktrees/remote-app",
+        workspaces: [{ path: "/elsewhere/feat" }],
+      },
+    ]);
+  });
+
+  it("leaves out the worktree root of a host that doesn't answer in time", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    vi.mocked(shell.homeDir).mockImplementation(() => new Promise(() => {}));
+    const mgr = new ProjectManager(hostsOf(git, shell), tmpDir);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    await mgr.addProject("Remote App", "/srv/app", "box");
+
+    const owners = await mgr.workspaceKeyOwners(10);
+
+    expect(owners[0].worktreeRoot).toBeNull();
+    expect(owners[0].path).toBe("/srv/app");
+  });
+
+  it("names no owners when every project is local", async () => {
+    const mgr = new ProjectManager(fullGit(), tmpDir);
+    await mgr.addProject("Local App", "/tmp/local-app-3");
+
+    expect(await mgr.workspaceKeyOwners(1000)).toEqual([]);
+  });
+
   it("keeps local worktree resolution byte-identical with no shell resolver supplied", async () => {
     const git = fullGit();
     const mgr = new ProjectManager(git, tmpDir);

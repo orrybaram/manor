@@ -11,6 +11,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { layoutFile } from "../paths";
+import {
+  migrateWorkspaceKey,
+  migrateWorkspaceKeyedRecord,
+  type WorkspaceKeyOwner,
+} from "../../src/lib/workspace-key";
 /**
  * Duplicated from src/store/pane-tree.ts — the terminal-host is a separate
  * Vite entry point and cannot import from the renderer bundle.
@@ -85,22 +90,37 @@ export interface PersistedPanel {
   pinnedTabIds: string[];
 }
 
-/** Persisted workspace state (v2) */
+/** Persisted workspace state (v2 and v3) */
 export interface PersistedWorkspace {
+  /**
+   * The workspace's host-qualified key (`WorkspaceKey`, ADR-191) since
+   * version 3: its bare path on this machine, `<hostId>:<path>` on a remote
+   * host. A bare path in a version 2 file is of unknown host until
+   * `migrateWorkspaceKeys` runs. The field keeps its name so a downgrade
+   * still finds every local workspace.
+   */
   workspacePath: string;
   panelTree: PanelNode;
   panels: Record<string, PersistedPanel>;
   activePanelId: string;
 }
 
-/** Full persisted layout (v2) */
+/**
+ * The current layout file version. Version 3 keys workspaces by host-qualified
+ * workspace key (ADR-191); version 2 keyed them by bare path.
+ */
+export const LAYOUT_VERSION = 3;
+
+/** Full persisted layout (v2 and v3) */
 export interface PersistedLayout {
-  version: 2;
+  /** 2 until `migrateWorkspaceKeys` has run on the file, then 3. */
+  version: 2 | 3;
   workspaces: PersistedWorkspace[];
   /**
-   * Path of the workspace/surface that was active when the layout was last
+   * Key of the workspace/surface that was active when the layout was last
    * saved (includes the Home surface's `HOME_PATH`). Used to restore the last
    * surface on relaunch. Absent in layouts saved before this field existed.
+   * A workspace key since version 3, like `PersistedWorkspace.workspacePath`.
    */
   lastActiveWorkspacePath?: string | null;
 }
@@ -128,11 +148,98 @@ function migrateV1toV2(v1: PersistedLayoutV1): PersistedLayout {
   };
 }
 
+/**
+ * `layout` with every workspace rekeyed from its bare path to its
+ * host-qualified key (version 2 → 3, ADR-191). A bare path goes to the host
+ * of the project that owns it, local when none does or on a tie. Never drops
+ * a workspace: two entries could only land on one key if the file already
+ * held a qualified key, and then the qualified one, the newer, wins.
+ */
+export function migrateLayoutV2toV3(
+  layout: PersistedLayout,
+  owners: readonly WorkspaceKeyOwner[],
+): PersistedLayout {
+  const byKey = migrateWorkspaceKeyedRecord(
+    Object.fromEntries(layout.workspaces.map((ws) => [ws.workspacePath, ws])),
+    owners,
+  );
+  const last = layout.lastActiveWorkspacePath;
+  return {
+    ...layout,
+    version: LAYOUT_VERSION,
+    workspaces: Object.entries(byKey).map(([key, ws]) => ({ ...ws, workspacePath: key })),
+    ...(last ? { lastActiveWorkspacePath: migrateWorkspaceKey(last, owners) } : {}),
+  };
+}
+
 export class LayoutPersistence {
   private filePath: string;
+  private ready: Promise<void> = Promise.resolve();
 
   constructor(filePath: string = LAYOUT_FILE) {
     this.filePath = filePath;
+  }
+
+  /**
+   * Run the one-time version 2 → 3 workspace-key migration in the
+   * background, asking `owners` for the projects only when the file needs
+   * it. `whenReady` resolves once it is done (or has failed, leaving the file
+   * at version 2 to try again next launch).
+   */
+  startWorkspaceKeyMigration(
+    owners: () => Promise<readonly WorkspaceKeyOwner[]>,
+  ): Promise<void> {
+    this.ready = (async () => {
+      if (!this.needsWorkspaceKeyMigration()) return;
+      this.migrateWorkspaceKeys(await owners());
+    })().catch((err: unknown) => {
+      console.error("[layout] workspace-key migration failed:", err);
+    });
+    return this.ready;
+  }
+
+  /** Resolves once `startWorkspaceKeyMigration`'s run, if any, has finished. */
+  whenReady(): Promise<void> {
+    return this.ready;
+  }
+
+  /** Whether the file on disk is keyed by bare path (version 2 or older). */
+  needsWorkspaceKeyMigration(): boolean {
+    const layout = this.load();
+    return layout !== null && layout.version < LAYOUT_VERSION;
+  }
+
+  /**
+   * Rekey a version 2 file by host-qualified workspace key and write it as
+   * version 3. A no-op at version 3: a bare key there already means local,
+   * and migrating it again could move it to a remote project with the same
+   * path (ADR-191 §1).
+   */
+  migrateWorkspaceKeys(owners: readonly WorkspaceKeyOwner[]): void {
+    const layout = this.load();
+    if (!layout || layout.version >= LAYOUT_VERSION) return;
+    this.save(migrateLayoutV2toV3(layout, owners));
+  }
+
+  /**
+   * Move each `[from, to]` workspace key's layout to `to` — a project moved
+   * to another host keeps its workspaces' layouts (ADR-191 §3). A `to` that
+   * already has a layout keeps it, and `from` is then left in place.
+   */
+  moveWorkspaces(moves: ReadonlyArray<readonly [string, string]>): void {
+    const layout = this.load();
+    if (!layout) return;
+    let changed = false;
+    for (const [from, to] of moves) {
+      if (from === to) continue;
+      if (layout.workspaces.some((w) => w.workspacePath === to)) continue;
+      const ws = layout.workspaces.find((w) => w.workspacePath === from);
+      if (!ws) continue;
+      ws.workspacePath = to;
+      if (layout.lastActiveWorkspacePath === from) layout.lastActiveWorkspacePath = to;
+      changed = true;
+    }
+    if (changed) this.save(layout);
   }
 
   /** Save the full layout to disk */
@@ -142,7 +249,10 @@ export class LayoutPersistence {
     fs.writeFileSync(this.filePath, JSON.stringify(layout, null, 2));
   }
 
-  /** Load the layout from disk. Returns null if file doesn't exist. Migrates v1 to v2. */
+  /**
+   * Load the layout from disk. Returns null if file doesn't exist. Migrates
+   * v1 to v2; v2 to v3 needs the projects, so it is `migrateWorkspaceKeys`.
+   */
   load(): PersistedLayout | null {
     try {
       const raw = fs.readFileSync(this.filePath, "utf-8");
@@ -160,11 +270,14 @@ export class LayoutPersistence {
     }
   }
 
-  /** Save a single workspace's layout (upsert by workspacePath) */
+  /**
+   * Save a single workspace's layout (upsert by its workspace key). A file
+   * still at version 2 keeps that version, so its migration still runs.
+   */
   saveWorkspace(workspace: PersistedWorkspace): void {
     let layout = this.load();
     if (!layout) {
-      layout = { version: 2, workspaces: [] };
+      layout = { version: LAYOUT_VERSION, workspaces: [] };
     }
 
     const idx = layout.workspaces.findIndex(
@@ -177,19 +290,19 @@ export class LayoutPersistence {
     }
 
     // The renderer only ever saves the currently-active workspace, so recording
-    // its path here captures the last-active surface for relaunch restore.
+    // its key here captures the last-active surface for relaunch restore.
     layout.lastActiveWorkspacePath = workspace.workspacePath;
 
     this.save(layout);
   }
 
-  /** Remove a workspace's layout */
-  removeWorkspace(workspacePath: string): void {
+  /** Remove a workspace's layout, by its workspace key */
+  removeWorkspace(key: string): void {
     const layout = this.load();
     if (!layout) return;
 
     layout.workspaces = layout.workspaces.filter(
-      (w) => w.workspacePath !== workspacePath,
+      (w) => w.workspacePath !== key,
     );
     this.save(layout);
   }

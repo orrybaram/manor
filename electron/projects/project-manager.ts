@@ -17,6 +17,7 @@ import type { ProjectContext } from "./context";
 import { HostRecords } from "./host-records";
 import { moveProjectToHost, planRemoteClone, runRemoteClone, switchProjectHost } from "./host-move";
 import { PathRouter } from "./path-router";
+import type { WorkspaceKeyOwner } from "../../src/lib/workspace-key";
 import * as groups from "./project-groups";
 import { buildProjectInfo, listGitWorkspaces, seedCommands } from "./project-info";
 import { StateStore } from "./state-store";
@@ -166,6 +167,16 @@ export class ProjectManager {
   /** The host a bare filesystem path belongs to (see `PathRouter`). */
   hostIdForPath(p: string): string {
     return this.paths.hostIdForPath(p);
+  }
+
+  /**
+   * Every project as a workspace-key owner, for migrating path-keyed data
+   * (see `PathRouter.workspaceKeyOwners`). Asks no host when every project
+   * is local: then every path is local anyway.
+   */
+  async workspaceKeyOwners(timeoutMs: number): Promise<WorkspaceKeyOwner[]> {
+    if (this.remoteHostIdsInUse().length === 0) return [];
+    return this.paths.workspaceKeyOwners(timeoutMs);
   }
 
   // ── Projects ──

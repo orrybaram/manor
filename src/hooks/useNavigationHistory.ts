@@ -6,6 +6,8 @@ import {
   type Location,
 } from "../store/navigation-history-store";
 import { HOME_PATH } from "../lib/home-path";
+import { parseWorkspaceKey } from "../lib/workspace-key";
+import { normalizeHostId } from "../lib/host-id";
 import { useProjectStore } from "../store/project-store";
 import { useMountEffect } from "./useMountEffect";
 
@@ -30,7 +32,7 @@ import { useMountEffect } from "./useMountEffect";
 /** Is `loc` still reachable in the live layout? Home is always reachable. */
 function isLocationValid(state: AppState, loc: Location): boolean {
   if (loc.kind === "surface") return true;
-  const layout = state.workspaceLayouts[loc.workspacePath];
+  const layout = state.workspaceLayouts[loc.workspaceKey];
   if (!layout) return false;
   const panel = layout.panels[loc.panelId];
   if (!panel) return false;
@@ -56,18 +58,18 @@ function applyLocation(loc: Location): void {
   // (what the sidebar highlights) AND calls `setActiveWorkspace`. Going through
   // `setActiveWorkspace` alone leaves the sidebar pointed at the old workspace,
   // so replaying between two empty workspaces looks like nothing happened.
+  const { hostId, path } = parseWorkspaceKey(loc.workspaceKey);
   const projects = useProjectStore.getState().projects;
-  const project = projects.find((p) =>
-    p.workspaces.some((w) => w.path === loc.workspacePath),
+  const project = projects.find(
+    (p) =>
+      normalizeHostId(p.hostId) === hostId && p.workspaces.some((w) => w.path === path),
   );
   if (project) {
-    const wsIndex = project.workspaces.findIndex(
-      (w) => w.path === loc.workspacePath,
-    );
+    const wsIndex = project.workspaces.findIndex((w) => w.path === path);
     useProjectStore.getState().selectWorkspace(project.id, wsIndex);
   } else {
     // Fallback: path not owned by any project (shouldn't happen post-prune).
-    store.setActiveWorkspace(loc.workspacePath);
+    store.setActiveWorkspace(path, hostId);
   }
   // Then focus the recorded panel and tab within that workspace.
   useAppStore.getState().focusPanel(loc.panelId);

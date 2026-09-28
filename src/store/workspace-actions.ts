@@ -1,4 +1,5 @@
-import { useAppStore } from "./app-store";
+import { selectActiveWorkspaceKey, useAppStore } from "./app-store";
+import { workspaceKey } from "../lib/workspace-key";
 import { useProjectStore } from "./project-store";
 import { useToastStore } from "./toast-store";
 import type { ProjectInfo, WorkspaceInfo } from "./project-store";
@@ -19,7 +20,8 @@ export function removeWorktreeWithToast(
   const projectStore = useProjectStore.getState();
   const toastStore = useToastStore.getState();
 
-  const wasActive = appStore.activeWorkspacePath === ws.path;
+  const key = workspaceKey(project.hostId, ws.path);
+  const wasActive = selectActiveWorkspaceKey(appStore) === key;
   const wsName =
     ws.name || ws.branch || ws.path.split("/").pop() || "workspace";
 
@@ -36,7 +38,7 @@ export function removeWorktreeWithToast(
   }
 
   // Clean up tabs
-  appStore.removeWorkspaceLayout(ws.path);
+  appStore.removeWorkspaceLayout(key);
 
   // Show toast and run async teardown
   const toastId = `toast-${crypto.randomUUID()}`;
@@ -137,7 +139,8 @@ export function quickMergeWorktreeWithToast(
   const projectStore = useProjectStore.getState();
   const toastStore = useToastStore.getState();
 
-  const wasActive = appStore.activeWorkspacePath === ws.path;
+  const key = workspaceKey(project.hostId, ws.path);
+  const wasActive = selectActiveWorkspaceKey(appStore) === key;
   const wsName =
     ws.name || ws.branch || ws.path.split("/").pop() || "workspace";
 
@@ -153,7 +156,7 @@ export function quickMergeWorktreeWithToast(
   }
 
   // Clean up tabs
-  appStore.removeWorkspaceLayout(ws.path);
+  appStore.removeWorkspaceLayout(key);
 
   // Show toast and run async merge
   const toastId = `toast-${crypto.randomUUID()}`;

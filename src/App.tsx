@@ -25,7 +25,9 @@ const AgentsModal = lazy(() => import("./components/sidebar/AgentsView/AgentsVie
 const FeedbackModal = lazy(() => import("./components/statusbar/FeedbackModal/FeedbackModal").then(m => ({ default: m.FeedbackModal })));
 import {
   useAppStore,
+  layoutKeyFor,
   selectActiveWorkspace,
+  selectActiveWorkspaceKey,
   getPersistedActiveWorkspacePath,
 } from "./store/app-store";
 import {
@@ -33,7 +35,8 @@ import {
   runWorkspaceSetupScript,
   type ProjectInfo,
 } from "./store/project-store";
-import { LOCAL_HOST_ID, projectForWorkspace, selectedProjectId } from "./lib/hosts";
+import { projectForWorkspace } from "./lib/hosts";
+import { normalizeHostId } from "./lib/host-id";
 import { appCommandHandlers } from "./lib/app-commands";
 import { handleRecordingCommand } from "./lib/webview-recorder";
 import {
@@ -96,7 +99,7 @@ function App() {
           const ws =
             project.workspaces[project.selectedWorkspaceIndex] ??
             project.workspaces[0];
-          if (ws) setActiveWorkspace(ws.path);
+          if (ws) setActiveWorkspace(ws.path, project.hostId);
         }
       }
       setAppReady(true);
@@ -309,6 +312,9 @@ function App() {
 
   const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
+  const activeWorkspaceKey = useAppStore(selectActiveWorkspaceKey);
+  // The workspace's host travels with its key (ADR-191); Home is local.
+  const activeWorkspaceHostId = useAppStore((s) => s.activeWorkspaceHostId);
   const ws = useAppStore(selectActiveWorkspace);
 
   const addTab = useAppStore((s) => s.addTab);
@@ -344,11 +350,11 @@ function App() {
   // Keep the prewarmed session in sync with the active workspace.
   // Derive the agent command outside the effect so it only re-fires when the
   // command actually changes, not on every unrelated project mutation.
-  // The selected project first: a local and a remote project can share a path.
+  // Only the active workspace's host's projects: a local and a remote
+  // project can share a path.
   const activeProject = projectForWorkspace(
-    projects,
+    projects.filter((p) => normalizeHostId(p.hostId) === activeWorkspaceHostId),
     activeWorkspacePath,
-    selectedProjectId({ projects, selectedProjectIndex }),
   );
   // The launch command for the active surface. Home has no owning project and
   // boots the configured home harness in ~/.manor/home (the pty boundary maps
@@ -360,8 +366,6 @@ function App() {
   const activeWorkspaceCommand = isHomePath(activeWorkspacePath)
     ? homeLaunchCommand({ homeHarness, homeCustomCommand, homeCustomInterrupt })
     : activeProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
-  // The workspace's host travels with its path (ADR-183); Home is local.
-  const activeWorkspaceHostId = activeProject?.hostId ?? LOCAL_HOST_ID;
   useEffect(() => {
     if (!activeWorkspacePath) return;
     const prewarmKind = getAgentKindForCommand(activeWorkspaceCommand);
@@ -450,7 +454,7 @@ function App() {
       async ({ cmd, requestId, workspacePath, hostId, script, args }) => {
         if (cmd === "run-setup-script" && workspacePath && script) {
           await loadProjects(); // ensure a freshly-created workspace is visible
-          setActiveWorkspace(workspacePath);
+          setActiveWorkspace(workspacePath, hostId);
           // Main names the workspace's project host: the path alone may be
           // on two hosts.
           runWorkspaceSetupScript(workspacePath, script, hostId);
@@ -562,10 +566,14 @@ function App() {
 
   const handleResumeAgent = useCallback(
     async (agent: AgentInfo) => {
+      // The agent's workspace is on its project's host (ADR-191).
+      const agentHostId = projects.find((p) => p.id === agent.projectId)?.hostId;
       // If the agent is active and has a pane, switch to it instead of opening a new tab
       if (agent.status === "active" && agent.paneId && agent.workspacePath) {
         const wsLayout =
-          useAppStore.getState().workspaceLayouts[agent.workspacePath];
+          useAppStore.getState().workspaceLayouts[
+            layoutKeyFor(agent.workspacePath, agentHostId)
+          ];
         if (wsLayout) {
           const paneExists = Object.values(wsLayout.panels).some((panel) =>
             panel.tabs.some((tab) => hasPaneId(tab.rootNode, agent.paneId!)),
@@ -579,7 +587,7 @@ function App() {
 
       const wsPath = agent.workspacePath;
       if (wsPath) {
-        setActiveWorkspace(wsPath);
+        setActiveWorkspace(wsPath, agentHostId);
       }
       const activePath = wsPath ?? useAppStore.getState().activeWorkspacePath;
       if (activePath) {
@@ -662,14 +670,14 @@ function App() {
                 <div
                   key={wpath}
                   style={
-                    wpath === activeWorkspacePath && hasTabs
+                    wpath === activeWorkspaceKey && hasTabs
                       ? TAB_VISIBLE_STYLE
                       : TAB_HIDDEN_STYLE
                   }
                 >
                   <PanelLayout
                     node={wsLayout.panelTree}
-                    workspacePath={wpath}
+                    workspaceKey={wpath}
                     onNewAgent={handleNewAgent}
                   />
                 </div>

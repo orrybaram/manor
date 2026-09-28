@@ -13,7 +13,7 @@
  * search) go out over the `ui-request` bus instead.
  */
 
-import { useAppStore } from "../store/app-store";
+import { selectActiveLayout, useAppStore } from "../store/app-store";
 import {
   useProjectStore,
   runWorkspaceSetupScript,
@@ -21,7 +21,8 @@ import {
   type WorkspaceInfo,
 } from "../store/project-store";
 import { useToastStore } from "../store/toast-store";
-import { projectForWorkspace, selectedProjectId } from "./hosts";
+import { projectForWorkspace } from "./hosts";
+import { normalizeHostId } from "./host-id";
 import { hideWorkspaceAndNavigate } from "../store/workspace-actions";
 import {
   createSharedKeybindingHandlers,
@@ -77,11 +78,15 @@ interface ActiveWorkspace {
 
 /** The active surface, resolved back to its owning project and workspace. */
 function activeWorkspace(): ActiveWorkspace {
-  const path = useAppStore.getState().activeWorkspacePath;
-  // The selected project first: a local and a remote project can share a path.
-  const selection = useProjectStore.getState();
+  const { activeWorkspacePath: path, activeWorkspaceHostId } = useAppStore.getState();
+  // Only the active workspace's host: a local and a remote project can share a path.
   const project =
-    projectForWorkspace(selection.projects, path, selectedProjectId(selection)) ?? null;
+    projectForWorkspace(
+      useProjectStore
+        .getState()
+        .projects.filter((p) => normalizeHostId(p.hostId) === activeWorkspaceHostId),
+      path,
+    ) ?? null;
   const workspace = project?.workspaces.find((w) => w.path === path) ?? null;
   return { project, workspace, path };
 }
@@ -89,7 +94,7 @@ function activeWorkspace(): ActiveWorkspace {
 /** The selected tab of the active panel, if any. */
 function activeTabId(): string | null {
   const state = useAppStore.getState();
-  const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
+  const layout = selectActiveLayout(state);
   return layout?.panels[layout.activePanelId]?.selectedTabId ?? null;
 }
 

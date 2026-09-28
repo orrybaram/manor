@@ -11,12 +11,16 @@
 import * as path from "node:path";
 import type { PersistedLayout } from "./terminal-host/layout-persistence";
 import type { ProjectInfo, WorkspaceInfo } from "./persistence";
+import type { WorkspaceKey } from "../src/lib/workspace-key";
 
-/** The workspacePath whose panes contain `paneId`, or null. */
+/**
+ * The host-qualified key (ADR-191) of the workspace whose panes contain
+ * `paneId`, or null.
+ */
 export function findWorkspaceForPane(
   layout: PersistedLayout,
   paneId: string,
-): string | null {
+): WorkspaceKey | null {
   for (const workspace of layout.workspaces ?? []) {
     const panels = workspace.panels ?? {};
     for (const panel of Object.values(panels)) {
@@ -24,7 +28,7 @@ export function findWorkspaceForPane(
       for (const tab of tabs) {
         const paneSessions = tab?.paneSessions ?? {};
         if (paneId in paneSessions) {
-          return workspace.workspacePath;
+          return workspace.workspacePath as WorkspaceKey;
         }
       }
     }

@@ -18,11 +18,15 @@
  */
 
 import {
+  layoutKeyFor,
+  selectActiveLayout,
+  selectActiveWorkspaceKey,
   useAppStore,
   type AppState,
   type Panel,
   type WorkspaceLayout,
 } from "../store/app-store";
+import { parseWorkspaceKey } from "./workspace-key";
 import { useProjectStore } from "../store/project-store";
 import { layoutSnapshot } from "../store/layout-snapshot";
 import { hasPaneId, type SplitDirection } from "../store/pane-tree";
@@ -117,8 +121,7 @@ function parseOptionalEnum<T extends string>(
 // ---------------------------------------------------------------------------
 
 function requireActiveLayout(state: AppState): WorkspaceLayout {
-  const path = state.activeWorkspacePath;
-  const layout = path ? state.workspaceLayouts[path] : undefined;
+  const layout = selectActiveLayout(state);
   if (!layout) throw new Error("No active workspace");
   return layout;
 }
@@ -150,7 +153,7 @@ function layoutHasTab(layout: WorkspaceLayout, tabId: string): boolean {
  * layout for any string, which would silently create the tab nowhere useful.
  */
 function isKnownWorkspace(state: AppState, path: string): boolean {
-  if (state.workspaceLayouts[path]) return true;
+  if (state.workspaceLayouts[layoutKeyFor(path)]) return true;
   return useProjectStore
     .getState()
     .projects.some((project) =>
@@ -250,7 +253,7 @@ function newTab(args: Record<string, unknown>): {
   // 2. Act. Switch workspace only if requested, and always switch back —
   // `new-tab` is MCP-only; an agent that wants the user looking at its tab
   // calls `focus_pane` instead.
-  const previous = state.activeWorkspacePath;
+  const previous = selectActiveWorkspaceKey(state);
   if (workspacePath) state.setActiveWorkspace(workspacePath);
   try {
     // `setActiveWorkspace` is a synchronous `set()`; re-read to see it.
@@ -269,8 +272,10 @@ function newTab(args: Record<string, unknown>): {
     if (!created) throw new Error("Tab was not created");
     return created;
   } finally {
-    if (workspacePath && previous && previous !== workspacePath) {
-      useAppStore.getState().setActiveWorkspace(previous);
+    const now = selectActiveWorkspaceKey(useAppStore.getState());
+    if (workspacePath && previous && previous !== now) {
+      const { hostId, path } = parseWorkspaceKey(previous);
+      useAppStore.getState().setActiveWorkspace(path, hostId);
     }
   }
 }
@@ -511,9 +516,9 @@ function extractPaneToTab(args: Record<string, unknown>): { tabId: string } {
 
 function reopenClosedPane(): { ok: true } {
   const state = useAppStore.getState();
-  const path = state.activeWorkspacePath;
-  if (!path) throw new Error("No active workspace");
-  const hasClosed = state.closedPaneStack.some((s) => s.workspacePath === path);
+  const key = selectActiveWorkspaceKey(state);
+  if (!key) throw new Error("No active workspace");
+  const hasClosed = state.closedPaneStack.some((s) => s.workspaceKey === key);
   if (!hasClosed) {
     throw new Error("Nothing to reopen");
   }

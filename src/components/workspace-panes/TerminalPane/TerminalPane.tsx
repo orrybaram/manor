@@ -26,12 +26,12 @@ import styles from "./TerminalPane.module.css";
 type TerminalPaneProps = {
   paneId: string;
   cwd?: string;
-  /** The workspace the pane belongs to; its session runs on that host. */
-  workspacePath?: string;
+  /** Key of the workspace the pane belongs to; its session runs on that host. */
+  workspaceKey?: string;
 };
 
 export function TerminalPane(props: TerminalPaneProps) {
-  const { paneId, cwd, workspacePath } = props;
+  const { paneId, cwd, workspaceKey } = props;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const theme = useThemeStore((s) => s.theme);
@@ -61,7 +61,7 @@ export function TerminalPane(props: TerminalPaneProps) {
     cwd,
     theme,
     openSearch,
-    workspacePath,
+    workspaceKey,
   );
   const [dismissed, setDismissed] = useState(false);
   const splitPaneAt = useAppStore((s) => s.splitPaneAt);

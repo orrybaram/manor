@@ -4,13 +4,13 @@ import { SplitPanelLayout } from "./SplitPanelLayout";
 
 interface PanelLayoutProps {
   node: PanelNode;
-  workspacePath: string;
+  workspaceKey: string;
   onNewAgent: () => void;
 }
 
-export function PanelLayout({ node, workspacePath, onNewAgent }: PanelLayoutProps) {
+export function PanelLayout({ node, workspaceKey, onNewAgent }: PanelLayoutProps) {
   if (node.type === "leaf") {
-    return <LeafPanel panelId={node.panelId} workspacePath={workspacePath} onNewAgent={onNewAgent} />;
+    return <LeafPanel panelId={node.panelId} workspaceKey={workspaceKey} onNewAgent={onNewAgent} />;
   }
   return (
     <SplitPanelLayout
@@ -18,7 +18,7 @@ export function PanelLayout({ node, workspacePath, onNewAgent }: PanelLayoutProp
       ratio={node.ratio}
       first={node.first}
       second={node.second}
-      workspacePath={workspacePath}
+      workspaceKey={workspaceKey}
       onNewAgent={onNewAgent}
     />
   );

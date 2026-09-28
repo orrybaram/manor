@@ -5,13 +5,14 @@ import { allPaneIds } from "../store/pane-tree";
 import { pickBestPaneStatus } from "./useTabAgentStatus";
 import type { AgentStatus } from "../electron.d";
 
+/** Agent status of the workspace keyed `key` (ADR-191). */
 export function useWorkspaceAgentStatus(
-  workspacePath: string,
+  key: string,
 ): { status: AgentStatus | null; pulse: boolean } {
   const agents = useAgentStore((s) => s.agents);
   const unseenRespondedAgentIds = useAgentStore((s) => s.unseenRespondedAgentIds);
   const unseenInputAgentIds = useAgentStore((s) => s.unseenInputAgentIds);
-  const layout = useAppStore((s) => s.workspaceLayouts[workspacePath] ?? null);
+  const layout = useAppStore((s) => s.workspaceLayouts[key] ?? null);
   const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
 
   return useMemo(() => {

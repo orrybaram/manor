@@ -7,7 +7,7 @@
  * outside the render cycle.
  */
 
-import { useAppStore } from "../store/app-store";
+import { selectActiveLayout, useAppStore } from "../store/app-store";
 import { getAgentCommand } from "../agent-defaults";
 
 export type PaneContentType = "terminal" | "browser" | "diff" | "agent";
@@ -15,7 +15,7 @@ export type PaneContentType = "terminal" | "browser" | "diff" | "agent";
 /** The focused pane of the active workspace's selected tab, if any. */
 export function getFocusedPaneId(): string | null {
   const state = useAppStore.getState();
-  const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
+  const layout = selectActiveLayout(state);
   if (!layout) return null;
   const panel = layout.panels[layout.activePanelId];
   if (!panel) return null;

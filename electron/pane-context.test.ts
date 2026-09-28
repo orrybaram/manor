@@ -67,6 +67,23 @@ describe("pane-context", () => {
       expect(findWorkspaceForPane(layout, "pane-1")).toBe("/repo/a");
     });
 
+    it("returns the host-qualified key of a remote workspace (ADR-191)", () => {
+      const layout: PersistedLayout = {
+        version: 3,
+        workspaces: [
+          workspace("/repo/a", {
+            "panel-1": panel("panel-1", [tab("tab-1", { "pane-local": paneSession() })]),
+          }),
+          workspace("box:/repo/a", {
+            "panel-2": panel("panel-2", [tab("tab-2", { "pane-box": paneSession() })]),
+          }),
+        ],
+      };
+
+      expect(findWorkspaceForPane(layout, "pane-local")).toBe("/repo/a");
+      expect(findWorkspaceForPane(layout, "pane-box")).toBe("box:/repo/a");
+    });
+
     it("finds a pane in a later workspace", () => {
       const layout: PersistedLayout = {
         version: 2,

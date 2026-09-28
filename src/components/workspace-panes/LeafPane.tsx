@@ -35,8 +35,8 @@ import { countPanesInWindow, trackHandoff } from "../../lib/window-handoff";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { Row } from "../ui/Layout/Layout";
 import { registerBrowserPane, unregisterBrowserPane } from "../../lib/browser-pane-registry";
-import { useProjectStore } from "../../store/project-store";
-import { remoteHostIdForWorkspace, selectedProjectId } from "../../lib/hosts";
+import { isRemoteHost } from "../../lib/hosts";
+import { parseWorkspaceKey } from "../../lib/workspace-key";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { useRemotePaneStore } from "../../store/remote-pane-store";
 
@@ -49,11 +49,14 @@ function stripUrlForDisplay(url: string): string {
 
 type LeafPaneProps = {
   paneId: string;
-  workspacePath?: string;
+  /** Key of the workspace the pane belongs to (ADR-191). */
+  workspaceKey?: string;
 };
 
 export function LeafPane(props: LeafPaneProps) {
-  const { paneId, workspacePath } = props;
+  const { paneId, workspaceKey } = props;
+  const workspace = workspaceKey ? parseWorkspaceKey(workspaceKey) : null;
+  const workspacePath = workspace?.path;
 
   const focusedPaneId = useAppStore((s) => {
     const ws = selectActiveWorkspace(s);
@@ -65,13 +68,11 @@ export function LeafPane(props: LeafPaneProps) {
   const contentType = useAppStore((s) => s.paneContentType[paneId]);
   const paneUrl = useAppStore((s) => s.paneUrl[paneId]);
   // A browser pane of a remote workspace reaches that host's dev servers
-  // through port forwards (ADR-178 §5). Null — and a stable primitive, so
-  // local-only users never re-render on it — for this machine.
-  const remoteHostId = useProjectStore((s) =>
-    contentType === "browser"
-      ? remoteHostIdForWorkspace(s.projects, workspacePath, selectedProjectId(s))
-      : null,
-  );
+  // through port forwards (ADR-178 §5). Null for this machine.
+  const remoteHostId =
+    contentType === "browser" && workspace && isRemoteHost(workspace.hostId)
+      ? workspace.hostId
+      : null;
   const recordingStartedAt = useAppStore((s) => s.paneRecordingStartedAt[paneId]);
   // Bumped when this pane's remote host comes back, to remount its terminal
   // and create/attach its session again (ADR-178 §6). 0 for every local pane.
@@ -654,7 +655,7 @@ export function LeafPane(props: LeafPaneProps) {
             key={reattachEpoch}
             paneId={paneId}
             cwd={paneCwd || workspacePath}
-            workspacePath={workspacePath}
+            workspaceKey={workspaceKey}
           />
         )}
       </div>

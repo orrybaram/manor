@@ -8,7 +8,7 @@ import X from "lucide-react/dist/esm/icons/x";
 import { Button } from "../ui/Button/Button";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { useShallow } from "zustand/react/shallow";
-import { useAppStore } from "../../store/app-store";
+import { selectActiveWorkspaceKey, useAppStore } from "../../store/app-store";
 import {
   useRemotePaneStore,
   selectTabRemoteHostId,
@@ -146,7 +146,7 @@ export function TabButton(props: TabButtonProps) {
 
   const title = useTabTitle(tabId);
   const { contentType, favicon, audioPlaying, audioMuted, focusedPaneId } = useAppStore(useShallow((s) => {
-    const wsPath = s.activeWorkspacePath;
+    const wsPath = selectActiveWorkspaceKey(s);
     if (!wsPath) return { contentType: undefined, favicon: undefined, audioPlaying: false, audioMuted: false, focusedPaneId: undefined };
     const layout = s.workspaceLayouts[wsPath];
     if (!layout) return { contentType: undefined, favicon: undefined, audioPlaying: false, audioMuted: false, focusedPaneId: undefined };
@@ -163,7 +163,7 @@ export function TabButton(props: TabButtonProps) {
     return { contentType: undefined, favicon: undefined, audioPlaying: false, audioMuted: false, focusedPaneId: undefined };
   }));
   const { hasOtherClosableTabs, hasClosableTabsToRight } = useAppStore(useShallow((s) => {
-    const wsPath = s.activeWorkspacePath;
+    const wsPath = selectActiveWorkspaceKey(s);
     const empty = { hasOtherClosableTabs: false, hasClosableTabsToRight: false };
     if (!wsPath) return empty;
     const layout = s.workspaceLayouts[wsPath];
@@ -183,7 +183,7 @@ export function TabButton(props: TabButtonProps) {
     return empty;
   }));
   const panelCount = useAppStore((s) => {
-    const wsPath = s.activeWorkspacePath;
+    const wsPath = selectActiveWorkspaceKey(s);
     if (!wsPath) return 1;
     const layout = s.workspaceLayouts[wsPath];
     if (!layout) return 1;
@@ -347,7 +347,7 @@ export function TabButton(props: TabButtonProps) {
               className={styles.contextMenuItem}
               onSelect={() => {
                 const state = useAppStore.getState();
-                const wsPath = state.activeWorkspacePath;
+                const wsPath = selectActiveWorkspaceKey(state);
                 if (!wsPath) return;
                 const layout = state.workspaceLayouts[wsPath];
                 if (!layout) return;

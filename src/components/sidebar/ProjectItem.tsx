@@ -57,6 +57,7 @@ import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import { HostIndicator, LocalHostLabel } from "../hosts/HostIndicator";
 import { isRemoteHost } from "../../lib/hosts";
+import { workspaceKey } from "../../lib/workspace-key";
 import { useHostStore, selectHost } from "../../store/host-store";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
@@ -82,6 +83,8 @@ import styles from "./ProjectItem.module.css";
 
 interface WorkspaceItemProps {
   ws: WorkspaceInfo;
+  /** The host of the workspace's project (ADR-191). */
+  hostId: string;
   /** True for the workspace currently open — matched by path, never by index. */
   isActive: boolean;
   /** True when this row is part of the sidebar multi-select (ADR-190). */
@@ -121,6 +124,7 @@ const WorkspaceItem = React.forwardRef<
 ) {
   const {
     ws,
+    hostId,
     isActive,
     isSelected,
     isDragging,
@@ -146,7 +150,9 @@ const WorkspaceItem = React.forwardRef<
     ...rest
   } = props;
 
-  const { status: workspaceStatus, pulse: workspacePulse } = useWorkspaceAgentStatus(ws.path);
+  const { status: workspaceStatus, pulse: workspacePulse } = useWorkspaceAgentStatus(
+    workspaceKey(hostId, ws.path),
+  );
   const workspaceIndicator = toWorkspaceIndicator(workspaceStatus, workspacePulse);
   const {
     handleKeyDown: handleEmojiKeyDown,
@@ -652,6 +658,7 @@ export function ProjectItem(props: ProjectItemProps) {
     const workspaceEl = (
       <WorkspaceItem
         ws={ws}
+        hostId={project.hostId}
         isActive={ws.path === activeWorkspacePath}
         isSelected={selectedPaths.has(ws.path)}
         isDragging={dragKey === ws.path}
@@ -1045,6 +1052,7 @@ export function ProjectItem(props: ProjectItemProps) {
         key={folder.id}
         folder={folder}
         workspaces={contents}
+        hostId={project.hostId}
         depth={depth}
         collapsed={collapsedFolderIds.has(folder.id)}
         containsSelected={

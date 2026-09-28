@@ -17,7 +17,7 @@ type ToggleGroupProps<T extends string> = {
   value: T;
   onChange: (value: T) => void;
   options: ToggleOption<T>[];
-  size?: "sm" | "md" | "lg";
+  size?: "xs" | "sm" | "md" | "lg";
   /** The group's accessible name. Give this or `aria-labelledby`. */
   "aria-label"?: string;
   /** Id of the element that names the group. Give this or `aria-label`. */

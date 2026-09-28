@@ -4,7 +4,9 @@ import styles from "./dialogs.module.css";
 import { Button } from "../ui/Button/Button";
 import { EmojiInput } from "../ui/EmojiAutocomplete";
 import type { WorkspaceHostChoice } from "../../lib/workspace-host-choices";
-import { HostPicker } from "./NewWorkspaceDialog/HostPicker";
+import { isRemoteHost } from "../../lib/hosts";
+import { HostIndicator, LocalHostLabel } from "../hosts/HostIndicator";
+import { ToggleGroup } from "../ui/ToggleGroup";
 
 type NewFolderDialogProps = {
   open: boolean;
@@ -51,14 +53,6 @@ export function NewFolderDialog(props: NewFolderDialogProps) {
             Group workspaces in the sidebar. Folders do not change anything on
             disk.
           </Dialog.Description>
-          {hostChoices && hostChoices.length > 1 && chosenProjectId && (
-            <HostPicker
-              label="On"
-              choices={hostChoices}
-              value={chosenProjectId}
-              onChange={setProjectId}
-            />
-          )}
           <EmojiInput
             autoFocus
             value={name}
@@ -69,6 +63,23 @@ export function NewFolderDialog(props: NewFolderDialogProps) {
             placeholder="Folder name"
             className={styles.convertInput}
           />
+          {hostChoices && hostChoices.length > 1 && chosenProjectId && (
+            <ToggleGroup
+              value={chosenProjectId}
+              onChange={setProjectId}
+              size="xs"
+              aria-label="Host"
+              data-testid="new-folder-host-picker"
+              options={hostChoices.map((choice) => ({
+                value: choice.projectId,
+                label: isRemoteHost(choice.hostId) ? (
+                  <HostIndicator hostId={choice.hostId} variant="label" />
+                ) : (
+                  <LocalHostLabel />
+                ),
+              }))}
+            />
+          )}
           <div className={styles.confirmActions}>
             <Button variant="secondary" onClick={() => onOpenChange(false)}>
               Cancel

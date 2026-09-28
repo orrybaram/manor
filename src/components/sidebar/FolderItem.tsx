@@ -6,7 +6,8 @@ import type { WorkspaceFolder, WorkspaceInfo } from "../../store/project-store";
 import { handleSidebarRowKeyDown } from "../../lib/sidebar-row";
 import { openContextMenuFromKeyboard } from "../../lib/keyboard-context-menu";
 import { useWorkspaceKeys, useWorkspacesAgentStatus } from "../../hooks/useProjectAgentStatus";
-import { AgentDot } from "../ui/AgentDot/AgentDot";
+import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
+import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import { useEmojiAutocomplete } from "../ui/EmojiAutocomplete/useEmojiAutocomplete";
 import { composeHandlers } from "../ui/EmojiAutocomplete/compose";
 import styles from "./ProjectItem.module.css";
@@ -118,6 +119,7 @@ export function FolderItem(props: FolderItemProps) {
   }, [collapsed]);
 
   const { status, pulse } = useWorkspacesAgentStatus(useWorkspaceKeys(workspaces, hostId));
+  const indicator = toWorkspaceIndicator(status, pulse);
 
   const setEditingState = (next: boolean) => {
     setEditing(next);
@@ -248,9 +250,8 @@ export function FolderItem(props: FolderItemProps) {
                   {folder.name}
                 </span>
                 <span className={styles.folderCount}>{workspaces.length}</span>
-                {collapsed && status && (
-                  <AgentDot status={status} size="sidebar" pulse={pulse} />
-                )}
+                {/* Same rule as a collapsed project: idle shows nothing. */}
+                {collapsed && indicator && <WorkspaceIndicatorDot indicator={indicator} />}
               </>
             )}
           </div>

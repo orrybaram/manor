@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ManorLogo } from "../ui/ManorLogo";
 import { Row, Stack } from "../ui/Layout/Layout";
+import { Button } from "../ui/Button/Button";
 import styles from "../EmptyState.module.css";
 
 export interface ActionItem {
@@ -24,10 +25,15 @@ type EmptyStateShellProps = {
   banner?: ReactNode;
   /** `data-testid` for the root, so e2e tests can tell the surfaces apart. */
   testId?: string;
+  /**
+   * Extra content rendered under the actions list, in the same 480px column
+   * (ADR-194 §1: Home's Needs-you / Up next sections and summary line).
+   */
+  children?: ReactNode;
 };
 
 export function EmptyStateShell(props: EmptyStateShellProps) {
-  const { subtitle, actions, banner, testId } = props;
+  const { subtitle, actions, banner, testId, children } = props;
 
   return (
     <Row
@@ -44,8 +50,9 @@ export function EmptyStateShell(props: EmptyStateShellProps) {
         {banner}
         <Stack gap="xs" className={styles.actions}>
           {actions.map((item) => (
-            <button
+            <Button
               key={item.label}
+              variant="ghost"
               className={[
                 styles.action,
                 item.variant === "danger" ? styles.actionDanger : "",
@@ -70,9 +77,10 @@ export function EmptyStateShell(props: EmptyStateShellProps) {
                   ))}
                 </Row>
               )}
-            </button>
+            </Button>
           ))}
         </Stack>
+        {children}
       </Stack>
     </Row>
   );

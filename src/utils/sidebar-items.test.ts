@@ -17,9 +17,14 @@ import {
   placeInFolder,
   placeManyAfterFolders,
   placeManyInFolder,
+  selectionBySection,
+  selectionKey,
+  selectionKeyForPath,
   serializeOrder,
   topLevelKeys,
+  visibleSelectionKeys,
   visibleWorkspacePaths,
+  type SelectionSection,
   type SidebarItem,
 } from "./sidebar-items";
 import type {
@@ -1167,5 +1172,170 @@ describe("linked-project groups at the top level (ADR-192)", () => {
       "local-2",
     ]);
     expect(ids(linkCandidates(projects[2], projects))).toEqual(["mac-app", "local-2"]);
+  });
+});
+
+describe("selection across a linked group's host sections (ADR-192 ticket 7)", () => {
+  type Member = Pick<
+    ProjectInfo,
+    "id" | "hostId" | "workspaces" | "folders" | "sidebarOrder" | "group"
+  >;
+
+  const group: ProjectGroupInfo = {
+    id: "g-app",
+    name: "App",
+    memberIds: ["app-local", "app-box"],
+    lastUsedHostId: "local",
+  };
+
+  // Both hosts check the repo out at the same paths, so bare paths collide.
+  const local: Member = {
+    id: "app-local",
+    hostId: "local",
+    group,
+    ...project(
+      [ws("/repo/main"), ws("/repo/feat", "f1"), ws("/repo/fix")],
+      [folder("f1")],
+      ["/repo/main", "f1", "/repo/feat", "/repo/fix"],
+    ),
+  };
+  const box: Member = {
+    id: "app-box",
+    hostId: "box",
+    group,
+    ...project(
+      [ws("/repo/main"), ws("/repo/wip"), ws("/repo/old", null, true)],
+      [],
+      ["/repo/main", "/repo/wip", "/repo/old"],
+    ),
+  };
+
+  /** The group's sections, as its entry builds them, with view state. */
+  function sections(
+    collapsed: { folders?: string[]; sections?: string[] } = {},
+  ): SelectionSection<Member>[] {
+    const [entry] = buildTopLevelEntries([local, box]);
+    if (entry.kind !== "group") throw new Error("expected a group entry");
+    return entry.sections.map((section) => ({
+      ...section,
+      collapsedFolderIds: new Set(
+        section.project.id === "app-local" ? (collapsed.folders ?? []) : [],
+      ),
+      collapsed: (collapsed.sections ?? []).includes(section.project.id),
+    }));
+  }
+
+  const L = (path: string) => selectionKey("app-local", path);
+  const B = (path: string) => selectionKey("app-box", path);
+
+  /** A section selection as `projectId:path,…`. */
+  function split(
+    result: ReturnType<typeof selectionBySection<Member>>,
+  ): string[] {
+    return result.map(
+      ({ section, workspaces }) =>
+        `${section.project.id}:${workspaces.map((w) => w.path).join(",")}`,
+    );
+  }
+
+  it("keys the same path on two hosts as two rows", () => {
+    expect(L("/repo/main")).not.toBe(B("/repo/main"));
+  });
+
+  it("orders visible rows across sections, section by section in tree order", () => {
+    expect(visibleSelectionKeys(sections())).toEqual([
+      L("/repo/main"),
+      L("/repo/feat"),
+      L("/repo/fix"),
+      B("/repo/main"),
+      B("/repo/wip"),
+    ]);
+  });
+
+  it("leaves out rows of a collapsed folder or a collapsed section", () => {
+    expect(
+      visibleSelectionKeys(sections({ folders: ["f1"], sections: ["app-box"] })),
+    ).toEqual([L("/repo/main"), L("/repo/fix")]);
+  });
+
+  it("splits a selection by the member project that owns each row", () => {
+    const keys = new Set([B("/repo/wip"), L("/repo/fix"), L("/repo/main")]);
+    expect(split(selectionBySection(sections(), keys))).toEqual([
+      "app-local:/repo/main,/repo/fix",
+      "app-box:/repo/wip",
+    ]);
+  });
+
+  it("routes a shared path to the section it was selected in", () => {
+    const keys = new Set([B("/repo/main")]);
+    expect(split(selectionBySection(sections(), keys))).toEqual([
+      "app-box:/repo/main",
+    ]);
+  });
+
+  it("puts rows a collapsed folder hides after the visible ones", () => {
+    const keys = new Set([L("/repo/feat"), L("/repo/fix"), L("/repo/main")]);
+    expect(
+      split(selectionBySection(sections({ folders: ["f1"] }), keys)),
+    ).toEqual(["app-local:/repo/main,/repo/fix,/repo/feat"]);
+  });
+
+  it("keeps a collapsed section's selected rows", () => {
+    const keys = new Set([L("/repo/fix"), B("/repo/wip")]);
+    expect(
+      split(selectionBySection(sections({ sections: ["app-box"] }), keys)),
+    ).toEqual(["app-local:/repo/fix", "app-box:/repo/wip"]);
+  });
+
+  it("drops keys whose row is hidden, gone, or in no section", () => {
+    const keys = new Set([
+      B("/repo/old"),
+      B("/repo/gone"),
+      selectionKey("elsewhere", "/repo/main"),
+    ]);
+    expect(selectionBySection(sections(), keys)).toEqual([]);
+  });
+
+  it("finds the active workspace's key, preferring the given section", () => {
+    const all = sections();
+    expect(selectionKeyForPath(all, "/repo/wip")).toBe(B("/repo/wip"));
+    expect(selectionKeyForPath(all, "/repo/main", ["app-box"])).toBe(B("/repo/main"));
+    expect(selectionKeyForPath(all, "/repo/main")).toBe(L("/repo/main"));
+    expect(selectionKeyForPath(all, "/repo/old")).toBeNull();
+    expect(selectionKeyForPath(all, null)).toBeNull();
+  });
+
+  it("keys a shared active path to the project that has it open, not the clicked section", () => {
+    const all = sections();
+    // Open on the box; the Cmd-click lands in the local section.
+    expect(selectionKeyForPath(all, "/repo/main", ["app-box", "app-local"])).toBe(
+      B("/repo/main"),
+    );
+    // The open project is outside the group: the clicked section stands in.
+    expect(selectionKeyForPath(all, "/repo/main", ["other", "app-box"])).toBe(
+      B("/repo/main"),
+    );
+  });
+
+  it("moves only a section's own rows when each member applies its share", () => {
+    const all = sections();
+    const keys = new Set([L("/repo/feat"), B("/repo/wip")]);
+    const byMember = new Map(
+      selectionBySection(all, keys).map(({ section, workspaces }) => [
+        section.project.id,
+        placeManyAfterFolders(
+          section.items,
+          workspaces.map((w) => w.path),
+        ),
+      ]),
+    );
+    expect(shape(byMember.get("app-local")!)).toEqual([
+      "/repo/main",
+      "f1[]",
+      "/repo/feat",
+      "/repo/fix",
+    ]);
+    // Loose rows stay put: nothing crosses into, or out of, another member.
+    expect(shape(byMember.get("app-box")!)).toEqual(["/repo/main", "/repo/wip"]);
   });
 });

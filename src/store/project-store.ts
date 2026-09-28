@@ -108,6 +108,20 @@ export function folderCollapseKey(projectId: string, folderId: string): string {
   return `${projectId}/${folderId}`;
 }
 
+/** The ids of `project`'s folders that `collapsedFolderKeys` holds collapsed. */
+export function collapsedFolderIdsOf(
+  project: Pick<ProjectInfo, "id" | "folders">,
+  collapsedFolderKeys: ReadonlySet<string>,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const folder of project.folders) {
+    if (collapsedFolderKeys.has(folderCollapseKey(project.id, folder.id))) {
+      ids.add(folder.id);
+    }
+  }
+  return ids;
+}
+
 /**
  * Re-sorts workspaces to match a sidebar order. Entries in `order` that aren't
  * paths (folder ids) are ignored; paths absent from `order` keep their

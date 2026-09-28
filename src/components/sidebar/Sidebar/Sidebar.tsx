@@ -45,6 +45,7 @@ import {
   buildTopLevelEntries,
   expandTopLevelOrder,
   topLevelKeys,
+  type SelectionScope,
 } from "../../../utils/sidebar-items";
 import type { ProjectInfo } from "../../../store/project-store";
 import { PortsList } from "../../ports/PortsList";
@@ -236,12 +237,14 @@ export function Sidebar(props: SidebarProps) {
     project: ProjectInfo,
     variant: ProjectItemVariant,
     onDragStart?: (e: ReactPointerEvent) => void,
+    selectionScope?: SelectionScope,
   ) => {
     const idx = projects.indexOf(project);
     return (
       <ProjectItem
         project={project}
         variant={variant}
+        selectionScope={selectionScope}
         isSelected={!homeActive && idx === selectedProjectIndex}
         collapsed={collapsedProjectIds.has(project.id)}
         onToggleCollapsed={() => {
@@ -454,8 +457,13 @@ export function Sidebar(props: SidebarProps) {
                               toggleProjectCollapsed(entry.key);
                           }}
                           onDragStart={(e) => handleProjectDragStart(idx, e)}
-                          renderSection={(section) =>
-                            renderProject(section.project, "section")
+                          renderSection={(section, selectionScope) =>
+                            renderProject(
+                              section.project,
+                              "section",
+                              undefined,
+                              selectionScope,
+                            )
                           }
                         />
                       )}

@@ -14,7 +14,7 @@ import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import FolderGit2 from "lucide-react/dist/esm/icons/folder-git-2";
 import Laptop from "lucide-react/dist/esm/icons/laptop";
 import {
-  folderCollapseKey,
+  collapsedFolderIdsOf,
   useProjectStore,
   type ProjectInfo,
   type WorkspaceInfo,
@@ -29,9 +29,14 @@ import {
   placeInFolder,
   placeManyAfterFolders,
   placeManyInFolder,
-  visibleWorkspacePaths,
+  selectionBySection,
+  selectionKey,
+  selectionKeyForPath,
+  visibleSelectionKeys,
   type DropTarget,
   type Row,
+  type SectionSelection,
+  type SelectionScope,
   type SidebarItem,
 } from "../../utils/sidebar-items";
 import {
@@ -42,6 +47,7 @@ import {
   EMPTY_SIDEBAR_SELECTION,
   useSidebarSelectionStore,
 } from "../../store/sidebar-selection-store";
+import { useDeletingWorkspacesStore } from "../../store/deleting-workspaces-store";
 import { headerRefKey, useSidebarDrag } from "../../hooks/useSidebarDrag";
 import { useProjectAgentStatus } from "../../hooks/useProjectAgentStatus";
 import { projectColorStyle, useProjectHeaderRow } from "../../hooks/useProjectHeaderRow";
@@ -300,6 +306,12 @@ type ProjectItemProps = {
    * group row above it carries the name, color and drag.
    */
   variant?: ProjectItemVariant;
+  /**
+   * The selection this project's rows share. A section passes its group's,
+   * so ranges, toggles and bulk actions span the group's host sections
+   * (ADR-192 ticket 7); absent, the project is a scope of its own.
+   */
+  selectionScope?: SelectionScope;
 };
 
 export function ProjectItem(props: ProjectItemProps) {
@@ -321,6 +333,7 @@ export function ProjectItem(props: ProjectItemProps) {
     onQuickMergeWorktree,
     onOpenDiff,
     variant = "project",
+    selectionScope,
   } = props;
 
   const isSection = variant === "section";
@@ -349,32 +362,20 @@ export function ProjectItem(props: ProjectItemProps) {
   // menu: the folder is created and those workspaces moved into it in one
   // step. A single row is still an array of one (ADR-190 §2).
   const [pendingMovePaths, setPendingMovePaths] = useState<string[] | null>(null);
-  const [confirmBulkDeleteWorkspaces, setConfirmBulkDeleteWorkspaces] =
-    useState<WorkspaceInfo[] | null>(null);
+  // By section: a group-wide selection deletes each workspace through its own
+  // member project (ADR-192 ticket 7).
+  const [confirmBulkDelete, setConfirmBulkDelete] =
+    useState<SectionSelection[] | null>(null);
   // The folder the next new folder belongs in: a folder's "New Folder Inside…",
   // or the folder the "New Folder…" anchor already lives in, so the new group
   // appears where it was asked for rather than at the top level (ADR-172).
   const [newFolderParentId, setNewFolderParentId] = useState<string | null>(null);
-  const [deletingPaths, setDeletingPaths] = useState<Set<string>>(new Set());
   // A folder's inline rename input, like a workspace's, suspends dragging.
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
 
-  // Keep a path dimmed until the workspace is actually gone. Only prune paths
-  // that no longer exist — a workspaces refresh mid-deletion (e.g. git status
-  // poll) must not un-dim an item whose deletion is still in flight. Pruned
-  // during render (React's "adjust state when props change") so a deleted row
-  // never renders dimmed for a frame after it comes back.
-  const [prunedFor, setPrunedFor] = useState(project.workspaces);
-  if (prunedFor !== project.workspaces) {
-    setPrunedFor(project.workspaces);
-    if (deletingPaths.size > 0) {
-      const existing = new Set(project.workspaces.map((ws) => ws.path));
-      const next = new Set(
-        [...deletingPaths].filter((path) => existing.has(path)),
-      );
-      if (next.size !== deletingPaths.size) setDeletingPaths(next);
-    }
-  }
+  // Rows being removed stay dimmed until they are gone — shared, since a
+  // bulk delete from another section of this group may be removing them.
+  const deletingKeys = useDeletingWorkspacesStore((s) => s.keys);
 
   const [mergeState, setMergeState] = useState<{
     canMerge: boolean;
@@ -413,15 +414,10 @@ export function ProjectItem(props: ProjectItemProps) {
     () => buildSidebarItems({ workspaces, folders, sidebarOrder }),
     [workspaces, folders, sidebarOrder],
   );
-  const collapsedFolderIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const folder of folders) {
-      if (collapsedFolderKeys.has(folderCollapseKey(projectId, folder.id))) {
-        ids.add(folder.id);
-      }
-    }
-    return ids;
-  }, [folders, collapsedFolderKeys, projectId]);
+  const collapsedFolderIds = useMemo(
+    () => collapsedFolderIdsOf({ id: projectId, folders }, collapsedFolderKeys),
+    [folders, collapsedFolderKeys, projectId],
+  );
   // Every folder for the "Move to Folder" submenu, walked in tree order and
   // labelled by its full path, so a flat list of menu items still reads as the
   // tree it came from (ADR-172).
@@ -448,52 +444,54 @@ export function ProjectItem(props: ProjectItemProps) {
     (ws) => ws.path === activeWorkspacePath,
   );
 
-  // Tree order of every workspace a shift-click range can land on — a
-  // collapsed folder's members are off screen and out of the range, exactly
-  // as they are absent from `flattenRows` (ADR-190 §1).
-  const orderedVisiblePaths = useMemo(
-    () => visibleWorkspacePaths(items, collapsedFolderIds),
-    [items, collapsedFolderIds],
-  );
-  // Read only when the selection belongs to this project: a selection made in
-  // another project highlights nothing here. A path that has since left the
-  // sidebar (deleted, or hidden from anywhere) is dropped here, at read time,
-  // so a stale entry can never drive a bulk action on a row that isn't shown.
-  const storedPaths = useSidebarSelectionStore((s) =>
-    s.projectId === projectId ? s.paths : EMPTY_SIDEBAR_SELECTION,
-  );
-  const selectedPaths = useMemo(() => {
-    if (storedPaths.size === 0) return storedPaths;
-    const shown = new Set(
-      workspaces.filter((ws) => !ws.hidden).map((ws) => ws.path),
-    );
-    const live = new Set([...storedPaths].filter((path) => shown.has(path)));
-    return live.size === storedPaths.size ? storedPaths : live;
-  }, [storedPaths, workspaces]);
-
-  // The selection in tree order (ADR-190 §2): visible rows first, then any
-  // selected path a collapsed folder hides — the same rule the group drag
-  // uses to order its own block.
-  const orderedSelection = useMemo(() => {
-    const visible = orderedVisiblePaths.filter((p) => selectedPaths.has(p));
-    const visibleSet = new Set(visible);
-    return [
-      ...visible,
-      ...[...selectedPaths].filter((p) => !visibleSet.has(p)),
-    ];
-  }, [orderedVisiblePaths, selectedPaths]);
-  const selectedWorkspaces = useMemo(
+  // What this project's selection is shared across: its group's host
+  // sections when it is one (ADR-192 ticket 7), else just itself.
+  const scope = useMemo<SelectionScope>(
     () =>
-      orderedSelection
-        .map((path) => workspaces.find((ws) => ws.path === path))
-        .filter((ws): ws is WorkspaceInfo => ws != null),
-    [orderedSelection, workspaces],
+      selectionScope ?? {
+        id: projectId,
+        sections: [{ project, items, collapsedFolderIds, collapsed: false }],
+      },
+    [selectionScope, projectId, project, items, collapsedFolderIds],
   );
-  const selectedNonMain = useMemo(
-    () => selectedWorkspaces.filter((ws) => !ws.isMain),
-    [selectedWorkspaces],
+  // Tree order of every workspace a shift-click range can land on, across the
+  // scope's sections — a collapsed folder's members are off screen and out of
+  // the range, exactly as they are absent from `flattenRows` (ADR-190 §1).
+  const orderedVisibleKeys = useMemo(
+    () => visibleSelectionKeys(scope.sections),
+    [scope],
   );
-  const selectionHasFolderMember = selectedWorkspaces.some((ws) => ws.folderId);
+  // Read only when the selection belongs to this scope: a selection made in
+  // another project highlights nothing here. `selectionBySection` drops keys
+  // whose row has since left the sidebar (deleted, or hidden from anywhere).
+  const storedKeys = useSidebarSelectionStore((s) =>
+    s.scopeId === scope.id ? s.keys : EMPTY_SIDEBAR_SELECTION,
+  );
+  // The selection split by owning member project, each in tree order
+  // (ADR-190 §2): visible rows first, then any a collapsed folder hides — the
+  // same rule the group drag uses to order its own block.
+  const selectionSections = useMemo(
+    () => selectionBySection(scope.sections, storedKeys),
+    [scope, storedKeys],
+  );
+  const allSelected = useMemo(
+    () => selectionSections.flatMap((s) => s.workspaces),
+    [selectionSections],
+  );
+  // This project's own share: what it highlights, drags and files in folders.
+  const orderedSelection = useMemo(
+    () =>
+      selectionSections
+        .find((s) => s.section.project.id === projectId)
+        ?.workspaces.map((ws) => ws.path) ?? [],
+    [selectionSections, projectId],
+  );
+  const selectedPaths = useMemo(() => new Set(orderedSelection), [orderedSelection]);
+  const firstSelectedFolderId =
+    workspaces.find((ws) => ws.path === orderedSelection[0])?.folderId ?? null;
+  // Folders belong to one member project, so a selection spanning host
+  // sections has no folder its rows could all move into.
+  const selectionSpansSections = selectionSections.length > 1;
 
   const handleDrop = useCallback(
     (
@@ -631,7 +629,8 @@ export function ProjectItem(props: ProjectItemProps) {
     const displayName = ws.isMain
       ? ws.name || remoteTarget || "local"
       : ws.name || ws.branch || "main";
-    const isDeleting = deletingPaths.has(ws.path);
+    const rowKey = selectionKey(projectId, ws.path);
+    const isDeleting = deletingKeys.has(rowKey);
 
     const workspaceEl = (
       <WorkspaceItem
@@ -653,18 +652,28 @@ export function ProjectItem(props: ProjectItemProps) {
         itemRefCallback={registerRow(ws.path)}
         onRowClick={(e) => {
           const selection = useSidebarSelectionStore.getState();
+          // The active path's key belongs to the project that has it open
+          // (`selectWorkspace` moves `selectedProjectIndex` with it); this
+          // section stands in only when that project is outside the scope.
+          const activeKey = () => {
+            const { projects, selectedProjectIndex } = useProjectStore.getState();
+            return selectionKeyForPath(scope.sections, activeWorkspacePath, [
+              projects[selectedProjectIndex]?.id,
+              projectId,
+            ]);
+          };
           if (e.shiftKey) {
             // Modifier clicks select; they never navigate (ADR-190 §1).
             selection.selectRange(
-              projectId,
-              orderedVisiblePaths,
-              ws.path,
-              activeWorkspacePath,
+              scope.id,
+              orderedVisibleKeys,
+              rowKey,
+              activeKey(),
             );
           } else if (e.metaKey || e.ctrlKey) {
-            selection.toggle(projectId, ws.path, activeWorkspacePath);
+            selection.toggle(scope.id, rowKey, activeKey());
           } else {
-            selection.setAnchor(projectId, ws.path);
+            selection.setAnchor(scope.id, rowKey);
             onSelectWorkspace(globalIdx);
           }
         }}
@@ -693,9 +702,10 @@ export function ProjectItem(props: ProjectItemProps) {
           }
           if (e.metaKey || e.ctrlKey) return;
           // Grabbing a row of a 2+ selection drags the whole selection, in
-          // tree order (ADR-190 §3).
+          // tree order (ADR-190 §3) — this project's share of it only, since
+          // a drag never moves a workspace to another member project.
           const groupKeys =
-            selectedPaths.has(ws.path) && selectedPaths.size > 1
+            selectedPaths.has(ws.path) && orderedSelection.length > 1
               ? orderedSelection
               : undefined;
           handleDragStart(ws.path, "workspace", e, groupKeys);
@@ -733,7 +743,7 @@ export function ProjectItem(props: ProjectItemProps) {
     // A right-click on a row that is already part of a 2+ selection acts on
     // the whole selection; anything else clears it and falls back to the
     // single-workspace menu (ADR-190 §2).
-    const isBulkSelected = selectedPaths.has(ws.path) && selectedPaths.size > 1;
+    const isBulkSelected = selectedPaths.has(ws.path) && allSelected.length > 1;
 
     const closeAutoFocus = (e: Event) => {
       if (workspaceMenuOpenedByKeyboard.current.has(ws.path)) {
@@ -778,10 +788,11 @@ export function ProjectItem(props: ProjectItemProps) {
         <ContextMenu.Portal>
           {isBulkSelected ? (
             <WorkspaceBulkMenu
-              selectedCount={orderedSelection.length}
+              selectedCount={allSelected.length}
               folderChoices={folderChoices}
-              hasFolderMember={selectionHasFolderMember}
-              removableCount={selectedNonMain.length}
+              canMoveToFolder={!selectionSpansSections}
+              hasFolderMember={allSelected.some((w) => w.folderId)}
+              removableCount={allSelected.filter((w) => !w.isMain).length}
               onCloseAutoFocus={closeAutoFocus}
               onMoveToFolder={(folderId) => {
                 applySidebarChange(
@@ -792,25 +803,41 @@ export function ProjectItem(props: ProjectItemProps) {
               }}
               onNewFolder={() => {
                 setPendingMovePaths(orderedSelection);
-                setNewFolderParentId(selectedWorkspaces[0]?.folderId ?? null);
+                setNewFolderParentId(firstSelectedFolderId);
                 setNewFolderOpen(true);
               }}
               onRemoveFromFolder={() => {
-                applySidebarChange(
-                  projectId,
-                  placeManyAfterFolders(items, orderedSelection),
-                );
+                // Each member project's rows leave their own folders.
+                for (const { section, workspaces: picked } of selectionSections) {
+                  applySidebarChange(
+                    section.project.id,
+                    placeManyAfterFolders(
+                      section.items,
+                      picked.map((w) => w.path),
+                    ),
+                  );
+                }
                 useSidebarSelectionStore.getState().clear();
               }}
               onHide={() => {
-                hideWorkspacesAndNavigate(
-                  projectId,
-                  selectedNonMain.map((w) => w.path),
-                );
+                // Main can't be hidden; each member hides its own rows.
+                for (const { section, workspaces: picked } of selectionSections) {
+                  void hideWorkspacesAndNavigate(
+                    section.project.id,
+                    picked.map((w) => w.path),
+                  );
+                }
                 useSidebarSelectionStore.getState().clear();
               }}
               onDelete={() => {
-                setConfirmBulkDeleteWorkspaces(selectedNonMain);
+                setConfirmBulkDelete(
+                  selectionSections
+                    .map((s) => ({
+                      section: s.section,
+                      workspaces: s.workspaces.filter((w) => !w.isMain),
+                    }))
+                    .filter((s) => s.workspaces.length > 0),
+                );
               }}
             />
           ) : (
@@ -1287,45 +1314,44 @@ export function ProjectItem(props: ProjectItemProps) {
         }}
         workspace={confirmDeleteWorktree}
         onConfirm={(ws, deleteBranch) => {
-          setDeletingPaths((prev) => new Set(prev).add(ws.path));
-          void onRemoveWorktree(ws, deleteBranch).then((removed) => {
-            // A failed removal leaves the workspace in the list, so the
-            // prune below never un-dims it: do it here.
-            if (removed) return;
-            setDeletingPaths((prev) => {
-              const next = new Set(prev);
-              next.delete(ws.path);
-              return next;
-            });
-          });
+          const key = selectionKey(projectId, ws.path);
+          const deleting = useDeletingWorkspacesStore.getState();
+          deleting.mark([key]);
+          void onRemoveWorktree(ws, deleteBranch).then(() =>
+            deleting.unmark([key]),
+          );
         }}
       />
 
       <BulkDeleteWorktreesDialog
-        open={confirmBulkDeleteWorkspaces !== null}
+        open={confirmBulkDelete !== null}
         onOpenChange={(open) => {
-          if (!open) setConfirmBulkDeleteWorkspaces(null);
+          if (!open) setConfirmBulkDelete(null);
         }}
-        workspaces={confirmBulkDeleteWorkspaces ?? []}
-        onConfirm={(bulkWorkspaces, deleteBranch) => {
-          setDeletingPaths((prev) => {
-            const next = new Set(prev);
-            for (const ws of bulkWorkspaces) next.add(ws.path);
-            return next;
-          });
+        workspaces={
+          confirmBulkDelete?.flatMap(({ section, workspaces: targets }) =>
+            targets.map((ws) => ({ projectId: section.project.id, ws })),
+          ) ?? []
+        }
+        onConfirm={(_workspaces, deleteBranch) => {
+          // State, not `_workspaces`: the sections already hold each row's
+          // owning project, grouped the way the removals must run.
+          const bySection = confirmBulkDelete ?? [];
           useSidebarSelectionStore.getState().clear();
-          void removeWorktreesWithToast(project, bulkWorkspaces, deleteBranch).then(
-            (failed) => {
-              // Same as the single delete: a failed removal stays in the
-              // list, so the prune never un-dims it.
-              if (failed.length === 0) return;
-              setDeletingPaths((prev) => {
-                const next = new Set(prev);
-                for (const path of failed) next.delete(path);
-                return next;
-              });
-            },
-          );
+          const deleting = useDeletingWorkspacesStore.getState();
+          const current = useProjectStore.getState().projects;
+          // Each member project removes its own worktrees on its own host.
+          // They are separate repos, so only one project's removals queue up
+          // behind each other (ADR-192 ticket 7).
+          for (const { section, workspaces: targets } of bySection) {
+            const owner =
+              current.find((p) => p.id === section.project.id) ?? section.project;
+            const keys = targets.map((w) => selectionKey(owner.id, w.path));
+            deleting.mark(keys);
+            void removeWorktreesWithToast(owner, targets, deleteBranch).then(() =>
+              deleting.unmark(keys),
+            );
+          }
         }}
       />
 

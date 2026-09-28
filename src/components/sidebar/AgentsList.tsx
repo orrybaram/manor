@@ -227,12 +227,17 @@ export function AgentsList(props: AgentsListProps) {
   // hasn't been closed yet — and is therefore expected to be inside the first
   // page. If a user closes the modal before scrolling far enough to load older
   // agents, the visible set here is unaffected.
+  //
+  // An agent without a project is held back rather than grouped under a
+  // placeholder: its context arrives shortly (useAgentContextRepair), and it
+  // then appears once, in its own project, instead of jumping there.
   const visibleAgents = useMemo(
     () =>
       agents.filter(
-        (t) =>
-          (t.status === "active" && t.paneId != null) ||
-          (t.paneId != null && activePaneIds.has(t.paneId)),
+        (t): t is AgentInfo & { projectName: string } =>
+          !!t.projectName &&
+          ((t.status === "active" && t.paneId != null) ||
+            (t.paneId != null && activePaneIds.has(t.paneId))),
       ),
     [agents, activePaneIds],
   );
@@ -241,7 +246,7 @@ export function AgentsList(props: AgentsListProps) {
   const groups = useMemo(() => {
     const map = new Map<string, AgentInfo[]>();
     for (const agent of visibleAgents) {
-      const key = agent.projectName ?? "Unknown";
+      const key = agent.projectName;
       let list = map.get(key);
       if (!list) {
         list = [];

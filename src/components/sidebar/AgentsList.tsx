@@ -8,8 +8,9 @@ import Bot from "lucide-react/dist/esm/icons/bot";
 import X from "lucide-react/dist/esm/icons/x";
 import type { AgentInfo } from "../../electron.d";
 import { useAgentStore } from "../../store/agent-store";
-import { useAppStore, selectVisiblePaneIds } from "../../store/app-store";
+import { useAppStore } from "../../store/app-store";
 import { useVisibleAgents } from "../../hooks/useVisibleAgents";
+import { useAgentPulse } from "../../hooks/useAgentPulse";
 import { useProjectStore, MIN_AGENTS_HEIGHT } from "../../store/project-store";
 import { useDragOverlayStore } from "../../store/drag-overlay-store";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
@@ -152,7 +153,6 @@ type AgentsListProps = {
 export function AgentsList(props: AgentsListProps) {
   const { onShowAll } = props;
 
-  const { unseenRespondedAgentIds, unseenInputAgentIds } = useAgentStore();
   const agentsHeight = useProjectStore((s) => s.agentsHeight);
   const setAgentsHeight = useProjectStore((s) => s.setAgentsHeight);
   const [isResizing, setIsResizing] = useState(false);
@@ -190,18 +190,7 @@ export function AgentsList(props: AgentsListProps) {
   );
 
   const visibleAgents = useVisibleAgents();
-  const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
-  const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
-  const activeWorkspaceHostId = useAppStore((s) => s.activeWorkspaceHostId);
-
-  // Panes the user can currently see. Shares `selectVisiblePaneIds` with the
-  // read-state sweep in the agent store, so the sidebar dot and main's unseen
-  // flags cannot disagree about what counts as on screen (issue #142).
-  const visiblePaneIds = useMemo(
-    () =>
-      selectVisiblePaneIds({ activeWorkspacePath, activeWorkspaceHostId, workspaceLayouts }),
-    [activeWorkspacePath, activeWorkspaceHostId, workspaceLayouts],
-  );
+  const shouldPulse = useAgentPulse();
 
   // Group agents by projectName
   const groups = useMemo(() => {
@@ -248,35 +237,23 @@ export function AgentsList(props: AgentsListProps) {
         {Array.from(groups.entries()).map(([projectName, groupAgents]) => (
           <div key={projectName} className={styles.agentGroup}>
             <div className={styles.agentGroupHeader}>{projectName}</div>
-            {groupAgents.map((agent) => {
-              const isVisible =
-                agent.paneId != null && visiblePaneIds.has(agent.paneId);
-              // Pulse predicate (ADR-136 §"Change 3"): main owns the unseen
-              // flags; pulse iff the current status matches an unseen axis.
-              const shouldPulse =
-                !isVisible &&
-                ((agent.lastAgentStatus === "responded" &&
-                  unseenRespondedAgentIds.has(agent.id)) ||
-                  (agent.lastAgentStatus === "requires_input" &&
-                    unseenInputAgentIds.has(agent.id)));
-              return (
-                <AgentRow
-                  key={agent.id}
-                  agent={agent}
-                  shouldPulse={shouldPulse}
-                  onClick={() => navigateToAgent(agent)}
-                  onRename={(name) =>
-                    useAgentStore.getState().renameAgent(agent.id, name)
+            {groupAgents.map((agent) => (
+              <AgentRow
+                key={agent.id}
+                agent={agent}
+                shouldPulse={shouldPulse(agent)}
+                onClick={() => navigateToAgent(agent)}
+                onRename={(name) =>
+                  useAgentStore.getState().renameAgent(agent.id, name)
+                }
+                onClose={() => {
+                  if (agent.paneId) {
+                    useAppStore.getState().closePaneById(agent.paneId);
                   }
-                  onClose={() => {
-                    if (agent.paneId) {
-                      useAppStore.getState().closePaneById(agent.paneId);
-                    }
-                    useAgentStore.getState().removeAgent(agent.id);
-                  }}
-                />
-              );
-            })}
+                  useAgentStore.getState().removeAgent(agent.id);
+                }}
+              />
+            ))}
           </div>
         ))}
       </div>

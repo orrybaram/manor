@@ -572,6 +572,17 @@ interface ProjectState {
    * (a second member for one host, say) are shown as a toast.
    */
   linkProjects: (projectId: string, otherId: string) => Promise<void>;
+  /**
+   * ADR-192 ticket 4: clone `memberId`'s repo onto another host and link the
+   * new project into its group, then reload. Resolves with the new project
+   * as reloaded: its `group` is set once it joined. A failed clone rejects
+   * and leaves the group unchanged. A failed link is shown as a toast, and
+   * the new project stays, unlinked, with link suggestions offered for it.
+   */
+  cloneIntoGroup: (
+    memberId: string,
+    opts: { hostId: string; repoUrl: string; remoteDir: string },
+  ) => Promise<ProjectInfo>;
   /** ADR-192: take a project out of its group. Errors are shown as a toast. */
   unlinkProject: (projectId: string) => Promise<void>;
   /** ADR-192: dissolve a whole group. Errors are shown as a toast. */
@@ -1051,6 +1062,22 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
     clearLinkSuggestionsFor([projectId, otherId]);
     await get().loadProjects();
+  },
+
+  cloneIntoGroup: async (memberId, opts) => {
+    const member = get().projects.find((p) => p.id === memberId);
+    if (!member?.group) throw new Error("This project isn't linked to a group.");
+    const cloned = await window.electronAPI.projects.addRemote({ ...opts, name: member.name });
+    try {
+      await window.electronAPI.projects.link(cloned.id, memberId);
+      clearLinkSuggestionsFor([cloned.id, memberId]);
+    } catch (err) {
+      groupErrorToast(`link-projects-${cloned.id}`, "Cloned, but couldn't link the projects", err);
+      // It stands alone now, like any other clone: offer what it could join.
+      void offerLinkSuggestions(cloned.id, get().linkProjects);
+    }
+    await get().loadProjects();
+    return get().projects.find((p) => p.id === cloned.id) ?? cloned;
   },
 
   unlinkProject: async (projectId: string) => {

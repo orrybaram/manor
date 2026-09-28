@@ -366,19 +366,15 @@ export function initApp(devTitle: string | null): void {
   const branchWatcher = new BranchWatcher(backendRegistry);
   const diffWatcher = new DiffWatcher(backendRegistry);
   // `gh` runs here, where it is authenticated; a remote project's checkout
-  // isn't, so it is told the repo from that checkout's origin instead. The
-  // origin is read on the host the caller named, not one guessed from the
-  // path, which a local project with the same path would win (ADR-191).
-  const githubManager = new GitHubManager({
-    hostIdForPath: (p) => projectManager.hostIdForPath(p),
-    repoFor: async (hostId, repoPath) => {
-      const origin = (
-        await backendRegistry.get(hostId).git.exec(repoPath, ["remote", "get-url", "origin"])
-      ).trim();
-      const repo = ghRepoFromRemoteUrl(origin);
-      if (!repo) throw new Error(`Not a GitHub remote: ${origin}`);
-      return repo;
-    },
+  // isn't, so it is told the repo from that checkout's origin instead, read
+  // on the host the caller named (ADR-191).
+  const githubManager = new GitHubManager(async (hostId, repoPath) => {
+    const origin = (
+      await backendRegistry.get(hostId).git.exec(repoPath, ["remote", "get-url", "origin"])
+    ).trim();
+    const repo = ghRepoFromRemoteUrl(origin);
+    if (!repo) throw new Error(`Not a GitHub remote: ${origin}`);
+    return repo;
   });
   const linearManager = new LinearManager();
 

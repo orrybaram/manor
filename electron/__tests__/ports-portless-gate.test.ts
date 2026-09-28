@@ -16,30 +16,23 @@ vi.mock("electron", () => ({
 // ── Mock the portless proxy ────────────────────────────────────────────────────
 const updateRoutes = vi.fn();
 
-vi.mock("../portless", async (importOriginal) => {
-  // The real hostname rules, so these tests pin the hostnames users see.
-  const real = await importOriginal<typeof import("../portless")>();
-  const manager = new real.PortlessManager();
-  return {
-    hostSegments: real.hostSegments,
-    portlessManager: {
-      get proxyPort() {
-        return 7999;
-      },
-      updateRoutes: (routes: unknown) => updateRoutes(routes),
-      hostnameForPort: manager.hostnameForPort.bind(manager),
+vi.mock("../portless", () => ({
+  portlessManager: {
+    get proxyPort() {
+      return 7999;
     },
-  };
-});
+    updateRoutes: (routes: unknown) => updateRoutes(routes),
+  },
+}));
 
 vi.mock("../ipc-validate", () => ({
   assertHostPaths: vi.fn(),
   assertPositiveInt: vi.fn(),
   assertString: vi.fn(),
+  assertWorkspaceMeta: vi.fn(),
 }));
 
 import { register } from "../ipc/ports";
-import { hostSegments } from "../portless";
 import { RemoteUrlResolver } from "../remote-forwards";
 import type { WorkspaceMeta } from "../ipc/types";
 
@@ -48,6 +41,7 @@ import type { WorkspaceMeta } from "../ipc/types";
 function meta(overrides: Partial<WorkspaceMeta> = {}): WorkspaceMeta {
   return {
     path: "/repo",
+    hostId: "local",
     projectName: "acme",
     branch: null,
     isMain: true,
@@ -571,26 +565,5 @@ describe("hostnames by host", () => {
 
     expect((await scan())[0].hostname).toBeUndefined();
     expect(updateRoutes).toHaveBeenLastCalledWith([]);
-  });
-});
-
-describe("hostSegments", () => {
-  it("keeps the first 8 characters of a host id, lowercased", () => {
-    expect(hostSegments(["3F1C2A9E-aaaa", "b0x"])).toEqual(
-      new Map([
-        ["3F1C2A9E-aaaa", "3f1c2a9e"],
-        ["b0x", "b0x"],
-      ]),
-    );
-  });
-
-  it("falls back to the full sanitized id only for hosts sharing a prefix", () => {
-    expect(hostSegments(["abcdefgh-1", "ABCDEFGH-2", "12345678-3"])).toEqual(
-      new Map([
-        ["abcdefgh-1", "abcdefgh-1"],
-        ["ABCDEFGH-2", "abcdefgh-2"],
-        ["12345678-3", "12345678"],
-      ]),
-    );
   });
 });

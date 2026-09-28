@@ -1,26 +1,19 @@
 import { ipcMain } from "electron";
-import { assertString } from "../ipc-validate";
+import { assertGhRepo, assertString, assertStringArray } from "../ipc-validate";
 import type { IpcDeps } from "./types";
 
 export function register(deps: IpcDeps): void {
   const { githubManager, linearManager, projectManager } = deps;
 
   // ── GitHub IPC ──
-  ipcMain.handle(
-    "github:getPrForBranch",
-    (_event, repoPath: string, branch: string) => {
-      return githubManager.getPrForBranch(repoPath, branch);
-    },
-  );
-
-  // The PR poller names the project's host, so a local and a remote checkout
-  // at the same path are not both answered from one of them (ADR-191).
+  // Every checkout comes with its project's host: a local and a remote one
+  // can share a path, and guessing the host from it picks local (ADR-191).
   ipcMain.handle(
     "github:getPrsForBranches",
-    (_event, repoPath: string, branches: string[], hostId?: unknown) => {
-      if (hostId === undefined) return githubManager.getPrsForBranches(repoPath, branches);
-      assertString(hostId, "hostId");
-      return githubManager.getPrsForBranches({ path: repoPath, hostId }, branches);
+    (_event, repo: unknown, branches: unknown) => {
+      assertGhRepo(repo, "repo");
+      assertStringArray(branches, "branches");
+      return githubManager.getPrsForBranches(repo, branches);
     },
   );
 
@@ -28,36 +21,41 @@ export function register(deps: IpcDeps): void {
 
   ipcMain.handle(
     "github:getMyIssues",
-    (_event, repoPath: string, limit?: number, state?: "open" | "closed" | "all") => {
-      return githubManager.getMyIssues(repoPath, limit, state);
+    (_event, repo: unknown, limit?: number, state?: "open" | "closed" | "all") => {
+      assertGhRepo(repo, "repo");
+      return githubManager.getMyIssues(repo, limit, state);
     },
   );
 
   ipcMain.handle(
     "github:getAllIssues",
-    (_event, repoPath: string, limit?: number, state?: "open" | "closed" | "all") => {
-      return githubManager.getAllIssues(repoPath, limit, state);
+    (_event, repo: unknown, limit?: number, state?: "open" | "closed" | "all") => {
+      assertGhRepo(repo, "repo");
+      return githubManager.getAllIssues(repo, limit, state);
     },
   );
 
   ipcMain.handle(
     "github:getIssueDetail",
-    (_event, repoPath: string, issueNumber: number, issueUrl?: string) => {
-      return githubManager.getIssueDetail(repoPath, issueNumber, issueUrl);
+    (_event, repo: unknown, issueNumber: number, issueUrl?: string) => {
+      assertGhRepo(repo, "repo");
+      return githubManager.getIssueDetail(repo, issueNumber, issueUrl);
     },
   );
 
   ipcMain.handle(
     "github:assignIssue",
-    (_event, repoPath: string, issueNumber: number) => {
-      return githubManager.assignIssue(repoPath, issueNumber);
+    (_event, repo: unknown, issueNumber: number) => {
+      assertGhRepo(repo, "repo");
+      return githubManager.assignIssue(repo, issueNumber);
     },
   );
 
   ipcMain.handle(
     "github:closeIssue",
-    (_event, repoPath: string, issueNumber: number) => {
-      return githubManager.closeIssue(repoPath, issueNumber);
+    (_event, repo: unknown, issueNumber: number) => {
+      assertGhRepo(repo, "repo");
+      return githubManager.closeIssue(repo, issueNumber);
     },
   );
 

@@ -11,8 +11,10 @@ import type {
   PrComment,
   PrInfo,
 } from "../src/lib/pr-info";
-import { LOCAL_HOST_ID, normalizeHostId } from "../src/lib/host-id";
+import { LOCAL_HOST_ID } from "./backend/types";
+import { normalizeHostId } from "../src/lib/host-id";
 import { workspaceKey, type WorkspaceKey } from "../src/lib/workspace-key";
+import type { GhRepo } from "../src/lib/gh-repo";
 
 const execFileAsync = promisify(execFile);
 
@@ -64,26 +66,12 @@ export function ghRepoFromRemoteUrl(url: string): string | null {
 }
 
 /**
- * A checkout `gh` works on: its path, and its host when the caller knows it.
- * A bare path's host is inferred from the path (`RemoteRepoResolver`'s
- * `hostIdForPath`), which picks local when a local and a remote project share
- * the path (ADR-191), so callers that know the host pass it.
+ * Names the repo `gh` should target for a checkout that `gh` cannot run
+ * inside: `[HOST/]OWNER/REPO` for the checkout at `path` on the remote
+ * `hostId` (ADR-160), which exists only over there. Throws when its repo
+ * cannot be determined.
  */
-export type GhRepo = string | { path: string; hostId: string };
-
-/**
- * Says which repo `gh` should target for a checkout that `gh` cannot run
- * inside: one on a remote host (ADR-160), which exists only over there.
- */
-export interface RemoteRepoResolver {
-  /** The host of a bare path: see `GhRepo`. */
-  hostIdForPath(path: string): string;
-  /**
-   * `[HOST/]OWNER/REPO` for the checkout at `path` on the remote `hostId`.
-   * Throws when its repo cannot be determined.
-   */
-  repoFor(hostId: string, path: string): Promise<string>;
-}
+export type RemoteRepoResolver = (hostId: string, path: string) => Promise<string>;
 
 /** Where and how to run `gh` for a checkout: see `RemoteRepoResolver`. */
 interface GhTarget {
@@ -100,27 +88,24 @@ export class GitHubManager {
   private remoteRepoCache = new Map<WorkspaceKey, string>();
 
   /** Without a resolver every checkout is local. */
-  constructor(private readonly remote?: RemoteRepoResolver) {}
+  constructor(private readonly resolveRemoteRepo?: RemoteRepoResolver) {}
 
   /**
    * A local checkout runs `gh` in its directory, which reads the repo from
    * it, as before; a remote one runs here against its origin's repo.
    */
-  private async ghTarget(repo: GhRepo): Promise<GhTarget> {
-    const { remote } = this;
-    const path = typeof repo === "string" ? repo : repo.path;
-    if (!remote) return { cwd: path, repoArgs: [] };
-    const hostId = normalizeHostId(
-      typeof repo === "string" ? remote.hostIdForPath(repo) : repo.hostId,
-    );
-    if (hostId === LOCAL_HOST_ID) return { cwd: path, repoArgs: [] };
-    const key = workspaceKey(hostId, path);
-    let resolved = this.remoteRepoCache.get(key);
-    if (!resolved) {
-      resolved = await remote.repoFor(hostId, path);
-      this.remoteRepoCache.set(key, resolved);
+  private async ghTarget({ path, hostId }: GhRepo): Promise<GhTarget> {
+    const resolve = this.resolveRemoteRepo;
+    if (!resolve || normalizeHostId(hostId) === LOCAL_HOST_ID) {
+      return { cwd: path, repoArgs: [] };
     }
-    return { cwd: undefined, repoArgs: ["--repo", resolved] };
+    const key = workspaceKey(hostId, path);
+    let repo = this.remoteRepoCache.get(key);
+    if (!repo) {
+      repo = await resolve(hostId, path);
+      this.remoteRepoCache.set(key, repo);
+    }
+    return { cwd: undefined, repoArgs: ["--repo", repo] };
   }
 
   private readyPromise: Promise<boolean> | null = null;

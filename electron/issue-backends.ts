@@ -16,6 +16,7 @@
 
 import type { GitHubManager } from "./github";
 import type { LinearManager } from "./linear";
+import { ghRepoOf } from "../src/lib/gh-repo";
 import type { ProjectInfo } from "./persistence";
 import {
   linearStateTypes,
@@ -134,8 +135,7 @@ function githubBackend(
   github: GitHubManager,
   project: IssueProject,
 ): IssueBackend {
-  // Its host, not one guessed from the path (ADR-191).
-  const repo = { path: project.path, hostId: project.hostId };
+  const repo = ghRepoOf(project);
   return {
     async list(filter, state, limit) {
       const issues =

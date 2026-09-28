@@ -15,6 +15,7 @@ import type {
   ProjectUpdatableFields,
 } from "../persistence";
 import { isIssueSource } from "../issue-sources";
+import { ghRepoOf } from "../../src/lib/gh-repo";
 import {
   notifyProjectsChanged,
   runSetupScript,
@@ -221,7 +222,7 @@ async function batchCreateWorkspaces(
   const details = await Promise.all(
     numbers.map(async (number) => {
       try {
-        const detail = await github.getIssueDetail({ path: project.path, hostId: project.hostId }, number);
+        const detail = await github.getIssueDetail(ghRepoOf(project), number);
         return { number, detail };
       } catch (err) {
         return { number, error: String(err) };
@@ -282,7 +283,7 @@ async function batchCreateWorkspaces(
     }
     if (assign) {
       try {
-        await github.assignIssue({ path: project.path, hostId: project.hostId }, d.number);
+        await github.assignIssue(ghRepoOf(project), d.number);
       } catch (err) {
         entry.assignError = String(err);
       }

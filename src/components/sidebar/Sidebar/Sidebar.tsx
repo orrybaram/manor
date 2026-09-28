@@ -38,7 +38,7 @@ import {
 import { useBranchWatcher } from "../../../hooks/useBranchWatcher";
 import { useDiffWatcher } from "../../../hooks/useDiffWatcher";
 import { usePrWatcher } from "../../../hooks/usePrWatcher";
-import { ProjectItem } from "../ProjectItem";
+import { ProjectItem, type ProjectItemVariant } from "../ProjectItem";
 import { ProjectGroupItem } from "../ProjectGroupItem";
 import {
   buildTopLevelEntries,
@@ -233,7 +233,7 @@ export function Sidebar(props: SidebarProps) {
 
   const renderProject = (
     project: ProjectInfo,
-    variant: "project" | "section",
+    variant: ProjectItemVariant,
     onDragStart?: (e: ReactPointerEvent) => void,
   ) => {
     const idx = projects.indexOf(project);

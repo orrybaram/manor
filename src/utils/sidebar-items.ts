@@ -17,6 +17,7 @@ import type {
   WorkspaceFolder,
   WorkspaceInfo,
 } from "../store/project-store";
+import { groupHostIds } from "../lib/project-groups";
 
 export type SidebarItem =
   | { kind: "workspace"; ws: WorkspaceInfo }
@@ -534,12 +535,11 @@ type TopLevelProject = Pick<
 >;
 
 /**
- * One host's slice of a linked group: a member project and its own item
- * tree, built exactly as it would be for that project alone — so linking
- * keeps its workspace order and folders.
+ * One host's slice of a linked group: a member project (whose `hostId` is
+ * the section's host) and its own item tree, built exactly as it would be
+ * for that project alone — so linking keeps its workspace order and folders.
  */
 export type GroupSection<P extends TopLevelProject = ProjectInfo> = {
-  hostId: string;
   project: P;
   items: SidebarItem[];
 };
@@ -589,7 +589,6 @@ export function buildTopLevelEntries<P extends TopLevelProject>(
       key: group.id,
       group,
       sections: members.map((member) => ({
-        hostId: member.hostId,
         project: member,
         items: buildSidebarItems(member),
       })),
@@ -642,7 +641,7 @@ export function linkCandidates<P extends Pick<ProjectInfo, "id" | "hostId" | "gr
 ): P[] {
   const hostOf = new Map(projects.map((p) => [p.id, p.hostId]));
   const groupHosts = (group: ProjectGroupInfo) =>
-    new Set(group.memberIds.map((id) => hostOf.get(id)));
+    groupHostIds(group.memberIds, (id) => hostOf.get(id));
   const own = project.group ?? null;
   return projects.filter((other) => {
     if (other.id === project.id) return false;
@@ -652,4 +651,51 @@ export function linkCandidates<P extends Pick<ProjectInfo, "id" | "hostId" | "gr
     if (theirs) return !groupHosts(theirs).has(project.hostId);
     return other.hostId !== project.hostId;
   });
+}
+
+/**
+ * One "Link with…" menu row: a lone project, or a whole group — linking to
+ * any member of a group joins that group, so it is offered once.
+ */
+export type LinkChoice = {
+  key: string;
+  label: string;
+  /** The project id to pass to `linkProjects`. */
+  targetId: string;
+  /** The hosts the row stands for, for its host badges. */
+  hostIds: string[];
+};
+
+/** `linkCandidates`, with each eligible group folded into one row. */
+export function linkChoices<
+  P extends Pick<ProjectInfo, "id" | "name" | "hostId" | "group">,
+>(project: P, projects: readonly P[]): LinkChoice[] {
+  const choices: LinkChoice[] = [];
+  const byGroup = new Map<string, LinkChoice>();
+  for (const other of linkCandidates(project, projects)) {
+    const group = other.group ?? null;
+    if (!group) {
+      choices.push({
+        key: other.id,
+        label: other.name,
+        targetId: other.id,
+        hostIds: [other.hostId],
+      });
+      continue;
+    }
+    const existing = byGroup.get(group.id);
+    if (existing) {
+      existing.hostIds.push(other.hostId);
+      continue;
+    }
+    const choice = {
+      key: group.id,
+      label: group.name,
+      targetId: other.id,
+      hostIds: [other.hostId],
+    };
+    byGroup.set(group.id, choice);
+    choices.push(choice);
+  }
+  return choices;
 }

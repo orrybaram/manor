@@ -91,7 +91,8 @@ Invariants, enforced in `electron/projects/project-groups.ts`:
 
 `StateStore.load` normalizes groups read from disk. It drops unknown or
 duplicate members, extra members on a host that is already taken, and groups
-left with fewer than two members. An absent or empty list is not written back,
+left with fewer than two members. It also clears a `lastUsedHostId` that no
+member is on. An absent or empty list is not written back,
 so files without groups stay byte-identical (the same approach as `hostId`
 and `"local"`).
 
@@ -107,6 +108,8 @@ optional fields, so they need no migration.
   used. Refused (throws) when the ids are the same or unknown, when both are
   in different groups, or when the group already has a member on the joining
   project's host. Linking two projects already in the same group is a no-op.
+- `unlinkGroup(groupId)`. Dissolves a whole group in one write. Every member
+  is left exactly as it was.
 - `unlinkProject(projectId)`. Removes the project from its group and dissolves
   a group left with one member. It never touches either project's workspaces,
   folders, order or settings. An ungrouped project is a no-op.
@@ -117,11 +120,14 @@ optional fields, so they need no migration.
 
 ### 3. What the renderer sees
 
-`ProjectInfo` gains `group: ProjectGroupInfo | null`, where
-`ProjectGroupInfo = { id, name, memberIds, lastUsedHostId }`. Every member
-carries the same summary, so the sidebar can build groups from
-`projects:getAll` alone, with no extra round trip. IPC `projects:link` and
-`projects:unlink` are wired through `electron/ipc/projects.ts`,
+`ProjectInfo` gains `group?: ProjectGroupInfo | null`, where
+`ProjectGroupInfo = { id, name, memberIds, lastUsedHostId }`. `buildProjectInfo`
+always sets it, to the summary or null. It is optional in the type only so
+existing fixtures and the renderer's mirror type don't have to name it. Every
+member carries the same summary, so the sidebar can build groups from
+`projects:getAll` alone, with no extra round trip. IPC `projects:link`,
+`projects:unlink` and `projects:unlinkGroup` (which dissolves a whole group,
+for "Unlink All") are wired through `electron/ipc/projects.ts`,
 `electron/preload.ts` and `src/electron.d.ts`. The renderer store gets
 `linkProjects` and `unlinkProject` actions, which reload the project list.
 
@@ -136,17 +142,28 @@ type TopLevelEntry =
 type GroupSection = { hostId: string; project: ProjectInfo; items: SidebarItem[] };
 ```
 
-- `buildTopLevelEntries(projects)` walks the project list in order. A group
+- `buildTopLevelEntries(projects)` walks the project list in order. A
+  section's host is its member's `project.hostId`. A group
   takes the slot of its first member to appear, and its sections follow
   `memberIds`. Each section's `items` come from `buildSidebarItems(member)`,
   so a member's workspace order and folders are exactly what they were before
   linking. A group with fewer than two members in the list renders its member
   as a plain project, which is defensive only.
-- The top-level order is a list of entry keys, with the **group id in place of
-  its members**. `expandTopLevelOrder(keys, entries)` turns it back into the
-  project-id order `projects:reorder` persists, with a group's members kept
-  together in section order. Main keeps persisting the project array order, so
-  nothing new is stored for ordering.
+- In the renderer, the top-level order is a list of entry keys, with the
+  **group id in place of its members**. `expandTopLevelOrder(keys, entries)`
+  turns it back into the project-id order `projects:reorder` persists, with a
+  group's members kept together in section order.
+- **The group's position is derived, not stored.** Main keeps persisting only
+  the project array order. A group sits wherever its first member sits, and
+  nothing on disk holds a group id in an order. This departs from the spec's
+  wording ("the top-level sidebar order stores the group id in place of its
+  members"). The renderer's key list does that, but disk does not. The reason:
+  a stored group-level order would be a second ordering beside the project
+  array, and the two could drift apart. For example, the CLI, a project
+  removal, or an older build could reorder projects without updating it.
+  Deriving the position from members leaves one source of truth. The
+  round trip `buildTopLevelEntries(expandTopLevelOrder(keys))` returns `keys`
+  (tested).
 - A group collapses and expands like a project: its id goes in the same
   `collapsedProjectIds` set, and member sections collapse on their own ids.
 
@@ -155,8 +172,20 @@ reorders entries. A new `ProjectGroupItem` renders the group header and one
 `ProjectItem` per section in a new `variant="section"`. That variant swaps the
 project header for a host label (the `HostIndicator` chip for a remote host,
 "This machine" for local) and keeps the member's full context menu, workspace
-list, folders and dialogs. The project context menu gains **"Link with…"** (a
-submenu of eligible projects on other hosts) and **"Unlink"**.
+list, folders and dialogs. The header's shared behavior (keyboard handling,
+refocusing after a keyboard-opened menu, the chevron and the project color)
+lives in `useProjectHeaderRow` and `ProjectChevron`, so the project and group
+headers can't drift apart. The project context menu gains **"Link with…"** and
+**"Unlink"**. "Link with…" is a submenu with one row per eligible lone project
+and one row per eligible group (`linkChoices`). The group header's menu has
+**"Unlink All"**. Navigating into a member (selecting it, or jumping to one of
+its agents) expands its group as well as the member. A dissolved group's
+collapsed key is cleared.
+
+The rules for which hosts a group occupies, and the "already has a project on
+<host>" message, live in the DOM-free `src/lib/project-groups.ts`. Main
+enforces them with it, and the sidebar filters with it, so both apply the same
+rule.
 
 ### 5. Later tickets (layer 2)
 

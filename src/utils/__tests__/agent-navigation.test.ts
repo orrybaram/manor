@@ -206,3 +206,33 @@ describe("navigateToAgent toast cleanup", () => {
     expect(useToastStore.getState().toasts).toHaveLength(1);
   });
 });
+
+describe("navigateToAgent into a linked group (ADR-192)", () => {
+  // The collapsed set is localStorage-backed; this suite runs without a DOM.
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", { getItem: vi.fn(() => null), setItem: vi.fn() });
+  });
+
+  it("expands the collapsed group as well as the member project", () => {
+    const group = {
+      id: "group-1",
+      name: "Test",
+      memberIds: [PROJECT_ID, "proj-box"],
+      lastUsedHostId: null,
+    };
+    useProjectStore.setState({
+      projects: [
+        { ...makeProject(), group },
+        { ...makeProject(), id: "proj-box", hostId: "box", workspaces: [], group },
+      ],
+      selectedProjectIndex: 1,
+      collapsedProjectIds: new Set([PROJECT_ID, "group-1", "unrelated"]),
+    });
+    useAppStore.setState({ workspaceLayouts: { [WS_PATH]: makeLayout() } });
+
+    navigateToAgent(makeAgent());
+
+    expect([...useProjectStore.getState().collapsedProjectIds]).toEqual(["unrelated"]);
+    expect(useProjectStore.getState().selectedProjectIndex).toBe(0);
+  });
+});

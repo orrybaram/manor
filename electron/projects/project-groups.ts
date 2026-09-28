@@ -11,9 +11,9 @@
  */
 
 import crypto from "node:crypto";
+import { hostTakenMessage, memberOnHost } from "../../src/lib/project-groups";
 import type { ProjectContext } from "./context";
 import type {
-  PersistedProject,
   PersistedProjectGroup,
   PersistedState,
   ProjectGroupInfo,
@@ -46,7 +46,8 @@ export function groupInfoFor(
  * Bring groups read from disk back in line with the invariants: drop
  * unknown or repeated members, a second member on a host already taken,
  * members claimed by an earlier group, and groups left with fewer than two
- * members. A hand-edited or stale file loads as the nearest valid state.
+ * members, and a `lastUsedHostId` no member is on any more. A hand-edited
+ * or stale file loads as the nearest valid state.
  */
 export function normalizeGroups(state: PersistedState): void {
   if (!Array.isArray(state.groups)) {
@@ -68,29 +69,36 @@ export function normalizeGroups(state: PersistedState): void {
     }
     if (memberIds.length < 2) continue;
     for (const id of memberIds) claimed.add(id);
+    const lastUsed = raw.lastUsedHostId;
     groups.push({
       id: raw.id,
       name: typeof raw.name === "string" ? raw.name : byId.get(memberIds[0])!.name,
       memberIds,
-      lastUsedHostId: typeof raw.lastUsedHostId === "string" ? raw.lastUsedHostId : null,
+      lastUsedHostId: typeof lastUsed === "string" && hosts.has(lastUsed) ? lastUsed : null,
     });
   }
   state.groups = groups;
   if (groups.length === 0) delete state.groups;
 }
 
-function hostTaken(
+/** Throws when `group` already has a member on `hostId` other than `exceptId`. */
+function assertRoomOnHost(
   ctx: ProjectContext,
   group: PersistedProjectGroup,
   hostId: string,
-  exceptProjectId?: string,
-): PersistedProject | undefined {
-  for (const id of group.memberIds) {
-    if (id === exceptProjectId) continue;
-    const member = ctx.find(id);
-    if (member?.hostId === hostId) return member;
-  }
-  return undefined;
+  exceptId?: string,
+): void {
+  const takenId = memberOnHost(
+    group.memberIds,
+    hostId,
+    (id) => ctx.find(id)?.hostId,
+    exceptId,
+  );
+  if (takenId === undefined) return;
+  const taken = ctx.find(takenId);
+  throw new Error(
+    hostTakenMessage(group.name, ctx.hosts.label(hostId), taken?.name ?? takenId),
+  );
 }
 
 /**
@@ -124,12 +132,7 @@ export function linkProjects(
   const existing = projectGroup ?? otherGroup;
   if (existing) {
     const joining = projectGroup ? other : project;
-    const taken = hostTaken(ctx, existing, joining.hostId);
-    if (taken) {
-      throw new Error(
-        `"${existing.name}" already has a project on ${ctx.hosts.label(joining.hostId)} ("${taken.name}").`,
-      );
-    }
+    assertRoomOnHost(ctx, existing, joining.hostId);
     existing.memberIds.push(joining.id);
   } else {
     if (project.hostId === other.hostId) {
@@ -158,6 +161,18 @@ export function linkProjects(
  */
 export function unlinkProject(ctx: ProjectContext, projectId: string): void {
   if (!forgetProject(ctx.store.state, projectId)) return;
+  ctx.store.save();
+}
+
+/**
+ * Dissolve a whole group: every member becomes an ordinary unlinked
+ * project again, with nothing about it changed. An unknown id is a no-op.
+ */
+export function unlinkGroup(ctx: ProjectContext, groupId: string): void {
+  const state = ctx.store.state;
+  if (!state.groups?.some((g) => g.id === groupId)) return;
+  state.groups = state.groups.filter((g) => g.id !== groupId);
+  if (state.groups.length === 0) delete state.groups;
   ctx.store.save();
 }
 
@@ -194,10 +209,5 @@ export function assertGroupHostFree(
 ): void {
   const group = groupOf(ctx.store.state, projectId);
   if (!group) return;
-  const taken = hostTaken(ctx, group, hostId, projectId);
-  if (taken) {
-    throw new Error(
-      `"${group.name}" already has a project on ${ctx.hosts.label(hostId)} ("${taken.name}"). Unlink it first.`,
-    );
-  }
+  assertRoomOnHost(ctx, group, hostId, projectId);
 }

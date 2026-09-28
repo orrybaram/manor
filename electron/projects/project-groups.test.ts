@@ -247,6 +247,48 @@ describe("ProjectManager linked-project groups (ADR-192)", () => {
     expect(await groupOf(mgr, "box-other")).toBeNull();
   });
 
+  it("dissolves a whole group at once, leaving every member as it was", async () => {
+    seed();
+    const mgr = manager();
+    const { id } = mgr.linkProjects("box-app", "local-app");
+    mgr.linkProjects("mac-app", "local-app");
+    const before = readState().projects;
+
+    mgr.unlinkGroup(id);
+    mgr.unlinkGroup("no-such-group");
+
+    for (const pid of ["local-app", "box-app", "mac-app"]) {
+      expect(await groupOf(mgr, pid)).toBeNull();
+    }
+    expect(readState().projects).toEqual(before);
+    expect(readState()).not.toHaveProperty("groups");
+  });
+
+  it("clears a saved last-used host that no member is on", async () => {
+    seed({
+      groups: [
+        { id: "g1", name: "App", memberIds: ["local-app", "box-app"], lastUsedHostId: "mac" },
+      ],
+    });
+    expect((await groupOf(manager(), "local-app"))?.lastUsedHostId).toBeNull();
+  });
+
+  it("refuses to move a member onto a host another member is on, before cloning", async () => {
+    seed();
+    const mgr = manager();
+    mgr.linkProjects("box-app", "local-app");
+
+    await expect(
+      mgr.moveProjectToHost("local-app", {
+        hostId: "box",
+        repoUrl: "https://github.com/org/app.git",
+        remoteDir: "/home/me/code/app",
+      }),
+    ).rejects.toThrow(/already has a project on me@box \("Project box-app"\)/);
+    // Nothing moved.
+    expect(readState().projects.find((p) => p.id === "local-app")).not.toHaveProperty("hostId");
+  });
+
   it("refuses to switch a member onto a host another member is on", async () => {
     seed();
     const mgr = manager();

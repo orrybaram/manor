@@ -24,7 +24,7 @@ import {
   applyDrop,
   buildSidebarItems,
   descendantWorkspaces,
-  linkCandidates,
+  linkChoices as buildLinkChoices,
   placeAfterFolder,
   placeInFolder,
   type DropTarget,
@@ -33,6 +33,8 @@ import {
 } from "../../utils/sidebar-items";
 import { headerRefKey, useSidebarDrag } from "../../hooks/useSidebarDrag";
 import { useProjectAgentStatus } from "../../hooks/useProjectAgentStatus";
+import { projectColorStyle, useProjectHeaderRow } from "../../hooks/useProjectHeaderRow";
+import { ProjectChevron } from "./ProjectChevron";
 import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
@@ -236,6 +238,12 @@ const WorkspaceItem = React.forwardRef<
   );
 });
 
+/**
+ * `project`: a lone project's entry. `section`: one host's section of a
+ * linked group (ADR-192).
+ */
+export type ProjectItemVariant = "project" | "section";
+
 type ProjectItemProps = {
   project: ProjectInfo;
   isSelected: boolean;
@@ -259,7 +267,7 @@ type ProjectItemProps = {
    * (ADR-192). Its header shows the host rather than the project, and the
    * group row above it carries the name, color and drag.
    */
-  variant?: "project" | "section";
+  variant?: ProjectItemVariant;
 };
 
 export function ProjectItem(props: ProjectItemProps) {
@@ -282,6 +290,7 @@ export function ProjectItem(props: ProjectItemProps) {
     onOpenDiff,
     variant = "project",
   } = props;
+
   const isSection = variant === "section";
 
   const expanded = !collapsed;
@@ -335,9 +344,9 @@ export function ProjectItem(props: ProjectItemProps) {
   // (`openMenu`), so `onCloseAutoFocus` knows to return focus to the row; a
   // mouse-opened menu keeps Radix's own default (ADR-175).
   const workspaceMenuOpenedByKeyboard = useRef<Set<string>>(new Set());
-  // Same, for the project header's own context menu.
-  const projectMenuOpenedByKeyboard = useRef(false);
-  const projectHeaderRef = useRef<HTMLDivElement | null>(null);
+  // The header's keyboard, and its menu's return of focus (shared with the
+  // linked-group header, ADR-192).
+  const projectHeader = useProjectHeaderRow(collapsed, onToggleCollapsed);
 
   const collapsedFolderKeys = useProjectStore((s) => s.collapsedFolderKeys);
   const toggleFolderCollapsed = useProjectStore((s) => s.toggleFolderCollapsed);
@@ -349,7 +358,7 @@ export function ProjectItem(props: ProjectItemProps) {
   const linkProjects = useProjectStore((s) => s.linkProjects);
   const unlinkProject = useProjectStore((s) => s.unlinkProject);
   const linkChoices = useMemo(
-    () => linkCandidates(project, allProjects),
+    () => buildLinkChoices(project, allProjects),
     [project, allProjects],
   );
 
@@ -839,18 +848,12 @@ export function ProjectItem(props: ProjectItemProps) {
   return (
     <div
       className={`${styles.project} ${isSelected ? styles.projectSelected : ""}`}
-      style={
-        project.color
-          ? ({
-            "--project-color": `var(--${project.color})`,
-          } as React.CSSProperties)
-          : undefined
-      }
+      style={projectColorStyle(project.color)}
     >
       <ContextMenu.Root>
         <ContextMenu.Trigger asChild>
           <div
-            ref={projectHeaderRef}
+            ref={projectHeader.headerRef}
             data-testid={isSection ? "group-section-header" : "project-header"}
             data-sidebar-row=""
             tabIndex={-1}
@@ -859,26 +862,11 @@ export function ProjectItem(props: ProjectItemProps) {
             onClick={() => {
               onToggleCollapsed();
             }}
-            onKeyDown={(e) =>
-              handleSidebarRowKeyDown(e, {
-                activate: onToggleCollapsed,
-                setExpanded: (next) => {
-                  if (next === collapsed) onToggleCollapsed();
-                },
-                openMenu: (row) => {
-                  projectMenuOpenedByKeyboard.current = true;
-                  openContextMenuFromKeyboard(row);
-                },
-              })
-            }
+            onKeyDown={projectHeader.onKeyDown}
             onPointerDown={isSection ? undefined : onDragStart}
             style={{ touchAction: "none" }}
           >
-            <span
-              className={`${styles.projectChevron} ${expanded ? styles.projectChevronOpen : ""}`}
-            >
-              <ChevronRight size={12} />
-            </span>
+            <ProjectChevron expanded={expanded} />
             {isSection ? (
               <span className={styles.sectionHost} title={project.path}>
                 {isRemoteHost(project.hostId) ? (
@@ -917,13 +905,7 @@ export function ProjectItem(props: ProjectItemProps) {
         <ContextMenu.Portal>
           <ContextMenu.Content
             className={styles.contextMenu}
-            onCloseAutoFocus={(e) => {
-              if (projectMenuOpenedByKeyboard.current) {
-                e.preventDefault();
-                projectHeaderRef.current?.focus();
-              }
-              projectMenuOpenedByKeyboard.current = false;
-            }}
+            onCloseAutoFocus={projectHeader.onCloseAutoFocus}
           >
             <ContextMenu.Item
               className={styles.contextMenuItem}
@@ -996,17 +978,17 @@ export function ProjectItem(props: ProjectItemProps) {
                   className={styles.contextMenu}
                   style={{ maxWidth: 260 }}
                 >
-                  {linkChoices.map((other) => (
+                  {linkChoices.map((choice) => (
                     <ContextMenu.Item
-                      key={other.id}
+                      key={choice.key}
                       className={styles.contextMenuItem}
                       style={{ display: "flex", alignItems: "center", gap: 6 }}
-                      onSelect={() => void linkProjects(project.id, other.id)}
+                      onSelect={() => void linkProjects(project.id, choice.targetId)}
                     >
-                      {other.group?.name ?? other.name}
-                      {isRemoteHost(other.hostId) && (
-                        <HostIndicator hostId={other.hostId} variant="icon" />
-                      )}
+                      {choice.label}
+                      {choice.hostIds.filter(isRemoteHost).map((hostId) => (
+                        <HostIndicator key={hostId} hostId={hostId} variant="icon" />
+                      ))}
                     </ContextMenu.Item>
                   ))}
                 </ContextMenu.SubContent>

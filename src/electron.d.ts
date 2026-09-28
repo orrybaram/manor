@@ -573,6 +573,8 @@ export interface ElectronAPI {
     ) => Promise<import("./store/project-store").ProjectGroupInfo>;
     /** ADR-192: take a project out of its group; its workspaces and settings stay. */
     unlink: (projectId: string) => Promise<void>;
+    /** ADR-192: dissolve a group; every member stays as it is, just unlinked. */
+    unlinkGroup: (groupId: string) => Promise<void>;
     update: (
       projectId: string,
       updates: import("./store/project-store").ProjectUpdatableFields,

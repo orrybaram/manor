@@ -382,6 +382,11 @@ export class ProjectManager {
     groups.unlinkProject(this.ctx, projectId);
   }
 
+  /** Dissolve a group; every member stays as it is, just unlinked. */
+  unlinkGroup(groupId: string): void {
+    groups.unlinkGroup(this.ctx, groupId);
+  }
+
   // ── Workspaces and folders (see `workspace-folders.ts`) ──
 
   selectWorkspace(projectId: string, workspaceIndex: number): void {

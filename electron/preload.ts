@@ -293,6 +293,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("projects:link", projectId, otherId),
     unlink: (projectId: string) =>
       ipcRenderer.invoke("projects:unlink", projectId),
+    unlinkGroup: (groupId: string) =>
+      ipcRenderer.invoke("projects:unlinkGroup", groupId),
     update: (
       projectId: string,
       updates: Partial<{

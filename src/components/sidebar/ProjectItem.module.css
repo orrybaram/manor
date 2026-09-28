@@ -450,3 +450,9 @@
 .groupSections {
   padding-left: 8px;
 }
+
+.groupLinkIcon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-dim);
+}

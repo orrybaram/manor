@@ -10,6 +10,7 @@ import {
   insertFolderBefore,
   isFolderDescendant,
   linkCandidates,
+  linkChoices,
   membershipOf,
   placeAfterFolder,
   placeInFolder,
@@ -800,7 +801,7 @@ describe("linked-project groups at the top level (ADR-192)", () => {
     return entries.map((entry) =>
       entry.kind === "project"
         ? entry.project.id
-        : `${entry.key}[${entry.sections.map((s) => `${s.project.id}@${s.hostId}`).join(",")}]`,
+        : `${entry.key}[${entry.sections.map((s) => `${s.project.id}@${s.project.hostId}`).join(",")}]`,
     );
   }
 
@@ -873,6 +874,51 @@ describe("linked-project groups at the top level (ADR-192)", () => {
       "app-box",
       "other",
       "docs",
+    ]);
+  });
+
+  it("round-trips a top-level order through the persisted project order", () => {
+    const projects = [
+      member("other", "local"),
+      member("app-local", "local", appGroup),
+      member("docs", "local"),
+      member("app-box", "box", appGroup),
+    ];
+    const byId = new Map(projects.map((p) => [p.id, p]));
+    const entries = buildTopLevelEntries(projects);
+
+    for (const keys of [
+      ["g-app", "other", "docs"],
+      ["other", "docs", "g-app"],
+      ["docs", "g-app", "other"],
+    ]) {
+      // What main saves, read back as the project list it returns.
+      const saved = expandTopLevelOrder(keys, entries).map((id) => byId.get(id)!);
+      expect(topLevelKeys(buildTopLevelEntries(saved))).toEqual(keys);
+    }
+  });
+
+  it("offers each eligible group once in Link with…", () => {
+    const boxGroup: ProjectGroupInfo = {
+      id: "g-three",
+      name: "Three",
+      memberIds: ["t-box", "t-mac"],
+      lastUsedHostId: null,
+    };
+    const projects = [
+      { ...member("app-local", "local", appGroup), name: "App (local)" },
+      { ...member("app-box", "box", appGroup), name: "App (box)" },
+      { ...member("t-box", "box", boxGroup), name: "Three (box)" },
+      { ...member("t-mac", "mac", boxGroup), name: "Three (mac)" },
+      { ...member("solo", "mac"), name: "Solo" },
+      { ...member("local-2", "local"), name: "Local 2" },
+    ];
+
+    // `local-2` can't join App (it has a local member) but can join Three,
+    // which is offered once and links through its first member.
+    expect(linkChoices(projects[5], projects)).toEqual([
+      { key: "g-three", label: "Three", targetId: "t-box", hostIds: ["box", "mac"] },
+      { key: "solo", label: "Solo", targetId: "solo", hostIds: ["mac"] },
     ]);
   });
 

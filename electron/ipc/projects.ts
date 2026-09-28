@@ -223,6 +223,11 @@ export function register(deps: IpcDeps): void {
     projectManager.unlinkProject(projectId);
   });
 
+  ipcMain.handle("projects:unlinkGroup", (_event, groupId: string) => {
+    assertString(groupId, "groupId");
+    projectManager.unlinkGroup(groupId);
+  });
+
   ipcMain.handle(
     "projects:update",
     (

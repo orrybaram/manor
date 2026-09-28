@@ -524,8 +524,10 @@ interface ProjectState {
    * (a second member for one host, say) are shown as a toast.
    */
   linkProjects: (projectId: string, otherId: string) => Promise<void>;
-  /** ADR-192: take a project out of its group. */
+  /** ADR-192: take a project out of its group. Errors are shown as a toast. */
   unlinkProject: (projectId: string) => Promise<void>;
+  /** ADR-192: dissolve a whole group. Errors are shown as a toast. */
+  unlinkGroup: (groupId: string) => Promise<void>;
   /** Persists a full sidebar order: workspace paths and folder ids. */
   reorderSidebar: (
     projectId: string,
@@ -610,6 +612,32 @@ function keepWatchedState(
   }));
 }
 
+/** An error toast for a failed link or unlink (ADR-192). */
+function groupErrorToast(id: string, message: string, err: unknown): void {
+  useToastStore.getState().addToast({
+    id,
+    message,
+    status: "error",
+    detail: ipcErrorMessage(err),
+  });
+}
+
+/**
+ * Drop a group's collapsed key once no project belongs to it any more, so a
+ * dissolved group's id doesn't linger in `collapsedProjectIds` (ADR-192).
+ */
+function forgetDissolvedGroup(groupId: string | undefined): void {
+  if (!groupId) return;
+  useProjectStore.setState((s) => {
+    if (!s.collapsedProjectIds.has(groupId)) return s;
+    if (s.projects.some((p) => p.group?.id === groupId)) return s;
+    const next = new Set(s.collapsedProjectIds);
+    next.delete(groupId);
+    saveCollapsedIds(next);
+    return { collapsedProjectIds: next };
+  });
+}
+
 export const useProjectStore = create<ProjectState>((set, get) => ({
   projects: [],
   selectedProjectIndex: 0,
@@ -689,7 +717,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   removeProject: async (projectId: string) => {
+    const groupId = get().projects.find((p) => p.id === projectId)?.group?.id;
     await window.electronAPI.projects.remove(projectId);
+    if (groupId) {
+      // The other members' group summaries changed (or the group dissolved).
+      await get().loadProjects();
+      forgetDissolvedGroup(groupId);
+      return;
+    }
     set((s) => {
       const projects = s.projects.filter((p) => p.id !== projectId);
       return {
@@ -931,20 +966,33 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     try {
       await window.electronAPI.projects.link(projectId, otherId);
     } catch (err) {
-      useToastStore.getState().addToast({
-        id: `link-projects-${projectId}`,
-        message: "Couldn't link projects",
-        status: "error",
-        detail: ipcErrorMessage(err),
-      });
+      groupErrorToast(`link-projects-${projectId}`, "Couldn't link projects", err);
       return;
     }
     await get().loadProjects();
   },
 
   unlinkProject: async (projectId: string) => {
-    await window.electronAPI.projects.unlink(projectId);
+    const groupId = get().projects.find((p) => p.id === projectId)?.group?.id;
+    try {
+      await window.electronAPI.projects.unlink(projectId);
+    } catch (err) {
+      groupErrorToast(`unlink-project-${projectId}`, "Couldn't unlink project", err);
+      return;
+    }
     await get().loadProjects();
+    forgetDissolvedGroup(groupId);
+  },
+
+  unlinkGroup: async (groupId: string) => {
+    try {
+      await window.electronAPI.projects.unlinkGroup(groupId);
+    } catch (err) {
+      groupErrorToast(`unlink-group-${groupId}`, "Couldn't unlink projects", err);
+      return;
+    }
+    await get().loadProjects();
+    forgetDissolvedGroup(groupId);
   },
 
   reorderSidebar: async (projectId: string, orderedKeys: string[]) => {
@@ -1364,9 +1412,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   setProjectExpanded: (projectId: string) =>
     set((s) => {
-      if (!s.collapsedProjectIds.has(projectId)) return s;
+      // A linked project is only visible once its group is open too (ADR-192).
+      const groupId = s.projects.find((p) => p.id === projectId)?.group?.id;
+      const keys = groupId ? [projectId, groupId] : [projectId];
+      if (!keys.some((key) => s.collapsedProjectIds.has(key))) return s;
       const next = new Set(s.collapsedProjectIds);
-      next.delete(projectId);
+      for (const key of keys) next.delete(key);
       saveCollapsedIds(next);
       return { collapsedProjectIds: next };
     }),

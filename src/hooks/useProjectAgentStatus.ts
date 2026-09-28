@@ -85,11 +85,23 @@ export function groupAgentPaneIds(
   const memberWorkspaces = new Set<string>(memberKeys);
   for (const agent of agents) {
     if (!agent.paneId || !agent.workspacePath) continue;
-    if (memberWorkspaces.has(workspaceKey(agent.hostId, agent.workspacePath))) {
-      paneIds.add(agent.paneId);
-    }
+    const key = agentWorkspaceKey(agent.hostId, agent.workspacePath);
+    if (key && memberWorkspaces.has(key)) paneIds.add(agent.paneId);
   }
   return [...paneIds];
+}
+
+/**
+ * An agent record's workspace key, or `undefined` for one `workspaceKey`
+ * rejects (a malformed host id or a non-absolute remote path), so one bad
+ * record skips instead of crashing the sidebar's render.
+ */
+function agentWorkspaceKey(hostId: string, workspacePath: string): string | undefined {
+  try {
+    return workspaceKey(hostId, workspacePath);
+  } catch {
+    return undefined;
+  }
 }
 
 /**

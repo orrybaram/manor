@@ -46,6 +46,15 @@ describe("layoutPaneIds", () => {
 });
 
 describe("groupAgentPaneIds", () => {
+  it("skips an agent record with a malformed host or path instead of throwing", () => {
+    const ids = groupAgentPaneIds([localApp, boxApp], {}, [
+      { hostId: "box", workspacePath: "relative/path", paneId: "bad-path" },
+      { hostId: "b", workspacePath: "/home/me/app", paneId: "bad-host" },
+      { hostId: "box", workspacePath: "/home/me/app", paneId: "good" },
+    ]);
+    expect(ids).toEqual(["good"]);
+  });
+
   it("collects the panes of every section's workspace layouts", () => {
     const ids = groupAgentPaneIds(
       [localApp, boxApp],

@@ -1,7 +1,10 @@
 import { useCallback, useMemo } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useProjectStore, type ProjectInfo } from "../../store/project-store";
-import { buildTopLevelEntries, type TopLevelEntry } from "../../utils/sidebar-items";
+import {
+  buildTopLevelEntries,
+  type TopLevelEntry,
+} from "../../utils/sidebar-items";
 import { ghRepoOf } from "../../lib/gh-repo";
 import { primaryMember } from "../../lib/home-dashboard";
 import {
@@ -25,7 +28,10 @@ const loggedFailures = new Set<string>();
 type SourceResult = { rows: TaskRow[]; failed: boolean };
 
 /** Run `fetch`; a failure is logged once and counted, never thrown (ADR-198 §3). */
-async function settle(key: string, fetch: () => Promise<TaskRow[]>): Promise<SourceResult> {
+async function settle(
+  key: string,
+  fetch: () => Promise<TaskRow[]>,
+): Promise<SourceResult> {
   try {
     return { rows: await fetch(), failed: false };
   } catch (err) {
@@ -37,7 +43,9 @@ async function settle(key: string, fetch: () => Promise<TaskRow[]>): Promise<Sou
   }
 }
 
-function combineResults(results: { data?: SourceResult; isPending: boolean }[]): {
+function combineResults(
+  results: { data?: SourceResult; isPending: boolean }[],
+): {
   rows: TaskRow[];
   loading: boolean;
   failedCount: number;
@@ -82,7 +90,8 @@ export function useTrackerSources(): {
     staleTime: Infinity,
     retry: false,
   });
-  const ghReady = ghStatus.data?.installed === true && ghStatus.data.authenticated === true;
+  const ghReady =
+    ghStatus.data?.installed === true && ghStatus.data.authenticated === true;
 
   const anyLinear = projects.some((p) => p.linearAssociations.length > 0);
   const linearStatus = useQuery({
@@ -106,7 +115,11 @@ export function useTrackerSources(): {
         color: member.color,
       };
       if (ghReady) {
-        out.push({ key: `gh:${member.hostId}:${member.path}`, provider: "github", ctx });
+        out.push({
+          key: `gh:${member.hostId}:${member.path}`,
+          provider: "github",
+          ctx,
+        });
       }
       if (linearConnected && member.linearAssociations.length > 0) {
         out.push({ key: `linear:${member.id}`, provider: "linear", ctx });
@@ -151,7 +164,9 @@ export function useTasks(options: UseTasksOptions): {
   const sources = useMemo(
     () =>
       tracker.sources.filter(
-        (s) => s.provider === provider && (projectKey === null || s.ctx.entryKey === projectKey),
+        (s) =>
+          s.provider === provider &&
+          (projectKey === null || s.ctx.entryKey === projectKey),
       ),
     [tracker.sources, provider, projectKey],
   );
@@ -164,14 +179,29 @@ export function useTasks(options: UseTasksOptions): {
       const member = ctx.project;
       if (source.provider === "github") {
         return {
-          queryKey: ["tasks", "github", filter, member.hostId, member.path, ctx.entryKey],
+          queryKey: [
+            "tasks",
+            "github",
+            filter,
+            member.hostId,
+            member.path,
+            ctx.entryKey,
+          ],
           queryFn: () =>
             settle(`${source.key}:${filter}`, async () => {
               const repo = ghRepoOf(member);
               const issues =
                 filter === "assigned"
-                  ? await window.electronAPI.github.getMyIssues(repo, LIMIT, "open")
-                  : await window.electronAPI.github.getAllIssues(repo, LIMIT, "open");
+                  ? await window.electronAPI.github.getMyIssues(
+                      repo,
+                      LIMIT,
+                      "open",
+                    )
+                  : await window.electronAPI.github.getAllIssues(
+                      repo,
+                      LIMIT,
+                      "open",
+                    );
               return issues.map((i) => fromGitHub(i, ctx));
             }),
           staleTime: STALE_MS,
@@ -180,7 +210,14 @@ export function useTasks(options: UseTasksOptions): {
       }
       const teamIds = member.linearAssociations.map((a) => a.teamId);
       return {
-        queryKey: ["tasks", "linear", filter, member.id, teamIds.join(","), ctx.entryKey],
+        queryKey: [
+          "tasks",
+          "linear",
+          filter,
+          member.id,
+          teamIds.join(","),
+          ctx.entryKey,
+        ],
         queryFn: () =>
           settle(`${source.key}:${filter}`, async () => {
             const opts = { stateTypes: OPEN_LINEAR_STATES, limit: LIMIT };

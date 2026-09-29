@@ -29,11 +29,6 @@
   transition: padding-left var(--sidebar-mode-transition) ease;
 }
 
-/* The top-right panel's tabs stop short of the WindowTrail's bell. */
-.tabBarTopRight {
-  padding-right: var(--window-trail-inset);
-}
-
 .tabBarDropTarget {
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-deep));
 }

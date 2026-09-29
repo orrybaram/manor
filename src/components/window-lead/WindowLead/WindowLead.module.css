@@ -43,3 +43,13 @@
 :global(.app-body[data-sidebar-animating]) .lead {
   transition: width var(--sidebar-mode-transition) ease;
 }
+
+/* The notifications bell, pushed to the lead's right edge: the sidebar's
+   right side in `full` mode. */
+.bell {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}

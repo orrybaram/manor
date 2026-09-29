@@ -12,7 +12,7 @@ import {
   selectActiveWorkspaceKey,
 } from "../../../store/app-store";
 import { parseWorkspaceKey, type WorkspaceKey } from "../../../lib/workspace-key";
-import { topLeftPanelId, topRightPanelId } from "../../../store/panel-tree";
+import { topLeftPanelId } from "../../../store/panel-tree";
 import { usePaneDrag } from "../../workspace-panes/PaneDragContext";
 import {
   countTabsInWindow,
@@ -129,12 +129,6 @@ export function TabBar(props: TabBarProps) {
     if (!panelId || !workspaceKey) return false;
     const tree = s.workspaceLayouts[workspaceKey]?.panelTree;
     return tree ? topLeftPanelId(tree) === panelId : false;
-  });
-  // Only the top-right panel stops short of the WindowTrail's bell.
-  const isTopRight = useAppStore((s) => {
-    if (!panelId || !workspaceKey) return false;
-    const tree = s.workspaceLayouts[workspaceKey]?.panelTree;
-    return tree ? topRightPanelId(tree) === panelId : false;
   });
   const { drag, startDrag, endDrag } = usePaneDrag();
   const extractPaneToTab = useAppStore((s) => s.extractPaneToTab);
@@ -587,7 +581,7 @@ export function TabBar(props: TabBarProps) {
           data-focus-region="tabbar"
           role="tablist"
           aria-orientation="horizontal"
-          className={`${styles.tabBar} ${isTopLeft ? styles.tabBarTopLeft : ""} ${isTopRight ? styles.tabBarTopRight : ""} ${isDragActive ? styles.tabBarDropTarget : ""} ${splitDropHint ? styles.tabBarSplitHint : ""}`}
+          className={`${styles.tabBar} ${isTopLeft ? styles.tabBarTopLeft : ""} ${isDragActive ? styles.tabBarDropTarget : ""} ${splitDropHint ? styles.tabBarSplitHint : ""}`}
           onDragOver={handleBarDragOver}
           onDragLeave={handleBarDragLeave}
           onDrop={handleBarDrop}

@@ -44,7 +44,9 @@
 }
 
 .tiles {
-  flex: 1;
+  /* Only as tall as its tiles, so Agents sits right below the last one;
+     shrinks and scrolls once the tiles outgrow the rail. */
+  flex: 0 1 auto;
   min-height: 0;
   /* Spans the rail's inset too, so each slot's active marker can sit on
      the window's left edge (`.tileSlot` steps the tile back in). */
@@ -70,7 +72,8 @@
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: 6px 0 10px;
+  /* `.tiles` already leaves one gap above. */
+  padding-bottom: var(--rail-gap);
 }
 
 /* One tile plus its active marker, full rail width so the marker sits on the

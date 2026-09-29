@@ -9,6 +9,7 @@ import { useAgentStore } from "../../../store/agent-store";
 import { navigateToAgent } from "../../../utils/agent-navigation";
 import { projectColorStyle } from "../../../hooks/useProjectHeaderRow";
 import {
+  itemKey,
   needsYouItems,
   openPrCount,
   openPrRows,
@@ -50,10 +51,6 @@ const AGENT_TIER_LABEL: Record<"input" | "error" | "finished", string> = {
   error: "Agent errored",
   finished: "Agent finished",
 };
-
-function itemKey(item: NeedsYouItem): string {
-  return item.kind === "agent" ? `agent:${item.agent.id}` : `pr:${item.pr.url}`;
-}
 
 /** "4m" / "3h" / "2d" — the age of an agent's last status update. */
 function formatAge(updatedAt: string): string {

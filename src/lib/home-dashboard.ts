@@ -78,7 +78,7 @@ function resolveAgentWorkspaceKey(
 }
 
 /** The project (and workspace, when known) `agent` belongs to, or null when neither can be found. */
-function resolveAgentContext(
+export function resolveAgentContext(
   agent: AgentInfo,
   projects: readonly ProjectInfo[],
 ): { project: ProjectInfo; workspace?: WorkspaceInfo } | null {
@@ -93,7 +93,7 @@ function resolveAgentContext(
 }
 
 /** The first applicable cause of a blocked PR (ADR §1), mirroring `prReadiness`'s own order. */
-function blockedReason(pr: PrInfo): string {
+export function blockedReason(pr: PrInfo): string {
   if (pr.hasConflicts === true) return "conflicts";
   if (pr.checks != null && pr.checks.failing > 0) return "checks failing";
   if (pr.reviewDecision === "CHANGES_REQUESTED") return "changes requested";
@@ -101,6 +101,15 @@ function blockedReason(pr: PrInfo): string {
     return `${pr.unresolvedThreads} unresolved thread${pr.unresolvedThreads === 1 ? "" : "s"}`;
   }
   return "blocked";
+}
+
+/**
+ * A Needs-you item's stable identity: the agent id or the PR URL. React keys
+ * and snoozes (ADR-198 §4) both use it, so a snoozed card stays hidden across
+ * re-renders and ranking changes.
+ */
+export function itemKey(item: NeedsYouItem): string {
+  return item.kind === "agent" ? `agent:${item.agent.id}` : `pr:${item.pr.url}`;
 }
 
 /**
@@ -250,13 +259,21 @@ export interface UpNextIssue {
   title: string;
   url: string;
   labels: string[];
+  /** Linear priority: 1 Urgent … 4 Low, 0 none. Absent for GitHub issues. */
+  priority?: number;
   raw: unknown;
+}
+
+/** Sort rank of a Linear priority: 1 Urgent … 4 Low, then none (0 / absent) last. */
+function priorityRank(priority: number | undefined): number {
+  return priority != null && priority >= 1 && priority <= 4 ? priority : 5;
 }
 
 /**
  * `issues` ranked per ADR §1: `ready-for-agent` labelled issues first, then
- * `projectOrder` (sidebar order), then lowest issue number (GitHub) or
- * identifier (Linear). The caller is expected to have already dropped linked
+ * Linear `priority` (ADR-198 §2: Urgent → Low, none last — GitHub issues
+ * have none), then `projectOrder` (sidebar order), then lowest issue number
+ * (GitHub) or identifier (Linear). The caller is expected to have already dropped linked
  * issues (`isIssueLinked`) — ranking stays pure and doesn't need `projects`.
  */
 export function rankUpNext(
@@ -268,6 +285,9 @@ export function rankUpNext(
     const aReady = a.labels.includes("ready-for-agent") ? 0 : 1;
     const bReady = b.labels.includes("ready-for-agent") ? 0 : 1;
     if (aReady !== bReady) return aReady - bReady;
+
+    const priorityDiff = priorityRank(a.priority) - priorityRank(b.priority);
+    if (priorityDiff !== 0) return priorityDiff;
 
     const aIndex = orderIndex.get(a.projectKey) ?? projectOrder.length;
     const bIndex = orderIndex.get(b.projectKey) ?? projectOrder.length;
@@ -316,6 +336,7 @@ export function upNextFromLinear(issue: LinearIssue, projectKey: string): UpNext
     title: issue.title,
     url: issue.url,
     labels: issue.labels.map((l) => l.name),
+    priority: issue.priority,
     raw: issue,
   };
 }

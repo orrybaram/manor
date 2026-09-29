@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  itemKey,
   needsYouItems,
   runningAgentCount,
   openPrCount,
@@ -265,6 +266,19 @@ describe("needsYouItems", () => {
   });
 });
 
+describe("itemKey", () => {
+  it("keys agents by id and PRs by URL", () => {
+    const project = baseProject();
+    const workspace = baseWorkspace();
+    expect(itemKey({ kind: "agent", tier: "input", agent: baseAgent({ id: "x" }), project })).toBe(
+      "agent:x",
+    );
+    expect(
+      itemKey({ kind: "pr", tier: "ready", pr: basePr(), project, workspace, reason: "ready to merge" }),
+    ).toBe("pr:https://github.com/example/repo/pull/1");
+  });
+});
+
 describe("runningAgentCount", () => {
   it("counts panes that are thinking or working for a live agent, once per pane", () => {
     const agents: AgentInfo[] = [
@@ -379,6 +393,22 @@ describe("rankUpNext", () => {
     const b = issue({ projectKey: "p1", identifier: "ENG-10", number: undefined });
     expect(rankUpNext([b, a], ["p1"]).map((i) => i.identifier)).toEqual(["ENG-2", "ENG-10"]);
   });
+
+  it("ranks Linear priority after ready-for-agent and before project order", () => {
+    const low = issue({ source: "linear", projectKey: "p1", identifier: "ENG-1", priority: 4 });
+    const urgent = issue({ source: "linear", projectKey: "p2", identifier: "ENG-2", priority: 1 });
+    const none = issue({ source: "linear", projectKey: "p1", identifier: "ENG-3", priority: 0 });
+    const gh = issue({ projectKey: "p1", number: 3, identifier: "#3" });
+    const readyNone = issue({
+      source: "linear",
+      projectKey: "p2",
+      identifier: "ENG-4",
+      priority: 0,
+      labels: ["ready-for-agent"],
+    });
+    const ranked = rankUpNext([none, gh, low, urgent, readyNone], ["p1", "p2"]);
+    expect(ranked.map((i) => i.identifier)).toEqual(["ENG-4", "ENG-2", "ENG-1", "#3", "ENG-3"]);
+  });
 });
 
 describe("primaryMember", () => {
@@ -456,6 +486,7 @@ describe("upNextFromGitHub / upNextFromLinear / upNextList", () => {
       projectKey: "p2",
       identifier: "ENG-3",
       labels: ["ready-for-agent"],
+      priority: 0,
     });
     expect(issue.number).toBeUndefined();
   });

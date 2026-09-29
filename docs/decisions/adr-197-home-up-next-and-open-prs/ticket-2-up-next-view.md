@@ -1,6 +1,6 @@
 ---
 title: Dedicated Up next palette view and shared start-work hook
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [1]

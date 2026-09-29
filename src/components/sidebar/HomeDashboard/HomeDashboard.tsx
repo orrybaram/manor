@@ -1,5 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import GitPullRequest from "lucide-react/dist/esm/icons/git-pull-request";
 import Check from "lucide-react/dist/esm/icons/check";
@@ -16,16 +15,11 @@ import {
   type NeedsYouItem,
   type NeedsYouTier,
 } from "../../../lib/home-dashboard";
-import { ghRepoOf } from "../../../lib/gh-repo";
-import {
-  startGitHubIssueWork,
-  startLinearIssueWork,
-  type NewWorkspaceHandler,
-} from "../../../lib/start-issue-work";
-import type { GitHubIssue, LinearIssue } from "../../../electron.d";
+import type { NewWorkspaceHandler } from "../../../lib/start-issue-work";
 import type { PaletteView } from "../../command-palette/types";
 import { Button } from "../../ui/Button/Button";
-import { useUpNextIssues, type UpNextRow } from "./useUpNextIssues";
+import { useUpNextIssues } from "./useUpNextIssues";
+import { useStartUpNextIssue } from "./useStartUpNextIssue";
 import shared from "../../EmptyState.module.css";
 import styles from "./HomeDashboard.module.css";
 import { CountBadge } from "../../ui/CountBadge/CountBadge";
@@ -81,7 +75,7 @@ function itemLabel(item: NeedsYouItem): { text: string; sub?: string } {
 type HomeDashboardProps = {
   /** Opens the New Workspace dialog, prefilled — starts work on an Up next issue. */
   onNewWorkspace?: NewWorkspaceHandler;
-  /** Opens the palette on a view — Up next's "All issues" link. */
+  /** Opens the palette on a view — Up next's "View all" link. */
   onOpenPaletteView?: (view: PaletteView) => void;
 };
 
@@ -90,7 +84,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
   const projects = useProjectStore((s) => s.projects);
   const selectProject = useProjectStore((s) => s.selectProject);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
-  const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
   const agents = useAgentStore((s) => s.agents);
   const unseenRespondedAgentIds = useAgentStore((s) => s.unseenRespondedAgentIds);
@@ -107,7 +100,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
   );
   const openPrs = useMemo(() => openPrCount(projects), [projects]);
   const upNext = useUpNextIssues();
-  const queryClient = useQueryClient();
+  const handleUpNextClick = useStartUpNextIssue(onNewWorkspace);
 
   const shownItems = expanded ? needsYou : needsYou.slice(0, VISIBLE_COUNT);
   const moreCount = needsYou.length - VISIBLE_COUNT;
@@ -129,62 +122,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
     },
     [projects, selectProject, selectWorkspace],
   );
-
-  // A click fetches the issue body first; ignore repeat clicks meanwhile.
-  const startingRef = useRef(false);
-  const handleUpNextClick = useCallback(
-    async (row: UpNextRow) => {
-      if (startingRef.current) return;
-      startingRef.current = true;
-      try {
-        const { issue, project } = row;
-        if (issue.source === "github") {
-          const listed = issue.raw as GitHubIssue;
-          const repo = ghRepoOf(project);
-          // `getMyIssues` has no body; the palette's detail query does. Same key,
-          // so a palette visit and a Home click share the cache. Title only if
-          // the detail fetch fails.
-          const detail = await queryClient
-            .fetchQuery({
-              queryKey: ["github-issue-detail", repo.hostId, repo.path, listed.number, listed.url],
-              queryFn: () =>
-                window.electronAPI.github.getIssueDetail(repo, listed.number, listed.url),
-              staleTime: 60_000,
-              retry: false,
-            })
-            .catch(() => null);
-          startGitHubIssueWork({
-            project,
-            repo,
-            issue: { ...listed, body: detail?.body ?? null },
-            onNewWorkspace,
-          });
-        } else {
-          const listed = issue.raw as LinearIssue;
-          const detail = await queryClient
-            .fetchQuery({
-              queryKey: ["linear-issue-detail", listed.id],
-              queryFn: () => window.electronAPI.linear.getIssueDetail(listed.id),
-              staleTime: 60_000,
-              retry: false,
-            })
-            .catch(() => null);
-          startLinearIssueWork({
-            project,
-            issue: { ...listed, description: detail?.description ?? null },
-            onNewWorkspace,
-          });
-        }
-      } finally {
-        startingRef.current = false;
-      }
-    },
-    [queryClient, onNewWorkspace],
-  );
-
-  const selectedProject = projects[selectedProjectIndex];
-  const allIssuesView: PaletteView =
-    (selectedProject?.linearAssociations.length ?? 0) > 0 ? "linear-all" : "github-all";
 
   const issuesReady = upNext.total;
   const summaryParts: ReactNode[] = [];
@@ -266,9 +203,9 @@ export function HomeDashboard(props: HomeDashboardProps) {
               <Button
                 variant="link"
                 className={`${shared.sectionLink} ${styles.sectionLink}`}
-                onClick={() => onOpenPaletteView(allIssuesView)}
+                onClick={() => onOpenPaletteView("up-next")}
               >
-                All issues
+                View all ({upNext.total})
               </Button>
             )}
           </div>

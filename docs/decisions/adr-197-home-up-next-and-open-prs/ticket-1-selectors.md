@@ -1,6 +1,6 @@
 ---
 title: Pure selectors for per-project Up next and open PR rows
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

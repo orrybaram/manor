@@ -15,13 +15,14 @@
   flex-direction: column;
   gap: 28px;
   padding-bottom: 24px;
+  /* Sits in the middle of the page. Auto margins (not justify-content) so a
+     short window still scrolls to the top. */
+  margin-block: auto;
 }
 
-/* Zero projects: the onboarding column sits in the middle, like Home. Auto
-   margins (not justify-content) so a short window still scrolls to the top. */
+/* Zero projects: the narrower onboarding column, like Home. */
 .containerCentered .content {
   width: 480px;
-  margin-block: auto;
   gap: 40px;
 }
 

@@ -14,7 +14,9 @@
   background: transparent;
   position: relative;
   user-select: none;
-  overflow: hidden;
+  /* Visible so the resize handle can draw on the main panel's border just
+     past the rail's edge; `.tiles` scrolls on its own. */
+  overflow: visible;
 }
 
 /* The row the WindowLead sits in (ADR-196), draggable. */

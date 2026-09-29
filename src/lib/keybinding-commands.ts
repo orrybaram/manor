@@ -111,12 +111,12 @@ export async function startNewAgent(
 
 /**
  * Close shortcuts act on the active workspace's layout, which stays mounted but
- * hidden behind the Projects overview (ADR-194). Ignore them there, so ⌘W
- * can't close a tab the user can't see.
+ * hidden behind the Projects overview (ADR-194) and the Tasks view (ADR-198).
+ * Ignore them there, so ⌘W can't close a tab the user can't see.
  */
 export function unlessOverviewShown(fn: () => void): () => void {
   return () => {
-    if (useAppStore.getState().activeSurface === "projects") return;
+    if (useAppStore.getState().activeSurface !== "workspace") return;
     fn();
   };
 }

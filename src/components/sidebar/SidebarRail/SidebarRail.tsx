@@ -42,7 +42,9 @@ export function SidebarRail(props: SidebarRailProps) {
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
-  const projectsActive = useAppStore((s) => s.activeSurface === "projects");
+  // The Projects overview and the Tasks view (ADR-198) both cover the active
+  // workspace, so neither Home nor a project tile reads as current there.
+  const projectsActive = useAppStore((s) => s.activeSurface !== "workspace");
   const homeActive = !projectsActive && isHomePath(activeWorkspacePath);
   const agentCount = useVisibleAgents().length;
 

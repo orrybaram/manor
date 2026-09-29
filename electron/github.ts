@@ -424,7 +424,7 @@ export class GitHubManager {
         issueUrl || String(issueNumber),
         ...repoArgs,
         "--json",
-        "number,title,url,state,body,labels,assignees,milestone",
+        "number,title,url,state,body,labels,assignees,milestone,updatedAt,author",
       ],
       { cwd, encoding: "utf-8", timeout: 10000 },
     );

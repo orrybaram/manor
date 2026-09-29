@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import {
   isContextMenuKey,
@@ -12,8 +12,8 @@ import { useAgentStore } from "../../store/agent-store";
 import { useAppStore } from "../../store/app-store";
 import { useVisibleAgents } from "../../hooks/useVisibleAgents";
 import { useAgentPulse } from "../../hooks/useAgentPulse";
-import { useProjectStore, MIN_AGENTS_HEIGHT } from "../../store/project-store";
-import { useDragOverlayStore } from "../../store/drag-overlay-store";
+import { useProjectStore, MIN_AGENTS_HEIGHT, MAX_AGENTS_HEIGHT } from "../../store/project-store";
+import { useCollapsibleResize } from "../../hooks/useCollapsibleResize";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
 import { Button } from "../ui/Button/Button";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
@@ -174,44 +174,15 @@ export function AgentsList(props: AgentsListProps) {
     },
     [setAgentsCollapsed],
   );
-  const [isResizing, setIsResizing] = useState(false);
-  const startY = useRef(0);
-  const startHeight = useRef(0);
-
-  const handleResizeStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      setIsResizing(true);
-      useDragOverlayStore.getState().incrementDragCount();
-      startY.current = e.clientY;
-      startHeight.current = agentsHeight;
-
-      const onMouseMove = (ev: MouseEvent) => {
-        const delta = startY.current - ev.clientY;
-        const newHeight = startHeight.current + delta;
-        // Dragging below the minimum folds the pane, as Ports does.
-        if (newHeight < MIN_AGENTS_HEIGHT) {
-          setCollapsed(true);
-        } else {
-          setCollapsed(false);
-          setAgentsHeight(newHeight);
-        }
-      };
-
-      const cleanup = () => {
-        useDragOverlayStore.getState().decrementDragCount();
-        setIsResizing(false);
-        document.removeEventListener("mousemove", onMouseMove);
-        document.removeEventListener("mouseup", cleanup);
-        window.removeEventListener("blur", cleanup);
-      };
-
-      document.addEventListener("mousemove", onMouseMove);
-      document.addEventListener("mouseup", cleanup);
-      window.addEventListener("blur", cleanup);
-    },
-    [agentsHeight, setAgentsHeight, setCollapsed],
-  );
+  // Dragging below the minimum folds the pane, as Ports does.
+  const { isResizing, showBody, bodyHeight, onResizeStart } = useCollapsibleResize({
+    height: agentsHeight,
+    setHeight: setAgentsHeight,
+    collapsed,
+    setCollapsed,
+    min: MIN_AGENTS_HEIGHT,
+    max: MAX_AGENTS_HEIGHT,
+  });
 
   const visibleAgents = useVisibleAgents();
   const shouldPulse = useAgentPulse();
@@ -238,7 +209,7 @@ export function AgentsList(props: AgentsListProps) {
       {!fitContent && (
         <div
           className={`${styles.agentsResizeHandle} ${isResizing ? styles.agentsResizeHandleActive : ""}`}
-          onMouseDown={handleResizeStart}
+          onMouseDown={onResizeStart}
           data-testid="sidebar-agents-resize-handle"
         />
       )}
@@ -290,8 +261,8 @@ export function AgentsList(props: AgentsListProps) {
           </button>
         )}
       </div>
-      {!collapsed && (
-        <div className={styles.agentGroups} style={fitContent ? undefined : { height: agentsHeight }}>
+      {(fitContent ? !collapsed : showBody) && (
+        <div className={styles.agentGroups} style={fitContent ? undefined : { height: bodyHeight }}>
           {Array.from(groups.entries()).map(([projectName, groupAgents]) => (
             <div key={projectName} className={styles.agentGroup}>
               <div className={styles.agentGroupHeader}>{projectName}</div>

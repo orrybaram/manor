@@ -250,7 +250,9 @@ export function AgentsList(props: AgentsListProps) {
           Agents
         </span>
         {onShowAll && (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             className={styles.action}
             onClick={(e) => {
               // The header around it folds the pane on click.
@@ -259,10 +261,9 @@ export function AgentsList(props: AgentsListProps) {
             }}
             title="View all agents"
             data-testid="sidebar-agents-view-all"
-            style={{ fontSize: 10, opacity: 0.6 }}
           >
             View All
-          </button>
+          </Button>
         )}
       </div>
       <Collapse open={fitContent || showBody} animate={!isResizing}>

@@ -45,20 +45,14 @@
 }
 
 /* Duplicated in Sidebar.module.css — candidate for a shared <SectionHeader> UI component */
+/* "View All": a ghost Button trimmed to fit the 24px header, with even
+   room around the label for its hover background. */
 .action {
-  border: none;
-  background: transparent;
-  color: var(--text-dim);
-  font-size: 16px;
-  cursor: pointer;
-  padding: 0 4px;
-  border-radius: 4px;
-  line-height: 1;
-}
-
-.action:hover {
-  background: var(--surface);
-  color: var(--text-selected);
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: normal;
+  line-height: 12px;
 }
 
 .agentGroups {

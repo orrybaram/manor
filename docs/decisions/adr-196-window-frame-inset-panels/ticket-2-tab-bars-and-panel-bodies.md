@@ -1,6 +1,6 @@
 ---
 title: Tab bars on the frame and rounded panel bodies
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]

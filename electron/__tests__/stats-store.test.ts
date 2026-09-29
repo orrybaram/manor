@@ -255,6 +255,43 @@ describe("StatsStore", () => {
     });
   });
 
+  describe("dailyPrsMerged", () => {
+    it("is seven zero days for a fresh store", () => {
+      const store = new StatsStore(tmpDir, { now: () => localMs(2026, 9, 5) });
+      const series = store.getSummary().dailyPrsMerged;
+      expect(series).toHaveLength(7);
+      expect(series[0].day).toBe("2026-08-30");
+      expect(series[6].day).toBe("2026-09-05");
+      expect(series.every((d) => d.count === 0)).toBe(true);
+    });
+
+    it("lists the last 7 days oldest first with counts and zeros", () => {
+      fs.writeFileSync(
+        statsPath,
+        JSON.stringify({
+          version: 1,
+          days: {
+            "2026-08-29": { prsMerged: 9 },
+            "2026-09-01": { prsMerged: 2 },
+            "2026-09-05": { prsMerged: 1 },
+          },
+          badges: {},
+        }),
+      );
+      const store = new StatsStore(tmpDir, { now: () => localMs(2026, 9, 5) });
+
+      expect(store.getSummary().dailyPrsMerged).toEqual([
+        { day: "2026-08-30", count: 0 },
+        { day: "2026-08-31", count: 0 },
+        { day: "2026-09-01", count: 2 },
+        { day: "2026-09-02", count: 0 },
+        { day: "2026-09-03", count: 0 },
+        { day: "2026-09-04", count: 0 },
+        { day: "2026-09-05", count: 1 },
+      ]);
+    });
+  });
+
   describe("streakWeeks", () => {
     function storeWithPromptDays(offsets: number[], nowMs: number): StatsStore {
       const days: Record<string, { prompts: number }> = {};

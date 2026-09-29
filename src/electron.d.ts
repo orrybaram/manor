@@ -151,6 +151,8 @@ export interface StatsSummary {
   streakWeeks: number;
   /** Prompt count per local day, oldest first, for days that recorded one. */
   dailyPrompts: DailyPrompts[];
+  /** PRs merged per local day: last 7 days, oldest first, zeros included. */
+  dailyPrsMerged: { day: string; count: number }[];
   /** badgeId -> ISO awarded-at. */
   badges: Record<string, string>;
   enabled: boolean;

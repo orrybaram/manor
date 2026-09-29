@@ -22,6 +22,7 @@ import { ensureManorCli } from "./manor-cli-install";
 import { AgentManager, type AgentInfo } from "./agent-persistence";
 import { NotificationStore } from "./notification-store";
 import { StatsStore } from "./stats-store";
+import { AgentActivityStore } from "./agent-activity-store";
 import { countBusyAgents } from "./stats-signals";
 import { PreferencesManager } from "./preferences";
 import { KeybindingsManager } from "./keybindings";
@@ -69,6 +70,7 @@ import * as webviewIpc from "./ipc/webview";
 import * as agentsIpc from "./ipc/agents";
 import * as notificationsIpc from "./ipc/notifications";
 import * as statsIpc from "./ipc/stats";
+import * as agentActivityIpc from "./ipc/agent-activity";
 import * as miscIpc from "./ipc/misc";
 import * as processesIpc from "./ipc/processes";
 import * as windowIpc from "./ipc/window";
@@ -437,6 +439,8 @@ export function initApp(devTitle: string | null): void {
     },
   });
   setStatsStore(statsStore);
+  // ADR-199's persistent Agent activity history, fed by `publishPaneStatus`.
+  const agentActivityStore = new AgentActivityStore();
   // A merged PR ships a workspace just as much as a quick merge does, and it
   // is the only shipping path the app never initiates itself — the PR poll is
   // where it surfaces. Counted once per PR, so a worktree kept around after
@@ -577,6 +581,10 @@ export function initApp(devTitle: string | null): void {
     publishPaneStatus: (update: PaneStatusUpdate) => {
       // One channel, every window, once per signal (ADR-184 §4).
       sendToRendererWindows("agent-status", update);
+      // Recorded per Agent, not per pane: panes are ephemeral (ADR-199 §1).
+      // A pane with no Agent has no lane to record into.
+      const agent = agentManager.getAgentByPaneId(update.paneId);
+      if (agent) agentActivityStore.record(agent, update.status);
     },
     onHookEvent: (event, effects, { isRootSession, replacedRootSessionId }) => {
       statsStore.observeHookEvent(
@@ -700,6 +708,7 @@ export function initApp(devTitle: string | null): void {
     agentStatus: agentStatusDriver,
     notificationStore,
     statsStore,
+    agentActivityStore,
     preferencesManager,
     keybindingsManager,
     paneContextMap,
@@ -755,6 +764,7 @@ export function initApp(devTitle: string | null): void {
   agentsIpc.register(ipcDeps);
   notificationsIpc.register(ipcDeps);
   statsIpc.register(ipcDeps);
+  agentActivityIpc.register(ipcDeps);
   miscIpc.register(ipcDeps);
   processesIpc.register(ipcDeps);
   windowIpc.register(ipcDeps);
@@ -889,6 +899,7 @@ export function initApp(devTitle: string | null): void {
     void backendRegistry.disconnectAll();
     killAllActivePushes();
     statsStore.flushNow();
+    agentActivityStore.flush();
     projectManager.flushHostHookSeqs();
     worktreeWatcher.dispose();
     remoteWorktreePoller.dispose();

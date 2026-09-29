@@ -166,7 +166,7 @@ export function StatusBar(props: StatusBarProps) {
       <div className={styles.left}>
         {!project && (
           <span className={styles.segment}>
-            {projectsOverviewShown ? "Projects" : tasksShown ? "Tasks" : "Home"}
+            {projectsOverviewShown ? "Projects" : tasksShown ? "Tasks" : "Dashboard"}
           </span>
         )}
         {project && (

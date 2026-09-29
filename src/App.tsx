@@ -814,7 +814,6 @@ function App() {
                         (isHomePath(activeWorkspacePath)
                           ? (
                               <HomeEmptyState
-                                onNewAgent={handleNewAgent}
                                 onNewWorkspace={handleNewWorkspace}
                                 onOpenPaletteView={handleOpenPaletteView}
                               />

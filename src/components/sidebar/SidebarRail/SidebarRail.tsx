@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import House from "lucide-react/dist/esm/icons/house";
+import LayoutDashboard from "lucide-react/dist/esm/icons/layout-dashboard";
 import ListTodo from "lucide-react/dist/esm/icons/list-todo";
 import Search from "lucide-react/dist/esm/icons/search";
 import Bot from "lucide-react/dist/esm/icons/bot";
@@ -96,19 +96,19 @@ export function SidebarRail(props: SidebarRailProps) {
       data-testid="sidebar-rail"
     >
       <div className={styles.dragSpacer} />
-      <Tooltip label="Home" side="right">
+      <Tooltip label="Dashboard" side="right">
         <Button
           variant="ghost"
           className={`${styles.iconButton} ${homeActive ? styles.homeActive : ""}`}
           data-testid="rail-home"
           data-sidebar-row=""
           tabIndex={-1}
-          aria-label="Home"
+          aria-label="Dashboard"
           aria-current={homeActive ? "true" : undefined}
           onClick={goHome}
           onKeyDown={(e) => handleSidebarRowKeyDown(e, { activate: goHome })}
         >
-          <House size={14} />
+          <LayoutDashboard size={14} />
         </Button>
       </Tooltip>
       <Tooltip label="Tasks" side="right">

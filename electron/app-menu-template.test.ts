@@ -357,7 +357,7 @@ describe("buildMenuTemplate", () => {
       );
       const agents = menu(template, "Agents");
       expect(item(agents, "Claude — feature")).toBeDefined();
-      click(item(agents, "Codex — Home"));
+      click(item(agents, "Codex — Dashboard"));
       expect(actions.send).toHaveBeenCalledWith("focus-agent", {
         agentId: "a2",
       });

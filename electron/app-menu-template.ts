@@ -197,7 +197,7 @@ export function buildMenuTemplate(
       cmd("notifications", "Notifications"),
       cmd("your-issues", "Your Tasks"),
       SEPARATOR,
-      cmd("home", "Home", { type: "checkbox", checked: !!context?.isHome }),
+      cmd("home", "Dashboard", { type: "checkbox", checked: !!context?.isHome }),
       cmd("processes", "Processes"),
       cmd("stats", "Stats"),
       SEPARATOR,
@@ -347,7 +347,7 @@ export function buildMenuTemplate(
     ? agents.map((agent) =>
         cmd(
           "focus-agent",
-          `${agent.name} — ${agent.workspaceLabel ?? "Home"}`,
+          `${agent.name} — ${agent.workspaceLabel ?? "Dashboard"}`,
           {
             args: { agentId: agent.id },
           },

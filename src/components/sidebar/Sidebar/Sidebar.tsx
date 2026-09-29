@@ -6,7 +6,7 @@ import React, {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import Folders from "lucide-react/dist/esm/icons/folders";
-import House from "lucide-react/dist/esm/icons/house";
+import LayoutDashboard from "lucide-react/dist/esm/icons/layout-dashboard";
 import ListTodo from "lucide-react/dist/esm/icons/list-todo";
 import Search from "lucide-react/dist/esm/icons/search";
 import { useQuery } from "@tanstack/react-query";
@@ -250,9 +250,9 @@ export function Sidebar(props: SidebarProps) {
             }
           >
             <span className={styles.homeIcon}>
-              <House size={12} />
+              <LayoutDashboard size={12} />
             </span>
-            <span className={styles.homeLabel}>Home</span>
+            <span className={styles.homeLabel}>Dashboard</span>
           </div>
           <div
             className={`${styles.homeRow} ${tasksActive ? styles.homeRowActive : ""}`}

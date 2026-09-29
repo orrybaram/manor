@@ -8,7 +8,7 @@ blocked_by: [1, 2]
 
 # TasksView page with table, filters and pagination
 
-ADR-197 §3. Replace the placeholder `src/components/tasks/TasksView.tsx`.
+ADR-198 §3. Replace the placeholder `src/components/tasks/TasksView.tsx`.
 Read `.claude/rules/ui-components.md` and `src/components/ui/` first — use
 `Button`, `Link`, `Tooltip`, `ToggleGroup`, `SearchableSelect`, `CountBadge`,
 `Input` rather than raw elements.

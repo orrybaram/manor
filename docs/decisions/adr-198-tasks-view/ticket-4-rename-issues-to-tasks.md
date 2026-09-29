@@ -8,7 +8,7 @@ blocked_by: [2, 3]
 
 # Rename Issues to Tasks in UI copy
 
-ADR-197 §5. Change user-facing strings only — not identifiers, IPC channels,
+ADR-198 §5. Change user-facing strings only — not identifiers, IPC channels,
 MCP tool descriptions, or comments.
 
 Rename (Issue→Task, Issues→Tasks, issue→task, issues→tasks):

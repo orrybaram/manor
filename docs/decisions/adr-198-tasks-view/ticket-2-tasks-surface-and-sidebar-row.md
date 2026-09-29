@@ -1,6 +1,6 @@
 ---
 title: Tasks app surface and sidebar row
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []
@@ -8,7 +8,7 @@ blocked_by: []
 
 # Tasks app surface and sidebar row
 
-ADR-197 §1–§2.
+ADR-198 §1–§2.
 
 - `src/store/app-store.ts`: `AppSurface` gains `"tasks"`; add
   `showTasksView()` exactly like `showProjectsOverview()` (L929);

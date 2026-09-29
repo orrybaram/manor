@@ -1,6 +1,6 @@
 ---
 title: Add updatedAt/author/assignee to issue list data
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []
@@ -8,7 +8,7 @@ blocked_by: []
 
 # Add updatedAt/author/assignee to issue list data
 
-ADR-197 §4. Extend list results so the Tasks table can show Updated and
+ADR-198 §4. Extend list results so the Tasks table can show Updated and
 Assignees for both providers.
 
 - `electron/github.ts` (~L354–400): add `updatedAt,author` to the

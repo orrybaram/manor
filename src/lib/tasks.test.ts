@@ -8,6 +8,8 @@ import {
   fieldsFor,
   filterableFields,
   NONE_VALUE,
+  ME_VALUE,
+  DEFAULT_TASK_FILTERS,
   sortableFields,
   sortTasksBy,
   TASK_FIELDS,
@@ -462,6 +464,7 @@ describe("linkedTasks", () => {
 describe("task fields", () => {
   it("lists the fields per provider, split into filterable and sortable", () => {
     expect(fieldsFor("github")).toEqual([
+      "progress",
       "status",
       "assignee",
       "author",
@@ -476,6 +479,7 @@ describe("task fields", () => {
       "comments",
     ]);
     expect(fieldsFor("linear")).toEqual([
+      "progress",
       "status",
       "priority",
       "assignee",
@@ -493,6 +497,7 @@ describe("task fields", () => {
       "estimate",
     ]);
     expect(filterableFields("linear")).toEqual([
+      "progress",
       "status",
       "priority",
       "assignee",
@@ -511,6 +516,38 @@ describe("task fields", () => {
     expect(sortableFields("linear")).toEqual(
       expect.arrayContaining(["priority", "dueDate", "estimate", "cycle"]),
     );
+  });
+
+  it("offers Me as the first assignee and filters on it", () => {
+    const mine = {
+      ...fromLinear(linear({ id: "a" }), ctx),
+      assignedToMe: true,
+    };
+    const theirs = fromLinear(linear({ id: "b" }), ctx);
+    expect(facetOptions([theirs, mine], "assignee")[0]).toEqual({
+      value: ME_VALUE,
+      count: 1,
+    });
+    expect(facetLabel("assignee", ME_VALUE)).toBe("Me");
+    expect(applyTaskFilters([theirs, mine], { assignee: [ME_VALUE] })).toEqual([
+      mine,
+    ]);
+  });
+
+  it("splits tasks by progress, defaulting to yours not started", () => {
+    const fresh = {
+      ...fromLinear(linear({ id: "a" }), ctx),
+      assignedToMe: true,
+    };
+    const started = { ...fresh, key: "started", inProgress: true };
+    const other = fromLinear(linear({ id: "b" }), ctx);
+    expect(
+      facetOptions([started, fresh], "progress").map((o) => o.value),
+    ).toEqual(["not-started", "in-progress"]);
+    expect(facetLabel("progress", "in-progress")).toBe("In progress");
+    expect(
+      applyTaskFilters([fresh, started, other], DEFAULT_TASK_FILTERS),
+    ).toEqual([fresh]);
   });
 
   it("reads each field's facet values, [] when the row has none", () => {

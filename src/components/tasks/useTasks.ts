@@ -1,5 +1,5 @@
-import { useCallback, useMemo } from "react";
-import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useProjectStore, type ProjectInfo } from "../../store/project-store";
 import {
   buildTopLevelEntries,
@@ -12,7 +12,6 @@ import {
   fromGitHub,
   fromLinear,
   type TaskContext,
-  type TaskFilter,
   type TaskProvider,
   type TaskRow,
 } from "../../lib/tasks";
@@ -24,6 +23,9 @@ const OPEN_LINEAR_STATES = ["unstarted", "started", "backlog"];
 
 /** Query keys that already logged a failure — a flaky source logs once, not every refetch. */
 const loggedFailures = new Set<string>();
+
+/** Which issues a query asks for: every open one, or the open ones assigned to you. */
+type TaskFilter = "open" | "assigned";
 
 type SourceResult = { rows: TaskRow[]; failed: boolean };
 
@@ -50,8 +52,19 @@ function combineResults(
   loading: boolean;
   failedCount: number;
 } {
+  // Each source runs both queries; a task the "assigned" one listed is yours.
+  const rows = results.flatMap((r) => r.data?.rows ?? []);
+  const mine = new Set(
+    rows.filter((row) => row.assignedToMe).map((row) => row.url || row.key),
+  );
   return {
-    rows: collectTasks(results.flatMap((r) => r.data?.rows ?? [])),
+    rows: collectTasks(
+      rows.map((row) =>
+        !row.assignedToMe && mine.has(row.url || row.key)
+          ? { ...row, assignedToMe: true }
+          : row,
+      ),
+    ),
     loading: results.some((r) => r.isPending),
     failedCount: results.filter((r) => r.data?.failed).length,
   };
@@ -141,25 +154,25 @@ export type UseTasksOptions = {
   provider: TaskProvider;
   /** A top-level entry key, or null for every project. */
   projectKey: string | null;
-  filter: TaskFilter;
 };
 
+const FILTERS: TaskFilter[] = ["assigned", "open"];
+
 /**
- * Tasks for the Tasks view (ADR-198 §3): one query per top-level entry for
- * `provider` (just the chosen entry when `projectKey` is set), normalised,
- * deduped and sorted by last update. A failing source contributes no rows
- * and is counted in `failedCount`.
+ * Tasks for the Tasks view (ADR-198 §3): for each top-level entry of
+ * `provider` (just the chosen entry when `projectKey` is set), its open tasks
+ * and the ones assigned to you — merged, with yours marked `assignedToMe`,
+ * deduped and sorted by last update. A failing query contributes no rows and
+ * is counted in `failedCount`.
  */
 export function useTasks(options: UseTasksOptions): {
   rows: TaskRow[];
   loading: boolean;
   failedCount: number;
-  refetch: () => void;
 } {
-  const { provider, projectKey, filter } = options;
+  const { provider, projectKey } = options;
 
   const tracker = useTrackerSources();
-  const queryClient = useQueryClient();
 
   const sources = useMemo(
     () =>
@@ -174,74 +187,77 @@ export function useTasks(options: UseTasksOptions): {
   const result = useQueries({
     // Module-level, so the combined value only changes when a query does.
     combine: combineResults,
-    queries: sources.map((source) => {
-      const { ctx } = source;
-      const member = ctx.project;
-      if (source.provider === "github") {
+    queries: sources.flatMap((source) =>
+      FILTERS.map((filter) => {
+        const { ctx } = source;
+        const member = ctx.project;
+        if (source.provider === "github") {
+          return {
+            queryKey: [
+              "tasks",
+              "github",
+              filter,
+              member.hostId,
+              member.path,
+              ctx.entryKey,
+            ],
+            queryFn: () =>
+              settle(`${source.key}:${filter}`, async () => {
+                const repo = ghRepoOf(member);
+                const issues =
+                  filter === "assigned"
+                    ? await window.electronAPI.github.getMyIssues(
+                        repo,
+                        LIMIT,
+                        "open",
+                      )
+                    : await window.electronAPI.github.getAllIssues(
+                        repo,
+                        LIMIT,
+                        "open",
+                      );
+                return issues.map((i) => ({
+                  ...fromGitHub(i, ctx),
+                  assignedToMe: filter === "assigned",
+                }));
+              }),
+            staleTime: STALE_MS,
+            retry: false,
+          };
+        }
+        const teamIds = member.linearAssociations.map((a) => a.teamId);
         return {
           queryKey: [
             "tasks",
-            "github",
+            "linear",
             filter,
-            member.hostId,
-            member.path,
+            member.id,
+            teamIds.join(","),
             ctx.entryKey,
           ],
           queryFn: () =>
             settle(`${source.key}:${filter}`, async () => {
-              const repo = ghRepoOf(member);
+              const opts = { stateTypes: OPEN_LINEAR_STATES, limit: LIMIT };
               const issues =
                 filter === "assigned"
-                  ? await window.electronAPI.github.getMyIssues(
-                      repo,
-                      LIMIT,
-                      "open",
-                    )
-                  : await window.electronAPI.github.getAllIssues(
-                      repo,
-                      LIMIT,
-                      "open",
-                    );
-              return issues.map((i) => fromGitHub(i, ctx));
+                  ? await window.electronAPI.linear.getMyIssues(teamIds, opts)
+                  : await window.electronAPI.linear.getAllIssues(teamIds, opts);
+              return issues.map((i) => ({
+                ...fromLinear(i, ctx),
+                assignedToMe: filter === "assigned",
+              }));
             }),
           staleTime: STALE_MS,
           retry: false,
         };
-      }
-      const teamIds = member.linearAssociations.map((a) => a.teamId);
-      return {
-        queryKey: [
-          "tasks",
-          "linear",
-          filter,
-          member.id,
-          teamIds.join(","),
-          ctx.entryKey,
-        ],
-        queryFn: () =>
-          settle(`${source.key}:${filter}`, async () => {
-            const opts = { stateTypes: OPEN_LINEAR_STATES, limit: LIMIT };
-            const issues =
-              filter === "assigned"
-                ? await window.electronAPI.linear.getMyIssues(teamIds, opts)
-                : await window.electronAPI.linear.getAllIssues(teamIds, opts);
-            return issues.map((i) => fromLinear(i, ctx));
-          }),
-        staleTime: STALE_MS,
-        retry: false,
-      };
-    }),
+      }),
+    ),
   });
-
-  const refetch = useCallback(() => {
-    void queryClient.refetchQueries({ queryKey: ["tasks", provider, filter] });
-  }, [queryClient, provider, filter]);
 
   return {
     rows: result.rows,
     // Hold the skeleton while the tracker checks are still out, too.
     loading: result.loading || (tracker.checking && sources.length === 0),
     failedCount: result.failedCount,
-    refetch,
   };
 }

@@ -24,8 +24,8 @@ export function flattenPrompt(prompt: string): string {
  * active: the workspace is selected first — through the project store, so the
  * sidebar highlight and main's persisted selection follow — the launch
  * command is resolved via `getAgentCommand`, the prompt
- * (if any) is flattened before it is queued as that workspace's pending
- * startup command, and a new tab is opened for it. Prewarmed sessions are not
+ * (if any) is flattened, and a new tab is opened with the command queued
+ * on that tab's pane. Prewarmed sessions are not
  * consumed: they run the bare agent command, and a seeded launch needs the
  * command-with-prompt argument.
  *
@@ -57,9 +57,11 @@ export function launchAgentInWorkspace(
   const command = options.prompt
     ? `${base} "${escapeShellDoubleQuoted(flattenPrompt(options.prompt))}"`
     : base;
-  useAppStore.getState().setPendingStartupCommand(workspacePath, command);
-
-  return useAppStore.getState().addTab();
+  // Queue on the new tab's own pane, not the workspace: a workspace-keyed
+  // startup command goes to whichever of its panes connects first, and when
+  // the launch switches workspaces that's an existing pane (e.g. a running
+  // agent) reattaching, not the tab opened here.
+  return useAppStore.getState().addTerminalTab(command);
 }
 
 /**

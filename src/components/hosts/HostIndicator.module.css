@@ -60,7 +60,9 @@
   padding: 1px 6px;
   border: none;
   border-radius: 3px;
-  background: var(--surface-hover, #2a2a2a);
+  /* A faint blue wash marks a connected cloud host; warn and error swap it
+     for their own tint below. */
+  background: color-mix(in srgb, var(--blue, #89b4fa) 12%, transparent);
   font-family: var(--font-mono);
   font-size: 10px;
   line-height: 16px;
@@ -85,8 +87,9 @@
   text-overflow: ellipsis;
 }
 
+.chip.ok,
 .chip.ok .target {
-  color: var(--text-dim);
+  color: color-mix(in srgb, var(--blue, #89b4fa) 70%, var(--text-dim));
 }
 
 .state {

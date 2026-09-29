@@ -62,6 +62,24 @@
   color: var(--text-dim);
 }
 
+/* Root view: the scope chip sits inline before the input, so the row owns
+   the divider and horizontal padding (ADR-200). */
+.inputRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 0 12px;
+  border-bottom: 1px solid var(--surface);
+  flex-shrink: 0;
+}
+
+.inputRow .inputInRow {
+  flex: 1;
+  min-width: 0;
+  padding: 14px 0;
+  border-bottom: none;
+}
+
 .list {
   flex: 1;
   overflow-y: auto;
@@ -141,6 +159,21 @@
   flex-shrink: 0;
 }
 
+/* Project tag on agent rows while searching all projects (ADR-200). */
+.projectTag {
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-hover);
+  flex-shrink: 0;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .recentMeta {
   font-size: 11px;
   color: var(--text-dim);
@@ -211,6 +244,50 @@
   .emptyGhost {
     animation: none;
   }
+}
+
+/* ── Scoped empty state: matches exist in other projects (ADR-200) ── */
+
+.scopedEmpty {
+  padding: 28px 16px 32px;
+}
+
+.scopedEmptyTitle {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.scopedEmptyTitle strong {
+  color: var(--text-selected);
+  font-weight: 600;
+}
+
+.scopedEmptyHint {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+/* ── Root footer: scope hints (ADR-200) ── */
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--surface);
+  font-size: 11px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.footerItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.footerRight {
+  margin-left: auto;
 }
 
 /* ── Breadcrumb (nested views) ── */

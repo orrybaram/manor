@@ -260,7 +260,7 @@ test.describe("agent rename", () => {
         timeout: 30_000,
       });
       await window.keyboard.press("Meta+k");
-      const paletteInput = window.getByPlaceholder("Type a command...");
+      const paletteInput = window.locator("[cmdk-input]");
       await expect(paletteInput).toBeVisible({ timeout: 10_000 });
       await paletteInput.fill("View All Agents");
       const item = window

@@ -5,7 +5,7 @@
  */
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 12px;
   padding: 14px;
 }
@@ -164,29 +164,37 @@
   padding-top: 2px;
 }
 
-/* Open workspace and Snooze: icon-only, pushed right. */
+/* Open workspace and Snooze: square icon actions, pushed right. */
 .tools {
   display: flex;
-  gap: 2px;
+  flex: none;
+  gap: 6px;
   margin-left: auto;
 }
 
 /*
  * Card actions: `<Button>`s and `<Link>`s (Open PR, View check) share one
- * button look. Doubled to outrank the `<Button>` variant/size rules and the
- * Link's `plain` colour regardless of stylesheet order.
+ * box — same height, radius, border and type — so a row reads as one set.
+ * Doubled to outrank the `<Button>` variant/size rules and the Link's
+ * `plain` colour regardless of stylesheet order. Text actions are blocks
+ * (not flex) so a narrow card ellipsizes them instead of overflowing.
  */
 .action.action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: 8px;
+  display: inline-block;
+  flex: 0 1 auto;
+  min-width: 0;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  font-family: inherit;
   font-size: 12px;
   font-weight: 500;
-  line-height: normal;
+  line-height: 24px;
+  text-align: center;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-decoration: none;
 }
 
@@ -198,32 +206,35 @@
 .primary.primary {
   background: var(--c);
   color: var(--hd-panel);
-  border: 1px solid transparent;
 }
 
 .primary.primary:hover {
   opacity: 0.9;
 }
 
-.secondary.secondary {
+.secondary.secondary,
+.tool.tool {
   background: var(--hd-panel);
   color: var(--text-selected);
-  border: 1px solid var(--hd-line-2);
+  border-color: var(--hd-line-2);
 }
 
-.secondary.secondary:hover {
+.secondary.secondary:hover,
+.tool.tool:hover:not(:disabled) {
   background: var(--hd-panel-2);
 }
 
 .tool.tool {
-  padding: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  padding: 0;
   color: var(--text-dim);
-  background: none;
-  border: 1px solid transparent;
 }
 
 .tool.tool:hover:not(:disabled) {
-  background: var(--hd-panel-2);
   color: var(--text-selected);
 }
 

@@ -291,7 +291,7 @@ export async function importSeededProject(
     });
   }, seededProjectPath);
 
-  // The Projects overview's "Open a folder" row (ADR-194) runs the (stubbed)
+  // The onboarding screen's "Open a folder" row (ADR-194) runs the (stubbed)
   // folder picker directly — no Add Project dialog in between.
   await window.locator('[data-testid="import-project-button"]').click();
 

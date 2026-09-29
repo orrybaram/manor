@@ -46,8 +46,8 @@ export function SidebarEntry(props: SidebarEntryProps) {
   const toggleProjectCollapsed = useProjectStore((s) => s.toggleProjectCollapsed);
   const setProjectExpanded = useProjectStore((s) => s.setProjectExpanded);
   const openOrFocusDiff = useAppStore((s) => s.openOrFocusDiff);
-  // While the Projects overview is shown (ADR-194) no project is the current
-  // row, same as on Home.
+  // While the Tasks view is shown (ADR-198) no project is the current row,
+  // same as on Home.
   const homeActive = useAppStore(
     (s) => s.activeSurface !== "workspace" || isHomePath(s.activeWorkspacePath),
   );

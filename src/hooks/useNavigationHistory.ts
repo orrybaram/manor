@@ -51,12 +51,6 @@ function applyLocation(loc: Location): void {
     store.showTasksView();
     return;
   }
-  if (loc.kind === "surface" && loc.surface === "projects") {
-    // The Projects overview (ADR-194) sits over whatever workspace is active,
-    // so showing it doesn't touch the workspace selection.
-    store.showProjectsOverview();
-    return;
-  }
   if (loc.kind === "surface") {
     // Switch to Home exactly the way the sidebar does. Home highlighting is
     // driven by `activeWorkspacePath`, so this alone updates the sidebar.

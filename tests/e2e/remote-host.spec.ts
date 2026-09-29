@@ -114,7 +114,7 @@ async function openRemoteProject(
     500,
   );
 
-  // The Projects overview's clone row (ADR-194) opens the Add Project dialog
+  // The onboarding screen's clone row (ADR-194) opens the Add Project dialog
   // already on its clone tab.
   await window.getByTestId("add-remote-project-button").click();
   const dialog = window.getByTestId("add-project-dialog");

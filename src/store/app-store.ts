@@ -231,11 +231,11 @@ function restoreWorkspaceState(
 }
 
 /** App-level surfaces that can fill the main area (ADR-194). */
-export type AppSurface = "workspace" | "projects" | "tasks";
+export type AppSurface = "workspace" | "tasks";
 
 /**
  * Spread into a `set()` patch by actions that activate a workspace or put a
- * tab/pane in front of the user: they leave the Projects overview.
+ * tab/pane in front of the user: they leave the Tasks view.
  */
 const WORKSPACE_SURFACE = { activeSurface: "workspace" } as const;
 
@@ -254,8 +254,8 @@ export interface AppState {
    */
   activeWorkspaceHostId: HostId;
   /**
-   * Which app-level surface fills the main area (ADR-194). `"projects"` shows
-   * the Projects overview over the active workspace, which stays active
+   * Which app-level surface fills the main area (ADR-194). `"tasks"` shows
+   * the Tasks view over the active workspace, which stays active
    * underneath; anything that activates a workspace or opens a tab flips it
    * back to `"workspace"`. Not persisted.
    */
@@ -298,9 +298,7 @@ export interface AppState {
    */
   setActiveWorkspace: (path: string, hostId?: HostId | null) => void;
 
-  /** Show the Projects overview surface (ADR-194). */
-  showProjectsOverview: () => void;
-  /** Show the Tasks view (ADR-198); like the overview, leaves the workspace alone. */
+  /** Show the Tasks view (ADR-198); leaves the active workspace alone. */
   showTasksView: () => void;
 
   /**
@@ -651,9 +649,6 @@ export function selectVisiblePaneIds(
  * maps to its active panel's selected tab.
  */
 export function selectCurrentLocation(state: AppState): Location {
-  if (state.activeSurface === "projects") {
-    return { kind: "surface", surface: "projects" };
-  }
   if (state.activeSurface === "tasks") {
     return { kind: "surface", surface: "tasks" };
   }
@@ -988,11 +983,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         },
       };
     }),
-
-  showProjectsOverview: () =>
-    set((state) =>
-      state.activeSurface === "projects" ? state : { activeSurface: "projects" },
-    ),
 
   showTasksView: () =>
     set((state) =>

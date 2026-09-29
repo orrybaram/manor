@@ -200,7 +200,6 @@ export function buildMenuTemplate(
       SEPARATOR,
       cmd("home", "Dashboard", { type: "checkbox", checked: !!context?.isHome }),
       cmd("your-issues", "Tasks"),
-      cmd("projects", "Projects"),
       cmd("processes", "Processes"),
       cmd("stats", "Stats"),
       SEPARATOR,

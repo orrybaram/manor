@@ -43,12 +43,11 @@ export function SidebarRail(props: SidebarRailProps) {
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
-  // The Projects overview and the Tasks view (ADR-198) both cover the active
-  // workspace, so neither Home nor a project tile reads as current there.
-  const projectsActive = useAppStore((s) => s.activeSurface !== "workspace");
+  // The Tasks view (ADR-198) covers the active workspace, so neither Home nor
+  // a project tile reads as current there.
   const tasksActive = useAppStore((s) => s.activeSurface === "tasks");
   const showTasks = useAppStore((s) => s.showTasksView);
-  const homeActive = !projectsActive && isHomePath(activeWorkspacePath);
+  const homeActive = !tasksActive && isHomePath(activeWorkspacePath);
   const agentCount = useVisibleAgents().length;
 
   // The full sidebar runs these; the rail stands in for it, so branch names,
@@ -153,7 +152,7 @@ export function SidebarRail(props: SidebarRailProps) {
             onOpenProjectSettings={onOpenProjectSettings}
             popover={popover}
             isSelected={
-              !projectsActive &&
+              !tasksActive &&
               !homeActive &&
               selectedProject !== undefined &&
               (entry.kind === "project"

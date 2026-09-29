@@ -1,6 +1,6 @@
 /**
- * ADR-194 §1–§2: pure ranking selectors for the Home dashboard and the
- * Projects overview. Everything here is a plain function over data the
+ * ADR-194 §1–§2: pure ranking selectors for the Home dashboard.
+ * Everything here is a plain function over data the
  * caller already has in its stores — no store or React imports, so it can be
  * unit-tested the same way `prReadiness` is (`pr-readiness.test.ts`). The
  * components wire store state into these; they own no state of their own.
@@ -441,97 +441,4 @@ export function openPrRows(projects: readonly ProjectInfo[]): OpenPrRow[] {
     }
   }
   return rows.sort((a, b) => OPEN_PR_RANK[a.readiness] - OPEN_PR_RANK[b.readiness]);
-}
-
-// ── Project cards ──
-
-export interface ProjectCardSummary {
-  key: string;
-  name: string;
-  color: string | null;
-  hostLabel: string;
-  path: string;
-  needsYou: number;
-  workspaceCount: number;
-  runningAgents: number;
-  openPrs: number;
-  pending: { name: string; tier: NeedsYouTier; label: string }[];
-}
-
-export interface ProjectCardDeps extends NeedsYouInput {
-  hostName: (hostId: string) => string;
-}
-
-const AGENT_TIER_LABEL: Record<"input" | "error" | "finished", string> = {
-  input: "needs input",
-  error: "error",
-  finished: "finished",
-};
-
-function pendingLabel(item: NeedsYouItem): string {
-  if (item.kind === "pr") {
-    return item.tier === "blocked" ? item.reason : "ready to merge";
-  }
-  return AGENT_TIER_LABEL[item.tier];
-}
-
-/**
- * The Projects overview card for one top-level entry (a lone project, or a
- * linked group whose sections aggregate). `deps.projects` must be the full
- * project list — it's used to resolve each agent's project the same way
- * `needsYouItems` does — and the result is filtered down to this entry's
- * members.
- */
-export function projectCardSummary(
-  entry: TopLevelEntry<ProjectInfo>,
-  deps: ProjectCardDeps,
-): ProjectCardSummary {
-  const members: ProjectInfo[] =
-    entry.kind === "project" ? [entry.project] : entry.sections.map((s) => s.project);
-  const memberIds = new Set(members.map((p) => p.id));
-
-  const workspaceCount = members.reduce(
-    (sum, p) => sum + p.workspaces.filter((w) => !w.hidden).length,
-    0,
-  );
-
-  const memberAgents = deps.agents.filter(
-    (a) => a.projectId != null && memberIds.has(a.projectId),
-  );
-  const runningAgents = runningAgentCount(memberAgents, deps.paneAgentStatus);
-  const openPrs = openPrCount(members);
-
-  const scoped = needsYouItems(deps).filter((item) => memberIds.has(item.project.id));
-
-  const pending: ProjectCardSummary["pending"] = [];
-  const seenPendingKeys = new Set<string>();
-  for (const item of scoped) {
-    const dedupeKey = item.workspace?.path ?? `${item.project.id}:${item.kind}:${item.tier}`;
-    if (seenPendingKeys.has(dedupeKey)) continue;
-    seenPendingKeys.add(dedupeKey);
-    pending.push({
-      name: item.workspace?.name ?? item.workspace?.path ?? item.project.name,
-      tier: item.tier,
-      label: pendingLabel(item),
-    });
-    if (pending.length === 3) break;
-  }
-
-  const name = entry.kind === "project" ? entry.project.name : entry.group.name;
-  const color = members[0]?.color ?? null;
-  const hostLabel = members.map((p) => deps.hostName(p.hostId)).join(" + ");
-  const path = primaryMember(entry)?.path ?? "";
-
-  return {
-    key: entry.key,
-    name,
-    color,
-    hostLabel,
-    path,
-    needsYou: scoped.length,
-    workspaceCount,
-    runningAgents,
-    openPrs,
-    pending,
-  };
 }

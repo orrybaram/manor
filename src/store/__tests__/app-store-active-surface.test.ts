@@ -30,7 +30,7 @@ function makeLayout(): WorkspaceLayout {
   };
 }
 
-function seedOverview() {
+function seedTasksView() {
   useAppStore.setState({
     activeWorkspacePath: WS_PATH,
     activeWorkspaceHostId: "local",
@@ -40,24 +40,11 @@ function seedOverview() {
     paneUrl: {},
     pendingPaneCommands: {},
   });
-  useAppStore.getState().showProjectsOverview();
+  useAppStore.getState().showTasksView();
 }
 
 describe("activeSurface (ADR-194)", () => {
-  beforeEach(() => seedOverview());
-
-  it("showProjectsOverview shows the overview and keeps the workspace active", () => {
-    const state = useAppStore.getState();
-    expect(state.activeSurface).toBe("projects");
-    expect(state.activeWorkspacePath).toBe(WS_PATH);
-  });
-
-  it("selectCurrentLocation reports the projects surface", () => {
-    expect(selectCurrentLocation(useAppStore.getState())).toEqual({
-      kind: "surface",
-      surface: "projects",
-    });
-  });
+  beforeEach(() => seedTasksView());
 
   it("setActiveWorkspace resets it to the workspace", () => {
     useAppStore.getState().setActiveWorkspace(WS_PATH);
@@ -80,7 +67,7 @@ describe("activeSurface (ADR-194)", () => {
     useAppStore
       .getState()
       .addBrowserTab("https://example.com", { background: true });
-    expect(useAppStore.getState().activeSurface).toBe("projects");
+    expect(useAppStore.getState().activeSurface).toBe("tasks");
 
     useAppStore.getState().addBrowserTab("https://example.com");
     expect(useAppStore.getState().activeSurface).toBe("workspace");
@@ -102,17 +89,15 @@ describe("activeSurface (ADR-194)", () => {
 });
 
 describe("showTasksView (ADR-198)", () => {
-  beforeEach(() => seedOverview());
+  beforeEach(() => seedTasksView());
 
   it("shows the tasks surface and keeps the workspace active", () => {
-    useAppStore.getState().showTasksView();
     const state = useAppStore.getState();
     expect(state.activeSurface).toBe("tasks");
     expect(state.activeWorkspacePath).toBe(WS_PATH);
   });
 
   it("selectCurrentLocation reports the tasks surface", () => {
-    useAppStore.getState().showTasksView();
     expect(selectCurrentLocation(useAppStore.getState())).toEqual({
       kind: "surface",
       surface: "tasks",

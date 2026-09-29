@@ -449,36 +449,6 @@ test.describe("sidebar", () => {
     await window.keyboard.press("Enter");
     await expect(window.getByTestId("home-view")).toBeVisible(FOCUS);
   });
-
-  /**
-   * Enter on the Projects row shows the Projects overview (ADR-194); the row
-   * becomes the current one and the workspace row stops being it.
-   */
-  test("Enter on Projects opens the Projects overview", async ({
-    app,
-    window,
-    tempHome,
-  }) => {
-    const { wsPath } = await boot(app, window, tempHome, "ws-projects");
-    const projectsRow = window.getByTestId("projects-row");
-
-    await window.keyboard.press("Meta+Shift+e");
-    await window.keyboard.press("Home");
-    await window.keyboard.press("ArrowDown");
-    await expect.poll(() => focusedTestId(window), FOCUS).toBe("projects-row");
-    await window.keyboard.press("Enter");
-    await expect(window.getByTestId("projects-overview")).toBeVisible(FOCUS);
-    await expect(projectsRow).toHaveAttribute("aria-current", "true", FOCUS);
-    await expect(workspaceRow(window, wsPath)).not.toHaveAttribute(
-      "aria-current",
-      "true",
-    );
-
-    // Opening a workspace leaves the overview.
-    await workspaceRow(window, wsPath).click();
-    await expect(window.getByTestId("projects-overview")).toHaveCount(0, FOCUS);
-    await expect(projectsRow).not.toHaveAttribute("aria-current", "true");
-  });
 });
 
 // ── Context menus ────────────────────────────────────────────────────────

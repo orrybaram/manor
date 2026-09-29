@@ -25,9 +25,8 @@ describe("resolvePaletteScope", () => {
   it("is global on home", () => {
     expect(resolvePaletteScope({ ...base, activeWorkspacePath: HOME_PATH })).toBeNull();
   });
-  it("is global on tasks and projects surfaces", () => {
+  it("is global on the tasks surface", () => {
     expect(resolvePaletteScope({ ...base, activeSurface: "tasks" })).toBeNull();
-    expect(resolvePaletteScope({ ...base, activeSurface: "projects" })).toBeNull();
   });
   it("is global for an unknown or null workspace path", () => {
     expect(resolvePaletteScope({ ...base, activeWorkspacePath: "/zzz" })).toBeNull();

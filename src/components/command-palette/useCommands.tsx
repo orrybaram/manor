@@ -14,7 +14,6 @@ import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import EyeOff from "lucide-react/dist/esm/icons/eye-off";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open";
 import FolderPlus from "lucide-react/dist/esm/icons/folder-plus";
-import Folders from "lucide-react/dist/esm/icons/folders";
 import GitMerge from "lucide-react/dist/esm/icons/git-merge";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
@@ -176,17 +175,6 @@ export function useCommands({
         action: () => {
           onClose();
           useAppStore.getState().showTasksView();
-        },
-      },
-      {
-        id: "go-projects",
-        label: "Projects",
-        icon: <Folders size={14} />,
-        keywords: ["overview", "repos", "repositories", "go", "open", "show"],
-        isActive: activeSurface === "projects",
-        action: () => {
-          onClose();
-          useAppStore.getState().showProjectsOverview();
         },
       },
       {
@@ -997,7 +985,7 @@ export function useCommands({
     // create or rearrange them.
     const HOME_HIDDEN =
       /^(new-tab|new-browser|split-|convert-to-|open-diff$|reopen-pane$|detach-|pin-tab$|move-tab-)/;
-    // The Projects overview and the Tasks view cover the workspace, which
+    // The Tasks view covers the workspace, which
     // stays mounted underneath: don't close or move what the user can't see
     // (the same rule as `unlessOverviewShown` for the shortcuts).
     const OVERVIEW_HIDDEN =

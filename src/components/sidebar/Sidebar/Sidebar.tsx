@@ -56,15 +56,11 @@ export function Sidebar(props: SidebarProps) {
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
-  const showProjectsOverview = useAppStore((s) => s.showProjectsOverview);
-  const projectsActive = useAppStore((s) => s.activeSurface === "projects");
   const showTasksView = useAppStore((s) => s.showTasksView);
   const tasksActive = useAppStore((s) => s.activeSurface === "tasks");
-  // While the Projects overview (ADR-194) or Tasks view (ADR-198) is shown
-  // neither Home nor any project is the current row; `homeActive` also gates
-  // project selection.
-  const homeActive =
-    !projectsActive && !tasksActive && isHomePath(activeWorkspacePath);
+  // While the Tasks view (ADR-198) is shown neither Home nor any project is
+  // the current row; `homeActive` also gates project selection.
+  const homeActive = !tasksActive && isHomePath(activeWorkspacePath);
 
   // Connected trackers, shown dimmed on the Tasks row. Cached (same keys as
   // Home's Up next) so this costs no IPC per render.
@@ -304,18 +300,16 @@ export function Sidebar(props: SidebarProps) {
           <div className={styles.projectsSection}>
             <ContextMenu.Root>
               <ContextMenu.Trigger asChild>
-                {/* The Projects section's header, like Agents and Ports: a
-                  click shows the Projects overview (ADR-194), + adds one. */}
+                {/* The Projects section's header, like Agents and Ports: +
+                  (or Enter on the focused row) adds a project. */}
                 <div
-                  className={`${styles.projectsRow} ${projectsActive ? styles.projectsRowActive : ""}`}
+                  className={styles.projectsRow}
                   data-testid="projects-row"
                   data-sidebar-row=""
                   tabIndex={-1}
-                  aria-current={projectsActive ? "true" : undefined}
-                  onClick={showProjectsOverview}
                   onKeyDown={(e) =>
                     handleSidebarRowKeyDown(e, {
-                      activate: showProjectsOverview,
+                      activate: handleAddProject,
                       openMenu: openContextMenuFromKeyboard,
                     })
                   }
@@ -332,7 +326,6 @@ export function Sidebar(props: SidebarProps) {
                       aria-label="Add project"
                       data-testid="sidebar-add-project"
                       onClick={(e) => {
-                        // The row around it opens the overview on click.
                         e.stopPropagation();
                         handleAddProject();
                       }}

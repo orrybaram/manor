@@ -13,10 +13,8 @@ import {
   upNextList,
   topUpNextPerProject,
   openPrRows,
-  projectCardSummary,
   type NeedsYouInput,
   type UpNextIssue,
-  type ProjectCardDeps,
 } from "../home-dashboard";
 import type { AgentInfo, GitHubIssue, LinearIssue, PaneAgentStatus } from "../../electron.d";
 import type { ProjectInfo, WorkspaceInfo, LinkedIssue } from "../../store/project-store";
@@ -524,97 +522,6 @@ describe("upNextFromGitHub / upNextFromLinear / upNextList", () => {
       "p1:#1",
       "p1:#3",
     ]);
-  });
-});
-
-describe("projectCardSummary", () => {
-  const hostName = (hostId: string) => (hostId === "local" ? "This machine" : hostId);
-
-  it("aggregates a group's two members", () => {
-    const memberA = baseProject({
-      id: "a",
-      name: "Repo",
-      path: "/a",
-      hostId: "local",
-      color: "#fff",
-      workspaces: [
-        baseWorkspace({
-          path: "/a/ws1",
-          name: "ws1",
-          pr: basePr({ url: "https://github.com/o/r/pull/1", hasConflicts: true }),
-        }),
-        baseWorkspace({ path: "/a/ws2", name: "ws2", hidden: true }),
-      ],
-      group: { id: "g1", name: "Repo", memberIds: ["a", "b"], lastUsedHostId: "remote-1" },
-    });
-    const memberB = baseProject({
-      id: "b",
-      name: "Repo",
-      path: "/b",
-      hostId: "remote-1",
-      color: "#fff",
-      workspaces: [baseWorkspace({ path: "/b/ws1", name: "ws1" })],
-      group: { id: "g1", name: "Repo", memberIds: ["a", "b"], lastUsedHostId: "remote-1" },
-    });
-
-    const agent = baseAgent({
-      id: "agent-b",
-      projectId: "b",
-      hostId: "remote-1",
-      workspacePath: "/b/ws1",
-      paneId: "pane-b",
-    });
-
-    const entry: TopLevelEntry<ProjectInfo> = {
-      kind: "group",
-      key: "g1",
-      group: memberA.group!,
-      sections: [
-        { project: memberA, items: [] },
-        { project: memberB, items: [] },
-      ],
-    };
-
-    const deps: ProjectCardDeps = {
-      projects: [memberA, memberB],
-      agents: [agent],
-      paneAgentStatus: { "pane-b": status("thinking") },
-      unseenRespondedAgentIds: new Set(),
-      hostName,
-    };
-
-    const summary = projectCardSummary(entry, deps);
-    expect(summary.workspaceCount).toBe(2); // ws2 is hidden
-    expect(summary.runningAgents).toBe(1);
-    expect(summary.openPrs).toBe(1);
-    expect(summary.hostLabel).toBe("This machine + remote-1");
-    expect(summary.path).toBe("/b"); // lastUsedHostId member (b)'s path
-    expect(summary.needsYou).toBe(1);
-    expect(summary.pending).toEqual([
-      { name: "ws1", tier: "blocked", label: "conflicts" },
-    ]);
-  });
-
-  it("reports nothing pending for a quiet project", () => {
-    const project = baseProject({ workspaces: [baseWorkspace()] });
-    const entry: TopLevelEntry<ProjectInfo> = {
-      kind: "project",
-      key: "p1",
-      project,
-    };
-    const deps: ProjectCardDeps = {
-      projects: [project],
-      agents: [],
-      paneAgentStatus: {},
-      unseenRespondedAgentIds: new Set(),
-      hostName,
-    };
-
-    const summary = projectCardSummary(entry, deps);
-    expect(summary.needsYou).toBe(0);
-    expect(summary.pending).toEqual([]);
-    expect(summary.runningAgents).toBe(0);
-    expect(summary.openPrs).toBe(0);
   });
 });
 

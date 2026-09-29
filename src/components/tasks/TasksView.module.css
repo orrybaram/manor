@@ -3,7 +3,8 @@
  * panel — header (tracker tabs, project select), filter row, a CSS-grid
  * table and a pagination footer.
  */
-/* Same centred column as the Projects overview (ADR-194), wider for the table. */
+/* Same centred column as the Home dashboard (HomeDashboard.module.css `.page`):
+   1180px including its 16px gutters. */
 .page {
   height: 100%;
   width: 100%;
@@ -11,13 +12,14 @@
   flex-direction: column;
   align-items: center;
   overflow-y: auto;
-  padding: 8px 24px 24px;
+  padding: 8px 0 24px;
   color: var(--text-primary);
 }
 
 .content {
-  width: 960px;
+  width: 1180px;
   max-width: 100%;
+  padding-inline: 16px;
   min-height: 0;
   display: flex;
   flex-direction: column;

@@ -23,7 +23,6 @@ export const MENU_ONLY_COMMANDS = [
   "notifications",
   "your-issues",
   "home",
-  "projects",
   "processes",
   "stats",
   "switch-workspace",

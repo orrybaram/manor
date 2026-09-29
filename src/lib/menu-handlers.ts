@@ -246,7 +246,6 @@ export function createMenuHandlers(
     notifications: () => requestUi({ type: "open-notifications" }),
     "your-issues": () => useAppStore.getState().showTasksView(),
     home: () => app().setActiveWorkspace(HOME_PATH),
-    projects: () => app().showProjectsOverview(),
     processes: () => chrome.openPaletteView("processes"),
     stats: () => chrome.openPaletteView("stats"),
 

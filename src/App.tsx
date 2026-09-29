@@ -14,7 +14,7 @@ import { GhostsOverlay } from "./components/GhostsOverlay/GhostsOverlay";
 import { WorkspaceEmptyState } from "./components/sidebar/WorkspaceEmptyState";
 import { HomeEmptyState } from "./components/sidebar/HomeEmptyState";
 import { TasksView } from "./components/tasks/TasksView";
-import { ProjectsOverview } from "./components/projects-overview/ProjectsOverview";
+import { Onboarding } from "./components/onboarding/Onboarding";
 import { ManorLogo } from "./components/ui/ManorLogo";
 import { CloseAgentPaneDialog } from "./components/CloseAgentPaneDialog";
 import { ToastContainer } from "./components/ui/Toast/Toast";
@@ -187,12 +187,11 @@ function App() {
     setSettingsPage(null);
     setSettingsSection(null);
     // Revert to the active surface's theme in case settings was previewing a
-    // different theme. Home and the Projects overview have no project
-    // override — they inherit the global theme (null).
+    // different theme. Home and the Tasks view have no project override —
+    // they inherit the global theme (null).
     const appState = useAppStore.getState();
     const activeTheme =
-      isHomePath(appState.activeWorkspacePath) || appState.activeSurface === "projects" ||
-        appState.activeSurface === "tasks"
+      isHomePath(appState.activeWorkspacePath) || appState.activeSurface === "tasks"
       ? null
       : useProjectStore.getState().projects[
           useProjectStore.getState().selectedProjectIndex
@@ -405,19 +404,13 @@ function App() {
   // Clean up wizard state if the project is removed while wizard is open
   const wizardStillValid = wizardOpen && wizardProjectId && projects.some((p) => p.id === wizardProjectId);
 
-  // The Projects overview (ADR-194) covers the active workspace, which stays
-  // active (and mounted) underneath.
-  const projectsOverviewShown = useAppStore(
-    (s) => s.activeSurface === "projects",
-  );
-
   const tasksViewShown = useAppStore((s) => s.activeSurface === "tasks");
 
   // Reactively apply the active surface's theme. Projects carry an optional
-  // theme override; Home and the Projects overview have no owning project, so
-  // they inherit the global theme (null override) — switching to/from either
+  // theme override; Home and the Tasks view have no owning project, so they
+  // inherit the global theme (null override) — switching to/from either
   // re-applies here.
-  const effectiveThemeName = isHomePath(activeWorkspacePath) || projectsOverviewShown || tasksViewShown
+  const effectiveThemeName = isHomePath(activeWorkspacePath) || tasksViewShown
     ? null
     : projects[selectedProjectIndex]?.themeName ?? null;
   const prevThemeRef = useRef(effectiveThemeName);
@@ -444,9 +437,10 @@ function App() {
   // Home is the Dashboard and never shows tabs (ADR-197 §1): its view is
   // always rendered, even if a stale layout were somehow keyed to it.
   const hasTabs = !isHomePath(activeWorkspacePath) && (ws?.tabs.length ?? 0) > 0;
-  // With zero projects the overview is also the onboarding screen (ADR-194 §3).
-  const showProjectsOverview = projectsOverviewShown || !hasProjects;
-  // The Tasks view (ADR-198) covers the workspace the same way.
+  // With zero projects the onboarding screen (ADR-194 §3) replaces everything.
+  const showOnboarding = !hasProjects;
+  // The Tasks view (ADR-198) covers the active workspace, which stays active
+  // (and mounted) underneath.
   const showTasksView = tasksViewShown && hasProjects;
 
   // Keep the prewarmed session in sync with the active workspace.
@@ -798,7 +792,7 @@ function App() {
                 <div
                   key={key}
                   style={
-                    key === activeWorkspaceKey && hasTabs && !showProjectsOverview && !showTasksView
+                    key === activeWorkspaceKey && hasTabs && !showOnboarding && !showTasksView
                       ? TAB_VISIBLE_STYLE
                       : TAB_HIDDEN_STYLE
                   }
@@ -810,14 +804,14 @@ function App() {
                   />
                 </div>
               ))}
-              {(showProjectsOverview || showTasksView || !(activeWorkspacePath && hasTabs)) && (
+              {(showOnboarding || showTasksView || !(activeWorkspacePath && hasTabs)) && (
                 <div className="empty-surface">
                   <div className="drag-region" />
                   <div className="terminal-container">
                     {wizardStillValid && wizardProjectId
                       ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
-                      : showProjectsOverview
-                      ? <ProjectsOverview onAddLocal={handleAddLocalProject} onClone={handleCloneRepository} />
+                      : showOnboarding
+                      ? <Onboarding onAddLocal={handleAddLocalProject} onClone={handleCloneRepository} />
                       : showTasksView
                       ? <TasksView onNewWorkspace={handleNewWorkspace} onOpenPaletteView={handleOpenPaletteView} />
                       : !hasTabs &&

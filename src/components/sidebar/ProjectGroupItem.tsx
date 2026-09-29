@@ -164,6 +164,7 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
             style={{ touchAction: "none" }}
           >
             <ProjectChevron expanded={!collapsed} />
+            <span className={styles.projectSwatch} aria-hidden="true" />
             {/* No icon or badge beside the name (ADR-193 §3): each host's
                 heading shows its own state. Only a group with every host
                 away dims its name. */}

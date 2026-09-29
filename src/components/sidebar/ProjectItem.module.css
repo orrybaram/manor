@@ -26,20 +26,27 @@
 .projectHeader {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   padding: 4px 6px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 600;
+  color: var(--text-selected);
 }
 
 .projectHeader:hover {
   background: var(--surface);
 }
 
-.projectSelected > .projectHeader {
-  color: var(--project-color, var(--accent));
+/* The project's colour lives in a swatch (and the selected project's guide
+   line), so the name itself stays neutral and every project reads alike. */
+.projectSwatch {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--project-color, var(--text-dim));
 }
 
 /* Duplicated in Sidebar.module.css, Ports.module.css — candidate for a shared <Chevron> UI component */
@@ -92,10 +99,10 @@
 /* A small step in from the guide line, so workspace rows sit inside their
    host heading. */
 .workspaces {
-  margin-top: 8px;
+  margin-top: 4px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 2px;
 }
 
 .workspace {
@@ -105,7 +112,7 @@
   padding: 4px 6px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--text-primary);
   touch-action: none;
 }
@@ -212,17 +219,19 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
-  line-height: 1.3;
+  font-size: 12.5px;
+  line-height: 16px;
 }
 
+/* Data, so mono. Only shown when it says something the name doesn't. */
 .workspaceBranch {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
   color: var(--text-dim);
-  line-height: 1.3;
+  line-height: 1.35;
 }
 
 .workspaceNameInput {
@@ -242,7 +251,8 @@
 .diffStats {
   flex-shrink: 0;
   margin-left: auto;
-  font-size: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
   display: flex;
   gap: 3px;
@@ -277,7 +287,9 @@
   color: inherit;
   flex-shrink: 0;
   margin-left: auto;
-  font-size: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 12px;
   font-variant-numeric: tabular-nums;
   display: flex;
   white-space: nowrap;
@@ -442,18 +454,18 @@
 }
 
 /* A host heading: a linked group's section header, or the host line above a
-   remote-only project's workspaces. Small spaced caps at the guide's
-   content edge, with its workspaces a step further in, so it reads as a
-   heading rather than another row (ADR-193 §3). */
+   remote-only project's workspaces. Small and dim at the guide's content
+   edge, with its workspaces a step further in, so it reads as a heading
+   rather than another row (ADR-193 §3). Sentence case: uppercase is kept
+   for nothing in the sidebar. */
 .sectionHeader,
 .hostHeading {
-  height: 18px;
+  height: 20px;
+  margin-top: 4px;
   padding: 0 6px;
   gap: 4px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 10.5px;
+  font-weight: 500;
   color: var(--text-dim);
   background: none;
 }

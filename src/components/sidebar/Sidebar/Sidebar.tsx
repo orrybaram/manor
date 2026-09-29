@@ -9,9 +9,11 @@ import Folders from "lucide-react/dist/esm/icons/folders";
 import LayoutDashboard from "lucide-react/dist/esm/icons/layout-dashboard";
 import ListTodo from "lucide-react/dist/esm/icons/list-todo";
 import Search from "lucide-react/dist/esm/icons/search";
+import Plus from "lucide-react/dist/esm/icons/plus";
 import { useQuery } from "@tanstack/react-query";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Button } from "../../ui/Button/Button";
+import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { useProjectStore } from "../../../store/project-store";
 import { useAppStore } from "../../../store/app-store";
 import { HOME_PATH, isHomePath } from "../../../lib/home";
@@ -236,69 +238,74 @@ export function Sidebar(props: SidebarProps) {
         style={{ width: sidebarWidth }}
       >
         <div className={styles.content}>
-          <div
-            className={`${styles.homeRow} ${homeActive ? styles.homeRowActive : ""}`}
-            data-testid="home-row"
-            data-sidebar-row=""
-            tabIndex={-1}
-            aria-current={homeActive ? "true" : undefined}
-            onClick={() => setActiveWorkspace(HOME_PATH)}
-            onKeyDown={(e) =>
-              handleSidebarRowKeyDown(e, {
-                activate: () => setActiveWorkspace(HOME_PATH),
-              })
-            }
-          >
-            <span className={styles.homeIcon}>
-              <LayoutDashboard size={12} />
-            </span>
-            <span className={styles.homeLabel}>Dashboard</span>
-          </div>
-          <div
-            className={`${styles.homeRow} ${tasksActive ? styles.homeRowActive : ""}`}
-            data-testid="tasks-row"
-            data-sidebar-row=""
-            tabIndex={-1}
-            aria-current={tasksActive ? "true" : undefined}
-            onClick={showTasksView}
-            onKeyDown={(e) =>
-              handleSidebarRowKeyDown(e, { activate: showTasksView })
-            }
-          >
-            <span className={styles.homeIcon}>
-              <ListTodo size={12} />
-            </span>
-            <span className={styles.homeLabel}>Tasks</span>
-            {(ghReady || linearConnected) && (
-              <span className={styles.rowTrailingIcons}>
-                {ghReady && <GitHubIcon size={11} />}
-                {linearConnected && <LinearIcon size={11} />}
-              </span>
-            )}
-          </div>
-          {onOpenSearch && (
-            // Styled like Home; for now it only opens the command palette.
+          {/* The menu (ADR-195 sidebar, type study "B"): destinations, set
+              apart from the lists below by a rule. */}
+          <nav className={styles.nav} aria-label="Main">
             <div
-              className={styles.homeRow}
-              data-testid="search-row"
+              className={`${styles.homeRow} ${homeActive ? styles.homeRowActive : ""}`}
+              data-testid="home-row"
               data-sidebar-row=""
               tabIndex={-1}
-              onClick={onOpenSearch}
+              aria-current={homeActive ? "true" : undefined}
+              onClick={() => setActiveWorkspace(HOME_PATH)}
               onKeyDown={(e) =>
-                handleSidebarRowKeyDown(e, { activate: onOpenSearch })
+                handleSidebarRowKeyDown(e, {
+                  activate: () => setActiveWorkspace(HOME_PATH),
+                })
               }
             >
               <span className={styles.homeIcon}>
-                <Search size={12} />
+                <LayoutDashboard size={14} />
               </span>
-              <span className={styles.homeLabel}>Search</span>
+              <span className={styles.homeLabel}>Dashboard</span>
             </div>
-          )}
+            <div
+              className={`${styles.homeRow} ${tasksActive ? styles.homeRowActive : ""}`}
+              data-testid="tasks-row"
+              data-sidebar-row=""
+              tabIndex={-1}
+              aria-current={tasksActive ? "true" : undefined}
+              onClick={showTasksView}
+              onKeyDown={(e) =>
+                handleSidebarRowKeyDown(e, { activate: showTasksView })
+              }
+            >
+              <span className={styles.homeIcon}>
+                <ListTodo size={14} />
+              </span>
+              <span className={styles.homeLabel}>Tasks</span>
+              {(ghReady || linearConnected) && (
+                <span className={styles.rowTrailingIcons}>
+                  {ghReady && <GitHubIcon size={11} />}
+                  {linearConnected && <LinearIcon size={11} />}
+                </span>
+              )}
+            </div>
+            {onOpenSearch && (
+              // Styled like Home; for now it only opens the command palette.
+              <div
+                className={styles.homeRow}
+                data-testid="search-row"
+                data-sidebar-row=""
+                tabIndex={-1}
+                onClick={onOpenSearch}
+                onKeyDown={(e) =>
+                  handleSidebarRowKeyDown(e, { activate: onOpenSearch })
+                }
+              >
+                <span className={styles.homeIcon}>
+                  <Search size={14} />
+                </span>
+                <span className={styles.homeLabel}>Search</span>
+              </div>
+            )}
+          </nav>
+          <div className={styles.navDivider} role="separator" />
           <div className={styles.projectsSection}>
             <ContextMenu.Root>
               <ContextMenu.Trigger asChild>
-                {/* A row like Home: a click shows the Projects overview
-                  (ADR-194); right-click still offers "Add Project". */}
+                {/* The Projects section's header, like Agents and Ports: a
+                  click shows the Projects overview (ADR-194), + adds one. */}
                 <div
                   className={`${styles.projectsRow} ${projectsActive ? styles.projectsRowActive : ""}`}
                   data-testid="projects-row"
@@ -317,6 +324,22 @@ export function Sidebar(props: SidebarProps) {
                     <Folders size={12} />
                   </span>
                   <span className={styles.projectsLabel}>Projects</span>
+                  <Tooltip label="Add project">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={styles.projectsAdd}
+                      aria-label="Add project"
+                      data-testid="sidebar-add-project"
+                      onClick={(e) => {
+                        // The row around it opens the overview on click.
+                        e.stopPropagation();
+                        handleAddProject();
+                      }}
+                    >
+                      <Plus size={13} />
+                    </Button>
+                  </Tooltip>
                 </div>
               </ContextMenu.Trigger>
               <ContextMenu.Portal>

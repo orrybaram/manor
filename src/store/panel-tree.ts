@@ -87,6 +87,14 @@ function firstLeafPanelId(node: PanelNode): string {
   return firstLeafPanelId(node.first);
 }
 
+/**
+ * The panel in the window's top-left corner: follow `first` to a leaf. Its
+ * tab bar sits beside the window lead (ADR-196).
+ */
+export function topLeftPanelId(node: PanelNode): string {
+  return firstLeafPanelId(node);
+}
+
 function lastLeafPanelId(node: PanelNode): string {
   if (node.type === "leaf") return node.panelId;
   return lastLeafPanelId(node.second);

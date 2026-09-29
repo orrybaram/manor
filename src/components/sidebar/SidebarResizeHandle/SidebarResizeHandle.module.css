@@ -1,13 +1,16 @@
-/* Inside the edge: both the sidebar and the rail clip their overflow. */
+/* In the gutter on the right of the sidebar panel, or on the rail's right
+   edge (ADR-196). Starts below the WindowLead so it never covers the
+   window's drag row. */
 .handle {
   position: absolute;
-  top: 0;
+  top: 40px;
+  bottom: var(--frame-gap);
   right: 0;
-  width: 4px;
-  height: 100%;
+  width: var(--frame-gap);
   cursor: col-resize;
   z-index: 20;
   background: transparent;
+  border-radius: 3px;
   transition: background 0.15s ease;
 }
 

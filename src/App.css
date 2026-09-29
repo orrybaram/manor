@@ -44,6 +44,12 @@
   --danger: #ee5555;
   --danger-hover: #dd3333;
   --bg-deep: color-mix(in srgb, var(--bg) 80%, black);
+  /* ADR-196: gutter between panels and around the window edges, and how far
+     the top-left tab bar starts in to clear the window lead. App.tsx
+     overrides the inset per sidebar mode; the default clears the macOS
+     traffic lights for windows without a lead (DetachedApp). */
+  --frame-gap: 6px;
+  --window-lead-inset: 78px;
   --font-mono:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
     monospace;
@@ -67,7 +73,9 @@ body,
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
+/* The frame (ADR-196): the window's darkest shade, behind the panels. */
 .app {
+  background: var(--bg-deep);
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -80,7 +88,9 @@ body,
   flex-shrink: 0;
 }
 
+/* Positioned so the WindowLead can sit in its top-left corner. */
 .app-body {
+  position: relative;
   display: flex;
   flex: 1;
   overflow: hidden;

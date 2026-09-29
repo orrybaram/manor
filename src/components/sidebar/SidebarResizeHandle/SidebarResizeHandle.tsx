@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { useProjectStore } from "../../../store/project-store";
 import { useDragOverlayStore } from "../../../store/drag-overlay-store";
 import { RAIL_SNAP_X } from "../../../lib/sidebar-rail";
+import { FRAME_GAP } from "../../../lib/window-lead";
 import styles from "./SidebarResizeHandle.module.css";
 
 const MIN_SIDEBAR_WIDTH = 160;
@@ -40,8 +41,13 @@ function startEdgeDrag(e: ReactMouseEvent) {
       return;
     }
     if (store.sidebarMode === "rail") store.setSidebarMode("full");
+    // The panel starts one gutter in from the window edge (ADR-196), so its
+    // right edge follows the pointer at `FRAME_GAP + width`.
     store.setSidebarWidth(
-      Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, ev.clientX)),
+      Math.max(
+        MIN_SIDEBAR_WIDTH,
+        Math.min(MAX_SIDEBAR_WIDTH, ev.clientX - FRAME_GAP),
+      ),
     );
   };
 
@@ -59,8 +65,8 @@ function startEdgeDrag(e: ReactMouseEvent) {
 }
 
 /**
- * The right edge of the full sidebar and of the rail: the same handle and
- * the same drag, so resizing flows between the two views.
+ * The gutter right of the full sidebar panel and the rail's right edge: the
+ * same handle and the same drag, so resizing flows between the two views.
  */
 export function SidebarResizeHandle() {
   const dragging = useEdgeDragStore((s) => s.dragging);

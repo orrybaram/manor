@@ -28,25 +28,27 @@
   outline: none;
 }
 
+/* The sidebar's column on the frame (ADR-196): 40px under the WindowLead,
+   a gutter on the left and bottom, and a right gutter that holds the resize
+   handle and separates the panel from the workspace. */
+.frame {
+  display: flex;
+  flex-shrink: 0;
+  position: relative;
+  padding: 40px var(--frame-gap) var(--frame-gap);
+}
+
+/* The panel itself; its inline width is `sidebarWidth`. */
 .sidebar {
   display: flex;
   flex-direction: column;
   background: var(--dim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
   flex-shrink: 0;
   position: relative;
   user-select: none;
   overflow: hidden;
-  border-right: 1px solid var(--border);
-}
-
-.titlebar {
-  height: 32px;
-  flex-shrink: 0;
-  -webkit-app-region: drag;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 0 6px;
 }
 
 .content {
@@ -56,28 +58,6 @@
   flex-direction: column;
   overflow: hidden;
   padding-top: 8px;
-}
-
-.titlebarActions {
-  display: flex;
-  align-items: center;
-  margin-left: 4px;
-  flex-shrink: 0;
-  -webkit-app-region: no-drag;
-}
-
-.navControls {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
-  -webkit-app-region: no-drag;
-}
-
-.navButton {
-  width: 18px;
-  height: 18px;
-  padding: 0;
 }
 
 /* Duplicated in AgentsList.module.css — candidate for a shared <SectionHeader> UI component */

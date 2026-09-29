@@ -126,8 +126,8 @@ export function createWindow(): BrowserWindow {
     minHeight: 300,
     ...(!app.isPackaged && { icon: path.join(__dirname, "../build/dev-icon.png") }),
     titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 13, y: 13 },
-    backgroundColor: "#1e1e2e",
+    trafficLightPosition: { x: 13, y: 14 },
+    backgroundColor: "#181825",
     webPreferences: buildWebPreferences(),
   });
 
@@ -203,8 +203,8 @@ export function createDetachedWindow(
     minHeight: 300,
     ...(!app.isPackaged && { icon: path.join(__dirname, "../build/dev-icon.png") }),
     titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 13, y: 13 },
-    backgroundColor: "#1e1e2e",
+    trafficLightPosition: { x: 13, y: 14 },
+    backgroundColor: "#181825",
     webPreferences: buildWebPreferences(windowId),
   });
 

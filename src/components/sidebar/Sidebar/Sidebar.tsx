@@ -7,24 +7,11 @@ import React, {
 } from "react";
 import Folders from "lucide-react/dist/esm/icons/folders";
 import House from "lucide-react/dist/esm/icons/house";
-import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
-import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Button } from "../../ui/Button/Button";
-import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { useProjectStore } from "../../../store/project-store";
 import { useAppStore } from "../../../store/app-store";
-import { useKeybindingsStore } from "../../../store/keybindings-store";
-import { useNavigationHistoryStore } from "../../../store/navigation-history-store";
-import {
-  navigateBack,
-  navigateForward,
-} from "../../../hooks/useNavigationHistory";
-import { formatCombo } from "../../../lib/keybindings";
-import {
-  HOME_PATH,
-  isHomePath,
-} from "../../../lib/home";
+import { HOME_PATH, isHomePath } from "../../../lib/home";
 import { useDragOverlayStore } from "../../../store/drag-overlay-store";
 import { useSidebarSelectionStore } from "../../../store/sidebar-selection-store";
 import {
@@ -43,7 +30,6 @@ import {
 } from "../../../utils/sidebar-items";
 import { PortsList } from "../../ports/PortsList";
 import { AgentsList } from "../AgentsList";
-import { NotificationsPopover } from "../../notifications/NotificationsPopover";
 import { SidebarResizeHandle } from "../SidebarResizeHandle/SidebarResizeHandle";
 import styles from "./Sidebar.module.css";
 
@@ -57,15 +43,6 @@ export function Sidebar(props: SidebarProps) {
   const { onShowAgents, onOpenProjectSettings, onAddProject } = props;
 
   const projects = useProjectStore((s) => s.projects);
-  const canGoBack = useNavigationHistoryStore((s) => s.canGoBack());
-  const canGoForward = useNavigationHistoryStore((s) => s.canGoForward());
-  const bindings = useKeybindingsStore((s) => s.bindings);
-  const backLabel = bindings["history-back"]
-    ? `Back (${formatCombo(bindings["history-back"])})`
-    : "Back";
-  const forwardLabel = bindings["history-forward"]
-    ? `Forward (${formatCombo(bindings["history-forward"])})`
-    : "Forward";
   const reorderProjects = useProjectStore((s) => s.reorderProjects);
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
@@ -80,7 +57,7 @@ export function Sidebar(props: SidebarProps) {
   useDiffWatcher();
   usePrWatcher();
 
-  const handleAddProject = onAddProject ?? (() => { });
+  const handleAddProject = onAddProject ?? (() => {});
 
   // One entry per project, or per linked group of projects (ADR-192). The
   // drag below reorders entries; a group's members move together.
@@ -222,150 +199,120 @@ export function Sidebar(props: SidebarProps) {
   useRovingRows(sidebarRef);
 
   return (
-    <div
-      ref={sidebarRef}
-      data-focus-region="sidebar"
-      className={styles.sidebar}
-      style={{ width: sidebarWidth }}
-    >
-      <div className={styles.titlebar}>
-        <div className={styles.navControls}>
-          <Tooltip label={backLabel}>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={styles.navButton}
-              onClick={() => navigateBack()}
-              disabled={!canGoBack}
-              aria-label="Navigate back"
-            >
-              <ArrowLeft size={12} />
-            </Button>
-          </Tooltip>
-          <Tooltip label={forwardLabel}>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={styles.navButton}
-              onClick={() => navigateForward()}
-              disabled={!canGoForward}
-              aria-label="Navigate forward"
-            >
-              <ArrowRight size={12} />
-            </Button>
-          </Tooltip>
-        </div>
-        <div className={styles.titlebarActions}>
-          <NotificationsPopover />
-        </div>
-      </div>
-      <div className={styles.content}>
-        <div
-          className={`${styles.homeRow} ${homeActive ? styles.homeRowActive : ""}`}
-          data-testid="home-row"
-          data-sidebar-row=""
-          tabIndex={-1}
-          aria-current={homeActive ? "true" : undefined}
-          onClick={() => setActiveWorkspace(HOME_PATH)}
-          onKeyDown={(e) =>
-            handleSidebarRowKeyDown(e, {
-              activate: () => setActiveWorkspace(HOME_PATH),
-            })
-          }
-        >
-          <span className={styles.homeIcon}>
-            <House size={12} />
-          </span>
-          <span className={styles.homeLabel}>Home</span>
-        </div>
-        <div className={styles.projectsSection}>
-          <ContextMenu.Root>
-            <ContextMenu.Trigger asChild>
-              {/* A row like Home: a click shows the Projects overview
+    <div className={styles.frame}>
+      <div
+        ref={sidebarRef}
+        data-focus-region="sidebar"
+        className={styles.sidebar}
+        style={{ width: sidebarWidth }}
+      >
+        <div className={styles.content}>
+          <div
+            className={`${styles.homeRow} ${homeActive ? styles.homeRowActive : ""}`}
+            data-testid="home-row"
+            data-sidebar-row=""
+            tabIndex={-1}
+            aria-current={homeActive ? "true" : undefined}
+            onClick={() => setActiveWorkspace(HOME_PATH)}
+            onKeyDown={(e) =>
+              handleSidebarRowKeyDown(e, {
+                activate: () => setActiveWorkspace(HOME_PATH),
+              })
+            }
+          >
+            <span className={styles.homeIcon}>
+              <House size={12} />
+            </span>
+            <span className={styles.homeLabel}>Home</span>
+          </div>
+          <div className={styles.projectsSection}>
+            <ContextMenu.Root>
+              <ContextMenu.Trigger asChild>
+                {/* A row like Home: a click shows the Projects overview
                   (ADR-194); right-click still offers "Add Project". */}
-              <div
-                className={`${styles.projectsRow} ${projectsActive ? styles.projectsRowActive : ""}`}
-                data-testid="projects-row"
-                data-sidebar-row=""
-                tabIndex={-1}
-                aria-current={projectsActive ? "true" : undefined}
-                onClick={showProjectsOverview}
-                onKeyDown={(e) =>
-                  handleSidebarRowKeyDown(e, {
-                    activate: showProjectsOverview,
-                    openMenu: openContextMenuFromKeyboard,
-                  })
-                }
-              >
-                <span className={styles.projectsIcon}>
-                  <Folders size={12} />
-                </span>
-                <span className={styles.projectsLabel}>Projects</span>
-              </div>
-            </ContextMenu.Trigger>
-            <ContextMenu.Portal>
-              <ContextMenu.Content className={styles.contextMenu}>
-                <ContextMenu.Item
-                  className={styles.contextMenuItem}
-                  onSelect={handleAddProject}
+                <div
+                  className={`${styles.projectsRow} ${projectsActive ? styles.projectsRowActive : ""}`}
+                  data-testid="projects-row"
+                  data-sidebar-row=""
+                  tabIndex={-1}
+                  aria-current={projectsActive ? "true" : undefined}
+                  onClick={showProjectsOverview}
+                  onKeyDown={(e) =>
+                    handleSidebarRowKeyDown(e, {
+                      activate: showProjectsOverview,
+                      openMenu: openContextMenuFromKeyboard,
+                    })
+                  }
                 >
-                  Add Project
-                </ContextMenu.Item>
-              </ContextMenu.Content>
-            </ContextMenu.Portal>
-          </ContextMenu.Root>
-          <>
-            {projects.length === 0 && (
-              <div className={styles.empty}>
-                No projects yet.
-                <br />
-                <Button variant="link" onClick={handleAddProject}>
-                  Open a folder
-                </Button>
+                  <span className={styles.projectsIcon}>
+                    <Folders size={12} />
+                  </span>
+                  <span className={styles.projectsLabel}>Projects</span>
+                </div>
+              </ContextMenu.Trigger>
+              <ContextMenu.Portal>
+                <ContextMenu.Content className={styles.contextMenu}>
+                  <ContextMenu.Item
+                    className={styles.contextMenuItem}
+                    onSelect={handleAddProject}
+                  >
+                    Add Project
+                  </ContextMenu.Item>
+                </ContextMenu.Content>
+              </ContextMenu.Portal>
+            </ContextMenu.Root>
+            <>
+              {projects.length === 0 && (
+                <div className={styles.empty}>
+                  No projects yet.
+                  <br />
+                  <Button variant="link" onClick={handleAddProject}>
+                    Open a folder
+                  </Button>
+                </div>
+              )}
+              <div
+                className={styles.projectsScroll}
+                onClick={(e) => {
+                  // A click on empty sidebar space, not a row bubbling up,
+                  // clears the selection (ADR-190 §1).
+                  if (e.target === e.currentTarget) {
+                    useSidebarSelectionStore.getState().clear();
+                  }
+                }}
+              >
+                <div className={styles.projects}>
+                  {entries.map((entry, idx) => (
+                    <React.Fragment key={entry.key}>
+                      <div
+                        ref={(el) => {
+                          if (el) projItemRefs.current.set(idx, el);
+                          else projItemRefs.current.delete(idx);
+                        }}
+                        style={getProjectTransformStyle(idx)}
+                        className={
+                          projDragIndex === idx
+                            ? styles.projectDragging
+                            : undefined
+                        }
+                      >
+                        <SidebarEntry
+                          entry={entry}
+                          onOpenProjectSettings={onOpenProjectSettings}
+                          onDragStart={(e) => handleProjectDragStart(idx, e)}
+                          justDraggedRef={projJustDragged}
+                        />
+                      </div>
+                    </React.Fragment>
+                  ))}
+                </div>
               </div>
-            )}
-            <div
-              className={styles.projectsScroll}
-              onClick={(e) => {
-                // A click on empty sidebar space, not a row bubbling up,
-                // clears the selection (ADR-190 §1).
-                if (e.target === e.currentTarget) {
-                  useSidebarSelectionStore.getState().clear();
-                }
-              }}
-            >
-              <div className={styles.projects}>
-                {entries.map((entry, idx) => (
-                  <React.Fragment key={entry.key}>
-                    <div
-                      ref={(el) => {
-                        if (el) projItemRefs.current.set(idx, el);
-                        else projItemRefs.current.delete(idx);
-                      }}
-                      style={getProjectTransformStyle(idx)}
-                      className={
-                        projDragIndex === idx
-                          ? styles.projectDragging
-                          : undefined
-                      }
-                    >
-                      <SidebarEntry
-                        entry={entry}
-                        onOpenProjectSettings={onOpenProjectSettings}
-                        onDragStart={(e) => handleProjectDragStart(idx, e)}
-                        justDraggedRef={projJustDragged}
-                      />
-                    </div>
-                  </React.Fragment>
-                ))}
-              </div>
-            </div>
-          </>
+            </>
+          </div>
+          <AgentsList onShowAll={onShowAgents} />
         </div>
-        <AgentsList onShowAll={onShowAgents} />
+        <PortsList />
       </div>
-      <PortsList />
-
       <SidebarResizeHandle />
     </div>
   );

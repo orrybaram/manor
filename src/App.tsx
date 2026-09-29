@@ -1,9 +1,10 @@
-import { useState, useCallback, useRef, useEffect, lazy, Suspense } from "react";
+import { useState, useCallback, useRef, useEffect, lazy, Suspense, type CSSProperties } from "react";
 import { PaneDragProvider } from "./components/workspace-panes/PaneDragContext";
 import { StatusBar } from "./components/statusbar/StatusBar/StatusBar";
 import { PanelLayout } from "./components/panels/PanelLayout";
 import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
 import { SidebarRail } from "./components/sidebar/SidebarRail/SidebarRail";
+import { WindowLead } from "./components/window-lead/WindowLead/WindowLead";
 import type { PaletteView } from "./components/command-palette/types";
 import type { AddProjectMode } from "./components/sidebar/AddProjectDialog/AddProjectDialog";
 import { onPaletteViewRequest } from "./utils/palette-request";
@@ -46,6 +47,7 @@ import {
   startNewAgent,
 } from "./lib/keybinding-commands";
 import { placeNewWorkspaceInFolder } from "./lib/place-new-workspace";
+import { windowLeadInset } from "./lib/window-lead";
 import {
   createMenuHandlers,
   dispatchMenuCommand,
@@ -371,8 +373,17 @@ function App() {
     applyProjectTheme(effectiveThemeName);
   }
   const sidebarMode = useProjectStore((s) => s.sidebarMode);
+  const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
 
   const hasProjects = projects.length > 0;
+  // How far the top-left panel's tab bar starts in to clear the WindowLead
+  // (ADR-196). With no projects there is no sidebar and no lead; the
+  // `:root` default in App.css still clears the traffic lights.
+  const appBodyStyle = hasProjects
+    ? ({
+        "--window-lead-inset": `${windowLeadInset(sidebarMode, sidebarWidth)}px`,
+      } as CSSProperties)
+    : undefined;
   const hasTabs = (ws?.tabs.length ?? 0) > 0;
   // With zero projects the overview is also the onboarding screen (ADR-194 §3).
   const showProjectsOverview = projectsOverviewShown || !hasProjects;
@@ -669,7 +680,7 @@ function App() {
   return (
     <TooltipProvider>
     <div className="app">
-      <div className="app-body">
+      <div className="app-body" style={appBodyStyle}>
         {sidebarMode === "rail" && hasProjects && (
           <SidebarRail
             onShowAgents={() => setAgentsOpen(true)}
@@ -683,6 +694,10 @@ function App() {
             onAddProject={handleAddProject}
           />
         )}
+        {/* The top-left controls (ADR-196). Not shown before the first
+            project: the onboarding overview has no sidebar to toggle or
+            history to walk, and its drag region clears the traffic lights. */}
+        {hasProjects && <WindowLead />}
         <PaneDragProvider>
           <div className="main-content">
             {/* Every workspace renders through the same PanelLayout in a single

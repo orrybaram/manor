@@ -1,6 +1,6 @@
 ---
 title: Agent activity timeline and PR pipeline panels
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [5]

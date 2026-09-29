@@ -1,6 +1,6 @@
 ---
 title: Dashboard page shell, header, host alert, stat tiles and Needs you cards
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: [2, 3, 4]

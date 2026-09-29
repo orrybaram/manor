@@ -1,6 +1,6 @@
 ---
 title: Up next panel, project tiles and shared ports store
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [6]

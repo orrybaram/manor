@@ -10,7 +10,6 @@ import { useProjectStore, type ProjectInfo } from "../../store/project-store";
 import { buildTopLevelEntries } from "../../utils/sidebar-items";
 import { useQueryClient } from "@tanstack/react-query";
 import Search from "lucide-react/dist/esm/icons/search";
-import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
 import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import ChevronLeft from "lucide-react/dist/esm/icons/chevron-left";
@@ -30,7 +29,6 @@ import { GitHubNudge } from "../sidebar/GitHubNudge";
 import { Button } from "../ui/Button/Button";
 import { Link } from "../ui/Link/Link";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
-import { ToggleGroup } from "../ui/ToggleGroup";
 import {
   SearchableSelect,
   type SearchableSelectOption,
@@ -44,12 +42,14 @@ import {
   type NewWorkspaceHandler,
 } from "../../lib/start-issue-work";
 import {
+  DEFAULT_TASK_FILTERS,
   DEFAULT_TASK_SORT,
   TASK_FIELDS,
   applyTaskFilters,
   facetLabel,
   filterTasks,
   sortTasksBy,
+  filterableFields,
   sortableFields,
   withoutLinkedTasks,
   linkedTasks,
@@ -60,7 +60,6 @@ import {
   relativeTime,
   trackerHomeUrl,
   type TaskFieldId,
-  type TaskFilter,
   type TaskFilters,
   type TaskProvider,
   type TaskRow,
@@ -86,10 +85,10 @@ const ALL_PROJECTS = "__all__";
 const MAX_AVATARS = 3;
 
 const PREF_PROVIDER = "tasks-view:provider";
-const PREF_FILTER = "tasks-view:filter";
 const PREF_PROJECT = "tasks-view:project";
-/** Followed by the provider: each tracker remembers its own sort. */
+/** Followed by the provider: each tracker remembers its own sort and filters. */
 const PREF_SORT = "tasks-view:sort:";
+const PREF_FILTERS = "tasks-view:filters:";
 
 function readPref(key: string): string | null {
   try {
@@ -123,6 +122,25 @@ function readSort(provider: TaskProvider): TaskSort {
   return DEFAULT_TASK_SORT;
 }
 
+/** A provider's saved filters, keeping only fields it can still filter on; else the defaults. */
+function readFilters(provider: TaskProvider): TaskFilters {
+  const raw = readPref(PREF_FILTERS + provider);
+  if (!raw) return DEFAULT_TASK_FILTERS;
+  try {
+    const saved = JSON.parse(raw) as Record<string, unknown>;
+    const out: TaskFilters = {};
+    for (const field of filterableFields(provider)) {
+      const values = saved[field];
+      if (Array.isArray(values) && values.every((v) => typeof v === "string")) {
+        out[field] = values;
+      }
+    }
+    return out;
+  } catch {
+    return DEFAULT_TASK_FILTERS;
+  }
+}
+
 const NO_FILTERS: TaskFilters = {};
 
 /** The table's sortable column headers, in column order (Priority is Linear's). */
@@ -134,20 +152,6 @@ const SORT_COLUMNS: { field: TaskFieldId; label: string }[] = [
   { field: "priority", label: "Priority" },
   { field: "updated", label: "Updated" },
 ];
-
-/** The filter row's choices: the two tracker queries, plus tasks linked to a workspace. */
-type TaskListMode = TaskFilter | "in-progress";
-
-const FILTER_OPTIONS: { value: TaskListMode; label: string }[] = [
-  { value: "open", label: "Open" },
-  { value: "assigned", label: "Assigned to me" },
-  { value: "in-progress", label: "In progress" },
-];
-
-function readMode(): TaskListMode {
-  const saved = readPref(PREF_FILTER);
-  return saved === "open" || saved === "in-progress" ? saved : "assigned";
-}
 
 const PROVIDER_LABEL: Record<TaskProvider, string> = {
   github: "GitHub",
@@ -172,27 +176,24 @@ export function TasksView(props: TasksViewProps) {
   const [savedProvider, setSavedProvider] = useState<TaskProvider>(() =>
     readPref(PREF_PROVIDER) === "linear" ? "linear" : "github",
   );
-  const [mode, setMode] = useState<TaskListMode>(readMode);
-  const inProgress = mode === "in-progress";
-  // In progress lists workspace links; the assigned query fills in their
-  // labels, assignees and status (starting a task assigns it to you).
-  const filter: TaskFilter = inProgress ? "assigned" : mode;
   const [savedProject, setSavedProject] = useState<string>(
     () => readPref(PREF_PROJECT) ?? ALL_PROJECTS,
   );
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
   const [page, setPage] = useState(1);
-  const [now, setNow] = useState(() => Date.now());
+  const [now] = useState(() => Date.now());
   const [sorts, setSorts] = useState<Record<TaskProvider, TaskSort>>(() => ({
     github: readSort("github"),
     linear: readSort("linear"),
   }));
-  // Filters are per session and belong to one provider — their fields differ.
-  const [filterState, setFilterState] = useState<{
-    provider: TaskProvider;
-    filters: TaskFilters;
-  }>({ provider: "github", filters: NO_FILTERS });
+  // Each provider keeps its own filters — their fields differ.
+  const [filtersBy, setFiltersBy] = useState<Record<TaskProvider, TaskFilters>>(
+    () => ({
+      github: readFilters("github"),
+      linear: readFilters("linear"),
+    }),
+  );
 
   // The saved provider/project may no longer be usable (tracker
   // disconnected, project removed): fall back without forgetting the choice.
@@ -228,19 +229,14 @@ export function TasksView(props: TasksViewProps) {
       )
     : undefined;
 
-  const { rows, loading, failedCount, refetch } = useTasks({
-    provider,
-    projectKey,
-    filter,
-  });
+  const { rows, loading, failedCount } = useTasks({ provider, projectKey });
 
-  // Tasks already linked to a workspace are being worked on — hide them.
+  // A task linked to a workspace is listed once, as its in-progress link.
   const projects = useProjectStore((s) => s.projects);
   const unlinked = useMemo(
     () => withoutLinkedTasks(rows, projects),
     [rows, projects],
   );
-  const linkedCount = rows.length - unlinked.length;
 
   const linked = useMemo(() => {
     const entryOf = entryLookup(projects);
@@ -252,14 +248,16 @@ export function TasksView(props: TasksViewProps) {
   }, [projects, rows, provider, projectKey]);
 
   const sort = sorts[provider];
-  const filters =
-    filterState.provider === provider ? filterState.filters : NO_FILTERS;
+  const filters = filtersBy[provider];
   const filterCount = activeFilterCount(filters);
   const showPriority = provider === "linear";
 
   // Filters, then search, then sort, then the page. Facet counts in the
   // filter menu come from `listed`, so they don't shift as filters change.
-  const listed: (TaskRow | LinkedTask)[] = inProgress ? linked : unlinked;
+  const listed = useMemo<(TaskRow | LinkedTask)[]>(
+    () => [...unlinked, ...linked],
+    [unlinked, linked],
+  );
   const narrowed = useMemo(
     () => applyTaskFilters(listed, filters),
     [listed, filters],
@@ -279,13 +277,13 @@ export function TasksView(props: TasksViewProps) {
   const chooseProvider = useCallback((next: TaskProvider) => {
     setSavedProvider(next);
     writePref(PREF_PROVIDER, next);
-    setFilterState({ provider: next, filters: NO_FILTERS });
     setPage(1);
   }, []);
 
   const changeFilters = useCallback(
     (next: TaskFilters) => {
-      setFilterState({ provider, filters: next });
+      setFiltersBy((prev) => ({ ...prev, [provider]: next }));
+      writePref(PREF_FILTERS + provider, JSON.stringify(next));
       setPage(1);
     },
     [provider],
@@ -295,6 +293,13 @@ export function TasksView(props: TasksViewProps) {
     () => changeFilters(NO_FILTERS),
     [changeFilters],
   );
+
+  const resetFilters = useCallback(
+    () => changeFilters(DEFAULT_TASK_FILTERS),
+    [changeFilters],
+  );
+  const filtersAreDefault =
+    JSON.stringify(filters) === JSON.stringify(DEFAULT_TASK_FILTERS);
 
   const removeFilter = useCallback(
     (field: TaskFieldId) => {
@@ -326,22 +331,11 @@ export function TasksView(props: TasksViewProps) {
     [sort, changeSort],
   );
 
-  const chooseFilter = useCallback((next: TaskListMode) => {
-    setMode(next);
-    writePref(PREF_FILTER, next);
-    setPage(1);
-  }, []);
-
   const chooseProject = useCallback((next: string) => {
     setSavedProject(next);
     writePref(PREF_PROJECT, next);
     setPage(1);
   }, []);
-
-  const handleRefresh = useCallback(() => {
-    setNow(Date.now());
-    refetch();
-  }, [refetch]);
 
   const handleGitHubInstalled = useCallback(() => {
     void queryClient.invalidateQueries({
@@ -429,15 +423,12 @@ export function TasksView(props: TasksViewProps) {
         <div className={styles.header}>
           <h1 className={styles.heading}>Tasks</h1>
           <span className={styles.headerMeta}>
-            {loading && rows.length === 0 && !inProgress
+            {loading && listed.length === 0
               ? "Loading…"
               : (filterCount > 0
                   ? `${narrowed.length} of ${plural(listed.length, "task")}`
                   : plural(listed.length, "task")) +
-                ` · ${plural(projectCount, "project")}` +
-                (!inProgress && linkedCount > 0
-                  ? ` · ${linkedCount} in progress`
-                  : "")}
+                ` · ${plural(projectCount, "project")}`}
           </span>
           <div className={styles.headerControls}>
             {providers.length > 0 && (
@@ -500,17 +491,6 @@ export function TasksView(props: TasksViewProps) {
         ) : (
           <>
             <div className={styles.filters}>
-              {/* A wrapper, so the group centres in the row (it pins itself to flex-start). */}
-              <div className={styles.filterToggle}>
-                <ToggleGroup
-                  value={mode}
-                  onChange={chooseFilter}
-                  options={FILTER_OPTIONS}
-                  size="sm"
-                  aria-label="Which tasks"
-                  activationMode="manual"
-                />
-              </div>
               <div className={styles.searchBox}>
                 <Search size={14} className={styles.searchIcon} />
                 <Input
@@ -536,19 +516,9 @@ export function TasksView(props: TasksViewProps) {
                 sort={sort}
                 onChange={changeSort}
               />
-              <Tooltip label="Refresh">
-                <Button
-                  variant="secondary"
-                  className={styles.iconButton}
-                  aria-label="Refresh"
-                  onClick={handleRefresh}
-                >
-                  <RefreshCw size={14} />
-                </Button>
-              </Tooltip>
             </div>
 
-            {filterCount > 0 && (
+            {(filterCount > 0 || !filtersAreDefault) && (
               <div
                 className={styles.activeFilters}
                 role="group"
@@ -576,14 +546,26 @@ export function TasksView(props: TasksViewProps) {
                     </span>,
                   ];
                 })}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={styles.clearFilters}
-                  onClick={clearFilters}
-                >
-                  Clear all
-                </Button>
+                {filterCount > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={styles.clearFilters}
+                    onClick={clearFilters}
+                  >
+                    Clear all
+                  </Button>
+                )}
+                {!filtersAreDefault && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={styles.clearFilters}
+                    onClick={resetFilters}
+                  >
+                    Reset to default
+                  </Button>
+                )}
               </div>
             )}
 
@@ -606,7 +588,7 @@ export function TasksView(props: TasksViewProps) {
                 ))}
                 <span role="columnheader" aria-label="Actions" />
               </div>
-              {loading && rows.length === 0 && !inProgress ? (
+              {loading && listed.length === 0 ? (
                 <TasksSkeleton showPriority={showPriority} />
               ) : current.rows.length === 0 &&
                 filterCount > 0 &&
@@ -621,11 +603,7 @@ export function TasksView(props: TasksViewProps) {
                 <div className={styles.empty}>
                   {deferredSearch.trim()
                     ? "No tasks match your search."
-                    : inProgress
-                      ? "No tasks linked to a workspace."
-                      : mode === "assigned"
-                        ? "Nothing assigned to you."
-                        : "No open tasks."}
+                    : "No open tasks."}
                 </div>
               ) : (
                 current.rows.map((row) =>

@@ -10,9 +10,6 @@ import type { ProjectInfo } from "../store/project-store";
 
 export type TaskProvider = "github" | "linear";
 
-/** Which issues a Tasks query asks for. */
-export type TaskFilter = "open" | "assigned";
-
 /**
  * How a status pill is tinted: `open` / `started` green, `todo` neutral,
  * `backlog` / `canceled` dim, `closed` purple.
@@ -62,6 +59,10 @@ export interface TaskRow {
   createdAt: string;
   /** GitHub comment count. */
   commentCount?: number;
+  /** Listed by the tracker's "assigned to me" query (or linked to one of your workspaces). */
+  assignedToMe?: boolean;
+  /** Linked to a workspace — being worked on. */
+  inProgress?: boolean;
   /** ISO timestamp; `""` when the tracker didn't send one. */
   updatedAt: string;
   /** The top-level sidebar entry (project id or group id) the row belongs to. */
@@ -297,6 +298,9 @@ export function linkedTasks(
           assignees: match?.assignees ?? [],
           author: match?.author,
           status: match?.status ?? { label: "In progress", tone: "started" },
+          // Linking it to your workspace makes it yours, even unlisted.
+          assignedToMe: match?.assignedToMe ?? true,
+          inProgress: true,
           priority: match?.priority,
           trackerProjects: match?.trackerProjects ?? [],
           milestone: match?.milestone,
@@ -360,7 +364,8 @@ export type TaskFieldId =
   | "created"
   | "dueDate"
   | "estimate"
-  | "comments";
+  | "comments"
+  | "progress";
 
 /** The fields the field model reads — both `TaskRow` and `LinkedTask` carry them. */
 type FieldRow = Omit<TaskRow, "raw" | "project">;
@@ -383,6 +388,14 @@ export interface TaskFieldDef {
 
 /** The facet value for a row with nothing in a field ("No priority", "No label"…). */
 export const NONE_VALUE = "__none__";
+
+/** The assignee facet value for tasks assigned to you, whatever your tracker name. */
+export const ME_VALUE = "__me__";
+
+const PROGRESS_NAMES: Record<string, string> = {
+  "not-started": "Not started",
+  "in-progress": "In progress",
+};
 
 const BOTH: readonly TaskProvider[] = ["github", "linear"];
 const GITHUB: readonly TaskProvider[] = ["github"];
@@ -456,6 +469,12 @@ function sortedBy(
 
 /** Which fields apply to which provider, and how each filters and sorts (ADR-201 §4 table). In display order. */
 export const TASK_FIELDS: Record<TaskFieldId, TaskFieldDef> = {
+  progress: {
+    label: "Progress",
+    providers: BOTH,
+    facet: (row) => [row.inProgress ? "in-progress" : "not-started"],
+    optionOrder: (a, b) => (a === b ? 0 : a === "not-started" ? -1 : 1),
+  },
   status: {
     label: "Status",
     providers: BOTH,
@@ -477,7 +496,10 @@ export const TASK_FIELDS: Record<TaskFieldId, TaskFieldDef> = {
   assignee: {
     label: "Assignee",
     providers: BOTH,
-    facet: (row) => row.assignees,
+    facet: (row) =>
+      row.assignedToMe ? [ME_VALUE, ...row.assignees] : row.assignees,
+    optionOrder: (a, b) =>
+      a === ME_VALUE ? -1 : b === ME_VALUE ? 1 : textOrder(a, b),
     ...sortedBy((row) => row.assignees[0]),
   },
   author: {
@@ -581,6 +603,8 @@ export function facetLabel(fieldId: TaskFieldId, value: string): string {
     return `No ${TASK_FIELDS[fieldId].label.toLowerCase()}`;
   }
   if (fieldId === "priority") return PRIORITY_NAMES[value] ?? `P${value}`;
+  if (fieldId === "assignee" && value === ME_VALUE) return "Me";
+  if (fieldId === "progress") return PROGRESS_NAMES[value] ?? value;
   return value;
 }
 
@@ -612,6 +636,12 @@ export function facetOptions(
 
 /** Chosen facet values per field; an absent or empty list doesn't filter. */
 export type TaskFilters = Partial<Record<TaskFieldId, string[]>>;
+
+/** What the Tasks view opens on: your tasks nobody has started. */
+export const DEFAULT_TASK_FILTERS: TaskFilters = {
+  assignee: [ME_VALUE],
+  progress: ["not-started"],
+};
 
 /**
  * Rows matching every filtered field (AND), where a field matches when the

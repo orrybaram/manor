@@ -107,11 +107,6 @@
   gap: 10px;
 }
 
-.filterToggle {
-  display: flex;
-  flex-shrink: 0;
-}
-
 .searchBox {
   position: relative;
   flex: 1;
@@ -132,13 +127,6 @@
   height: 32px;
   padding-block: 0;
   padding-left: 30px;
-}
-
-.iconButton {
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  flex-shrink: 0;
 }
 
 /* ── Active filter chips ── */

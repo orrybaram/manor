@@ -26,9 +26,34 @@
 
 .divider {
   flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+}
+
+/* The whole gutter is the grab area; only a 4px centred line lights up,
+   matching the sidebar resize handle. */
+.divider::after {
+  content: "";
+  position: absolute;
+  border-radius: 2px;
   background: transparent;
   transition: background 0.15s;
-  z-index: 10;
+}
+
+.dividerHorizontal::after {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 4px;
+  transform: translateX(-50%);
+}
+
+.dividerVertical::after {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 4px;
+  transform: translateY(-50%);
 }
 
 .dividerHorizontal {
@@ -41,7 +66,7 @@
   cursor: row-resize;
 }
 
-.divider:hover,
-.dividerActive {
+.divider:hover::after,
+.dividerActive::after {
   background: var(--accent);
 }

@@ -2,7 +2,6 @@
 
 .portsSection {
   flex-shrink: 0;
-  border-top: 1px solid var(--surface);
   padding: 4px 0;
   position: relative;
 }

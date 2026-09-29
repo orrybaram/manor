@@ -36,6 +36,7 @@ import { requestUi } from "../../utils/ui-request";
 import { focusRegionWhenReady } from "../../lib/focus-regions";
 import type { ActivePort } from "../../electron.d.ts";
 import { isRemoteHost } from "../../lib/hosts";
+import { isHomePath } from "../../lib/home-path";
 import styles from "./CommandPalette.module.css";
 
 interface UseCommandsParams {
@@ -682,16 +683,24 @@ export function useCommands({
       },
     ];
 
+    // The Dashboard has no tabs or panes (ADR-197): hide anything that would
+    // create or rearrange them.
+    const onHome = isHomePath(activeWorkspacePath);
+    const HOME_HIDDEN = /^(new-tab|new-browser|split-|convert-to-|open-diff$)/;
+    const unlessHomeItems = (items: CommandItem[]) =>
+      onHome ? items.filter((i) => !HOME_HIDDEN.test(i.id)) : items;
+    const visiblePortItems = onHome ? [] : portItems;
+
     return [
-      { id: "tabs", heading: "Tabs", visible: true, items: tabItems },
-      { id: "panes", heading: "Panes", visible: true, items: paneItems },
-      { id: "panels", heading: "Panels", visible: true, items: panelItems },
-      { id: "git", heading: "Git", visible: true, items: gitItems },
+      { id: "tabs", heading: "Tabs", visible: true, items: unlessHomeItems(tabItems) },
+      { id: "panes", heading: "Panes", visible: true, items: unlessHomeItems(paneItems) },
+      { id: "panels", heading: "Panels", visible: true, items: unlessHomeItems(panelItems) },
+      { id: "git", heading: "Git", visible: true, items: unlessHomeItems(gitItems) },
       {
         id: "ports",
         heading: "Ports",
-        visible: portItems.length > 0,
-        items: portItems,
+        visible: visiblePortItems.length > 0,
+        items: visiblePortItems,
       },
       { id: "general", heading: "General", visible: true, items: generalItems },
       {

@@ -47,7 +47,7 @@ import {
 import { detachTabToNewWindow, movePaneToNewWindow } from "./window-handoff";
 import { openInEditor } from "./editor";
 import { focusRegion, focusRegionWhenReady } from "./focus-regions";
-import { HOME_PATH } from "./home";
+import { HOME_PATH, isHomePath } from "./home";
 import { EXTERNAL_LINKS, type MenuCommandPayload } from "./menu-commands";
 import { requestUi } from "../utils/ui-request";
 import {
@@ -222,11 +222,11 @@ export function createMenuHandlers(
     "add-project": () => chrome.addProject(),
     "open-in-editor": () => {
       const { path } = activeWorkspace();
-      if (path) openInEditor(path);
+      if (path && !isHomePath(path)) openInEditor(path);
     },
     "reveal-in-finder": () => {
       const { path } = activeWorkspace();
-      if (path) void window.electronAPI.shell.showItemInFolder(path);
+      if (path && !isHomePath(path)) void window.electronAPI.shell.showItemInFolder(path);
     },
     // Main routes this to whichever window has focus; closing it is all the
     // renderer has to do.
@@ -239,7 +239,7 @@ export function createMenuHandlers(
     },
     "copy-workspace-path": () => {
       const { path } = activeWorkspace();
-      if (path) copyToClipboard(path, "copy-workspace-path");
+      if (path && !isHomePath(path)) copyToClipboard(path, "copy-workspace-path");
     },
 
     // ── View ──────────────────────────────────────────────────────────────

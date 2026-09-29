@@ -4,6 +4,7 @@ import Plus from "lucide-react/dist/esm/icons/plus";
 import { useAgentStore } from "../../store/agent-store";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { useAppStore } from "../../store/app-store";
+import { isHomePath } from "../../lib/home-path";
 import { formatCombo } from "../../lib/keybindings";
 import { resolveAgentTitle } from "../../hooks/useAgentDisplay";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
@@ -27,6 +28,7 @@ export function useAgentCommands({
   const bindings = useKeybindingsStore((s) => s.bindings);
   const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
   const paneTitle = useAppStore((s) => s.paneTitle);
+  const onHome = useAppStore((s) => isHomePath(s.activeWorkspacePath));
 
   return useMemo(() => {
     const platform = navigator.platform.toLowerCase().includes("mac")
@@ -35,7 +37,8 @@ export function useAgentCommands({
     const fmt = (id: string) =>
       bindings[id] ? formatCombo(bindings[id], platform) : undefined;
 
-    const items: CommandItem[] = [
+    // The Dashboard has no tabs to host a new agent (ADR-197).
+    const items: CommandItem[] = onHome ? [] : [
       {
         id: "new-agent",
         label: "New Agent",
@@ -78,5 +81,5 @@ export function useAgentCommands({
     });
 
     return items;
-  }, [agents, onResumeAgent, onViewAllAgents, onClose, onNewAgent, bindings, paneAgentStatus, paneTitle]);
+  }, [agents, onResumeAgent, onViewAllAgents, onClose, onNewAgent, bindings, paneAgentStatus, paneTitle, onHome]);
 }

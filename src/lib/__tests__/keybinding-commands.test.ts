@@ -1,4 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+// The keybindings store reads `navigator`/`window` at module load; this suite
+// runs in the node environment, so stub them before the imports evaluate.
+vi.hoisted(() => {
+  const g = globalThis as Record<string, unknown>;
+  if (typeof g.navigator === "undefined")
+    g.navigator = { platform: "MacIntel" };
+  if (typeof g.window === "undefined") g.window = g;
+});
 import {
   createSharedKeybindingHandlers,
   dispatchKeybinding,
@@ -12,6 +21,7 @@ import {
 } from "../browser-pane-registry";
 import type { BrowserPaneRef } from "../../components/workspace-panes/BrowserPane/BrowserPane";
 import { MAIN_WINDOW_KEYBINDINGS } from "../menu-commands";
+import { HOME_PATH } from "../home";
 import { useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { useKeybindingsStore } from "../../store/keybindings-store";
@@ -176,6 +186,43 @@ describe("createSharedKeybindingHandlers", () => {
     const paneId = panel.tabs[1].focusedPaneId;
     expect(useAppStore.getState().paneContentType[paneId]).toBe("browser");
   });
+
+  it("does not create tabs, panes, panels or diffs on the Dashboard", () => {
+    const spies = {
+      addTab: vi.fn(),
+      addBrowserTab: vi.fn(),
+      splitPane: vi.fn(),
+      splitPanel: vi.fn(),
+      reopenClosedPane: vi.fn(),
+      openOrFocusDiff: vi.fn(),
+      openDiffInNewPanel: vi.fn(),
+    };
+    const original = useAppStore.getState();
+    const originals = Object.fromEntries(
+      Object.keys(spies).map((k) => [k, original[k as keyof typeof spies]]),
+    );
+    useAppStore.setState({ ...spies, activeWorkspacePath: HOME_PATH });
+    const handlers = createSharedKeybindingHandlers();
+    try {
+      for (const id of [
+        "new-tab",
+        "new-agent",
+        "new-browser",
+        "split-h",
+        "split-v",
+        "reopen-pane",
+        "split-panel-right",
+        "split-panel-down",
+        "open-diff",
+      ]) {
+        handlers[id]();
+      }
+      for (const spy of Object.values(spies))
+        expect(spy).not.toHaveBeenCalled();
+    } finally {
+      useAppStore.setState(originals);
+    }
+  });
 });
 
 describe("resolveWorkspaceCommand", () => {
@@ -227,9 +274,10 @@ describe("startNewAgent", () => {
 
     // The prewarmed session is consumed for the active workspace's cwd, so
     // the main process can reject a stale (e.g. wrong-host) prewarm.
-    expect(
-      window.electronAPI.pty.consumePrewarmed,
-    ).toHaveBeenCalledWith(WS_PATH, "local");
+    expect(window.electronAPI.pty.consumePrewarmed).toHaveBeenCalledWith(
+      WS_PATH,
+      "local",
+    );
 
     // The command already ran in the prewarmed session — don't queue it again.
     expect(
@@ -330,7 +378,9 @@ describe("dispatchKeybinding", () => {
     it("blocks a command behind the settings modal", () => {
       stubOpenDialog("settings-modal");
       const newTab = vi.fn();
-      const e = keyEvent(useKeybindingsStore.getState().bindings["new-tab"].key);
+      const e = keyEvent(
+        useKeybindingsStore.getState().bindings["new-tab"].key,
+      );
       dispatchKeybinding(e, { "new-tab": newTab });
       expect(newTab).not.toHaveBeenCalled();
       expect(e.preventDefault).not.toHaveBeenCalled();
@@ -339,7 +389,9 @@ describe("dispatchKeybinding", () => {
     it("still lets ⌘, close the settings modal", () => {
       stubOpenDialog("settings-modal");
       const settings = vi.fn();
-      const e = keyEvent(useKeybindingsStore.getState().bindings["settings"].key);
+      const e = keyEvent(
+        useKeybindingsStore.getState().bindings["settings"].key,
+      );
       dispatchKeybinding(e, { settings });
       expect(settings).toHaveBeenCalled();
       expect(e.preventDefault).toHaveBeenCalled();
@@ -368,7 +420,9 @@ describe("dispatchKeybinding", () => {
     it("blocks a command behind a dialog with no toggle of its own", () => {
       stubOpenDialog("agents-modal");
       const newTab = vi.fn();
-      const e = keyEvent(useKeybindingsStore.getState().bindings["new-tab"].key);
+      const e = keyEvent(
+        useKeybindingsStore.getState().bindings["new-tab"].key,
+      );
       dispatchKeybinding(e, { "new-tab": newTab });
       expect(newTab).not.toHaveBeenCalled();
     });

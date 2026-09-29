@@ -93,7 +93,9 @@ export function buildMenuTemplate(
   /** Workspace-scoped items: a real workspace is selected and we're not on Home. */
   const hasWorkspace = !!workspace && !context?.isHome;
   const isMainWorkspace = !!workspace?.isMain;
-  const hasSurface = !!context?.activeWorkspacePath;
+  /** Tabs and panes exist only on a real workspace, never the Dashboard. */
+  const canCreateTabs = !!context?.canCreateTabs;
+  const hasSurface = !!context?.activeWorkspacePath && !context?.isHome;
   const focusedPane = context?.focusedPane ?? null;
   const activeTab = context?.activeTab ?? null;
   const editorName = context?.editorName ?? null;
@@ -128,28 +130,28 @@ export function buildMenuTemplate(
   const fileMenu: MenuItemConstructorOptions = {
     label: "File",
     submenu: [
-      cmd("new-agent", "New Agent"),
-      cmd("new-tab", "New Tab"),
-      cmd("new-browser", "New Browser"),
+      cmd("new-agent", "New Agent", { enabled: canCreateTabs }),
+      cmd("new-tab", "New Tab", { enabled: canCreateTabs }),
+      cmd("new-browser", "New Browser", { enabled: canCreateTabs }),
       cmd("new-workspace", "New Workspace…"),
       cmd("add-project", "Add Project…"),
       SEPARATOR,
-      cmd("open-diff", "Open Diff"),
+      cmd("open-diff", "Open Diff", { enabled: canCreateTabs }),
       cmd(
         "open-in-editor",
         editorName ? `Open in ${editorName}` : "Open in Editor",
         {
-          enabled: !!editorName,
+          enabled: !!editorName && hasWorkspace,
         },
       ),
-      cmd("reveal-in-finder", "Reveal in Finder"),
+      cmd("reveal-in-finder", "Reveal in Finder", { enabled: hasWorkspace }),
       SEPARATOR,
       cmd("close-pane", "Close Pane"),
       cmd("close-tab", "Close Tab"),
       cmd("close-panel", "Close Panel"),
       // No accelerator: ⇧⌘W stays Close Tab.
       { label: "Close Window", click: () => actions.send("close-window") },
-      cmd("reopen-pane", "Reopen Closed Pane"),
+      cmd("reopen-pane", "Reopen Closed Pane", { enabled: canCreateTabs }),
       // Without an app menu, Settings and Quit live at the bottom of File.
       ...(isMac
         ? []
@@ -178,8 +180,8 @@ export function buildMenuTemplate(
       // which browser find shares.
       cmd("find", "Find…", { accelerator: accelFor("terminal-search") }),
       SEPARATOR,
-      cmd("copy-branch", "Copy Branch Name"),
-      cmd("copy-workspace-path", "Copy Workspace Path"),
+      cmd("copy-branch", "Copy Branch Name", { enabled: hasWorkspace }),
+      cmd("copy-workspace-path", "Copy Workspace Path", { enabled: hasWorkspace }),
     ],
   };
 
@@ -358,7 +360,7 @@ export function buildMenuTemplate(
   const agentsMenu: MenuItemConstructorOptions = {
     label: "Agents",
     submenu: [
-      cmd("new-agent", "New Agent"),
+      cmd("new-agent", "New Agent", { enabled: canCreateTabs }),
       cmd("run-setup-script", "Run Setup Script", {
         enabled: !!context?.project?.hasSetupScript,
       }),

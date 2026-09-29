@@ -12,6 +12,7 @@ function makeContext(overrides: Partial<MenuContext> = {}): MenuContext {
   return {
     activeWorkspacePath: "/repo/feature",
     isHome: false,
+    canCreateTabs: true,
     workspace: {
       projectId: "proj-1",
       name: "feature",
@@ -181,6 +182,42 @@ describe("buildMenuTemplate", () => {
         "Workspace",
       );
       expect(item(workspace, "Rename Workspace")?.enabled).toBe(false);
+    });
+
+    it("disables tab, pane and path items on Home", () => {
+      const template = build({
+        context: makeContext({
+          isHome: true,
+          canCreateTabs: false,
+          workspace: null,
+          project: null,
+          focusedPane: null,
+          activeTab: null,
+        }),
+      });
+      const file = menu(template, "File");
+      for (const label of [
+        "New Agent",
+        "New Tab",
+        "New Browser",
+        "Open Diff",
+        "Reveal in Finder",
+        "Reopen Closed Pane",
+      ]) {
+        expect(item(file, label)?.enabled, label).toBe(false);
+      }
+      expect(item(menu(template, "Agents"), "New Agent")?.enabled).toBe(false);
+      const pane = menu(template, "Pane");
+      expect(item(pane, "Split Horizontal")?.enabled).toBe(false);
+      expect(item(pane, "Split Panel Right")?.enabled).toBe(false);
+    });
+
+    it("enables tab and pane items for a real workspace", () => {
+      const template = build();
+      expect(item(menu(template, "File"), "New Tab")?.enabled).toBe(true);
+      expect(item(menu(template, "Pane"), "Split Horizontal")?.enabled).toBe(
+        true,
+      );
     });
 
     it("enables workspace items for a real workspace", () => {

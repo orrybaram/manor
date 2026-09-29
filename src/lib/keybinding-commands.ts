@@ -96,7 +96,8 @@ export function resolveWorkspaceCommand(workspacePath: string | null): string {
 export async function startNewAgent(
   { prewarm }: { prewarm: boolean } = { prewarm: false },
 ): Promise<void> {
-  const { activeWorkspacePath, activeWorkspaceHostId: hostId } = useAppStore.getState();
+  const { activeWorkspacePath, activeWorkspaceHostId: hostId } =
+    useAppStore.getState();
   const command = resolveWorkspaceCommand(activeWorkspacePath);
   const prewarmed = prewarm
     ? await window.electronAPI.pty.consumePrewarmed(activeWorkspacePath, hostId)
@@ -121,19 +122,34 @@ export function unlessOverviewShown(fn: () => void): () => void {
   };
 }
 
+/**
+ * The Dashboard (Home) has no tabs, panes, or panels (ADR-197). The store
+ * already no-ops creation there; this keeps the shortcut from doing anything.
+ */
+export function unlessHome(fn: () => void): () => void {
+  return () => {
+    if (isHomePath(useAppStore.getState().activeWorkspacePath)) return;
+    fn();
+  };
+}
+
 /** Build the window-agnostic half of the command→action map. */
 export function createSharedKeybindingHandlers(
-  { prewarmNewAgent }: { prewarmNewAgent: boolean } = { prewarmNewAgent: false },
+  { prewarmNewAgent }: { prewarmNewAgent: boolean } = {
+    prewarmNewAgent: false,
+  },
 ): Record<string, () => void> {
   const store = () => useAppStore.getState();
   return {
-    "new-tab": () => store().addTab(),
-    "new-agent": () => void startNewAgent({ prewarm: prewarmNewAgent }),
-    "new-browser": () => store().addBrowserTab("about:blank"),
-    "split-h": () => store().splitPane("horizontal"),
-    "split-v": () => store().splitPane("vertical"),
+    "new-tab": unlessHome(() => store().addTab()),
+    "new-agent": unlessHome(
+      () => void startNewAgent({ prewarm: prewarmNewAgent }),
+    ),
+    "new-browser": unlessHome(() => store().addBrowserTab("about:blank")),
+    "split-h": unlessHome(() => store().splitPane("horizontal")),
+    "split-v": unlessHome(() => store().splitPane("vertical")),
     "close-pane": unlessOverviewShown(() => store().requestClosePane()),
-    "reopen-pane": () => store().reopenClosedPane(),
+    "reopen-pane": unlessHome(() => store().reopenClosedPane()),
     "close-tab": unlessOverviewShown(() => {
       const state = store();
       const layout = selectActiveLayout(state);
@@ -159,8 +175,8 @@ export function createSharedKeybindingHandlers(
         });
       }
     },
-    "split-panel-right": () => store().splitPanel("horizontal"),
-    "split-panel-down": () => store().splitPanel("vertical"),
+    "split-panel-right": unlessHome(() => store().splitPanel("horizontal")),
+    "split-panel-down": unlessHome(() => store().splitPanel("vertical")),
     "focus-next-panel": () => store().focusNextPanel(),
     "focus-prev-panel": () => store().focusPrevPanel(),
     "close-panel": unlessOverviewShown(() => {
@@ -213,11 +229,12 @@ export function createSharedKeybindingHandlers(
     "focus-next-region": () => void cycleRegion(1),
     "focus-prev-region": () => void cycleRegion(-1),
     "focus-tabbar": () => void focusRegion("tabbar"),
-    "open-diff": () => {
-      const { diffOpensInNewPanel } = usePreferencesStore.getState().preferences;
+    "open-diff": unlessHome(() => {
+      const { diffOpensInNewPanel } =
+        usePreferencesStore.getState().preferences;
       if (diffOpensInNewPanel) store().openDiffInNewPanel();
       else store().openOrFocusDiff();
-    },
+    }),
     ...Object.fromEntries(
       Array.from({ length: 9 }, (_, i) => [
         `select-tab-${i + 1}`,

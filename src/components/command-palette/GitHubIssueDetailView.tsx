@@ -13,6 +13,7 @@ import { Button } from "../ui/Button/Button";
 import { Link } from "../ui/Link/Link";
 import { assignIssueBestEffort, startGitHubIssueWork } from "../../lib/start-issue-work";
 import type { GhRepo } from "../../lib/gh-repo";
+import { isHomePath } from "../../lib/home-path";
 import styles from "./CommandPalette.module.css";
 
 type GitHubIssueDetailViewProps = {
@@ -34,6 +35,9 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
   const { repo, issueNumber, issueUrl, onBack, onClose, onNewWorkspace, onNewAgentWithPrompt, linkedTo, projectId, workspacePath } = props;
 
   const projects = useProjectStore((s) => s.projects);
+  // The Dashboard has no tabs to host a new agent (ADR-197); "Create
+  // Workspace" stays available.
+  const canNewAgent = useAppStore((s) => !isHomePath(s.activeWorkspacePath));
 
   const { data: issueDetail, isLoading, error, refetch } = useQuery({
     queryKey: ["github-issue-detail", repo.hostId, repo.path, issueNumber, issueUrl],
@@ -147,6 +151,8 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
   handleOpenInBrowserRef.current = handleOpenInBrowser;
   const handleNewAgentRef = useRef(handleNewAgent);
   handleNewAgentRef.current = handleNewAgent;
+  const canNewAgentRef = useRef(canNewAgent);
+  canNewAgentRef.current = canNewAgent;
 
   useMountEffect(() => {
     let ready = false;
@@ -158,7 +164,7 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
       if (e.key === "Enter" && e.shiftKey) {
         e.preventDefault();
         handleCreateWorkspaceRef.current();
-      } else if (e.key === "Enter") {
+      } else if (e.key === "Enter" && canNewAgentRef.current) {
         e.preventDefault();
         handleNewAgentRef.current();
       }
@@ -278,10 +284,12 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
           </>
         ) : (
           <>
-            <button className={styles.footerHint} onClick={handleNewAgent}>
-              <kbd className={styles.kbd}>Enter</kbd>
-              <span>New Agent</span>
-            </button>
+            {canNewAgent && (
+              <button className={styles.footerHint} onClick={handleNewAgent}>
+                <kbd className={styles.kbd}>Enter</kbd>
+                <span>New Agent</span>
+              </button>
+            )}
             <button className={styles.footerHint} onClick={handleCreateWorkspace}>
               <kbd className={styles.kbd}>Shift+Enter</kbd>
               <span>Create Workspace</span>

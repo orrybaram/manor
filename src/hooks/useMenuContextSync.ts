@@ -124,6 +124,7 @@ export function deriveMenuContext(
   return {
     activeWorkspacePath: path,
     isHome,
+    canCreateTabs: !!path && !isHome,
     workspace:
       project && workspace
         ? {

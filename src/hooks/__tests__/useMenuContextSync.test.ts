@@ -96,6 +96,7 @@ describe("deriveMenuContext", () => {
 
     expect(context.activeWorkspacePath).toBe(MAIN);
     expect(context.isHome).toBe(false);
+    expect(context.canCreateTabs).toBe(true);
     expect(context.workspace).toEqual({
       projectId: "proj-1",
       name: "main",
@@ -190,6 +191,7 @@ describe("deriveMenuContext", () => {
       PREFS,
     );
     expect(context.isHome).toBe(true);
+    expect(context.canCreateTabs).toBe(false);
     expect(context.workspace).toBeNull();
     expect(context.project).toBeNull();
     expect(context.focusedPane).toBeNull();

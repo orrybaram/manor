@@ -5,6 +5,7 @@ import {
   ACTIVITY_WINDOW_MS,
   closedGaps,
   laneSegments,
+  liveSessions,
   lanePriority,
   useAgentActivityStore,
 } from "../../../store/agent-activity-store";
@@ -57,19 +58,23 @@ export function ActivityTimeline(props: ActivityTimelineProps) {
   const animateLanes = useDashboardAnimate();
 
   const windowStart = now - ACTIVITY_WINDOW_MS;
+  const sessions = useMemo(
+    () => liveSessions(snapshot?.sessions ?? [], now),
+    [snapshot, now],
+  );
 
   // Only gaps *between* recorded sessions are "Manor closed". The span
   // before the first session is history that was never recorded, so it is
   // left as bare track rather than hatched (ADR-199 §4).
   const gaps = useMemo<TimelineGap[]>(() => {
-    const sessions = snapshot?.sessions ?? [];
     const firstStart = sessions[0]?.start ?? now;
-    return closedGaps(sessions, windowStart, now).filter((gap) => gap.from >= firstStart);
-  }, [snapshot, windowStart, now]);
+    return closedGaps(sessions, windowStart, now).filter(
+      (gap) => gap.from >= firstStart,
+    );
+  }, [sessions, windowStart, now]);
 
   const lanes = useMemo(() => {
     const recorded = snapshot?.agents ?? {};
-    const sessions = snapshot?.sessions ?? [];
     return (
       lanePriority(recorded, windowStart, now)
         .map((agentId) => ({
@@ -87,7 +92,7 @@ export function ActivityTimeline(props: ActivityTimelineProps) {
         .filter((lane) => lane.segments.length > 0)
         .slice(0, MAX_LANES)
     );
-  }, [snapshot, windowStart, now]);
+  }, [snapshot, sessions, windowStart, now]);
 
   const legend = (
     <div className={styles.legend}>

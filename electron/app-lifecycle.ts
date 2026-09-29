@@ -578,9 +578,15 @@ export function initApp(devTitle: string | null): void {
       // One channel, every window, once per signal (ADR-184 §4).
       sendToRendererWindows("agent-status", update);
       // Recorded per Agent, not per pane: panes are ephemeral (ADR-199 §1).
-      // A pane with no Agent has no lane to record into.
-      const agent = agentManager.getAgentByPaneId(update.paneId);
-      if (agent) agentActivityStore.record(agent, update.status);
+      // A pane with no Agent has no lane to record into. The lookup waits for
+      // the rest of this effect batch: the reconciler publishes before its
+      // `CreateAgent`, so a new Agent's first status would otherwise find no
+      // Agent — or the retiring one — on the pane.
+      const at = Date.now();
+      queueMicrotask(() => {
+        const agent = agentManager.getAgentByPaneId(update.paneId);
+        if (agent) agentActivityStore.record(agent, update.status, at);
+      });
     },
     onHookEvent: (event, effects, { isRootSession, replacedRootSessionId }) => {
       statsStore.observeHookEvent(

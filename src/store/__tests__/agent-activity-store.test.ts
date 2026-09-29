@@ -4,6 +4,7 @@ import {
   laneMarkers,
   lanePriority,
   laneSegments,
+  liveSessions,
   statusCountSeries,
 } from "../agent-activity-store";
 import type {
@@ -12,9 +13,7 @@ import type {
   AgentStatus,
 } from "../../electron.d";
 
-function entry(
-  ...transitions: [AgentStatus, number][]
-): AgentActivityEntry {
+function entry(...transitions: [AgentStatus, number][]): AgentActivityEntry {
   return {
     meta: { name: null, projectId: null, workspacePath: null, hostId: "local" },
     transitions: transitions.map(([status, at]) => ({ status, at })),
@@ -82,6 +81,38 @@ describe("laneMarkers", () => {
         50,
       ),
     ).toEqual([{ kind: "error", at: 40 }]);
+  });
+});
+
+describe("liveSessions", () => {
+  it("extends the running session to the renderer's now", () => {
+    const sessions = [
+      { start: 0, end: 10 },
+      { start: 20, end: 30 },
+    ];
+    expect(liveSessions(sessions, 50)).toEqual([
+      { start: 0, end: 10 },
+      { start: 20, end: 50 },
+    ]);
+    // So the stretch since the last snapshot isn't a "Manor closed" gap...
+    expect(closedGaps(liveSessions(sessions, 50), 0, 50)).toEqual([
+      { from: 10, to: 20 },
+    ]);
+    // ...and a long working turn keeps growing to now.
+    expect(
+      laneSegments(
+        [{ status: "working", at: 25 }],
+        0,
+        50,
+        liveSessions(sessions, 50),
+      ),
+    ).toEqual([{ status: "working", from: 25, to: 50 }]);
+  });
+
+  it("leaves sessions alone when the last already reaches now", () => {
+    const sessions = [{ start: 0, end: 60 }];
+    expect(liveSessions(sessions, 50)).toBe(sessions);
+    expect(liveSessions([], 50)).toEqual([]);
   });
 });
 

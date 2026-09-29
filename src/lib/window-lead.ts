@@ -22,7 +22,7 @@ export function windowLeadWidth(mode: SidebarMode, sidebarWidth: number): number
 /** Width of the column left of the workspace: rail, sidebar panel, or none. */
 function leftColumnWidth(mode: SidebarMode, sidebarWidth: number): number {
   if (mode === "full") return sidebarWidth + 2 * FRAME_GAP;
-  if (mode === "rail") return RAIL_WIDTH;
+  if (mode === "rail") return RAIL_WIDTH + FRAME_GAP;
   return 0;
 }
 

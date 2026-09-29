@@ -1,6 +1,6 @@
-/* In the gutter on the right of the sidebar panel, or on the rail's right
-   edge (ADR-196). Starts below the WindowLead so it never covers the
-   window's drag row. */
+/* Fills the gutter to the right of the sidebar panel or rail (ADR-196), so
+   the grab area is the whole gutter, but only a thin centred line lights
+   up. Starts below the WindowLead so it never covers the window's drag row. */
 .handle {
   position: absolute;
   top: 40px;
@@ -9,12 +9,22 @@
   width: var(--frame-gap);
   cursor: col-resize;
   z-index: 20;
+}
+
+.handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 1px;
   background: transparent;
-  border-radius: 3px;
   transition: background 0.15s ease;
 }
 
-.handle:hover,
-.active {
+.handle:hover::after,
+.active::after {
   background: var(--accent);
 }

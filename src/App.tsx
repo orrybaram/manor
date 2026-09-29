@@ -700,7 +700,7 @@ function App() {
         {hasProjects && <WindowLead />}
         <PaneDragProvider>
           <div
-            className={`main-content ${sidebarMode === "full" && hasProjects ? "" : "main-content--gutter-left"}`}
+            className={`main-content ${sidebarMode !== "hidden" && hasProjects ? "" : "main-content--gutter-left"}`}
           >
             {/* Every workspace renders through the same PanelLayout in a single
                 positioned stack, active or not. Inactive ones are only hidden,

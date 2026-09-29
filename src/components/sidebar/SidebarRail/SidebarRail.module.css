@@ -3,7 +3,10 @@
 /* On the frame, flush to the window's left edge (ADR-196): no surface or
    edge of its own, so nothing under the traffic lights has a border. */
 .rail {
-  width: 52px;
+  /* 52px of tiles plus the gutter the resize handle sits in, the same
+     layout as the full sidebar's right gutter (ADR-196). */
+  width: calc(52px + var(--frame-gap));
+  padding-right: var(--frame-gap);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;

@@ -5,23 +5,23 @@
    the window's title row. Tabs sit on the bottom edge and the active one
    merges into the body below. */
 .tabBar {
+  /* How far tabs hang over the panel body below; covers its 8px corner. */
+  --tab-overlap: 8px;
   display: flex;
   align-items: flex-end;
   width: 100%;
   height: 40px;
   flex-shrink: 0;
-  padding: 0 8px;
+  padding: 0 8px 0 0;
   background: transparent;
   -webkit-app-region: drag;
   user-select: none;
 }
 
 /* The top-left panel's tabs start past the WindowLead. App.tsx sets the
-   inset per sidebar mode; the `:root` default clears the traffic lights.
-   The extra 8px keeps the first tab clear of the panel body's rounded
-   corner, matching the other panels' padding. */
+   inset per sidebar mode; the `:root` default clears the traffic lights. */
 .tabBarTopLeft {
-  padding-left: calc(var(--window-lead-inset) + 8px);
+  padding-left: var(--window-lead-inset);
 }
 
 .tabBarDropTarget {
@@ -45,10 +45,10 @@
   flex: 0 1 auto;
   min-width: 0;
   position: relative;
-  /* One extra pixel below the bar so the active tab can hang over the panel
-     body's top border without `overflow: hidden` clipping it. */
-  padding-bottom: 1px;
-  margin-bottom: -1px;
+  /* Tabs hang down over the panel body's top edge, far enough to cover its
+     rounded corner, so the active tab and the body read as one shape. Each
+     tab adds the same amount of bottom padding to keep its label in place. */
+  margin-bottom: calc(-1 * var(--tab-overlap));
 }
 
 /* Insertion bar shown between tabs during a native drag-and-drop reorder. */
@@ -74,12 +74,12 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 12px;
+  padding: 4px 12px calc(4px + var(--tab-overlap));
   border: none;
   background: transparent;
   color: var(--text-dim);
   font-size: 12px;
-  border-radius: 4px 4px 0 0;
+  border-radius: 8px 8px 0 0;
   cursor: pointer;
   white-space: nowrap;
   min-width: 32px;
@@ -88,19 +88,19 @@
   transition:
     background 0.15s,
     color 0.15s;
-  border-bottom: 2px solid transparent;
+  border-top: 2px solid transparent;
 }
 
 .tabTerminal {
-  border-bottom-color: var(--fg-a10);
+  border-top-color: var(--fg-a10);
 }
 
 .tabBrowser {
-  border-bottom-color: var(--blue-a40);
+  border-top-color: var(--blue-a40);
 }
 
 .tabDiff {
-  border-bottom-color: var(--green-a40);
+  border-top-color: var(--green-a40);
 }
 
 .tab:hover {
@@ -108,19 +108,14 @@
   color: var(--text-selected);
 }
 
-/* Bordered on top and sides, and pulled 1px down over the panel body's top
-   border so tab and body read as one shape (ADR-196). */
+/* Bordered on the sides and hanging over the panel body's top edge (see
+   `.tabs`), so tab and body read as one shape (ADR-196). */
 .tabActive {
   background: var(--surface);
   color: var(--text-selected);
   box-shadow:
     inset 1px 0 0 var(--border),
-    inset -1px 0 0 var(--border),
-    inset 0 1px 0 var(--border);
-  /* The content-type underline would draw a line across the seam. */
-  border-bottom-color: var(--surface);
-  align-self: flex-end;
-  margin-bottom: -1px;
+    inset -1px 0 0 var(--border);
   position: relative;
   z-index: 1;
 }
@@ -345,6 +340,8 @@
   font-size: 16px;
   cursor: pointer;
   padding: 2px 8px;
+  /* Offsets the tabs' overhang so the button stays centred in the bar. */
+  margin-bottom: var(--tab-overlap);
   border-radius: 6px;
   flex-shrink: 0;
   -webkit-app-region: no-drag;

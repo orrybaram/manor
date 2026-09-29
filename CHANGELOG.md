@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.18.1] - 2026-09-29
+
+### Features
+
+- Filter and sort tasks in the Tasks view
+- The Open, Assigned and In progress toggle is replaced by default filters you can change
+- The Tasks view gets more details for GitHub and Linear tasks, so there are more fields to filter and sort by
+
+### Fixes
+
+- Manor stops requesting GitHub project data after it detects that your token lacks the `read:project` permission
+
+### Improvements
+
+- The Tasks view has better spacing, and the tracker tabs and project picker now sit in the search row
+- The Refresh button is removed from the Tasks view
+
 ## [0.18.0] - 2026-09-29
 
 ### Features

@@ -602,6 +602,12 @@ function App() {
     showGhosts: triggerGhosts,
   });
 
+  // The palette runs the same map, so its entries can't drift from the menu's.
+  const runPaletteCommand = useCallback(
+    (commandId: string) => menuHandlersRef.current[commandId]?.(),
+    [],
+  );
+
   useMountEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       dispatchKeybinding(e, menuHandlersRef.current);
@@ -850,6 +856,7 @@ function App() {
           onViewAllAgents={() => setAgentsOpen(true)}
           onNewAgent={handleNewAgent}
           onNewAgentWithPrompt={handleNewAgentWithPrompt}
+          runCommand={runPaletteCommand}
         />
         <SettingsModal
           open={settingsOpen}

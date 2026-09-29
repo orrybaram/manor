@@ -36,6 +36,8 @@ export interface CommandPaletteProps {
   onViewAllAgents: () => void;
   onNewAgent: () => void;
   onNewAgentWithPrompt?: (prompt: string) => void;
+  /** Run a command from the primary window's command map (`createMenuHandlers`). */
+  runCommand?: (commandId: string) => void;
   initialView?: PaletteView;
   initialIssueId?: string | null;
   initialGitHubIssueNumber?: number | null;

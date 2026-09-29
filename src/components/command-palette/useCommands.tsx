@@ -1,24 +1,42 @@
 import { useMemo } from "react";
 import { usePreferencesStore } from "../../store/preferences-store";
 import Activity from "lucide-react/dist/esm/icons/activity";
+import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
+import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
 import BarChart3 from "lucide-react/dist/esm/icons/bar-chart-3";
 import Bell from "lucide-react/dist/esm/icons/bell";
+import BookOpen from "lucide-react/dist/esm/icons/book-open";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Columns2 from "lucide-react/dist/esm/icons/columns-2";
+import Copy from "lucide-react/dist/esm/icons/copy";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
+import EyeOff from "lucide-react/dist/esm/icons/eye-off";
+import FolderOpen from "lucide-react/dist/esm/icons/folder-open";
 import FolderPlus from "lucide-react/dist/esm/icons/folder-plus";
+import Folders from "lucide-react/dist/esm/icons/folders";
+import GitMerge from "lucide-react/dist/esm/icons/git-merge";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import Keyboard from "lucide-react/dist/esm/icons/keyboard";
+import LayoutDashboard from "lucide-react/dist/esm/icons/layout-dashboard";
 import Link from "lucide-react/dist/esm/icons/link";
+import ListTodo from "lucide-react/dist/esm/icons/list-todo";
 import MessageSquare from "lucide-react/dist/esm/icons/message-square";
 import Palette from "lucide-react/dist/esm/icons/palette";
 import PanelLeft from "lucide-react/dist/esm/icons/panel-left";
+import Pencil from "lucide-react/dist/esm/icons/pencil";
+import Pin from "lucide-react/dist/esm/icons/pin";
+import Play from "lucide-react/dist/esm/icons/play";
+import Plus from "lucide-react/dist/esm/icons/plus";
+import RadioTower from "lucide-react/dist/esm/icons/radio-tower";
 import Rows2 from "lucide-react/dist/esm/icons/rows-2";
 import Settings from "lucide-react/dist/esm/icons/settings";
+import SquareArrowOutUpRight from "lucide-react/dist/esm/icons/square-arrow-out-up-right";
 import SquareTerminal from "lucide-react/dist/esm/icons/square-terminal";
+import Trash2 from "lucide-react/dist/esm/icons/trash-2";
+import Undo2 from "lucide-react/dist/esm/icons/undo-2";
 import type { CommandItem, CategoryConfig } from "./types";
 import type { SettingsPageId } from "../settings/SettingsModal/SettingsModal";
 import { useKeybindingsStore } from "../../store/keybindings-store";
@@ -36,7 +54,12 @@ import { requestUi } from "../../utils/ui-request";
 import { focusRegionWhenReady } from "../../lib/focus-regions";
 import type { ActivePort } from "../../electron.d.ts";
 import { isRemoteHost } from "../../lib/hosts";
-import { isHomePath } from "../../lib/home-path";
+import { HOME_PATH, isHomePath } from "../../lib/home-path";
+import { EXTERNAL_LINKS } from "../../lib/menu-commands";
+import {
+  navigateBack,
+  navigateForward,
+} from "../../hooks/useNavigationHistory";
 import styles from "./CommandPalette.module.css";
 
 interface UseCommandsParams {
@@ -59,6 +82,11 @@ interface UseCommandsParams {
   openDiffInNewPanel: () => void;
   navigateToProcesses: () => void;
   navigateToStats: () => void;
+  /**
+   * Run a command from the primary window's command map (`createMenuHandlers`),
+   * so the palette shares the keyboard's and the native menu's actions.
+   */
+  runCommand?: (commandId: string) => void;
 }
 
 export function useCommands({
@@ -81,13 +109,109 @@ export function useCommands({
   openDiffInNewPanel,
   navigateToProcesses,
   navigateToStats,
+  runCommand,
 }: UseCommandsParams): CategoryConfig[] {
   const bindings = useKeybindingsStore((s) => s.bindings);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
+  const activeSurface = useAppStore((s) => s.activeSurface);
+  const projects = useProjectStore((s) => s.projects);
+  const activeTabPinned = useAppStore((s) => {
+    const layout = selectActiveLayout(s);
+    const panel = layout?.panels[layout.activePanelId];
+    return !!panel && (panel.pinnedTabIds ?? []).includes(panel.selectedTabId);
+  });
+  const panelCount = useAppStore((s) => {
+    const layout = selectActiveLayout(s);
+    return layout ? Object.keys(layout.panels).length : 0;
+  });
 
   return useMemo(() => {
     const fmt = (id: string) =>
       bindings[id] ? formatCombo(bindings[id]) : undefined;
+
+    /** Close the palette, then run a command from the shared command map. */
+    const run = (commandId: string) => () => {
+      onClose();
+      runCommand?.(commandId);
+    };
+
+    const onHome = isHomePath(activeWorkspacePath);
+    const activeProject = onHome
+      ? undefined
+      : projects.find((p) =>
+          p.workspaces.some((w) => w.path === activeWorkspacePath),
+        );
+    const activeWs = activeProject?.workspaces.find(
+      (w) => w.path === activeWorkspacePath,
+    );
+
+    // The app's destinations, mirroring the sidebar's nav (ADR-194/197/198).
+    const goToItems: CommandItem[] = [
+      {
+        id: "go-dashboard",
+        label: "Dashboard",
+        icon: <LayoutDashboard size={14} />,
+        keywords: ["home", "overview", "go", "open", "show"],
+        isActive: onHome && activeSurface === "workspace",
+        action: () => {
+          onClose();
+          useAppStore.getState().setActiveWorkspace(HOME_PATH);
+        },
+      },
+      {
+        id: "go-tasks",
+        label: "Tasks",
+        icon: <ListTodo size={14} />,
+        keywords: [
+          "issues",
+          "tickets",
+          "todo",
+          "linear",
+          "github",
+          "go",
+          "open",
+          "show",
+        ],
+        isActive: activeSurface === "tasks",
+        action: () => {
+          onClose();
+          useAppStore.getState().showTasksView();
+        },
+      },
+      {
+        id: "go-projects",
+        label: "Projects",
+        icon: <Folders size={14} />,
+        keywords: ["overview", "repos", "repositories", "go", "open", "show"],
+        isActive: activeSurface === "projects",
+        action: () => {
+          onClose();
+          useAppStore.getState().showProjectsOverview();
+        },
+      },
+      {
+        id: "history-back",
+        label: "Navigate Back",
+        icon: <ArrowLeft size={14} />,
+        shortcut: fmt("history-back"),
+        keywords: ["history", "previous", "back"],
+        action: () => {
+          onClose();
+          navigateBack();
+        },
+      },
+      {
+        id: "history-forward",
+        label: "Navigate Forward",
+        icon: <ArrowRight size={14} />,
+        shortcut: fmt("history-forward"),
+        keywords: ["history", "next", "forward"],
+        action: () => {
+          onClose();
+          navigateForward();
+        },
+      },
+    ];
 
     const tabItems: CommandItem[] = [
       {
@@ -136,6 +260,35 @@ export function useCommands({
           onClose();
         },
       },
+      ...(selectedTabId
+        ? [
+            {
+              id: "pin-tab",
+              label: activeTabPinned ? "Unpin Tab" : "Pin Tab",
+              icon: <Pin size={14} />,
+              keywords: ["pin", "unpin", "tab"],
+              action: run("pin-tab"),
+            },
+            {
+              id: "detach-tab",
+              label: "Move Tab to New Window",
+              icon: <SquareArrowOutUpRight size={14} />,
+              keywords: ["detach", "popout", "window", "tab"],
+              action: run("detach-tab"),
+            },
+          ]
+        : []),
+      ...(panelCount >= 2
+        ? [
+            {
+              id: "move-tab-to-next-panel",
+              label: "Move Tab to Next Panel",
+              shortcut: fmt("move-tab-to-next-panel"),
+              keywords: ["move", "tab", "panel"],
+              action: run("move-tab-to-next-panel"),
+            },
+          ]
+        : []),
     ];
 
     const paneItems: CommandItem[] = [
@@ -147,6 +300,24 @@ export function useCommands({
           closePane();
           onClose();
         },
+      },
+      {
+        id: "reopen-pane",
+        label: "Reopen Closed Pane",
+        icon: <Undo2 size={14} />,
+        shortcut: fmt("reopen-pane"),
+        keywords: ["undo", "restore", "reopen", "closed"],
+        action: () => {
+          useAppStore.getState().reopenClosedPane();
+          onClose();
+        },
+      },
+      {
+        id: "detach-pane",
+        label: "Move Pane to New Window",
+        icon: <SquareArrowOutUpRight size={14} />,
+        keywords: ["detach", "popout", "window", "pane"],
+        action: run("detach-pane"),
       },
       {
         id: "next-pane",
@@ -411,6 +582,100 @@ export function useCommands({
     const editorName =
       usePreferencesStore.getState().preferences.defaultEditor || undefined;
 
+    // The active workspace's own actions, as in the native Workspace menu.
+    const workspaceItems: CommandItem[] = [
+      {
+        id: "new-workspace",
+        label: "New Workspace…",
+        icon: <Plus size={14} />,
+        shortcut: fmt("new-workspace"),
+        keywords: ["create", "worktree", "branch"],
+        action: run("new-workspace"),
+      },
+      {
+        id: "next-workspace",
+        label: "Next Workspace",
+        shortcut: fmt("next-workspace"),
+        keywords: ["switch", "workspace"],
+        action: run("next-workspace"),
+      },
+      {
+        id: "prev-workspace",
+        label: "Previous Workspace",
+        shortcut: fmt("prev-workspace"),
+        keywords: ["switch", "workspace"],
+        action: run("prev-workspace"),
+      },
+    ];
+    if (activeProject && activeWs) {
+      workspaceItems.push(
+        {
+          id: "rename-workspace",
+          label: "Rename Workspace",
+          icon: <Pencil size={14} />,
+          keywords: ["rename", "name", "workspace"],
+          action: run("rename-workspace"),
+        },
+        {
+          id: "copy-workspace-path",
+          label: "Copy Workspace Path",
+          icon: <Copy size={14} />,
+          keywords: ["path", "directory", "folder", "clipboard"],
+          action: run("copy-workspace-path"),
+        },
+        {
+          id: "reveal-in-finder",
+          label: "Reveal in File Manager",
+          icon: <FolderOpen size={14} />,
+          keywords: ["finder", "explorer", "files", "folder", "reveal", "show"],
+          action: run("reveal-in-finder"),
+        },
+        ...(activeProject.worktreeStartScript
+          ? [
+              {
+                id: "run-setup-script",
+                label: "Run Setup Script",
+                icon: <Play size={14} />,
+                keywords: ["setup", "script", "install", "bootstrap"],
+                action: run("run-setup-script"),
+              },
+            ]
+          : []),
+        {
+          id: "hide-workspace",
+          label: "Hide Workspace",
+          icon: <EyeOff size={14} />,
+          keywords: ["hide", "archive", "workspace"],
+          action: run("hide-workspace"),
+        },
+        ...(activeWs.isMain
+          ? []
+          : [
+              {
+                id: "merge-worktree",
+                label: "Merge Worktree…",
+                icon: <GitMerge size={14} />,
+                keywords: ["merge", "worktree", "git", "branch"],
+                action: run("merge-worktree"),
+              },
+              {
+                id: "delete-worktree",
+                label: "Delete Worktree…",
+                icon: <Trash2 size={14} />,
+                keywords: ["delete", "remove", "worktree", "branch"],
+                action: run("delete-worktree"),
+              },
+            ]),
+        {
+          id: "project-settings",
+          label: "Project Settings…",
+          icon: <Settings size={14} />,
+          keywords: ["project", "settings", "config", activeProject.name],
+          action: run("project-settings"),
+        },
+      );
+    }
+
     const generalItems: CommandItem[] = [
       {
         id: "new-project",
@@ -497,6 +762,22 @@ export function useCommands({
         },
       },
       {
+        id: "focus-next-region",
+        label: "Focus Next Region",
+        icon: <Keyboard size={14} />,
+        shortcut: fmt("focus-next-region"),
+        keywords: ["keyboard", "navigate", "region", "cycle"],
+        action: run("focus-next-region"),
+      },
+      {
+        id: "focus-prev-region",
+        label: "Focus Previous Region",
+        icon: <Keyboard size={14} />,
+        shortcut: fmt("focus-prev-region"),
+        keywords: ["keyboard", "navigate", "region", "cycle"],
+        action: run("focus-prev-region"),
+      },
+      {
         id: "open-notifications",
         label: "Open Notifications",
         icon: <Bell size={14} />,
@@ -565,6 +846,38 @@ export function useCommands({
         action: () => {
           onOpenFeedback?.();
           onClose();
+        },
+      },
+      {
+        id: "help-docs",
+        label: "Manor Help",
+        icon: <BookOpen size={14} />,
+        keywords: ["help", "docs", "documentation", "readme"],
+        action: () => {
+          onClose();
+          void window.electronAPI.shell.openExternal(EXTERNAL_LINKS.docs);
+        },
+      },
+      {
+        id: "help-release-notes",
+        label: "Release Notes",
+        icon: <BookOpen size={14} />,
+        keywords: ["changelog", "whats new", "version", "help"],
+        action: () => {
+          onClose();
+          void window.electronAPI.shell.openExternal(
+            EXTERNAL_LINKS.releaseNotes,
+          );
+        },
+      },
+      {
+        id: "help-report-issue",
+        label: "Report an Issue on GitHub",
+        icon: <ExternalLink size={14} />,
+        keywords: ["bug", "report", "issue", "github", "help"],
+        action: () => {
+          onClose();
+          void window.electronAPI.shell.openExternal(EXTERNAL_LINKS.newIssue);
         },
       },
       {
@@ -664,21 +977,52 @@ export function useCommands({
         ],
         action: openSettingsPage("integrations"),
       },
+      {
+        id: "settings-remote",
+        label: "Settings: Remote Control",
+        icon: <RadioTower size={14} />,
+        keywords: [
+          "settings",
+          "remote",
+          "remote control",
+          "hosts",
+          "ssh",
+          "mobile",
+        ],
+        action: openSettingsPage("remote"),
+      },
     ];
 
     // The Dashboard has no tabs or panes (ADR-197): hide anything that would
     // create or rearrange them.
-    const onHome = isHomePath(activeWorkspacePath);
-    const HOME_HIDDEN = /^(new-tab|new-browser|split-|convert-to-|open-diff$)/;
+    const HOME_HIDDEN =
+      /^(new-tab|new-browser|split-|convert-to-|open-diff$|reopen-pane$|detach-|pin-tab$|move-tab-)/;
+    // The Projects overview and the Tasks view cover the workspace, which
+    // stays mounted underneath: don't close or move what the user can't see
+    // (the same rule as `unlessOverviewShown` for the shortcuts).
+    const OVERVIEW_HIDDEN =
+      /^(close-(tab|pane|panel)$|detach-|pin-tab$|move-tab-)/;
+    const onOverview = activeSurface !== "workspace";
     const unlessHomeItems = (items: CommandItem[]) =>
-      onHome ? items.filter((i) => !HOME_HIDDEN.test(i.id)) : items;
+      items.filter(
+        (i) =>
+          !(onHome && HOME_HIDDEN.test(i.id)) &&
+          !(onOverview && OVERVIEW_HIDDEN.test(i.id)),
+      );
     const visiblePortItems = onHome ? [] : portItems;
 
     return [
+      { id: "go-to", heading: "Go to", visible: true, items: goToItems },
       { id: "tabs", heading: "Tabs", visible: true, items: unlessHomeItems(tabItems) },
       { id: "panes", heading: "Panes", visible: true, items: unlessHomeItems(paneItems) },
       { id: "panels", heading: "Panels", visible: true, items: unlessHomeItems(panelItems) },
       { id: "git", heading: "Git", visible: true, items: unlessHomeItems(gitItems) },
+      {
+        id: "workspace",
+        heading: "Workspace",
+        visible: !!runCommand,
+        items: workspaceItems,
+      },
       {
         id: "ports",
         heading: "Ports",
@@ -712,7 +1056,13 @@ export function useCommands({
     activeWorkspacePath,
     activePorts,
     openOrFocusDiff,
+    openDiffInNewPanel,
     navigateToProcesses,
     navigateToStats,
+    runCommand,
+    activeSurface,
+    projects,
+    activeTabPinned,
+    panelCount,
   ]);
 }

@@ -345,9 +345,13 @@
   color: var(--text-dim);
   font-size: 16px;
   cursor: pointer;
-  padding: 2px 8px;
-  /* Offsets the tabs' overhang so the button stays centred in the bar. */
-  margin-bottom: var(--tab-overlap);
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  /* Lines the button up with the tab labels: a tab's bottom padding runs
+     `--tab-overlap - 4px` past its top padding, so the row's centre sits that
+     far below the labels' centre (half from each side of the margin). */
+  margin-bottom: calc(var(--tab-overlap) - 4px);
   border-radius: 6px;
   flex-shrink: 0;
   -webkit-app-region: no-drag;

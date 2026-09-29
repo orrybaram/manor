@@ -11,9 +11,10 @@
   /* Bottom-aligned 24px buttons centre 12px above the row's bottom edge,
      level with the tab labels and the traffic lights. */
   align-items: flex-end;
-  /* The lead ends one gutter short of the sidebar panel's right edge; 4px
-     more puts the bell's centre 22px in, on the Projects "+" button's. */
-  padding-right: 4px;
+  /* The lead ends one gutter (6px) short of the sidebar panel's right edge;
+     3px more, plus the 24px bell's 5px around its 14px icon, puts the icon
+     14px in, where the sidebar's trailing icons end (Sidebar.module.css). */
+  padding-right: 3px;
   background: transparent;
   -webkit-app-region: drag;
   user-select: none;

@@ -19,7 +19,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 6px;
+  /* 8px on the right, plus "View All"'s 6px, ends its label 14px in: the
+     sidebar's trailing inset (Sidebar.module.css). */
+  padding: 4px 8px 4px 6px;
   /* Agents and Ports headers match whether they hold a count or "View All". */
   min-height: 24px;
   box-sizing: border-box;

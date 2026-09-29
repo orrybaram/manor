@@ -423,6 +423,8 @@ describe("upNextFromGitHub / upNextFromLinear / upNextList", () => {
     state: "OPEN",
     labels: labels.map((name) => ({ name, color: "fff" })),
     assignees: [],
+    updatedAt: "2026-01-01T00:00:00Z",
+    author: { login: "octocat" },
   });
   const linear = (identifier: string): LinearIssue => ({
     id: `id-${identifier}`,
@@ -433,6 +435,7 @@ describe("upNextFromGitHub / upNextFromLinear / upNextList", () => {
     priority: 0,
     state: { name: "Todo", type: "unstarted" },
     labels: [{ name: "ready-for-agent", color: "fff" }],
+    updatedAt: "2026-01-01T00:00:00Z",
   });
 
   it("maps a GitHub issue", () => {

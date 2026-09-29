@@ -25,6 +25,8 @@ export interface GitHubIssue {
   state: string;
   labels: Array<{ name: string; color: string }>;
   assignees: Array<{ login: string }>;
+  updatedAt: string;
+  author: { login: string };
 }
 
 export interface GitHubIssueDetail extends GitHubIssue {
@@ -369,7 +371,7 @@ export class GitHubManager {
         "--state",
         state,
         "--json",
-        "number,title,url,state,labels,assignees",
+        "number,title,url,state,labels,assignees,updatedAt,author",
         "--limit",
         String(limit),
       ],
@@ -394,7 +396,7 @@ export class GitHubManager {
         "--state",
         state,
         "--json",
-        "number,title,url,state,labels,assignees",
+        "number,title,url,state,labels,assignees,updatedAt,author",
         "--limit",
         String(limit),
       ],

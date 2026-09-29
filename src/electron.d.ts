@@ -184,6 +184,8 @@ export interface LinearIssue {
   priority: number;
   state: { name: string; type: string };
   labels: Array<{ name: string; color: string }>;
+  updatedAt: string;
+  assignee?: { name: string; displayName?: string } | null;
 }
 
 export interface LinearIssueDetail extends LinearIssue {
@@ -204,6 +206,8 @@ export interface GitHubIssue {
   state: string;
   labels: Array<{ name: string; color: string }>;
   assignees: Array<{ login: string }>;
+  updatedAt: string;
+  author: { login: string };
 }
 
 export interface GitHubRepo {

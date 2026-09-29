@@ -42,9 +42,6 @@
 .sidebar {
   display: flex;
   flex-direction: column;
-  background: var(--dim);
-  border: 1px solid var(--border);
-  border-radius: 8px;
   flex-shrink: 0;
   position: relative;
   user-select: none;

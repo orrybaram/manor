@@ -1,6 +1,6 @@
 ---
 title: Timeline UI on persisted history
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2]

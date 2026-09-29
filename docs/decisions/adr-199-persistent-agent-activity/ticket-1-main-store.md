@@ -1,6 +1,6 @@
 ---
 title: AgentActivityStore in main with persistence and IPC
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: []

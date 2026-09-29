@@ -1,6 +1,6 @@
 ---
 title: Renderer activity cache, count series and segment rules
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

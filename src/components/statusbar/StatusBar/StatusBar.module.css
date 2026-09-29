@@ -6,7 +6,7 @@
   justify-content: space-between;
   height: var(--status-bar-height);
   box-sizing: border-box;
-  padding: 0 10px;
+  padding: 10px 10px;
   /* Sits on the frame below the panels (ADR-196). */
   background: transparent;
   flex-shrink: 0;

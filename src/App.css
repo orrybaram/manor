@@ -55,7 +55,7 @@
      centred in it (`trafficLightPosition` in electron/window.ts). */
   --title-row: 36px;
   /* Fixed so the sidebar resize handle can end exactly where the panels do. */
-  --status-bar-height: 24px;
+  --status-bar-height: 36px; /* 10px padding above and below a 16px row */
   /* Right padding of the top-right panel's tab bar; App.tsx widens it to
      clear the WindowTrail. */
   --window-trail-inset: 8px;

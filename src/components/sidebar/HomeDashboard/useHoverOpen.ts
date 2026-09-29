@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { useMountEffect } from "../../../hooks/useMountEffect";
 
 /**
  * Open-on-hover state for a popover: opens after `delay` so a pointer
@@ -25,7 +26,8 @@ export function useHoverOpen(delay = 250, closeDelay = 150) {
     timer.current = setTimeout(() => setOpen(false), closeDelay);
   }, [clear, closeDelay]);
 
-  useEffect(() => clear, [clear]);
+  // A pending open/close timer must not fire after the trigger unmounts.
+  useMountEffect(() => clear);
 
   return { open, setOpen, onEnter, onLeave };
 }

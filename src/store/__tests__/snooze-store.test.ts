@@ -131,49 +131,34 @@ describe("snooze-store", () => {
     });
   });
 
-  describe("activeSnoozes", () => {
-    it("returns empty set when no snoozes", () => {
-      const active = state().activeSnoozes();
-      expect(active.size).toBe(0);
-    });
-
-    it("returns keys with expiry > now", () => {
+  describe("expiry", () => {
+    it("drops a snooze when it lapses", () => {
       vi.useFakeTimers();
       vi.setSystemTime(1000);
 
       state().snooze("item-1", 10000); // expires at 11000
       state().snooze("item-2", 20000); // expires at 21000
 
-      const active = state().activeSnoozes(5000); // check at 5000
-      expect(active.has("item-1")).toBe(true);
-      expect(active.has("item-2")).toBe(true);
+      vi.advanceTimersByTime(10000);
+      expect("item-1" in state().until).toBe(false);
+      expect(state().until["item-2"]).toBe(21000);
+
+      vi.advanceTimersByTime(10000);
+      expect(state().until).toEqual({});
 
       vi.useRealTimers();
     });
 
-    it("excludes expired snoozes", () => {
+    it("persists the pruned set when a snooze lapses", () => {
       vi.useFakeTimers();
       vi.setSystemTime(1000);
 
-      state().snooze("item-1", 10000); // expires at 11000
-      state().snooze("item-2", 20000); // expires at 21000
+      state().snooze("item-1", 10000);
+      state().snooze("item-2", 20000);
+      vi.advanceTimersByTime(10000);
 
-      const active = state().activeSnoozes(15000); // check at 15000
-      expect(active.has("item-1")).toBe(false);
-      expect(active.has("item-2")).toBe(true);
-
-      vi.useRealTimers();
-    });
-
-    it("uses current time by default", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(1000);
-
-      state().snooze("item-1", 10000); // expires at 11000
-
-      vi.setSystemTime(12000);
-      const active = state().activeSnoozes(); // no explicit time
-      expect(active.has("item-1")).toBe(false);
+      const stored = JSON.parse(storage.get(STORAGE_KEY) || "{}");
+      expect(stored).toEqual({ "item-2": 21000 });
 
       vi.useRealTimers();
     });

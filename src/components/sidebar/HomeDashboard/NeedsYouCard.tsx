@@ -3,6 +3,7 @@ import Bot from "lucide-react/dist/esm/icons/bot";
 import GitPullRequest from "lucide-react/dist/esm/icons/git-pull-request";
 import type { NeedsYouCard as NeedsYouCardData } from "../../../lib/home-dashboard-studio";
 import type { ProjectInfo, WorkspaceInfo } from "../../../store/project-store";
+import { useAppStore } from "../../../store/app-store";
 import { navigateToAgent } from "../../../utils/agent-navigation";
 import { startAgentWithPrompt } from "../../../lib/agent-prompt-launch";
 import { projectColorStyle } from "../../../hooks/useProjectHeaderRow";
@@ -16,7 +17,8 @@ import styles from "./NeedsYouCards.module.css";
 
 type NeedsYouCardProps = {
   card: NeedsYouCardData;
-  onOpenWorkspace: (project: ProjectInfo, workspace: WorkspaceInfo) => void;
+  /** Selects the workspace; false when it has since gone away. */
+  onOpenWorkspace: (project: ProjectInfo, workspace: WorkspaceInfo) => boolean;
   onSnooze: (key: string) => void;
 };
 
@@ -74,7 +76,7 @@ type CardActions = { primary: ReactNode; secondary: ReactNode };
 /** A card's primary and secondary action, per ADR-198 §4's table. */
 function cardActions(
   card: NeedsYouCardData,
-  onOpenWorkspace: (project: ProjectInfo, workspace: WorkspaceInfo) => void,
+  onOpenWorkspace: (project: ProjectInfo, workspace: WorkspaceInfo) => boolean,
 ): CardActions {
   const openWorkspace = (workspace: WorkspaceInfo | undefined) =>
     workspace ? (
@@ -104,9 +106,27 @@ function cardActions(
         return { primary: focus("Focus agent"), secondary: null };
       case "error":
         return { primary: focus("Focus agent"), secondary: openWorkspace(card.workspace) };
-      case "finished":
+      case "finished": {
         // `navigateToAgent` marks the agent seen, which clears the card.
-        return { primary: focus("Review"), secondary: openWorkspace(card.workspace) };
+        const workspace = card.workspace;
+        const openDiff = workspace ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            className={secondaryClass}
+            onClick={() => {
+              // Same order as the sidebar's "Open diff": select, then open
+              // (or focus) the diff in the now-active workspace.
+              if (onOpenWorkspace(card.project, workspace)) {
+                useAppStore.getState().openOrFocusDiff();
+              }
+            }}
+          >
+            Open diff
+          </Button>
+        ) : null;
+        return { primary: focus("Review"), secondary: openDiff };
+      }
     }
   }
 

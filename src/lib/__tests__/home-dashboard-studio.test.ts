@@ -365,31 +365,41 @@ describe("needsYouCards", () => {
 
 describe("headline", () => {
   it("reads the mockup sentence", () => {
-    expect(headline({ needsYou: 3, running: 3, openPrs: 5 })).toEqual({
+    expect(headline({ needsYou: 3, running: 3, inReview: 5, openPrs: 7 })).toEqual({
       lead: "3 things need you.",
       rest: "3 agents are working and 5 PRs are with reviewers.",
     });
   });
 
   it("uses singulars and drops zero clauses", () => {
-    expect(headline({ needsYou: 1, running: 1, openPrs: 0 })).toEqual({
+    expect(headline({ needsYou: 1, running: 1, inReview: 0, openPrs: 0 })).toEqual({
       lead: "1 thing needs you.",
       rest: "1 agent is working.",
     });
-    expect(headline({ needsYou: 0, running: 0, openPrs: 1 })).toEqual({
+    expect(headline({ needsYou: 0, running: 0, inReview: 1, openPrs: 1 })).toEqual({
       lead: "Nothing needs you.",
       rest: "1 PR is with reviewers.",
     });
   });
 
-  it("reads all clear when everything is zero", () => {
-    expect(headline({ needsYou: 0, running: 0, openPrs: 0 })).toEqual({
+  it("reads all clear only when nothing is running and no PR is open", () => {
+    expect(headline({ needsYou: 0, running: 0, inReview: 0, openPrs: 0 })).toEqual({
       lead: "All clear.",
       rest: "No agents running and no open PRs.",
     });
-    expect(headline({ needsYou: 2, running: 0, openPrs: 0 }).rest).toBe(
-      "No agents running and no open PRs.",
-    );
+  });
+
+  it("doesn't claim no open PRs while PRs sit outside review", () => {
+    // Two blocked PRs: they need you, and they are open.
+    expect(headline({ needsYou: 2, running: 0, inReview: 0, openPrs: 2 })).toEqual({
+      lead: "2 things need you.",
+      rest: "No agents running.",
+    });
+    // Only checks running: nothing needs you, but it isn't "all clear".
+    expect(headline({ needsYou: 0, running: 0, inReview: 0, openPrs: 1 })).toEqual({
+      lead: "Nothing needs you.",
+      rest: "No agents running.",
+    });
   });
 });
 

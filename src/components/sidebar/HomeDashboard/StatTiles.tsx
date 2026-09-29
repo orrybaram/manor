@@ -6,32 +6,14 @@ import {
   ACTIVITY_WINDOW_MS,
 } from "../../../store/agent-activity-store";
 import { useStatsStore } from "../../../store/stats-store";
-import type {
-  NeedsYouCard,
-  OpenPrStats,
-  PrStage,
-} from "../../../lib/home-dashboard-studio";
+import type { NeedsYouCard, OpenPrStats } from "../../../lib/home-dashboard-studio";
 import { PR_STAGES } from "../../../lib/home-dashboard-studio";
 import { formatAge } from "./format";
 import { waitingOnLabel } from "./needs-you-labels";
 import { Sparkline } from "./Sparkline";
+import { PR_STAGE } from "./pr-stage";
 import { StatTile } from "./StatTile";
 import styles from "./StatTiles.module.css";
-
-/** Stage bar colours: running checks yellow, waiting on reviewers dim, blocked red, ready green. */
-const STAGE_COLOR: Record<PrStage, string> = {
-  checks: "var(--yellow)",
-  review: "var(--hd-fg-4)",
-  blocked: "var(--red)",
-  ready: "var(--green)",
-};
-
-const STAGE_LABEL: Record<PrStage, string> = {
-  checks: "Checks",
-  review: "Review",
-  blocked: "Blocked",
-  ready: "Ready",
-};
 
 /** Sparkline resolution: one point per 15 minutes over the window. */
 const SPARK_STEP_MS = 15 * 60 * 1000;
@@ -143,7 +125,7 @@ export function StatTiles(props: StatTilesProps) {
                   style={
                     {
                       flexGrow: prStats.byStage[stage],
-                      "--c": STAGE_COLOR[stage],
+                      "--c": PR_STAGE[stage].color,
                     } as CSSProperties
                   }
                 />
@@ -153,10 +135,10 @@ export function StatTiles(props: StatTilesProps) {
               {PR_STAGES.map((stage) => (
                 <span
                   key={stage}
-                  style={{ "--c": STAGE_COLOR[stage] } as CSSProperties}
+                  style={{ "--c": PR_STAGE[stage].color } as CSSProperties}
                 >
                   <i />
-                  {STAGE_LABEL[stage]} {prStats.byStage[stage]}
+                  {PR_STAGE[stage].short} {prStats.byStage[stage]}
                 </span>
               ))}
             </div>

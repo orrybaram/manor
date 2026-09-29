@@ -1,51 +1,45 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { create } from "zustand";
 
 const SNOOZE_STORAGE_KEY = "manor.home.snoozes";
 
+/**
+ * Snoozed Needs you cards (ADR-198 §4): item key → epoch ms the snooze ends.
+ * Invariant: `until` holds only unexpired entries. The store drops each one
+ * when it lapses (see `scheduleExpiry`), so a component reading `until`
+ * never needs its own clock.
+ */
 interface SnoozeState {
   until: Record<string, number>;
   snooze: (key: string, ms?: number) => void;
-  activeSnoozes: (now?: number) => Set<string>;
 }
 
-/**
- * Load snoozes from localStorage, dropping any that have already expired.
- */
+/** The entries of `until` still in force at `now`. */
+function unexpired(until: Record<string, unknown>, now: number): Record<string, number> {
+  const active: Record<string, number> = {};
+  for (const [key, value] of Object.entries(until)) {
+    if (typeof value === "number" && value > now) active[key] = value;
+  }
+  return active;
+}
+
 function loadSnoozes(): Record<string, number> {
   try {
     const raw = localStorage.getItem(SNOOZE_STORAGE_KEY);
     if (!raw) return {};
-    const data = JSON.parse(raw) as Record<string, unknown>;
+    const data: unknown = JSON.parse(raw);
     if (typeof data !== "object" || data === null) return {};
-    const until: Record<string, number> = {};
-    const now = Date.now();
-    for (const [key, value] of Object.entries(data)) {
-      if (typeof value === "number" && value > now) {
-        until[key] = value;
-      }
-    }
-    return until;
+    return unexpired(data as Record<string, unknown>, Date.now());
   } catch {
     return {};
   }
 }
 
-/**
- * Persist snoozes to localStorage, dropping any that have expired.
- */
 function persistSnoozes(until: Record<string, number>): void {
   try {
-    const now = Date.now();
-    const active: Record<string, number> = {};
-    for (const [key, value] of Object.entries(until)) {
-      if (value > now) {
-        active[key] = value;
-      }
-    }
-    localStorage.setItem(SNOOZE_STORAGE_KEY, JSON.stringify(active));
+    localStorage.setItem(SNOOZE_STORAGE_KEY, JSON.stringify(until));
   } catch {
-    // fall back to in-memory store; do nothing
+    // Storage unavailable: snoozes still work in memory for this session.
   }
 }
 
@@ -53,53 +47,38 @@ export const useSnoozeStore = create<SnoozeState>((set, get) => ({
   until: loadSnoozes(),
 
   snooze: (key: string, ms: number = 60 * 60 * 1000) => {
-    const until = Date.now() + ms;
-    set((state) => ({
-      until: { ...state.until, [key]: until },
-    }));
+    const now = Date.now();
+    set((state) => ({ until: { ...unexpired(state.until, now), [key]: now + ms } }));
     persistSnoozes(get().until);
-  },
-
-  activeSnoozes: (now: number = Date.now()) => {
-    const active = new Set<string>();
-    for (const [key, value] of Object.entries(get().until)) {
-      if (value > now) {
-        active.add(key);
-      }
-    }
-    return active;
+    scheduleExpiry();
   },
 }));
 
+let expiryTimer: ReturnType<typeof setTimeout> | null = null;
+
 /**
- * Hook that returns the currently active snoozes. The set is derived from the
- * store, so a new snooze hides its card on the same render; a timeout for the
- * soonest future expiry bumps `now` so a lapsed snooze brings its card back.
+ * One timer, for the soonest expiry. When it fires, drop every lapsed entry
+ * (bringing those cards back) and schedule the next.
  */
+function scheduleExpiry(): void {
+  if (expiryTimer) clearTimeout(expiryTimer);
+  expiryTimer = null;
+  const expiries = Object.values(useSnoozeStore.getState().until);
+  if (expiries.length === 0) return;
+  const delay = Math.max(0, Math.min(...expiries) - Date.now());
+  expiryTimer = setTimeout(() => {
+    expiryTimer = null;
+    const until = unexpired(useSnoozeStore.getState().until, Date.now());
+    useSnoozeStore.setState({ until });
+    persistSnoozes(until);
+    scheduleExpiry();
+  }, delay);
+}
+
+scheduleExpiry();
+
+/** The keys snoozed right now; re-renders when a snooze starts or lapses. */
 export function useActiveSnoozes(): Set<string> {
   const until = useSnoozeStore((s) => s.until);
-  const [now, setNow] = useState(() => Date.now());
-
-  // `now` only needs to be current at each expiry: the timeout below bumps
-  // it then, and a new snooze always ends after it.
-  const active = useMemo(() => {
-    const keys = new Set<string>();
-    for (const [key, value] of Object.entries(until)) {
-      if (value > now) keys.add(key);
-    }
-    return keys;
-  }, [until, now]);
-
-  useEffect(() => {
-    const at = Date.now();
-    let soonest = Infinity;
-    for (const expiry of Object.values(until)) {
-      if (expiry > at && expiry < soonest) soonest = expiry;
-    }
-    if (soonest === Infinity) return;
-    const timeout = setTimeout(() => setNow(Date.now()), soonest - at);
-    return () => clearTimeout(timeout);
-  }, [until, now]);
-
-  return active;
+  return useMemo(() => new Set(Object.keys(until)), [until]);
 }

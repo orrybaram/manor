@@ -93,7 +93,7 @@ function App() {
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const [appReady, setAppReady] = useState(false);
 
-  // Home's timeline/sparklines need history main doesn't keep; record it here.
+  // Mirror main's persisted agent activity for Home's timeline and sparklines (ADR-199).
   useMountEffect(() => startAgentActivitySync());
 
   useMountEffect(() => {

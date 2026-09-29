@@ -11,7 +11,8 @@ import { formatAge, formatClock } from "./format";
 import { isWaitStatus, pct, STATUS_COLOR, STATUS_LABEL } from "./timeline-model";
 import styles from "./ActivityTimeline.module.css";
 
-export type TimelineGap = { from: number; to: number; title: string };
+/** A span inside the window when Manor wasn't running, so nothing was recorded. */
+export type TimelineGap = { from: number; to: number };
 
 type TimelineLaneProps = {
   name: string;
@@ -55,7 +56,7 @@ export function TimelineLane(props: TimelineLaneProps) {
               key={`gap-${gap.from}`}
               className={styles.gap}
               style={{ left: `${left}%`, width: `${width}%` }}
-              title={gap.title}
+              title="Manor closed"
             />
           );
         })}

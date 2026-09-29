@@ -93,12 +93,11 @@ export function HomeDashboard(props: HomeDashboardProps) {
   );
   const pipeline = useMemo(() => prPipeline(projects, now), [projects, now]);
   const prStats = useMemo(() => openPrStats(pipeline), [pipeline]);
-  // The headline's PR clause reads "N PRs are with reviewers": the review
-  // stage only, not every open PR.
   const sentence = headline({
     needsYou: cards.length,
     running,
-    openPrs: prStats.byStage.review,
+    inReview: prStats.byStage.review,
+    openPrs: prStats.total,
   });
 
   return (

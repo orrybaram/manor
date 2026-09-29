@@ -16,13 +16,8 @@ import {
 import { STATUS_COLOR, STATUS_LABEL } from "./timeline-model";
 import { WORKSPACE_STATE_COLOR, WORKSPACE_STATE_LABEL } from "./workspace-state";
 import { useHoverOpen } from "./useHoverOpen";
+import { PR_STAGE } from "./pr-stage";
 import styles from "./WorkspacePopover.module.css";
-
-const PR_STAGE_LABEL = {
-  checks: "Checks running",
-  review: "In review",
-  ready: "Ready to merge",
-} as const;
 
 type WorkspacePopoverProps = {
   projectId: string;
@@ -145,7 +140,7 @@ export function WorkspacePopover(props: WorkspacePopoverProps) {
               <div className={styles.sub}>
                 {stage === "blocked"
                   ? blockedReason(pr)
-                  : PR_STAGE_LABEL[stage]}
+                  : PR_STAGE[stage].label}
                 {pr.checks && pr.checks.total > 0 && (
                   <>
                     {" · "}

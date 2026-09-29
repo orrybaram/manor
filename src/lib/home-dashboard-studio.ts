@@ -304,12 +304,18 @@ export function needsYouCards(
 export interface HeadlineCounts {
   needsYou: number;
   running: number;
+  /** PRs in the review stage: the "N PRs are with reviewers" clause. */
+  inReview: number;
+  /** Every open PR, whatever its stage: decides whether "no open PRs" is true. */
   openPrs: number;
 }
 
 /**
  * The header sentence (ADR-198 §1.1): "3 things need you." then "3 agents
- * are working and 5 PRs are with reviewers." Zero clauses are left out.
+ * are working and 5 PRs are with reviewers." Zero clauses are left out; when
+ * both are zero the sentence says what is actually true — "No agents
+ * running." while PRs are open in other stages, and "All clear." only when
+ * nothing at all is going on.
  */
 export function headline(counts: HeadlineCounts): {
   lead: string;
@@ -323,17 +329,20 @@ export function headline(counts: HeadlineCounts): {
         : `${counts.running} agents are working`,
     );
   }
-  if (counts.openPrs > 0) {
+  if (counts.inReview > 0) {
     clauses.push(
-      counts.openPrs === 1
+      counts.inReview === 1
         ? "1 PR is with reviewers"
-        : `${counts.openPrs} PRs are with reviewers`,
+        : `${counts.inReview} PRs are with reviewers`,
     );
   }
+  const idle = counts.running === 0 && counts.openPrs === 0;
   const rest =
     clauses.length > 0
       ? `${clauses.join(" and ")}.`
-      : "No agents running and no open PRs.";
+      : idle
+        ? "No agents running and no open PRs."
+        : "No agents running.";
 
   if (counts.needsYou > 0) {
     const lead =
@@ -342,10 +351,7 @@ export function headline(counts: HeadlineCounts): {
         : `${counts.needsYou} things need you.`;
     return { lead, rest };
   }
-  return {
-    lead: clauses.length > 0 ? "Nothing needs you." : "All clear.",
-    rest,
-  };
+  return { lead: idle ? "All clear." : "Nothing needs you.", rest };
 }
 
 // ── Project tiles ──

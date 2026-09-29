@@ -1,0 +1,174 @@
+/*
+ * ADR-198 §1.6: the PR pipeline (mockup `.pipe` / `.stage` / `.prc` /
+ * `.checks`). A stage sets `--c` to its colour for the header underline.
+ */
+.empty {
+  margin: 0;
+  padding: 14px 18px 18px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.pipe {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 14px;
+}
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+}
+
+.stageHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 2px 6px;
+  border-bottom: 2px solid var(--c);
+}
+
+.stageHeader b {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.stageHeader span {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* A ghost Button, reshaped into the card. */
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 9px;
+  border-radius: 9px;
+  border: 1px solid var(--hd-line);
+  background: var(--bg);
+  font-size: 12px;
+  font-weight: 400;
+  text-align: left;
+  white-space: normal;
+  color: var(--text-primary);
+  transition: border-color 0.15s;
+}
+
+.card:hover:not(:disabled) {
+  background: var(--bg);
+  color: var(--text-primary);
+  border-color: var(--hd-line-2);
+}
+
+.bad,
+.bad:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--red) 40%, var(--hd-line));
+}
+
+.prTitle {
+  display: -webkit-box;
+  overflow: hidden;
+  line-height: 1.35;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.why {
+  font-size: 11px;
+  color: var(--red);
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.num,
+.age {
+  flex: none;
+  font-family: var(--font-mono);
+}
+
+.age {
+  margin-left: auto;
+}
+
+/* No peach token in the theme; yellow is the nearest warm one. */
+.stale {
+  color: var(--yellow);
+}
+
+.proj {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.proj::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--project-color, var(--text-dim));
+}
+
+.tag {
+  flex: none;
+  color: var(--accent);
+}
+
+.checks {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+
+.checks i {
+  width: 6px;
+  height: 6px;
+  border-radius: 1.5px;
+  background: var(--hd-fg-4);
+}
+
+.checks .ok {
+  background: var(--green);
+}
+
+.checks .run {
+  background: var(--yellow);
+}
+
+.checks .fail {
+  background: var(--red);
+}
+
+.more {
+  align-self: flex-start;
+  padding: 2px;
+  font-size: 11.5px;
+}
+
+@container home (max-width: 600px) {
+  .pipe {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

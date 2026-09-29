@@ -12,9 +12,11 @@ import {
 } from "../../../lib/home-dashboard-studio";
 import type { NewWorkspaceHandler } from "../../../lib/start-issue-work";
 import type { PaletteView } from "../../command-palette/types";
+import { ActivityTimeline } from "./ActivityTimeline";
 import { DashboardHeader } from "./DashboardHeader";
 import { HostAlert } from "./HostAlert";
 import { NeedsYouCards } from "./NeedsYouCards";
+import { PrPipeline } from "./PrPipeline";
 import { StatTiles } from "./StatTiles";
 import { useNow } from "./useNow";
 import styles from "./HomeDashboard.module.css";
@@ -89,22 +91,21 @@ export function HomeDashboard(props: HomeDashboardProps) {
         <StatTiles now={now} cards={cards} running={running} prStats={prStats} />
         <NeedsYouCards cards={cards} />
 
-        {/*
-          Slots for the rest of ADR-198 §1, top to bottom:
+        <ActivityTimeline now={now} />
 
-          T6 — Agent activity timeline, full width:
-            <AgentActivity />   (a <Panel> straight in the page flow)
-
-          T6 + T7 — PR pipeline beside Up next, 7/5 split:
-            <div className={styles.grid}>
-              <PrPipeline pipeline={pipeline} className={styles.span7} />
+        <div className={styles.grid}>
+          <PrPipeline pipeline={pipeline} className={styles.span7} />
+          {/*
+            T7 — Up next goes here, in the span5 column:
               <UpNext
                 onNewWorkspace={props.onNewWorkspace}
                 onOpenPaletteView={props.onOpenPaletteView}
                 className={styles.span5}
               />
-            </div>
+          */}
+        </div>
 
+        {/*
           T7 — Project tiles, full width:
             <ProjectTiles />
         */}

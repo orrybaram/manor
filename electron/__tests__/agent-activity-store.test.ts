@@ -6,6 +6,7 @@ import * as crypto from "node:crypto";
 
 import {
   AgentActivityStore,
+  HEARTBEAT_MS,
   MAX_AGENTS,
   MAX_TRANSITIONS_PER_AGENT,
   RETENTION_MS,
@@ -257,5 +258,20 @@ describe("AgentActivityStore", () => {
     const snapshot = store.getSnapshot();
     snapshot.agents.a.transitions.push({ status: "error", at: T0 });
     expect(statuses(store, "a")).toEqual(["working"]);
+  });
+
+  it("persists the running session's end on a heartbeat with nothing recorded", () => {
+    const store = new AgentActivityStore(tmpDir);
+    vi.advanceTimersByTime(HEARTBEAT_MS);
+    const saved = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    expect(saved.sessions).toEqual([{ start: T0, end: T0 + HEARTBEAT_MS }]);
+    store.dispose();
+  });
+
+  it("stops the heartbeat on dispose", () => {
+    const store = new AgentActivityStore(tmpDir);
+    store.dispose();
+    vi.advanceTimersByTime(HEARTBEAT_MS * 2);
+    expect(fs.existsSync(filePath)).toBe(false);
   });
 });

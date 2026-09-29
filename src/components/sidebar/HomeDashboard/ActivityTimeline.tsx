@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { useAgentStore } from "../../../store/agent-store";
-import { useAppStore } from "../../../store/app-store";
 import { useProjectStore } from "../../../store/project-store";
 import {
   laneSegments,
@@ -37,30 +36,38 @@ type ActivityTimelineProps = {
 export function ActivityTimeline(props: ActivityTimelineProps) {
   const { now } = props;
 
-  const transitions = useAgentActivityStore((s) => s.transitions);
-  const startedAt = useAgentActivityStore((s) => s.startedAt);
+  const snapshot = useAgentActivityStore((s) => s.snapshot);
   const agents = useAgentStore((s) => s.agents);
-  const paneTitle = useAppStore((s) => s.paneTitle);
   const projects = useProjectStore((s) => s.projects);
 
   const animateBody = useDashboardAnimate();
   const animateLanes = useDashboardAnimate();
 
+  // Ticket 3 replaces this: the window start is the first recorded session.
+  const startedAt = snapshot?.sessions[0]?.start ?? now;
   const win = timelineWindow(now, startedAt);
 
-  const lanes = useMemo(
-    () =>
-      lanePriority(transitions)
-        .map((paneId) => ({
-          paneId,
-          transitions: transitions[paneId],
-          segments: laneSegments(transitions[paneId], win.start, now),
+  const lanes = useMemo(() => {
+    const recorded = snapshot?.agents ?? {};
+    const sessions = snapshot?.sessions ?? [];
+    return (
+      lanePriority(recorded, win.start, now)
+        .map((agentId) => ({
+          agentId,
+          meta: recorded[agentId].meta,
+          transitions: recorded[agentId].transitions,
+          segments: laneSegments(
+            recorded[agentId].transitions,
+            win.start,
+            now,
+            sessions,
+          ),
         }))
-        // A pane whose only activity fell outside the window has nothing to draw.
+        // An Agent whose only activity fell in a closed gap has nothing to draw.
         .filter((lane) => lane.segments.length > 0)
-        .slice(0, MAX_LANES),
-    [transitions, win.start, now],
-  );
+        .slice(0, MAX_LANES)
+    );
+  }, [snapshot, win.start, now]);
 
   const ticks = Array.from({ length: TICKS }, (_, i) => {
     if (i === TICKS - 1) return "now";
@@ -97,14 +104,14 @@ export function ActivityTimeline(props: ActivityTimelineProps) {
         ) : (
           <div ref={animateLanes} className={styles.timeline}>
             {lanes.map((lane) => {
-              const agent = agents.find((a) => a.paneId === lane.paneId);
+              const agent = agents.find((a) => a.id === lane.agentId);
               const project = agent
                 ? projects.find((p) => p.id === agent.projectId)
                 : undefined;
               return (
                 <TimelineLane
-                  key={lane.paneId}
-                  name={agent?.name || paneTitle[lane.paneId] || "Agent"}
+                  key={lane.agentId}
+                  name={lane.meta.name || agent?.name || "Agent"}
                   agent={agent}
                   projectColor={project?.color ?? null}
                   transitions={lane.transitions}

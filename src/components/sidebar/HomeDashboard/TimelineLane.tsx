@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import type { AgentInfo } from "../../../electron.d";
-import type { LaneSegment, StatusTransition } from "../../../store/agent-activity-store";
+import type { AgentActivityTransition } from "../../../electron.d";
+import type { LaneSegment } from "../../../store/agent-activity-store";
 import { projectColorStyle } from "../../../hooks/useProjectHeaderRow";
 import { navigateToAgent } from "../../../utils/agent-navigation";
 import { Button } from "../../ui/Button/Button";
@@ -13,7 +14,7 @@ type TimelineLaneProps = {
   agent: AgentInfo | undefined;
   /** The agent's project colour token, when its project is known. */
   projectColor: string | null;
-  transitions: StatusTransition[];
+  transitions: AgentActivityTransition[];
   segments: LaneSegment[];
   now: number;
   windowStart: number;
@@ -96,7 +97,7 @@ export function TimelineLane(props: TimelineLaneProps) {
 }
 
 /** The state column: how long an active/waiting state has lasted, else its name. */
-function stateLabel(current: StatusTransition, now: number): string {
+function stateLabel(current: AgentActivityTransition, now: number): string {
   switch (current.status) {
     case "idle":
       return "idle";

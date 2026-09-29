@@ -1,7 +1,8 @@
 import { AnimatedCount } from "../../ui/AnimatedCount/AnimatedCount";
-import type { CSSProperties } from "react";
+import { useMemo, type CSSProperties } from "react";
 import {
   useAgentActivityStore,
+  statusCountSeries,
   ACTIVITY_WINDOW_MS,
 } from "../../../store/agent-activity-store";
 import { useStatsStore } from "../../../store/stats-store";
@@ -11,7 +12,7 @@ import type {
   PrStage,
 } from "../../../lib/home-dashboard-studio";
 import { PR_STAGES } from "../../../lib/home-dashboard-studio";
-import { formatAge, formatClock } from "./format";
+import { formatAge } from "./format";
 import { waitingOnLabel } from "./needs-you-labels";
 import { Sparkline } from "./Sparkline";
 import { StatTile } from "./StatTile";
@@ -32,6 +33,9 @@ const STAGE_LABEL: Record<PrStage, string> = {
   ready: "Ready",
 };
 
+/** Sparkline resolution: one point per 15 minutes over the window. */
+const SPARK_STEP_MS = 15 * 60 * 1000;
+
 type StatTilesProps = {
   now: number;
   /** Visible (non-snoozed) Needs you cards — the Waiting on you count. */
@@ -41,15 +45,14 @@ type StatTilesProps = {
 };
 
 /**
- * The four stat tiles (ADR-198 §1.3). The two sparklines read the activity
- * recorder's 5-minute samples; Merged this week reads `dailyPrsMerged` from
+ * The four stat tiles (ADR-198 §1.3). The two sparklines count Agent statuses
+ * over the activity window; Merged this week reads `dailyPrsMerged` from
  * the stats summary.
  */
 export function StatTiles(props: StatTilesProps) {
   const { now, cards, running, prStats } = props;
 
-  const samples = useAgentActivityStore((s) => s.samples);
-  const startedAt = useAgentActivityStore((s) => s.startedAt);
+  const snapshot = useAgentActivityStore((s) => s.snapshot);
   const summary = useStatsStore((s) => s.summary);
 
   const longest = cards.reduce<NeedsYouCard | null>(
@@ -60,12 +63,26 @@ export function StatTiles(props: StatTilesProps) {
     null,
   );
 
-  // History is in memory only (ADR-198 §3): until the recorder has a full
-  // window, say where the chart starts.
-  const since =
-    now - startedAt < ACTIVITY_WINDOW_MS
-      ? `since ${formatClock(startedAt)}`
-      : "last 3 hours";
+  const { waitingSeries, workingSeries } = useMemo(() => {
+    const agents = snapshot?.agents ?? {};
+    const start = now - ACTIVITY_WINDOW_MS;
+    return {
+      waitingSeries: statusCountSeries(
+        agents,
+        start,
+        now,
+        SPARK_STEP_MS,
+        (s) => s === "requires_input" || s === "error",
+      ),
+      workingSeries: statusCountSeries(
+        agents,
+        start,
+        now,
+        SPARK_STEP_MS,
+        (s) => s === "working" || s === "thinking",
+      ),
+    };
+  }, [snapshot, now]);
 
   // `summary` is null until main answers; don't claim stats are off meanwhile.
   const statsOn = summary?.enabled === true;
@@ -93,16 +110,16 @@ export function StatTiles(props: StatTilesProps) {
           )
         }
       >
-        <Sparkline values={samples.map((s) => s.waiting)} color="var(--red)" />
+        <Sparkline values={waitingSeries} color="var(--red)" />
       </StatTile>
       <StatTile
         label="Agents working"
         color="var(--green)"
         value={<AnimatedCount value={running} />}
-        foot={since}
+        foot="last 3 hours"
       >
         <Sparkline
-          values={samples.map((s) => s.working)}
+          values={workingSeries}
           color="var(--green)"
         />
       </StatTile>

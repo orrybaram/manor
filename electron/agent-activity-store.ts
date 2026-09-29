@@ -68,6 +68,12 @@ export const MAX_TRANSITIONS_PER_AGENT = 500;
 export const MAX_AGENTS = 200;
 /** Writes coalesce over this window while agents are busy. */
 export const SAVE_DEBOUNCE_MS = 2000;
+/**
+ * The running session's end is persisted this often even when nothing is
+ * recorded, so a crash after a long idle stretch doesn't read as "Manor
+ * closed" for the whole stretch.
+ */
+export const HEARTBEAT_MS = 5 * 60 * 1000;
 
 const STATUSES = new Set<string>([
   "idle",
@@ -93,6 +99,7 @@ export class AgentActivityStore {
   private current: AgentActivitySession;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private listeners = new Set<() => void>();
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(dataDir?: string) {
     this.dataDir = dataDir ?? manorDataDir();
@@ -102,6 +109,17 @@ export class AgentActivityStore {
     const now = Date.now();
     this.current = { start: now, end: now };
     this.prune(now);
+    this.heartbeatTimer = setInterval(() => this.flush(), HEARTBEAT_MS);
+    // Never keep the process alive just to write a heartbeat.
+    this.heartbeatTimer.unref?.();
+  }
+
+  /** Stops the heartbeat. Call after the final `flush()` at quit. */
+  dispose(): void {
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
   }
 
   private filePath(): string {

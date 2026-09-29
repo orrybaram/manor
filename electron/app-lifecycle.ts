@@ -900,6 +900,7 @@ export function initApp(devTitle: string | null): void {
     killAllActivePushes();
     statsStore.flushNow();
     agentActivityStore.flush();
+    agentActivityStore.dispose();
     projectManager.flushHostHookSeqs();
     worktreeWatcher.dispose();
     remoteWorktreePoller.dispose();

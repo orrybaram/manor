@@ -3,9 +3,13 @@
 /* On the frame, flush to the window's left edge (ADR-196): no surface or
    edge of its own, so nothing under the traffic lights has a border. */
 .rail {
-  /* 52px of tiles plus the gutter the resize handle sits in, the same
-     layout as the full sidebar's right gutter (ADR-196). */
-  width: calc(52px + var(--frame-gap));
+  /* A 52px tile column, stepped in 13px so it centres under the macOS
+     traffic lights (x 13 to 65), plus the gutter the resize handle sits in,
+     the same layout as the full sidebar's right gutter (ADR-196). Keep in
+     step with RAIL_WIDTH in src/lib/window-lead.ts. */
+  --rail-inset: 13px;
+  width: calc(var(--rail-inset) + 52px + var(--frame-gap));
+  padding-left: var(--rail-inset);
   padding-right: var(--frame-gap);
   flex-shrink: 0;
   display: flex;
@@ -38,7 +42,10 @@
 .tiles {
   flex: 1;
   min-height: 0;
-  width: 100%;
+  /* Spans the rail's inset too, so each slot's active marker can sit on
+     the window's left edge (`.tileSlot` steps the tile back in). */
+  width: calc(100% + var(--rail-inset));
+  margin-left: calc(-1 * var(--rail-inset));
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -70,6 +77,8 @@
   display: flex;
   justify-content: center;
   flex-shrink: 0;
+  box-sizing: border-box;
+  padding-left: var(--rail-inset);
 }
 
 .activeMarker {

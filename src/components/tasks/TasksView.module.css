@@ -119,12 +119,28 @@
 
 /* ── Table ── */
 
+/* Everything but the table keeps its height; the table takes what's left
+   and scrolls its rows under a sticky header, so pagination stays in view. */
+.page > * {
+  flex-shrink: 0;
+}
+
+.page > .table {
+  flex: 0 1 auto;
+  min-height: 160px;
+}
+
 .table {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border);
   border-radius: 8px;
-  overflow: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.table > * {
+  flex-shrink: 0;
 }
 
 .gridRow {
@@ -136,6 +152,10 @@
 }
 
 .headRow {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
   height: 36px;
   font-size: 10.5px;
   font-weight: 600;

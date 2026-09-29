@@ -100,3 +100,22 @@ describe("activeSurface (ADR-194)", () => {
     expect(useAppStore.getState().activeSurface).toBe("workspace");
   });
 });
+
+describe("showTasksView (ADR-197)", () => {
+  beforeEach(() => seedOverview());
+
+  it("shows the tasks surface and keeps the workspace active", () => {
+    useAppStore.getState().showTasksView();
+    const state = useAppStore.getState();
+    expect(state.activeSurface).toBe("tasks");
+    expect(state.activeWorkspacePath).toBe(WS_PATH);
+  });
+
+  it("selectCurrentLocation reports the tasks surface", () => {
+    useAppStore.getState().showTasksView();
+    expect(selectCurrentLocation(useAppStore.getState())).toEqual({
+      kind: "surface",
+      surface: "tasks",
+    });
+  });
+});

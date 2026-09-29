@@ -231,7 +231,7 @@ function restoreWorkspaceState(
 }
 
 /** App-level surfaces that can fill the main area (ADR-194). */
-export type AppSurface = "workspace" | "projects";
+export type AppSurface = "workspace" | "projects" | "tasks";
 
 /**
  * Spread into a `set()` patch by actions that activate a workspace or put a
@@ -300,6 +300,8 @@ export interface AppState {
 
   /** Show the Projects overview surface (ADR-194). */
   showProjectsOverview: () => void;
+  /** Show the Tasks view (ADR-197); like the overview, leaves the workspace alone. */
+  showTasksView: () => void;
 
   /**
    * Atomically navigate to a specific pane inside a workspace.
@@ -652,6 +654,9 @@ export function selectCurrentLocation(state: AppState): Location {
   if (state.activeSurface === "projects") {
     return { kind: "surface", surface: "projects" };
   }
+  if (state.activeSurface === "tasks") {
+    return { kind: "surface", surface: "tasks" };
+  }
   const key = selectActiveWorkspaceKey(state);
   if (!key || isHomePath(key)) {
     return { kind: "surface", surface: "home" };
@@ -929,6 +934,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   showProjectsOverview: () =>
     set((state) =>
       state.activeSurface === "projects" ? state : { activeSurface: "projects" },
+    ),
+
+  showTasksView: () =>
+    set((state) =>
+      state.activeSurface === "tasks" ? state : { activeSurface: "tasks" },
     ),
 
   navigateToContext: ({ workspaceKey: key, tabId, paneId }) =>

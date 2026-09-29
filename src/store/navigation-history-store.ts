@@ -14,7 +14,7 @@ import type { WorkspaceKey } from "../lib/workspace-key";
  * in memory only, so there are no path-keyed entries to migrate.
  */
 export type Location =
-  | { kind: "surface"; surface: "home" | "projects" }
+  | { kind: "surface"; surface: "home" | "projects" | "tasks" }
   | { kind: "workspace"; workspaceKey: WorkspaceKey; panelId: string; tabId: string };
 
 export function locationsEqual(a: Location, b: Location): boolean {

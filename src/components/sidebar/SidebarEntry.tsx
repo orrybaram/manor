@@ -49,7 +49,7 @@ export function SidebarEntry(props: SidebarEntryProps) {
   // While the Projects overview is shown (ADR-194) no project is the current
   // row, same as on Home.
   const homeActive = useAppStore(
-    (s) => s.activeSurface === "projects" || isHomePath(s.activeWorkspacePath),
+    (s) => s.activeSurface !== "workspace" || isHomePath(s.activeWorkspacePath),
   );
 
   const justDragged = () => justDraggedRef?.current === true;

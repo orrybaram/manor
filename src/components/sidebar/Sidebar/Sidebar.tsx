@@ -7,7 +7,9 @@ import React, {
 } from "react";
 import Folders from "lucide-react/dist/esm/icons/folders";
 import House from "lucide-react/dist/esm/icons/house";
+import ListTodo from "lucide-react/dist/esm/icons/list-todo";
 import Search from "lucide-react/dist/esm/icons/search";
+import { useQuery } from "@tanstack/react-query";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Button } from "../../ui/Button/Button";
 import { useProjectStore } from "../../../store/project-store";
@@ -32,6 +34,8 @@ import {
 import { PortsList } from "../../ports/PortsList";
 import { AgentsList } from "../AgentsList";
 import { SidebarResizeHandle } from "../SidebarResizeHandle/SidebarResizeHandle";
+import { GitHubIcon } from "../../command-palette/GitHubIcon";
+import { LinearIcon } from "../../command-palette/LinearIcon";
 import styles from "./Sidebar.module.css";
 
 interface SidebarProps {
@@ -52,9 +56,31 @@ export function Sidebar(props: SidebarProps) {
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const showProjectsOverview = useAppStore((s) => s.showProjectsOverview);
   const projectsActive = useAppStore((s) => s.activeSurface === "projects");
-  // While the Projects overview is shown (ADR-194) neither Home nor any
-  // project is the current row; `homeActive` also gates project selection.
-  const homeActive = !projectsActive && isHomePath(activeWorkspacePath);
+  const showTasksView = useAppStore((s) => s.showTasksView);
+  const tasksActive = useAppStore((s) => s.activeSurface === "tasks");
+  // While the Projects overview (ADR-194) or Tasks view (ADR-197) is shown
+  // neither Home nor any project is the current row; `homeActive` also gates
+  // project selection.
+  const homeActive =
+    !projectsActive && !tasksActive && isHomePath(activeWorkspacePath);
+
+  // Connected trackers, shown dimmed on the Tasks row. Cached (same keys as
+  // Home's Up next) so this costs no IPC per render.
+  const { data: ghStatus } = useQuery({
+    queryKey: ["home-up-next", "gh-status"],
+    queryFn: () => window.electronAPI.github.checkStatus(),
+    staleTime: Infinity,
+    retry: false,
+  });
+  const ghReady = ghStatus?.installed === true && ghStatus.authenticated === true;
+  const anyLinear = projects.some((p) => p.linearAssociations.length > 0);
+  const { data: linearConnected } = useQuery({
+    queryKey: ["home-up-next", "linear-connected"],
+    queryFn: () => window.electronAPI.linear.isConnected(),
+    staleTime: 60_000,
+    retry: false,
+    enabled: anyLinear,
+  });
 
   useBranchWatcher();
   useDiffWatcher();
@@ -227,6 +253,28 @@ export function Sidebar(props: SidebarProps) {
               <House size={12} />
             </span>
             <span className={styles.homeLabel}>Home</span>
+          </div>
+          <div
+            className={`${styles.homeRow} ${tasksActive ? styles.homeRowActive : ""}`}
+            data-testid="tasks-row"
+            data-sidebar-row=""
+            tabIndex={-1}
+            aria-current={tasksActive ? "true" : undefined}
+            onClick={showTasksView}
+            onKeyDown={(e) =>
+              handleSidebarRowKeyDown(e, { activate: showTasksView })
+            }
+          >
+            <span className={styles.homeIcon}>
+              <ListTodo size={12} />
+            </span>
+            <span className={styles.homeLabel}>Tasks</span>
+            {(ghReady || linearConnected) && (
+              <span className={styles.rowTrailingIcons}>
+                {ghReady && <GitHubIcon size={11} />}
+                {linearConnected && <LinearIcon size={11} />}
+              </span>
+            )}
           </div>
           {onOpenSearch && (
             // Styled like Home; for now it only opens the command palette.

@@ -309,3 +309,14 @@
   display: block;
 }
 
+
+/* Dimmed tracker icons on the right of the Tasks row (ADR-197). */
+.rowTrailingIcons {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-dim);
+  opacity: 0.6;
+  flex-shrink: 0;
+}

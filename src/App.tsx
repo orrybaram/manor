@@ -13,6 +13,7 @@ import { onUiRequest } from "./utils/ui-request";
 import { GhostsOverlay } from "./components/GhostsOverlay/GhostsOverlay";
 import { WorkspaceEmptyState } from "./components/sidebar/WorkspaceEmptyState";
 import { HomeEmptyState } from "./components/sidebar/HomeEmptyState";
+import { TasksView } from "./components/tasks/TasksView";
 import { ProjectsOverview } from "./components/projects-overview/ProjectsOverview";
 import { ManorLogo } from "./components/ui/ManorLogo";
 import { CloseAgentPaneDialog } from "./components/CloseAgentPaneDialog";
@@ -148,7 +149,8 @@ function App() {
     // override — they inherit the global theme (null).
     const appState = useAppStore.getState();
     const activeTheme =
-      isHomePath(appState.activeWorkspacePath) || appState.activeSurface === "projects"
+      isHomePath(appState.activeWorkspacePath) || appState.activeSurface === "projects" ||
+        appState.activeSurface === "tasks"
       ? null
       : useProjectStore.getState().projects[
           useProjectStore.getState().selectedProjectIndex
@@ -366,11 +368,13 @@ function App() {
     (s) => s.activeSurface === "projects",
   );
 
+  const tasksViewShown = useAppStore((s) => s.activeSurface === "tasks");
+
   // Reactively apply the active surface's theme. Projects carry an optional
   // theme override; Home and the Projects overview have no owning project, so
   // they inherit the global theme (null override) — switching to/from either
   // re-applies here.
-  const effectiveThemeName = isHomePath(activeWorkspacePath) || projectsOverviewShown
+  const effectiveThemeName = isHomePath(activeWorkspacePath) || projectsOverviewShown || tasksViewShown
     ? null
     : projects[selectedProjectIndex]?.themeName ?? null;
   const prevThemeRef = useRef(effectiveThemeName);
@@ -397,6 +401,8 @@ function App() {
   const hasTabs = (ws?.tabs.length ?? 0) > 0;
   // With zero projects the overview is also the onboarding screen (ADR-194 §3).
   const showProjectsOverview = projectsOverviewShown || !hasProjects;
+  // The Tasks view (ADR-197) covers the workspace the same way.
+  const showTasksView = tasksViewShown && hasProjects;
 
   // Keep the prewarmed session in sync with the active workspace.
   // Derive the agent command outside the effect so it only re-fires when the
@@ -736,7 +742,7 @@ function App() {
                 <div
                   key={key}
                   style={
-                    key === activeWorkspaceKey && hasTabs && !showProjectsOverview
+                    key === activeWorkspaceKey && hasTabs && !showProjectsOverview && !showTasksView
                       ? TAB_VISIBLE_STYLE
                       : TAB_HIDDEN_STYLE
                   }
@@ -748,7 +754,7 @@ function App() {
                   />
                 </div>
               ))}
-              {(showProjectsOverview || !(activeWorkspacePath && hasTabs)) && (
+              {(showProjectsOverview || showTasksView || !(activeWorkspacePath && hasTabs)) && (
                 <div className="empty-surface">
                   <div className="drag-region" />
                   <div className="terminal-container">
@@ -756,6 +762,8 @@ function App() {
                       ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
                       : showProjectsOverview
                       ? <ProjectsOverview onAddLocal={handleAddLocalProject} onClone={handleCloneRepository} />
+                      : showTasksView
+                      ? <TasksView onNewWorkspace={handleNewWorkspace} onOpenPaletteView={handleOpenPaletteView} />
                       : !hasTabs &&
                         (isHomePath(activeWorkspacePath)
                           ? (

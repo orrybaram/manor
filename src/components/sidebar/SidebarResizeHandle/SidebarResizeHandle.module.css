@@ -1,8 +1,8 @@
 /* Fills the gutter to the right of the sidebar panel or rail (ADR-196), so
-   the grab area is the whole gutter. What it draws sits on the main panel's
-   left border: a small grip at rest, and the border itself glowing in the
-   accent colour on hover or while dragging. Starts below the WindowLead so
-   it never covers the window's drag row. */
+   the grab area is the whole gutter. On hover or while dragging, the main
+   panel's left border glows in the accent colour, fading out towards the
+   top and bottom. Starts below the WindowLead so it never covers the
+   window's drag row. */
 .handle {
   position: absolute;
   top: 40px;
@@ -13,47 +13,53 @@
   z-index: 20;
 }
 
-/* The panel's left border, one pixel past the gutter; kept clear of the
-   panel's 8px rounded corners. */
+/* The line, on the panel's border one pixel past the gutter. */
 .handle::after {
   content: "";
   position: absolute;
-  top: 8px;
-  bottom: 8px;
+  top: 0;
+  bottom: 0;
   right: -1px;
   width: 1px;
-  background: transparent;
-  transition:
-    background 0.15s ease,
-    box-shadow 0.15s ease;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--accent) 30%,
+    var(--accent) 70%,
+    transparent
+  );
+  opacity: 0;
+  transition: opacity 0.15s ease;
 }
 
-/* Grip, centred on the border. */
+/* The glow around the line, faded at the ends by the same gradient. */
 .handle::before {
   content: "";
   position: absolute;
-  top: 50%;
-  right: -2px;
-  width: 3px;
-  height: 36px;
-  transform: translateY(-50%);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--bg-deep);
-  z-index: 1;
-  transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease;
+  top: 0;
+  bottom: 0;
+  right: -5px;
+  width: 9px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    color-mix(in srgb, var(--accent) 45%, transparent),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 30%,
+    #000 70%,
+    transparent
+  );
+  opacity: 0;
+  transition: opacity 0.15s ease;
 }
 
 .handle:hover::after,
-.active::after {
-  background: var(--accent);
-  box-shadow: 0 0 6px 1px color-mix(in srgb, var(--accent) 60%, transparent);
-}
-
 .handle:hover::before,
+.active::after,
 .active::before {
-  border-color: var(--accent);
-  box-shadow: 0 0 6px 1px color-mix(in srgb, var(--accent) 60%, transparent);
+  opacity: 1;
 }

@@ -17,9 +17,11 @@
 }
 
 /* The top-left panel's tabs start past the WindowLead. App.tsx sets the
-   inset per sidebar mode; the `:root` default clears the traffic lights. */
+   inset per sidebar mode; the `:root` default clears the traffic lights.
+   The extra 8px keeps the first tab clear of the panel body's rounded
+   corner, matching the other panels' padding. */
 .tabBarTopLeft {
-  padding-left: var(--window-lead-inset);
+  padding-left: calc(var(--window-lead-inset) + 8px);
 }
 
 .tabBarDropTarget {
@@ -115,6 +117,8 @@
     inset 1px 0 0 var(--border),
     inset -1px 0 0 var(--border),
     inset 0 1px 0 var(--border);
+  /* The content-type underline would draw a line across the seam. */
+  border-bottom-color: var(--surface);
   align-self: flex-end;
   margin-bottom: -1px;
   position: relative;

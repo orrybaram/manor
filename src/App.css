@@ -96,11 +96,27 @@ body,
   overflow: hidden;
 }
 
+/* The right window edge gets the frame gutter (ADR-196). The left edge only
+   does when nothing to its left supplies one: the full sidebar's column
+   already ends in a gutter, the rail and the hidden sidebar don't. The
+   padding is the same for every workspace in the stack, so switching
+   workspaces never changes a terminal's size. */
 .main-content {
   display: flex;
   flex-direction: column;
   flex: 1;
   overflow: hidden;
+  padding-right: var(--frame-gap);
+}
+
+.main-content--gutter-left {
+  padding-left: var(--frame-gap);
+}
+
+/* Windows without a status bar (DetachedApp) close the bottom edge with a
+   gutter too. */
+.main-content--gutter-bottom {
+  padding-bottom: var(--frame-gap);
 }
 
 /* Positioned containing block for the workspace stack. Every workspace — and
@@ -124,6 +140,18 @@ body,
   flex: 1;
   overflow: hidden;
   position: relative;
+}
+
+/* Home, projects overview and wizard (ADR-196): a 40px strip on the frame,
+   matching the tab bar row, above a rounded panel body. */
+.empty-surface > .drag-region {
+  height: 40px;
+}
+
+.empty-surface > .terminal-container {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
 
 .splash-screen {

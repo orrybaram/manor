@@ -1,6 +1,6 @@
 ---
 title: Frame, WindowLead and sidebar panel
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: []

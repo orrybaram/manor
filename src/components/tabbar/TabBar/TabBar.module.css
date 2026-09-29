@@ -1,34 +1,36 @@
 /* ── Tab Bar ── */
 
+/* The tab bar sits on the frame (ADR-196), above its panel's rounded body.
+   The 40px row lines up with the WindowLead, so the top row of panels forms
+   the window's title row. Tabs sit on the bottom edge and the active one
+   merges into the body below. */
 .tabBar {
   display: flex;
   align-items: flex-end;
   width: 100%;
-  padding: 12px 8px 0px;
-  background: var(--dim);
+  height: 40px;
+  flex-shrink: 0;
+  padding: 0 8px;
+  background: transparent;
   -webkit-app-region: drag;
   user-select: none;
 }
 
-.noSidebar {
-  padding-left: 78px;
-}
-
-/* The macOS traffic lights start at x=13 and run past the 52px rail
-   (ADR-195), so the first tab steps in a little further. */
-.railSidebar {
-  padding-left: 26px;
+/* The top-left panel's tabs start past the WindowLead. App.tsx sets the
+   inset per sidebar mode; the `:root` default clears the traffic lights. */
+.tabBarTopLeft {
+  padding-left: var(--window-lead-inset);
 }
 
 .tabBarDropTarget {
-  background: color-mix(in srgb, var(--accent) 10%, var(--dim));
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-deep));
 }
 
 .tabBarSplitHint {
   background: linear-gradient(
     to right,
-    var(--dim) 50%,
-    color-mix(in srgb, var(--accent) 20%, var(--dim)) 50%
+    var(--bg-deep) 50%,
+    color-mix(in srgb, var(--accent) 20%, var(--bg-deep)) 50%
   );
 }
 
@@ -41,6 +43,10 @@
   flex: 0 1 auto;
   min-width: 0;
   position: relative;
+  /* One extra pixel below the bar so the active tab can hang over the panel
+     body's top border without `overflow: hidden` clipping it. */
+  padding-bottom: 1px;
+  margin-bottom: -1px;
 }
 
 /* Insertion bar shown between tabs during a native drag-and-drop reorder. */
@@ -100,9 +106,19 @@
   color: var(--text-selected);
 }
 
+/* Bordered on top and sides, and pulled 1px down over the panel body's top
+   border so tab and body read as one shape (ADR-196). */
 .tabActive {
   background: var(--surface);
   color: var(--text-selected);
+  box-shadow:
+    inset 1px 0 0 var(--border),
+    inset -1px 0 0 var(--border),
+    inset 0 1px 0 var(--border);
+  align-self: flex-end;
+  margin-bottom: -1px;
+  position: relative;
+  z-index: 1;
 }
 
 /* A click draws no ring — the active/hover states already show which tab is

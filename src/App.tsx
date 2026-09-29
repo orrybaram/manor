@@ -699,7 +699,9 @@ function App() {
             history to walk, and its drag region clears the traffic lights. */}
         {hasProjects && <WindowLead />}
         <PaneDragProvider>
-          <div className="main-content">
+          <div
+            className={`main-content ${sidebarMode === "full" && hasProjects ? "" : "main-content--gutter-left"}`}
+          >
             {/* Every workspace renders through the same PanelLayout in a single
                 positioned stack, active or not. Inactive ones are only hidden,
                 never unmounted or re-parented, so their terminals keep the exact

@@ -1,0 +1,47 @@
+/* ── Panel splits (ADR-196) ──
+   Panels are separate rounded bodies on the frame, so the divider between
+   them is the frame gutter itself: transparent until hovered or dragged.
+   Pane splits inside a tab keep PaneLayout's 3px divider. */
+
+.split {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+.splitHorizontal {
+  flex-direction: row;
+}
+
+.splitVertical {
+  flex-direction: column;
+}
+
+.splitChild {
+  display: flex;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+}
+
+.divider {
+  flex-shrink: 0;
+  background: transparent;
+  transition: background 0.15s;
+  z-index: 10;
+}
+
+.dividerHorizontal {
+  width: var(--frame-gap);
+  cursor: col-resize;
+}
+
+.dividerVertical {
+  height: var(--frame-gap);
+  cursor: row-resize;
+}
+
+.divider:hover,
+.dividerActive {
+  background: var(--accent);
+}

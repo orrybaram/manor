@@ -104,11 +104,11 @@ export default function DetachedApp() {
 
   useMountEffect(() => {
     loadTheme();
-    // A detached window has no sidebar. Marking it `hidden` (plain setState,
-    // not the persisting action) makes the tab bar
-    // apply its `.noSidebar` inset (padding-left: 78px) so the tabs clear the
-    // macOS traffic lights instead of hiding beneath them. This store is
-    // per-renderer and not persisted, so it never affects the primary window.
+    // A detached window has no sidebar, so mark it `hidden` (plain setState,
+    // not the persisting action). Its top-left tab bar clears the macOS
+    // traffic lights through the `:root` default of `--window-lead-inset`
+    // (ADR-196). This store is per-renderer and not persisted, so it never
+    // affects the primary window.
     useProjectStore.setState({ sidebarMode: "hidden" });
     // The popout renders no sidebar, but it still needs the project list: the
     // new-agent command reads the workspace's `agentCommand` from it, and
@@ -263,7 +263,7 @@ export default function DetachedApp() {
       <div className="app">
         <div className="app-body">
           <PaneDragProvider>
-            <div className="main-content">
+            <div className="main-content main-content--gutter-left main-content--gutter-bottom">
               <PanelLayout
                 key={activeWorkspaceKey}
                 node={workspaceLayouts[activeWorkspaceKey].panelTree}

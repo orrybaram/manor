@@ -1,4 +1,5 @@
 import PanelLeft from "lucide-react/dist/esm/icons/panel-left";
+import PanelLeftOpen from "lucide-react/dist/esm/icons/panel-left-open";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
 import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
 import { Button } from "../../ui/Button/Button";
@@ -51,9 +52,9 @@ export function WindowLead() {
             size="sm"
             className={styles.button}
             onClick={() => toggleSidebarRail()}
-            aria-label="Toggle sidebar"
+            aria-label={sidebarMode === "full" ? "Collapse sidebar" : "Expand sidebar"}
           >
-            <PanelLeft size={12} />
+            {sidebarMode === "full" ? <PanelLeft size={12} /> : <PanelLeftOpen size={12} />}
           </Button>
         </Tooltip>
         <Tooltip label={backLabel}>

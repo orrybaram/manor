@@ -91,15 +91,16 @@
   border-top: 2px solid transparent;
 }
 
-.tabTerminal {
+/* Only the active tab shows its content-type colour. */
+.tabActive.tabTerminal {
   border-top-color: var(--fg-a10);
 }
 
-.tabBrowser {
+.tabActive.tabBrowser {
   border-top-color: var(--blue-a40);
 }
 
-.tabDiff {
+.tabActive.tabDiff {
   border-top-color: var(--green-a40);
 }
 

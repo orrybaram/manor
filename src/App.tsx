@@ -694,10 +694,6 @@ function App() {
             onAddProject={handleAddProject}
           />
         )}
-        {/* The top-left controls (ADR-196). Not shown before the first
-            project: the onboarding overview has no sidebar to toggle or
-            history to walk, and its drag region clears the traffic lights. */}
-        {hasProjects && <WindowLead />}
         <PaneDragProvider>
           <div
             className={`main-content ${sidebarMode !== "hidden" && hasProjects ? "" : "main-content--gutter-left"}`}
@@ -756,6 +752,14 @@ function App() {
             />
           </div>
         </PaneDragProvider>
+        {/* The top-left controls (ADR-196). Not shown before the first
+            project: the onboarding overview has no sidebar to toggle or
+            history to walk, and its drag region clears the traffic lights.
+            Rendered last on purpose: Electron resolves overlapping
+            `-webkit-app-region`s in DOM order, so when the lead overlaps the
+            top-left tab bar (rail and hidden modes) its buttons must come
+            after the bar's drag region or clicks on them never arrive. */}
+        {hasProjects && <WindowLead />}
       </div>
       <Suspense fallback={null}>
         <CommandPalette

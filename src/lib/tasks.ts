@@ -335,6 +335,348 @@ export function filterTasks<T extends Listable>(
   );
 }
 
+/*
+ * ADR-201 §4: the field model. Every column the trackers give us is described
+ * once in `TASK_FIELDS` — which providers have it, how to read its filter
+ * values (`facet`) and how to order rows by it (`sortKey` / `compare`) — and
+ * the filter / sort helpers below are generic over that table.
+ */
+
+/** Every field the Tasks view can filter or sort by. `project` is the Manor sidebar entry; `trackerProject` the Linear project / GitHub Projects v2. */
+export type TaskFieldId =
+  | "status"
+  | "priority"
+  | "assignee"
+  | "author"
+  | "label"
+  | "trackerProject"
+  | "milestone"
+  | "cycle"
+  | "team"
+  | "project"
+  | "id"
+  | "title"
+  | "updated"
+  | "created"
+  | "dueDate"
+  | "estimate"
+  | "comments";
+
+/** The fields the field model reads — both `TaskRow` and `LinkedTask` carry them. */
+type FieldRow = Omit<TaskRow, "raw" | "project">;
+
+/** A value rows are ordered by; arrays compare element by element. `undefined` = missing. */
+type SortKey = number | string | readonly (number | string)[] | undefined;
+
+export interface TaskFieldDef {
+  label: string;
+  providers: readonly TaskProvider[];
+  /** Filter values for a row; `[]` means "None" (`NONE_VALUE`). Filterable iff set. */
+  facet?: (row: FieldRow) => string[];
+  /** Order of this field's facet values; alphabetical when absent. */
+  optionOrder?: (a: string, b: string) => number;
+  /** What rows are ordered by; `undefined` is a missing value. Set iff `compare` is. */
+  sortKey?: (row: FieldRow) => SortKey;
+  /** Ascending order, missing values last. Sortable iff set. */
+  compare?: (a: FieldRow, b: FieldRow) => number;
+}
+
+/** The facet value for a row with nothing in a field ("No priority", "No label"…). */
+export const NONE_VALUE = "__none__";
+
+const BOTH: readonly TaskProvider[] = ["github", "linear"];
+const GITHUB: readonly TaskProvider[] = ["github"];
+const LINEAR: readonly TaskProvider[] = ["linear"];
+
+/**
+ * Status sort order, by tone: to do (Linear triage / unstarted), backlog,
+ * started, open (GitHub), closed (GitHub closed, Linear completed), canceled
+ * (Linear canceled, GitHub closed as not planned). Ties order by the label.
+ */
+const STATUS_RANK: Record<TaskStatusTone, number> = {
+  todo: 0,
+  backlog: 1,
+  started: 2,
+  open: 3,
+  closed: 4,
+  canceled: 5,
+};
+
+/** Linear's fixed priority names; 0 is "No priority" and faceted as None. */
+const PRIORITY_NAMES: Record<string, string> = {
+  "1": "Urgent",
+  "2": "High",
+  "3": "Medium",
+  "4": "Low",
+};
+
+function textOrder(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function compareKeys(a: SortKey & {}, b: SortKey & {}): number {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    for (let i = 0; i < Math.min(a.length, b.length); i++) {
+      const c = compareKeys(a[i], b[i]);
+      if (c !== 0) return c;
+    }
+    return a.length - b.length;
+  }
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  return textOrder(String(a), String(b));
+}
+
+/** `dir` (1 / -1) times the key order, but a missing key after a present one either way. */
+function compareMissingLast(a: SortKey, b: SortKey, dir: number): number {
+  if (a === undefined || b === undefined) {
+    return a === b ? 0 : a === undefined ? 1 : -1;
+  }
+  return dir * compareKeys(a, b);
+}
+
+/** Parsed ms of an ISO date, or undefined when missing / unparseable. */
+function dateKey(iso: string | undefined): number | undefined {
+  const ms = iso ? Date.parse(iso) : NaN;
+  return Number.isNaN(ms) ? undefined : ms;
+}
+
+function present(value: string | undefined): string[] {
+  return value ? [value] : [];
+}
+
+/** A field sorted by `sortKey`, with the matching ascending, missing-last `compare`. */
+function sortedBy(
+  sortKey: (row: FieldRow) => SortKey,
+): Pick<TaskFieldDef, "sortKey" | "compare"> {
+  return {
+    sortKey,
+    compare: (a, b) => compareMissingLast(sortKey(a), sortKey(b), 1),
+  };
+}
+
+/** Which fields apply to which provider, and how each filters and sorts (ADR-201 §4 table). In display order. */
+export const TASK_FIELDS: Record<TaskFieldId, TaskFieldDef> = {
+  status: {
+    label: "Status",
+    providers: BOTH,
+    facet: (row) => [row.status.label],
+    ...sortedBy((row) => [STATUS_RANK[row.status.tone], row.status.label]),
+  },
+  priority: {
+    label: "Priority",
+    providers: LINEAR,
+    facet: (row) =>
+      row.priority && row.priority.value > 0
+        ? [String(row.priority.value)]
+        : [],
+    optionOrder: (a, b) => Number(a) - Number(b),
+    ...sortedBy((row) =>
+      row.priority && row.priority.value > 0 ? row.priority.value : undefined,
+    ),
+  },
+  assignee: {
+    label: "Assignee",
+    providers: BOTH,
+    facet: (row) => row.assignees,
+    ...sortedBy((row) => row.assignees[0]),
+  },
+  author: {
+    label: "Author",
+    providers: BOTH,
+    facet: (row) => present(row.author),
+    ...sortedBy((row) => row.author),
+  },
+  label: {
+    label: "Label",
+    providers: BOTH,
+    facet: (row) => row.labels.map((l) => l.name),
+  },
+  trackerProject: {
+    label: "Project",
+    providers: BOTH,
+    facet: (row) => row.trackerProjects,
+    ...sortedBy((row) => row.trackerProjects[0]),
+  },
+  milestone: {
+    label: "Milestone",
+    providers: GITHUB,
+    facet: (row) => present(row.milestone),
+    ...sortedBy((row) => row.milestone),
+  },
+  cycle: {
+    label: "Cycle",
+    providers: LINEAR,
+    facet: (row) => present(row.cycle),
+    ...sortedBy((row) => row.cycle),
+  },
+  team: {
+    label: "Team",
+    providers: LINEAR,
+    facet: (row) => present(row.team),
+    ...sortedBy((row) => row.team),
+  },
+  project: {
+    label: "Manor project",
+    providers: BOTH,
+    facet: (row) => present(row.projectName),
+    ...sortedBy((row) => row.projectName || undefined),
+  },
+  id: {
+    label: "ID",
+    providers: BOTH,
+    ...sortedBy((row) => row.displayId || undefined),
+  },
+  title: {
+    label: "Title",
+    providers: BOTH,
+    ...sortedBy((row) => row.title || undefined),
+  },
+  updated: {
+    label: "Updated",
+    providers: BOTH,
+    ...sortedBy((row) => dateKey(row.updatedAt)),
+  },
+  created: {
+    label: "Created",
+    providers: BOTH,
+    ...sortedBy((row) => dateKey(row.createdAt)),
+  },
+  dueDate: {
+    label: "Due date",
+    providers: LINEAR,
+    ...sortedBy((row) => dateKey(row.dueDate)),
+  },
+  estimate: {
+    label: "Estimate",
+    providers: LINEAR,
+    ...sortedBy((row) => row.estimate),
+  },
+  comments: {
+    label: "Comments",
+    providers: GITHUB,
+    ...sortedBy((row) => row.commentCount),
+  },
+};
+
+const FIELD_IDS = Object.keys(TASK_FIELDS) as TaskFieldId[];
+
+/** The fields that apply to `provider`, in `TASK_FIELDS` order. */
+export function fieldsFor(provider: TaskProvider): TaskFieldId[] {
+  return FIELD_IDS.filter((id) => TASK_FIELDS[id].providers.includes(provider));
+}
+
+/** The fields of `provider` that can be filtered on. */
+export function filterableFields(provider: TaskProvider): TaskFieldId[] {
+  return fieldsFor(provider).filter((id) => TASK_FIELDS[id].facet);
+}
+
+/** The fields of `provider` that can be sorted by. */
+export function sortableFields(provider: TaskProvider): TaskFieldId[] {
+  return fieldsFor(provider).filter((id) => TASK_FIELDS[id].compare);
+}
+
+/** How a facet value reads: "No priority" for `NONE_VALUE`, "Urgent" for priority 1, else the value. */
+export function facetLabel(fieldId: TaskFieldId, value: string): string {
+  if (value === NONE_VALUE) {
+    return `No ${TASK_FIELDS[fieldId].label.toLowerCase()}`;
+  }
+  if (fieldId === "priority") return PRIORITY_NAMES[value] ?? `P${value}`;
+  return value;
+}
+
+/**
+ * The values `fieldId` takes across `rows`, each with how many rows carry it,
+ * plus `NONE_VALUE` when some row has none. Ordered by the field's
+ * `optionOrder`, else alphabetically; `NONE_VALUE` last. `[]` for a field
+ * that can't be filtered.
+ */
+export function facetOptions(
+  rows: readonly FieldRow[],
+  fieldId: TaskFieldId,
+): { value: string; count: number }[] {
+  const { facet, optionOrder = textOrder } = TASK_FIELDS[fieldId];
+  if (!facet) return [];
+  const counts = new Map<string, number>();
+  let none = 0;
+  for (const row of rows) {
+    const values = new Set(facet(row));
+    if (values.size === 0) none++;
+    for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
+  }
+  const options = [...counts]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => optionOrder(a.value, b.value));
+  if (none > 0) options.push({ value: NONE_VALUE, count: none });
+  return options;
+}
+
+/** Chosen facet values per field; an absent or empty list doesn't filter. */
+export type TaskFilters = Partial<Record<TaskFieldId, string[]>>;
+
+/**
+ * Rows matching every filtered field (AND), where a field matches when the
+ * row has any of its chosen values (OR) — `NONE_VALUE` matching a row with
+ * none. Fields that can't be filtered are ignored.
+ */
+export function applyTaskFilters<T extends FieldRow>(
+  rows: readonly T[],
+  filters: TaskFilters,
+): T[] {
+  const active = FIELD_IDS.flatMap((id) => {
+    const facet = TASK_FIELDS[id].facet;
+    const chosen = filters[id];
+    return facet && chosen?.length ? [{ facet, chosen: new Set(chosen) }] : [];
+  });
+  if (active.length === 0) return [...rows];
+  return rows.filter((row) =>
+    active.every(({ facet, chosen }) => {
+      const values = facet(row);
+      return values.length === 0
+        ? chosen.has(NONE_VALUE)
+        : values.some((v) => chosen.has(v));
+    }),
+  );
+}
+
+export interface TaskSort {
+  field: TaskFieldId;
+  direction: "asc" | "desc";
+}
+
+/** Most recently updated first — the Tasks view's order before ADR-201. */
+export const DEFAULT_TASK_SORT: TaskSort = {
+  field: "updated",
+  direction: "desc",
+};
+
+/**
+ * `rows` ordered by `sort.field`. Rows missing the value go last in either
+ * direction; ties fall back to most recently updated, then input order
+ * (stable). A field that can't be sorted leaves just the fallback order.
+ */
+export function sortTasksBy<T extends FieldRow>(
+  rows: readonly T[],
+  sort: TaskSort,
+): T[] {
+  const { sortKey } = TASK_FIELDS[sort.field];
+  const updatedKey = TASK_FIELDS.updated.sortKey as (row: FieldRow) => SortKey;
+  const sign = sort.direction === "asc" ? 1 : -1;
+  return rows
+    .map((row, index) => ({
+      row,
+      index,
+      key: sortKey?.(row),
+      updated: updatedKey(row),
+    }))
+    .sort(
+      (a, b) =>
+        compareMissingLast(a.key, b.key, sign) ||
+        compareMissingLast(a.updated, b.updated, -1) ||
+        a.index - b.index,
+    )
+    .map((x) => x.row);
+}
+
 export const TASKS_PAGE_SIZE = 25;
 
 export interface TaskPage<T = TaskRow> {

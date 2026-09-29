@@ -28,6 +28,7 @@ import { Button } from "../../ui/Button/Button";
 import { useUpNextIssues, type UpNextRow } from "./useUpNextIssues";
 import shared from "../../EmptyState.module.css";
 import styles from "./HomeDashboard.module.css";
+import { CountBadge } from "../../ui/CountBadge/CountBadge";
 
 const VISIBLE_COUNT = 4;
 
@@ -215,7 +216,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
         <div className={shared.section}>
           <div className={shared.sectionHeader}>
             Needs you
-            <span className={shared.sectionCount}>{needsYou.length}</span>
+            <CountBadge count={needsYou.length} size="md" className={shared.sectionCount} />
           </div>
           {shownItems.map((item) => {
             const { text, sub } = itemLabel(item);

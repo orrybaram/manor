@@ -147,16 +147,6 @@
   top: 50%;
   right: 6px;
   transform: translateY(-50%);
-  min-width: 16px;
-  height: 16px;
-  padding: 0 5px;
-  border-radius: 8px;
-  background: var(--accent);
-  color: var(--text-selected);
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 16px;
-  text-align: center;
   pointer-events: none;
 }
 
@@ -516,13 +506,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* A collapsed section's workspace count, after the host name. */
-.sectionHostCount {
-  letter-spacing: 0;
-  opacity: 0.7;
-  font-variant-numeric: tabular-nums;
 }
 
 /* An away host's dot, right-aligned so it never competes with the name. */

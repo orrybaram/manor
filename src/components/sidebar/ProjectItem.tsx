@@ -91,6 +91,7 @@ import { composeHandlers } from "../ui/EmojiAutocomplete/compose";
 import { Button } from "../ui/Button/Button";
 import { Collapse } from "../ui/Collapse/Collapse";
 import styles from "./ProjectItem.module.css";
+import { CountBadge } from "../ui/CountBadge/CountBadge";
 
 interface WorkspaceItemProps {
   ws: WorkspaceInfo;
@@ -280,13 +281,13 @@ const WorkspaceItem = React.forwardRef<
             </div>
           </div>
           {isDragging && dragGroupCount > 1 && (
-            <span
+            <CountBadge
+              count={dragGroupCount}
+              tone="accent"
               className={styles.dragCountBadge}
               data-testid="drag-count-badge"
               aria-hidden="true"
-            >
-              {dragGroupCount}
-            </span>
+            />
           )}
         </>
       )}
@@ -316,7 +317,7 @@ function SectionHostLabel(props: {
       {remote ? <Cloud size={11} aria-hidden /> : <Laptop size={11} aria-hidden />}
       <span className={styles.sectionHostName}>{label}</span>
       {collapsedCount !== null && (
-        <span className={styles.sectionHostCount}>{collapsedCount}</span>
+        <CountBadge count={collapsedCount} size="xs" />
       )}
       {/* Only an away host shows a dot; a connected one needs no mark. */}
       {remote && offline && (
@@ -1237,7 +1238,8 @@ export function ProjectItem(props: ProjectItemProps) {
                   className={styles.contextMenuItem}
                   style={{ display: "flex", alignItems: "center" }}
                 >
-                  Hidden ({hiddenWorkspaces.length})
+                  Hidden
+                  <CountBadge count={hiddenWorkspaces.length} style={{ marginLeft: 6 }} />
                   <ChevronRight size={14} style={{ marginLeft: "auto" }} />
                 </ContextMenu.SubTrigger>
                 <ContextMenu.Portal>

@@ -30,6 +30,7 @@ import { ProjectChevron } from "./ProjectChevron";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import styles from "./ProjectItem.module.css";
 import { Collapse } from "../ui/Collapse/Collapse";
+import { CountBadge } from "../ui/CountBadge/CountBadge";
 
 type GroupEntry = Extract<TopLevelEntry, { kind: "group" }>;
 
@@ -202,7 +203,8 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
                   className={styles.contextMenuItem}
                   style={{ display: "flex", alignItems: "center" }}
                 >
-                  Hidden ({hiddenWorkspaces.length})
+                  Hidden
+                  <CountBadge count={hiddenWorkspaces.length} style={{ marginLeft: 6 }} />
                   <ChevronRight size={14} style={{ marginLeft: "auto" }} />
                 </ContextMenu.SubTrigger>
                 <ContextMenu.Portal>

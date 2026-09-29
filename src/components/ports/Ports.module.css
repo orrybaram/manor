@@ -46,13 +46,7 @@
 }
 
 .portCount {
-  font-size: 10px;
-  background: var(--surface);
-  color: var(--text-dim);
-  padding: 1px 5px;
-  border-radius: 3px;
   margin-left: 6px;
-  font-weight: 400;
 }
 
 .portGroups {

@@ -8,6 +8,7 @@ import { PortGroup } from "./PortGroup";
 import styles from "./Ports.module.css";
 import { Collapse } from "../ui/Collapse/Collapse";
 import { ResizeHandle } from "../ui/ResizeHandle/ResizeHandle";
+import { CountBadge } from "../ui/CountBadge/CountBadge";
 
 export function PortsList() {
   const { workspacePortGroups, totalPortCount } = usePortsData();
@@ -64,7 +65,7 @@ export function PortsList() {
           </span>
           <EthernetPort size={12} />
           Ports
-          <span className={styles.portCount}>{totalPortCount}</span>
+          <CountBadge count={totalPortCount} className={styles.portCount} />
         </span>
       </div>
       <Collapse open={showBody} animate={!isResizing}>

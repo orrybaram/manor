@@ -144,6 +144,8 @@ export interface StatsSummary {
   streakWeeks: number;
   /** Prompt count per local day, oldest first, for days that recorded one. */
   dailyPrompts: DailyPrompts[];
+  /** PRs merged per local day: last 7 days, oldest first, zeros included. */
+  dailyPrsMerged: { day: string; count: number }[];
   /** badgeId -> ISO awarded-at. */
   badges: Record<string, string>;
   enabled: boolean;
@@ -283,6 +285,45 @@ export interface PaneAgentStatusUpdate {
  * exactly as published; it never re-derives it (ADR-184 §4).
  */
 export type PaneAgentStatus = Omit<PaneAgentStatusUpdate, "paneId">;
+
+/**
+ * ADR-199's persistent Agent activity history. Mirrors the types in
+ * `electron/agent-activity-store.ts`; declared here rather than imported so
+ * the renderer's declaration surface stays self-contained.
+ */
+export interface AgentActivityTransition {
+  status: AgentStatus;
+  /** Epoch ms, main's clock. */
+  at: number;
+}
+
+/** Refreshed on each record, so a deleted Agent's lane can still be named. */
+export interface AgentActivityMeta {
+  name: string | null;
+  projectId: string | null;
+  workspacePath: string | null;
+  hostId: string;
+}
+
+export interface AgentActivityEntry {
+  meta: AgentActivityMeta;
+  /** Oldest first. Consecutive entries never share a status. */
+  transitions: AgentActivityTransition[];
+}
+
+/** A span Manor was running; gaps between sessions were not observed. */
+export interface AgentActivitySession {
+  start: number;
+  end: number;
+}
+
+export interface AgentActivitySnapshot {
+  /** Keyed by Agent id. Up to 24h of history. */
+  agents: Record<string, AgentActivityEntry>;
+  /** Oldest first; the last one is the running app, ending at `now`. */
+  sessions: AgentActivitySession[];
+  now: number;
+}
 
 /**
  * Position in a session's PTY output stream (mirrored from
@@ -1051,6 +1092,15 @@ export interface ElectronAPI {
     reset: () => Promise<void>;
     /** Fires with the full summary after a burst of recording settles (ADR-168 §5). */
     onChanged: (callback: (summary: StatsSummary) => void) => () => void;
+  };
+
+  agentActivity: {
+    /** Main records every transition; the renderer only caches this snapshot. */
+    get: () => Promise<AgentActivitySnapshot>;
+    /** Fires with the full snapshot after a burst of transitions settles (ADR-199 §2). */
+    onChanged: (
+      callback: (snapshot: AgentActivitySnapshot) => void,
+    ) => () => void;
   };
 
   clipboard: {

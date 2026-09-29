@@ -103,4 +103,6 @@ export interface PrInfo {
    * Absent on older payloads.
    */
   hasConflicts?: boolean;
+  /** Last activity on the PR, from GitHub. Absent when unknown. */
+  updatedAt?: string;
 }

@@ -1,0 +1,53 @@
+/* ADR-198 §1.1: mockup `.top` — eyebrow, headline, right-aligned buttons. */
+.header {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.text {
+  min-width: 0;
+}
+
+.date {
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.headline {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--text-selected);
+  text-wrap: balance;
+}
+
+.lead {
+  color: var(--red);
+}
+
+.actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Doubled: outranks the `<Button>` size/variant rules for Studio's rounder,
+   slightly denser buttons. */
+.button.button {
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 12.5px;
+}
+
+.kbd {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  opacity: 0.6;
+}

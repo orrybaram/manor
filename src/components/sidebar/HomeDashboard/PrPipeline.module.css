@@ -1,0 +1,237 @@
+/*
+ * ADR-198 §1.6: the PR pipeline (mockup `.pipe` / `.stage` / `.prc` /
+ * `.checks`). A stage sets `--c` to its colour for the header underline.
+ */
+.empty {
+  margin: 0;
+  padding: 14px 18px 18px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.pipe {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 14px;
+}
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+}
+
+.stageHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 2px 6px;
+  border-bottom: 2px solid var(--c);
+  transition: border-color 0.3s;
+}
+
+.stageCount {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.stageHeader span {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* A ghost Button, reshaped into the card. */
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 9px;
+  border-radius: 9px;
+  border: 1px solid var(--hd-line);
+  background: var(--bg);
+  font-size: 12px;
+  font-weight: 400;
+  text-align: left;
+  white-space: normal;
+  color: var(--text-primary);
+  transition:
+    border-color 0.15s,
+    transform 0.15s;
+}
+
+.card:hover:not(:disabled) {
+  background: var(--bg);
+  color: var(--text-primary);
+  border-color: var(--hd-line-2);
+  transform: translateY(-1px);
+}
+
+.bad,
+.bad:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--red) 40%, var(--hd-line));
+}
+
+.prTitle {
+  display: -webkit-box;
+  overflow: hidden;
+  line-height: 1.35;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.why {
+  font-size: 11px;
+  color: var(--red);
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.num,
+.age {
+  flex: none;
+  font-family: var(--font-mono);
+}
+
+.age {
+  margin-left: auto;
+}
+
+/* No peach token in the theme; yellow is the nearest warm one. */
+.stale {
+  color: var(--yellow);
+}
+
+.proj {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.proj::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--project-color, var(--text-dim));
+}
+
+.tag {
+  flex: none;
+  color: var(--accent);
+}
+
+/* Check progress: a proportional bar that shrinks with the card, then "5/7". */
+.checks {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+
+.checkBar {
+  display: flex;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--hd-fg-4);
+}
+
+.checkBar i {
+  flex-basis: 0;
+  min-width: 3px;
+  transition: flex-grow 0.4s ease;
+}
+
+.checkBar .ok {
+  background: var(--green);
+}
+
+.checkBar .run {
+  background: var(--yellow);
+}
+
+.checkBar .fail {
+  background: var(--red);
+}
+
+.checkCount {
+  flex: none;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The cards scroll within about three cards' height. A shadow pinned to the
+ * bottom shows there's more below; it fades out as the list reaches its end,
+ * and never shows when the list doesn't scroll (the timeline is inactive).
+ */
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 290px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Room for a hovered card's 1px lift. */
+  padding-top: 1px;
+  scrollbar-width: thin;
+}
+
+.cards::after {
+  content: "";
+  position: sticky;
+  bottom: 0;
+  flex: none;
+  height: 28px;
+  margin-top: -34px;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--hd-panel) 92%, black),
+    transparent
+  );
+  animation: cards-shadow linear both;
+  animation-timeline: scroll(nearest);
+  animation-range: calc(100% - 28px) 100%;
+}
+
+@keyframes cards-shadow {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@container home (max-width: 600px) {
+  .pipe {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

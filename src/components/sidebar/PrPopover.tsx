@@ -35,6 +35,14 @@ type PrPopoverProps = {
   workspacePath?: string;
   /** The workspace's host (ADR-191). */
   hostId?: string;
+  /**
+   * A custom trigger in place of the PR badge (ADR-198: Home's pipeline
+   * cards). Hovering or focusing inside it opens the popover; clicks belong
+   * to the child, so it anchors the popover rather than toggling it.
+   */
+  children?: React.ReactNode;
+  /** Which side of the trigger the popover opens on. */
+  side?: "top" | "right" | "bottom" | "left";
 };
 
 const HOVER_DELAY = 400;
@@ -56,7 +64,7 @@ const MAX_COMMENTS_SHOWN = 6;
  * already does that.
  */
 export function PrPopover(props: PrPopoverProps) {
-  const { pr, onOpen, workspacePath, hostId } = props;
+  const { pr, onOpen, workspacePath, hostId, children, side = "right" } = props;
 
   const [open, setOpen] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -64,7 +72,7 @@ export function PrPopover(props: PrPopoverProps) {
   // keyboard and should let Radix move focus into it; a hover-opened popover
   // keeps its current "don't steal focus" behaviour (ADR-175).
   const openedByKeyboardRef = useRef(false);
-  const triggerRef = useRef<HTMLSpanElement | null>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
   // True while focus is being handed back to the badge as the popover closes,
   // so that focus doesn't open it again.
   const returningFocusRef = useRef(false);
@@ -146,53 +154,82 @@ export function PrPopover(props: PrPopoverProps) {
       if (!workspacePath) return;
       clearHoverTimeout();
       setOpen(false);
-      startAgentWithPrompt(workspacePath, reviewCommentPrompt(pr, comment), hostId);
+      startAgentWithPrompt(
+        workspacePath,
+        reviewCommentPrompt(pr, comment),
+        hostId,
+      );
     },
     [workspacePath, hostId, pr, clearHoverTimeout],
   );
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger asChild>
-        <span
-          ref={triggerRef}
-          className={`${styles.prBadge} ${badgeClass}${tone ? ` ${tone}` : ""}${showDraftOutline ? ` ${styles.prDraft}` : ""}`}
-          data-readiness={readiness}
-          data-draft={pr.isDraft ? "true" : "false"}
-          role="button"
-          tabIndex={0}
-          aria-label={`Pull request #${pr.number}: ${pr.title}`}
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
-          onFocus={handleFocus}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpen();
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
+      {children ? (
+        <Popover.Anchor asChild>
+          <div
+            ref={(el) => {
+              triggerRef.current = el;
+            }}
+            className={styles.prAnchor}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+            onFocus={handleFocus}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && open) {
+                e.preventDefault();
+                e.stopPropagation();
+                setOpen(false);
+              }
+            }}
+          >
+            {children}
+          </div>
+        </Popover.Anchor>
+      ) : (
+        <Popover.Trigger asChild>
+          <span
+            ref={(el) => {
+              triggerRef.current = el;
+            }}
+            className={`${styles.prBadge} ${badgeClass}${tone ? ` ${tone}` : ""}${showDraftOutline ? ` ${styles.prDraft}` : ""}`}
+            data-readiness={readiness}
+            data-draft={pr.isDraft ? "true" : "false"}
+            role="button"
+            tabIndex={0}
+            aria-label={`Pull request #${pr.number}: ${pr.title}`}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+            onFocus={handleFocus}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
               e.stopPropagation();
               onOpen();
-            } else if (e.key === "Escape" && open) {
-              e.preventDefault();
-              e.stopPropagation();
-              setOpen(false);
-            }
-          }}
-        >
-          <BadgeIcon
-            size={10}
-            className={`${styles.prBadgeIcon}${spin ? ` ${styles.prBadgeSpin}` : ""}`}
-          />
-          #{pr.number}
-        </span>
-      </Popover.Trigger>
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                e.stopPropagation();
+                onOpen();
+              } else if (e.key === "Escape" && open) {
+                e.preventDefault();
+                e.stopPropagation();
+                setOpen(false);
+              }
+            }}
+          >
+            <BadgeIcon
+              size={10}
+              className={`${styles.prBadgeIcon}${spin ? ` ${styles.prBadgeSpin}` : ""}`}
+            />
+            #{pr.number}
+          </span>
+        </Popover.Trigger>
+      )}
       <Popover.Portal>
         <Popover.Content
           className={styles.prPopover}
-          side="right"
+          side={side}
           sideOffset={8}
           align="start"
           collisionPadding={8}
@@ -223,7 +260,12 @@ export function PrPopover(props: PrPopoverProps) {
             openedByKeyboardRef.current = false;
             returningFocusRef.current = true;
             try {
-              triggerRef.current?.focus();
+              // A custom trigger is a wrapper; hand focus to what's inside it.
+              const el = triggerRef.current;
+              const target = children
+                ? el?.querySelector<HTMLElement>("button, [tabindex]")
+                : el;
+              target?.focus();
             } finally {
               returningFocusRef.current = false;
             }

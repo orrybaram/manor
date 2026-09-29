@@ -1,0 +1,41 @@
+/*
+ * ADR-198 §1: Studio's panel — radius 14, a hairline border and a soft
+ * shadow. The `--hd-*` custom properties come from the dashboard root
+ * (`HomeDashboard.module.css` `.page`).
+ */
+.panel {
+  min-width: 0;
+  background: var(--hd-panel);
+  border: 1px solid var(--hd-line);
+  border-radius: 14px;
+  box-shadow: var(--hd-shadow);
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 16px 18px 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-selected);
+  letter-spacing: -0.005em;
+}
+
+.sub {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+}

@@ -1,0 +1,30 @@
+/* ADR-198 §1.2: mockup `.alert` — a yellow-tinted strip above the stat tiles. */
+.alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--yellow) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--yellow) 22%, transparent);
+}
+
+.alert b {
+  font-weight: 500;
+  color: var(--text-selected);
+}
+
+.icon {
+  flex: none;
+  color: var(--yellow);
+}
+
+/* Doubled: outranks the link variant's accent colour. */
+.reconnect.reconnect {
+  margin-left: auto;
+  font-size: inherit;
+  color: var(--text-selected);
+  text-underline-offset: 3px;
+}

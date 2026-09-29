@@ -1,0 +1,163 @@
+/*
+ * ADR-198 §1.7: the Up next list (mockup `.list` / `.li` / `.prio` / `.tag`).
+ */
+.list {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 8px 10px;
+}
+
+.empty {
+  margin: 0;
+  padding: 10px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.skeleton {
+  height: 40px;
+  margin: 3px 0;
+  border-radius: 9px;
+  background: var(--hd-panel-2);
+  opacity: 0.6;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  padding: 9px 10px;
+  border-radius: 9px;
+  text-align: left;
+  justify-content: flex-start;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.li:hover {
+  background: var(--hd-panel-2);
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.title {
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  display: flex;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  min-width: 0;
+}
+
+.id {
+  flex: none;
+  font-family: var(--font-mono);
+}
+
+.proj {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.proj::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--project-color, var(--text-dim));
+}
+
+.tag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+}
+
+.go {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.li:hover .go,
+.li:focus-visible .go {
+  opacity: 1;
+}
+
+.prio {
+  display: inline-flex;
+  flex: none;
+  gap: 1.5px;
+  align-items: flex-end;
+  width: 14px;
+  height: 12px;
+}
+
+.prio i {
+  width: 3px;
+  border-radius: 1px;
+  background: var(--hd-fg-4);
+}
+
+.prio i:nth-child(1) {
+  height: 5px;
+}
+
+.prio i:nth-child(2) {
+  height: 8px;
+}
+
+.prio i:nth-child(3) {
+  height: 12px;
+}
+
+.prio i[data-on] {
+  background: var(--text-secondary);
+}
+
+.urgent {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: var(--red);
+  color: var(--hd-panel);
+  font-size: 10px;
+  font-weight: 700;
+}

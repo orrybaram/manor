@@ -1,4 +1,3 @@
-import { EmptyStateShell } from "./EmptyStateShell";
 import { HomeDashboard } from "./HomeDashboard/HomeDashboard";
 import type { NewWorkspaceHandler } from "../../lib/start-issue-work";
 import type { PaletteView } from "../command-palette/types";
@@ -10,13 +9,21 @@ type HomeEmptyStateProps = {
   onOpenPaletteView?: (view: PaletteView) => void;
 };
 
-/** The Dashboard surface (internally "home"): the dashboard, no launchers. */
+/**
+ * The Dashboard surface (internally "home"): the full-width Studio dashboard
+ * (ADR-198). No launchers — the Dashboard never holds tabs (ADR-197).
+ */
 export function HomeEmptyState(props: HomeEmptyStateProps) {
   const { onNewWorkspace, onOpenPaletteView } = props;
 
   return (
-    <EmptyStateShell testId="home-view">
-      <HomeDashboard onNewWorkspace={onNewWorkspace} onOpenPaletteView={onOpenPaletteView} />
-    </EmptyStateShell>
+    <HomeDashboard
+      testId="home-view"
+      onOpenPalette={() => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }));
+      }}
+      onNewWorkspace={onNewWorkspace}
+      onOpenPaletteView={onOpenPaletteView}
+    />
   );
 }

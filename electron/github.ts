@@ -275,6 +275,7 @@ export class GitHubManager {
         checkRuns,
         queuedToMerge,
         hasConflicts,
+        updatedAt: pr.updatedAt,
       };
     } catch {
       return null;

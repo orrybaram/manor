@@ -1,4 +1,11 @@
-import { useCallback, useDeferredValue, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Search from "lucide-react/dist/esm/icons/search";
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
@@ -20,7 +27,6 @@ import {
   type SearchableSelectOption,
 } from "../ui/SearchableSelect/SearchableSelect";
 import { Input } from "../ui/Input";
-import { CountBadge } from "../ui/CountBadge/CountBadge";
 import { projectColorStyle } from "../../hooks/useProjectHeaderRow";
 import { ghRepoOf } from "../../lib/gh-repo";
 import {
@@ -88,7 +94,11 @@ const PROVIDER_LABEL: Record<TaskProvider, string> = {
 function ProviderIcon(props: { provider: TaskProvider; size: number }) {
   const { provider, size } = props;
 
-  return provider === "github" ? <GitHubIcon size={size} /> : <LinearIcon size={size} />;
+  return provider === "github" ? (
+    <GitHubIcon size={size} />
+  ) : (
+    <LinearIcon size={size} />
+  );
 }
 
 export function TasksView(props: TasksViewProps) {
@@ -134,18 +144,32 @@ export function TasksView(props: TasksViewProps) {
     [status.sources, provider],
   );
   const projectKey =
-    savedProject !== ALL_PROJECTS && projectOptions.some((o) => o.value === savedProject)
+    savedProject !== ALL_PROJECTS &&
+    projectOptions.some((o) => o.value === savedProject)
       ? savedProject
       : null;
   const selectedSource = projectKey
-    ? status.sources.find((s) => s.provider === provider && s.ctx.entryKey === projectKey)
+    ? status.sources.find(
+        (s) => s.provider === provider && s.ctx.entryKey === projectKey,
+      )
     : undefined;
 
-  const { rows, loading, failedCount, refetch } = useTasks({ provider, projectKey, filter });
+  const { rows, loading, failedCount, refetch } = useTasks({
+    provider,
+    projectKey,
+    filter,
+  });
 
-  const filtered = useMemo(() => filterTasks(rows, deferredSearch), [rows, deferredSearch]);
+  const filtered = useMemo(
+    () => filterTasks(rows, deferredSearch),
+    [rows, deferredSearch],
+  );
   const current = paginate(filtered, page);
   const homeUrl = projectKey ? trackerHomeUrl(rows, provider) : null;
+  const projectCount = useMemo(
+    () => new Set(rows.map((r) => r.projectEntryKey)).size,
+    [rows],
+  );
 
   const chooseProvider = useCallback((next: TaskProvider) => {
     setSavedProvider(next);
@@ -171,7 +195,9 @@ export function TasksView(props: TasksViewProps) {
   }, [refetch]);
 
   const handleGitHubInstalled = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: ["home-up-next", "gh-status"] });
+    void queryClient.invalidateQueries({
+      queryKey: ["home-up-next", "gh-status"],
+    });
   }, [queryClient]);
 
   // A start fetches the task's body first; ignore repeat clicks meanwhile.
@@ -189,9 +215,19 @@ export function TasksView(props: TasksViewProps) {
           // Title only if the detail fetch fails.
           const detail = await queryClient
             .fetchQuery({
-              queryKey: ["github-issue-detail", repo.hostId, repo.path, listed.number, listed.url],
+              queryKey: [
+                "github-issue-detail",
+                repo.hostId,
+                repo.path,
+                listed.number,
+                listed.url,
+              ],
               queryFn: () =>
-                window.electronAPI.github.getIssueDetail(repo, listed.number, listed.url),
+                window.electronAPI.github.getIssueDetail(
+                  repo,
+                  listed.number,
+                  listed.url,
+                ),
               staleTime: 60_000,
               retry: false,
             })
@@ -207,7 +243,8 @@ export function TasksView(props: TasksViewProps) {
           const detail = await queryClient
             .fetchQuery({
               queryKey: ["linear-issue-detail", listed.id],
-              queryFn: () => window.electronAPI.linear.getIssueDetail(listed.id),
+              queryFn: () =>
+                window.electronAPI.linear.getIssueDetail(listed.id),
               staleTime: 60_000,
               retry: false,
             })
@@ -229,181 +266,199 @@ export function TasksView(props: TasksViewProps) {
 
   return (
     <div className={styles.page} data-testid="tasks-view">
-      <div className={styles.header}>
-        <h1 className={styles.title}>
-          Tasks
-          {!loading && rows.length > 0 && (
-            <CountBadge count={rows.length} size="md" className={styles.titleCount} />
-          )}
-        </h1>
-        {providers.length > 0 && (
-          <div className={styles.providers} role="group" aria-label="Tracker">
-            {providers.map((p) => (
-              <Tooltip key={p} label={PROVIDER_LABEL[p]}>
+      <div className={styles.content}>
+        <div className={styles.header}>
+          <h1 className={styles.heading}>Tasks</h1>
+          <span className={styles.headerMeta}>
+            {loading && rows.length === 0
+              ? "Loading…"
+              : `${plural(rows.length, "task")} · ${plural(projectCount, "project")}`}
+          </span>
+          <div className={styles.headerControls}>
+            {providers.length > 0 && (
+              <div
+                className={styles.providers}
+                role="group"
+                aria-label="Tracker"
+              >
+                {providers.map((p) => (
+                  <Tooltip key={p} label={PROVIDER_LABEL[p]}>
+                    <Button
+                      variant="ghost"
+                      className={`${styles.providerTab} ${p === provider ? styles.providerTabActive : ""}`}
+                      aria-label={PROVIDER_LABEL[p]}
+                      aria-pressed={p === provider}
+                      onClick={() => chooseProvider(p)}
+                    >
+                      <ProviderIcon provider={p} size={15} />
+                    </Button>
+                  </Tooltip>
+                ))}
+              </div>
+            )}
+            {providers.length > 0 && (
+              <SearchableSelect
+                value={projectKey ?? ALL_PROJECTS}
+                onChange={chooseProject}
+                options={projectOptions}
+                placeholder="All projects"
+                maxWidth={260}
+                icon={
+                  <span
+                    className={styles.projectDot}
+                    style={projectColorStyle(selectedSource?.ctx.color)}
+                  />
+                }
+                data-testid="tasks-project-select"
+              />
+            )}
+            {homeUrl && (
+              <Link href={homeUrl} variant="plain" className={styles.openLink}>
+                <ExternalLink size={13} />
+                Open in {PROVIDER_LABEL[provider]}
+              </Link>
+            )}
+          </div>
+        </div>
+
+        {nothingConnected ? (
+          <div className={styles.setup}>
+            <p className={styles.setupText}>
+              Connect a tracker to see your tasks from every project here.
+            </p>
+            <GitHubNudge onInstalled={handleGitHubInstalled} />
+            <p className={styles.setupHint}>
+              To use Linear, connect it in Settings and link a team to a
+              project.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className={styles.filters}>
+              {/* A wrapper, so the group centres in the row (it pins itself to flex-start). */}
+              <div className={styles.filterToggle}>
+                <ToggleGroup
+                  value={filter}
+                  onChange={chooseFilter}
+                  options={FILTER_OPTIONS}
+                  size="sm"
+                  aria-label="Which tasks"
+                  activationMode="manual"
+                />
+              </div>
+              <div className={styles.searchBox}>
+                <Search size={14} className={styles.searchIcon} />
+                <Input
+                  className={styles.searchInput}
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setPage(1);
+                  }}
+                  placeholder="Search by title, ID or label"
+                  aria-label="Search tasks"
+                  spellCheck={false}
+                />
+              </div>
+              <Tooltip label="Refresh">
                 <Button
-                  variant="ghost"
-                  className={`${styles.providerTab} ${p === provider ? styles.providerTabActive : ""}`}
-                  aria-label={PROVIDER_LABEL[p]}
-                  aria-pressed={p === provider}
-                  onClick={() => chooseProvider(p)}
+                  variant="secondary"
+                  className={styles.iconButton}
+                  aria-label="Refresh"
+                  onClick={handleRefresh}
                 >
-                  <ProviderIcon provider={p} size={15} />
+                  <RefreshCw size={14} />
                 </Button>
               </Tooltip>
-            ))}
-          </div>
-        )}
-        {providers.length > 0 && (
-          <SearchableSelect
-            value={projectKey ?? ALL_PROJECTS}
-            onChange={chooseProject}
-            options={projectOptions}
-            placeholder="All projects"
-            maxWidth={260}
-            icon={
-              <span
-                className={styles.projectDot}
-                style={projectColorStyle(selectedSource?.ctx.color)}
-              />
-            }
-            data-testid="tasks-project-select"
-          />
-        )}
-        {homeUrl && (
-          <Link href={homeUrl} variant="plain" className={styles.openLink}>
-            <ExternalLink size={13} />
-            Open in {PROVIDER_LABEL[provider]}
-          </Link>
+            </div>
+
+            <div className={styles.table} role="table" aria-label="Tasks">
+              <div className={`${styles.gridRow} ${styles.headRow}`} role="row">
+                <span role="columnheader">ID</span>
+                <span role="columnheader">Title / Context</span>
+                <span role="columnheader">Assignees</span>
+                <span role="columnheader">Status</span>
+                <span role="columnheader">Updated</span>
+                <span role="columnheader" aria-label="Actions" />
+              </div>
+              {loading && rows.length === 0 ? (
+                <TasksSkeleton />
+              ) : current.rows.length === 0 ? (
+                <div className={styles.empty}>
+                  {deferredSearch.trim()
+                    ? "No tasks match your search."
+                    : filter === "assigned"
+                      ? "Nothing assigned to you."
+                      : "No open tasks."}
+                </div>
+              ) : (
+                current.rows.map((row) => (
+                  <TaskTableRow
+                    key={row.key}
+                    row={row}
+                    now={now}
+                    onStart={handleStart}
+                  />
+                ))
+              )}
+            </div>
+
+            <div className={styles.footer}>
+              {failedCount > 0 && (
+                <span className={styles.failed}>
+                  {failedCount} source{failedCount === 1 ? "" : "s"} failed
+                </span>
+              )}
+              {current.pageCount > 1 && (
+                <nav className={styles.pagination} aria-label="Pages">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={current.page <= 1}
+                    onClick={() => setPage(current.page - 1)}
+                  >
+                    <ChevronLeft size={14} />
+                    Previous
+                  </Button>
+                  {pageWindow(current.page, current.pageCount).map((p, i) =>
+                    p === "gap" ? (
+                      <span key={`gap-${i}`} className={styles.pageGap}>
+                        …
+                      </span>
+                    ) : (
+                      <Button
+                        key={p}
+                        variant="ghost"
+                        size="sm"
+                        className={`${styles.pageButton} ${p === current.page ? styles.pageButtonActive : ""}`}
+                        aria-current={p === current.page ? "page" : undefined}
+                        onClick={() => setPage(p)}
+                      >
+                        {p}
+                      </Button>
+                    ),
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={current.page >= current.pageCount}
+                    onClick={() => setPage(current.page + 1)}
+                  >
+                    Next
+                    <ChevronRight size={14} />
+                  </Button>
+                </nav>
+              )}
+            </div>
+          </>
         )}
       </div>
-
-      {nothingConnected ? (
-        <div className={styles.setup}>
-          <p className={styles.setupText}>
-            Connect a tracker to see your tasks from every project here.
-          </p>
-          <GitHubNudge onInstalled={handleGitHubInstalled} />
-          <p className={styles.setupHint}>
-            To use Linear, connect it in Settings and link a team to a project.
-          </p>
-        </div>
-      ) : (
-        <>
-          <div className={styles.filters}>
-            {/* A wrapper, so the group centres in the row (it pins itself to flex-start). */}
-            <div className={styles.filterToggle}>
-              <ToggleGroup
-                value={filter}
-                onChange={chooseFilter}
-                options={FILTER_OPTIONS}
-                size="sm"
-                aria-label="Which tasks"
-                activationMode="manual"
-              />
-            </div>
-            <div className={styles.searchBox}>
-              <Search size={14} className={styles.searchIcon} />
-              <Input
-                className={styles.searchInput}
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(1);
-                }}
-                placeholder="Search by title, ID or label"
-                aria-label="Search tasks"
-                spellCheck={false}
-              />
-            </div>
-            <Tooltip label="Refresh">
-              <Button
-                variant="secondary"
-                className={styles.iconButton}
-                aria-label="Refresh"
-                onClick={handleRefresh}
-              >
-                <RefreshCw size={14} />
-              </Button>
-            </Tooltip>
-          </div>
-
-          <div className={styles.table} role="table" aria-label="Tasks">
-            <div className={`${styles.gridRow} ${styles.headRow}`} role="row">
-              <span role="columnheader">ID</span>
-              <span role="columnheader">Title / Context</span>
-              <span role="columnheader">Assignees</span>
-              <span role="columnheader">Status</span>
-              <span role="columnheader">Updated</span>
-              <span role="columnheader" aria-label="Actions" />
-            </div>
-            {loading && rows.length === 0 ? (
-              <TasksSkeleton />
-            ) : current.rows.length === 0 ? (
-              <div className={styles.empty}>
-                {deferredSearch.trim()
-                  ? "No tasks match your search."
-                  : filter === "assigned"
-                    ? "Nothing assigned to you."
-                    : "No open tasks."}
-              </div>
-            ) : (
-              current.rows.map((row) => (
-                <TaskTableRow key={row.key} row={row} now={now} onStart={handleStart} />
-              ))
-            )}
-          </div>
-
-          <div className={styles.footer}>
-            {failedCount > 0 && (
-              <span className={styles.failed}>
-                {failedCount} source{failedCount === 1 ? "" : "s"} failed
-              </span>
-            )}
-            {current.pageCount > 1 && (
-              <nav className={styles.pagination} aria-label="Pages">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={current.page <= 1}
-                  onClick={() => setPage(current.page - 1)}
-                >
-                  <ChevronLeft size={14} />
-                  Previous
-                </Button>
-                {pageWindow(current.page, current.pageCount).map((p, i) =>
-                  p === "gap" ? (
-                    <span key={`gap-${i}`} className={styles.pageGap}>
-                      …
-                    </span>
-                  ) : (
-                    <Button
-                      key={p}
-                      variant="ghost"
-                      size="sm"
-                      className={`${styles.pageButton} ${p === current.page ? styles.pageButtonActive : ""}`}
-                      aria-current={p === current.page ? "page" : undefined}
-                      onClick={() => setPage(p)}
-                    >
-                      {p}
-                    </Button>
-                  ),
-                )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={current.page >= current.pageCount}
-                  onClick={() => setPage(current.page + 1)}
-                >
-                  Next
-                  <ChevronRight size={14} />
-                </Button>
-              </nav>
-            )}
-          </div>
-        </>
-      )}
     </div>
   );
+}
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
 type TaskTableRowProps = {
@@ -420,10 +475,18 @@ function TaskTableRow(props: TaskTableRowProps) {
   const updated = relativeTime(row.updatedAt, now);
 
   return (
-    <div className={`${styles.gridRow} ${styles.bodyRow}`} role="row" data-testid="task-row">
+    <div
+      className={`${styles.gridRow} ${styles.bodyRow}`}
+      role="row"
+      data-testid="task-row"
+    >
       <span role="cell">
         <Link href={row.url} variant="plain" className={styles.idChip}>
-          {row.provider === "github" ? <CircleDot size={11} /> : <LinearIcon size={10} />}
+          {row.provider === "github" ? (
+            <CircleDot size={11} />
+          ) : (
+            <LinearIcon size={10} />
+          )}
           {row.displayId}
         </Link>
       </span>
@@ -432,7 +495,10 @@ function TaskTableRow(props: TaskTableRowProps) {
           {row.title}
         </Link>
         <span className={styles.context}>
-          <span className={styles.projectName} style={projectColorStyle(row.color)}>
+          <span
+            className={styles.projectName}
+            style={projectColorStyle(row.color)}
+          >
             {row.projectName}
           </span>
           {row.author && <span className={styles.author}>by {row.author}</span>}
@@ -440,7 +506,11 @@ function TaskTableRow(props: TaskTableRowProps) {
             <span
               key={label.name}
               className={styles.label}
-              style={label.color ? ({ "--label-color": label.color } as CSSProperties) : undefined}
+              style={
+                label.color
+                  ? ({ "--label-color": label.color } as CSSProperties)
+                  : undefined
+              }
             >
               {label.name}
             </span>
@@ -461,7 +531,9 @@ function TaskTableRow(props: TaskTableRowProps) {
         {row.assignees.length === 0 && <span className={styles.dim}>—</span>}
       </span>
       <span role="cell">
-        <span className={`${styles.status} ${styles[`tone-${row.status.tone}`]}`}>
+        <span
+          className={`${styles.status} ${styles[`tone-${row.status.tone}`]}`}
+        >
           {row.status.label}
         </span>
       </span>
@@ -488,10 +560,17 @@ function TasksSkeleton() {
   return (
     <div aria-busy="true" aria-label="Loading tasks">
       {Array.from({ length: 6 }, (_, i) => (
-        <div key={i} className={`${styles.gridRow} ${styles.bodyRow}`} role="row">
+        <div
+          key={i}
+          className={`${styles.gridRow} ${styles.bodyRow}`}
+          role="row"
+        >
           <span className={`${styles.bone} ${styles.boneId}`} />
           <span className={styles.titleCell}>
-            <span className={`${styles.bone} ${styles.boneTitle}`} style={{ width: `${45 + ((i * 17) % 40)}%` }} />
+            <span
+              className={`${styles.bone} ${styles.boneTitle}`}
+              style={{ width: `${45 + ((i * 17) % 40)}%` }}
+            />
             <span className={`${styles.bone} ${styles.boneContext}`} />
           </span>
           <span className={`${styles.bone} ${styles.boneAvatar}`} />

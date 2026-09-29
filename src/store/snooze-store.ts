@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { create } from "zustand";
 
 const SNOOZE_STORAGE_KEY = "manor.home.snoozes";
@@ -72,47 +72,34 @@ export const useSnoozeStore = create<SnoozeState>((set, get) => ({
 }));
 
 /**
- * Hook that returns the currently active snoozes and re-renders when a snooze
- * expires. Schedules a timeout for the soonest expiry and clears it on unmount.
+ * Hook that returns the currently active snoozes. The set is derived from the
+ * store, so a new snooze hides its card on the same render; a timeout for the
+ * soonest future expiry bumps `now` so a lapsed snooze brings its card back.
  */
 export function useActiveSnoozes(): Set<string> {
   const until = useSnoozeStore((s) => s.until);
-  const [active, setActive] = useState<Set<string>>(() => {
-    const store = useSnoozeStore.getState();
-    return store.activeSnoozes();
-  });
+  const [now, setNow] = useState(() => Date.now());
+
+  // `now` only needs to be current at each expiry: the timeout below bumps
+  // it then, and a new snooze always ends after it.
+  const active = useMemo(() => {
+    const keys = new Set<string>();
+    for (const [key, value] of Object.entries(until)) {
+      if (value > now) keys.add(key);
+    }
+    return keys;
+  }, [until, now]);
 
   useEffect(() => {
-    const updateActive = () => {
-      const store = useSnoozeStore.getState();
-      setActive(store.activeSnoozes());
-    };
-
-    // Find the soonest expiry
+    const at = Date.now();
     let soonest = Infinity;
     for (const expiry of Object.values(until)) {
-      if (expiry < soonest) {
-        soonest = expiry;
-      }
+      if (expiry > at && expiry < soonest) soonest = expiry;
     }
-
-    // If there are no active snoozes, don't schedule a timeout
-    if (soonest === Infinity) {
-      return;
-    }
-
-    const now = Date.now();
-    const delay = Math.max(0, soonest - now);
-
-    // Schedule the timeout for the soonest expiry
-    const timeout = setTimeout(() => {
-      updateActive();
-    }, delay);
-
-    return () => {
-      clearTimeout(timeout);
-    };
-  }, [until]);
+    if (soonest === Infinity) return;
+    const timeout = setTimeout(() => setNow(Date.now()), soonest - at);
+    return () => clearTimeout(timeout);
+  }, [until, now]);
 
   return active;
 }

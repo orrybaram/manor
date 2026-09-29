@@ -23,7 +23,7 @@ export function flattenPrompt(prompt: string): string {
  * Every step keys off the given `workspacePath`, not whatever happens to be
  * active: the workspace is selected first — through the project store, so the
  * sidebar highlight and main's persisted selection follow — the launch
- * command is resolved home-harness-aware via `getAgentCommand`, the prompt
+ * command is resolved via `getAgentCommand`, the prompt
  * (if any) is flattened before it is queued as that workspace's pending
  * startup command, and a new tab is opened for it. Prewarmed sessions are not
  * consumed: they run the bare agent command, and a seeded launch needs the

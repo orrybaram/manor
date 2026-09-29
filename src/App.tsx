@@ -61,7 +61,6 @@ import {
 } from "./lib/menu-handlers";
 import { useThemeStore } from "./store/theme-store";
 import { useAgentStore } from "./store/agent-store";
-import { usePreferencesStore } from "./store/preferences-store";
 import { useMountEffect } from "./hooks/useMountEffect";
 import { useMenuContextSync } from "./hooks/useMenuContextSync";
 import { useUpdaterToasts } from "./hooks/useUpdaterToasts";
@@ -81,7 +80,6 @@ import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults"
 import {
   escapeShellDoubleQuoted,
   isHomePath,
-  homeLaunchCommand,
   HOME_PATH,
 } from "./lib/home";
 import { TAB_HIDDEN_STYLE, TAB_VISIBLE_STYLE } from "./lib/tab-styles";
@@ -447,16 +445,10 @@ function App() {
   // command actually changes, not on every unrelated project mutation.
   // By key: a local and a remote project can share a path (ADR-191).
   const activeProject = projectForWorkspaceKey(projects, activeWorkspaceKey);
-  // The launch command for the active surface. Home has no owning project and
-  // boots the configured home harness in ~/.manor/home (the pty boundary maps
-  // its sentinel path to the real dir); a project workspace uses its
-  // agentCommand. Shared by prewarming and both new-agent handlers below.
-  const homeHarness = usePreferencesStore((s) => s.preferences.homeHarness);
-  const homeCustomCommand = usePreferencesStore((s) => s.preferences.homeCustomCommand);
-  const homeCustomInterrupt = usePreferencesStore((s) => s.preferences.homeCustomInterrupt);
-  const activeWorkspaceCommand = isHomePath(activeWorkspacePath)
-    ? homeLaunchCommand({ homeHarness, homeCustomCommand, homeCustomInterrupt })
-    : activeProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
+  // The launch command for the active project workspace. Shared by prewarming
+  // and both new-agent handlers below.
+  const activeWorkspaceCommand =
+    activeProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
   useEffect(() => {
     // The Dashboard hosts no panes (ADR-197 §1), so there is nothing to prewarm
     // for; the session keeps the last project workspace's cwd.

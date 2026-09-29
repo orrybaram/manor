@@ -664,23 +664,6 @@ export function useCommands({
         ],
         action: openSettingsPage("integrations"),
       },
-      {
-        id: "settings-home",
-        label: "Settings: Home",
-        icon: <Bot size={14} />,
-        keywords: [
-          "settings",
-          "home",
-          "harness",
-          "agent",
-          "claude",
-          "codex",
-          "custom",
-          "launch command",
-          "interrupt",
-        ],
-        action: openSettingsPage("home"),
-      },
     ];
 
     // The Dashboard has no tabs or panes (ADR-197): hide anything that would

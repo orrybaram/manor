@@ -26,9 +26,6 @@ const defaultPreferences: AppPreferences = {
   diffOpensInNewPanel: true,
   agentRetentionDays: 90,
   agentPruneNoticeShown: false,
-  homeHarness: "claude",
-  homeCustomCommand: "",
-  homeCustomInterrupt: "",
   statsEnabled: true,
 };
 

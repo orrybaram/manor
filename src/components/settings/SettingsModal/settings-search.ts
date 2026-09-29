@@ -6,7 +6,6 @@ export type SettingsPageId =
   | "keybindings"
   | "notifications"
   | "integrations"
-  | "home"
   | "remote";
 
 export type SettingsSection = {
@@ -126,18 +125,6 @@ const PAGE_SECTIONS: {
         id: "integrations-linear",
         label: "Linear",
         keywords: ["linear", "issues", "tasks", "tickets", "api key"],
-      },
-    ],
-  },
-  {
-    page: "home",
-    pageLabel: "Home",
-    pageKeywords: ["home", "local", "workspace", "harness"],
-    sections: [
-      {
-        id: "home-harness",
-        label: "Harness",
-        keywords: ["harness", "claude", "codex", "custom", "interrupt", "home"],
       },
     ],
   },

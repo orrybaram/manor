@@ -1,7 +1,4 @@
 import { useProjectStore } from "./store/project-store";
-import { usePreferencesStore } from "./store/preferences-store";
-import { isHomePath } from "./lib/home-path";
-import { homeLaunchCommand } from "./lib/home";
 
 /** Default agent command used when no project-specific command is configured */
 export const DEFAULT_AGENT_COMMAND = "claude --dangerously-skip-permissions";
@@ -31,8 +28,7 @@ export function getAgentKindForCommand(command: string): string {
 
 /**
  * Resolve the agent command for the given workspace path, most specific
- * source first: `override` (an explicit caller-supplied command), the home
- * harness for the Home surface, the owning project's `agentCommand`, then the
+ * source first: `override` (an explicit caller-supplied command), the owning project's `agentCommand`, then the
  * global default.
  */
 export function getAgentCommand(
@@ -40,14 +36,6 @@ export function getAgentCommand(
   override?: string,
 ): string {
   if (override) return override;
-  if (isHomePath(workspacePath)) {
-    const { preferences } = usePreferencesStore.getState();
-    return homeLaunchCommand({
-      homeHarness: preferences.homeHarness,
-      homeCustomCommand: preferences.homeCustomCommand,
-      homeCustomInterrupt: preferences.homeCustomInterrupt,
-    });
-  }
   if (!workspacePath) return DEFAULT_AGENT_COMMAND;
   const proj = useProjectStore
     .getState()

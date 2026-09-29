@@ -6,7 +6,7 @@ import { useToastStore } from "../store/toast-store";
 import { getBrowserPaneRef } from "./browser-pane-registry";
 import type { BrowserPaneRef } from "../components/workspace-panes/BrowserPane/BrowserPane";
 import { DEFAULT_AGENT_COMMAND } from "../agent-defaults";
-import { isHomePath, homeLaunchCommand } from "./home";
+import { isHomePath } from "./home";
 import {
   PAGE_BROWSER_COMMANDS,
   comboFromEvent,
@@ -67,18 +67,9 @@ function isBrowserPaneDomFocused(): boolean {
 }
 
 /**
- * The agent launch command for a surface. Home has no owning project and boots
- * the configured home harness; a project workspace uses its `agentCommand`.
+ * The agent launch command for a workspace: its project's `agentCommand`.
  */
 export function resolveWorkspaceCommand(workspacePath: string | null): string {
-  const { preferences } = usePreferencesStore.getState();
-  if (isHomePath(workspacePath)) {
-    return homeLaunchCommand({
-      homeHarness: preferences.homeHarness,
-      homeCustomCommand: preferences.homeCustomCommand,
-      homeCustomInterrupt: preferences.homeCustomInterrupt,
-    });
-  }
   const project = useProjectStore
     .getState()
     .projects.find((p) => p.workspaces.some((w) => w.path === workspacePath));

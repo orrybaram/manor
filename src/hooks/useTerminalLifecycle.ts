@@ -18,12 +18,9 @@ import { createFileLinkProvider } from "../terminal/file-link-provider";
 import { selectActiveLayout, useAppStore, type PendingPaneCommand } from "../store/app-store";
 import type { WorkspaceKey } from "../lib/workspace-key";
 import { useProjectStore } from "../store/project-store";
-import { usePreferencesStore } from "../store/preferences-store";
 import { getAgentKindForCommand } from "../agent-defaults";
-import { isHomePath } from "../lib/home";
 import { isNavRegionFocused } from "../lib/focus-regions";
 import { classifyShellOutput } from "../lib/shell-ready";
-import { resolveHomeAdapter } from "../lib/harness";
 import { paneCreateHostId, useTerminalConnection } from "./useTerminalConnection";
 import { useRemotePaneStore } from "../store/remote-pane-store";
 import { isRemotePane, pasteClipboardImage } from "../lib/remote-image-paste";
@@ -342,12 +339,6 @@ export function useTerminalLifecycle(
     // is set in the PTY env for connector-aware spawns.
     const agentKindForCreate: string | null = (() => {
       if (!cwd) return null;
-      if (isHomePath(cwd)) {
-        const prefs = usePreferencesStore.getState().preferences;
-        return getAgentKindForCommand(
-          resolveHomeAdapter(prefs).launchCommand(),
-        );
-      }
       const projects = useProjectStore.getState().projects;
       const project = projects.find((p) =>
         p.workspaces.some((ws) => ws.path === cwd),
@@ -386,30 +377,18 @@ export function useTerminalLifecycle(
 
         // Set pane context for agent association
         if (cwd) {
-          if (isHomePath(cwd)) {
-            // The home has no owning project — associate the pane with
-            // the sentinel workspace and the resolved harness command.
-            const prefs = usePreferencesStore.getState().preferences;
-            window.electronAPI.agents.setPaneContext(paneId, {
-              projectId: "",
-              projectName: "Home",
-              workspacePath: cwd,
-              agentCommand: resolveHomeAdapter(prefs).launchCommand(),
-            });
-          } else {
-            const projects = useProjectStore.getState().projects;
-            const project = projects.find((p) =>
-              p.workspaces.some((ws) => ws.path === cwd),
-            );
+          const projects = useProjectStore.getState().projects;
+          const project = projects.find((p) =>
+            p.workspaces.some((ws) => ws.path === cwd),
+          );
 
-            // Fire-and-forget call to set pane context
-            window.electronAPI.agents.setPaneContext(paneId, {
-              projectId: project?.id ?? "",
-              projectName: project?.name ?? "",
-              workspacePath: cwd,
-              agentCommand: project?.agentCommand ?? null,
-            });
-          }
+          // Fire-and-forget call to set pane context
+          window.electronAPI.agents.setPaneContext(paneId, {
+            projectId: project?.id ?? "",
+            projectName: project?.name ?? "",
+            workspacePath: cwd,
+            agentCommand: project?.agentCommand ?? null,
+          });
         }
 
         // Check for pending startup command (e.g. worktree start script)

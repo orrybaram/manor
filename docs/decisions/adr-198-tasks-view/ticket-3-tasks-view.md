@@ -1,6 +1,6 @@
 ---
 title: TasksView page with table, filters and pagination
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [1, 2]

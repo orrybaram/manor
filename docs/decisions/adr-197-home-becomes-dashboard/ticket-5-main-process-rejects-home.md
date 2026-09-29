@@ -1,6 +1,6 @@
 ---
 title: Main process and control server reject Home as a pane target
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [4]

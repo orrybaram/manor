@@ -270,6 +270,18 @@
   flex-shrink: 0;
 }
 
+.workspaceName {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
 .label {
   --label-color: var(--text-dim);
   flex-shrink: 0;

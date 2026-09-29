@@ -11,6 +11,7 @@ import {
   sortTasks,
   trackerHomeUrl,
   withoutLinkedTasks,
+  linkedTasks,
   type TaskContext,
   type TaskRow,
 } from "./tasks";
@@ -284,5 +285,59 @@ describe("withoutLinkedTasks", () => {
       { id: "lin-1", url: "https://linear.app/acme/issue/ENG-45" },
     ]);
     expect(withoutLinkedTasks([ghRow, linearRow], links)).toEqual([ghRow]);
+  });
+});
+
+describe("linkedTasks", () => {
+  const entryOf = (p: ProjectInfo) => ({
+    entryKey: p.id,
+    projectName: p.name,
+    color: p.color,
+  });
+  const withWorkspace = {
+    ...project,
+    workspaces: [
+      {
+        path: "/wt/fix",
+        branch: "12-fix-the-thing",
+        isMain: false,
+        name: null,
+        linkedIssues: [
+          {
+            id: "gh-12",
+            identifier: "#12",
+            title: "Old title",
+            url: "https://github.com/acme/manor/issues/12",
+          },
+          {
+            id: "lin-9",
+            identifier: "ENG-9",
+            title: "Linear thing",
+            url: "https://linear.app/acme/issue/ENG-9",
+          },
+        ],
+      },
+    ],
+  } as unknown as ProjectInfo;
+
+  it("lists every link with its workspace, filling tracker fields from a fetched row", () => {
+    const [gh12, eng9] = linkedTasks([withWorkspace], entryOf, [
+      fromGitHub(gh(), ctx),
+    ]);
+    expect(gh12).toMatchObject({
+      provider: "github",
+      displayId: "#12",
+      title: "Fix the thing",
+      assignees: ["alice"],
+      workspaceName: "12-fix-the-thing",
+      workspacePath: "/wt/fix",
+      projectId: "p1",
+    });
+    expect(eng9).toMatchObject({
+      provider: "linear",
+      title: "Linear thing",
+      assignees: [],
+      status: { label: "In progress", tone: "started" },
+    });
   });
 });

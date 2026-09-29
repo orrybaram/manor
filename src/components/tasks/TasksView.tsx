@@ -6,7 +6,8 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import { useProjectStore } from "../../store/project-store";
+import { useProjectStore, type ProjectInfo } from "../../store/project-store";
+import { buildTopLevelEntries } from "../../utils/sidebar-items";
 import { useQueryClient } from "@tanstack/react-query";
 import Search from "lucide-react/dist/esm/icons/search";
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
@@ -15,6 +16,7 @@ import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import ChevronLeft from "lucide-react/dist/esm/icons/chevron-left";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import CircleDot from "lucide-react/dist/esm/icons/circle-dot";
+import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import type { PaletteView } from "../command-palette/types";
 import { GitHubIcon } from "../command-palette/GitHubIcon";
 import { LinearIcon } from "../command-palette/LinearIcon";
@@ -38,6 +40,8 @@ import {
 import {
   filterTasks,
   withoutLinkedTasks,
+  linkedTasks,
+  type LinkedTask,
   initialOf,
   pageWindow,
   paginate,
@@ -83,10 +87,19 @@ function writePref(key: string, value: string): void {
   }
 }
 
-const FILTER_OPTIONS: { value: TaskFilter; label: string }[] = [
+/** The filter row's choices: the two tracker queries, plus tasks linked to a workspace. */
+type TaskListMode = TaskFilter | "in-progress";
+
+const FILTER_OPTIONS: { value: TaskListMode; label: string }[] = [
   { value: "open", label: "Open" },
   { value: "assigned", label: "Assigned to me" },
+  { value: "in-progress", label: "In progress" },
 ];
+
+function readMode(): TaskListMode {
+  const saved = readPref(PREF_FILTER);
+  return saved === "open" || saved === "in-progress" ? saved : "assigned";
+}
 
 const PROVIDER_LABEL: Record<TaskProvider, string> = {
   github: "GitHub",
@@ -111,9 +124,11 @@ export function TasksView(props: TasksViewProps) {
   const [savedProvider, setSavedProvider] = useState<TaskProvider>(() =>
     readPref(PREF_PROVIDER) === "linear" ? "linear" : "github",
   );
-  const [filter, setFilter] = useState<TaskFilter>(() =>
-    readPref(PREF_FILTER) === "open" ? "open" : "assigned",
-  );
+  const [mode, setMode] = useState<TaskListMode>(readMode);
+  const inProgress = mode === "in-progress";
+  // In progress lists workspace links; the assigned query fills in their
+  // labels, assignees and status (starting a task assigns it to you).
+  const filter: TaskFilter = inProgress ? "assigned" : mode;
   const [savedProject, setSavedProject] = useState<string>(
     () => readPref(PREF_PROJECT) ?? ALL_PROJECTS,
   );
@@ -169,15 +184,26 @@ export function TasksView(props: TasksViewProps) {
     [rows, projects],
   );
   const linkedCount = rows.length - unlinked.length;
+
+  const linked = useMemo(() => {
+    const entryOf = entryLookup(projects);
+    return linkedTasks(projects, entryOf, rows).filter(
+      (t) =>
+        t.provider === provider &&
+        (projectKey === null || t.projectEntryKey === projectKey),
+    );
+  }, [projects, rows, provider, projectKey]);
+
+  const listed: (TaskRow | LinkedTask)[] = inProgress ? linked : unlinked;
   const filtered = useMemo(
-    () => filterTasks(unlinked, deferredSearch),
-    [unlinked, deferredSearch],
+    () => filterTasks(listed, deferredSearch),
+    [listed, deferredSearch],
   );
   const current = paginate(filtered, page);
   const homeUrl = projectKey ? trackerHomeUrl(rows, provider) : null;
   const projectCount = useMemo(
-    () => new Set(unlinked.map((r) => r.projectEntryKey)).size,
-    [unlinked],
+    () => new Set(listed.map((r) => r.projectEntryKey)).size,
+    [listed],
   );
 
   const chooseProvider = useCallback((next: TaskProvider) => {
@@ -186,8 +212,8 @@ export function TasksView(props: TasksViewProps) {
     setPage(1);
   }, []);
 
-  const chooseFilter = useCallback((next: TaskFilter) => {
-    setFilter(next);
+  const chooseFilter = useCallback((next: TaskListMode) => {
+    setMode(next);
     writePref(PREF_FILTER, next);
     setPage(1);
   }, []);
@@ -271,6 +297,16 @@ export function TasksView(props: TasksViewProps) {
     [queryClient, onNewWorkspace],
   );
 
+  const openLinked = useCallback((task: LinkedTask) => {
+    const store = useProjectStore.getState();
+    const project = store.projects.find((p) => p.id === task.projectId);
+    const index =
+      project?.workspaces.findIndex((ws) => ws.path === task.workspacePath) ??
+      -1;
+    // Also flips `activeSurface` back to "workspace" via `setActiveWorkspace`.
+    if (index >= 0) store.selectWorkspace(task.projectId, index);
+  }, []);
+
   const nothingConnected = providers.length === 0 && !status.checking;
 
   return (
@@ -279,10 +315,12 @@ export function TasksView(props: TasksViewProps) {
         <div className={styles.header}>
           <h1 className={styles.heading}>Tasks</h1>
           <span className={styles.headerMeta}>
-            {loading && rows.length === 0
+            {loading && rows.length === 0 && !inProgress
               ? "Loading…"
-              : `${plural(unlinked.length, "task")} · ${plural(projectCount, "project")}` +
-                (linkedCount > 0 ? ` · ${linkedCount} in workspaces` : "")}
+              : `${plural(listed.length, "task")} · ${plural(projectCount, "project")}` +
+                (!inProgress && linkedCount > 0
+                  ? ` · ${linkedCount} in progress`
+                  : "")}
           </span>
           <div className={styles.headerControls}>
             {providers.length > 0 && (
@@ -348,7 +386,7 @@ export function TasksView(props: TasksViewProps) {
               {/* A wrapper, so the group centres in the row (it pins itself to flex-start). */}
               <div className={styles.filterToggle}>
                 <ToggleGroup
-                  value={filter}
+                  value={mode}
                   onChange={chooseFilter}
                   options={FILTER_OPTIONS}
                   size="sm"
@@ -391,25 +429,38 @@ export function TasksView(props: TasksViewProps) {
                 <span role="columnheader">Updated</span>
                 <span role="columnheader" aria-label="Actions" />
               </div>
-              {loading && rows.length === 0 ? (
+              {loading && rows.length === 0 && !inProgress ? (
                 <TasksSkeleton />
               ) : current.rows.length === 0 ? (
                 <div className={styles.empty}>
                   {deferredSearch.trim()
                     ? "No tasks match your search."
-                    : filter === "assigned"
-                      ? "Nothing assigned to you."
-                      : "No open tasks."}
+                    : inProgress
+                      ? "No tasks linked to a workspace."
+                      : mode === "assigned"
+                        ? "Nothing assigned to you."
+                        : "No open tasks."}
                 </div>
               ) : (
-                current.rows.map((row) => (
-                  <TaskTableRow
-                    key={row.key}
-                    row={row}
-                    now={now}
-                    onStart={handleStart}
-                  />
-                ))
+                current.rows.map((row) =>
+                  "workspacePath" in row ? (
+                    <TaskTableRow
+                      key={row.key}
+                      row={row}
+                      now={now}
+                      actionLabel="Open"
+                      onAction={() => openLinked(row)}
+                    />
+                  ) : (
+                    <TaskTableRow
+                      key={row.key}
+                      row={row}
+                      now={now}
+                      actionLabel="Start"
+                      onAction={() => void handleStart(row)}
+                    />
+                  ),
+                )
               )}
             </div>
 
@@ -467,18 +518,51 @@ export function TasksView(props: TasksViewProps) {
   );
 }
 
+/** Each project's sidebar entry: a linked group's key, name and colour, or its own. */
+function entryLookup(projects: readonly ProjectInfo[]) {
+  const byProject = new Map<
+    string,
+    { entryKey: string; projectName: string; color: string | null }
+  >();
+  for (const entry of buildTopLevelEntries(projects)) {
+    if (entry.kind === "project") {
+      byProject.set(entry.project.id, {
+        entryKey: entry.key,
+        projectName: entry.project.name,
+        color: entry.project.color,
+      });
+    } else {
+      for (const section of entry.sections) {
+        byProject.set(section.project.id, {
+          entryKey: entry.key,
+          projectName: entry.group.name,
+          color: section.project.color,
+        });
+      }
+    }
+  }
+  return (project: ProjectInfo) =>
+    byProject.get(project.id) ?? {
+      entryKey: project.id,
+      projectName: project.name,
+      color: project.color,
+    };
+}
+
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
 type TaskTableRowProps = {
-  row: TaskRow;
+  row: TaskRow | LinkedTask;
   now: number;
-  onStart: (row: TaskRow) => void;
+  /** "Start" for a tracker row, "Open" (go to its workspace) for a linked one. */
+  actionLabel: string;
+  onAction: () => void;
 };
 
 function TaskTableRow(props: TaskTableRowProps) {
-  const { row, now, onStart } = props;
+  const { row, now, actionLabel, onAction } = props;
 
   const shownAssignees = row.assignees.slice(0, MAX_AVATARS);
   const hiddenAssignees = row.assignees.length - shownAssignees.length;
@@ -511,6 +595,12 @@ function TaskTableRow(props: TaskTableRowProps) {
           >
             {row.projectName}
           </span>
+          {"workspaceName" in row && (
+            <span className={styles.workspaceName}>
+              <GitBranch size={11} />
+              {row.workspaceName}
+            </span>
+          )}
           {row.author && <span className={styles.author}>by {row.author}</span>}
           {row.labels.map((label) => (
             <span
@@ -555,10 +645,10 @@ function TaskTableRow(props: TaskTableRowProps) {
           variant="secondary"
           size="sm"
           className={styles.startButton}
-          onClick={() => onStart(row)}
-          aria-label={`Start ${row.displayId}`}
+          onClick={onAction}
+          aria-label={`${actionLabel} ${row.displayId}`}
         >
-          Start
+          {actionLabel}
           <ArrowRight size={13} />
         </Button>
       </span>

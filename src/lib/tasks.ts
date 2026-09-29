@@ -138,13 +138,16 @@ export function fromLinear(issue: LinearIssue, ctx: TaskContext): TaskRow {
   };
 }
 
-function updatedMs(row: TaskRow): number {
+/** The fields the list helpers (sort, search, paginate) read. */
+type Listable = Pick<TaskRow, "updatedAt" | "title" | "displayId" | "labels">;
+
+function updatedMs(row: Listable): number {
   const ms = Date.parse(row.updatedAt);
   return Number.isNaN(ms) ? -Infinity : ms;
 }
 
 /** Most recently updated first; rows without a timestamp last; stable otherwise. */
-export function sortTasks(rows: readonly TaskRow[]): TaskRow[] {
+export function sortTasks<T extends Listable>(rows: readonly T[]): T[] {
   return rows
     .map((row, index) => ({ row, index, ms: updatedMs(row) }))
     .sort((a, b) => (b.ms === a.ms ? a.index - b.index : b.ms > a.ms ? 1 : -1))
@@ -198,11 +201,77 @@ function normalizeUrl(url: string): string {
   return url.replace(/\/+$/, "").toLowerCase();
 }
 
+/**
+ * A task linked to a workspace — the In progress list. Built from the
+ * workspace's link (id, title, URL); tracker fields (labels, assignees,
+ * status, updated) come from a fetched row for the same task when one is
+ * loaded, and fall back to empty / "In progress".
+ */
+export interface LinkedTask extends Omit<TaskRow, "raw" | "project"> {
+  projectId: string;
+  workspacePath: string;
+  /** The workspace's name, else its branch. */
+  workspaceName: string;
+}
+
+/** Where a project's rows sit in the sidebar: its entry key, name and colour. */
+export type EntryOf = (project: ProjectInfo) => {
+  entryKey: string;
+  projectName: string;
+  color: string | null;
+};
+
+/**
+ * Every task linked to a workspace, across projects, one row per link.
+ * GitHub links have `gh-N` ids; anything else is a Linear issue id.
+ */
+export function linkedTasks(
+  projects: readonly ProjectInfo[],
+  entryOf: EntryOf,
+  fetched: readonly TaskRow[],
+): LinkedTask[] {
+  const byUrl = new Map<string, TaskRow>();
+  for (const row of fetched) if (row.url) byUrl.set(normalizeUrl(row.url), row);
+  const out: LinkedTask[] = [];
+  for (const project of projects) {
+    const entry = entryOf(project);
+    for (const ws of project.workspaces) {
+      for (const linked of ws.linkedIssues ?? []) {
+        const match = linked.url
+          ? byUrl.get(normalizeUrl(linked.url))
+          : undefined;
+        const provider: TaskProvider = linked.id.startsWith("gh-")
+          ? "github"
+          : "linear";
+        out.push({
+          key: `linked:${ws.path}:${linked.id}`,
+          provider,
+          displayId: linked.identifier,
+          title: match?.title ?? linked.title,
+          url: linked.url,
+          labels: match?.labels ?? [],
+          assignees: match?.assignees ?? [],
+          author: match?.author,
+          status: match?.status ?? { label: "In progress", tone: "started" },
+          updatedAt: match?.updatedAt ?? "",
+          projectEntryKey: entry.entryKey,
+          projectName: entry.projectName,
+          color: entry.color,
+          projectId: project.id,
+          workspacePath: ws.path,
+          workspaceName: ws.name || ws.branch,
+        });
+      }
+    }
+  }
+  return sortTasks(out);
+}
+
 /** Rows whose title, ID or a label contains `query` (case-insensitive); all rows for a blank query. */
-export function filterTasks(
-  rows: readonly TaskRow[],
+export function filterTasks<T extends Listable>(
+  rows: readonly T[],
   query: string,
-): TaskRow[] {
+): T[] {
   const q = query.trim().toLowerCase();
   if (!q) return [...rows];
   return rows.filter(
@@ -215,8 +284,8 @@ export function filterTasks(
 
 export const TASKS_PAGE_SIZE = 25;
 
-export interface TaskPage {
-  rows: TaskRow[];
+export interface TaskPage<T = TaskRow> {
+  rows: T[];
   /** 1-based, clamped into `[1, pageCount]`. */
   page: number;
   /** At least 1, so an empty list still has a page. */
@@ -224,11 +293,11 @@ export interface TaskPage {
 }
 
 /** The 1-based `page` of `rows`, clamping an out-of-range page to the nearest real one. */
-export function paginate(
-  rows: readonly TaskRow[],
+export function paginate<T>(
+  rows: readonly T[],
   page: number,
   size = TASKS_PAGE_SIZE,
-): TaskPage {
+): TaskPage<T> {
   const pageCount = Math.max(1, Math.ceil(rows.length / size));
   const clamped = Math.min(pageCount, Math.max(1, Math.floor(page) || 1));
   const start = (clamped - 1) * size;

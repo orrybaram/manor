@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.18.0] - 2026-09-29
+
+### Features
+- The Home page is now a Dashboard with stat tiles, "Needs you" cards, a PR pipeline, an "Up next" panel and project tiles
+- Added an agent activity timeline that keeps its history between app restarts
+- Hover over a PR or workspace on the Dashboard to see a detail popover
+- "Needs you" cards can be snoozed, and every blocked PR card now has a "Fix with agent" action
+- Added a Tasks page (formerly Issues) with a table, filters, pagination and author/assignee details
+- The Tasks "In progress" filter shows tasks linked to workspaces, and other views hide tasks that already have a workspace
+- Added a dedicated "Up next" view in the command palette for starting work quickly
+- Added a Search row to the sidebar that opens the command palette
+- The command palette now has go-to destinations and the same commands as the app menus
+- Command palette search can be limited to the current project with a scope chip, or widened to search everything
+- Removed the Projects page, and Tasks now fills the full dashboard column
+- The notifications bell is back at the right edge of the sidebar
+
+### Fixes
+- Pressing Escape in the command palette now clears the scope chip instead of closing the palette
+- The sidebar always shows the workspace branch
+- An agent's launch prompt now goes to its new tab instead of the workspace
+- Agents now start alongside a workspace's setup script instead of being dropped
+- Live agent sessions now show up to the current moment on the timeline, a new agent gets its first status, and stopped agents settle correctly
+- The Tasks table now scrolls under a sticky header instead of squashing rows
+- Open PR rows keep enough room to show the PR title
+
+### Improvements
+- Redesigned the sidebar: navigation is separate from content, text uses one size scale, labels are no longer all caps, and icons line up
+- PR pipeline stages scroll instead of hiding cards, and "Up next" now sits above PRs
+- All "Needs you" card actions are the same size and no longer overflow the card footer
+- The Dashboard no longer has tabs, agent launchers or its own settings page
+
 ## [0.17.0] - 2026-09-28
 
 ### Features

@@ -1067,9 +1067,12 @@ describe("start-agent", () => {
   it("opens no tab on the home surface (ADR-197: the Dashboard holds no tabs)", async () => {
     setupTwoWorkspaces();
 
-    await expect(start({ workspacePath: HOME_PATH, prompt: "go" })).rejects.toThrow();
+    await expect(start({ workspacePath: HOME_PATH, prompt: "go" })).rejects.toThrow(
+      "The Dashboard can't host panes",
+    );
 
     expect(useAppStore.getState().workspaceLayouts[HOME_PATH]).toBeUndefined();
+    expect(pending()[HOME_PATH]).toBeUndefined();
   });
 
   it("escapes shell metacharacters in the prompt", async () => {
@@ -1152,7 +1155,9 @@ describe("start-agent", () => {
     const loadProjects = vi.fn(async () => {});
     useProjectStore.setState({ loadProjects });
 
-    await expect(start({ workspacePath: HOME_PATH, prompt: "go" })).rejects.toThrow();
+    await expect(start({ workspacePath: HOME_PATH, prompt: "go" })).rejects.toThrow(
+      "The Dashboard can't host panes",
+    );
 
     expect(loadProjects).not.toHaveBeenCalled();
   });
@@ -1213,5 +1218,23 @@ describe("dispatch table", () => {
 
   it("does not expose the fire-and-forget legacy command", () => {
     expect(appCommandHandlers["run-setup-script"]).toBeUndefined();
+  });
+});
+
+describe("Dashboard (Home) rejects pane-hosting commands", () => {
+  it.each([
+    ["new-tab", { contentType: "terminal" }],
+    ["split-pane", { direction: "right" }],
+    ["duplicate-tab", { tabId: "t1" }],
+    ["open-diff", {}],
+  ])("%s errors when Home is active", (cmd, args) => {
+    useAppStore.setState({ activeWorkspacePath: HOME_PATH });
+    expect(() => run(cmd, args)).toThrow("The Dashboard can't host panes");
+  });
+
+  it("new-tab errors for an explicit Home workspacePath", () => {
+    expect(() =>
+      run("new-tab", { contentType: "terminal", workspacePath: HOME_PATH }),
+    ).toThrow("The Dashboard can't host panes");
   });
 });

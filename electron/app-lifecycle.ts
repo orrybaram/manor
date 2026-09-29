@@ -12,7 +12,6 @@ import { BranchWatcher } from "./branch-watcher";
 import { DiffWatcher } from "./diff-watcher";
 import { GitHubManager, ghRepoFromRemoteUrl } from "./github";
 import { LinearManager } from "./linear";
-import { homeWorkspaceDir } from "./paths";
 import { AgentHookServer } from "./agent-hooks";
 import { NotificationCoalescer, type HookCursor } from "./backend/hook-feed";
 import { bootstrapHost } from "./terminal-host/bootstrap-host";
@@ -536,9 +535,6 @@ export function initApp(devTitle: string | null): void {
     console.warn(`[app-lifecycle] bootstrap: ${warning}`);
   }
   ensureManorCli();
-  // The Home surface's harness runs in ~/.manor/home. Create it once here
-  // instead of on every new session's launch command.
-  fs.mkdirSync(homeWorkspaceDir(), { recursive: true });
 
   function broadcastAgent(agent: AgentInfo): void {
     sendAgentUpdate(mainWindow, agent, preferencesManager);

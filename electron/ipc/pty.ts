@@ -6,6 +6,7 @@ import { resolveSpawnCwd } from "../paths";
 import { HostUnavailableError } from "../backend/host-view";
 import { LOCAL_HOST_ID, type HostId } from "../backend/types";
 import { errorMessage } from "../lib/errors";
+import { isHomePath } from "../../src/lib/home-path";
 import type { IpcDeps } from "./types";
 import type {
   PtyCreateOptions,
@@ -55,6 +56,7 @@ function validatePtyArgs(paneId: string, cwd: string | null, cols: number, rows:
   if (cwd !== null) assertString(cwd, "cwd");
   assertPositiveInt(cols, "cols");
   assertPositiveInt(rows, "rows");
+  if (isHomePath(cwd)) throw new Error("The Dashboard can't host panes");
   return resolveSpawnCwd(cwd);
 }
 
@@ -234,6 +236,7 @@ export function register(deps: IpcDeps): void {
     (_event, cwd: string | null, hostId: string = LOCAL_HOST_ID) => {
       if (cwd !== null) assertString(cwd, "cwd");
       assertString(hostId, "hostId");
+      if (isHomePath(cwd)) return null;
       return deps.prewarmManager?.consume(resolveSpawnCwd(cwd), hostId) ?? null;
     },
   );
@@ -249,6 +252,8 @@ export function register(deps: IpcDeps): void {
     ) => {
       assertString(cwd, "cwd");
       assertString(hostId, "hostId");
+      // The Dashboard hosts no panes; never warm a shell for it.
+      if (isHomePath(cwd)) return;
       await deps.prewarmManager?.updateCwd(resolveSpawnCwd(cwd), hostId, agentCommand, agentKind);
     },
   );

@@ -1,6 +1,6 @@
 ---
 title: Task field model for filtering and sorting
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]

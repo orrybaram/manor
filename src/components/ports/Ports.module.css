@@ -6,67 +6,12 @@
   position: relative;
 }
 
-.portsResizeHandle {
-  position: absolute;
+/* Grab area along the section's top edge; ResizeHandle draws the glow. */
+.resizeHandle {
   top: -3px;
   left: 0;
   right: 0;
   height: 6px;
-  cursor: row-resize;
-  z-index: 20;
-}
-
-/* Same treatment as the sidebar's resize handle: an accent line glowing on
-   hover or while dragging, fading out towards the left and right ends. */
-.portsResizeHandle::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 1px;
-  transform: translateY(-50%);
-  background: linear-gradient(
-    to right,
-    transparent,
-    var(--accent) 30%,
-    var(--accent) 70%,
-    transparent
-  );
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-
-.portsResizeHandle::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 9px;
-  transform: translateY(-50%);
-  background: linear-gradient(
-    to bottom,
-    transparent,
-    color-mix(in srgb, var(--accent) 45%, transparent),
-    transparent
-  );
-  mask-image: linear-gradient(
-    to right,
-    transparent,
-    #000 30%,
-    #000 70%,
-    transparent
-  );
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-
-.portsResizeHandle:hover::after,
-.portsResizeHandle:hover::before,
-.portsResizeHandleActive::after,
-.portsResizeHandleActive::before {
-  opacity: 1;
 }
 
 /* Duplicated in Sidebar.module.css, AgentsList.module.css — candidate for a shared <SectionHeader> UI component */

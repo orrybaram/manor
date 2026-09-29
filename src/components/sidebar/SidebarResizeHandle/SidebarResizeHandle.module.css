@@ -1,67 +1,11 @@
 /* Fills the gutter to the right of the sidebar panel or rail (ADR-196), so
-   the grab area is the whole gutter. On hover or while dragging, the main
-   panel's left border glows in the accent colour, fading out towards the
-   top and bottom. Starts below the WindowLead so it never covers the
-   window's drag row. */
+   the grab area is the whole gutter, and spans exactly the main panel's
+   height: below the title row, above the status bar. The glow sits on the
+   panel's left border, half a pixel past the gutter. */
 .handle {
-  position: absolute;
-  /* Spans exactly the main panel's height: below the title row, above the
-     status bar, so the glow never runs past the panel's corners. */
   top: var(--title-row);
   bottom: var(--status-bar-height);
   right: 0;
   width: var(--frame-gap);
-  cursor: col-resize;
-  z-index: 20;
-}
-
-/* The line, on the panel's border one pixel past the gutter. */
-.handle::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: -1px;
-  width: 1px;
-  background: linear-gradient(
-    to bottom,
-    transparent,
-    var(--accent) 30%,
-    var(--accent) 70%,
-    transparent
-  );
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-
-/* The glow around the line, faded at the ends by the same gradient. */
-.handle::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: -5px;
-  width: 9px;
-  background: linear-gradient(
-    to right,
-    transparent,
-    color-mix(in srgb, var(--accent) 45%, transparent),
-    transparent
-  );
-  mask-image: linear-gradient(
-    to bottom,
-    transparent,
-    #000 30%,
-    #000 70%,
-    transparent
-  );
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-
-.handle:hover::after,
-.handle:hover::before,
-.active::after,
-.active::before {
-  opacity: 1;
+  --resize-line: calc(100% + 0.5px);
 }

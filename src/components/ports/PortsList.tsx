@@ -7,6 +7,7 @@ import { useCollapsibleResize } from "../../hooks/useCollapsibleResize";
 import { PortGroup } from "./PortGroup";
 import styles from "./Ports.module.css";
 import { Collapse } from "../ui/Collapse/Collapse";
+import { ResizeHandle } from "../ui/ResizeHandle/ResizeHandle";
 
 export function PortsList() {
   const { workspacePortGroups, totalPortCount } = usePortsData();
@@ -34,8 +35,10 @@ export function PortsList() {
 
   return (
     <div className={styles.portsSection}>
-      <div
-        className={`${styles.portsResizeHandle} ${isResizing ? styles.portsResizeHandleActive : ""}`}
+      <ResizeHandle
+        orientation="horizontal"
+        active={isResizing}
+        className={styles.resizeHandle}
         onMouseDown={onResizeStart}
       />
       <div

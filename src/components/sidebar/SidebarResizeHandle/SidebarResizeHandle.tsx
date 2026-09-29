@@ -4,6 +4,7 @@ import { useProjectStore } from "../../../store/project-store";
 import { useDragOverlayStore } from "../../../store/drag-overlay-store";
 import { RAIL_SNAP_X } from "../../../lib/sidebar-rail";
 import { FRAME_GAP } from "../../../lib/window-lead";
+import { ResizeHandle } from "../../ui/ResizeHandle/ResizeHandle";
 import styles from "./SidebarResizeHandle.module.css";
 
 const MIN_SIDEBAR_WIDTH = 160;
@@ -72,8 +73,10 @@ export function SidebarResizeHandle() {
   const dragging = useEdgeDragStore((s) => s.dragging);
 
   return (
-    <div
-      className={`${styles.handle} ${dragging ? styles.active : ""}`}
+    <ResizeHandle
+      orientation="vertical"
+      active={dragging}
+      className={styles.handle}
       data-testid="sidebar-resize-handle"
       onMouseDown={startEdgeDrag}
     />

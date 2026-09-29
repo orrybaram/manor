@@ -23,6 +23,7 @@ import { useInlineRename } from "../../hooks/useInlineRename";
 import styles from "./AgentsList.module.css";
 import menuStyles from "./ProjectItem.module.css";
 import { Collapse } from "../ui/Collapse/Collapse";
+import { ResizeHandle } from "../ui/ResizeHandle/ResizeHandle";
 
 function AgentRow({ agent, shouldPulse, onClose, onClick, onRename }: {
   agent: AgentInfo;
@@ -208,8 +209,10 @@ export function AgentsList(props: AgentsListProps) {
   return (
     <div className={styles.agentsSection}>
       {!fitContent && (
-        <div
-          className={`${styles.agentsResizeHandle} ${isResizing ? styles.agentsResizeHandleActive : ""}`}
+        <ResizeHandle
+          orientation="horizontal"
+          active={isResizing}
+          className={styles.resizeHandle}
           onMouseDown={onResizeStart}
           data-testid="sidebar-agents-resize-handle"
         />

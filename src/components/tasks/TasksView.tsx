@@ -430,51 +430,12 @@ export function TasksView(props: TasksViewProps) {
                   : plural(listed.length, "task")) +
                 ` · ${plural(projectCount, "project")}`}
           </span>
-          <div className={styles.headerControls}>
-            {providers.length > 0 && (
-              <div
-                className={styles.providers}
-                role="group"
-                aria-label="Tracker"
-              >
-                {providers.map((p) => (
-                  <Tooltip key={p} label={PROVIDER_LABEL[p]}>
-                    <Button
-                      variant="ghost"
-                      className={`${styles.providerTab} ${p === provider ? styles.providerTabActive : ""}`}
-                      aria-label={PROVIDER_LABEL[p]}
-                      aria-pressed={p === provider}
-                      onClick={() => chooseProvider(p)}
-                    >
-                      <ProviderIcon provider={p} size={15} />
-                    </Button>
-                  </Tooltip>
-                ))}
-              </div>
-            )}
-            {providers.length > 0 && (
-              <SearchableSelect
-                value={projectKey ?? ALL_PROJECTS}
-                onChange={chooseProject}
-                options={projectOptions}
-                placeholder="All projects"
-                maxWidth={260}
-                icon={
-                  <span
-                    className={styles.projectDot}
-                    style={projectColorStyle(selectedSource?.ctx.color)}
-                  />
-                }
-                data-testid="tasks-project-select"
-              />
-            )}
-            {homeUrl && (
-              <Link href={homeUrl} variant="plain" className={styles.openLink}>
-                <ExternalLink size={13} />
-                Open in {PROVIDER_LABEL[provider]}
-              </Link>
-            )}
-          </div>
+          {homeUrl && (
+            <Link href={homeUrl} variant="plain" className={styles.openLink}>
+              <ExternalLink size={13} />
+              Open in {PROVIDER_LABEL[provider]}
+            </Link>
+          )}
         </div>
 
         {nothingConnected ? (
@@ -491,6 +452,44 @@ export function TasksView(props: TasksViewProps) {
         ) : (
           <>
             <div className={styles.filters}>
+              {providers.length > 0 && (
+                <div
+                  className={styles.providers}
+                  role="group"
+                  aria-label="Tracker"
+                >
+                  {providers.map((p) => (
+                    <Tooltip key={p} label={PROVIDER_LABEL[p]}>
+                      <Button
+                        variant="ghost"
+                        className={`${styles.providerTab} ${p === provider ? styles.providerTabActive : ""}`}
+                        aria-label={PROVIDER_LABEL[p]}
+                        aria-pressed={p === provider}
+                        onClick={() => chooseProvider(p)}
+                      >
+                        <ProviderIcon provider={p} size={15} />
+                      </Button>
+                    </Tooltip>
+                  ))}
+                </div>
+              )}
+              {providers.length > 0 && (
+                <SearchableSelect
+                  value={projectKey ?? ALL_PROJECTS}
+                  onChange={chooseProject}
+                  options={projectOptions}
+                  placeholder="All projects"
+                  maxWidth={260}
+                  icon={
+                    <span
+                      className={styles.projectDot}
+                      style={projectColorStyle(selectedSource?.ctx.color)}
+                    />
+                  }
+                  className={styles.projectSelect}
+                  data-testid="tasks-project-select"
+                />
+              )}
               <div className={styles.searchBox}>
                 <Search size={14} className={styles.searchIcon} />
                 <Input

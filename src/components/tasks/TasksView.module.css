@@ -51,25 +51,18 @@
   color: var(--text-dim);
 }
 
-.headerControls {
-  margin-left: auto;
-  align-self: center;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .providers {
   display: inline-flex;
   gap: 4px;
+  flex-shrink: 0;
 }
 
 .providerTab {
   width: 32px;
   height: 32px;
   padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 7px;
+  border: 1px solid var(--surface);
+  border-radius: 6px;
 }
 
 .providerTabActive,
@@ -77,6 +70,13 @@
   background: var(--surface);
   color: var(--text-selected);
   border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+}
+
+.projectSelect {
+  height: 32px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  flex-shrink: 0;
 }
 
 .projectDot {
@@ -88,6 +88,8 @@
 }
 
 .openLink {
+  margin-left: auto;
+  align-self: center;
   display: inline-flex;
   align-items: center;
   gap: 6px;

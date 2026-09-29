@@ -1,4 +1,10 @@
-import React, { useState, useRef, useCallback, useMemo, useEffect } from "react";
+import React, {
+  useState,
+  useRef,
+  useCallback,
+  useMemo,
+  useEffect,
+} from "react";
 import * as Popover from "@radix-ui/react-popover";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import Loader2 from "lucide-react/dist/esm/icons/loader-2";
@@ -16,6 +22,8 @@ type SearchableSelectProps = {
   placeholder?: string;
   icon?: React.ReactNode;
   maxWidth?: number;
+  /** Extra class for the trigger, e.g. to size it to a toolbar. */
+  className?: string;
   loading?: boolean;
   emptyMessage?: string;
   "data-testid"?: string;
@@ -33,6 +41,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
     placeholder = "Select...",
     icon,
     maxWidth = 250,
+    className,
     loading = false,
     emptyMessage = "No results",
     "data-testid": dataTestId,
@@ -56,16 +65,13 @@ export function SearchableSelect(props: SearchableSelectProps) {
     return options.filter((o) => o.label.toLowerCase().includes(lower));
   }, [options, search]);
 
-  const handleOpenChange = useCallback(
-    (nextOpen: boolean) => {
-      setOpen(nextOpen);
-      if (!nextOpen) {
-        setSearch("");
-        setHighlightIndex(0);
-      }
-    },
-    [],
-  );
+  const handleOpenChange = useCallback((nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (!nextOpen) {
+      setSearch("");
+      setHighlightIndex(0);
+    }
+  }, []);
 
   const selectOption = useCallback(
     (optionValue: string) => {
@@ -125,7 +131,9 @@ export function SearchableSelect(props: SearchableSelectProps) {
       <Popover.Trigger asChild>
         <button
           id={id}
-          className={styles.trigger}
+          className={
+            className ? `${styles.trigger} ${className}` : styles.trigger
+          }
           style={{ maxWidth }}
           role="combobox"
           aria-expanded={open}

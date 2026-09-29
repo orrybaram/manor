@@ -6,7 +6,7 @@ import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
 import { SidebarRail } from "./components/sidebar/SidebarRail/SidebarRail";
 import { WindowLead } from "./components/window-lead/WindowLead/WindowLead";
 import { WindowTrail } from "./components/window-lead/WindowTrail/WindowTrail";
-import type { PaletteView } from "./components/command-palette/types";
+import type { PaletteOrigin, PaletteView } from "./components/command-palette/types";
 import type { AddProjectMode } from "./components/sidebar/AddProjectDialog/AddProjectDialog";
 import { onPaletteViewRequest } from "./utils/palette-request";
 import { onUiRequest } from "./utils/ui-request";
@@ -161,6 +161,7 @@ function App() {
   useAgentContextRepair();
 
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteOrigin, setPaletteOrigin] = useState<PaletteOrigin>("shortcut");
   const [paletteInitialView, setPaletteInitialView] = useState<PaletteView | undefined>();
   const [paletteInitialIssueId, setPaletteInitialIssueId] = useState<string | null>(null);
   const [paletteInitialGitHubIssueNumber, setPaletteInitialGitHubIssueNumber] = useState<number | null>(null);
@@ -170,7 +171,10 @@ function App() {
     setPaletteInitialIssueId(null);
     setPaletteInitialGitHubIssueNumber(null);
   }, []);
-  const openPalette = useCallback(() => setPaletteOpen(true), []);
+  const openPalette = useCallback(() => {
+    setPaletteOrigin("search");
+    setPaletteOpen(true);
+  }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsProjectId, setSettingsProjectId] = useState<string | null>(
     null,
@@ -349,6 +353,7 @@ function App() {
   const handleOpenPaletteView = useCallback(
     (view: PaletteView) => {
       setPaletteInitialView(view);
+      setPaletteOrigin("shortcut");
       setPaletteOpen(true);
     },
     [],
@@ -585,7 +590,10 @@ function App() {
       setSettingsPage(null);
       setSettingsOpen((v) => !v);
     },
-    togglePalette: () => setPaletteOpen((v) => !v),
+    togglePalette: () => {
+      setPaletteOrigin("shortcut");
+      setPaletteOpen((v) => !v);
+    },
     openPaletteView: handleOpenPaletteView,
     openNewWorkspace: () => setNewWorkspaceOpen(true),
     addProject: () => void handleAddProject(),
@@ -845,6 +853,7 @@ function App() {
       <Suspense fallback={null}>
         <CommandPalette
           open={paletteOpen}
+          origin={paletteOrigin}
           onClose={closePalette}
           onOpenSettings={handleOpenSettings}
           onOpenFeedback={handleOpenFeedback}

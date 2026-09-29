@@ -20,8 +20,13 @@ export interface CategoryConfig {
   items: CommandItem[];
 }
 
+/** Where the palette was opened from: keyboard/menu shortcut vs. the sidebar Search row. */
+export type PaletteOrigin = "shortcut" | "search";
+
 export interface CommandPaletteProps {
   open: boolean;
+  /** Defaults to "shortcut". */
+  origin?: PaletteOrigin;
   onClose: () => void;
   onOpenSettings?: (page?: SettingsPageId) => void;
   onOpenFeedback?: () => void;

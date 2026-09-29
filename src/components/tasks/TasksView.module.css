@@ -12,7 +12,7 @@
   flex-direction: column;
   align-items: center;
   overflow-y: auto;
-  padding: 8px 0 24px;
+  padding: 40px 0 24px;
   color: var(--text-primary);
 }
 
@@ -129,6 +129,8 @@
 
 .searchInput {
   width: 100%;
+  height: 32px;
+  padding-block: 0;
   padding-left: 30px;
 }
 
@@ -137,6 +139,55 @@
   height: 32px;
   padding: 0;
   flex-shrink: 0;
+}
+
+/* ── Active filter chips ── */
+
+.activeFilters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: -6px;
+}
+
+.filterChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 360px;
+  height: 24px;
+  padding: 0 2px 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: var(--text-primary);
+  background: var(--hover);
+}
+
+.filterChipField {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+.filterChipValues {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filterChipRemove {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.clearFilters {
+  font-size: 11.5px;
 }
 
 /* ── Table ── */
@@ -174,6 +225,11 @@
   padding: 0 16px;
 }
 
+/* Linear adds a Priority column between Status and Updated. */
+.withPriority .gridRow {
+  grid-template-columns: 112px minmax(0, 1fr) 112px 128px 104px 120px 92px;
+}
+
 .headRow {
   position: sticky;
   top: 0;
@@ -186,6 +242,28 @@
   letter-spacing: 0.08em;
   color: var(--text-dim);
   border-bottom: 1px solid var(--border);
+}
+
+/* A header that sorts: reads as the header text, not as a button. */
+.headRow .sortHeader {
+  height: auto;
+  padding: 2px 4px;
+  margin-left: -4px;
+  gap: 4px;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  background: none;
+}
+
+.headRow .sortHeader:hover:not(:disabled) {
+  background: none;
+  color: var(--text-selected);
+}
+
+.headRow .sortHeaderActive {
+  color: var(--text-selected);
 }
 
 .bodyRow {
@@ -269,6 +347,23 @@
 }
 
 .author {
+  flex-shrink: 0;
+}
+
+/* A tracker project, milestone or cycle next to the Manor project. */
+.contextChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contextChip > svg {
   flex-shrink: 0;
 }
 
@@ -362,6 +457,28 @@
   background: color-mix(in srgb, var(--magenta) 16%, transparent);
 }
 
+.priority {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.priority > svg {
+  flex-shrink: 0;
+}
+
+.priorityBars {
+  color: var(--text-dim);
+}
+
+.priorityUrgent {
+  color: var(--red);
+}
+
 .updated {
   font-size: 12px;
   color: var(--text-dim);
@@ -387,6 +504,13 @@
   text-align: center;
   font-size: 13px;
   color: var(--text-dim);
+}
+
+.emptyFilters {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
 }
 
 /* ── Skeleton ── */
@@ -423,6 +547,11 @@
   width: 52px;
   height: 18px;
   border-radius: 999px;
+}
+
+.bonePriority {
+  width: 60px;
+  height: 11px;
 }
 
 .boneUpdated {

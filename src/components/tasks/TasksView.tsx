@@ -17,6 +17,12 @@ import ChevronLeft from "lucide-react/dist/esm/icons/chevron-left";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import CircleDot from "lucide-react/dist/esm/icons/circle-dot";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
+import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
+import ArrowDown from "lucide-react/dist/esm/icons/arrow-down";
+import FolderKanban from "lucide-react/dist/esm/icons/folder-kanban";
+import Milestone from "lucide-react/dist/esm/icons/milestone";
+import IterationCw from "lucide-react/dist/esm/icons/iteration-cw";
+import X from "lucide-react/dist/esm/icons/x";
 import type { PaletteView } from "../command-palette/types";
 import { GitHubIcon } from "../command-palette/GitHubIcon";
 import { LinearIcon } from "../command-palette/LinearIcon";
@@ -38,7 +44,13 @@ import {
   type NewWorkspaceHandler,
 } from "../../lib/start-issue-work";
 import {
+  DEFAULT_TASK_SORT,
+  TASK_FIELDS,
+  applyTaskFilters,
+  facetLabel,
   filterTasks,
+  sortTasksBy,
+  sortableFields,
   withoutLinkedTasks,
   linkedTasks,
   type LinkedTask,
@@ -47,11 +59,17 @@ import {
   paginate,
   relativeTime,
   trackerHomeUrl,
+  type TaskFieldId,
   type TaskFilter,
+  type TaskFilters,
   type TaskProvider,
   type TaskRow,
+  type TaskSort,
 } from "../../lib/tasks";
 import { useTasks, useTrackerSources } from "./useTasks";
+import { TaskFilterMenu } from "./TaskFilterMenu";
+import { TaskSortMenu } from "./TaskSortMenu";
+import { activeFilterCount, initialDirection } from "./task-menus";
 import styles from "./TasksView.module.css";
 
 type TasksViewProps = {
@@ -70,6 +88,8 @@ const MAX_AVATARS = 3;
 const PREF_PROVIDER = "tasks-view:provider";
 const PREF_FILTER = "tasks-view:filter";
 const PREF_PROJECT = "tasks-view:project";
+/** Followed by the provider: each tracker remembers its own sort. */
+const PREF_SORT = "tasks-view:sort:";
 
 function readPref(key: string): string | null {
   try {
@@ -86,6 +106,34 @@ function writePref(key: string, value: string): void {
     // Storage unavailable — the choice just isn't remembered.
   }
 }
+
+/** A provider's saved sort, if it's still a sortable field of it; else the default. */
+function readSort(provider: TaskProvider): TaskSort {
+  const raw = readPref(PREF_SORT + provider);
+  if (!raw) return DEFAULT_TASK_SORT;
+  try {
+    const saved = JSON.parse(raw) as { field?: unknown; direction?: unknown };
+    const field = sortableFields(provider).find((id) => id === saved.field);
+    if (field && (saved.direction === "asc" || saved.direction === "desc")) {
+      return { field, direction: saved.direction };
+    }
+  } catch {
+    // Not JSON — fall through to the default.
+  }
+  return DEFAULT_TASK_SORT;
+}
+
+const NO_FILTERS: TaskFilters = {};
+
+/** The table's sortable column headers, in column order (Priority is Linear's). */
+const SORT_COLUMNS: { field: TaskFieldId; label: string }[] = [
+  { field: "id", label: "ID" },
+  { field: "title", label: "Title / Context" },
+  { field: "assignee", label: "Assignees" },
+  { field: "status", label: "Status" },
+  { field: "priority", label: "Priority" },
+  { field: "updated", label: "Updated" },
+];
 
 /** The filter row's choices: the two tracker queries, plus tasks linked to a workspace. */
 type TaskListMode = TaskFilter | "in-progress";
@@ -136,6 +184,15 @@ export function TasksView(props: TasksViewProps) {
   const deferredSearch = useDeferredValue(search);
   const [page, setPage] = useState(1);
   const [now, setNow] = useState(() => Date.now());
+  const [sorts, setSorts] = useState<Record<TaskProvider, TaskSort>>(() => ({
+    github: readSort("github"),
+    linear: readSort("linear"),
+  }));
+  // Filters are per session and belong to one provider — their fields differ.
+  const [filterState, setFilterState] = useState<{
+    provider: TaskProvider;
+    filters: TaskFilters;
+  }>({ provider: "github", filters: NO_FILTERS });
 
   // The saved provider/project may no longer be usable (tracker
   // disconnected, project removed): fall back without forgetting the choice.
@@ -194,12 +251,25 @@ export function TasksView(props: TasksViewProps) {
     );
   }, [projects, rows, provider, projectKey]);
 
+  const sort = sorts[provider];
+  const filters =
+    filterState.provider === provider ? filterState.filters : NO_FILTERS;
+  const filterCount = activeFilterCount(filters);
+  const showPriority = provider === "linear";
+
+  // Filters, then search, then sort, then the page. Facet counts in the
+  // filter menu come from `listed`, so they don't shift as filters change.
   const listed: (TaskRow | LinkedTask)[] = inProgress ? linked : unlinked;
-  const filtered = useMemo(
-    () => filterTasks(listed, deferredSearch),
-    [listed, deferredSearch],
+  const narrowed = useMemo(
+    () => applyTaskFilters(listed, filters),
+    [listed, filters],
   );
-  const current = paginate(filtered, page);
+  const searched = useMemo(
+    () => filterTasks(narrowed, deferredSearch),
+    [narrowed, deferredSearch],
+  );
+  const sorted = useMemo(() => sortTasksBy(searched, sort), [searched, sort]);
+  const current = paginate(sorted, page);
   const homeUrl = projectKey ? trackerHomeUrl(rows, provider) : null;
   const projectCount = useMemo(
     () => new Set(listed.map((r) => r.projectEntryKey)).size,
@@ -209,8 +279,52 @@ export function TasksView(props: TasksViewProps) {
   const chooseProvider = useCallback((next: TaskProvider) => {
     setSavedProvider(next);
     writePref(PREF_PROVIDER, next);
+    setFilterState({ provider: next, filters: NO_FILTERS });
     setPage(1);
   }, []);
+
+  const changeFilters = useCallback(
+    (next: TaskFilters) => {
+      setFilterState({ provider, filters: next });
+      setPage(1);
+    },
+    [provider],
+  );
+
+  const clearFilters = useCallback(
+    () => changeFilters(NO_FILTERS),
+    [changeFilters],
+  );
+
+  const removeFilter = useCallback(
+    (field: TaskFieldId) => {
+      const next = { ...filters };
+      delete next[field];
+      changeFilters(next);
+    },
+    [filters, changeFilters],
+  );
+
+  const changeSort = useCallback(
+    (next: TaskSort) => {
+      setSorts((prev) => ({ ...prev, [provider]: next }));
+      writePref(PREF_SORT + provider, JSON.stringify(next));
+      setPage(1);
+    },
+    [provider],
+  );
+
+  // A header sets the sort to its column; clicking the active one flips it.
+  const sortByColumn = useCallback(
+    (field: TaskFieldId) => {
+      changeSort(
+        field === sort.field
+          ? { field, direction: sort.direction === "asc" ? "desc" : "asc" }
+          : { field, direction: initialDirection(field) },
+      );
+    },
+    [sort, changeSort],
+  );
 
   const chooseFilter = useCallback((next: TaskListMode) => {
     setMode(next);
@@ -317,7 +431,10 @@ export function TasksView(props: TasksViewProps) {
           <span className={styles.headerMeta}>
             {loading && rows.length === 0 && !inProgress
               ? "Loading…"
-              : `${plural(listed.length, "task")} · ${plural(projectCount, "project")}` +
+              : (filterCount > 0
+                  ? `${narrowed.length} of ${plural(listed.length, "task")}`
+                  : plural(listed.length, "task")) +
+                ` · ${plural(projectCount, "project")}` +
                 (!inProgress && linkedCount > 0
                   ? ` · ${linkedCount} in progress`
                   : "")}
@@ -408,6 +525,17 @@ export function TasksView(props: TasksViewProps) {
                   spellCheck={false}
                 />
               </div>
+              <TaskFilterMenu
+                provider={provider}
+                rows={listed}
+                filters={filters}
+                onChange={changeFilters}
+              />
+              <TaskSortMenu
+                provider={provider}
+                sort={sort}
+                onChange={changeSort}
+              />
               <Tooltip label="Refresh">
                 <Button
                   variant="secondary"
@@ -420,17 +548,75 @@ export function TasksView(props: TasksViewProps) {
               </Tooltip>
             </div>
 
-            <div className={styles.table} role="table" aria-label="Tasks">
+            {filterCount > 0 && (
+              <div
+                className={styles.activeFilters}
+                role="group"
+                aria-label="Active filters"
+              >
+                {(Object.keys(TASK_FIELDS) as TaskFieldId[]).flatMap((id) => {
+                  const values = filters[id] ?? [];
+                  if (values.length === 0) return [];
+                  const label = TASK_FIELDS[id].label;
+                  const text = values.map((v) => facetLabel(id, v)).join(", ");
+                  return [
+                    <span key={id} className={styles.filterChip}>
+                      <span className={styles.filterChipField}>{label}:</span>
+                      <span className={styles.filterChipValues} title={text}>
+                        {text}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        className={styles.filterChipRemove}
+                        aria-label={`Remove ${label} filter`}
+                        onClick={() => removeFilter(id)}
+                      >
+                        <X size={12} />
+                      </Button>
+                    </span>,
+                  ];
+                })}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={styles.clearFilters}
+                  onClick={clearFilters}
+                >
+                  Clear all
+                </Button>
+              </div>
+            )}
+
+            <div
+              className={`${styles.table} ${showPriority ? styles.withPriority : ""}`}
+              role="table"
+              aria-label="Tasks"
+            >
               <div className={`${styles.gridRow} ${styles.headRow}`} role="row">
-                <span role="columnheader">ID</span>
-                <span role="columnheader">Title / Context</span>
-                <span role="columnheader">Assignees</span>
-                <span role="columnheader">Status</span>
-                <span role="columnheader">Updated</span>
+                {SORT_COLUMNS.filter(
+                  (c) => c.field !== "priority" || showPriority,
+                ).map((c) => (
+                  <SortHeader
+                    key={c.field}
+                    field={c.field}
+                    label={c.label}
+                    sort={sort}
+                    onSort={sortByColumn}
+                  />
+                ))}
                 <span role="columnheader" aria-label="Actions" />
               </div>
               {loading && rows.length === 0 && !inProgress ? (
-                <TasksSkeleton />
+                <TasksSkeleton showPriority={showPriority} />
+              ) : current.rows.length === 0 &&
+                filterCount > 0 &&
+                narrowed.length === 0 ? (
+                <div className={`${styles.empty} ${styles.emptyFilters}`}>
+                  No tasks match these filters.
+                  <Button variant="secondary" size="sm" onClick={clearFilters}>
+                    Clear filters
+                  </Button>
+                </div>
               ) : current.rows.length === 0 ? (
                 <div className={styles.empty}>
                   {deferredSearch.trim()
@@ -448,6 +634,7 @@ export function TasksView(props: TasksViewProps) {
                       key={row.key}
                       row={row}
                       now={now}
+                      showPriority={showPriority}
                       actionLabel="Open"
                       onAction={() => openLinked(row)}
                     />
@@ -456,6 +643,7 @@ export function TasksView(props: TasksViewProps) {
                       key={row.key}
                       row={row}
                       now={now}
+                      showPriority={showPriority}
                       actionLabel="Start"
                       onAction={() => void handleStart(row)}
                     />
@@ -553,16 +741,104 @@ function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
+type SortHeaderProps = {
+  field: TaskFieldId;
+  label: string;
+  sort: TaskSort;
+  onSort: (field: TaskFieldId) => void;
+};
+
+/** A column header that sorts by its column; the active one shows its direction. */
+function SortHeader(props: SortHeaderProps) {
+  const { field, label, sort, onSort } = props;
+
+  const active = sort.field === field;
+  const Arrow = sort.direction === "asc" ? ArrowUp : ArrowDown;
+
+  return (
+    <span
+      role="columnheader"
+      aria-sort={
+        active
+          ? sort.direction === "asc"
+            ? "ascending"
+            : "descending"
+          : "none"
+      }
+    >
+      <Button
+        variant="ghost"
+        className={`${styles.sortHeader} ${active ? styles.sortHeaderActive : ""}`}
+        onClick={() => onSort(field)}
+      >
+        {label}
+        {active && <Arrow size={11} aria-hidden />}
+      </Button>
+    </span>
+  );
+}
+
+/** Linear's priority glyph: an alert square for Urgent, else 3 bars — High 3 lit, Medium 2, Low 1. */
+function PriorityIcon(props: { value: number }) {
+  const { value } = props;
+
+  if (value === 1) {
+    return (
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 16 16"
+        className={styles.priorityUrgent}
+        aria-hidden
+      >
+        <rect x="1" y="1" width="14" height="14" rx="3" fill="currentColor" />
+        <path
+          d="M8 4.5v4.5"
+          stroke="var(--bg)"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+        <circle cx="8" cy="11.75" r="1.1" fill="var(--bg)" />
+      </svg>
+    );
+  }
+  const lit = 5 - value;
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      className={styles.priorityBars}
+      aria-hidden
+    >
+      {[0, 1, 2].map((i) => (
+        <rect
+          key={i}
+          x={1.5 + i * 5}
+          y={10 - i * 4}
+          width="3"
+          height={5 + i * 4}
+          rx="1"
+          fill="currentColor"
+          opacity={i < lit ? 1 : 0.3}
+        />
+      ))}
+    </svg>
+  );
+}
+
 type TaskTableRowProps = {
   row: TaskRow | LinkedTask;
   now: number;
+  /** Linear's Priority column. */
+  showPriority: boolean;
   /** "Start" for a tracker row, "Open" (go to its workspace) for a linked one. */
   actionLabel: string;
   onAction: () => void;
 };
 
 function TaskTableRow(props: TaskTableRowProps) {
-  const { row, now, actionLabel, onAction } = props;
+  const { row, now, showPriority, actionLabel, onAction } = props;
 
   const shownAssignees = row.assignees.slice(0, MAX_AVATARS);
   const hiddenAssignees = row.assignees.length - shownAssignees.length;
@@ -601,6 +877,24 @@ function TaskTableRow(props: TaskTableRowProps) {
               {row.workspaceName}
             </span>
           )}
+          {row.trackerProjects.map((name) => (
+            <span key={`p:${name}`} className={styles.contextChip}>
+              <FolderKanban size={11} aria-hidden />
+              {name}
+            </span>
+          ))}
+          {row.milestone && (
+            <span className={styles.contextChip}>
+              <Milestone size={11} aria-hidden />
+              {row.milestone}
+            </span>
+          )}
+          {row.cycle && (
+            <span className={styles.contextChip}>
+              <IterationCw size={11} aria-hidden />
+              {row.cycle}
+            </span>
+          )}
           {row.author && <span className={styles.author}>by {row.author}</span>}
           {row.labels.map((label) => (
             <span
@@ -637,6 +931,18 @@ function TaskTableRow(props: TaskTableRowProps) {
           {row.status.label}
         </span>
       </span>
+      {showPriority && (
+        <span role="cell" className={styles.priority}>
+          {row.priority && row.priority.value > 0 ? (
+            <>
+              <PriorityIcon value={row.priority.value} />
+              {row.priority.label}
+            </>
+          ) : (
+            <span className={styles.dim}>—</span>
+          )}
+        </span>
+      )}
       <span role="cell" className={styles.updated}>
         {updated || <span className={styles.dim}>—</span>}
       </span>
@@ -656,7 +962,9 @@ function TaskTableRow(props: TaskTableRowProps) {
   );
 }
 
-function TasksSkeleton() {
+function TasksSkeleton(props: { showPriority: boolean }) {
+  const { showPriority } = props;
+
   return (
     <div aria-busy="true" aria-label="Loading tasks">
       {Array.from({ length: 6 }, (_, i) => (
@@ -675,6 +983,9 @@ function TasksSkeleton() {
           </span>
           <span className={`${styles.bone} ${styles.boneAvatar}`} />
           <span className={`${styles.bone} ${styles.boneStatus}`} />
+          {showPriority && (
+            <span className={`${styles.bone} ${styles.bonePriority}`} />
+          )}
           <span className={`${styles.bone} ${styles.boneUpdated}`} />
           <span />
         </div>

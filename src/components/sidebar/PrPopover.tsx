@@ -37,7 +37,7 @@ type PrPopoverProps = {
   hostId?: string;
 };
 
-const HOVER_DELAY = 300;
+const HOVER_DELAY = 400;
 
 /**
  * Checks are ordered failing → pending → passing → skipped by the fetcher, so

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /** How long the pointer rests on a tile before its popover opens. */
-const HOVER_OPEN_DELAY_MS = 1000;
+const HOVER_OPEN_DELAY_MS = 400;
 /** Grace for the pointer to cross from the tile to the popover and back. */
 const HOVER_CLOSE_DELAY_MS = 300;
 

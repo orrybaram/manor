@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { topLeftPanelId, type PanelNode } from "../panel-tree";
+import { topLeftPanelId, topRightPanelId, type PanelNode } from "../panel-tree";
 
 const leaf = (panelId: string): PanelNode => ({ type: "leaf", panelId });
 
@@ -40,5 +40,45 @@ describe("topLeftPanelId", () => {
       },
     };
     expect(topLeftPanelId(tree)).toBe("top");
+  });
+});
+
+describe("topRightPanelId", () => {
+  it("returns a lone leaf", () => {
+    expect(topRightPanelId(leaf("a"))).toBe("a");
+  });
+
+  it("takes the right side of a side-by-side split", () => {
+    const tree: PanelNode = {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      first: leaf("left"),
+      second: {
+        type: "split",
+        direction: "vertical",
+        ratio: 0.5,
+        first: leaf("top-right"),
+        second: leaf("bottom-right"),
+      },
+    };
+    expect(topRightPanelId(tree)).toBe("top-right");
+  });
+
+  it("takes the top of a stacked split", () => {
+    const tree: PanelNode = {
+      type: "split",
+      direction: "vertical",
+      ratio: 0.5,
+      first: {
+        type: "split",
+        direction: "horizontal",
+        ratio: 0.5,
+        first: leaf("top-left"),
+        second: leaf("top-right"),
+      },
+      second: leaf("bottom"),
+    };
+    expect(topRightPanelId(tree)).toBe("top-right");
   });
 });

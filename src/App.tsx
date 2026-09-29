@@ -5,6 +5,7 @@ import { PanelLayout } from "./components/panels/PanelLayout";
 import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
 import { SidebarRail } from "./components/sidebar/SidebarRail/SidebarRail";
 import { WindowLead } from "./components/window-lead/WindowLead/WindowLead";
+import { WindowTrail } from "./components/window-lead/WindowTrail/WindowTrail";
 import type { PaletteView } from "./components/command-palette/types";
 import type { AddProjectMode } from "./components/sidebar/AddProjectDialog/AddProjectDialog";
 import { onPaletteViewRequest } from "./utils/palette-request";
@@ -382,6 +383,8 @@ function App() {
   const appBodyStyle = hasProjects
     ? ({
         "--window-lead-inset": `${windowLeadInset(sidebarMode, sidebarWidth)}px`,
+        // Clears the WindowTrail's bell on the top-right panel's tab bar.
+        "--window-trail-inset": "36px",
       } as CSSProperties)
     : undefined;
   const hasTabs = (ws?.tabs.length ?? 0) > 0;
@@ -752,7 +755,7 @@ function App() {
             />
           </div>
         </PaneDragProvider>
-        {/* The top-left controls (ADR-196). Not shown before the first
+        {/* The top-left and top-right controls (ADR-196). Not shown before the first
             project: the onboarding overview has no sidebar to toggle or
             history to walk, and its drag region clears the traffic lights.
             Rendered last on purpose: Electron resolves overlapping
@@ -760,6 +763,7 @@ function App() {
             top-left tab bar (rail and hidden modes) its buttons must come
             after the bar's drag region or clicks on them never arrive. */}
         {hasProjects && <WindowLead />}
+        {hasProjects && <WindowTrail />}
       </div>
       <Suspense fallback={null}>
         <CommandPalette

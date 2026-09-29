@@ -95,6 +95,16 @@ export function topLeftPanelId(node: PanelNode): string {
   return firstLeafPanelId(node);
 }
 
+/**
+ * The panel in the window's top-right corner: the right side of a
+ * side-by-side split, the top of a stacked one. Its tab bar sits beside the
+ * window trail (ADR-196).
+ */
+export function topRightPanelId(node: PanelNode): string {
+  if (node.type === "leaf") return node.panelId;
+  return topRightPanelId(node.direction === "horizontal" ? node.second : node.first);
+}
+
 function lastLeafPanelId(node: PanelNode): string {
   if (node.type === "leaf") return node.panelId;
   return lastLeafPanelId(node.second);

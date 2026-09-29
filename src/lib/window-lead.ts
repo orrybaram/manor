@@ -3,7 +3,7 @@
 import type { SidebarMode } from "../store/project-store";
 
 /** The lead's width when there is no full sidebar under it. */
-export const LEAD_COMPACT_WIDTH = 150;
+export const LEAD_COMPACT_WIDTH = 166;
 
 /** Width of the collapsed sidebar rail (ADR-195). */
 export const RAIL_WIDTH = 52;

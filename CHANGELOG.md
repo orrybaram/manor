@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.17.0] - 2026-09-28
+
+### Features
+- New window frame: tabs now sit in the title row, and panels have rounded, inset bodies
+- The sidebar now animates when switching between full, rail, and hidden modes
+- Collapsible sections now animate when opening and closing
+
+### Fixes
+- Command palette items no longer get confused when two items have the same label
+- Queued terminal commands now wait for the shell prompt before they're typed
+- The status bar now shows Projects on the overview instead of the trail of the workspace behind it
+- Agents and Ports now fold from their dragged height instead of snapping open first
+- Dragging a folded Agents or Ports section now slides it open from zero
+- Sidebar no longer scrolls sideways when collapsible sections are open
+- The sidebar toggle reopens from the rail and shows the correct icon when collapsed
+- Sidebar guide color and host heading spacing are restored
+
+### Improvements
+- The project list fades at its edges instead of cutting rows off
+- Resize handles for the sidebar, Agents and Ports now look the same, with an accent glow that fades at the ends
+- Count badges look the same everywhere in the app
+- A connected cloud host now shows as a subtle blue chip
+- The tab bar was restyled: top accent border on the active tab, rounded corners, tighter spacing and a square New Tab button
+- The collapsed sidebar rail is better aligned under the traffic lights, with even spacing, a faint Home button background, and the Agents button directly below the project tiles
+- Rail and PR popovers now wait a moment on hover before opening, so they don't pop up by accident
+- The title row is cleaner, and the notification bell has moved to the top-right corner
+- The Projects overview is now centred vertically
+- The sidebar and its sections are cleaner, with fewer borders and backgrounds and a thinner divider between panels
+
 ## [0.16.1] - 2026-09-28
 
 ### Fixes

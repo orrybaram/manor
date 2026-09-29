@@ -279,15 +279,18 @@ export function HomeDashboard(props: HomeDashboardProps) {
                 onOpen={() => window.electronAPI.shell.openExternal(row.pr.url)}
               />
               <span className={`${shared.actionLabel} ${styles.label}`}>{row.pr.title}</span>
-              <span className={styles.meta}>
+              <span className={`${styles.meta} ${styles.prMeta}`}>
                 <span
                   className={styles.status}
                   style={{ color: PR_STATUS_COLOR[row.readiness] }}
                 >
                   {row.label}
                 </span>
-                <span className={styles.proj} style={projectColorStyle(row.project.color)}>
-                  {row.workspace.name ?? row.workspace.path}
+                <span
+                  className={`${styles.proj} ${styles.prProj}`}
+                  style={projectColorStyle(row.project.color)}
+                >
+                  {row.project.name}
                 </span>
               </span>
             </div>

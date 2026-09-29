@@ -114,5 +114,21 @@
 }
 
 .status {
+  flex: none;
   color: var(--text-dim);
+}
+
+/* Open PRs: the PR title is the row's identity, so it keeps the room and the
+   meta column shrinks instead — the project name truncates first. */
+.prMeta {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+}
+
+.prProj {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

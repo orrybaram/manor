@@ -9,7 +9,7 @@
 import type { AgentInfo, GitHubIssue, LinearIssue, PaneAgentStatus } from "../electron.d";
 import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
 import type { TopLevelEntry } from "../utils/sidebar-items";
-import { prReadiness } from "./pr-readiness";
+import { prReadiness, type PrReadiness } from "./pr-readiness";
 import type { PrInfo } from "./pr-info";
 import { projectForWorkspaceKey } from "./hosts";
 import { workspaceKey } from "./workspace-key";
@@ -78,7 +78,7 @@ function resolveAgentWorkspaceKey(
 }
 
 /** The project (and workspace, when known) `agent` belongs to, or null when neither can be found. */
-function resolveAgentContext(
+export function resolveAgentContext(
   agent: AgentInfo,
   projects: readonly ProjectInfo[],
 ): { project: ProjectInfo; workspace?: WorkspaceInfo } | null {
@@ -93,7 +93,7 @@ function resolveAgentContext(
 }
 
 /** The first applicable cause of a blocked PR (ADR §1), mirroring `prReadiness`'s own order. */
-function blockedReason(pr: PrInfo): string {
+export function blockedReason(pr: PrInfo): string {
   if (pr.hasConflicts === true) return "conflicts";
   if (pr.checks != null && pr.checks.failing > 0) return "checks failing";
   if (pr.reviewDecision === "CHANGES_REQUESTED") return "changes requested";
@@ -101,6 +101,15 @@ function blockedReason(pr: PrInfo): string {
     return `${pr.unresolvedThreads} unresolved thread${pr.unresolvedThreads === 1 ? "" : "s"}`;
   }
   return "blocked";
+}
+
+/**
+ * A Needs-you item's stable identity: the agent id or the PR URL. React keys
+ * and snoozes (ADR-198 §4) both use it, so a snoozed card stays hidden across
+ * re-renders and ranking changes.
+ */
+export function itemKey(item: NeedsYouItem): string {
+  return item.kind === "agent" ? `agent:${item.agent.id}` : `pr:${item.pr.url}`;
 }
 
 /**
@@ -250,13 +259,21 @@ export interface UpNextIssue {
   title: string;
   url: string;
   labels: string[];
+  /** Linear priority: 1 Urgent … 4 Low, 0 none. Absent for GitHub issues. */
+  priority?: number;
   raw: unknown;
+}
+
+/** Sort rank of a Linear priority: 1 Urgent … 4 Low, then none (0 / absent) last. */
+function priorityRank(priority: number | undefined): number {
+  return priority != null && priority >= 1 && priority <= 4 ? priority : 5;
 }
 
 /**
  * `issues` ranked per ADR §1: `ready-for-agent` labelled issues first, then
- * `projectOrder` (sidebar order), then lowest issue number (GitHub) or
- * identifier (Linear). The caller is expected to have already dropped linked
+ * Linear `priority` (ADR-198 §2: Urgent → Low, none last — GitHub issues
+ * have none), then `projectOrder` (sidebar order), then lowest issue number
+ * (GitHub) or identifier (Linear). The caller is expected to have already dropped linked
  * issues (`isIssueLinked`) — ranking stays pure and doesn't need `projects`.
  */
 export function rankUpNext(
@@ -268,6 +285,9 @@ export function rankUpNext(
     const aReady = a.labels.includes("ready-for-agent") ? 0 : 1;
     const bReady = b.labels.includes("ready-for-agent") ? 0 : 1;
     if (aReady !== bReady) return aReady - bReady;
+
+    const priorityDiff = priorityRank(a.priority) - priorityRank(b.priority);
+    if (priorityDiff !== 0) return priorityDiff;
 
     const aIndex = orderIndex.get(a.projectKey) ?? projectOrder.length;
     const bIndex = orderIndex.get(b.projectKey) ?? projectOrder.length;
@@ -316,6 +336,7 @@ export function upNextFromLinear(issue: LinearIssue, projectKey: string): UpNext
     title: issue.title,
     url: issue.url,
     labels: issue.labels.map((l) => l.name),
+    priority: issue.priority,
     raw: issue,
   };
 }
@@ -340,6 +361,86 @@ export function upNextList(
     seen.add(issue.url);
     return true;
   });
+}
+
+/**
+ * The first `perProject` items of each project from an already-ranked list,
+ * keeping their rank order. Groups come out in `projectOrder` order; keys not
+ * in `projectOrder` go last (in first-seen order).
+ */
+export function topUpNextPerProject<T extends { projectKey: string }>(
+  ranked: readonly T[],
+  projectOrder: readonly string[],
+  perProject: number,
+): T[] {
+  const groups = new Map<string, T[]>();
+  for (const item of ranked) {
+    const group = groups.get(item.projectKey);
+    if (group) group.push(item);
+    else groups.set(item.projectKey, [item]);
+  }
+  const known = new Set(projectOrder);
+  const keys = [...projectOrder, ...[...groups.keys()].filter((k) => !known.has(k))];
+  return keys.flatMap((key) => (groups.get(key) ?? []).slice(0, perProject));
+}
+
+// ── Open PRs ──
+
+export type OpenPrReadiness = Exclude<PrReadiness, "merged" | "closed">;
+
+export interface OpenPrRow {
+  pr: PrInfo;
+  project: ProjectInfo;
+  workspace: WorkspaceInfo;
+  readiness: OpenPrReadiness;
+  /** "conflicts" / "ready to merge" / "needs review" / "queued to merge" / "draft" / "checks running" / … */
+  label: string;
+}
+
+const OPEN_PR_RANK: Record<OpenPrReadiness, number> = {
+  blocked: 0,
+  ready: 1,
+  review: 2,
+  queued: 3,
+  pending: 4,
+};
+
+function openPrLabel(pr: PrInfo, readiness: OpenPrReadiness): string {
+  switch (readiness) {
+    case "blocked":
+      return blockedReason(pr);
+    case "ready":
+      return "ready to merge";
+    case "review":
+      return "needs review";
+    case "queued":
+      return "queued to merge";
+    case "pending":
+      if (pr.isDraft) return "draft";
+      if (pr.checks != null && pr.checks.pending > 0) return "checks running";
+      return "pending";
+  }
+}
+
+/**
+ * Every open PR across `projects` (deduped by `pr.url`, first wins), ordered
+ * blocked, ready, review, queued, pending. Within a rank, `projects` order
+ * then workspace order (the sort is stable).
+ */
+export function openPrRows(projects: readonly ProjectInfo[]): OpenPrRow[] {
+  const rows: OpenPrRow[] = [];
+  const seen = new Set<string>();
+  for (const project of projects) {
+    for (const workspace of project.workspaces) {
+      const pr = workspace.pr;
+      if (!pr || pr.state !== "open") continue;
+      if (seen.has(pr.url)) continue;
+      seen.add(pr.url);
+      const readiness = prReadiness(pr) as OpenPrReadiness;
+      rows.push({ pr, project, workspace, readiness, label: openPrLabel(pr, readiness) });
+    }
+  }
+  return rows.sort((a, b) => OPEN_PR_RANK[a.readiness] - OPEN_PR_RANK[b.readiness]);
 }
 
 // ── Project cards ──

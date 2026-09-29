@@ -1,0 +1,130 @@
+/*
+ * ADR-198 §1.3: the four stat tiles (mockup `.stats` / `.stat`), the stacked
+ * stage bar and the sparklines. Each tile sets `--c` to its accent.
+ * Container queries read the Home pane (`container-name: home`, set in
+ * `HomeDashboard.module.css`), not the viewport: the sidebar takes width.
+ */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@container home (max-width: 900px) {
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container home (max-width: 460px) {
+  .tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 16px 18px 12px;
+  overflow: hidden;
+  background: var(--hd-panel);
+  border: 1px solid var(--hd-line);
+  border-radius: 14px;
+  box-shadow: var(--hd-shadow);
+}
+
+.label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c);
+}
+
+.big {
+  line-height: 1.1;
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-size: 34px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  color: var(--text-selected);
+  font-variant-numeric: tabular-nums;
+}
+
+.aside {
+  margin-left: 6px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.foot {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.foot b {
+  font-weight: 500;
+  color: var(--c);
+}
+
+.spark {
+  display: block;
+  width: 100%;
+  height: 38px;
+  margin-top: 4px;
+  overflow: visible;
+}
+
+.stages {
+  display: flex;
+  height: 8px;
+  margin: 10px 0 6px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.stages span {
+  background: var(--c);
+  flex-basis: 0;
+  transition: flex-grow 0.4s ease;
+}
+
+/* The divider is an inset shadow, not a gap: an empty stage (zero width)
+   then draws nothing instead of leaving a double gap. */
+.stages span + span {
+  box-shadow: inset 2px 0 0 var(--hd-panel);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legend i {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--c);
+}

@@ -5,13 +5,14 @@ import { buildTopLevelEntries, topLevelKeys } from "../../../utils/sidebar-items
 import { ghRepoOf } from "../../../lib/gh-repo";
 import {
   primaryMember,
+  topUpNextPerProject,
   upNextFromGitHub,
   upNextFromLinear,
   upNextList,
   type UpNextIssue,
 } from "../../../lib/home-dashboard";
 
-const TOP_COUNT = 3;
+const PER_PROJECT = 3;
 const POLL_MS = 60_000;
 
 /** One Up next row: the ranked issue plus the project it's worked on in. */
@@ -64,9 +65,12 @@ type Source = {
  * Open issues assigned to the user across every top-level entry that no
  * workspace has linked yet, ranked for Home's Up next (ADR-194 §1). One
  * GitHub and (when linked and connected) one Linear query per entry, through
- * the entry's primary member; polled every minute while mounted.
+ * the entry's primary member; polled every minute while mounted. `all` is the
+ * full ranked list; `top` is the first few of each project (`PER_PROJECT`), in
+ * sidebar order.
  */
 export function useUpNextIssues(): {
+  all: UpNextRow[];
   top: UpNextRow[];
   total: number;
   /** True until every source has answered once, so callers can hold back an empty state. */
@@ -161,6 +165,12 @@ export function useUpNextIssues(): {
       const ctx = context.get(issue.projectKey);
       if (ctx) rows.push({ issue, ...ctx });
     }
-    return { top: rows.slice(0, TOP_COUNT), total: rows.length, loading: candidates.loading };
+    const rowOf = new Map(rows.map((r) => [r.issue, r]));
+    const top = topUpNextPerProject(
+      rows.map((r) => r.issue),
+      topLevelKeys(entries),
+      PER_PROJECT,
+    ).map((issue) => rowOf.get(issue)!);
+    return { all: rows, top, total: rows.length, loading: candidates.loading };
   }, [candidates, projects, entries]);
 }

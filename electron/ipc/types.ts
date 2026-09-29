@@ -15,6 +15,7 @@ import type { AgentManager, PaneHostLookup } from "../agent-persistence";
 import type { AgentStatusDriver } from "../agent-status/driver";
 import type { NotificationStore } from "../notification-store";
 import type { StatsStore } from "../stats-store";
+import type { AgentActivityStore } from "../agent-activity-store";
 import type { PreferencesManager } from "../preferences";
 import type { KeybindingsManager } from "../keybindings";
 import type { WebviewServer } from "../webview-server";
@@ -80,6 +81,8 @@ export interface IpcDeps {
   notificationStore: NotificationStore;
   /** ADR-168 usage stats. */
   statsStore: StatsStore;
+  /** ADR-199 persistent Agent activity history. */
+  agentActivityStore: AgentActivityStore;
   preferencesManager: PreferencesManager;
   keybindingsManager: KeybindingsManager;
   paneContextMap: Map<

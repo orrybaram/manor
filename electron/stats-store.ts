@@ -106,6 +106,8 @@ export interface StatsSummary {
    * install ships a near-empty array instead of 400 zeroes.
    */
   dailyPrompts: DailyPrompts[];
+  /** PRs merged per local day: today and the previous 6, oldest first, zeros included. */
+  dailyPrsMerged: { day: string; count: number }[];
   badges: Record<string, string>;
   enabled: boolean;
 }
@@ -401,6 +403,7 @@ export class StatsStore {
       allTime: aggregate(Object.values(this.days)),
       streakWeeks: this.streakWeeks(),
       dailyPrompts: this.dailyPrompts(),
+      dailyPrsMerged: this.dailyPrsMerged(),
       badges: this.getBadges(),
       enabled: this.isEnabled(),
     };
@@ -412,6 +415,16 @@ export class StatsStore {
       .map(([day, bucket]) => ({ day, count: bucket.prompts ?? 0 }))
       .filter((entry) => entry.count > 0)
       .sort((a, b) => a.day.localeCompare(b.day));
+  }
+
+  /** Merged-PR counts for the last 7 local days, oldest first, zeros included. */
+  private dailyPrsMerged(): { day: string; count: number }[] {
+    const out: { day: string; count: number }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const day = dayKeyOffset(this.now(), -i);
+      out.push({ day, count: this.days[day]?.prsMerged ?? 0 });
+    }
+    return out;
   }
 
   /** Buckets for today and the previous `count - 1` local days. */

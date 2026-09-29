@@ -10,6 +10,7 @@ function summary(overrides: Partial<StatsSummary> = {}): StatsSummary {
     allTime: {},
     streakWeeks: 0,
     dailyPrompts: [],
+    dailyPrsMerged: [],
     badges: {},
     enabled: true,
     ...overrides,

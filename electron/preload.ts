@@ -742,6 +742,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
       onChannel("stats:changed", callback),
   },
 
+  agentActivity: {
+    get: () => ipcRenderer.invoke("agentActivity:get"),
+    /** Main re-broadcasts the full snapshot after a burst of transitions settles (ADR-199 §2). */
+    onChanged: (callback: (snapshot: unknown) => void) =>
+      onChannel("agentActivity:changed", callback),
+  },
+
   clipboard: {
     writeText: (text: string) =>
       ipcRenderer.invoke("clipboard:writeText", text),

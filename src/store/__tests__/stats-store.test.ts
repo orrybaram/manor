@@ -28,6 +28,7 @@ function makeSummary(over: Partial<StatsSummary> = {}): StatsSummary {
     allTime: {},
     streakWeeks: 0,
     dailyPrompts: [],
+    dailyPrsMerged: [],
     badges: {},
     enabled: true,
     ...over,

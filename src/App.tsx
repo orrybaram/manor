@@ -62,6 +62,7 @@ import { useThemeStore } from "./store/theme-store";
 import { useAgentStore } from "./store/agent-store";
 import { usePreferencesStore } from "./store/preferences-store";
 import { useMountEffect } from "./hooks/useMountEffect";
+import { startAgentActivitySync } from "./store/agent-activity-store";
 import { useMenuContextSync } from "./hooks/useMenuContextSync";
 import { useUpdaterToasts } from "./hooks/useUpdaterToasts";
 import { useRemoteRecovery } from "./hooks/useRemoteRecovery";
@@ -91,6 +92,9 @@ function App() {
   const loadPersistedLayout = useAppStore((s) => s.loadPersistedLayout);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const [appReady, setAppReady] = useState(false);
+
+  // Mirror main's persisted agent activity for Home's timeline and sparklines (ADR-199).
+  useMountEffect(() => startAgentActivitySync());
 
   useMountEffect(() => {
     loadTheme();

@@ -1,6 +1,7 @@
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import type { ActivePort } from "../../electron.d.ts";
 import { useProjectStore } from "../../store/project-store";
+import { usePortsStore, acquirePortsScanner } from "../../store/ports-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
 
 export interface WorkspacePortGroup {
@@ -13,83 +14,11 @@ export interface WorkspacePortGroup {
 }
 
 export function usePortsData() {
-  const [ports, setPorts] = useState<ActivePort[]>([]);
+  const ports = usePortsStore((s) => s.ports);
   const projects = useProjectStore((s) => s.projects);
 
-  // Scanner setup: subscribe to store changes to detect when workspace paths change,
-  // and restart the scanner accordingly.
-  useMountEffect(() => {
-    // Each workspace travels with its project's host (ADR-183).
-    const getWorkspaces = () =>
-      useProjectStore
-        .getState()
-        .projects.flatMap((p) =>
-          p.workspaces.map((ws) => ({ path: ws.path, hostId: p.hostId })),
-        );
-
-    const getMeta = () =>
-      useProjectStore.getState().projects.flatMap((p) =>
-        p.workspaces.map((ws) => ({
-          path: ws.path,
-          hostId: p.hostId,
-          projectName: p.name,
-          branch: ws.branch ?? null,
-          isMain: ws.isMain,
-          portlessEnabled: p.portlessEnabled !== false,
-        })),
-      );
-
-    let currentPathsKey = "";
-    let currentMetaKey = "";
-
-    const setup = (workspaces: Array<{ path: string; hostId: string }>) => {
-      if (workspaces.length > 0) {
-        window.electronAPI.ports.updateWorkspaces(workspaces);
-        window.electronAPI.ports.updateWorkspaceMetadata(getMeta());
-        window.electronAPI.ports.startScanner();
-        window.electronAPI.ports.scanNow().then(setPorts);
-      }
-    };
-
-    // Initial setup
-    const initialWorkspaces = getWorkspaces();
-    currentPathsKey = JSON.stringify(initialWorkspaces);
-    currentMetaKey = JSON.stringify(getMeta());
-    setup(initialWorkspaces);
-
-    // Re-setup when paths change; re-push metadata (and rescan, so hostnames
-    // are recomputed) when only the metadata changed — e.g. the portless
-    // toggle or a project rename.
-    const unsub = useProjectStore.subscribe(() => {
-      const newWorkspaces = getWorkspaces();
-      const newKey = JSON.stringify(newWorkspaces);
-      if (newKey !== currentPathsKey) {
-        currentPathsKey = newKey;
-        currentMetaKey = JSON.stringify(getMeta());
-        setup(newWorkspaces);
-        return;
-      }
-      const newMetaKey = JSON.stringify(getMeta());
-      if (newMetaKey !== currentMetaKey) {
-        currentMetaKey = newMetaKey;
-        window.electronAPI.ports.updateWorkspaceMetadata(getMeta());
-        window.electronAPI.ports.scanNow().then(setPorts);
-      }
-    });
-
-    return () => {
-      unsub();
-      window.electronAPI.ports.stopScanner();
-    };
-  });
-
-  // Subscribe to port change events
-  useMountEffect(() => {
-    const unsubscribe = window.electronAPI.ports.onChange((newPorts) => {
-      setPorts(newPorts as ActivePort[]);
-    });
-    return unsubscribe;
-  });
+  // The scanner is shared: it starts with the first consumer and stops with the last.
+  useMountEffect(() => acquirePortsScanner());
 
   // Group ports by workspace
   const workspacePortGroups = useMemo(() => {

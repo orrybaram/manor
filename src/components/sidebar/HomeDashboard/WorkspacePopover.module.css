@@ -1,0 +1,180 @@
+/*
+ * ADR-198: the workspace hover card on project tiles. Sized and surfaced like
+ * the PR popover (`PrPopover.module.css`) so the two read as one family; the
+ * content sets `--c` to the workspace's state colour.
+ */
+.anchor {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.popover {
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 300px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--dim);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  font-size: 12px;
+  color: var(--text-primary);
+  transform-origin: var(--radix-popover-content-transform-origin);
+  animation: popIn 160ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.popover[data-state="closed"] {
+  animation: popOut 120ms ease-in forwards;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-selected);
+}
+
+.state {
+  flex: none;
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 14%, transparent);
+}
+
+.branch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.branch > span:first-of-type {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.added {
+  color: var(--green);
+}
+
+.removed {
+  color: var(--red);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.icon {
+  flex: none;
+  color: var(--text-dim);
+}
+
+.rowMain {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-selected);
+}
+
+.rowMeta {
+  flex: none;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.mono,
+.port {
+  font-family: var(--font-mono);
+}
+
+.mono {
+  color: var(--text-dim);
+}
+
+.port {
+  color: var(--cyan);
+}
+
+.sub {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.hint {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes popOut {
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .popover,
+  .popover[data-state="closed"] {
+    animation: none;
+  }
+}

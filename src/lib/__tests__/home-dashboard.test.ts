@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  itemKey,
   needsYouItems,
   runningAgentCount,
   openPrCount,
@@ -10,6 +11,8 @@ import {
   upNextFromGitHub,
   upNextFromLinear,
   upNextList,
+  topUpNextPerProject,
+  openPrRows,
   projectCardSummary,
   type NeedsYouInput,
   type UpNextIssue,
@@ -263,6 +266,19 @@ describe("needsYouItems", () => {
   });
 });
 
+describe("itemKey", () => {
+  it("keys agents by id and PRs by URL", () => {
+    const project = baseProject();
+    const workspace = baseWorkspace();
+    expect(itemKey({ kind: "agent", tier: "input", agent: baseAgent({ id: "x" }), project })).toBe(
+      "agent:x",
+    );
+    expect(
+      itemKey({ kind: "pr", tier: "ready", pr: basePr(), project, workspace, reason: "ready to merge" }),
+    ).toBe("pr:https://github.com/example/repo/pull/1");
+  });
+});
+
 describe("runningAgentCount", () => {
   it("counts panes that are thinking or working for a live agent, once per pane", () => {
     const agents: AgentInfo[] = [
@@ -377,6 +393,22 @@ describe("rankUpNext", () => {
     const b = issue({ projectKey: "p1", identifier: "ENG-10", number: undefined });
     expect(rankUpNext([b, a], ["p1"]).map((i) => i.identifier)).toEqual(["ENG-2", "ENG-10"]);
   });
+
+  it("ranks Linear priority after ready-for-agent and before project order", () => {
+    const low = issue({ source: "linear", projectKey: "p1", identifier: "ENG-1", priority: 4 });
+    const urgent = issue({ source: "linear", projectKey: "p2", identifier: "ENG-2", priority: 1 });
+    const none = issue({ source: "linear", projectKey: "p1", identifier: "ENG-3", priority: 0 });
+    const gh = issue({ projectKey: "p1", number: 3, identifier: "#3" });
+    const readyNone = issue({
+      source: "linear",
+      projectKey: "p2",
+      identifier: "ENG-4",
+      priority: 0,
+      labels: ["ready-for-agent"],
+    });
+    const ranked = rankUpNext([none, gh, low, urgent, readyNone], ["p1", "p2"]);
+    expect(ranked.map((i) => i.identifier)).toEqual(["ENG-4", "ENG-2", "ENG-1", "#3", "ENG-3"]);
+  });
 });
 
 describe("primaryMember", () => {
@@ -454,6 +486,7 @@ describe("upNextFromGitHub / upNextFromLinear / upNextList", () => {
       projectKey: "p2",
       identifier: "ENG-3",
       labels: ["ready-for-agent"],
+      priority: 0,
     });
     expect(issue.number).toBeUndefined();
   });
@@ -579,5 +612,87 @@ describe("projectCardSummary", () => {
     expect(summary.pending).toEqual([]);
     expect(summary.runningAgents).toBe(0);
     expect(summary.openPrs).toBe(0);
+  });
+});
+
+describe("topUpNextPerProject", () => {
+  const item = (projectKey: string, id: string) => ({ projectKey, id });
+
+  it("caps each project, groups in project order and keeps rank order", () => {
+    const ranked = [
+      item("p2", "a"),
+      item("p1", "b"),
+      item("p2", "c"),
+      item("p1", "d"),
+      item("p2", "e"),
+    ];
+    const top = topUpNextPerProject(ranked, ["p1", "p2"], 2);
+    expect(top.map((i) => i.id)).toEqual(["b", "d", "a", "c"]);
+  });
+
+  it("puts keys missing from the project order last", () => {
+    const ranked = [item("x", "a"), item("p1", "b")];
+    expect(topUpNextPerProject(ranked, ["p1"], 3).map((i) => i.id)).toEqual(["b", "a"]);
+  });
+});
+
+describe("openPrRows", () => {
+  const ws = (name: string, pr?: PrInfo) => baseWorkspace({ name, path: `/repo/${name}`, pr });
+  const pr = (n: number, overrides: Partial<PrInfo> = {}) =>
+    basePr({ number: n, url: `https://github.com/example/repo/pull/${n}`, ...overrides });
+
+  it("skips closed, merged and PR-less workspaces and dedupes by url", () => {
+    const project = baseProject({
+      workspaces: [
+        ws("none"),
+        ws("closed", pr(1, { state: "closed" })),
+        ws("merged", pr(2, { state: "merged" })),
+        ws("first", pr(3)),
+        ws("dupe", pr(3)),
+      ],
+    });
+    const rows = openPrRows([project]);
+    expect(rows.map((r) => r.workspace.name)).toEqual(["first"]);
+  });
+
+  it("orders by readiness, stable within a rank", () => {
+    const project = baseProject({
+      workspaces: [
+        ws("pending", pr(1, { isDraft: true })),
+        ws("queued", pr(2, { queuedToMerge: true })),
+        ws("review", pr(3, { reviewDecision: "REVIEW_REQUIRED" })),
+        ws("ready", pr(4, { reviewDecision: "APPROVED" })),
+        ws("blocked", pr(5, { hasConflicts: true })),
+        ws("blocked2", pr(6, { hasConflicts: true })),
+      ],
+    });
+    const rows = openPrRows([project]);
+    expect(rows.map((r) => r.workspace.name)).toEqual([
+      "blocked",
+      "blocked2",
+      "ready",
+      "review",
+      "queued",
+      "pending",
+    ]);
+    expect(rows.map((r) => r.label)).toEqual([
+      "conflicts",
+      "conflicts",
+      "ready to merge",
+      "needs review",
+      "queued to merge",
+      "draft",
+    ]);
+  });
+
+  it("labels pending PRs by checks", () => {
+    const running = pr(1, { checks: { total: 2, passing: 1, failing: 0, pending: 1 } });
+    const rows = openPrRows([
+      baseProject({ workspaces: [ws("running", running), ws("plain", pr(2))] }),
+    ]);
+    expect(rows.map((r) => [r.readiness, r.label])).toEqual([
+      ["pending", "checks running"],
+      ["pending", "pending"],
+    ]);
   });
 });

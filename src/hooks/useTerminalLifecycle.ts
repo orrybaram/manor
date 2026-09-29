@@ -22,6 +22,7 @@ import { usePreferencesStore } from "../store/preferences-store";
 import { getAgentKindForCommand } from "../agent-defaults";
 import { isHomePath } from "../lib/home";
 import { isNavRegionFocused } from "../lib/focus-regions";
+import { classifyShellOutput } from "../lib/shell-ready";
 import { resolveHomeAdapter } from "../lib/harness";
 import { paneCreateHostId, useTerminalConnection } from "./useTerminalConnection";
 import { useRemotePaneStore } from "../store/remote-pane-store";
@@ -263,17 +264,40 @@ export function useTerminalLifecycle(
     // subscription setup — if we subscribe in the .then() we race that event
     // and miss it, causing the command to wait for the 3s fallback (or never
     // run at all if the fallback is cleared elsewhere).
-    let cwdSeen = false;
-    let cwdPending: (() => void) | null = null;
-    const cwdLatchUnsub = window.electronAPI.pty.onCwd(paneId, () => {
-      cwdSeen = true;
-      const fn = cwdPending;
-      cwdPending = null;
+    //
+    // The OSC 7 alone is not enough: it is emitted from precmd /
+    // PROMPT_COMMAND, before the line editor puts the tty in raw mode, and a
+    // command longer than the 4095-byte canonical line limit typed then loses
+    // its tail and its \r. So the shell counts as ready once output follows
+    // the OSC 7 — the prompt, drawn after the switch — or, for a prompt that
+    // prints nothing, shortly after the OSC 7 (see `classifyShellOutput`).
+    let shellReady = false;
+    let osc7Seen = false;
+    let shellReadyFallback: ReturnType<typeof setTimeout> | undefined;
+    let shellReadyPending: (() => void) | null = null;
+    const markShellReady = () => {
+      if (shellReady) return;
+      shellReady = true;
+      clearTimeout(shellReadyFallback);
+      const fn = shellReadyPending;
+      shellReadyPending = null;
       fn?.();
+    };
+    const armShellReadyFallback = () => {
+      osc7Seen = true;
+      if (shellReady || shellReadyFallback) return;
+      shellReadyFallback = setTimeout(markShellReady, 250);
+    };
+    const cwdLatchUnsub = window.electronAPI.pty.onCwd(paneId, armShellReadyFallback);
+    const promptLatchUnsub = window.electronAPI.pty.onOutput(paneId, (data) => {
+      if (shellReady) return;
+      const kind = classifyShellOutput(data);
+      if (kind === "ready" || (kind === "output" && osc7Seen)) markShellReady();
+      else if (kind === "osc7") armShellReadyFallback();
     });
     const onShellReady = (fn: () => void) => {
-      if (cwdSeen) fn();
-      else cwdPending = fn;
+      if (shellReady) fn();
+      else shellReadyPending = fn;
     };
 
     // A pane command this mount took from the queue and `write` has not
@@ -481,6 +505,8 @@ export function useTerminalLifecycle(
       // belongs to each attach, not to the first one of this component's life.
       closeOutput();
       cwdLatchUnsub();
+      promptLatchUnsub();
+      clearTimeout(shellReadyFallback);
       if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
       titleDisposable.dispose();
       dataDisposable.dispose();

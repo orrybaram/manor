@@ -1,6 +1,6 @@
 ---
 title: Snooze store for Needs you cards
-status: todo
+status: done
 priority: medium
 assignee: haiku
 blocked_by: []

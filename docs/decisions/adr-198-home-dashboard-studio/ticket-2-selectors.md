@@ -1,6 +1,6 @@
 ---
 title: Dashboard selectors for pipeline, cards, headline, stats and project tiles
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: [1]

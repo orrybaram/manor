@@ -1,6 +1,6 @@
 ---
 title: Keep PR updatedAt and add a daily PRs-merged stats series
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

@@ -205,10 +205,58 @@
   padding-bottom: 8px;
 }
 
+/* Rows fade out at an edge that has more to scroll to, instead of being cut
+   off hard against the Projects row above or the Agents pane below. The
+   fades are driven by the list's own scroll position, so each one only shows
+   while there is something past it; a list that fits never fades. */
+@property --projects-fade-top {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --projects-fade-bottom {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
 .projectsScroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--projects-fade-top),
+    #000 calc(100% - var(--projects-fade-bottom)),
+    transparent
+  );
+  animation:
+    projects-fade-top linear both,
+    projects-fade-bottom linear both;
+  animation-timeline: scroll(self), scroll(self);
+  animation-range:
+    0 32px,
+    calc(100% - 32px) 100%;
+}
+
+@keyframes projects-fade-top {
+  from {
+    --projects-fade-top: 0px;
+  }
+  to {
+    --projects-fade-top: 32px;
+  }
+}
+
+@keyframes projects-fade-bottom {
+  from {
+    --projects-fade-bottom: 32px;
+  }
+  to {
+    --projects-fade-bottom: 0px;
+  }
 }
 
 /* Side padding keeps hovered and active rows' backgrounds off the sidebar's

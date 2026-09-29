@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import House from "lucide-react/dist/esm/icons/house";
+import Search from "lucide-react/dist/esm/icons/search";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import { Button } from "../../ui/Button/Button";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
@@ -25,6 +26,7 @@ const AGENTS_POPOVER_KEY = "rail:agents";
 type SidebarRailProps = {
   onShowAgents: () => void;
   onOpenProjectSettings?: (projectId: string) => void;
+  onOpenSearch?: () => void;
 };
 
 /**
@@ -34,7 +36,7 @@ type SidebarRailProps = {
  * full sidebar shows it, on click or after resting the pointer on it.
  */
 export function SidebarRail(props: SidebarRailProps) {
-  const { onShowAgents, onOpenProjectSettings } = props;
+  const { onShowAgents, onOpenProjectSettings, onOpenSearch } = props;
 
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
@@ -104,6 +106,24 @@ export function SidebarRail(props: SidebarRailProps) {
           <House size={14} />
         </Button>
       </Tooltip>
+      {onOpenSearch && (
+        <Tooltip label="Search" side="right">
+          <Button
+            variant="ghost"
+            className={`${styles.iconButton} ${styles.searchButton}`}
+            data-testid="rail-search"
+            data-sidebar-row=""
+            tabIndex={-1}
+            aria-label="Search"
+            onClick={onOpenSearch}
+            onKeyDown={(e) =>
+              handleSidebarRowKeyDown(e, { activate: onOpenSearch })
+            }
+          >
+            <Search size={14} />
+          </Button>
+        </Tooltip>
+      )}
       <div className={styles.divider} />
       <div className={styles.tiles}>
         {entries.map((entry) => (

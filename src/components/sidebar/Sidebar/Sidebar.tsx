@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import Folders from "lucide-react/dist/esm/icons/folders";
 import House from "lucide-react/dist/esm/icons/house";
+import Search from "lucide-react/dist/esm/icons/search";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Button } from "../../ui/Button/Button";
 import { useProjectStore } from "../../../store/project-store";
@@ -37,10 +38,12 @@ interface SidebarProps {
   onShowAgents?: () => void;
   onOpenProjectSettings?: (projectId: string) => void;
   onAddProject?: () => void;
+  onOpenSearch?: () => void;
 }
 
 export function Sidebar(props: SidebarProps) {
-  const { onShowAgents, onOpenProjectSettings, onAddProject } = props;
+  const { onShowAgents, onOpenProjectSettings, onAddProject, onOpenSearch } =
+    props;
 
   const projects = useProjectStore((s) => s.projects);
   const reorderProjects = useProjectStore((s) => s.reorderProjects);
@@ -225,6 +228,24 @@ export function Sidebar(props: SidebarProps) {
             </span>
             <span className={styles.homeLabel}>Home</span>
           </div>
+          {onOpenSearch && (
+            // Styled like Home; for now it only opens the command palette.
+            <div
+              className={styles.homeRow}
+              data-testid="search-row"
+              data-sidebar-row=""
+              tabIndex={-1}
+              onClick={onOpenSearch}
+              onKeyDown={(e) =>
+                handleSidebarRowKeyDown(e, { activate: onOpenSearch })
+              }
+            >
+              <span className={styles.homeIcon}>
+                <Search size={12} />
+              </span>
+              <span className={styles.homeLabel}>Search</span>
+            </div>
+          )}
           <div className={styles.projectsSection}>
             <ContextMenu.Root>
               <ContextMenu.Trigger asChild>

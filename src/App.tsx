@@ -131,6 +131,7 @@ function App() {
     setPaletteInitialIssueId(null);
     setPaletteInitialGitHubIssueNumber(null);
   }, []);
+  const openPalette = useCallback(() => setPaletteOpen(true), []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsProjectId, setSettingsProjectId] = useState<string | null>(
     null,
@@ -705,6 +706,7 @@ function App() {
               <SidebarRail
                 onShowAgents={() => setAgentsOpen(true)}
                 onOpenProjectSettings={handleOpenProjectSettings}
+                onOpenSearch={openPalette}
               />
             )}
             {sidebarMode === "full" && (
@@ -712,6 +714,7 @@ function App() {
                 onShowAgents={() => setAgentsOpen(true)}
                 onOpenProjectSettings={handleOpenProjectSettings}
                 onAddProject={handleAddProject}
+                onOpenSearch={openPalette}
               />
             )}
           </div>

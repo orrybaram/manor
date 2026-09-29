@@ -58,10 +58,8 @@
   align-items: center;
   gap: 5px;
   flex: none;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--c);
 }
 
@@ -156,11 +154,21 @@
   background: var(--red);
 }
 
+/* `margin-top: auto` pins the actions to the bottom so a row of cards lines up. */
 .footer {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   margin-top: auto;
+  padding-top: 2px;
+}
+
+/* Open workspace and Snooze: icon-only, pushed right. */
+.tools {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
 }
 
 /*
@@ -207,13 +215,14 @@
   background: var(--hd-panel-2);
 }
 
-.snooze.snooze {
-  margin-left: auto;
-  font-weight: 400;
+.tool.tool {
+  padding: 5px;
   color: var(--text-dim);
+  background: none;
+  border: 1px solid transparent;
 }
 
-.snooze.snooze:hover:not(:disabled) {
+.tool.tool:hover:not(:disabled) {
   background: var(--hd-panel-2);
   color: var(--text-selected);
 }

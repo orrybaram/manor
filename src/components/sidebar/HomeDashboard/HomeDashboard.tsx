@@ -17,7 +17,9 @@ import { DashboardHeader } from "./DashboardHeader";
 import { HostAlert } from "./HostAlert";
 import { NeedsYouCards } from "./NeedsYouCards";
 import { PrPipeline } from "./PrPipeline";
+import { ProjectTiles } from "./ProjectTiles";
 import { StatTiles } from "./StatTiles";
+import { UpNextPanel } from "./UpNextPanel";
 import { useNow } from "./useNow";
 import styles from "./HomeDashboard.module.css";
 
@@ -95,20 +97,14 @@ export function HomeDashboard(props: HomeDashboardProps) {
 
         <div className={styles.grid}>
           <PrPipeline pipeline={pipeline} className={styles.span7} />
-          {/*
-            T7 — Up next goes here, in the span5 column:
-              <UpNext
-                onNewWorkspace={props.onNewWorkspace}
-                onOpenPaletteView={props.onOpenPaletteView}
-                className={styles.span5}
-              />
-          */}
+          <UpNextPanel
+            onNewWorkspace={props.onNewWorkspace}
+            onOpenPaletteView={props.onOpenPaletteView}
+            className={styles.span5}
+          />
         </div>
 
-        {/*
-          T7 — Project tiles, full width:
-            <ProjectTiles />
-        */}
+        <ProjectTiles now={now} />
       </div>
     </div>
   );

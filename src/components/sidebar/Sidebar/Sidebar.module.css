@@ -28,14 +28,14 @@
   outline: none;
 }
 
-/* The sidebar's column on the frame (ADR-196): 40px under the WindowLead,
+/* The sidebar's column on the frame (ADR-196): the title row under the WindowLead,
    a gutter on the left and bottom, and a right gutter that holds the resize
    handle and separates the panel from the workspace. */
 .frame {
   display: flex;
   flex-shrink: 0;
   position: relative;
-  padding: 40px var(--frame-gap) var(--frame-gap);
+  padding: var(--title-row) var(--frame-gap) var(--frame-gap);
 }
 
 /* The panel itself; its inline width is `sidebarWidth`. */

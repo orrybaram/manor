@@ -13,7 +13,6 @@ import {
 } from "../../../hooks/useNavigationHistory";
 import { formatCombo, type KeyCombo } from "../../../lib/keybindings";
 import { windowLeadWidth } from "../../../lib/window-lead";
-import { NotificationsPopover } from "../../notifications/NotificationsPopover";
 import styles from "./WindowLead.module.css";
 
 function withShortcut(label: string, combo: KeyCombo | undefined): string {
@@ -54,7 +53,7 @@ export function WindowLead() {
             onClick={() => toggleSidebarRail()}
             aria-label={sidebarMode === "full" ? "Collapse sidebar" : "Expand sidebar"}
           >
-            {sidebarMode === "full" ? <PanelLeft size={12} /> : <PanelLeftOpen size={12} />}
+            {sidebarMode === "full" ? <PanelLeft size={14} /> : <PanelLeftOpen size={14} />}
           </Button>
         </Tooltip>
         <Tooltip label={backLabel}>
@@ -66,7 +65,7 @@ export function WindowLead() {
             disabled={!canGoBack}
             aria-label="Navigate back"
           >
-            <ArrowLeft size={12} />
+            <ArrowLeft size={14} />
           </Button>
         </Tooltip>
         <Tooltip label={forwardLabel}>
@@ -78,15 +77,10 @@ export function WindowLead() {
             disabled={!canGoForward}
             aria-label="Navigate forward"
           >
-            <ArrowRight size={12} />
+            <ArrowRight size={14} />
           </Button>
         </Tooltip>
       </div>
-      {sidebarMode === "full" && (
-        <div className={styles.trailing}>
-          <NotificationsPopover />
-        </div>
-      )}
     </div>
   );
 }

@@ -14,6 +14,7 @@ import { Button } from "../Button/Button";
 import { Link } from "../Link/Link";
 import { Tooltip } from "../Tooltip/Tooltip";
 import styles from "./PrCommentCard.module.css";
+import { Collapse } from "../Collapse/Collapse";
 
 /**
  * One comment, as a card: who said it, then the file it hangs off and the
@@ -83,7 +84,7 @@ export function PrCommentCard(props: {
         )}
       </div>
 
-      {showBody && (
+      <Collapse open={showBody}>
         <div className={styles.content}>
           {isThread && comment.path && <CommentFile path={comment.path} />}
           {body ? (
@@ -94,7 +95,7 @@ export function PrCommentCard(props: {
             <div className={styles.empty}>No comment text.</div>
           )}
         </div>
-      )}
+      </Collapse>
 
       <span className={styles.actions}>
         {canSendToAgent && (

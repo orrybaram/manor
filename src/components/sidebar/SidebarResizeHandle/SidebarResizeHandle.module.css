@@ -5,7 +5,7 @@
    window's drag row. */
 .handle {
   position: absolute;
-  top: 40px;
+  top: var(--title-row);
   bottom: var(--frame-gap);
   right: 0;
   width: var(--frame-gap);

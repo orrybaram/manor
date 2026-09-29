@@ -22,6 +22,7 @@ import { useAgentDisplay } from "../../hooks/useAgentDisplay";
 import { useInlineRename } from "../../hooks/useInlineRename";
 import styles from "./AgentsList.module.css";
 import menuStyles from "./ProjectItem.module.css";
+import { Collapse } from "../ui/Collapse/Collapse";
 
 function AgentRow({ agent, shouldPulse, onClose, onClick, onRename }: {
   agent: AgentInfo;
@@ -261,7 +262,7 @@ export function AgentsList(props: AgentsListProps) {
           </button>
         )}
       </div>
-      {(fitContent ? !collapsed : showBody) && (
+      <Collapse open={fitContent || showBody} animate={!isResizing}>
         <div className={styles.agentGroups} style={fitContent ? undefined : { height: bodyHeight }}>
           {Array.from(groups.entries()).map(([projectName, groupAgents]) => (
             <div key={projectName} className={styles.agentGroup}>
@@ -289,7 +290,7 @@ export function AgentsList(props: AgentsListProps) {
             </div>
           ))}
         </div>
-      )}
+      </Collapse>
     </div>
   );
 }

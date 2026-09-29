@@ -41,6 +41,7 @@ import { openInEditor } from "../../../lib/editor";
 import { categorizePushError, type PushError } from "../../../lib/push-error";
 import { useToastStore } from "../../../store/toast-store";
 import { onUiRequest } from "../../../utils/ui-request";
+import { Collapse } from "../../ui/Collapse/Collapse";
 
 export type DiffPaneRef = {
   toggleSearch: () => void;
@@ -768,7 +769,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
                         animated={animationState.get(file.path) === "updated"}
                         onToggle={() => toggleFile(file.path)}
                       />
-                      {!collapsed.has(file.path) && (
+                      <Collapse open={!collapsed.has(file.path)}>
                         <DiffLines
                           lines={file.lines}
                           filePath={file.path}
@@ -778,7 +779,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
                           renderRowExtra={annotations?.renderRowExtra}
                           markedRows={annotations?.markedRows}
                         />
-                      )}
+                      </Collapse>
                     </div>
                   </ContextMenu.Trigger>
                   <ContextMenu.Portal>

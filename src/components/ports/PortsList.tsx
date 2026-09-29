@@ -6,6 +6,7 @@ import { useProjectStore, MIN_PORTS_HEIGHT, MAX_PORTS_HEIGHT } from "../../store
 import { useCollapsibleResize } from "../../hooks/useCollapsibleResize";
 import { PortGroup } from "./PortGroup";
 import styles from "./Ports.module.css";
+import { Collapse } from "../ui/Collapse/Collapse";
 
 export function PortsList() {
   const { workspacePortGroups, totalPortCount } = usePortsData();
@@ -63,13 +64,13 @@ export function PortsList() {
           <span className={styles.portCount}>{totalPortCount}</span>
         </span>
       </div>
-      {showBody && (
+      <Collapse open={showBody} animate={!isResizing}>
         <div className={styles.portGroups} style={{ height: bodyHeight }}>
           {workspacePortGroups.map((group) => (
             <PortGroup key={group.workspacePath} group={group} />
           ))}
         </div>
-      )}
+      </Collapse>
     </div>
   );
 }

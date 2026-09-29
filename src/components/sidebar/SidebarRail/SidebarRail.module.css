@@ -21,7 +21,7 @@
 
 /* The row the WindowLead sits in (ADR-196), draggable. */
 .dragSpacer {
-  height: 40px;
+  height: var(--title-row);
   width: 100%;
   flex-shrink: 0;
   -webkit-app-region: drag;

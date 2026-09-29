@@ -29,6 +29,7 @@ import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { ProjectChevron } from "./ProjectChevron";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import styles from "./ProjectItem.module.css";
+import { Collapse } from "../ui/Collapse/Collapse";
 
 type GroupEntry = Extract<TopLevelEntry, { kind: "group" }>;
 
@@ -283,7 +284,7 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
           </ContextMenu.Content>
         </ContextMenu.Portal>
       </ContextMenu.Root>
-      {!collapsed && (
+      <Collapse open={!collapsed}>
         <div className={styles.groupSections}>
           {sections.map((section) => {
             // An away host's section keeps its last known workspaces, dimmed;
@@ -301,7 +302,7 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
             );
           })}
         </div>
-      )}
+      </Collapse>
 
       {lead && (
         <NewWorkspaceDialog

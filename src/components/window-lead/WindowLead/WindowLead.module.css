@@ -5,10 +5,12 @@
   position: absolute;
   top: 0;
   left: 0;
-  height: 40px;
+  height: var(--title-row);
   z-index: 10;
   display: flex;
-  align-items: center;
+  /* Bottom-aligned 24px buttons centre 12px above the row's bottom edge,
+     level with the tab labels and the traffic lights. */
+  align-items: flex-end;
   padding-right: 6px;
   background: transparent;
   -webkit-app-region: drag;
@@ -26,22 +28,13 @@
 .controls {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   flex-shrink: 0;
   -webkit-app-region: no-drag;
 }
 
 .button {
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   padding: 0;
-}
-
-/* Pushed to the lead's right end, over the sidebar panel's right edge. */
-.trailing {
-  display: flex;
-  align-items: center;
-  margin-left: auto;
-  flex-shrink: 0;
-  -webkit-app-region: no-drag;
 }

@@ -1,7 +1,7 @@
 /* ── Tab Bar ── */
 
 /* The tab bar sits on the frame (ADR-196), above its panel's rounded body.
-   The 40px row lines up with the WindowLead, so the top row of panels forms
+   The title row lines up with the WindowLead, so the top row of panels forms
    the window's title row. Tabs sit on the bottom edge and the active one
    merges into the body below. */
 .tabBar {
@@ -10,7 +10,7 @@
   display: flex;
   align-items: flex-end;
   width: 100%;
-  height: 40px;
+  height: var(--title-row);
   flex-shrink: 0;
   padding: 0 8px 0 0;
   background: transparent;
@@ -22,6 +22,11 @@
    inset per sidebar mode; the `:root` default clears the traffic lights. */
 .tabBarTopLeft {
   padding-left: var(--window-lead-inset);
+}
+
+/* The top-right panel's tabs stop short of the WindowTrail's bell. */
+.tabBarTopRight {
+  padding-right: var(--window-trail-inset);
 }
 
 .tabBarDropTarget {

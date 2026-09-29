@@ -89,6 +89,7 @@ import {
 import { useEmojiAutocomplete } from "../ui/EmojiAutocomplete/useEmojiAutocomplete";
 import { composeHandlers } from "../ui/EmojiAutocomplete/compose";
 import { Button } from "../ui/Button/Button";
+import { Collapse } from "../ui/Collapse/Collapse";
 import styles from "./ProjectItem.module.css";
 
 interface WorkspaceItemProps {
@@ -1332,28 +1333,29 @@ export function ProjectItem(props: ProjectItemProps) {
           </ContextMenu.Content>
         </ContextMenu.Portal>
       </ContextMenu.Root>
-      {isSection
-        ? expanded && items.length > 0 && workspaceList
-        : expanded &&
-          (isRemoteHost(project.hostId) || items.length > 0) && (
-            // Hangs off a guide line under the chevron (ADR-193 §3).
-            <div className={styles.projectBody}>
-              {/* A remote-only project names its host above its workspaces,
-                  the way a linked group's sections do. */}
-              {isRemoteHost(project.hostId) && (
-                <div className={styles.hostHeading} data-testid="project-host-heading">
-                  <SectionHostLabel
-                    hostId={project.hostId}
-                    path={project.path}
-                    label={remoteTarget ?? project.hostId}
-                    offline={isHostOffline(project.hostId, hosts)}
-                    collapsedCount={null}
-                  />
-                </div>
-              )}
-              {items.length > 0 && workspaceList}
-            </div>
-          )}
+      {isSection ? (
+        <Collapse open={expanded && items.length > 0}>{workspaceList}</Collapse>
+      ) : (
+        <Collapse open={expanded && (isRemoteHost(project.hostId) || items.length > 0)}>
+          {/* Hangs off a guide line under the chevron (ADR-193 §3). */}
+          <div className={styles.projectBody}>
+            {/* A remote-only project names its host above its workspaces,
+                the way a linked group's sections do. */}
+            {isRemoteHost(project.hostId) && (
+              <div className={styles.hostHeading} data-testid="project-host-heading">
+                <SectionHostLabel
+                  hostId={project.hostId}
+                  path={project.path}
+                  label={remoteTarget ?? project.hostId}
+                  offline={isHostOffline(project.hostId, hosts)}
+                  collapsedCount={null}
+                />
+              </div>
+            )}
+            {items.length > 0 && workspaceList}
+          </div>
+        </Collapse>
+      )}
 
       <NewWorkspaceDialog
         open={newWorkspaceOpen}

@@ -17,9 +17,9 @@
   top: 0;
   bottom: 0;
   left: 50%;
-  width: 2px;
+  width: 4px;
   transform: translateX(-50%);
-  border-radius: 1px;
+  border-radius: 2px;
   background: transparent;
   transition: background 0.15s ease;
 }

@@ -148,6 +148,12 @@
   padding: 0;
   border-radius: 8px;
   flex-shrink: 0;
+  /* A faint tile so Home reads as part of the column of project tiles. */
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+}
+
+.rail .iconButton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
 }
 
 /* Home sits one step below the title row, like every other gap. */

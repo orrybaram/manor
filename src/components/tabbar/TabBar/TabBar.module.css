@@ -24,6 +24,11 @@
   padding-left: var(--window-lead-inset);
 }
 
+/* Eases with the sidebar column while a mode change animates (App.css). */
+:global(.app-body[data-sidebar-animating]) .tabBarTopLeft {
+  transition: padding-left var(--sidebar-mode-transition) ease;
+}
+
 /* The top-right panel's tabs stop short of the WindowTrail's bell. */
 .tabBarTopRight {
   padding-right: var(--window-trail-inset);

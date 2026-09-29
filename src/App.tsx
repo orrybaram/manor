@@ -18,6 +18,10 @@ import { ManorLogo } from "./components/ui/ManorLogo";
 import { CloseAgentPaneDialog } from "./components/CloseAgentPaneDialog";
 import { ToastContainer } from "./components/ui/Toast/Toast";
 import { TooltipProvider } from "./components/ui/Tooltip/Tooltip";
+import {
+  SIDEBAR_MODE_TRANSITION_MS,
+  useSidebarModeTransition,
+} from "./hooks/useSidebarModeTransition";
 
 const CommandPalette = lazy(() => import("./components/command-palette/CommandPalette").then(m => ({ default: m.CommandPalette })));
 const SettingsModal = lazy(() => import("./components/settings/SettingsModal/SettingsModal").then(m => ({ default: m.SettingsModal })));
@@ -48,7 +52,7 @@ import {
   startNewAgent,
 } from "./lib/keybinding-commands";
 import { placeNewWorkspaceInFolder } from "./lib/place-new-workspace";
-import { windowLeadInset } from "./lib/window-lead";
+import { sidebarColumnWidth, windowLeadInset } from "./lib/window-lead";
 import {
   createMenuHandlers,
   dispatchMenuCommand,
@@ -375,6 +379,7 @@ function App() {
   }
   const sidebarMode = useProjectStore((s) => s.sidebarMode);
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
+  const sidebarAnimating = useSidebarModeTransition(sidebarMode);
 
   const hasProjects = projects.length > 0;
   // How far the top-left panel's tab bar starts in to clear the WindowLead
@@ -385,6 +390,7 @@ function App() {
         "--window-lead-inset": `${windowLeadInset(sidebarMode, sidebarWidth)}px`,
         // Clears the WindowTrail's bell on the top-right panel's tab bar.
         "--window-trail-inset": "36px",
+        "--sidebar-mode-transition": `${SIDEBAR_MODE_TRANSITION_MS}ms`,
       } as CSSProperties)
     : undefined;
   const hasTabs = (ws?.tabs.length ?? 0) > 0;
@@ -683,23 +689,36 @@ function App() {
   return (
     <TooltipProvider>
     <div className="app">
-      <div className="app-body" style={appBodyStyle}>
-        {sidebarMode === "rail" && hasProjects && (
-          <SidebarRail
-            onShowAgents={() => setAgentsOpen(true)}
-            onOpenProjectSettings={handleOpenProjectSettings}
-          />
-        )}
-        {sidebarMode === "full" && hasProjects && (
-          <Sidebar
-            onShowAgents={() => setAgentsOpen(true)}
-            onOpenProjectSettings={handleOpenProjectSettings}
-            onAddProject={handleAddProject}
-          />
+      <div
+        className="app-body"
+        style={appBodyStyle}
+        data-sidebar-animating={sidebarAnimating || undefined}
+      >
+        {/* One column for every sidebar mode, so a mode change animates its
+            width instead of swapping views at a new size. */}
+        {hasProjects && (
+          <div
+            className="sidebar-column"
+            style={{ width: sidebarColumnWidth(sidebarMode, sidebarWidth) }}
+          >
+            {sidebarMode === "rail" && (
+              <SidebarRail
+                onShowAgents={() => setAgentsOpen(true)}
+                onOpenProjectSettings={handleOpenProjectSettings}
+              />
+            )}
+            {sidebarMode === "full" && (
+              <Sidebar
+                onShowAgents={() => setAgentsOpen(true)}
+                onOpenProjectSettings={handleOpenProjectSettings}
+                onAddProject={handleAddProject}
+              />
+            )}
+          </div>
         )}
         <PaneDragProvider>
           <div
-            className={`main-content ${sidebarMode !== "hidden" && hasProjects ? "" : "main-content--gutter-left"}`}
+            className={`main-content ${hasProjects ? "" : "main-content--gutter-left"}`}
           >
             {/* Every workspace renders through the same PanelLayout in a single
                 positioned stack, active or not. Inactive ones are only hidden,

@@ -38,3 +38,8 @@
   height: 24px;
   padding: 0;
 }
+
+/* Eases with the sidebar column while a mode change animates (App.css). */
+:global(.app-body[data-sidebar-animating]) .lead {
+  transition: width var(--sidebar-mode-transition) ease;
+}

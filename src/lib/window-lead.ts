@@ -27,6 +27,15 @@ function leftColumnWidth(mode: SidebarMode, sidebarWidth: number): number {
 }
 
 /**
+ * Width of the column App.tsx holds the rail or sidebar panel in. Hidden
+ * keeps a gutter so the workspace's left edge doesn't jump when the column
+ * animates to or from it.
+ */
+export function sidebarColumnWidth(mode: SidebarMode, sidebarWidth: number): number {
+  return mode === "hidden" ? FRAME_GAP : leftColumnWidth(mode, sidebarWidth);
+}
+
+/**
  * How far the top-left panel's tab bar must start in so its tabs clear the
  * lead: the part of the lead that overhangs the workspace.
  */

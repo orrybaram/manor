@@ -105,9 +105,41 @@ body,
   overflow: hidden;
 }
 
+/* Holds the rail or the full sidebar panel; App.tsx sets its width per
+   sidebar mode. While a mode change animates, the width eases to the new
+   mode's, the incoming view is clipped to it and fades in, and the lead and
+   the top-left tab bar ease along (their modules key off the same flag).
+   Outside that window widths change instantly, so resizing tracks the
+   pointer. */
+.sidebar-column {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.app-body[data-sidebar-animating] .sidebar-column {
+  overflow: clip;
+  transition: width var(--sidebar-mode-transition) ease;
+}
+
+.app-body[data-sidebar-animating] .sidebar-column > * {
+  animation: sidebar-column-fade-in var(--sidebar-mode-transition) ease;
+}
+
+@keyframes sidebar-column-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-body {
+    --sidebar-mode-transition: 0ms !important;
+  }
+}
+
 /* The right window edge gets the frame gutter (ADR-196). The left edge only
-   does when nothing to its left supplies one: the full sidebar's column
-   already ends in a gutter, the rail and the hidden sidebar don't. The
+   does when nothing to its left supplies one: with projects, the sidebar
+   column ends in one in every mode (a bare gutter when hidden). The
    padding is the same for every workspace in the stack, so switching
    workspaces never changes a terminal's size. */
 .main-content {

@@ -1,6 +1,6 @@
 ---
 title: Block tabs on Home at the store and drop persisted Home layouts
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: []

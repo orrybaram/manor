@@ -10,13 +10,13 @@ import styles from "./PrPipeline.module.css";
 
 type PrPipelineProps = {
   pipeline: PipelineColumn[];
-  /** Grid placement from `HomeDashboard.module.css`. */
+  /** Extra class for placement. */
   className?: string;
 };
 
 /**
  * The Pull requests panel (ADR-198 §1.6): open PRs in four stage columns,
- * three cards each, the rest behind "+N more".
+ * five cards each, the rest behind "+N more".
  */
 export function PrPipeline(props: PrPipelineProps) {
   const { pipeline, className } = props;

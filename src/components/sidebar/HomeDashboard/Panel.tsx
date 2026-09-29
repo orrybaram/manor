@@ -7,7 +7,7 @@ type PanelProps = {
   sub?: ReactNode;
   /** Right-aligned header content: a legend, a "View all" link. */
   right?: ReactNode;
-  /** Grid placement from `HomeDashboard.module.css` (`span7`, `span5`, …). */
+  /** Extra class for placement. */
   className?: string;
   children: ReactNode;
 };

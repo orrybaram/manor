@@ -15,7 +15,7 @@ const SKELETON_ROWS = 3;
 type UpNextPanelProps = {
   onNewWorkspace?: NewWorkspaceHandler;
   onOpenPaletteView?: (view: PaletteView) => void;
-  /** Grid placement from `HomeDashboard.module.css`. */
+  /** Extra class for placement. */
   className?: string;
 };
 

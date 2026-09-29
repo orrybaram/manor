@@ -10,7 +10,7 @@ import { useDashboardAnimate } from "./useDashboardAnimate";
 import { useSelectWorkspace } from "./useSelectWorkspace";
 import styles from "./PrPipeline.module.css";
 
-const VISIBLE_CARDS = 3;
+const VISIBLE_CARDS = 5;
 
 const STAGE_LABEL: Record<PrStage, string> = {
   checks: "Checks running",
@@ -32,7 +32,7 @@ type PipelineStageProps = {
   onExpand: () => void;
 };
 
-/** One pipeline column: a count header, three cards, the rest behind "+N more". */
+/** One pipeline column: a count header, five cards, the rest behind "+N more". */
 export function PipelineStage(props: PipelineStageProps) {
   const { column, expanded, onExpand } = props;
   const openWorkspace = useSelectWorkspace();

@@ -1,6 +1,6 @@
 ---
 title: Dashboard view without launchers, rename Home to Dashboard in UI
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

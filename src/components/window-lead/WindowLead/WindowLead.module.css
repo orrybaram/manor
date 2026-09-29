@@ -11,7 +11,9 @@
   /* Bottom-aligned 24px buttons centre 12px above the row's bottom edge,
      level with the tab labels and the traffic lights. */
   align-items: flex-end;
-  padding-right: 6px;
+  /* The lead ends one gutter short of the sidebar panel's right edge; 4px
+     more puts the bell's centre 22px in, on the Projects "+" button's. */
+  padding-right: 4px;
   background: transparent;
   -webkit-app-region: drag;
   user-select: none;

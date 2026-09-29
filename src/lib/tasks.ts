@@ -17,7 +17,13 @@ export type TaskFilter = "open" | "assigned";
  * How a status pill is tinted: `open` / `started` green, `todo` neutral,
  * `backlog` / `canceled` dim, `closed` purple.
  */
-export type TaskStatusTone = "open" | "started" | "todo" | "backlog" | "closed" | "canceled";
+export type TaskStatusTone =
+  | "open"
+  | "started"
+  | "todo"
+  | "backlog"
+  | "closed"
+  | "canceled";
 
 export interface TaskLabel {
   name: string;
@@ -90,7 +96,10 @@ export function fromGitHub(issue: GitHubIssue, ctx: TaskContext): TaskRow {
     displayId: `#${issue.number}`,
     title: issue.title,
     url: issue.url,
-    labels: (issue.labels ?? []).map((l) => ({ name: l.name, color: cssHex(l.color) })),
+    labels: (issue.labels ?? []).map((l) => ({
+      name: l.name,
+      color: cssHex(l.color),
+    })),
     assignees: (issue.assignees ?? []).map((a) => a.login),
     author: issue.author?.login || undefined,
     status: githubStatus(issue.state ?? "open"),
@@ -111,7 +120,10 @@ export function fromLinear(issue: LinearIssue, ctx: TaskContext): TaskRow {
     displayId: issue.identifier,
     title: issue.title,
     url: issue.url,
-    labels: (issue.labels ?? []).map((l) => ({ name: l.name, color: cssHex(l.color) })),
+    labels: (issue.labels ?? []).map((l) => ({
+      name: l.name,
+      color: cssHex(l.color),
+    })),
     assignees: assignee ? [assignee] : [],
     status: {
       label: issue.state?.name ?? "Unknown",
@@ -155,8 +167,42 @@ export function collectTasks(rows: readonly TaskRow[]): TaskRow[] {
   return sortTasks(unique);
 }
 
+/**
+ * Rows not already linked to some workspace (in any project). A link is
+ * matched by URL — GitHub link ids (`gh-N`) aren't unique across repos — or,
+ * for Linear, by issue id.
+ */
+export function withoutLinkedTasks(
+  rows: readonly TaskRow[],
+  projects: readonly Pick<ProjectInfo, "workspaces">[],
+): TaskRow[] {
+  const urls = new Set<string>();
+  const linearIds = new Set<string>();
+  for (const project of projects) {
+    for (const ws of project.workspaces) {
+      for (const linked of ws.linkedIssues ?? []) {
+        if (linked.url) urls.add(normalizeUrl(linked.url));
+        linearIds.add(linked.id);
+      }
+    }
+  }
+  if (urls.size === 0 && linearIds.size === 0) return [...rows];
+  return rows.filter(
+    (row) =>
+      !(row.url && urls.has(normalizeUrl(row.url))) &&
+      !(row.raw.provider === "linear" && linearIds.has(row.raw.issue.id)),
+  );
+}
+
+function normalizeUrl(url: string): string {
+  return url.replace(/\/+$/, "").toLowerCase();
+}
+
 /** Rows whose title, ID or a label contains `query` (case-insensitive); all rows for a blank query. */
-export function filterTasks(rows: readonly TaskRow[], query: string): TaskRow[] {
+export function filterTasks(
+  rows: readonly TaskRow[],
+  query: string,
+): TaskRow[] {
   const q = query.trim().toLowerCase();
   if (!q) return [...rows];
   return rows.filter(
@@ -178,7 +224,11 @@ export interface TaskPage {
 }
 
 /** The 1-based `page` of `rows`, clamping an out-of-range page to the nearest real one. */
-export function paginate(rows: readonly TaskRow[], page: number, size = TASKS_PAGE_SIZE): TaskPage {
+export function paginate(
+  rows: readonly TaskRow[],
+  page: number,
+  size = TASKS_PAGE_SIZE,
+): TaskPage {
   const pageCount = Math.max(1, Math.ceil(rows.length / size));
   const clamped = Math.min(pageCount, Math.max(1, Math.floor(page) || 1));
   const start = (clamped - 1) * size;
@@ -189,7 +239,10 @@ export function paginate(rows: readonly TaskRow[], page: number, size = TASKS_PA
  * The page buttons to show: every page when there are few, otherwise the
  * first, the last and the current one's neighbours, with `"gap"` between runs.
  */
-export function pageWindow(page: number, pageCount: number): (number | "gap")[] {
+export function pageWindow(
+  page: number,
+  pageCount: number,
+): (number | "gap")[] {
   if (pageCount <= 7) return Array.from({ length: pageCount }, (_, i) => i + 1);
   const shown = new Set([1, pageCount, page - 1, page, page + 1]);
   const out: (number | "gap")[] = [];
@@ -236,14 +289,20 @@ export function initialOf(name: string): string {
  * listed task's URL: a GitHub repo's issues page, or a Linear team's page.
  * Null when no row can tell.
  */
-export function trackerHomeUrl(rows: readonly TaskRow[], provider: TaskProvider): string | null {
+export function trackerHomeUrl(
+  rows: readonly TaskRow[],
+  provider: TaskProvider,
+): string | null {
   for (const row of rows) {
     if (row.provider !== provider) continue;
     if (provider === "github") {
       const m = /^(https:\/\/[^/]+\/[^/]+\/[^/]+)\/issues\/\d+/.exec(row.url);
       if (m) return `${m[1]}/issues`;
     } else {
-      const m = /^(https:\/\/linear\.app\/[^/]+)\/issue\/([A-Za-z0-9]+)-\d+/.exec(row.url);
+      const m =
+        /^(https:\/\/linear\.app\/[^/]+)\/issue\/([A-Za-z0-9]+)-\d+/.exec(
+          row.url,
+        );
       if (m) return `${m[1]}/team/${m[2]}/all`;
     }
   }

@@ -6,6 +6,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import { useProjectStore } from "../../store/project-store";
 import { useQueryClient } from "@tanstack/react-query";
 import Search from "lucide-react/dist/esm/icons/search";
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
@@ -36,6 +37,7 @@ import {
 } from "../../lib/start-issue-work";
 import {
   filterTasks,
+  withoutLinkedTasks,
   initialOf,
   pageWindow,
   paginate,
@@ -160,15 +162,22 @@ export function TasksView(props: TasksViewProps) {
     filter,
   });
 
+  // Tasks already linked to a workspace are being worked on — hide them.
+  const projects = useProjectStore((s) => s.projects);
+  const unlinked = useMemo(
+    () => withoutLinkedTasks(rows, projects),
+    [rows, projects],
+  );
+  const linkedCount = rows.length - unlinked.length;
   const filtered = useMemo(
-    () => filterTasks(rows, deferredSearch),
-    [rows, deferredSearch],
+    () => filterTasks(unlinked, deferredSearch),
+    [unlinked, deferredSearch],
   );
   const current = paginate(filtered, page);
   const homeUrl = projectKey ? trackerHomeUrl(rows, provider) : null;
   const projectCount = useMemo(
-    () => new Set(rows.map((r) => r.projectEntryKey)).size,
-    [rows],
+    () => new Set(unlinked.map((r) => r.projectEntryKey)).size,
+    [unlinked],
   );
 
   const chooseProvider = useCallback((next: TaskProvider) => {
@@ -272,7 +281,8 @@ export function TasksView(props: TasksViewProps) {
           <span className={styles.headerMeta}>
             {loading && rows.length === 0
               ? "Loading…"
-              : `${plural(rows.length, "task")} · ${plural(projectCount, "project")}`}
+              : `${plural(unlinked.length, "task")} · ${plural(projectCount, "project")}` +
+                (linkedCount > 0 ? ` · ${linkedCount} in workspaces` : "")}
           </span>
           <div className={styles.headerControls}>
             {providers.length > 0 && (

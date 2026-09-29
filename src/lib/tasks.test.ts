@@ -10,6 +10,7 @@ import {
   relativeTime,
   sortTasks,
   trackerHomeUrl,
+  withoutLinkedTasks,
   type TaskContext,
   type TaskRow,
 } from "./tasks";
@@ -17,7 +18,12 @@ import type { GitHubIssue, LinearIssue } from "../electron.d";
 import type { ProjectInfo } from "../store/project-store";
 
 const project = { id: "p1", name: "manor", color: "blue" } as ProjectInfo;
-const ctx: TaskContext = { entryKey: "p1", project, projectName: "manor", color: "blue" };
+const ctx: TaskContext = {
+  entryKey: "p1",
+  project,
+  projectName: "manor",
+  color: "blue",
+};
 
 function gh(over: Partial<GitHubIssue> = {}): GitHubIssue {
   return {
@@ -75,7 +81,10 @@ describe("fromGitHub", () => {
   });
 
   it("marks closed issues and drops unusable label colours", () => {
-    const r = fromGitHub(gh({ state: "CLOSED", labels: [{ name: "x", color: "nope" }] }), ctx);
+    const r = fromGitHub(
+      gh({ state: "CLOSED", labels: [{ name: "x", color: "nope" }] }),
+      ctx,
+    );
     expect(r.status).toEqual({ label: "Closed", tone: "closed" });
     expect(r.labels).toEqual([{ name: "x", color: undefined }]);
   });
@@ -96,11 +105,22 @@ describe("fromLinear", () => {
   });
 
   it("tints by state type and handles no assignee", () => {
-    expect(fromLinear(linear({ state: { name: "Backlog", type: "backlog" } }), ctx).status.tone).toBe("backlog");
-    expect(fromLinear(linear({ state: { name: "Todo", type: "unstarted" } }), ctx).status.tone).toBe("todo");
-    expect(fromLinear(linear({ state: { name: "Done", type: "completed" } }), ctx).status.tone).toBe("closed");
+    expect(
+      fromLinear(linear({ state: { name: "Backlog", type: "backlog" } }), ctx)
+        .status.tone,
+    ).toBe("backlog");
+    expect(
+      fromLinear(linear({ state: { name: "Todo", type: "unstarted" } }), ctx)
+        .status.tone,
+    ).toBe("todo");
+    expect(
+      fromLinear(linear({ state: { name: "Done", type: "completed" } }), ctx)
+        .status.tone,
+    ).toBe("closed");
     expect(fromLinear(linear({ assignee: null }), ctx).assignees).toEqual([]);
-    expect(fromLinear(linear({ assignee: { name: "Carol" } }), ctx).assignees).toEqual(["Carol"]);
+    expect(
+      fromLinear(linear({ assignee: { name: "Carol" } }), ctx).assignees,
+    ).toEqual(["Carol"]);
   });
 });
 
@@ -110,7 +130,12 @@ describe("sortTasks / collectTasks", () => {
     const b = row({ key: "b", updatedAt: "2026-03-01T00:00:00Z" });
     const c = row({ key: "c", updatedAt: "" });
     const d = row({ key: "d", updatedAt: "2026-03-01T00:00:00Z" });
-    expect(sortTasks([a, c, b, d]).map((r) => r.key)).toEqual(["b", "d", "a", "c"]);
+    expect(sortTasks([a, c, b, d]).map((r) => r.key)).toEqual([
+      "b",
+      "d",
+      "a",
+      "c",
+    ]);
   });
 
   it("drops duplicate tasks by provider + url", () => {
@@ -125,7 +150,12 @@ describe("filterTasks", () => {
   const rows = [
     row({ key: "1", title: "Fix Login", displayId: "#1", labels: [] }),
     row({ key: "2", title: "Other", displayId: "ENG-45", labels: [] }),
-    row({ key: "3", title: "Third", displayId: "#3", labels: [{ name: "Bug" }] }),
+    row({
+      key: "3",
+      title: "Third",
+      displayId: "#3",
+      labels: [{ name: "Bug" }],
+    }),
   ];
 
   it("matches title, id and labels case-insensitively", () => {
@@ -201,8 +231,58 @@ describe("initialOf", () => {
 describe("trackerHomeUrl", () => {
   it("derives the repo issues page and the Linear team page", () => {
     const rows = [fromGitHub(gh(), ctx), fromLinear(linear(), ctx)];
-    expect(trackerHomeUrl(rows, "github")).toBe("https://github.com/acme/manor/issues");
-    expect(trackerHomeUrl(rows, "linear")).toBe("https://linear.app/acme/team/ENG/all");
+    expect(trackerHomeUrl(rows, "github")).toBe(
+      "https://github.com/acme/manor/issues",
+    );
+    expect(trackerHomeUrl(rows, "linear")).toBe(
+      "https://linear.app/acme/team/ENG/all",
+    );
     expect(trackerHomeUrl([], "github")).toBeNull();
+  });
+});
+
+describe("withoutLinkedTasks", () => {
+  const ghRow = fromGitHub(gh(), ctx);
+  const otherRepoRow = fromGitHub(
+    gh({ url: "https://github.com/acme/other/issues/12" }),
+    ctx,
+  );
+  const linearRow = fromLinear(linear(), ctx);
+  const withLinks = (linkedIssues: { id: string; url: string }[]) =>
+    [
+      {
+        workspaces: [
+          {
+            linkedIssues: linkedIssues.map((l) => ({
+              ...l,
+              identifier: "",
+              title: "",
+            })),
+          },
+        ],
+      },
+    ] as unknown as ProjectInfo[];
+
+  it("keeps everything when nothing is linked", () => {
+    expect(withoutLinkedTasks([ghRow, linearRow], withLinks([]))).toEqual([
+      ghRow,
+      linearRow,
+    ]);
+  });
+
+  it("hides a GitHub task linked by URL, not a same-numbered one in another repo", () => {
+    const links = withLinks([
+      { id: "gh-12", url: "https://github.com/acme/manor/issues/12/" },
+    ]);
+    expect(withoutLinkedTasks([ghRow, otherRepoRow], links)).toEqual([
+      otherRepoRow,
+    ]);
+  });
+
+  it("hides a Linear task linked by id even when the URL differs", () => {
+    const links = withLinks([
+      { id: "lin-1", url: "https://linear.app/acme/issue/ENG-45" },
+    ]);
+    expect(withoutLinkedTasks([ghRow, linearRow], links)).toEqual([ghRow]);
   });
 });

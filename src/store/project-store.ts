@@ -47,10 +47,10 @@ const AGENTS_COLLAPSED_KEY = "manor:agentsCollapsed";
 const DEFAULT_SIDEBAR_WIDTH = 220;
 const DEFAULT_PORTS_HEIGHT = 200;
 export const MIN_PORTS_HEIGHT = 60;
-const MAX_PORTS_HEIGHT = 500;
+export const MAX_PORTS_HEIGHT = 500;
 const DEFAULT_AGENTS_HEIGHT = 200;
 export const MIN_AGENTS_HEIGHT = 60;
-const MAX_AGENTS_HEIGHT = 500;
+export const MAX_AGENTS_HEIGHT = 500;
 
 function loadSidebarWidth(): number {
   try {

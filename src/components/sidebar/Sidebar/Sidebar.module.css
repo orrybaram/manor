@@ -28,25 +28,24 @@
   outline: none;
 }
 
+/* The sidebar's column on the frame (ADR-196): the title row under the WindowLead,
+   a gutter on the left and bottom, and a right gutter that holds the resize
+   handle and separates the panel from the workspace. */
+.frame {
+  display: flex;
+  flex-shrink: 0;
+  position: relative;
+  padding: var(--title-row) var(--frame-gap) var(--frame-gap);
+}
+
+/* The panel itself; its inline width is `sidebarWidth`. */
 .sidebar {
   display: flex;
   flex-direction: column;
-  background: var(--dim);
   flex-shrink: 0;
   position: relative;
   user-select: none;
   overflow: hidden;
-  border-right: 1px solid var(--border);
-}
-
-.titlebar {
-  height: 32px;
-  flex-shrink: 0;
-  -webkit-app-region: drag;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 0 6px;
 }
 
 .content {
@@ -56,28 +55,6 @@
   flex-direction: column;
   overflow: hidden;
   padding-top: 8px;
-}
-
-.titlebarActions {
-  display: flex;
-  align-items: center;
-  margin-left: 4px;
-  flex-shrink: 0;
-  -webkit-app-region: no-drag;
-}
-
-.navControls {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
-  -webkit-app-region: no-drag;
-}
-
-.navButton {
-  width: 18px;
-  height: 18px;
-  padding: 0;
 }
 
 /* Duplicated in AgentsList.module.css — candidate for a shared <SectionHeader> UI component */
@@ -228,10 +205,58 @@
   padding-bottom: 8px;
 }
 
+/* Rows fade out at an edge that has more to scroll to, instead of being cut
+   off hard against the Projects row above or the Agents pane below. The
+   fades are driven by the list's own scroll position, so each one only shows
+   while there is something past it; a list that fits never fades. */
+@property --projects-fade-top {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --projects-fade-bottom {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
 .projectsScroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--projects-fade-top),
+    #000 calc(100% - var(--projects-fade-bottom)),
+    transparent
+  );
+  animation:
+    projects-fade-top linear both,
+    projects-fade-bottom linear both;
+  animation-timeline: scroll(self), scroll(self);
+  animation-range:
+    0 32px,
+    calc(100% - 32px) 100%;
+}
+
+@keyframes projects-fade-top {
+  from {
+    --projects-fade-top: 0px;
+  }
+  to {
+    --projects-fade-top: 32px;
+  }
+}
+
+@keyframes projects-fade-bottom {
+  from {
+    --projects-fade-bottom: 32px;
+  }
+  to {
+    --projects-fade-bottom: 0px;
+  }
 }
 
 /* Side padding keeps hovered and active rows' backgrounds off the sidebar's

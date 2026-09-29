@@ -1,22 +1,34 @@
 /* ── Collapsed sidebar rail (ADR-195) ── */
 
-/* Same surface and edge as `.sidebar` in Sidebar.module.css. */
+/* On the frame, flush to the window's left edge (ADR-196): no surface or
+   edge of its own, so nothing under the traffic lights has a border. */
 .rail {
-  width: 52px;
+  /* A 32px column of tiles with the same space on both sides: from the
+     window's left edge, and to the main panel's border (that side includes
+     the gutter the resize handle sits in). 23 + 32 + 23 centres the column
+     on x=39, under the macOS traffic lights (x 13 to 65). Items are spaced
+     by `--rail-gap` down the column. Keep in step with RAIL_WIDTH in
+     src/lib/window-lead.ts. */
+  --rail-inset: 23px;
+  --rail-gap: 8px;
+  width: calc(2 * var(--rail-inset) + 32px);
+  padding-left: var(--rail-inset);
+  padding-right: var(--rail-inset);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  background: var(--dim);
-  border-right: 1px solid var(--border);
+  background: transparent;
   position: relative;
   user-select: none;
-  overflow: hidden;
+  /* Visible so the resize handle can draw on the main panel's border just
+     past the rail's edge; `.tiles` scrolls on its own. */
+  overflow: visible;
 }
 
-/* Room for the macOS traffic lights, draggable like `.titlebar`. */
+/* The row the WindowLead sits in (ADR-196), draggable. */
 .dragSpacer {
-  height: 32px;
+  height: var(--title-row);
   width: 100%;
   flex-shrink: 0;
   -webkit-app-region: drag;
@@ -26,19 +38,25 @@
   width: 24px;
   height: 1px;
   flex-shrink: 0;
-  margin: 8px 0;
+  /* `.tiles` adds 2px of its own above the first tile. */
+  margin: var(--rail-gap) 0 calc(var(--rail-gap) - 2px);
   background: var(--border);
 }
 
 .tiles {
-  flex: 1;
+  /* Only as tall as its tiles, so Agents sits right below the last one;
+     shrinks and scrolls once the tiles outgrow the rail. */
+  flex: 0 1 auto;
   min-height: 0;
-  width: 100%;
+  /* Spans the rail's inset too, so each slot's active marker can sit on
+     the window's left edge (`.tileSlot` steps the tile back in). */
+  width: calc(100% + var(--rail-inset));
+  margin-left: calc(-1 * var(--rail-inset));
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 2px 0 8px;
+  gap: var(--rail-gap);
+  padding: 2px 0 var(--rail-gap);
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-width: none;
@@ -54,7 +72,8 @@
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: 6px 0 10px;
+  /* `.tiles` already leaves one gap above. */
+  padding-bottom: var(--rail-gap);
 }
 
 /* One tile plus its active marker, full rail width so the marker sits on the
@@ -65,6 +84,8 @@
   display: flex;
   justify-content: center;
   flex-shrink: 0;
+  box-sizing: border-box;
+  padding-left: var(--rail-inset);
 }
 
 .activeMarker {
@@ -101,8 +122,8 @@
   box-shadow: inset 0 0 0 1px var(--project-color, var(--accent));
 }
 
-/* Status badge in the tile's bottom-right corner, ringed in the rail colour so
-   it reads against any project tint. */
+/* Status badge in the tile's bottom-right corner, ringed in the frame colour
+   the rail sits on so it reads against any project tint. */
 .badge {
   position: absolute;
   right: -4px;
@@ -113,7 +134,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--dim);
+  background: var(--bg-deep);
   pointer-events: none;
 }
 
@@ -129,6 +150,18 @@
   height: 32px;
   padding: 0;
   border-radius: 8px;
+  flex-shrink: 0;
+  /* A faint tile so Home reads as part of the column of project tiles. */
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+}
+
+.rail .iconButton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+/* Home sits one step below the title row, like every other gap. */
+.dragSpacer + * {
+  margin-top: var(--rail-gap);
 }
 
 .rail .homeActive {

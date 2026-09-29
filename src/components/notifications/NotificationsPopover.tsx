@@ -325,7 +325,7 @@ export function NotificationsPopover() {
             aria-label="Notifications"
             data-testid="notifications-bell"
           >
-            <Bell size={12} />
+            <Bell size={14} />
             {unreadCount > 0 && (
               <span className={styles.badge} data-testid="notifications-badge" />
             )}

@@ -9,3 +9,12 @@
 
 .panelActive {
 }
+
+/* The rounded panel body under the tab bar (ADR-196). A module class on top of
+   the shared `.terminal-container` rule, which other surfaces use as-is. */
+.panelBody {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}

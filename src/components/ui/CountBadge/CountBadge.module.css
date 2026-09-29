@@ -1,0 +1,50 @@
+/* Resets the uppercase/letter-spaced headers most counts sit in. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  border-radius: 4px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+/* ── Sizes ── */
+
+.xs {
+  min-width: 14px;
+  height: 14px;
+  padding: 0 4px;
+  font-size: 9px;
+}
+
+.sm {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  font-size: 10px;
+}
+
+.md {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+/* ── Tones ── */
+
+.neutral {
+  background: var(--surface);
+  color: var(--text-dim);
+}
+
+.accent {
+  background: var(--accent);
+  color: var(--text-selected);
+  font-weight: 600;
+}

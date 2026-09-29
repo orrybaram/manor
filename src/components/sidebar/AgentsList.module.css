@@ -2,37 +2,16 @@
 
 .agentsSection {
   flex-shrink: 0;
-  border-top: 1px solid var(--surface);
   padding: 4px 0;
   position: relative;
 }
 
-/* Duplicated in Ports.module.css — candidate for a shared <ResizeHandle> UI component */
-.agentsResizeHandle {
-  position: absolute;
+/* Grab area along the section's top edge; ResizeHandle draws the glow. */
+.resizeHandle {
   top: -3px;
   left: 0;
   right: 0;
   height: 6px;
-  cursor: row-resize;
-  z-index: 20;
-}
-
-.agentsResizeHandle::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 4px;
-  transform: translateY(-50%);
-  background: transparent;
-  transition: background 0.15s ease;
-}
-
-.agentsResizeHandle:hover::after,
-.agentsResizeHandleActive::after {
-  background: var(--accent);
 }
 
 /* Duplicated in Sidebar.module.css, Ports.module.css — candidate for a shared <SectionHeader> UI component */
@@ -66,20 +45,14 @@
 }
 
 /* Duplicated in Sidebar.module.css — candidate for a shared <SectionHeader> UI component */
+/* "View All": a ghost Button trimmed to fit the 24px header, with even
+   room around the label for its hover background. */
 .action {
-  border: none;
-  background: transparent;
-  color: var(--text-dim);
-  font-size: 16px;
-  cursor: pointer;
-  padding: 0 4px;
-  border-radius: 4px;
-  line-height: 1;
-}
-
-.action:hover {
-  background: var(--surface);
-  color: var(--text-selected);
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: normal;
+  line-height: 12px;
 }
 
 .agentGroups {

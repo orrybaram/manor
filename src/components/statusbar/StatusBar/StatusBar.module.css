@@ -4,9 +4,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 10px;
-  background: var(--bg-deep);
-  border-top: 1px solid var(--border);
+  height: var(--status-bar-height);
+  box-sizing: border-box;
+  padding: 10px 10px;
+  /* Sits on the frame below the panels (ADR-196). */
+  background: transparent;
   flex-shrink: 0;
   user-select: none;
   font-size: 10px;

@@ -12,7 +12,7 @@ import {
   selectActiveWorkspaceKey,
 } from "../../../store/app-store";
 import { parseWorkspaceKey, type WorkspaceKey } from "../../../lib/workspace-key";
-import { useProjectStore } from "../../../store/project-store";
+import { topLeftPanelId, topRightPanelId } from "../../../store/panel-tree";
 import { usePaneDrag } from "../../workspace-panes/PaneDragContext";
 import {
   countTabsInWindow,
@@ -123,7 +123,19 @@ export function TabBar(props: TabBarProps) {
       useAppStore.getState().focusPanel(panelId);
     }
   }, [panelId]);
-  const sidebarMode = useProjectStore((s) => s.sidebarMode);
+  // Only the window's top-left panel starts in far enough to clear the
+  // WindowLead (ADR-196); every other panel's tabs start 8px in.
+  const isTopLeft = useAppStore((s) => {
+    if (!panelId || !workspaceKey) return false;
+    const tree = s.workspaceLayouts[workspaceKey]?.panelTree;
+    return tree ? topLeftPanelId(tree) === panelId : false;
+  });
+  // Only the top-right panel stops short of the WindowTrail's bell.
+  const isTopRight = useAppStore((s) => {
+    if (!panelId || !workspaceKey) return false;
+    const tree = s.workspaceLayouts[workspaceKey]?.panelTree;
+    return tree ? topRightPanelId(tree) === panelId : false;
+  });
   const { drag, startDrag, endDrag } = usePaneDrag();
   const extractPaneToTab = useAppStore((s) => s.extractPaneToTab);
 
@@ -575,7 +587,7 @@ export function TabBar(props: TabBarProps) {
           data-focus-region="tabbar"
           role="tablist"
           aria-orientation="horizontal"
-          className={`${styles.tabBar} ${sidebarMode === "hidden" ? styles.noSidebar : sidebarMode === "rail" ? styles.railSidebar : ""} ${isDragActive ? styles.tabBarDropTarget : ""} ${splitDropHint ? styles.tabBarSplitHint : ""}`}
+          className={`${styles.tabBar} ${isTopLeft ? styles.tabBarTopLeft : ""} ${isTopRight ? styles.tabBarTopRight : ""} ${isDragActive ? styles.tabBarDropTarget : ""} ${splitDropHint ? styles.tabBarSplitHint : ""}`}
           onDragOver={handleBarDragOver}
           onDragLeave={handleBarDragLeave}
           onDrop={handleBarDrop}

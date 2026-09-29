@@ -11,6 +11,7 @@ import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import { useEmojiAutocomplete } from "../ui/EmojiAutocomplete/useEmojiAutocomplete";
 import { composeHandlers } from "../ui/EmojiAutocomplete/compose";
 import styles from "./ProjectItem.module.css";
+import { Collapse } from "../ui/Collapse/Collapse";
 
 type FolderItemProps = {
   folder: WorkspaceFolder;
@@ -298,14 +299,14 @@ export function FolderItem(props: FolderItemProps) {
       {/* Bodies nest, so their indents compound: the body's step shrinks as
           the depth grows, and the depth is capped so a deep tree stops eating
           the width of a 160px sidebar (ADR-172). */}
-      {!collapsed && children && (
+      <Collapse open={!collapsed && !!children}>
         <div
           className={styles.folderBody}
           style={{ "--folder-depth": Math.min(depth, 4) } as React.CSSProperties}
         >
           {children}
         </div>
-      )}
+      </Collapse>
     </div>
   );
 }

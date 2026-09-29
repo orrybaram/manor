@@ -1,34 +1,48 @@
 /* ── Tab Bar ── */
 
+/* The tab bar sits on the frame (ADR-196), above its panel's rounded body.
+   The title row lines up with the WindowLead, so the top row of panels forms
+   the window's title row. Tabs sit on the bottom edge and the active one
+   merges into the body below. */
 .tabBar {
+  /* How far tabs hang over the panel body below; covers its 8px corner. */
+  --tab-overlap: 14px;
   display: flex;
   align-items: flex-end;
   width: 100%;
-  padding: 12px 8px 0px;
-  background: var(--dim);
+  height: var(--title-row);
+  flex-shrink: 0;
+  padding: 0 8px 0 0;
+  background: transparent;
   -webkit-app-region: drag;
   user-select: none;
 }
 
-.noSidebar {
-  padding-left: 78px;
+/* The top-left panel's tabs start past the WindowLead. App.tsx sets the
+   inset per sidebar mode; the `:root` default clears the traffic lights. */
+.tabBarTopLeft {
+  padding-left: var(--window-lead-inset);
 }
 
-/* The macOS traffic lights start at x=13 and run past the 52px rail
-   (ADR-195), so the first tab steps in a little further. */
-.railSidebar {
-  padding-left: 26px;
+/* Eases with the sidebar column while a mode change animates (App.css). */
+:global(.app-body[data-sidebar-animating]) .tabBarTopLeft {
+  transition: padding-left var(--sidebar-mode-transition) ease;
+}
+
+/* The top-right panel's tabs stop short of the WindowTrail's bell. */
+.tabBarTopRight {
+  padding-right: var(--window-trail-inset);
 }
 
 .tabBarDropTarget {
-  background: color-mix(in srgb, var(--accent) 10%, var(--dim));
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-deep));
 }
 
 .tabBarSplitHint {
   background: linear-gradient(
     to right,
-    var(--dim) 50%,
-    color-mix(in srgb, var(--accent) 20%, var(--dim)) 50%
+    var(--bg-deep) 50%,
+    color-mix(in srgb, var(--accent) 20%, var(--bg-deep)) 50%
   );
 }
 
@@ -41,6 +55,10 @@
   flex: 0 1 auto;
   min-width: 0;
   position: relative;
+  /* Tabs hang down over the panel body's top edge, far enough to cover its
+     rounded corner, so the active tab and the body read as one shape. Each
+     tab adds the same amount of bottom padding to keep its label in place. */
+  margin-bottom: calc(-1 * var(--tab-overlap));
 }
 
 /* Insertion bar shown between tabs during a native drag-and-drop reorder. */
@@ -66,12 +84,12 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 12px;
+  padding: 8px 12px calc(4px + var(--tab-overlap));
   border: none;
   background: transparent;
   color: var(--text-dim);
   font-size: 12px;
-  border-radius: 4px 4px 0 0;
+  border-radius: 8px 8px 0 0;
   cursor: pointer;
   white-space: nowrap;
   min-width: 32px;
@@ -80,19 +98,20 @@
   transition:
     background 0.15s,
     color 0.15s;
-  border-bottom: 2px solid transparent;
+  border-top: 2px solid transparent;
 }
 
-.tabTerminal {
-  border-bottom-color: var(--fg-a10);
+/* Only the active tab shows its content-type colour. */
+.tabActive.tabTerminal {
+  border-top-color: var(--fg-a10);
 }
 
-.tabBrowser {
-  border-bottom-color: var(--blue-a40);
+.tabActive.tabBrowser {
+  border-top-color: var(--blue-a40);
 }
 
-.tabDiff {
-  border-bottom-color: var(--green-a40);
+.tabActive.tabDiff {
+  border-top-color: var(--green-a40);
 }
 
 .tab:hover {
@@ -100,9 +119,16 @@
   color: var(--text-selected);
 }
 
+/* Bordered on the sides and hanging over the panel body's top edge (see
+   `.tabs`), so tab and body read as one shape (ADR-196). */
 .tabActive {
   background: var(--surface);
   color: var(--text-selected);
+  box-shadow:
+    inset 1px 0 0 var(--border),
+    inset -1px 0 0 var(--border);
+  position: relative;
+  z-index: 1;
 }
 
 /* A click draws no ring — the active/hover states already show which tab is
@@ -324,7 +350,13 @@
   color: var(--text-dim);
   font-size: 16px;
   cursor: pointer;
-  padding: 2px 8px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  /* Lines the button up with the tab labels: a tab's bottom padding runs
+     `--tab-overlap - 4px` past its top padding, so the row's centre sits that
+     far below the labels' centre (half from each side of the margin). */
+  margin-bottom: calc(var(--tab-overlap) - 4px);
   border-radius: 6px;
   flex-shrink: 0;
   -webkit-app-region: no-drag;

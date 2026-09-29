@@ -13,7 +13,6 @@ import { useDiffWatcher } from "../../../hooks/useDiffWatcher";
 import { usePrWatcher } from "../../../hooks/usePrWatcher";
 import { useVisibleAgents } from "../../../hooks/useVisibleAgents";
 import { SidebarResizeHandle } from "../SidebarResizeHandle/SidebarResizeHandle";
-import { NotificationsPopover } from "../../notifications/NotificationsPopover";
 import { RailProjectTile } from "./RailProjectTile";
 import { useRailPopover } from "./useRailPopover";
 import { RailPopoverShell } from "./RailPopoverShell";
@@ -31,7 +30,7 @@ type SidebarRailProps = {
 /**
  * The collapsed sidebar (ADR-195): a 52px strip with Home, one tile per
  * project or linked group carrying its agent status, and Agents and
- * Notifications at the bottom. A tile opens a popover with the entry as the
+ * Agents at the bottom. A tile opens a popover with the entry as the
  * full sidebar shows it, on click or after resting the pointer on it.
  */
 export function SidebarRail(props: SidebarRailProps) {
@@ -174,7 +173,6 @@ export function SidebarRail(props: SidebarRailProps) {
             </Button>
           </Tooltip>
         )}
-        <NotificationsPopover />
       </div>
       <SidebarResizeHandle />
     </div>

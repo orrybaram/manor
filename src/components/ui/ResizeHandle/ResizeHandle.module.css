@@ -1,0 +1,92 @@
+/* ── Resize handle ──
+   The caller sets position and grab-area size; this draws the glow. */
+
+.handle {
+  position: absolute;
+  z-index: 20;
+}
+
+.horizontal {
+  cursor: row-resize;
+}
+
+.vertical {
+  cursor: col-resize;
+}
+
+/* The line and its glow, both faded towards the ends. */
+.handle::after,
+.handle::before {
+  content: "";
+  position: absolute;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.handle:hover::after,
+.handle:hover::before,
+.active::after,
+.active::before {
+  opacity: 1;
+}
+
+.vertical::after {
+  top: 0;
+  bottom: 0;
+  left: var(--resize-line, 50%);
+  width: 1px;
+  transform: translateX(-50%);
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--accent) 30%,
+    var(--accent) 70%,
+    transparent
+  );
+}
+
+.vertical::before {
+  top: 0;
+  bottom: 0;
+  left: var(--resize-line, 50%);
+  width: 9px;
+  transform: translateX(-50%);
+  background: linear-gradient(
+    to right,
+    transparent,
+    color-mix(in srgb, var(--accent) 45%, transparent),
+    transparent
+  );
+  mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 70%, transparent);
+}
+
+.horizontal::after {
+  left: 0;
+  right: 0;
+  top: var(--resize-line, 50%);
+  height: 1px;
+  transform: translateY(-50%);
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--accent) 30%,
+    var(--accent) 70%,
+    transparent
+  );
+}
+
+.horizontal::before {
+  left: 0;
+  right: 0;
+  top: var(--resize-line, 50%);
+  height: 9px;
+  transform: translateY(-50%);
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--accent) 45%, transparent),
+    transparent
+  );
+  mask-image: linear-gradient(to right, transparent, #000 30%, #000 70%, transparent);
+}

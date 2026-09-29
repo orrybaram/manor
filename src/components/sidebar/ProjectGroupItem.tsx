@@ -29,6 +29,8 @@ import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { ProjectChevron } from "./ProjectChevron";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import styles from "./ProjectItem.module.css";
+import { Collapse } from "../ui/Collapse/Collapse";
+import { CountBadge } from "../ui/CountBadge/CountBadge";
 
 type GroupEntry = Extract<TopLevelEntry, { kind: "group" }>;
 
@@ -201,7 +203,8 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
                   className={styles.contextMenuItem}
                   style={{ display: "flex", alignItems: "center" }}
                 >
-                  Hidden ({hiddenWorkspaces.length})
+                  Hidden
+                  <CountBadge count={hiddenWorkspaces.length} style={{ marginLeft: 6 }} />
                   <ChevronRight size={14} style={{ marginLeft: "auto" }} />
                 </ContextMenu.SubTrigger>
                 <ContextMenu.Portal>
@@ -283,7 +286,7 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
           </ContextMenu.Content>
         </ContextMenu.Portal>
       </ContextMenu.Root>
-      {!collapsed && (
+      <Collapse open={!collapsed}>
         <div className={styles.groupSections}>
           {sections.map((section) => {
             // An away host's section keeps its last known workspaces, dimmed;
@@ -301,7 +304,7 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
             );
           })}
         </div>
-      )}
+      </Collapse>
 
       {lead && (
         <NewWorkspaceDialog

@@ -5,7 +5,7 @@ import type { SplitDirection } from "../../store/pane-tree";
 import { useAppStore } from "../../store/app-store";
 import { useDragOverlayStore } from "../../store/drag-overlay-store";
 import { PanelLayout } from "./PanelLayout";
-import styles from "../workspace-panes/PaneLayout/PaneLayout.module.css";
+import styles from "./SplitPanelLayout.module.css";
 
 /** Walk to the first (leftmost/topmost) leaf in a PanelNode tree. */
 function firstLeafPanelId(node: PanelNode): string {

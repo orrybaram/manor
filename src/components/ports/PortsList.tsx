@@ -1,11 +1,14 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback } from "react";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import EthernetPort from "lucide-react/dist/esm/icons/ethernet-port";
 import { usePortsData } from "./usePortsData";
-import { useProjectStore, MIN_PORTS_HEIGHT } from "../../store/project-store";
-import { useDragOverlayStore } from "../../store/drag-overlay-store";
+import { useProjectStore, MIN_PORTS_HEIGHT, MAX_PORTS_HEIGHT } from "../../store/project-store";
+import { useCollapsibleResize } from "../../hooks/useCollapsibleResize";
 import { PortGroup } from "./PortGroup";
 import styles from "./Ports.module.css";
+import { Collapse } from "../ui/Collapse/Collapse";
+import { ResizeHandle } from "../ui/ResizeHandle/ResizeHandle";
+import { CountBadge } from "../ui/CountBadge/CountBadge";
 
 export function PortsList() {
   const { workspacePortGroups, totalPortCount } = usePortsData();
@@ -20,52 +23,24 @@ export function PortsList() {
   );
   const portsHeight = useProjectStore((s) => s.portsHeight);
   const setPortsHeight = useProjectStore((s) => s.setPortsHeight);
-  const [isResizing, setIsResizing] = useState(false);
-  const startY = useRef(0);
-  const startHeight = useRef(0);
-
-  const handleResizeStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      setIsResizing(true);
-      useDragOverlayStore.getState().incrementDragCount();
-      startY.current = e.clientY;
-      startHeight.current = portsHeight;
-
-      const onMouseMove = (ev: MouseEvent) => {
-        // Dragging up increases height, dragging down decreases
-        const delta = startY.current - ev.clientY;
-        const newHeight = startHeight.current + delta;
-        if (newHeight < MIN_PORTS_HEIGHT) {
-          setCollapsed(true);
-        } else {
-          setCollapsed(false);
-          setPortsHeight(newHeight);
-        }
-      };
-
-      const cleanup = () => {
-        useDragOverlayStore.getState().decrementDragCount();
-        setIsResizing(false);
-        document.removeEventListener("mousemove", onMouseMove);
-        document.removeEventListener("mouseup", cleanup);
-        window.removeEventListener("blur", cleanup);
-      };
-
-      document.addEventListener("mousemove", onMouseMove);
-      document.addEventListener("mouseup", cleanup);
-      window.addEventListener("blur", cleanup);
-    },
-    [portsHeight, setPortsHeight, setCollapsed],
-  );
+  const { isResizing, showBody, bodyHeight, onResizeStart } = useCollapsibleResize({
+    height: portsHeight,
+    setHeight: setPortsHeight,
+    collapsed,
+    setCollapsed,
+    min: MIN_PORTS_HEIGHT,
+    max: MAX_PORTS_HEIGHT,
+  });
 
   if (totalPortCount === 0) return null;
 
   return (
     <div className={styles.portsSection}>
-      <div
-        className={`${styles.portsResizeHandle} ${isResizing ? styles.portsResizeHandleActive : ""}`}
-        onMouseDown={handleResizeStart}
+      <ResizeHandle
+        orientation="horizontal"
+        active={isResizing}
+        className={styles.resizeHandle}
+        onMouseDown={onResizeStart}
       />
       <div
         className={styles.sectionHeader}
@@ -90,16 +65,16 @@ export function PortsList() {
           </span>
           <EthernetPort size={12} />
           Ports
-          <span className={styles.portCount}>{totalPortCount}</span>
+          <CountBadge count={totalPortCount} className={styles.portCount} />
         </span>
       </div>
-      {!collapsed && (
-        <div className={styles.portGroups} style={{ height: portsHeight }}>
+      <Collapse open={showBody} animate={!isResizing}>
+        <div className={styles.portGroups} style={{ height: bodyHeight }}>
           {workspacePortGroups.map((group) => (
             <PortGroup key={group.workspacePath} group={group} />
           ))}
         </div>
-      )}
+      </Collapse>
     </div>
   );
 }

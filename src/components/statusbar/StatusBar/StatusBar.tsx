@@ -133,10 +133,17 @@ export function StatusBar(props: StatusBarProps) {
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const browserFocused = useAppStore(selectWebviewFocusVisible);
   const projects = useProjectStore((s) => s.projects);
+  // The Projects overview (ADR-194) covers the active workspace, which stays
+  // active underneath; its trail must not leak into the overview's bar.
+  const projectsSurface = useAppStore((s) => s.activeSurface === "projects");
+  // With zero projects the overview is also the onboarding screen.
+  const projectsOverviewShown = projectsSurface || projects.length === 0;
 
-  const project = projects.find((p) =>
-    p.workspaces.some((w) => w.path === activeWorkspacePath),
-  );
+  const project = projectsOverviewShown
+    ? undefined
+    : projects.find((p) =>
+        p.workspaces.some((w) => w.path === activeWorkspacePath),
+      );
 
   const workspace = project?.workspaces.find(
     (w) => w.path === activeWorkspacePath,
@@ -155,7 +162,11 @@ export function StatusBar(props: StatusBarProps) {
   return (
     <div className={styles.statusBar} data-focus-region="statusbar">
       <div className={styles.left}>
-        {!project && <span className={styles.segment}>Home</span>}
+        {!project && (
+          <span className={styles.segment}>
+            {projectsOverviewShown ? "Projects" : "Home"}
+          </span>
+        )}
         {project && (
           <>
             <span className={styles.segment}>{project.name}</span>

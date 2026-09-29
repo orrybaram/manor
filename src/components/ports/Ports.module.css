@@ -2,36 +2,16 @@
 
 .portsSection {
   flex-shrink: 0;
-  border-top: 1px solid var(--surface);
   padding: 4px 0;
   position: relative;
 }
 
-.portsResizeHandle {
-  position: absolute;
+/* Grab area along the section's top edge; ResizeHandle draws the glow. */
+.resizeHandle {
   top: -3px;
   left: 0;
   right: 0;
   height: 6px;
-  cursor: row-resize;
-  z-index: 20;
-}
-
-.portsResizeHandle::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 4px;
-  transform: translateY(-50%);
-  background: transparent;
-  transition: background 0.15s ease;
-}
-
-.portsResizeHandle:hover::after,
-.portsResizeHandleActive::after {
-  background: var(--accent);
 }
 
 /* Duplicated in Sidebar.module.css, AgentsList.module.css — candidate for a shared <SectionHeader> UI component */
@@ -66,13 +46,7 @@
 }
 
 .portCount {
-  font-size: 10px;
-  background: var(--surface);
-  color: var(--text-dim);
-  padding: 1px 5px;
-  border-radius: 3px;
   margin-left: 6px;
-  font-weight: 400;
 }
 
 .portGroups {

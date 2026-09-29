@@ -22,6 +22,7 @@ import { AnimatedCount } from "../../../ui/AnimatedCount/AnimatedCount";
 import { useToastStore } from "../../../../store/toast-store";
 import { openInEditor } from "../../../../lib/editor";
 import styles from "./FileList.module.css";
+import { Collapse } from "../../../ui/Collapse/Collapse";
 
 type FileListProps = {
   files: DiffFile[];
@@ -482,7 +483,9 @@ export function FileList(props: FileListProps) {
             )}
             <span className={styles.dirName}>{node.name}</span>
           </button>
-          {!isCollapsed && renderNodes(node.children, depth + 1)}
+          <Collapse open={!isCollapsed}>
+            {renderNodes(node.children, depth + 1)}
+          </Collapse>
         </div>
       );
     });
@@ -521,9 +524,9 @@ export function FileList(props: FileListProps) {
             )}
           </span>
         </button>
-        {!collapsed && (
+        <Collapse open={!collapsed}>
           <div className={styles.tree}>{renderNodes(tree, 0)}</div>
-        )}
+        </Collapse>
       </div>
 
       <Dialog.Root

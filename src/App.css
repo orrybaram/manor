@@ -44,6 +44,21 @@
   --danger: #ee5555;
   --danger-hover: #dd3333;
   --bg-deep: color-mix(in srgb, var(--bg) 80%, black);
+  /* ADR-196: gutter between panels and around the window edges, and how far
+     the top-left tab bar starts in to clear the window lead. App.tsx
+     overrides the inset per sidebar mode; the default clears the macOS
+     traffic lights for windows without a lead (DetachedApp). */
+  --frame-gap: 6px;
+  --window-lead-inset: 78px;
+  /* Height of the window's top row: the WindowLead, the WindowTrail and the
+     top panels' tab bars all share it, and the macOS traffic lights are
+     centred in it (`trafficLightPosition` in electron/window.ts). */
+  --title-row: 36px;
+  /* Fixed so the sidebar resize handle can end exactly where the panels do. */
+  --status-bar-height: 36px; /* 10px padding above and below a 16px row */
+  /* Right padding of the top-right panel's tab bar; App.tsx widens it to
+     clear the WindowTrail. */
+  --window-trail-inset: 8px;
   --font-mono:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
     monospace;
@@ -67,7 +82,9 @@ body,
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
+/* The frame (ADR-196): the window's darkest shade, behind the panels. */
 .app {
+  background: var(--bg-deep);
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -80,17 +97,67 @@ body,
   flex-shrink: 0;
 }
 
+/* Positioned so the WindowLead can sit in its top-left corner. */
 .app-body {
+  position: relative;
   display: flex;
   flex: 1;
   overflow: hidden;
 }
 
+/* Holds the rail or the full sidebar panel; App.tsx sets its width per
+   sidebar mode. While a mode change animates, the width eases to the new
+   mode's, the incoming view is clipped to it and fades in, and the lead and
+   the top-left tab bar ease along (their modules key off the same flag).
+   Outside that window widths change instantly, so resizing tracks the
+   pointer. */
+.sidebar-column {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.app-body[data-sidebar-animating] .sidebar-column {
+  overflow: clip;
+  transition: width var(--sidebar-mode-transition) ease;
+}
+
+.app-body[data-sidebar-animating] .sidebar-column > * {
+  animation: sidebar-column-fade-in var(--sidebar-mode-transition) ease;
+}
+
+@keyframes sidebar-column-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-body {
+    --sidebar-mode-transition: 0ms !important;
+  }
+}
+
+/* The right window edge gets the frame gutter (ADR-196). The left edge only
+   does when nothing to its left supplies one: with projects, the sidebar
+   column ends in one in every mode (a bare gutter when hidden). The
+   padding is the same for every workspace in the stack, so switching
+   workspaces never changes a terminal's size. */
 .main-content {
   display: flex;
   flex-direction: column;
   flex: 1;
   overflow: hidden;
+  padding-right: var(--frame-gap);
+}
+
+.main-content--gutter-left {
+  padding-left: var(--frame-gap);
+}
+
+/* Windows without a status bar (DetachedApp) close the bottom edge with a
+   gutter too. */
+.main-content--gutter-bottom {
+  padding-bottom: var(--frame-gap);
 }
 
 /* Positioned containing block for the workspace stack. Every workspace — and
@@ -114,6 +181,19 @@ body,
   flex: 1;
   overflow: hidden;
   position: relative;
+  margin-top: 8px;
+}
+
+/* Home, projects overview and wizard (ADR-196): a title-row strip on the frame,
+   matching the tab bar row, above a rounded panel body. */
+.empty-surface > .drag-region {
+  height: var(--title-row);
+}
+
+.empty-surface > .terminal-container {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
 
 .splash-screen {

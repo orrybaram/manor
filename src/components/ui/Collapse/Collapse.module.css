@@ -1,0 +1,35 @@
+.root {
+  display: grid;
+  /* One column no wider than the container: an implicit `auto` column
+     grows to the widest child (long no-wrap names), which made the
+     sidebar scroll sideways. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--collapse-duration, 180ms) ease;
+}
+
+.root[data-state="open"] {
+  grid-template-rows: 1fr;
+}
+
+.root[data-animate="false"] {
+  transition: none;
+}
+
+.inner {
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Once fully open, stop clipping so focus rings, popovers and guide lines
+   that overhang the body are not cut off. */
+.root[data-settled] > .inner {
+  overflow: visible;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root {
+    transition: none;
+  }
+}

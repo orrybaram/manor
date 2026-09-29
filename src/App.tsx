@@ -1,9 +1,11 @@
-import { useState, useCallback, useRef, useEffect, lazy, Suspense } from "react";
+import { useState, useCallback, useRef, useEffect, lazy, Suspense, type CSSProperties } from "react";
 import { PaneDragProvider } from "./components/workspace-panes/PaneDragContext";
 import { StatusBar } from "./components/statusbar/StatusBar/StatusBar";
 import { PanelLayout } from "./components/panels/PanelLayout";
 import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
 import { SidebarRail } from "./components/sidebar/SidebarRail/SidebarRail";
+import { WindowLead } from "./components/window-lead/WindowLead/WindowLead";
+import { WindowTrail } from "./components/window-lead/WindowTrail/WindowTrail";
 import type { PaletteView } from "./components/command-palette/types";
 import type { AddProjectMode } from "./components/sidebar/AddProjectDialog/AddProjectDialog";
 import { onPaletteViewRequest } from "./utils/palette-request";
@@ -16,6 +18,10 @@ import { ManorLogo } from "./components/ui/ManorLogo";
 import { CloseAgentPaneDialog } from "./components/CloseAgentPaneDialog";
 import { ToastContainer } from "./components/ui/Toast/Toast";
 import { TooltipProvider } from "./components/ui/Tooltip/Tooltip";
+import {
+  SIDEBAR_MODE_TRANSITION_MS,
+  useSidebarModeTransition,
+} from "./hooks/useSidebarModeTransition";
 
 const CommandPalette = lazy(() => import("./components/command-palette/CommandPalette").then(m => ({ default: m.CommandPalette })));
 const SettingsModal = lazy(() => import("./components/settings/SettingsModal/SettingsModal").then(m => ({ default: m.SettingsModal })));
@@ -46,6 +52,7 @@ import {
   startNewAgent,
 } from "./lib/keybinding-commands";
 import { placeNewWorkspaceInFolder } from "./lib/place-new-workspace";
+import { sidebarColumnWidth, windowLeadInset } from "./lib/window-lead";
 import {
   createMenuHandlers,
   dispatchMenuCommand,
@@ -371,8 +378,21 @@ function App() {
     applyProjectTheme(effectiveThemeName);
   }
   const sidebarMode = useProjectStore((s) => s.sidebarMode);
+  const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
+  const sidebarAnimating = useSidebarModeTransition(sidebarMode);
 
   const hasProjects = projects.length > 0;
+  // How far the top-left panel's tab bar starts in to clear the WindowLead
+  // (ADR-196). With no projects there is no sidebar and no lead; the
+  // `:root` default in App.css still clears the traffic lights.
+  const appBodyStyle = hasProjects
+    ? ({
+        "--window-lead-inset": `${windowLeadInset(sidebarMode, sidebarWidth)}px`,
+        // Clears the WindowTrail's bell on the top-right panel's tab bar.
+        "--window-trail-inset": "36px",
+        "--sidebar-mode-transition": `${SIDEBAR_MODE_TRANSITION_MS}ms`,
+      } as CSSProperties)
+    : undefined;
   const hasTabs = (ws?.tabs.length ?? 0) > 0;
   // With zero projects the overview is also the onboarding screen (ADR-194 §3).
   const showProjectsOverview = projectsOverviewShown || !hasProjects;
@@ -669,22 +689,37 @@ function App() {
   return (
     <TooltipProvider>
     <div className="app">
-      <div className="app-body">
-        {sidebarMode === "rail" && hasProjects && (
-          <SidebarRail
-            onShowAgents={() => setAgentsOpen(true)}
-            onOpenProjectSettings={handleOpenProjectSettings}
-          />
-        )}
-        {sidebarMode === "full" && hasProjects && (
-          <Sidebar
-            onShowAgents={() => setAgentsOpen(true)}
-            onOpenProjectSettings={handleOpenProjectSettings}
-            onAddProject={handleAddProject}
-          />
+      <div
+        className="app-body"
+        style={appBodyStyle}
+        data-sidebar-animating={sidebarAnimating || undefined}
+      >
+        {/* One column for every sidebar mode, so a mode change animates its
+            width instead of swapping views at a new size. */}
+        {hasProjects && (
+          <div
+            className="sidebar-column"
+            style={{ width: sidebarColumnWidth(sidebarMode, sidebarWidth) }}
+          >
+            {sidebarMode === "rail" && (
+              <SidebarRail
+                onShowAgents={() => setAgentsOpen(true)}
+                onOpenProjectSettings={handleOpenProjectSettings}
+              />
+            )}
+            {sidebarMode === "full" && (
+              <Sidebar
+                onShowAgents={() => setAgentsOpen(true)}
+                onOpenProjectSettings={handleOpenProjectSettings}
+                onAddProject={handleAddProject}
+              />
+            )}
+          </div>
         )}
         <PaneDragProvider>
-          <div className="main-content">
+          <div
+            className={`main-content ${hasProjects ? "" : "main-content--gutter-left"}`}
+          >
             {/* Every workspace renders through the same PanelLayout in a single
                 positioned stack, active or not. Inactive ones are only hidden,
                 never unmounted or re-parented, so their terminals keep the exact
@@ -739,6 +774,15 @@ function App() {
             />
           </div>
         </PaneDragProvider>
+        {/* The top-left and top-right controls (ADR-196). Not shown before the first
+            project: the onboarding overview has no sidebar to toggle or
+            history to walk, and its drag region clears the traffic lights.
+            Rendered last on purpose: Electron resolves overlapping
+            `-webkit-app-region`s in DOM order, so when the lead overlaps the
+            top-left tab bar (rail and hidden modes) its buttons must come
+            after the bar's drag region or clicks on them never arrive. */}
+        {hasProjects && <WindowLead />}
+        {hasProjects && <WindowTrail />}
       </div>
       <Suspense fallback={null}>
         <CommandPalette

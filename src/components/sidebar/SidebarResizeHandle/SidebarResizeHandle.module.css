@@ -1,17 +1,11 @@
-/* Inside the edge: both the sidebar and the rail clip their overflow. */
+/* Fills the gutter to the right of the sidebar panel or rail (ADR-196), so
+   the grab area is the whole gutter, and spans exactly the main panel's
+   height: below the title row, above the status bar. The glow sits on the
+   panel's left border, half a pixel past the gutter. */
 .handle {
-  position: absolute;
-  top: 0;
+  top: var(--title-row);
+  bottom: var(--status-bar-height);
   right: 0;
-  width: 4px;
-  height: 100%;
-  cursor: col-resize;
-  z-index: 20;
-  background: transparent;
-  transition: background 0.15s ease;
-}
-
-.handle:hover,
-.active {
-  background: var(--accent);
+  width: var(--frame-gap);
+  --resize-line: calc(100% + 0.5px);
 }

@@ -264,13 +264,10 @@ const WorkspaceItem = React.forwardRef<
                   </Button>
                 )}
             </div>
-            {(ws.pr || !sameLabel(displayName, ws.branch || "main")) && (
             <div className={styles.workspaceBranchRow}>
-              {!sameLabel(displayName, ws.branch || "main") && (
-                <span className={styles.workspaceBranch}>
-                  {ws.branch || "main"}
-                </span>
-              )}
+              <span className={styles.workspaceBranch}>
+                {ws.branch || "main"}
+              </span>
               {ws.pr && (
                 <PrPopover
                   pr={ws.pr}
@@ -282,7 +279,6 @@ const WorkspaceItem = React.forwardRef<
                 />
               )}
             </div>
-            )}
           </div>
           {isDragging && dragGroupCount > 1 && (
             <CountBadge
@@ -306,16 +302,6 @@ const WorkspaceItem = React.forwardRef<
  * here (exported for the collapsed rail's popover, ADR-195) rather than folded into `LocalHostLabel`/`HostIndicator`,
  * which other callers (the New Workspace host picker) still use as chips.
  */
-/**
- * True when a workspace's name already says what its branch does ("tasks and
- * search" / `tasks-and-search`, "main" / `main`), so the branch line would
- * only repeat it.
- */
-function sameLabel(name: string, branch: string): boolean {
-  const norm = (v: string) => v.trim().toLowerCase().replace(/[\s_/-]+/g, "-");
-  return norm(name) === norm(branch);
-}
-
 function SectionHostLabel(props: {
   hostId: string;
   path: string;

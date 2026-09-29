@@ -12,9 +12,10 @@
   border-left: 1px solid var(--border);
 }
 
-/* The selected project's guide takes its project color. */
-.projectSelected > .projectBody,
-.projectSelected > .groupSections {
+/* The selected project's guide takes its project color. The body sits in a
+   <Collapse> wrapper, so this reaches past it rather than using `>`. */
+.projectSelected .projectBody,
+.projectSelected .groupSections {
   border-left-color: var(--project-color, var(--accent));
 }
 
@@ -91,7 +92,6 @@
 /* A small step in from the guide line, so workspace rows sit inside their
    host heading. */
 .workspaces {
-  padding-left: 6px;
   margin-top: 8px;
   display: flex;
   flex-direction: column;
@@ -479,7 +479,8 @@
 }
 
 /* A host heading sits close to its first workspace. */
-.sectionHeader + .workspaces,
+/* A section's workspaces sit in a <Collapse> after its header. */
+.sectionHeader + * .workspaces,
 .hostHeading + .workspaces {
   margin-top: 2px;
 }
@@ -543,7 +544,7 @@
   gap: 4px;
 }
 
-.groupSections > :not(:last-child) .section > .workspaces {
+.groupSections > :not(:last-child) .section .workspaces {
   padding-bottom: 16px;
 }
 

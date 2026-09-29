@@ -26,7 +26,7 @@ describe("windowLeadInset", () => {
 
   it("covers the lead's overhang past the rail", () => {
     expect(windowLeadInset("rail", 240)).toBe(LEAD_COMPACT_WIDTH - RAIL_WIDTH - FRAME_GAP);
-    expect(windowLeadInset("rail", 240)).toBe(95);
+    expect(windowLeadInset("rail", 240)).toBe(88);
   });
 
   it("is the whole lead when the sidebar is hidden", () => {

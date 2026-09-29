@@ -6,7 +6,7 @@ import type { SidebarMode } from "../store/project-store";
 export const LEAD_COMPACT_WIDTH = 166;
 
 /** Width of the collapsed sidebar rail (ADR-195). */
-export const RAIL_WIDTH = 65;
+export const RAIL_WIDTH = 72;
 
 /** Gutter between panels and window edges; mirrors `--frame-gap` in App.css. */
 export const FRAME_GAP = 6;

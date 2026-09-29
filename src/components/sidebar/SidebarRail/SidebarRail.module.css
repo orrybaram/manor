@@ -3,14 +3,17 @@
 /* On the frame, flush to the window's left edge (ADR-196): no surface or
    edge of its own, so nothing under the traffic lights has a border. */
 .rail {
-  /* A 52px tile column, stepped in 13px so it centres under the macOS
-     traffic lights (x 13 to 65), plus the gutter the resize handle sits in,
-     the same layout as the full sidebar's right gutter (ADR-196). Keep in
-     step with RAIL_WIDTH in src/lib/window-lead.ts. */
-  --rail-inset: 13px;
-  width: calc(var(--rail-inset) + 52px + var(--frame-gap));
+  /* A 32px column of tiles with the same space on both sides: from the
+     window's left edge, and to the main panel's border (that side includes
+     the gutter the resize handle sits in). 23 + 32 + 23 centres the column
+     on x=39, under the macOS traffic lights (x 13 to 65). Items are spaced
+     by `--rail-gap` down the column. Keep in step with RAIL_WIDTH in
+     src/lib/window-lead.ts. */
+  --rail-inset: 23px;
+  --rail-gap: 8px;
+  width: calc(2 * var(--rail-inset) + 32px);
   padding-left: var(--rail-inset);
-  padding-right: var(--frame-gap);
+  padding-right: var(--rail-inset);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -35,7 +38,8 @@
   width: 24px;
   height: 1px;
   flex-shrink: 0;
-  margin: 8px 0;
+  /* `.tiles` adds 2px of its own above the first tile. */
+  margin: var(--rail-gap) 0 calc(var(--rail-gap) - 2px);
   background: var(--border);
 }
 
@@ -49,8 +53,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 2px 0 8px;
+  gap: var(--rail-gap);
+  padding: 2px 0 var(--rail-gap);
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-width: none;
@@ -143,6 +147,12 @@
   height: 32px;
   padding: 0;
   border-radius: 8px;
+  flex-shrink: 0;
+}
+
+/* Home sits one step below the title row, like every other gap. */
+.dragSpacer + * {
+  margin-top: var(--rail-gap);
 }
 
 .rail .homeActive {

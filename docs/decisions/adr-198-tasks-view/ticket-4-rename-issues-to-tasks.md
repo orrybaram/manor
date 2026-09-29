@@ -1,6 +1,6 @@
 ---
 title: Rename Issues to Tasks in UI copy
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [2, 3]

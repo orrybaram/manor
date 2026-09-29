@@ -18,10 +18,18 @@ type Options = {
  * visible height — 0 when folded — so opening a folded section slides it up
  * instead of snapping to its saved height. The fold/unfold decision and the
  * persisted height are only committed on release.
+ *
+ * Released below `min`, the section folds from the height it was dragged to:
+ * that height is held while it's folded (and while `Collapse` animates it
+ * shut), rather than jumping back to the saved height first.
  */
 export function useCollapsibleResize(options: Options) {
   const { height, setHeight, collapsed, setCollapsed, min, max } = options;
   const [dragHeight, setDragHeight] = useState<number | null>(null);
+  const [foldedFrom, setFoldedFrom] = useState<number | null>(null);
+  // Forget it once the section opens again, so a later fold from the
+  // header animates from the saved height.
+  if (!collapsed && foldedFrom !== null) setFoldedFrom(null);
   const startY = useRef(0);
   const startHeight = useRef(0);
   const latest = useRef(0);
@@ -33,6 +41,7 @@ export function useCollapsibleResize(options: Options) {
       startY.current = e.clientY;
       startHeight.current = collapsed ? 0 : height;
       latest.current = startHeight.current;
+      setFoldedFrom(null);
       setDragHeight(startHeight.current);
 
       const onMouseMove = (ev: MouseEvent) => {
@@ -48,6 +57,7 @@ export function useCollapsibleResize(options: Options) {
         document.removeEventListener("mouseup", cleanup);
         window.removeEventListener("blur", cleanup);
         if (latest.current < min) {
+          setFoldedFrom(latest.current);
           setCollapsed(true);
         } else {
           setHeight(latest.current);
@@ -68,8 +78,11 @@ export function useCollapsibleResize(options: Options) {
     isResizing,
     /** Whether the section body should render (open, or mid-drag). */
     showBody: isResizing || !collapsed,
-    /** Height for the section body: the live drag height, else the saved one. */
-    bodyHeight: dragHeight ?? height,
+    /**
+     * Height for the section body: the live drag height; the height a drag
+     * folded it from, while folded; else the saved one.
+     */
+    bodyHeight: dragHeight ?? (collapsed && foldedFrom !== null ? foldedFrom : height),
     onResizeStart,
   };
 }

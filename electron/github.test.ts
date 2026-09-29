@@ -642,6 +642,21 @@ describe("GitHubManager", () => {
       expect(fields(mockState.calls[1])).not.toContain("projectItems");
     });
 
+    it("leaves projectItems out after a missing-scope error", async () => {
+      setupExecFileCalls([
+        failure("gh failed", { stderr: "requires one of: ['read:project']" }),
+        success("[]"),
+        success("[]"),
+      ]);
+
+      await manager.getMyIssues(REPO);
+      await manager.getAllIssues(REPO);
+
+      expect(mockState.calls).toHaveLength(3);
+      const fields = (args: string[]) => args[args.indexOf("--json") + 1];
+      expect(fields(mockState.calls[2])).not.toContain("projectItems");
+    });
+
     it("does not retry other errors", async () => {
       setupExecFileCalls([failure("boom", { stderr: "network down" })]);
 

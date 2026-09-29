@@ -1,6 +1,6 @@
 ---
 title: Return every useful field from GitHub and Linear list calls
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

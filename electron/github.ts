@@ -157,6 +157,9 @@ export class GitHubManager {
    */
   private remoteRepoCache = new Map<WorkspaceKey, string>();
 
+  /** Set once `gh` refuses `projectItems` for want of `read:project`. */
+  private projectScopeMissing = false;
+
   /** Without a resolver every checkout is local. */
   constructor(private readonly resolveRemoteRepo?: RemoteRepoResolver) {}
 
@@ -428,7 +431,8 @@ export class GitHubManager {
 
   /**
    * `projectItems` needs the `read:project` scope; on a scope error the call
-   * is retried once without it. Any other failure throws.
+   * is retried once without it, and later calls leave it out. Any other
+   * failure throws.
    */
   private async listIssues(
     repo: GhRepo,
@@ -456,10 +460,13 @@ export class GitHubManager {
       );
       return parseIssueList(stdout);
     };
+    if (this.projectScopeMissing) return run(ISSUE_LIST_FIELDS);
     try {
       return await run(`${ISSUE_LIST_FIELDS},projectItems`);
     } catch (err) {
       if (!isProjectScopeError(err)) throw err;
+      // Skip `projectItems` from now on; `gh auth refresh` needs a restart to show.
+      this.projectScopeMissing = true;
       return run(ISSUE_LIST_FIELDS);
     }
   }

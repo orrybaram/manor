@@ -1,5 +1,9 @@
 .root {
   display: grid;
+  /* One column no wider than the container: an implicit `auto` column
+     grows to the widest child (long no-wrap names), which made the
+     sidebar scroll sideways. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 0fr;
   transition: grid-template-rows var(--collapse-duration, 180ms) ease;
 }
@@ -14,6 +18,7 @@
 
 .inner {
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
 }
 

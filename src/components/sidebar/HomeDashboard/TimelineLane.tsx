@@ -1,7 +1,9 @@
 import type { CSSProperties } from "react";
-import type { AgentInfo } from "../../../electron.d";
-import type { AgentActivityTransition } from "../../../electron.d";
-import type { LaneSegment } from "../../../store/agent-activity-store";
+import type { AgentActivityTransition, AgentInfo } from "../../../electron.d";
+import {
+  laneMarkers,
+  type LaneSegment,
+} from "../../../store/agent-activity-store";
 import { projectColorStyle } from "../../../hooks/useProjectHeaderRow";
 import { navigateToAgent } from "../../../utils/agent-navigation";
 import { Button } from "../../ui/Button/Button";
@@ -9,11 +11,15 @@ import { formatAge, formatClock } from "./format";
 import { isWaitStatus, pct, STATUS_COLOR, STATUS_LABEL } from "./timeline-model";
 import styles from "./ActivityTimeline.module.css";
 
+export type TimelineGap = { from: number; to: number; title: string };
+
 type TimelineLaneProps = {
   name: string;
   agent: AgentInfo | undefined;
-  /** The agent's project colour token, when its project is known. */
-  projectColor: string | null;
+  /** The agent's project (chip title and colour token), when known. */
+  project: { name: string; color: string | null } | undefined;
+  /** Spans where Manor was closed, drawn behind the segments. */
+  gaps: TimelineGap[];
   transitions: AgentActivityTransition[];
   segments: LaneSegment[];
   now: number;
@@ -25,22 +31,34 @@ type TimelineLaneProps = {
 
 /** One agent's row: name, its coloured track and its current state. */
 export function TimelineLane(props: TimelineLaneProps) {
-  const { name, agent, projectColor, transitions, segments, now, windowStart, windowSpan, gridStep } = props;
+  const { name, agent, project, gaps, transitions, segments, now, windowStart, windowSpan, gridStep } = props;
 
   const current = transitions[transitions.length - 1];
   const stateColor = current ? STATUS_COLOR[current.status] : STATUS_COLOR.idle;
   const stateText = current ? stateLabel(current, now) : "";
-  const chipName = agent?.projectName;
+  const markers = laneMarkers(transitions, windowStart, now);
 
   const rowContent = (
     <>
       <span className={styles.name}>
-        {chipName && (
-          <span className={styles.proj} style={projectColorStyle(projectColor)} title={chipName} />
+        {project && (
+          <span className={styles.proj} style={projectColorStyle(project.color)} title={project.name} />
         )}
         <span className={styles.nameText}>{name}</span>
       </span>
       <span className={styles.track} style={{ "--step": `${gridStep}%` } as CSSProperties}>
+        {gaps.map((gap) => {
+          const left = pct(gap.from, windowStart, windowSpan);
+          const width = pct(gap.to, windowStart, windowSpan) - left;
+          return (
+            <span
+              key={`gap-${gap.from}`}
+              className={styles.gap}
+              style={{ left: `${left}%`, width: `${width}%` }}
+              title={gap.title}
+            />
+          );
+        })}
         {segments.map((seg) => {
           const left = pct(seg.from, windowStart, windowSpan);
           const width = pct(seg.to, windowStart, windowSpan) - left;
@@ -61,21 +79,17 @@ export function TimelineLane(props: TimelineLaneProps) {
             />
           );
         })}
-        {transitions
-          .filter(
-            (t) =>
-              (t.status === "responded" || t.status === "error") &&
-              t.at >= windowStart &&
-              t.at <= now,
-          )
-          .map((t) => (
+        {markers.map((m) => {
+          const status = m.kind === "error" ? "error" : "responded";
+          return (
             <span
-              key={`mark-${t.status}-${t.at}`}
-              className={`${styles.mark} ${t.status === "error" ? styles.markErr : ""}`}
-              style={{ "--c": STATUS_COLOR[t.status], left: `${pct(t.at, windowStart, windowSpan)}%` } as CSSProperties}
-              title={`${t.status === "error" ? "Errored" : "Finished"} · ${formatClock(t.at)}`}
+              key={`mark-${m.kind}-${m.at}`}
+              className={`${styles.mark} ${m.kind === "error" ? styles.markErr : ""}`}
+              style={{ "--c": STATUS_COLOR[status], left: `${pct(m.at, windowStart, windowSpan)}%` } as CSSProperties}
+              title={`${m.kind === "error" ? "Errored" : "Finished"} · ${formatClock(m.at)}`}
             />
-          ))}
+          );
+        })}
       </span>
       <span className={styles.state} style={{ "--c": stateColor } as CSSProperties}>
         {stateText}
@@ -96,7 +110,7 @@ export function TimelineLane(props: TimelineLaneProps) {
   );
 }
 
-/** The state column: how long an active/waiting state has lasted, else its name. */
+/** The state column: how long an active/waiting state has lasted, how long ago it finished, else its name. */
 function stateLabel(current: AgentActivityTransition, now: number): string {
   switch (current.status) {
     case "idle":
@@ -104,7 +118,7 @@ function stateLabel(current: AgentActivityTransition, now: number): string {
     case "error":
       return "error";
     case "responded":
-      return "done";
+      return `${formatAge(now - current.at)} ago`;
     default:
       return formatAge(now - current.at);
   }

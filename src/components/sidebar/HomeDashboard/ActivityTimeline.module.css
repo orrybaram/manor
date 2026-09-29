@@ -23,6 +23,13 @@
   border-radius: 2px;
 }
 
+/* Finished is a marker on the track, so its legend key is a ring. */
+.legendItem i.legendRing {
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2px solid var(--c);
+}
+
 .empty {
   margin: 0;
   padding: 14px 18px 18px;
@@ -92,6 +99,19 @@
     var(--hd-line) 0 1px,
     transparent 1px var(--step, 16.66%)
   );
+}
+
+/* Spans where Manor was closed: a faint hatch behind the segments. */
+.gap {
+  position: absolute;
+  top: 0;
+  height: 12px;
+  background: repeating-linear-gradient(
+    135deg,
+    var(--hd-fg-4) 0 1px,
+    transparent 1px 5px
+  );
+  opacity: 0.6;
 }
 
 .seg {

@@ -1,28 +1,40 @@
-import { useMemo } from "react";
+import { useMemo, type CSSProperties } from "react";
 import { useAgentStore } from "../../../store/agent-store";
 import { useProjectStore } from "../../../store/project-store";
 import {
+  ACTIVITY_WINDOW_MS,
+  closedGaps,
   laneSegments,
   lanePriority,
   useAgentActivityStore,
 } from "../../../store/agent-activity-store";
 import { Panel } from "./Panel";
 import { useDashboardAnimate } from "./useDashboardAnimate";
-import { TimelineLane } from "./TimelineLane";
-import { formatClock } from "./format";
-import { STATUS_COLOR, timelineWindow } from "./timeline-model";
+import { TimelineLane, type TimelineGap } from "./TimelineLane";
+import { STATUS_COLOR } from "./timeline-model";
 import styles from "./ActivityTimeline.module.css";
 
 const MAX_LANES = 6;
-const TICKS = 7;
 const GRID_STEP_MS = 30 * 60 * 1000;
 
-const LEGEND = [
+/** Axis labels across the fixed 3-hour window, oldest first. */
+const TICKS = [
+  "3h ago",
+  "2h 30m ago",
+  "2h ago",
+  "1h 30m ago",
+  "1h ago",
+  "30m ago",
+  "now",
+];
+
+const LEGEND_BARS = [
   { label: "Working", color: STATUS_COLOR.working },
   { label: "Thinking", color: STATUS_COLOR.thinking },
   { label: "Waiting on you", color: STATUS_COLOR.requires_input },
-  { label: "Finished", color: STATUS_COLOR.responded },
 ];
+
+const basename = (path: string) => path.split(/[\\/]/).filter(Boolean).pop();
 
 type ActivityTimelineProps = {
   /** Home's shared clock; the window slides with it. */
@@ -43,22 +55,33 @@ export function ActivityTimeline(props: ActivityTimelineProps) {
   const animateBody = useDashboardAnimate();
   const animateLanes = useDashboardAnimate();
 
-  // Ticket 3 replaces this: the window start is the first recorded session.
-  const startedAt = snapshot?.sessions[0]?.start ?? now;
-  const win = timelineWindow(now, startedAt);
+  const windowStart = now - ACTIVITY_WINDOW_MS;
+
+  const gaps = useMemo<TimelineGap[]>(() => {
+    const sessions = snapshot?.sessions ?? [];
+    const firstStart = sessions[0]?.start ?? now;
+    return closedGaps(sessions, windowStart, now).map((gap) => ({
+      ...gap,
+      // The span before the first session is history that was never recorded.
+      title:
+        gap.from <= windowStart && firstStart > windowStart
+          ? "No data yet"
+          : "Manor closed",
+    }));
+  }, [snapshot, windowStart, now]);
 
   const lanes = useMemo(() => {
     const recorded = snapshot?.agents ?? {};
     const sessions = snapshot?.sessions ?? [];
     return (
-      lanePriority(recorded, win.start, now)
+      lanePriority(recorded, windowStart, now)
         .map((agentId) => ({
           agentId,
           meta: recorded[agentId].meta,
           transitions: recorded[agentId].transitions,
           segments: laneSegments(
             recorded[agentId].transitions,
-            win.start,
+            windowStart,
             now,
             sessions,
           ),
@@ -67,66 +90,74 @@ export function ActivityTimeline(props: ActivityTimelineProps) {
         .filter((lane) => lane.segments.length > 0)
         .slice(0, MAX_LANES)
     );
-  }, [snapshot, win.start, now]);
-
-  const ticks = Array.from({ length: TICKS }, (_, i) => {
-    if (i === TICKS - 1) return "now";
-    const at = win.start + (win.span * i) / (TICKS - 1);
-    if (win.partial) return formatClock(at);
-    const minutesAgo = Math.round((now - at) / 60_000);
-    return minutesAgo % 60 === 0
-      ? `${minutesAgo / 60}h ago`
-      : `${minutesAgo}m ago`;
-  });
+  }, [snapshot, windowStart, now]);
 
   const legend = (
     <div className={styles.legend}>
-      {LEGEND.map((item) => (
+      {LEGEND_BARS.map((item) => (
         <span key={item.label} className={styles.legendItem}>
           <i style={{ background: item.color }} />
           {item.label}
         </span>
       ))}
+      <span className={styles.legendItem}>
+        <i
+          className={styles.legendRing}
+          style={{ "--c": STATUS_COLOR.responded } as CSSProperties}
+        />
+        Finished
+      </span>
     </div>
   );
 
   return (
-    <Panel
-      title="Agent activity"
-      sub={win.partial ? `Since ${formatClock(startedAt)}` : "Last 3 hours"}
-      right={legend}
-    >
+    <Panel title="Agent activity" sub="Last 3 hours" right={legend}>
       <div ref={animateBody}>
         {lanes.length === 0 ? (
-          <p className={styles.empty}>
-            No agent activity yet. Start one with ⌘N.
-          </p>
+          <p className={styles.empty}>No agent activity in the last 3 hours.</p>
         ) : (
           <div ref={animateLanes} className={styles.timeline}>
             {lanes.map((lane) => {
               const agent = agents.find((a) => a.id === lane.agentId);
-              const project = agent
-                ? projects.find((p) => p.id === agent.projectId)
-                : undefined;
+              const project = projects.find(
+                (p) => p.id === lane.meta.projectId,
+              );
+              const workspace = project?.workspaces.find(
+                (w) => w.path === lane.meta.workspacePath,
+              );
+              const name =
+                lane.meta.name ||
+                workspace?.name ||
+                workspace?.branch ||
+                (lane.meta.workspacePath
+                  ? basename(lane.meta.workspacePath)
+                  : undefined) ||
+                "Agent";
               return (
                 <TimelineLane
                   key={lane.agentId}
-                  name={lane.meta.name || agent?.name || "Agent"}
+                  name={name}
                   agent={agent}
-                  projectColor={project?.color ?? null}
+                  project={
+                    project && {
+                      name: project.name,
+                      color: project.color ?? null,
+                    }
+                  }
+                  gaps={gaps}
                   transitions={lane.transitions}
                   segments={lane.segments}
                   now={now}
-                  windowStart={win.start}
-                  windowSpan={win.span}
-                  gridStep={(GRID_STEP_MS / win.span) * 100}
+                  windowStart={windowStart}
+                  windowSpan={ACTIVITY_WINDOW_MS}
+                  gridStep={(GRID_STEP_MS / ACTIVITY_WINDOW_MS) * 100}
                 />
               );
             })}
             <div className={styles.axis}>
               <span />
               <span className={styles.ticks}>
-                {ticks.map((label, i) => (
+                {TICKS.map((label, i) => (
                   <span key={i}>{label}</span>
                 ))}
               </span>

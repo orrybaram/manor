@@ -9,7 +9,7 @@
 import type { AgentInfo, GitHubIssue, LinearIssue, PaneAgentStatus } from "../electron.d";
 import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
 import type { TopLevelEntry } from "../utils/sidebar-items";
-import { prReadiness } from "./pr-readiness";
+import { prReadiness, type PrReadiness } from "./pr-readiness";
 import type { PrInfo } from "./pr-info";
 import { projectForWorkspaceKey } from "./hosts";
 import { workspaceKey } from "./workspace-key";
@@ -340,6 +340,86 @@ export function upNextList(
     seen.add(issue.url);
     return true;
   });
+}
+
+/**
+ * The first `perProject` items of each project from an already-ranked list,
+ * keeping their rank order. Groups come out in `projectOrder` order; keys not
+ * in `projectOrder` go last (in first-seen order).
+ */
+export function topUpNextPerProject<T extends { projectKey: string }>(
+  ranked: readonly T[],
+  projectOrder: readonly string[],
+  perProject: number,
+): T[] {
+  const groups = new Map<string, T[]>();
+  for (const item of ranked) {
+    const group = groups.get(item.projectKey);
+    if (group) group.push(item);
+    else groups.set(item.projectKey, [item]);
+  }
+  const known = new Set(projectOrder);
+  const keys = [...projectOrder, ...[...groups.keys()].filter((k) => !known.has(k))];
+  return keys.flatMap((key) => (groups.get(key) ?? []).slice(0, perProject));
+}
+
+// ── Open PRs ──
+
+export type OpenPrReadiness = Exclude<PrReadiness, "merged" | "closed">;
+
+export interface OpenPrRow {
+  pr: PrInfo;
+  project: ProjectInfo;
+  workspace: WorkspaceInfo;
+  readiness: OpenPrReadiness;
+  /** "conflicts" / "ready to merge" / "needs review" / "queued to merge" / "draft" / "checks running" / … */
+  label: string;
+}
+
+const OPEN_PR_RANK: Record<OpenPrReadiness, number> = {
+  blocked: 0,
+  ready: 1,
+  review: 2,
+  queued: 3,
+  pending: 4,
+};
+
+function openPrLabel(pr: PrInfo, readiness: OpenPrReadiness): string {
+  switch (readiness) {
+    case "blocked":
+      return blockedReason(pr);
+    case "ready":
+      return "ready to merge";
+    case "review":
+      return "needs review";
+    case "queued":
+      return "queued to merge";
+    case "pending":
+      if (pr.isDraft) return "draft";
+      if (pr.checks != null && pr.checks.pending > 0) return "checks running";
+      return "pending";
+  }
+}
+
+/**
+ * Every open PR across `projects` (deduped by `pr.url`, first wins), ordered
+ * blocked, ready, review, queued, pending. Within a rank, `projects` order
+ * then workspace order (the sort is stable).
+ */
+export function openPrRows(projects: readonly ProjectInfo[]): OpenPrRow[] {
+  const rows: OpenPrRow[] = [];
+  const seen = new Set<string>();
+  for (const project of projects) {
+    for (const workspace of project.workspaces) {
+      const pr = workspace.pr;
+      if (!pr || pr.state !== "open") continue;
+      if (seen.has(pr.url)) continue;
+      seen.add(pr.url);
+      const readiness = prReadiness(pr) as OpenPrReadiness;
+      rows.push({ pr, project, workspace, readiness, label: openPrLabel(pr, readiness) });
+    }
+  }
+  return rows.sort((a, b) => OPEN_PR_RANK[a.readiness] - OPEN_PR_RANK[b.readiness]);
 }
 
 // ── Project cards ──

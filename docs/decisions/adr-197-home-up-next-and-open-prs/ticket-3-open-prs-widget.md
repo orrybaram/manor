@@ -1,6 +1,6 @@
 ---
 title: Open PRs widget on Home
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [1, 2]

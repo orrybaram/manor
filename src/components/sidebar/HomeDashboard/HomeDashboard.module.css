@@ -112,3 +112,7 @@
 .sectionLink.sectionLink:hover {
   color: var(--text-selected);
 }
+
+.status {
+  color: var(--text-dim);
+}

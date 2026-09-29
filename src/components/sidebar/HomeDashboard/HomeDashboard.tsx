@@ -11,13 +11,16 @@ import { projectColorStyle } from "../../../hooks/useProjectHeaderRow";
 import {
   needsYouItems,
   openPrCount,
+  openPrRows,
   runningAgentCount,
   type NeedsYouItem,
   type NeedsYouTier,
 } from "../../../lib/home-dashboard";
+import type { ProjectInfo, WorkspaceInfo } from "../../../store/project-store";
 import type { NewWorkspaceHandler } from "../../../lib/start-issue-work";
 import type { PaletteView } from "../../command-palette/types";
 import { Button } from "../../ui/Button/Button";
+import { PrPopover } from "../PrPopover";
 import { useUpNextIssues } from "./useUpNextIssues";
 import { useStartUpNextIssue } from "./useStartUpNextIssue";
 import shared from "../../EmptyState.module.css";
@@ -25,6 +28,13 @@ import styles from "./HomeDashboard.module.css";
 import { CountBadge } from "../../ui/CountBadge/CountBadge";
 
 const VISIBLE_COUNT = 4;
+const PR_VISIBLE_COUNT = 5;
+
+/** Status-label colour per open-PR readiness; anything unlisted stays dim. */
+const PR_STATUS_COLOR: Record<string, string> = {
+  blocked: "var(--red)",
+  ready: "var(--green)",
+};
 
 /** Icon colour per Needs-you tier (ADR-194 §1: red / yellow / green / cyan). */
 const TIER_COLOR: Record<NeedsYouTier, string> = {
@@ -89,6 +99,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
   const unseenRespondedAgentIds = useAgentStore((s) => s.unseenRespondedAgentIds);
 
   const [expanded, setExpanded] = useState(false);
+  const [prsExpanded, setPrsExpanded] = useState(false);
 
   const needsYou = useMemo(
     () => needsYouItems({ projects, agents, paneAgentStatus, unseenRespondedAgentIds }),
@@ -99,11 +110,26 @@ export function HomeDashboard(props: HomeDashboardProps) {
     [agents, paneAgentStatus],
   );
   const openPrs = useMemo(() => openPrCount(projects), [projects]);
+  const prRows = useMemo(() => openPrRows(projects), [projects]);
   const upNext = useUpNextIssues();
   const handleUpNextClick = useStartUpNextIssue(onNewWorkspace);
 
   const shownItems = expanded ? needsYou : needsYou.slice(0, VISIBLE_COUNT);
   const moreCount = needsYou.length - VISIBLE_COUNT;
+  const shownPrRows = prsExpanded ? prRows : prRows.slice(0, PR_VISIBLE_COUNT);
+  const prMoreCount = prRows.length - PR_VISIBLE_COUNT;
+
+  const selectWorkspaceOf = useCallback(
+    (project: ProjectInfo, workspace: WorkspaceInfo) => {
+      const projectIndex = projects.findIndex((p) => p.id === project.id);
+      if (projectIndex < 0) return;
+      const workspaceIndex = project.workspaces.findIndex((w) => w.path === workspace.path);
+      if (workspaceIndex < 0) return;
+      selectProject(projectIndex);
+      selectWorkspace(project.id, workspaceIndex);
+    },
+    [projects, selectProject, selectWorkspace],
+  );
 
   const handleItemClick = useCallback(
     (item: NeedsYouItem) => {
@@ -111,16 +137,9 @@ export function HomeDashboard(props: HomeDashboardProps) {
         navigateToAgent(item.agent);
         return;
       }
-      const projectIndex = projects.findIndex((p) => p.id === item.project.id);
-      if (projectIndex < 0) return;
-      const workspaceIndex = item.project.workspaces.findIndex(
-        (w) => w.path === item.workspace.path,
-      );
-      if (workspaceIndex < 0) return;
-      selectProject(projectIndex);
-      selectWorkspace(item.project.id, workspaceIndex);
+      selectWorkspaceOf(item.project, item.workspace);
     },
-    [projects, selectProject, selectWorkspace],
+    [selectWorkspaceOf],
   );
 
   const issuesReady = upNext.total;
@@ -230,6 +249,54 @@ export function HomeDashboard(props: HomeDashboardProps) {
               </span>
             </Button>
           ))}
+        </div>
+      )}
+      {prRows.length > 0 && (
+        <div className={shared.section}>
+          <div className={shared.sectionHeader}>
+            Open PRs
+            <CountBadge count={prRows.length} size="md" className={shared.sectionCount} />
+          </div>
+          {shownPrRows.map((row) => (
+            // A div, not <Button>: the PR badge is itself a role="button" and
+            // buttons can't nest. PrPopover stops click/keydown on its trigger.
+            <div
+              key={row.pr.url}
+              role="button"
+              tabIndex={0}
+              className={`${shared.action} ${styles.row}`}
+              onClick={() => selectWorkspaceOf(row.project, row.workspace)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && e.target === e.currentTarget) {
+                  selectWorkspaceOf(row.project, row.workspace);
+                }
+              }}
+            >
+              <PrPopover
+                pr={row.pr}
+                workspacePath={row.workspace.path}
+                hostId={row.project.hostId}
+                onOpen={() => window.electronAPI.shell.openExternal(row.pr.url)}
+              />
+              <span className={`${shared.actionLabel} ${styles.label}`}>{row.pr.title}</span>
+              <span className={styles.meta}>
+                <span
+                  className={styles.status}
+                  style={{ color: PR_STATUS_COLOR[row.readiness] }}
+                >
+                  {row.label}
+                </span>
+                <span className={styles.proj} style={projectColorStyle(row.project.color)}>
+                  {row.workspace.name ?? row.workspace.path}
+                </span>
+              </span>
+            </div>
+          ))}
+          {!prsExpanded && prMoreCount > 0 && (
+            <Button variant="ghost" className={styles.more} onClick={() => setPrsExpanded(true)}>
+              {prMoreCount} more
+            </Button>
+          )}
         </div>
       )}
       {needsYou.length === 0 && upNext.top.length === 0 && !upNext.loading && (

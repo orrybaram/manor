@@ -50,15 +50,12 @@
      traffic lights for windows without a lead (DetachedApp). */
   --frame-gap: 6px;
   --window-lead-inset: 78px;
-  /* Height of the window's top row: the WindowLead, the WindowTrail and the
-     top panels' tab bars all share it, and the macOS traffic lights are
+  /* Height of the window's top row: the WindowLead and the top panels' tab
+     bars all share it, and the macOS traffic lights are
      centred in it (`trafficLightPosition` in electron/window.ts). */
   --title-row: 36px;
   /* Fixed so the sidebar resize handle can end exactly where the panels do. */
   --status-bar-height: 36px; /* 10px padding above and below a 16px row */
-  /* Right padding of the top-right panel's tab bar; App.tsx widens it to
-     clear the WindowTrail. */
-  --window-trail-inset: 8px;
   --font-mono:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
     monospace;

@@ -2,6 +2,7 @@ import PanelLeft from "lucide-react/dist/esm/icons/panel-left";
 import PanelLeftOpen from "lucide-react/dist/esm/icons/panel-left-open";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
 import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
+import { NotificationsPopover } from "../../notifications/NotificationsPopover";
 import { Button } from "../../ui/Button/Button";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { useProjectStore } from "../../../store/project-store";
@@ -21,9 +22,9 @@ function withShortcut(label: string, combo: KeyCombo | undefined): string {
 
 /**
  * The window's top-left controls (ADR-196): room for the macOS traffic
- * lights, the sidebar toggle and back/forward, on the frame and draggable.
- * Sits over the sidebar panel in `full` mode, else over the rail and the
- * top-left panel's tab bar inset.
+ * lights, the sidebar toggle and back/forward, and the notifications bell at
+ * its right edge, on the frame and draggable. Sits over the sidebar panel in
+ * `full` mode, else over the rail and the top-left panel's tab bar inset.
  */
 export function WindowLead() {
   const sidebarMode = useProjectStore((s) => s.sidebarMode);
@@ -80,6 +81,9 @@ export function WindowLead() {
             <ArrowRight size={14} />
           </Button>
         </Tooltip>
+      </div>
+      <div className={styles.bell}>
+        <NotificationsPopover />
       </div>
     </div>
   );

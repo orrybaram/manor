@@ -12,7 +12,6 @@ import { BranchWatcher } from "./branch-watcher";
 import { DiffWatcher } from "./diff-watcher";
 import { GitHubManager, ghRepoFromRemoteUrl } from "./github";
 import { LinearManager } from "./linear";
-import { homeWorkspaceDir } from "./paths";
 import { AgentHookServer } from "./agent-hooks";
 import { NotificationCoalescer, type HookCursor } from "./backend/hook-feed";
 import { bootstrapHost } from "./terminal-host/bootstrap-host";
@@ -540,9 +539,6 @@ export function initApp(devTitle: string | null): void {
     console.warn(`[app-lifecycle] bootstrap: ${warning}`);
   }
   ensureManorCli();
-  // The Home surface's harness runs in ~/.manor/home. Create it once here
-  // instead of on every new session's launch command.
-  fs.mkdirSync(homeWorkspaceDir(), { recursive: true });
 
   function broadcastAgent(agent: AgentInfo): void {
     sendAgentUpdate(mainWindow, agent, preferencesManager);
@@ -582,9 +578,15 @@ export function initApp(devTitle: string | null): void {
       // One channel, every window, once per signal (ADR-184 §4).
       sendToRendererWindows("agent-status", update);
       // Recorded per Agent, not per pane: panes are ephemeral (ADR-199 §1).
-      // A pane with no Agent has no lane to record into.
-      const agent = agentManager.getAgentByPaneId(update.paneId);
-      if (agent) agentActivityStore.record(agent, update.status);
+      // A pane with no Agent has no lane to record into. The lookup waits for
+      // the rest of this effect batch: the reconciler publishes before its
+      // `CreateAgent`, so a new Agent's first status would otherwise find no
+      // Agent — or the retiring one — on the pane.
+      const at = Date.now();
+      queueMicrotask(() => {
+        const agent = agentManager.getAgentByPaneId(update.paneId);
+        if (agent) agentActivityStore.record(agent, update.status, at);
+      });
     },
     onHookEvent: (event, effects, { isRootSession, replacedRootSessionId }) => {
       statsStore.observeHookEvent(

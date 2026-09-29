@@ -1,5 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
+import AlarmClock from "lucide-react/dist/esm/icons/alarm-clock";
 import Bot from "lucide-react/dist/esm/icons/bot";
+import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import GitPullRequest from "lucide-react/dist/esm/icons/git-pull-request";
 import type { NeedsYouCard as NeedsYouCardData } from "../../../lib/home-dashboard-studio";
 import type { ProjectInfo, WorkspaceInfo } from "../../../store/project-store";
@@ -9,8 +11,9 @@ import { startAgentWithPrompt } from "../../../lib/agent-prompt-launch";
 import { projectColorStyle } from "../../../hooks/useProjectHeaderRow";
 import { Button } from "../../ui/Button/Button";
 import { Link } from "../../ui/Link/Link";
+import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { CardContext } from "./CardContext";
-import { fixChecksPrompt } from "./fix-checks-prompt";
+import { fixPrPrompt, isFixable } from "./fix-pr-prompt";
 import { formatAge } from "./format";
 import { needsYouKindLabel, needsYouTitle, TIER_COLOR } from "./needs-you-labels";
 import styles from "./NeedsYouCards.module.css";
@@ -24,6 +27,7 @@ type NeedsYouCardProps = {
 
 const primaryClass = `${styles.action} ${styles.primary}`;
 const secondaryClass = `${styles.action} ${styles.secondary}`;
+const toolClass = `${styles.action} ${styles.tool}`;
 
 /**
  * One Needs you card (ADR-198 §1.4): kind, project, age, title, the context
@@ -35,6 +39,7 @@ export function NeedsYouCard(props: NeedsYouCardProps) {
 
   const actions = cardActions(card, onOpenWorkspace);
   const title = needsYouTitle(card);
+  const workspace = card.workspace;
 
   return (
     <article
@@ -57,15 +62,32 @@ export function NeedsYouCard(props: NeedsYouCardProps) {
       <div className={styles.footer}>
         {actions.primary}
         {actions.secondary}
-        <Button
-          variant="ghost"
-          size="sm"
-          className={`${styles.action} ${styles.snooze}`}
-          title="Snooze for 1 hour"
-          onClick={() => onSnooze(card.key)}
-        >
-          Snooze
-        </Button>
+        <div className={styles.tools}>
+          {workspace && (
+            <Tooltip label="Open workspace" side="top">
+              <Button
+                variant="ghost"
+                size="sm"
+                className={toolClass}
+                aria-label="Open workspace"
+                onClick={() => onOpenWorkspace(card.project, workspace)}
+              >
+                <GitBranch size={13} />
+              </Button>
+            </Tooltip>
+          )}
+          <Tooltip label="Snooze for 1 hour" side="top">
+            <Button
+              variant="ghost"
+              size="sm"
+              className={toolClass}
+              aria-label="Snooze for 1 hour"
+              onClick={() => onSnooze(card.key)}
+            >
+              <AlarmClock size={13} />
+            </Button>
+          </Tooltip>
+        </div>
       </div>
     </article>
   );
@@ -73,23 +95,14 @@ export function NeedsYouCard(props: NeedsYouCardProps) {
 
 type CardActions = { primary: ReactNode; secondary: ReactNode };
 
-/** A card's primary and secondary action, per ADR-198 §4's table. */
+/**
+ * A card's primary and secondary action (ADR-198 §4). Open workspace and
+ * Snooze sit in every card's icon row, so they aren't repeated here.
+ */
 function cardActions(
   card: NeedsYouCardData,
   onOpenWorkspace: (project: ProjectInfo, workspace: WorkspaceInfo) => boolean,
 ): CardActions {
-  const openWorkspace = (workspace: WorkspaceInfo | undefined) =>
-    workspace ? (
-      <Button
-        variant="secondary"
-        size="sm"
-        className={secondaryClass}
-        onClick={() => onOpenWorkspace(card.project, workspace)}
-      >
-        Open workspace
-      </Button>
-    ) : null;
-
   if (card.kind === "agent") {
     const focus = (label: string) => (
       <Button
@@ -101,33 +114,26 @@ function cardActions(
         {label}
       </Button>
     );
-    switch (card.tier) {
-      case "input":
-        return { primary: focus("Focus agent"), secondary: null };
-      case "error":
-        return { primary: focus("Focus agent"), secondary: openWorkspace(card.workspace) };
-      case "finished": {
-        // `navigateToAgent` marks the agent seen, which clears the card.
-        const workspace = card.workspace;
-        const openDiff = workspace ? (
-          <Button
-            variant="secondary"
-            size="sm"
-            className={secondaryClass}
-            onClick={() => {
-              // Same order as the sidebar's "Open diff": select, then open
-              // (or focus) the diff in the now-active workspace.
-              if (onOpenWorkspace(card.project, workspace)) {
-                useAppStore.getState().openOrFocusDiff();
-              }
-            }}
-          >
-            Open diff
-          </Button>
-        ) : null;
-        return { primary: focus("Review"), secondary: openDiff };
-      }
-    }
+    if (card.tier !== "finished") return { primary: focus("Focus agent"), secondary: null };
+    // `navigateToAgent` marks the agent seen, which clears the card.
+    const workspace = card.workspace;
+    const openDiff = workspace ? (
+      <Button
+        variant="secondary"
+        size="sm"
+        className={secondaryClass}
+        onClick={() => {
+          // Same order as the sidebar's "Open diff": select, then open
+          // (or focus) the diff in the now-active workspace.
+          if (onOpenWorkspace(card.project, workspace)) {
+            useAppStore.getState().openOrFocusDiff();
+          }
+        }}
+      >
+        Open diff
+      </Button>
+    ) : null;
+    return { primary: focus("Review"), secondary: openDiff };
   }
 
   const { pr, workspace, project, context } = card;
@@ -137,50 +143,33 @@ function cardActions(
     </Link>
   );
 
-  if (context.kind === "checks") {
-    const firstRun = context.failing.find((run) => run.url != null)?.url;
-    return {
-      primary: (
-        <Button
-          variant="primary"
-          size="sm"
-          className={primaryClass}
-          onClick={() =>
-            startAgentWithPrompt(
-              workspace.path,
-              fixChecksPrompt(pr, context.failing, context.failingCount),
-              project.hostId,
-            )
-          }
-        >
-          Fix with agent
-        </Button>
-      ),
-      secondary: (
-        <Link href={firstRun ?? `${pr.url}/checks`} variant="plain" className={secondaryClass}>
-          View check
-        </Link>
-      ),
-    };
+  if (!isFixable(context)) {
+    // Ready to merge. No GitHub merge API yet (ADR-198 Context): merging happens on GitHub.
+    return { primary: openPr(primaryClass), secondary: null };
   }
 
-  if (context.kind === "ready") {
-    // No GitHub merge API yet (ADR-198 Context): merging happens on GitHub.
-    return { primary: openPr(primaryClass), secondary: openWorkspace(workspace) };
-  }
-
-  // Conflicts, changes requested, unresolved threads: the work is in the workspace.
+  const firstRun =
+    context.kind === "checks" ? context.failing.find((run) => run.url != null)?.url : undefined;
   return {
     primary: (
       <Button
         variant="primary"
         size="sm"
         className={primaryClass}
-        onClick={() => onOpenWorkspace(project, workspace)}
+        onClick={() =>
+          startAgentWithPrompt(workspace.path, fixPrPrompt(pr, context), project.hostId)
+        }
       >
-        Open workspace
+        Fix with agent
       </Button>
     ),
-    secondary: openPr(secondaryClass),
+    secondary:
+      context.kind === "checks" ? (
+        <Link href={firstRun ?? `${pr.url}/checks`} variant="plain" className={secondaryClass}>
+          View check
+        </Link>
+      ) : (
+        openPr(secondaryClass)
+      ),
   };
 }

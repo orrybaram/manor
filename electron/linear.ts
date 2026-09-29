@@ -25,6 +25,8 @@ export interface LinearIssue {
   priority: number;
   state: { name: string; type: string };
   labels: Array<{ name: string; color: string }>;
+  updatedAt: string;
+  assignee?: { name: string; displayName?: string } | null;
 }
 
 export interface LinkedIssue {
@@ -136,6 +138,8 @@ export class LinearManager {
               branchName
               priority
               state { name type }
+              updatedAt
+              assignee { name displayName }
               labels { nodes { name color } }
             }
           }
@@ -193,6 +197,8 @@ export class LinearManager {
             branchName
             priority
             state { name type }
+            updatedAt
+            assignee { name displayName }
             labels { nodes { name color } }
           }
         }
@@ -230,6 +236,7 @@ export class LinearManager {
           priority
           description
           state { name type }
+          updatedAt
           labels { nodes { id name color } }
           assignee { id name displayName avatarUrl }
         }

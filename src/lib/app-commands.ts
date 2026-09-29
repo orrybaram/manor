@@ -173,6 +173,15 @@ function activateKey(key: WorkspaceKey): void {
   useAppStore.getState().setActiveWorkspace(path, hostId);
 }
 
+const DASHBOARD_CANT_HOST_PANES = "The Dashboard can't host panes";
+
+/** Throw when `workspacePath` (or the active workspace, if omitted) is Home. */
+function rejectHome(state: AppState, workspacePath?: string | null): void {
+  if (isHomePath(workspacePath ?? state.activeWorkspacePath)) {
+    throw new Error(DASHBOARD_CANT_HOST_PANES);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -185,6 +194,7 @@ function listPanes(): unknown {
 
 function splitPane(args: Record<string, unknown>): { paneId: string } {
   const state = useAppStore.getState();
+  rejectHome(state);
   // Only used to default `paneId` to the active panel's focused pane; the
   // pane itself may legitimately live in any panel. This is the fallback
   // default for non-MCP callers — the MCP layer supplies the caller's own
@@ -258,6 +268,7 @@ function newTab(args: Record<string, unknown>): {
   }
 
   const state = useAppStore.getState();
+  rejectHome(state, workspacePath);
   const target = workspacePath ? workspaceKeyArg(args, workspacePath) : null;
   if (target && !isKnownWorkspace(state, target)) {
     throw new Error(`Unknown workspace: ${workspacePath}`);
@@ -404,6 +415,7 @@ function pinTab(args: Record<string, unknown>): {
 function duplicateTab(args: Record<string, unknown>): { tabId: string } {
   const tabId = requireString(args, "tabId");
   const state = useAppStore.getState();
+  rejectHome(state);
   const layout = requireActiveLayout(state);
   if (!layoutHasTab(layout, tabId)) {
     throw new Error(`Unknown tabId: ${tabId}`);
@@ -441,6 +453,7 @@ function reorderTabs(args: Record<string, unknown>): { ok: true } {
 
 function openDiff(): { tabId: string } {
   const state = useAppStore.getState();
+  rejectHome(state);
   requireActiveLayout(state);
   state.openOrFocusDiff();
   const panel = requireActivePanel(useAppStore.getState());
@@ -610,12 +623,14 @@ async function startAgent(args: Record<string, unknown>): Promise<{
   const prompt = optionalString(args, "prompt");
   const agentCommand = optionalString(args, "agentCommand");
   const hostId = optionalString(args, "hostId");
+  // Reject before anything is queued or the workspace is selected.
+  rejectHome(useAppStore.getState(), workspacePath);
 
   // A workspace created moments ago over the control server is not in the
   // store yet, and the command resolution below needs it. Refetch only when
   // the path is genuinely unknown: `requestRenderer` times out at 5s, so an
   // unconditional refetch risks reporting a successful launch as a failure.
-  if (!isHomePath(workspacePath) && !projectsKnowWorkspace(workspacePath)) {
+  if (!projectsKnowWorkspace(workspacePath)) {
     await useProjectStore.getState().loadProjects();
   }
 

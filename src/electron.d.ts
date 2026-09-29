@@ -1,5 +1,4 @@
 import type { PrComment, PrInfo } from "./lib/pr-info";
-import type { HarnessKind } from "./lib/harness";
 import type { HostId } from "./lib/hosts";
 import type { GhRepo } from "./lib/gh-repo";
 import type { DetachedTabPayload } from "./store/detach-types";
@@ -30,12 +29,6 @@ export interface AppPreferences {
   agentRetentionDays: number;
   /** True after the one-time prune notice has been shown to the user. */
   agentPruneNoticeShown: boolean;
-  /** Agent-agnostic harness Home auto-launches. */
-  homeHarness: HarnessKind;
-  /** Launch command used when `homeHarness === "custom"`. */
-  homeCustomCommand: string;
-  /** Interrupt sequence used when `homeHarness === "custom"`. */
-  homeCustomInterrupt: string;
   /** ADR-168's usage-stats collection kill switch. */
   statsEnabled: boolean;
 }
@@ -186,6 +179,8 @@ export interface LinearIssue {
   priority: number;
   state: { name: string; type: string };
   labels: Array<{ name: string; color: string }>;
+  updatedAt: string;
+  assignee?: { name: string; displayName?: string } | null;
 }
 
 export interface LinearIssueDetail extends LinearIssue {
@@ -206,6 +201,8 @@ export interface GitHubIssue {
   state: string;
   labels: Array<{ name: string; color: string }>;
   assignees: Array<{ login: string }>;
+  updatedAt: string;
+  author: { login: string };
 }
 
 export interface GitHubRepo {

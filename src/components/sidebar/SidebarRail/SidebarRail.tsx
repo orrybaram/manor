@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import House from "lucide-react/dist/esm/icons/house";
+import LayoutDashboard from "lucide-react/dist/esm/icons/layout-dashboard";
+import ListTodo from "lucide-react/dist/esm/icons/list-todo";
+import Search from "lucide-react/dist/esm/icons/search";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import { Button } from "../../ui/Button/Button";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
@@ -25,6 +27,7 @@ const AGENTS_POPOVER_KEY = "rail:agents";
 type SidebarRailProps = {
   onShowAgents: () => void;
   onOpenProjectSettings?: (projectId: string) => void;
+  onOpenSearch?: () => void;
 };
 
 /**
@@ -34,14 +37,17 @@ type SidebarRailProps = {
  * full sidebar shows it, on click or after resting the pointer on it.
  */
 export function SidebarRail(props: SidebarRailProps) {
-  const { onShowAgents, onOpenProjectSettings } = props;
+  const { onShowAgents, onOpenProjectSettings, onOpenSearch } = props;
 
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
-  const projectsActive = useAppStore((s) => s.activeSurface === "projects");
-  const homeActive = !projectsActive && isHomePath(activeWorkspacePath);
+  // The Tasks view (ADR-198) covers the active workspace, so neither Home nor
+  // a project tile reads as current there.
+  const tasksActive = useAppStore((s) => s.activeSurface === "tasks");
+  const showTasks = useAppStore((s) => s.showTasksView);
+  const homeActive = !tasksActive && isHomePath(activeWorkspacePath);
   const agentCount = useVisibleAgents().length;
 
   // The full sidebar runs these; the rail stands in for it, so branch names,
@@ -89,21 +95,54 @@ export function SidebarRail(props: SidebarRailProps) {
       data-testid="sidebar-rail"
     >
       <div className={styles.dragSpacer} />
-      <Tooltip label="Home" side="right">
+      <Tooltip label="Dashboard" side="right">
         <Button
           variant="ghost"
           className={`${styles.iconButton} ${homeActive ? styles.homeActive : ""}`}
           data-testid="rail-home"
           data-sidebar-row=""
           tabIndex={-1}
-          aria-label="Home"
+          aria-label="Dashboard"
           aria-current={homeActive ? "true" : undefined}
           onClick={goHome}
           onKeyDown={(e) => handleSidebarRowKeyDown(e, { activate: goHome })}
         >
-          <House size={14} />
+          <LayoutDashboard size={14} />
         </Button>
       </Tooltip>
+      <Tooltip label="Tasks" side="right">
+        <Button
+          variant="ghost"
+          className={`${styles.iconButton} ${tasksActive ? styles.homeActive : ""}`}
+          data-testid="rail-tasks"
+          data-sidebar-row=""
+          tabIndex={-1}
+          aria-label="Tasks"
+          aria-current={tasksActive ? "true" : undefined}
+          onClick={showTasks}
+          onKeyDown={(e) => handleSidebarRowKeyDown(e, { activate: showTasks })}
+        >
+          <ListTodo size={14} />
+        </Button>
+      </Tooltip>
+      {onOpenSearch && (
+        <Tooltip label="Search" side="right">
+          <Button
+            variant="ghost"
+            className={`${styles.iconButton} ${styles.searchButton}`}
+            data-testid="rail-search"
+            data-sidebar-row=""
+            tabIndex={-1}
+            aria-label="Search"
+            onClick={onOpenSearch}
+            onKeyDown={(e) =>
+              handleSidebarRowKeyDown(e, { activate: onOpenSearch })
+            }
+          >
+            <Search size={14} />
+          </Button>
+        </Tooltip>
+      )}
       <div className={styles.divider} />
       <div className={styles.tiles}>
         {entries.map((entry) => (
@@ -113,7 +152,7 @@ export function SidebarRail(props: SidebarRailProps) {
             onOpenProjectSettings={onOpenProjectSettings}
             popover={popover}
             isSelected={
-              !projectsActive &&
+              !tasksActive &&
               !homeActive &&
               selectedProject !== undefined &&
               (entry.kind === "project"

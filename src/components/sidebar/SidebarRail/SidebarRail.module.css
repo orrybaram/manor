@@ -164,6 +164,11 @@
   margin-top: var(--rail-gap);
 }
 
+/* Search stacks under Home with the rail's usual gap. */
+.rail .searchButton {
+  margin-top: var(--rail-gap);
+}
+
 .rail .homeActive {
   background: var(--surface);
   color: var(--accent);

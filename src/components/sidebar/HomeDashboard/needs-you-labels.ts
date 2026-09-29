@@ -10,7 +10,7 @@ export const TIER_COLOR: Record<NeedsYouTier, string> = {
   finished: "var(--cyan)",
 };
 
-/** The uppercase kind label in a card's header, per context. */
+/** The kind label in a card's header, per context. */
 const KIND_LABEL: Record<NeedsYouCardContext["kind"], string> = {
   input: "Needs input",
   error: "Agent errored",

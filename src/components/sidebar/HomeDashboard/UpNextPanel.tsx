@@ -52,7 +52,7 @@ export function UpNextPanel(props: UpNextPanelProps) {
           ))
         ) : rows.length === 0 ? (
           <p className={styles.empty}>
-            No assigned issues without a workspace.
+            No assigned tasks without a workspace.
           </p>
         ) : (
           rows.map((row) => (

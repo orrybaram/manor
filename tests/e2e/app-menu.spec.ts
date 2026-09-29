@@ -114,6 +114,12 @@ test.describe("application menu", () => {
     expect(
       find(find(before, "Workspace").submenu!, "Rename Workspace").enabled,
     ).toBe(false);
+    // Tabs and panes don't exist on the Dashboard (ADR-197).
+    expect(find(find(before, "File").submenu!, "New Tab").enabled).toBe(false);
+    expect(find(find(before, "File").submenu!, "New Agent").enabled).toBe(false);
+    expect(find(find(before, "Pane").submenu!, "Split Horizontal").enabled).toBe(
+      false,
+    );
 
     await bootWorkspaceWithTerminal(app, window, tempHome, "menu-smoke");
 
@@ -126,6 +132,7 @@ test.describe("application menu", () => {
       .toBe(true);
 
     const menu = await readMenu(app);
+    expect(find(find(menu, "File").submenu!, "New Tab").enabled).toBe(true);
     const switcher = find(find(menu, "Workspace").submenu!, "Switch Workspace");
     const project = switcher.submenu![0];
     expect(

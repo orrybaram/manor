@@ -27,10 +27,6 @@ import styles from "./HomeDashboard.module.css";
 type HomeDashboardProps = {
   /** `data-testid` for the scrolling root, so e2e tests can find Home. */
   testId?: string;
-  /** Boots the configured home harness in a fresh tab (⌘N). */
-  onNewAgent: () => void;
-  /** Opens a plain terminal tab (⌘T). */
-  onOpenTerminal: () => void;
   /** Opens the command palette (⌘K). */
   onOpenPalette: () => void;
   /** Opens the New Workspace dialog, prefilled — Up next starts work on an issue with it (ADR-198 T7). */
@@ -51,7 +47,7 @@ type HomeDashboardProps = {
  * a viewport query can't see because the sidebar takes width.
  */
 export function HomeDashboard(props: HomeDashboardProps) {
-  const { testId, onNewAgent, onOpenTerminal, onOpenPalette } = props;
+  const { testId, onOpenPalette } = props;
 
   const projects = useProjectStore((s) => s.projects);
   const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
@@ -107,8 +103,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
           now={now}
           headline={sentence}
           urgent={cards.length > 0}
-          onNewAgent={onNewAgent}
-          onOpenTerminal={onOpenTerminal}
           onOpenPalette={onOpenPalette}
         />
         <HostAlert projects={projects} now={now} />

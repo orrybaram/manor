@@ -10,6 +10,7 @@ import { IssueDetailSkeleton } from "./IssueDetailSkeleton";
 import type { CommandPaletteProps } from "./types";
 import { Row, Stack } from "../ui/Layout/Layout";
 import { startLinearIssueWork } from "../../lib/start-issue-work";
+import { isHomePath } from "../../lib/home-path";
 import styles from "./CommandPalette.module.css";
 
 type IssueDetailViewProps = {
@@ -27,6 +28,9 @@ export function IssueDetailView(props: IssueDetailViewProps) {
   const { issueId, onBack, onClose, onNewWorkspace, onNewAgentWithPrompt, linkedTo, projectId, workspacePath } = props;
 
   const projects = useProjectStore((s) => s.projects);
+  // The Dashboard has no tabs to host a new agent (ADR-197); "Create
+  // Workspace" stays available.
+  const canNewAgent = useAppStore((s) => !isHomePath(s.activeWorkspacePath));
 
   const { data: issueDetail, isLoading } = useQuery({
     queryKey: ["linear-issue-detail", issueId],
@@ -114,11 +118,13 @@ export function IssueDetailView(props: IssueDetailViewProps) {
   const issueDetailRef = useRef(issueDetail);
   const handleCreateWorkspaceRef = useRef(handleCreateWorkspace);
   const handleOpenInBrowserRef = useRef(handleOpenInBrowser);
+  const canNewAgentRef = useRef(canNewAgent);
   const handleNewAgentRef = useRef(handleNewAgent);
   issueDetailRef.current = issueDetail;
   handleCreateWorkspaceRef.current = handleCreateWorkspace;
   handleOpenInBrowserRef.current = handleOpenInBrowser;
   handleNewAgentRef.current = handleNewAgent;
+  canNewAgentRef.current = canNewAgent;
 
   // The Enter keyup from the list selection can arrive after this effect
   // registers its listener, so we gate on a `ready` flag set after a frame.
@@ -132,7 +138,7 @@ export function IssueDetailView(props: IssueDetailViewProps) {
       if (e.key === "Enter" && e.shiftKey) {
         e.preventDefault();
         handleCreateWorkspaceRef.current(issueDetailRef.current);
-      } else if (e.key === "Enter") {
+      } else if (e.key === "Enter" && canNewAgentRef.current) {
         e.preventDefault();
         handleNewAgentRef.current(issueDetailRef.current);
       }
@@ -258,13 +264,15 @@ export function IssueDetailView(props: IssueDetailViewProps) {
           </>
         ) : (
           <>
-            <button
-              className={styles.footerHint}
-              onClick={() => handleNewAgent(issueDetail)}
-            >
-              <kbd className={styles.kbd}>Enter</kbd>
-              <span>New Agent</span>
-            </button>
+            {canNewAgent && (
+              <button
+                className={styles.footerHint}
+                onClick={() => handleNewAgent(issueDetail)}
+              >
+                <kbd className={styles.kbd}>Enter</kbd>
+                <span>New Agent</span>
+              </button>
+            )}
             <button
               className={styles.footerHint}
               onClick={() => handleCreateWorkspace(issueDetail)}

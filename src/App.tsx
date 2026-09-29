@@ -5,15 +5,15 @@ import { PanelLayout } from "./components/panels/PanelLayout";
 import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
 import { SidebarRail } from "./components/sidebar/SidebarRail/SidebarRail";
 import { WindowLead } from "./components/window-lead/WindowLead/WindowLead";
-import { WindowTrail } from "./components/window-lead/WindowTrail/WindowTrail";
-import type { PaletteView } from "./components/command-palette/types";
+import type { PaletteOrigin, PaletteView } from "./components/command-palette/types";
 import type { AddProjectMode } from "./components/sidebar/AddProjectDialog/AddProjectDialog";
 import { onPaletteViewRequest } from "./utils/palette-request";
 import { onUiRequest } from "./utils/ui-request";
 import { GhostsOverlay } from "./components/GhostsOverlay/GhostsOverlay";
 import { WorkspaceEmptyState } from "./components/sidebar/WorkspaceEmptyState";
 import { HomeEmptyState } from "./components/sidebar/HomeEmptyState";
-import { ProjectsOverview } from "./components/projects-overview/ProjectsOverview";
+import { TasksView } from "./components/tasks/TasksView";
+import { Onboarding } from "./components/onboarding/Onboarding";
 import { ManorLogo } from "./components/ui/ManorLogo";
 import { CloseAgentPaneDialog } from "./components/CloseAgentPaneDialog";
 import { ToastContainer } from "./components/ui/Toast/Toast";
@@ -60,11 +60,12 @@ import {
 } from "./lib/menu-handlers";
 import { useThemeStore } from "./store/theme-store";
 import { useAgentStore } from "./store/agent-store";
-import { usePreferencesStore } from "./store/preferences-store";
 import { useMountEffect } from "./hooks/useMountEffect";
 import { startAgentActivitySync } from "./store/agent-activity-store";
 import { useMenuContextSync } from "./hooks/useMenuContextSync";
 import { useUpdaterToasts } from "./hooks/useUpdaterToasts";
+import { useToastStore } from "./store/toast-store";
+import type { DetachedTabPayload } from "./store/detach-types";
 import { useRemoteRecovery } from "./hooks/useRemoteRecovery";
 import { useAgentContextRepair } from "./hooks/useAgentContextRepair";
 import {
@@ -79,11 +80,44 @@ import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults"
 import {
   escapeShellDoubleQuoted,
   isHomePath,
-  homeLaunchCommand,
   HOME_PATH,
 } from "./lib/home";
 import { TAB_HIDDEN_STYLE, TAB_VISIBLE_STYLE } from "./lib/tab-styles";
 import "./App.css";
+
+/**
+ * Insert a tab another window handed to this one (reattach or cross-window
+ * drop, ADR-156). The sender has already released it, so it must land
+ * somewhere. The Dashboard (Home) can't hold tabs (ADR-197 §1) and the
+ * protocol has no way to hand a tab back, so on Home the least surprising
+ * owner is used: the tab's own workspace, which becomes active — or, for a
+ * tab from Home itself (only possible from before the migration), a fresh
+ * popout, so nothing is lost and the pane's session isn't orphaned.
+ */
+function receiveTabFromOtherWindow(payload: DetachedTabPayload): void {
+  const store = useAppStore.getState();
+  if (!isHomePath(store.activeWorkspacePath)) {
+    store.receiveReattachedTab(payload);
+    return;
+  }
+  const { path, hostId } = parseWorkspaceKey(payload.sourceWorkspaceKey);
+  if (!isHomePath(path)) {
+    store.setActiveWorkspace(path, hostId);
+    useAppStore.getState().receiveReattachedTab(payload);
+    return;
+  }
+  void window.electronAPI.window
+    .getBounds()
+    .then((own) =>
+      window.electronAPI.window.detachTab(payload, {
+        x: own.x + 40,
+        y: own.y + 40,
+        width: 900,
+        height: 600,
+      }),
+    )
+    .catch((err: unknown) => console.error("Failed to re-home a tab dropped on the Dashboard", err));
+}
 
 function App() {
   const loadTheme = useThemeStore((s) => s.loadTheme);
@@ -126,6 +160,7 @@ function App() {
   useAgentContextRepair();
 
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteOrigin, setPaletteOrigin] = useState<PaletteOrigin>("shortcut");
   const [paletteInitialView, setPaletteInitialView] = useState<PaletteView | undefined>();
   const [paletteInitialIssueId, setPaletteInitialIssueId] = useState<string | null>(null);
   const [paletteInitialGitHubIssueNumber, setPaletteInitialGitHubIssueNumber] = useState<number | null>(null);
@@ -134,6 +169,10 @@ function App() {
     setPaletteInitialView(undefined);
     setPaletteInitialIssueId(null);
     setPaletteInitialGitHubIssueNumber(null);
+  }, []);
+  const openPalette = useCallback(() => {
+    setPaletteOrigin("search");
+    setPaletteOpen(true);
   }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsProjectId, setSettingsProjectId] = useState<string | null>(
@@ -147,11 +186,11 @@ function App() {
     setSettingsPage(null);
     setSettingsSection(null);
     // Revert to the active surface's theme in case settings was previewing a
-    // different theme. Home and the Projects overview have no project
-    // override — they inherit the global theme (null).
+    // different theme. Home and the Tasks view have no project override —
+    // they inherit the global theme (null).
     const appState = useAppStore.getState();
     const activeTheme =
-      isHomePath(appState.activeWorkspacePath) || appState.activeSurface === "projects"
+      isHomePath(appState.activeWorkspacePath) || appState.activeSurface === "tasks"
       ? null
       : useProjectStore.getState().projects[
           useProjectStore.getState().selectedProjectIndex
@@ -312,6 +351,7 @@ function App() {
   const handleOpenPaletteView = useCallback(
     (view: PaletteView) => {
       setPaletteInitialView(view);
+      setPaletteOrigin("shortcut");
       setPaletteOpen(true);
     },
     [],
@@ -363,17 +403,13 @@ function App() {
   // Clean up wizard state if the project is removed while wizard is open
   const wizardStillValid = wizardOpen && wizardProjectId && projects.some((p) => p.id === wizardProjectId);
 
-  // The Projects overview (ADR-194) covers the active workspace, which stays
-  // active (and mounted) underneath.
-  const projectsOverviewShown = useAppStore(
-    (s) => s.activeSurface === "projects",
-  );
+  const tasksViewShown = useAppStore((s) => s.activeSurface === "tasks");
 
   // Reactively apply the active surface's theme. Projects carry an optional
-  // theme override; Home and the Projects overview have no owning project, so
-  // they inherit the global theme (null override) — switching to/from either
+  // theme override; Home and the Tasks view have no owning project, so they
+  // inherit the global theme (null override) — switching to/from either
   // re-applies here.
-  const effectiveThemeName = isHomePath(activeWorkspacePath) || projectsOverviewShown
+  const effectiveThemeName = isHomePath(activeWorkspacePath) || tasksViewShown
     ? null
     : projects[selectedProjectIndex]?.themeName ?? null;
   const prevThemeRef = useRef(effectiveThemeName);
@@ -392,32 +428,31 @@ function App() {
   const appBodyStyle = hasProjects
     ? ({
         "--window-lead-inset": `${windowLeadInset(sidebarMode, sidebarWidth)}px`,
-        // Clears the WindowTrail's bell on the top-right panel's tab bar.
-        "--window-trail-inset": "36px",
         "--sidebar-mode-transition": `${SIDEBAR_MODE_TRANSITION_MS}ms`,
       } as CSSProperties)
     : undefined;
-  const hasTabs = (ws?.tabs.length ?? 0) > 0;
-  // With zero projects the overview is also the onboarding screen (ADR-194 §3).
-  const showProjectsOverview = projectsOverviewShown || !hasProjects;
+  // Home is the Dashboard and never shows tabs (ADR-197 §1): its view is
+  // always rendered, even if a stale layout were somehow keyed to it.
+  const hasTabs = !isHomePath(activeWorkspacePath) && (ws?.tabs.length ?? 0) > 0;
+  // With zero projects the onboarding screen (ADR-194 §3) replaces everything.
+  const showOnboarding = !hasProjects;
+  // The Tasks view (ADR-198) covers the active workspace, which stays active
+  // (and mounted) underneath.
+  const showTasksView = tasksViewShown && hasProjects;
 
   // Keep the prewarmed session in sync with the active workspace.
   // Derive the agent command outside the effect so it only re-fires when the
   // command actually changes, not on every unrelated project mutation.
   // By key: a local and a remote project can share a path (ADR-191).
   const activeProject = projectForWorkspaceKey(projects, activeWorkspaceKey);
-  // The launch command for the active surface. Home has no owning project and
-  // boots the configured home harness in ~/.manor/home (the pty boundary maps
-  // its sentinel path to the real dir); a project workspace uses its
-  // agentCommand. Shared by prewarming and both new-agent handlers below.
-  const homeHarness = usePreferencesStore((s) => s.preferences.homeHarness);
-  const homeCustomCommand = usePreferencesStore((s) => s.preferences.homeCustomCommand);
-  const homeCustomInterrupt = usePreferencesStore((s) => s.preferences.homeCustomInterrupt);
-  const activeWorkspaceCommand = isHomePath(activeWorkspacePath)
-    ? homeLaunchCommand({ homeHarness, homeCustomCommand, homeCustomInterrupt })
-    : activeProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
+  // The launch command for the active project workspace. Shared by prewarming
+  // and both new-agent handlers below.
+  const activeWorkspaceCommand =
+    activeProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
   useEffect(() => {
-    if (!activeWorkspacePath) return;
+    // The Dashboard hosts no panes (ADR-197 §1), so there is nothing to prewarm
+    // for; the session keeps the last project workspace's cwd.
+    if (!activeWorkspacePath || isHomePath(activeWorkspacePath)) return;
     const prewarmKind = getAgentKindForCommand(activeWorkspaceCommand);
     window.electronAPI.pty.updatePrewarmCwd(
       activeWorkspacePath,
@@ -447,9 +482,7 @@ function App() {
   // it into the active panel; PTYs re-attach and webviews re-mount by paneId.
   useEffect(
     () =>
-      window.electronAPI.window.onTabReattached((payload) => {
-        useAppStore.getState().receiveReattachedTab(payload);
-      }),
+      window.electronAPI.window.onTabReattached(receiveTabFromOtherWindow),
     [],
   );
 
@@ -457,9 +490,7 @@ function App() {
   // insertion path as a reattach — only the gesture that triggered it differs.
   useEffect(
     () =>
-      window.electronAPI.window.onTabReceived((payload) => {
-        useAppStore.getState().receiveReattachedTab(payload);
-      }),
+      window.electronAPI.window.onTabReceived(receiveTabFromOtherWindow),
     [],
   );
 
@@ -550,7 +581,10 @@ function App() {
       setSettingsPage(null);
       setSettingsOpen((v) => !v);
     },
-    togglePalette: () => setPaletteOpen((v) => !v),
+    togglePalette: () => {
+      setPaletteOrigin("shortcut");
+      setPaletteOpen((v) => !v);
+    },
     openPaletteView: handleOpenPaletteView,
     openNewWorkspace: () => setNewWorkspaceOpen(true),
     addProject: () => void handleAddProject(),
@@ -566,6 +600,12 @@ function App() {
     },
     showGhosts: triggerGhosts,
   });
+
+  // The palette runs the same map, so its entries can't drift from the menu's.
+  const runPaletteCommand = useCallback(
+    (commandId: string) => menuHandlersRef.current[commandId]?.(),
+    [],
+  );
 
   useMountEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -633,6 +673,16 @@ function App() {
       }
 
       const wsPath = agent.workspacePath;
+      // The Dashboard hosts no panes (ADR-197 §2), so a Home agent has
+      // nowhere to resume into.
+      if (isHomePath(wsPath)) {
+        useToastStore.getState().addToast({
+          id: `resume-home-agent-${agent.id}`,
+          message: "Dashboard agents can't be resumed",
+          status: "info",
+        });
+        return;
+      }
       if (wsPath && agentKey) {
         setActiveWorkspace(wsPath, parseWorkspaceKey(agentKey).hostId);
       }
@@ -709,6 +759,7 @@ function App() {
               <SidebarRail
                 onShowAgents={() => setAgentsOpen(true)}
                 onOpenProjectSettings={handleOpenProjectSettings}
+                onOpenSearch={openPalette}
               />
             )}
             {sidebarMode === "full" && (
@@ -716,6 +767,7 @@ function App() {
                 onShowAgents={() => setAgentsOpen(true)}
                 onOpenProjectSettings={handleOpenProjectSettings}
                 onAddProject={handleAddProject}
+                onOpenSearch={openPalette}
               />
             )}
           </div>
@@ -737,7 +789,7 @@ function App() {
                 <div
                   key={key}
                   style={
-                    key === activeWorkspaceKey && hasTabs && !showProjectsOverview
+                    key === activeWorkspaceKey && hasTabs && !showOnboarding && !showTasksView
                       ? TAB_VISIBLE_STYLE
                       : TAB_HIDDEN_STYLE
                   }
@@ -749,19 +801,20 @@ function App() {
                   />
                 </div>
               ))}
-              {(showProjectsOverview || !(activeWorkspacePath && hasTabs)) && (
+              {(showOnboarding || showTasksView || !(activeWorkspacePath && hasTabs)) && (
                 <div className="empty-surface">
                   <div className="drag-region" />
                   <div className="terminal-container">
                     {wizardStillValid && wizardProjectId
                       ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
-                      : showProjectsOverview
-                      ? <ProjectsOverview onAddLocal={handleAddLocalProject} onClone={handleCloneRepository} />
+                      : showOnboarding
+                      ? <Onboarding onAddLocal={handleAddLocalProject} onClone={handleCloneRepository} />
+                      : showTasksView
+                      ? <TasksView onNewWorkspace={handleNewWorkspace} onOpenPaletteView={handleOpenPaletteView} />
                       : !hasTabs &&
                         (isHomePath(activeWorkspacePath)
                           ? (
                               <HomeEmptyState
-                                onNewAgent={handleNewAgent}
                                 onNewWorkspace={handleNewWorkspace}
                                 onOpenPaletteView={handleOpenPaletteView}
                               />
@@ -786,11 +839,11 @@ function App() {
             top-left tab bar (rail and hidden modes) its buttons must come
             after the bar's drag region or clicks on them never arrive. */}
         {hasProjects && <WindowLead />}
-        {hasProjects && <WindowTrail />}
       </div>
       <Suspense fallback={null}>
         <CommandPalette
           open={paletteOpen}
+          origin={paletteOrigin}
           onClose={closePalette}
           onOpenSettings={handleOpenSettings}
           onOpenFeedback={handleOpenFeedback}
@@ -802,6 +855,7 @@ function App() {
           onViewAllAgents={() => setAgentsOpen(true)}
           onNewAgent={handleNewAgent}
           onNewAgentWithPrompt={handleNewAgentWithPrompt}
+          runCommand={runPaletteCommand}
         />
         <SettingsModal
           open={settingsOpen}

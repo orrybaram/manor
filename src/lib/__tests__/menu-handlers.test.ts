@@ -1,4 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+// The keybindings store reads `navigator`/`window` at module load; this suite
+// runs in the node environment, so stub them before the imports evaluate.
+vi.hoisted(() => {
+  const g = globalThis as Record<string, unknown>;
+  if (typeof g.navigator === "undefined") g.navigator = { platform: "Linux" };
+  if (typeof g.window === "undefined") g.window = g;
+});
 import {
   createMenuHandlers,
   dispatchMenuCommand,
@@ -229,6 +237,23 @@ describe("workspace stepping", () => {
     createMenuHandlers(makeChrome())["prev-workspace"]();
     expect(selectWorkspace).toHaveBeenCalledWith("a", 1);
     expect(useAppStore.getState().activeWorkspacePath).toBe("/repo/a/two");
+  });
+
+  it("file and edit path commands are no-ops on the Dashboard", () => {
+    const showItemInFolder = vi.fn();
+    const writeText = vi.fn();
+    vi.stubGlobal("window", {
+      ...window,
+      electronAPI: { shell: { showItemInFolder } },
+    });
+    vi.stubGlobal("navigator", { platform: "MacIntel", clipboard: { writeText } });
+    useAppStore.setState({ activeWorkspacePath: HOME_PATH });
+    const handlers = createMenuHandlers(makeChrome());
+    handlers["reveal-in-finder"]();
+    handlers["copy-workspace-path"]();
+    handlers["open-in-editor"]();
+    expect(showItemInFolder).not.toHaveBeenCalled();
+    expect(writeText).not.toHaveBeenCalled();
   });
 
   it("switch-workspace selects the project that owns the path", () => {

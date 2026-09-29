@@ -88,6 +88,8 @@ describe("issue-sources", () => {
         state: "open",
         labels: [{ name: "bug", color: "red" }],
         assignees: [{ login: "orrybaram" }],
+        updatedAt: "2026-01-01T00:00:00Z",
+        author: { login: "orrybaram" },
       };
 
       expect(normalizeGitHubIssue(issue)).toEqual({
@@ -140,6 +142,7 @@ describe("issue-sources", () => {
         title: "Ship feature",
         url: "https://linear.app/o/issue/ENG-123",
         branchName: "eng-123-ship-feature",
+        updatedAt: "2026-01-01T00:00:00Z",
         priority: 2,
         state: { name: "In Progress", type: "started" },
         labels: [{ name: "feature", color: "blue" }],
@@ -162,6 +165,7 @@ describe("issue-sources", () => {
         title: "No labels",
         url: "https://linear.app/o/issue/ENG-999",
         branchName: "eng-999",
+        updatedAt: "2026-01-01T00:00:00Z",
         priority: 0,
         state: { name: "Backlog", type: "backlog" },
       } as unknown as LinearIssue;
@@ -181,6 +185,8 @@ describe("issue-sources", () => {
         state: "open",
         labels: [{ name: "bug", color: "red" }],
         assignees: [{ login: "orrybaram" }, { login: "octocat" }],
+        updatedAt: "2026-01-01T00:00:00Z",
+        author: { login: "orrybaram" },
         body: "Here's the repro steps.",
         milestone: null,
       };
@@ -223,6 +229,7 @@ describe("issue-sources", () => {
         title: "Ship feature",
         url: "https://linear.app/o/issue/ENG-123",
         branchName: "eng-123-ship-feature",
+        updatedAt: "2026-01-01T00:00:00Z",
         priority: 2,
         state: { name: "In Progress", type: "started" },
         labels: [{ id: "l1", name: "feature", color: "blue" }],
@@ -254,6 +261,7 @@ describe("issue-sources", () => {
         title: "Unassigned",
         url: "https://linear.app/o/issue/ENG-999",
         branchName: "eng-999",
+        updatedAt: "2026-01-01T00:00:00Z",
         priority: 0,
         state: { name: "Backlog", type: "backlog" },
         labels: [],
@@ -271,6 +279,7 @@ describe("issue-sources", () => {
         title: "No labels",
         url: "https://linear.app/o/issue/ENG-1",
         branchName: "eng-1",
+        updatedAt: "2026-01-01T00:00:00Z",
         priority: 0,
         state: { name: "Backlog", type: "backlog" },
         description: null,

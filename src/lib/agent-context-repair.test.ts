@@ -57,8 +57,8 @@ describe("orphanedAgentContexts", () => {
     expect(orphanedAgentContexts([agent({})], { "/w/elsewhere": layout("pane-1") }, [tango]).size).toBe(0);
   });
 
-  it("files a Home pane's Agent under Home", () => {
+  it("skips a Home pane's Agent (Home has no owning project)", () => {
     const contexts = orphanedAgentContexts([agent({})], { [HOME_PATH]: layout("pane-1") }, [tango]);
-    expect(contexts.get("pane-1")).toMatchObject({ projectName: "Home", workspacePath: HOME_PATH });
+    expect(contexts.size).toBe(0);
   });
 });

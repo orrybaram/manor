@@ -293,6 +293,39 @@ describe("LayoutPersistence", () => {
       // The most recently saved workspace is the last-active surface.
       expect(persistence.load()!.lastActiveWorkspacePath).toBe("__home__");
     });
+
+    it("never stores a Home entry, only records Home as last-active (ADR-197)", () => {
+      persistence.saveWorkspace(
+        makeV2Workspace("/project/main", [makeLeafTab("p1", "ds1")], "x"),
+      );
+      persistence.saveWorkspace(
+        makeV2Workspace("__home__", [makeLeafTab("p2", "ds2")], "y"),
+      );
+
+      const loaded = persistence.load()!;
+      expect(loaded.workspaces.map((w) => w.workspacePath)).toEqual(["/project/main"]);
+      expect(loaded.lastActiveWorkspacePath).toBe("__home__");
+    });
+
+    it("purges a legacy Home entry on the next save (ADR-197)", () => {
+      persistence.save({
+        version: 3,
+        workspaces: [
+          makeV2Workspace("__home__", [makeLeafTab("p2", "ds2")], "y"),
+        ],
+        lastActiveWorkspacePath: "__home__",
+      });
+      // Load still returns it, so the renderer can end its panes' sessions.
+      expect(persistence.load()!.workspaces).toHaveLength(1);
+
+      persistence.saveWorkspace(
+        makeV2Workspace("/project/main", [makeLeafTab("p1", "ds1")], "x"),
+      );
+
+      const loaded = persistence.load()!;
+      expect(loaded.workspaces.map((w) => w.workspacePath)).toEqual(["/project/main"]);
+      expect(loaded.lastActiveWorkspacePath).toBe("/project/main");
+    });
   });
 
   describe("removeWorkspace", () => {
@@ -511,6 +544,18 @@ describe("LayoutPersistence", () => {
       expect(ids.has("ds1")).toBe(true);
       expect(ids.has("ds2")).toBe(true);
       expect(ids.size).toBe(2);
+    });
+
+    it("ignores a legacy Home entry, whose sessions are being ended (ADR-197)", () => {
+      persistence.save({
+        version: 3,
+        workspaces: [
+          makeV2Workspace("/project/main", [makeLeafTab("p1", "ds1")], "x"),
+          makeV2Workspace("__home__", [makeLeafTab("p2", "ds2")], "y"),
+        ],
+      });
+      const ids = persistence.getActiveSessionIds();
+      expect([...ids]).toEqual(["ds1"]);
     });
 
     it("collects session IDs from split panes", () => {

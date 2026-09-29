@@ -5,6 +5,13 @@ import Plus from "lucide-react/dist/esm/icons/plus";
 import type { ProjectInfo } from "../../store/project-store";
 import type { CommandItem } from "./types";
 
+/** One project's workspace rows, tagged with its id so scope can filter it. */
+interface WorkspaceGroup {
+  projectId: string;
+  heading: string;
+  items: CommandItem[];
+}
+
 interface UseWorkspaceCommandsParams {
   projects: ProjectInfo[];
   activeWorkspacePath: string | null;
@@ -24,11 +31,13 @@ export function useWorkspaceCommands({
   onClose,
   onNewWorkspace,
 }: UseWorkspaceCommandsParams): {
-  workspaceGroups: Map<string, CommandItem[]>;
+  workspaceGroups: WorkspaceGroup[];
 } {
-  const workspaceCommands: CommandItem[] = useMemo(() => {
-    const cmds: CommandItem[] = [];
+  // One group per project, keyed by id rather than name: names can collide.
+  const workspaceGroups = useMemo(() => {
+    const groups: WorkspaceGroup[] = [];
     for (const project of projects) {
+      const cmds: CommandItem[] = [];
       for (let wi = 0; wi < project.workspaces.length; wi++) {
         const workspace = project.workspaces[wi];
         const isActive = workspace.path === activeWorkspacePath;
@@ -61,8 +70,12 @@ export function useWorkspaceCommands({
           onClose();
         },
       });
+      groups.push({ projectId: project.id, heading: project.name, items: cmds });
     }
-    return cmds;
+    // The group holding the active workspace leads; the rest keep their order.
+    const isActiveGroup = (g: WorkspaceGroup) =>
+      g.items.some((c) => c.isActive) ? 0 : 1;
+    return groups.sort((a, b) => isActiveGroup(a) - isActiveGroup(b));
   }, [
     projects,
     activeWorkspacePath,
@@ -70,21 +83,6 @@ export function useWorkspaceCommands({
     onClose,
     onNewWorkspace,
   ]);
-
-  const workspaceGroups = useMemo(() => {
-    const groups = new Map<string, CommandItem[]>();
-    for (const cmd of workspaceCommands) {
-      const group = cmd.group || "Workspaces";
-      if (!groups.has(group)) groups.set(group, []);
-      groups.get(group)!.push(cmd);
-    }
-    const sorted = [...groups.entries()].sort(([, a], [, b]) => {
-      const aActive = a.some((c) => c.isActive) ? 0 : 1;
-      const bActive = b.some((c) => c.isActive) ? 0 : 1;
-      return aActive - bActive;
-    });
-    return new Map(sorted);
-  }, [workspaceCommands]);
 
   return { workspaceGroups };
 }

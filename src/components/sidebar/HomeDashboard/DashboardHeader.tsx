@@ -8,18 +8,16 @@ type DashboardHeaderProps = {
   headline: { lead: string; rest: string };
   /** Whether anything needs the user — the lead turns red only then. */
   urgent: boolean;
-  onNewAgent: () => void;
-  onOpenTerminal: () => void;
   onOpenPalette: () => void;
 };
 
 /**
  * The dashboard header (ADR-198 §1.1): date eyebrow, the headline sentence,
- * and the New agent / Open terminal / Command palette buttons that replace
- * ADR-194's launcher rows.
+ * and the Command palette button. The Dashboard never holds tabs (ADR-197),
+ * so it has no New agent / Open terminal launchers.
  */
 export function DashboardHeader(props: DashboardHeaderProps) {
-  const { now, headline, urgent, onNewAgent, onOpenTerminal, onOpenPalette } = props;
+  const { now, headline, urgent, onOpenPalette } = props;
 
   return (
     <header className={styles.header}>
@@ -33,12 +31,6 @@ export function DashboardHeader(props: DashboardHeaderProps) {
       <div className={styles.actions}>
         <Button variant="secondary" className={styles.button} onClick={onOpenPalette}>
           Command palette <kbd className={styles.kbd}>⌘K</kbd>
-        </Button>
-        <Button variant="secondary" className={styles.button} onClick={onOpenTerminal}>
-          Open terminal <kbd className={styles.kbd}>⌘T</kbd>
-        </Button>
-        <Button variant="primary" className={styles.button} onClick={onNewAgent}>
-          New agent <kbd className={styles.kbd}>⌘N</kbd>
         </Button>
       </div>
     </header>

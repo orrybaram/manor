@@ -32,12 +32,6 @@ export interface AppPreferences {
    * Used to surface a one-time notice; never reset automatically.
    */
   agentPruneNoticeShown: boolean;
-  /** Agent-agnostic harness Home auto-launches. */
-  homeHarness: "claude" | "codex" | "custom";
-  /** Launch command used when `homeHarness === "custom"`. */
-  homeCustomCommand: string;
-  /** Interrupt sequence used when `homeHarness === "custom"`. */
-  homeCustomInterrupt: string;
   /** ADR-168's usage-stats collection kill switch. `record`/`recordMax` are no-ops when false. */
   statsEnabled: boolean;
 }
@@ -57,9 +51,6 @@ const DEFAULTS: AppPreferences = {
   editorIsTerminal: false,
   agentRetentionDays: 90,
   agentPruneNoticeShown: false,
-  homeHarness: "claude",
-  homeCustomCommand: "",
-  homeCustomInterrupt: "",
   statsEnabled: true,
 };
 
@@ -123,6 +114,10 @@ export class PreferencesManager {
       }
       delete legacy.taskRetentionDays;
       delete legacy.taskPruneNoticeShown;
+      // Removed with the Home harness (ADR-197); drop so they are not written back.
+      delete legacy.homeHarness;
+      delete legacy.homeCustomCommand;
+      delete legacy.homeCustomInterrupt;
       return { ...DEFAULTS, ...parsed };
     } catch {
       return { ...DEFAULTS };

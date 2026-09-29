@@ -6,7 +6,7 @@ import { useToastStore } from "../store/toast-store";
 import { getBrowserPaneRef } from "./browser-pane-registry";
 import type { BrowserPaneRef } from "../components/workspace-panes/BrowserPane/BrowserPane";
 import { DEFAULT_AGENT_COMMAND } from "../agent-defaults";
-import { isHomePath, homeLaunchCommand } from "./home";
+import { isHomePath } from "./home";
 import {
   PAGE_BROWSER_COMMANDS,
   comboFromEvent,
@@ -67,18 +67,9 @@ function isBrowserPaneDomFocused(): boolean {
 }
 
 /**
- * The agent launch command for a surface. Home has no owning project and boots
- * the configured home harness; a project workspace uses its `agentCommand`.
+ * The agent launch command for a workspace: its project's `agentCommand`.
  */
 export function resolveWorkspaceCommand(workspacePath: string | null): string {
-  const { preferences } = usePreferencesStore.getState();
-  if (isHomePath(workspacePath)) {
-    return homeLaunchCommand({
-      homeHarness: preferences.homeHarness,
-      homeCustomCommand: preferences.homeCustomCommand,
-      homeCustomInterrupt: preferences.homeCustomInterrupt,
-    });
-  }
   const project = useProjectStore
     .getState()
     .projects.find((p) => p.workspaces.some((w) => w.path === workspacePath));
@@ -96,7 +87,8 @@ export function resolveWorkspaceCommand(workspacePath: string | null): string {
 export async function startNewAgent(
   { prewarm }: { prewarm: boolean } = { prewarm: false },
 ): Promise<void> {
-  const { activeWorkspacePath, activeWorkspaceHostId: hostId } = useAppStore.getState();
+  const { activeWorkspacePath, activeWorkspaceHostId: hostId } =
+    useAppStore.getState();
   const command = resolveWorkspaceCommand(activeWorkspacePath);
   const prewarmed = prewarm
     ? await window.electronAPI.pty.consumePrewarmed(activeWorkspacePath, hostId)
@@ -111,29 +103,44 @@ export async function startNewAgent(
 
 /**
  * Close shortcuts act on the active workspace's layout, which stays mounted but
- * hidden behind the Projects overview (ADR-194). Ignore them there, so ⌘W
- * can't close a tab the user can't see.
+ * hidden behind the Tasks view (ADR-198).
+ * Ignore them there, so ⌘W can't close a tab the user can't see.
  */
 export function unlessOverviewShown(fn: () => void): () => void {
   return () => {
-    if (useAppStore.getState().activeSurface === "projects") return;
+    if (useAppStore.getState().activeSurface !== "workspace") return;
+    fn();
+  };
+}
+
+/**
+ * The Dashboard (Home) has no tabs, panes, or panels (ADR-197). The store
+ * already no-ops creation there; this keeps the shortcut from doing anything.
+ */
+export function unlessHome(fn: () => void): () => void {
+  return () => {
+    if (isHomePath(useAppStore.getState().activeWorkspacePath)) return;
     fn();
   };
 }
 
 /** Build the window-agnostic half of the command→action map. */
 export function createSharedKeybindingHandlers(
-  { prewarmNewAgent }: { prewarmNewAgent: boolean } = { prewarmNewAgent: false },
+  { prewarmNewAgent }: { prewarmNewAgent: boolean } = {
+    prewarmNewAgent: false,
+  },
 ): Record<string, () => void> {
   const store = () => useAppStore.getState();
   return {
-    "new-tab": () => store().addTab(),
-    "new-agent": () => void startNewAgent({ prewarm: prewarmNewAgent }),
-    "new-browser": () => store().addBrowserTab("about:blank"),
-    "split-h": () => store().splitPane("horizontal"),
-    "split-v": () => store().splitPane("vertical"),
+    "new-tab": unlessHome(() => store().addTab()),
+    "new-agent": unlessHome(
+      () => void startNewAgent({ prewarm: prewarmNewAgent }),
+    ),
+    "new-browser": unlessHome(() => store().addBrowserTab("about:blank")),
+    "split-h": unlessHome(() => store().splitPane("horizontal")),
+    "split-v": unlessHome(() => store().splitPane("vertical")),
     "close-pane": unlessOverviewShown(() => store().requestClosePane()),
-    "reopen-pane": () => store().reopenClosedPane(),
+    "reopen-pane": unlessHome(() => store().reopenClosedPane()),
     "close-tab": unlessOverviewShown(() => {
       const state = store();
       const layout = selectActiveLayout(state);
@@ -159,8 +166,8 @@ export function createSharedKeybindingHandlers(
         });
       }
     },
-    "split-panel-right": () => store().splitPanel("horizontal"),
-    "split-panel-down": () => store().splitPanel("vertical"),
+    "split-panel-right": unlessHome(() => store().splitPanel("horizontal")),
+    "split-panel-down": unlessHome(() => store().splitPanel("vertical")),
     "focus-next-panel": () => store().focusNextPanel(),
     "focus-prev-panel": () => store().focusPrevPanel(),
     "close-panel": unlessOverviewShown(() => {
@@ -213,11 +220,12 @@ export function createSharedKeybindingHandlers(
     "focus-next-region": () => void cycleRegion(1),
     "focus-prev-region": () => void cycleRegion(-1),
     "focus-tabbar": () => void focusRegion("tabbar"),
-    "open-diff": () => {
-      const { diffOpensInNewPanel } = usePreferencesStore.getState().preferences;
+    "open-diff": unlessHome(() => {
+      const { diffOpensInNewPanel } =
+        usePreferencesStore.getState().preferences;
       if (diffOpensInNewPanel) store().openDiffInNewPanel();
       else store().openOrFocusDiff();
-    },
+    }),
     ...Object.fromEntries(
       Array.from({ length: 9 }, (_, i) => [
         `select-tab-${i + 1}`,

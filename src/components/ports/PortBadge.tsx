@@ -4,6 +4,7 @@ import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import { Link } from "../ui/Link/Link";
 import { isRemoteHost, resolveUrlForHost } from "../../lib/hosts";
 import { useAppStore } from "../../store/app-store";
+import { isHomePath } from "../../lib/home-path";
 import {
   isContextMenuKey,
   openContextMenuFromKeyboard,
@@ -18,6 +19,8 @@ export function PortBadge(props: PortBadgeProps) {
   const { port } = props;
 
   const addBrowserTab = useAppStore((s) => s.addBrowserTab);
+  // The Dashboard has no tabs to open a browser in (ADR-197).
+  const canOpenInTab = useAppStore((s) => !isHomePath(s.activeWorkspacePath));
 
   const url = port.hostname
     ? `http://${port.hostname}`
@@ -41,6 +44,13 @@ export function PortBadge(props: PortBadgeProps) {
   const handleOpenInTab = useCallback(() => {
     withResolvedUrl((target) => addBrowserTab(target));
   }, [withResolvedUrl, addBrowserTab]);
+
+  const handleOpenExternalDirect = useCallback(() => {
+    withResolvedUrl((target) => window.electronAPI.shell.openExternal(target));
+  }, [withResolvedUrl]);
+
+  /** Primary activation: a tab when there is one, else the default browser. */
+  const handlePrimary = canOpenInTab ? handleOpenInTab : handleOpenExternalDirect;
 
   const handleOpenExternal = useCallback(
     (e: { stopPropagation: () => void }) => {
@@ -82,7 +92,7 @@ export function PortBadge(props: PortBadgeProps) {
           role="button"
           tabIndex={0}
           aria-label={titleText}
-          onClick={handleOpenInTab}
+          onClick={handlePrimary}
           onKeyDown={(e) => {
             if (isContextMenuKey(e)) {
               e.preventDefault();
@@ -93,7 +103,7 @@ export function PortBadge(props: PortBadgeProps) {
             }
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
-              handleOpenInTab();
+              handlePrimary();
             }
           }}
           style={{ cursor: "pointer" }}
@@ -128,12 +138,14 @@ export function PortBadge(props: PortBadgeProps) {
             menuOpenedByKeyboard.current = false;
           }}
         >
-          <ContextMenu.Item
-            className={styles.contextMenuItem}
-            onSelect={handleOpenInTab}
-          >
-            Open in Browser Tab
-          </ContextMenu.Item>
+          {canOpenInTab && (
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              onSelect={handleOpenInTab}
+            >
+              Open in Browser Tab
+            </ContextMenu.Item>
+          )}
           <ContextMenu.Item
             className={styles.contextMenuItem}
             onSelect={handleOpenExternal}

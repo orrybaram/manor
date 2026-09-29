@@ -1,0 +1,500 @@
+/*
+ * The Tasks view (ADR-198 §3): a full-width page inside the empty-surface
+ * panel — header (tracker tabs, project select), filter row, a CSS-grid
+ * table and a pagination footer.
+ */
+/* Same centred column as the Home dashboard (HomeDashboard.module.css `.page`):
+   1180px including its 16px gutters. */
+.page {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow-y: auto;
+  padding: 8px 0 24px;
+  color: var(--text-primary);
+}
+
+.content {
+  width: 1180px;
+  max-width: 100%;
+  padding-inline: 16px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 24px;
+  /* Auto margins (not justify-content) so a short window still scrolls to the top. */
+  margin-block: auto;
+}
+
+/* ── Header ── */
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 0 6px;
+}
+
+.heading {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-selected);
+}
+
+.headerMeta {
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.headerControls {
+  margin-left: auto;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.providers {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.providerTab {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.providerTabActive,
+.providerTabActive:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--text-selected);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+}
+
+.projectDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--project-color, var(--text-dim));
+}
+
+.openLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.openLink:hover {
+  color: var(--text-selected);
+}
+
+/* ── Filter row ── */
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.filterToggle {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.searchBox {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+.searchInput {
+  width: 100%;
+  padding-left: 30px;
+}
+
+.iconButton {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+/* ── Table ── */
+
+/* Everything but the table keeps its height; the table takes what's left
+   and scrolls its rows under a sticky header, so pagination stays in view. */
+.content > * {
+  flex-shrink: 0;
+}
+
+.content > .table {
+  flex: 0 1 auto;
+  min-height: 160px;
+}
+
+.table {
+  display: flex;
+  flex-direction: column;
+  /* A filled tile like a project card, not an outlined box. */
+  background: var(--hover);
+  border-radius: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.table > * {
+  flex-shrink: 0;
+}
+
+.gridRow {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr) 112px 128px 120px 92px;
+  align-items: center;
+  column-gap: 16px;
+  padding: 0 16px;
+}
+
+.headRow {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--hover);
+  height: 36px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+
+.bodyRow {
+  height: 64px;
+  border-bottom: 1px solid var(--border);
+  transition: background-color 120ms ease;
+}
+
+.bodyRow:last-child {
+  border-bottom: none;
+}
+
+.bodyRow:hover {
+  background: color-mix(in srgb, var(--surface) 55%, var(--hover));
+}
+
+.idChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.idChip:hover {
+  color: var(--text-selected);
+  border-color: var(--text-dim);
+}
+
+.titleCell {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.taskTitle {
+  display: block;
+  max-width: 100%;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-selected);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taskTitle:hover {
+  text-decoration: underline;
+}
+
+.context {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.projectName {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.projectName::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--project-color, var(--text-dim));
+}
+
+.author {
+  flex-shrink: 0;
+}
+
+.workspaceName {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.label {
+  --label-color: var(--text-dim);
+  flex-shrink: 0;
+  padding: 0 6px;
+  line-height: 16px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  color: color-mix(in srgb, var(--label-color) 65%, var(--text-selected));
+  background: color-mix(in srgb, var(--label-color) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--label-color) 40%, transparent);
+}
+
+.avatars {
+  display: flex;
+  align-items: center;
+}
+
+.avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-selected);
+  background: var(--surface);
+  border: 2px solid var(--bg);
+}
+
+.avatar + .avatar {
+  margin-left: -6px;
+}
+
+.avatarMore {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+  background: var(--surface);
+}
+
+.tone-open,
+.tone-started {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 16%, transparent);
+}
+
+.tone-todo {
+  color: var(--text-primary);
+  background: var(--surface);
+}
+
+.tone-backlog,
+.tone-canceled {
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+}
+
+.tone-closed {
+  color: var(--magenta);
+  background: color-mix(in srgb, var(--magenta) 16%, transparent);
+}
+
+.updated {
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.actionCell {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.startButton {
+  gap: 4px;
+  border-color: var(--border);
+}
+
+.dim {
+  color: var(--text-dim);
+}
+
+.empty {
+  padding: 40px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+/* ── Skeleton ── */
+
+.bone {
+  display: block;
+  background: var(--surface);
+  border-radius: 4px;
+  animation: bonePulse 1.5s ease-in-out infinite;
+}
+
+.boneId {
+  width: 64px;
+  height: 18px;
+  border-radius: 999px;
+}
+
+.boneTitle {
+  height: 13px;
+}
+
+.boneContext {
+  width: 30%;
+  height: 10px;
+}
+
+.boneAvatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+}
+
+.boneStatus {
+  width: 52px;
+  height: 18px;
+  border-radius: 999px;
+}
+
+.boneUpdated {
+  width: 72px;
+  height: 11px;
+}
+
+@keyframes bonePulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ── Footer ── */
+
+.footer {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+}
+
+.failed {
+  position: absolute;
+  left: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pageButton {
+  min-width: 28px;
+}
+
+.pageButtonActive,
+.pageButtonActive:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--text-selected);
+}
+
+.pageGap {
+  padding: 0 4px;
+  color: var(--text-dim);
+}
+
+/* ── Nothing connected ── */
+
+.setup {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 520px;
+}
+
+.setupText {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.setupHint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}

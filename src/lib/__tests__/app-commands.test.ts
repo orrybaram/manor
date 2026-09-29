@@ -3,7 +3,6 @@ import { appCommandHandlers } from "../app-commands";
 import { selectActiveLayout, useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import type { ProjectInfo } from "../../store/project-store";
-import { usePreferencesStore } from "../../store/preferences-store";
 import { HOME_PATH } from "../home-path";
 import { DEFAULT_AGENT_COMMAND } from "../../agent-defaults";
 import type { WorkspaceLayout, Tab, Panel } from "../../store/app-store";
@@ -1005,14 +1004,22 @@ describe("start-agent", () => {
     });
   }
 
-  const start = (args: Record<string, unknown>) =>
-    run("start-agent", args) as Promise<{
+  let startedPaneId: string | null = null;
+  const start = async (args: Record<string, unknown>) => {
+    const result = (await run("start-agent", args)) as {
       tabId: string;
       paneId: string;
       workspacePath: string;
-    }>;
+    };
+    startedPaneId = result.paneId;
+    return result;
+  };
 
-  const pending = () => useAppStore.getState().pendingStartupCommands;
+  /** The command queued on the pane `start` just opened. */
+  const seeded = () =>
+    startedPaneId
+      ? useAppStore.getState().pendingPaneCommands[startedPaneId]?.text
+      : undefined;
 
   it("seeds the prompt on the requested workspace, not the active one", async () => {
     setupTwoWorkspaces();
@@ -1021,9 +1028,21 @@ describe("start-agent", () => {
 
     // The regression: the pending command used to land on OTHER_WS_PATH,
     // while the tab opened in WS_PATH.
-    expect(pending()[WS_PATH]).toBe(`${WS_AGENT_CMD} "fix the bug"`);
-    expect(pending()[OTHER_WS_PATH]).toBeUndefined();
+    expect(seeded()).toBe(`${WS_AGENT_CMD} "fix the bug"`);
+    expect(useAppStore.getState().pendingStartupCommands).toEqual({});
     expect(useAppStore.getState().activeWorkspacePath).toBe(WS_PATH);
+  });
+
+  it("queues the command on the new tab's pane, not on the workspace", async () => {
+    setupTwoWorkspaces();
+
+    await start({ workspacePath: WS_PATH, prompt: "go" });
+
+    // A workspace-keyed startup command is taken by whichever of the
+    // workspace's panes connects first — after the workspace switch that is
+    // an existing pane (maybe a running agent) reattaching, not the new tab.
+    expect(useAppStore.getState().pendingStartupCommands).toEqual({});
+    expect(Object.keys(useAppStore.getState().pendingPaneCommands)).toEqual([startedPaneId]);
   });
 
   it("resolves the command from the requested workspace's project", async () => {
@@ -1031,8 +1050,8 @@ describe("start-agent", () => {
 
     await start({ workspacePath: WS_PATH, prompt: "go" });
 
-    expect(pending()[WS_PATH]).toContain(WS_AGENT_CMD);
-    expect(pending()[WS_PATH]).not.toContain(OTHER_AGENT_CMD);
+    expect(seeded()).toContain(WS_AGENT_CMD);
+    expect(seeded()).not.toContain(OTHER_AGENT_CMD);
   });
 
   it("falls back to the default command for a project without one", async () => {
@@ -1050,7 +1069,7 @@ describe("start-agent", () => {
 
     await start({ workspacePath: WS_PATH, prompt: "go" });
 
-    expect(pending()[WS_PATH]).toBe(`${DEFAULT_AGENT_COMMAND} "go"`);
+    expect(seeded()).toBe(`${DEFAULT_AGENT_COMMAND} "go"`);
   });
 
   it("prefers an explicit agentCommand over the project's", async () => {
@@ -1062,23 +1081,18 @@ describe("start-agent", () => {
       agentCommand: "my-agent --flag",
     });
 
-    expect(pending()[WS_PATH]).toBe('my-agent --flag "go"');
+    expect(seeded()).toBe('my-agent --flag "go"');
   });
 
-  it("uses the configured home harness for the home surface", async () => {
+  it("opens no tab on the home surface (ADR-197: the Dashboard holds no tabs)", async () => {
     setupTwoWorkspaces();
-    usePreferencesStore.setState((s) => ({
-      preferences: {
-        ...s.preferences,
-        homeHarness: "custom",
-        homeCustomCommand: "my-harness --go",
-        homeCustomInterrupt: "",
-      },
-    }));
 
-    await start({ workspacePath: HOME_PATH, prompt: "go" });
+    await expect(start({ workspacePath: HOME_PATH, prompt: "go" })).rejects.toThrow(
+      "The Dashboard can't host panes",
+    );
 
-    expect(pending()[HOME_PATH]).toBe('my-harness --go "go"');
+    expect(useAppStore.getState().workspaceLayouts[HOME_PATH]).toBeUndefined();
+    expect(useAppStore.getState().pendingPaneCommands).toEqual({});
   });
 
   it("escapes shell metacharacters in the prompt", async () => {
@@ -1086,7 +1100,7 @@ describe("start-agent", () => {
 
     await start({ workspacePath: WS_PATH, prompt: 'say "hi" $NOW' });
 
-    expect(pending()[WS_PATH]).toBe(`${WS_AGENT_CMD} "say \\"hi\\" \\$NOW"`);
+    expect(seeded()).toBe(`${WS_AGENT_CMD} "say \\"hi\\" \\$NOW"`);
   });
 
   it("flattens a multi-line prompt to a single line before seeding it", async () => {
@@ -1101,9 +1115,8 @@ describe("start-agent", () => {
       prompt: "Work on GitHub issue #1: title\n\nbody",
     });
 
-    const seeded = pending()[WS_PATH];
-    expect(seeded).not.toContain("\n");
-    expect(seeded).toBe(
+    expect(seeded()).not.toContain("\n");
+    expect(seeded()).toBe(
       `${WS_AGENT_CMD} "Work on GitHub issue #1: title body"`,
     );
   });
@@ -1123,7 +1136,7 @@ describe("start-agent", () => {
 
     // A pane with no pending command boots a plain shell, so the base agent
     // command still has to be seeded — only the prompt argument is absent.
-    expect(pending()[WS_PATH]).toBe(WS_AGENT_CMD);
+    expect(seeded()).toBe(WS_AGENT_CMD);
   });
 
   it("returns the created tab and pane", async () => {
@@ -1161,7 +1174,9 @@ describe("start-agent", () => {
     const loadProjects = vi.fn(async () => {});
     useProjectStore.setState({ loadProjects });
 
-    await start({ workspacePath: HOME_PATH, prompt: "go" });
+    await expect(start({ workspacePath: HOME_PATH, prompt: "go" })).rejects.toThrow(
+      "The Dashboard can't host panes",
+    );
 
     expect(loadProjects).not.toHaveBeenCalled();
   });
@@ -1222,5 +1237,23 @@ describe("dispatch table", () => {
 
   it("does not expose the fire-and-forget legacy command", () => {
     expect(appCommandHandlers["run-setup-script"]).toBeUndefined();
+  });
+});
+
+describe("Dashboard (Home) rejects pane-hosting commands", () => {
+  it.each([
+    ["new-tab", { contentType: "terminal" }],
+    ["split-pane", { direction: "right" }],
+    ["duplicate-tab", { tabId: "t1" }],
+    ["open-diff", {}],
+  ])("%s errors when Home is active", (cmd, args) => {
+    useAppStore.setState({ activeWorkspacePath: HOME_PATH });
+    expect(() => run(cmd, args)).toThrow("The Dashboard can't host panes");
+  });
+
+  it("new-tab errors for an explicit Home workspacePath", () => {
+    expect(() =>
+      run("new-tab", { contentType: "terminal", workspacePath: HOME_PATH }),
+    ).toThrow("The Dashboard can't host panes");
   });
 });

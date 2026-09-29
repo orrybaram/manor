@@ -1053,18 +1053,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       useAppStore.getState().updateWorktreeSetupStep(wsPath, "switch", "done");
 
       if (startScript) {
-        // Preserve existing conditional: only re-mark pending when an agent
-        // command is also present (legacy chaining hook). The setup-script
-        // step was already initialised as "pending" by initWorktreeSetup.
-        if (agentCommand) {
-          useAppStore
-            .getState()
-            .updateWorktreeSetupStep(wsPath, "setup-script", "pending");
-        }
         // Kick off the setup script at store scope so its PTY outlives the
         // WorkspaceSetupView — the view renders an `attach`-mode MiniTerminal
         // to observe the same session without owning its lifecycle.
         startSetupScript(wsPath, startScript, project?.hostId);
+        if (agentCommand) {
+          // The agent doesn't wait for the script: both run in parallel. Its
+          // tab replaces the setup view, so progress moves to the background
+          // toast that `startSetupScript`'s exit handler removes.
+          useAppStore.getState().setPendingStartupCommand(wsPath, agentCommand);
+          useAppStore.getState().addTab();
+          useToastStore.getState().addToast({
+            id: `worktree-setup-${wsPath}`,
+            message: `Setting up "${name}"…`,
+            status: "loading",
+            persistent: true,
+          });
+        }
       } else if (agentCommand) {
         // No start script — use the existing pending startup command + addTab pattern
         useAppStore.getState().setPendingStartupCommand(wsPath, agentCommand);

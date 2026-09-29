@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ListTodo from "lucide-react/dist/esm/icons/list-todo";
+import { useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { ghRepoOf } from "../../lib/gh-repo";
 import { useMountEffect } from "../../hooks/useMountEffect";
@@ -112,12 +113,9 @@ export function useIssuesShortcut(
     onOpenPaletteView && probeKey
       ? {
           icon: <ListTodo size={16} />,
-          label: "Your Issues",
+          label: "Your Tasks",
           keys: [],
-          action: () =>
-            onOpenPaletteView(
-              tracker === "linear" ? "linear-all" : "github-all",
-            ),
+          action: () => useAppStore.getState().showTasksView(),
           hidden: issuesForKey !== probeKey,
         }
       : null;

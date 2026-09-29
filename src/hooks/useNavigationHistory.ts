@@ -47,10 +47,8 @@ function isLocationValid(state: AppState, loc: Location): boolean {
 /** Reconstruct a location by dispatching existing app-store actions. */
 function applyLocation(loc: Location): void {
   const store = useAppStore.getState();
-  if (loc.kind === "surface" && loc.surface === "projects") {
-    // The Projects overview (ADR-194) sits over whatever workspace is active,
-    // so showing it doesn't touch the workspace selection.
-    store.showProjectsOverview();
+  if (loc.kind === "surface" && loc.surface === "tasks") {
+    store.showTasksView();
     return;
   }
   if (loc.kind === "surface") {

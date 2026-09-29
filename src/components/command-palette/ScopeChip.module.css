@@ -1,0 +1,55 @@
+/* ── Palette scope chip (ADR-200) ── */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  max-width: 200px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.scoped {
+  padding-right: 2px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.armed {
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.global {
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Doubled selector so the ghost Button's sizing and colour lose. */
+.clear.clear {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  color: inherit;
+  opacity: 0.75;
+}
+
+.clear.clear:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  color: var(--accent);
+}

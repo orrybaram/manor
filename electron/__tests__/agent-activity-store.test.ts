@@ -53,7 +53,10 @@ describe("AgentActivityStore", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(T0);
-    tmpDir = path.join(os.tmpdir(), `manor-activity-test-${crypto.randomUUID()}`);
+    tmpDir = path.join(
+      os.tmpdir(),
+      `manor-activity-test-${crypto.randomUUID()}`,
+    );
     fs.mkdirSync(tmpDir, { recursive: true });
     filePath = path.join(tmpDir, "agent-activity.json");
   });
@@ -84,7 +87,12 @@ describe("AgentActivityStore", () => {
         version: 1,
         agents: {
           good: {
-            meta: { name: "ok", projectId: null, workspacePath: null, hostId: "local" },
+            meta: {
+              name: "ok",
+              projectId: null,
+              workspacePath: null,
+              hostId: "local",
+            },
             transitions: [
               { status: "working", at: T0 - 1000 },
               { status: "bogus", at: T0 - 500 },
@@ -93,13 +101,19 @@ describe("AgentActivityStore", () => {
           noHost: { meta: {}, transitions: [{ status: "working", at: T0 }] },
           junk: 42,
         },
-        sessions: [{ start: "x", end: 1 }, { start: T0 - 2000, end: T0 - 1000 }],
+        sessions: [
+          { start: "x", end: 1 },
+          { start: T0 - 2000, end: T0 - 1000 },
+        ],
       }),
     );
     const snapshot = new AgentActivityStore(tmpDir).getSnapshot();
     expect(Object.keys(snapshot.agents)).toEqual(["good"]);
+    // The bogus status is dropped; "working" is then closed out as idle at
+    // the previous run's end, since that run left it busy.
     expect(snapshot.agents.good.transitions).toEqual([
       { status: "working", at: T0 - 1000 },
+      { status: "idle", at: T0 - 1000 },
     ]);
     expect(snapshot.sessions).toEqual([
       { start: T0 - 2000, end: T0 - 1000 },
@@ -233,6 +247,27 @@ describe("AgentActivityStore", () => {
     ]);
   });
 
+  it("ends an Agent the last run left busy as idle when that run was last seen", () => {
+    const first = new AgentActivityStore(tmpDir);
+    first.record(agent("busy"), "working", T0);
+    first.record(agent("done"), "working", T0);
+    first.record(agent("done"), "responded", T0 + 1000);
+    vi.setSystemTime(T0 + HOUR);
+    first.flush(); // the run's last write — then it dies without a final status
+
+    vi.setSystemTime(T0 + 2 * HOUR);
+    const second = new AgentActivityStore(tmpDir);
+    expect(second.getSnapshot().agents.busy.transitions).toEqual([
+      { status: "working", at: T0 },
+      { status: "idle", at: T0 + HOUR },
+    ]);
+    expect(statuses(second, "done")).toEqual(["working", "responded"]);
+
+    // An Agent that survived the restart picks its live status back up.
+    second.record(agent("busy"), "working", T0 + 2 * HOUR);
+    expect(statuses(second, "busy")).toEqual(["working", "idle", "working"]);
+  });
+
   it("drops sessions that ended before the retention window", () => {
     fs.writeFileSync(
       filePath,
@@ -240,7 +275,10 @@ describe("AgentActivityStore", () => {
         version: 1,
         agents: {},
         sessions: [
-          { start: T0 - RETENTION_MS - 2 * HOUR, end: T0 - RETENTION_MS - HOUR },
+          {
+            start: T0 - RETENTION_MS - 2 * HOUR,
+            end: T0 - RETENTION_MS - HOUR,
+          },
           { start: T0 - RETENTION_MS - HOUR, end: T0 - HOUR },
         ],
       }),

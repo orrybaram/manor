@@ -29,7 +29,7 @@ export function assignIssueBestEffort(repo: GhRepo, issueNumber: number): void {
   window.electronAPI.github.assignIssue(repo, issueNumber).catch((err) => {
     addErrorToast(
       `assign-issue-error-gh-${issueNumber}`,
-      "Failed to assign issue",
+      "Failed to assign task",
       err,
     );
   });

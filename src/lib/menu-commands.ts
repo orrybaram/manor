@@ -150,6 +150,8 @@ export interface MenuCommandPayload {
 export interface MenuContext {
   activeWorkspacePath: string | null;
   isHome: boolean;
+  /** A tab-hosting workspace is active: false on the Dashboard (ADR-197). */
+  canCreateTabs: boolean;
   workspace: {
     projectId: string;
     name: string;

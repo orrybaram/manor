@@ -9,7 +9,6 @@ import Settings from "lucide-react/dist/esm/icons/settings";
 import Keyboard from "lucide-react/dist/esm/icons/keyboard";
 import Bell from "lucide-react/dist/esm/icons/bell";
 import Link from "lucide-react/dist/esm/icons/link";
-import Bot from "lucide-react/dist/esm/icons/bot";
 import Smartphone from "lucide-react/dist/esm/icons/smartphone";
 import Laptop from "lucide-react/dist/esm/icons/laptop";
 import Cloud from "lucide-react/dist/esm/icons/cloud";
@@ -22,7 +21,6 @@ import { AppSettingsPage } from "../AppSettingsPage";
 import { KeybindingsPage } from "../KeybindingsPage";
 import { NotificationsPage } from "../NotificationsPage";
 import { IntegrationsPage } from "../IntegrationsPage";
-import { HomeSettingsPage } from "../HomeSettingsPage";
 import { RemoteControlPage } from "../RemoteControlPage";
 import { GroupSettingsPage, ProjectSettingsPage } from "../ProjectSettingsPage";
 import { Button } from "../../ui/Button/Button";
@@ -394,16 +392,6 @@ export function SettingsModal(props: SettingsModalProps) {
                   </button>
 
                   <button
-                    data-testid="settings-nav-home"
-                    className={`${styles.navItem} ${page.type === "home" ? styles.navItemActive : ""}`}
-                    aria-current={page.type === "home" ? "page" : undefined}
-                    onClick={() => setPage({ type: "home" })}
-                  >
-                    <Bot size={14} />
-                    <span>Home</span>
-                  </button>
-
-                  <button
                     data-testid="settings-nav-remote"
                     className={`${styles.navItem} ${page.type === "remote" ? styles.navItemActive : ""}`}
                     aria-current={page.type === "remote" ? "page" : undefined}
@@ -490,7 +478,6 @@ export function SettingsModal(props: SettingsModalProps) {
               {page.type === "keybindings" && <KeybindingsPage />}
               {page.type === "notifications" && <NotificationsPage />}
               {page.type === "integrations" && <IntegrationsPage />}
-              {page.type === "home" && <HomeSettingsPage />}
               {page.type === "remote" && <RemoteControlPage />}
               {page.type === "group" && currentGroup && (
                 <GroupSettingsPage

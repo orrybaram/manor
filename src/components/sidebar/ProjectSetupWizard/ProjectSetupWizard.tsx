@@ -517,7 +517,7 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
             <Stack>
               <div className={styles.stepTitle}>Linear Integration</div>
               <div className={styles.stepHint}>
-                Link Linear teams to this project to see issues in the sidebar.
+                Link Linear teams to this project to see tasks in the sidebar.
               </div>
             </Stack>
             {linearLoading ? (

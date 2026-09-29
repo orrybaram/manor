@@ -3,7 +3,7 @@
 import type { SidebarMode } from "../store/project-store";
 
 /** The lead's width when there is no full sidebar under it. */
-export const LEAD_COMPACT_WIDTH = 166;
+export const LEAD_COMPACT_WIDTH = 194;
 
 /** Width of the collapsed sidebar rail (ADR-195). */
 export const RAIL_WIDTH = 72;
@@ -13,10 +13,14 @@ export const FRAME_GAP = 6;
 
 /**
  * How wide the top-left lead (traffic-light space, sidebar toggle,
- * back/forward) is: as wide as the sidebar panel under it, else compact.
+ * back/forward, bell) is: as wide as the sidebar panel under it, else
+ * compact. Never narrower than compact, so a narrow sidebar's lead overhangs
+ * into the top-left tab bar rather than clipping its controls.
  */
 export function windowLeadWidth(mode: SidebarMode, sidebarWidth: number): number {
-  return mode === "full" ? sidebarWidth : LEAD_COMPACT_WIDTH;
+  return mode === "full"
+    ? Math.max(sidebarWidth, LEAD_COMPACT_WIDTH)
+    : LEAD_COMPACT_WIDTH;
 }
 
 /** Width of the column left of the workspace: rail, sidebar panel, or none. */

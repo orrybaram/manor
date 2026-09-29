@@ -133,6 +133,22 @@ export function laneMarkers(
  * Spans inside the window not covered by any session — Manor was closed, or
  * had not yet recorded anything (the span before the first session).
  */
+/**
+ * `sessions` with the last one — the running app — ending no earlier than
+ * `now`. Main stamps that end when it sends a snapshot, which only happens on
+ * a change; the renderer's clock moves on without one, and the stretch since
+ * would otherwise read as "Manor closed" and cut live segments short.
+ */
+export function liveSessions(
+  sessions: AgentActivitySession[],
+  now: number,
+): AgentActivitySession[] {
+  if (sessions.length === 0) return sessions;
+  const last = sessions[sessions.length - 1];
+  if (last.end >= now) return sessions;
+  return [...sessions.slice(0, -1), { start: last.start, end: now }];
+}
+
 export function closedGaps(
   sessions: AgentActivitySession[],
   windowStart: number,

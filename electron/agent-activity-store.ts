@@ -108,10 +108,31 @@ export class AgentActivityStore {
     this.pastSessions = state.sessions;
     const now = Date.now();
     this.current = { start: now, end: now };
+    this.settleUnfinished();
     this.prune(now);
     this.heartbeatTimer = setInterval(() => this.flush(), HEARTBEAT_MS);
     // Never keep the process alive just to write a heartbeat.
     this.heartbeatTimer.unref?.();
+  }
+
+  /**
+   * An Agent still thinking / working / waiting on input in the saved history
+   * was cut off by the previous run ending (quit or crash) — nothing records a
+   * final status for a pane that never comes back. End it as idle when that
+   * run was last seen, so it isn't drawn as busy through every later session
+   * and can age out. An Agent that does survive gets its live status recorded
+   * again when its pane reports in.
+   */
+  private settleUnfinished(): void {
+    const lastSeen = this.pastSessions[this.pastSessions.length - 1]?.end;
+    for (const entry of Object.values(this.agents)) {
+      const last = entry.transitions[entry.transitions.length - 1];
+      if (!last || SETTLED_STATUSES.has(last.status)) continue;
+      entry.transitions.push({
+        status: "idle",
+        at: Math.max(last.at, lastSeen ?? last.at),
+      });
+    }
   }
 
   /** Stops the heartbeat. Call after the final `flush()` at quit. */

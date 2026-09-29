@@ -11,7 +11,10 @@
   /* Bottom-aligned 24px buttons centre 12px above the row's bottom edge,
      level with the tab labels and the traffic lights. */
   align-items: flex-end;
-  padding-right: 6px;
+  /* The lead ends one gutter (6px) short of the sidebar panel's right edge;
+     3px more, plus the 24px bell's 5px around its 14px icon, puts the icon
+     14px in, where the sidebar's trailing icons end (Sidebar.module.css). */
+  padding-right: 3px;
   background: transparent;
   -webkit-app-region: drag;
   user-select: none;
@@ -42,4 +45,14 @@
 /* Eases with the sidebar column while a mode change animates (App.css). */
 :global(.app-body[data-sidebar-animating]) .lead {
   transition: width var(--sidebar-mode-transition) ease;
+}
+
+/* The notifications bell, pushed to the lead's right edge: the sidebar's
+   right side in `full` mode. */
+.bell {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
 }

@@ -12,7 +12,8 @@ import { Filmstrip } from "./helpers/filmstrip";
 const FREQUENT_HEADING = "Frequently Used";
 
 const paletteInput = (window: Page) =>
-  window.getByPlaceholder("Type a command...");
+  // The root view input; its placeholder follows the scope (ADR-200).
+  window.locator("[cmdk-input]");
 
 const groupHeadings = (window: Page) => window.locator("[cmdk-group-heading]");
 

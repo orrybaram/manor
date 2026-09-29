@@ -156,6 +156,12 @@ describe("createWorktree setup script", () => {
     const setupScriptStep = setupState.steps.find((s: any) => s.step === "setup-script");
     expect(setupScriptStep).toBeDefined();
     expect(setupScriptStep!.status).toBe("pending");
+
+    // The agent starts in parallel with the script, not after it
+    expect(useAppStore.getState().pendingStartupCommands[worktreePath]).toBe("claude");
+    const layout = useAppStore.getState().workspaceLayouts[worktreePath];
+    expect(layout!.panels[layout!.activePanelId]!.tabs.length).toBe(1);
+    expect(window.electronAPI.pty.create).toHaveBeenCalled();
   });
 
   it("does not create a tab when there is no startup command", async () => {

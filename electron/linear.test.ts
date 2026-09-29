@@ -241,6 +241,11 @@ describe("LinearManager", () => {
 
       // labels should be flattened from nodes
       expect(issues[0].labels).toEqual([]);
+
+      const query = body.query as string;
+      expect(query).toContain("priorityLabel");
+      expect(query).toContain("cycle { number name }");
+      expect(query).toContain("creator { name displayName }");
     });
   });
 
@@ -272,7 +277,15 @@ describe("LinearManager", () => {
           url: "u",
           branchName: "b",
           priority: 1,
-          state: { name: "Todo", type: "unstarted" },
+          priorityLabel: "Urgent",
+          state: { name: "Todo", type: "unstarted", color: "#e2e2e2" },
+          createdAt: "2026-01-01T00:00:00.000Z",
+          dueDate: "2026-02-01",
+          estimate: 3,
+          project: { name: "Launch" },
+          cycle: { number: 12, name: null },
+          team: { key: "ENG", name: "Engineering" },
+          creator: { name: "Alice A", displayName: "alice" },
           labels: { nodes: [{ name: "feature", color: "#00ff00" }] },
         },
       ];
@@ -286,6 +299,31 @@ describe("LinearManager", () => {
       expect(issues[0].id).toBe("11"); // unstarted first
       expect(issues[1].id).toBe("10"); // backlog second
       expect(issues[0].labels).toEqual([{ name: "feature", color: "#00ff00" }]);
+
+      // the richer list fields are requested and passed through
+      const query = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string).query as string;
+      for (const field of [
+        "priorityLabel",
+        "createdAt",
+        "dueDate",
+        "estimate",
+        "state { name type color }",
+        "project { name }",
+        "cycle { number name }",
+        "team { key name }",
+        "creator { name displayName }",
+      ]) {
+        expect(query).toContain(field);
+      }
+      expect(issues[0]).toMatchObject({
+        priorityLabel: "Urgent",
+        dueDate: "2026-02-01",
+        estimate: 3,
+        project: { name: "Launch" },
+        cycle: { number: 12, name: null },
+        team: { key: "ENG", name: "Engineering" },
+        creator: { displayName: "alice" },
+      });
 
       const body = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
       expect(body.variables.teamIds).toEqual(["team-2"]);

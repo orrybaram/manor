@@ -27,11 +27,65 @@ export interface GitHubIssue {
   assignees: Array<{ login: string }>;
   updatedAt: string;
   author: { login: string };
+  createdAt?: string;
+  closedAt?: string | null;
+  milestone?: { title: string } | null;
+  /** Comment count; `gh` sends the comments themselves, dropped before IPC. */
+  commentCount?: number;
+  stateReason?: string | null;
+  /** GitHub Projects v2 membership (needs the `read:project` scope). */
+  projectItems?: Array<{ title: string; status?: string }>;
 }
 
 export interface GitHubIssueDetail extends GitHubIssue {
   body: string | null;
   milestone: { title: string } | null;
+}
+
+/** `gh issue list --json` fields shared by `getMyIssues` and `getAllIssues`. */
+const ISSUE_LIST_FIELDS =
+  "number,title,url,state,labels,assignees,updatedAt,author," +
+  "createdAt,closedAt,milestone,comments,stateReason";
+
+/** True when `gh` failed for want of the `read:project` scope. */
+function isProjectScopeError(err: unknown): boolean {
+  const e = err as { message?: string; stderr?: string } | null;
+  const text = `${e?.stderr ?? ""}\n${e?.message ?? ""}`;
+  return /read:project|projectItems|missing required scopes?|required scopes?/i.test(
+    text,
+  );
+}
+
+/** `gh`'s `projectItems` (`{title, status: {name}}`) as `{title, status?}[]`. */
+function normalizeProjectItems(
+  items: unknown,
+): Array<{ title: string; status?: string }> {
+  if (!Array.isArray(items)) return [];
+  const out: Array<{ title: string; status?: string }> = [];
+  for (const item of items) {
+    const title = item?.title;
+    if (typeof title !== "string" || !title) continue;
+    const status = item?.status;
+    const name = typeof status === "string" ? status : status?.name;
+    out.push(
+      typeof name === "string" && name ? { title, status: name } : { title },
+    );
+  }
+  return out;
+}
+
+/** Parse `gh issue list` output, replacing `comments` with `commentCount`. */
+function parseIssueList(stdout: string): GitHubIssue[] {
+  const raw = JSON.parse(stdout) as Array<Record<string, unknown>>;
+  return raw.map((entry) => {
+    const { comments, projectItems, ...rest } = entry;
+    const issue = { ...rest } as unknown as GitHubIssue;
+    if (Array.isArray(comments)) issue.commentCount = comments.length;
+    if (projectItems !== undefined) {
+      issue.projectItems = normalizeProjectItems(projectItems);
+    }
+    return issue;
+  });
 }
 
 /** A repo the signed-in user can clone, from `GitHubManager.listRepos`. */
@@ -360,25 +414,7 @@ export class GitHubManager {
     limit = 50,
     state: "open" | "closed" | "all" = "open",
   ): Promise<GitHubIssue[]> {
-    const { cwd, repoArgs } = await this.ghTarget(repo);
-    const { stdout } = await execFileAsync(
-      "gh",
-      [
-        "issue",
-        "list",
-        ...repoArgs,
-        "--assignee",
-        "@me",
-        "--state",
-        state,
-        "--json",
-        "number,title,url,state,labels,assignees,updatedAt,author",
-        "--limit",
-        String(limit),
-      ],
-      { cwd, encoding: "utf-8", timeout: 10000 },
-    );
-    return JSON.parse(stdout);
+    return this.listIssues(repo, ["--assignee", "@me"], limit, state);
   }
 
   /** Throws when `gh` fails — see `getMyIssues`. */
@@ -387,23 +423,45 @@ export class GitHubManager {
     limit = 50,
     state: "open" | "closed" | "all" = "open",
   ): Promise<GitHubIssue[]> {
+    return this.listIssues(repo, [], limit, state);
+  }
+
+  /**
+   * `projectItems` needs the `read:project` scope; on a scope error the call
+   * is retried once without it. Any other failure throws.
+   */
+  private async listIssues(
+    repo: GhRepo,
+    filterArgs: string[],
+    limit: number,
+    state: "open" | "closed" | "all",
+  ): Promise<GitHubIssue[]> {
     const { cwd, repoArgs } = await this.ghTarget(repo);
-    const { stdout } = await execFileAsync(
-      "gh",
-      [
-        "issue",
-        "list",
-        ...repoArgs,
-        "--state",
-        state,
-        "--json",
-        "number,title,url,state,labels,assignees,updatedAt,author",
-        "--limit",
-        String(limit),
-      ],
-      { cwd, encoding: "utf-8", timeout: 10000 },
-    );
-    return JSON.parse(stdout);
+    const run = async (fields: string) => {
+      const { stdout } = await execFileAsync(
+        "gh",
+        [
+          "issue",
+          "list",
+          ...repoArgs,
+          ...filterArgs,
+          "--state",
+          state,
+          "--json",
+          fields,
+          "--limit",
+          String(limit),
+        ],
+        { cwd, encoding: "utf-8", timeout: 10000 },
+      );
+      return parseIssueList(stdout);
+    };
+    try {
+      return await run(`${ISSUE_LIST_FIELDS},projectItems`);
+    } catch (err) {
+      if (!isProjectScopeError(err)) throw err;
+      return run(ISSUE_LIST_FIELDS);
+    }
   }
 
   /**

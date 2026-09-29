@@ -42,9 +42,26 @@ export interface TaskRow {
   labels: TaskLabel[];
   /** Display names (GitHub logins, Linear names), in tracker order. */
   assignees: string[];
-  /** The GitHub author login; Linear list results carry none. */
+  /** The GitHub author login, or the Linear creator's display name. */
   author?: string;
   status: { label: string; tone: TaskStatusTone };
+  /** Linear only; `value` 0 is "No priority" and sorts last. */
+  priority?: { value: number; label: string };
+  /** Linear project, or GitHub Projects v2 titles. */
+  trackerProjects: string[];
+  /** GitHub milestone title. */
+  milestone?: string;
+  /** Linear cycle: its name, else "Cycle N". */
+  cycle?: string;
+  /** Linear team key. */
+  team?: string;
+  estimate?: number;
+  /** ISO date (Linear). */
+  dueDate?: string;
+  /** ISO timestamp; `""` when the tracker didn't send one. */
+  createdAt: string;
+  /** GitHub comment count. */
+  commentCount?: number;
   /** ISO timestamp; `""` when the tracker didn't send one. */
   updatedAt: string;
   /** The top-level sidebar entry (project id or group id) the row belongs to. */
@@ -74,10 +91,14 @@ function cssHex(color: string | null | undefined): string | undefined {
   return /^[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(hex) ? `#${hex}` : undefined;
 }
 
-function githubStatus(state: string): TaskRow["status"] {
-  return state.toLowerCase() === "closed"
-    ? { label: "Closed", tone: "closed" }
-    : { label: "Open", tone: "open" };
+function githubStatus(
+  state: string,
+  stateReason?: string | null,
+): TaskRow["status"] {
+  if (state.toLowerCase() !== "closed") return { label: "Open", tone: "open" };
+  return stateReason?.toUpperCase() === "NOT_PLANNED"
+    ? { label: "Closed (not planned)", tone: "canceled" }
+    : { label: "Closed", tone: "closed" };
 }
 
 const LINEAR_TONE: Record<string, TaskStatusTone> = {
@@ -102,7 +123,11 @@ export function fromGitHub(issue: GitHubIssue, ctx: TaskContext): TaskRow {
     })),
     assignees: (issue.assignees ?? []).map((a) => a.login),
     author: issue.author?.login || undefined,
-    status: githubStatus(issue.state ?? "open"),
+    status: githubStatus(issue.state ?? "open", issue.stateReason),
+    trackerProjects: (issue.projectItems ?? []).map((p) => p.title),
+    milestone: issue.milestone?.title || undefined,
+    createdAt: issue.createdAt ?? "",
+    commentCount: issue.commentCount,
     updatedAt: issue.updatedAt ?? "",
     projectEntryKey: ctx.entryKey,
     project: ctx.project,
@@ -114,6 +139,9 @@ export function fromGitHub(issue: GitHubIssue, ctx: TaskContext): TaskRow {
 
 export function fromLinear(issue: LinearIssue, ctx: TaskContext): TaskRow {
   const assignee = issue.assignee?.displayName || issue.assignee?.name;
+  const cycle = issue.cycle
+    ? issue.cycle.name || `Cycle ${issue.cycle.number}`
+    : undefined;
   return {
     key: `linear:${ctx.entryKey}:${issue.id}`,
     provider: "linear",
@@ -125,10 +153,26 @@ export function fromLinear(issue: LinearIssue, ctx: TaskContext): TaskRow {
       color: cssHex(l.color),
     })),
     assignees: assignee ? [assignee] : [],
+    author: issue.creator?.displayName || issue.creator?.name || undefined,
     status: {
       label: issue.state?.name ?? "Unknown",
       tone: LINEAR_TONE[issue.state?.type ?? ""] ?? "todo",
     },
+    priority:
+      typeof issue.priority === "number"
+        ? {
+            value: issue.priority,
+            label:
+              issue.priorityLabel ||
+              (issue.priority === 0 ? "No priority" : `P${issue.priority}`),
+          }
+        : undefined,
+    trackerProjects: issue.project?.name ? [issue.project.name] : [],
+    cycle,
+    team: issue.team?.key || undefined,
+    estimate: issue.estimate ?? undefined,
+    dueDate: issue.dueDate || undefined,
+    createdAt: issue.createdAt ?? "",
     updatedAt: issue.updatedAt ?? "",
     projectEntryKey: ctx.entryKey,
     project: ctx.project,
@@ -253,6 +297,15 @@ export function linkedTasks(
           assignees: match?.assignees ?? [],
           author: match?.author,
           status: match?.status ?? { label: "In progress", tone: "started" },
+          priority: match?.priority,
+          trackerProjects: match?.trackerProjects ?? [],
+          milestone: match?.milestone,
+          cycle: match?.cycle,
+          team: match?.team,
+          estimate: match?.estimate,
+          dueDate: match?.dueDate,
+          createdAt: match?.createdAt ?? "",
+          commentCount: match?.commentCount,
           updatedAt: match?.updatedAt ?? "",
           projectEntryKey: entry.entryKey,
           projectName: entry.projectName,

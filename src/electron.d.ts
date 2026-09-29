@@ -177,10 +177,18 @@ export interface LinearIssue {
   url: string;
   branchName: string;
   priority: number;
-  state: { name: string; type: string };
+  priorityLabel?: string;
+  state: { name: string; type: string; color?: string };
   labels: Array<{ name: string; color: string }>;
   updatedAt: string;
+  createdAt?: string;
+  dueDate?: string | null;
+  estimate?: number | null;
   assignee?: { name: string; displayName?: string } | null;
+  project?: { name: string } | null;
+  cycle?: { number: number; name?: string | null } | null;
+  team?: { key: string; name: string } | null;
+  creator?: { name: string; displayName?: string } | null;
 }
 
 export interface LinearIssueDetail extends LinearIssue {
@@ -203,6 +211,12 @@ export interface GitHubIssue {
   assignees: Array<{ login: string }>;
   updatedAt: string;
   author: { login: string };
+  createdAt?: string;
+  closedAt?: string | null;
+  milestone?: { title: string } | null;
+  commentCount?: number;
+  stateReason?: string | null;
+  projectItems?: { title: string; status?: string }[];
 }
 
 export interface GitHubRepo {

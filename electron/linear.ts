@@ -23,10 +23,18 @@ export interface LinearIssue {
   url: string;
   branchName: string;
   priority: number;
-  state: { name: string; type: string };
+  priorityLabel?: string;
+  state: { name: string; type: string; color?: string };
   labels: Array<{ name: string; color: string }>;
   updatedAt: string;
+  createdAt?: string;
+  dueDate?: string | null;
+  estimate?: number | null;
   assignee?: { name: string; displayName?: string } | null;
+  project?: { name: string } | null;
+  cycle?: { number: number; name?: string | null } | null;
+  team?: { key: string; name: string } | null;
+  creator?: { name: string; displayName?: string } | null;
 }
 
 export interface LinkedIssue {
@@ -137,9 +145,17 @@ export class LinearManager {
               url
               branchName
               priority
-              state { name type }
+              priorityLabel
+              state { name type color }
               updatedAt
+              createdAt
+              dueDate
+              estimate
               assignee { name displayName }
+              creator { name displayName }
+              project { name }
+              cycle { number name }
+              team { key name }
               labels { nodes { name color } }
             }
           }
@@ -196,9 +212,17 @@ export class LinearManager {
             url
             branchName
             priority
-            state { name type }
+            priorityLabel
+            state { name type color }
             updatedAt
+            createdAt
+            dueDate
+            estimate
             assignee { name displayName }
+            creator { name displayName }
+            project { name }
+            cycle { number name }
+            team { key name }
             labels { nodes { name color } }
           }
         }

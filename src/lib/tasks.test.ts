@@ -89,6 +89,41 @@ describe("fromGitHub", () => {
     expect(r.status).toEqual({ label: "Closed", tone: "closed" });
     expect(r.labels).toEqual([{ name: "x", color: undefined }]);
   });
+
+  it("labels issues closed as not planned as canceled", () => {
+    const r = fromGitHub(gh({ state: "CLOSED", stateReason: "NOT_PLANNED" }), ctx);
+    expect(r.status).toEqual({ label: "Closed (not planned)", tone: "canceled" });
+    expect(
+      fromGitHub(gh({ state: "CLOSED", stateReason: "COMPLETED" }), ctx).status,
+    ).toEqual({ label: "Closed", tone: "closed" });
+  });
+
+  it("carries milestone, projects, created date and comment count", () => {
+    const r = fromGitHub(
+      gh({
+        createdAt: "2026-09-01T00:00:00Z",
+        milestone: { title: "v1" },
+        commentCount: 4,
+        projectItems: [{ title: "Roadmap", status: "Todo" }, { title: "Bugs" }],
+      }),
+      ctx,
+    );
+    expect(r).toMatchObject({
+      createdAt: "2026-09-01T00:00:00Z",
+      milestone: "v1",
+      commentCount: 4,
+      trackerProjects: ["Roadmap", "Bugs"],
+    });
+  });
+
+  it("defaults the new fields when the tracker omits them", () => {
+    const r = fromGitHub(gh(), ctx);
+    expect(r.createdAt).toBe("");
+    expect(r.trackerProjects).toEqual([]);
+    expect(r.milestone).toBeUndefined();
+    expect(r.commentCount).toBeUndefined();
+    expect(r.priority).toBeUndefined();
+  });
 });
 
 describe("fromLinear", () => {
@@ -103,6 +138,48 @@ describe("fromLinear", () => {
       status: { label: "In Progress", tone: "started" },
     });
     expect(r.author).toBeUndefined();
+  });
+
+  it("carries priority, project, cycle, team, estimate, due date and creator", () => {
+    const r = fromLinear(
+      linear({
+        priority: 1,
+        priorityLabel: "Urgent",
+        createdAt: "2026-09-01T00:00:00Z",
+        dueDate: "2026-10-01",
+        estimate: 3,
+        project: { name: "Launch" },
+        cycle: { number: 12, name: null },
+        team: { key: "ENG", name: "Engineering" },
+        creator: { name: "Dana D", displayName: "dana" },
+      }),
+      ctx,
+    );
+    expect(r).toMatchObject({
+      priority: { value: 1, label: "Urgent" },
+      trackerProjects: ["Launch"],
+      cycle: "Cycle 12",
+      team: "ENG",
+      estimate: 3,
+      dueDate: "2026-10-01",
+      createdAt: "2026-09-01T00:00:00Z",
+      author: "dana",
+    });
+  });
+
+  it("prefers the cycle name, falls back to creator name, and defaults missing fields", () => {
+    expect(
+      fromLinear(linear({ cycle: { number: 3, name: "Sprint" } }), ctx).cycle,
+    ).toBe("Sprint");
+    expect(
+      fromLinear(linear({ creator: { name: "Eve" } }), ctx).author,
+    ).toBe("Eve");
+    const r = fromLinear(linear({ priority: 0 }), ctx);
+    expect(r.priority).toEqual({ value: 0, label: "No priority" });
+    expect(r.trackerProjects).toEqual([]);
+    expect(r.createdAt).toBe("");
+    expect(r.cycle).toBeUndefined();
+    expect(r.estimate).toBeUndefined();
   });
 
   it("tints by state type and handles no assignee", () => {
@@ -338,6 +415,28 @@ describe("linkedTasks", () => {
       title: "Linear thing",
       assignees: [],
       status: { label: "In progress", tone: "started" },
+      trackerProjects: [],
+      createdAt: "",
+    });
+  });
+
+  it("copies the richer fields from the fetched match", () => {
+    const [gh12] = linkedTasks([withWorkspace], entryOf, [
+      fromGitHub(
+        gh({
+          createdAt: "2026-09-01T00:00:00Z",
+          milestone: { title: "v1" },
+          commentCount: 2,
+          projectItems: [{ title: "Roadmap" }],
+        }),
+        ctx,
+      ),
+    ]);
+    expect(gh12).toMatchObject({
+      createdAt: "2026-09-01T00:00:00Z",
+      milestone: "v1",
+      commentCount: 2,
+      trackerProjects: ["Roadmap"],
     });
   });
 });

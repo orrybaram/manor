@@ -572,6 +572,83 @@ describe("GitHubManager", () => {
       expect(result).toEqual(issues);
     });
 
+    it("asks for every list field including projectItems", async () => {
+      setupExecFileCalls([success("[]")]);
+
+      await manager.getMyIssues(REPO);
+
+      const args = mockState.calls[0];
+      const fields = args[args.indexOf("--json") + 1].split(",");
+      expect(fields).toEqual(
+        expect.arrayContaining([
+          "createdAt",
+          "closedAt",
+          "milestone",
+          "comments",
+          "stateReason",
+          "projectItems",
+        ]),
+      );
+    });
+
+    it("maps comments to commentCount and normalises projectItems", async () => {
+      setupExecFileCalls([
+        success(
+          JSON.stringify([
+            {
+              number: 1,
+              title: "A",
+              comments: [{ body: "x" }, { body: "y" }],
+              milestone: { title: "v1" },
+              projectItems: [
+                { title: "Roadmap", status: { name: "In Progress" } },
+                { title: "Bare" },
+                { status: { name: "no title" } },
+              ],
+            },
+            { number: 2, title: "B" },
+          ]),
+        ),
+      ]);
+
+      const [a, b] = await manager.getMyIssues(REPO);
+
+      expect(a.commentCount).toBe(2);
+      expect(a).not.toHaveProperty("comments");
+      expect(a.milestone).toEqual({ title: "v1" });
+      expect(a.projectItems).toEqual([
+        { title: "Roadmap", status: "In Progress" },
+        { title: "Bare" },
+      ]);
+      expect(b.commentCount).toBeUndefined();
+      expect(b.projectItems).toBeUndefined();
+    });
+
+    it("retries once without projectItems on a missing-scope error", async () => {
+      setupExecFileCalls([
+        failure("gh failed", {
+          stderr:
+            "Your token has not been granted the required scopes: ['read:project']",
+        }),
+        success(JSON.stringify([{ number: 1, title: "A", comments: [] }])),
+      ]);
+
+      const result = await manager.getMyIssues(REPO);
+
+      expect(result[0].commentCount).toBe(0);
+      expect(mockState.calls).toHaveLength(2);
+      const fields = (args: string[]) => args[args.indexOf("--json") + 1];
+      expect(fields(mockState.calls[0])).toContain("projectItems");
+      expect(fields(mockState.calls[1])).not.toContain("projectItems");
+    });
+
+    it("does not retry other errors", async () => {
+      setupExecFileCalls([failure("boom", { stderr: "network down" })]);
+
+      await expect(manager.getMyIssues(REPO)).rejects.toThrow();
+      expect(mockState.calls).toHaveLength(1);
+    });
+
     // A swallowed error made a broken `gh` indistinguishable from an empty
     // backlog. Rejecting lets the MCP route answer 502 and the UI show a
     // failure instead of "no issues".

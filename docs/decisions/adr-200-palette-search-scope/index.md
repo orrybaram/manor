@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -146,3 +146,17 @@ scope that match (`wordPrefixFilter` against the same `itemValue`):
 ## Tickets
 
 <div data-type="database" data-path="." data-view="board"></div>
+
+## Implementation notes
+
+- The Projects page was removed while this ADR was in flight (commit
+  b78dce39), so "Projects" in the lists above no longer applies. The rules
+  are otherwise unchanged.
+- Global Linear/GitHub drill-in rows use ids `linear-issues-${projectId}` /
+  `github-issues-${projectId}`. The scoped rows keep `linear-issues` /
+  `github-issues`, so older Frequently Used history for them only shows up
+  in a scoped search.
+- The chip's × is `tabIndex={-1}`, because Tab toggles scope. It is still
+  clickable.
+- `tests/e2e/command-palette-scope.spec.ts` was written without a display to
+  run Electron. It has not been run yet.

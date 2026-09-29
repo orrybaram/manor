@@ -1,6 +1,6 @@
 ---
 title: Scope filtering, chip, and widening in the palette
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]

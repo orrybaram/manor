@@ -1,6 +1,6 @@
 ---
 title: E2E coverage for palette scope
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [2]

@@ -1,0 +1,564 @@
+<title>Manor Home Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600&display=swap">
+<style>
+/* Layout: summary band (4 stat tiles) → "Needs you" action cards → agent activity timeline → PR pipeline + Up next → project tiles. 12-col grid, stacks under 900px. */
+:root {
+  --bg: #1e1e2e; --panel: #181825; --panel-2: #24243a; --line: #cdd6f414; --line-2: #cdd6f424;
+  --fg: #cdd6f4; --fg-2: #cdd6f4b3; --fg-3: #cdd6f473; --fg-4: #cdd6f433;
+  --accent: #89b4fa; --red: #f38ba8; --yellow: #f9e2af; --green: #a6e3a1; --cyan: #89dceb; --peach: #fab387; --mauve: #cba6f7; --teal: #94e2d5;
+  --shadow: 0 1px 0 #ffffff08 inset, 0 12px 32px -18px #00000080;
+  --font: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) {
+  --bg: #eff1f5; --panel: #ffffff; --panel-2: #e6e9ef; --line: #4c4f6914; --line-2: #4c4f6926;
+  --fg: #4c4f69; --fg-2: #4c4f69cc; --fg-3: #4c4f6999; --fg-4: #4c4f6944;
+  --accent: #1e66f5; --red: #d20f39; --yellow: #df8e1d; --green: #40a02b; --cyan: #04a5e5; --peach: #fe640b; --mauve: #8839ef; --teal: #179299;
+  --shadow: 0 1px 2px #4c4f6912, 0 10px 28px -20px #4c4f6955; color-scheme: light;
+} }
+:root[data-theme="light"] {
+  --bg: #eff1f5; --panel: #ffffff; --panel-2: #e6e9ef; --line: #4c4f6914; --line-2: #4c4f6926;
+  --fg: #4c4f69; --fg-2: #4c4f69cc; --fg-3: #4c4f6999; --fg-4: #4c4f6944;
+  --accent: #1e66f5; --red: #d20f39; --yellow: #df8e1d; --green: #40a02b; --cyan: #04a5e5; --peach: #fe640b; --mauve: #8839ef; --teal: #179299;
+  --shadow: 0 1px 2px #4c4f6912, 0 10px 28px -20px #4c4f6955; color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg-2); font-family: var(--font); font-size: 13.5px; line-height: 1.45; padding-inline: 16px; padding-block: 28px 48px; -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+@media (prefers-reduced-motion: reduce) { *, *::before { animation: none !important; transition: none !important; } }
+
+.wrap { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+.grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; }
+.span-12 { grid-column: span 12; } .span-8 { grid-column: span 8; } .span-7 { grid-column: span 7; } .span-5 { grid-column: span 5; } .span-4 { grid-column: span 4; } .span-3 { grid-column: span 3; } .span-6 { grid-column: span 6; }
+@media (max-width: 900px) { .grid > * { grid-column: span 12 !important; } .stats > * { grid-column: span 6 !important; } }
+@media (max-width: 460px) { .stats > * { grid-column: span 12 !important; } }
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); min-width: 0; }
+.ph { display: flex; align-items: baseline; gap: 10px; padding: 16px 18px 0; }
+.ph h2 { margin: 0; font-size: 13px; font-weight: 600; color: var(--fg); letter-spacing: -.005em; }
+.ph .sub { font-size: 12px; color: var(--fg-3); }
+.ph .right { margin-left: auto; display: flex; gap: 12px; align-items: center; font-size: 12px; color: var(--fg-3); }
+.linkbtn { background: none; border: 0; padding: 0; color: var(--fg-3); font-size: 12px; }
+.linkbtn:hover { color: var(--fg); }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* Header */
+.top { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.top h1 { margin: 0; font-size: 26px; font-weight: 500; letter-spacing: -.02em; color: var(--fg); text-wrap: balance; }
+.top h1 em { font-style: normal; color: var(--red); }
+.top .date { font-size: 12px; color: var(--fg-3); letter-spacing: .08em; text-transform: uppercase; margin-bottom: 6px; }
+.top .actions { margin-left: auto; display: flex; gap: 8px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; border-radius: 8px; padding: 7px 12px; font-size: 12.5px; font-weight: 500; border: 1px solid var(--line-2); background: var(--panel); color: var(--fg); transition: background .15s, border-color .15s; white-space: nowrap; }
+.btn:hover { background: var(--panel-2); }
+.btn.primary { background: var(--fg); color: var(--bg); border-color: transparent; }
+.btn.primary:hover { opacity: .9; }
+.btn kbd { font-family: var(--mono); font-size: 10.5px; opacity: .6; }
+.btn.sm { padding: 5px 10px; font-size: 12px; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--fg-3); }
+.btn.ghost:hover { color: var(--fg); background: var(--panel-2); }
+.alert { display: flex; align-items: center; gap: 10px; font-size: 12.5px; padding: 9px 14px; border-radius: 10px; background: color-mix(in srgb, var(--yellow) 9%, transparent); border: 1px solid color-mix(in srgb, var(--yellow) 22%, transparent); color: var(--fg-2); }
+.alert svg { color: var(--yellow); flex: none; }
+.alert b { color: var(--fg); font-weight: 500; }
+.alert .linkbtn { margin-left: auto; color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
+
+/* Stat tiles */
+.stat { padding: 16px 18px 12px; display: flex; flex-direction: column; gap: 4px; position: relative; overflow: hidden; }
+.stat .label { font-size: 12px; color: var(--fg-3); display: flex; align-items: center; gap: 7px; }
+.stat .label i { width: 7px; height: 7px; border-radius: 50%; background: var(--c); }
+.stat .big { font-family: var(--mono); font-size: 34px; font-weight: 500; letter-spacing: -.03em; color: var(--fg); line-height: 1.1; font-variant-numeric: tabular-nums; }
+.stat .big small { font-size: 13px; color: var(--fg-3); letter-spacing: 0; margin-left: 6px; font-family: var(--font); }
+.stat .foot { font-size: 11.5px; color: var(--fg-3); }
+.stat .foot b { color: var(--c); font-weight: 500; }
+.stat svg.spark { width: 100%; height: 38px; display: block; margin-top: 4px; overflow: visible; }
+.stages { display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 2px; margin: 10px 0 6px; }
+.stages span { background: var(--c); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: var(--fg-3); }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend i { width: 7px; height: 7px; border-radius: 2px; background: var(--c); }
+
+/* Needs you cards */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; padding: 14px 14px 14px; }
+.card { position: relative; border-radius: 11px; padding: 14px; display: flex; flex-direction: column; gap: 10px; background: color-mix(in srgb, var(--c) 5%, var(--panel)); border: 1px solid color-mix(in srgb, var(--c) 20%, var(--line)); min-width: 0; transition: transform .15s, border-color .15s; }
+.card:hover { border-color: color-mix(in srgb, var(--c) 45%, var(--line)); transform: translateY(-1px); }
+.card-h { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--fg-3); }
+.kind { display: inline-flex; align-items: center; gap: 5px; color: var(--c); font-weight: 500; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+.kind svg { width: 13px; height: 13px; }
+.card-h .when { margin-left: auto; }
+.proj { display: inline-flex; align-items: center; gap: 5px; color: var(--fg-3); white-space: nowrap; }
+.proj::before { content: ""; width: 6px; height: 6px; border-radius: 2px; background: var(--pc); }
+.card h3 { margin: 0; font-size: 14px; font-weight: 500; color: var(--fg); line-height: 1.35; overflow-wrap: anywhere; }
+.ctx { font-family: var(--mono); font-size: 11.5px; line-height: 1.5; padding: 9px 10px; border-radius: 8px; background: var(--bg); color: var(--fg-2); border: 1px solid var(--line); overflow: hidden; }
+.ctx .q { color: var(--fg); }
+.ctx .err { color: var(--red); }
+.ctx .dim { color: var(--fg-3); }
+.diffbar { display: flex; gap: 2px; margin-top: 6px; }
+.diffbar i { height: 5px; flex: 1; border-radius: 1px; background: var(--fg-4); }
+.diffbar i.a { background: var(--green); } .diffbar i.d { background: var(--red); }
+.card-f { display: flex; gap: 6px; align-items: center; margin-top: auto; }
+.card-f .btn.primary { background: var(--c); color: var(--panel); }
+.card-f .snooze { margin-left: auto; }
+.more-cards { display: flex; align-items: center; justify-content: center; border-radius: 11px; border: 1px dashed var(--line-2); color: var(--fg-3); font-size: 12.5px; min-height: 90px; background: none; }
+.more-cards:hover { color: var(--fg); border-color: var(--fg-4); }
+
+/* Timeline */
+.tl { padding: 12px 18px 16px; }
+.tl-row { display: grid; grid-template-columns: minmax(120px, 210px) minmax(0, 1fr) 56px; align-items: center; gap: 14px; height: 30px; }
+.tl-row + .tl-row { border-top: 1px solid var(--line); }
+.tl-name { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12.5px; color: var(--fg); }
+.tl-name span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-name .proj::before { width: 8px; height: 8px; }
+.track { position: relative; height: 12px; border-radius: 3px; background: repeating-linear-gradient(90deg, var(--line) 0 1px, transparent 1px calc(100% / 6)); }
+.seg { position: absolute; top: 2px; height: 8px; border-radius: 3px; background: var(--c); }
+.seg.wait { top: 0; height: 12px; background: repeating-linear-gradient(135deg, var(--red) 0 3px, color-mix(in srgb, var(--red) 45%, transparent) 3px 6px); }
+.seg.live::after { content: ""; position: absolute; right: -3px; top: -2px; width: 12px; height: 12px; border-radius: 50%; background: var(--c); opacity: .5; animation: ping 1.6s ease-out infinite; }
+@keyframes ping { from { transform: scale(.6); opacity: .7; } to { transform: scale(1.6); opacity: 0; } }
+.mark { position: absolute; top: -1px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--panel); border: 2px solid var(--c); }
+.mark.err::after { content: "×"; position: absolute; inset: -3px 0 0; text-align: center; font-size: 11px; font-weight: 700; color: var(--c); }
+.tl-state { font-size: 11.5px; color: var(--c); text-align: right; white-space: nowrap; }
+.axis { display: grid; grid-template-columns: minmax(120px, 210px) minmax(0, 1fr) 56px; gap: 14px; font-size: 10.5px; color: var(--fg-3); margin-top: 6px; }
+.axis .ticks { display: flex; justify-content: space-between; font-family: var(--mono); }
+.axis .ticks span:last-child { color: var(--fg); }
+@media (max-width: 600px) { .tl-row, .axis { grid-template-columns: 96px minmax(0, 1fr); } .tl-state, .axis > :last-child { display: none; } .tl-name .proj { display: none; } }
+
+/* PR pipeline */
+.pipe { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding: 14px; }
+.stage { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.stage-h { display: flex; align-items: baseline; gap: 8px; padding: 0 2px 6px; border-bottom: 2px solid var(--c); }
+.stage-h b { font-family: var(--mono); font-size: 20px; font-weight: 500; color: var(--fg); }
+.stage-h span { font-size: 12px; color: var(--fg-3); }
+.prc { text-align: left; background: var(--bg); border: 1px solid var(--line); border-radius: 9px; padding: 8px 9px; display: flex; flex-direction: column; gap: 4px; min-width: 0; transition: border-color .15s; }
+.prc:hover { border-color: var(--line-2); }
+.prc .t { font-size: 12px; color: var(--fg); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.35; }
+.prc .m { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--fg-3); }
+.prc .m .n { font-family: var(--mono); }
+.prc .m .age { margin-left: auto; font-family: var(--mono); }
+.prc .m .age.stale { color: var(--peach); }
+.prc.bad { border-color: color-mix(in srgb, var(--red) 40%, var(--line)); }
+.prc .why { font-size: 11px; color: var(--red); }
+.checks { display: flex; gap: 2px; }
+.checks i { width: 6px; height: 6px; border-radius: 1.5px; background: var(--fg-4); }
+.checks i.ok { background: var(--green); } .checks i.run { background: var(--yellow); } .checks i.bad { background: var(--red); }
+@media (max-width: 600px) { .pipe { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Up next */
+.list { padding: 8px 8px 10px; display: flex; flex-direction: column; }
+.li { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 9px; background: none; border: 0; text-align: left; width: 100%; min-width: 0; color: var(--fg-2); }
+.li:hover { background: var(--panel-2); }
+.prio { display: inline-flex; gap: 1.5px; align-items: flex-end; height: 12px; flex: none; width: 14px; }
+.prio i { width: 3px; border-radius: 1px; background: var(--fg-4); }
+.prio i:nth-child(1) { height: 5px; } .prio i:nth-child(2) { height: 8px; } .prio i:nth-child(3) { height: 12px; }
+.prio.p3 i:nth-child(-n+3), .prio.p2 i:nth-child(-n+2), .prio.p1 i:nth-child(1) { background: var(--fg-2); }
+.prio.urgent { width: 14px; height: 14px; border-radius: 3px; background: var(--peach); color: var(--panel); font-size: 10px; font-weight: 700; align-items: center; justify-content: center; }
+.li .body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.li .t { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.li .s { font-size: 11.5px; color: var(--fg-3); display: flex; gap: 8px; }
+.li .s .id { font-family: var(--mono); }
+.li .go { opacity: 0; font-size: 12px; color: var(--fg); white-space: nowrap; transition: opacity .15s; }
+.li:hover .go, .li:focus-visible .go { opacity: 1; }
+.tag { font-size: 10.5px; padding: 1px 6px; border-radius: 5px; color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
+
+/* Projects */
+.projects { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.pt { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.pt-h { display: flex; align-items: center; gap: 8px; }
+.pt-h .sw { width: 10px; height: 10px; border-radius: 3px; background: var(--pc); }
+.pt-h b { color: var(--fg); font-weight: 600; }
+.pt-h .host { margin-left: auto; font-size: 11.5px; color: var(--fg-3); display: inline-flex; align-items: center; gap: 5px; }
+.pt-h .host i { width: 6px; height: 6px; border-radius: 50%; background: var(--c); }
+.wsbar { display: flex; gap: 3px; }
+.wsbar i { flex: 1; height: 18px; border-radius: 3px; background: var(--c, var(--panel-2)); opacity: .9; }
+.pt-f { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--fg-3); gap: 8px; flex-wrap: wrap; }
+.pt-f .port { font-family: var(--mono); color: var(--teal); }
+.note { font-size: 11.5px; color: var(--fg-3); text-align: center; max-width: 70ch; margin: 4px auto 0; }
+
+/* ── Style switcher ── */
+.switcher { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 0; background: var(--bg); border-bottom: 1px solid var(--line); }
+.switcher .lbl { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-3); }
+.styleseg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 9px; background: var(--panel-2); }
+.styleseg button { border: 0; background: none; padding: 5px 12px; border-radius: 7px; font-size: 12.5px; color: var(--fg-3); }
+.styleseg button[aria-pressed="true"] { background: var(--panel); color: var(--fg); box-shadow: 0 1px 2px #0003; }
+.switcher .desc { font-size: 12.5px; color: var(--fg-3); flex: 1 1 280px; min-width: 0; }
+
+/* ════ CALM: no boxes, hairlines, air, light numerals ════ */
+body[data-style="calm"] {
+  --bg: #1c1c29; --panel: transparent; --panel-2: #26263a; --line: #cdd6f412; --line-2: #cdd6f422;
+  --fg: #e3e7f7; --fg-2: #cdd6f4a6; --fg-3: #cdd6f466; --fg-4: #cdd6f429;
+  --red: #e79bb0; --yellow: #e8d5a8; --green: #a9d4a4; --cyan: #9ccfdb; --accent: #9db8ec; --mauve: #c2aee6; --teal: #9fd3ca; --peach: #e9b494;
+  --shadow: none; --font: "Instrument Sans", -apple-system, system-ui, sans-serif;
+}
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) body[data-style="calm"] {
+  --bg: #f7f7f9; --panel-2: #ececf1; --line: #1b1d2a14; --line-2: #1b1d2a24;
+  --fg: #1b1d2a; --fg-2: #1b1d2aa6; --fg-3: #1b1d2a73; --fg-4: #1b1d2a26;
+  --red: #c4375a; --yellow: #b07a1c; --green: #3f8a3a; --cyan: #1f86a8; --accent: #3a64c9; --mauve: #7a4cc2; --teal: #1d8378; --peach: #c65f24;
+} }
+:root[data-theme="light"] body[data-style="calm"] {
+  --bg: #f7f7f9; --panel-2: #ececf1; --line: #1b1d2a14; --line-2: #1b1d2a24;
+  --fg: #1b1d2a; --fg-2: #1b1d2aa6; --fg-3: #1b1d2a73; --fg-4: #1b1d2a26;
+  --red: #c4375a; --yellow: #b07a1c; --green: #3f8a3a; --cyan: #1f86a8; --accent: #3a64c9; --mauve: #7a4cc2; --teal: #1d8378; --peach: #c65f24;
+}
+body[data-style="calm"] .wrap { gap: 44px; max-width: 1080px; }
+body[data-style="calm"] .panel { border: 0; border-radius: 0; border-top: 1px solid var(--line-2); }
+body[data-style="calm"] .ph { padding: 18px 0 0; }
+body[data-style="calm"] .ph h2 { font-size: 12px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; color: var(--fg-3); }
+body[data-style="calm"] .top h1 { font-size: 34px; font-weight: 400; letter-spacing: -.025em; max-width: 24ch; line-height: 1.15; }
+body[data-style="calm"] .top h1 em { color: var(--fg); font-weight: 500; }
+body[data-style="calm"] .stats { gap: 32px; }
+body[data-style="calm"] .stat { padding: 18px 0 0; }
+body[data-style="calm"] .stat .big { font-family: var(--font); font-weight: 300; font-size: 48px; letter-spacing: -.04em; }
+body[data-style="calm"] .stat svg.spark { height: 28px; }
+body[data-style="calm"] .cards { padding: 16px 0 0; gap: 0 32px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+body[data-style="calm"] .card { background: none; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 18px 0; transform: none; }
+body[data-style="calm"] .card:hover { transform: none; }
+body[data-style="calm"] .card h3 { font-size: 16px; }
+body[data-style="calm"] .ctx { background: none; border: 0; border-left: 2px solid var(--c); border-radius: 0; padding: 2px 0 2px 12px; }
+body[data-style="calm"] .card-f .btn.primary { background: var(--fg); color: var(--bg); }
+body[data-style="calm"] .btn { border-radius: 999px; }
+body[data-style="calm"] .more-cards { border: 0; justify-content: flex-start; min-height: 0; padding: 18px 0; }
+body[data-style="calm"] .tl, body[data-style="calm"] .pipe, body[data-style="calm"] .list { padding-inline: 0; }
+body[data-style="calm"] .seg:not(.wait) { height: 4px; top: 4px; }
+body[data-style="calm"] .seg.wait { height: 8px; top: 2px; border-radius: 4px; }
+body[data-style="calm"] .track { background: linear-gradient(var(--line), var(--line)) center / 100% 1px no-repeat; }
+body[data-style="calm"] .tl-row + .tl-row { border-top: 0; }
+body[data-style="calm"] .prc { background: none; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 8px 0; }
+body[data-style="calm"] .stage-h { border-bottom-width: 1px; }
+body[data-style="calm"] .li { padding-inline: 0; border-radius: 0; }
+body[data-style="calm"] .li:hover { background: none; }
+body[data-style="calm"] .li:hover .t { text-decoration: underline; text-underline-offset: 3px; }
+body[data-style="calm"] .projects { gap: 32px; }
+body[data-style="calm"] .pt { padding: 18px 0 0; }
+body[data-style="calm"] .wsbar i { height: 6px; border-radius: 3px; }
+body[data-style="calm"] .alert { background: none; border: 0; border-left: 2px solid var(--yellow); border-radius: 0; }
+
+/* ════ TERMINAL: mono, square, dense, bracketed actions ════ */
+body[data-style="terminal"] {
+  --bg: #11111b; --panel: #11111b; --panel-2: #1b1b29; --line: #cdd6f41c; --line-2: #cdd6f438;
+  --fg: #e6e9f5; --fg-2: #cdd6f4bf; --fg-3: #cdd6f47a; --fg-4: #cdd6f433;
+  --shadow: none; --font: "JetBrains Mono", ui-monospace, Menlo, monospace; --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  font-size: 12.5px; color-scheme: dark;
+}
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) body[data-style="terminal"] {
+  --bg: #f4f4f0; --panel: #f4f4f0; --panel-2: #e7e7e1; --line: #20202a1f; --line-2: #20202a45;
+  --fg: #16161d; --fg-2: #16161dcc; --fg-3: #16161d85; --fg-4: #16161d33; color-scheme: light;
+  --red: #c4203f; --yellow: #a86a00; --green: #2c7a1f; --cyan: #0a7ea4; --accent: #2555c9; --mauve: #7337c9; --teal: #0e7c70; --peach: #c2530f;
+} }
+:root[data-theme="light"] body[data-style="terminal"] {
+  --bg: #f4f4f0; --panel: #f4f4f0; --panel-2: #e7e7e1; --line: #20202a1f; --line-2: #20202a45;
+  --fg: #16161d; --fg-2: #16161dcc; --fg-3: #16161d85; --fg-4: #16161d33; color-scheme: light;
+  --red: #c4203f; --yellow: #a86a00; --green: #2c7a1f; --cyan: #0a7ea4; --accent: #2555c9; --mauve: #7337c9; --teal: #0e7c70; --peach: #c2530f;
+}
+body[data-style="terminal"] .wrap { gap: 12px; }
+body[data-style="terminal"] .grid, body[data-style="terminal"] .projects { gap: 12px; }
+body[data-style="terminal"] *, body[data-style="terminal"] *::before { border-radius: 0 !important; }
+body[data-style="terminal"] .panel { border: 1px solid var(--line-2); }
+body[data-style="terminal"] .ph { padding: 0; border-bottom: 1px solid var(--line-2); background: var(--panel-2); }
+body[data-style="terminal"] .ph h2 { font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; padding: 6px 10px; }
+body[data-style="terminal"] .ph h2::before { content: "▍"; color: var(--accent); }
+body[data-style="terminal"] .ph .right { padding-right: 10px; }
+body[data-style="terminal"] .top h1 { font-size: 18px; font-weight: 500; letter-spacing: 0; }
+body[data-style="terminal"] .top h1::before { content: "$ "; color: var(--green); }
+body[data-style="terminal"] .top .date::before { content: "# "; }
+body[data-style="terminal"] .stat { padding: 10px 12px 8px; }
+body[data-style="terminal"] .stat .big { font-size: 28px; font-weight: 700; letter-spacing: -.02em; color: var(--c); }
+body[data-style="terminal"] .stat .label { text-transform: uppercase; font-size: 10.5px; letter-spacing: .06em; }
+body[data-style="terminal"] .stat .label i { display: none; }
+body[data-style="terminal"] .stat svg.spark { height: 26px; }
+body[data-style="terminal"] .cards { padding: 10px; gap: 10px; }
+body[data-style="terminal"] .card { background: var(--panel); border: 1px solid var(--line-2); border-left: 3px solid var(--c); padding: 10px 12px; gap: 8px; }
+body[data-style="terminal"] .card:hover { transform: none; background: var(--panel-2); }
+body[data-style="terminal"] .card h3 { font-size: 13px; }
+body[data-style="terminal"] .ctx { background: var(--panel-2); border: 0; }
+body[data-style="terminal"] .btn { border: 0; background: none; padding: 3px 4px; color: var(--fg-2); }
+body[data-style="terminal"] .btn::before { content: "["; color: var(--fg-3); margin-right: 2px; }
+body[data-style="terminal"] .btn::after { content: "]"; color: var(--fg-3); margin-left: 2px; }
+body[data-style="terminal"] .btn:hover { color: var(--fg); background: var(--panel-2); }
+body[data-style="terminal"] .btn.primary, body[data-style="terminal"] .card-f .btn.primary { background: none; color: var(--c, var(--green)); font-weight: 700; }
+body[data-style="terminal"] .top .btn.primary { --c: var(--green); }
+body[data-style="terminal"] .tl { padding: 8px 10px 10px; }
+body[data-style="terminal"] .tl-row { height: 24px; }
+body[data-style="terminal"] .track { background: repeating-linear-gradient(90deg, var(--fg-4) 0 1px, transparent 1px 8px) center / 100% 1px no-repeat; }
+body[data-style="terminal"] .seg { top: 1px; height: 10px; }
+body[data-style="terminal"] .seg.wait { top: 0; height: 12px; }
+body[data-style="terminal"] .seg.live::after { display: none; }
+body[data-style="terminal"] .mark { border-radius: 50% !important; }
+body[data-style="terminal"] .pipe { padding: 10px; gap: 10px; }
+body[data-style="terminal"] .stage-h { border-bottom-width: 1px; }
+body[data-style="terminal"] .stage-h b { color: var(--c); font-size: 16px; }
+body[data-style="terminal"] .stage-h b::before { content: "("; color: var(--fg-3); font-weight: 400; } 
+body[data-style="terminal"] .stage-h b::after { content: ")"; color: var(--fg-3); font-weight: 400; }
+body[data-style="terminal"] .prc { background: none; border: 0; border-bottom: 1px dashed var(--line-2); padding: 6px 2px; }
+body[data-style="terminal"] .prc.bad { border-left: 2px solid var(--red); padding-left: 6px; }
+body[data-style="terminal"] .list { padding: 4px; }
+body[data-style="terminal"] .li { padding: 6px; }
+body[data-style="terminal"] .li:hover .go { opacity: 1; }
+body[data-style="terminal"] .go::before { content: "↵ "; }
+body[data-style="terminal"] .pt { padding: 10px 12px; }
+body[data-style="terminal"] .wsbar { gap: 1px; }
+body[data-style="terminal"] .wsbar i { height: 12px; }
+body[data-style="terminal"] .alert { border: 1px solid var(--yellow); background: none; }
+body[data-style="terminal"] .alert::before { content: "WARN"; font-weight: 700; color: var(--yellow); }
+body[data-style="terminal"] .alert svg { display: none; }
+
+/* ════ MISSION: ops-room, condensed numerals, glow on live state (dark only, by design) ════ */
+body[data-style="mission"] {
+  --bg: #0a0e1a; --panel: #0f1526; --panel-2: #161e36; --line: #7aa2ff1a; --line-2: #7aa2ff33;
+  --fg: #e8eeff; --fg-2: #c3cdeabf; --fg-3: #8d9ac3; --fg-4: #8d9ac344;
+  --red: #ff6b8b; --yellow: #ffcf6b; --green: #5ef0a0; --cyan: #5fd8ff; --accent: #7aa2ff; --mauve: #b99bff; --teal: #4fe0c9; --peach: #ff9f6b;
+  --shadow: 0 0 0 1px #7aa2ff0f, 0 20px 40px -24px #000;
+  --font: "Barlow", -apple-system, system-ui, sans-serif; --display: "Barlow Condensed", "Barlow", system-ui, sans-serif;
+  color-scheme: dark;
+  background-image: linear-gradient(#7aa2ff08 1px, transparent 1px), linear-gradient(90deg, #7aa2ff08 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+body[data-style="mission"] .switcher { background: #0a0e1aee; backdrop-filter: blur(6px); }
+body[data-style="mission"] .panel { border: 1px solid var(--line); border-radius: 6px; position: relative; }
+body[data-style="mission"] .panel::before { content: ""; position: absolute; left: 12px; right: 12px; top: -1px; height: 1px; background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity: .5; }
+body[data-style="mission"] .stat.panel::before { background: linear-gradient(90deg, transparent, var(--c), transparent); opacity: .9; }
+body[data-style="mission"] .ph h2 { font-family: var(--display); font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: .14em; color: var(--fg-3); }
+body[data-style="mission"] .top h1 { font-family: var(--display); font-weight: 500; font-size: 32px; letter-spacing: .01em; text-transform: uppercase; line-height: 1.1; }
+body[data-style="mission"] .top h1 em { text-shadow: 0 0 18px color-mix(in srgb, var(--red) 55%, transparent); }
+body[data-style="mission"] .top .date { font-family: var(--mono); }
+body[data-style="mission"] .stat .big { font-family: var(--display); font-weight: 600; font-size: 56px; letter-spacing: 0; color: var(--c); text-shadow: 0 0 24px color-mix(in srgb, var(--c) 45%, transparent); line-height: 1; }
+body[data-style="mission"] .stat .big small { font-family: var(--font); color: var(--fg-3); text-shadow: none; }
+body[data-style="mission"] .stat .label { font-family: var(--display); text-transform: uppercase; letter-spacing: .14em; font-size: 12px; }
+body[data-style="mission"] .stat svg.spark path:last-of-type { filter: drop-shadow(0 0 4px var(--c)); }
+body[data-style="mission"] .btn { border-radius: 4px; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; font-weight: 600; }
+body[data-style="mission"] .btn.primary { background: var(--accent); color: #0a0e1a; box-shadow: 0 0 18px -4px var(--accent); }
+body[data-style="mission"] .card-f .btn.primary { box-shadow: 0 0 18px -4px var(--c); }
+body[data-style="mission"] .card { border-radius: 6px; background: linear-gradient(180deg, color-mix(in srgb, var(--c) 9%, var(--panel)), var(--panel)); }
+body[data-style="mission"] .kind { font-family: var(--display); font-size: 12.5px; letter-spacing: .14em; }
+body[data-style="mission"] .ctx { background: #060913; border-color: var(--line); }
+body[data-style="mission"] .seg:not(.wait) { box-shadow: 0 0 8px -1px var(--c); }
+body[data-style="mission"] .seg.wait { box-shadow: 0 0 12px 0 color-mix(in srgb, var(--red) 70%, transparent); }
+body[data-style="mission"] .track { background: repeating-linear-gradient(90deg, var(--line-2) 0 1px, transparent 1px calc(100% / 12)); }
+body[data-style="mission"] .stage-h b { font-family: var(--display); font-size: 28px; color: var(--c); }
+body[data-style="mission"] .stage-h span { font-family: var(--display); text-transform: uppercase; letter-spacing: .12em; }
+body[data-style="mission"] .prc { background: #0b1122; border-radius: 4px; }
+body[data-style="mission"] .alert { border-radius: 4px; background: color-mix(in srgb, var(--yellow) 8%, #0a0e1a); }
+body[data-style="mission"] .pt-h b { font-family: var(--display); font-size: 16px; text-transform: uppercase; letter-spacing: .1em; }
+body[data-style="mission"] .wsbar i[style] { box-shadow: 0 0 8px -2px var(--c); }
+body[data-style="mission"] .styleseg button[aria-pressed="true"] { background: var(--accent); color: #0a0e1a; }
+</style>
+
+<div class="wrap">
+  <div class="switcher">
+    <span class="lbl">Style</span>
+    <span class="styleseg" id="styles">
+      <button id="s-studio" data-v="studio" aria-pressed="true">Studio</button>
+      <button id="s-calm" data-v="calm" aria-pressed="false">Calm</button>
+      <button id="s-terminal" data-v="terminal" aria-pressed="false">Terminal</button>
+      <button id="s-mission" data-v="mission" aria-pressed="false">Mission</button>
+    </span>
+    <span class="desc" id="style-desc"></span>
+  </div>
+  <header class="top">
+    <div>
+      <div class="date">Tuesday, 29 September</div>
+      <h1><em>3 things need you.</em> 3 agents are working and 5 PRs are with reviewers.</h1>
+    </div>
+    <div class="actions">
+      <button class="btn" id="b-issue">Start from issue <kbd>⌘I</kbd></button>
+      <button class="btn primary" id="b-new">New workspace <kbd>⌘N</kbd></button>
+    </div>
+  </header>
+
+  <div class="alert" role="status">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3Z"/><path d="M12 9v4M12 17h.01"/></svg>
+    <span><b>devbox</b> went offline 7 minutes ago. Status for 4 api workspaces may be out of date.</span>
+    <button class="linkbtn" id="b-reconnect">Reconnect</button>
+  </div>
+
+  <section class="grid stats" id="stats"></section>
+
+  <section class="panel">
+    <div class="ph"><h2>Needs you</h2><span class="sub">Oldest first within each kind</span><div class="right"><span>median wait <b class="num" style="color:var(--fg)">1m 40s</b> today</span></div></div>
+    <div class="cards" id="cards"></div>
+  </section>
+
+  <section class="panel">
+    <div class="ph"><h2>Agent activity</h2><span class="sub">Last 3 hours</span>
+      <div class="right legend">
+        <span style="--c:var(--green)"><i></i>Working</span><span style="--c:var(--accent)"><i></i>Thinking</span><span style="--c:var(--red)"><i></i>Waiting on you</span><span style="--c:var(--cyan)"><i></i>Finished</span>
+      </div></div>
+    <div class="tl" id="tl"></div>
+  </section>
+
+  <div class="grid">
+    <section class="panel span-7">
+      <div class="ph"><h2>Pull requests</h2><span class="sub">11 open across 3 projects</span><div class="right"><button class="linkbtn" id="b-prs">All PRs →</button></div></div>
+      <div class="pipe" id="pipe"></div>
+    </section>
+    <section class="panel span-5">
+      <div class="ph"><h2>Up next</h2><span class="sub">Assigned to you, no workspace yet</span><div class="right"><button class="linkbtn" id="b-upnext">View all 14 →</button></div></div>
+      <div class="list" id="upnext"></div>
+    </section>
+  </div>
+
+  <section class="projects" id="projects"></section>
+
+  <p class="note">Mockup. PRs #16570, #16576, #16587 and #16606 are from your screenshot (the end of #16570's title is a guess). All agents, issues, the manor and api projects, times and counts are sample data.</p>
+</div>
+
+<script>
+const ICON = {
+  bot: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg>',
+  pr: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7M6 9v12"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>'
+};
+const PROJ = { web: 'var(--yellow)', manor: 'var(--mauve)', api: 'var(--teal)' };
+const proj = p => `<span class="proj" style="--pc:${PROJ[p]}">${p}</span>`;
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+/* ── Stat tiles ── */
+function spark(values, color, { bars = false, h = 38 } = {}) {
+  const w = 200, max = Math.max(...values), n = values.length;
+  if (bars) {
+    const bw = w / n;
+    return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${values.map((v, i) =>
+      `<rect x="${i * bw + 2}" y="${h - (v / max) * (h - 2)}" width="${bw - 4}" height="${(v / max) * (h - 2)}" rx="2" fill="${color}" opacity="${i === n - 1 ? 1 : .45}"/>`).join('')}</svg>`;
+  }
+  const pts = values.map((v, i) => [i * (w / (n - 1)), h - 3 - (v / max) * (h - 8)]);
+  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join('');
+  const [lx, ly] = pts[pts.length - 1];
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <path d="${line}L${w},${h}L0,${h}Z" fill="${color}" opacity=".13"/>
+    <path d="${line}" fill="none" stroke="${color}" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+    <circle cx="${lx}" cy="${ly}" r="3" fill="${color}"/></svg>`;
+}
+const stages = [['Checks', 2, 'var(--yellow)'], ['Review', 5, 'var(--fg-4)'], ['Blocked', 2, 'var(--red)'], ['Ready', 2, 'var(--green)']];
+document.getElementById('stats').innerHTML = [
+  `<div class="panel stat span-3" style="--c:var(--red)"><div class="label"><i></i>Waiting on you</div><div class="big">3<small>+ 3 PRs to act on</small></div>
+    <div class="foot">Longest: <b>12m</b> · manor agent errored</div>${spark([0,1,0,2,1,0,1,3,2,1,2,3], 'var(--red)')}</div>`,
+  `<div class="panel stat span-3" style="--c:var(--green)"><div class="label"><i></i>Agents working</div><div class="big">3<small>of 6 today</small></div>
+    <div class="foot"><b>4h 12m</b> of agent time today</div>${spark([1,2,2,3,4,3,2,3,5,4,3,3], 'var(--green)')}</div>`,
+  `<div class="panel stat span-3" style="--c:var(--accent)"><div class="label"><i></i>Open PRs</div><div class="big">11<small>oldest 2d</small></div>
+    <div class="stages">${stages.map(([, n, c]) => `<span style="flex:${n};--c:${c}"></span>`).join('')}</div>
+    <div class="legend">${stages.map(([l, n, c]) => `<span style="--c:${c}"><i></i>${l} ${n}</span>`).join('')}</div></div>`,
+  `<div class="panel stat span-3" style="--c:var(--mauve)"><div class="label"><i></i>Merged this week</div><div class="big">5<small>+2 vs last week</small></div>
+    <div class="foot">Mon → today</div>${spark([1,0,2,1,1], 'var(--mauve)', { bars: true })}</div>`
+].join('');
+
+/* ── Needs you cards ── */
+const needs = [
+  { c: 'var(--red)', kind: 'Needs approval', icon: 'bot', p: 'web', when: '4m', title: 'migrate-auth-middleware',
+    ctx: `<span class="dim">Claude wants to run</span><br><span class="q">$ pnpm db:migrate --env staging</span>`,
+    primary: 'Approve', secondary: 'Open agent' },
+  { c: 'var(--red)', kind: 'Agent errored', icon: 'bot', p: 'manor', when: '12m', title: 'home-dashboard-lanes',
+    ctx: `<span class="err">error TS2322</span> <span class="dim">HomeDashboard.tsx:251</span><br>Type 'string' is not assignable to 'OpenPrReadiness'`,
+    primary: 'Open agent', secondary: 'Retry' },
+  { c: 'var(--yellow)', kind: 'Check failing', icon: 'pr', p: 'api', when: '25m', title: '#91 Retry webhook deliveries with backoff',
+    ctx: `<span class="err">✕ integration / postgres</span><br><span class="dim">6 passed · 1 failed · 0 running</span>`,
+    primary: 'Fix with agent', secondary: 'View log' },
+  { c: 'var(--cyan)', kind: 'Finished', icon: 'bot', p: 'api', when: '8m', title: 'rate-limit-headers',
+    ctx: `<span style="color:var(--green)">+142</span> <span style="color:var(--red)">−38</span> <span class="dim">across 6 files</span><div class="diffbar">${'<i class="a"></i>'.repeat(7)}${'<i class="d"></i>'.repeat(2)}<i></i></div>`,
+    primary: 'Review diff', secondary: 'Open PR' },
+  { c: 'var(--green)', kind: 'Ready to merge', icon: 'pr', p: 'manor', when: '2h', title: '#409 Open PRs widget keeps room for the title',
+    ctx: `<span style="color:var(--green)">✓ Approved</span> <span class="dim">by a reviewer</span><br><span style="color:var(--green)">✓ 7/7 checks</span> <span class="dim">· no conflicts</span>`,
+    primary: 'Merge', secondary: 'Open PR' }
+];
+document.getElementById('cards').innerHTML = needs.map((n, i) => `
+  <article class="card" style="--c:${n.c}">
+    <div class="card-h"><span class="kind">${ICON[n.icon]}${n.kind}</span>${proj(n.p)}<span class="when num">${n.when}</span></div>
+    <h3>${esc(n.title)}</h3>
+    <div class="ctx">${n.ctx}</div>
+    <div class="card-f"><button class="btn sm primary" id="n${i}-a">${n.primary}</button><button class="btn sm" id="n${i}-b">${n.secondary}</button><button class="btn sm ghost snooze" id="n${i}-s" title="Snooze for 1 hour">Snooze</button></div>
+  </article>`).join('') + `<button class="more-cards" id="n-more">+1 more · #412 waiting on your reply</button>`;
+
+/* ── Agent timeline (minutes ago; window = 180) ── */
+const SPAN = 180;
+const C = { w: 'var(--green)', t: 'var(--accent)', x: 'var(--red)', f: 'var(--cyan)' };
+const agents = [
+  { p: 'web', name: 'migrate-auth-middleware', state: ['Waiting', 'var(--red)'], segs: [['w', 150, 95], ['t', 95, 80], ['w', 80, 4], ['x', 4, 0, 'wait live']] },
+  { p: 'web', name: 'tan-21672-saved-fix-branch', state: ['18m', 'var(--green)'], segs: [['t', 25, 18], ['w', 18, 0, 'live']] },
+  { p: 'api', name: 'retry-queue', state: ['41m', 'var(--green)'], segs: [['w', 172, 131], ['w', 41, 0, 'live']], marks: [[131, 'f']] },
+  { p: 'api', name: 'rate-limit-headers', state: ['Done', 'var(--cyan)'], segs: [['w', 90, 52], ['x', 52, 50, 'wait'], ['w', 50, 8]], marks: [[8, 'f']] },
+  { p: 'manor', name: 'home-dashboard-queue', state: ['3m', 'var(--accent)'], segs: [['w', 62, 46], ['x', 46, 44, 'wait'], ['w', 44, 30], ['t', 3, 0, 'live']] },
+  { p: 'manor', name: 'home-dashboard-lanes', state: ['Error', 'var(--red)'], segs: [['w', 120, 40], ['t', 40, 31], ['w', 31, 12]], marks: [[12, 'x', 'err']] }
+];
+const pct = m => ((SPAN - m) / SPAN * 100).toFixed(2) + '%';
+document.getElementById('tl').innerHTML = agents.map(a => `
+  <div class="tl-row">
+    <div class="tl-name">${proj(a.p)}<span>${a.name}</span></div>
+    <div class="track">${a.segs.map(([k, from, to, cls]) => `<span class="seg ${cls || ''}" style="--c:${C[k]};left:${pct(from)};width:${((from - to) / SPAN * 100).toFixed(2)}%" title="${{ w: 'Working', t: 'Thinking', x: 'Waiting on you', f: 'Finished' }[k]} · ${from}m → ${to ? to + 'm ago' : 'now'}"></span>`).join('')}
+      ${(a.marks || []).map(([m, k, cls]) => `<span class="mark ${cls || ''}" style="--c:${C[k]};left:${pct(m)}" title="${cls ? 'Errored' : 'Finished'} ${m}m ago"></span>`).join('')}</div>
+    <div class="tl-state" style="--c:${a.state[1]}">${a.state[0]}</div>
+  </div>`).join('') + `<div class="axis"><span></span><div class="ticks"><span>3h ago</span><span>2h 30</span><span>2h</span><span>1h 30</span><span>1h</span><span>30m</span><span>now</span></div><span></span></div>`;
+
+/* ── PR pipeline ── */
+const ck = arr => `<span class="checks">${arr.map(v => `<i class="${['', 'ok', 'run', 'bad'][v]}"></i>`).join('')}</span>`;
+const pipe = [
+  ['Checks running', 'var(--yellow)', [
+    { n: 16606, t: 'fix(services/content): keep saved state when switching branches', p: 'web', age: '6m', checks: [1,1,1,1,2,2,0] },
+    { n: 88, t: 'Bump undici to 6.21', p: 'api', age: '14m', checks: [1,1,2,2,0] }]],
+  ['In review', 'var(--fg-4)', [
+    { n: 16587, t: '[apps/aura] Redirect logged-out users to sign in when they open an authenticated page', p: 'web', age: '2d', stale: true },
+    { n: 16570, t: 'fix(services/identity): partial update for automation start date', p: 'web', age: '1d', stale: true },
+    { n: 16576, t: "[apps/aura] Set a workspace's automation start date to today in one click", p: 'web', age: '5h' }], '+2 more'],
+  ['Blocked', 'var(--red)', [
+    { n: 91, t: 'Retry webhook deliveries with backoff', p: 'api', age: '25m', bad: '1 check failing' },
+    { n: 412, t: 'Home: Up next per project', p: 'manor', age: '1h', bad: 'Your reply' }]],
+  ['Ready', 'var(--green)', [
+    { n: 409, t: 'Open PRs widget keeps room for the title', p: 'manor', age: '2h', ok: true },
+    { n: 407, t: 'Workspace folders: drag to reorder', p: 'manor', age: '9m', ok: true, queued: true }]]
+];
+document.getElementById('pipe').innerHTML = pipe.map(([label, c, prs, more]) => `
+  <div class="stage" style="--c:${c}">
+    <div class="stage-h"><b>${prs.length + (more ? 2 : 0)}</b><span>${label}</span></div>
+    ${prs.map(pr => `<button class="prc${pr.bad ? ' bad' : ''}" id="pr-${pr.n}">
+      <span class="t">${esc(pr.t)}</span>
+      ${pr.bad ? `<span class="why">${pr.bad}</span>` : ''}
+      <span class="m"><span class="n">#${pr.n}</span>${proj(pr.p)}${pr.checks ? ck(pr.checks) : ''}${pr.queued ? '<span style="color:var(--accent)">queued</span>' : ''}<span class="age${pr.stale ? ' stale' : ''}">${pr.age}</span></span>
+    </button>`).join('')}
+    ${more ? `<button class="linkbtn" style="text-align:left;padding:2px">${more}</button>` : ''}
+  </div>`).join('');
+
+/* ── Up next ── */
+const up = [
+  { id: 'TAN-21701', t: 'Aura: empty state for automations list', p: 'web', prio: 'urgent' },
+  { id: '#431', t: 'Snooze finished agents from Home', p: 'manor', prio: 'p3', tag: 'ready-for-agent' },
+  { id: 'API-77', t: 'Expose per-tenant rate limit in headers', p: 'api', prio: 'p3' },
+  { id: '#428', t: 'Dev server port chip on workspace rows', p: 'manor', prio: 'p2' },
+  { id: 'TAN-21688', t: 'Content: autosave indicator flickers on slow networks', p: 'web', prio: 'p1' }
+];
+document.getElementById('upnext').innerHTML = up.map((u, i) => `
+  <button class="li" id="up-${i}">
+    ${u.prio === 'urgent' ? '<span class="prio urgent">!</span>' : `<span class="prio ${u.prio}"><i></i><i></i><i></i></span>`}
+    <span class="body"><span class="t">${esc(u.t)}</span><span class="s"><span class="id">${u.id}</span>${proj(u.p)}${u.tag ? `<span class="tag">${u.tag}</span>` : ''}</span></span>
+    <span class="go">Start agent →</span>
+  </button>`).join('');
+
+/* ── Projects ── */
+const W = { r: 'var(--red)', y: 'var(--yellow)', g: 'var(--green)', b: 'var(--accent)', c: 'var(--cyan)', n: null };
+const projects = [
+  { p: 'web', host: ['local', 'var(--green)'], ws: 'rgynnnnnn', port: ':3000 aura', diff: ['+1.2k', '−310'] },
+  { p: 'manor', host: ['local', 'var(--green)'], ws: 'rbggnn', port: ':5173 vite', diff: ['+486', '−121'] },
+  { p: 'api', host: ['devbox · offline', 'var(--yellow)'], ws: 'ycgn', port: '—', diff: ['+142', '−38'] }
+];
+document.getElementById('projects').innerHTML = projects.map(pr => `
+  <article class="panel pt" style="--pc:${PROJ[pr.p]}">
+    <div class="pt-h"><span class="sw"></span><b>${pr.p}</b><span class="host" style="--c:${pr.host[1]}"><i></i>${pr.host[0]}</span></div>
+    <div class="wsbar" title="One block per workspace, coloured by its most urgent state">${[...pr.ws].map(k => `<i${W[k] ? ` style="--c:${W[k]}"` : ''}></i>`).join('')}</div>
+    <div class="pt-f"><span>${pr.ws.length} workspaces · <span class="num" style="color:var(--green)">${pr.diff[0]}</span> <span class="num" style="color:var(--red)">${pr.diff[1]}</span></span><span class="port">${pr.port}</span></div>
+  </article>`).join('');
+
+/* ── Style switcher ── */
+const DESC = {
+  studio: 'Soft panels in Manor’s own palette. The version you liked.',
+  calm: 'No boxes. Hairlines, more space and light numerals. Colour only where something needs you.',
+  terminal: 'Monospace, square and dense. Bracketed actions, like a TUI inside Manor.',
+  mission: 'Ops-room look: condensed numerals and glowing live state. Dark only, on purpose.'
+};
+function setStyle(v) {
+  if (!DESC[v]) v = 'studio';
+  if (v === 'studio') delete document.body.dataset.style; else document.body.dataset.style = v;
+  document.querySelectorAll('#styles button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === v));
+  document.getElementById('style-desc').textContent = DESC[v];
+  try { localStorage.setItem('manor-home-style', v); } catch (e) {}
+}
+document.getElementById('styles').addEventListener('click', e => { const v = e.target.closest('button')?.dataset.v; if (v) setStyle(v); });
+let saved = 'studio'; try { saved = localStorage.getItem('manor-home-style') || 'studio'; } catch (e) {}
+setStyle(location.hash.slice(1) || saved);
+</script>

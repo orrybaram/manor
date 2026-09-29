@@ -401,7 +401,7 @@ function App() {
   const hasTabs = (ws?.tabs.length ?? 0) > 0;
   // With zero projects the overview is also the onboarding screen (ADR-194 §3).
   const showProjectsOverview = projectsOverviewShown || !hasProjects;
-  // The Tasks view (ADR-197) covers the workspace the same way.
+  // The Tasks view (ADR-198) covers the workspace the same way.
   const showTasksView = tasksViewShown && hasProjects;
 
   // Keep the prewarmed session in sync with the active workspace.

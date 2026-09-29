@@ -101,7 +101,7 @@ describe("activeSurface (ADR-194)", () => {
   });
 });
 
-describe("showTasksView (ADR-197)", () => {
+describe("showTasksView (ADR-198)", () => {
   beforeEach(() => seedOverview());
 
   it("shows the tasks surface and keeps the workspace active", () => {

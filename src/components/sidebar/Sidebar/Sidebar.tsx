@@ -58,7 +58,7 @@ export function Sidebar(props: SidebarProps) {
   const projectsActive = useAppStore((s) => s.activeSurface === "projects");
   const showTasksView = useAppStore((s) => s.showTasksView);
   const tasksActive = useAppStore((s) => s.activeSurface === "tasks");
-  // While the Projects overview (ADR-194) or Tasks view (ADR-197) is shown
+  // While the Projects overview (ADR-194) or Tasks view (ADR-198) is shown
   // neither Home nor any project is the current row; `homeActive` also gates
   // project selection.
   const homeActive =

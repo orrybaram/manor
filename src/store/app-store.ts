@@ -300,7 +300,7 @@ export interface AppState {
 
   /** Show the Projects overview surface (ADR-194). */
   showProjectsOverview: () => void;
-  /** Show the Tasks view (ADR-197); like the overview, leaves the workspace alone. */
+  /** Show the Tasks view (ADR-198); like the overview, leaves the workspace alone. */
   showTasksView: () => void;
 
   /**

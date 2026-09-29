@@ -95,7 +95,7 @@ export function GitHubIssuesView(props: GitHubIssuesViewProps) {
           className={`${styles.filterToggle} ${myIssues ? styles.filterToggleActive : ""}`}
           onClick={() => setMyIssues((v) => !v)}
         >
-          My Issues
+          My Tasks
         </button>
 
         <div
@@ -135,7 +135,7 @@ export function GitHubIssuesView(props: GitHubIssuesViewProps) {
       {isLoading ? (
         <IssueListSkeleton />
       ) : isEmpty ? (
-        <div className={styles.empty}>No issues found</div>
+        <div className={styles.empty}>No tasks found</div>
       ) : (
         <Command.Group className={styles.group}>
           {issues.map((issue) => (

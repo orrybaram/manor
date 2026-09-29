@@ -244,16 +244,7 @@ export function createMenuHandlers(
 
     // ── View ──────────────────────────────────────────────────────────────
     notifications: () => requestUi({ type: "open-notifications" }),
-    "your-issues": () => {
-      // Linear when the active project is linked to a team, else GitHub —
-      // the same choice `useIssuesShortcut` makes for the empty states.
-      const { project } = activeWorkspace();
-      const projectStore = useProjectStore.getState();
-      const fallback = projectStore.projects[projectStore.selectedProjectIndex];
-      const linked =
-        ((project ?? fallback)?.linearAssociations?.length ?? 0) > 0;
-      chrome.openPaletteView(linked ? "linear-all" : "github-all");
-    },
+    "your-issues": () => useAppStore.getState().showTasksView(),
     home: () => app().setActiveWorkspace(HOME_PATH),
     processes: () => chrome.openPaletteView("processes"),
     stats: () => chrome.openPaletteView("stats"),

@@ -125,7 +125,7 @@ const PAGE_SECTIONS: {
       {
         id: "integrations-linear",
         label: "Linear",
-        keywords: ["linear", "issues", "tickets", "api key"],
+        keywords: ["linear", "issues", "tasks", "tickets", "api key"],
       },
     ],
   },
@@ -169,7 +169,7 @@ const PROJECT_SECTIONS: SettingsSection[] = [
   {
     id: "project-linear",
     label: "Linear",
-    keywords: ["linear", "team", "issues"],
+    keywords: ["linear", "team", "issues", "tasks"],
   },
   {
     id: "project-host",

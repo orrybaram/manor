@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import House from "lucide-react/dist/esm/icons/house";
+import ListTodo from "lucide-react/dist/esm/icons/list-todo";
 import Search from "lucide-react/dist/esm/icons/search";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import { Button } from "../../ui/Button/Button";
@@ -45,6 +46,8 @@ export function SidebarRail(props: SidebarRailProps) {
   // The Projects overview and the Tasks view (ADR-198) both cover the active
   // workspace, so neither Home nor a project tile reads as current there.
   const projectsActive = useAppStore((s) => s.activeSurface !== "workspace");
+  const tasksActive = useAppStore((s) => s.activeSurface === "tasks");
+  const showTasks = useAppStore((s) => s.showTasksView);
   const homeActive = !projectsActive && isHomePath(activeWorkspacePath);
   const agentCount = useVisibleAgents().length;
 
@@ -106,6 +109,21 @@ export function SidebarRail(props: SidebarRailProps) {
           onKeyDown={(e) => handleSidebarRowKeyDown(e, { activate: goHome })}
         >
           <House size={14} />
+        </Button>
+      </Tooltip>
+      <Tooltip label="Tasks" side="right">
+        <Button
+          variant="ghost"
+          className={`${styles.iconButton} ${tasksActive ? styles.homeActive : ""}`}
+          data-testid="rail-tasks"
+          data-sidebar-row=""
+          tabIndex={-1}
+          aria-label="Tasks"
+          aria-current={tasksActive ? "true" : undefined}
+          onClick={showTasks}
+          onKeyDown={(e) => handleSidebarRowKeyDown(e, { activate: showTasks })}
+        >
+          <ListTodo size={14} />
         </Button>
       </Tooltip>
       {onOpenSearch && (

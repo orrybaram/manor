@@ -90,7 +90,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
   const projects = useProjectStore((s) => s.projects);
   const selectProject = useProjectStore((s) => s.selectProject);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
-  const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
   const agents = useAgentStore((s) => s.agents);
   const unseenRespondedAgentIds = useAgentStore((s) => s.unseenRespondedAgentIds);
@@ -182,9 +181,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
     [queryClient, onNewWorkspace],
   );
 
-  const selectedProject = projects[selectedProjectIndex];
-  const allIssuesView: PaletteView =
-    (selectedProject?.linearAssociations.length ?? 0) > 0 ? "linear-all" : "github-all";
 
   const issuesReady = upNext.total;
   const summaryParts: ReactNode[] = [];
@@ -205,7 +201,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
   if (issuesReady > 0) {
     summaryParts.push(
       <span key="issues">
-        <b>{issuesReady}</b> issue{issuesReady === 1 ? "" : "s"} ready
+        <b>{issuesReady}</b> task{issuesReady === 1 ? "" : "s"} ready
       </span>,
     );
   }
@@ -266,9 +262,9 @@ export function HomeDashboard(props: HomeDashboardProps) {
               <Button
                 variant="link"
                 className={`${shared.sectionLink} ${styles.sectionLink}`}
-                onClick={() => onOpenPaletteView(allIssuesView)}
+                onClick={() => useAppStore.getState().showTasksView()}
               >
-                All issues
+                All tasks
               </Button>
             )}
           </div>

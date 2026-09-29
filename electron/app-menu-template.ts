@@ -195,7 +195,7 @@ export function buildMenuTemplate(
       cmd("focus-next-region", "Focus Next Region"),
       cmd("focus-prev-region", "Focus Previous Region"),
       cmd("notifications", "Notifications"),
-      cmd("your-issues", "Your Issues"),
+      cmd("your-issues", "Your Tasks"),
       SEPARATOR,
       cmd("home", "Home", { type: "checkbox", checked: !!context?.isHome }),
       cmd("processes", "Processes"),

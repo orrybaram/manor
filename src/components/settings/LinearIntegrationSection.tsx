@@ -78,7 +78,7 @@ export function LinearIntegrationSection() {
     <Stack gap="xs">
       <SectionTitle id="integrations-linear">Linear</SectionTitle>
       <div className={styles.sectionDescription}>
-        Connect Linear to sync issues, track project progress, and auto-match
+        Connect Linear to sync tasks, track project progress, and auto-match
         teams to your projects.
       </div>
       {connected ? (

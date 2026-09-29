@@ -204,7 +204,7 @@ export function StatusBar(props: StatusBarProps) {
                     <span>
                       {linkedIssues.length === 1
                         ? linkedIssues[0].identifier
-                        : `${linkedIssues.length} issues`}
+                        : `${linkedIssues.length} tasks`}
                     </span>
                   </button>
                 </LinkedIssuesPopover>

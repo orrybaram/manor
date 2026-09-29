@@ -138,7 +138,7 @@ export function GitHubNudge(props: GitHubNudgeProps) {
               >
                 GitHub CLI
               </Link>{" "}
-              to see your issues here
+              to see your tasks here
             </span>
           )}
         </div>

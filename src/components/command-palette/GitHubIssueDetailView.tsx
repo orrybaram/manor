@@ -100,7 +100,7 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
     } catch (err) {
       addErrorToast(
         `unlink-issue-error-gh-${issueNumber}`,
-        "Failed to unlink issue",
+        "Failed to unlink task",
         err,
       );
       return;
@@ -116,7 +116,7 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
     } catch (err) {
       addErrorToast(
         `close-issue-error-gh-${issueNumber}`,
-        "Failed to close issue",
+        "Failed to close task",
         err,
       );
       return;
@@ -133,7 +133,7 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
       // undoing the close.
       addErrorToast(
         `unlink-after-close-error-gh-${issueNumber}`,
-        "Issue closed, but failed to unlink from workspace",
+        "Task closed, but failed to unlink from workspace",
         err,
       );
       return;
@@ -319,7 +319,7 @@ function GitHubIssueDetailError(props: GitHubIssueDetailErrorProps) {
       </div>
       <div className={styles.detailMain}>
         <Stack gap="sm">
-          <h2 className={styles.detailTitle}>Couldn't load issue #{issueNumber}</h2>
+          <h2 className={styles.detailTitle}>Couldn't load task #{issueNumber}</h2>
           {message && (
             <div className={styles.detailDescription}>{message}</div>
           )}

@@ -116,7 +116,7 @@ export function LinearIssuesView(props: LinearIssuesViewProps) {
           className={`${styles.filterToggle} ${myIssues ? styles.filterToggleActive : ""}`}
           onClick={() => setMyIssues((v) => !v)}
         >
-          My Issues
+          My Tasks
         </button>
 
         <div
@@ -172,7 +172,7 @@ export function LinearIssuesView(props: LinearIssuesViewProps) {
       {isLoading ? (
         <IssueListSkeleton />
       ) : isEmpty ? (
-        <div className={styles.empty}>No issues found</div>
+        <div className={styles.empty}>No tasks found</div>
       ) : (
         <Command.Group className={styles.group}>
           {linearIssues.map((issue) => (

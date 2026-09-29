@@ -167,7 +167,7 @@ function IssueRow(props: IssueRowProps) {
             onSelect={onUnlink}
           >
             <Unlink size={12} />
-            Unlink issue
+            Unlink task
           </ContextMenu.Item>
           <ContextMenu.Item
             className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
@@ -252,7 +252,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
                 message: "Linear token expired",
                 status: "error",
                 detail:
-                  "Update your Linear API key to see issue details.",
+                  "Update your Linear API key to see task details.",
                 action: {
                   label: "Open Settings",
                   onClick: () => {
@@ -300,7 +300,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
       } catch (err) {
         // Revert the optimistic removal — the link still exists on disk.
         revertRemoval(issueId);
-        addErrorToast(`unlink-issue-error-${issueId}`, "Failed to unlink issue", err);
+        addErrorToast(`unlink-issue-error-${issueId}`, "Failed to unlink task", err);
         return;
       }
       useProjectStore.getState().loadProjects();
@@ -318,7 +318,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
       try {
         if (issueId.startsWith("gh-")) {
           const number = parseInt(issueId.replace("gh-", ""), 10);
-          if (!repo) throw new Error("The issue's project no longer exists.");
+          if (!repo) throw new Error("The task's project no longer exists.");
           await window.electronAPI.github.closeIssue(repo, number);
         } else {
           await window.electronAPI.linear.closeIssue(issueId);
@@ -326,7 +326,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
       } catch (err) {
         // Revert the optimistic removal — the issue is still open.
         revertRemoval(issueId);
-        addErrorToast(`close-issue-error-${issueId}`, "Failed to close issue", err);
+        addErrorToast(`close-issue-error-${issueId}`, "Failed to close task", err);
         return;
       }
       try {
@@ -340,7 +340,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
         // just surface that the workspace link is stale.
         addErrorToast(
           `unlink-after-close-error-${issueId}`,
-          "Issue closed, but failed to unlink from workspace",
+          "Task closed, but failed to unlink from workspace",
           err,
         );
         return;
@@ -390,7 +390,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
           >
             <div className={styles.listHeader}>
               <LinkedIssueIcon issues={visibleIssues} size={10} />
-              <span>Linked Issues</span>
+              <span>Linked Tasks</span>
             </div>
             <div className={styles.listScroll}>
               {visibleIssues.map((issue, i) =>
@@ -421,7 +421,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
           <Dialog.Overlay className={styles.dialogOverlay} />
           <Dialog.Content className={styles.dialog}>
             <Dialog.Title className={styles.dialogSrOnly}>
-              Issue Detail
+              Task Detail
             </Dialog.Title>
             {dialogIssueId && (
               selectedIsGitHub ? (

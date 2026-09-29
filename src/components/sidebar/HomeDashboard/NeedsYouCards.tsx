@@ -5,6 +5,7 @@ import { Button } from "../../ui/Button/Button";
 import { NeedsYouCard } from "./NeedsYouCard";
 import { needsYouTitle } from "./needs-you-labels";
 import { Panel } from "./Panel";
+import { useDashboardAnimate } from "./useDashboardAnimate";
 import { useSelectWorkspace } from "./useSelectWorkspace";
 import styles from "./NeedsYouCards.module.css";
 
@@ -23,31 +24,39 @@ export function NeedsYouCards(props: NeedsYouCardsProps) {
   const snooze = useSnoozeStore((s) => s.snooze);
   const selectWorkspace = useSelectWorkspace();
   const [expanded, setExpanded] = useState(false);
+  const animateBody = useDashboardAnimate();
+  const animateCards = useDashboardAnimate();
 
   const shown = expanded ? cards : cards.slice(0, VISIBLE_COUNT);
   const hidden = cards.length - shown.length;
 
   return (
     <Panel title="Needs you">
-      {cards.length === 0 ? (
-        <p className={styles.empty}>Nothing needs you right now.</p>
-      ) : (
-        <div className={styles.cards}>
-          {shown.map((card) => (
-            <NeedsYouCard
-              key={card.key}
-              card={card}
-              onOpenWorkspace={selectWorkspace}
-              onSnooze={(key) => snooze(key)}
-            />
-          ))}
-          {hidden > 0 && (
-            <Button variant="ghost" className={styles.more} onClick={() => setExpanded(true)}>
-              +{hidden} more · {needsYouTitle(cards[VISIBLE_COUNT])}
-            </Button>
-          )}
-        </div>
-      )}
+      <div ref={animateBody}>
+        {cards.length === 0 ? (
+          <p className={styles.empty}>Nothing needs you right now.</p>
+        ) : (
+          <div ref={animateCards} className={styles.cards}>
+            {shown.map((card) => (
+              <NeedsYouCard
+                key={card.key}
+                card={card}
+                onOpenWorkspace={selectWorkspace}
+                onSnooze={(key) => snooze(key)}
+              />
+            ))}
+            {hidden > 0 && (
+              <Button
+                variant="ghost"
+                className={styles.more}
+                onClick={() => setExpanded(true)}
+              >
+                +{hidden} more · {needsYouTitle(cards[VISIBLE_COUNT])}
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
     </Panel>
   );
 }

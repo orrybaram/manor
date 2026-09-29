@@ -6,6 +6,7 @@ import { Panel } from "./Panel";
 import { PriorityGlyph } from "./PriorityGlyph";
 import { useStartUpNextIssue } from "./useStartUpNextIssue";
 import { useUpNextIssues } from "./useUpNextIssues";
+import { useDashboardAnimate } from "./useDashboardAnimate";
 import styles from "./UpNextPanel.module.css";
 
 const VISIBLE_ROWS = 5;
@@ -29,6 +30,7 @@ export function UpNextPanel(props: UpNextPanelProps) {
   const startIssue = useStartUpNextIssue(onNewWorkspace);
 
   const rows = all.slice(0, VISIBLE_ROWS);
+  const animate = useDashboardAnimate();
 
   return (
     <Panel
@@ -43,13 +45,15 @@ export function UpNextPanel(props: UpNextPanelProps) {
         ) : undefined
       }
     >
-      <div className={styles.list}>
+      <div ref={animate} className={styles.list}>
         {loading && rows.length === 0 ? (
           Array.from({ length: SKELETON_ROWS }, (_, i) => (
             <div key={i} className={styles.skeleton} aria-hidden="true" />
           ))
         ) : rows.length === 0 ? (
-          <p className={styles.empty}>No assigned issues without a workspace.</p>
+          <p className={styles.empty}>
+            No assigned issues without a workspace.
+          </p>
         ) : (
           rows.map((row) => (
             <Button
@@ -63,7 +67,10 @@ export function UpNextPanel(props: UpNextPanelProps) {
                 <span className={styles.title}>{row.issue.title}</span>
                 <span className={styles.meta}>
                   <span className={styles.id}>{row.issue.identifier}</span>
-                  <span className={styles.proj} style={projectColorStyle(row.color)}>
+                  <span
+                    className={styles.proj}
+                    style={projectColorStyle(row.color)}
+                  >
                     {row.entryName}
                   </span>
                   {row.issue.labels.includes("ready-for-agent") && (

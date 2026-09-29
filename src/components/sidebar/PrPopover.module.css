@@ -135,6 +135,18 @@
   animation: popoverFadeIn 150ms ease-out;
 }
 
+/* Radix keeps the content mounted until this finishes, so it fades out too. */
+.prPopover[data-state="closed"] {
+  animation: popoverFadeOut 120ms ease-in forwards;
+}
+
+/* The wrapper a custom trigger sits in (ADR-198's pipeline cards). */
+.prAnchor {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .prPopoverHeader {
   display: flex;
   align-items: center;
@@ -317,6 +329,16 @@ a.prPopoverCheck:hover {
   background: var(--surface);
   padding: 1px 4px;
   border-radius: 3px;
+}
+
+@keyframes popoverFadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(2px);
+  }
 }
 
 @keyframes popoverFadeIn {

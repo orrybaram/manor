@@ -13,11 +13,18 @@ import {
   type WorkspaceTileState,
 } from "../../../lib/home-dashboard-studio";
 import { ProjectTile } from "./ProjectTile";
+import { useDashboardAnimate } from "./useDashboardAnimate";
 import { useSelectWorkspace } from "./useSelectWorkspace";
 import styles from "./ProjectTiles.module.css";
 
 /** Most urgent first: the workspace a tile click opens. */
-const URGENCY: WorkspaceTileState[] = ["needs-you", "running", "pr-ready", "pr-open", "idle"];
+const URGENCY: WorkspaceTileState[] = [
+  "needs-you",
+  "running",
+  "pr-ready",
+  "pr-open",
+  "idle",
+];
 
 type ProjectTilesProps = {
   now: number;
@@ -33,11 +40,14 @@ export function ProjectTiles(props: ProjectTilesProps) {
   const projects = useProjectStore((s) => s.projects);
   const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
   const agents = useAgentStore((s) => s.agents);
-  const unseenRespondedAgentIds = useAgentStore((s) => s.unseenRespondedAgentIds);
+  const unseenRespondedAgentIds = useAgentStore(
+    (s) => s.unseenRespondedAgentIds,
+  );
   const hosts = useHostStore((s) => s.hosts);
   const ports = usePortsStore((s) => s.ports);
   const snoozed = useActiveSnoozes();
   const openWorkspace = useSelectWorkspace();
+  const animate = useDashboardAnimate();
 
   // The port scanner is shared with the sidebar's Ports list.
   useMountEffect(() => acquirePortsScanner());
@@ -55,7 +65,16 @@ export function ProjectTiles(props: ProjectTilesProps) {
         ports,
         now,
       }),
-    [projects, agents, paneAgentStatus, unseenRespondedAgentIds, snoozed, hosts, ports, now],
+    [
+      projects,
+      agents,
+      paneAgentStatus,
+      unseenRespondedAgentIds,
+      snoozed,
+      hosts,
+      ports,
+      now,
+    ],
   );
 
   const openTileWorkspace = useCallback(
@@ -80,9 +99,14 @@ export function ProjectTiles(props: ProjectTilesProps) {
   if (tiles.length === 0) return null;
 
   return (
-    <div className={styles.projects}>
+    <div ref={animate} className={styles.projects}>
       {tiles.map((tile) => (
-        <ProjectTile key={tile.key} tile={tile} onOpen={openTile} onOpenWorkspace={openTileWorkspace} />
+        <ProjectTile
+          key={tile.key}
+          tile={tile}
+          onOpen={openTile}
+          onOpenWorkspace={openTileWorkspace}
+        />
       ))}
     </div>
   );

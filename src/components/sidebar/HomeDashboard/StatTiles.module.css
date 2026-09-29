@@ -90,7 +90,6 @@
 
 .stages {
   display: flex;
-  gap: 2px;
   height: 8px;
   margin: 10px 0 6px;
   border-radius: 4px;
@@ -99,6 +98,14 @@
 
 .stages span {
   background: var(--c);
+  flex-basis: 0;
+  transition: flex-grow 0.4s ease;
+}
+
+/* The divider is an inset shadow, not a gap: an empty stage (zero width)
+   then draws nothing instead of leaving a double gap. */
+.stages span + span {
+  box-shadow: inset 2px 0 0 var(--hd-panel);
 }
 
 .legend {

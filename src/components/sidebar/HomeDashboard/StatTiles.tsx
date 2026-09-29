@@ -1,7 +1,15 @@
+import { AnimatedCount } from "../../ui/AnimatedCount/AnimatedCount";
 import type { CSSProperties } from "react";
-import { useAgentActivityStore, ACTIVITY_WINDOW_MS } from "../../../store/agent-activity-store";
+import {
+  useAgentActivityStore,
+  ACTIVITY_WINDOW_MS,
+} from "../../../store/agent-activity-store";
 import { useStatsStore } from "../../../store/stats-store";
-import type { NeedsYouCard, OpenPrStats, PrStage } from "../../../lib/home-dashboard-studio";
+import type {
+  NeedsYouCard,
+  OpenPrStats,
+  PrStage,
+} from "../../../lib/home-dashboard-studio";
 import { PR_STAGES } from "../../../lib/home-dashboard-studio";
 import { formatAge, formatClock } from "./format";
 import { waitingOnLabel } from "./needs-you-labels";
@@ -46,18 +54,27 @@ export function StatTiles(props: StatTilesProps) {
 
   const longest = cards.reduce<NeedsYouCard | null>(
     (best, card) =>
-      card.ageMs != null && (best?.ageMs == null || card.ageMs > best.ageMs) ? card : best,
+      card.ageMs != null && (best?.ageMs == null || card.ageMs > best.ageMs)
+        ? card
+        : best,
     null,
   );
 
   // History is in memory only (ADR-198 §3): until the recorder has a full
   // window, say where the chart starts.
   const since =
-    now - startedAt < ACTIVITY_WINDOW_MS ? `since ${formatClock(startedAt)}` : "last 3 hours";
+    now - startedAt < ACTIVITY_WINDOW_MS
+      ? `since ${formatClock(startedAt)}`
+      : "last 3 hours";
 
   // `summary` is null until main answers; don't claim stats are off meanwhile.
   const statsOn = summary?.enabled === true;
-  const mergedFoot = summary == null ? undefined : statsOn ? "Last 7 days" : "Usage stats are off";
+  const mergedFoot =
+    summary == null
+      ? undefined
+      : statsOn
+        ? "Last 7 days"
+        : "Usage stats are off";
   const merged = summary?.dailyPrsMerged ?? [];
   const mergedTotal = merged.reduce((sum, d) => sum + d.count, 0);
 
@@ -66,39 +83,61 @@ export function StatTiles(props: StatTilesProps) {
       <StatTile
         label="Waiting on you"
         color="var(--red)"
-        value={cards.length}
+        value={<AnimatedCount value={cards.length} />}
         foot={
           longest?.ageMs != null && (
             <>
-              Longest: <b>{formatAge(longest.ageMs)}</b> · {waitingOnLabel(longest)}
+              Longest: <b>{formatAge(longest.ageMs)}</b> ·{" "}
+              {waitingOnLabel(longest)}
             </>
           )
         }
       >
         <Sparkline values={samples.map((s) => s.waiting)} color="var(--red)" />
       </StatTile>
-      <StatTile label="Agents working" color="var(--green)" value={running} foot={since}>
-        <Sparkline values={samples.map((s) => s.working)} color="var(--green)" />
+      <StatTile
+        label="Agents working"
+        color="var(--green)"
+        value={<AnimatedCount value={running} />}
+        foot={since}
+      >
+        <Sparkline
+          values={samples.map((s) => s.working)}
+          color="var(--green)"
+        />
       </StatTile>
       <StatTile
         label="Open PRs"
         color="var(--accent)"
-        value={prStats.total}
-        aside={prStats.oldestAgeMs != null ? `oldest ${formatAge(prStats.oldestAgeMs)}` : undefined}
+        value={<AnimatedCount value={prStats.total} />}
+        aside={
+          prStats.oldestAgeMs != null
+            ? `oldest ${formatAge(prStats.oldestAgeMs)}`
+            : undefined
+        }
       >
         {prStats.total > 0 && (
           <>
             <div className={styles.stages}>
-              {PR_STAGES.filter((stage) => prStats.byStage[stage] > 0).map((stage) => (
+              {/* Every stage stays mounted (an empty one at zero width) so a change eases instead of jumping. */}
+              {PR_STAGES.map((stage) => (
                 <span
                   key={stage}
-                  style={{ flex: prStats.byStage[stage], "--c": STAGE_COLOR[stage] } as CSSProperties}
+                  style={
+                    {
+                      flexGrow: prStats.byStage[stage],
+                      "--c": STAGE_COLOR[stage],
+                    } as CSSProperties
+                  }
                 />
               ))}
             </div>
             <div className={styles.legend}>
               {PR_STAGES.map((stage) => (
-                <span key={stage} style={{ "--c": STAGE_COLOR[stage] } as CSSProperties}>
+                <span
+                  key={stage}
+                  style={{ "--c": STAGE_COLOR[stage] } as CSSProperties}
+                >
                   <i />
                   {STAGE_LABEL[stage]} {prStats.byStage[stage]}
                 </span>
@@ -110,11 +149,15 @@ export function StatTiles(props: StatTilesProps) {
       <StatTile
         label="Merged this week"
         color="var(--magenta)"
-        value={statsOn ? mergedTotal : "—"}
+        value={statsOn ? <AnimatedCount value={mergedTotal} /> : "—"}
         foot={mergedFoot}
       >
         {statsOn && (
-          <Sparkline values={merged.map((d) => d.count)} color="var(--magenta)" bars />
+          <Sparkline
+            values={merged.map((d) => d.count)}
+            color="var(--magenta)"
+            bars
+          />
         )}
       </StatTile>
     </div>

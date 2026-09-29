@@ -20,6 +20,7 @@ import { PrPipeline } from "./PrPipeline";
 import { ProjectTiles } from "./ProjectTiles";
 import { StatTiles } from "./StatTiles";
 import { UpNextPanel } from "./UpNextPanel";
+import { useDashboardAnimate } from "./useDashboardAnimate";
 import { useNow } from "./useNow";
 import styles from "./HomeDashboard.module.css";
 
@@ -56,17 +57,35 @@ export function HomeDashboard(props: HomeDashboardProps) {
   const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
   const paneTitle = useAppStore((s) => s.paneTitle);
   const agents = useAgentStore((s) => s.agents);
-  const unseenRespondedAgentIds = useAgentStore((s) => s.unseenRespondedAgentIds);
+  const unseenRespondedAgentIds = useAgentStore(
+    (s) => s.unseenRespondedAgentIds,
+  );
   const snoozed = useActiveSnoozes();
   const now = useNow();
+  const animate = useDashboardAnimate();
 
   const cards = useMemo(
     () =>
       needsYouCards(
-        { projects, agents, paneAgentStatus, unseenRespondedAgentIds, paneTitle, snoozed },
+        {
+          projects,
+          agents,
+          paneAgentStatus,
+          unseenRespondedAgentIds,
+          paneTitle,
+          snoozed,
+        },
         now,
       ),
-    [projects, agents, paneAgentStatus, unseenRespondedAgentIds, paneTitle, snoozed, now],
+    [
+      projects,
+      agents,
+      paneAgentStatus,
+      unseenRespondedAgentIds,
+      paneTitle,
+      snoozed,
+      now,
+    ],
   );
   const running = useMemo(
     () => runningAgentCount(agents, paneAgentStatus),
@@ -76,11 +95,15 @@ export function HomeDashboard(props: HomeDashboardProps) {
   const prStats = useMemo(() => openPrStats(pipeline), [pipeline]);
   // The headline's PR clause reads "N PRs are with reviewers": the review
   // stage only, not every open PR.
-  const sentence = headline({ needsYou: cards.length, running, openPrs: prStats.byStage.review });
+  const sentence = headline({
+    needsYou: cards.length,
+    running,
+    openPrs: prStats.byStage.review,
+  });
 
   return (
     <div className={styles.pane} data-testid={testId}>
-      <div className={styles.page}>
+      <div ref={animate} className={styles.page}>
         <DashboardHeader
           now={now}
           headline={sentence}
@@ -90,7 +113,12 @@ export function HomeDashboard(props: HomeDashboardProps) {
           onOpenPalette={onOpenPalette}
         />
         <HostAlert projects={projects} now={now} />
-        <StatTiles now={now} cards={cards} running={running} prStats={prStats} />
+        <StatTiles
+          now={now}
+          cards={cards}
+          running={running}
+          prStats={prStats}
+        />
         <NeedsYouCards cards={cards} />
 
         <ActivityTimeline now={now} />

@@ -1,17 +1,11 @@
 import type { CSSProperties, KeyboardEvent, MouseEvent } from "react";
 import { projectColorStyle } from "../../../hooks/useProjectHeaderRow";
-import type { ProjectTile as ProjectTileData, WorkspaceTileState } from "../../../lib/home-dashboard-studio";
+import type { ProjectTile as ProjectTileData } from "../../../lib/home-dashboard-studio";
 import { Button } from "../../ui/Button/Button";
-import { Tooltip } from "../../ui/Tooltip/Tooltip";
+import { useDashboardAnimate } from "./useDashboardAnimate";
+import { WorkspacePopover } from "./WorkspacePopover";
+import { WORKSPACE_STATE_LABEL } from "./workspace-state";
 import styles from "./ProjectTiles.module.css";
-
-const STATE_LABEL: Record<WorkspaceTileState, string> = {
-  "needs-you": "Needs you",
-  running: "Agent running",
-  "pr-ready": "PR ready",
-  "pr-open": "PR open",
-  idle: "Idle",
-};
 
 const HOST_COLOR = {
   online: "var(--green)",
@@ -19,7 +13,11 @@ const HOST_COLOR = {
   offline: "var(--red)",
 } as const;
 
-const HOST_LABEL = { online: "", partial: " · partly offline", offline: " · offline" } as const;
+const HOST_LABEL = {
+  online: "",
+  partial: " · partly offline",
+  offline: " · offline",
+} as const;
 
 type ProjectTileProps = {
   tile: ProjectTileData;
@@ -37,6 +35,7 @@ type ProjectTileProps = {
 export function ProjectTile(props: ProjectTileProps) {
   const { tile, onOpen, onOpenWorkspace } = props;
   const count = tile.workspaces.length;
+  const animate = useDashboardAnimate();
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.target !== e.currentTarget) return;
@@ -59,26 +58,35 @@ export function ProjectTile(props: ProjectTileProps) {
       <div className={styles.head}>
         <span className={styles.swatch} />
         <b className={styles.name}>{tile.name}</b>
-        <span className={styles.host} style={{ "--c": HOST_COLOR[tile.host.state] } as CSSProperties}>
+        <span
+          className={styles.host}
+          style={{ "--c": HOST_COLOR[tile.host.state] } as CSSProperties}
+        >
           <i />
-          {tile.host.status ?? `${tile.host.label}${HOST_LABEL[tile.host.state]}`}
+          {tile.host.status ??
+            `${tile.host.label}${HOST_LABEL[tile.host.state]}`}
         </span>
       </div>
 
-      <div className={styles.wsbar}>
+      <div ref={animate} className={styles.wsbar}>
         {tile.workspaces.map((ws) => (
-          <Tooltip key={ws.key} label={`${ws.name} · ${STATE_LABEL[ws.state]}`}>
+          <WorkspacePopover
+            key={ws.key}
+            projectId={ws.projectId}
+            path={ws.path}
+            state={ws.state}
+          >
             <Button
               variant="ghost"
               className={styles.block}
               data-state={ws.state}
-              aria-label={`${ws.name}, ${STATE_LABEL[ws.state]}`}
+              aria-label={`${ws.name}, ${WORKSPACE_STATE_LABEL[ws.state]}`}
               onClick={(e: MouseEvent) => {
                 e.stopPropagation();
                 onOpenWorkspace(ws);
               }}
             />
-          </Tooltip>
+          </WorkspacePopover>
         ))}
       </div>
 

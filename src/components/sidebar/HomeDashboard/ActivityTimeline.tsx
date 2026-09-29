@@ -8,6 +8,7 @@ import {
   useAgentActivityStore,
 } from "../../../store/agent-activity-store";
 import { Panel } from "./Panel";
+import { useDashboardAnimate } from "./useDashboardAnimate";
 import { TimelineLane } from "./TimelineLane";
 import { formatClock } from "./format";
 import { STATUS_COLOR, timelineWindow } from "./timeline-model";
@@ -42,6 +43,9 @@ export function ActivityTimeline(props: ActivityTimelineProps) {
   const paneTitle = useAppStore((s) => s.paneTitle);
   const projects = useProjectStore((s) => s.projects);
 
+  const animateBody = useDashboardAnimate();
+  const animateLanes = useDashboardAnimate();
+
   const win = timelineWindow(now, startedAt);
 
   const lanes = useMemo(
@@ -63,7 +67,9 @@ export function ActivityTimeline(props: ActivityTimelineProps) {
     const at = win.start + (win.span * i) / (TICKS - 1);
     if (win.partial) return formatClock(at);
     const minutesAgo = Math.round((now - at) / 60_000);
-    return minutesAgo % 60 === 0 ? `${minutesAgo / 60}h ago` : `${minutesAgo}m ago`;
+    return minutesAgo % 60 === 0
+      ? `${minutesAgo / 60}h ago`
+      : `${minutesAgo}m ago`;
   });
 
   const legend = (
@@ -83,39 +89,45 @@ export function ActivityTimeline(props: ActivityTimelineProps) {
       sub={win.partial ? `Since ${formatClock(startedAt)}` : "Last 3 hours"}
       right={legend}
     >
-      {lanes.length === 0 ? (
-        <p className={styles.empty}>No agent activity yet. Start one with ⌘N.</p>
-      ) : (
-        <div className={styles.timeline}>
-          {lanes.map((lane) => {
-            const agent = agents.find((a) => a.paneId === lane.paneId);
-            const project = agent ? projects.find((p) => p.id === agent.projectId) : undefined;
-            return (
-              <TimelineLane
-                key={lane.paneId}
-                name={agent?.name || paneTitle[lane.paneId] || "Agent"}
-                agent={agent}
-                projectColor={project?.color ?? null}
-                transitions={lane.transitions}
-                segments={lane.segments}
-                now={now}
-                windowStart={win.start}
-                windowSpan={win.span}
-                gridStep={(GRID_STEP_MS / win.span) * 100}
-              />
-            );
-          })}
-          <div className={styles.axis}>
-            <span />
-            <span className={styles.ticks}>
-              {ticks.map((label, i) => (
-                <span key={i}>{label}</span>
-              ))}
-            </span>
-            <span />
+      <div ref={animateBody}>
+        {lanes.length === 0 ? (
+          <p className={styles.empty}>
+            No agent activity yet. Start one with ⌘N.
+          </p>
+        ) : (
+          <div ref={animateLanes} className={styles.timeline}>
+            {lanes.map((lane) => {
+              const agent = agents.find((a) => a.paneId === lane.paneId);
+              const project = agent
+                ? projects.find((p) => p.id === agent.projectId)
+                : undefined;
+              return (
+                <TimelineLane
+                  key={lane.paneId}
+                  name={agent?.name || paneTitle[lane.paneId] || "Agent"}
+                  agent={agent}
+                  projectColor={project?.color ?? null}
+                  transitions={lane.transitions}
+                  segments={lane.segments}
+                  now={now}
+                  windowStart={win.start}
+                  windowSpan={win.span}
+                  gridStep={(GRID_STEP_MS / win.span) * 100}
+                />
+              );
+            })}
+            <div className={styles.axis}>
+              <span />
+              <span className={styles.ticks}>
+                {ticks.map((label, i) => (
+                  <span key={i}>{label}</span>
+                ))}
+              </span>
+              <span />
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </Panel>
   );
 }

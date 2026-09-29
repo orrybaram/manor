@@ -6,7 +6,7 @@
    merges into the body below. */
 .tabBar {
   /* How far tabs hang over the panel body below; covers its 8px corner. */
-  --tab-overlap: 8px;
+  --tab-overlap: 14px;
   display: flex;
   align-items: flex-end;
   width: 100%;
@@ -79,7 +79,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 12px calc(4px + var(--tab-overlap));
+  padding: 8px 12px calc(4px + var(--tab-overlap));
   border: none;
   background: transparent;
   color: var(--text-dim);

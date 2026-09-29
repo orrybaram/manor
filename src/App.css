@@ -149,6 +149,7 @@ body,
   flex: 1;
   overflow: hidden;
   position: relative;
+  margin-top: 8px;
 }
 
 /* Home, projects overview and wizard (ADR-196): a title-row strip on the frame,

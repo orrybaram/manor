@@ -41,8 +41,8 @@ type HomeDashboardProps = {
 
 /**
  * Home's full dashboard, "Studio" (ADR-198): header, host alert, stat tiles,
- * Needs you cards, then the full-width PR pipeline, the activity timeline,
- * Up next, and project tiles. It reads the same stores the sidebar's
+ * Needs you cards, then Up next, the PR pipeline, the activity timeline,
+ * and project tiles. It reads the same stores the sidebar's
  * indicators do and derives everything with the pure selectors in `home-dashboard-studio.ts`;
  * the section components only render.
  *
@@ -121,14 +121,14 @@ export function HomeDashboard(props: HomeDashboardProps) {
         />
         <NeedsYouCards cards={cards} />
 
-        <PrPipeline pipeline={pipeline} />
-
-        <ActivityTimeline now={now} />
-
         <UpNextPanel
           onNewWorkspace={props.onNewWorkspace}
           onOpenPaletteView={props.onOpenPaletteView}
         />
+
+        <PrPipeline pipeline={pipeline} />
+
+        <ActivityTimeline now={now} />
 
         <ProjectTiles now={now} />
       </div>

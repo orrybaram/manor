@@ -4,13 +4,10 @@ import type {
   PrStage,
 } from "../../../lib/home-dashboard-studio";
 import { AnimatedCount } from "../../ui/AnimatedCount/AnimatedCount";
-import { Button } from "../../ui/Button/Button";
 import { PipelineCard } from "./PipelineCard";
 import { useDashboardAnimate } from "./useDashboardAnimate";
 import { useSelectWorkspace } from "./useSelectWorkspace";
 import styles from "./PrPipeline.module.css";
-
-const VISIBLE_CARDS = 5;
 
 const STAGE_LABEL: Record<PrStage, string> = {
   checks: "Checks running",
@@ -28,22 +25,19 @@ const STAGE_COLOR: Record<PrStage, string> = {
 
 type PipelineStageProps = {
   column: PipelineColumn;
-  expanded: boolean;
-  onExpand: () => void;
 };
 
-/** One pipeline column: a count header, five cards, the rest behind "+N more". */
+/**
+ * One pipeline column: a count header over every card, in a list about three
+ * cards tall that scrolls the rest.
+ */
 export function PipelineStage(props: PipelineStageProps) {
-  const { column, expanded, onExpand } = props;
+  const { column } = props;
   const openWorkspace = useSelectWorkspace();
   const animate = useDashboardAnimate();
 
-  const shown = expanded ? column.rows : column.rows.slice(0, VISIBLE_CARDS);
-  const hidden = column.rows.length - shown.length;
-
   return (
     <div
-      ref={animate}
       className={styles.stage}
       style={{ "--c": STAGE_COLOR[column.stage] } as CSSProperties}
     >
@@ -54,19 +48,16 @@ export function PipelineStage(props: PipelineStageProps) {
         />
         <span>{STAGE_LABEL[column.stage]}</span>
       </div>
-      {shown.map((row) => (
-        <PipelineCard
-          key={row.pr.url}
-          row={row}
-          stage={column.stage}
-          onOpen={() => openWorkspace(row.project, row.workspace)}
-        />
-      ))}
-      {hidden > 0 && (
-        <Button variant="link" className={styles.more} onClick={onExpand}>
-          +{hidden} more
-        </Button>
-      )}
+      <div ref={animate} className={styles.cards}>
+        {column.rows.map((row) => (
+          <PipelineCard
+            key={row.pr.url}
+            row={row}
+            stage={column.stage}
+            onOpen={() => openWorkspace(row.project, row.workspace)}
+          />
+        ))}
+      </div>
     </div>
   );
 }

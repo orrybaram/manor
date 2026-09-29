@@ -185,10 +185,49 @@
   font-variant-numeric: tabular-nums;
 }
 
-.more {
-  align-self: flex-start;
-  padding: 2px;
-  font-size: 11.5px;
+/*
+ * The cards scroll within about three cards' height. A shadow pinned to the
+ * bottom shows there's more below; it fades out as the list reaches its end,
+ * and never shows when the list doesn't scroll (the timeline is inactive).
+ */
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 290px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Room for a hovered card's 1px lift. */
+  padding-top: 1px;
+  scrollbar-width: thin;
+}
+
+.cards::after {
+  content: "";
+  position: sticky;
+  bottom: 0;
+  flex: none;
+  height: 28px;
+  margin-top: -34px;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--hd-panel) 92%, black),
+    transparent
+  );
+  animation: cards-shadow linear both;
+  animation-timeline: scroll(nearest);
+  animation-range: calc(100% - 28px) 100%;
+}
+
+@keyframes cards-shadow {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 @container home (max-width: 600px) {

@@ -17,6 +17,7 @@ import {
   type WorkspaceKey,
   type WorkspaceKeyOwner,
 } from "../../src/lib/workspace-key";
+import { isHomePath } from "../../src/lib/home-path";
 /**
  * Duplicated from src/store/pane-tree.ts — the terminal-host is a separate
  * Vite entry point and cannot import from the renderer bundle.
@@ -304,13 +305,20 @@ export class LayoutPersistence {
       layout = { version: LAYOUT_VERSION, workspaces: [] };
     }
 
-    const idx = layout.workspaces.findIndex(
-      (w) => w.workspacePath === workspace.workspacePath,
-    );
-    if (idx >= 0) {
-      layout.workspaces[idx] = workspace;
-    } else {
-      layout.workspaces.push(workspace);
+    // Home is the Dashboard and never holds tabs (ADR-197 §2): any entry an
+    // older version persisted for it is purged on the first save, and a Home
+    // save only records Home as the last-active surface. `load` still returns
+    // a legacy entry until then, so the renderer can end its panes' sessions.
+    layout.workspaces = layout.workspaces.filter((w) => !isHomePath(w.workspacePath));
+    if (!isHomePath(workspace.workspacePath)) {
+      const idx = layout.workspaces.findIndex(
+        (w) => w.workspacePath === workspace.workspacePath,
+      );
+      if (idx >= 0) {
+        layout.workspaces[idx] = workspace;
+      } else {
+        layout.workspaces.push(workspace);
+      }
     }
 
     // The renderer only ever saves the currently-active workspace, so recording
@@ -340,6 +348,8 @@ export class LayoutPersistence {
     const ids = new Set<string>();
     if (!layout) return ids;
     for (const workspace of layout.workspaces) {
+      // A legacy Home entry's sessions are being ended (ADR-197 §2).
+      if (isHomePath(workspace.workspacePath)) continue;
       for (const panel of Object.values(workspace.panels)) {
         for (const tab of panel.tabs) {
           for (const paneSession of Object.values(tab.paneSessions)) {

@@ -673,8 +673,14 @@ export function selectCurrentLocation(state: AppState): Location {
   };
 }
 
-// Internal helpers for active panel context
+// Internal helpers for active panel context.
+//
+// Both return `null` on the Home surface (ADR-197 §1): Home is the Dashboard
+// and never holds tabs, so every action that resolves its target through these
+// — adding tabs, splits, reopening closed panes, reattaching — is a no-op
+// there in this one place.
 function getActivePanelContext(state: AppState): { key: WorkspaceKey; layout: WorkspaceLayout; panel: Panel } | null {
+  if (isHomePath(state.activeWorkspacePath)) return null;
   const key = selectActiveWorkspaceKey(state);
   if (!key) return null;
   const layout = state.workspaceLayouts[key];
@@ -685,6 +691,7 @@ function getActivePanelContext(state: AppState): { key: WorkspaceKey; layout: Wo
 }
 
 function getActiveLayoutContext(state: AppState): { key: WorkspaceKey; layout: WorkspaceLayout } | null {
+  if (isHomePath(state.activeWorkspacePath)) return null;
   const key = selectActiveWorkspaceKey(state);
   if (!key) return null;
   const layout = state.workspaceLayouts[key];
@@ -744,6 +751,51 @@ function updatePanel(
 
 // Cache the loaded layout so setActiveWorkspace can check it synchronously
 let _cachedLayout: PersistedLayout | null = null;
+
+/**
+ * ADR-197 §2 migration: Home is the Dashboard and no longer holds tabs, so a
+ * layout persisted for it by an older version is dropped, and its panes'
+ * sessions are ended. Those panes were never mounted this session, so the
+ * unmount-driven teardown of a closed pane never runs for them; this does the
+ * same work directly — abandon each pane's agent (as `closePaneById` does) and
+ * close each terminal's daemon session (what the close grace timer ends in).
+ * Browsers were never registered and diffs own nothing, so they need nothing.
+ * Main purges the entry from `layout.json` on the next save.
+ */
+function dropHomeLayouts(layout: PersistedLayout): PersistedLayout {
+  const home = layout.workspaces.filter((ws) => isHomePath(ws.workspacePath));
+  if (home.length === 0) return layout;
+  for (const ws of home) {
+    const v1ws = ws as unknown as { tabs?: PersistedTab[] };
+    const tabs: PersistedTab[] = ws.panels
+      ? Object.values(ws.panels).flatMap((p) => p.tabs)
+      : (v1ws.tabs ?? []);
+    for (const tab of tabs) {
+      const contentTypes: Record<string, string | undefined> = {};
+      const collect = (node: PaneNode): void => {
+        if (node.type === "leaf") contentTypes[node.paneId] = node.contentType;
+        else {
+          collect(node.first);
+          collect(node.second);
+        }
+      };
+      collect(tab.rootNode);
+      for (const [paneId, contentType] of Object.entries(contentTypes)) {
+        const title = tab.paneSessions[paneId]?.lastTitle ?? null;
+        window.electronAPI?.agents
+          ?.abandonForPane(paneId, title)
+          ?.catch(console.error);
+        if (contentType === undefined || contentType === "terminal") {
+          void window.electronAPI?.pty?.close(paneId);
+        }
+      }
+    }
+  }
+  return {
+    ...layout,
+    workspaces: layout.workspaces.filter((ws) => !isHomePath(ws.workspacePath)),
+  };
+}
 
 /** The layout file version from which workspaces are keyed by `WorkspaceKey`. */
 const KEYED_LAYOUT_VERSION = 3;
@@ -817,8 +869,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   loadPersistedLayout: async () => {
     try {
-      const layout = await window.electronAPI?.layout.load();
-      if (layout) {
+      const loaded = await window.electronAPI?.layout.load();
+      if (loaded) {
+        const layout = dropHomeLayouts(loaded);
         _cachedLayout = layout;
 
         // Pre-populate paneCwd, paneTitle, paneAgentStatus, paneContentType,
@@ -893,6 +946,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         activeWorkspacePath: path,
         activeWorkspaceHostId: parseWorkspaceKey(key).hostId,
       };
+      // Home is the Dashboard (ADR-197 §1): selectable as the active surface,
+      // but it never gets a layout — neither a fresh one nor a persisted one.
+      if (isHomePath(path)) {
+        return active;
+      }
       // Already initialized for this workspace
       if (state.workspaceLayouts[key]) {
         return active;
@@ -1074,6 +1132,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   duplicateTab: (tabId: string) =>
     set((state) => {
+      // Resolves the layout directly, not via the context helpers: guard Home here.
+      if (isHomePath(state.activeWorkspacePath)) return state;
       const key = selectActiveWorkspaceKey(state);
       if (!key) return state;
       const layout = state.workspaceLayouts[key];
@@ -1123,6 +1183,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   openOrFocusDiff: () =>
     set((state) => {
+      // Resolves the layout directly, not via the context helpers: guard Home here.
+      if (isHomePath(state.activeWorkspacePath)) return state;
       const key = selectActiveWorkspaceKey(state);
       if (!key) return state;
       const layout = state.workspaceLayouts[key];
@@ -1181,6 +1243,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   openDiffInNewPanel: () =>
     set((state) => {
+      // Resolves the layout directly, not via the context helpers: guard Home here.
+      if (isHomePath(state.activeWorkspacePath)) return state;
       const key = selectActiveWorkspaceKey(state);
       if (!key) return state;
       const layout = state.workspaceLayouts[key];
@@ -3469,6 +3533,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   hydrateDetachedTab: (payload: DetachedTabPayload) =>
     set((state) => {
+      // Home never holds tabs (ADR-197 §1), so a popout can't be a Home one.
+      // Unreachable in practice — Home has no tabs to tear off — so refusing
+      // is only a guard against a payload from before the migration.
+      if (isHomePath(parseWorkspaceKey(payload.sourceWorkspaceKey).path)) {
+        return state;
+      }
       const tab: Tab = {
         id: payload.tab.id,
         title: payload.tab.title,
@@ -3511,6 +3581,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   receiveReattachedTab: (payload: DetachedTabPayload) =>
     set((state) => {
+      // Refused on Home (ADR-197 §1): `getActiveLayoutContext` is null there.
+      // The sender has already released the tab by now, so callers must route
+      // it elsewhere first — see `receiveTabFromOtherWindow` in App.tsx.
       const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
       const { key, layout } = ctx;
@@ -3580,6 +3653,21 @@ function flushLayoutSave(): void {
   const state = useAppStore.getState();
   const key = selectActiveWorkspaceKey(state);
   if (!key) return;
+
+  // Home never has a layout to write (ADR-197 §1), but it is still the surface
+  // to restore on relaunch. Main records a save's key as the last-active
+  // surface and never stores a Home entry (`LayoutPersistence.saveWorkspace`),
+  // so this empty save only marks Home as last-active.
+  if (isHomePath(state.activeWorkspacePath)) {
+    window.electronAPI?.layout.save({
+      workspacePath: key,
+      panelTree: { type: "leaf", panelId: "" },
+      panels: {},
+      activePanelId: "",
+    } satisfies PersistedWorkspace);
+    return;
+  }
+
   const layout = state.workspaceLayouts[key];
   if (!layout) return;
 

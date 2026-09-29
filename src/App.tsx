@@ -65,6 +65,8 @@ import { usePreferencesStore } from "./store/preferences-store";
 import { useMountEffect } from "./hooks/useMountEffect";
 import { useMenuContextSync } from "./hooks/useMenuContextSync";
 import { useUpdaterToasts } from "./hooks/useUpdaterToasts";
+import { useToastStore } from "./store/toast-store";
+import type { DetachedTabPayload } from "./store/detach-types";
 import { useRemoteRecovery } from "./hooks/useRemoteRecovery";
 import { useAgentContextRepair } from "./hooks/useAgentContextRepair";
 import {
@@ -84,6 +86,40 @@ import {
 } from "./lib/home";
 import { TAB_HIDDEN_STYLE, TAB_VISIBLE_STYLE } from "./lib/tab-styles";
 import "./App.css";
+
+/**
+ * Insert a tab another window handed to this one (reattach or cross-window
+ * drop, ADR-156). The sender has already released it, so it must land
+ * somewhere. The Dashboard (Home) can't hold tabs (ADR-197 §1) and the
+ * protocol has no way to hand a tab back, so on Home the least surprising
+ * owner is used: the tab's own workspace, which becomes active — or, for a
+ * tab from Home itself (only possible from before the migration), a fresh
+ * popout, so nothing is lost and the pane's session isn't orphaned.
+ */
+function receiveTabFromOtherWindow(payload: DetachedTabPayload): void {
+  const store = useAppStore.getState();
+  if (!isHomePath(store.activeWorkspacePath)) {
+    store.receiveReattachedTab(payload);
+    return;
+  }
+  const { path, hostId } = parseWorkspaceKey(payload.sourceWorkspaceKey);
+  if (!isHomePath(path)) {
+    store.setActiveWorkspace(path, hostId);
+    useAppStore.getState().receiveReattachedTab(payload);
+    return;
+  }
+  void window.electronAPI.window
+    .getBounds()
+    .then((own) =>
+      window.electronAPI.window.detachTab(payload, {
+        x: own.x + 40,
+        y: own.y + 40,
+        width: 900,
+        height: 600,
+      }),
+    )
+    .catch((err: unknown) => console.error("Failed to re-home a tab dropped on the Dashboard", err));
+}
 
 function App() {
   const loadTheme = useThemeStore((s) => s.loadTheme);
@@ -398,7 +434,9 @@ function App() {
         "--sidebar-mode-transition": `${SIDEBAR_MODE_TRANSITION_MS}ms`,
       } as CSSProperties)
     : undefined;
-  const hasTabs = (ws?.tabs.length ?? 0) > 0;
+  // Home is the Dashboard and never shows tabs (ADR-197 §1): its view is
+  // always rendered, even if a stale layout were somehow keyed to it.
+  const hasTabs = !isHomePath(activeWorkspacePath) && (ws?.tabs.length ?? 0) > 0;
   // With zero projects the overview is also the onboarding screen (ADR-194 §3).
   const showProjectsOverview = projectsOverviewShown || !hasProjects;
   // The Tasks view (ADR-198) covers the workspace the same way.
@@ -420,7 +458,9 @@ function App() {
     ? homeLaunchCommand({ homeHarness, homeCustomCommand, homeCustomInterrupt })
     : activeProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
   useEffect(() => {
-    if (!activeWorkspacePath) return;
+    // The Dashboard hosts no panes (ADR-197 §1), so there is nothing to prewarm
+    // for; the session keeps the last project workspace's cwd.
+    if (!activeWorkspacePath || isHomePath(activeWorkspacePath)) return;
     const prewarmKind = getAgentKindForCommand(activeWorkspaceCommand);
     window.electronAPI.pty.updatePrewarmCwd(
       activeWorkspacePath,
@@ -450,9 +490,7 @@ function App() {
   // it into the active panel; PTYs re-attach and webviews re-mount by paneId.
   useEffect(
     () =>
-      window.electronAPI.window.onTabReattached((payload) => {
-        useAppStore.getState().receiveReattachedTab(payload);
-      }),
+      window.electronAPI.window.onTabReattached(receiveTabFromOtherWindow),
     [],
   );
 
@@ -460,9 +498,7 @@ function App() {
   // insertion path as a reattach — only the gesture that triggered it differs.
   useEffect(
     () =>
-      window.electronAPI.window.onTabReceived((payload) => {
-        useAppStore.getState().receiveReattachedTab(payload);
-      }),
+      window.electronAPI.window.onTabReceived(receiveTabFromOtherWindow),
     [],
   );
 
@@ -636,6 +672,16 @@ function App() {
       }
 
       const wsPath = agent.workspacePath;
+      // The Dashboard hosts no panes (ADR-197 §2), so a Home agent has
+      // nowhere to resume into.
+      if (isHomePath(wsPath)) {
+        useToastStore.getState().addToast({
+          id: `resume-home-agent-${agent.id}`,
+          message: "Dashboard agents can't be resumed",
+          status: "info",
+        });
+        return;
+      }
       if (wsPath && agentKey) {
         setActiveWorkspace(wsPath, parseWorkspaceKey(agentKey).hostId);
       }

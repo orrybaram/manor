@@ -3,7 +3,6 @@ import { appCommandHandlers } from "../app-commands";
 import { selectActiveLayout, useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import type { ProjectInfo } from "../../store/project-store";
-import { usePreferencesStore } from "../../store/preferences-store";
 import { HOME_PATH } from "../home-path";
 import { DEFAULT_AGENT_COMMAND } from "../../agent-defaults";
 import type { WorkspaceLayout, Tab, Panel } from "../../store/app-store";
@@ -1065,20 +1064,12 @@ describe("start-agent", () => {
     expect(pending()[WS_PATH]).toBe('my-agent --flag "go"');
   });
 
-  it("uses the configured home harness for the home surface", async () => {
+  it("opens no tab on the home surface (ADR-197: the Dashboard holds no tabs)", async () => {
     setupTwoWorkspaces();
-    usePreferencesStore.setState((s) => ({
-      preferences: {
-        ...s.preferences,
-        homeHarness: "custom",
-        homeCustomCommand: "my-harness --go",
-        homeCustomInterrupt: "",
-      },
-    }));
 
-    await start({ workspacePath: HOME_PATH, prompt: "go" });
+    await expect(start({ workspacePath: HOME_PATH, prompt: "go" })).rejects.toThrow();
 
-    expect(pending()[HOME_PATH]).toBe('my-harness --go "go"');
+    expect(useAppStore.getState().workspaceLayouts[HOME_PATH]).toBeUndefined();
   });
 
   it("escapes shell metacharacters in the prompt", async () => {
@@ -1161,7 +1152,7 @@ describe("start-agent", () => {
     const loadProjects = vi.fn(async () => {});
     useProjectStore.setState({ loadProjects });
 
-    await start({ workspacePath: HOME_PATH, prompt: "go" });
+    await expect(start({ workspacePath: HOME_PATH, prompt: "go" })).rejects.toThrow();
 
     expect(loadProjects).not.toHaveBeenCalled();
   });

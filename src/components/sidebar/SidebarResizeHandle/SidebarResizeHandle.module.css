@@ -5,8 +5,10 @@
    window's drag row. */
 .handle {
   position: absolute;
+  /* Spans exactly the main panel's height: below the title row, above the
+     status bar, so the glow never runs past the panel's corners. */
   top: var(--title-row);
-  bottom: var(--frame-gap);
+  bottom: var(--status-bar-height);
   right: 0;
   width: var(--frame-gap);
   cursor: col-resize;

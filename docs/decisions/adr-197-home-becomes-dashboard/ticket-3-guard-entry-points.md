@@ -1,6 +1,6 @@
 ---
 title: Hide or disable tab and agent entry points on the Dashboard
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2]

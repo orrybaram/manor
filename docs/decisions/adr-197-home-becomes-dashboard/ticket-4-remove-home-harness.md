@@ -1,6 +1,6 @@
 ---
 title: Delete the home harness and its settings page
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [3]

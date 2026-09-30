@@ -8,7 +8,7 @@ import type { ProjectInfo } from "../persistence";
 import { workspaceKey } from "../../src/lib/workspace-key";
 
 export function register(deps: IpcDeps): void {
-  const { projectManager, statsStore, backendRegistry, layoutPersistence } = deps;
+  const { projectManager, workspaceOps, backendRegistry, layoutPersistence } = deps;
 
   /**
    * A project that moved from `oldHostId` keeps the saved layouts of the
@@ -111,16 +111,9 @@ export function register(deps: IpcDeps): void {
   ipcMain.handle(
     "projects:removeWorktree",
     async (event, projectId: string, worktreePath: string, deleteBranch?: boolean) => {
-      const result = await projectManager.removeWorktree(
-        projectId,
-        worktreePath,
-        deleteBranch,
-        (step: string) => {
-          event.sender.send("projects:removeWorktree:progress", step);
-        },
-      );
-      statsStore.record("worktreesRemoved");
-      return result;
+      await workspaceOps.remove(projectId, worktreePath, deleteBranch, (step: string) => {
+        event.sender.send("projects:removeWorktree:progress", step);
+      });
     },
   );
 
@@ -134,18 +127,20 @@ export function register(deps: IpcDeps): void {
   ipcMain.handle(
     "projects:quickMergeWorktree",
     async (_event, projectId: string, worktreePath: string) => {
-      const result = await projectManager.quickMergeWorktree(projectId, worktreePath);
-      statsStore.record("worktreesMerged");
-      return result;
+      await workspaceOps.quickMerge(projectId, worktreePath);
     },
   );
 
   ipcMain.handle(
     "projects:createWorktree",
     async (_event, projectId: string, name: string, branch?: string, linkedIssue?: LinkedIssue, baseBranch?: string, useExistingBranch?: boolean) => {
-      const result = await projectManager.createWorktree(projectId, name, branch, linkedIssue, baseBranch, useExistingBranch);
-      statsStore.record("worktreesCreated");
-      return result;
+      // The renderer runs the setup script itself (its pending setup view may
+      // launch an agent alongside it), so main must not (ADR-203).
+      const { project } = await workspaceOps.create(
+        { projectId, name, branch, linkedIssue, baseBranch, useExistingBranch },
+        { runSetupScript: false },
+      );
+      return project;
     },
   );
 

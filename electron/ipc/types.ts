@@ -15,6 +15,7 @@ import type { AgentManager, PaneHostLookup } from "../agent-persistence";
 import type { AgentStatusDriver } from "../agent-status/driver";
 import type { NotificationStore } from "../notification-store";
 import type { StatsStore } from "../stats-store";
+import type { WorkspaceOps } from "../workspace-ops";
 import type { AgentActivityStore } from "../agent-activity-store";
 import type { PreferencesManager } from "../preferences";
 import type { KeybindingsManager } from "../keybindings";
@@ -81,6 +82,11 @@ export interface IpcDeps {
   notificationStore: NotificationStore;
   /** ADR-168 usage stats. */
   statsStore: StatsStore;
+  /**
+   * Workspace create / remove / quick-merge with their side effects (ADR-203).
+   * The same instance as `ControlDeps.workspaceOps`.
+   */
+  workspaceOps: WorkspaceOps;
   /** ADR-199 persistent Agent activity history. */
   agentActivityStore: AgentActivityStore;
   preferencesManager: PreferencesManager;

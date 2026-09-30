@@ -17,6 +17,7 @@ import type { AgentManager } from "../agent-persistence";
 import type { WorkspaceBackend } from "../backend/types";
 import type { NotificationStore } from "../notification-store";
 import type { StatsStore } from "../stats-store";
+import type { WorkspaceOps } from "../workspace-ops";
 import type { PreferencesManager } from "../preferences";
 import type { ThemeManager } from "../theme";
 import type { PortScanner } from "../ports";
@@ -57,6 +58,11 @@ export interface ControlDeps {
   backend: WorkspaceBackend | null;
   notificationStore: NotificationStore | null;
   statsStore: StatsStore | null;
+  /**
+   * Workspace create / remove / quick-merge with their side effects (ADR-203).
+   * The same instance IPC uses, so CLI / MCP workspaces reach stats too.
+   */
+  workspaceOps: WorkspaceOps | null;
   preferencesManager: PreferencesManager | null;
   themeManager: ThemeManager | null;
   portScanner: PortScanner | null;

@@ -1,6 +1,6 @@
 ---
 title: Delete the dead Up next chain and rename tracker query keys
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

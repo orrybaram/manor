@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -208,6 +208,10 @@ their tests move to the new interfaces ("replace, don't layer").
   kept to the minimum. `home-dashboard.ts` deletions stay clear of
   `blockedReason` / `prReadiness` (PR-verdict workspace). `project-store.ts`
   is not touched.
+- **Status checks:** a tracker's status query runs when some project can be
+  listed through it, or when there are no projects at all (so the empty Tasks
+  view can still tell "connected" from "not set up"). With zero projects,
+  Linear's `isConnected()` is now asked too; before, it never was.
 - **Harder:** the port is a new indirection; `row.raw` is now read only by
   adapters, so a caller that needs raw tracker data must go through one.
 

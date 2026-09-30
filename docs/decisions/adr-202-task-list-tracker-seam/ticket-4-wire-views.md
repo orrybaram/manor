@@ -1,6 +1,6 @@
 ---
 title: Wire TasksView and UpNextPanel onto taskList and the tracker port
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [3]

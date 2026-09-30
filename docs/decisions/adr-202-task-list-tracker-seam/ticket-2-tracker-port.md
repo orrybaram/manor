@@ -1,6 +1,6 @@
 ---
 title: TaskTracker port with GitHub, Linear and in-memory adapters
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]

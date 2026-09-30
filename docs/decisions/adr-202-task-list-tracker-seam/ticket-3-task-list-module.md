@@ -1,6 +1,6 @@
 ---
 title: Deep taskList module (merge, linked rule, filter, search, sort, page)
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [2]

@@ -20,17 +20,21 @@
  * the other direction; hence the `failed` state and the listener API.
  */
 
-export type TunnelKind = "tailscale" | "cloudflared";
-export type TunnelState = "stopped" | "starting" | "running" | "failed";
+import {
+  detectTunnelTools,
+  STOPPED_TUNNEL_STATUS,
+  type TunnelKind,
+  type TunnelStatus,
+  type WhichFn,
+} from "./tunnel-status";
 
-export interface TunnelStatus {
-  state: TunnelState;
-  kind: TunnelKind | null;
-  /** Set only in `running`. */
-  url: string | null;
-  /** Set only in `failed`. Never contains a token. */
-  error: string | null;
-}
+export {
+  detectTunnelTools,
+  STOPPED_TUNNEL_STATUS,
+  type TunnelKind,
+  type TunnelState,
+  type TunnelStatus,
+} from "./tunnel-status";
 
 /** The subset of `ChildProcess` this module uses, so tests can fake it. */
 export interface TunnelChild {
@@ -43,7 +47,7 @@ export interface TunnelChild {
 
 export interface TunnelDeps {
   /** `backend.shell.which` — not a second `which` implementation. */
-  which(bin: string): Promise<string | null>;
+  which: WhichFn;
   spawn(command: string, args: string[]): TunnelChild;
 }
 
@@ -80,12 +84,7 @@ export class TunnelManager {
   private child: TunnelChild | null = null;
   /** Set across a deliberate `stop()`, so the child's exit is not "unexpected". */
   private stopping = false;
-  private state: TunnelStatus = {
-    state: "stopped",
-    kind: null,
-    url: null,
-    error: null,
-  };
+  private state: TunnelStatus = { ...STOPPED_TUNNEL_STATUS };
   private listeners = new Set<(status: TunnelStatus) => void>();
 
   constructor(private readonly deps: TunnelDeps) {}
@@ -99,12 +98,8 @@ export class TunnelManager {
     return () => this.listeners.delete(listener);
   }
 
-  async detect(): Promise<Record<TunnelKind, boolean>> {
-    const [tailscale, cloudflared] = await Promise.all([
-      this.deps.which("tailscale"),
-      this.deps.which("cloudflared"),
-    ]);
-    return { tailscale: tailscale !== null, cloudflared: cloudflared !== null };
+  detect(): Promise<Record<TunnelKind, boolean>> {
+    return detectTunnelTools(this.deps.which);
   }
 
   /** Tailscale when available — see the header for why that is not a taste call. */
@@ -230,7 +225,7 @@ export class TunnelManager {
   /** Idempotent, and waits for the child to actually be gone. */
   async stop(): Promise<void> {
     await this.killChild();
-    this.setState({ state: "stopped", kind: null, url: null, error: null });
+    this.setState({ ...STOPPED_TUNNEL_STATUS });
   }
 
   /**

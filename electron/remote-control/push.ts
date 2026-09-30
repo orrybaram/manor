@@ -16,12 +16,16 @@
  * The VAPID key pair is generated once and kept encrypted next to the device
  * store. Losing it costs every subscription (phones must re-subscribe), which
  * is why it is persisted rather than regenerated per launch.
+ *
+ * `web-push` itself is loaded on first real use — a send, or generating the
+ * key pair — never at startup (ADR-202 §3). A user with no subscribed phones
+ * never loads it at all.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { safeStorage } from "electron";
-import webpush from "web-push";
+import type * as WebPush from "web-push";
 
 import { remoteVapidFile } from "../paths";
 import type { PushSubscriptionRecord, RemoteDeviceStore } from "./devices";
@@ -50,18 +54,45 @@ export function isPushable(status: string): status is PushableStatus {
 /** A `mailto:` subject is required by the VAPID spec; nothing is sent to it. */
 const VAPID_SUBJECT = "mailto:remote-control@manor.invalid";
 
+type WebPushModule = typeof WebPush;
+
+let webPushPromise: Promise<WebPushModule> | null = null;
+
+/** Loads `web-push` once, on first use. */
+function loadWebPush(): Promise<WebPushModule> {
+  if (webPushPromise) return webPushPromise;
+  const loading = import("web-push").then((mod) => {
+    // CJS interop: depending on the bundler the exports sit on the namespace
+    // or under `default`.
+    const ns = mod as unknown as Partial<WebPushModule> & {
+      default?: WebPushModule;
+    };
+    return ns.sendNotification
+      ? (ns as WebPushModule)
+      : (ns.default as WebPushModule);
+  });
+  loading.catch(() => {
+    // Let a later call retry rather than caching the failure forever.
+    if (webPushPromise === loading) webPushPromise = null;
+  });
+  webPushPromise = loading;
+  return loading;
+}
+
 export class PushManager {
   private keys: VapidKeys | null = null;
   private loaded = false;
+  /** In-flight generation, so concurrent callers share one key pair. */
+  private generating: Promise<VapidKeys> | null = null;
 
   constructor(
     private readonly devices: RemoteDeviceStore,
     private readonly filePath: string = remoteVapidFile(),
     /** Injected so tests do not talk to a real push service. */
-    private readonly send: typeof webpush.sendNotification = (...args) =>
-      webpush.sendNotification(...args),
-    private readonly generate: () => VapidKeys = () =>
-      webpush.generateVAPIDKeys(),
+    private readonly send: typeof WebPush.sendNotification = async (...args) =>
+      (await loadWebPush()).sendNotification(...args),
+    private readonly generate: () => VapidKeys | Promise<VapidKeys> = async () =>
+      (await loadWebPush()).generateVAPIDKeys(),
   ) {}
 
   /**
@@ -69,9 +100,9 @@ export class PushManager {
    * on first use; returns null if it cannot be stored safely, which disables
    * push rather than leaving a private key in plaintext.
    */
-  publicKey(): string | null {
+  async publicKey(): Promise<string | null> {
     try {
-      return this.ensureKeys().publicKey;
+      return (await this.ensureKeys()).publicKey;
     } catch {
       return null;
     }
@@ -91,14 +122,18 @@ export class PushManager {
    * surfacing to anyone.
    */
   async notify(payload: PushPayload): Promise<number> {
+    // Before anything else: with nothing subscribed there is nothing to sign,
+    // so neither the key nor `web-push` is needed.
+    const targets = this.devices.pushTargets();
+    if (targets.length === 0) return 0;
+
     let keys: VapidKeys;
     try {
-      keys = this.ensureKeys();
+      keys = await this.ensureKeys();
     } catch {
       return 0;
     }
 
-    const targets = this.devices.pushTargets();
     let sent = 0;
     await Promise.all(
       targets.map(async ({ device, subscription }) => {
@@ -135,7 +170,7 @@ export class PushManager {
     return sent;
   }
 
-  private ensureKeys(): VapidKeys {
+  private async ensureKeys(): Promise<VapidKeys> {
     if (this.keys) return this.keys;
     if (!this.loaded) {
       this.loaded = true;
@@ -149,7 +184,16 @@ export class PushManager {
           "stored safely. Push stays off.",
       );
     }
-    const keys = this.generate();
+    if (!this.generating) {
+      this.generating = this.generateAndStore().finally(() => {
+        this.generating = null;
+      });
+    }
+    return this.generating;
+  }
+
+  private async generateAndStore(): Promise<VapidKeys> {
+    const keys = await this.generate();
     const encrypted = safeStorage.encryptString(JSON.stringify(keys));
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     fs.writeFileSync(this.filePath, encrypted, { mode: 0o600 });

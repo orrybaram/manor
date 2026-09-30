@@ -39,8 +39,6 @@ import {
 import { RoutedBackend } from "./backend/routed-backend";
 import { PrewarmManager } from "./prewarm-manager";
 import { RemoteDeviceStore } from "./remote-control/devices";
-import { RemoteControlServer } from "./remote-control/server";
-import { TunnelManager } from "./remote-control/tunnel";
 import { RemoteControlController } from "./remote-control/controller";
 import { PushManager } from "./remote-control/push";
 import type { ControlDeps } from "./routes/types";
@@ -451,47 +449,57 @@ export function initApp(devTitle: string | null): void {
   // ADR-161's remote-control surface. Constructed here so the status sink and
   // the quit hook can see it; deliberately *not* started — remote control is
   // off until the user turns it on, and even then the listener is loopback-only
-  // until they separately start a tunnel.
+  // until they separately start a tunnel. The listener and tunnel modules are
+  // not even loaded until then (ADR-202 §3): `loadRuntime` runs at most once,
+  // on the first enable or tunnel start.
   const remoteDeviceStore = new RemoteDeviceStore();
   const remotePush = new PushManager(remoteDeviceStore);
-  const remoteControlServer = new RemoteControlServer(
-    (): ControlDeps => ({
-      projectManager,
-      githubManager,
-      linearManager,
-      layoutPersistence,
-      agentManager,
-      backend,
-      notificationStore,
-      statsStore,
-      preferencesManager,
-      themeManager,
-      portScanner,
-      remoteControl,
-      agentHookServer,
-      agentStatus: agentStatusDriver,
-      webviewServer,
-      webviewPanes: webviewServer,
-      resolvePaneUrl,
-      getRendererWindows,
-      sessionOwners: backendRegistry.sessions,
-    }),
-    remoteDeviceStore,
-    // Rate limiter, audit log, and client directory all take their defaults.
-    { push: remotePush },
-  );
-  // Detected, never installed; started only by an explicit user action. The
-  // manager is constructed here so shutdown can guarantee the child dies with
-  // the app — a tunnel outliving Manor is the feature's worst failure mode.
-  const remoteTunnel = new TunnelManager({
-    which: (bin) => backend.shell.which(bin),
-    spawn: (command, args) =>
-      spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] }),
-  });
+  const loadRemoteControlRuntime = async () => {
+    const [{ RemoteControlServer }, { TunnelManager }] = await Promise.all([
+      import("./remote-control/server"),
+      import("./remote-control/tunnel"),
+    ]);
+    const server = new RemoteControlServer(
+      (): ControlDeps => ({
+        projectManager,
+        githubManager,
+        linearManager,
+        layoutPersistence,
+        agentManager,
+        backend,
+        notificationStore,
+        statsStore,
+        preferencesManager,
+        themeManager,
+        portScanner,
+        remoteControl,
+        agentHookServer,
+        agentStatus: agentStatusDriver,
+        webviewServer,
+        webviewPanes: webviewServer,
+        resolvePaneUrl,
+        getRendererWindows,
+        sessionOwners: backendRegistry.sessions,
+      }),
+      remoteDeviceStore,
+      // Rate limiter, audit log, and client directory all take their defaults.
+      { push: remotePush },
+    );
+    // Detected, never installed; started only by an explicit user action. The
+    // controller's shutdown guarantees the child dies with the app — a tunnel
+    // outliving Manor is the feature's worst failure mode.
+    const tunnel = new TunnelManager({
+      which: (bin) => backend.shell.which(bin),
+      spawn: (command, args) =>
+        spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] }),
+    });
+    return { server, tunnel };
+  };
   const remoteControl = new RemoteControlController(
-    remoteControlServer,
+    loadRemoteControlRuntime,
     remoteDeviceStore,
-    remoteTunnel,
+    // Same PATH probe the tunnel manager uses, without loading it.
+    (bin) => backend.shell.which(bin),
     () => safeStorage.isEncryptionAvailable(),
     remotePush,
   );

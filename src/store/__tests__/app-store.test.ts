@@ -161,6 +161,25 @@ function getActivePanel(): Panel {
   return layout.panels[layout.activePanelId];
 }
 
+/** `action` leaves the same state object and schedules no layout save. */
+function expectNoOp(action: () => void) {
+  vi.useFakeTimers();
+  try {
+    const save = vi.mocked(window.electronAPI.layout.save);
+    vi.advanceTimersByTime(1000);
+    save.mockClear();
+    const before = useAppStore.getState();
+
+    action();
+
+    expect(useAppStore.getState()).toBe(before);
+    vi.advanceTimersByTime(1000);
+    expect(save).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -358,23 +377,10 @@ describe("Pane operations", () => {
   // focusPane runs on every mouse-down in a terminal; re-focusing the focused
   // pane must not produce new state (re-render) or schedule a layout save.
   it("focusPane on the already-focused pane is a no-op", () => {
-    vi.useFakeTimers();
-    try {
-      const save = vi.mocked(window.electronAPI.layout.save);
-      vi.advanceTimersByTime(1000);
-      save.mockClear();
-      const before = useAppStore.getState();
-      const panel = getActivePanel();
-      const tab = panel.tabs.find((t) => t.id === panel.selectedTabId)!;
+    const panel = getActivePanel();
+    const tab = panel.tabs.find((t) => t.id === panel.selectedTabId)!;
 
-      useAppStore.getState().focusPane(tab.focusedPaneId);
-
-      expect(useAppStore.getState()).toBe(before);
-      vi.advanceTimersByTime(1000);
-      expect(save).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
+    expectNoOp(() => useAppStore.getState().focusPane(tab.focusedPaneId));
   });
 
   it("focusNextPane cycles through panes", () => {
@@ -472,21 +478,8 @@ describe("Panel operations", () => {
   // re-focusing the active panel must not produce new state or autosave.
   it("focusPanel on the already-active panel is a no-op", () => {
     setupStore(makeTwoPanelLayout());
-    vi.useFakeTimers();
-    try {
-      const save = vi.mocked(window.electronAPI.layout.save);
-      vi.advanceTimersByTime(1000);
-      save.mockClear();
-      const before = useAppStore.getState();
 
-      useAppStore.getState().focusPanel("panel-1");
-
-      expect(useAppStore.getState()).toBe(before);
-      vi.advanceTimersByTime(1000);
-      expect(save).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
+    expectNoOp(() => useAppStore.getState().focusPanel("panel-1"));
   });
 
   it("focusPanel switches to another panel", () => {
@@ -498,21 +491,17 @@ describe("Panel operations", () => {
   });
 
   it("focusNextPanel / focusPrevPanel with one panel are no-ops", () => {
-    const before = useAppStore.getState();
-
-    useAppStore.getState().focusNextPanel();
-    useAppStore.getState().focusPrevPanel();
-
-    expect(useAppStore.getState()).toBe(before);
+    expectNoOp(() => {
+      useAppStore.getState().focusNextPanel();
+      useAppStore.getState().focusPrevPanel();
+    });
   });
 
   it("focusNextPane / focusPrevPane with one pane are no-ops", () => {
-    const before = useAppStore.getState();
-
-    useAppStore.getState().focusNextPane();
-    useAppStore.getState().focusPrevPane();
-
-    expect(useAppStore.getState()).toBe(before);
+    expectNoOp(() => {
+      useAppStore.getState().focusNextPane();
+      useAppStore.getState().focusPrevPane();
+    });
   });
 
   it("moveTabToPanel moves tab between panels", () => {

@@ -1,8 +1,7 @@
 import { useState, useCallback, useRef, useEffect, lazy, Suspense, type CSSProperties } from "react";
-import { useShallow } from "zustand/react/shallow";
 import { PaneDragProvider } from "./components/workspace-panes/PaneDragContext";
 import { StatusBar } from "./components/statusbar/StatusBar/StatusBar";
-import { WorkspaceLayout } from "./components/panels/WorkspaceLayout";
+import { WorkspaceStack } from "./components/panels/WorkspaceStack";
 import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
 import { SidebarRail } from "./components/sidebar/SidebarRail/SidebarRail";
 import { WindowLead } from "./components/window-lead/WindowLead/WindowLead";
@@ -36,7 +35,6 @@ import {
   useAppStore,
   selectActiveWorkspace,
   selectActiveWorkspaceKey,
-  selectWorkspaceKeys,
   getPersistedActiveWorkspacePath,
 } from "./store/app-store";
 import {
@@ -383,9 +381,6 @@ function App() {
     [triggerGhosts, handleOpenProjectSettings, handleCloneRepository],
   );
 
-  // Only the keys: each WorkspaceLayout selects its own tree, so a layout
-  // change in one workspace doesn't re-render App or the other workspaces.
-  const workspaceKeys = useAppStore(useShallow(selectWorkspaceKeys));
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const activeWorkspaceKey = useAppStore(selectActiveWorkspaceKey);
   // The workspace's host travels with its key (ADR-191); Home is local.
@@ -790,16 +785,12 @@ function App() {
                 shows up as the same output duplicated over and over. */}
             <div className="workspace-stack">
               {/* `workspaceLayouts` is keyed by `WorkspaceKey` (ADR-191). */}
-              {workspaceKeys.map((key) => (
-                <WorkspaceLayout
-                  key={key}
-                  workspaceKey={key}
-                  visible={
-                    key === activeWorkspaceKey && hasTabs && !showOnboarding && !showTasksView
-                  }
-                  onNewAgent={handleNewAgent}
-                />
-              ))}
+              <WorkspaceStack
+                visibleKey={
+                  hasTabs && !showOnboarding && !showTasksView ? activeWorkspaceKey : null
+                }
+                onNewAgent={handleNewAgent}
+              />
               {(showOnboarding || showTasksView || !(activeWorkspacePath && hasTabs)) && (
                 <div className="empty-surface">
                   <div className="drag-region" />

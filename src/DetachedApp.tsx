@@ -41,6 +41,9 @@ import "./App.css";
  */
 type BootState = "loading" | "ready" | "empty";
 
+/** Stable across renders so the memoized PanelLayout isn't re-rendered for it. */
+const handleNewAgent = () => void startNewAgent();
+
 export default function DetachedApp() {
   const loadTheme = useThemeStore((s) => s.loadTheme);
   const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
@@ -49,7 +52,10 @@ export default function DetachedApp() {
   useRemoteRecovery();
 
   const activeWorkspaceKey = useAppStore(selectActiveWorkspaceKey);
-  const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
+  // Only this window's tree, so a layout change elsewhere doesn't re-render it.
+  const panelTree = useAppStore((s) =>
+    activeWorkspaceKey ? s.workspaceLayouts[activeWorkspaceKey]?.panelTree : undefined,
+  );
 
   const pendingCloseConfirmPaneId = useAppStore(
     (s) => s.pendingCloseConfirmPaneId,
@@ -234,9 +240,7 @@ export default function DetachedApp() {
   }, []);
 
   const hasLayout =
-    bootState === "ready" &&
-    activeWorkspaceKey !== null &&
-    workspaceLayouts[activeWorkspaceKey] !== undefined;
+    bootState === "ready" && activeWorkspaceKey !== null && panelTree !== undefined;
 
   // Loading (payload in flight) and empty (no payload) both render a splash.
   // A full-width `.drag-region` strip at the top keeps the window movable even
@@ -266,9 +270,9 @@ export default function DetachedApp() {
             <div className="main-content main-content--gutter-left main-content--gutter-bottom">
               <PanelLayout
                 key={activeWorkspaceKey}
-                node={workspaceLayouts[activeWorkspaceKey].panelTree}
+                node={panelTree}
                 workspaceKey={activeWorkspaceKey}
-                onNewAgent={() => void startNewAgent()}
+                onNewAgent={handleNewAgent}
               />
             </div>
           </PaneDragProvider>

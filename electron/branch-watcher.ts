@@ -3,6 +3,7 @@ import path from "node:path";
 import type { BrowserWindow } from "electron";
 import { LOCAL_HOST_ID } from "./backend/types";
 import { HostUnavailableError } from "./backend/host-view";
+import { workspaceKey } from "../src/lib/workspace-key";
 import { PerHostPoller, type HostBackends, type HostPath } from "./per-host-poller";
 
 /**
@@ -61,7 +62,8 @@ export async function readLocalBranch(wsPath: string): Promise<string | null> {
  * remote host reads through its backend's `git.currentBranch` (a
  * `git rev-parse` on the box) on a slower 5s cadence; the poller skips a
  * tick while a previous one is still in flight, so a slow or unreachable
- * host cannot pile up requests.
+ * host cannot pile up requests. Results are keyed by `WorkspaceKey`
+ * (ADR-204), so two hosts' identical paths stay apart.
  */
 export class BranchWatcher {
   private readonly poller: PerHostPoller<Record<string, string>>;
@@ -99,7 +101,7 @@ export class BranchWatcher {
     for (const wsPath of paths) {
       try {
         const branch = await readLocalBranch(wsPath);
-        if (branch) result[wsPath] = branch;
+        if (branch) result[workspaceKey(LOCAL_HOST_ID, wsPath)] = branch;
       } catch {
         // Not a git repo or unreadable — skip
       }
@@ -124,7 +126,7 @@ export class BranchWatcher {
         console.error("[BranchWatcher] git currentBranch failed:", r.reason);
         continue;
       }
-      if (r.value.branch) result[r.value.wsPath] = r.value.branch;
+      if (r.value.branch) result[workspaceKey(hostId, r.value.wsPath)] = r.value.branch;
     }
     return result;
   }

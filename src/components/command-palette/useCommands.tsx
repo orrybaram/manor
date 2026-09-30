@@ -40,7 +40,7 @@ import type { CommandItem, CategoryConfig } from "./types";
 import type { SettingsPageId } from "../settings/SettingsModal/SettingsModal";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
-import { selectActiveLayout, useAppStore } from "../../store/app-store";
+import { selectActiveLayout, selectActiveWorkspaceKey, useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { useToastStore } from "../../store/toast-store";
 import { getAgentCommand } from "../../agent-defaults";
@@ -55,6 +55,7 @@ import type { ActivePort } from "../../electron.d.ts";
 import { isRemoteHost } from "../../lib/hosts";
 import { HOME_PATH, isHomePath } from "../../lib/home-path";
 import { EXTERNAL_LINKS } from "../../lib/menu-commands";
+import { find } from "../../lib/workspace-directory";
 import {
   navigateBack,
   navigateForward,
@@ -112,6 +113,7 @@ export function useCommands({
 }: UseCommandsParams): CategoryConfig[] {
   const bindings = useKeybindingsStore((s) => s.bindings);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
+  const activeWorkspaceKey = useAppStore(selectActiveWorkspaceKey);
   const activeSurface = useAppStore((s) => s.activeSurface);
   const projects = useProjectStore((s) => s.projects);
   const activeTabPinned = useAppStore((s) => {
@@ -135,14 +137,10 @@ export function useCommands({
     };
 
     const onHome = isHomePath(activeWorkspacePath);
-    const activeProject = onHome
-      ? undefined
-      : projects.find((p) =>
-          p.workspaces.some((w) => w.path === activeWorkspacePath),
-        );
-    const activeWs = activeProject?.workspaces.find(
-      (w) => w.path === activeWorkspacePath,
-    );
+    const activeFound =
+      onHome || !activeWorkspaceKey ? undefined : find(projects, activeWorkspaceKey);
+    const activeProject = activeFound?.project;
+    const activeWs = activeFound?.workspace;
 
     // The app's destinations, mirroring the sidebar's nav (ADR-194/197/198).
     const goToItems: CommandItem[] = [
@@ -381,8 +379,10 @@ export function useCommands({
         icon: <Bot size={14} />,
         keywords: ["split", "agent", "pane", "claude"],
         action: () => {
-          const awp = useAppStore.getState().activeWorkspacePath;
-          splitFocusedPaneWith("agent", getAgentCommand(awp));
+          splitFocusedPaneWith(
+            "agent",
+            getAgentCommand(selectActiveWorkspaceKey(useAppStore.getState())),
+          );
           onClose();
         },
       },
@@ -492,12 +492,10 @@ export function useCommands({
         shortcut: fmt("copy-branch"),
         keywords: ["git", "branch", "clipboard"],
         action: () => {
-          const awp = useAppStore.getState().activeWorkspacePath;
-          const proj = useProjectStore
-            .getState()
-            .projects.find((p) => p.workspaces.some((w) => w.path === awp));
-          const ws = proj?.workspaces.find((w) => w.path === awp);
-          const branch = ws?.branch;
+          const key = selectActiveWorkspaceKey(useAppStore.getState());
+          const branch = key
+            ? find(useProjectStore.getState().projects, key)?.workspace.branch
+            : undefined;
           if (branch) {
             navigator.clipboard.writeText(branch);
             useToastStore.getState().addToast({
@@ -1042,6 +1040,7 @@ export function useCommands({
     selectedTabId,
     bindings,
     activeWorkspacePath,
+    activeWorkspaceKey,
     activePorts,
     openOrFocusDiff,
     openDiffInNewPanel,

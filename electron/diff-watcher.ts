@@ -1,5 +1,6 @@
 import type { BrowserWindow } from "electron";
 import { HostUnavailableError } from "./backend/host-view";
+import { workspaceKey, type WorkspaceKey } from "../src/lib/workspace-key";
 import { PerHostPoller, type HostBackends, type HostPath } from "./per-host-poller";
 import { errorMessage } from "./lib/errors";
 
@@ -22,11 +23,11 @@ export interface DiffWorkspace extends HostPath {
 export class DiffWatcher {
   private readonly poller: PerHostPoller<Record<string, DiffStats>>;
   private window: BrowserWindow | null = null;
-  /** Each watched workspace's default branch, by path. */
-  private defaultBranches = new Map<string, string>();
+  /** Each watched workspace's default branch, by key. */
+  private defaultBranches = new Map<WorkspaceKey, string>();
   // Paths discovered to not be git repos — skipped on subsequent ticks so we
   // don't re-run git (and re-log) every interval. Reset on each start().
-  private nonGitPaths: Set<string> = new Set();
+  private nonGitPaths: Set<WorkspaceKey> = new Set();
 
   constructor(private readonly hosts: HostBackends) {
     this.poller = new PerHostPoller<Record<string, DiffStats>>({
@@ -45,7 +46,7 @@ export class DiffWatcher {
     this.window = window;
     // Force the first result to emit so a fresh/reloaded renderer gets stats.
     this.poller.reset({ reemit: true });
-    this.defaultBranches = new Map(workspaces.map((ws) => [ws.path, ws.defaultBranch]));
+    this.defaultBranches = new Map(workspaces.map((ws) => [workspaceKey(ws.hostId, ws.path), ws.defaultBranch]));
     this.nonGitPaths.clear();
     this.poller.setEntries(workspaces);
     console.log("[DiffWatcher] started with", workspaces.length, "workspaces");
@@ -64,7 +65,7 @@ export class DiffWatcher {
         const stats = await this.getDiffStats(
           hostId,
           wsPath,
-          this.defaultBranches.get(wsPath) ?? "main",
+          this.defaultBranches.get(workspaceKey(hostId, wsPath)) ?? "main",
         );
         return { wsPath, stats };
       }),
@@ -78,7 +79,7 @@ export class DiffWatcher {
       if (r.status === "rejected") {
         console.error("[DiffWatcher] workspace scan rejected:", r.reason);
       } else if (r.value.stats) {
-        result[r.value.wsPath] = r.value.stats;
+        result[workspaceKey(hostId, r.value.wsPath)] = r.value.stats;
       }
     }
 
@@ -92,7 +93,8 @@ export class DiffWatcher {
   ): Promise<DiffStats | null> {
     const git = this.hosts.get(hostId).git;
     // Skip paths already known to not be git repos (no rescan, no re-log).
-    if (this.nonGitPaths.has(wsPath)) return null;
+    const key = workspaceKey(hostId, wsPath);
+    if (this.nonGitPaths.has(key)) return null;
 
     // Try origin/<branch> first (more reliable in worktrees), fall back to local ref
     const refs = [`origin/${defaultBranch}`, defaultBranch];
@@ -131,7 +133,7 @@ export class DiffWatcher {
         // Directory isn't a git repo at all — ignore it completely and stop
         // scanning it on future ticks.
         if (msg.includes("not a git repository")) {
-          this.nonGitPaths.add(wsPath);
+          this.nonGitPaths.add(key);
           return null;
         }
         // Silently skip refs that don't exist (e.g. local-only repo with no upstream)

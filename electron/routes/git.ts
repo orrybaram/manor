@@ -16,8 +16,11 @@
  */
 
 import { matchProjectByPath } from "../pane-context";
-import { ownerHostIdForPath } from "../../src/lib/workspace-key";
-import { LOCAL_HOST_ID, normalizeHostId } from "../../src/lib/host-id";
+import {
+  LOCAL_HOST_ID,
+  normalizeHostId,
+  ownerHostIdForPath,
+} from "../../src/lib/workspace-key";
 import type { ProjectInfo, WorkspaceInfo } from "../persistence";
 import type { GitBackend } from "../backend/types";
 import type { ControlDeps, Json, Route } from "./types";

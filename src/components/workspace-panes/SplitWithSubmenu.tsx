@@ -4,7 +4,7 @@ import SquareTerminal from "lucide-react/dist/esm/icons/square-terminal";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
 import Bot from "lucide-react/dist/esm/icons/bot";
-import { useAppStore } from "../../store/app-store";
+import { selectActiveWorkspaceKey, useAppStore } from "../../store/app-store";
 import { getAgentCommand } from "../../agent-defaults";
 import styles from "./PaneLayout/PaneLayout.module.css";
 
@@ -57,7 +57,7 @@ export function SplitWithSubmenu({ paneId, containerRef }: SplitWithSubmenuProps
           <ContextMenu.Item
             className={styles.contextMenuItem}
             onSelect={() => {
-              const command = getAgentCommand(useAppStore.getState().activeWorkspacePath);
+              const command = getAgentCommand(selectActiveWorkspaceKey(useAppStore.getState()));
               splitPaneAt(paneId, getDir(), "second", {
                 contentType: "agent",
                 paneCommand: command,

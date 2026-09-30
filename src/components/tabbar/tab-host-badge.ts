@@ -1,4 +1,4 @@
-import { normalizeHostId } from "../../lib/host-id";
+import { normalizeHostId } from "../../lib/workspace-key";
 
 /**
  * The host a tab's "different host" badge names, or null for no badge.

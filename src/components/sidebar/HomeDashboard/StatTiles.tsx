@@ -7,7 +7,7 @@ import {
 } from "../../../store/agent-activity-store";
 import { useStatsStore } from "../../../store/stats-store";
 import type { NeedsYouCard, OpenPrStats } from "../../../lib/home-dashboard-studio";
-import { PR_STAGES } from "../../../lib/home-dashboard-studio";
+import { PR_STAGES } from "../../../lib/pr-readiness";
 import { formatAge } from "./format";
 import { waitingOnLabel } from "./needs-you-labels";
 import { Sparkline } from "./Sparkline";

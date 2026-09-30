@@ -16,7 +16,8 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { terminalOptions } from "../terminal/config";
 import { createFileLinkProvider } from "../terminal/file-link-provider";
 import { selectActiveLayout, useAppStore, type PendingPaneCommand } from "../store/app-store";
-import type { WorkspaceKey } from "../lib/workspace-key";
+import { parseWorkspaceKey, workspaceKey as makeWorkspaceKey, type WorkspaceKey } from "../lib/workspace-key";
+import { ownerOf } from "../lib/workspace-directory";
 import { useProjectStore } from "../store/project-store";
 import { getAgentKindForCommand } from "../agent-defaults";
 import { isNavRegionFocused } from "../lib/focus-regions";
@@ -337,12 +338,19 @@ export function useTerminalLifecycle(
 
     // Derive agentKind from the project's agent command so MANOR_AGENT_KIND
     // is set in the PTY env for connector-aware spawns.
+    // The pane's project: its cwd on the pane's host (local when it has no key).
+    const cwdProject = cwd
+      ? ownerOf(
+          useProjectStore.getState().projects,
+          makeWorkspaceKey(
+            workspaceKey ? parseWorkspaceKey(workspaceKey).hostId : null,
+            cwd,
+          ),
+        )
+      : undefined;
     const agentKindForCreate: string | null = (() => {
       if (!cwd) return null;
-      const projects = useProjectStore.getState().projects;
-      const project = projects.find((p) =>
-        p.workspaces.some((ws) => ws.path === cwd),
-      );
+      const project = cwdProject;
       const command = project?.agentCommand ?? null;
       return command ? getAgentKindForCommand(command) : "claude";
     })();
@@ -377,10 +385,7 @@ export function useTerminalLifecycle(
 
         // Set pane context for agent association
         if (cwd) {
-          const projects = useProjectStore.getState().projects;
-          const project = projects.find((p) =>
-            p.workspaces.some((ws) => ws.path === cwd),
-          );
+          const project = cwdProject;
 
           // Fire-and-forget call to set pane context
           window.electronAPI.agents.setPaneContext(paneId, {

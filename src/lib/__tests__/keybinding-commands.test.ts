@@ -29,6 +29,8 @@ import { SHARED_WINDOW_COMMANDS } from "../menu-commands";
 import type { ProjectInfo } from "../../store/project-store";
 import type { WorkspaceLayout, Tab, Panel } from "../../store/app-store";
 
+import { workspaceKey } from "../workspace-key";
+
 const WS_PATH = "/test/workspace";
 
 function makeLayout(tab: Tab): WorkspaceLayout {
@@ -228,11 +230,11 @@ describe("createSharedKeybindingHandlers", () => {
 describe("resolveWorkspaceCommand", () => {
   it("uses the owning project's agent command", () => {
     useProjectStore.setState({ projects: [makeProject("my-agent --flag")] });
-    expect(resolveWorkspaceCommand(WS_PATH)).toBe("my-agent --flag");
+    expect(resolveWorkspaceCommand(workspaceKey(null, WS_PATH))).toBe("my-agent --flag");
   });
 
   it("falls back to the default when no project owns the path", () => {
-    expect(resolveWorkspaceCommand("/unknown")).toBeTruthy();
+    expect(resolveWorkspaceCommand(workspaceKey(null, "/unknown"))).toBeTruthy();
   });
 });
 

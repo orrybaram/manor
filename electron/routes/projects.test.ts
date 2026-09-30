@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../renderer-bridge", () => ({
   notifyProjectsChanged: vi.fn(),
-  runSetupScript: vi.fn(),
   startAgent: vi.fn(),
 }));
 
 import { projectRoutes } from "./projects";
+import { createWorkspaceOps, type WorkspaceOpsDeps } from "../workspace-ops";
 import type { ControlDeps, Route } from "./types";
 import type {
   IssueSeed,
@@ -109,10 +109,22 @@ const github = {
   assignIssue: vi.fn(async () => {}),
 };
 
+/**
+ * A real workspace ops over the fake manager, so host-targeting tests assert
+ * which project id the create landed in. Its own side effects are covered by
+ * `../workspace-ops.test.ts`.
+ */
 function deps(pm: Pm, callerHostId?: string): ControlDeps {
+  const workspaceOps = createWorkspaceOps({
+    projectManager: pm as unknown as WorkspaceOpsDeps["projectManager"],
+    statsStore: { record: vi.fn() },
+    notifyProjectsChanged: vi.fn(),
+    runSetupScript: vi.fn(),
+  });
   return {
     projectManager: pm,
     githubManager: github,
+    workspaceOps,
     callerHostId,
   } as unknown as ControlDeps;
 }
@@ -332,49 +344,6 @@ describe("POST /projects/:projectId/workspaces", () => {
       'Project "Solo" is on this Mac, not me@box, and isn\'t linked with a project there.',
     );
   });
-
-  it("records the target member's host as the group's last-used host", async () => {
-    pm = makeProjectManager("local");
-    const res = await call(create, deps(pm), { projectId: "local-app" }, {
-      name: "feat",
-      host: "box",
-    });
-    expect(res.status).toBe(200);
-    expect(pm.setGroupLastUsedHost).toHaveBeenCalledWith("g1", "box");
-  });
-
-  it("leaves an unchanged host to the manager's own no-op check", async () => {
-    // `setGroupLastUsedHost` skips the host already recorded
-    // (project-groups.test.ts), so the route doesn't second-guess it
-    // against its snapshot.
-    await call(create, deps(pm), { projectId: "local-app" }, { name: "feat" });
-    expect(pm.createWorktree.mock.calls[0][0]).toBe("box-app");
-    expect(pm.setGroupLastUsedHost).toHaveBeenCalledWith("g1", "box");
-  });
-
-  it("records nothing for an unlinked project, or a refused create", async () => {
-    await call(create, deps(pm), { projectId: "solo" }, { name: "feat" });
-    await call(create, deps(pm), { projectId: "local-app" }, {
-      name: "feat",
-      host: "me@mini",
-    });
-    expect(pm.setGroupLastUsedHost).not.toHaveBeenCalled();
-  });
-
-  it("still succeeds when recording the last-used host fails", async () => {
-    pm = makeProjectManager("local");
-    pm.setGroupLastUsedHost.mockImplementationOnce(() => {
-      throw new Error("disk full");
-    });
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const res = await call(create, deps(pm), { projectId: "local-app" }, {
-      name: "feat",
-      host: "box",
-    });
-    expect(res.status).toBe(200);
-    expect(warn).toHaveBeenCalled();
-    warn.mockRestore();
-  });
 });
 
 describe("POST /projects/:projectId/workspaces/batch", () => {
@@ -396,7 +365,7 @@ describe("POST /projects/:projectId/workspaces/batch", () => {
     });
   }
 
-  it("creates in the member on the named host and records it", async () => {
+  it("creates in the member on the named host", async () => {
     pm = makeProjectManager("local");
     const res = await batchCall("local-app", { host: "me@box" });
     expect(res.status).toBe(200);
@@ -406,7 +375,6 @@ describe("POST /projects/:projectId/workspaces/batch", () => {
         (r) => r.workspacePath,
       ),
     ).toEqual(["/box-app/issue-1", "/box-app/issue-2"]);
-    expect(pm.setGroupLastUsedHost).toHaveBeenCalledWith("g1", "box");
   });
 
   it("defaults to a relayed caller's own host, then last-used, then the named project", async () => {
@@ -469,14 +437,37 @@ describe("POST /projects/:projectId/workspaces/batch", () => {
     await batchCall("box-app", { host: "me@box" }, "box");
     expect(pm.createWorkspacesFromIssues.mock.calls[0][0]).toBe("box-app");
   });
+});
 
-  it("records nothing when no workspace was created", async () => {
-    pm = makeProjectManager("local");
-    pm.createWorkspacesFromIssues.mockImplementationOnce(async (_id, seeds) =>
-      seeds.map((seed) => ({ ...seed, body: seed.body ?? null, error: "boom" })),
-    );
-    const res = await batchCall("local-app", { host: "box" });
-    expect(res.status).toBe(200);
-    expect(pm.setGroupLastUsedHost).not.toHaveBeenCalled();
+describe("workspace lifecycle routes without workspace ops", () => {
+  it("answer 503 once the request is valid", async () => {
+    const pm = makeProjectManager();
+    const d = { ...deps(pm), workspaceOps: null } as ControlDeps;
+    const unavailable = {
+      status: 503,
+      body: { error: "Workspace operations are not available" },
+    };
+    const params = { projectId: "solo" };
+    expect(
+      await call(route("POST", "/projects/:projectId/workspaces"), d, params, {
+        name: "feat",
+      }),
+    ).toEqual(unavailable);
+    expect(
+      await call(route("POST", "/projects/:projectId/workspaces/batch"), d, params, {
+        issues: [1],
+      }),
+    ).toEqual(unavailable);
+    expect(
+      await call(route("DELETE", "/projects/:projectId/workspaces"), d, params, {
+        worktreePath: "/local/app-feat",
+      }),
+    ).toEqual(unavailable);
+    expect(
+      await call(route("POST", "/projects/:projectId/workspaces/quick-merge"), d, params, {
+        workspacePath: "/local/app-feat",
+      }),
+    ).toEqual(unavailable);
+    expect(pm.createWorktree).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,4 @@
-import { selectActiveLayout, useAppStore } from "../store/app-store";
+import { selectActiveLayout, selectActiveWorkspaceKey, useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { usePreferencesStore } from "../store/preferences-store";
 import { useKeybindingsStore } from "../store/keybindings-store";
@@ -7,6 +7,8 @@ import { getBrowserPaneRef } from "./browser-pane-registry";
 import type { BrowserPaneRef } from "../components/workspace-panes/BrowserPane/BrowserPane";
 import { DEFAULT_AGENT_COMMAND } from "../agent-defaults";
 import { isHomePath } from "./home";
+import { find, ownerOf } from "./workspace-directory";
+import type { WorkspaceKey } from "./workspace-key";
 import {
   PAGE_BROWSER_COMMANDS,
   comboFromEvent,
@@ -69,10 +71,8 @@ function isBrowserPaneDomFocused(): boolean {
 /**
  * The agent launch command for a workspace: its project's `agentCommand`.
  */
-export function resolveWorkspaceCommand(workspacePath: string | null): string {
-  const project = useProjectStore
-    .getState()
-    .projects.find((p) => p.workspaces.some((w) => w.path === workspacePath));
+export function resolveWorkspaceCommand(key: WorkspaceKey | null): string {
+  const project = ownerOf(useProjectStore.getState().projects, key);
   return project?.agentCommand ?? DEFAULT_AGENT_COMMAND;
 }
 
@@ -89,7 +89,7 @@ export async function startNewAgent(
 ): Promise<void> {
   const { activeWorkspacePath, activeWorkspaceHostId: hostId } =
     useAppStore.getState();
-  const command = resolveWorkspaceCommand(activeWorkspacePath);
+  const command = resolveWorkspaceCommand(selectActiveWorkspaceKey(useAppStore.getState()));
   const prewarmed = prewarm
     ? await window.electronAPI.pty.consumePrewarmed(activeWorkspacePath, hostId)
     : null;
@@ -152,11 +152,10 @@ export function createSharedKeybindingHandlers(
     "next-pane": () => store().focusNextPane(),
     "prev-pane": () => store().focusPrevPane(),
     "copy-branch": () => {
-      const awp = store().activeWorkspacePath;
-      const proj = useProjectStore
-        .getState()
-        .projects.find((p) => p.workspaces.some((w) => w.path === awp));
-      const branch = proj?.workspaces.find((w) => w.path === awp)?.branch;
+      const key = selectActiveWorkspaceKey(store());
+      const branch = key
+        ? find(useProjectStore.getState().projects, key)?.workspace.branch
+        : undefined;
       if (branch) {
         navigator.clipboard.writeText(branch);
         useToastStore.getState().addToast({

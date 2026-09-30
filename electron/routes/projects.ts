@@ -19,11 +19,8 @@ import { LOCAL_HOST_ID } from "../backend/types";
 import { callerMaySee, OWN_HOST_ONLY } from "./caller-host";
 import { isIssueSource } from "../issue-sources";
 import { ghRepoOf } from "../../src/lib/gh-repo";
-import {
-  notifyProjectsChanged,
-  runSetupScript,
-  startAgent,
-} from "../renderer-bridge";
+import { notifyProjectsChanged, startAgent } from "../renderer-bridge";
+import type { WorkspaceOps } from "../workspace-ops";
 import type { Json, Route, RouteContext } from "./types";
 
 /**
@@ -290,24 +287,14 @@ function resolveCreateTarget(
 }
 
 /**
- * Remember `project`'s host as its group's last-used host, the way the New
- * Workspace dialog does, so the dialog's default follows CLI creates too.
- * An ungrouped project writes nothing; `setGroupLastUsedHost` itself skips
- * the host already recorded (checked there, not against a possibly stale
- * snapshot here). A failure only costs the picker its default, so it is logged, not thrown:
- * the workspace was made.
+ * The workspace lifecycle (ADR-203), or a 503 when this bag has none — a
+ * capability gap like a missing `projectManager`. Checked after the request's
+ * own validation, so a malformed request still hears its 400 first.
  */
-function recordLastUsedHost(pm: ProjectManager, project: ProjectInfo): void {
-  const group = project.group;
-  if (!group) return;
-  try {
-    pm.setGroupLastUsedHost(group.id, project.hostId);
-  } catch (err) {
-    console.warn(
-      `[projects] Could not record ${project.hostId} as group ${group.id}'s last-used host:`,
-      err,
-    );
-  }
+function requireWorkspaceOps(ctx: RouteContext): WorkspaceOps | null {
+  const ops = ctx.deps.workspaceOps;
+  if (!ops) ctx.json(503, { error: "Workspace operations are not available" });
+  return ops ?? null;
 }
 
 export interface BatchResultEntry {
@@ -428,6 +415,8 @@ async function batchCreateWorkspaces(
     });
     return;
   }
+  const ops = requireWorkspaceOps(ctx);
+  if (!ops) return;
 
   const rawIssues = body.issues;
   if (
@@ -473,15 +462,8 @@ async function batchCreateWorkspaces(
         ]
       : [],
   );
-  const created = await pm.createWorkspacesFromIssues(
-    project.id,
-    seeds,
-    baseBranch,
-  );
+  const created = await ops.createFromIssues(project, seeds, baseBranch);
   const createdByNumber = new Map(created.map((c) => [c.number, c]));
-  const wasCreated = (c: WorkspaceFromIssue) => !!c.worktreePath && !c.error;
-  if (created.some(wasCreated)) recordLastUsedHost(pm, project);
-  notifyProjectsChanged();
 
   // 3. Resolve each issue to a result entry, assigning and launching as it
   // goes. This runs sequentially, not fanned out through `Promise.all` like
@@ -614,23 +596,14 @@ export const projectRoutes: Route[] = [
         typeof body.useExistingBranch === "boolean"
           ? body.useExistingBranch
           : undefined;
-      const before = new Set(project.workspaces.map((ws) => ws.path));
-      const updated = await pm.createWorktree(
-        project.id,
-        name,
-        branch,
-        undefined,
-        baseBranch,
-        useExistingBranch,
+      const ops = requireWorkspaceOps(ctx);
+      if (!ops) return;
+      // The UI runs `worktreeStartScript` from the renderer itself; a CLI /
+      // MCP create has no renderer flow, so the op round-trips it (ADR-203).
+      const { project: updated } = await ops.create(
+        { projectId: project.id, name, branch, baseBranch, useExistingBranch },
+        { runSetupScript: true },
       );
-      if (updated) recordLastUsedHost(pm, project);
-      notifyProjectsChanged();
-      // The UI path runs `worktreeStartScript` from the renderer (it needs a
-      // PTY), so main round-trips the request the same way start-agent does.
-      const created = updated?.workspaces.find((ws) => !before.has(ws.path));
-      if (created && updated?.worktreeStartScript) {
-        runSetupScript(created.path, updated.worktreeStartScript, updated.hostId);
-      }
       json(200, updated && withHostLabel(pm, updated));
     }),
   },
@@ -638,7 +611,8 @@ export const projectRoutes: Route[] = [
   {
     method: "DELETE",
     path: "/projects/:projectId/workspaces",
-    handler: withProject(async ({ params, json, readBody }, pm) => {
+    handler: withProject(async (ctx) => {
+      const { params, json, readBody } = ctx;
       const body = await readBody();
       const worktreePath = body.worktreePath;
       if (typeof worktreePath !== "string") {
@@ -647,8 +621,9 @@ export const projectRoutes: Route[] = [
       }
       const deleteBranch =
         typeof body.deleteBranch === "boolean" ? body.deleteBranch : undefined;
-      await pm.removeWorktree(params.projectId, worktreePath, deleteBranch);
-      notifyProjectsChanged();
+      const ops = requireWorkspaceOps(ctx);
+      if (!ops) return;
+      await ops.remove(params.projectId, worktreePath, deleteBranch);
       json(200, { ok: true });
     }),
   },
@@ -751,15 +726,17 @@ export const projectRoutes: Route[] = [
   {
     method: "POST",
     path: "/projects/:projectId/workspaces/quick-merge",
-    handler: withProject(async ({ params, json, readBody }, pm) => {
+    handler: withProject(async (ctx) => {
+      const { params, json, readBody } = ctx;
       const body = await readBody();
       const workspacePath = body.workspacePath;
       if (typeof workspacePath !== "string") {
         json(400, { error: "Missing 'workspacePath' string in request body" });
         return;
       }
-      await pm.quickMergeWorktree(params.projectId, workspacePath);
-      notifyProjectsChanged();
+      const ops = requireWorkspaceOps(ctx);
+      if (!ops) return;
+      await ops.quickMerge(params.projectId, workspacePath);
       json(200, { ok: true });
     }),
   },

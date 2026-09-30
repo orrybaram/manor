@@ -107,7 +107,8 @@ export class Session {
   private decoder: FrameDecoder;
   private headless: HeadlessTerminal;
   private serializeAddon: SerializeAddon;
-  private attachedClients = new Set<net.Socket>();
+  /** Attached stream sockets, each with the `close` listener it was given. */
+  private attachedClients = new Map<net.Socket, () => void>();
   private cwd: string | null;
   private cols: number;
   private rows: number;
@@ -337,7 +338,7 @@ export class Session {
           this.scrollbackWriter.append(data);
           // Detect clear-scrollback escape (\e[3J)
           if (data.includes("\x1b[3J")) {
-            this.scrollbackWriter.handleClearScrollback();
+            void this.scrollbackWriter.handleClearScrollback();
           }
         }
 
@@ -500,6 +501,15 @@ export class Session {
     this.disposeInternal();
   }
 
+  /**
+   * Resolves once every scrollback and meta.json write this session has
+   * started has landed on disk. Scrollback writes run async, so the daemon
+   * waits on this before it exits.
+   */
+  whenPersisted(): Promise<void> {
+    return this.scrollbackWriter?.whenIdle() ?? Promise.resolve();
+  }
+
   /** Dispose and wait for the subprocess to fully exit (used by kill path). */
   async disposeAndWait(timeoutMs = 3_000): Promise<void> {
     const proc = this.subprocess;
@@ -531,11 +541,12 @@ export class Session {
       clearTimeout(pending.timer);
       pending.resolve();
     }
+    // Kept after disposal, which makes it inert, so `whenPersisted` can
+    // still wait on its last writes.
     this.scrollbackWriter?.end();
     this.scrollbackWriter?.dispose();
-    this.scrollbackWriter = null;
     this.headless.dispose();
-    this.attachedClients.clear();
+    this.detachAllClients();
   }
 
   /** Wait for all pending headless writes to flush */
@@ -574,25 +585,43 @@ export class Session {
     };
   }
 
-  /** Attach a stream client socket */
+  /**
+   * Attach a stream client socket. Attaching one already attached is a no-op.
+   *
+   * The `close` listener is removed again on detach and dispose: a stream
+   * socket lives as long as the app's connection and subscribes over and over,
+   * and a listener left behind each time would pile up on it and keep this
+   * session — headless buffer and all — alive after it was killed.
+   */
   attachClient(socket: net.Socket): void {
-    this.attachedClients.add(socket);
-    socket.on("close", () => this.attachedClients.delete(socket));
+    if (this.attachedClients.has(socket)) return;
+    const onClose = () => this.detachClient(socket);
+    this.attachedClients.set(socket, onClose);
+    socket.on("close", onClose);
   }
 
   /** Detach a stream client socket */
   detachClient(socket: net.Socket): void {
+    const onClose = this.attachedClients.get(socket);
+    if (!onClose) return;
     this.attachedClients.delete(socket);
+    socket.off("close", onClose);
+  }
+
+  private detachAllClients(): void {
+    for (const socket of [...this.attachedClients.keys()]) {
+      this.detachClient(socket);
+    }
   }
 
   /** Broadcast a stream event to all attached clients */
   private broadcastEvent(event: StreamEvent): void {
     const line = JSON.stringify(event) + "\n";
-    for (const client of this.attachedClients) {
+    for (const client of [...this.attachedClients.keys()]) {
       try {
         client.write(line);
       } catch {
-        this.attachedClients.delete(client);
+        this.detachClient(client);
       }
     }
   }
@@ -648,7 +677,7 @@ export class Session {
     const slashIdx = rest.indexOf("/");
     const p = slashIdx >= 0 ? rest.slice(slashIdx) : rest;
     this.cwd = decodeURIComponent(p);
-    this.scrollbackWriter?.updateCwd(this.cwd);
+    void this.scrollbackWriter?.updateCwd(this.cwd);
     this.broadcastEvent({
       type: "cwd",
       sessionId: this.sessionId,

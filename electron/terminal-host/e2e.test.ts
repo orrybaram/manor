@@ -120,7 +120,7 @@ describe("E2E: scrollback persistence through daemon", () => {
     feedSessionData(daemon.getHost(), "s1", "second line of output\r\n");
 
     // Force flush (normally buffered for 2s)
-    flushScrollback(daemon.getHost(), "s1");
+    await flushScrollback(daemon.getHost(), "s1");
 
     const scrollback = fs.readFileSync(
       path.join(daemon.sessionsDir, "s1", "scrollback.bin"),
@@ -151,7 +151,7 @@ describe("E2E: scrollback persistence through daemon", () => {
       "s1",
       "\x1b]7;file://localhost/Users/new/dir\x07",
     );
-    flushScrollback(daemon.getHost(), "s1");
+    await flushScrollback(daemon.getHost(), "s1");
 
     const meta = JSON.parse(
       fs.readFileSync(
@@ -252,7 +252,7 @@ describe("E2E: warm restore through daemon sockets", () => {
     await c1.readLine();
 
     feedSessionData(daemon.getHost(), "s1", "important output");
-    flushScrollback(daemon.getHost(), "s1");
+    await flushScrollback(daemon.getHost(), "s1");
 
     // Disconnect client 1
     c1.close();
@@ -369,7 +369,7 @@ describe("E2E: cold restore from scrollback on disk", () => {
       "s1",
       "nothing to commit, working tree clean\r\n",
     );
-    flushScrollback(daemon1.getHost(), "s1");
+    await flushScrollback(daemon1.getHost(), "s1");
 
     c1.close();
     // Stop daemon1 WITHOUT clean session end (simulate crash)
@@ -443,7 +443,7 @@ describe("E2E: cold restore from scrollback on disk", () => {
       });
       await c.readLine();
       feedSessionData(daemon1.getHost(), id, `output for ${id}`);
-      flushScrollback(daemon1.getHost(), id);
+      await flushScrollback(daemon1.getHost(), id);
     }
 
     c.close();
@@ -569,8 +569,8 @@ describe("E2E: layout persistence + reconciliation", () => {
 
     feedSessionData(daemon1.getHost(), "pane-A", "pane A output");
     feedSessionData(daemon1.getHost(), "pane-B", "pane B output");
-    flushScrollback(daemon1.getHost(), "pane-A");
-    flushScrollback(daemon1.getHost(), "pane-B");
+    await flushScrollback(daemon1.getHost(), "pane-A");
+    await flushScrollback(daemon1.getHost(), "pane-B");
 
     // Step 2: save layout to disk
     const workspace = makeWorkspace([
@@ -845,7 +845,7 @@ describe("E2E: clear-scrollback escape sequence", () => {
     await c.readLine();
 
     feedSessionData(daemon.getHost(), "s1", "old stuff\r\n");
-    flushScrollback(daemon.getHost(), "s1");
+    await flushScrollback(daemon.getHost(), "s1");
 
     const before = fs.readFileSync(
       path.join(daemon.sessionsDir, "s1", "scrollback.bin"),
@@ -856,7 +856,7 @@ describe("E2E: clear-scrollback escape sequence", () => {
     // Send clear-scrollback
     feedSessionData(daemon.getHost(), "s1", "\x1b[3J");
     feedSessionData(daemon.getHost(), "s1", "fresh start\r\n");
-    flushScrollback(daemon.getHost(), "s1");
+    await flushScrollback(daemon.getHost(), "s1");
 
     const after = fs.readFileSync(
       path.join(daemon.sessionsDir, "s1", "scrollback.bin"),

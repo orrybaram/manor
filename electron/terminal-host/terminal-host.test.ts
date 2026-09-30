@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { PassThrough } from "node:stream";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { MSG, encodeFrame } from "./pty-subprocess-ipc";
 
 import "./xterm-env-polyfill";
@@ -22,7 +25,7 @@ vi.mock("../shell", () => ({
 import { TerminalHost } from "./terminal-host";
 
 function mockSocket(): any {
-  return { write: vi.fn(), on: vi.fn(), destroy: vi.fn() };
+  return { write: vi.fn(), on: vi.fn(), off: vi.fn(), destroy: vi.fn() };
 }
 
 function feedSessionData(
@@ -110,6 +113,25 @@ describe("TerminalHost", () => {
       expect(snapshot).not.toBeNull();
       expect(snapshot!.cols).toBe(80);
       expect(snapshot!.rows).toBe(24);
+    });
+
+    it("subscribe attaches without building a snapshot", () => {
+      host.create("s1", "/tmp", 80, 24);
+      const session = (host as any).sessions.get("s1");
+      const getSnapshot = vi.spyOn(session, "getSnapshot");
+      const socket = mockSocket();
+
+      expect(host.subscribe("s1", socket)).toBe(true);
+      expect(getSnapshot).not.toHaveBeenCalled();
+
+      feedSessionData(host, "s1", "streamed");
+      expect(
+        socket.write.mock.calls.some(([line]: [string]) => line.includes("streamed")),
+      ).toBe(true);
+    });
+
+    it("subscribe to nonexistent session is a no-op", () => {
+      expect(host.subscribe("nonexistent", mockSocket())).toBe(false);
     });
 
     it("attach to nonexistent session returns null", async () => {
@@ -284,6 +306,40 @@ describe("TerminalHost", () => {
       host.create("s2", "/tmp", 80, 24);
       host.disposeAll();
       expect(host.listSessions()).toHaveLength(0);
+    });
+  });
+
+  // The daemon exits right after disposeAll (index.ts shutdown); whatever it
+  // resolves before must already be on disk.
+  describe("disposeAll persistence", () => {
+    let sessionsDir: string;
+    let persistingHost: TerminalHost;
+
+    beforeEach(() => {
+      sessionsDir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-host-dispose-"));
+      persistingHost = new TerminalHost(sessionsDir);
+    });
+    afterEach(() => {
+      fs.rmSync(sessionsDir, { recursive: true, force: true });
+    });
+
+    it("resolves once a busy pane's last output and endedAt have landed", async () => {
+      persistingHost.create("s1", "/tmp", 80, 24);
+      const session = (persistingHost as any).sessions.get("s1");
+      const writer = session.scrollbackWriter;
+
+      feedSessionData(persistingHost, "s1", "earlier output ");
+      void writer.flush(); // still in flight when shutdown starts
+      feedSessionData(persistingHost, "s1", "final output");
+
+      await persistingHost.disposeAll();
+
+      const dir = path.join(sessionsDir, "s1");
+      expect(fs.readFileSync(path.join(dir, "scrollback.bin"), "utf-8")).toBe(
+        "earlier output final output",
+      );
+      const meta = JSON.parse(fs.readFileSync(path.join(dir, "meta.json"), "utf-8"));
+      expect(meta.endedAt).toBeTruthy();
     });
   });
 });

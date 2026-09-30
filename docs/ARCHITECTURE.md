@@ -139,6 +139,7 @@ manor/
 │       ├── session.ts        single session state, agent detection hooks
 │       ├── pty-subprocess.ts node-pty child that owns the actual PTY
 │       ├── pty-subprocess-ipc.ts  message framing between daemon ↔ subprocess
+│       ├── line-reader.ts    NDJSON line splitting for daemon ↔ client sockets
 │       ├── agent-detector.ts Claude/Codex/OpenCode pattern detection
 │       ├── output-pattern-matcher.ts  regex matchers for status states
 │       ├── title-detector.ts pulls agent state from terminal title

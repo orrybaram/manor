@@ -7,6 +7,7 @@ import {
   ScrollbackWriter,
   isSafeSessionId,
   MAX_SCROLLBACK_BYTES,
+  SCROLLBACK_TRUNCATE_TO_BYTES,
   COLD_RESTORE_MAX_BYTES,
   type SessionMeta,
 } from "./scrollback";
@@ -65,13 +66,13 @@ describe("ScrollbackWriter", () => {
   });
 
   describe("append and flush", () => {
-    it("append accumulates data", () => {
+    it("append accumulates data", async () => {
       const writer = new ScrollbackWriter("s1", sessionsDir);
       writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" });
 
       writer.append("hello ");
       writer.append("world");
-      writer.flush();
+      await writer.flush();
 
       const scrollbackPath = path.join(sessionsDir, "s1", "scrollback.bin");
       const content = fs.readFileSync(scrollbackPath, "utf-8");
@@ -80,14 +81,14 @@ describe("ScrollbackWriter", () => {
       writer.dispose();
     });
 
-    it("multiple flushes are append-only", () => {
+    it("multiple flushes are append-only", async () => {
       const writer = new ScrollbackWriter("s1", sessionsDir);
       writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" });
 
       writer.append("first");
-      writer.flush();
+      await writer.flush();
       writer.append("second");
-      writer.flush();
+      await writer.flush();
 
       const content = fs.readFileSync(
         path.join(sessionsDir, "s1", "scrollback.bin"),
@@ -98,11 +99,11 @@ describe("ScrollbackWriter", () => {
       writer.dispose();
     });
 
-    it("flush with nothing buffered is a no-op", () => {
+    it("flush with nothing buffered is a no-op", async () => {
       const writer = new ScrollbackWriter("s1", sessionsDir);
       writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" });
 
-      writer.flush(); // nothing to flush
+      await writer.flush(); // nothing to flush
 
       const scrollbackPath = path.join(sessionsDir, "s1", "scrollback.bin");
       expect(fs.statSync(scrollbackPath).size).toBe(0);
@@ -112,7 +113,7 @@ describe("ScrollbackWriter", () => {
   });
 
   describe("size cap", () => {
-    it("truncates scrollback at MAX_SCROLLBACK_BYTES", () => {
+    it("truncates scrollback at MAX_SCROLLBACK_BYTES", async () => {
       const writer = new ScrollbackWriter("s1", sessionsDir);
       writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" });
 
@@ -120,7 +121,7 @@ describe("ScrollbackWriter", () => {
       const chunk = "x".repeat(1024 * 1024); // 1MB
       for (let i = 0; i < 6; i++) {
         writer.append(chunk);
-        writer.flush();
+        await writer.flush();
       }
 
       const scrollbackPath = path.join(sessionsDir, "s1", "scrollback.bin");
@@ -131,18 +132,114 @@ describe("ScrollbackWriter", () => {
     });
   });
 
+  describe("past the cap", () => {
+    const scrollbackPath = () => path.join(sessionsDir, "s1", "scrollback.bin");
+
+    it("cuts back to half the cap and keeps the newest output", async () => {
+      const writer = new ScrollbackWriter("s1", sessionsDir);
+      writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" });
+
+      const chunk = "x".repeat(1024 * 1024);
+      for (let i = 0; i < 5; i++) {
+        writer.append(chunk);
+        await writer.flush();
+      }
+      writer.append("newest output");
+      await writer.flush();
+
+      const content = fs.readFileSync(scrollbackPath(), "utf-8");
+      expect(content.length).toBeLessThanOrEqual(SCROLLBACK_TRUNCATE_TO_BYTES);
+      expect(content.endsWith("newest output")).toBe(true);
+
+      writer.dispose();
+    });
+
+    it("does not rewrite the file on every flush once past it", async () => {
+      const writer = new ScrollbackWriter("s1", sessionsDir);
+      writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" });
+
+      const mb = "x".repeat(1024 * 1024);
+      for (let i = 0; i < 6; i++) {
+        writer.append(mb);
+        await writer.flush();
+      }
+      // A truncation swaps a new file in, so the inode tells rewrites apart
+      // from appends.
+      const { ino, size } = fs.statSync(scrollbackPath());
+
+      const flush = "y".repeat(ScrollbackWriter.FLUSH_THRESHOLD_BYTES);
+      for (let i = 1; i <= 8; i++) {
+        writer.append(flush);
+        await writer.flush();
+        const stat = fs.statSync(scrollbackPath());
+        expect(stat.ino).toBe(ino);
+        expect(stat.size).toBe(size + i * flush.length);
+      }
+
+      writer.dispose();
+    });
+
+    it("cuts at a UTF-8 boundary", async () => {
+      const writer = new ScrollbackWriter("s1", sessionsDir);
+      writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" });
+
+      const chunk = "日本語".repeat(120_000); // ~1 MB of 3-byte characters
+      for (let i = 0; i < 6; i++) {
+        writer.append(chunk);
+        await writer.flush();
+      }
+
+      const bytes = fs.readFileSync(scrollbackPath());
+      expect(bytes[0] & 0xc0).not.toBe(0x80);
+      expect(bytes.toString("utf-8")).not.toContain("\uFFFD");
+
+      writer.dispose();
+    });
+  });
+
+  describe("off the event loop", () => {
+    it("flush writes asynchronously", async () => {
+      const writer = new ScrollbackWriter("s1", sessionsDir);
+      writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" });
+      const scrollbackPath = path.join(sessionsDir, "s1", "scrollback.bin");
+
+      writer.append("output");
+      const flushed = writer.flush();
+      expect(fs.statSync(scrollbackPath).size).toBe(0);
+      await flushed;
+      expect(fs.readFileSync(scrollbackPath, "utf-8")).toBe("output");
+
+      writer.dispose();
+    });
+
+    it("clear-scrollback truncates asynchronously", async () => {
+      const writer = new ScrollbackWriter("s1", sessionsDir);
+      writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" });
+      const scrollbackPath = path.join(sessionsDir, "s1", "scrollback.bin");
+      writer.append("old");
+      await writer.flush();
+
+      const cleared = writer.handleClearScrollback();
+      expect(fs.readFileSync(scrollbackPath, "utf-8")).toBe("old");
+      await cleared;
+      expect(fs.statSync(scrollbackPath).size).toBe(0);
+
+      writer.dispose();
+    });
+  });
+
   describe("clear scrollback", () => {
-    it("handleClearScrollback truncates the file", () => {
+    it("handleClearScrollback truncates the file", async () => {
       const writer = new ScrollbackWriter("s1", sessionsDir);
       writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" });
 
       writer.append("old content");
-      writer.flush();
+      await writer.flush();
 
-      writer.handleClearScrollback();
+      await writer.handleClearScrollback();
 
       writer.append("new content");
-      writer.flush();
+      await writer.flush();
 
       const content = fs.readFileSync(
         path.join(sessionsDir, "s1", "scrollback.bin"),
@@ -156,11 +253,11 @@ describe("ScrollbackWriter", () => {
   });
 
   describe("updateCwd", () => {
-    it("updates cwd in meta.json", () => {
+    it("updates cwd in meta.json", async () => {
       const writer = new ScrollbackWriter("s1", sessionsDir);
       writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" });
 
-      writer.updateCwd("/new/path");
+      await writer.updateCwd("/new/path");
 
       const meta = JSON.parse(
         fs.readFileSync(path.join(sessionsDir, "s1", "meta.json"), "utf-8"),
@@ -168,6 +265,78 @@ describe("ScrollbackWriter", () => {
       expect(meta.cwd).toBe("/new/path");
 
       writer.dispose();
+    });
+  });
+
+  describe("updateCwd on every prompt", () => {
+    const metaPath = () => path.join(sessionsDir, "s1", "meta.json");
+    const readMeta = () =>
+      JSON.parse(fs.readFileSync(metaPath(), "utf-8")) as SessionMeta;
+
+    it("writes asynchronously", async () => {
+      const writer = new ScrollbackWriter("s1", sessionsDir);
+      writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" });
+
+      const updated = writer.updateCwd("/new/path");
+      expect(readMeta().cwd).toBe("/tmp");
+      await updated;
+      expect(readMeta().cwd).toBe("/new/path");
+
+      writer.dispose();
+    });
+
+    it("writes nothing when the cwd did not change", async () => {
+      const writer = new ScrollbackWriter("s1", sessionsDir);
+      writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" });
+      fs.rmSync(metaPath());
+
+      await writer.updateCwd("/tmp");
+      expect(fs.existsSync(metaPath())).toBe(false);
+
+      writer.dispose();
+    });
+
+    it("lands the last of a burst of changes", async () => {
+      const writer = new ScrollbackWriter("s1", sessionsDir);
+      writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" });
+
+      for (let i = 0; i < 20; i++) void writer.updateCwd(`/dir/${i}`);
+      await writer.whenIdle();
+      expect(readMeta().cwd).toBe("/dir/19");
+
+      writer.dispose();
+    });
+
+    it("swaps meta.json in whole rather than writing it in place", async () => {
+      const writer = new ScrollbackWriter("s1", sessionsDir);
+      writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" });
+      const { ino } = fs.statSync(metaPath());
+
+      await writer.updateCwd("/new/path");
+
+      // A rename puts a new inode in place; an in-place write keeps the old one.
+      expect(fs.statSync(metaPath()).ino).not.toBe(ino);
+      expect(fs.readdirSync(path.join(sessionsDir, "s1")).sort()).toEqual([
+        "meta.json",
+        "scrollback.bin",
+      ]);
+      expect(readMeta().cwd).toBe("/new/path");
+
+      writer.dispose();
+    });
+
+    it("does not lose endedAt to a cwd write still queued", async () => {
+      const writer = new ScrollbackWriter("s1", sessionsDir);
+      writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" });
+
+      void writer.updateCwd("/last");
+      writer.end();
+      writer.dispose();
+      await writer.whenIdle();
+
+      const meta = readMeta();
+      expect(meta.cwd).toBe("/last");
+      expect(meta.endedAt).toBeTruthy();
     });
   });
 
@@ -201,6 +370,27 @@ describe("ScrollbackWriter", () => {
         "utf-8",
       );
       expect(content).toBe("unflushed data");
+    });
+
+    it("whenIdle covers the final writes queued behind a busy pane", async () => {
+      const writer = new ScrollbackWriter("s1", sessionsDir);
+      writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" });
+
+      writer.append("in flight ");
+      void writer.flush();
+      writer.append("last");
+      writer.end();
+      writer.dispose();
+      await writer.whenIdle();
+
+      const dir = path.join(sessionsDir, "s1");
+      expect(fs.readFileSync(path.join(dir, "scrollback.bin"), "utf-8")).toBe(
+        "in flight last",
+      );
+      const meta = JSON.parse(
+        fs.readFileSync(path.join(dir, "meta.json"), "utf-8"),
+      ) as SessionMeta;
+      expect(meta.endedAt).toBeTruthy();
     });
   });
 });

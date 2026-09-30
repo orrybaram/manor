@@ -38,7 +38,7 @@ export function createSingleFlight<T>(): (key: string, run: () => Promise<T>) =>
 }
 
 /** The diff fetches of every open diff pane. */
-export const fetchDiffOnce = createSingleFlight<string | null>();
+export const fetchDiffSingleFlight = createSingleFlight<string | null>();
 
 /** The staged-file fetches of every open diff pane. */
-export const fetchStagedOnce = createSingleFlight<string[]>();
+export const fetchStagedSingleFlight = createSingleFlight<string[]>();

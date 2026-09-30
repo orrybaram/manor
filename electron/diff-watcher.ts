@@ -3,7 +3,9 @@ import type { BrowserWindow } from "electron";
 import { HostUnavailableError } from "./backend/host-view";
 import { workspaceKey, type WorkspaceKey } from "../src/lib/workspace-key";
 import { PerHostPoller, type HostBackends, type HostPath } from "./per-host-poller";
-import type { GitBackend } from "./backend/types";
+import type { WorkspaceBackend } from "./backend/types";
+import { MergeBaseCache, resolveBasePoint, type BasePoint } from "./backend/merge-base";
+import { settleWithConcurrency } from "./lib/concurrency";
 import { errorMessage } from "./lib/errors";
 
 export interface DiffStats {
@@ -17,46 +19,38 @@ export interface DiffWorkspace extends HostPath {
 }
 
 /**
- * How many workspaces of one host are diffed at once. Each diff is a full
+ * How many workspaces of one host are scanned at once. Each scan is a full
  * working-tree stat pass, so a host with many workspaces works through them
  * a few at a time instead of all at once.
  */
 export const DIFF_CONCURRENCY = 3;
 
 /**
- * At most this many changed or untracked files are content-hashed for a
- * workspace's fingerprint per tick (one `git hash-object` call). Past it, a
- * same-size edit to the rest is only seen once something else changes.
+ * At most this many changed files are content-hashed, and this many untracked
+ * files sized, for a workspace's fingerprint per tick. Past it, an edit to
+ * the rest is only seen once something else changes.
  */
-const MAX_HASHED_PATHS = 256;
+const MAX_FINGERPRINT_PATHS = 256;
 
 /**
  * One host's scan: stats for each workspace with changes, and a fingerprint
  * for each workspace git answered for.
  */
 interface DiffScan {
-  stats: Record<string, DiffStats>;
+  stats: Record<WorkspaceKey, DiffStats>;
   /**
    * A hash of HEAD, the ref's commit, `git status` (staged and unstaged
-   * changes, untracked files) and the content of every changed or untracked
-   * file, per workspace. It changes whenever the workspace's diff or staged
-   * files may have, so an open diff pane re-fetches only then (sent as
-   * `diff-fingerprints-changed`).
+   * changes, untracked files), the content of each changed tracked file and
+   * the size of each untracked one, per workspace. It changes whenever the
+   * workspace's diff or staged files may have, so an open diff pane
+   * re-fetches only then (sent as `diff-fingerprints-changed`).
    */
-  fingerprints: Record<string, string>;
+  fingerprints: Record<WorkspaceKey, string>;
 }
 
 interface WorkspaceScan {
   stats: DiffStats | null;
   fingerprint: string;
-}
-
-/** A merge-base, valid while HEAD and the ref stay where they were. */
-interface MergeBaseEntry {
-  ref: string;
-  head: string;
-  refSha: string;
-  mergeBase: string;
 }
 
 /**
@@ -65,9 +59,10 @@ interface MergeBaseEntry {
  * or unreachable delays only its own workspaces' stats, never the local
  * ones. Each workspace's git runs on its own host's backend, at most
  * `DIFF_CONCURRENCY` workspaces of a host at a time. A tick costs a
- * workspace `rev-parse`, `status` and (when it has changed or untracked
- * files) `hash-object`; the shortstat and merge-base run only when its
- * fingerprint has moved.
+ * workspace `rev-parse` and `status`, plus `hash-object` for changed files
+ * and `wc -c` for untracked ones; the shortstat (and, when HEAD or the ref
+ * moved, the merge-base) runs only when its fingerprint has moved. While the
+ * window is hidden or minimized, nothing runs.
  */
 export class DiffWatcher {
   private readonly poller: PerHostPoller<DiffScan>;
@@ -77,12 +72,19 @@ export class DiffWatcher {
   // Paths discovered to not be git repos — skipped on subsequent ticks so we
   // don't re-run git (and re-log) every interval. Reset on each start().
   private nonGitPaths: Set<WorkspaceKey> = new Set();
-  /** Merge-base per workspace; recomputed only when the ref, HEAD or the ref's commit changes. */
-  private mergeBases = new Map<WorkspaceKey, MergeBaseEntry>();
+  private mergeBases = new MergeBaseCache<WorkspaceKey>();
   /** Each workspace's last scan: its stats are reused while its fingerprint holds. */
-  private lastScans = new Map<WorkspaceKey, WorkspaceScan>();
-  /** What was last sent on each channel, so an unchanged half is not re-sent. */
-  private sent: { stats: string; fingerprints: string } | null = null;
+  private lastWorkspaceScans = new Map<WorkspaceKey, WorkspaceScan>();
+  /** Each host's last scan, kept as its result while the window is hidden. */
+  private lastHostScans = new Map<string, DiffScan>();
+  /** The JSON last sent on each channel, so an unchanged half is not re-sent. */
+  private lastSent: { stats: string; fingerprints: string } | null = null;
+  /** Rescan as soon as the window is shown again, not on the next tick. */
+  private readonly onWindowShown = () => {
+    this.poller.scanAll().catch(() => {
+      /* each host's failure is already reported by the poller */
+    });
+  };
 
   constructor(private readonly hosts: HostBackends) {
     this.poller = new PerHostPoller<DiffScan>({
@@ -90,27 +92,25 @@ export class DiffWatcher {
       scan: (hostId, paths) => this.scan(hostId, paths),
       intervalMs: () => 5000,
       merge: (results) => ({
-        stats: Object.assign({}, ...results.map((r) => r.stats)) as Record<string, DiffStats>,
-        fingerprints: Object.assign({}, ...results.map((r) => r.fingerprints)) as Record<
-          string,
-          string
-        >,
+        stats: mergeRecords(results.map((r) => r.stats)),
+        fingerprints: mergeRecords(results.map((r) => r.fingerprints)),
       }),
       emit: (merged) => this.emit(merged),
     });
   }
 
   start(window: BrowserWindow, workspaces: readonly DiffWorkspace[]): void {
-    this.window = window;
+    this.watchWindow(window);
     // Force the first result to emit so a fresh/reloaded renderer gets stats.
     this.poller.reset({ reemit: true });
-    this.sent = null;
+    this.lastSent = null;
     this.defaultBranches = new Map(workspaces.map((ws) => [workspaceKey(ws.hostId, ws.path), ws.defaultBranch]));
     this.nonGitPaths.clear();
-    for (const cache of [this.mergeBases, this.lastScans]) {
-      for (const key of Array.from(cache.keys())) {
-        if (!this.defaultBranches.has(key)) cache.delete(key);
-      }
+    this.lastHostScans.clear();
+    const watched = (key: WorkspaceKey) => this.defaultBranches.has(key);
+    this.mergeBases.prune(watched);
+    for (const key of Array.from(this.lastWorkspaceScans.keys())) {
+      if (!watched(key)) this.lastWorkspaceScans.delete(key);
     }
     this.poller.setEntries(workspaces);
     console.log("[DiffWatcher] started with", workspaces.length, "workspaces");
@@ -121,11 +121,27 @@ export class DiffWatcher {
     this.poller.stop();
   }
 
+  private watchWindow(window: BrowserWindow): void {
+    if (this.window === window) return;
+    if (this.window && !this.window.isDestroyed()) {
+      this.window.off("show", this.onWindowShown);
+      this.window.off("restore", this.onWindowShown);
+    }
+    this.window = window;
+    window.on("show", this.onWindowShown);
+    window.on("restore", this.onWindowShown);
+  }
+
+  private windowHidden(): boolean {
+    const w = this.window;
+    return !!w && !w.isDestroyed() && (!w.isVisible() || w.isMinimized());
+  }
+
   private emit(merged: DiffScan): void {
     const stats = JSON.stringify(merged.stats);
     const fingerprints = JSON.stringify(merged.fingerprints);
-    const prev = this.sent;
-    this.sent = { stats, fingerprints };
+    const prev = this.lastSent;
+    this.lastSent = { stats, fingerprints };
     if (prev?.fingerprints !== fingerprints) {
       this.window?.webContents.send("diff-fingerprints-changed", merged.fingerprints);
     }
@@ -135,10 +151,13 @@ export class DiffWatcher {
   }
 
   private async scan(hostId: string, paths: string[]): Promise<DiffScan> {
-    const result: DiffScan = { stats: {}, fingerprints: {} };
+    // Nobody can see the badges: keep the host's last result, run no git.
+    const previous = this.lastHostScans.get(hostId);
+    if (previous && this.windowHidden()) return previous;
 
-    const results = await settleWithConcurrency(paths, DIFF_CONCURRENCY, async (wsPath) =>
-      this.getDiffStats(
+    const result: DiffScan = { stats: {}, fingerprints: {} };
+    const results = await settleWithConcurrency(paths, DIFF_CONCURRENCY, (wsPath) =>
+      this.scanWorkspace(
         hostId,
         wsPath,
         this.defaultBranches.get(workspaceKey(hostId, wsPath)) ?? "main",
@@ -159,15 +178,18 @@ export class DiffWatcher {
       }
     }
 
+    this.lastHostScans.set(hostId, result);
     return result;
   }
 
-  private async getDiffStats(
+  /** A workspace's fingerprint, and its stats (reused while the fingerprint holds). */
+  private async scanWorkspace(
     hostId: string,
     wsPath: string,
     defaultBranch: string,
   ): Promise<WorkspaceScan | null> {
-    const git = this.hosts.get(hostId).git;
+    const backend = this.hosts.get(hostId);
+    const git = (args: string[]) => backend.git.exec(wsPath, args);
     // Skip paths already known to not be git repos (no rescan, no re-log).
     const key = workspaceKey(hostId, wsPath);
     if (this.nonGitPaths.has(key)) return null;
@@ -176,47 +198,14 @@ export class DiffWatcher {
     const refs = [`origin/${defaultBranch}`, defaultBranch];
     for (const ref of refs) {
       try {
-        // Where HEAD and the ref point: cheap (no working-tree pass), and
-        // the merge-base only needs recomputing when either has moved.
-        const [head = "", refSha = ""] = (
-          await git.exec(wsPath, ["rev-parse", "HEAD", ref])
-        )
-          .trim()
-          .split("\n");
-        // What the diff is made of besides HEAD: staged and unstaged
-        // changes, untracked files, and the content of each changed file, so
-        // a same-size edit or a `git add` from a terminal changes it too.
-        // `--no-optional-locks`: a background poll must never hold
-        // index.lock against the user's own git.
-        const status = await git.exec(wsPath, [
-          "--no-optional-locks",
-          "status",
-          "--porcelain=v2",
-          "-z",
-          "--untracked-files=all",
-        ]);
-        const hashes = await worktreeHashes(git, wsPath, status);
-        const fingerprint = createHash("sha1")
-          .update([ref, head, refSha, status, hashes].join("\0"))
-          .digest("hex");
-        const last = this.lastScans.get(key);
+        const point = await resolveBasePoint(git, ref);
+        const fingerprint = await workspaceFingerprint(backend, wsPath, point);
+        const last = this.lastWorkspaceScans.get(key);
         if (last?.fingerprint === fingerprint) return last;
 
-        let cached = this.mergeBases.get(key);
-        if (!cached || cached.ref !== ref || cached.head !== head || cached.refSha !== refSha) {
-          // Find the merge base so we only count changes since the branch point
-          const mergeBase = (await git.exec(wsPath, ["merge-base", ref, "HEAD"])).trim();
-          cached = { ref, head, refSha, mergeBase };
-          this.mergeBases.set(key, cached);
-        }
-
+        const mergeBase = await this.mergeBases.get(key, point, git);
         // Diff working tree against merge base to include committed + staged + unstaged changes
-        const diffOut = await git.exec(wsPath, [
-          "diff",
-          cached.mergeBase,
-          "--shortstat",
-        ]);
-        const output = diffOut.trim();
+        const output = (await git(["diff", mergeBase, "--shortstat"])).trim();
 
         const addMatch = output.match(/(\d+) insertion/);
         const removeMatch = output.match(/(\d+) deletion/);
@@ -228,7 +217,7 @@ export class DiffWatcher {
           stats: added === 0 && removed === 0 ? null : { added, removed },
           fingerprint,
         };
-        this.lastScans.set(key, scan);
+        this.lastWorkspaceScans.set(key, scan);
         return scan;
       } catch (err) {
         if (err instanceof HostUnavailableError) throw err;
@@ -255,78 +244,105 @@ export class DiffWatcher {
 }
 
 /**
- * The files `git status --porcelain=v2 -z` (`status`) lists whose working
- * tree content can differ from what git has recorded for them: modified,
- * renamed or unmerged files still on disk, and untracked files. Submodules,
- * deleted files and untracked directories (a nested repo) are left out, as
- * `git hash-object` cannot hash them.
+ * A hash of what the workspace's diff is made of besides the merge-base:
+ * `git status` (staged and unstaged changes, untracked files), the content of
+ * each changed tracked file (so a same-size edit counts) and the size of each
+ * untracked one. Untracked files are sized, never read, so a binary or huge
+ * one costs nothing; a same-size rewrite of one goes unseen until something
+ * else changes.
  */
-export function pathsToHash(status: string): string[] {
-  const paths: string[] = [];
-  const records = status.split("\0");
-  for (let i = 0; i < records.length; i++) {
-    const record = records[i];
-    const fields = record.split(" ");
-    const [xy = "", sub = ""] = fields.slice(1, 3);
-    switch (record[0]) {
-      case "1": // 1 XY sub mH mI mW hH hI path
-        if (xy[1] !== "." && xy[1] !== "D" && sub[0] === "N") paths.push(fields.slice(8).join(" "));
-        break;
-      case "2": // 2 XY sub mH mI mW hH hI Xscore path, then origPath
-        if (xy[1] !== "." && xy[1] !== "D" && sub[0] === "N") paths.push(fields.slice(9).join(" "));
-        i++;
-        break;
-      case "u": // u XY sub m1 m2 m3 mW h1 h2 h3 path
-        if (!xy.includes("D") && sub[0] === "N") paths.push(fields.slice(10).join(" "));
-        break;
-      case "?": {
-        const path = record.slice(2);
-        if (!path.endsWith("/")) paths.push(path);
-        break;
-      }
-    }
-  }
-  return paths;
+async function workspaceFingerprint(
+  backend: WorkspaceBackend,
+  cwd: string,
+  point: BasePoint,
+): Promise<string> {
+  // `--no-optional-locks`: a background poll must never hold index.lock
+  // against the user's own git. `-uall` names each untracked file, so a new
+  // file inside a new directory counts too.
+  const status = await backend.git.exec(cwd, [
+    "--no-optional-locks",
+    "status",
+    "--porcelain=v2",
+    "-z",
+    "--untracked-files=all",
+  ]);
+  const { changed, untracked } = filesToFingerprint(status);
+  const [contents, sizes] = await Promise.all([
+    outputOrEmpty(changed, (paths) =>
+      backend.git.exec(cwd, ["hash-object", "--no-filters", "--", ...paths]),
+    ),
+    outputOrEmpty(untracked, (paths) =>
+      backend.shell.exec("wc", ["-c", "--", ...paths], { cwd, timeout: 10000 }),
+    ),
+  ]);
+  return createHash("sha1")
+    .update([point.ref, point.head, point.refSha, status, contents, sizes].join("\0"))
+    .digest("hex");
 }
 
 /**
- * The content hash of each file in `status` that `pathsToHash` names, up to
- * `MAX_HASHED_PATHS`, in one `git hash-object` call. Empty when there are none
- * or a file could not be hashed (it vanished since `status` ran, say): the
- * next tick's hashes then differ, and the pane re-fetches once.
+ * `run`'s output over the first `MAX_FINGERPRINT_PATHS` of `paths`; "" when
+ * there are none or it fails (a file vanished since `status` ran, say): the
+ * next tick's output then differs, and the pane re-fetches once.
  */
-async function worktreeHashes(git: GitBackend, cwd: string, status: string): Promise<string> {
-  const paths = pathsToHash(status).slice(0, MAX_HASHED_PATHS);
+async function outputOrEmpty(
+  paths: string[],
+  run: (paths: string[]) => Promise<string>,
+): Promise<string> {
   if (paths.length === 0) return "";
   try {
-    return await git.exec(cwd, ["hash-object", "--no-filters", "--", ...paths]);
+    return await run(paths.slice(0, MAX_FINGERPRINT_PATHS));
   } catch (err) {
     if (err instanceof HostUnavailableError) throw err;
     return "";
   }
 }
 
+/** A tracked entry's worktree side still has a file on disk that git has not recorded. */
+const worktreeChanged = (xy: string) => xy[1] !== "." && xy[1] !== "D";
+
 /**
- * `Promise.allSettled(items.map(fn))`, with at most `limit` calls of `fn`
- * running at once. Results are in `items` order.
+ * Per `git status --porcelain=v2` record type: which space-separated field
+ * the path starts at, and whether the entry has worktree content to hash.
  */
-async function settleWithConcurrency<T, R>(
-  items: readonly T[],
-  limit: number,
-  fn: (item: T) => Promise<R>,
-): Promise<PromiseSettledResult<R>[]> {
-  const results: PromiseSettledResult<R>[] = new Array(items.length);
-  let next = 0;
-  const worker = async () => {
-    while (next < items.length) {
-      const i = next++;
-      try {
-        results[i] = { status: "fulfilled", value: await fn(items[i]) };
-      } catch (reason) {
-        results[i] = { status: "rejected", reason };
-      }
+const TRACKED_RECORDS: Record<string, { pathField: number; changed: (xy: string) => boolean }> = {
+  // 1 XY sub mH mI mW hH hI path
+  "1": { pathField: 8, changed: worktreeChanged },
+  // 2 XY sub mH mI mW hH hI Xscore path, then origPath as its own record
+  "2": { pathField: 9, changed: worktreeChanged },
+  // u XY sub m1 m2 m3 mW h1 h2 h3 path
+  u: { pathField: 10, changed: (xy) => !xy.includes("D") },
+};
+
+/**
+ * The files in `status` (`git status --porcelain=v2 -z`) whose content can
+ * change without `status` changing: tracked files modified, renamed or
+ * unmerged and still on disk (`changed`), and untracked files (`untracked`).
+ * Submodules, deleted files and untracked directories (a nested repo) are
+ * left out.
+ */
+export function filesToFingerprint(status: string): { changed: string[]; untracked: string[] } {
+  const changed: string[] = [];
+  const untracked: string[] = [];
+  const records = status.split("\0");
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i];
+    if (record.startsWith("? ")) {
+      const path = record.slice(2);
+      if (!path.endsWith("/")) untracked.push(path);
+      continue;
     }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
+    const type = TRACKED_RECORDS[record[0]];
+    if (!type) continue;
+    if (record[0] === "2") i++; // skip its origPath record
+    const fields = record.split(" ");
+    const [xy = "", sub = ""] = fields.slice(1, 3);
+    if (sub[0] === "N" && type.changed(xy)) changed.push(fields.slice(type.pathField).join(" "));
+  }
+  return { changed, untracked };
+}
+
+/** Every record's entries in one; a later record wins a shared key. */
+function mergeRecords<V>(records: readonly Record<WorkspaceKey, V>[]): Record<WorkspaceKey, V> {
+  return Object.assign({}, ...records) as Record<WorkspaceKey, V>;
 }

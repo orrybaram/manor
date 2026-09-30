@@ -116,6 +116,25 @@ describe("ExecGitBackend", () => {
     });
   });
 
+  describe("getFullDiff", () => {
+    it("reuses the merge-base while HEAD and the ref are unchanged", async () => {
+      const file = vi.fn(localExec.file);
+      const spied = new ExecGitBackend({ ...localExec, file });
+      const mergeBases = () =>
+        file.mock.calls.filter(([, args]) => args[0] === "merge-base").length;
+
+      await writeFile(path.join(tmpDir, "file.txt"), "one\n");
+      expect(await spied.getFullDiff(tmpDir, "main")).toContain("+one");
+      await writeFile(path.join(tmpDir, "file.txt"), "two\n");
+      expect(await spied.getFullDiff(tmpDir, "main")).toContain("+two");
+      expect(mergeBases()).toBe(1);
+
+      git(tmpDir, "commit", "-am", "second");
+      await spied.getFullDiff(tmpDir, "main");
+      expect(mergeBases()).toBe(2);
+    });
+  });
+
   describe("getLocalDiff", () => {
     it("returns null when clean", async () => {
       const diff = await backend.getLocalDiff(tmpDir);

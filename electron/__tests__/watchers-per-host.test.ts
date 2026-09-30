@@ -27,7 +27,15 @@ const diffWs = (path: string) => ({ ...ws(path), defaultBranch: "main" });
 
 function fakeWindow() {
   const send = vi.fn();
-  return { window: { webContents: { send } } as unknown as BrowserWindow, send };
+  const window = {
+    webContents: { send },
+    isDestroyed: () => false,
+    isVisible: () => true,
+    isMinimized: () => false,
+    on: vi.fn(),
+    off: vi.fn(),
+  } as unknown as BrowserWindow;
+  return { window, send };
 }
 
 const never = () => new Promise<never>(() => {});

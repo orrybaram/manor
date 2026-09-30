@@ -2,9 +2,13 @@ import { errorMessage } from "../lib/errors";
 import type { GitBackend, WorktreeInfo } from "./types";
 import { localExec, streamAfter, type Exec, type ExecError, type StreamResult } from "./exec";
 import { localFacts, type MachineFacts } from "./machine-facts";
+import { MergeBaseCache, resolveBasePoint } from "./merge-base";
 
 /** Git run through an `Exec`, on whichever machine that reaches (ADR-183). */
 export class ExecGitBackend implements GitBackend {
+  /** Each workspace's merge-base for `getFullDiff`, by path. */
+  private readonly mergeBases = new MergeBaseCache<string>();
+
   constructor(
     private readonly execImpl: Exec = localExec,
     /** Joins paths the way the exec's machine does (ADR-183). */
@@ -191,12 +195,11 @@ export class ExecGitBackend implements GitBackend {
     const refs = [`origin/${defaultBranch}`, defaultBranch];
     for (const ref of refs) {
       try {
-        const { stdout: mergeBaseOut } = await this.execGit(
-          cwd,
-          ["merge-base", ref, "HEAD"],
-          { timeout: 5000 },
-        );
-        const mergeBase = mergeBaseOut.trim();
+        const git = async (args: string[]) =>
+          (await this.execGit(cwd, args, { timeout: 5000 })).stdout;
+        // The merge-base is reused while HEAD and the ref stay put.
+        const point = await resolveBasePoint(git, ref);
+        const mergeBase = await this.mergeBases.get(cwd, point, git);
         const { stdout } = await this.execGit(
           cwd,
           ["diff", "--no-color", mergeBase],

@@ -3,12 +3,13 @@
  * HEAD and the ref stay put, a host's workspaces are diffed a few at a time,
  * the shortstat runs only when a workspace's fingerprint moves, and that
  * fingerprint — what an open diff pane re-fetches on — is sent only when it
- * changes, including for edits the shortstat cannot see.
+ * changes, including for edits the shortstat cannot see. Untracked files are
+ * sized, never read, and nothing runs while the window is hidden.
  */
 
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import type { BrowserWindow } from "electron";
-import { DIFF_CONCURRENCY, DiffWatcher, pathsToHash } from "../diff-watcher";
+import { DIFF_CONCURRENCY, DiffWatcher, filesToFingerprint } from "../diff-watcher";
 import type { GitBackend } from "../backend/types";
 import type { HostBackends } from "../per-host-poller";
 
@@ -18,7 +19,7 @@ interface RepoState {
   shortstat: string;
   /** `git status --porcelain=v2 -z` records, joined with NUL by the fake. */
   status: string[];
-  /** Working-tree content by path, hashed by the fake `hash-object`. */
+  /** Working-tree content by path: hashed by the fake `hash-object`, sized by the fake `wc -c`. */
   files: Record<string, string>;
 }
 
@@ -52,16 +53,40 @@ function fakeGit(state: RepoState) {
         return state.shortstat;
     }
   });
-  return { git: { exec } as unknown as GitBackend, exec };
+  const shellExec = vi.fn(async (cmd: string, args: string[]) => {
+    if (cmd !== "wc") throw new Error(`unexpected ${cmd}`);
+    const paths = args.slice(args.indexOf("--") + 1);
+    return paths.map((p) => `${(state.files[p] ?? "").length} ${p}\n`).join("");
+  });
+  return { git: { exec } as unknown as GitBackend, exec, shell: { exec: shellExec }, shellExec };
 }
 
-const hostsWith = (git: GitBackend) => ({ get: () => ({ git }) }) as unknown as HostBackends;
+const hostsWith = (git: GitBackend, shell: unknown = { exec: vi.fn() }) =>
+  ({ get: () => ({ git, shell }) }) as unknown as HostBackends;
 
 const diffWs = (path: string) => ({ path, hostId: "local", defaultBranch: "main" });
 
+/** A window that can be hidden and shown again, as the user would. */
 function fakeWindow() {
   const send = vi.fn();
-  return { window: { webContents: { send } } as unknown as BrowserWindow, send };
+  const listeners = new Map<string, () => void>();
+  let visible = true;
+  const window = {
+    webContents: { send },
+    isDestroyed: () => false,
+    isVisible: () => visible,
+    isMinimized: () => false,
+    on: (event: string, listener: () => void) => listeners.set(event, listener),
+    off: (event: string) => listeners.delete(event),
+  } as unknown as BrowserWindow;
+  const hide = () => {
+    visible = false;
+  };
+  const show = () => {
+    visible = true;
+    listeners.get("show")?.();
+  };
+  return { window, send, hide, show };
 }
 
 const last = <T>(xs: readonly T[]): T | undefined => xs[xs.length - 1];
@@ -78,12 +103,12 @@ const modified = (path: string, indexHash = "i1") =>
 
 /** Start watching `/app` over `state` and run the first tick. */
 async function watch(state: RepoState) {
-  const { git, exec } = fakeGit(state);
-  const watcher = new DiffWatcher(hostsWith(git));
-  const { window, send } = fakeWindow();
+  const { git, exec, shell, shellExec } = fakeGit(state);
+  const watcher = new DiffWatcher(hostsWith(git, shell));
+  const { window, send, hide, show } = fakeWindow();
   watcher.start(window, [diffWs("/app")]);
   await vi.advanceTimersByTimeAsync(0);
-  return { watcher, exec, send };
+  return { watcher, exec, shellExec, send, hide, show };
 }
 
 /** How many fingerprints `send` has sent for `/app` so far. */
@@ -221,7 +246,7 @@ describe("DiffWatcher", () => {
     watcher.stop();
   });
 
-  it("moves the fingerprint when an untracked file is created or edited", async () => {
+  it("moves the fingerprint when an untracked file is created or grows", async () => {
     const state = repo();
     const { watcher, send } = await watch(state);
 
@@ -230,12 +255,51 @@ describe("DiffWatcher", () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(fingerprintsSent(send)).toBe(2);
 
-    state.files["notes.md"] = "final";
+    state.files["notes.md"] = "final draft";
     await vi.advanceTimersByTimeAsync(5000);
     expect(fingerprintsSent(send)).toBe(3);
 
     await vi.advanceTimersByTimeAsync(5000);
     expect(fingerprintsSent(send)).toBe(3);
+    watcher.stop();
+  });
+
+  it("sizes untracked files without reading them", async () => {
+    const state = repo({
+      status: [modified("a.ts"), "? image.png", "? build/huge.bin"],
+      files: { "a.ts": "x", "image.png": "\u0089PNG\u0000", "build/huge.bin": "z".repeat(10_000) },
+    });
+    const { watcher, exec, shellExec } = await watch(state);
+    await vi.advanceTimersByTimeAsync(5000);
+
+    // Only the tracked change is hashed (read); untracked files are only
+    // stat-sized, however binary or large.
+    for (const [, args] of callsOf(exec, "hash-object")) {
+      expect((args as string[]).slice(-1)).toEqual(["a.ts"]);
+    }
+    expect(shellExec).toHaveBeenCalledWith(
+      "wc",
+      ["-c", "--", "image.png", "build/huge.bin"],
+      expect.objectContaining({ cwd: "/app" }),
+    );
+    watcher.stop();
+  });
+
+  it("runs no git while the window is hidden, and rescans once it is shown", async () => {
+    const state = repo({ shortstat: " 1 file changed, 1 insertion(+)" });
+    const { watcher, exec, send, hide, show } = await watch(state);
+    const calls = exec.mock.calls.length;
+
+    hide();
+    state.head = "h2";
+    await vi.advanceTimersByTimeAsync(15000);
+    expect(exec.mock.calls.length).toBe(calls);
+
+    send.mockClear();
+    show();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(callsOf(exec, "rev-parse").length).toBeGreaterThan(1);
+    expect(fingerprintsSent(send)).toBe(1);
     watcher.stop();
   });
 
@@ -259,17 +323,18 @@ describe("DiffWatcher", () => {
     watcher.stop();
   });
 
-  it("still sends a fingerprint when a file cannot be hashed", async () => {
-    const state = repo({ status: ["? gone.txt"] });
+  it("still sends a fingerprint when a file cannot be hashed or sized", async () => {
+    const state = repo();
     const { git, exec } = fakeGit(state);
     exec.mockImplementation(async (_cwd: string, args: string[]) => {
       const cmd = subcommand(args);
       if (cmd === "rev-parse") return "h1\nr1\n";
-      if (cmd === "status") return "? gone.txt\0";
-      if (cmd === "hash-object") throw new Error("fatal: could not open 'gone.txt'");
+      if (cmd === "status") return `${modified("gone.ts")}\0? gone.txt\0`;
+      if (cmd === "hash-object") throw new Error("fatal: could not open 'gone.ts'");
       return "";
     });
-    const watcher = new DiffWatcher(hostsWith(git));
+    const shell = { exec: vi.fn().mockRejectedValue(new Error("wc: gone.txt: No such file")) };
+    const watcher = new DiffWatcher(hostsWith(git, shell));
     const { window, send } = fakeWindow();
     watcher.start(window, [diffWs("/app")]);
     await vi.advanceTimersByTimeAsync(0);
@@ -293,8 +358,8 @@ describe("DiffWatcher", () => {
   });
 });
 
-describe("pathsToHash", () => {
-  it("names the files whose working-tree content git has not recorded", () => {
+describe("filesToFingerprint", () => {
+  it("names the changed tracked files and the untracked ones", () => {
     const status = [
       "1 .M N... 100644 100644 100644 a a changed.ts",
       "1 M. N... 100644 100644 100644 a b staged-only.ts",
@@ -309,12 +374,9 @@ describe("pathsToHash", () => {
       "? nested-repo/",
       "",
     ].join("\0");
-    expect(pathsToHash(status)).toEqual([
-      "changed.ts",
-      "both.ts",
-      "new name.ts",
-      "conflict.ts",
-      "untracked.md",
-    ]);
+    expect(filesToFingerprint(status)).toEqual({
+      changed: ["changed.ts", "both.ts", "new name.ts", "conflict.ts"],
+      untracked: ["untracked.md"],
+    });
   });
 });

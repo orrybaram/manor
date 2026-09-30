@@ -824,8 +824,10 @@ export interface ElectronAPI {
       ) => void,
     ) => () => void;
     /**
-     * Each watched workspace's diff fingerprint (HEAD, base ref, shortstat),
-     * sent whenever any changes; a diff pane re-fetches only on a new one.
+     * Each watched workspace's diff fingerprint: an opaque hash of HEAD, the
+     * base ref, `git status`, changed files' content and untracked files'
+     * sizes. Sent whenever any changes; a diff pane re-fetches only on a new
+     * one.
      */
     onFingerprintsChange: (
       callback: (fingerprints: Record<WorkspaceKey, string>) => void,

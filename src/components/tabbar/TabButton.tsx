@@ -123,8 +123,8 @@ type TabTitleProps = {
 
 /**
  * A tab's title text. The only part of the tab that reads the focused pane's
- * raw live title, so each spinner frame an agent writes re-renders just this
- * span, not the whole tab.
+ * live title; a spinner frame that leaves the cleaned title unchanged
+ * re-renders nothing.
  */
 export function TabTitle(props: TabTitleProps) {
   const { focusedPaneId, isPinned } = props;

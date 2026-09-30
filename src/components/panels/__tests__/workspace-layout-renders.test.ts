@@ -1,7 +1,5 @@
-// @vitest-environment jsdom
-import { createElement } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { act } from "react";
+// @vitest-environment happy-dom
+import { act, createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -10,6 +8,7 @@ import {
   type WorkspaceLayout as Layout,
 } from "../../../store/app-store";
 import { workspaceKey, type WorkspaceKey } from "../../../lib/workspace-key";
+import { createTestRoot, type TestRoot } from "../../../test-utils/react-root";
 
 // Count renders of each workspace's panel tree without mounting terminals.
 const renders: Record<string, number> = {};
@@ -21,8 +20,6 @@ vi.mock("../PanelLayout", () => ({
 }));
 
 const { WorkspaceLayout } = await import("../WorkspaceLayout");
-
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const A = workspaceKey("local", "/ws/a");
 const B = workspaceKey("local", "/ws/b");
@@ -53,16 +50,16 @@ function Stack() {
 }
 
 describe("WorkspaceLayout render isolation", () => {
-  let root: Root;
+  let root: TestRoot;
 
   beforeEach(() => {
     for (const k of Object.keys(renders)) delete renders[k];
     useAppStore.setState({ workspaceLayouts: { [A]: layout("pa"), [B]: layout("pb") } });
-    root = createRoot(document.createElement("div"));
-    act(() => root.render(createElement(Stack)));
+    root = createTestRoot();
+    root.render(createElement(Stack));
   });
 
-  afterEach(() => act(() => root.unmount()));
+  afterEach(() => root.unmount());
 
   it("re-renders only the workspace whose panel tree changed", () => {
     expect(renders).toEqual({ [A]: 1, [B]: 1 });

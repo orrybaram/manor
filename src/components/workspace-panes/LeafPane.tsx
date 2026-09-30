@@ -196,7 +196,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
     const s = useAppStore.getState();
     const img = buildDragImage(
       styles.paneDragImage,
-      paneHeaderTitle(s.paneTitle[paneId], s.paneCwd[paneId]),
+      paneHeaderTitle(s, paneId),
       s.paneContentType[paneId],
       s.paneFavicon[paneId] ?? undefined,
     );

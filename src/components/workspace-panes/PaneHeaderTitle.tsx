@@ -7,16 +7,13 @@ type PaneHeaderTitleProps = {
 };
 
 /**
- * A pane header's title text. The only subscriber to the pane's raw live
- * title, so each spinner frame an agent writes re-renders just this span,
- * not the pane around it.
+ * A pane header's title text. The title is cleaned in the selector, so a
+ * spinner frame that leaves it unchanged re-renders nothing.
  */
 export function PaneHeaderTitle(props: PaneHeaderTitleProps) {
   const { paneId, className } = props;
 
-  const title = useAppStore((s) =>
-    paneHeaderTitle(s.paneTitle[paneId], s.paneCwd[paneId]),
-  );
+  const title = useAppStore((s) => paneHeaderTitle(s, paneId));
 
   return <span className={className}>{title}</span>;
 }

@@ -10,7 +10,7 @@ const GENERIC_AGENT_TITLES = new Set([
  * `title` without the spinner frames and done markers agent CLIs animate in
  * their terminal title, so successive frames of one title compare equal.
  */
-function stripTitleMarkers(title: string): string {
+export function stripTitleMarkers(title: string): string {
   return title
     .replace(/[\u2800-\u28FF]/g, "") // braille spinner chars
     .replace(/[✳✻✽✶✢]/g, "") // done markers

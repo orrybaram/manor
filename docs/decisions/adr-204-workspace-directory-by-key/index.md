@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -114,11 +114,11 @@ Converted (host is known at the call site):
 | `agent-defaults.ts` `getAgentCommand` | takes a `WorkspaceKey`; callers pass the active key, `agent-prompt-launch` its own key |
 | `useTerminalLifecycle.ts` (two cwd lookups) | the hook's `workspaceKey` param; cwd lookups use the key's host |
 | `DiffPane.tsx` | its `hostId` prop |
-| `PortGroup.tsx` | the group's ports' `hostId` |
+| `usePortsData.ts`, `PortGroup.tsx`, `CommandPalette.tsx` active ports | each port's `hostId`; port groups are keyed by `WorkspaceKey` |
 | `app-commands.ts` `projectsKnowWorkspace` | the command's `hostId` arg |
-| `command-palette/scope.ts` | takes `activeWorkspaceKey` |
+| `command-palette/scope.ts`, `useCustomCommands.tsx` | take `activeWorkspaceKey` |
 
-`useCustomCommands.tsx` has no callers and is deleted. Lookups inside one
+Lookups inside one
 already-known project (`ProjectItem`, `workspace-actions`, `LinkedIssuesPopover`,
 `ProjectTiles`, …) are unambiguous and stay as they are.
 
@@ -134,7 +134,9 @@ already-known project (`ProjectItem`, `workspace-actions`, `LinkedIssuesPopover`
   a bare path can still arrive. Making `hostId` required on those commands is
   a follow-up.
 - `worktreeSetupState` in `app-store.ts` is keyed by bare path; re-keying
-  that state is a follow-up. `WorkspaceSetupView` uses the active key meanwhile.
+  that state is a follow-up. `WorkspaceSetupView` uses the active host meanwhile.
+- `electron/control-relay.ts` and `electron/routes/projects.ts` scan projects
+  by path in main, where the request carries no host (as `routes/git.ts`).
 - `home-dashboard*.ts`, `tasks.ts`, `TasksView.tsx`: owned by sibling work
   (PR verdict, task list). `home-dashboard.ts` keeps importing
   `projectForWorkspaceKey`, which stays in `hosts.ts` as a re-export of

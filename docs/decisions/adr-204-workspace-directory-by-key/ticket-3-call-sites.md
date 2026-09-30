@@ -1,6 +1,6 @@
 ---
 title: Move path-only lookups to WorkspaceKey
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [1]

@@ -2,25 +2,17 @@ import {
   useCallback,
   useDeferredValue,
   useMemo,
-  useRef,
   useState,
-  type CSSProperties,
 } from "react";
 import { useProjectStore, type ProjectInfo } from "../../store/project-store";
 import { buildTopLevelEntries } from "../../utils/sidebar-items";
 import { useQueryClient } from "@tanstack/react-query";
 import Search from "lucide-react/dist/esm/icons/search";
-import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import ChevronLeft from "lucide-react/dist/esm/icons/chevron-left";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
-import CircleDot from "lucide-react/dist/esm/icons/circle-dot";
-import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import ArrowDown from "lucide-react/dist/esm/icons/arrow-down";
-import FolderKanban from "lucide-react/dist/esm/icons/folder-kanban";
-import Milestone from "lucide-react/dist/esm/icons/milestone";
-import IterationCw from "lucide-react/dist/esm/icons/iteration-cw";
 import X from "lucide-react/dist/esm/icons/x";
 import type { PaletteView } from "../command-palette/types";
 import { GitHubIcon } from "../command-palette/GitHubIcon";
@@ -35,12 +27,7 @@ import {
 } from "../ui/SearchableSelect/SearchableSelect";
 import { Input } from "../ui/Input";
 import { projectColorStyle } from "../../hooks/useProjectHeaderRow";
-import { ghRepoOf } from "../../lib/gh-repo";
-import {
-  startGitHubIssueWork,
-  startLinearIssueWork,
-  type NewWorkspaceHandler,
-} from "../../lib/start-issue-work";
+import type { NewWorkspaceHandler } from "../../lib/start-issue-work";
 import {
   DEFAULT_TASK_FILTERS,
   DEFAULT_TASK_SORT,
@@ -54,10 +41,8 @@ import {
   withoutLinkedTasks,
   linkedTasks,
   type LinkedTask,
-  initialOf,
   pageWindow,
   paginate,
-  relativeTime,
   trackerHomeUrl,
   type TaskFieldId,
   type TaskFilters,
@@ -68,6 +53,8 @@ import {
 import { useTasks, useTrackerSources } from "./useTasks";
 import { TaskFilterMenu } from "./TaskFilterMenu";
 import { TaskSortMenu } from "./TaskSortMenu";
+import { TaskTableRow } from "./TaskTableRow";
+import { useStartTask } from "./useStartTask";
 import { activeFilterCount, initialDirection } from "./task-menus";
 import styles from "./TasksView.module.css";
 
@@ -82,7 +69,6 @@ type TasksViewProps = {
 };
 
 const ALL_PROJECTS = "__all__";
-const MAX_AVATARS = 3;
 
 const PREF_PROVIDER = "tasks-view:provider";
 const PREF_PROJECT = "tasks-view:project";
@@ -343,67 +329,7 @@ export function TasksView(props: TasksViewProps) {
     });
   }, [queryClient]);
 
-  // A start fetches the task's body first; ignore repeat clicks meanwhile.
-  const startingRef = useRef(false);
-  const handleStart = useCallback(
-    async (row: TaskRow) => {
-      if (startingRef.current) return;
-      startingRef.current = true;
-      try {
-        const { project } = row;
-        if (row.raw.provider === "github") {
-          const listed = row.raw.issue;
-          const repo = ghRepoOf(project);
-          // Same key as the palette's detail view, so they share the cache.
-          // Title only if the detail fetch fails.
-          const detail = await queryClient
-            .fetchQuery({
-              queryKey: [
-                "github-issue-detail",
-                repo.hostId,
-                repo.path,
-                listed.number,
-                listed.url,
-              ],
-              queryFn: () =>
-                window.electronAPI.github.getIssueDetail(
-                  repo,
-                  listed.number,
-                  listed.url,
-                ),
-              staleTime: 60_000,
-              retry: false,
-            })
-            .catch(() => null);
-          startGitHubIssueWork({
-            project,
-            repo,
-            issue: { ...listed, body: detail?.body ?? null },
-            onNewWorkspace,
-          });
-        } else {
-          const listed = row.raw.issue;
-          const detail = await queryClient
-            .fetchQuery({
-              queryKey: ["linear-issue-detail", listed.id],
-              queryFn: () =>
-                window.electronAPI.linear.getIssueDetail(listed.id),
-              staleTime: 60_000,
-              retry: false,
-            })
-            .catch(() => null);
-          startLinearIssueWork({
-            project,
-            issue: { ...listed, description: detail?.description ?? null },
-            onNewWorkspace,
-          });
-        }
-      } finally {
-        startingRef.current = false;
-      }
-    },
-    [queryClient, onNewWorkspace],
-  );
+  const handleStart = useStartTask(onNewWorkspace);
 
   const openLinked = useCallback((task: LinkedTask) => {
     const store = useProjectStore.getState();
@@ -752,190 +678,6 @@ function SortHeader(props: SortHeaderProps) {
         {active && <Arrow size={11} aria-hidden />}
       </Button>
     </span>
-  );
-}
-
-/** Linear's priority glyph: an alert square for Urgent, else 3 bars — High 3 lit, Medium 2, Low 1. */
-function PriorityIcon(props: { value: number }) {
-  const { value } = props;
-
-  if (value === 1) {
-    return (
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 16 16"
-        className={styles.priorityUrgent}
-        aria-hidden
-      >
-        <rect x="1" y="1" width="14" height="14" rx="3" fill="currentColor" />
-        <path
-          d="M8 4.5v4.5"
-          stroke="var(--bg)"
-          strokeWidth="2"
-          strokeLinecap="round"
-        />
-        <circle cx="8" cy="11.75" r="1.1" fill="var(--bg)" />
-      </svg>
-    );
-  }
-  const lit = 5 - value;
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      className={styles.priorityBars}
-      aria-hidden
-    >
-      {[0, 1, 2].map((i) => (
-        <rect
-          key={i}
-          x={1.5 + i * 5}
-          y={10 - i * 4}
-          width="3"
-          height={5 + i * 4}
-          rx="1"
-          fill="currentColor"
-          opacity={i < lit ? 1 : 0.3}
-        />
-      ))}
-    </svg>
-  );
-}
-
-type TaskTableRowProps = {
-  row: TaskRow | LinkedTask;
-  now: number;
-  /** Linear's Priority column. */
-  showPriority: boolean;
-  /** "Start" for a tracker row, "Open" (go to its workspace) for a linked one. */
-  actionLabel: string;
-  onAction: () => void;
-};
-
-function TaskTableRow(props: TaskTableRowProps) {
-  const { row, now, showPriority, actionLabel, onAction } = props;
-
-  const shownAssignees = row.assignees.slice(0, MAX_AVATARS);
-  const hiddenAssignees = row.assignees.length - shownAssignees.length;
-  const updated = relativeTime(row.updatedAt, now);
-
-  return (
-    <div
-      className={`${styles.gridRow} ${styles.bodyRow}`}
-      role="row"
-      data-testid="task-row"
-    >
-      <span role="cell">
-        <Link href={row.url} variant="plain" className={styles.idChip}>
-          {row.provider === "github" ? (
-            <CircleDot size={11} />
-          ) : (
-            <LinearIcon size={10} />
-          )}
-          {row.displayId}
-        </Link>
-      </span>
-      <span role="cell" className={styles.titleCell}>
-        <Link href={row.url} variant="plain" className={styles.taskTitle}>
-          {row.title}
-        </Link>
-        <span className={styles.context}>
-          <span
-            className={styles.projectName}
-            style={projectColorStyle(row.color)}
-          >
-            {row.projectName}
-          </span>
-          {"workspaceName" in row && (
-            <span className={styles.workspaceName}>
-              <GitBranch size={11} />
-              {row.workspaceName}
-            </span>
-          )}
-          {row.trackerProjects.map((name) => (
-            <span key={`p:${name}`} className={styles.contextChip}>
-              <FolderKanban size={11} aria-hidden />
-              {name}
-            </span>
-          ))}
-          {row.milestone && (
-            <span className={styles.contextChip}>
-              <Milestone size={11} aria-hidden />
-              {row.milestone}
-            </span>
-          )}
-          {row.cycle && (
-            <span className={styles.contextChip}>
-              <IterationCw size={11} aria-hidden />
-              {row.cycle}
-            </span>
-          )}
-          {row.author && <span className={styles.author}>by {row.author}</span>}
-          {row.labels.map((label) => (
-            <span
-              key={label.name}
-              className={styles.label}
-              style={
-                label.color
-                  ? ({ "--label-color": label.color } as CSSProperties)
-                  : undefined
-              }
-            >
-              {label.name}
-            </span>
-          ))}
-        </span>
-      </span>
-      <span role="cell" className={styles.avatars}>
-        {shownAssignees.map((name) => (
-          <Tooltip key={name} label={name}>
-            <span className={styles.avatar} aria-label={name}>
-              {initialOf(name)}
-            </span>
-          </Tooltip>
-        ))}
-        {hiddenAssignees > 0 && (
-          <span className={styles.avatarMore}>+{hiddenAssignees}</span>
-        )}
-        {row.assignees.length === 0 && <span className={styles.dim}>—</span>}
-      </span>
-      <span role="cell">
-        <span
-          className={`${styles.status} ${styles[`tone-${row.status.tone}`]}`}
-        >
-          {row.status.label}
-        </span>
-      </span>
-      {showPriority && (
-        <span role="cell" className={styles.priority}>
-          {row.priority && row.priority.value > 0 ? (
-            <>
-              <PriorityIcon value={row.priority.value} />
-              {row.priority.label}
-            </>
-          ) : (
-            <span className={styles.dim}>—</span>
-          )}
-        </span>
-      )}
-      <span role="cell" className={styles.updated}>
-        {updated || <span className={styles.dim}>—</span>}
-      </span>
-      <span role="cell" className={styles.actionCell}>
-        <Button
-          variant="secondary"
-          size="sm"
-          className={styles.startButton}
-          onClick={onAction}
-          aria-label={`${actionLabel} ${row.displayId}`}
-        >
-          {actionLabel}
-          <ArrowRight size={13} />
-        </Button>
-      </span>
-    </div>
   );
 }
 

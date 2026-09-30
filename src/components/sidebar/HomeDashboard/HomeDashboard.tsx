@@ -11,7 +11,6 @@ import {
   prPipeline,
 } from "../../../lib/home-dashboard-studio";
 import type { NewWorkspaceHandler } from "../../../lib/start-issue-work";
-import type { PaletteView } from "../../command-palette/types";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { DashboardHeader } from "./DashboardHeader";
 import { HostAlert } from "./HostAlert";
@@ -27,12 +26,8 @@ import styles from "./HomeDashboard.module.css";
 type HomeDashboardProps = {
   /** `data-testid` for the scrolling root, so e2e tests can find Home. */
   testId?: string;
-  /** Opens the command palette (⌘K). */
-  onOpenPalette: () => void;
   /** Opens the New Workspace dialog, prefilled — Up next starts work on an issue with it (ADR-198 T7). */
   onNewWorkspace?: NewWorkspaceHandler;
-  /** Opens the palette on a view — Up next's "View all" link (ADR-198 T7). */
-  onOpenPaletteView?: (view: PaletteView) => void;
 };
 
 /**
@@ -47,7 +42,7 @@ type HomeDashboardProps = {
  * a viewport query can't see because the sidebar takes width.
  */
 export function HomeDashboard(props: HomeDashboardProps) {
-  const { testId, onOpenPalette } = props;
+  const { testId } = props;
 
   const projects = useProjectStore((s) => s.projects);
   const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
@@ -103,7 +98,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
           now={now}
           headline={sentence}
           urgent={cards.length > 0}
-          onOpenPalette={onOpenPalette}
         />
         <HostAlert projects={projects} now={now} />
         <StatTiles
@@ -114,10 +108,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
         />
         <NeedsYouCards cards={cards} />
 
-        <UpNextPanel
-          onNewWorkspace={props.onNewWorkspace}
-          onOpenPaletteView={props.onOpenPaletteView}
-        />
+        <UpNextPanel onNewWorkspace={props.onNewWorkspace} />
 
         <PrPipeline pipeline={pipeline} />
 

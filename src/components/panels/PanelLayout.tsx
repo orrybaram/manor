@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { PanelNode } from "../../store/panel-tree";
 import type { WorkspaceKey } from "../../lib/workspace-key";
 import { LeafPanel } from "./LeafPanel";
@@ -9,7 +10,7 @@ type PanelLayoutProps = {
   onNewAgent: () => void;
 };
 
-export function PanelLayout(props: PanelLayoutProps) {
+export const PanelLayout = memo(function PanelLayout(props: PanelLayoutProps) {
   const { node, workspaceKey, onNewAgent } = props;
   if (node.type === "leaf") {
     return <LeafPanel panelId={node.panelId} workspaceKey={workspaceKey} onNewAgent={onNewAgent} />;
@@ -24,4 +25,4 @@ export function PanelLayout(props: PanelLayoutProps) {
       onNewAgent={onNewAgent}
     />
   );
-}
+});

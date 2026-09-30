@@ -1,5 +1,5 @@
 import type { WorkspaceKey } from "../../lib/workspace-key";
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   useAppStore,
   selectActiveWorkspace,
@@ -353,6 +353,28 @@ describe("Pane operations", () => {
       (t) => t.id === panelAfter.selectedTabId,
     )!;
     expect(tabAfter.focusedPaneId).toBe(originalPane);
+  });
+
+  // focusPane runs on every mouse-down in a terminal; re-focusing the focused
+  // pane must not produce new state (re-render) or schedule a layout save.
+  it("focusPane on the already-focused pane is a no-op", () => {
+    vi.useFakeTimers();
+    try {
+      const save = vi.mocked(window.electronAPI.layout.save);
+      vi.advanceTimersByTime(1000);
+      save.mockClear();
+      const before = useAppStore.getState();
+      const panel = getActivePanel();
+      const tab = panel.tabs.find((t) => t.id === panel.selectedTabId)!;
+
+      useAppStore.getState().focusPane(tab.focusedPaneId);
+
+      expect(useAppStore.getState()).toBe(before);
+      vi.advanceTimersByTime(1000);
+      expect(save).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("focusNextPane cycles through panes", () => {

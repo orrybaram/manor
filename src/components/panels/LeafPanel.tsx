@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { useAppStore } from "../../store/app-store";
 import type { WorkspaceKey } from "../../lib/workspace-key";
 import { TabBar } from "../tabbar/TabBar/TabBar";
@@ -11,7 +12,7 @@ type LeafPanelProps = {
   onNewAgent: () => void;
 };
 
-export function LeafPanel(props: LeafPanelProps) {
+export const LeafPanel = memo(function LeafPanel(props: LeafPanelProps) {
   const { panelId, workspaceKey, onNewAgent } = props;
   const panel = useAppStore((s) => s.workspaceLayouts[workspaceKey]?.panels[panelId]);
   const isActivePanel = useAppStore(
@@ -39,4 +40,4 @@ export function LeafPanel(props: LeafPanelProps) {
       </div>
     </div>
   );
-}
+});

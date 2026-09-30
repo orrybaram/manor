@@ -364,7 +364,8 @@ function checksEqual(
  */
 export function prEqual(a?: PrInfo | null, b?: PrInfo | null): boolean {
   if (a === b) return true;
-  if (!a || !b) return false;
+  // "No PR yet" (undefined) and "no PR" (null) render the same.
+  if (!a || !b) return !a && !b;
   return (
     a.number === b.number &&
     a.state === b.state &&
@@ -686,10 +687,11 @@ interface ProjectState {
     workspacePath: string,
     issue: LinkedIssue,
   ) => Promise<void>;
-  updateWorkspaceBranch: (key: WorkspaceKey, branch: string) => void;
+  /** Apply one branch-watcher payload (key → branch) as a single update. */
+  updateWorkspaceBranches: (branches: Record<WorkspaceKey, string>) => void;
+  /** Apply one diff-watcher payload (key → stats, null clears) as a single update. */
   updateWorkspaceDiffStats: (
-    key: WorkspaceKey,
-    stats: DiffStats | null,
+    stats: Record<WorkspaceKey, DiffStats | null>,
   ) => void;
   updateWorkspacePr: (key: WorkspaceKey, pr: PrInfo | null) => void;
   setSidebarMode: (mode: SidebarMode) => void;
@@ -1691,24 +1693,36 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     await get().loadProjects();
   },
 
-  updateWorkspaceBranch: (key, branch) =>
+  // Keep the same `projects` reference on no-ops so subscribers
+  // (e.g. useDiffWatcher's re-apply effect) don't re-run.
+  updateWorkspaceBranches: (branches) =>
     set((s) => {
-      const projects = patch(s.projects, key, (ws) =>
-        branchesEqual(ws.branch, branch) ? ws : { ...ws, branch },
-      );
+      let projects = s.projects;
+      for (const [key, branch] of Object.entries(branches) as [
+        WorkspaceKey,
+        string,
+      ][]) {
+        projects = patch(projects, key, (ws) =>
+          branchesEqual(ws.branch, branch) ? ws : { ...ws, branch },
+        );
+      }
       return projects === s.projects ? s : { projects };
     }),
 
-  // Keep the same `projects` reference on no-ops so subscribers
-  // (e.g. useDiffWatcher's re-apply effect) don't re-run.
-  updateWorkspaceDiffStats: (key, stats) =>
+  updateWorkspaceDiffStats: (statsByKey) =>
     set((s) => {
-      const projects = patch(s.projects, key, (ws) =>
-        ws.diffStats?.added === stats?.added &&
-        ws.diffStats?.removed === stats?.removed
-          ? ws
-          : { ...ws, diffStats: stats },
-      );
+      let projects = s.projects;
+      for (const [key, stats] of Object.entries(statsByKey) as [
+        WorkspaceKey,
+        DiffStats | null,
+      ][]) {
+        projects = patch(projects, key, (ws) =>
+          ws.diffStats?.added === stats?.added &&
+          ws.diffStats?.removed === stats?.removed
+            ? ws
+            : { ...ws, diffStats: stats },
+        );
+      }
       return projects === s.projects ? s : { projects };
     }),
 

@@ -66,7 +66,7 @@ describe("workspace updates by key", () => {
   const ws = (i: number) => useProjectStore.getState().projects[i].workspaces[0];
 
   it("updates only the workspace on the key's host", () => {
-    useProjectStore.getState().updateWorkspaceBranch(box, "other");
+    useProjectStore.getState().updateWorkspaceBranches({ [box]: "other" });
     useProjectStore.getState().updateWorkspacePr(box, basePr());
     expect(ws(0).branch).toBe("feature");
     expect(ws(0).pr).toBeUndefined();
@@ -79,15 +79,45 @@ describe("workspace updates by key", () => {
   it("keeps the projects reference on no-op updates", () => {
     const before = useProjectStore.getState().projects;
     const store = useProjectStore.getState();
-    store.updateWorkspaceDiffStats(local, { added: 3, removed: 1 });
-    store.updateWorkspaceBranch(local, "feature");
-    store.updateWorkspaceDiffStats(box, null);
-    store.updateWorkspaceBranch(workspaceKey("local", "/nope"), "x");
+    store.updateWorkspaceDiffStats({ [local]: { added: 3, removed: 1 }, [box]: null });
+    store.updateWorkspaceBranches({
+      [local]: "feature",
+      [box]: "feature",
+      [workspaceKey("local", "/nope")]: "x",
+    });
     expect(useProjectStore.getState().projects).toBe(before);
   });
 
+  // PR polling runs every 60s and on every window focus; an unchanged PR must
+  // not rebuild `projects` or alt-tabbing back re-renders the whole app.
+  it("keeps the projects reference when a PR is unchanged", () => {
+    const store = useProjectStore.getState();
+    store.updateWorkspacePr(box, basePr());
+    const before = useProjectStore.getState().projects;
+    store.updateWorkspacePr(box, basePr());
+    store.updateWorkspacePr(local, null);
+    expect(useProjectStore.getState().projects).toBe(before);
+  });
+
+  it("applies a whole watcher payload as one store update", () => {
+    let updates = 0;
+    const unsub = useProjectStore.subscribe(() => updates++);
+    const store = useProjectStore.getState();
+    store.updateWorkspaceBranches({ [local]: "a", [box]: "b" });
+    store.updateWorkspaceDiffStats({
+      [local]: { added: 9, removed: 9 },
+      [box]: { added: 1, removed: 1 },
+    });
+    unsub();
+    expect(updates).toBe(2);
+    expect(ws(0).branch).toBe("a");
+    expect(ws(1).branch).toBe("b");
+    expect(ws(0).diffStats).toEqual({ added: 9, removed: 9 });
+    expect(ws(1).diffStats).toEqual({ added: 1, removed: 1 });
+  });
+
   it("stores changed diff stats on that host only", () => {
-    useProjectStore.getState().updateWorkspaceDiffStats(local, { added: 5, removed: 0 });
+    useProjectStore.getState().updateWorkspaceDiffStats({ [local]: { added: 5, removed: 0 } });
     expect(ws(0).diffStats).toEqual({ added: 5, removed: 0 });
     expect(ws(1).diffStats).toBeUndefined();
   });

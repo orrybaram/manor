@@ -2306,6 +2306,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       for (const [panelId, panel] of Object.entries(layout.panels)) {
         const tab = panel.tabs.find((t) => hasPaneId(t.rootNode, paneId));
         if (tab) {
+          // Runs on every mouse-down in a terminal; an already-focused pane
+          // must keep the same state so nothing re-renders or autosaves.
+          if (
+            layout.activePanelId === panelId &&
+            panel.selectedTabId === tab.id &&
+            tab.focusedPaneId === paneId
+          ) {
+            return state;
+          }
           return {
             workspaceLayouts: {
               ...state.workspaceLayouts,

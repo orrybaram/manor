@@ -63,9 +63,11 @@ export function useDiffWatcher() {
   const latestDiffsRef = useRef<Record<WorkspaceKey, DiffStats>>({});
   const applyDiffs = (diffs: Record<WorkspaceKey, DiffStats>) => {
     // Clear stats for workspaces with no diff
+    const stats: Record<WorkspaceKey, DiffStats | null> = {};
     for (const key of Object.keys(prevMapRef.current) as WorkspaceKey[]) {
-      updateWorkspaceDiffStats(key, diffs[key] ?? null);
+      stats[key] = diffs[key] ?? null;
     }
+    updateWorkspaceDiffStats(stats);
   };
 
   useEffect(() => {

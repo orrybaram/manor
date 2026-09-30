@@ -30,14 +30,11 @@ import { projectColorStyle } from "../../hooks/useProjectHeaderRow";
 import type { NewWorkspaceHandler } from "../../lib/start-issue-work";
 import {
   DEFAULT_TASK_FILTERS,
-  DEFAULT_TASK_SORT,
   TASK_FIELDS,
   applyTaskFilters,
   facetLabel,
   filterTasks,
   sortTasksBy,
-  filterableFields,
-  sortableFields,
   withoutLinkedTasks,
   linkedTasks,
   type LinkedTask,
@@ -56,6 +53,17 @@ import { TaskSortMenu } from "./TaskSortMenu";
 import { TaskTableRow } from "./TaskTableRow";
 import { useStartTask } from "./useStartTask";
 import { activeFilterCount, initialDirection } from "./task-menus";
+import {
+  PREF_FILTERS,
+  PREF_PROJECT,
+  PREF_PROVIDER,
+  PREF_SORT,
+  readFilters,
+  readPref,
+  readProvider,
+  readSort,
+  writePref,
+} from "./task-prefs";
 import styles from "./TasksView.module.css";
 
 type TasksViewProps = {
@@ -69,63 +77,6 @@ type TasksViewProps = {
 };
 
 const ALL_PROJECTS = "__all__";
-
-const PREF_PROVIDER = "tasks-view:provider";
-const PREF_PROJECT = "tasks-view:project";
-/** Followed by the provider: each tracker remembers its own sort and filters. */
-const PREF_SORT = "tasks-view:sort:";
-const PREF_FILTERS = "tasks-view:filters:";
-
-function readPref(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function writePref(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    // Storage unavailable — the choice just isn't remembered.
-  }
-}
-
-/** A provider's saved sort, if it's still a sortable field of it; else the default. */
-function readSort(provider: TaskProvider): TaskSort {
-  const raw = readPref(PREF_SORT + provider);
-  if (!raw) return DEFAULT_TASK_SORT;
-  try {
-    const saved = JSON.parse(raw) as { field?: unknown; direction?: unknown };
-    const field = sortableFields(provider).find((id) => id === saved.field);
-    if (field && (saved.direction === "asc" || saved.direction === "desc")) {
-      return { field, direction: saved.direction };
-    }
-  } catch {
-    // Not JSON — fall through to the default.
-  }
-  return DEFAULT_TASK_SORT;
-}
-
-/** A provider's saved filters, keeping only fields it can still filter on; else the defaults. */
-function readFilters(provider: TaskProvider): TaskFilters {
-  const raw = readPref(PREF_FILTERS + provider);
-  if (!raw) return DEFAULT_TASK_FILTERS;
-  try {
-    const saved = JSON.parse(raw) as Record<string, unknown>;
-    const out: TaskFilters = {};
-    for (const field of filterableFields(provider)) {
-      const values = saved[field];
-      if (Array.isArray(values) && values.every((v) => typeof v === "string")) {
-        out[field] = values;
-      }
-    }
-    return out;
-  } catch {
-    return DEFAULT_TASK_FILTERS;
-  }
-}
 
 const NO_FILTERS: TaskFilters = {};
 
@@ -159,9 +110,7 @@ export function TasksView(props: TasksViewProps) {
 
   const queryClient = useQueryClient();
 
-  const [savedProvider, setSavedProvider] = useState<TaskProvider>(() =>
-    readPref(PREF_PROVIDER) === "linear" ? "linear" : "github",
-  );
+  const [savedProvider, setSavedProvider] = useState<TaskProvider>(readProvider);
   const [savedProject, setSavedProject] = useState<string>(
     () => readPref(PREF_PROJECT) ?? ALL_PROJECTS,
   );

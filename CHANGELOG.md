@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.18.3] - 2026-09-29
+
+### Fixes
+- File links in the terminal now open in your editor only when you hold Cmd (macOS) or Ctrl while clicking, so a plain click no longer opens files by accident.
+
 ## [0.18.2] - 2026-09-29
 
 ### Features

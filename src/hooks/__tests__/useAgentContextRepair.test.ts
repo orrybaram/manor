@@ -1,17 +1,15 @@
-// @vitest-environment jsdom
-import { act, createElement } from "react";
-import { createRoot, type Root } from "react-dom/client";
+// @vitest-environment happy-dom
+import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAppStore } from "../../store/app-store";
 import { useAgentStore } from "../../store/agent-store";
 import { useProjectStore } from "../../store/project-store";
+import { createTestRoot, type TestRoot } from "../../test-utils/react-root";
 
 const orphanedAgentContexts = vi.fn(() => new Map());
 vi.mock("../../lib/agent-context-repair", () => ({ orphanedAgentContexts }));
 
 const { useAgentContextRepair } = await import("../useAgentContextRepair");
-
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 function Probe() {
   useAgentContextRepair();
@@ -19,15 +17,15 @@ function Probe() {
 }
 
 describe("useAgentContextRepair", () => {
-  let root: Root;
+  let root: TestRoot;
 
   beforeEach(() => {
-    root = createRoot(document.createElement("div"));
-    act(() => root.render(createElement(Probe)));
+    root = createTestRoot();
+    root.render(createElement(Probe));
     orphanedAgentContexts.mockClear();
   });
 
-  afterEach(() => act(() => root.unmount()));
+  afterEach(() => root.unmount());
 
   it("does not run on unrelated store changes", () => {
     useAppStore.getState().setPaneTitle("pane-1", "⠂ Working");

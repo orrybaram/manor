@@ -19,6 +19,7 @@ import {
   detachTabToNewWindow,
   trackHandoff,
 } from "../../../lib/window-handoff";
+import { shellTitlePath } from "../../../utils/agent-title";
 import { TabButton } from "../TabButton";
 import styles from "./TabBar.module.css";
 
@@ -41,9 +42,9 @@ function deriveTabTitle(focusedPaneId: string): string {
     if (paneUrl) return paneUrl.replace(/^https?:\/\//, "");
   }
   if (title) {
-    const cwdMatch = title.match(/^.+@.+:(.+)$/);
-    if (cwdMatch) {
-      const parts = cwdMatch[1].replace(/\/+$/, "").split("/");
+    const path = shellTitlePath(title);
+    if (path !== null) {
+      const parts = path.replace(/\/+$/, "").split("/");
       return parts[parts.length - 1] || title;
     }
     return title;

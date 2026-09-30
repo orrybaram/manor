@@ -116,6 +116,28 @@ function shortenTitle(title: string): string {
   return trimmed.length <= 5 ? trimmed : trimmed.slice(0, 5);
 }
 
+type TabTitleProps = {
+  focusedPaneId: string | undefined;
+  isPinned: boolean;
+};
+
+/**
+ * A tab's title text. The only part of the tab that reads the focused pane's
+ * raw live title, so each spinner frame an agent writes re-renders just this
+ * span, not the whole tab.
+ */
+export function TabTitle(props: TabTitleProps) {
+  const { focusedPaneId, isPinned } = props;
+
+  const title = useTabTitle(focusedPaneId);
+
+  return (
+    <span className={styles.tabTitle} data-testid="tab-title">
+      {isPinned ? shortenTitle(title) : title}
+    </span>
+  );
+}
+
 type TabButtonProps = {
   tabId: string;
   /** The tab's pane tree — the remote-host badge is derived from its panes. */
@@ -144,7 +166,6 @@ type TabButtonProps = {
 export function TabButton(props: TabButtonProps) {
   const { tabId, rootNode, workspaceHostId, isActive, isPinned, canClose, isDragging, isDropTarget, draggable, onSelect, onClose, onTogglePin, onDragStart, onDrag, onDragEnd, buttonRef } = props;
 
-  const title = useTabTitle(tabId);
   const { contentType, favicon, audioPlaying, audioMuted, focusedPaneId } = useAppStore(useShallow((s) => {
     const layout = selectActiveLayout(s);
     if (!layout) return { contentType: undefined, favicon: undefined, audioPlaying: false, audioMuted: false, focusedPaneId: undefined };
@@ -236,9 +257,7 @@ export function TabButton(props: TabButtonProps) {
           ) : (
             <Globe size={12} className={styles.tabIcon} />
           ))}
-          <span className={styles.tabTitle} data-testid="tab-title">
-            {isPinned ? shortenTitle(title) : title}
-          </span>
+          <TabTitle focusedPaneId={focusedPaneId} isPinned={isPinned} />
           {foreignHostId && !isPinned && (
             <HostIndicator hostId={foreignHostId} variant="icon" />
           )}

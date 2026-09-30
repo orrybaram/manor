@@ -1,6 +1,6 @@
 import { useShallow } from "zustand/react/shallow";
 import { useAppStore } from "../store/app-store";
-import { cleanAgentTitle } from "../utils/agent-title";
+import { cleanAgentTitle, shellTitlePath } from "../utils/agent-title";
 import type { AgentInfo, AgentStatus } from "../electron.d";
 
 /**
@@ -11,7 +11,7 @@ import type { AgentInfo, AgentStatus } from "../electron.d";
 export function cleanLiveTitle(raw: string | null): string | null {
   if (!raw) return null;
   // SSH-style CWD titles like "user@host:/some/path" are not agent descriptions
-  if (/.+@.+:.+/.test(raw)) return null;
+  if (shellTitlePath(raw) !== null) return null;
   return cleanAgentTitle(raw);
 }
 

@@ -1,64 +1,67 @@
-// @vitest-environment jsdom
-import { act, createElement } from "react";
-import { createRoot, type Root } from "react-dom/client";
+// @vitest-environment happy-dom
+import { act, createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useAppStore } from "../../store/app-store";
 import { useAgentStore } from "../../store/agent-store";
 import { useAgentDisplay } from "../useAgentDisplay";
-import { usePaneHeaderTitle } from "../usePaneHeaderTitle";
 import { useAgentCommands } from "../../components/command-palette/useAgentCommands";
-import type { AgentInfo } from "../../electron.d";
-
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+import { PaneHeaderTitle } from "../../components/workspace-panes/PaneHeaderTitle";
+import { TabTitle } from "../../components/tabbar/TabButton";
+import { makeAgent } from "../../test-utils/fixtures";
+import {
+  createTestRoot,
+  setPaneTitle,
+  type TestRoot,
+} from "../../test-utils/react-root";
 
 const PANE = "pane-1";
+const agent = makeAgent({ paneId: PANE });
+const setTitle = (title: string) => setPaneTitle(PANE, title);
 
-const agent: AgentInfo = {
-  id: "agent-1",
-  agentSessionId: "session-1",
-  name: null,
-  status: "active",
-  createdAt: "2026-09-30T00:00:00Z",
-  updatedAt: "2026-09-30T00:00:00Z",
-  completedAt: null,
-  activatedAt: null,
-  projectId: "p1",
-  projectName: "Project",
-  hostId: "local",
-  workspacePath: "/ws",
-  cwd: "/ws",
-  agentKind: "claude",
-  agentCommand: null,
-  paneId: PANE,
-  lastAgentStatus: null,
-  resumedAt: null,
+const commandArgs = {
+  onResumeAgent: () => {},
+  onViewAllAgents: () => {},
+  onClose: () => {},
+  onNewAgent: () => {},
+  scopeProjectId: null,
 };
 
-const setTitle = (title: string) =>
-  act(() => useAppStore.getState().setPaneTitle(PANE, title));
-
-let root: Root;
+let root: TestRoot;
 let renders = 0;
 let last: unknown;
 
+/** Renders a component that calls `useProbe`, counting its renders. */
 function mount(useProbe: () => unknown) {
   function Probe() {
     renders++;
     last = useProbe();
     return null;
   }
-  act(() => root.render(createElement(Probe)));
+  root.render(createElement(Probe));
+}
+
+/** Renders `child` under a parent that counts its own renders. */
+function mountUnderParent(child: ReactNode) {
+  function Parent() {
+    renders++;
+    return child;
+  }
+  root.render(createElement(Parent));
 }
 
 beforeEach(() => {
   renders = 0;
   last = undefined;
-  useAppStore.setState({ paneTitle: { [PANE]: "⠂ Fix the build" }, paneAgentStatus: {} });
+  useAppStore.setState({
+    paneTitle: { [PANE]: "⠂ Fix the build" },
+    paneCwd: {},
+    paneAgentStatus: {},
+  });
   useAgentStore.setState({ agents: [agent] });
-  root = createRoot(document.createElement("div"));
+  root = createTestRoot();
 });
 
-afterEach(() => act(() => root.unmount()));
+afterEach(() => root.unmount());
 
 describe("spinner-frame title updates", () => {
   it("do not re-render an agents list row", () => {
@@ -73,26 +76,35 @@ describe("spinner-frame title updates", () => {
     expect(last).toBe("Run the tests");
   });
 
-  it("do not re-render the pane header", () => {
-    mount(() => usePaneHeaderTitle(PANE));
+  it("re-render only the pane header's title text", () => {
+    mountUnderParent(createElement(PaneHeaderTitle, { paneId: PANE }));
+    expect(root.container.textContent).toBe("⠂ Fix the build");
+
     setTitle("⠐ Fix the build");
+    expect(root.container.textContent).toBe("⠐ Fix the build");
     expect(renders).toBe(1);
-    expect(last).toBe("Fix the build");
 
     setTitle("user@host:~/code");
-    expect(last).toBe("~/code");
+    expect(root.container.textContent).toBe("~/code");
+  });
+
+  it("re-render only a tab's title text", () => {
+    mountUnderParent(
+      createElement(TabTitle, { focusedPaneId: PANE, isPinned: false }),
+    );
+    expect(root.container.textContent).toBe("⠂ Fix the build");
+
+    setTitle("⠐ Fix the build");
+    expect(root.container.textContent).toBe("⠐ Fix the build");
+    expect(renders).toBe(1);
+
+    setTitle("user@host:/home/me/code");
+    expect(root.container.textContent).toBe("code");
   });
 
   it("do not re-render the open palette's agent commands", () => {
     mount(() =>
-      useAgentCommands({
-        onResumeAgent: () => {},
-        onViewAllAgents: () => {},
-        onClose: () => {},
-        onNewAgent: () => {},
-        scopeProjectId: null,
-        enabled: true,
-      }).items.map((i) => i.label),
+      useAgentCommands({ ...commandArgs, enabled: true }).items.map((i) => i.label),
     );
     setTitle("⠐ Fix the build");
     expect(renders).toBe(1);
@@ -106,20 +118,13 @@ describe("spinner-frame title updates", () => {
 
 describe("closed command palette", () => {
   it("does no work when agent titles, statuses or agents change", () => {
-    mount(() =>
-      useAgentCommands({
-        onResumeAgent: () => {},
-        onViewAllAgents: () => {},
-        onClose: () => {},
-        onNewAgent: () => {},
-        scopeProjectId: null,
-        enabled: false,
-      }),
-    );
+    mount(() => useAgentCommands({ ...commandArgs, enabled: false }));
     setTitle("⠐ Something else entirely");
     act(() =>
       useAppStore.setState({
-        paneAgentStatus: { [PANE]: { status: "working" } as never },
+        paneAgentStatus: {
+          [PANE]: { status: "working", reason: "", kind: "claude" },
+        },
       }),
     );
     act(() => useAgentStore.setState({ agents: [{ ...agent, name: "Renamed" }] }));

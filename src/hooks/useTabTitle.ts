@@ -1,17 +1,13 @@
-import { selectActiveLayout, useAppStore } from "../store/app-store";
+import { useAppStore } from "../store/app-store";
 import { useAgentStore } from "../store/agent-store";
+import { shellTitlePath } from "../utils/agent-title";
 
-export function useTabTitle(tabId: string): string {
-  const focusedPaneId = useAppStore((s) => {
-    const layout = selectActiveLayout(s);
-    if (!layout) return null;
-    for (const panel of Object.values(layout.panels)) {
-      const tab = panel.tabs.find((t) => t.id === tabId);
-      if (tab) return tab.focusedPaneId;
-    }
-    return null;
-  });
-
+/**
+ * The title a tab shows for its focused pane. Reads the pane's raw live title,
+ * so it changes on every spinner frame: call it only from the component that
+ * renders the title text.
+ */
+export function useTabTitle(focusedPaneId: string | undefined): string {
   const title = useAppStore((s) =>
     focusedPaneId ? (s.paneTitle[focusedPaneId] ?? null) : null,
   );
@@ -49,9 +45,8 @@ export function useTabTitle(tabId: string): string {
   }
 
   if (title) {
-    const cwdMatch = title.match(/^.+@.+:(.+)$/);
-    if (cwdMatch) {
-      const path = cwdMatch[1];
+    const path = shellTitlePath(title);
+    if (path !== null) {
       const parts = path.replace(/\/+$/, "").split("/");
       return parts[parts.length - 1] || title;
     }

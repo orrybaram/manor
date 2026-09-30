@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { cardColor } from "../../components/sidebar/HomeDashboard/needs-you-labels";
-import type { NeedsYouCard } from "../home-dashboard-studio";
+import { cardColor } from "./needs-you-labels";
+import type { NeedsYouCard } from "../../../lib/home-dashboard-studio";
 
 const pr = (blocker: { kind: string } | null): NeedsYouCard =>
   ({ kind: "pr", tier: blocker ? "blocked" : "ready", blocker }) as unknown as NeedsYouCard;

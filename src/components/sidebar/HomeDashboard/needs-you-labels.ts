@@ -16,6 +16,7 @@ const TIER_COLOR: Record<NeedsYouTier, string> = {
 
 const TONE_COLOR = { bad: "var(--red)", warn: "var(--yellow)" };
 
+/** A card's accent: its blocker's tone for a blocked PR, otherwise its tier's colour. */
 export function cardColor(card: NeedsYouCard): string {
   if (card.kind === "pr" && card.blocker) {
     return TONE_COLOR[PR_BLOCKER[card.blocker.kind].tone];

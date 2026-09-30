@@ -1,6 +1,6 @@
 ---
 title: Popover badge and Needs you card read the blocker
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [2]

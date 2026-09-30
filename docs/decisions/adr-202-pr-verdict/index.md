@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -170,7 +170,7 @@ turns from yellow to red. Cards for changes requested or threads stay yellow.
   wiring.
 - Surfaces: the repo has no component-render tests, so rendering is covered
   by typecheck (exhaustive `Record`s) and one small pure test for
-  `cardColor` in `needs-you-labels`.
+  `cardColor` (`HomeDashboard/needs-you-labels.test.ts`).
 
 ## Consequences
 

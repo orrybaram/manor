@@ -105,6 +105,7 @@ describe("RemoteControlServer", () => {
       backend: null,
       notificationStore: null,
       statsStore: null,
+      workspaceOps: null,
       preferencesManager: null,
       themeManager: null,
       portScanner: null,

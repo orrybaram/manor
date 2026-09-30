@@ -103,6 +103,7 @@ export class WebviewServer {
       backend: this.backend,
       notificationStore: null,
       statsStore: null,
+      workspaceOps: null,
       preferencesManager: null,
       themeManager: null,
       portScanner: null,

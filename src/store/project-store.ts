@@ -668,8 +668,8 @@ interface ProjectState {
   ) => Promise<void>;
   /**
    * ADR-192: remember the host a group last made a workspace on, where the
-   * New Workspace host picker starts next time. `createWorktree` calls it
-   * for a linked project; a failure only loses the default, so it is quiet.
+   * New Workspace host picker starts next time. Workspace creates record it
+   * in main (ADR-203); a failure only loses the default, so it is quiet.
    */
   setGroupLastUsedHost: (groupId: string, hostId: string) => Promise<void>;
   /** Persists a full sidebar order: workspace paths and folder ids. */
@@ -1009,9 +1009,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projects: s.projects.map((p) => (p.id === projectId ? updated : p)),
     }));
 
-    // A linked project's host picker starts here next time (ADR-192).
-    if (updated.group)
-      void get().setGroupLastUsedHost(updated.group.id, updated.hostId);
+    // Main records the group's last-used host itself (ADR-203); its
+    // `projects-changed` broadcast reloads the other members' summaries.
 
     // Find the new workspace by name or branch.
     const branchName = branch || name;

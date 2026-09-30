@@ -13,9 +13,6 @@ import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Cloud from "lucide-react/dist/esm/icons/cloud";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import FolderGit2 from "lucide-react/dist/esm/icons/folder-git-2";
-import FolderPlus from "lucide-react/dist/esm/icons/folder-plus";
-import Plus from "lucide-react/dist/esm/icons/plus";
-import Settings from "lucide-react/dist/esm/icons/settings";
 import Laptop from "lucide-react/dist/esm/icons/laptop";
 import {
   collapsedFolderIdsOf,
@@ -58,6 +55,7 @@ import { headerRefKey, useSidebarDrag } from "../../hooks/useSidebarDrag";
 import { useProjectAgentStatus } from "../../hooks/useProjectAgentStatus";
 import { projectColorStyle, useProjectHeaderRow } from "../../hooks/useProjectHeaderRow";
 import { ProjectChevron } from "./ProjectChevron";
+import { ProjectHeaderActions } from "./ProjectHeaderActions";
 import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
@@ -378,50 +376,6 @@ type ProjectItemProps = {
    */
   selectionScope?: SelectionScope;
 };
-
-type ProjectHeaderActionsProps = {
-  onNewWorkspace: () => void;
-  onNewFolder: () => void;
-  onOpenSettings?: () => void;
-};
-
-/** Icon buttons revealed when the project header is hovered. */
-function ProjectHeaderActions(props: ProjectHeaderActionsProps) {
-  const { onNewWorkspace, onNewFolder, onOpenSettings } = props;
-  // The header toggles on click, drags on pointer-down and handles arrow keys;
-  // none of that should fire from its buttons.
-  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
-  const actions = [
-    { label: "New Workspace", Icon: Plus, onClick: onNewWorkspace },
-    { label: "New Folder", Icon: FolderPlus, onClick: onNewFolder },
-    ...(onOpenSettings
-      ? [{ label: "Project Settings", Icon: Settings, onClick: onOpenSettings }]
-      : []),
-  ];
-
-  return (
-    <span
-      className={styles.projectActions}
-      onClick={stop}
-      onPointerDown={stop}
-      onKeyDown={stop}
-      onContextMenu={stop}
-    >
-      {actions.map(({ label, Icon, onClick }) => (
-        <Tooltip key={label} label={label}>
-          <Button
-            variant="ghost"
-            className={styles.projectAction}
-            aria-label={label}
-            onClick={onClick}
-          >
-            <Icon size={13} />
-          </Button>
-        </Tooltip>
-      ))}
-    </span>
-  );
-}
 
 export function ProjectItem(props: ProjectItemProps) {
   const {

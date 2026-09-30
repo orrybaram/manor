@@ -24,6 +24,7 @@
 }
 
 .projectHeader {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -71,46 +72,33 @@
   white-space: nowrap;
 }
 
-/* Revealed on hover: the strip grows from nothing (so a long name only
-   truncates while the actions show) and its buttons fade and slide in, one
-   after another. */
+/* Revealed on hover with a quick fade. The strip overlays the header's right
+   end rather than taking space, so names don't reflow; its fill matches the
+   header's hover fill and feathers into the name. */
 .projectActions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
   display: flex;
   align-items: center;
   gap: 1px;
-  flex-shrink: 0;
-  max-width: 0;
-  overflow: hidden;
-  transition: max-width 160ms ease;
+  padding: 0 4px 0 12px;
+  border-radius: 0 4px 4px 0;
+  background: linear-gradient(to right, transparent, var(--surface) 12px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
 }
 
 .projectAction {
   padding: 3px;
-  opacity: 0;
-  transform: translateX(6px);
-  transition:
-    opacity 140ms ease,
-    transform 160ms ease,
-    background-color 150ms ease;
-}
-
-.projectAction:nth-child(2) {
-  transition-delay: 30ms;
-}
-
-.projectAction:nth-child(3) {
-  transition-delay: 60ms;
 }
 
 .projectHeader:hover .projectActions,
 .projectHeader:focus-within .projectActions {
-  max-width: 72px;
-}
-
-.projectHeader:hover .projectAction,
-.projectHeader:focus-within .projectAction {
   opacity: 1;
-  transform: none;
+  pointer-events: auto;
 }
 
 /* The header's own hover fill is --surface, so the button needs a step up. */
@@ -119,8 +107,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .projectActions,
-  .projectAction {
+  .projectActions {
     transition: none;
   }
 }

@@ -27,6 +27,7 @@ import { groupHostState, isHostOffline } from "../../lib/host-status";
 import { projectColorStyle, useProjectHeaderRow } from "../../hooks/useProjectHeaderRow";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { ProjectChevron } from "./ProjectChevron";
+import { ProjectHeaderActions } from "./ProjectHeaderActions";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import styles from "./ProjectItem.module.css";
 import { Collapse } from "../ui/Collapse/Collapse";
@@ -176,6 +177,11 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
               {group.name}
             </span>
             {collapsed && indicator && <WorkspaceIndicatorDot indicator={indicator} />}
+            <ProjectHeaderActions
+              onNewWorkspace={() => setNewWorkspaceOpen(true)}
+              onNewFolder={() => setNewFolderOpen(true)}
+              onOpenSettings={onOpenSettings}
+            />
           </div>
         </ContextMenu.Trigger>
         <ContextMenu.Portal>

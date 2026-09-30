@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.18.5] - 2026-09-29
+
+**Features**
+- Project header actions in the sidebar now appear when you hover over the header
+- Linked project groups in the sidebar now show header actions too
+
+**Improvements**
+- Sidebar header actions now fade in instead of sliding in
+- The sidebar header's hover highlight now appears in step with the action buttons
+
 ## [0.18.4] - 2026-09-29
 
 **Features**

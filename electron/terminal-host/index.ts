@@ -36,6 +36,7 @@ import { createSerializedHandler } from "./control-queue";
 import { localRole, remoteRole, type DaemonRole } from "./daemon-role";
 import { ControlRelayStreams } from "./control-relay-listener";
 import { errorMessage } from "../lib/errors";
+import { createLineReader } from "./line-reader";
 
 const daemonVersion = process.env.MANOR_VERSION;
 
@@ -388,7 +389,7 @@ async function handleStreamMessage(
       host.write(command.sessionId, command.data);
       break;
     case "subscribe":
-      await host.attach(command.sessionId, socket);
+      host.subscribe(command.sessionId, socket);
       break;
     case "unsubscribe":
       host.detach(command.sessionId, socket);
@@ -458,22 +459,6 @@ function sendResponse(
   }
 }
 
-// ── NDJSON line parser ──
-
-function createLineParser(
-  onLine: (line: string) => void,
-): (chunk: Buffer) => void {
-  let buffer = "";
-  return (chunk: Buffer) => {
-    buffer += chunk.toString("utf-8");
-    const lines = buffer.split("\n");
-    buffer = lines.pop()!; // Keep incomplete line
-    for (const line of lines) {
-      if (line.trim()) onLine(line);
-    }
-  };
-}
-
 function createControlHandler(d: Daemon, conn: Connection): (line: string) => void {
   const { socket } = conn;
   return createSerializedHandler(
@@ -523,7 +508,7 @@ function startServer(role: DaemonRole): DaemonServer {
     d.connections.set(socket, conn);
     let lineHandler: ((line: string) => void) | null = null;
 
-    const initialParser = createLineParser((line) => {
+    const initialParser = createLineReader((line) => {
       if (conn.kind !== null) {
         lineHandler?.(line);
         return;

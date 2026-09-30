@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { MSG, encodeFrame, encodeJsonFrame } from "./pty-subprocess-ipc";
 
@@ -43,6 +44,7 @@ function mockSocket(): { socket: any; written: string[] } {
       written.push(data);
     },
     on: vi.fn(),
+    off: vi.fn(),
     destroy: vi.fn(),
   };
   return { socket, written };
@@ -326,6 +328,39 @@ describe("Session", () => {
       expect(dataEvents[0].type === "data" && dataEvents[0].data).toBe(
         "before",
       );
+    });
+
+    it("does not pile up close listeners on a socket that attaches over and over", () => {
+      const socket = Object.assign(new EventEmitter(), { write: vi.fn() });
+      for (let i = 0; i < 50; i++) {
+        session.attachClient(socket as any);
+        session.attachClient(socket as any);
+        session.detachClient(socket as any);
+      }
+      expect(socket.listenerCount("close")).toBe(0);
+
+      session.attachClient(socket as any);
+      session.attachClient(socket as any);
+      expect(socket.listenerCount("close")).toBe(1);
+    });
+
+    it("lets go of its sockets when disposed", () => {
+      const socket = Object.assign(new EventEmitter(), { write: vi.fn() });
+      session.attachClient(socket as any);
+      session.dispose();
+      expect(socket.listenerCount("close")).toBe(0);
+    });
+
+    it("stops broadcasting to a socket that closed", () => {
+      const written: string[] = [];
+      const socket = Object.assign(new EventEmitter(), {
+        write: (line: string) => written.push(line),
+      });
+      session.attachClient(socket as any);
+      socket.emit("close");
+      pushDataFrame(session, "after close");
+      expect(written).toHaveLength(0);
+      expect(socket.listenerCount("close")).toBe(0);
     });
 
     it("broadcasts exit event when PTY exits", () => {

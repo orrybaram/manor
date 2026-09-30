@@ -13,6 +13,7 @@ import type {
   SuccessFor,
 } from "./types";
 import { REPLY_TYPES } from "./types";
+import { createLineReader } from "./line-reader";
 
 /** Per-request timeout for control requests that do not name their own. */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
@@ -31,15 +32,7 @@ interface PendingRequest {
 
 /** Call `onLine` with every complete, non-blank line `socket` reads. */
 export function readLines(socket: Duplex, onLine: (line: string) => void): void {
-  let buffer = "";
-  socket.on("data", (chunk: Buffer) => {
-    buffer += chunk.toString("utf-8");
-    const lines = buffer.split("\n");
-    buffer = lines.pop()!;
-    for (const line of lines) {
-      if (line.trim()) onLine(line);
-    }
-  });
+  socket.on("data", createLineReader(onLine));
 }
 
 /**

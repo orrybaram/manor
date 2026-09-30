@@ -282,13 +282,16 @@ export function feedSessionData(
 }
 
 /** Force-flush scrollback writer inside a session */
-export function flushScrollback(host: TerminalHost, sessionId: string): void {
+export async function flushScrollback(
+  host: TerminalHost,
+  sessionId: string,
+): Promise<void> {
   const session = sessionOf(host, sessionId);
   if (!session) return;
   const { scrollbackWriter } = session as unknown as {
     scrollbackWriter: ScrollbackWriter | null;
   };
-  scrollbackWriter?.flush();
+  await scrollbackWriter?.flush();
 }
 
 export const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));

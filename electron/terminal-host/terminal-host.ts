@@ -68,6 +68,19 @@ export class TerminalHost {
     return session.getSnapshot();
   }
 
+  /**
+   * Subscribe a stream socket to a session's output, without a snapshot.
+   * The client asks for its snapshot separately (`getSnapshot`), so building
+   * one here would serialize the whole screen only to throw it away. Returns
+   * false for an unknown session.
+   */
+  subscribe(sessionId: string, socket: net.Socket): boolean {
+    const session = this.sessions.get(sessionId);
+    if (!session) return false;
+    session.attachClient(socket);
+    return true;
+  }
+
   /** Detach a stream socket from a session */
   detach(sessionId: string, socket: net.Socket): void {
     const session = this.sessions.get(sessionId);

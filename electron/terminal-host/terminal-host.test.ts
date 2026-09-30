@@ -22,7 +22,7 @@ vi.mock("../shell", () => ({
 import { TerminalHost } from "./terminal-host";
 
 function mockSocket(): any {
-  return { write: vi.fn(), on: vi.fn(), destroy: vi.fn() };
+  return { write: vi.fn(), on: vi.fn(), off: vi.fn(), destroy: vi.fn() };
 }
 
 function feedSessionData(
@@ -110,6 +110,25 @@ describe("TerminalHost", () => {
       expect(snapshot).not.toBeNull();
       expect(snapshot!.cols).toBe(80);
       expect(snapshot!.rows).toBe(24);
+    });
+
+    it("subscribe attaches without building a snapshot", () => {
+      host.create("s1", "/tmp", 80, 24);
+      const session = (host as any).sessions.get("s1");
+      const getSnapshot = vi.spyOn(session, "getSnapshot");
+      const socket = mockSocket();
+
+      expect(host.subscribe("s1", socket)).toBe(true);
+      expect(getSnapshot).not.toHaveBeenCalled();
+
+      feedSessionData(host, "s1", "streamed");
+      expect(
+        socket.write.mock.calls.some(([line]: [string]) => line.includes("streamed")),
+      ).toBe(true);
+    });
+
+    it("subscribe to nonexistent session is a no-op", () => {
+      expect(host.subscribe("nonexistent", mockSocket())).toBe(false);
     });
 
     it("attach to nonexistent session returns null", async () => {

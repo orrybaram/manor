@@ -67,8 +67,9 @@ export class ScrollbackWriter {
    * and in order, so appends, truncations and clears never interleave. The
    * daemon runs every session on one event loop; none of this may block it.
    */
-  private queue: Promise<void> = Promise.resolve();
-  private queuedOps = 0;
+  private diskChain: Promise<void> = Promise.resolve();
+  /** Operations on `diskChain` that have not finished yet. */
+  private pendingOps = 0;
 
   static readonly FLUSH_INTERVAL_MS = 2000;
   static readonly FLUSH_THRESHOLD_BYTES = 256 * 1024;
@@ -86,6 +87,15 @@ export class ScrollbackWriter {
     return path.join(this.sessionDir, "meta.json");
   }
 
+  /**
+   * meta.json is swapped in with a rename, never written in place: a write
+   * cut off by a crash would leave a truncated file, and cold restore would
+   * then read no meta at all.
+   */
+  private get metaTmpPath(): string {
+    return `${this.metaPath}.tmp`;
+  }
+
   /** Initialize the session directory and write initial meta.json */
   init(meta: Omit<SessionMeta, "createdAt" | "endedAt">): void {
     fs.mkdirSync(this.sessionDir, { recursive: true });
@@ -95,7 +105,7 @@ export class ScrollbackWriter {
       createdAt: new Date().toISOString(),
       endedAt: null,
     };
-    fs.writeFileSync(this.metaPath, JSON.stringify(this.meta, null, 2));
+    this.writeMetaSync();
 
     // Create empty scrollback file
     fs.writeFileSync(this.scrollbackPath, "");
@@ -147,7 +157,7 @@ export class ScrollbackWriter {
 
   /** Resolves once every queued disk operation has finished. */
   whenIdle(): Promise<void> {
-    return this.queue;
+    return this.diskChain;
   }
 
   /**
@@ -201,9 +211,9 @@ export class ScrollbackWriter {
     // waiting its turn it will carry this change too.
     if (this.metaWriteQueued) return this.whenIdle();
     this.metaWriteQueued = true;
-    return this.enqueue(async () => {
+    return this.enqueue(() => {
       this.metaWriteQueued = false;
-      await fsp.writeFile(this.metaPath, this.serializeMeta());
+      return this.writeMeta();
     });
   }
 
@@ -211,7 +221,10 @@ export class ScrollbackWriter {
   end(): void {
     if (!this.meta) return;
     this.meta.endedAt = new Date().toISOString();
-    this.writeFinal(this.metaPath, () => this.serializeMeta(), "write");
+    this.writeFinal(
+      () => this.writeMetaSync(),
+      () => this.writeMeta(),
+    );
   }
 
   /** Dispose — flush and clean up timer */
@@ -219,40 +232,44 @@ export class ScrollbackWriter {
     this.disposed = true;
     this.clearFlushTimer();
     const combined = this.takeBuffer();
-    if (combined) this.writeFinal(this.scrollbackPath, () => combined, "append");
+    if (!combined) return;
+    this.writeFinal(
+      () => fs.appendFileSync(this.scrollbackPath, combined),
+      () => fsp.appendFile(this.scrollbackPath, combined),
+    );
   }
 
   /**
-   * The last write a session makes. Synchronous when nothing is queued, so it
-   * lands even when the daemon exits right after (shutdown calls
-   * `process.exit`); queued behind the rest otherwise, so it cannot overtake
-   * them. This runs once per session, never on the output path.
+   * The last writes a session makes. Run `now` right away when nothing is
+   * pending, so it has landed before this returns; otherwise queue `queued`
+   * behind the rest, so it cannot overtake them. Daemon shutdown waits on
+   * `whenIdle` for those (TerminalHost.disposeAll). This runs once per
+   * session, never on the output path.
    */
-  private writeFinal(
-    file: string,
-    contents: () => string | Buffer,
-    mode: "write" | "append",
-  ): void {
-    const writeSync = () =>
-      mode === "append"
-        ? fs.appendFileSync(file, contents())
-        : fs.writeFileSync(file, contents());
-    if (this.queuedOps === 0) {
+  private writeFinal(now: () => void, queued: () => Promise<void>): void {
+    if (this.pendingOps === 0) {
       try {
-        writeSync();
+        now();
       } catch {
         // the session directory may be gone
       }
       return;
     }
-    void this.enqueue(async () => {
-      if (mode === "append") await fsp.appendFile(file, contents());
-      else await fsp.writeFile(file, contents());
-    });
+    void this.enqueue(queued);
   }
 
   private serializeMeta(): string {
     return JSON.stringify(this.meta, null, 2);
+  }
+
+  private async writeMeta(): Promise<void> {
+    await fsp.writeFile(this.metaTmpPath, this.serializeMeta());
+    await fsp.rename(this.metaTmpPath, this.metaPath);
+  }
+
+  private writeMetaSync(): void {
+    fs.writeFileSync(this.metaTmpPath, this.serializeMeta());
+    fs.renameSync(this.metaTmpPath, this.metaPath);
   }
 
   private takeBuffer(): Buffer | null {
@@ -272,17 +289,17 @@ export class ScrollbackWriter {
 
   /** Run `op` after everything already queued. Never rejects. */
   private enqueue(op: () => Promise<void>): Promise<void> {
-    this.queuedOps++;
-    this.queue = this.queue
+    this.pendingOps++;
+    this.diskChain = this.diskChain
       .then(op)
       .catch(() => {
         // Best-effort persistence: the session directory may be gone, and a
         // failed write must not take the daemon down with it.
       })
       .finally(() => {
-        this.queuedOps--;
+        this.pendingOps--;
       });
-    return this.queue;
+    return this.diskChain;
   }
 
   // ── Static readers for cold restore ──

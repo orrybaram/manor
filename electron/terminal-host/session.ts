@@ -145,6 +145,8 @@ export class Session {
 
   // Scrollback persistence
   private scrollbackWriter: ScrollbackWriter | null = null;
+  /** The disposed writer's last disk writes; see `whenPersisted`. */
+  private scrollbackSettled: Promise<void> = Promise.resolve();
 
   // Pane facts (ADR-184 §3): the daemon's only source of Status signals.
   private paneFacts: PaneFactsExtractor;
@@ -501,6 +503,15 @@ export class Session {
     this.disposeInternal();
   }
 
+  /**
+   * Resolves once every scrollback and meta.json write this session has
+   * started has landed on disk. Scrollback writes run async, so the daemon
+   * waits on this before it exits.
+   */
+  whenPersisted(): Promise<void> {
+    return this.scrollbackWriter?.whenIdle() ?? this.scrollbackSettled;
+  }
+
   /** Dispose and wait for the subprocess to fully exit (used by kill path). */
   async disposeAndWait(timeoutMs = 3_000): Promise<void> {
     const proc = this.subprocess;
@@ -532,9 +543,12 @@ export class Session {
       clearTimeout(pending.timer);
       pending.resolve();
     }
-    this.scrollbackWriter?.end();
-    this.scrollbackWriter?.dispose();
-    this.scrollbackWriter = null;
+    if (this.scrollbackWriter) {
+      this.scrollbackWriter.end();
+      this.scrollbackWriter.dispose();
+      this.scrollbackSettled = this.scrollbackWriter.whenIdle();
+      this.scrollbackWriter = null;
+    }
     this.headless.dispose();
     this.detachAllClients();
   }

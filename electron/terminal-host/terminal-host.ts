@@ -156,12 +156,19 @@ export class TerminalHost {
     }
   }
 
-  /** Dispose all sessions and clean up */
-  disposeAll(): void {
+  /**
+   * Dispose all sessions and clean up. Resolves once their last scrollback
+   * and meta.json writes have landed, so the daemon can exit without losing
+   * them.
+   */
+  disposeAll(): Promise<void> {
+    const persisted: Promise<void>[] = [];
     for (const session of this.sessions.values()) {
       session.dispose();
+      persisted.push(session.whenPersisted());
     }
     this.sessions.clear();
+    return Promise.all(persisted).then(() => undefined);
   }
 
   /** Detach all clients from a specific socket (when a client disconnects) */

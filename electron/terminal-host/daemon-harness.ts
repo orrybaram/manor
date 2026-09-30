@@ -71,7 +71,7 @@ export class E2EDaemon {
   }
 
   async stop(): Promise<void> {
-    this.host.disposeAll();
+    await this.host.disposeAll();
     return new Promise((r) => {
       this.server.close(() => {
         try {
@@ -218,7 +218,7 @@ export class E2EDaemon {
     if (!this.authenticatedSockets.has(socket)) return;
     const sessionId = cmd.sessionId ?? "";
     if (cmd.type === "write") this.host.write(sessionId, cmd.data ?? "");
-    else if (cmd.type === "subscribe") await this.host.attach(sessionId, socket);
+    else if (cmd.type === "subscribe") this.host.subscribe(sessionId, socket);
     else if (cmd.type === "unsubscribe") this.host.detach(sessionId, socket);
   }
 

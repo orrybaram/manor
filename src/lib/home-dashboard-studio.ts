@@ -13,12 +13,18 @@ import type {
 } from "../store/project-store";
 import type { HostStatusInfo } from "../store/host-store";
 import { buildTopLevelEntries } from "../utils/sidebar-items";
-import { prReadiness } from "./pr-readiness";
+import {
+  blockerLabel,
+  PR_STAGES,
+  prVerdict,
+  type PrBlocker,
+  type PrStage,
+  type PrVerdict,
+} from "./pr-readiness";
 import type { ChecksSummary, PrInfo } from "./pr-info";
 import { describeHost, groupHostState, isHostOffline } from "./host-status";
 import { workspaceKey } from "./workspace-key";
 import {
-  blockedReason,
   itemKey,
   needsYouItems,
   openPrCount,
@@ -38,36 +44,6 @@ function ageSince(iso: string | null | undefined, now: number): number | null {
 }
 
 // ── Pull requests pipeline ──
-
-/** The pipeline's columns, in display order (ADR-198 §1.6). */
-export type PrStage = "checks" | "review" | "blocked" | "ready";
-
-export const PR_STAGES: readonly PrStage[] = [
-  "checks",
-  "review",
-  "blocked",
-  "ready",
-];
-
-/**
- * The pipeline column an open PR sits in (ADR-198 §2): `blocked` and `ready`
- * follow `prReadiness` (`queued` counts as ready); a `pending` PR with checks
- * still running is in `checks`; everything else — `review`, drafts and
- * pending PRs with nothing running — waits in `review`.
- */
-export function prStage(pr: PrInfo): PrStage {
-  switch (prReadiness(pr)) {
-    case "blocked":
-      return "blocked";
-    case "ready":
-    case "queued":
-      return "ready";
-    case "review":
-      return "review";
-    default:
-      return pr.checks != null && pr.checks.pending > 0 ? "checks" : "review";
-  }
-}
 
 export interface PipelineRow {
   pr: PrInfo;
@@ -90,8 +66,8 @@ export interface PipelineColumn {
   rows: PipelineRow[];
 }
 
-function pipelineLabel(pr: PrInfo, stage: PrStage): string | null {
-  if (stage === "blocked") return blockedReason(pr);
+function pipelineLabel(pr: PrInfo, verdict: PrVerdict): string | null {
+  if (verdict.blocker) return blockerLabel(verdict.blocker);
   if (pr.queuedToMerge) return "queued";
   if (pr.isDraft) return "draft";
   return null;
@@ -99,7 +75,7 @@ function pipelineLabel(pr: PrInfo, stage: PrStage): string | null {
 
 /**
  * Every open PR across `projects` (deduped by `pr.url`, first wins, like
- * `openPrRows`) in its `prStage` column, columns in `PR_STAGES` order. Within
+ * `openPrRows`) in its `prVerdict` stage column, columns in `PR_STAGES` order. Within
  * a column the oldest `updatedAt` comes first; PRs of unknown age go last in
  * `projects` then workspace order.
  */
@@ -117,13 +93,15 @@ export function prPipeline(
       if (!pr || pr.state !== "open") continue;
       if (seen.has(pr.url)) continue;
       seen.add(pr.url);
-      const stage = prStage(pr);
+      const verdict = prVerdict(pr);
+      // An open PR always has a stage; this narrows away the merged/closed arm.
+      if (verdict.stage == null) continue;
       const ageMs = ageSince(pr.updatedAt, now);
-      columns.get(stage)!.push({
+      columns.get(verdict.stage)!.push({
         pr,
         project,
         workspace,
-        label: pipelineLabel(pr, stage),
+        label: pipelineLabel(pr, verdict),
         checks: pr.checks
           ? {
               passing: pr.checks.passing,
@@ -187,17 +165,7 @@ export function openPrStats(pipeline: readonly PipelineColumn[]): OpenPrStats {
 export type NeedsYouCardContext =
   | { kind: "input" }
   | { kind: "error"; paneTitle?: string }
-  | {
-      kind: "checks";
-      /** Named failing runs from `pr.checkRuns` — may be fewer than `failingCount`. */
-      failing: { name: string; url: string | null }[];
-      failingCount: number;
-      passing: number;
-      total: number;
-    }
-  | { kind: "conflicts" }
-  | { kind: "changes-requested" }
-  | { kind: "threads"; count: number }
+  | PrBlocker
   | { kind: "finished"; diff?: DiffStats }
   | {
       kind: "ready";
@@ -221,31 +189,15 @@ export interface NeedsYouCardsInput extends NeedsYouInput {
   snoozed?: ReadonlySet<string>;
 }
 
-/** A blocked PR's context, in `blockedReason`'s order. */
-function blockedContext(pr: PrInfo): NeedsYouCardContext {
-  if (pr.hasConflicts === true) return { kind: "conflicts" };
-  if (pr.checks != null && pr.checks.failing > 0) {
-    return {
-      kind: "checks",
-      failing: (pr.checkRuns ?? [])
-        .filter((run) => run.status === "failing")
-        .map((run) => ({ name: run.name, url: run.url ?? null })),
-      failingCount: pr.checks.failing,
-      passing: pr.checks.passing,
-      total: pr.checks.total,
-    };
-  }
-  if (pr.reviewDecision === "CHANGES_REQUESTED")
-    return { kind: "changes-requested" };
-  return { kind: "threads", count: pr.unresolvedThreads ?? 0 };
-}
-
 function cardContext(
   item: NeedsYouItem,
   input: NeedsYouCardsInput,
 ): NeedsYouCardContext {
   if (item.kind === "pr") {
-    if (item.tier === "blocked") return blockedContext(item.pr);
+    if (item.tier === "blocked") {
+      const { blocker } = prVerdict(item.pr);
+      if (blocker) return blocker;
+    }
     return {
       kind: "ready",
       approved: item.pr.reviewDecision === "APPROVED",
@@ -558,7 +510,7 @@ export function projectTiles(
         let state: WorkspaceTileState = "idle";
         if (needsYouWs.has(id)) state = "needs-you";
         else if (runningWs.has(id)) state = "running";
-        else if (pr && prStage(pr) === "ready") state = "pr-ready";
+        else if (pr && prVerdict(pr).stage === "ready") state = "pr-ready";
         else if (pr) state = "pr-open";
         workspaces.push({
           key: safeWorkspaceKey(project.hostId, ws.path),

@@ -9,7 +9,12 @@
 import type { AgentInfo, GitHubIssue, LinearIssue, PaneAgentStatus } from "../electron.d";
 import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
 import type { TopLevelEntry } from "../utils/sidebar-items";
-import { prReadiness, type PrReadiness } from "./pr-readiness";
+import {
+  blockerLabel,
+  prReadiness,
+  prVerdict,
+  type PrReadiness,
+} from "./pr-readiness";
 import type { PrInfo } from "./pr-info";
 import { projectForWorkspaceKey } from "./hosts";
 import { workspaceKey } from "./workspace-key";
@@ -92,15 +97,10 @@ export function resolveAgentContext(
   return { project, workspace };
 }
 
-/** The first applicable cause of a blocked PR (ADR §1), mirroring `prReadiness`'s own order. */
+/** A delegate to `prVerdict`, kept only for `openPrLabel`; new code reads the verdict. */
 export function blockedReason(pr: PrInfo): string {
-  if (pr.hasConflicts === true) return "conflicts";
-  if (pr.checks != null && pr.checks.failing > 0) return "checks failing";
-  if (pr.reviewDecision === "CHANGES_REQUESTED") return "changes requested";
-  if (pr.unresolvedThreads != null && pr.unresolvedThreads > 0) {
-    return `${pr.unresolvedThreads} unresolved thread${pr.unresolvedThreads === 1 ? "" : "s"}`;
-  }
-  return "blocked";
+  const { blocker } = prVerdict(pr);
+  return blocker ? blockerLabel(blocker) : "blocked";
 }
 
 /**
@@ -151,16 +151,21 @@ export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
       const pr = workspace.pr;
       if (!pr || pr.state !== "open") continue;
       if (seenPrUrls.has(pr.url)) continue;
-      const readiness = prReadiness(pr);
-      if (readiness !== "blocked" && readiness !== "ready") continue;
+      const verdict = prVerdict(pr);
+      if (verdict.readiness !== "blocked" && verdict.readiness !== "ready") {
+        continue;
+      }
       seenPrUrls.add(pr.url);
       prItems.push({
         kind: "pr",
-        tier: readiness,
+        tier: verdict.readiness,
         pr,
         project,
         workspace,
-        reason: readiness === "blocked" ? blockedReason(pr) : "ready to merge",
+        reason:
+          verdict.readiness === "blocked"
+            ? blockerLabel(verdict.blocker)
+            : "ready to merge",
       });
     }
   }

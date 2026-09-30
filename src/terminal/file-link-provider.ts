@@ -82,7 +82,11 @@ export function createFileLinkProvider(
             },
             text: r.fullMatch,
             decorations: { pointerCursor: true, underline: true },
-            activate: () => {
+            // xterm activates links on any plain click, so without a modifier
+            // check, clicking into the terminal to focus it would launch the
+            // editor whenever the click landed on a path.
+            activate: (event) => {
+              if (!event.metaKey && !event.ctrlKey) return;
               openInEditor(r.resolved);
             },
           });

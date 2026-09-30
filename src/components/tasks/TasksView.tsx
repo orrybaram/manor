@@ -274,7 +274,7 @@ export function TasksView(props: TasksViewProps) {
 
   const handleGitHubInstalled = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: ["home-up-next", "gh-status"],
+      queryKey: ["trackers", "github", "status"],
     });
   }, [queryClient]);
 

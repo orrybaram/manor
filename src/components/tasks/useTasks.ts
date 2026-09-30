@@ -83,7 +83,7 @@ function entryName(entry: TopLevelEntry<ProjectInfo>): string {
 
 /**
  * Which trackers are usable, and the top-level entries they can be queried
- * through. Shares its status query keys with Home's Up next so both read one
+ * through. Shares its status query keys with the Sidebar so both read one
  * cached answer.
  */
 export function useTrackerSources(): {
@@ -98,7 +98,7 @@ export function useTrackerSources(): {
   const entries = useMemo(() => buildTopLevelEntries(projects), [projects]);
 
   const ghStatus = useQuery({
-    queryKey: ["home-up-next", "gh-status"],
+    queryKey: ["trackers", "github", "status"],
     queryFn: () => window.electronAPI.github.checkStatus(),
     staleTime: Infinity,
     retry: false,
@@ -108,7 +108,7 @@ export function useTrackerSources(): {
 
   const anyLinear = projects.some((p) => p.linearAssociations.length > 0);
   const linearStatus = useQuery({
-    queryKey: ["home-up-next", "linear-connected"],
+    queryKey: ["trackers", "linear", "status"],
     queryFn: () => window.electronAPI.linear.isConnected(),
     staleTime: STALE_MS,
     retry: false,
@@ -194,8 +194,9 @@ export function useTasks(options: UseTasksOptions): {
         if (source.provider === "github") {
           return {
             queryKey: [
-              "tasks",
+              "trackers",
               "github",
+              "list",
               filter,
               member.hostId,
               member.path,
@@ -229,8 +230,9 @@ export function useTasks(options: UseTasksOptions): {
         return {
           queryKey: [
             "tasks",
+            "trackers",
             "linear",
-            filter,
+            "list",
             member.id,
             teamIds.join(","),
             ctx.entryKey,

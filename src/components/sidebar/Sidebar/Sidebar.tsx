@@ -63,9 +63,9 @@ export function Sidebar(props: SidebarProps) {
   const homeActive = !tasksActive && isHomePath(activeWorkspacePath);
 
   // Connected trackers, shown dimmed on the Tasks row. Cached (same keys as
-  // Home's Up next) so this costs no IPC per render.
+  // the Tasks view) so this costs no IPC per render.
   const { data: ghStatus } = useQuery({
-    queryKey: ["home-up-next", "gh-status"],
+    queryKey: ["trackers", "github", "status"],
     queryFn: () => window.electronAPI.github.checkStatus(),
     staleTime: Infinity,
     retry: false,
@@ -73,7 +73,7 @@ export function Sidebar(props: SidebarProps) {
   const ghReady = ghStatus?.installed === true && ghStatus.authenticated === true;
   const anyLinear = projects.some((p) => p.linearAssociations.length > 0);
   const { data: linearConnected } = useQuery({
-    queryKey: ["home-up-next", "linear-connected"],
+    queryKey: ["trackers", "linear", "status"],
     queryFn: () => window.electronAPI.linear.isConnected(),
     staleTime: 60_000,
     retry: false,

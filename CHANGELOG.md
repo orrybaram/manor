@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.18.2] - 2026-09-29
+
+### Features
+
+- The dashboard greets you by time of day, and its headline is warmer and changes more often
+- The dashboard's "Up next" section now shows items from your Tasks list
+
+### Improvements
+
+- Dashboard card buttons are smaller
+- The dashboard's "Review" status is now cyan
+
 ## [0.18.1] - 2026-09-29
 
 ### Features

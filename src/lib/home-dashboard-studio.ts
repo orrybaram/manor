@@ -304,20 +304,93 @@ export function needsYouCards(
 export interface HeadlineCounts {
   needsYou: number;
   running: number;
-  /** PRs in the review stage: the "N PRs are with reviewers" clause. */
+  /** PRs in the review stage: the "N PRs are out for review" clause. */
   inReview: number;
-  /** Every open PR, whatever its stage: decides whether "no open PRs" is true. */
+  /** Every open PR, whatever its stage: decides whether "all quiet" is true. */
   openPrs: number;
 }
 
+/** One line per variant; `n` is the count the clause is about. */
+type Lines = readonly ((n: number) => string)[];
+
+const NEEDS_YOU_ONE: Lines = [
+  () => "One thing's waiting on you.",
+  () => "Someone wants a word.",
+  () => "One knock at the door.",
+];
+const NEEDS_YOU_MANY: Lines = [
+  (n) => `${n} things are waiting on you.`,
+  (n) => `${n} things want your eyes.`,
+  (n) => `You're popular... ${n} things need you.`,
+];
+const FREE: Lines = [
+  () => "You're off the hook.",
+  () => "Nothing's on your plate.",
+  () => "Your queue is empty.",
+];
+const IDLE_LEAD: Lines = [
+  () => "All quiet.",
+  () => "Blank slate.",
+  () => "Nothing's on fire.",
+];
+const IDLE_REST: Lines = [
+  () => "Good time to start something new.",
+  () => "Pick something from Up next?",
+  () => "Enjoy it while it lasts.",
+];
+const RUNNING_ONE: Lines = [
+  () => "an agent is heads-down",
+  () => "an agent is cooking",
+  () => "one agent is hard at work",
+];
+const RUNNING_MANY: Lines = [
+  (n) => `${n} agents are heads-down`,
+  (n) => `${n} agents are cooking`,
+  (n) => `${n} agents are hard at work`,
+];
+const REVIEW_ONE: Lines = [
+  () => "a PR is out for review",
+  () => "a PR is waiting on reviewers",
+  () => "one PR is in someone else's hands",
+];
+const REVIEW_MANY: Lines = [
+  (n) => `${n} PRs are out for review`,
+  (n) => `${n} PRs are waiting on reviewers`,
+  (n) => `${n} PRs are in reviewers' hands`,
+];
+const NO_AGENTS: Lines = [
+  () => "Your agents are taking five.",
+  () => "The agents are on standby.",
+  () => "No agents running right now.",
+];
+
 /**
- * The header sentence (ADR-198 §1.1): "3 things need you." then "3 agents
- * are working and 5 PRs are with reviewers." Zero clauses are left out; when
- * both are zero the sentence says what is actually true — "No agents
- * running." while PRs are open in other stages, and "All clear." only when
- * nothing at all is going on.
+ * Pick a line from `lines` by `seed`, salted per pool so every clause
+ * doesn't land on the same index.
  */
-export function headline(counts: HeadlineCounts): {
+function pick(lines: Lines, seed: number, salt: number, n: number): string {
+  const i = Math.abs((seed * 31 + salt * 17) % lines.length);
+  return lines[i]!(n);
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * The header sentence (ADR-198 §1.1): a lead about Needs you, then what's
+ * in flight — "3 things want your eyes." then "2 agents are cooking and a
+ * PR is out for review." Each situation has a few phrasings; `seed` picks
+ * one, so the caller holds a line steady by holding the seed (Home passes
+ * the day). Zero clauses are left out; with neither agents nor PRs in
+ * review it says what is actually true — the agents are idle while PRs are
+ * open in other stages, and the "all quiet" lines only when nothing at all
+ * is going on.
+ */
+export function headline(
+  counts: HeadlineCounts,
+  seed = 0,
+): {
   lead: string;
   rest: string;
 } {
@@ -325,33 +398,36 @@ export function headline(counts: HeadlineCounts): {
   if (counts.running > 0) {
     clauses.push(
       counts.running === 1
-        ? "1 agent is working"
-        : `${counts.running} agents are working`,
+        ? pick(RUNNING_ONE, seed, 1, 1)
+        : pick(RUNNING_MANY, seed, 1, counts.running),
     );
   }
   if (counts.inReview > 0) {
     clauses.push(
       counts.inReview === 1
-        ? "1 PR is with reviewers"
-        : `${counts.inReview} PRs are with reviewers`,
+        ? pick(REVIEW_ONE, seed, 2, 1)
+        : pick(REVIEW_MANY, seed, 2, counts.inReview),
     );
   }
   const idle = counts.running === 0 && counts.openPrs === 0;
   const rest =
     clauses.length > 0
-      ? `${clauses.join(" and ")}.`
-      : idle
-        ? "No agents running and no open PRs."
-        : "No agents running.";
+      ? `${capitalize(clauses.join(" and "))}.`
+      : idle && counts.needsYou === 0
+        ? pick(IDLE_REST, seed, 3, 0)
+        : pick(NO_AGENTS, seed, 3, 0);
 
   if (counts.needsYou > 0) {
     const lead =
       counts.needsYou === 1
-        ? "1 thing needs you."
-        : `${counts.needsYou} things need you.`;
+        ? pick(NEEDS_YOU_ONE, seed, 0, 1)
+        : pick(NEEDS_YOU_MANY, seed, 0, counts.needsYou);
     return { lead, rest };
   }
-  return { lead: idle ? "All clear." : "Nothing needs you.", rest };
+  return {
+    lead: idle ? pick(IDLE_LEAD, seed, 0, 0) : pick(FREE, seed, 0, 0),
+    rest,
+  };
 }
 
 // ── Project tiles ──

@@ -84,12 +84,16 @@ export function HomeDashboard(props: HomeDashboardProps) {
   );
   const pipeline = useMemo(() => prPipeline(projects, now), [projects, now]);
   const prStats = useMemo(() => openPrStats(pipeline), [pipeline]);
+  // The local day: the headline's phrasing holds all day, then changes.
+  const day = Math.floor(
+    (now - new Date(now).getTimezoneOffset() * 60_000) / 86_400_000,
+  );
   const sentence = headline({
     needsYou: cards.length,
     running,
     inReview: prStats.byStage.review,
     openPrs: prStats.total,
-  });
+  }, day);
 
   return (
     <div className={styles.pane} data-testid={testId}>

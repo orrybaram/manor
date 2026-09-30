@@ -26,7 +26,8 @@ import {
   type WorkspaceInfo,
 } from "../store/project-store";
 import { useToastStore } from "../store/toast-store";
-import { LOCAL_HOST_ID, projectForWorkspaceKey } from "./hosts";
+import { LOCAL_HOST_ID } from "./hosts";
+import { ownerOf } from "./workspace-directory";
 import {
   parseWorkspaceKey,
   workspaceKey,
@@ -92,7 +93,7 @@ function activeWorkspace(): ActiveWorkspace {
   const path = app.activeWorkspacePath;
   // By key: a local and a remote project can share a path (ADR-191).
   const project =
-    projectForWorkspaceKey(
+    ownerOf(
       useProjectStore.getState().projects,
       selectActiveWorkspaceKey(app),
     ) ?? null;
@@ -138,7 +139,7 @@ export function orderedWorkspaceKeys(projects: ProjectInfo[]): WorkspaceKey[] {
 /** Switch to the workspace keyed `key`, keeping the project selection in sync. */
 function switchToWorkspace(key: WorkspaceKey): void {
   const { hostId, path } = parseWorkspaceKey(key);
-  const project = projectForWorkspaceKey(
+  const project = ownerOf(
     useProjectStore.getState().projects,
     key,
   );

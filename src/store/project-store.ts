@@ -10,7 +10,8 @@ import {
 import { branchesEqual } from "../utils/branch-name";
 import { ipcErrorMessage } from "../lib/ipc-error";
 import { splitShared } from "../lib/project-groups";
-import { isRemoteHost, workspaceHostId, type HostId } from "../lib/hosts";
+import { isRemoteHost, type HostId } from "../lib/hosts";
+import { hostForPath } from "../lib/workspace-directory";
 import {
   buildSidebarItems,
   folderParentsOf,
@@ -301,7 +302,7 @@ function startSetupScript(
     wsPath,
     DEFAULT_COLS,
     DEFAULT_ROWS,
-    { hostId: hostId ?? workspaceHostId(useProjectStore.getState(), wsPath) },
+    { hostId: hostId ?? hostForPath(useProjectStore.getState(), wsPath) },
   );
 }
 

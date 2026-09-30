@@ -67,8 +67,7 @@ import {
   workspaceDisplayName,
 } from "../../lib/sidebar-rail";
 import { isHostOffline } from "../../lib/host-status";
-import { workspaceKey } from "../../lib/workspace-key";
-import { normalizeHostId } from "../../lib/host-id";
+import { normalizeHostId, workspaceKey } from "../../lib/workspace-key";
 import { useHostStore } from "../../store/host-store";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";

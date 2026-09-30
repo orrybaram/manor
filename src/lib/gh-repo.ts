@@ -4,7 +4,7 @@
  * path picks local. Shared by the main process and the renderer.
  */
 
-import { normalizeHostId, type HostId } from "./host-id";
+import { normalizeHostId, type HostId } from "./workspace-key";
 
 export interface GhRepo {
   path: string;

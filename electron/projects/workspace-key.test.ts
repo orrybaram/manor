@@ -5,12 +5,12 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  LOCAL_HOST_ID as SHARED_LOCAL_HOST_ID,
   migrateWorkspaceKey,
   parseWorkspaceKey,
   workspaceKey,
 } from "../../src/lib/workspace-key";
 import { LOCAL_HOST_ID } from "../backend/types";
-import { LOCAL_HOST_ID as SHARED_LOCAL_HOST_ID } from "../../src/lib/host-id";
 import type { ProjectInfo } from "./types";
 
 function project(id: string, hostId: string, path: string, workspaces: string[]): ProjectInfo {

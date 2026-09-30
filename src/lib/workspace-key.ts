@@ -20,7 +20,24 @@
  * the renderer (`src/`) alike, so it must not touch `window`, Node or Electron.
  */
 
-import { LOCAL_HOST_ID, normalizeHostId } from "./host-id";
+/**
+ * Mirrors `HostId` in `electron/backend/types.ts`: a host's id. Lives here,
+ * not in `hosts.ts`, so `electron/` can import it without DOM types.
+ */
+export type HostId = string;
+
+/**
+ * The host every project without a `hostId` lives on: this machine. Mirrors
+ * `LOCAL_HOST_ID` in `electron/backend/types.ts`, which the terminal-host
+ * side imports; `electron/projects/workspace-key.test.ts` pins the two
+ * together.
+ */
+export const LOCAL_HOST_ID = "local";
+
+/** `hostId`, with a missing or empty one read as `LOCAL_HOST_ID`. */
+export function normalizeHostId(hostId: HostId | null | undefined): HostId {
+  return hostId || LOCAL_HOST_ID;
+}
 
 /** Separates a remote host id from the path in a qualified key. */
 const SEPARATOR = ":";

@@ -21,9 +21,12 @@
 import type { ProjectInfo, WorkspaceInfo } from "../persistence";
 import type { LayoutPersistence } from "../terminal-host/layout-persistence";
 import { findWorkspaceForPane, matchProjectByPath } from "../pane-context";
-import { parseWorkspaceKey } from "../../src/lib/workspace-key";
+import {
+  LOCAL_HOST_ID,
+  normalizeHostId,
+  parseWorkspaceKey,
+} from "../../src/lib/workspace-key";
 import { availableSources } from "../issue-backends";
-import { LOCAL_HOST_ID, normalizeHostId } from "../../src/lib/host-id";
 import { callerMaySee } from "./caller-host";
 import type { Route } from "./types";
 

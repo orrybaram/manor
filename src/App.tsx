@@ -42,7 +42,7 @@ import {
   runWorkspaceSetupScript,
   type ProjectInfo,
 } from "./store/project-store";
-import { projectForWorkspaceKey } from "./lib/hosts";
+import { ownerOf } from "./lib/workspace-directory";
 import { parseWorkspaceKey, type WorkspaceKey } from "./lib/workspace-key";
 import { appCommandHandlers } from "./lib/app-commands";
 import { handleRecordingCommand } from "./lib/webview-recorder";
@@ -444,7 +444,7 @@ function App() {
   // Derive the agent command outside the effect so it only re-fires when the
   // command actually changes, not on every unrelated project mutation.
   // By key: a local and a remote project can share a path (ADR-191).
-  const activeProject = projectForWorkspaceKey(projects, activeWorkspaceKey);
+  const activeProject = ownerOf(projects, activeWorkspaceKey);
   // The launch command for the active project workspace. Shared by prewarming
   // and both new-agent handlers below.
   const activeWorkspaceCommand =
@@ -688,7 +688,7 @@ function App() {
       }
       const activePath = wsPath ?? useAppStore.getState().activeWorkspacePath;
       if (activePath) {
-        const agentProject = projectForWorkspaceKey(projects, agentKey);
+        const agentProject = ownerOf(projects, agentKey);
         const agentCommand =
           agent.agentCommand ??
           agentProject?.agentCommand ??

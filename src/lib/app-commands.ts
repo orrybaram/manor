@@ -27,7 +27,7 @@ import {
   type WorkspaceLayout,
 } from "../store/app-store";
 import { parseWorkspaceKey, type WorkspaceKey } from "./workspace-key";
-import { projectForWorkspaceKey } from "./hosts";
+import { ownerOf } from "./workspace-directory";
 import { useProjectStore } from "../store/project-store";
 import { layoutSnapshot } from "../store/layout-snapshot";
 import { hasPaneId, type SplitDirection } from "../store/pane-tree";
@@ -155,7 +155,7 @@ function layoutHasTab(layout: WorkspaceLayout, tabId: string): boolean {
  */
 function isKnownWorkspace(state: AppState, key: WorkspaceKey): boolean {
   if (state.workspaceLayouts[key]) return true;
-  return projectForWorkspaceKey(useProjectStore.getState().projects, key) !== undefined;
+  return ownerOf(useProjectStore.getState().projects, key) !== undefined;
 }
 
 /**

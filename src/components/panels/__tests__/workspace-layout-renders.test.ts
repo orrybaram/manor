@@ -4,7 +4,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useShallow } from "zustand/react/shallow";
-import { useAppStore, type WorkspaceLayout as Layout } from "../../../store/app-store";
+import {
+  useAppStore,
+  selectWorkspaceKeys,
+  type WorkspaceLayout as Layout,
+} from "../../../store/app-store";
 import { workspaceKey, type WorkspaceKey } from "../../../lib/workspace-key";
 
 // Count renders of each workspace's panel tree without mounting terminals.
@@ -40,11 +44,9 @@ function layout(panelId: string): Layout {
   };
 }
 
-// Mirrors App: select only the keys, let each workspace select its own tree.
+// Same subscription as App: only the keys, each workspace selects its own tree.
 function Stack() {
-  const keys = useAppStore(
-    useShallow((s) => Object.keys(s.workspaceLayouts) as WorkspaceKey[]),
-  );
+  const keys = useAppStore(useShallow(selectWorkspaceKeys));
   return keys.map((key) =>
     createElement(WorkspaceLayout, { key, workspaceKey: key, visible: key === A, onNewAgent }),
   );

@@ -36,6 +36,7 @@ import {
   useAppStore,
   selectActiveWorkspace,
   selectActiveWorkspaceKey,
+  selectWorkspaceKeys,
   getPersistedActiveWorkspacePath,
 } from "./store/app-store";
 import {
@@ -44,7 +45,7 @@ import {
   type ProjectInfo,
 } from "./store/project-store";
 import { ownerOf } from "./lib/workspace-directory";
-import { parseWorkspaceKey, type WorkspaceKey } from "./lib/workspace-key";
+import { parseWorkspaceKey } from "./lib/workspace-key";
 import { appCommandHandlers } from "./lib/app-commands";
 import { handleRecordingCommand } from "./lib/webview-recorder";
 import {
@@ -384,9 +385,7 @@ function App() {
 
   // Only the keys: each WorkspaceLayout selects its own tree, so a layout
   // change in one workspace doesn't re-render App or the other workspaces.
-  const workspaceKeys = useAppStore(
-    useShallow((s) => Object.keys(s.workspaceLayouts) as WorkspaceKey[]),
-  );
+  const workspaceKeys = useAppStore(useShallow(selectWorkspaceKeys));
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const activeWorkspaceKey = useAppStore(selectActiveWorkspaceKey);
   // The workspace's host travels with its key (ADR-191); Home is local.

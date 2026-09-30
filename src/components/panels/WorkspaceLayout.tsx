@@ -18,6 +18,7 @@ export const WorkspaceLayout = memo(function WorkspaceLayout(
   props: WorkspaceLayoutProps,
 ) {
   const { workspaceKey, visible, onNewAgent } = props;
+
   const panelTree = useAppStore(
     (s) => s.workspaceLayouts[workspaceKey]?.panelTree,
   );

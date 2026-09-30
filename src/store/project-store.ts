@@ -530,6 +530,23 @@ export type GroupUpdatableFields = Partial<
   >
 >;
 
+/**
+ * Apply one watcher payload (key -> value) to `projects` as a single store
+ * update. Keeps the same state on no-ops so subscribers (e.g. useDiffWatcher's
+ * re-apply effect) don't re-run.
+ */
+function patchEach<V>(
+  s: { projects: ProjectInfo[] },
+  byKey: Record<WorkspaceKey, V>,
+  fn: (ws: WorkspaceInfo, value: V) => WorkspaceInfo,
+): { projects: ProjectInfo[] } {
+  let projects = s.projects;
+  for (const [key, value] of Object.entries(byKey) as [WorkspaceKey, V][]) {
+    projects = patch(projects, key, (ws) => fn(ws, value));
+  }
+  return projects === s.projects ? s : { projects };
+}
+
 interface ProjectState {
   projects: ProjectInfo[];
   selectedProjectIndex: number;
@@ -688,10 +705,10 @@ interface ProjectState {
     issue: LinkedIssue,
   ) => Promise<void>;
   /** Apply one branch-watcher payload (key → branch) as a single update. */
-  updateWorkspaceBranches: (branches: Record<WorkspaceKey, string>) => void;
+  updateWorkspaceBranches: (branchByKey: Record<WorkspaceKey, string>) => void;
   /** Apply one diff-watcher payload (key → stats, null clears) as a single update. */
   updateWorkspaceDiffStats: (
-    stats: Record<WorkspaceKey, DiffStats | null>,
+    statsByKey: Record<WorkspaceKey, DiffStats | null>,
   ) => void;
   updateWorkspacePr: (key: WorkspaceKey, pr: PrInfo | null) => void;
   setSidebarMode: (mode: SidebarMode) => void;
@@ -1693,38 +1710,22 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     await get().loadProjects();
   },
 
-  // Keep the same `projects` reference on no-ops so subscribers
-  // (e.g. useDiffWatcher's re-apply effect) don't re-run.
-  updateWorkspaceBranches: (branches) =>
-    set((s) => {
-      let projects = s.projects;
-      for (const [key, branch] of Object.entries(branches) as [
-        WorkspaceKey,
-        string,
-      ][]) {
-        projects = patch(projects, key, (ws) =>
-          branchesEqual(ws.branch, branch) ? ws : { ...ws, branch },
-        );
-      }
-      return projects === s.projects ? s : { projects };
-    }),
+  updateWorkspaceBranches: (branchByKey) =>
+    set((s) =>
+      patchEach(s, branchByKey, (ws, branch) =>
+        branchesEqual(ws.branch, branch) ? ws : { ...ws, branch },
+      ),
+    ),
 
   updateWorkspaceDiffStats: (statsByKey) =>
-    set((s) => {
-      let projects = s.projects;
-      for (const [key, stats] of Object.entries(statsByKey) as [
-        WorkspaceKey,
-        DiffStats | null,
-      ][]) {
-        projects = patch(projects, key, (ws) =>
-          ws.diffStats?.added === stats?.added &&
-          ws.diffStats?.removed === stats?.removed
-            ? ws
-            : { ...ws, diffStats: stats },
-        );
-      }
-      return projects === s.projects ? s : { projects };
-    }),
+    set((s) =>
+      patchEach(s, statsByKey, (ws, stats) =>
+        ws.diffStats?.added === stats?.added &&
+        ws.diffStats?.removed === stats?.removed
+          ? ws
+          : { ...ws, diffStats: stats },
+      ),
+    ),
 
   updateWorkspacePr: (key, pr) =>
     set((s) => {

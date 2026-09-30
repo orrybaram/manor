@@ -468,6 +468,44 @@ describe("Panel operations", () => {
     expect(layout.activePanelId).toBe("panel-2");
   });
 
+  // focusPanel runs on every click inside a panel (LeafPanel onClick);
+  // re-focusing the active panel must not produce new state or autosave.
+  it("focusPanel on the already-active panel is a no-op", () => {
+    setupStore(makeTwoPanelLayout());
+    vi.useFakeTimers();
+    try {
+      const save = vi.mocked(window.electronAPI.layout.save);
+      vi.advanceTimersByTime(1000);
+      save.mockClear();
+      const before = useAppStore.getState();
+
+      useAppStore.getState().focusPanel("panel-1");
+
+      expect(useAppStore.getState()).toBe(before);
+      vi.advanceTimersByTime(1000);
+      expect(save).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("focusPanel switches to another panel", () => {
+    setupStore(makeTwoPanelLayout());
+
+    useAppStore.getState().focusPanel("panel-2");
+
+    expect(getLayout().activePanelId).toBe("panel-2");
+  });
+
+  it("focusNextPanel / focusPrevPanel with one panel are no-ops", () => {
+    const before = useAppStore.getState();
+
+    useAppStore.getState().focusNextPanel();
+    useAppStore.getState().focusPrevPanel();
+
+    expect(useAppStore.getState()).toBe(before);
+  });
+
   it("moveTabToPanel moves tab between panels", () => {
     setupStore(makeTwoPanelLayout());
 

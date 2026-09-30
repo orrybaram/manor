@@ -13,6 +13,7 @@ import {
   blockerLabel,
   prReadiness,
   prVerdict,
+  type PrBlocker,
   type PrReadiness,
 } from "./pr-readiness";
 import type { PrInfo } from "./pr-info";
@@ -48,6 +49,8 @@ export type NeedsYouItem =
       workspace: WorkspaceInfo;
       /** "conflicts" / "checks failing" / "changes requested" / "N unresolved threads" / "ready to merge". */
       reason: string;
+      /** What blocks a `blocked` PR (ADR-202); null when it's `ready`. */
+      blocker: PrBlocker | null;
     };
 
 export interface NeedsYouInput {
@@ -166,6 +169,7 @@ export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
           verdict.readiness === "blocked"
             ? blockerLabel(verdict.blocker)
             : "ready to merge",
+        blocker: verdict.blocker,
       });
     }
   }

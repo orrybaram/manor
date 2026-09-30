@@ -194,10 +194,7 @@ function cardContext(
   input: NeedsYouCardsInput,
 ): NeedsYouCardContext {
   if (item.kind === "pr") {
-    if (item.tier === "blocked") {
-      const { blocker } = prVerdict(item.pr);
-      if (blocker) return blocker;
-    }
+    if (item.blocker) return item.blocker;
     return {
       kind: "ready",
       approved: item.pr.reviewDecision === "APPROVED",

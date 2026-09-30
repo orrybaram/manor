@@ -272,7 +272,7 @@ describe("itemKey", () => {
       "agent:x",
     );
     expect(
-      itemKey({ kind: "pr", tier: "ready", pr: basePr(), project, workspace, reason: "ready to merge" }),
+      itemKey({ kind: "pr", tier: "ready", pr: basePr(), project, workspace, reason: "ready to merge", blocker: null }),
     ).toBe("pr:https://github.com/example/repo/pull/1");
   });
 });

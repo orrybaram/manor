@@ -1,6 +1,6 @@
 ---
 title: Dashboard selectors read the verdict
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

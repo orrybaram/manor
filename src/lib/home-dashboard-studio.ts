@@ -74,8 +74,8 @@ function pipelineLabel(pr: PrInfo, verdict: PrVerdict): string | null {
 }
 
 /**
- * Every open PR across `projects` (deduped by `pr.url`, first wins, like
- * `openPrRows`) in its `prVerdict` stage column, columns in `PR_STAGES` order. Within
+ * Every open PR across `projects` (deduped by `pr.url`, first
+ * wins) in its `prVerdict` stage column, columns in `PR_STAGES` order. Within
  * a column the oldest `updatedAt` comes first; PRs of unknown age go last in
  * `projects` then workspace order.
  */

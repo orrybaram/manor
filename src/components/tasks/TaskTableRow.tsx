@@ -1,11 +1,9 @@
 import type { CSSProperties } from "react";
 import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
-import CircleDot from "lucide-react/dist/esm/icons/circle-dot";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import FolderKanban from "lucide-react/dist/esm/icons/folder-kanban";
 import Milestone from "lucide-react/dist/esm/icons/milestone";
 import IterationCw from "lucide-react/dist/esm/icons/iteration-cw";
-import { LinearIcon } from "../command-palette/LinearIcon";
 import { Button } from "../ui/Button/Button";
 import { Link } from "../ui/Link/Link";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
@@ -16,6 +14,7 @@ import {
   type LinkedTask,
   type TaskRow,
 } from "../../lib/tasks";
+import { TrackerRowIcon } from "./tracker-icons";
 import styles from "./TasksView.module.css";
 
 const MAX_AVATARS = 3;
@@ -97,11 +96,7 @@ export function TaskTableRow(props: TaskTableRowProps) {
     >
       <span role="cell">
         <Link href={row.url} variant="plain" className={styles.idChip}>
-          {row.provider === "github" ? (
-            <CircleDot size={11} />
-          ) : (
-            <LinearIcon size={10} />
-          )}
+          <TrackerRowIcon provider={row.provider} />
           {row.displayId}
         </Link>
       </span>

@@ -40,6 +40,22 @@ export function isSafeSessionId(sessionId: string): boolean {
   );
 }
 
+/**
+ * Write `file` by writing a sibling tmp file and renaming it into place, so a
+ * reader never sees it half-written and a crash mid-write leaves the old one.
+ */
+async function writeFileAtomic(file: string, data: string | Buffer): Promise<void> {
+  const tmpPath = `${file}.tmp`;
+  await fsp.writeFile(tmpPath, data);
+  await fsp.rename(tmpPath, file);
+}
+
+function writeFileAtomicSync(file: string, data: string | Buffer): void {
+  const tmpPath = `${file}.tmp`;
+  fs.writeFileSync(tmpPath, data);
+  fs.renameSync(tmpPath, file);
+}
+
 export interface SessionMeta {
   sessionId: string;
   cols: number;
@@ -87,15 +103,6 @@ export class ScrollbackWriter {
     return path.join(this.sessionDir, "meta.json");
   }
 
-  /**
-   * meta.json is swapped in with a rename, never written in place: a write
-   * cut off by a crash would leave a truncated file, and cold restore would
-   * then read no meta at all.
-   */
-  private get metaTmpPath(): string {
-    return `${this.metaPath}.tmp`;
-  }
-
   /** Initialize the session directory and write initial meta.json */
   init(meta: Omit<SessionMeta, "createdAt" | "endedAt">): void {
     fs.mkdirSync(this.sessionDir, { recursive: true });
@@ -105,7 +112,7 @@ export class ScrollbackWriter {
       createdAt: new Date().toISOString(),
       endedAt: null,
     };
-    this.writeMetaSync();
+    writeFileAtomicSync(this.metaPath, this.serializeMeta());
 
     // Create empty scrollback file
     fs.writeFileSync(this.scrollbackPath, "");
@@ -161,9 +168,8 @@ export class ScrollbackWriter {
   }
 
   /**
-   * Keep only the last SCROLLBACK_TRUNCATE_TO_BYTES of the file. Reads just
-   * that tail, and swaps it in with a rename so a cold-restore reader never
-   * sees a half-written file.
+   * Keep only the last SCROLLBACK_TRUNCATE_TO_BYTES of the file, reading just
+   * that tail.
    */
   private async truncateScrollback(): Promise<void> {
     const handle = await fsp.open(this.scrollbackPath, "r");
@@ -188,15 +194,12 @@ export class ScrollbackWriter {
     while (start < tail.length && (tail[start] & 0xc0) === 0x80) {
       start++;
     }
-    const kept = tail.subarray(start);
-
-    const tmpPath = `${this.scrollbackPath}.tmp`;
-    await fsp.writeFile(tmpPath, kept);
-    await fsp.rename(tmpPath, this.scrollbackPath);
+    await writeFileAtomic(this.scrollbackPath, tail.subarray(start));
   }
 
   /** Handle clear-scrollback escape sequence (\e[3J) — truncate scrollback */
   handleClearScrollback(): Promise<void> {
+    if (this.disposed) return this.whenIdle();
     this.buffer = [];
     this.bufferSize = 0;
     this.totalBytes = 0;
@@ -205,7 +208,9 @@ export class ScrollbackWriter {
 
   /** Update CWD in meta.json. A cwd that did not change writes nothing. */
   updateCwd(cwd: string): Promise<void> {
-    if (!this.meta || this.meta.cwd === cwd) return this.whenIdle();
+    if (this.disposed || !this.meta || this.meta.cwd === cwd) {
+      return this.whenIdle();
+    }
     this.meta.cwd = cwd;
     // A prompt reports its cwd every time it draws; while a write is still
     // waiting its turn it will carry this change too.
@@ -213,22 +218,29 @@ export class ScrollbackWriter {
     this.metaWriteQueued = true;
     return this.enqueue(() => {
       this.metaWriteQueued = false;
-      return this.writeMeta();
+      return writeFileAtomic(this.metaPath, this.serializeMeta());
     });
   }
 
-  /** Mark session as cleanly ended (writes endedAt to meta.json) */
+  /**
+   * Mark session as cleanly ended (writes endedAt to meta.json). Does nothing
+   * once disposed, so a session that exits and is then disposed ends once.
+   */
   end(): void {
-    if (!this.meta) return;
+    if (this.disposed || !this.meta) return;
     this.meta.endedAt = new Date().toISOString();
     this.writeFinal(
-      () => this.writeMetaSync(),
-      () => this.writeMeta(),
+      () => writeFileAtomicSync(this.metaPath, this.serializeMeta()),
+      () => writeFileAtomic(this.metaPath, this.serializeMeta()),
     );
   }
 
-  /** Dispose — flush and clean up timer */
+  /**
+   * Dispose — write what is still buffered and stop. Idempotent; nothing
+   * reaches the disk after it except writes already queued.
+   */
   dispose(): void {
+    if (this.disposed) return;
     this.disposed = true;
     this.clearFlushTimer();
     const combined = this.takeBuffer();
@@ -240,36 +252,30 @@ export class ScrollbackWriter {
   }
 
   /**
-   * The last writes a session makes. Run `now` right away when nothing is
-   * pending, so it has landed before this returns; otherwise queue `queued`
-   * behind the rest, so it cannot overtake them. Daemon shutdown waits on
-   * `whenIdle` for those (TerminalHost.disposeAll). This runs once per
-   * session, never on the output path.
+   * The last writes a session makes, given as the same write in its sync and
+   * async form. With nothing pending the sync form runs right away, so it has
+   * landed before this returns; otherwise the async form is queued behind the
+   * rest, so it cannot overtake them. Daemon shutdown waits on `whenIdle` for
+   * those (TerminalHost.disposeAll). This runs once per session, never on the
+   * output path.
    */
-  private writeFinal(now: () => void, queued: () => Promise<void>): void {
+  private writeFinal(
+    writeSync: () => void,
+    writeAsync: () => Promise<void>,
+  ): void {
     if (this.pendingOps === 0) {
       try {
-        now();
+        writeSync();
       } catch {
         // the session directory may be gone
       }
       return;
     }
-    void this.enqueue(queued);
+    void this.enqueue(writeAsync);
   }
 
   private serializeMeta(): string {
     return JSON.stringify(this.meta, null, 2);
-  }
-
-  private async writeMeta(): Promise<void> {
-    await fsp.writeFile(this.metaTmpPath, this.serializeMeta());
-    await fsp.rename(this.metaTmpPath, this.metaPath);
-  }
-
-  private writeMetaSync(): void {
-    fs.writeFileSync(this.metaTmpPath, this.serializeMeta());
-    fs.renameSync(this.metaTmpPath, this.metaPath);
   }
 
   private takeBuffer(): Buffer | null {

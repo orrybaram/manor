@@ -607,7 +607,11 @@ async function shutdown(
   log("Shutting down...");
   if (server) {
     server.close();
-    await waitAtMost(server.host.disposeAll(), SHUTDOWN_PERSIST_TIMEOUT_MS);
+    await waitAtMost(
+      server.host.disposeAll(),
+      SHUTDOWN_PERSIST_TIMEOUT_MS,
+      `Shutdown: scrollback writes still pending after ${SHUTDOWN_PERSIST_TIMEOUT_MS}ms`,
+    );
   }
   try {
     fs.unlinkSync(role.paths.socket);
@@ -622,11 +626,16 @@ async function shutdown(
   process.exit(0);
 }
 
-function waitAtMost(promise: Promise<void>, ms: number): Promise<void> {
+/** Wait for `promise`, but no longer than `ms`; logs `timeoutMessage` if it gives up. */
+function waitAtMost(
+  promise: Promise<void>,
+  ms: number,
+  timeoutMessage: string,
+): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<void>((resolve) => {
     timer = setTimeout(() => {
-      log(`Shutdown: scrollback writes still pending after ${ms}ms`);
+      log(timeoutMessage);
       resolve();
     }, ms);
   });

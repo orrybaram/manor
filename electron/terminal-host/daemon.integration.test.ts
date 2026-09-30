@@ -229,7 +229,7 @@ class TestDaemon {
         this.host.write(cmd.sessionId, cmd.data);
         break;
       case "subscribe":
-        await this.host.attach(cmd.sessionId, socket);
+        this.host.subscribe(cmd.sessionId, socket);
         break;
       case "unsubscribe":
         this.host.detach(cmd.sessionId, socket);

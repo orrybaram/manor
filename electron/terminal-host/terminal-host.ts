@@ -62,10 +62,8 @@ export class TerminalHost {
     sessionId: string,
     socket: net.Socket,
   ): Promise<TerminalSnapshot | null> {
-    const session = this.sessions.get(sessionId);
-    if (!session) return null;
-    session.attachClient(socket);
-    return session.getSnapshot();
+    if (!this.subscribe(sessionId, socket)) return null;
+    return this.sessions.get(sessionId)!.getSnapshot();
   }
 
   /**

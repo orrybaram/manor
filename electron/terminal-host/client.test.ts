@@ -369,7 +369,7 @@ class TestDaemon {
         this.host.write(cmd.sessionId, cmd.data);
         break;
       case "subscribe":
-        await this.host.attach(cmd.sessionId, socket);
+        this.host.subscribe(cmd.sessionId, socket);
         break;
       case "unsubscribe":
         this.host.detach(cmd.sessionId, socket);
@@ -754,6 +754,25 @@ describe("TerminalHostClient", () => {
         "control:getSnapshot",
       ]);
       expect(result.snapshot!.seq).toBeGreaterThan(0);
+      client.disconnect();
+    });
+
+    it("serializes the session's snapshot once when reattaching", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+      await client.createOrAttach("pane-1", "/tmp", 80, 24);
+
+      client.disconnect();
+      await client.connect();
+      const session = (daemon.getHost() as any).sessions.get("pane-1");
+      const getSnapshot = vi.spyOn(session, "getSnapshot");
+
+      const result = await client.createOrAttach("pane-1", "/tmp", 80, 24);
+      // The subscribe is a fire-and-forget stream write; let it land too.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(result.snapshot).not.toBeNull();
+      expect(getSnapshot).toHaveBeenCalledTimes(1);
       client.disconnect();
     });
 

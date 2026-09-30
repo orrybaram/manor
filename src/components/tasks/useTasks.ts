@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQueries } from "@tanstack/react-query";
 import { useProjectStore, type ProjectInfo } from "../../store/project-store";
 import {
   buildTopLevelEntries,
@@ -9,8 +9,6 @@ import { primaryMember } from "../../lib/home-dashboard";
 import type { TaskContext, TaskProvider, TaskRow } from "../../lib/tasks";
 import { mergeSources, type SourceResult } from "../../lib/task-list";
 import { TRACKERS, type TrackerScope } from "../../lib/trackers";
-
-const STALE_MS = 60_000;
 
 /** Query keys that already logged a failure — a flaky source logs once, not every refetch. */
 const loggedFailures = new Set<string>();
@@ -52,44 +50,72 @@ export type TaskSource = {
   ctx: TaskContext;
 };
 
+const PROVIDERS = Object.keys(TRACKERS) as TaskProvider[];
+
+/** One array per set of providers, so callers can memo on it. */
+const providerSets = new Map<string, TaskProvider[]>();
+
+function providerSet(providers: TaskProvider[]): TaskProvider[] {
+  const key = providers.join(",");
+  const cached = providerSets.get(key);
+  if (cached) return cached;
+  providerSets.set(key, providers);
+  return providers;
+}
+
 function entryName(entry: TopLevelEntry<ProjectInfo>): string {
   return entry.kind === "project" ? entry.project.name : entry.group.name;
 }
 
 /**
- * Which trackers are usable, and the top-level entries they can be queried
- * through. Shares its status query keys with the Sidebar so both read one
- * cached answer.
+ * Which trackers are usable, through each adapter's status query — shared
+ * with the Sidebar so both read one cached answer. A tracker is only asked
+ * when some project can be listed through it (or there are no projects yet,
+ * so the Tasks view can still tell "connected" from "not set up").
+ */
+export function useTrackerStatus(): {
+  /** Usable trackers, in `TRACKERS` order. */
+  providers: TaskProvider[];
+  /** True until every status check that was asked has answered. */
+  checking: boolean;
+} {
+  const projects = useProjectStore((s) => s.projects);
+
+  const asked = PROVIDERS.map(
+    (provider) =>
+      projects.length === 0 ||
+      projects.some((p) => TRACKERS[provider].canList(p)),
+  );
+  const results = useQueries({
+    queries: PROVIDERS.map((provider, i) => ({
+      ...TRACKERS[provider].statusQuery(),
+      retry: false,
+      enabled: asked[i],
+    })),
+  });
+
+  const providers = providerSet(
+    PROVIDERS.filter((_, i) => asked[i] && results[i].data === true),
+  );
+
+  return {
+    providers,
+    checking: results.some((r, i) => asked[i] && r.isPending),
+  };
+}
+
+/**
+ * Which trackers are usable, and the top-level entries each can be queried
+ * through (`tracker.canList` of the entry's primary member).
  */
 export function useTrackerSources(): {
-  entries: TopLevelEntry<ProjectInfo>[];
-  ghReady: boolean;
-  linearConnected: boolean;
-  /** True until both status checks have answered. */
+  providers: TaskProvider[];
   checking: boolean;
   sources: TaskSource[];
 } {
   const projects = useProjectStore((s) => s.projects);
   const entries = useMemo(() => buildTopLevelEntries(projects), [projects]);
-
-  const ghStatus = useQuery({
-    queryKey: ["trackers", "github", "status"],
-    queryFn: () => window.electronAPI.github.checkStatus(),
-    staleTime: Infinity,
-    retry: false,
-  });
-  const ghReady =
-    ghStatus.data?.installed === true && ghStatus.data.authenticated === true;
-
-  const anyLinear = projects.some((p) => p.linearAssociations.length > 0);
-  const linearStatus = useQuery({
-    queryKey: ["trackers", "linear", "status"],
-    queryFn: () => window.electronAPI.linear.isConnected(),
-    staleTime: STALE_MS,
-    retry: false,
-    enabled: anyLinear,
-  });
-  const linearConnected = anyLinear && linearStatus.data === true;
+  const { providers, checking } = useTrackerStatus();
 
   const sources = useMemo(() => {
     const out: TaskSource[] = [];
@@ -102,26 +128,58 @@ export function useTrackerSources(): {
         projectName: entryName(entry),
         color: member.color,
       };
-      if (ghReady) {
-        out.push({
-          key: `gh:${member.hostId}:${member.path}`,
-          provider: "github",
-          ctx,
-        });
-      }
-      if (linearConnected && TRACKERS.linear.canList(member)) {
-        out.push({ key: `linear:${member.id}`, provider: "linear", ctx });
+      for (const provider of providers) {
+        if (!TRACKERS[provider].canList(member)) continue;
+        out.push({ key: `${provider}:${member.id}`, provider, ctx });
       }
     }
     return out;
-  }, [entries, ghReady, linearConnected]);
+  }, [entries, providers]);
+
+  return { providers, checking, sources };
+}
+
+/**
+ * Where the saved choice lands now (ADR-202 §4): the saved tracker if it's
+ * still usable, else the first usable one; the saved project if that tracker
+ * can still list it, else all projects. The choice itself isn't forgotten.
+ * The Tasks view and Up next both resolve their list through this.
+ */
+export function useTaskScope(
+  savedProvider: TaskProvider,
+  savedProject: string | null,
+): {
+  providers: TaskProvider[];
+  checking: boolean;
+  provider: TaskProvider;
+  projectKey: string | null;
+  /** The chosen provider's sources — one per project it can list. */
+  sources: TaskSource[];
+  /** The source of `projectKey`, when one is chosen. */
+  selectedSource: TaskSource | undefined;
+} {
+  const status = useTrackerSources();
+  const { providers, checking } = status;
+  const provider: TaskProvider = providers.includes(savedProvider)
+    ? savedProvider
+    : (providers[0] ?? savedProvider);
+
+  const sources = useMemo(
+    () => status.sources.filter((s) => s.provider === provider),
+    [status.sources, provider],
+  );
+  const selectedSource =
+    savedProject === null
+      ? undefined
+      : sources.find((s) => s.ctx.entryKey === savedProject);
 
   return {
-    entries,
-    ghReady,
-    linearConnected,
-    checking: ghStatus.isPending || (anyLinear && linearStatus.isPending),
+    providers,
+    checking,
+    provider,
+    projectKey: selectedSource ? savedProject : null,
     sources,
+    selectedSource,
   };
 }
 
@@ -134,7 +192,7 @@ export type UseTasksOptions = {
 const SCOPES: TrackerScope[] = ["assigned", "open"];
 
 /**
- * Tasks for the Tasks view (ADR-198 §3): for each top-level entry of
+ * Tasks for the Tasks view and Up next (ADR-198 §3): for each top-level entry of
  * `provider` (just the chosen entry when `projectKey` is set), its open tasks
  * and the ones assigned to you — merged, with yours marked `assignedToMe`,
  * deduped and sorted by last update. A failing query contributes no rows and

@@ -10,7 +10,6 @@ import LayoutDashboard from "lucide-react/dist/esm/icons/layout-dashboard";
 import ListTodo from "lucide-react/dist/esm/icons/list-todo";
 import Search from "lucide-react/dist/esm/icons/search";
 import Plus from "lucide-react/dist/esm/icons/plus";
-import { useQuery } from "@tanstack/react-query";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Button } from "../../ui/Button/Button";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
@@ -38,6 +37,7 @@ import { AgentsList } from "../AgentsList";
 import { SidebarResizeHandle } from "../SidebarResizeHandle/SidebarResizeHandle";
 import { GitHubIcon } from "../../command-palette/GitHubIcon";
 import { LinearIcon } from "../../command-palette/LinearIcon";
+import { useTrackerStatus } from "../../tasks/useTasks";
 import styles from "./Sidebar.module.css";
 
 interface SidebarProps {
@@ -62,23 +62,11 @@ export function Sidebar(props: SidebarProps) {
   // the current row; `homeActive` also gates project selection.
   const homeActive = !tasksActive && isHomePath(activeWorkspacePath);
 
-  // Connected trackers, shown dimmed on the Tasks row. Cached (same keys as
-  // the Tasks view) so this costs no IPC per render.
-  const { data: ghStatus } = useQuery({
-    queryKey: ["trackers", "github", "status"],
-    queryFn: () => window.electronAPI.github.checkStatus(),
-    staleTime: Infinity,
-    retry: false,
-  });
-  const ghReady = ghStatus?.installed === true && ghStatus.authenticated === true;
-  const anyLinear = projects.some((p) => p.linearAssociations.length > 0);
-  const { data: linearConnected } = useQuery({
-    queryKey: ["trackers", "linear", "status"],
-    queryFn: () => window.electronAPI.linear.isConnected(),
-    staleTime: 60_000,
-    retry: false,
-    enabled: anyLinear,
-  });
+  // Connected trackers, shown dimmed on the Tasks row. Same cached status
+  // queries as the Tasks view, so this costs no IPC per render.
+  const { providers: connected } = useTrackerStatus();
+  const ghReady = connected.includes("github");
+  const linearConnected = connected.includes("linear");
 
   useBranchWatcher();
   useDiffWatcher();

@@ -14,8 +14,6 @@ import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import ArrowDown from "lucide-react/dist/esm/icons/arrow-down";
 import X from "lucide-react/dist/esm/icons/x";
 import type { PaletteView } from "../command-palette/types";
-import { GitHubIcon } from "../command-palette/GitHubIcon";
-import { LinearIcon } from "../command-palette/LinearIcon";
 import { GitHubNudge } from "../sidebar/GitHubNudge";
 import { Button } from "../ui/Button/Button";
 import { Link } from "../ui/Link/Link";
@@ -31,7 +29,6 @@ import {
   DEFAULT_TASK_FILTERS,
   TASK_FIELDS,
   facetLabel,
-  type LinkedTask,
   pageWindow,
   type TaskFieldId,
   type TaskFilters,
@@ -39,24 +36,16 @@ import {
   type TaskSort,
 } from "../../lib/tasks";
 import { entryLookup, taskList } from "../../lib/task-list";
-import { TRACKERS } from "../../lib/trackers";
-import { useTasks, useTrackerSources } from "./useTasks";
+import { TRACKER_STATUS_KEY, trackerFor } from "../../lib/trackers";
+import { useTaskScope, useTasks } from "./useTasks";
 import { TaskFilterMenu } from "./TaskFilterMenu";
 import { TaskSortMenu } from "./TaskSortMenu";
 import { TaskTableRow } from "./TaskTableRow";
 import { useStartTask } from "./useStartTask";
 import { activeFilterCount, initialDirection } from "./task-menus";
-import {
-  PREF_FILTERS,
-  PREF_PROJECT,
-  PREF_PROVIDER,
-  PREF_SORT,
-  readFilters,
-  readPref,
-  readProvider,
-  readSort,
-  writePref,
-} from "./task-prefs";
+import { isDefaultFilters, useTaskPrefs } from "./task-prefs";
+import { openLinkedTask } from "./open-linked-task";
+import { TrackerIcon } from "./tracker-icons";
 import styles from "./TasksView.module.css";
 
 type TasksViewProps = {
@@ -83,86 +72,40 @@ const SORT_COLUMNS: { field: TaskFieldId; label: string }[] = [
   { field: "updated", label: "Updated" },
 ];
 
-const PROVIDER_LABEL: Record<TaskProvider, string> = {
-  github: "GitHub",
-  linear: "Linear",
-};
-
-function ProviderIcon(props: { provider: TaskProvider; size: number }) {
-  const { provider, size } = props;
-
-  return provider === "github" ? (
-    <GitHubIcon size={size} />
-  ) : (
-    <LinearIcon size={size} />
-  );
-}
-
 export function TasksView(props: TasksViewProps) {
   const { onNewWorkspace } = props;
 
   const queryClient = useQueryClient();
 
-  const [savedProvider, setSavedProvider] = useState<TaskProvider>(readProvider);
-  const [savedProject, setSavedProject] = useState<string>(
-    () => readPref(PREF_PROJECT) ?? ALL_PROJECTS,
-  );
+  const prefs = useTaskPrefs();
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
   const [page, setPage] = useState(1);
   const [now] = useState(() => Date.now());
-  const [sorts, setSorts] = useState<Record<TaskProvider, TaskSort>>(() => ({
-    github: readSort("github"),
-    linear: readSort("linear"),
-  }));
-  // Each provider keeps its own filters — their fields differ.
-  const [filtersBy, setFiltersBy] = useState<Record<TaskProvider, TaskFilters>>(
-    () => ({
-      github: readFilters("github"),
-      linear: readFilters("linear"),
-    }),
-  );
 
   // The saved provider/project may no longer be usable (tracker
   // disconnected, project removed): fall back without forgetting the choice.
-  const status = useTrackerSources();
-  const providers = useMemo(() => {
-    const out: TaskProvider[] = [];
-    if (status.ghReady) out.push("github");
-    if (status.linearConnected) out.push("linear");
-    return out;
-  }, [status.ghReady, status.linearConnected]);
-  const provider: TaskProvider = providers.includes(savedProvider)
-    ? savedProvider
-    : (providers[0] ?? savedProvider);
+  const scope = useTaskScope(prefs.provider, prefs.project);
+  const { providers, provider, projectKey, selectedSource } = scope;
 
   // Only projects the current tracker can be queried through.
   const projectOptions = useMemo<SearchableSelectOption[]>(
     () => [
       { value: ALL_PROJECTS, label: "All projects" },
-      ...status.sources
-        .filter((s) => s.provider === provider)
-        .map((s) => ({ value: s.ctx.entryKey, label: s.ctx.projectName })),
+      ...scope.sources.map((s) => ({
+        value: s.ctx.entryKey,
+        label: s.ctx.projectName,
+      })),
     ],
-    [status.sources, provider],
+    [scope.sources],
   );
-  const projectKey =
-    savedProject !== ALL_PROJECTS &&
-    projectOptions.some((o) => o.value === savedProject)
-      ? savedProject
-      : null;
-  const selectedSource = projectKey
-    ? status.sources.find(
-        (s) => s.provider === provider && s.ctx.entryKey === projectKey,
-      )
-    : undefined;
 
   const { rows, loading, failedCount } = useTasks({ provider, projectKey });
 
   const projects = useProjectStore((s) => s.projects);
 
-  const sort = sorts[provider];
-  const filters = filtersBy[provider];
+  const sort = prefs.sorts[provider];
+  const filters = prefs.filtersBy[provider];
   const filterCount = activeFilterCount(filters);
   const showPriority = provider === "linear";
 
@@ -179,25 +122,29 @@ export function TasksView(props: TasksViewProps) {
   );
   const { listed, filtered } = list;
   const current = list.page(page);
-  const homeUrl = projectKey ? TRACKERS[provider].homeUrl(rows) : null;
+  const tracker = trackerFor(provider);
+  const homeUrl = projectKey ? tracker.homeUrl(rows) : null;
   const projectCount = useMemo(
     () => new Set(listed.map((r) => r.projectEntryKey)).size,
     [listed],
   );
 
-  const chooseProvider = useCallback((next: TaskProvider) => {
-    setSavedProvider(next);
-    writePref(PREF_PROVIDER, next);
-    setPage(1);
-  }, []);
+  const { setProvider, setProject, setSort, setFilters } = prefs;
+
+  const chooseProvider = useCallback(
+    (next: TaskProvider) => {
+      setProvider(next);
+      setPage(1);
+    },
+    [setProvider],
+  );
 
   const changeFilters = useCallback(
     (next: TaskFilters) => {
-      setFiltersBy((prev) => ({ ...prev, [provider]: next }));
-      writePref(PREF_FILTERS + provider, JSON.stringify(next));
+      setFilters(provider, next);
       setPage(1);
     },
-    [provider],
+    [provider, setFilters],
   );
 
   const clearFilters = useCallback(
@@ -209,8 +156,7 @@ export function TasksView(props: TasksViewProps) {
     () => changeFilters(DEFAULT_TASK_FILTERS),
     [changeFilters],
   );
-  const filtersAreDefault =
-    JSON.stringify(filters) === JSON.stringify(DEFAULT_TASK_FILTERS);
+  const filtersAreDefault = isDefaultFilters(filters);
 
   const removeFilter = useCallback(
     (field: TaskFieldId) => {
@@ -223,11 +169,10 @@ export function TasksView(props: TasksViewProps) {
 
   const changeSort = useCallback(
     (next: TaskSort) => {
-      setSorts((prev) => ({ ...prev, [provider]: next }));
-      writePref(PREF_SORT + provider, JSON.stringify(next));
+      setSort(provider, next);
       setPage(1);
     },
-    [provider],
+    [provider, setSort],
   );
 
   // A header sets the sort to its column; clicking the active one flips it.
@@ -242,31 +187,23 @@ export function TasksView(props: TasksViewProps) {
     [sort, changeSort],
   );
 
-  const chooseProject = useCallback((next: string) => {
-    setSavedProject(next);
-    writePref(PREF_PROJECT, next);
-    setPage(1);
-  }, []);
+  const chooseProject = useCallback(
+    (next: string) => {
+      setProject(next === ALL_PROJECTS ? null : next);
+      setPage(1);
+    },
+    [setProject],
+  );
 
   const handleGitHubInstalled = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: ["trackers", "github", "status"],
+      queryKey: TRACKER_STATUS_KEY("github"),
     });
   }, [queryClient]);
 
   const handleStart = useStartTask(onNewWorkspace);
 
-  const openLinked = useCallback((task: LinkedTask) => {
-    const store = useProjectStore.getState();
-    const project = store.projects.find((p) => p.id === task.projectId);
-    const index =
-      project?.workspaces.findIndex((ws) => ws.path === task.workspacePath) ??
-      -1;
-    // Also flips `activeSurface` back to "workspace" via `setActiveWorkspace`.
-    if (index >= 0) store.selectWorkspace(task.projectId, index);
-  }, []);
-
-  const nothingConnected = providers.length === 0 && !status.checking;
+  const nothingConnected = providers.length === 0 && !scope.checking;
 
   return (
     <div className={styles.page} data-testid="tasks-view">
@@ -284,7 +221,7 @@ export function TasksView(props: TasksViewProps) {
           {homeUrl && (
             <Link href={homeUrl} variant="plain" className={styles.openLink}>
               <ExternalLink size={13} />
-              Open in {PROVIDER_LABEL[provider]}
+              Open in {tracker.label}
             </Link>
           )}
         </div>
@@ -310,15 +247,15 @@ export function TasksView(props: TasksViewProps) {
                   aria-label="Tracker"
                 >
                   {providers.map((p) => (
-                    <Tooltip key={p} label={PROVIDER_LABEL[p]}>
+                    <Tooltip key={p} label={trackerFor(p).label}>
                       <Button
                         variant="ghost"
                         className={`${styles.providerTab} ${p === provider ? styles.providerTabActive : ""}`}
-                        aria-label={PROVIDER_LABEL[p]}
+                        aria-label={trackerFor(p).label}
                         aria-pressed={p === provider}
                         onClick={() => chooseProvider(p)}
                       >
-                        <ProviderIcon provider={p} size={15} />
+                        <TrackerIcon provider={p} size={15} />
                       </Button>
                     </Tooltip>
                   ))}
@@ -464,7 +401,7 @@ export function TasksView(props: TasksViewProps) {
                       now={now}
                       showPriority={showPriority}
                       actionLabel="Open"
-                      onAction={() => openLinked(row)}
+                      onAction={() => openLinkedTask(row)}
                     />
                   ) : (
                     <TaskTableRow

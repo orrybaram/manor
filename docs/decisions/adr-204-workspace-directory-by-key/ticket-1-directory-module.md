@@ -1,6 +1,6 @@
 ---
 title: Workspace directory module, fold host-id into workspace-key
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: []

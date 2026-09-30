@@ -393,7 +393,7 @@ export class ExecGitBackend implements GitBackend {
       const chunk = files.slice(i, i + PATH_CHUNK);
       // `-H` follows a symlinked file, as reading it would; `./` keeps a
       // path starting with "-" from reading as an expression.
-      const small = await this.outputOf(
+      const small = await this.stdoutIgnoringExit(
         "find",
         ["-H", ...chunk.map((f) => `./${f}`), "-type", "f", "-size", `-${MAX_UNTRACKED_DIFF_BYTES}c`, "-print"],
         cwd,
@@ -405,7 +405,7 @@ export class ExecGitBackend implements GitBackend {
       if (smallFiles.length === 0) continue;
       // `-I` skips binary files, and `-L` with a pattern that never matches
       // lists every other one, empty files included.
-      const listed = await this.outputOf(
+      const listed = await this.stdoutIgnoringExit(
         "git",
         ["--literal-pathspecs", "grep", "--untracked", "-I", "-L", "-z", "-E", "-e", "a^", "--", ...smallFiles],
         cwd,
@@ -417,9 +417,11 @@ export class ExecGitBackend implements GitBackend {
 
   /**
    * A command's stdout, even when it exits non-zero (`find` over a path that
-   * vanished, `git grep` listing nothing).
+   * vanished, `git grep` listing nothing). Never rejects: any failure,
+   * including one that never ran the command, yields what stdout there was,
+   * or "".
    */
-  private async outputOf(cmd: string, args: string[], cwd: string): Promise<string> {
+  private async stdoutIgnoringExit(cmd: string, args: string[], cwd: string): Promise<string> {
     try {
       const { stdout } = await this.execImpl.file(cmd, args, { cwd, timeout: 10000 });
       return stdout;

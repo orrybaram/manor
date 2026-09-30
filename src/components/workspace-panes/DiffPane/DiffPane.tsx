@@ -34,7 +34,7 @@ import { EmptyState } from "./EmptyState/EmptyState";
 import { SelectionCommentChip } from "./SelectionCommentChip/SelectionCommentChip";
 import { useDraftReview } from "./use-draft-review";
 import { fetchDiffOnce, fetchStagedOnce } from "./diff-fetch";
-import { useDiffFingerprint } from "../../../lib/diff-fingerprints";
+import { watchDiffFingerprint } from "../../../lib/diff-fingerprints";
 import { ReviewBar } from "./ReviewBar/ReviewBar";
 import { selectionSnippet, selectionToAnchor } from "./review-anchor";
 import type { SelectionAnchor } from "./review-anchor";
@@ -194,18 +194,16 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     );
     const defaultBranch = project?.defaultBranch ?? "main";
 
-    // Changes whenever the workspace's diff may have (HEAD, base ref or
-    // shortstat moved); the diff and staged files are re-fetched only then,
-    // so a pane over an unchanged workspace runs no git at all.
-    const fingerprint = useDiffFingerprint(
-      workspacePath ? workspaceKey(hostId, workspacePath) : null,
-    );
+    // The workspace's identity across hosts. Its diff fingerprint changes
+    // whenever its diff or staged files may have; the fetches below re-run
+    // only then, so a pane over an unchanged workspace runs no git at all.
+    const wsKey = workspacePath ? workspaceKey(hostId, workspacePath) : null;
 
     // Each fetch is keyed by workspace + mode + branch. `settled` records the
     // outcome of the last completed fetch together with the key it ran for, so
     // `loading` and `error` derive during render instead of being reset by the
     // effect every time the key changes.
-    const fetchKey = `${workspacePath ?? ""}\u0000${diffMode}\u0000${defaultBranch}`;
+    const fetchKey = `${wsKey ?? ""}\u0000${diffMode}\u0000${defaultBranch}`;
     const [settled, setSettled] = useState<{
       key: string;
       error: string | null;
@@ -235,53 +233,53 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       [],
     );
 
+    // Fetch once for this workspace, mode and branch, then again each time
+    // the workspace's fingerprint moves: the store subscription drives the
+    // re-fetch, so the effect only re-runs when what is fetched changes.
     useEffect(() => {
-      if (!workspacePath) return;
+      if (!workspacePath || !wsKey) return;
 
       let cancelled = false;
 
       // One fetch per workspace and mode at a time, across panes.
-      fetchDiffOnce(`${hostId ?? ""}\u0000${fetchKey}`, () =>
-        diffMode === "local"
-          ? window.electronAPI.diffs.getLocalDiff(workspacePath)
-          : window.electronAPI.diffs.getFullDiff(workspacePath, defaultBranch),
-      )
-        .then((result) => {
-          if (cancelled) return;
-          const scrollTop = containerRef.current?.scrollTop ?? 0;
-          if (!result || result.trim() === "") {
-            setRaw(null);
-            settleOnce(fetchKey, "No changes found");
-          } else {
-            setRaw(result);
-            settleOnce(fetchKey, null);
-          }
-          requestAnimationFrame(() => {
-            if (containerRef.current) {
-              containerRef.current.scrollTop = scrollTop;
+      const fetchDiff = () =>
+        fetchDiffOnce(fetchKey, () =>
+          diffMode === "local"
+            ? window.electronAPI.diffs.getLocalDiff(workspacePath)
+            : window.electronAPI.diffs.getFullDiff(workspacePath, defaultBranch),
+        )
+          .then((result) => {
+            if (cancelled) return;
+            const scrollTop = containerRef.current?.scrollTop ?? 0;
+            if (!result || result.trim() === "") {
+              setRaw(null);
+              settleOnce(fetchKey, "No changes found");
+            } else {
+              setRaw(result);
+              settleOnce(fetchKey, null);
             }
+            requestAnimationFrame(() => {
+              if (containerRef.current) {
+                containerRef.current.scrollTop = scrollTop;
+              }
+            });
+          })
+          .catch((err) => {
+            if (cancelled) return;
+            settleOnce(
+              fetchKey,
+              err instanceof Error ? err.message : "Failed to load diff",
+            );
           });
-        })
-        .catch((err) => {
-          if (cancelled) return;
-          settleOnce(
-            fetchKey,
-            err instanceof Error ? err.message : "Failed to load diff",
-          );
-        });
+
+      fetchDiff();
+      const unwatch = watchDiffFingerprint(wsKey, fetchDiff);
 
       return () => {
         cancelled = true;
+        unwatch();
       };
-    }, [
-      workspacePath,
-      hostId,
-      defaultBranch,
-      diffMode,
-      fetchKey,
-      fingerprint,
-      settleOnce,
-    ]);
+    }, [workspacePath, wsKey, defaultBranch, diffMode, fetchKey, settleOnce]);
 
     const files = useMemo(() => (raw ? parseDiff(raw) : []), [raw]);
 
@@ -321,8 +319,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     // Fetch staged file list for local mode. Tagged with the workspace it was
     // fetched for so any other workspace (or full-diff mode) reads as empty
     // without an effect having to clear it.
-    const stagedKey =
-      workspacePath && diffMode === "local" ? workspacePath : null;
+    const stagedKey = diffMode === "local" ? wsKey : null;
     const [stagedResult, setStagedResult] = useState<{
       key: string;
       files: Set<string>;
@@ -333,19 +330,23 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
         : NO_STAGED_FILES;
 
     useEffect(() => {
-      if (stagedKey === null) return;
+      if (stagedKey === null || !workspacePath) return;
       let cancelled = false;
-      fetchStagedOnce(`${hostId ?? ""}\u0000${stagedKey}`, () =>
-        window.electronAPI.diffs.getStagedFiles(stagedKey),
-      ).then((files) => {
-        if (!cancelled) {
-          setStagedResult({ key: stagedKey, files: new Set(files) });
-        }
-      });
+      const fetchStaged = () =>
+        fetchStagedOnce(stagedKey, () =>
+          window.electronAPI.diffs.getStagedFiles(workspacePath),
+        ).then((files) => {
+          if (!cancelled) {
+            setStagedResult({ key: stagedKey, files: new Set(files) });
+          }
+        });
+      fetchStaged();
+      const unwatch = watchDiffFingerprint(stagedKey, fetchStaged);
       return () => {
         cancelled = true;
+        unwatch();
       };
-    }, [stagedKey, hostId, fingerprint]);
+    }, [stagedKey, workspacePath]);
 
     // Optimistic stage/unstage from the file list, applied against the set for
     // the current key so a stale result can never be mutated into place.

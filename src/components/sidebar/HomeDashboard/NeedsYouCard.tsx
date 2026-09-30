@@ -15,7 +15,7 @@ import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { CardContext } from "./CardContext";
 import { fixPrPrompt, isFixable } from "./fix-pr-prompt";
 import { formatAge } from "./format";
-import { needsYouKindLabel, needsYouTitle, TIER_COLOR } from "./needs-you-labels";
+import { needsYouKindLabel, needsYouTitle, cardColor } from "./needs-you-labels";
 import styles from "./NeedsYouCards.module.css";
 
 type NeedsYouCardProps = {
@@ -44,7 +44,7 @@ export function NeedsYouCard(props: NeedsYouCardProps) {
   return (
     <article
       className={styles.card}
-      style={{ "--c": TIER_COLOR[card.tier] } as CSSProperties}
+      style={{ "--c": cardColor(card) } as CSSProperties}
       aria-label={`${needsYouKindLabel(card)}: ${title}`}
     >
       <div className={styles.cardHeader}>

@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
-import type { PipelineRow, PrStage } from "../../../lib/home-dashboard-studio";
+import type { PipelineRow } from "../../../lib/home-dashboard-studio";
+import type { PrStage } from "../../../lib/pr-readiness";
 import { projectColorStyle } from "../../../hooks/useProjectHeaderRow";
 import { Button } from "../../ui/Button/Button";
 import { PrPopover } from "../PrPopover";

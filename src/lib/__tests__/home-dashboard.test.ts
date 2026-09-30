@@ -250,17 +250,17 @@ describe("needsYouItems", () => {
     expect(items).toHaveLength(1);
   });
 
-  it("labels a blocked PR by the first applicable cause", () => {
+  it("attaches a reason to each PR item", () => {
     const project = baseProject({
       workspaces: [
         baseWorkspace({
-          pr: basePr({ hasConflicts: true, unresolvedThreads: 3 }),
+          pr: basePr({ unresolvedThreads: 3 }),
         }),
       ],
     });
     const [item] = needsYouItems(baseNeedsYouInput({ projects: [project] }));
     expect(item.kind).toBe("pr");
-    if (item.kind === "pr") expect(item.reason).toBe("conflicts");
+    if (item.kind === "pr") expect(item.reason).toBe("3 unresolved threads");
   });
 });
 
@@ -272,7 +272,7 @@ describe("itemKey", () => {
       "agent:x",
     );
     expect(
-      itemKey({ kind: "pr", tier: "ready", pr: basePr(), project, workspace, reason: "ready to merge" }),
+      itemKey({ kind: "pr", tier: "ready", pr: basePr(), project, workspace, reason: "ready to merge", blocker: null }),
     ).toBe("pr:https://github.com/example/repo/pull/1");
   });
 });

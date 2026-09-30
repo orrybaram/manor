@@ -1,4 +1,6 @@
 import { useProjectStore } from "./store/project-store";
+import { ownerOf } from "./lib/workspace-directory";
+import type { WorkspaceKey } from "./lib/workspace-key";
 
 /** Default agent command used when no project-specific command is configured */
 export const DEFAULT_AGENT_COMMAND = "claude --dangerously-skip-permissions";
@@ -27,18 +29,16 @@ export function getAgentKindForCommand(command: string): string {
 }
 
 /**
- * Resolve the agent command for the given workspace path, most specific
+ * Resolve the agent command for the given workspace key, most specific
  * source first: `override` (an explicit caller-supplied command), the owning project's `agentCommand`, then the
  * global default.
  */
 export function getAgentCommand(
-  workspacePath: string | null,
+  key: WorkspaceKey | null,
   override?: string,
 ): string {
   if (override) return override;
-  if (!workspacePath) return DEFAULT_AGENT_COMMAND;
-  const proj = useProjectStore
-    .getState()
-    .projects.find((p) => p.workspaces.some((w) => w.path === workspacePath));
+  if (!key) return DEFAULT_AGENT_COMMAND;
+  const proj = ownerOf(useProjectStore.getState().projects, key);
   return proj?.agentCommand ?? DEFAULT_AGENT_COMMAND;
 }

@@ -312,7 +312,7 @@ export function createMenuHandlers(
         "terminal") as PaneContentType;
       const paneCommand =
         contentType === "agent"
-          ? resolveWorkspaceCommand(app().activeWorkspacePath)
+          ? resolveWorkspaceCommand(selectActiveWorkspaceKey(app()))
           : undefined;
       // A plain terminal is the default content — leave it unset, like the
       // palette's "Split with Terminal" does.

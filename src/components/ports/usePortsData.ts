@@ -6,6 +6,8 @@ import { useMountEffect } from "../../hooks/useMountEffect";
 
 export interface WorkspacePortGroup {
   workspacePath: string;
+  /** The host the group's ports listen on. */
+  hostId: string;
   workspaceName: string;
   branch: string | null;
   projectName: string | null;
@@ -50,6 +52,7 @@ export function usePortsData() {
       const segments = wsPath.split("/");
       result.push({
         workspacePath: wsPath,
+        hostId: wsPorts[0].hostId,
         workspaceName: segments[segments.length - 1] || wsPath,
         branch: branchByPath.get(wsPath) ?? null,
         projectName: projectNameByPath.get(wsPath) ?? null,

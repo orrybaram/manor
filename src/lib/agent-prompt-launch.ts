@@ -54,7 +54,7 @@ export function launchAgentInWorkspace(
     app.setActiveWorkspace(workspacePath, parseWorkspaceKey(key).hostId);
   }
 
-  const base = getAgentCommand(workspacePath, options.agentCommand);
+  const base = getAgentCommand(key, options.agentCommand);
   const command = options.prompt
     ? `${base} "${escapeShellDoubleQuoted(flattenPrompt(options.prompt))}"`
     : base;

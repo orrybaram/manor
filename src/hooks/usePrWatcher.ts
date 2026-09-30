@@ -1,4 +1,8 @@
-import { useProjectStore } from "../store/project-store";
+import {
+  useProjectStore,
+  type ProjectInfo,
+  type WorkspaceInfo,
+} from "../store/project-store";
 import { ghRepoOf } from "../lib/gh-repo";
 import { keyOf } from "../lib/workspace-directory";
 import { branchesEqual } from "../utils/branch-name";
@@ -14,12 +18,23 @@ import { useMountEffect } from "./useMountEffect";
  */
 const PR_POLL_INTERVAL = 60_000;
 
+/**
+ * Worktrees always get a PR lookup. The main checkout does too once it's
+ * switched off the default branch — a PR opened from a branch checked out
+ * there should still badge the row. On the default branch it gets none: a
+ * `--head main` lookup would surface unrelated PRs.
+ */
+function tracksPr(project: ProjectInfo, ws: WorkspaceInfo): boolean {
+  if (!ws.branch) return false;
+  return !ws.isMain || !branchesEqual(ws.branch, project.defaultBranch);
+}
+
 function computeFingerprint() {
   const projects = useProjectStore.getState().projects;
   return projects
     .flatMap((p) =>
       p.workspaces
-        .filter((ws) => !ws.isMain)
+        .filter((ws) => tracksPr(p, ws))
         .map((ws) => `${p.path}:${ws.branch}`),
     )
     .join("|");
@@ -28,12 +43,18 @@ function computeFingerprint() {
 export async function fetchPrs() {
   const { projects, updateWorkspacePr } = useProjectStore.getState();
   for (const project of projects) {
-    const nonMainWorkspaces = project.workspaces.filter(
-      (ws) => !ws.isMain && ws.branch,
-    );
-    if (nonMainWorkspaces.length === 0) continue;
+    // The main checkout back on the default branch keeps no stale badge from
+    // the branch it was on before.
+    for (const ws of project.workspaces) {
+      if (ws.pr && !tracksPr(project, ws)) {
+        updateWorkspacePr(keyOf(project, ws), null);
+      }
+    }
 
-    const branches = nonMainWorkspaces.map((ws) => ws.branch);
+    const tracked = project.workspaces.filter((ws) => tracksPr(project, ws));
+    if (tracked.length === 0) continue;
+
+    const branches = tracked.map((ws) => ws.branch);
 
     try {
       const results = await window.electronAPI.github.getPrsForBranches(
@@ -42,7 +63,7 @@ export async function fetchPrs() {
       );
 
       for (const [branch, pr] of results) {
-        const ws = nonMainWorkspaces.find((w) => branchesEqual(w.branch, branch));
+        const ws = tracked.find((w) => branchesEqual(w.branch, branch));
         if (ws) {
           deliverPrNotifications(
             ws.pr,

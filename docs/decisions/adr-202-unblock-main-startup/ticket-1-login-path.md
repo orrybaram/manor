@@ -1,6 +1,6 @@
 ---
 title: Cached login PATH resolved asynchronously
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

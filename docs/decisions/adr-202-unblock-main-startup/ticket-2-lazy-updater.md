@@ -1,6 +1,6 @@
 ---
 title: Load electron-updater lazily
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

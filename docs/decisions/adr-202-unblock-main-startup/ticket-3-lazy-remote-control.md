@@ -1,6 +1,6 @@
 ---
 title: Load the remote-control runtime and web-push lazily
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: []

@@ -1,6 +1,6 @@
 ---
 title: Reorder and parallelise post-window startup
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1, 3]

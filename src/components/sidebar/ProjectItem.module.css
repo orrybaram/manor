@@ -34,6 +34,8 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--text-selected);
+  /* Matches the actions' fade, so the fill and the buttons leave together. */
+  transition: background-color 150ms ease;
 }
 
 .projectHeader:hover {
@@ -88,15 +90,18 @@
   background: linear-gradient(to right, transparent, var(--surface) 12px);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 100ms ease;
+  transition: opacity 150ms ease;
 }
 
 .projectAction {
   padding: 3px;
 }
 
+/* Keyboard focus only: a mouse click leaves focus on the header or a
+   button, which would otherwise hold the strip open after the pointer left. */
 .projectHeader:hover .projectActions,
-.projectHeader:focus-within .projectActions {
+.projectHeader:focus-visible .projectActions,
+.projectActions:has(:focus-visible) {
   opacity: 1;
   pointer-events: auto;
 }
@@ -107,6 +112,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .projectHeader,
   .projectActions {
     transition: none;
   }

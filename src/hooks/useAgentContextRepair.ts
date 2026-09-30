@@ -9,6 +9,21 @@ import { useAgentStore } from "../store/agent-store";
 import { orphanedAgentContexts } from "../lib/agent-context-repair";
 import { useMountEffect } from "./useMountEffect";
 
+type Subscribable<S> = {
+  subscribe: (listener: (state: S, prev: S) => void) => () => void;
+};
+
+/** Subscribes `run` to changes of one slice of `store`, by identity. */
+function onSliceChange<S>(
+  store: Subscribable<S>,
+  slice: (state: S) => unknown,
+  run: () => void,
+): () => void {
+  return store.subscribe((state, prev) => {
+    if (slice(state) !== slice(prev)) run();
+  });
+}
+
 export function useAgentContextRepair(): void {
   useMountEffect(() => {
     // Panes already sent a context. Main broadcasts the repaired Agent, which
@@ -29,10 +44,12 @@ export function useAgentContextRepair(): void {
       }
     };
 
+    // Only the slices the derivation reads: the app store changes on every
+    // pane title frame, which must not re-walk every layout.
     const unsubscribes = [
-      useAgentStore.subscribe(repair),
-      useProjectStore.subscribe(repair),
-      useAppStore.subscribe(repair),
+      onSliceChange(useAgentStore, (s) => s.agents, repair),
+      onSliceChange(useProjectStore, (s) => s.projects, repair),
+      onSliceChange(useAppStore, (s) => s.workspaceLayouts, repair),
     ];
     repair();
     return () => {

@@ -12,6 +12,8 @@ interface WorkspaceGroup {
   items: CommandItem[];
 }
 
+const NO_GROUPS: WorkspaceGroup[] = [];
+
 interface UseWorkspaceCommandsParams {
   projects: ProjectInfo[];
   activeWorkspacePath: string | null;
@@ -22,6 +24,8 @@ interface UseWorkspaceCommandsParams {
     name?: string;
     branch?: string;
   }) => void;
+  /** Whether the palette is open. While closed no groups are built. */
+  enabled: boolean;
 }
 
 export function useWorkspaceCommands({
@@ -30,11 +34,13 @@ export function useWorkspaceCommands({
   selectWorkspace,
   onClose,
   onNewWorkspace,
+  enabled,
 }: UseWorkspaceCommandsParams): {
   workspaceGroups: WorkspaceGroup[];
 } {
   // One group per project, keyed by id rather than name: names can collide.
   const workspaceGroups = useMemo(() => {
+    if (!enabled) return NO_GROUPS;
     const groups: WorkspaceGroup[] = [];
     for (const project of projects) {
       const cmds: CommandItem[] = [];
@@ -77,6 +83,7 @@ export function useWorkspaceCommands({
       g.items.some((c) => c.isActive) ? 0 : 1;
     return groups.sort((a, b) => isActiveGroup(a) - isActiveGroup(b));
   }, [
+    enabled,
     projects,
     activeWorkspacePath,
     selectWorkspace,

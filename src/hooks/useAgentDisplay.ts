@@ -1,5 +1,6 @@
+import { useShallow } from "zustand/react/shallow";
 import { useAppStore } from "../store/app-store";
-import { cleanAgentTitle } from "../utils/agent-title";
+import { cleanAgentTitle, shellTitlePath } from "../utils/agent-title";
 import type { AgentInfo, AgentStatus } from "../electron.d";
 
 /**
@@ -10,8 +11,38 @@ import type { AgentInfo, AgentStatus } from "../electron.d";
 export function cleanLiveTitle(raw: string | null): string | null {
   if (!raw) return null;
   // SSH-style CWD titles like "user@host:/some/path" are not agent descriptions
-  if (/.+@.+:.+/.test(raw)) return null;
+  if (shellTitlePath(raw) !== null) return null;
   return cleanAgentTitle(raw);
+}
+
+const NO_TITLES: Readonly<Record<string, string>> = {};
+
+/**
+ * Every pane's cleaned live title (`cleanLiveTitle`), keyed by pane id; panes
+ * whose title cleans to nothing are left out.
+ */
+function cleanPaneTitles(
+  paneTitle: Readonly<Record<string, string>>,
+): Record<string, string> {
+  const cleaned: Record<string, string> = {};
+  for (const [paneId, raw] of Object.entries(paneTitle)) {
+    const title = cleanLiveTitle(raw);
+    if (title) cleaned[paneId] = title;
+  }
+  return cleaned;
+}
+
+/**
+ * `cleanPaneTitles` of the store, compared shallowly: a new spinner frame
+ * that cleans to the same title does not re-render the caller. While
+ * `enabled` is false it returns a constant and never re-renders.
+ */
+export function useCleanPaneTitles(
+  enabled = true,
+): Readonly<Record<string, string>> {
+  return useAppStore(
+    useShallow((s) => (enabled ? cleanPaneTitles(s.paneTitle) : NO_TITLES)),
+  );
 }
 
 /**
@@ -44,8 +75,9 @@ export function useAgentDisplay(
   const reason = useAppStore((s) =>
     agent.paneId ? s.paneAgentStatus[agent.paneId]?.reason : undefined,
   );
+  // Cleaned in the selector, so spinner frames don't re-render the row.
   const liveTitle = useAppStore((s) =>
-    agent.paneId ? s.paneTitle[agent.paneId] ?? null : null,
+    agent.paneId ? cleanLiveTitle(s.paneTitle[agent.paneId] ?? null) : null,
   );
 
   const title = resolveAgentTitle(agent, liveTitle);

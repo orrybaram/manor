@@ -6,14 +6,20 @@ import { useKeybindingsStore } from "../../store/keybindings-store";
 import { useAppStore } from "../../store/app-store";
 import { isHomePath } from "../../lib/home-path";
 import { formatCombo } from "../../lib/keybindings";
-import { resolveAgentTitle } from "../../hooks/useAgentDisplay";
+import {
+  resolveAgentTitle,
+  useCleanPaneTitles,
+} from "../../hooks/useAgentDisplay";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
-import type { AgentInfo } from "../../electron.d";
+import type { AgentInfo, PaneAgentStatus } from "../../electron.d";
 import type { CommandItem } from "./types";
 import styles from "./CommandPalette.module.css";
 
 /** How many running agents the palette lists. */
 const AGENT_LIMIT = 5;
+
+const NO_AGENTS: AgentInfo[] = [];
+const NO_STATUSES: Readonly<Record<string, PaneAgentStatus>> = {};
 
 interface UseAgentCommandsParams {
   onResumeAgent: (agent: AgentInfo) => void;
@@ -22,6 +28,11 @@ interface UseAgentCommandsParams {
   onNewAgent: () => void;
   /** Only list agents of this project; `null` lists all, each with a project tag. */
   scopeProjectId: string | null;
+  /**
+   * Whether the palette is open. While closed the hook reads no agent,
+   * status or title state, so agent activity does no work in the palette.
+   */
+  enabled: boolean;
 }
 
 interface AgentCommands {
@@ -37,11 +48,14 @@ export function useAgentCommands({
   onClose,
   onNewAgent,
   scopeProjectId,
+  enabled,
 }: UseAgentCommandsParams): AgentCommands {
-  const agents = useAgentStore((s) => s.agents);
+  const agents = useAgentStore((s) => (enabled ? s.agents : NO_AGENTS));
   const bindings = useKeybindingsStore((s) => s.bindings);
-  const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
-  const paneTitle = useAppStore((s) => s.paneTitle);
+  const paneAgentStatus = useAppStore((s) =>
+    enabled ? s.paneAgentStatus : NO_STATUSES,
+  );
+  const paneTitle = useCleanPaneTitles(enabled);
   const onHome = useAppStore((s) => isHomePath(s.activeWorkspacePath));
 
   return useMemo(() => {

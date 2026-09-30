@@ -2,22 +2,27 @@ import { useMemo } from "react";
 import Terminal from "lucide-react/dist/esm/icons/terminal";
 import Play from "lucide-react/dist/esm/icons/play";
 import Wrench from "lucide-react/dist/esm/icons/wrench";
-import { useProjectStore } from "../../store/project-store";
+import { useProjectStore, type ProjectInfo } from "../../store/project-store";
 import { useAppStore } from "../../store/app-store";
 import { ownerOf } from "../../lib/workspace-directory";
 import type { WorkspaceKey } from "../../lib/workspace-key";
 import type { CommandItem } from "./types";
 
+const NO_PROJECTS: ProjectInfo[] = [];
+
 interface UseCustomCommandsParams {
   onClose: () => void;
   activeWorkspaceKey: WorkspaceKey | null;
+  /** Whether the palette is open. While closed the hook reads no projects. */
+  enabled: boolean;
 }
 
 export function useCustomCommands({
   onClose,
   activeWorkspaceKey,
+  enabled,
 }: UseCustomCommandsParams): CommandItem[] {
-  const projects = useProjectStore((s) => s.projects);
+  const projects = useProjectStore((s) => (enabled ? s.projects : NO_PROJECTS));
   const addTerminalTab = useAppStore((s) => s.addTerminalTab);
 
   return useMemo(() => {

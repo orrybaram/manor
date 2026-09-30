@@ -19,42 +19,12 @@ import {
   detachTabToNewWindow,
   trackHandoff,
 } from "../../../lib/window-handoff";
+import { pinnedAgentName, tabTitle } from "../../../lib/pane-title";
+import { useAgentStore } from "../../../store/agent-store";
 import { TabButton } from "../TabButton";
 import styles from "./TabBar.module.css";
 
 const TAB_GAP = 2; // matches .tabs CSS gap
-/**
- * The tab's displayed title, computed the same way `useTabTitle` does. The drag
- * chip must show this — not the raw `tab.title`, which is a stale placeholder
- * for terminal tabs (the live title lives in the pane side-maps).
- */
-function deriveTabTitle(focusedPaneId: string): string {
-  const s = useAppStore.getState();
-  const title = s.paneTitle[focusedPaneId] ?? null;
-  const cwd = s.paneCwd[focusedPaneId] ?? null;
-  const contentType = s.paneContentType[focusedPaneId] ?? null;
-  const paneUrl = s.paneUrl[focusedPaneId] ?? null;
-
-  if (contentType === "diff") return "Diff";
-  if (contentType === "browser") {
-    if (title) return title;
-    if (paneUrl) return paneUrl.replace(/^https?:\/\//, "");
-  }
-  if (title) {
-    const cwdMatch = title.match(/^.+@.+:(.+)$/);
-    if (cwdMatch) {
-      const parts = cwdMatch[1].replace(/\/+$/, "").split("/");
-      return parts[parts.length - 1] || title;
-    }
-    return title;
-  }
-  if (cwd) {
-    const parts = cwd.split("/");
-    return parts[parts.length - 1] || parts[parts.length - 2] || cwd;
-  }
-  return "Terminal";
-}
-
 // Lucide `globe` / `git-compare-arrows`, inlined for the drag image (a raw DOM
 // element, so it can't use the React icon components the tab renders).
 const GLOBE_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>`;
@@ -235,9 +205,15 @@ export function TabBar(props: TabBarProps) {
 
       // The single OS-rendered drag visual (VS Code-style). Rendered off-screen
       // just long enough for the OS to snapshot it.
+      // The title the tab shows, not the raw `tab.title`: that is a stale
+      // placeholder for terminal tabs (the live title lives in the side-maps).
       const st = useAppStore.getState();
+      const pinnedName = pinnedAgentName(
+        useAgentStore.getState().agents,
+        tab.focusedPaneId,
+      );
       const img = buildTabDragImage(
-        deriveTabTitle(tab.focusedPaneId),
+        tabTitle(st, tab.focusedPaneId, pinnedName),
         st.paneContentType[tab.focusedPaneId],
         st.paneFavicon[tab.focusedPaneId] ?? undefined,
       );

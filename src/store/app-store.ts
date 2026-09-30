@@ -2357,7 +2357,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const tab = panel.tabs.find((s) => s.id === panel.selectedTabId);
       if (!tab) return state;
       const next = nextPaneId(tab.rootNode, tab.focusedPaneId);
-      if (!next) return state;
+      if (!next || next === tab.focusedPaneId) return state;
       return updatePanel(state, key, layout, panel.id, (p) => ({
         ...p,
         tabs: p.tabs.map((s) =>
@@ -2374,7 +2374,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const tab = panel.tabs.find((s) => s.id === panel.selectedTabId);
       if (!tab) return state;
       const prev = prevPaneId(tab.rootNode, tab.focusedPaneId);
-      if (!prev) return state;
+      if (!prev || prev === tab.focusedPaneId) return state;
       return updatePanel(state, key, layout, panel.id, (p) => ({
         ...p,
         tabs: p.tabs.map((s) =>

@@ -506,6 +506,15 @@ describe("Panel operations", () => {
     expect(useAppStore.getState()).toBe(before);
   });
 
+  it("focusNextPane / focusPrevPane with one pane are no-ops", () => {
+    const before = useAppStore.getState();
+
+    useAppStore.getState().focusNextPane();
+    useAppStore.getState().focusPrevPane();
+
+    expect(useAppStore.getState()).toBe(before);
+  });
+
   it("moveTabToPanel moves tab between panels", () => {
     setupStore(makeTwoPanelLayout());
 

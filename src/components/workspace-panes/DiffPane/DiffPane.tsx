@@ -17,6 +17,8 @@ import GitCommitVertical from "lucide-react/dist/esm/icons/git-commit-vertical";
 import CloudUpload from "lucide-react/dist/esm/icons/cloud-upload";
 import MessageSquarePlus from "lucide-react/dist/esm/icons/message-square-plus";
 import { useProjectStore } from "../../../store/project-store";
+import { ownerOf } from "../../../lib/workspace-directory";
+import { workspaceKey } from "../../../lib/workspace-key";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
 
 import { Stack, Row } from "../../ui/Layout/Layout";
@@ -186,9 +188,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     }, [paneId, openSearch]);
 
     const project = useProjectStore((s) =>
-      s.projects.find((p) =>
-        p.workspaces.some((ws) => ws.path === workspacePath),
-      ),
+      workspacePath ? ownerOf(s.projects, workspaceKey(hostId, workspacePath)) : undefined,
     );
     const defaultBranch = project?.defaultBranch ?? "main";
 

@@ -8,11 +8,8 @@ import { useProjectStore } from "../../../store/project-store";
 import { useAppStore } from "../../../store/app-store";
 import { useAgentStore } from "../../../store/agent-store";
 import { usePortsStore } from "../../../store/ports-store";
-import { blockedReason } from "../../../lib/home-dashboard";
-import {
-  prStage,
-  type WorkspaceTileState,
-} from "../../../lib/home-dashboard-studio";
+import type { WorkspaceTileState } from "../../../lib/home-dashboard-studio";
+import { blockerLabel, prVerdict } from "../../../lib/pr-readiness";
 import { STATUS_COLOR, STATUS_LABEL } from "./timeline-model";
 import { WORKSPACE_STATE_COLOR, WORKSPACE_STATE_LABEL } from "./workspace-state";
 import { useHoverOpen } from "./useHoverOpen";
@@ -54,7 +51,8 @@ export function WorkspacePopover(props: WorkspacePopoverProps) {
   );
   const wsPorts = ports.filter((p) => p.workspacePath === path);
   const pr = workspace.pr?.state === "open" ? workspace.pr : null;
-  const stage = pr ? prStage(pr) : null;
+  const verdict = pr ? prVerdict(pr) : null;
+  const stage = verdict?.stage ?? null;
   const diff = workspace.diffStats;
   const name = workspace.name || workspace.branch || path.split("/").pop();
 
@@ -138,8 +136,8 @@ export function WorkspacePopover(props: WorkspacePopoverProps) {
                 </span>
               </div>
               <div className={styles.sub}>
-                {stage === "blocked"
-                  ? blockedReason(pr)
+                {verdict?.blocker
+                  ? blockerLabel(verdict.blocker)
                   : PR_STAGE[stage].label}
                 {pr.checks && pr.checks.total > 0 && (
                   <>

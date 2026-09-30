@@ -8,7 +8,7 @@ blocked_by: []
 
 # Load the remote-control runtime and web-push lazily
 
-See ADR-202 §3 for the full design.
+See ADR-205 §3 for the full design.
 
 - `electron/remote-control/push.ts`: dynamic `import("web-push")` inside
   `PushManager`, memoised, only when a send or VAPID generation is actually

@@ -4,25 +4,24 @@ import Play from "lucide-react/dist/esm/icons/play";
 import Wrench from "lucide-react/dist/esm/icons/wrench";
 import { useProjectStore } from "../../store/project-store";
 import { useAppStore } from "../../store/app-store";
+import { ownerOf } from "../../lib/workspace-directory";
+import type { WorkspaceKey } from "../../lib/workspace-key";
 import type { CommandItem } from "./types";
 
 interface UseCustomCommandsParams {
   onClose: () => void;
-  activeWorkspacePath: string | null;
+  activeWorkspaceKey: WorkspaceKey | null;
 }
 
 export function useCustomCommands({
   onClose,
-  activeWorkspacePath,
+  activeWorkspaceKey,
 }: UseCustomCommandsParams): CommandItem[] {
   const projects = useProjectStore((s) => s.projects);
   const addTerminalTab = useAppStore((s) => s.addTerminalTab);
 
   return useMemo(() => {
-    if (!activeWorkspacePath) return [];
-    const project = projects.find((p) =>
-      p.workspaces.some((w) => w.path === activeWorkspacePath),
-    );
+    const project = ownerOf(projects, activeWorkspaceKey);
     if (!project) return [];
 
     const runInNewTab = (command: string) => {
@@ -64,5 +63,5 @@ export function useCustomCommands({
     }
 
     return items;
-  }, [projects, activeWorkspacePath, addTerminalTab, onClose]);
+  }, [projects, activeWorkspaceKey, addTerminalTab, onClose]);
 }

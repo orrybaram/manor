@@ -1,5 +1,5 @@
 /**
- * Loading for code kept off the startup path (ADR-202): a dynamic `import()`
+ * Loading for code kept off the startup path (ADR-205): a dynamic `import()`
  * that runs once, on first use.
  */
 

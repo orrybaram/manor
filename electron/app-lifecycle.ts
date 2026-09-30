@@ -22,6 +22,7 @@ import { ensureManorCli } from "./manor-cli-install";
 import { AgentManager, type AgentInfo } from "./agent-persistence";
 import { NotificationStore } from "./notification-store";
 import { StatsStore } from "./stats-store";
+import { createWorkspaceOps } from "./workspace-ops";
 import { AgentActivityStore } from "./agent-activity-store";
 import { countBusyAgents } from "./stats-signals";
 import { PreferencesManager } from "./preferences";
@@ -76,7 +77,7 @@ import * as windowIpc from "./ipc/window";
 import * as remoteControlIpc from "./ipc/remote-control";
 import * as menuIpc from "./ipc/menu";
 import * as hostsIpc from "./ipc/hosts";
-import { notifyProjectsChanged } from "./renderer-bridge";
+import { notifyProjectsChanged, runSetupScript } from "./renderer-bridge";
 import { RemoteWorktreePoller, WorktreeWatcher } from "./projects/worktree-watcher";
 
 /** How long an agent's `navigate` waits for a remote host to come back. */
@@ -446,6 +447,14 @@ export function initApp(devTitle: string | null): void {
     },
   });
   setStatsStore(statsStore);
+  // ADR-203: one workspace lifecycle for both IPC and the control routes, so
+  // stats, last-used host and the broadcast happen whichever transport asked.
+  const workspaceOps = createWorkspaceOps({
+    projectManager,
+    statsStore,
+    notifyProjectsChanged,
+    runSetupScript,
+  });
   // ADR-199's persistent Agent activity history, fed by `publishPaneStatus`.
   const agentActivityStore = new AgentActivityStore();
   // A merged PR ships a workspace just as much as a quick merge does, and it
@@ -460,7 +469,7 @@ export function initApp(devTitle: string | null): void {
   // the quit hook can see it; deliberately *not* started — remote control is
   // off until the user turns it on, and even then the listener is loopback-only
   // until they separately start a tunnel. The listener and tunnel modules are
-  // not even loaded until then (ADR-202 §3): `loadRuntime` runs at most once,
+  // not even loaded until then (ADR-205 §3): `loadRuntime` runs at most once,
   // on the first enable or tunnel start.
   const remoteDeviceStore = new RemoteDeviceStore();
   const remotePush = new PushManager(remoteDeviceStore);
@@ -479,6 +488,7 @@ export function initApp(devTitle: string | null): void {
         backend,
         notificationStore,
         statsStore,
+        workspaceOps,
         preferencesManager,
         themeManager,
         portScanner,
@@ -718,6 +728,7 @@ export function initApp(devTitle: string | null): void {
     agentStatus: agentStatusDriver,
     notificationStore,
     statsStore,
+    workspaceOps,
     agentActivityStore,
     preferencesManager,
     keybindingsManager,
@@ -743,6 +754,7 @@ export function initApp(devTitle: string | null): void {
     backend: ipcDeps.backend,
     notificationStore: ipcDeps.notificationStore,
     statsStore: ipcDeps.statsStore,
+    workspaceOps: ipcDeps.workspaceOps,
     preferencesManager: ipcDeps.preferencesManager,
     themeManager: ipcDeps.themeManager,
     portScanner: ipcDeps.portScanner,

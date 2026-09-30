@@ -38,12 +38,8 @@ import type { SetupStep, StepStatus } from "./project-store";
 import type { Location } from "./navigation-history-store";
 import type { DetachedTabPayload } from "./detach-types";
 import { isHomePath } from "../lib/home-path";
-import {
-  LOCAL_HOST_ID,
-  projectForWorkspaceKey,
-  workspaceHostId,
-  type HostId,
-} from "../lib/hosts";
+import { LOCAL_HOST_ID, type HostId } from "../lib/hosts";
+import { hostForPath, ownerOf } from "../lib/workspace-directory";
 import {
   isRemoteWorkspaceKey,
   parseWorkspaceKey,
@@ -561,12 +557,12 @@ export interface AppState {
 /**
  * The key of workspace `path` (ADR-191) for looking up its layout: on
  * `hostId` when the caller knows it, else on the host of the project that
- * has the path, the selected project first (`workspaceHostId`). Local when
+ * has the path, the selected project first (`hostForPath`). Local when
  * no project has it.
  */
 export function layoutKeyFor(path: string, hostId?: HostId | null): WorkspaceKey {
   return workspaceKey(
-    hostId ?? workspaceHostId(useProjectStore.getState(), path) ?? LOCAL_HOST_ID,
+    hostId ?? hostForPath(useProjectStore.getState(), path) ?? LOCAL_HOST_ID,
     path,
   );
 }
@@ -3191,7 +3187,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const sourceWorkspaceKey = selectActiveWorkspaceKey(state) ?? workspaceKey(null, "");
     const themeName = isHomePath(state.activeWorkspacePath)
       ? null
-      : projectForWorkspaceKey(useProjectStore.getState().projects, sourceWorkspaceKey)
+      : ownerOf(useProjectStore.getState().projects, sourceWorkspaceKey)
           ?.themeName ?? null;
 
     const payload: DetachedTabPayload = {
@@ -3369,7 +3365,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const sourceWorkspaceKey = selectActiveWorkspaceKey(state) ?? workspaceKey(null, "");
     const themeName = isHomePath(state.activeWorkspacePath)
       ? null
-      : projectForWorkspaceKey(useProjectStore.getState().projects, sourceWorkspaceKey)
+      : ownerOf(useProjectStore.getState().projects, sourceWorkspaceKey)
           ?.themeName ?? null;
 
     const payload: DetachedTabPayload = {

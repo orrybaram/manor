@@ -44,7 +44,12 @@ vi.mock("electron", () => ({
 }));
 
 import { WebviewServer } from "../webview-server";
-import { requestRenderer } from "../renderer-bridge";
+import {
+  notifyProjectsChanged,
+  requestRenderer,
+  runSetupScript,
+} from "../renderer-bridge";
+import { createWorkspaceOps, type WorkspaceOpsDeps } from "../workspace-ops";
 import type { AppCommand, AppCommandResult } from "../renderer-bridge";
 import { webContents, BrowserWindow, ipcMain } from "electron";
 import { webviewModule } from "../mcp/tools-webview";
@@ -114,6 +119,22 @@ async function resolvePaneId(
 }
 
 // ── Tests ──
+
+/**
+ * Give `server` the workspace ops `app-lifecycle.ts` would (ADR-203), over the
+ * test's fake manager and the real (electron-mocked) renderer bridge, so the
+ * create / remove / batch routes run end to end.
+ */
+function withWorkspaceOps(server: WebviewServer, pm: unknown): void {
+  server.setControlDeps({
+    workspaceOps: createWorkspaceOps({
+      projectManager: pm as WorkspaceOpsDeps["projectManager"],
+      statsStore: { record: vi.fn() },
+      notifyProjectsChanged,
+      runSetupScript,
+    }),
+  });
+}
 
 describe("MCP webview server logic", () => {
   let server: WebviewServer;
@@ -352,6 +373,7 @@ describe("WebviewServer project/workspace routes", () => {
       new Map<string, number>(),
       pm as unknown as ConstructorParameters<typeof WebviewServer>[1],
     );
+    withWorkspaceOps(server, pm);
     await server.start();
     baseUrl = `http://127.0.0.1:${server.serverPort}`;
   });
@@ -524,6 +546,8 @@ describe("WebviewServer project/workspace routes", () => {
       "proj-1",
       "/repos/demo-ws",
       true,
+      // No progress callback over HTTP; the op forwards the slot.
+      undefined,
     );
   });
 
@@ -673,6 +697,7 @@ describe("WebviewServer agent orchestration routes", () => {
         typeof WebviewServer
       >[3],
     );
+    withWorkspaceOps(server, pm);
     await server.start();
     baseUrl = `http://127.0.0.1:${server.serverPort}`;
   });

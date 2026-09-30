@@ -1,5 +1,5 @@
 import { selectActiveWorkspaceKey, type AppState } from "../../../store/app-store";
-import { projectForWorkspaceKey, type HostedProject } from "../../../lib/hosts";
+import { ownerOf, type DirectoryProject } from "../../../lib/workspace-directory";
 
 /**
  * What the status bar's host chip speaks for: the active workspace's own
@@ -12,12 +12,12 @@ import { projectForWorkspaceKey, type HostedProject } from "../../../lib/hosts";
  */
 export function activeWorkspaceHost(
   app: Pick<AppState, "activeWorkspacePath" | "activeWorkspaceHostId">,
-  projects: readonly HostedProject[],
+  projects: readonly DirectoryProject[],
 ): { hostId: string | undefined; projectId: string | undefined } {
   const key = selectActiveWorkspaceKey(app);
   if (!key) return { hostId: undefined, projectId: undefined };
   return {
     hostId: app.activeWorkspaceHostId,
-    projectId: projectForWorkspaceKey(projects, key)?.id,
+    projectId: ownerOf(projects, key)?.id,
   };
 }

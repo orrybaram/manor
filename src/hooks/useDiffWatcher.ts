@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useProjectStore, type DiffStats } from "../store/project-store";
+import { keyOf } from "../lib/workspace-directory";
+import type { WorkspaceKey } from "../lib/workspace-key";
 import { useMountEffect } from "./useMountEffect";
 
 export function useDiffWatcher() {
@@ -8,23 +10,30 @@ export function useDiffWatcher() {
     (s) => s.updateWorkspaceDiffStats,
   );
 
-  // Build a stable map of workspacePath → { defaultBranch, hostId } — each
-  // workspace travels with its project's host (ADR-183).
-  const prevMapRef = useRef<Record<string, { defaultBranch: string; hostId: string }>>({});
+  // Build a stable map of WorkspaceKey → { path, defaultBranch, hostId } —
+  // each workspace travels with its project's host (ADR-183), and is keyed by
+  // it so two hosts' identical paths stay apart (ADR-204).
+  type Entry = { path: string; defaultBranch: string; hostId: string };
+  const prevMapRef = useRef<Record<WorkspaceKey, Entry>>({});
   const workspaceMap = (() => {
-    const next: Record<string, { defaultBranch: string; hostId: string }> = {};
+    const next: Record<WorkspaceKey, Entry> = {};
     for (const p of projects) {
       for (const ws of p.workspaces) {
-        next[ws.path] = { defaultBranch: p.defaultBranch, hostId: p.hostId };
+        next[keyOf(p, ws)] = {
+          path: ws.path,
+          defaultBranch: p.defaultBranch,
+          hostId: p.hostId,
+        };
       }
     }
     const prev = prevMapRef.current;
     const prevKeys = Object.keys(prev);
-    const nextKeys = Object.keys(next);
+    const nextKeys = Object.keys(next) as WorkspaceKey[];
     if (
       prevKeys.length === nextKeys.length &&
       nextKeys.every(
         (k) =>
+          prev[k]?.path === next[k].path &&
           prev[k]?.defaultBranch === next[k].defaultBranch &&
           prev[k]?.hostId === next[k].hostId,
       )
@@ -37,7 +46,7 @@ export function useDiffWatcher() {
 
   // Start/stop watcher when workspaceMap changes
   useEffect(() => {
-    const workspaces = Object.entries(workspaceMap).map(([path, ws]) => ({ path, ...ws }));
+    const workspaces = Object.values(workspaceMap);
     if (workspaces.length > 0) {
       window.electronAPI.diffs.start(workspaces);
     } else {
@@ -51,11 +60,11 @@ export function useDiffWatcher() {
   // The main process only emits when stats change, so keep the latest payload
   // around. Reloading projects (e.g. on `projects-changed`) replaces workspace
   // objects and drops `diffStats`; re-apply the cached stats when that happens.
-  const latestDiffsRef = useRef<Record<string, DiffStats>>({});
-  const applyDiffs = (diffs: Record<string, DiffStats>) => {
+  const latestDiffsRef = useRef<Record<WorkspaceKey, DiffStats>>({});
+  const applyDiffs = (diffs: Record<WorkspaceKey, DiffStats>) => {
     // Clear stats for workspaces with no diff
-    for (const wsPath of Object.keys(prevMapRef.current)) {
-      updateWorkspaceDiffStats(wsPath, diffs[wsPath] ?? null);
+    for (const key of Object.keys(prevMapRef.current) as WorkspaceKey[]) {
+      updateWorkspaceDiffStats(key, diffs[key] ?? null);
     }
   };
 

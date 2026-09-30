@@ -8,7 +8,7 @@ blocked_by: []
 
 # Load electron-updater lazily
 
-See ADR-202 §2.
+See ADR-205 §2.
 
 - `electron/updater.ts`: remove the static `electron-updater` value import
   (type-only imports are fine: `import type { UpdateInfo, ProgressInfo }`).

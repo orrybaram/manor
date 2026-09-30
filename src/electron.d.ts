@@ -1,6 +1,7 @@
 import type { PrComment, PrInfo } from "./lib/pr-info";
 import type { HostId } from "./lib/hosts";
 import type { GhRepo } from "./lib/gh-repo";
+import type { WorkspaceKey } from "./lib/workspace-key";
 import type { DetachedTabPayload } from "./store/detach-types";
 import type { RecordingCommand as WebviewRecordingCommand } from "./lib/webview-recorder";
 import type {
@@ -808,7 +809,7 @@ export interface ElectronAPI {
     start: (workspaces: Array<{ path: string; hostId: string }>) => Promise<void>;
     stop: () => Promise<void>;
     onChange: (
-      callback: (branches: Record<string, string>) => void,
+      callback: (branches: Record<WorkspaceKey, string>) => void,
     ) => () => void;
   };
 
@@ -819,7 +820,7 @@ export interface ElectronAPI {
     stop: () => Promise<void>;
     onChange: (
       callback: (
-        diffs: Record<string, { added: number; removed: number }>,
+        diffs: Record<WorkspaceKey, { added: number; removed: number }>,
       ) => void,
     ) => () => void;
     getFullDiff: (

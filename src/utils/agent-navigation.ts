@@ -5,7 +5,7 @@ import { useAgentStore } from "../store/agent-store";
 import { useToastStore } from "../store/toast-store";
 import { hasPaneId } from "../store/pane-tree";
 import { workspaceKey, type WorkspaceKey } from "../lib/workspace-key";
-import { projectForWorkspaceKey } from "../lib/hosts";
+import { ownerOf } from "../lib/workspace-directory";
 import type { ProjectInfo } from "../store/project-store";
 
 /**
@@ -21,7 +21,7 @@ export function agentWorkspaceKey(
   const path = agent.workspacePath;
   if (!path) return null;
   const onAgentHost = workspaceKey(agent.hostId, path);
-  if (projectForWorkspaceKey(projects, onAgentHost)) return onAgentHost;
+  if (ownerOf(projects, onAgentHost)) return onAgentHost;
   const project = projects.find((p) => p.id === agent.projectId);
   return project ? workspaceKey(project.hostId, path) : onAgentHost;
 }

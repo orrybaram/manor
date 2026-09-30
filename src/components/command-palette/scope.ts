@@ -1,6 +1,8 @@
 import type { AppSurface } from "../../store/app-store";
 import type { ProjectInfo } from "../../store/project-store";
 import { isHomePath } from "../../lib/home-path";
+import { ownerOf } from "../../lib/workspace-directory";
+import { parseWorkspaceKey, type WorkspaceKey } from "../../lib/workspace-key";
 import type { PaletteOrigin } from "./types";
 
 /**
@@ -11,15 +13,15 @@ import type { PaletteOrigin } from "./types";
 export function resolvePaletteScope(args: {
   origin: PaletteOrigin;
   activeSurface: AppSurface;
-  activeWorkspacePath: string | null;
+  activeWorkspaceKey: WorkspaceKey | null;
   projects: ProjectInfo[];
 }): string | null {
-  const { origin, activeSurface, activeWorkspacePath, projects } = args;
+  const { origin, activeSurface, activeWorkspaceKey, projects } = args;
   if (origin === "search") return null;
   if (activeSurface !== "workspace") return null;
-  if (!activeWorkspacePath || isHomePath(activeWorkspacePath)) return null;
-  const project = projects.find((p) =>
-    p.workspaces.some((w) => w.path === activeWorkspacePath),
-  );
+  if (!activeWorkspaceKey || isHomePath(parseWorkspaceKey(activeWorkspaceKey).path)) {
+    return null;
+  }
+  const project = ownerOf(projects, activeWorkspaceKey);
   return project?.id ?? null;
 }

@@ -7,6 +7,8 @@ import { useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import type { SetupStep, StepStatus } from "../../store/project-store";
 import { useToastStore } from "../../store/toast-store";
+import { find } from "../../lib/workspace-directory";
+import { workspaceKey } from "../../lib/workspace-key";
 import { ManorLogo } from "../ui/ManorLogo";
 import { Row, Stack } from "../ui/Layout/Layout";
 import { Button } from "../ui/Button/Button";
@@ -79,16 +81,18 @@ function SetupChecklist({
   );
 }
 
+/**
+ * The setup view only shows for the active workspace, so `wsPath` is on the
+ * active host. `worktreeSetupState` is still keyed by bare path (ADR-204 §4).
+ */
 function resolveWorkspaceName(wsPath: string): string {
   if (wsPath === "__pending__") return "workspace";
-  const projects = useProjectStore.getState().projects;
-  for (const project of projects) {
-    const ws = project.workspaces.find((w) => w.path === wsPath);
-    if (ws) {
-      return ws.name || ws.branch || wsPath.split("/").pop() || "workspace";
-    }
-  }
-  return wsPath.split("/").pop() || "workspace";
+  const { activeWorkspaceHostId } = useAppStore.getState();
+  const ws = find(
+    useProjectStore.getState().projects,
+    workspaceKey(activeWorkspaceHostId, wsPath),
+  )?.workspace;
+  return ws?.name || ws?.branch || wsPath.split("/").pop() || "workspace";
 }
 
 export function WorkspaceSetupView({

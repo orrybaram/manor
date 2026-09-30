@@ -8,7 +8,7 @@ blocked_by: []
 
 # Cached login PATH resolved asynchronously
 
-See ADR-202 §1.
+See ADR-205 §1.
 
 - Create `electron/login-path.ts` with `readCachedLoginPath`, `withCommonPaths`,
   `resolveLoginPath`, `startLoginPathResolution`, `loginPathReady` as the ADR

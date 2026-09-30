@@ -1,4 +1,4 @@
-import type { PrStage } from "../../../lib/home-dashboard-studio";
+import type { PrStage } from "../../../lib/pr-readiness";
 
 /**
  * How every dashboard section names and colours a PR stage (ADR-198 §2):

@@ -131,7 +131,7 @@ describe("BranchWatcher", () => {
 
     watcher.start(window, [onBox("/remote/ws")]);
     await vi.advanceTimersByTimeAsync(0);
-    expect(sends).toEqual([{ "/remote/ws": "remote-branch" }]);
+    expect(sends).toEqual([{ "box:/remote/ws": "remote-branch" }]);
     expect(calls).toEqual(["/remote/ws"]);
 
     // Nothing new before the 5s remote cadence elapses.
@@ -140,6 +140,19 @@ describe("BranchWatcher", () => {
 
     await vi.advanceTimersByTimeAsync(1000);
     expect(calls).toEqual(["/remote/ws", "/remote/ws"]);
+  });
+
+  // ADR-204: a local and a remote workspace can share a path; the payload is
+  // keyed by WorkspaceKey so neither host's branch lands on the other's.
+  it("keeps two hosts' identical paths apart, keyed by WorkspaceKey", async () => {
+    const gitBackend = fakeGit(async () => "box-branch");
+    watcher = new BranchWatcher(hostsWith(gitBackend));
+    const { window, sends } = fakeWindow();
+
+    watcher.start(window, [local(tmpDir), { path: tmpDir, hostId: "box" }]);
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(sends[sends.length - 1]).toEqual({ [tmpDir]: "main", [`box:${tmpDir}`]: "box-branch" });
   });
 
   it("skips a tick for a host whose previous scan is still in flight", async () => {
@@ -176,7 +189,7 @@ describe("BranchWatcher", () => {
 
     watcher.start(window, [onBox("/remote/ws")]);
     await new Promise((r) => setTimeout(r, 10));
-    expect(sends).toEqual([{ "/remote/ws": "remote-branch" }]);
+    expect(sends).toEqual([{ "box:/remote/ws": "remote-branch" }]);
 
     fail = true;
     // Manually trigger another scan by restarting (simulating the next
@@ -186,7 +199,7 @@ describe("BranchWatcher", () => {
     await new Promise((r) => setTimeout(r, 10));
 
     // No new emit (the failed scan contributes no update) and no error log.
-    expect(sends).toEqual([{ "/remote/ws": "remote-branch" }]);
+    expect(sends).toEqual([{ "box:/remote/ws": "remote-branch" }]);
     expect(errorSpy).not.toHaveBeenCalled();
     errorSpy.mockRestore();
   });
@@ -233,7 +246,7 @@ describe("BranchWatcher", () => {
 
     pending[1].resolve("fresh-branch");
     await new Promise((r) => setTimeout(r, 0));
-    expect(sends).toEqual([{ "/remote/new": "fresh-branch" }]);
+    expect(sends).toEqual([{ "box:/remote/new": "fresh-branch" }]);
     expect(maxInFlight).toBe(1);
   });
 });

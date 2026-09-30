@@ -1,33 +1,17 @@
 import { useMemo } from "react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQueries } from "@tanstack/react-query";
 import { useProjectStore, type ProjectInfo } from "../../store/project-store";
 import {
   buildTopLevelEntries,
   type TopLevelEntry,
 } from "../../utils/sidebar-items";
-import { ghRepoOf } from "../../lib/gh-repo";
 import { primaryMember } from "../../lib/home-dashboard";
-import {
-  collectTasks,
-  fromGitHub,
-  fromLinear,
-  type TaskContext,
-  type TaskProvider,
-  type TaskRow,
-} from "../../lib/tasks";
-
-const STALE_MS = 60_000;
-const LIMIT = 50;
-/** Linear state types that count as "open" work. */
-const OPEN_LINEAR_STATES = ["unstarted", "started", "backlog"];
+import type { TaskContext, TaskProvider, TaskRow } from "../../lib/tasks";
+import { mergeSources, type SourceResult } from "../../lib/task-list";
+import { TRACKERS, type TrackerScope } from "../../lib/trackers";
 
 /** Query keys that already logged a failure — a flaky source logs once, not every refetch. */
 const loggedFailures = new Set<string>();
-
-/** Which issues a query asks for: every open one, or the open ones assigned to you. */
-type TaskFilter = "open" | "assigned";
-
-type SourceResult = { rows: TaskRow[]; failed: boolean };
 
 /** Run `fetch`; a failure is logged once and counted, never thrown (ADR-198 §3). */
 async function settle(
@@ -45,6 +29,7 @@ async function settle(
   }
 }
 
+/** Fold the settled queries with `mergeSources`; still loading while any is pending. */
 function combineResults(
   results: { data?: SourceResult; isPending: boolean }[],
 ): {
@@ -52,21 +37,9 @@ function combineResults(
   loading: boolean;
   failedCount: number;
 } {
-  // Each source runs both queries; a task the "assigned" one listed is yours.
-  const rows = results.flatMap((r) => r.data?.rows ?? []);
-  const mine = new Set(
-    rows.filter((row) => row.assignedToMe).map((row) => row.url || row.key),
-  );
   return {
-    rows: collectTasks(
-      rows.map((row) =>
-        !row.assignedToMe && mine.has(row.url || row.key)
-          ? { ...row, assignedToMe: true }
-          : row,
-      ),
-    ),
+    ...mergeSources(results.flatMap((r) => (r.data ? [r.data] : []))),
     loading: results.some((r) => r.isPending),
-    failedCount: results.filter((r) => r.data?.failed).length,
   };
 }
 
@@ -77,44 +50,72 @@ export type TaskSource = {
   ctx: TaskContext;
 };
 
+const PROVIDERS = Object.keys(TRACKERS) as TaskProvider[];
+
+/** One array per set of providers, so callers can memo on it. */
+const providerSets = new Map<string, TaskProvider[]>();
+
+function providerSet(providers: TaskProvider[]): TaskProvider[] {
+  const key = providers.join(",");
+  const cached = providerSets.get(key);
+  if (cached) return cached;
+  providerSets.set(key, providers);
+  return providers;
+}
+
 function entryName(entry: TopLevelEntry<ProjectInfo>): string {
   return entry.kind === "project" ? entry.project.name : entry.group.name;
 }
 
 /**
- * Which trackers are usable, and the top-level entries they can be queried
- * through. Shares its status query keys with Home's Up next so both read one
- * cached answer.
+ * Which trackers are usable, through each adapter's status query — shared
+ * with the Sidebar so both read one cached answer. A tracker is only asked
+ * when some project can be listed through it (or there are no projects yet,
+ * so the Tasks view can still tell "connected" from "not set up").
+ */
+export function useTrackerStatus(): {
+  /** Usable trackers, in `TRACKERS` order. */
+  providers: TaskProvider[];
+  /** True until every status check that was asked has answered. */
+  checking: boolean;
+} {
+  const projects = useProjectStore((s) => s.projects);
+
+  const asked = PROVIDERS.map(
+    (provider) =>
+      projects.length === 0 ||
+      projects.some((p) => TRACKERS[provider].canList(p)),
+  );
+  const results = useQueries({
+    queries: PROVIDERS.map((provider, i) => ({
+      ...TRACKERS[provider].statusQuery(),
+      retry: false,
+      enabled: asked[i],
+    })),
+  });
+
+  const providers = providerSet(
+    PROVIDERS.filter((_, i) => asked[i] && results[i].data === true),
+  );
+
+  return {
+    providers,
+    checking: results.some((r, i) => asked[i] && r.isPending),
+  };
+}
+
+/**
+ * Which trackers are usable, and the top-level entries each can be queried
+ * through (`tracker.canList` of the entry's primary member).
  */
 export function useTrackerSources(): {
-  entries: TopLevelEntry<ProjectInfo>[];
-  ghReady: boolean;
-  linearConnected: boolean;
-  /** True until both status checks have answered. */
+  providers: TaskProvider[];
   checking: boolean;
   sources: TaskSource[];
 } {
   const projects = useProjectStore((s) => s.projects);
   const entries = useMemo(() => buildTopLevelEntries(projects), [projects]);
-
-  const ghStatus = useQuery({
-    queryKey: ["home-up-next", "gh-status"],
-    queryFn: () => window.electronAPI.github.checkStatus(),
-    staleTime: Infinity,
-    retry: false,
-  });
-  const ghReady =
-    ghStatus.data?.installed === true && ghStatus.data.authenticated === true;
-
-  const anyLinear = projects.some((p) => p.linearAssociations.length > 0);
-  const linearStatus = useQuery({
-    queryKey: ["home-up-next", "linear-connected"],
-    queryFn: () => window.electronAPI.linear.isConnected(),
-    staleTime: STALE_MS,
-    retry: false,
-    enabled: anyLinear,
-  });
-  const linearConnected = anyLinear && linearStatus.data === true;
+  const { providers, checking } = useTrackerStatus();
 
   const sources = useMemo(() => {
     const out: TaskSource[] = [];
@@ -127,26 +128,58 @@ export function useTrackerSources(): {
         projectName: entryName(entry),
         color: member.color,
       };
-      if (ghReady) {
-        out.push({
-          key: `gh:${member.hostId}:${member.path}`,
-          provider: "github",
-          ctx,
-        });
-      }
-      if (linearConnected && member.linearAssociations.length > 0) {
-        out.push({ key: `linear:${member.id}`, provider: "linear", ctx });
+      for (const provider of providers) {
+        if (!TRACKERS[provider].canList(member)) continue;
+        out.push({ key: `${provider}:${member.id}`, provider, ctx });
       }
     }
     return out;
-  }, [entries, ghReady, linearConnected]);
+  }, [entries, providers]);
+
+  return { providers, checking, sources };
+}
+
+/**
+ * Where the saved choice lands now (ADR-202 §4): the saved tracker if it's
+ * still usable, else the first usable one; the saved project if that tracker
+ * can still list it, else all projects. The choice itself isn't forgotten.
+ * The Tasks view and Up next both resolve their list through this.
+ */
+export function useTaskScope(
+  savedProvider: TaskProvider,
+  savedProject: string | null,
+): {
+  providers: TaskProvider[];
+  checking: boolean;
+  provider: TaskProvider;
+  projectKey: string | null;
+  /** The chosen provider's sources — one per project it can list. */
+  sources: TaskSource[];
+  /** The source of `projectKey`, when one is chosen. */
+  selectedSource: TaskSource | undefined;
+} {
+  const status = useTrackerSources();
+  const { providers, checking } = status;
+  const provider: TaskProvider = providers.includes(savedProvider)
+    ? savedProvider
+    : (providers[0] ?? savedProvider);
+
+  const sources = useMemo(
+    () => status.sources.filter((s) => s.provider === provider),
+    [status.sources, provider],
+  );
+  const selectedSource =
+    savedProject === null
+      ? undefined
+      : sources.find((s) => s.ctx.entryKey === savedProject);
 
   return {
-    entries,
-    ghReady,
-    linearConnected,
-    checking: ghStatus.isPending || (anyLinear && linearStatus.isPending),
+    providers,
+    checking,
+    provider,
+    projectKey: selectedSource ? savedProject : null,
     sources,
+    selectedSource,
   };
 }
 
@@ -156,10 +189,10 @@ export type UseTasksOptions = {
   projectKey: string | null;
 };
 
-const FILTERS: TaskFilter[] = ["assigned", "open"];
+const SCOPES: TrackerScope[] = ["assigned", "open"];
 
 /**
- * Tasks for the Tasks view (ADR-198 §3): for each top-level entry of
+ * Tasks for the Tasks view and Up next (ADR-198 §3): for each top-level entry of
  * `provider` (just the chosen entry when `projectKey` is set), its open tasks
  * and the ones assigned to you — merged, with yours marked `assignedToMe`,
  * deduped and sorted by last update. A failing query contributes no rows and
@@ -188,66 +221,11 @@ export function useTasks(options: UseTasksOptions): {
     // Module-level, so the combined value only changes when a query does.
     combine: combineResults,
     queries: sources.flatMap((source) =>
-      FILTERS.map((filter) => {
-        const { ctx } = source;
-        const member = ctx.project;
-        if (source.provider === "github") {
-          return {
-            queryKey: [
-              "tasks",
-              "github",
-              filter,
-              member.hostId,
-              member.path,
-              ctx.entryKey,
-            ],
-            queryFn: () =>
-              settle(`${source.key}:${filter}`, async () => {
-                const repo = ghRepoOf(member);
-                const issues =
-                  filter === "assigned"
-                    ? await window.electronAPI.github.getMyIssues(
-                        repo,
-                        LIMIT,
-                        "open",
-                      )
-                    : await window.electronAPI.github.getAllIssues(
-                        repo,
-                        LIMIT,
-                        "open",
-                      );
-                return issues.map((i) => ({
-                  ...fromGitHub(i, ctx),
-                  assignedToMe: filter === "assigned",
-                }));
-              }),
-            staleTime: STALE_MS,
-            retry: false,
-          };
-        }
-        const teamIds = member.linearAssociations.map((a) => a.teamId);
+      SCOPES.map((scope) => {
+        const query = TRACKERS[source.provider].listQuery(source.ctx, scope);
         return {
-          queryKey: [
-            "tasks",
-            "linear",
-            filter,
-            member.id,
-            teamIds.join(","),
-            ctx.entryKey,
-          ],
-          queryFn: () =>
-            settle(`${source.key}:${filter}`, async () => {
-              const opts = { stateTypes: OPEN_LINEAR_STATES, limit: LIMIT };
-              const issues =
-                filter === "assigned"
-                  ? await window.electronAPI.linear.getMyIssues(teamIds, opts)
-                  : await window.electronAPI.linear.getAllIssues(teamIds, opts);
-              return issues.map((i) => ({
-                ...fromLinear(i, ctx),
-                assignedToMe: filter === "assigned",
-              }));
-            }),
-          staleTime: STALE_MS,
+          ...query,
+          queryFn: () => settle(`${source.key}:${scope}`, query.queryFn),
           retry: false,
         };
       }),

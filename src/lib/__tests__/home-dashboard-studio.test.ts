@@ -4,7 +4,6 @@ import {
   needsYouCards,
   openPrStats,
   prPipeline,
-  prStage,
   projectTiles,
   type NeedsYouCardsInput,
   type ProjectTileDeps,
@@ -95,35 +94,6 @@ const checks = (passing: number, failing: number, pending: number) => ({
   failing,
   pending,
   total: passing + failing + pending,
-});
-
-describe("prStage", () => {
-  it("puts pending PRs with running checks in checks", () => {
-    expect(prStage(basePr({ checks: checks(1, 0, 2) }))).toBe("checks");
-    expect(prStage(basePr({ isDraft: true, checks: checks(1, 0, 2) }))).toBe(
-      "checks",
-    );
-  });
-
-  it("puts review, drafts and idle pending PRs in review", () => {
-    expect(prStage(basePr({ reviewDecision: "REVIEW_REQUIRED" }))).toBe(
-      "review",
-    );
-    expect(prStage(basePr({ isDraft: true, checks: checks(3, 0, 0) }))).toBe(
-      "review",
-    );
-    expect(prStage(basePr())).toBe("review");
-  });
-
-  it("maps blocked, ready and queued", () => {
-    expect(
-      prStage(basePr({ hasConflicts: true, checks: checks(0, 0, 2) })),
-    ).toBe("blocked");
-    expect(prStage(basePr({ reviewDecision: "APPROVED" }))).toBe("ready");
-    expect(
-      prStage(basePr({ queuedToMerge: true, checks: checks(0, 0, 1) })),
-    ).toBe("ready");
-  });
 });
 
 describe("prPipeline / openPrStats", () => {

@@ -1,9 +1,14 @@
-import { isHomePath } from "./home-path";
-import { LOCAL_HOST_ID, normalizeHostId, type HostId } from "./host-id";
-import { parseWorkspaceKey } from "./workspace-key";
+import { LOCAL_HOST_ID, type HostId } from "./workspace-key";
 
 export { LOCAL_HOST_ID };
 export type { HostId };
+
+/**
+ * Kept only until `home-dashboard.ts` moves over to `ownerOf` from
+ * `workspace-directory.ts` (ADR-204 §4); then this re-export goes. New code
+ * imports `ownerOf` directly.
+ */
+export { ownerOf as projectForWorkspaceKey } from "./workspace-directory";
 
 /** Mirrors `HealthCheckResult` in `electron/backend/health-check.ts`. */
 export interface HealthCheckResult {
@@ -60,100 +65,6 @@ export function remoteHostOptions(
   return hosts
     .filter((h) => isRemoteHost(h.hostId))
     .map((h) => ({ value: h.hostId, label: h.spec?.target ?? h.hostId }));
-}
-
-/** What a project needs to say which host a workspace path is on. */
-export interface HostedProject {
-  id?: string;
-  path: string;
-  hostId: HostId;
-  workspaces: readonly { path: string }[];
-}
-
-/** The project list and which project is selected, as the project store has them. */
-export interface ProjectSelection<P extends HostedProject = HostedProject> {
-  projects: readonly P[];
-  selectedProjectIndex: number;
-}
-
-/** Whether `project` has `workspacePath`: its main checkout or one of its workspaces. */
-function hasWorkspace(project: HostedProject, workspacePath: string): boolean {
-  return (
-    project.path === workspacePath ||
-    project.workspaces.some((w) => w.path === workspacePath)
-  );
-}
-
-/**
- * The project that has `workspacePath` as its main checkout or one of its
- * workspaces, or undefined when none does.
- *
- * A local and a remote project can have the very same path (same username,
- * same default roots). Then `preferredProjectId`'s project wins when it has
- * the path — the caller's own project, typically the selected one — and
- * otherwise the first project that has it.
- */
-export function projectForWorkspace<P extends HostedProject>(
-  projects: readonly P[],
-  workspacePath: string | null | undefined,
-  preferredProjectId?: string,
-): P | undefined {
-  if (!workspacePath) return undefined;
-  const preferred = preferredProjectId
-    ? projects.find((p) => p.id === preferredProjectId && hasWorkspace(p, workspacePath))
-    : undefined;
-  return preferred ?? projects.find((p) => hasWorkspace(p, workspacePath));
-}
-
-/**
- * The host `workspacePath` lives on — the `hostId` of its project (see
- * `projectForWorkspace`) — or undefined when no project has it.
- */
-export function hostIdForWorkspace(
-  projects: readonly HostedProject[],
-  workspacePath: string | null | undefined,
-  preferredProjectId?: string,
-): HostId | undefined {
-  return projectForWorkspace(projects, workspacePath, preferredProjectId)?.hostId;
-}
-
-/**
- * The project that has the workspace keyed `key` (ADR-191): on the key's
- * host, with the key's path as its main checkout or one of its workspaces.
- * Undefined for Home and for a path no project on that host has.
- */
-export function projectForWorkspaceKey<P extends HostedProject>(
-  projects: readonly P[],
-  key: string | null | undefined,
-): P | undefined {
-  if (!key) return undefined;
-  const { hostId, path } = parseWorkspaceKey(key);
-  return projects.find(
-    (p) => normalizeHostId(p.hostId) === hostId && hasWorkspace(p, path),
-  );
-}
-
-/** The id of the selected project, if any. */
-export function selectedProjectId(selection: ProjectSelection): string | undefined {
-  return selection.projects[selection.selectedProjectIndex]?.id;
-}
-
-/**
- * The host of workspace `workspacePath` for a caller that knows only its
- * path: the host of the project that has it, the selected project first when
- * two share the path — it is the one whose workspace the user opened. Home
- * is on this machine. Undefined when no project has the path, so main falls
- * back to the host the path belongs to.
- *
- * A pane never needs this: it takes its host from the key of the workspace
- * it belongs to (`paneCreateHostId`, ADR-191).
- */
-export function workspaceHostId(
-  selection: ProjectSelection,
-  workspacePath: string | null | undefined,
-): HostId | undefined {
-  if (isHomePath(workspacePath)) return LOCAL_HOST_ID;
-  return hostIdForWorkspace(selection.projects, workspacePath, selectedProjectId(selection));
 }
 
 /**

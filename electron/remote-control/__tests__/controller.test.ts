@@ -4,7 +4,7 @@
  * with it. Both are asserted here against fakes, so the test is about the
  * decisions rather than about sockets.
  *
- * The runtime (listener + tunnel manager) loads lazily (ADR-202 §3), so the
+ * The runtime (listener + tunnel manager) loads lazily (ADR-205 §3), so the
  * second half covers what happens before it loads and what happens when calls
  * race the load — above all, that shutdown never leaves anything running.
  */

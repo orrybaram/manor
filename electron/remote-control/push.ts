@@ -18,7 +18,7 @@
  * is why it is persisted rather than regenerated per launch.
  *
  * `web-push` itself is loaded on first real use — a send, or generating the
- * key pair — never at startup (ADR-202 §3). A user with no subscribed phones
+ * key pair — never at startup (ADR-205 §3). A user with no subscribed phones
  * never loads it at all.
  */
 

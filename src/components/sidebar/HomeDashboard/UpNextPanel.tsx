@@ -2,15 +2,12 @@ import { useMemo, useState } from "react";
 import { useProjectStore } from "../../../store/project-store";
 import { useAppStore } from "../../../store/app-store";
 import type { NewWorkspaceHandler } from "../../../lib/start-issue-work";
-import {
-  DEFAULT_TASK_FILTERS,
-  applyTaskFilters,
-  sortTasksBy,
-  withoutLinkedTasks,
-} from "../../../lib/tasks";
-import { readFilters, readProvider, readSort } from "../../tasks/task-prefs";
-import { useTasks } from "../../tasks/useTasks";
+import { entryLookup, taskList } from "../../../lib/task-list";
+import { trackerFor } from "../../../lib/trackers";
+import { isDefaultFilters, useTaskPrefs } from "../../tasks/task-prefs";
+import { useTaskScope, useTasks } from "../../tasks/useTasks";
 import { useStartTask } from "../../tasks/useStartTask";
+import { openLinkedTask } from "../../tasks/open-linked-task";
 import { TaskTableRow } from "../../tasks/TaskTableRow";
 import tasksStyles from "../../tasks/TasksView.module.css";
 import { Button } from "../../ui/Button/Button";
@@ -27,54 +24,61 @@ type UpNextPanelProps = {
 };
 
 /**
- * The Up next panel (ADR-198 §1.7): the top of the Tasks view's list — each
- * tracker's tasks through its saved filters, merged and ordered by the sort
- * of the tracker last shown there — in the Tasks table's compact rows. "View
- * all" opens the Tasks view.
+ * The Up next panel (ADR-198 §1.7, ADR-202 §4): the first rows of exactly
+ * the list "View all" opens — the tracker and project last chosen in the
+ * Tasks view, through that tracker's saved filters and sort, in-progress
+ * linked tasks included when the filters let them through — in the Tasks
+ * table's compact rows.
  */
 export function UpNextPanel(props: UpNextPanelProps) {
   const { onNewWorkspace, className } = props;
 
+  // The Tasks view isn't mounted alongside Home, so its choices can't change
+  // while this is shown — read once.
+  const prefs = useTaskPrefs();
+  const scope = useTaskScope(prefs.provider, prefs.project);
+  const { provider, projectKey } = scope;
+  const filters = prefs.filtersBy[provider];
+  const sort = prefs.sorts[provider];
+
   // Same queries as the Tasks view, so the two share one cache.
-  const github = useTasks({ provider: "github", projectKey: null });
-  const linear = useTasks({ provider: "linear", projectKey: null });
+  const { rows: fetched, loading } = useTasks({ provider, projectKey });
   const projects = useProjectStore((s) => s.projects);
   const showTasksView = useAppStore((s) => s.showTasksView);
   const startTask = useStartTask(onNewWorkspace);
   const [now] = useState(() => Date.now());
-  // The Tasks view isn't mounted alongside Home, so its choices can't change
-  // while this is shown — read once.
-  const [prefs] = useState(() => ({
-    sort: readSort(readProvider()),
-    github: readFilters("github"),
-    linear: readFilters("linear"),
-  }));
-  const defaultFilters =
-    JSON.stringify(prefs.github) === JSON.stringify(DEFAULT_TASK_FILTERS) &&
-    JSON.stringify(prefs.linear) === JSON.stringify(DEFAULT_TASK_FILTERS);
 
-  const upNext = useMemo(
+  const list = useMemo(
     () =>
-      sortTasksBy(
-        [
-          ...applyTaskFilters(withoutLinkedTasks(github.rows, projects), prefs.github),
-          ...applyTaskFilters(withoutLinkedTasks(linear.rows, projects), prefs.linear),
-        ],
-        prefs.sort,
+      taskList(
+        { rows: fetched, projects, entryOf: entryLookup(projects) },
+        { provider, projectKey, filters, sort },
       ),
-    [github.rows, linear.rows, projects, prefs],
+    [fetched, projects, provider, projectKey, filters, sort],
   );
-  const rows = upNext.slice(0, VISIBLE_ROWS);
-  const loading = github.loading || linear.loading;
+
+  // With no tracker usable the Tasks view shows its setup screen, not a list.
+  const nothingConnected = scope.providers.length === 0 && !scope.checking;
+  const rows = nothingConnected ? [] : list.top(VISIBLE_ROWS);
+  const total = nothingConnected ? 0 : list.matching.length;
+  const defaultFilters = isDefaultFilters(filters);
+
+  const sub = [
+    defaultFilters
+      ? "Assigned to you, not started"
+      : "Matching your Tasks filters",
+    ...(nothingConnected ? [] : [trackerFor(provider).label]),
+    ...(scope.selectedSource ? [scope.selectedSource.ctx.projectName] : []),
+  ].join(" · ");
 
   return (
     <Panel
       title="Up next"
-      sub={defaultFilters ? "Assigned to you, not started" : "Matching your Tasks filters"}
+      sub={sub}
       className={className}
       right={
         <Button variant="link" onClick={showTasksView}>
-          View all{upNext.length > 0 ? ` ${upNext.length}` : ""} →
+          View all{total > 0 ? ` ${total}` : ""} →
         </Button>
       }
     >
@@ -85,7 +89,9 @@ export function UpNextPanel(props: UpNextPanelProps) {
           ))
         ) : rows.length === 0 ? (
           <p className={styles.empty}>
-            {defaultFilters ? "No assigned tasks waiting to start." : "No tasks match your Tasks filters."}
+            {defaultFilters || nothingConnected
+              ? "No assigned tasks waiting to start."
+              : "No tasks match your Tasks filters."}
           </p>
         ) : (
           <div
@@ -93,17 +99,29 @@ export function UpNextPanel(props: UpNextPanelProps) {
             role="table"
             aria-label="Up next tasks"
           >
-            {rows.map((row) => (
-              <TaskTableRow
-                key={row.key}
-                row={row}
-                now={now}
-                showPriority={false}
-                actionLabel="Start"
-                onAction={() => void startTask(row)}
-                compact
-              />
-            ))}
+            {rows.map((row) =>
+              "workspacePath" in row ? (
+                <TaskTableRow
+                  key={row.key}
+                  row={row}
+                  now={now}
+                  showPriority={false}
+                  actionLabel="Open"
+                  onAction={() => openLinkedTask(row)}
+                  compact
+                />
+              ) : (
+                <TaskTableRow
+                  key={row.key}
+                  row={row}
+                  now={now}
+                  showPriority={false}
+                  actionLabel="Start"
+                  onAction={() => void startTask(row)}
+                  compact
+                />
+              ),
+            )}
           </div>
         )}
       </div>

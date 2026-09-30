@@ -12,8 +12,7 @@ import type {
   PrInfo,
 } from "../src/lib/pr-info";
 import { LOCAL_HOST_ID } from "./backend/types";
-import { normalizeHostId } from "../src/lib/host-id";
-import { workspaceKey, type WorkspaceKey } from "../src/lib/workspace-key";
+import { normalizeHostId, workspaceKey, type WorkspaceKey } from "../src/lib/workspace-key";
 import type { GhRepo } from "../src/lib/gh-repo";
 
 const execFileAsync = promisify(execFile);

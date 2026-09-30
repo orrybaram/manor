@@ -1,5 +1,5 @@
 /**
- * The light half of `tunnel.ts` (ADR-202 §3): the status types, the stopped
+ * The light half of `tunnel.ts` (ADR-205 §3): the status types, the stopped
  * status, and PATH detection.
  *
  * The controller needs all three before remote control is ever turned on — the

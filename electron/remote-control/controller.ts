@@ -14,7 +14,7 @@
  *     the machine is there, and still shows up in the indicator as reachable.
  *
  * The listener and the tunnel manager (the "runtime") are loaded lazily, the
- * first time the user enables remote control or starts a tunnel (ADR-202 §3).
+ * first time the user enables remote control or starts a tunnel (ADR-205 §3).
  * Until then the controller answers from what it knows without them: status
  * reports disabled with a stopped tunnel, detection probes PATH directly, and
  * every teardown is a no-op for parts that were never loaded. The device store

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useProjectStore } from "../store/project-store";
+import type { WorkspaceKey } from "../lib/workspace-key";
 import { useMountEffect } from "./useMountEffect";
 
 export function useBranchWatcher() {
@@ -40,8 +41,8 @@ export function useBranchWatcher() {
   // Subscribe to branch change events
   useMountEffect(() => {
     const unsubscribe = window.electronAPI.branches.onChange((branches) => {
-      for (const [wsPath, branch] of Object.entries(branches)) {
-        updateWorkspaceBranch(wsPath, branch);
+      for (const [key, branch] of Object.entries(branches)) {
+        updateWorkspaceBranch(key as WorkspaceKey, branch);
       }
     });
     return unsubscribe;

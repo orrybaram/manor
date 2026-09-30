@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { useQuery } from "@tanstack/react-query";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
-import { useAppStore } from "../../store/app-store";
+import { selectActiveWorkspaceKey, useAppStore } from "../../store/app-store";
+import { ownerOf } from "../../lib/workspace-directory";
 import { useProjectStore } from "../../store/project-store";
 import type { LinearIssue, LinearIssueDetail } from "../../electron.d";
 import { PRIORITY_LABELS, stripMarkdown, extractImages } from "./utils";
@@ -70,11 +71,10 @@ export function IssueDetailView(props: IssueDetailViewProps) {
       window.electronAPI.linear.startIssue(issue.id);
       onClose();
 
-      const activeWorkspacePath = useAppStore.getState().activeWorkspacePath;
-      const allProjects = useProjectStore.getState().projects;
-      const project = allProjects.find((p) =>
-        p.workspaces.some((w) => w.path === activeWorkspacePath),
-      );
+      const state = useAppStore.getState();
+      const activeWorkspacePath = state.activeWorkspacePath;
+      const activeKey = selectActiveWorkspaceKey(state);
+      const project = ownerOf(useProjectStore.getState().projects, activeKey);
       if (project && activeWorkspacePath) {
         useProjectStore.getState().linkIssueToWorkspace(
           project.id,

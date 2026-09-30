@@ -8,7 +8,7 @@ blocked_by: [1, 3]
 
 # Reorder and parallelise post-window startup
 
-See ADR-202 §4.
+See ADR-205 §4.
 
 In `electron/app-lifecycle.ts`:
 

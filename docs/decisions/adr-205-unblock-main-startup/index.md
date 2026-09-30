@@ -17,7 +17,7 @@ database:
   groupBy: status
 ---
 
-# ADR-202: Unblock the Electron main-process startup path
+# ADR-205: Unblock the Electron main-process startup path
 
 ## Context
 

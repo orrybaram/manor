@@ -6,10 +6,14 @@
  * components wire store state into these; they own no state of their own.
  */
 
-import type { AgentInfo, GitHubIssue, LinearIssue, PaneAgentStatus } from "../electron.d";
+import type { AgentInfo, PaneAgentStatus } from "../electron.d";
 import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
 import type { TopLevelEntry } from "../utils/sidebar-items";
-import { prReadiness, type PrReadiness } from "./pr-readiness";
+import {
+  blockerLabel,
+  prVerdict,
+  type PrBlocker,
+} from "./pr-readiness";
 import type { PrInfo } from "./pr-info";
 import { projectForWorkspaceKey } from "./hosts";
 import { workspaceKey } from "./workspace-key";
@@ -43,6 +47,8 @@ export type NeedsYouItem =
       workspace: WorkspaceInfo;
       /** "conflicts" / "checks failing" / "changes requested" / "N unresolved threads" / "ready to merge". */
       reason: string;
+      /** What blocks a `blocked` PR (ADR-202); null when it's `ready`. */
+      blocker: PrBlocker | null;
     };
 
 export interface NeedsYouInput {
@@ -92,15 +98,10 @@ export function resolveAgentContext(
   return { project, workspace };
 }
 
-/** The first applicable cause of a blocked PR (ADR §1), mirroring `prReadiness`'s own order. */
+/** A delegate to `prVerdict`, kept only for `openPrLabel`; new code reads the verdict. */
 export function blockedReason(pr: PrInfo): string {
-  if (pr.hasConflicts === true) return "conflicts";
-  if (pr.checks != null && pr.checks.failing > 0) return "checks failing";
-  if (pr.reviewDecision === "CHANGES_REQUESTED") return "changes requested";
-  if (pr.unresolvedThreads != null && pr.unresolvedThreads > 0) {
-    return `${pr.unresolvedThreads} unresolved thread${pr.unresolvedThreads === 1 ? "" : "s"}`;
-  }
-  return "blocked";
+  const { blocker } = prVerdict(pr);
+  return blocker ? blockerLabel(blocker) : "blocked";
 }
 
 /**
@@ -151,16 +152,22 @@ export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
       const pr = workspace.pr;
       if (!pr || pr.state !== "open") continue;
       if (seenPrUrls.has(pr.url)) continue;
-      const readiness = prReadiness(pr);
-      if (readiness !== "blocked" && readiness !== "ready") continue;
+      const verdict = prVerdict(pr);
+      if (verdict.readiness !== "blocked" && verdict.readiness !== "ready") {
+        continue;
+      }
       seenPrUrls.add(pr.url);
       prItems.push({
         kind: "pr",
-        tier: readiness,
+        tier: verdict.readiness,
         pr,
         project,
         workspace,
-        reason: readiness === "blocked" ? blockedReason(pr) : "ready to merge",
+        reason:
+          verdict.readiness === "blocked"
+            ? blockerLabel(verdict.blocker)
+            : "ready to merge",
+        blocker: verdict.blocker,
       });
     }
   }
@@ -209,97 +216,6 @@ export function openPrCount(projects: readonly ProjectInfo[]): number {
   return urls.size;
 }
 
-// ── Up next: issues ──
-
-/**
- * `id`, `identifier` or `url` normalized to a comparable ref: `gh-12`, `#12`
- * and `12` all become `"12"`; an issue or PR URL's trailing number becomes
- * that number; anything else (a Linear identifier like `ENG-123`) is
- * lower-cased as is, so it still compares equal to itself.
- */
-export function normalizeIssueRef(ref: string): string {
-  const trimmed = ref.trim();
-  const urlMatch = trimmed.match(/\/(?:issues|pull)\/(\d+)\/?(?:[?#].*)?$/);
-  if (urlMatch) return urlMatch[1];
-  const numMatch = /^(?:gh-|#)?(\d+)$/i.exec(trimmed);
-  if (numMatch) return numMatch[1];
-  return trimmed.toLowerCase();
-}
-
-/**
- * Whether `issue` already has a linked workspace somewhere in `projects`:
- * matched by exact URL, or by `normalizeIssueRef` equality between the
- * issue's number and a `WorkspaceInfo.linkedIssues` entry's `id` or
- * `identifier` (`gh-12` ≡ `12` ≡ `#12`, ADR §1).
- */
-export function isIssueLinked(
-  issue: { url: string; number?: number },
-  projects: readonly ProjectInfo[],
-): boolean {
-  const issueRef = issue.number != null ? normalizeIssueRef(String(issue.number)) : null;
-  for (const project of projects) {
-    for (const workspace of project.workspaces) {
-      for (const linked of workspace.linkedIssues ?? []) {
-        if (linked.url === issue.url) return true;
-        if (issueRef == null) continue;
-        if (normalizeIssueRef(linked.id) === issueRef) return true;
-        if (normalizeIssueRef(linked.identifier) === issueRef) return true;
-      }
-    }
-  }
-  return false;
-}
-
-export interface UpNextIssue {
-  source: "github" | "linear";
-  /** The top-level entry (project or group) this issue's project belongs to. */
-  projectKey: string;
-  number?: number;
-  identifier: string;
-  title: string;
-  url: string;
-  labels: string[];
-  /** Linear priority: 1 Urgent … 4 Low, 0 none. Absent for GitHub issues. */
-  priority?: number;
-  raw: unknown;
-}
-
-/** Sort rank of a Linear priority: 1 Urgent … 4 Low, then none (0 / absent) last. */
-function priorityRank(priority: number | undefined): number {
-  return priority != null && priority >= 1 && priority <= 4 ? priority : 5;
-}
-
-/**
- * `issues` ranked per ADR §1: `ready-for-agent` labelled issues first, then
- * Linear `priority` (ADR-198 §2: Urgent → Low, none last — GitHub issues
- * have none), then `projectOrder` (sidebar order), then lowest issue number
- * (GitHub) or identifier (Linear). The caller is expected to have already dropped linked
- * issues (`isIssueLinked`) — ranking stays pure and doesn't need `projects`.
- */
-export function rankUpNext(
-  issues: readonly UpNextIssue[],
-  projectOrder: readonly string[],
-): UpNextIssue[] {
-  const orderIndex = new Map(projectOrder.map((key, i) => [key, i]));
-  return [...issues].sort((a, b) => {
-    const aReady = a.labels.includes("ready-for-agent") ? 0 : 1;
-    const bReady = b.labels.includes("ready-for-agent") ? 0 : 1;
-    if (aReady !== bReady) return aReady - bReady;
-
-    const priorityDiff = priorityRank(a.priority) - priorityRank(b.priority);
-    if (priorityDiff !== 0) return priorityDiff;
-
-    const aIndex = orderIndex.get(a.projectKey) ?? projectOrder.length;
-    const bIndex = orderIndex.get(b.projectKey) ?? projectOrder.length;
-    if (aIndex !== bIndex) return aIndex - bIndex;
-
-    if (a.number != null && b.number != null && a.number !== b.number) {
-      return a.number - b.number;
-    }
-    return a.identifier.localeCompare(b.identifier, undefined, { numeric: true });
-  });
-}
-
 /**
  * The member project a top-level entry is read through: the project itself,
  * or for a linked group the `lastUsedHostId` member (else the first). Up next
@@ -311,134 +227,4 @@ export function primaryMember(entry: TopLevelEntry<ProjectInfo>): ProjectInfo | 
     entry.sections.find((s) => s.project.hostId === entry.group.lastUsedHostId)?.project ??
     entry.sections[0]?.project
   );
-}
-
-/** A `gh issue list` result as an Up next candidate under `projectKey`. */
-export function upNextFromGitHub(issue: GitHubIssue, projectKey: string): UpNextIssue {
-  return {
-    source: "github",
-    projectKey,
-    number: issue.number,
-    identifier: `#${issue.number}`,
-    title: issue.title,
-    url: issue.url,
-    labels: issue.labels.map((l) => l.name),
-    raw: issue,
-  };
-}
-
-/** A Linear "my issues" result as an Up next candidate under `projectKey`. */
-export function upNextFromLinear(issue: LinearIssue, projectKey: string): UpNextIssue {
-  return {
-    source: "linear",
-    projectKey,
-    identifier: issue.identifier,
-    title: issue.title,
-    url: issue.url,
-    labels: issue.labels.map((l) => l.name),
-    priority: issue.priority,
-    raw: issue,
-  };
-}
-
-/**
- * Up next's list: drops issues already linked to a workspace (`isIssueLinked`)
- * and duplicates (two unlinked projects on the same repo list the same issue —
- * the first, in sidebar order, wins), then ranks with `rankUpNext`.
- */
-export function upNextList(
-  candidates: readonly UpNextIssue[],
-  projects: readonly ProjectInfo[],
-  projectOrder: readonly string[],
-): UpNextIssue[] {
-  const ranked = rankUpNext(
-    candidates.filter((issue) => !isIssueLinked(issue, projects)),
-    projectOrder,
-  );
-  const seen = new Set<string>();
-  return ranked.filter((issue) => {
-    if (seen.has(issue.url)) return false;
-    seen.add(issue.url);
-    return true;
-  });
-}
-
-/**
- * The first `perProject` items of each project from an already-ranked list,
- * keeping their rank order. Groups come out in `projectOrder` order; keys not
- * in `projectOrder` go last (in first-seen order).
- */
-export function topUpNextPerProject<T extends { projectKey: string }>(
-  ranked: readonly T[],
-  projectOrder: readonly string[],
-  perProject: number,
-): T[] {
-  const groups = new Map<string, T[]>();
-  for (const item of ranked) {
-    const group = groups.get(item.projectKey);
-    if (group) group.push(item);
-    else groups.set(item.projectKey, [item]);
-  }
-  const known = new Set(projectOrder);
-  const keys = [...projectOrder, ...[...groups.keys()].filter((k) => !known.has(k))];
-  return keys.flatMap((key) => (groups.get(key) ?? []).slice(0, perProject));
-}
-
-// ── Open PRs ──
-
-export type OpenPrReadiness = Exclude<PrReadiness, "merged" | "closed">;
-
-export interface OpenPrRow {
-  pr: PrInfo;
-  project: ProjectInfo;
-  workspace: WorkspaceInfo;
-  readiness: OpenPrReadiness;
-  /** "conflicts" / "ready to merge" / "needs review" / "queued to merge" / "draft" / "checks running" / … */
-  label: string;
-}
-
-const OPEN_PR_RANK: Record<OpenPrReadiness, number> = {
-  blocked: 0,
-  ready: 1,
-  review: 2,
-  queued: 3,
-  pending: 4,
-};
-
-function openPrLabel(pr: PrInfo, readiness: OpenPrReadiness): string {
-  switch (readiness) {
-    case "blocked":
-      return blockedReason(pr);
-    case "ready":
-      return "ready to merge";
-    case "review":
-      return "needs review";
-    case "queued":
-      return "queued to merge";
-    case "pending":
-      if (pr.isDraft) return "draft";
-      if (pr.checks != null && pr.checks.pending > 0) return "checks running";
-      return "pending";
-  }
-}
-
-/**
- * Every open PR across `projects` (deduped by `pr.url`, first wins), ordered
- * blocked, ready, review, queued, pending. Within a rank, `projects` order
- * then workspace order (the sort is stable).
- */
-export function openPrRows(projects: readonly ProjectInfo[]): OpenPrRow[] {
-  const rows: OpenPrRow[] = [];
-  const seen = new Set<string>();
-  for (const project of projects) {
-    for (const workspace of project.workspaces) {
-      const pr = workspace.pr;
-      if (!pr || pr.state !== "open") continue;
-      if (seen.has(pr.url)) continue;
-      seen.add(pr.url);
-      const readiness = prReadiness(pr) as OpenPrReadiness;
-      rows.push({ pr, project, workspace, readiness, label: openPrLabel(pr, readiness) });
-    }
-  }
-  return rows.sort((a, b) => OPEN_PR_RANK[a.readiness] - OPEN_PR_RANK[b.readiness]);
 }

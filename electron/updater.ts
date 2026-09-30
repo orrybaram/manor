@@ -1,5 +1,6 @@
 import { app, BrowserWindow } from "electron";
 import type { AppUpdater, UpdateInfo, ProgressInfo } from "electron-updater";
+import { cjsExports, lazy } from "./lib/lazy";
 
 // Track whether the last checkForUpdates() call was triggered manually by the user.
 // Set to true in the exported checkForUpdates() (called via IPC from renderer).
@@ -9,11 +10,10 @@ import type { AppUpdater, UpdateInfo, ProgressInfo } from "electron-updater";
 let lastTriggerWasManual = false;
 let lastCheckedManual = false;
 
-let getWindowFn: (() => BrowserWindow | null) | null = null;
-let updaterPromise: Promise<AppUpdater> | null = null;
+let getPrimaryWindow: (() => BrowserWindow | null) | null = null;
 
 function send(channel: string, payload: unknown): void {
-  const win = getWindowFn?.();
+  const win = getPrimaryWindow?.();
   if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
   win.webContents.send(channel, payload);
 }
@@ -22,63 +22,54 @@ function send(channel: string, payload: unknown): void {
  * Loads electron-updater on first use (keeps it out of the startup path) and
  * wires its event listeners exactly once.
  */
-function loadUpdater(): Promise<AppUpdater> {
-  if (updaterPromise) return updaterPromise;
-  updaterPromise = (async () => {
-    const mod = await import("electron-updater");
-    const autoUpdater: AppUpdater =
-      mod.autoUpdater ??
-      (mod as unknown as { default: { autoUpdater: AppUpdater } }).default
-        .autoUpdater;
+const loadUpdater = lazy(async (): Promise<AppUpdater> => {
+  const { autoUpdater } = cjsExports(
+    await import("electron-updater"),
+    "autoUpdater",
+  );
 
-    autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
 
-    autoUpdater.on("checking-for-update", () => {
-      lastCheckedManual = lastTriggerWasManual;
-      lastTriggerWasManual = false; // reset for next check cycle
-      send("updater:checking-for-update", { manual: lastCheckedManual });
-    });
-
-    autoUpdater.on("update-not-available", (info: UpdateInfo) => {
-      send("updater:update-not-available", {
-        version: info.version,
-        manual: lastCheckedManual,
-      });
-    });
-
-    autoUpdater.on("update-available", (info: UpdateInfo) => {
-      send("updater:update-available", info);
-    });
-
-    autoUpdater.on("update-downloaded", (info: UpdateInfo) => {
-      send("updater:update-downloaded", info);
-    });
-
-    autoUpdater.on("error", (err: Error) => {
-      send("updater:error", {
-        message: err.message,
-        manual: lastCheckedManual,
-      });
-    });
-
-    autoUpdater.on("download-progress", (progress: ProgressInfo) => {
-      send("updater:download-progress", {
-        percent: progress.percent,
-        bytesPerSecond: progress.bytesPerSecond,
-        transferred: progress.transferred,
-        total: progress.total,
-      });
-    });
-
-    return autoUpdater;
-  })();
-  // Allow a retry if the import itself failed.
-  updaterPromise.catch(() => {
-    updaterPromise = null;
+  autoUpdater.on("checking-for-update", () => {
+    lastCheckedManual = lastTriggerWasManual;
+    lastTriggerWasManual = false; // reset for next check cycle
+    send("updater:checking-for-update", { manual: lastCheckedManual });
   });
-  return updaterPromise;
-}
+
+  autoUpdater.on("update-not-available", (info: UpdateInfo) => {
+    send("updater:update-not-available", {
+      version: info.version,
+      manual: lastCheckedManual,
+    });
+  });
+
+  autoUpdater.on("update-available", (info: UpdateInfo) => {
+    send("updater:update-available", info);
+  });
+
+  autoUpdater.on("update-downloaded", (info: UpdateInfo) => {
+    send("updater:update-downloaded", info);
+  });
+
+  autoUpdater.on("error", (err: Error) => {
+    send("updater:error", {
+      message: err.message,
+      manual: lastCheckedManual,
+    });
+  });
+
+  autoUpdater.on("download-progress", (progress: ProgressInfo) => {
+    send("updater:download-progress", {
+      percent: progress.percent,
+      bytesPerSecond: progress.bytesPerSecond,
+      transferred: progress.transferred,
+      total: progress.total,
+    });
+  });
+
+  return autoUpdater;
+});
 
 async function backgroundCheck(): Promise<void> {
   try {
@@ -100,7 +91,7 @@ export function initAutoUpdater(
   // Skip updater entirely in dev — prevents swallowed-error noise
   if (!app.isPackaged) return;
 
-  getWindowFn = getWindow;
+  getPrimaryWindow = getWindow;
 
   setTimeout(() => {
     void backgroundCheck();
@@ -112,13 +103,25 @@ export function initAutoUpdater(
   }, 4 * 60 * 60 * 1000);
 }
 
-export async function checkForUpdates(): Promise<void> {
+/**
+ * Fire-and-forget, like the check it replaced: the outcome reaches the renderer
+ * through the `updater:*` events, not through the caller.
+ */
+export function checkForUpdates(): void {
   lastTriggerWasManual = true;
-  const updater = await loadUpdater();
-  await updater.checkForUpdates();
+  void runUpdater((updater) => updater.checkForUpdates());
 }
 
-export async function quitAndInstall(): Promise<void> {
-  const updater = await loadUpdater();
-  updater.quitAndInstall();
+export function quitAndInstall(): void {
+  void runUpdater((updater) => updater.quitAndInstall());
+}
+
+async function runUpdater(
+  action: (updater: AppUpdater) => unknown,
+): Promise<void> {
+  try {
+    await action(await loadUpdater());
+  } catch (err) {
+    console.error("[updater]", err);
+  }
 }

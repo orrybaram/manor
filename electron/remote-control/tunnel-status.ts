@@ -6,7 +6,7 @@
  * settings panel renders a tunnel status and asks which tools are installed —
  * but the tunnel manager itself is loaded only when the user enables remote
  * control. Keeping these here lets the controller answer without evaluating
- * `tunnel.ts`, which re-exports everything below so existing imports still work.
+ * `tunnel.ts`, which re-exports the types so existing imports still work.
  */
 
 export type TunnelKind = "tailscale" | "cloudflared";

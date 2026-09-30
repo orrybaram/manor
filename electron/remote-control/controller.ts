@@ -22,6 +22,7 @@
  * off, and it has no heavy dependencies.
  */
 
+import { lazy, type Lazy } from "../lib/lazy";
 import type { RemoteDeviceInfo, RemoteDeviceStore } from "./devices";
 import { isPushable, pushPayloadFor, type PushManager } from "./push";
 import type { RemoteControlServer, RemoteStatusEvent } from "./server";
@@ -71,8 +72,8 @@ export class RemoteControlController {
 
   /** Set once the runtime has loaded; everything sync reads this. */
   private runtime: RemoteControlRuntime | null = null;
-  /** The single in-flight (or settled) load, so it happens at most once. */
-  private runtimeLoad: Promise<RemoteControlRuntime> | null = null;
+  /** Loads the runtime at most once; concurrent callers share the load. */
+  private readonly ensureRuntime: Lazy<RemoteControlRuntime>;
   /** The single in-flight listener start, shared by concurrent enables. */
   private starting: Promise<void> | null = null;
   /**
@@ -85,14 +86,21 @@ export class RemoteControlController {
   private closed = false;
 
   constructor(
-    private readonly loadRuntime: () => Promise<RemoteControlRuntime>,
+    loadRuntime: () => Promise<RemoteControlRuntime>,
     private readonly deviceStore: RemoteDeviceStore,
     /** PATH probe for tunnel detection — must not need the runtime. */
     private readonly which: WhichFn,
     private readonly encryptionAvailable: () => boolean,
     /** Null disables push; everything else still works. */
     private readonly push: PushManager | null = null,
-  ) {}
+  ) {
+    this.ensureRuntime = lazy(async () => {
+      const runtime = await loadRuntime();
+      this.runtime = runtime;
+      runtime.tunnel.onStatus(() => this.emit());
+      return runtime;
+    });
+  }
 
   /**
    * One agent-status transition, fanned out to everything remote control does
@@ -137,18 +145,11 @@ export class RemoteControlController {
   }
 
   status(): RemoteControlStatus {
-    const server = this.runtime?.server;
-    const running = server?.running ?? false;
     return {
-      enabled: running,
-      port: running && server ? server.serverPort : null,
+      ...this.runtimeStatus(),
       devices: this.deviceStore.list(),
-      tunnel: this.runtime
-        ? this.runtime.tunnel.status
-        : { ...STOPPED_TUNNEL_STATUS },
       detected: { ...this.detected },
       encryptionAvailable: this.encryptionAvailable(),
-      listeners: server?.listenerCount ?? 0,
     };
   }
 
@@ -283,29 +284,13 @@ export class RemoteControlController {
     await this.starting?.catch(() => {});
   }
 
-  /** Load the runtime once; concurrent callers share the one load. */
-  private ensureRuntime(): Promise<RemoteControlRuntime> {
-    if (!this.runtimeLoad) {
-      const loading = this.loadRuntime().then((runtime) => {
-        this.runtime = runtime;
-        runtime.tunnel.onStatus(() => this.emit());
-        return runtime;
-      });
-      // A failed load (a missing chunk, say) may be retried by the next call.
-      loading.catch(() => {
-        if (this.runtimeLoad === loading) this.runtimeLoad = null;
-      });
-      this.runtimeLoad = loading;
-    }
-    return this.runtimeLoad;
-  }
-
   /** The runtime if loaded or already loading. Never starts a load. */
   private async loadedRuntime(): Promise<RemoteControlRuntime | null> {
     if (this.runtime) return this.runtime;
-    if (!this.runtimeLoad) return null;
+    const started = this.ensureRuntime.started();
+    if (!started) return null;
     try {
-      return await this.runtimeLoad;
+      return await started;
     } catch {
       return null;
     }
@@ -320,6 +305,28 @@ export class RemoteControlController {
       // Their `stop()` found nothing to close yet, so close it here.
       await runtime.server.stop();
     }
+  }
+
+  /** The runtime's part of `status()`; disabled and stopped until it loads. */
+  private runtimeStatus(): Pick<
+    RemoteControlStatus,
+    "enabled" | "port" | "tunnel" | "listeners"
+  > {
+    if (!this.runtime) {
+      return {
+        enabled: false,
+        port: null,
+        tunnel: { ...STOPPED_TUNNEL_STATUS },
+        listeners: 0,
+      };
+    }
+    const { server, tunnel } = this.runtime;
+    return {
+      enabled: server.running,
+      port: server.running ? server.serverPort : null,
+      tunnel: tunnel.status,
+      listeners: server.listenerCount,
+    };
   }
 
   private emit(): void {

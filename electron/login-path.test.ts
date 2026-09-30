@@ -24,13 +24,13 @@ function makeDeps(opts: {
     writeFile,
     mkdir,
     execFile: (_s, _a, _o, cb) => (opts.exec ?? (() => {}))(cb),
-    cacheFile: () => "/data/login-path.json",
+    cacheFilePath: () => "/data/login-path.json",
   };
   return { deps, writeFile, mkdir };
 }
 
 const cacheJson = (p: string, shell = SHELL) =>
-  JSON.stringify({ path: p, shell, resolvedAt: 1 });
+  JSON.stringify({ path: p, shell });
 
 describe("login-path", () => {
   const originalPath = process.env.PATH;

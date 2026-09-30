@@ -28,13 +28,7 @@ import {
   type WhichFn,
 } from "./tunnel-status";
 
-export {
-  detectTunnelTools,
-  STOPPED_TUNNEL_STATUS,
-  type TunnelKind,
-  type TunnelState,
-  type TunnelStatus,
-} from "./tunnel-status";
+export type { TunnelKind, TunnelState, TunnelStatus } from "./tunnel-status";
 
 /** The subset of `ChildProcess` this module uses, so tests can fake it. */
 export interface TunnelChild {
@@ -98,13 +92,9 @@ export class TunnelManager {
     return () => this.listeners.delete(listener);
   }
 
-  detect(): Promise<Record<TunnelKind, boolean>> {
-    return detectTunnelTools(this.deps.which);
-  }
-
   /** Tailscale when available — see the header for why that is not a taste call. */
   async preferredKind(): Promise<TunnelKind | null> {
-    const found = await this.detect();
+    const found = await detectTunnelTools(this.deps.which);
     if (found.tailscale) return "tailscale";
     if (found.cloudflared) return "cloudflared";
     return null;

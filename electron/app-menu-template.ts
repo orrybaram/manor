@@ -30,7 +30,7 @@ export interface MenuTemplateState {
 export interface MenuActions {
   send: (commandId: string, args?: Record<string, unknown>) => void;
   zoom: (delta: number | "reset") => void;
-  checkForUpdates: () => void | Promise<void>;
+  checkForUpdates: () => void;
   openExternal: (url: string) => void;
   revealDataFolder: () => void;
 }

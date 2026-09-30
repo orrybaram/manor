@@ -826,11 +826,30 @@ export function initApp(devTitle: string | null): void {
     // and passes it to PTY sessions (which need MANOR_HOOK_PORT for hook
     // scripts). `loginPathReady()` is awaited for the same reason: the daemon
     // inherits PATH at spawn. Kicked off before the sync bootstrap below so the
-    // sockets can be listening while it runs.
-    const serversStarted = Promise.allSettled([
-      agentHookServer.start(),
-      webviewServer.start(),
-      portlessManager.start(),
+    // sockets can be listening while it runs. A server that fails to start is
+    // logged and its port left unset; the daemon still connects without it.
+    const localServers = [
+      {
+        name: "agent hook server",
+        start: () => agentHookServer.start(),
+        env: "MANOR_HOOK_PORT",
+        port: () => agentHookServer.hookPort,
+      },
+      {
+        name: "webview server",
+        start: () => webviewServer.start(),
+        env: "MANOR_WEBVIEW_PORT",
+        port: () => webviewServer.serverPort,
+      },
+      {
+        name: "portless proxy",
+        start: () => portlessManager.start(),
+        env: "MANOR_PORTLESS_PORT",
+        port: () => portlessManager.proxyPort,
+      },
+    ];
+    const serversStarted = Promise.all([
+      Promise.allSettled(localServers.map((server) => server.start())),
       loginPathReady(),
     ]);
 
@@ -848,28 +867,18 @@ export function initApp(devTitle: string | null): void {
       console.error("[app-lifecycle] host bootstrap failed:", err);
     }
 
-    const [hookResult, webviewResult, portlessResult, pathResult] = await serversStarted;
-    if (hookResult.status === "fulfilled") {
-      process.env.MANOR_HOOK_PORT = String(agentHookServer.hookPort);
-    } else {
-      console.error("Failed to start agent hook server:", hookResult.reason);
-    }
+    const [results] = await serversStarted;
+    results.forEach((result, i) => {
+      const server = localServers[i];
+      if (result.status === "fulfilled") {
+        process.env[server.env] = String(server.port());
+      } else {
+        console.error(`Failed to start ${server.name}:`, result.reason);
+      }
+    });
     // Only remote-namespace panes set this; if Manor was launched from one,
     // local panes would otherwise send hooks to the remote daemon's listener.
     delete process.env.MANOR_HOOK_PORT_FILE;
-    if (webviewResult.status === "fulfilled") {
-      process.env.MANOR_WEBVIEW_PORT = String(webviewServer.serverPort);
-    } else {
-      console.error("Failed to start webview server:", webviewResult.reason);
-    }
-    if (portlessResult.status === "fulfilled") {
-      process.env.MANOR_PORTLESS_PORT = String(portlessManager.proxyPort);
-    } else {
-      console.error("Failed to start portless proxy:", portlessResult.reason);
-    }
-    if (pathResult.status === "rejected") {
-      console.error("Login PATH resolution failed:", pathResult.reason);
-    }
 
     // Connect to daemon (spawns if needed) — now has MANOR_HOOK_PORT in env
     try {

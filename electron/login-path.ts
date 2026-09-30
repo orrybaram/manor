@@ -17,7 +17,6 @@ const COMMON_PATHS = ["/opt/homebrew/bin", "/usr/local/bin"];
 interface LoginPathCache {
   path: string;
   shell: string;
-  resolvedAt: number;
 }
 
 /** Seams for tests. */
@@ -31,7 +30,7 @@ export interface LoginPathDeps {
     opts: { timeout: number; encoding: "utf-8" },
     cb: (err: Error | null, stdout: string) => void,
   ) => void;
-  cacheFile: () => string;
+  cacheFilePath: () => string;
 }
 
 const defaultDeps: LoginPathDeps = {
@@ -43,22 +42,22 @@ const defaultDeps: LoginPathDeps = {
   execFile: (shell, args, opts, cb) => {
     execFile(shell, args, opts, (err, stdout) => cb(err, stdout));
   },
-  cacheFile: loginPathFile,
+  cacheFilePath: loginPathFile,
 };
 
 function currentShell(): string {
   return process.env.SHELL || "/bin/zsh";
 }
 
-let ready: Promise<void> = Promise.resolve();
+let loginPathSettled: Promise<void> = Promise.resolve();
 
 /** The cached login PATH, or null when absent, malformed or for another shell. */
 export function readCachedLoginPath(
-  deps: Pick<LoginPathDeps, "readFile" | "cacheFile"> = defaultDeps,
+  deps: Pick<LoginPathDeps, "readFile" | "cacheFilePath"> = defaultDeps,
 ): string | null {
   try {
     const cache = JSON.parse(
-      deps.readFile(deps.cacheFile()),
+      deps.readFile(deps.cacheFilePath()),
     ) as Partial<LoginPathCache>;
     if (typeof cache.path !== "string" || !cache.path) return null;
     if (cache.shell !== currentShell()) return null;
@@ -99,13 +98,9 @@ export function resolveLoginPath(
 
 function writeCache(value: string, shell: string, deps: LoginPathDeps): void {
   try {
-    const file = deps.cacheFile();
+    const file = deps.cacheFilePath();
     deps.mkdir(path.dirname(file));
-    const cache: LoginPathCache = {
-      path: value,
-      shell,
-      resolvedAt: Date.now(),
-    };
+    const cache: LoginPathCache = { path: value, shell };
     deps.writeFile(file, JSON.stringify(cache));
   } catch (err) {
     console.warn("[login-path] failed to write cache:", err);
@@ -130,10 +125,10 @@ export function startLoginPathResolution(
   });
 
   // With a cache the PATH already is last run's login PATH; nothing to wait for.
-  ready = cached ? Promise.resolve() : resolving;
+  loginPathSettled = cached ? Promise.resolve() : resolving;
 }
 
 /** Settles once the login PATH is usable. Never rejects. */
 export function loginPathReady(): Promise<void> {
-  return ready;
+  return loginPathSettled;
 }

@@ -27,6 +27,7 @@ import path from "node:path";
 import { safeStorage } from "electron";
 import type * as WebPush from "web-push";
 
+import { cjsExports, lazy } from "../lib/lazy";
 import { remoteVapidFile } from "../paths";
 import type { PushSubscriptionRecord, RemoteDeviceStore } from "./devices";
 
@@ -54,30 +55,10 @@ export function isPushable(status: string): status is PushableStatus {
 /** A `mailto:` subject is required by the VAPID spec; nothing is sent to it. */
 const VAPID_SUBJECT = "mailto:remote-control@manor.invalid";
 
-type WebPushModule = typeof WebPush;
-
-let webPushPromise: Promise<WebPushModule> | null = null;
-
-/** Loads `web-push` once, on first use. */
-function loadWebPush(): Promise<WebPushModule> {
-  if (webPushPromise) return webPushPromise;
-  const loading = import("web-push").then((mod) => {
-    // CJS interop: depending on the bundler the exports sit on the namespace
-    // or under `default`.
-    const ns = mod as unknown as Partial<WebPushModule> & {
-      default?: WebPushModule;
-    };
-    return ns.sendNotification
-      ? (ns as WebPushModule)
-      : (ns.default as WebPushModule);
-  });
-  loading.catch(() => {
-    // Let a later call retry rather than caching the failure forever.
-    if (webPushPromise === loading) webPushPromise = null;
-  });
-  webPushPromise = loading;
-  return loading;
-}
+/** `web-push`, loaded on first use. */
+const loadWebPush = lazy(async () =>
+  cjsExports(await import("web-push"), "sendNotification"),
+);
 
 export class PushManager {
   private keys: VapidKeys | null = null;

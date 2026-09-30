@@ -81,10 +81,15 @@ window is up rather than before it.
 with `await import("electron-updater")` behind a memoised `loadUpdater()`.
 `initAutoUpdater(getWindow)` schedules the load, the listener wiring and the
 first check for 5 s after it is called (the existing first-check delay), plus
-the 4 h interval. `checkForUpdates()` and `quitAndInstall()` become async and
-load on demand (a manual "Check for updates" before the timer fires still
-works and wires listeners exactly once). Callers in `app-menu`, `ipc/misc.ts`
-and `routes/system.ts` treat them as `void`/awaited promises.
+the 4 h interval. `checkForUpdates()` and `quitAndInstall()` keep their `void`
+signatures and load on demand, fire-and-forget (a manual "Check for updates"
+before the timer fires still works and wires listeners exactly once); their
+outcome reaches the renderer through the `updater:*` events, as before, so
+callers are unchanged.
+
+The memoise-and-retry loading used here, for `web-push` and for the
+remote-control runtime lives in one helper, `electron/lib/lazy.ts` (`lazy()`,
+plus `cjsExports()` for the CommonJS default-export shape).
 
 ### 3. Lazy remote-control runtime
 
@@ -143,8 +148,13 @@ and `routes/system.ts` treat them as `void`/awaited promises.
   The daemon usually outlives app restarts anyway, so this matches how PATH
   already behaved for long-lived daemons.
 - First run (no cache) still pays for the login shell, but after the window.
-- `checkForUpdates`/`quitAndInstall` become async; the updater's module-level
-  state stays in `updater.ts`.
+- `PushManager.publicKey()` becomes async (generating keys may load
+  `web-push`).
+- A local server that fails to start (in practice only the portless proxy can)
+  is logged and its port left unset; the daemon still connects. Before, the
+  failure aborted the rest of startup.
+- On first run only, main's own spawns (`gh`, `git`) use the common-paths
+  fallback for the few seconds until the login shell answers.
 - `RemoteControlController` gains a "not loaded" state its tests must cover.
 - `electron-updater`/`web-push` vi.mocks in tests keep working (vi.mock
   covers dynamic imports).

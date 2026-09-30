@@ -33,6 +33,8 @@ import { CommitModal } from "./CommitModal/CommitModal";
 import { EmptyState } from "./EmptyState/EmptyState";
 import { SelectionCommentChip } from "./SelectionCommentChip/SelectionCommentChip";
 import { useDraftReview } from "./use-draft-review";
+import { fetchDiffOnce, fetchStagedOnce } from "./diff-fetch";
+import { useDiffFingerprint } from "../../../lib/diff-fingerprints";
 import { ReviewBar } from "./ReviewBar/ReviewBar";
 import { selectionSnippet, selectionToAnchor } from "./review-anchor";
 import type { SelectionAnchor } from "./review-anchor";
@@ -192,6 +194,13 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     );
     const defaultBranch = project?.defaultBranch ?? "main";
 
+    // Changes whenever the workspace's diff may have (HEAD, base ref or
+    // shortstat moved); the diff and staged files are re-fetched only then,
+    // so a pane over an unchanged workspace runs no git at all.
+    const fingerprint = useDiffFingerprint(
+      workspacePath ? workspaceKey(hostId, workspacePath) : null,
+    );
+
     // Each fetch is keyed by workspace + mode + branch. `settled` records the
     // outcome of the last completed fetch together with the key it ran for, so
     // `loading` and `error` derive during render instead of being reset by the
@@ -208,7 +217,8 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
      * Record a fetch's outcome, but only when it is actually a different
      * outcome.
      *
-     * The diff is re-fetched every few seconds and is usually byte-identical,
+     * The diff is re-fetched whenever the workspace's fingerprint changes and
+     * can come back byte-identical,
      * so `setRaw` bails on its own. A fresh `{ key, error }` object does not:
      * it is a new identity every poll, and it re-rendered the whole pane —
      * every file, every row — for a result that had not changed. That work
@@ -230,50 +240,48 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
 
       let cancelled = false;
 
-      const fetchDiff = () => {
-        const promise =
-          diffMode === "local"
-            ? window.electronAPI.diffs.getLocalDiff(workspacePath)
-            : window.electronAPI.diffs.getFullDiff(
-                workspacePath,
-                defaultBranch,
-              );
-
-        promise
-          .then((result) => {
-            if (cancelled) return;
-            const scrollTop = containerRef.current?.scrollTop ?? 0;
-            if (!result || result.trim() === "") {
-              setRaw(null);
-              settleOnce(fetchKey, "No changes found");
-            } else {
-              setRaw(result);
-              settleOnce(fetchKey, null);
+      // One fetch per workspace and mode at a time, across panes.
+      fetchDiffOnce(`${hostId ?? ""}\u0000${fetchKey}`, () =>
+        diffMode === "local"
+          ? window.electronAPI.diffs.getLocalDiff(workspacePath)
+          : window.electronAPI.diffs.getFullDiff(workspacePath, defaultBranch),
+      )
+        .then((result) => {
+          if (cancelled) return;
+          const scrollTop = containerRef.current?.scrollTop ?? 0;
+          if (!result || result.trim() === "") {
+            setRaw(null);
+            settleOnce(fetchKey, "No changes found");
+          } else {
+            setRaw(result);
+            settleOnce(fetchKey, null);
+          }
+          requestAnimationFrame(() => {
+            if (containerRef.current) {
+              containerRef.current.scrollTop = scrollTop;
             }
-            requestAnimationFrame(() => {
-              if (containerRef.current) {
-                containerRef.current.scrollTop = scrollTop;
-              }
-            });
-          })
-          .catch((err) => {
-            if (cancelled) return;
-            settleOnce(
-              fetchKey,
-              err instanceof Error ? err.message : "Failed to load diff",
-            );
           });
-      };
-
-      fetchDiff();
-
-      const timer = setInterval(fetchDiff, 5000);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          settleOnce(
+            fetchKey,
+            err instanceof Error ? err.message : "Failed to load diff",
+          );
+        });
 
       return () => {
         cancelled = true;
-        clearInterval(timer);
       };
-    }, [workspacePath, defaultBranch, diffMode, fetchKey, settleOnce]);
+    }, [
+      workspacePath,
+      hostId,
+      defaultBranch,
+      diffMode,
+      fetchKey,
+      fingerprint,
+      settleOnce,
+    ]);
 
     const files = useMemo(() => (raw ? parseDiff(raw) : []), [raw]);
 
@@ -327,20 +335,17 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     useEffect(() => {
       if (stagedKey === null) return;
       let cancelled = false;
-      const fetchStaged = () => {
-        window.electronAPI.diffs.getStagedFiles(stagedKey).then((files) => {
-          if (!cancelled) {
-            setStagedResult({ key: stagedKey, files: new Set(files) });
-          }
-        });
-      };
-      fetchStaged();
-      const timer = setInterval(fetchStaged, 5000);
+      fetchStagedOnce(`${hostId ?? ""}\u0000${stagedKey}`, () =>
+        window.electronAPI.diffs.getStagedFiles(stagedKey),
+      ).then((files) => {
+        if (!cancelled) {
+          setStagedResult({ key: stagedKey, files: new Set(files) });
+        }
+      });
       return () => {
         cancelled = true;
-        clearInterval(timer);
       };
-    }, [stagedKey]);
+    }, [stagedKey, hostId, fingerprint]);
 
     // Optimistic stage/unstage from the file list, applied against the set for
     // the current key so a stale result can never be mutated into place.

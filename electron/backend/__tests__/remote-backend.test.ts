@@ -373,8 +373,13 @@ describe("RemoteBackend", () => {
       current = backend;
       daemon.execReply = (req) => {
         const args = req.args as string[];
-        if (args[0] === "diff") return { type: "execResult", stdout: "", stderr: "", exitCode: 0 };
-        return { type: "execResult", stdout: "new.txt\n", stderr: "", exitCode: 0 };
+        const out = (stdout: string) =>
+          ({ type: "execResult", stdout, stderr: "", exitCode: 0 }) as const;
+        if (args[0] === "diff") return out("");
+        // The size (`find`) and binary (`git grep`) checks run on the remote too.
+        if (req.cmd === "find") return out("./new.txt\n");
+        if (args.includes("grep")) return out("new.txt\0");
+        return out("new.txt\0");
       };
       await backend.connect();
       const diff = await backend.git.getLocalDiff("/srv/repo");

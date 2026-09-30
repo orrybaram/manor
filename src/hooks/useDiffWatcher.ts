@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useProjectStore, type DiffStats } from "../store/project-store";
 import { keyOf } from "../lib/workspace-directory";
+import { setDiffFingerprints } from "../lib/diff-fingerprints";
 import type { WorkspaceKey } from "../lib/workspace-key";
 import { useMountEffect } from "./useMountEffect";
 
@@ -78,6 +79,12 @@ export function useDiffWatcher() {
       latestDiffsRef.current = diffs;
       applyDiffs(diffs);
     });
-    return unsubscribe;
+    // Open diff panes re-fetch their diff only when this changes.
+    const unsubscribeFingerprints =
+      window.electronAPI.diffs.onFingerprintsChange(setDiffFingerprints);
+    return () => {
+      unsubscribe();
+      unsubscribeFingerprints();
+    };
   });
 }

@@ -66,10 +66,8 @@ describe("DiffWatcher per host", () => {
     });
     // The remote scan from the first tick is still pending; no second one
     // was piled on top of it.
-    const remoteMergeBases = vi
-      .mocked(git.exec)
-      .mock.calls.filter(([cwd, args]) => cwd === "/remote/app" && args[0] === "merge-base");
-    expect(remoteMergeBases).toHaveLength(1);
+    const remoteCalls = vi.mocked(git.exec).mock.calls.filter(([cwd]) => cwd === "/remote/app");
+    expect(remoteCalls).toHaveLength(1);
     watcher.stop();
   });
 

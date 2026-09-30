@@ -449,6 +449,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
         diffs: Record<WorkspaceKey, { added: number; removed: number }>,
       ) => void,
     ) => onChannel("diffs-changed", callback),
+    onFingerprintsChange: (
+      callback: (fingerprints: Record<WorkspaceKey, string>) => void,
+    ) => onChannel("diff-fingerprints-changed", callback),
     getFullDiff: (wsPath: string, defaultBranch: string) =>
       ipcRenderer.invoke("diffs:getFullDiff", wsPath, defaultBranch),
     getLocalDiff: (wsPath: string) =>

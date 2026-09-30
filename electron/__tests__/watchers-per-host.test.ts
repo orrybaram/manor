@@ -91,7 +91,7 @@ describe("DiffWatcher per host", () => {
     const { window, send } = fakeWindow();
     const both = {
       "/local/app": { added: 4, removed: 0 },
-      "/remote/app": { added: 4, removed: 0 },
+      "box:/remote/app": { added: 4, removed: 0 },
     };
 
     watcher.start(window, [diffWs("/local/app"), diffWs("/remote/app")]);
@@ -127,11 +127,37 @@ describe("DiffWatcher per host", () => {
     await vi.waitFor(() =>
       expect(send).toHaveBeenCalledWith("diffs-changed", {
         "/a": { added: 0, removed: 3 },
-        "/b": { added: 0, removed: 5 },
+        "box:/b": { added: 0, removed: 5 },
       }),
     );
     expect(vi.mocked(gits.box.exec)).toHaveBeenCalledWith("/b", expect.anything());
     expect(vi.mocked(gits.local.exec)).not.toHaveBeenCalledWith("/b", expect.anything());
+    watcher.stop();
+  });
+
+  // ADR-204: the same path on two hosts is two workspaces, each with its own stats.
+  it("keeps two hosts' identical paths apart, keyed by WorkspaceKey", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const gitOn = (removed: number) =>
+      ({
+        exec: vi.fn(async (_cwd: string, args: string[]) =>
+          args[0] === "merge-base" ? "abc" : ` 1 file changed, ${removed} deletions(-)`,
+        ),
+      }) as unknown as GitBackend;
+    const gits: Record<string, GitBackend> = { local: gitOn(3), box: gitOn(5) };
+    const hosts = { get: (hostId: string) => ({ git: gits[hostId] }) } as unknown as HostBackends;
+    const watcher = new DiffWatcher(hosts);
+    const { window, send } = fakeWindow();
+    watcher.start(window, [
+      { path: "/same", hostId: "local", defaultBranch: "main" },
+      { path: "/same", hostId: "box", defaultBranch: "main" },
+    ]);
+    await vi.waitFor(() =>
+      expect(send).toHaveBeenLastCalledWith("diffs-changed", {
+        "/same": { added: 0, removed: 3 },
+        "box:/same": { added: 0, removed: 5 },
+      }),
+    );
     watcher.stop();
   });
 });

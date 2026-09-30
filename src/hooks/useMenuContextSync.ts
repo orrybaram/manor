@@ -18,7 +18,7 @@ import {
   useAppStore,
   type AppState,
 } from "../store/app-store";
-import { projectForWorkspaceKey } from "../lib/hosts";
+import { ownerOf } from "../lib/workspace-directory";
 import {
   useProjectStore,
   type ProjectInfo,
@@ -105,7 +105,7 @@ export function deriveMenuContext(
   const isHome = isHomePath(path);
 
   const project =
-    (!isHome ? projectForWorkspaceKey(projects, selectActiveWorkspaceKey(app)) : undefined) ??
+    (!isHome ? ownerOf(projects, selectActiveWorkspaceKey(app)) : undefined) ??
     null;
   const workspace = project?.workspaces.find((w) => w.path === path) ?? null;
 

@@ -9,6 +9,7 @@ import type {
 import type { HostStatusInfo } from "../src/store/host-store";
 import type { PtyCreateOptions, PtyResetOptions } from "../src/electron.d";
 import type { GhRepo } from "../src/lib/gh-repo";
+import type { WorkspaceKey } from "../src/lib/workspace-key";
 
 interface WindowBounds {
   x: number;
@@ -434,7 +435,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     start: (workspaces: Array<{ path: string; hostId: string }>) =>
       ipcRenderer.invoke("branches:start", workspaces),
     stop: () => ipcRenderer.invoke("branches:stop"),
-    onChange: (callback: (branches: Record<string, string>) => void) =>
+    onChange: (callback: (branches: Record<WorkspaceKey, string>) => void) =>
       onChannel("branches-changed", callback),
   },
 
@@ -445,7 +446,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     stop: () => ipcRenderer.invoke("diffs:stop"),
     onChange: (
       callback: (
-        diffs: Record<string, { added: number; removed: number }>,
+        diffs: Record<WorkspaceKey, { added: number; removed: number }>,
       ) => void,
     ) => onChannel("diffs-changed", callback),
     getFullDiff: (wsPath: string, defaultBranch: string) =>

@@ -26,8 +26,9 @@ import {
   type Panel,
   type WorkspaceLayout,
 } from "../store/app-store";
+import { find } from "./workspace-directory";
 import { parseWorkspaceKey, type WorkspaceKey } from "./workspace-key";
-import { projectForWorkspaceKey } from "./hosts";
+import { ownerOf } from "./workspace-directory";
 import { useProjectStore } from "../store/project-store";
 import { layoutSnapshot } from "../store/layout-snapshot";
 import { hasPaneId, type SplitDirection } from "../store/pane-tree";
@@ -155,7 +156,7 @@ function layoutHasTab(layout: WorkspaceLayout, tabId: string): boolean {
  */
 function isKnownWorkspace(state: AppState, key: WorkspaceKey): boolean {
   if (state.workspaceLayouts[key]) return true;
-  return projectForWorkspaceKey(useProjectStore.getState().projects, key) !== undefined;
+  return ownerOf(useProjectStore.getState().projects, key) !== undefined;
 }
 
 /**
@@ -590,10 +591,11 @@ function setActiveWorkspace(args: Record<string, unknown>): {
 // ---------------------------------------------------------------------------
 
 /** True when a loaded project already claims `workspacePath`. */
-function projectsKnowWorkspace(workspacePath: string): boolean {
-  return useProjectStore
-    .getState()
-    .projects.some((p) => p.workspaces.some((w) => w.path === workspacePath));
+function projectsKnowWorkspace(workspacePath: string, hostId?: string): boolean {
+  return !!find(
+    useProjectStore.getState().projects,
+    layoutKeyFor(workspacePath, hostId),
+  );
 }
 
 /**
@@ -630,7 +632,7 @@ async function startAgent(args: Record<string, unknown>): Promise<{
   // store yet, and the command resolution below needs it. Refetch only when
   // the path is genuinely unknown: `requestRenderer` times out at 5s, so an
   // unconditional refetch risks reporting a successful launch as a failure.
-  if (!projectsKnowWorkspace(workspacePath)) {
+  if (!projectsKnowWorkspace(workspacePath, hostId)) {
     await useProjectStore.getState().loadProjects();
   }
 

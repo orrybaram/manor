@@ -11,8 +11,7 @@
 import * as path from "node:path";
 import type { PersistedLayout } from "./terminal-host/layout-persistence";
 import type { ProjectInfo, WorkspaceInfo } from "./persistence";
-import { normalizeHostId } from "../src/lib/host-id";
-import type { WorkspaceKey } from "../src/lib/workspace-key";
+import { normalizeHostId, type WorkspaceKey } from "../src/lib/workspace-key";
 
 /**
  * The host-qualified key (ADR-191) of the workspace whose panes contain

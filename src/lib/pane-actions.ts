@@ -7,7 +7,7 @@
  * outside the render cycle.
  */
 
-import { selectActiveLayout, useAppStore } from "../store/app-store";
+import { selectActiveLayout, selectActiveWorkspaceKey, useAppStore } from "../store/app-store";
 import { getAgentCommand } from "../agent-defaults";
 
 export type PaneContentType = "terminal" | "browser" | "diff" | "agent";
@@ -63,7 +63,7 @@ export function convertFocusedPaneTo(contentType: PaneContentType): void {
     return;
   }
 
-  const command = getAgentCommand(state.activeWorkspacePath);
+  const command = getAgentCommand(selectActiveWorkspaceKey(state));
   const currentType = state.paneContentType[focusedPaneId] ?? "terminal";
   if (currentType === "terminal") {
     window.electronAPI.pty.write(focusedPaneId, command + "\n");

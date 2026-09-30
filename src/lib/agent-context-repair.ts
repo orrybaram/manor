@@ -14,7 +14,7 @@
  */
 
 import { parseWorkspaceKey } from "./workspace-key";
-import { projectForWorkspaceKey } from "./hosts";
+import { ownerOf } from "./workspace-directory";
 import { isHomePath } from "./home";
 import { allPaneIds, type PaneNode } from "../store/pane-tree";
 import type { AgentInfo } from "../electron.d";
@@ -65,7 +65,7 @@ export function orphanedAgentContexts(
     // Orphaned Home agents (Home is the tab-less Dashboard, ADR-197) have no
     // owning project, so they get no context.
     if (isHomePath(path)) continue;
-    const project = projectForWorkspaceKey(projects, key);
+    const project = ownerOf(projects, key);
     if (!project) continue;
     const context: PaneContext = {
       projectId: project.id,

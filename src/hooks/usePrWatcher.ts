@@ -1,5 +1,6 @@
 import { useProjectStore } from "../store/project-store";
 import { ghRepoOf } from "../lib/gh-repo";
+import { keyOf } from "../lib/workspace-directory";
 import { branchesEqual } from "../utils/branch-name";
 import { deliverPrNotifications } from "../utils/pr-notifications";
 import { usePreferencesStore } from "../store/preferences-store";
@@ -48,7 +49,7 @@ export async function fetchPrs() {
             pr,
             usePreferencesStore.getState().preferences,
           );
-          updateWorkspacePr(ws.path, pr);
+          updateWorkspacePr(keyOf(project, ws), pr);
         }
       }
     } catch {

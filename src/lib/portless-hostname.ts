@@ -6,7 +6,7 @@
  * settings, so both must build them by the same rules.
  */
 
-import { LOCAL_HOST_ID } from "./host-id";
+import { LOCAL_HOST_ID } from "./workspace-key";
 
 /** A DNS label: lowercase, non-alphanumeric runs → hyphens, max 63 chars. */
 function sanitizeLabel(s: string): string {

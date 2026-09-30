@@ -1,5 +1,6 @@
 import { layoutKeyFor, selectActiveWorkspaceKey, useAppStore } from "../store/app-store";
-import { projectForWorkspaceKey, type HostId } from "./hosts";
+import type { HostId } from "./hosts";
+import { ownerOf } from "./workspace-directory";
 import { parseWorkspaceKey } from "./workspace-key";
 import { useProjectStore } from "../store/project-store";
 import { getAgentCommand } from "../agent-defaults";
@@ -42,7 +43,7 @@ export function launchAgentInWorkspace(
   options: { prompt?: string; agentCommand?: string; hostId?: HostId | null } = {},
 ): { tabId: string; paneId: string } | null {
   const key = layoutKeyFor(workspacePath, options.hostId);
-  const project = projectForWorkspaceKey(useProjectStore.getState().projects, key);
+  const project = ownerOf(useProjectStore.getState().projects, key);
   const index = project?.workspaces.findIndex((w) => w.path === workspacePath) ?? -1;
   if (project && index >= 0) {
     useProjectStore.getState().selectWorkspace(project.id, index);
@@ -53,7 +54,7 @@ export function launchAgentInWorkspace(
     app.setActiveWorkspace(workspacePath, parseWorkspaceKey(key).hostId);
   }
 
-  const base = getAgentCommand(workspacePath, options.agentCommand);
+  const base = getAgentCommand(key, options.agentCommand);
   const command = options.prompt
     ? `${base} "${escapeShellDoubleQuoted(flattenPrompt(options.prompt))}"`
     : base;

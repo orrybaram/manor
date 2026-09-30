@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { selectActiveWorkspaceKey, useAppStore } from "./app-store";
-import { workspaceKey } from "../lib/workspace-key";
+import { workspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import { useToastStore } from "./toast-store";
 import {
   clearLinkSuggestionsFor,
@@ -10,7 +10,8 @@ import {
 import { branchesEqual } from "../utils/branch-name";
 import { ipcErrorMessage } from "../lib/ipc-error";
 import { splitShared } from "../lib/project-groups";
-import { isRemoteHost, workspaceHostId, type HostId } from "../lib/hosts";
+import { isRemoteHost, type HostId } from "../lib/hosts";
+import { hostForPath, patch, reconcile } from "../lib/workspace-directory";
 import {
   buildSidebarItems,
   folderParentsOf,
@@ -301,7 +302,7 @@ function startSetupScript(
     wsPath,
     DEFAULT_COLS,
     DEFAULT_ROWS,
-    { hostId: hostId ?? workspaceHostId(useProjectStore.getState(), wsPath) },
+    { hostId: hostId ?? hostForPath(useProjectStore.getState(), wsPath) },
   );
 }
 
@@ -361,7 +362,7 @@ function checksEqual(
  * froze review/checks/comment updates while a PR stayed "open" (the badge never
  * reflected approvals or CI results).
  */
-function prEqual(a?: PrInfo | null, b?: PrInfo | null): boolean {
+export function prEqual(a?: PrInfo | null, b?: PrInfo | null): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
   return (
@@ -685,12 +686,12 @@ interface ProjectState {
     workspacePath: string,
     issue: LinkedIssue,
   ) => Promise<void>;
-  updateWorkspaceBranch: (workspacePath: string, branch: string) => void;
+  updateWorkspaceBranch: (key: WorkspaceKey, branch: string) => void;
   updateWorkspaceDiffStats: (
-    workspacePath: string,
+    key: WorkspaceKey,
     stats: DiffStats | null,
   ) => void;
-  updateWorkspacePr: (workspacePath: string, pr: PrInfo | null) => void;
+  updateWorkspacePr: (key: WorkspaceKey, pr: PrInfo | null) => void;
   setSidebarMode: (mode: SidebarMode) => void;
   /** full <-> rail; hidden -> full. */
   toggleSidebarRail: () => void;
@@ -746,33 +747,6 @@ function closeWorkspacesLeftBehind(
   for (const key of gone) useAppStore.getState().removeWorkspaceLayout(key);
 }
 
-/**
- * `pr` and `diffStats` are filled in by renderer-side watchers, and the main
- * process's project list never carries them. Replacing the list wholesale
- * (after removing a worktree, say) would blank every PR badge until the next
- * poll, so carry them over for workspaces still on the same branch.
- */
-function keepWatchedState(
-  fresh: ProjectInfo[],
-  previous: ProjectInfo[],
-): ProjectInfo[] {
-  const byPath = new Map<string, WorkspaceInfo>();
-  for (const p of previous)
-    for (const ws of p.workspaces) byPath.set(ws.path, ws);
-  return fresh.map((p) => ({
-    ...p,
-    workspaces: p.workspaces.map((ws) => {
-      const prev = byPath.get(ws.path);
-      if (!prev || prev.branch !== ws.branch) return ws;
-      return {
-        ...ws,
-        pr: ws.pr ?? prev.pr,
-        diffStats: ws.diffStats ?? prev.diffStats,
-      };
-    }),
-  }));
-}
-
 /** An error toast for a failed link or unlink (ADR-192). */
 function groupErrorToast(id: string, message: string, err: unknown): void {
   useToastStore.getState().addToast({
@@ -825,7 +799,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         await window.electronAPI.projects.getSelectedIndex();
       const firstLoad = !get().initialLoadDone;
       set((s) => ({
-        projects: keepWatchedState(projects, s.projects),
+        projects: reconcile(projects, s.projects),
         selectedProjectIndex: selectedIndex,
         loading: false,
         initialLoadDone: true,
@@ -1097,7 +1071,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     );
     // Refresh projects to get updated worktree list
     const projects = await window.electronAPI.projects.getAll();
-    set((s) => ({ projects: keepWatchedState(projects, s.projects) }));
+    set((s) => ({ projects: reconcile(projects, s.projects) }));
   },
 
   canQuickMerge: async (projectId: string, worktreePath: string) => {
@@ -1111,7 +1085,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     );
     // Refresh projects to get updated worktree list
     const projects = await window.electronAPI.projects.getAll();
-    set((s) => ({ projects: keepWatchedState(projects, s.projects) }));
+    set((s) => ({ projects: reconcile(projects, s.projects) }));
   },
 
   convertMainToWorktree: async (
@@ -1717,53 +1691,34 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     await get().loadProjects();
   },
 
-  updateWorkspaceBranch: (workspacePath: string, branch: string) =>
-    set((s) => ({
-      projects: s.projects.map((p) => {
-        const wsIdx = p.workspaces.findIndex((ws) => ws.path === workspacePath);
-        if (wsIdx === -1) return p;
-        const ws = p.workspaces[wsIdx];
-        if (branchesEqual(ws.branch, branch)) return p;
-        const workspaces = [...p.workspaces];
-        workspaces[wsIdx] = { ...ws, branch };
-        return { ...p, workspaces };
-      }),
-    })),
-
-  updateWorkspaceDiffStats: (workspacePath: string, stats: DiffStats | null) =>
+  updateWorkspaceBranch: (key, branch) =>
     set((s) => {
-      let changed = false;
-      const projects = s.projects.map((p) => {
-        const wsIdx = p.workspaces.findIndex((ws) => ws.path === workspacePath);
-        if (wsIdx === -1) return p;
-        const ws = p.workspaces[wsIdx];
-        if (
-          ws.diffStats?.added === stats?.added &&
-          ws.diffStats?.removed === stats?.removed
-        )
-          return p;
-        changed = true;
-        const workspaces = [...p.workspaces];
-        workspaces[wsIdx] = { ...ws, diffStats: stats };
-        return { ...p, workspaces };
-      });
-      // Keep the same `projects` reference on no-ops so subscribers
-      // (e.g. useDiffWatcher's re-apply effect) don't re-run.
-      return changed ? { projects } : s;
+      const projects = patch(s.projects, key, (ws) =>
+        branchesEqual(ws.branch, branch) ? ws : { ...ws, branch },
+      );
+      return projects === s.projects ? s : { projects };
     }),
 
-  updateWorkspacePr: (workspacePath: string, pr: PrInfo | null) =>
-    set((s) => ({
-      projects: s.projects.map((p) => {
-        const wsIdx = p.workspaces.findIndex((ws) => ws.path === workspacePath);
-        if (wsIdx === -1) return p;
-        const ws = p.workspaces[wsIdx];
-        if (prEqual(ws.pr, pr)) return p;
-        const workspaces = [...p.workspaces];
-        workspaces[wsIdx] = { ...ws, pr };
-        return { ...p, workspaces };
-      }),
-    })),
+  // Keep the same `projects` reference on no-ops so subscribers
+  // (e.g. useDiffWatcher's re-apply effect) don't re-run.
+  updateWorkspaceDiffStats: (key, stats) =>
+    set((s) => {
+      const projects = patch(s.projects, key, (ws) =>
+        ws.diffStats?.added === stats?.added &&
+        ws.diffStats?.removed === stats?.removed
+          ? ws
+          : { ...ws, diffStats: stats },
+      );
+      return projects === s.projects ? s : { projects };
+    }),
+
+  updateWorkspacePr: (key, pr) =>
+    set((s) => {
+      const projects = patch(s.projects, key, (ws) =>
+        prEqual(ws.pr, pr) ? ws : { ...ws, pr },
+      );
+      return projects === s.projects ? s : { projects };
+    }),
 
   setSidebarMode: (mode) => {
     try {

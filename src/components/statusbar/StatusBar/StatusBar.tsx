@@ -1,5 +1,9 @@
 import { Fragment, useState, useCallback, useMemo } from "react";
-import { useAppStore, selectWebviewFocusVisible } from "../../../store/app-store";
+import {
+  useAppStore,
+  selectActiveWorkspaceKey,
+  selectWebviewFocusVisible,
+} from "../../../store/app-store";
 import { useProjectStore } from "../../../store/project-store";
 
 import MessageSquarePlus from "lucide-react/dist/esm/icons/message-square-plus";
@@ -18,6 +22,7 @@ import { LinearIcon } from "../../command-palette/LinearIcon";
 import { GitHubIcon } from "../../command-palette/GitHubIcon";
 import type { LinkedIssue, WorkspaceFolder } from "../../../store/project-store";
 import type { CommandPaletteProps } from "../../command-palette/types";
+import { find } from "../../../lib/workspace-directory";
 import styles from "./StatusBar.module.css";
 
 function isGitHubIssue(issue: LinkedIssue): boolean {
@@ -130,7 +135,7 @@ export function StatusBar(props: StatusBarProps) {
   const [aboutOpen, setAboutOpen] = useState(hasJustUpdated);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [popoverOpen, setPopoverOpen] = useState(false);
-  const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
+  const activeWorkspaceKey = useAppStore(selectActiveWorkspaceKey);
   const browserFocused = useAppStore(selectWebviewFocusVisible);
   const projects = useProjectStore((s) => s.projects);
   // The Tasks view (ADR-198) covers the active workspace, which stays active
@@ -140,15 +145,12 @@ export function StatusBar(props: StatusBarProps) {
   const onboardingShown = projects.length === 0;
   const tasksShown = surface === "tasks" && !onboardingShown;
 
-  const project = onboardingShown || tasksShown
-    ? undefined
-    : projects.find((p) =>
-        p.workspaces.some((w) => w.path === activeWorkspacePath),
-      );
-
-  const workspace = project?.workspaces.find(
-    (w) => w.path === activeWorkspacePath,
-  );
+  const found =
+    onboardingShown || tasksShown || !activeWorkspaceKey
+      ? undefined
+      : find(projects, activeWorkspaceKey);
+  const project = found?.project;
+  const workspace = found?.workspace;
 
   const workspaceLabel = workspace
     ? (workspace.name ?? workspace.branch)

@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   applyTaskFilters,
-  collectTasks,
   DEFAULT_TASK_SORT,
   facetLabel,
   facetOptions,
@@ -15,14 +14,10 @@ import {
   TASK_FIELDS,
   type TaskFieldId,
   type TaskSort,
-  filterTasks,
   initialOf,
   pageWindow,
   paginate,
   relativeTime,
-  sortTasks,
-  withoutLinkedTasks,
-  linkedTasks,
   type TaskContext,
   type TaskRow,
 } from "./tasks";
@@ -72,51 +67,6 @@ function linear(over: Partial<LinearIssue> = {}): LinearIssue {
 function row(over: Partial<TaskRow>): TaskRow {
   return { ...fromGitHub(gh(), ctx), ...over };
 }
-
-describe("sortTasks / collectTasks", () => {
-  it("sorts by updatedAt desc, undated last, stable on ties", () => {
-    const a = row({ key: "a", updatedAt: "2026-01-01T00:00:00Z" });
-    const b = row({ key: "b", updatedAt: "2026-03-01T00:00:00Z" });
-    const c = row({ key: "c", updatedAt: "" });
-    const d = row({ key: "d", updatedAt: "2026-03-01T00:00:00Z" });
-    expect(sortTasks([a, c, b, d]).map((r) => r.key)).toEqual([
-      "b",
-      "d",
-      "a",
-      "c",
-    ]);
-  });
-
-  it("drops duplicate tasks by provider + url", () => {
-    const a = row({ key: "a", url: "u1" });
-    const b = row({ key: "b", url: "u1" });
-    const c = row({ key: "c", url: "u1", provider: "linear" });
-    expect(collectTasks([a, b, c]).map((r) => r.key)).toEqual(["a", "c"]);
-  });
-});
-
-describe("filterTasks", () => {
-  const rows = [
-    row({ key: "1", title: "Fix Login", displayId: "#1", labels: [] }),
-    row({ key: "2", title: "Other", displayId: "ENG-45", labels: [] }),
-    row({
-      key: "3",
-      title: "Third",
-      displayId: "#3",
-      labels: [{ name: "Bug" }],
-    }),
-  ];
-
-  it("matches title, id and labels case-insensitively", () => {
-    expect(filterTasks(rows, "login").map((r) => r.key)).toEqual(["1"]);
-    expect(filterTasks(rows, "eng-4").map((r) => r.key)).toEqual(["2"]);
-    expect(filterTasks(rows, "BUG").map((r) => r.key)).toEqual(["3"]);
-  });
-
-  it("returns every row for a blank query", () => {
-    expect(filterTasks(rows, "  ")).toHaveLength(3);
-  });
-});
 
 describe("paginate", () => {
   const rows = Array.from({ length: 60 }, (_, i) => row({ key: String(i) }));
@@ -174,128 +124,6 @@ describe("initialOf", () => {
   it("uppercases the first letter", () => {
     expect(initialOf("alice")).toBe("A");
     expect(initialOf(" ")).toBe("?");
-  });
-});
-
-describe("withoutLinkedTasks", () => {
-  const ghRow = fromGitHub(gh(), ctx);
-  const otherRepoRow = fromGitHub(
-    gh({ url: "https://github.com/acme/other/issues/12" }),
-    ctx,
-  );
-  const linearRow = fromLinear(linear(), ctx);
-  const withLinks = (linkedIssues: { id: string; url: string }[]) =>
-    [
-      {
-        workspaces: [
-          {
-            linkedIssues: linkedIssues.map((l) => ({
-              ...l,
-              identifier: "",
-              title: "",
-            })),
-          },
-        ],
-      },
-    ] as unknown as ProjectInfo[];
-
-  it("keeps everything when nothing is linked", () => {
-    expect(withoutLinkedTasks([ghRow, linearRow], withLinks([]))).toEqual([
-      ghRow,
-      linearRow,
-    ]);
-  });
-
-  it("hides a GitHub task linked by URL, not a same-numbered one in another repo", () => {
-    const links = withLinks([
-      { id: "gh-12", url: "https://github.com/acme/manor/issues/12/" },
-    ]);
-    expect(withoutLinkedTasks([ghRow, otherRepoRow], links)).toEqual([
-      otherRepoRow,
-    ]);
-  });
-
-  it("hides a Linear task linked by id even when the URL differs", () => {
-    const links = withLinks([
-      { id: "lin-1", url: "https://linear.app/acme/issue/ENG-45" },
-    ]);
-    expect(withoutLinkedTasks([ghRow, linearRow], links)).toEqual([ghRow]);
-  });
-});
-
-describe("linkedTasks", () => {
-  const entryOf = (p: ProjectInfo) => ({
-    entryKey: p.id,
-    projectName: p.name,
-    color: p.color,
-  });
-  const withWorkspace = {
-    ...project,
-    workspaces: [
-      {
-        path: "/wt/fix",
-        branch: "12-fix-the-thing",
-        isMain: false,
-        name: null,
-        linkedIssues: [
-          {
-            id: "gh-12",
-            identifier: "#12",
-            title: "Old title",
-            url: "https://github.com/acme/manor/issues/12",
-          },
-          {
-            id: "lin-9",
-            identifier: "ENG-9",
-            title: "Linear thing",
-            url: "https://linear.app/acme/issue/ENG-9",
-          },
-        ],
-      },
-    ],
-  } as unknown as ProjectInfo;
-
-  it("lists every link with its workspace, filling tracker fields from a fetched row", () => {
-    const [gh12, eng9] = linkedTasks([withWorkspace], entryOf, [
-      fromGitHub(gh(), ctx),
-    ]);
-    expect(gh12).toMatchObject({
-      provider: "github",
-      displayId: "#12",
-      title: "Fix the thing",
-      assignees: ["alice"],
-      workspaceName: "12-fix-the-thing",
-      workspacePath: "/wt/fix",
-      projectId: "p1",
-    });
-    expect(eng9).toMatchObject({
-      provider: "linear",
-      title: "Linear thing",
-      assignees: [],
-      status: { label: "In progress", tone: "started" },
-      trackerProjects: [],
-      createdAt: "",
-    });
-  });
-
-  it("copies the richer fields from the fetched match", () => {
-    const [gh12] = linkedTasks([withWorkspace], entryOf, [
-      fromGitHub(
-        gh({
-          createdAt: "2026-09-01T00:00:00Z",
-          milestone: { title: "v1" },
-          commentCount: 2,
-          projectItems: [{ title: "Roadmap" }],
-        }),
-        ctx,
-      ),
-    ]);
-    expect(gh12).toMatchObject({
-      createdAt: "2026-09-01T00:00:00Z",
-      milestone: "v1",
-      commentCount: 2,
-      trackerProjects: ["Roadmap"],
-    });
   });
 });
 
@@ -524,32 +352,6 @@ describe("applyTaskFilters", () => {
     expect(keys({})).toEqual(["a", "b", "c", "d"]);
     expect(keys({ label: [] })).toEqual(["a", "b", "c", "d"]);
     expect(keys({ title: ["nope"] })).toEqual(["a", "b", "c", "d"]);
-  });
-
-  it("works on linked tasks too", () => {
-    const project2 = {
-      ...project,
-      workspaces: [
-        {
-          path: "/wt",
-          branch: "b",
-          isMain: false,
-          name: null,
-          linkedIssues: [
-            { id: "gh-12", identifier: "#12", title: "t", url: gh().url },
-            { id: "lin-1", identifier: "ENG-1", title: "l", url: "x" },
-          ],
-        },
-      ],
-    } as unknown as ProjectInfo;
-    const linked = linkedTasks(
-      [project2],
-      () => ({ entryKey: "p1", projectName: "manor", color: null }),
-      [fromGitHub(gh(), ctx)],
-    );
-    expect(
-      applyTaskFilters(linked, { label: ["bug"] }).map((r) => r.displayId),
-    ).toEqual(["#12"]);
   });
 });
 

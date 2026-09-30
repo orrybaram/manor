@@ -6,20 +6,14 @@ import {
   type TopLevelEntry,
 } from "../../utils/sidebar-items";
 import { primaryMember } from "../../lib/home-dashboard";
-import {
-  collectTasks,
-  type TaskContext,
-  type TaskProvider,
-  type TaskRow,
-} from "../../lib/tasks";
+import type { TaskContext, TaskProvider, TaskRow } from "../../lib/tasks";
+import { mergeSources, type SourceResult } from "../../lib/task-list";
 import { TRACKERS, type TrackerScope } from "../../lib/trackers";
 
 const STALE_MS = 60_000;
 
 /** Query keys that already logged a failure — a flaky source logs once, not every refetch. */
 const loggedFailures = new Set<string>();
-
-type SourceResult = { rows: TaskRow[]; failed: boolean };
 
 /** Run `fetch`; a failure is logged once and counted, never thrown (ADR-198 §3). */
 async function settle(
@@ -37,6 +31,7 @@ async function settle(
   }
 }
 
+/** Fold the settled queries with `mergeSources`; still loading while any is pending. */
 function combineResults(
   results: { data?: SourceResult; isPending: boolean }[],
 ): {
@@ -44,21 +39,9 @@ function combineResults(
   loading: boolean;
   failedCount: number;
 } {
-  // Each source runs both queries; a task the "assigned" one listed is yours.
-  const rows = results.flatMap((r) => r.data?.rows ?? []);
-  const mine = new Set(
-    rows.filter((row) => row.assignedToMe).map((row) => row.url || row.key),
-  );
   return {
-    rows: collectTasks(
-      rows.map((row) =>
-        !row.assignedToMe && mine.has(row.url || row.key)
-          ? { ...row, assignedToMe: true }
-          : row,
-      ),
-    ),
+    ...mergeSources(results.flatMap((r) => (r.data ? [r.data] : []))),
     loading: results.some((r) => r.isPending),
-    failedCount: results.filter((r) => r.data?.failed).length,
   };
 }
 

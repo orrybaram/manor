@@ -4,10 +4,12 @@ import { useAppStore } from "../../../store/app-store";
 import type { NewWorkspaceHandler } from "../../../lib/start-issue-work";
 import {
   DEFAULT_TASK_FILTERS,
-  applyTaskFilters,
   sortTasksBy,
-  withoutLinkedTasks,
+  type TaskFilters,
+  type TaskProvider,
+  type TaskRow,
 } from "../../../lib/tasks";
+import { entryLookup, taskList } from "../../../lib/task-list";
 import { readFilters, readProvider, readSort } from "../../tasks/task-prefs";
 import { useTasks } from "../../tasks/useTasks";
 import { useStartTask } from "../../tasks/useStartTask";
@@ -53,17 +55,27 @@ export function UpNextPanel(props: UpNextPanelProps) {
     JSON.stringify(prefs.github) === JSON.stringify(DEFAULT_TASK_FILTERS) &&
     JSON.stringify(prefs.linear) === JSON.stringify(DEFAULT_TASK_FILTERS);
 
-  const upNext = useMemo(
-    () =>
-      sortTasksBy(
-        [
-          ...applyTaskFilters(withoutLinkedTasks(github.rows, projects), prefs.github),
-          ...applyTaskFilters(withoutLinkedTasks(linear.rows, projects), prefs.linear),
-        ],
-        prefs.sort,
-      ),
-    [github.rows, linear.rows, projects, prefs],
-  );
+  const upNext = useMemo(() => {
+    const entryOf = entryLookup(projects);
+    // Each tracker's unlinked rows through its filters (ADR-202 ticket 4
+    // replaces this with `taskList(...).top(n)`).
+    const unlinked = (
+      provider: TaskProvider,
+      rows: TaskRow[],
+      filters: TaskFilters,
+    ) =>
+      taskList(
+        { rows, projects, entryOf },
+        { provider, projectKey: null, filters, sort: prefs.sort },
+      ).matching.filter((row): row is TaskRow => !("workspacePath" in row));
+    return sortTasksBy(
+      [
+        ...unlinked("github", github.rows, prefs.github),
+        ...unlinked("linear", linear.rows, prefs.linear),
+      ],
+      prefs.sort,
+    );
+  }, [github.rows, linear.rows, projects, prefs]);
   const rows = upNext.slice(0, VISIBLE_ROWS);
   const loading = github.loading || linear.loading;
 

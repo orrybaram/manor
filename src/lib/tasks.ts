@@ -1,8 +1,8 @@
 /**
- * ADR-198 §3: pure selectors for the Tasks view. GitHub and Linear list
- * results are normalised into one `TaskRow` shape, then searched, sorted and
- * paginated client-side. No store or React imports, so everything here is
- * unit-tested directly (`tasks.test.ts`).
+ * ADR-198 §3: the task row types and field model. GitHub and Linear list
+ * results are normalised into one `TaskRow` shape; the list pipeline over
+ * them lives in `task-list.ts` (ADR-202 §3). No store or React imports, so
+ * everything here is unit-tested directly (`tasks.test.ts`).
  */
 
 import type { GitHubIssue, LinearIssue } from "../electron.d";
@@ -85,69 +85,6 @@ export interface TaskContext {
   color: string | null;
 }
 
-/** The fields the list helpers (sort, search, paginate) read. */
-type Listable = Pick<TaskRow, "updatedAt" | "title" | "displayId" | "labels">;
-
-function updatedMs(row: Listable): number {
-  const ms = Date.parse(row.updatedAt);
-  return Number.isNaN(ms) ? -Infinity : ms;
-}
-
-/** Most recently updated first; rows without a timestamp last; stable otherwise. */
-export function sortTasks<T extends Listable>(rows: readonly T[]): T[] {
-  return rows
-    .map((row, index) => ({ row, index, ms: updatedMs(row) }))
-    .sort((a, b) => (b.ms === a.ms ? a.index - b.index : b.ms > a.ms ? 1 : -1))
-    .map((x) => x.row);
-}
-
-/**
- * Drop repeats of the same task (two entries linked to one Linear team, or
- * one repo checked out twice), keeping the first — then sort.
- */
-export function collectTasks(rows: readonly TaskRow[]): TaskRow[] {
-  const seen = new Set<string>();
-  const unique: TaskRow[] = [];
-  for (const row of rows) {
-    const id = `${row.provider}:${row.url || row.key}`;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    unique.push(row);
-  }
-  return sortTasks(unique);
-}
-
-/**
- * Rows not already linked to some workspace (in any project). A link is
- * matched by URL — GitHub link ids (`gh-N`) aren't unique across repos — or,
- * for Linear, by issue id.
- */
-export function withoutLinkedTasks(
-  rows: readonly TaskRow[],
-  projects: readonly Pick<ProjectInfo, "workspaces">[],
-): TaskRow[] {
-  const urls = new Set<string>();
-  const linearIds = new Set<string>();
-  for (const project of projects) {
-    for (const ws of project.workspaces) {
-      for (const linked of ws.linkedIssues ?? []) {
-        if (linked.url) urls.add(normalizeUrl(linked.url));
-        linearIds.add(linked.id);
-      }
-    }
-  }
-  if (urls.size === 0 && linearIds.size === 0) return [...rows];
-  return rows.filter(
-    (row) =>
-      !(row.url && urls.has(normalizeUrl(row.url))) &&
-      !(row.raw.provider === "linear" && linearIds.has(row.raw.issue.id)),
-  );
-}
-
-function normalizeUrl(url: string): string {
-  return url.replace(/\/+$/, "").toLowerCase();
-}
-
 /**
  * A task linked to a workspace — the In progress list. Built from the
  * workspace's link (id, title, URL); tracker fields (labels, assignees,
@@ -167,79 +104,6 @@ export type EntryOf = (project: ProjectInfo) => {
   projectName: string;
   color: string | null;
 };
-
-/**
- * Every task linked to a workspace, across projects, one row per link.
- * GitHub links have `gh-N` ids; anything else is a Linear issue id.
- */
-export function linkedTasks(
-  projects: readonly ProjectInfo[],
-  entryOf: EntryOf,
-  fetched: readonly TaskRow[],
-): LinkedTask[] {
-  const byUrl = new Map<string, TaskRow>();
-  for (const row of fetched) if (row.url) byUrl.set(normalizeUrl(row.url), row);
-  const out: LinkedTask[] = [];
-  for (const project of projects) {
-    const entry = entryOf(project);
-    for (const ws of project.workspaces) {
-      for (const linked of ws.linkedIssues ?? []) {
-        const match = linked.url
-          ? byUrl.get(normalizeUrl(linked.url))
-          : undefined;
-        const provider: TaskProvider = linked.id.startsWith("gh-")
-          ? "github"
-          : "linear";
-        out.push({
-          key: `linked:${ws.path}:${linked.id}`,
-          provider,
-          displayId: linked.identifier,
-          title: match?.title ?? linked.title,
-          url: linked.url,
-          labels: match?.labels ?? [],
-          assignees: match?.assignees ?? [],
-          author: match?.author,
-          status: match?.status ?? { label: "In progress", tone: "started" },
-          // Linking it to your workspace makes it yours, even unlisted.
-          assignedToMe: match?.assignedToMe ?? true,
-          inProgress: true,
-          priority: match?.priority,
-          trackerProjects: match?.trackerProjects ?? [],
-          milestone: match?.milestone,
-          cycle: match?.cycle,
-          team: match?.team,
-          estimate: match?.estimate,
-          dueDate: match?.dueDate,
-          createdAt: match?.createdAt ?? "",
-          commentCount: match?.commentCount,
-          updatedAt: match?.updatedAt ?? "",
-          projectEntryKey: entry.entryKey,
-          projectName: entry.projectName,
-          color: entry.color,
-          projectId: project.id,
-          workspacePath: ws.path,
-          workspaceName: ws.name || ws.branch,
-        });
-      }
-    }
-  }
-  return sortTasks(out);
-}
-
-/** Rows whose title, ID or a label contains `query` (case-insensitive); all rows for a blank query. */
-export function filterTasks<T extends Listable>(
-  rows: readonly T[],
-  query: string,
-): T[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return [...rows];
-  return rows.filter(
-    (row) =>
-      row.title.toLowerCase().includes(q) ||
-      row.displayId.toLowerCase().includes(q) ||
-      row.labels.some((l) => l.name.toLowerCase().includes(q)),
-  );
-}
 
 /*
  * ADR-201 §4: the field model. Every column the trackers give us is described

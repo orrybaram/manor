@@ -4,8 +4,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import { useProjectStore, type ProjectInfo } from "../../store/project-store";
-import { buildTopLevelEntries } from "../../utils/sidebar-items";
+import { useProjectStore } from "../../store/project-store";
 import { useQueryClient } from "@tanstack/react-query";
 import Search from "lucide-react/dist/esm/icons/search";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
@@ -31,21 +30,15 @@ import type { NewWorkspaceHandler } from "../../lib/start-issue-work";
 import {
   DEFAULT_TASK_FILTERS,
   TASK_FIELDS,
-  applyTaskFilters,
   facetLabel,
-  filterTasks,
-  sortTasksBy,
-  withoutLinkedTasks,
-  linkedTasks,
   type LinkedTask,
   pageWindow,
-  paginate,
   type TaskFieldId,
   type TaskFilters,
   type TaskProvider,
-  type TaskRow,
   type TaskSort,
 } from "../../lib/tasks";
+import { entryLookup, taskList } from "../../lib/task-list";
 import { TRACKERS } from "../../lib/trackers";
 import { useTasks, useTrackerSources } from "./useTasks";
 import { TaskFilterMenu } from "./TaskFilterMenu";
@@ -166,43 +159,26 @@ export function TasksView(props: TasksViewProps) {
 
   const { rows, loading, failedCount } = useTasks({ provider, projectKey });
 
-  // A task linked to a workspace is listed once, as its in-progress link.
   const projects = useProjectStore((s) => s.projects);
-  const unlinked = useMemo(
-    () => withoutLinkedTasks(rows, projects),
-    [rows, projects],
-  );
-
-  const linked = useMemo(() => {
-    const entryOf = entryLookup(projects);
-    return linkedTasks(projects, entryOf, rows).filter(
-      (t) =>
-        t.provider === provider &&
-        (projectKey === null || t.projectEntryKey === projectKey),
-    );
-  }, [projects, rows, provider, projectKey]);
 
   const sort = sorts[provider];
   const filters = filtersBy[provider];
   const filterCount = activeFilterCount(filters);
   const showPriority = provider === "linear";
 
-  // Filters, then search, then sort, then the page. Facet counts in the
-  // filter menu come from `listed`, so they don't shift as filters change.
-  const listed = useMemo<(TaskRow | LinkedTask)[]>(
-    () => [...unlinked, ...linked],
-    [unlinked, linked],
+  // A task linked to a workspace is listed once, as its in-progress link.
+  // Facet counts in the filter menu come from `listed`, so they don't shift
+  // as filters change.
+  const list = useMemo(
+    () =>
+      taskList(
+        { rows, projects, entryOf: entryLookup(projects) },
+        { provider, projectKey, filters, sort, search: deferredSearch },
+      ),
+    [rows, projects, provider, projectKey, filters, sort, deferredSearch],
   );
-  const narrowed = useMemo(
-    () => applyTaskFilters(listed, filters),
-    [listed, filters],
-  );
-  const searched = useMemo(
-    () => filterTasks(narrowed, deferredSearch),
-    [narrowed, deferredSearch],
-  );
-  const sorted = useMemo(() => sortTasksBy(searched, sort), [searched, sort]);
-  const current = paginate(sorted, page);
+  const { listed, filtered } = list;
+  const current = list.page(page);
   const homeUrl = projectKey ? TRACKERS[provider].homeUrl(rows) : null;
   const projectCount = useMemo(
     () => new Set(listed.map((r) => r.projectEntryKey)).size,
@@ -301,7 +277,7 @@ export function TasksView(props: TasksViewProps) {
             {loading && listed.length === 0
               ? "Loading…"
               : (filterCount > 0
-                  ? `${narrowed.length} of ${plural(listed.length, "task")}`
+                  ? `${filtered.length} of ${plural(listed.length, "task")}`
                   : plural(listed.length, "task")) +
                 ` · ${plural(projectCount, "project")}`}
           </span>
@@ -466,7 +442,7 @@ export function TasksView(props: TasksViewProps) {
                 <TasksSkeleton showPriority={showPriority} />
               ) : current.rows.length === 0 &&
                 filterCount > 0 &&
-                narrowed.length === 0 ? (
+                filtered.length === 0 ? (
                 <div className={`${styles.empty} ${styles.emptyFilters}`}>
                   No tasks match these filters.
                   <Button variant="secondary" size="sm" onClick={clearFilters}>
@@ -556,37 +532,6 @@ export function TasksView(props: TasksViewProps) {
       </div>
     </div>
   );
-}
-
-/** Each project's sidebar entry: a linked group's key, name and colour, or its own. */
-function entryLookup(projects: readonly ProjectInfo[]) {
-  const byProject = new Map<
-    string,
-    { entryKey: string; projectName: string; color: string | null }
-  >();
-  for (const entry of buildTopLevelEntries(projects)) {
-    if (entry.kind === "project") {
-      byProject.set(entry.project.id, {
-        entryKey: entry.key,
-        projectName: entry.project.name,
-        color: entry.project.color,
-      });
-    } else {
-      for (const section of entry.sections) {
-        byProject.set(section.project.id, {
-          entryKey: entry.key,
-          projectName: entry.group.name,
-          color: section.project.color,
-        });
-      }
-    }
-  }
-  return (project: ProjectInfo) =>
-    byProject.get(project.id) ?? {
-      entryKey: project.id,
-      projectName: project.name,
-      color: project.color,
-    };
 }
 
 function plural(n: number, word: string): string {

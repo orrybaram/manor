@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, lazy, Suspense, type CSSProperties } from "react";
 import { PaneDragProvider } from "./components/workspace-panes/PaneDragContext";
 import { StatusBar } from "./components/statusbar/StatusBar/StatusBar";
-import { PanelLayout } from "./components/panels/PanelLayout";
+import { WorkspaceStack } from "./components/panels/WorkspaceStack";
 import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
 import { SidebarRail } from "./components/sidebar/SidebarRail/SidebarRail";
 import { WindowLead } from "./components/window-lead/WindowLead/WindowLead";
@@ -43,7 +43,7 @@ import {
   type ProjectInfo,
 } from "./store/project-store";
 import { ownerOf } from "./lib/workspace-directory";
-import { parseWorkspaceKey, type WorkspaceKey } from "./lib/workspace-key";
+import { parseWorkspaceKey } from "./lib/workspace-key";
 import { appCommandHandlers } from "./lib/app-commands";
 import { handleRecordingCommand } from "./lib/webview-recorder";
 import {
@@ -82,7 +82,6 @@ import {
   isHomePath,
   HOME_PATH,
 } from "./lib/home";
-import { TAB_HIDDEN_STYLE, TAB_VISIBLE_STYLE } from "./lib/tab-styles";
 import "./App.css";
 
 /**
@@ -382,12 +381,13 @@ function App() {
     [triggerGhosts, handleOpenProjectSettings, handleCloneRepository],
   );
 
-  const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const activeWorkspaceKey = useAppStore(selectActiveWorkspaceKey);
   // The workspace's host travels with its key (ADR-191); Home is local.
   const activeWorkspaceHostId = useAppStore((s) => s.activeWorkspaceHostId);
-  const ws = useAppStore(selectActiveWorkspace);
+  const activePanelHasTabs = useAppStore(
+    (s) => (selectActiveWorkspace(s)?.tabs.length ?? 0) > 0,
+  );
 
   const addTab = useAppStore((s) => s.addTab);
   const closeTab = useAppStore((s) => s.closeTab);
@@ -433,7 +433,7 @@ function App() {
     : undefined;
   // Home is the Dashboard and never shows tabs (ADR-197 §1): its view is
   // always rendered, even if a stale layout were somehow keyed to it.
-  const hasTabs = !isHomePath(activeWorkspacePath) && (ws?.tabs.length ?? 0) > 0;
+  const hasTabs = !isHomePath(activeWorkspacePath) && activePanelHasTabs;
   // With zero projects the onboarding screen (ADR-194 §3) replaces everything.
   const showOnboarding = !hasProjects;
   // The Tasks view (ADR-198) covers the active workspace, which stays active
@@ -785,22 +785,12 @@ function App() {
                 shows up as the same output duplicated over and over. */}
             <div className="workspace-stack">
               {/* `workspaceLayouts` is keyed by `WorkspaceKey` (ADR-191). */}
-              {Object.entries(workspaceLayouts).map(([key, wsLayout]) => (
-                <div
-                  key={key}
-                  style={
-                    key === activeWorkspaceKey && hasTabs && !showOnboarding && !showTasksView
-                      ? TAB_VISIBLE_STYLE
-                      : TAB_HIDDEN_STYLE
-                  }
-                >
-                  <PanelLayout
-                    node={wsLayout.panelTree}
-                    workspaceKey={key as WorkspaceKey}
-                    onNewAgent={handleNewAgent}
-                  />
-                </div>
-              ))}
+              <WorkspaceStack
+                visibleKey={
+                  hasTabs && !showOnboarding && !showTasksView ? activeWorkspaceKey : null
+                }
+                onNewAgent={handleNewAgent}
+              />
               {(showOnboarding || showTasksView || !(activeWorkspacePath && hasTabs)) && (
                 <div className="empty-surface">
                   <div className="drag-region" />

@@ -1,11 +1,12 @@
 import { useEffect, useRef } from "react";
 import { useProjectStore } from "../store/project-store";
-import type { WorkspaceKey } from "../lib/workspace-key";
 import { useMountEffect } from "./useMountEffect";
 
 export function useBranchWatcher() {
   const projects = useProjectStore((s) => s.projects);
-  const updateWorkspaceBranch = useProjectStore((s) => s.updateWorkspaceBranch);
+  const updateWorkspaceBranches = useProjectStore(
+    (s) => s.updateWorkspaceBranches,
+  );
 
   // Stabilize workspaces (each with its project's host, ADR-183): only
   // produce a new reference when a path or host actually changes. This
@@ -41,9 +42,7 @@ export function useBranchWatcher() {
   // Subscribe to branch change events
   useMountEffect(() => {
     const unsubscribe = window.electronAPI.branches.onChange((branches) => {
-      for (const [key, branch] of Object.entries(branches)) {
-        updateWorkspaceBranch(key as WorkspaceKey, branch);
-      }
+      updateWorkspaceBranches(branches);
     });
     return unsubscribe;
   });

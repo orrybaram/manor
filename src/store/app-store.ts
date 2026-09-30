@@ -575,6 +575,16 @@ export function selectActiveWorkspaceKey(
   return path ? workspaceKey(state.activeWorkspaceHostId, path) : null;
 }
 
+/**
+ * Keys of every mounted workspace layout. Returns a new array each call, so
+ * subscribe through `useShallow`.
+ */
+export function selectWorkspaceKeys(
+  state: Pick<AppState, "workspaceLayouts">,
+): WorkspaceKey[] {
+  return Object.keys(state.workspaceLayouts) as WorkspaceKey[];
+}
+
 /** The active workspace's layout, or null. */
 export function selectActiveLayout(
   state: Pick<AppState, "activeWorkspacePath" | "activeWorkspaceHostId" | "workspaceLayouts">,
@@ -2306,6 +2316,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       for (const [panelId, panel] of Object.entries(layout.panels)) {
         const tab = panel.tabs.find((t) => hasPaneId(t.rootNode, paneId));
         if (tab) {
+          // Runs on every mouse-down in a terminal; an already-focused pane
+          // must keep the same state so nothing re-renders or autosaves.
+          if (
+            layout.activePanelId === panelId &&
+            panel.selectedTabId === tab.id &&
+            tab.focusedPaneId === paneId
+          ) {
+            return state;
+          }
           return {
             workspaceLayouts: {
               ...state.workspaceLayouts,
@@ -2338,7 +2357,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const tab = panel.tabs.find((s) => s.id === panel.selectedTabId);
       if (!tab) return state;
       const next = nextPaneId(tab.rootNode, tab.focusedPaneId);
-      if (!next) return state;
+      if (!next || next === tab.focusedPaneId) return state;
       return updatePanel(state, key, layout, panel.id, (p) => ({
         ...p,
         tabs: p.tabs.map((s) =>
@@ -2355,7 +2374,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const tab = panel.tabs.find((s) => s.id === panel.selectedTabId);
       if (!tab) return state;
       const prev = prevPaneId(tab.rootNode, tab.focusedPaneId);
-      if (!prev) return state;
+      if (!prev || prev === tab.focusedPaneId) return state;
       return updatePanel(state, key, layout, panel.id, (p) => ({
         ...p,
         tabs: p.tabs.map((s) =>
@@ -2770,6 +2789,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!key) return state;
       const layout = state.workspaceLayouts[key];
       if (!layout || !layout.panels[panelId]) return state;
+      // Runs on every click inside a panel (LeafPanel onClick); an
+      // already-active panel must keep the same state so nothing re-renders
+      // or autosaves.
+      if (layout.activePanelId === panelId) return state;
       return {
         workspaceLayouts: {
           ...state.workspaceLayouts,
@@ -2785,7 +2808,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       const layout = state.workspaceLayouts[key];
       if (!layout) return state;
       const next = nextPanelId(layout.panelTree, layout.activePanelId);
-      if (!next) return state;
+      // A single panel cycles to itself: nothing to change.
+      if (!next || next === layout.activePanelId) return state;
       return {
         workspaceLayouts: {
           ...state.workspaceLayouts,
@@ -2801,7 +2825,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       const layout = state.workspaceLayouts[key];
       if (!layout) return state;
       const prev = prevPanelId(layout.panelTree, layout.activePanelId);
-      if (!prev) return state;
+      // A single panel cycles to itself: nothing to change.
+      if (!prev || prev === layout.activePanelId) return state;
       return {
         workspaceLayouts: {
           ...state.workspaceLayouts,

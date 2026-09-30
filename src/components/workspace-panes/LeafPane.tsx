@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, memo } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
 import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
@@ -53,7 +53,7 @@ type LeafPaneProps = {
   workspaceKey?: WorkspaceKey;
 };
 
-export function LeafPane(props: LeafPaneProps) {
+export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   const { paneId, workspaceKey } = props;
   const workspace = workspaceKey ? parseWorkspaceKey(workspaceKey) : null;
   const workspacePath = workspace?.path;
@@ -667,7 +667,7 @@ export function LeafPane(props: LeafPaneProps) {
       {showDropZone && <PaneDropZone paneId={paneId} />}
     </div>
   );
-}
+});
 
 function PaneContextMenu({ paneId, containerRef, onClose, children }: {
   paneId: string;

@@ -62,10 +62,12 @@ export function useDiffWatcher() {
   // objects and drops `diffStats`; re-apply the cached stats when that happens.
   const latestDiffsRef = useRef<Record<WorkspaceKey, DiffStats>>({});
   const applyDiffs = (diffs: Record<WorkspaceKey, DiffStats>) => {
-    // Clear stats for workspaces with no diff
+    // One update for every watched workspace; null clears one with no diff.
+    const stats: Record<WorkspaceKey, DiffStats | null> = {};
     for (const key of Object.keys(prevMapRef.current) as WorkspaceKey[]) {
-      updateWorkspaceDiffStats(key, diffs[key] ?? null);
+      stats[key] = diffs[key] ?? null;
     }
+    updateWorkspaceDiffStats(stats);
   };
 
   useEffect(() => {

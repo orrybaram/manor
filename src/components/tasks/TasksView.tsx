@@ -40,13 +40,13 @@ import {
   type LinkedTask,
   pageWindow,
   paginate,
-  trackerHomeUrl,
   type TaskFieldId,
   type TaskFilters,
   type TaskProvider,
   type TaskRow,
   type TaskSort,
 } from "../../lib/tasks";
+import { TRACKERS } from "../../lib/trackers";
 import { useTasks, useTrackerSources } from "./useTasks";
 import { TaskFilterMenu } from "./TaskFilterMenu";
 import { TaskSortMenu } from "./TaskSortMenu";
@@ -203,7 +203,7 @@ export function TasksView(props: TasksViewProps) {
   );
   const sorted = useMemo(() => sortTasksBy(searched, sort), [searched, sort]);
   const current = paginate(sorted, page);
-  const homeUrl = projectKey ? trackerHomeUrl(rows, provider) : null;
+  const homeUrl = projectKey ? TRACKERS[provider].homeUrl(rows) : null;
   const projectCount = useMemo(
     () => new Set(listed.map((r) => r.projectEntryKey)).size,
     [listed],

@@ -16,20 +16,19 @@ import {
   type TaskFieldId,
   type TaskSort,
   filterTasks,
-  fromGitHub,
-  fromLinear,
   initialOf,
   pageWindow,
   paginate,
   relativeTime,
   sortTasks,
-  trackerHomeUrl,
   withoutLinkedTasks,
   linkedTasks,
   type TaskContext,
   type TaskRow,
 } from "./tasks";
 import type { GitHubIssue, LinearIssue } from "../electron.d";
+import { toRow as fromGitHub } from "./trackers/github";
+import { toRow as fromLinear } from "./trackers/linear";
 import type { ProjectInfo } from "../store/project-store";
 
 const project = { id: "p1", name: "manor", color: "blue" } as ProjectInfo;
@@ -73,154 +72,6 @@ function linear(over: Partial<LinearIssue> = {}): LinearIssue {
 function row(over: Partial<TaskRow>): TaskRow {
   return { ...fromGitHub(gh(), ctx), ...over };
 }
-
-describe("fromGitHub", () => {
-  it("normalises a gh list result", () => {
-    const r = fromGitHub(gh(), ctx);
-    expect(r).toMatchObject({
-      key: "github:p1:12",
-      provider: "github",
-      displayId: "#12",
-      title: "Fix the thing",
-      labels: [{ name: "bug", color: "#d73a4a" }],
-      assignees: ["alice"],
-      author: "bob",
-      status: { label: "Open", tone: "open" },
-      updatedAt: "2026-09-29T10:00:00Z",
-      projectEntryKey: "p1",
-      projectName: "manor",
-      color: "blue",
-    });
-    expect(r.project).toBe(project);
-    expect(r.raw).toEqual({ provider: "github", issue: gh() });
-  });
-
-  it("marks closed issues and drops unusable label colours", () => {
-    const r = fromGitHub(
-      gh({ state: "CLOSED", labels: [{ name: "x", color: "nope" }] }),
-      ctx,
-    );
-    expect(r.status).toEqual({ label: "Closed", tone: "closed" });
-    expect(r.labels).toEqual([{ name: "x", color: undefined }]);
-  });
-
-  it("labels issues closed as not planned as canceled", () => {
-    const r = fromGitHub(
-      gh({ state: "CLOSED", stateReason: "NOT_PLANNED" }),
-      ctx,
-    );
-    expect(r.status).toEqual({
-      label: "Closed (not planned)",
-      tone: "canceled",
-    });
-    expect(
-      fromGitHub(gh({ state: "CLOSED", stateReason: "COMPLETED" }), ctx).status,
-    ).toEqual({ label: "Closed", tone: "closed" });
-  });
-
-  it("carries milestone, projects, created date and comment count", () => {
-    const r = fromGitHub(
-      gh({
-        createdAt: "2026-09-01T00:00:00Z",
-        milestone: { title: "v1" },
-        commentCount: 4,
-        projectItems: [{ title: "Roadmap", status: "Todo" }, { title: "Bugs" }],
-      }),
-      ctx,
-    );
-    expect(r).toMatchObject({
-      createdAt: "2026-09-01T00:00:00Z",
-      milestone: "v1",
-      commentCount: 4,
-      trackerProjects: ["Roadmap", "Bugs"],
-    });
-  });
-
-  it("defaults the new fields when the tracker omits them", () => {
-    const r = fromGitHub(gh(), ctx);
-    expect(r.createdAt).toBe("");
-    expect(r.trackerProjects).toEqual([]);
-    expect(r.milestone).toBeUndefined();
-    expect(r.commentCount).toBeUndefined();
-    expect(r.priority).toBeUndefined();
-  });
-});
-
-describe("fromLinear", () => {
-  it("normalises a Linear list result", () => {
-    const r = fromLinear(linear(), ctx);
-    expect(r).toMatchObject({
-      key: "linear:p1:lin-1",
-      provider: "linear",
-      displayId: "ENG-45",
-      labels: [{ name: "Feature", color: "#5e6ad2" }],
-      assignees: ["alice"],
-      status: { label: "In Progress", tone: "started" },
-    });
-    expect(r.author).toBeUndefined();
-  });
-
-  it("carries priority, project, cycle, team, estimate, due date and creator", () => {
-    const r = fromLinear(
-      linear({
-        priority: 1,
-        priorityLabel: "Urgent",
-        createdAt: "2026-09-01T00:00:00Z",
-        dueDate: "2026-10-01",
-        estimate: 3,
-        project: { name: "Launch" },
-        cycle: { number: 12, name: null },
-        team: { key: "ENG", name: "Engineering" },
-        creator: { name: "Dana D", displayName: "dana" },
-      }),
-      ctx,
-    );
-    expect(r).toMatchObject({
-      priority: { value: 1, label: "Urgent" },
-      trackerProjects: ["Launch"],
-      cycle: "Cycle 12",
-      team: "ENG",
-      estimate: 3,
-      dueDate: "2026-10-01",
-      createdAt: "2026-09-01T00:00:00Z",
-      author: "dana",
-    });
-  });
-
-  it("prefers the cycle name, falls back to creator name, and defaults missing fields", () => {
-    expect(
-      fromLinear(linear({ cycle: { number: 3, name: "Sprint" } }), ctx).cycle,
-    ).toBe("Sprint");
-    expect(fromLinear(linear({ creator: { name: "Eve" } }), ctx).author).toBe(
-      "Eve",
-    );
-    const r = fromLinear(linear({ priority: 0 }), ctx);
-    expect(r.priority).toEqual({ value: 0, label: "No priority" });
-    expect(r.trackerProjects).toEqual([]);
-    expect(r.createdAt).toBe("");
-    expect(r.cycle).toBeUndefined();
-    expect(r.estimate).toBeUndefined();
-  });
-
-  it("tints by state type and handles no assignee", () => {
-    expect(
-      fromLinear(linear({ state: { name: "Backlog", type: "backlog" } }), ctx)
-        .status.tone,
-    ).toBe("backlog");
-    expect(
-      fromLinear(linear({ state: { name: "Todo", type: "unstarted" } }), ctx)
-        .status.tone,
-    ).toBe("todo");
-    expect(
-      fromLinear(linear({ state: { name: "Done", type: "completed" } }), ctx)
-        .status.tone,
-    ).toBe("closed");
-    expect(fromLinear(linear({ assignee: null }), ctx).assignees).toEqual([]);
-    expect(
-      fromLinear(linear({ assignee: { name: "Carol" } }), ctx).assignees,
-    ).toEqual(["Carol"]);
-  });
-});
 
 describe("sortTasks / collectTasks", () => {
   it("sorts by updatedAt desc, undated last, stable on ties", () => {
@@ -323,19 +174,6 @@ describe("initialOf", () => {
   it("uppercases the first letter", () => {
     expect(initialOf("alice")).toBe("A");
     expect(initialOf(" ")).toBe("?");
-  });
-});
-
-describe("trackerHomeUrl", () => {
-  it("derives the repo issues page and the Linear team page", () => {
-    const rows = [fromGitHub(gh(), ctx), fromLinear(linear(), ctx)];
-    expect(trackerHomeUrl(rows, "github")).toBe(
-      "https://github.com/acme/manor/issues",
-    );
-    expect(trackerHomeUrl(rows, "linear")).toBe(
-      "https://linear.app/acme/team/ENG/all",
-    );
-    expect(trackerHomeUrl([], "github")).toBeNull();
   });
 });
 

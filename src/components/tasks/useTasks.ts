@@ -5,27 +5,19 @@ import {
   buildTopLevelEntries,
   type TopLevelEntry,
 } from "../../utils/sidebar-items";
-import { ghRepoOf } from "../../lib/gh-repo";
 import { primaryMember } from "../../lib/home-dashboard";
 import {
   collectTasks,
-  fromGitHub,
-  fromLinear,
   type TaskContext,
   type TaskProvider,
   type TaskRow,
 } from "../../lib/tasks";
+import { TRACKERS, type TrackerScope } from "../../lib/trackers";
 
 const STALE_MS = 60_000;
-const LIMIT = 50;
-/** Linear state types that count as "open" work. */
-const OPEN_LINEAR_STATES = ["unstarted", "started", "backlog"];
 
 /** Query keys that already logged a failure — a flaky source logs once, not every refetch. */
 const loggedFailures = new Set<string>();
-
-/** Which issues a query asks for: every open one, or the open ones assigned to you. */
-type TaskFilter = "open" | "assigned";
 
 type SourceResult = { rows: TaskRow[]; failed: boolean };
 
@@ -134,7 +126,7 @@ export function useTrackerSources(): {
           ctx,
         });
       }
-      if (linearConnected && member.linearAssociations.length > 0) {
+      if (linearConnected && TRACKERS.linear.canList(member)) {
         out.push({ key: `linear:${member.id}`, provider: "linear", ctx });
       }
     }
@@ -156,7 +148,7 @@ export type UseTasksOptions = {
   projectKey: string | null;
 };
 
-const FILTERS: TaskFilter[] = ["assigned", "open"];
+const SCOPES: TrackerScope[] = ["assigned", "open"];
 
 /**
  * Tasks for the Tasks view (ADR-198 §3): for each top-level entry of
@@ -188,68 +180,11 @@ export function useTasks(options: UseTasksOptions): {
     // Module-level, so the combined value only changes when a query does.
     combine: combineResults,
     queries: sources.flatMap((source) =>
-      FILTERS.map((filter) => {
-        const { ctx } = source;
-        const member = ctx.project;
-        if (source.provider === "github") {
-          return {
-            queryKey: [
-              "trackers",
-              "github",
-              "list",
-              filter,
-              member.hostId,
-              member.path,
-              ctx.entryKey,
-            ],
-            queryFn: () =>
-              settle(`${source.key}:${filter}`, async () => {
-                const repo = ghRepoOf(member);
-                const issues =
-                  filter === "assigned"
-                    ? await window.electronAPI.github.getMyIssues(
-                        repo,
-                        LIMIT,
-                        "open",
-                      )
-                    : await window.electronAPI.github.getAllIssues(
-                        repo,
-                        LIMIT,
-                        "open",
-                      );
-                return issues.map((i) => ({
-                  ...fromGitHub(i, ctx),
-                  assignedToMe: filter === "assigned",
-                }));
-              }),
-            staleTime: STALE_MS,
-            retry: false,
-          };
-        }
-        const teamIds = member.linearAssociations.map((a) => a.teamId);
+      SCOPES.map((scope) => {
+        const query = TRACKERS[source.provider].listQuery(source.ctx, scope);
         return {
-          queryKey: [
-            "tasks",
-            "trackers",
-            "linear",
-            "list",
-            member.id,
-            teamIds.join(","),
-            ctx.entryKey,
-          ],
-          queryFn: () =>
-            settle(`${source.key}:${filter}`, async () => {
-              const opts = { stateTypes: OPEN_LINEAR_STATES, limit: LIMIT };
-              const issues =
-                filter === "assigned"
-                  ? await window.electronAPI.linear.getMyIssues(teamIds, opts)
-                  : await window.electronAPI.linear.getAllIssues(teamIds, opts);
-              return issues.map((i) => ({
-                ...fromLinear(i, ctx),
-                assignedToMe: filter === "assigned",
-              }));
-            }),
-          staleTime: STALE_MS,
+          ...query,
+          queryFn: () => settle(`${source.key}:${scope}`, query.queryFn),
           retry: false,
         };
       }),

@@ -1,6 +1,6 @@
 ---
 title: Store actions and watchers address workspaces by key
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

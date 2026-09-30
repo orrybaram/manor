@@ -238,7 +238,7 @@ export function useTerminalLifecycle(
     // frame into the scrollback.
     fit.fit();
 
-    // File path links (CMD+click to open in editor)
+    // File path links (Cmd/Ctrl+click to open in editor)
     t.registerLinkProvider(
       createFileLinkProvider(t, paneId, cwd ?? ""),
     );

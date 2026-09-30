@@ -30,7 +30,7 @@ export interface AppMenuDeps {
   getMainWindow: () => BrowserWindow | null;
   getRendererWindows: () => BrowserWindow[];
   keybindingsManager: KeybindingsManager;
-  checkForUpdates: () => void;
+  checkForUpdates: () => void | Promise<void>;
   saveZoomLevel: (factor: number) => void;
 }
 
@@ -126,7 +126,7 @@ export function installAppMenu(deps: AppMenuDeps): AppMenuController {
       }
     },
     checkForUpdates() {
-      deps.checkForUpdates();
+      void Promise.resolve(deps.checkForUpdates()).catch(() => {});
     },
     openExternal(url) {
       shell.openExternal(url);

@@ -547,7 +547,7 @@ export const systemRoutes: Route[] = [
     method: "POST",
     path: "/updater/check",
     async handler({ json }) {
-      checkForUpdates();
+      void Promise.resolve(checkForUpdates()).catch(() => {});
       json(200, { ok: true });
     },
   },
@@ -560,7 +560,9 @@ export const systemRoutes: Route[] = [
       // Respond before quitting: `quitAndInstall` tears the process down, and
       // a caller that never got a reply cannot tell success from a crash.
       json(200, { ok: true });
-      setImmediate(() => quitAndInstall());
+      setImmediate(() => {
+        void Promise.resolve(quitAndInstall()).catch(() => {});
+      });
     },
   },
 ];

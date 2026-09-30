@@ -29,6 +29,7 @@ import {
   DEFAULT_TASK_FILTERS,
   TASK_FIELDS,
   facetLabel,
+  fieldsFor,
   pageWindow,
   type TaskFieldId,
   type TaskFilters,
@@ -107,7 +108,7 @@ export function TasksView(props: TasksViewProps) {
   const sort = prefs.sorts[provider];
   const filters = prefs.filtersBy[provider];
   const filterCount = activeFilterCount(filters);
-  const showPriority = provider === "linear";
+  const showPriority = fieldsFor(provider).includes("priority");
 
   // A task linked to a workspace is listed once, as its in-progress link.
   // Facet counts in the filter menu come from `listed`, so they don't shift

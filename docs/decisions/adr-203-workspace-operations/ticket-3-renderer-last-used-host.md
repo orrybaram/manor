@@ -1,6 +1,6 @@
 ---
 title: Drop the renderer's duplicate last-used-host write
-status: todo
+status: done
 priority: medium
 assignee: haiku
 blocked_by: [2]

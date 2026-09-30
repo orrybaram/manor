@@ -1,6 +1,6 @@
 ---
 title: Workspace operations module and its test suite
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: []

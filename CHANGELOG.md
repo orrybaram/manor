@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.18.4] - 2026-09-29
+
+**Features**
+- You can now filter and sort the Up next list on the Home screen, the same way you can in the Tasks view
+
 ## [0.18.3] - 2026-09-29
 
 ### Fixes

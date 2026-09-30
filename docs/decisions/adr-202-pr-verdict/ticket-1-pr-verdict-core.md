@@ -1,6 +1,6 @@
 ---
 title: prVerdict core module and table-driven test
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: []

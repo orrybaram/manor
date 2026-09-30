@@ -29,10 +29,18 @@ export function useAgentContextRepair(): void {
       }
     };
 
+    // Only the slices the derivation reads: the app store changes on every
+    // pane title frame, which must not re-walk every layout.
     const unsubscribes = [
-      useAgentStore.subscribe(repair),
-      useProjectStore.subscribe(repair),
-      useAppStore.subscribe(repair),
+      useAgentStore.subscribe((s, prev) => {
+        if (s.agents !== prev.agents) repair();
+      }),
+      useProjectStore.subscribe((s, prev) => {
+        if (s.projects !== prev.projects) repair();
+      }),
+      useAppStore.subscribe((s, prev) => {
+        if (s.workspaceLayouts !== prev.workspaceLayouts) repair();
+      }),
     ];
     repair();
     return () => {

@@ -3,6 +3,7 @@ import { useProjectStore } from "../../../store/project-store";
 import { useAppStore } from "../../../store/app-store";
 import { useAgentStore } from "../../../store/agent-store";
 import { useActiveSnoozes } from "../../../store/snooze-store";
+import { useCleanPaneTitles } from "../../../hooks/useAgentDisplay";
 import { runningAgentCount } from "../../../lib/home-dashboard";
 import {
   headline,
@@ -46,7 +47,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
 
   const projects = useProjectStore((s) => s.projects);
   const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
-  const paneTitle = useAppStore((s) => s.paneTitle);
+  // Cleaned titles: an agent's spinner frames don't re-render the dashboard.
+  const paneTitle = useCleanPaneTitles();
   const agents = useAgentStore((s) => s.agents);
   const unseenRespondedAgentIds = useAgentStore(
     (s) => s.unseenRespondedAgentIds,

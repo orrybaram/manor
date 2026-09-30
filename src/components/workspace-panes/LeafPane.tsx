@@ -38,6 +38,7 @@ import { registerBrowserPane, unregisterBrowserPane } from "../../lib/browser-pa
 import { isRemoteHost } from "../../lib/hosts";
 import { parseWorkspaceKey, type WorkspaceKey } from "../../lib/workspace-key";
 import { useMountEffect } from "../../hooks/useMountEffect";
+import { usePaneHeaderTitle } from "../../hooks/usePaneHeaderTitle";
 import { useRemotePaneStore } from "../../store/remote-pane-store";
 
 import styles from "./PaneLayout/PaneLayout.module.css";
@@ -63,7 +64,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
     const tab = ws?.tabs.find((t) => t.id === ws.selectedTabId);
     return tab?.focusedPaneId;
   });
-  const paneTitle = useAppStore((s) => s.paneTitle[paneId]);
+  const paneTitle = usePaneHeaderTitle(paneId);
   const paneCwd = useAppStore((s) => s.paneCwd[paneId]);
   const contentType = useAppStore((s) => s.paneContentType[paneId]);
   const paneUrl = useAppStore((s) => s.paneUrl[paneId]);
@@ -154,10 +155,8 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
     !(drag.type === "pane" && drag.paneId === paneId) &&
     !paneIsInDraggedTab;
 
-  let title =
+  const title =
     paneTitle || (paneCwd ? paneCwd.split("/").pop() : "") || "Terminal";
-  // Strip "user@host:" prefix from default shell titles
-  title = title.replace(/^.+@.+:/, "");
 
   const handleSplit = (e: React.MouseEvent) => {
     e.stopPropagation();

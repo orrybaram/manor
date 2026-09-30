@@ -17,6 +17,7 @@ export default defineConfig({
               external: ["node-pty", "tree-kill"],
               output: {
                 format: "cjs",
+                chunkFileNames: "main-[name].js",
               },
             },
           },

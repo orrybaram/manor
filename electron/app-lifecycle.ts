@@ -2,6 +2,7 @@ import { app, BrowserWindow, nativeImage, powerMonitor, safeStorage } from "elec
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { performance } from "node:perf_hooks";
 import { TerminalHostClient } from "./terminal-host/client";
 import { LayoutPersistence } from "./terminal-host/layout-persistence";
 import { ProjectManager } from "./persistence";
@@ -29,6 +30,7 @@ import { cleanAgentTitle } from "./title-utils";
 import type { AgentStatus, StreamEvent } from "./terminal-host/types";
 import { initAutoUpdater, checkForUpdates } from "./updater";
 import { portlessManager } from "./portless";
+import { loginPathReady } from "./login-path";
 import { createLocalBackend } from "./backend/host-backend";
 import { LOCAL_HOST_ID } from "./backend/types";
 import {
@@ -257,8 +259,16 @@ export function initApp(devTitle: string | null): void {
    * running), so anything still reading `deps.mainWindow` would hand that
    * wrapper to `dialog`, `parent:`, or `webContents.send` (see #164).
    */
+  let firstWindowOpened = false;
   function openPrimaryWindow(): BrowserWindow {
     const win = createWindow();
+    if (!firstWindowOpened) {
+      firstWindowOpened = true;
+      console.log(`[startup] window created at ${Math.round(performance.now())}ms`);
+      win.once("ready-to-show", () => {
+        console.log(`[startup] window ready-to-show at ${Math.round(performance.now())}ms`);
+      });
+    }
     mainWindow = win;
     trackRendererWindow(win);
 
@@ -538,16 +548,6 @@ export function initApp(devTitle: string | null): void {
     });
   }
 
-  // Ensure shell integration and agent hooks are set up — the same bootstrap
-  // a remote daemon runs on its own host (ADR-160 ticket 10). A connector
-  // that skips registration (e.g. a config it couldn't safely parse) is
-  // reported here, not thrown — one agent's bad config must never abort
-  // local startup.
-  for (const warning of bootstrapHost().warnings) {
-    console.warn(`[app-lifecycle] bootstrap: ${warning}`);
-  }
-  ensureManorCli();
-
   function broadcastAgent(agent: AgentInfo): void {
     sendAgentUpdate(mainWindow, agent, preferencesManager);
   }
@@ -821,20 +821,55 @@ export function initApp(devTitle: string | null): void {
     // and replaced.
     initAutoUpdater(() => mainWindow);
 
-    // Start agent hook server FIRST to get the port number.
-    // The port must be in process.env BEFORE the daemon spawns,
-    // because the daemon inherits env at spawn time and passes it
-    // to PTY sessions (which need MANOR_HOOK_PORT for hook scripts).
-    await agentHookServer.start();
-    process.env.MANOR_HOOK_PORT = String(agentHookServer.hookPort);
+    // Start the local servers in parallel. Their ports must be in process.env
+    // BEFORE the daemon spawns, because the daemon inherits env at spawn time
+    // and passes it to PTY sessions (which need MANOR_HOOK_PORT for hook
+    // scripts). `loginPathReady()` is awaited for the same reason: the daemon
+    // inherits PATH at spawn. Kicked off before the sync bootstrap below so the
+    // sockets can be listening while it runs.
+    const serversStarted = Promise.allSettled([
+      agentHookServer.start(),
+      webviewServer.start(),
+      portlessManager.start(),
+      loginPathReady(),
+    ]);
+
+    // Ensure shell integration and agent hooks are set up — the same bootstrap
+    // a remote daemon runs on its own host (ADR-160 ticket 10). A connector
+    // that skips registration (e.g. a config it couldn't safely parse) is
+    // reported here, not thrown — one agent's bad config must never abort
+    // local startup.
+    try {
+      for (const warning of bootstrapHost().warnings) {
+        console.warn(`[app-lifecycle] bootstrap: ${warning}`);
+      }
+      ensureManorCli();
+    } catch (err) {
+      console.error("[app-lifecycle] host bootstrap failed:", err);
+    }
+
+    const [hookResult, webviewResult, portlessResult, pathResult] = await serversStarted;
+    if (hookResult.status === "fulfilled") {
+      process.env.MANOR_HOOK_PORT = String(agentHookServer.hookPort);
+    } else {
+      console.error("Failed to start agent hook server:", hookResult.reason);
+    }
     // Only remote-namespace panes set this; if Manor was launched from one,
     // local panes would otherwise send hooks to the remote daemon's listener.
     delete process.env.MANOR_HOOK_PORT_FILE;
-
-    await webviewServer.start();
-    await portlessManager.start();
-    process.env.MANOR_WEBVIEW_PORT = String(webviewServer.serverPort);
-    process.env.MANOR_PORTLESS_PORT = String(portlessManager.proxyPort);
+    if (webviewResult.status === "fulfilled") {
+      process.env.MANOR_WEBVIEW_PORT = String(webviewServer.serverPort);
+    } else {
+      console.error("Failed to start webview server:", webviewResult.reason);
+    }
+    if (portlessResult.status === "fulfilled") {
+      process.env.MANOR_PORTLESS_PORT = String(portlessManager.proxyPort);
+    } else {
+      console.error("Failed to start portless proxy:", portlessResult.reason);
+    }
+    if (pathResult.status === "rejected") {
+      console.error("Login PATH resolution failed:", pathResult.reason);
+    }
 
     // Connect to daemon (spawns if needed) — now has MANOR_HOOK_PORT in env
     try {

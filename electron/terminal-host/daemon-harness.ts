@@ -71,7 +71,7 @@ export class E2EDaemon {
   }
 
   async stop(): Promise<void> {
-    this.host.disposeAll();
+    await this.host.disposeAll();
     return new Promise((r) => {
       this.server.close(() => {
         try {
@@ -218,7 +218,7 @@ export class E2EDaemon {
     if (!this.authenticatedSockets.has(socket)) return;
     const sessionId = cmd.sessionId ?? "";
     if (cmd.type === "write") this.host.write(sessionId, cmd.data ?? "");
-    else if (cmd.type === "subscribe") await this.host.attach(sessionId, socket);
+    else if (cmd.type === "subscribe") this.host.subscribe(sessionId, socket);
     else if (cmd.type === "unsubscribe") this.host.detach(sessionId, socket);
   }
 
@@ -282,13 +282,16 @@ export function feedSessionData(
 }
 
 /** Force-flush scrollback writer inside a session */
-export function flushScrollback(host: TerminalHost, sessionId: string): void {
+export async function flushScrollback(
+  host: TerminalHost,
+  sessionId: string,
+): Promise<void> {
   const session = sessionOf(host, sessionId);
   if (!session) return;
   const { scrollbackWriter } = session as unknown as {
     scrollbackWriter: ScrollbackWriter | null;
   };
-  scrollbackWriter?.flush();
+  await scrollbackWriter?.flush();
 }
 
 export const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));

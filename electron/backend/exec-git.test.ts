@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { ExecGitBackend } from "./exec-git";
-import { mkdtemp, writeFile, rm, realpath } from "node:fs/promises";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { ExecGitBackend, MAX_UNTRACKED_DIFF_BYTES } from "./exec-git";
+import { localExec } from "./exec";
+import { mkdir, mkdtemp, writeFile, rm, realpath } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
@@ -115,6 +116,25 @@ describe("ExecGitBackend", () => {
     });
   });
 
+  describe("getFullDiff", () => {
+    it("reuses the merge-base while HEAD and the ref are unchanged", async () => {
+      const file = vi.fn(localExec.file);
+      const spied = new ExecGitBackend({ ...localExec, file });
+      const mergeBases = () =>
+        file.mock.calls.filter(([, args]) => args[0] === "merge-base").length;
+
+      await writeFile(path.join(tmpDir, "file.txt"), "one\n");
+      expect(await spied.getFullDiff(tmpDir, "main")).toContain("+one");
+      await writeFile(path.join(tmpDir, "file.txt"), "two\n");
+      expect(await spied.getFullDiff(tmpDir, "main")).toContain("+two");
+      expect(mergeBases()).toBe(1);
+
+      git(tmpDir, "commit", "-am", "second");
+      await spied.getFullDiff(tmpDir, "main");
+      expect(mergeBases()).toBe(2);
+    });
+  });
+
   describe("getLocalDiff", () => {
     it("returns null when clean", async () => {
       const diff = await backend.getLocalDiff(tmpDir);
@@ -132,6 +152,31 @@ describe("ExecGitBackend", () => {
       const diff = await backend.getLocalDiff(tmpDir);
       expect(diff).toContain("untracked.txt");
       expect(diff).toContain("+new content");
+    });
+
+    it("leaves binary and oversized untracked files out, unread", async () => {
+      const readFile = vi.fn(localExec.readFile);
+      const spied = new ExecGitBackend({ ...localExec, readFile });
+      await writeFile(path.join(tmpDir, "notes.txt"), "text\n");
+      await writeFile(path.join(tmpDir, "empty.txt"), "");
+      await writeFile(path.join(tmpDir, "-dash.txt"), "dash\n");
+      await writeFile(path.join(tmpDir, "glob*.txt"), "glob\n");
+      await mkdir(path.join(tmpDir, "sub"));
+      await writeFile(path.join(tmpDir, "sub", "nested.txt"), "nested\n");
+      await writeFile(path.join(tmpDir, "image.png"), Buffer.from([0x89, 0x50, 0, 0, 1, 2]));
+      await writeFile(path.join(tmpDir, "huge.txt"), "x".repeat(MAX_UNTRACKED_DIFF_BYTES));
+
+      const diff = await spied.getLocalDiff(tmpDir);
+
+      const read = readFile.mock.calls.map(([p]) => path.relative(tmpDir, p)).sort();
+      expect(read).toEqual(
+        ["-dash.txt", "empty.txt", "glob*.txt", "notes.txt", path.join("sub", "nested.txt")].sort(),
+      );
+      expect(diff).toContain("+text");
+      expect(diff).toContain("+nested");
+      expect(diff).toContain("b/empty.txt");
+      expect(diff).not.toContain("image.png");
+      expect(diff).not.toContain("huge.txt");
     });
   });
 

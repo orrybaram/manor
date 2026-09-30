@@ -1,9 +1,9 @@
 // electron/main.ts — Thin entry point
 import { app, crashReporter } from "electron";
-import { execFileSync } from "node:child_process";
 import { readBranchSync } from "./ipc/pty";
 import { initApp } from "./app-lifecycle";
 import { installMainLog } from "./main-log";
+import { startLoginPathResolution } from "./login-path";
 
 // Local minidumps, uploaded nowhere. A browser-process crash leaves nothing
 // usable in Apple's report — the release Electron framework symbolicates to the
@@ -13,28 +13,9 @@ crashReporter.start({ uploadToServer: false });
 
 // When launched from Finder/Dock, macOS gives the app a minimal PATH
 // (/usr/bin:/bin:/usr/sbin:/sbin) that doesn't include Homebrew paths
-// where tools like `gh` live. Spawn a login shell to get the real PATH.
-if (app.isPackaged) {
-  try {
-    const shell = process.env.SHELL || "/bin/zsh";
-    const result = execFileSync(shell, ["-lc", "echo $PATH"], {
-      encoding: "utf-8",
-      timeout: 3000,
-    }).trim();
-    if (result) {
-      process.env.PATH = result;
-    }
-  } catch {
-    // If the login shell fails, fall back to adding common paths
-    const common = ["/opt/homebrew/bin", "/usr/local/bin"];
-    const current = process.env.PATH || "";
-    const segments = current.split(":");
-    const missing = common.filter((p) => !segments.includes(p));
-    if (missing.length) {
-      process.env.PATH = [...missing, current].join(":");
-    }
-  }
-}
+// where tools like `gh` live. Apply the cached login PATH now and resolve the
+// real one from a login shell in the background, off the startup path.
+if (app.isPackaged) startLoginPathResolution();
 
 /**
  * Opt-in remote debugging, for profiling the renderer from outside the app.

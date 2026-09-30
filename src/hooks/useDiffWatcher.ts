@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useProjectStore, type DiffStats } from "../store/project-store";
 import { keyOf } from "../lib/workspace-directory";
+import { setDiffFingerprints } from "../lib/diff-fingerprints";
 import type { WorkspaceKey } from "../lib/workspace-key";
 import { useMountEffect } from "./useMountEffect";
 
@@ -62,7 +63,7 @@ export function useDiffWatcher() {
   // objects and drops `diffStats`; re-apply the cached stats when that happens.
   const latestDiffsRef = useRef<Record<WorkspaceKey, DiffStats>>({});
   const applyDiffs = (diffs: Record<WorkspaceKey, DiffStats>) => {
-    // Clear stats for workspaces with no diff
+    // One update for every watched workspace; null clears one with no diff.
     const stats: Record<WorkspaceKey, DiffStats | null> = {};
     for (const key of Object.keys(prevMapRef.current) as WorkspaceKey[]) {
       stats[key] = diffs[key] ?? null;
@@ -80,6 +81,12 @@ export function useDiffWatcher() {
       latestDiffsRef.current = diffs;
       applyDiffs(diffs);
     });
-    return unsubscribe;
+    // Open diff panes re-fetch their diff only when this changes.
+    const unsubscribeFingerprints =
+      window.electronAPI.diffs.onFingerprintsChange(setDiffFingerprints);
+    return () => {
+      unsubscribe();
+      unsubscribeFingerprints();
+    };
   });
 }

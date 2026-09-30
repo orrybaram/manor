@@ -535,14 +535,14 @@ export type GroupUpdatableFields = Partial<
  * update. Keeps the same state on no-ops so subscribers (e.g. useDiffWatcher's
  * re-apply effect) don't re-run.
  */
-function patchEach<V>(
+function patchWorkspaces<V>(
   s: { projects: ProjectInfo[] },
   byKey: Record<WorkspaceKey, V>,
-  fn: (ws: WorkspaceInfo, value: V) => WorkspaceInfo,
+  update: (ws: WorkspaceInfo, value: V) => WorkspaceInfo,
 ): { projects: ProjectInfo[] } {
   let projects = s.projects;
   for (const [key, value] of Object.entries(byKey) as [WorkspaceKey, V][]) {
-    projects = patch(projects, key, (ws) => fn(ws, value));
+    projects = patch(projects, key, (ws) => update(ws, value));
   }
   return projects === s.projects ? s : { projects };
 }
@@ -1712,14 +1712,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   updateWorkspaceBranches: (branchByKey) =>
     set((s) =>
-      patchEach(s, branchByKey, (ws, branch) =>
+      patchWorkspaces(s, branchByKey, (ws, branch) =>
         branchesEqual(ws.branch, branch) ? ws : { ...ws, branch },
       ),
     ),
 
   updateWorkspaceDiffStats: (statsByKey) =>
     set((s) =>
-      patchEach(s, statsByKey, (ws, stats) =>
+      patchWorkspaces(s, statsByKey, (ws, stats) =>
         ws.diffStats?.added === stats?.added &&
         ws.diffStats?.removed === stats?.removed
           ? ws

@@ -36,6 +36,7 @@ import { createSerializedHandler } from "./control-queue";
 import { localRole, remoteRole, type DaemonRole } from "./daemon-role";
 import { ControlRelayStreams } from "./control-relay-listener";
 import { errorMessage } from "../lib/errors";
+import { createLineReader } from "./line-reader";
 
 const daemonVersion = process.env.MANOR_VERSION;
 
@@ -388,7 +389,7 @@ async function handleStreamMessage(
       host.write(command.sessionId, command.data);
       break;
     case "subscribe":
-      await host.attach(command.sessionId, socket);
+      host.subscribe(command.sessionId, socket);
       break;
     case "unsubscribe":
       host.detach(command.sessionId, socket);
@@ -458,22 +459,6 @@ function sendResponse(
   }
 }
 
-// ── NDJSON line parser ──
-
-function createLineParser(
-  onLine: (line: string) => void,
-): (chunk: Buffer) => void {
-  let buffer = "";
-  return (chunk: Buffer) => {
-    buffer += chunk.toString("utf-8");
-    const lines = buffer.split("\n");
-    buffer = lines.pop()!; // Keep incomplete line
-    for (const line of lines) {
-      if (line.trim()) onLine(line);
-    }
-  };
-}
-
 function createControlHandler(d: Daemon, conn: Connection): (line: string) => void {
   const { socket } = conn;
   return createSerializedHandler(
@@ -523,7 +508,7 @@ function startServer(role: DaemonRole): DaemonServer {
     d.connections.set(socket, conn);
     let lineHandler: ((line: string) => void) | null = null;
 
-    const initialParser = createLineParser((line) => {
+    const initialParser = createLineReader((line) => {
       if (conn.kind !== null) {
         lineHandler?.(line);
         return;
@@ -603,11 +588,30 @@ function startServer(role: DaemonRole): DaemonServer {
 
 // ── Graceful shutdown ──
 
-function shutdown(role: DaemonRole, server: DaemonServer | null): never {
+/**
+ * How long shutdown waits for sessions' last scrollback and meta.json writes
+ * before exiting anyway: a stuck disk must not keep the daemon alive.
+ */
+const SHUTDOWN_PERSIST_TIMEOUT_MS = 1_500;
+
+let shuttingDown = false;
+
+async function shutdown(
+  role: DaemonRole,
+  server: DaemonServer | null,
+): Promise<void> {
+  // A second signal (or an uncaught exception) while waiting on the disk
+  // must not dispose everything twice.
+  if (shuttingDown) return;
+  shuttingDown = true;
   log("Shutting down...");
   if (server) {
     server.close();
-    server.host.disposeAll();
+    await waitAtMost(
+      server.host.disposeAll(),
+      SHUTDOWN_PERSIST_TIMEOUT_MS,
+      `Shutdown: scrollback writes still pending after ${SHUTDOWN_PERSIST_TIMEOUT_MS}ms`,
+    );
   }
   try {
     fs.unlinkSync(role.paths.socket);
@@ -620,6 +624,22 @@ function shutdown(role: DaemonRole, server: DaemonServer | null): never {
     /* ignore */
   }
   process.exit(0);
+}
+
+/** Wait for `promise`, but no longer than `ms`; logs `timeoutMessage` if it gives up. */
+function waitAtMost(
+  promise: Promise<void>,
+  ms: number,
+  timeoutMessage: string,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      log(timeoutMessage);
+      resolve();
+    }, ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 // Log uncaught exceptions and exit — a broken daemon should restart rather
@@ -700,7 +720,7 @@ async function main(): Promise<void> {
     nsIndex >= 0 && argv[nsIndex + 1] === "remote" ? remoteRole(log) : localRole();
 
   let server: DaemonServer | null = null;
-  installDaemonSignalHandlers(() => shutdown(role, server));
+  installDaemonSignalHandlers(() => void shutdown(role, server));
   server = startServer(role);
 }
 

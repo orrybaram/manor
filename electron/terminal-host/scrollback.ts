@@ -2,16 +2,20 @@
  * Scrollback persistence — writes PTY output to disk for cold restore.
  *
  * Each session gets a directory at ~/.manor/sessions/{sessionId}/ with:
- *   - scrollback.bin  — raw PTY output, append-only
+ *   - scrollback.bin  — raw PTY output, appended to; cut back to its last
+ *                       half once it passes MAX_SCROLLBACK_BYTES
  *   - meta.json       — { cols, rows, cwd, createdAt, endedAt? }
  */
 
 import * as fs from "node:fs";
+import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import { scrollbackSessionsDir } from "../paths";
 
 export const SESSIONS_DIR = scrollbackSessionsDir();
 export const MAX_SCROLLBACK_BYTES = 5 * 1024 * 1024; // 5MB
+/** Where a scrollback past MAX_SCROLLBACK_BYTES is cut back to. */
+export const SCROLLBACK_TRUNCATE_TO_BYTES = MAX_SCROLLBACK_BYTES / 2;
 export const COLD_RESTORE_MAX_BYTES = 500 * 1024; // 500KB read limit for cold restore
 
 /**
@@ -36,6 +40,22 @@ export function isSafeSessionId(sessionId: string): boolean {
   );
 }
 
+/**
+ * Write `file` by writing a sibling tmp file and renaming it into place, so a
+ * reader never sees it half-written and a crash mid-write leaves the old one.
+ */
+async function writeFileAtomic(file: string, data: string | Buffer): Promise<void> {
+  const tmpPath = `${file}.tmp`;
+  await fsp.writeFile(tmpPath, data);
+  await fsp.rename(tmpPath, file);
+}
+
+function writeFileAtomicSync(file: string, data: string | Buffer): void {
+  const tmpPath = `${file}.tmp`;
+  fs.writeFileSync(tmpPath, data);
+  fs.renameSync(tmpPath, file);
+}
+
 export interface SessionMeta {
   sessionId: string;
   cols: number;
@@ -53,6 +73,19 @@ export class ScrollbackWriter {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private totalBytes = 0;
   private disposed = false;
+  /** What meta.json holds, so a cwd change never has to read it back. */
+  private meta: SessionMeta | null = null;
+  /** Set while a meta.json write is queued but not started, to coalesce them. */
+  private metaWriteQueued = false;
+
+  /**
+   * Every disk operation after `init` runs through this chain, one at a time
+   * and in order, so appends, truncations and clears never interleave. The
+   * daemon runs every session on one event loop; none of this may block it.
+   */
+  private diskChain: Promise<void> = Promise.resolve();
+  /** Operations on `diskChain` that have not finished yet. */
+  private pendingOps = 0;
 
   static readonly FLUSH_INTERVAL_MS = 2000;
   static readonly FLUSH_THRESHOLD_BYTES = 256 * 1024;
@@ -74,12 +107,12 @@ export class ScrollbackWriter {
   init(meta: Omit<SessionMeta, "createdAt" | "endedAt">): void {
     fs.mkdirSync(this.sessionDir, { recursive: true });
 
-    const fullMeta: SessionMeta = {
+    this.meta = {
       ...meta,
       createdAt: new Date().toISOString(),
       endedAt: null,
     };
-    fs.writeFileSync(this.metaPath, JSON.stringify(fullMeta, null, 2));
+    writeFileAtomicSync(this.metaPath, this.serializeMeta());
 
     // Create empty scrollback file
     fs.writeFileSync(this.scrollbackPath, "");
@@ -95,103 +128,184 @@ export class ScrollbackWriter {
     this.bufferSize += buf.length;
 
     if (this.bufferSize >= ScrollbackWriter.FLUSH_THRESHOLD_BYTES) {
-      this.flush();
+      void this.flush();
       return;
     }
 
     if (!this.flushTimer) {
       this.flushTimer = setTimeout(() => {
         this.flushTimer = null;
-        this.flush();
+        void this.flush();
       }, ScrollbackWriter.FLUSH_INTERVAL_MS);
     }
   }
 
-  /** Force flush buffered data to disk */
-  flush(): void {
-    if (this.flushTimer) {
-      clearTimeout(this.flushTimer);
-      this.flushTimer = null;
-    }
+  /**
+   * Write buffered data to disk. Resolves once it (and everything queued
+   * before it) has landed.
+   */
+  flush(): Promise<void> {
+    this.clearFlushTimer();
+    const combined = this.takeBuffer();
+    if (!combined) return this.whenIdle();
 
-    if (this.buffer.length === 0) return;
-
-    const combined = Buffer.concat(this.buffer);
-    this.buffer = [];
-    this.bufferSize = 0;
-
-    fs.appendFileSync(this.scrollbackPath, combined);
     this.totalBytes += combined.length;
+    // Past the cap, cut back to half of it: the file then has room for
+    // another 2.5 MB of output before it needs rewriting again, instead of
+    // going over on the very next flush.
+    const truncate = this.totalBytes > MAX_SCROLLBACK_BYTES;
+    if (truncate) this.totalBytes = SCROLLBACK_TRUNCATE_TO_BYTES;
 
-    // Enforce size cap
-    if (this.totalBytes > MAX_SCROLLBACK_BYTES) {
-      this.truncateScrollback();
-    }
+    return this.enqueue(async () => {
+      await fsp.appendFile(this.scrollbackPath, combined);
+      if (truncate) await this.truncateScrollback();
+    });
   }
 
-  /** Truncate scrollback to stay within MAX_SCROLLBACK_BYTES */
-  private truncateScrollback(): void {
-    const stat = fs.statSync(this.scrollbackPath);
-    if (stat.size <= MAX_SCROLLBACK_BYTES) {
-      this.totalBytes = stat.size;
-      return;
-    }
+  /** Resolves once every queued disk operation has finished. */
+  whenIdle(): Promise<void> {
+    return this.diskChain;
+  }
 
-    // Read the file, keep the tail
-    const content = fs.readFileSync(this.scrollbackPath);
-    const keepFrom = content.length - MAX_SCROLLBACK_BYTES;
+  /**
+   * Keep only the last SCROLLBACK_TRUNCATE_TO_BYTES of the file, reading just
+   * that tail.
+   */
+  private async truncateScrollback(): Promise<void> {
+    const handle = await fsp.open(this.scrollbackPath, "r");
+    let tail: Buffer;
+    try {
+      const { size } = await handle.stat();
+      if (size <= SCROLLBACK_TRUNCATE_TO_BYTES) return;
+      tail = Buffer.alloc(SCROLLBACK_TRUNCATE_TO_BYTES);
+      const { bytesRead } = await handle.read(
+        tail,
+        0,
+        SCROLLBACK_TRUNCATE_TO_BYTES,
+        size - SCROLLBACK_TRUNCATE_TO_BYTES,
+      );
+      tail = tail.subarray(0, bytesRead);
+    } finally {
+      await handle.close();
+    }
 
     // Find a UTF-8 safe boundary (skip continuation bytes 0x80-0xBF)
-    let start = keepFrom;
-    while (start < content.length && (content[start] & 0xc0) === 0x80) {
+    let start = 0;
+    while (start < tail.length && (tail[start] & 0xc0) === 0x80) {
       start++;
     }
-
-    const truncated = content.subarray(start);
-    fs.writeFileSync(this.scrollbackPath, truncated);
-    this.totalBytes = truncated.length;
+    await writeFileAtomic(this.scrollbackPath, tail.subarray(start));
   }
 
   /** Handle clear-scrollback escape sequence (\e[3J) — truncate scrollback */
-  handleClearScrollback(): void {
+  handleClearScrollback(): Promise<void> {
+    if (this.disposed) return this.whenIdle();
     this.buffer = [];
     this.bufferSize = 0;
-    fs.writeFileSync(this.scrollbackPath, "");
     this.totalBytes = 0;
+    return this.enqueue(() => fsp.writeFile(this.scrollbackPath, ""));
   }
 
-  /** Update CWD in meta.json */
-  updateCwd(cwd: string): void {
-    try {
-      const raw = fs.readFileSync(this.metaPath, "utf-8");
-      const meta = JSON.parse(raw) as SessionMeta;
-      meta.cwd = cwd;
-      fs.writeFileSync(this.metaPath, JSON.stringify(meta, null, 2));
-    } catch {
-      // meta file may not exist yet
+  /** Update CWD in meta.json. A cwd that did not change writes nothing. */
+  updateCwd(cwd: string): Promise<void> {
+    if (this.disposed || !this.meta || this.meta.cwd === cwd) {
+      return this.whenIdle();
     }
+    this.meta.cwd = cwd;
+    // A prompt reports its cwd every time it draws; while a write is still
+    // waiting its turn it will carry this change too.
+    if (this.metaWriteQueued) return this.whenIdle();
+    this.metaWriteQueued = true;
+    return this.enqueue(() => {
+      this.metaWriteQueued = false;
+      return writeFileAtomic(this.metaPath, this.serializeMeta());
+    });
   }
 
-  /** Mark session as cleanly ended (writes endedAt to meta.json) */
+  /**
+   * Mark session as cleanly ended (writes endedAt to meta.json). Does nothing
+   * once disposed, so a session that exits and is then disposed ends once.
+   */
   end(): void {
-    try {
-      const raw = fs.readFileSync(this.metaPath, "utf-8");
-      const meta = JSON.parse(raw) as SessionMeta;
-      meta.endedAt = new Date().toISOString();
-      fs.writeFileSync(this.metaPath, JSON.stringify(meta, null, 2));
-    } catch {
-      // meta file may not exist
-    }
+    if (this.disposed || !this.meta) return;
+    this.meta.endedAt = new Date().toISOString();
+    this.writeFinal(
+      () => writeFileAtomicSync(this.metaPath, this.serializeMeta()),
+      () => writeFileAtomic(this.metaPath, this.serializeMeta()),
+    );
   }
 
-  /** Dispose — flush and clean up timer */
+  /**
+   * Dispose — write what is still buffered and stop. Idempotent; nothing
+   * reaches the disk after it except writes already queued.
+   */
   dispose(): void {
+    if (this.disposed) return;
     this.disposed = true;
-    this.flush();
+    this.clearFlushTimer();
+    const combined = this.takeBuffer();
+    if (!combined) return;
+    this.writeFinal(
+      () => fs.appendFileSync(this.scrollbackPath, combined),
+      () => fsp.appendFile(this.scrollbackPath, combined),
+    );
+  }
+
+  /**
+   * The last writes a session makes, given as the same write in its sync and
+   * async form. With nothing pending the sync form runs right away, so it has
+   * landed before this returns; otherwise the async form is queued behind the
+   * rest, so it cannot overtake them. Daemon shutdown waits on `whenIdle` for
+   * those (TerminalHost.disposeAll). This runs once per session, never on the
+   * output path.
+   */
+  private writeFinal(
+    writeSync: () => void,
+    writeAsync: () => Promise<void>,
+  ): void {
+    if (this.pendingOps === 0) {
+      try {
+        writeSync();
+      } catch {
+        // the session directory may be gone
+      }
+      return;
+    }
+    void this.enqueue(writeAsync);
+  }
+
+  private serializeMeta(): string {
+    return JSON.stringify(this.meta, null, 2);
+  }
+
+  private takeBuffer(): Buffer | null {
+    if (this.buffer.length === 0) return null;
+    const combined = Buffer.concat(this.buffer);
+    this.buffer = [];
+    this.bufferSize = 0;
+    return combined;
+  }
+
+  private clearFlushTimer(): void {
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
+  }
+
+  /** Run `op` after everything already queued. Never rejects. */
+  private enqueue(op: () => Promise<void>): Promise<void> {
+    this.pendingOps++;
+    this.diskChain = this.diskChain
+      .then(op)
+      .catch(() => {
+        // Best-effort persistence: the session directory may be gone, and a
+        // failed write must not take the daemon down with it.
+      })
+      .finally(() => {
+        this.pendingOps--;
+      });
+    return this.diskChain;
   }
 
   // ── Static readers for cold restore ──

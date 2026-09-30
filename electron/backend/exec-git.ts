@@ -2,9 +2,13 @@ import { errorMessage } from "../lib/errors";
 import type { GitBackend, WorktreeInfo } from "./types";
 import { localExec, streamAfter, type Exec, type ExecError, type StreamResult } from "./exec";
 import { localFacts, type MachineFacts } from "./machine-facts";
+import { MergeBaseCache, resolveBasePoint } from "./merge-base";
 
 /** Git run through an `Exec`, on whichever machine that reaches (ADR-183). */
 export class ExecGitBackend implements GitBackend {
+  /** Each workspace's merge-base for `getFullDiff`, by path. */
+  private readonly mergeBases = new MergeBaseCache<string>();
+
   constructor(
     private readonly execImpl: Exec = localExec,
     /** Joins paths the way the exec's machine does (ADR-183). */
@@ -191,12 +195,11 @@ export class ExecGitBackend implements GitBackend {
     const refs = [`origin/${defaultBranch}`, defaultBranch];
     for (const ref of refs) {
       try {
-        const { stdout: mergeBaseOut } = await this.execGit(
-          cwd,
-          ["merge-base", ref, "HEAD"],
-          { timeout: 5000 },
-        );
-        const mergeBase = mergeBaseOut.trim();
+        const git = async (args: string[]) =>
+          (await this.execGit(cwd, args, { timeout: 5000 })).stdout;
+        // The merge-base is reused while HEAD and the ref stay put.
+        const point = await resolveBasePoint(git, ref);
+        const mergeBase = await this.mergeBases.get(cwd, point, git);
         const { stdout } = await this.execGit(
           cwd,
           ["diff", "--no-color", mergeBase],
@@ -343,18 +346,23 @@ export class ExecGitBackend implements GitBackend {
     }
   }
 
-  /** Build a synthetic diff for untracked files. */
+  /**
+   * Build a synthetic diff for untracked files. Only small text files are
+   * read: a binary file, or one of `MAX_UNTRACKED_DIFF_BYTES` or more, is
+   * left out without being read.
+   */
   private async buildUntrackedDiff(cwd: string): Promise<string> {
     try {
       const { stdout: untrackedOut } = await this.execGit(
         cwd,
-        ["ls-files", "--others", "--exclude-standard"],
+        ["ls-files", "--others", "--exclude-standard", "-z"],
         { timeout: 5000 },
       );
-      const untrackedFiles = untrackedOut.trim().split("\n").filter(Boolean);
+      const untrackedFiles = untrackedOut.split("\0").filter(Boolean);
+      const readable = await this.smallTextFiles(cwd, untrackedFiles);
 
       const diffs = await Promise.all(
-        untrackedFiles.map(async (filePath) => {
+        untrackedFiles.filter((f) => readable.has(f)).map(async (filePath) => {
           try {
             const content = await this.execImpl.readFile(
               this.facts.join(cwd, filePath),
@@ -376,7 +384,61 @@ export class ExecGitBackend implements GitBackend {
       return "";
     }
   }
+
+  /**
+   * Which of `files` (untracked, relative to `cwd`) are regular files under
+   * `MAX_UNTRACKED_DIFF_BYTES` that git does not consider binary. Both checks
+   * run on the files' own machine, so no content crosses to Manor for them.
+   */
+  private async smallTextFiles(cwd: string, files: string[]): Promise<Set<string>> {
+    const text = new Set<string>();
+    for (let i = 0; i < files.length; i += PATH_CHUNK) {
+      const chunk = files.slice(i, i + PATH_CHUNK);
+      // `-H` follows a symlinked file, as reading it would; `./` keeps a
+      // path starting with "-" from reading as an expression.
+      const small = await this.stdoutIgnoringExit(
+        "find",
+        ["-H", ...chunk.map((f) => `./${f}`), "-type", "f", "-size", `-${MAX_UNTRACKED_DIFF_BYTES}c`, "-print"],
+        cwd,
+      );
+      const smallFiles = small
+        .split("\n")
+        .filter((l) => l.startsWith("./"))
+        .map((l) => l.slice(2));
+      if (smallFiles.length === 0) continue;
+      // `-I` skips binary files, and `-L` with a pattern that never matches
+      // lists every other one, empty files included.
+      const listed = await this.stdoutIgnoringExit(
+        "git",
+        ["--literal-pathspecs", "grep", "--untracked", "-I", "-L", "-z", "-E", "-e", "a^", "--", ...smallFiles],
+        cwd,
+      );
+      for (const f of listed.split("\0")) if (f) text.add(f);
+    }
+    return text;
+  }
+
+  /**
+   * A command's stdout, even when it exits non-zero (`find` over a path that
+   * vanished, `git grep` listing nothing). Never rejects: any failure,
+   * including one that never ran the command, yields what stdout there was,
+   * or "".
+   */
+  private async stdoutIgnoringExit(cmd: string, args: string[], cwd: string): Promise<string> {
+    try {
+      const { stdout } = await this.execImpl.file(cmd, args, { cwd, timeout: 10000 });
+      return stdout;
+    } catch (err) {
+      return (err as Partial<ExecError>).stdout ?? "";
+    }
+  }
 }
+
+/** Untracked files this size or larger are left out of a diff, unread. */
+export const MAX_UNTRACKED_DIFF_BYTES = 512 * 1024;
+
+/** Paths per `find`/`git grep` call, to stay well under the argument limit. */
+const PATH_CHUNK = 200;
 
 /**
  * Extract a readable summary from a git commit failure.

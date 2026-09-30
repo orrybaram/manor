@@ -10,6 +10,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 
 import { TunnelManager, type TunnelChild, type TunnelStatus } from "../tunnel";
+import { detectTunnelTools } from "../tunnel-status";
 
 /** A `ChildProcess` stand-in that never touches a real binary. */
 class FakeChild extends EventEmitter implements TunnelChild {
@@ -62,10 +63,10 @@ const hasNone = async () => null;
 
 describe("detection", () => {
   it("reports what is on PATH", async () => {
-    const { mgr } = manager(async (bin) =>
+    const found = await detectTunnelTools(async (bin) =>
       bin === "cloudflared" ? "/usr/local/bin/cloudflared" : null,
     );
-    expect(await mgr.detect()).toEqual({
+    expect(found).toEqual({
       tailscale: false,
       cloudflared: true,
     });

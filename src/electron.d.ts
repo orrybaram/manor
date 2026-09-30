@@ -823,6 +823,15 @@ export interface ElectronAPI {
         diffs: Record<WorkspaceKey, { added: number; removed: number }>,
       ) => void,
     ) => () => void;
+    /**
+     * Each watched workspace's diff fingerprint: an opaque hash of HEAD, the
+     * base ref, `git status`, changed files' content and untracked files'
+     * sizes. Sent whenever any changes; a diff pane re-fetches only on a new
+     * one.
+     */
+    onFingerprintsChange: (
+      callback: (fingerprints: Record<WorkspaceKey, string>) => void,
+    ) => () => void;
     getFullDiff: (
       wsPath: string,
       defaultBranch: string,

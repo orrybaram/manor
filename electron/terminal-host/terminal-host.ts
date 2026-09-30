@@ -62,10 +62,21 @@ export class TerminalHost {
     sessionId: string,
     socket: net.Socket,
   ): Promise<TerminalSnapshot | null> {
+    if (!this.subscribe(sessionId, socket)) return null;
+    return this.sessions.get(sessionId)!.getSnapshot();
+  }
+
+  /**
+   * Subscribe a stream socket to a session's output, without a snapshot.
+   * The client asks for its snapshot separately (`getSnapshot`), so building
+   * one here would serialize the whole screen only to throw it away. Returns
+   * false for an unknown session.
+   */
+  subscribe(sessionId: string, socket: net.Socket): boolean {
     const session = this.sessions.get(sessionId);
-    if (!session) return null;
+    if (!session) return false;
     session.attachClient(socket);
-    return session.getSnapshot();
+    return true;
   }
 
   /** Detach a stream socket from a session */
@@ -143,12 +154,19 @@ export class TerminalHost {
     }
   }
 
-  /** Dispose all sessions and clean up */
-  disposeAll(): void {
+  /**
+   * Dispose all sessions and clean up. Resolves once their last scrollback
+   * and meta.json writes have landed, so the daemon can exit without losing
+   * them.
+   */
+  disposeAll(): Promise<void> {
+    const persisted: Promise<void>[] = [];
     for (const session of this.sessions.values()) {
       session.dispose();
+      persisted.push(session.whenPersisted());
     }
     this.sessions.clear();
+    return Promise.all(persisted).then(() => undefined);
   }
 
   /** Detach all clients from a specific socket (when a client disconnects) */

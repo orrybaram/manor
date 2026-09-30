@@ -1,9 +1,6 @@
 import { app, BrowserWindow } from "electron";
-import {
-  autoUpdater,
-  type UpdateInfo,
-  type ProgressInfo,
-} from "electron-updater";
+import type { AppUpdater, UpdateInfo, ProgressInfo } from "electron-updater";
+import { cjsExports, lazy } from "./lib/lazy";
 
 // Track whether the last checkForUpdates() call was triggered manually by the user.
 // Set to true in the exported checkForUpdates() (called via IPC from renderer).
@@ -13,22 +10,23 @@ import {
 let lastTriggerWasManual = false;
 let lastCheckedManual = false;
 
-/**
- * @param getWindow  Resolves the primary window at send time. The updater runs
- *   for the life of the app, which outlives any one window: capturing a
- *   `BrowserWindow` here would leave every event sending into a destroyed one.
- */
-export function initAutoUpdater(
-  getWindow: () => BrowserWindow | null,
-): void {
-  // Skip updater entirely in dev — prevents swallowed-error noise
-  if (!app.isPackaged) return;
+let getPrimaryWindow: (() => BrowserWindow | null) | null = null;
 
-  function send(channel: string, payload: unknown): void {
-    const win = getWindow();
-    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
-    win.webContents.send(channel, payload);
-  }
+function send(channel: string, payload: unknown): void {
+  const win = getPrimaryWindow?.();
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
+  win.webContents.send(channel, payload);
+}
+
+/**
+ * Loads electron-updater on first use (keeps it out of the startup path) and
+ * wires its event listeners exactly once.
+ */
+const loadUpdater = lazy(async (): Promise<AppUpdater> => {
+  const { autoUpdater } = cjsExports(
+    await import("electron-updater"),
+    "autoUpdater",
+  );
 
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
@@ -70,29 +68,60 @@ export function initAutoUpdater(
     });
   });
 
+  return autoUpdater;
+});
+
+async function backgroundCheck(): Promise<void> {
+  try {
+    const updater = await loadUpdater();
+    await updater.checkForUpdates();
+  } catch {
+    // In dev mode or without code signing, this will fail silently
+  }
+}
+
+/**
+ * @param getWindow  Resolves the primary window at send time. The updater runs
+ *   for the life of the app, which outlives any one window: capturing a
+ *   `BrowserWindow` here would leave every event sending into a destroyed one.
+ */
+export function initAutoUpdater(
+  getWindow: () => BrowserWindow | null,
+): void {
+  // Skip updater entirely in dev — prevents swallowed-error noise
+  if (!app.isPackaged) return;
+
+  getPrimaryWindow = getWindow;
+
   setTimeout(() => {
-    try {
-      autoUpdater.checkForUpdates();
-    } catch {
-      // In dev mode or without code signing, this will fail silently
-    }
+    void backgroundCheck();
   }, 5000);
 
   // Recheck every 4 hours for the lifetime of the app
   setInterval(() => {
-    try {
-      autoUpdater.checkForUpdates();
-    } catch {
-      // Ignore errors from periodic background checks
-    }
+    void backgroundCheck();
   }, 4 * 60 * 60 * 1000);
 }
 
+/**
+ * Fire-and-forget, like the check it replaced: the outcome reaches the renderer
+ * through the `updater:*` events, not through the caller.
+ */
 export function checkForUpdates(): void {
   lastTriggerWasManual = true;
-  autoUpdater.checkForUpdates();
+  void runUpdater((updater) => updater.checkForUpdates());
 }
 
 export function quitAndInstall(): void {
-  autoUpdater.quitAndInstall();
+  void runUpdater((updater) => updater.quitAndInstall());
+}
+
+async function runUpdater(
+  action: (updater: AppUpdater) => unknown,
+): Promise<void> {
+  try {
+    await action(await loadUpdater());
+  } catch (err) {
+    console.error("[updater]", err);
+  }
 }

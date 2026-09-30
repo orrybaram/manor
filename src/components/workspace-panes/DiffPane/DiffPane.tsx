@@ -33,6 +33,8 @@ import { CommitModal } from "./CommitModal/CommitModal";
 import { EmptyState } from "./EmptyState/EmptyState";
 import { SelectionCommentChip } from "./SelectionCommentChip/SelectionCommentChip";
 import { useDraftReview } from "./use-draft-review";
+import { fetchDiffSingleFlight, fetchStagedSingleFlight } from "./diff-fetch";
+import { FingerprintedFetch } from "./FingerprintedFetch";
 import { ReviewBar } from "./ReviewBar/ReviewBar";
 import { selectionSnippet, selectionToAnchor } from "./review-anchor";
 import type { SelectionAnchor } from "./review-anchor";
@@ -192,11 +194,16 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     );
     const defaultBranch = project?.defaultBranch ?? "main";
 
+    // The workspace's identity across hosts. Its diff fingerprint changes
+    // whenever its diff or staged files may have; the `FingerprintedFetch`es
+    // below re-fetch only then.
+    const wsKey = workspacePath ? workspaceKey(hostId, workspacePath) : null;
+
     // Each fetch is keyed by workspace + mode + branch. `settled` records the
     // outcome of the last completed fetch together with the key it ran for, so
-    // `loading` and `error` derive during render instead of being reset by the
-    // effect every time the key changes.
-    const fetchKey = `${workspacePath ?? ""}\u0000${diffMode}\u0000${defaultBranch}`;
+    // `loading` and `error` derive during render instead of being reset every
+    // time the key changes.
+    const fetchKey = `${wsKey ?? ""}\u0000${diffMode}\u0000${defaultBranch}`;
     const [settled, setSettled] = useState<{
       key: string;
       error: string | null;
@@ -208,9 +215,10 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
      * Record a fetch's outcome, but only when it is actually a different
      * outcome.
      *
-     * The diff is re-fetched every few seconds and is usually byte-identical,
-     * so `setRaw` bails on its own. A fresh `{ key, error }` object does not:
-     * it is a new identity every poll, and it re-rendered the whole pane —
+     * The diff is re-fetched whenever the workspace's fingerprint moves, and
+     * can come back byte-identical, so `setRaw` bails on its own. A fresh
+     * `{ key, error }` object does not: it is a new identity every fetch, and
+     * it re-rendered the whole pane —
      * every file, every row — for a result that had not changed. That work
      * lands on the same main thread as whatever the user is doing, and a drag
      * in flight when it fires simply stops until it finishes.
@@ -225,55 +233,24 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       [],
     );
 
-    useEffect(() => {
-      if (!workspacePath) return;
-
-      let cancelled = false;
-
-      const fetchDiff = () => {
-        const promise =
-          diffMode === "local"
-            ? window.electronAPI.diffs.getLocalDiff(workspacePath)
-            : window.electronAPI.diffs.getFullDiff(
-                workspacePath,
-                defaultBranch,
-              );
-
-        promise
-          .then((result) => {
-            if (cancelled) return;
-            const scrollTop = containerRef.current?.scrollTop ?? 0;
-            if (!result || result.trim() === "") {
-              setRaw(null);
-              settleOnce(fetchKey, "No changes found");
-            } else {
-              setRaw(result);
-              settleOnce(fetchKey, null);
-            }
-            requestAnimationFrame(() => {
-              if (containerRef.current) {
-                containerRef.current.scrollTop = scrollTop;
-              }
-            });
-          })
-          .catch((err) => {
-            if (cancelled) return;
-            settleOnce(
-              fetchKey,
-              err instanceof Error ? err.message : "Failed to load diff",
-            );
-          });
-      };
-
-      fetchDiff();
-
-      const timer = setInterval(fetchDiff, 5000);
-
-      return () => {
-        cancelled = true;
-        clearInterval(timer);
-      };
-    }, [workspacePath, defaultBranch, diffMode, fetchKey, settleOnce]);
+    const applyDiff = useCallback(
+      (key: string, result: string | null) => {
+        const scrollTop = containerRef.current?.scrollTop ?? 0;
+        if (!result || result.trim() === "") {
+          setRaw(null);
+          settleOnce(key, "No changes found");
+        } else {
+          setRaw(result);
+          settleOnce(key, null);
+        }
+        requestAnimationFrame(() => {
+          if (containerRef.current) {
+            containerRef.current.scrollTop = scrollTop;
+          }
+        });
+      },
+      [settleOnce],
+    );
 
     const files = useMemo(() => (raw ? parseDiff(raw) : []), [raw]);
 
@@ -310,11 +287,10 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       return () => window.removeEventListener("keydown", handleKeyDown);
     }, [review]);
 
-    // Fetch staged file list for local mode. Tagged with the workspace it was
-    // fetched for so any other workspace (or full-diff mode) reads as empty
-    // without an effect having to clear it.
-    const stagedKey =
-      workspacePath && diffMode === "local" ? workspacePath : null;
+    // Staged file list for local mode, fetched by a `FingerprintedFetch`
+    // below. Tagged with the workspace it was fetched for so any other
+    // workspace (or full-diff mode) reads as empty without having to clear it.
+    const stagedKey = diffMode === "local" ? wsKey : null;
     const [stagedResult, setStagedResult] = useState<{
       key: string;
       files: Set<string>;
@@ -323,24 +299,6 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       stagedKey !== null && stagedResult?.key === stagedKey
         ? stagedResult.files
         : NO_STAGED_FILES;
-
-    useEffect(() => {
-      if (stagedKey === null) return;
-      let cancelled = false;
-      const fetchStaged = () => {
-        window.electronAPI.diffs.getStagedFiles(stagedKey).then((files) => {
-          if (!cancelled) {
-            setStagedResult({ key: stagedKey, files: new Set(files) });
-          }
-        });
-      };
-      fetchStaged();
-      const timer = setInterval(fetchStaged, 5000);
-      return () => {
-        cancelled = true;
-        clearInterval(timer);
-      };
-    }, [stagedKey]);
 
     // Optimistic stage/unstage from the file list, applied against the set for
     // the current key so a stale result can never be mutated into place.
@@ -630,9 +588,52 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       </div>
     );
 
+    // First child of every branch's container below, so switching between
+    // loading, error and the diff never remounts (and re-fetches) them.
+    const fetchers = (
+      <>
+        {workspacePath && wsKey && (
+          <FingerprintedFetch
+            key={fetchKey}
+            wsKey={wsKey}
+            // One fetch per workspace and mode at a time, across panes.
+            fetch={() =>
+              fetchDiffSingleFlight(fetchKey, () =>
+                diffMode === "local"
+                  ? window.electronAPI.diffs.getLocalDiff(workspacePath)
+                  : window.electronAPI.diffs.getFullDiff(workspacePath, defaultBranch),
+              )
+            }
+            onResult={(result) => applyDiff(fetchKey, result)}
+            onError={(err) =>
+              settleOnce(
+                fetchKey,
+                err instanceof Error ? err.message : "Failed to load diff",
+              )
+            }
+          />
+        )}
+        {workspacePath && stagedKey !== null && (
+          <FingerprintedFetch
+            key={`staged\u0000${stagedKey}`}
+            wsKey={stagedKey}
+            fetch={() =>
+              fetchStagedSingleFlight(stagedKey, () =>
+                window.electronAPI.diffs.getStagedFiles(workspacePath),
+              )
+            }
+            onResult={(files) =>
+              setStagedResult({ key: stagedKey, files: new Set(files) })
+            }
+          />
+        )}
+      </>
+    );
+
     if (loading) {
       return (
         <div className={styles.container} ref={containerRef}>
+          {fetchers}
           <div className={styles.header} ref={setHeaderEl}>
             {topBar}
           </div>
@@ -661,6 +662,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     if (error) {
       return (
         <div className={styles.container} ref={containerRef}>
+          {fetchers}
           <div className={styles.header} ref={setHeaderEl}>
             {topBar}
           </div>
@@ -692,6 +694,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
         ref={containerRef}
         onScroll={handleScroll}
       >
+        {fetchers}
         <div className={styles.header} ref={setHeaderEl}>
           {searchOpen && (
             <SearchBar

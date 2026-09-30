@@ -71,7 +71,7 @@ export function PortsList() {
       <Collapse open={showBody} animate={!isResizing}>
         <div className={styles.portGroups} style={{ height: bodyHeight }}>
           {workspacePortGroups.map((group) => (
-            <PortGroup key={group.workspacePath} group={group} />
+            <PortGroup key={group.key} group={group} />
           ))}
         </div>
       </Collapse>

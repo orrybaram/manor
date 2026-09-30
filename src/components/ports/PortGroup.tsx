@@ -2,7 +2,6 @@ import { useCallback } from "react";
 import { useProjectStore } from "../../store/project-store";
 import { type WorkspacePortGroup } from "./usePortsData";
 import { find } from "../../lib/workspace-directory";
-import { workspaceKey } from "../../lib/workspace-key";
 import { PortBadge } from "./PortBadge";
 import styles from "./Ports.module.css";
 
@@ -16,12 +15,9 @@ export function PortGroup(props: PortGroupProps) {
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
 
   const handleSelectWorkspace = useCallback(() => {
-    const found = find(
-      useProjectStore.getState().projects,
-      workspaceKey(group.hostId, group.workspacePath),
-    );
+    const found = find(useProjectStore.getState().projects, group.key);
     if (found) selectWorkspace(found.project.id, found.index);
-  }, [group.workspacePath, group.hostId, selectWorkspace]);
+  }, [group.key, selectWorkspace]);
 
   return (
     <div className={styles.portGroup}>

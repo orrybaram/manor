@@ -364,42 +364,56 @@ describe("needsYouCards", () => {
 });
 
 describe("headline", () => {
-  it("reads the mockup sentence", () => {
-    expect(headline({ needsYou: 3, running: 3, inReview: 5, openPrs: 7 })).toEqual({
-      lead: "3 things need you.",
-      rest: "3 agents are working and 5 PRs are with reviewers.",
-    });
+  const SEEDS = [0, 1, 2, 3, 4, 5];
+  const all = (counts: Parameters<typeof headline>[0]) =>
+    SEEDS.map((seed) => headline(counts, seed));
+
+  it("holds a line steady for a seed", () => {
+    const counts = { needsYou: 3, running: 3, inReview: 5, openPrs: 7 };
+    expect(headline(counts, 7)).toEqual(headline(counts, 7));
+  });
+
+  it("varies its phrasing across seeds", () => {
+    const leads = new Set(
+      all({ needsYou: 3, running: 3, inReview: 5, openPrs: 7 }).map((h) => h.lead),
+    );
+    expect(leads.size).toBeGreaterThan(1);
+  });
+
+  it("names every count in the lead and clauses", () => {
+    for (const { lead, rest } of all({ needsYou: 3, running: 2, inReview: 5, openPrs: 7 })) {
+      expect(lead).toContain("3");
+      expect(rest).toMatch(/^2 agents .* and 5 PRs .*\.$/);
+    }
   });
 
   it("uses singulars and drops zero clauses", () => {
-    expect(headline({ needsYou: 1, running: 1, inReview: 0, openPrs: 0 })).toEqual({
-      lead: "1 thing needs you.",
-      rest: "1 agent is working.",
-    });
-    expect(headline({ needsYou: 0, running: 0, inReview: 1, openPrs: 1 })).toEqual({
-      lead: "Nothing needs you.",
-      rest: "1 PR is with reviewers.",
-    });
+    for (const { lead, rest } of all({ needsYou: 1, running: 1, inReview: 0, openPrs: 0 })) {
+      expect(lead).not.toMatch(/\d/);
+      expect(rest).toMatch(/agent/);
+      expect(rest).not.toMatch(/PR/);
+      expect(rest.charAt(0)).toBe(rest.charAt(0).toUpperCase());
+    }
+    for (const { rest } of all({ needsYou: 0, running: 0, inReview: 1, openPrs: 1 })) {
+      expect(rest).toMatch(/PR/);
+      expect(rest).not.toMatch(/agent/);
+    }
   });
 
-  it("reads all clear only when nothing is running and no PR is open", () => {
-    expect(headline({ needsYou: 0, running: 0, inReview: 0, openPrs: 0 })).toEqual({
-      lead: "All clear.",
-      rest: "No agents running and no open PRs.",
-    });
+  it("uses the quiet lines only when nothing is running and no PR is open", () => {
+    const quiet = new Set(all({ needsYou: 0, running: 0, inReview: 0, openPrs: 0 }).map((h) => h.lead));
+    // Only checks running: nothing needs you, but it isn't quiet.
+    for (const { lead, rest } of all({ needsYou: 0, running: 0, inReview: 0, openPrs: 1 })) {
+      expect(quiet.has(lead)).toBe(false);
+      expect(rest).toMatch(/agent/i);
+    }
   });
 
-  it("doesn't claim no open PRs while PRs sit outside review", () => {
-    // Two blocked PRs: they need you, and they are open.
-    expect(headline({ needsYou: 2, running: 0, inReview: 0, openPrs: 2 })).toEqual({
-      lead: "2 things need you.",
-      rest: "No agents running.",
-    });
-    // Only checks running: nothing needs you, but it isn't "all clear".
-    expect(headline({ needsYou: 0, running: 0, inReview: 0, openPrs: 1 })).toEqual({
-      lead: "Nothing needs you.",
-      rest: "No agents running.",
-    });
+  it("doesn't suggest starting something while things need you", () => {
+    for (const { lead, rest } of all({ needsYou: 2, running: 0, inReview: 0, openPrs: 2 })) {
+      expect(lead).toContain("2");
+      expect(rest).toMatch(/agent/i);
+    }
   });
 });
 

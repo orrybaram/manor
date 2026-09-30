@@ -1,12 +1,20 @@
-import { projectColorStyle } from "../../../hooks/useProjectHeaderRow";
+import { useMemo, useState } from "react";
+import { useProjectStore } from "../../../store/project-store";
+import { useAppStore } from "../../../store/app-store";
 import type { NewWorkspaceHandler } from "../../../lib/start-issue-work";
-import type { PaletteView } from "../../command-palette/types";
+import {
+  DEFAULT_TASK_FILTERS,
+  DEFAULT_TASK_SORT,
+  applyTaskFilters,
+  sortTasksBy,
+  withoutLinkedTasks,
+} from "../../../lib/tasks";
+import { useTasks } from "../../tasks/useTasks";
+import { useStartTask } from "../../tasks/useStartTask";
+import { TaskTableRow } from "../../tasks/TaskTableRow";
+import tasksStyles from "../../tasks/TasksView.module.css";
 import { Button } from "../../ui/Button/Button";
 import { Panel } from "./Panel";
-import { PriorityGlyph } from "./PriorityGlyph";
-import { useStartUpNextIssue } from "./useStartUpNextIssue";
-import { useUpNextIssues } from "./useUpNextIssues";
-import { useDashboardAnimate } from "./useDashboardAnimate";
 import styles from "./UpNextPanel.module.css";
 
 const VISIBLE_ROWS = 5;
@@ -14,73 +22,76 @@ const SKELETON_ROWS = 3;
 
 type UpNextPanelProps = {
   onNewWorkspace?: NewWorkspaceHandler;
-  onOpenPaletteView?: (view: PaletteView) => void;
   /** Extra class for placement. */
   className?: string;
 };
 
 /**
- * The Up next panel (ADR-198 §1.7): the top of the ranked list of issues
- * assigned to the user that no workspace has picked up. A row starts work on
- * its issue; "View all" opens the palette's full list.
+ * The Up next panel (ADR-198 §1.7): the top of the Tasks view's default list
+ * — your tasks nobody has started, from every connected tracker — in the
+ * Tasks table's compact rows. "View all" opens the Tasks view.
  */
 export function UpNextPanel(props: UpNextPanelProps) {
-  const { onNewWorkspace, onOpenPaletteView, className } = props;
-  const { all, total, loading } = useUpNextIssues();
-  const startIssue = useStartUpNextIssue(onNewWorkspace);
+  const { onNewWorkspace, className } = props;
 
-  const rows = all.slice(0, VISIBLE_ROWS);
-  const animate = useDashboardAnimate();
+  // Same queries as the Tasks view, so the two share one cache.
+  const github = useTasks({ provider: "github", projectKey: null });
+  const linear = useTasks({ provider: "linear", projectKey: null });
+  const projects = useProjectStore((s) => s.projects);
+  const showTasksView = useAppStore((s) => s.showTasksView);
+  const startTask = useStartTask(onNewWorkspace);
+  const [now] = useState(() => Date.now());
+
+  const upNext = useMemo(
+    () =>
+      sortTasksBy(
+        applyTaskFilters(
+          withoutLinkedTasks([...github.rows, ...linear.rows], projects),
+          DEFAULT_TASK_FILTERS,
+        ),
+        DEFAULT_TASK_SORT,
+      ),
+    [github.rows, linear.rows, projects],
+  );
+  const rows = upNext.slice(0, VISIBLE_ROWS);
+  const loading = github.loading || linear.loading;
 
   return (
     <Panel
       title="Up next"
-      sub="Assigned to you, no workspace yet"
+      sub="Assigned to you, not started"
       className={className}
       right={
-        total > 0 && onOpenPaletteView ? (
-          <Button variant="link" onClick={() => onOpenPaletteView("up-next")}>
-            View all {total} →
-          </Button>
-        ) : undefined
+        <Button variant="link" onClick={showTasksView}>
+          View all{upNext.length > 0 ? ` ${upNext.length}` : ""} →
+        </Button>
       }
     >
-      <div ref={animate} className={styles.list}>
+      <div className={styles.body}>
         {loading && rows.length === 0 ? (
           Array.from({ length: SKELETON_ROWS }, (_, i) => (
             <div key={i} className={styles.skeleton} aria-hidden="true" />
           ))
         ) : rows.length === 0 ? (
-          <p className={styles.empty}>
-            No assigned tasks without a workspace.
-          </p>
+          <p className={styles.empty}>No assigned tasks waiting to start.</p>
         ) : (
-          rows.map((row) => (
-            <Button
-              key={`${row.issue.source}:${row.issue.projectKey}:${row.issue.identifier}`}
-              variant="ghost"
-              className={styles.li}
-              onClick={() => void startIssue(row)}
-            >
-              <PriorityGlyph priority={row.issue.priority} />
-              <span className={styles.body}>
-                <span className={styles.title}>{row.issue.title}</span>
-                <span className={styles.meta}>
-                  <span className={styles.id}>{row.issue.identifier}</span>
-                  <span
-                    className={styles.proj}
-                    style={projectColorStyle(row.color)}
-                  >
-                    {row.entryName}
-                  </span>
-                  {row.issue.labels.includes("ready-for-agent") && (
-                    <span className={styles.tag}>ready-for-agent</span>
-                  )}
-                </span>
-              </span>
-              <span className={styles.go}>Start agent →</span>
-            </Button>
-          ))
+          <div
+            className={`${tasksStyles.table} ${tasksStyles.compact}`}
+            role="table"
+            aria-label="Up next tasks"
+          >
+            {rows.map((row) => (
+              <TaskTableRow
+                key={row.key}
+                row={row}
+                now={now}
+                showPriority={false}
+                actionLabel="Start"
+                onAction={() => void startTask(row)}
+                compact
+              />
+            ))}
+          </div>
         )}
       </div>
     </Panel>

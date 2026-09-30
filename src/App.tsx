@@ -814,10 +814,7 @@ function App() {
                       : !hasTabs &&
                         (isHomePath(activeWorkspacePath)
                           ? (
-                              <HomeEmptyState
-                                onNewWorkspace={handleNewWorkspace}
-                                onOpenPaletteView={handleOpenPaletteView}
-                              />
+                              <HomeEmptyState onNewWorkspace={handleNewWorkspace} />
                             )
                           : <WorkspaceEmptyState onOpenPaletteView={handleOpenPaletteView} onNewWorkspace={handleNewWorkspace} />)}
                   </div>

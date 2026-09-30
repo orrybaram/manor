@@ -617,3 +617,8 @@
   font-size: 12px;
   color: var(--text-dim);
 }
+
+/* Home's Up next: ID, title / context, updated, action. */
+.compact .gridRow {
+  grid-template-columns: 112px minmax(0, 1fr) 120px 92px;
+}

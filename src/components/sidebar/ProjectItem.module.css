@@ -71,27 +71,58 @@
   white-space: nowrap;
 }
 
-.projectAction {
-  border: none;
-  background: transparent;
-  color: var(--text-dim);
-  cursor: pointer;
-  padding: 2px;
-  border-radius: 3px;
-  line-height: 1;
-  opacity: 0;
-  flex-shrink: 0;
+/* Revealed on hover: the strip grows from nothing (so a long name only
+   truncates while the actions show) and its buttons fade and slide in, one
+   after another. */
+.projectActions {
   display: flex;
   align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+  max-width: 0;
+  overflow: hidden;
+  transition: max-width 160ms ease;
 }
 
-.projectHeader:hover .projectAction {
+.projectAction {
+  padding: 3px;
+  opacity: 0;
+  transform: translateX(6px);
+  transition:
+    opacity 140ms ease,
+    transform 160ms ease,
+    background-color 150ms ease;
+}
+
+.projectAction:nth-child(2) {
+  transition-delay: 30ms;
+}
+
+.projectAction:nth-child(3) {
+  transition-delay: 60ms;
+}
+
+.projectHeader:hover .projectActions,
+.projectHeader:focus-within .projectActions {
+  max-width: 72px;
+}
+
+.projectHeader:hover .projectAction,
+.projectHeader:focus-within .projectAction {
   opacity: 1;
+  transform: none;
 }
 
-.projectAction:hover {
-  background: var(--surface);
-  color: var(--text-selected);
+/* The header's own hover fill is --surface, so the button needs a step up. */
+.projectAction:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text-selected) 12%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .projectActions,
+  .projectAction {
+    transition: none;
+  }
 }
 
 /* ── Workspaces ── */

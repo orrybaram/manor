@@ -2,6 +2,7 @@ import { app, BrowserWindow, nativeImage, powerMonitor, safeStorage } from "elec
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { performance } from "node:perf_hooks";
 import { TerminalHostClient } from "./terminal-host/client";
 import { LayoutPersistence } from "./terminal-host/layout-persistence";
 import { ProjectManager } from "./persistence";
@@ -30,6 +31,7 @@ import { cleanAgentTitle } from "./title-utils";
 import type { AgentStatus, StreamEvent } from "./terminal-host/types";
 import { initAutoUpdater, checkForUpdates } from "./updater";
 import { portlessManager } from "./portless";
+import { loginPathReady } from "./login-path";
 import { createLocalBackend } from "./backend/host-backend";
 import { LOCAL_HOST_ID } from "./backend/types";
 import {
@@ -40,8 +42,6 @@ import {
 import { RoutedBackend } from "./backend/routed-backend";
 import { PrewarmManager } from "./prewarm-manager";
 import { RemoteDeviceStore } from "./remote-control/devices";
-import { RemoteControlServer } from "./remote-control/server";
-import { TunnelManager } from "./remote-control/tunnel";
 import { RemoteControlController } from "./remote-control/controller";
 import { PushManager } from "./remote-control/push";
 import type { ControlDeps } from "./routes/types";
@@ -260,8 +260,16 @@ export function initApp(devTitle: string | null): void {
    * running), so anything still reading `deps.mainWindow` would hand that
    * wrapper to `dialog`, `parent:`, or `webContents.send` (see #164).
    */
+  let firstWindowOpened = false;
   function openPrimaryWindow(): BrowserWindow {
     const win = createWindow();
+    if (!firstWindowOpened) {
+      firstWindowOpened = true;
+      console.log(`[startup] window created at ${Math.round(performance.now())}ms`);
+      win.once("ready-to-show", () => {
+        console.log(`[startup] window ready-to-show at ${Math.round(performance.now())}ms`);
+      });
+    }
     mainWindow = win;
     trackRendererWindow(win);
 
@@ -460,48 +468,58 @@ export function initApp(devTitle: string | null): void {
   // ADR-161's remote-control surface. Constructed here so the status sink and
   // the quit hook can see it; deliberately *not* started — remote control is
   // off until the user turns it on, and even then the listener is loopback-only
-  // until they separately start a tunnel.
+  // until they separately start a tunnel. The listener and tunnel modules are
+  // not even loaded until then (ADR-205 §3): `loadRuntime` runs at most once,
+  // on the first enable or tunnel start.
   const remoteDeviceStore = new RemoteDeviceStore();
   const remotePush = new PushManager(remoteDeviceStore);
-  const remoteControlServer = new RemoteControlServer(
-    (): ControlDeps => ({
-      projectManager,
-      githubManager,
-      linearManager,
-      layoutPersistence,
-      agentManager,
-      backend,
-      notificationStore,
-      statsStore,
-      workspaceOps,
-      preferencesManager,
-      themeManager,
-      portScanner,
-      remoteControl,
-      agentHookServer,
-      agentStatus: agentStatusDriver,
-      webviewServer,
-      webviewPanes: webviewServer,
-      resolvePaneUrl,
-      getRendererWindows,
-      sessionOwners: backendRegistry.sessions,
-    }),
-    remoteDeviceStore,
-    // Rate limiter, audit log, and client directory all take their defaults.
-    { push: remotePush },
-  );
-  // Detected, never installed; started only by an explicit user action. The
-  // manager is constructed here so shutdown can guarantee the child dies with
-  // the app — a tunnel outliving Manor is the feature's worst failure mode.
-  const remoteTunnel = new TunnelManager({
-    which: (bin) => backend.shell.which(bin),
-    spawn: (command, args) =>
-      spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] }),
-  });
+  const loadRemoteControlRuntime = async () => {
+    const [{ RemoteControlServer }, { TunnelManager }] = await Promise.all([
+      import("./remote-control/server"),
+      import("./remote-control/tunnel"),
+    ]);
+    const server = new RemoteControlServer(
+      (): ControlDeps => ({
+        projectManager,
+        githubManager,
+        linearManager,
+        layoutPersistence,
+        agentManager,
+        backend,
+        notificationStore,
+        statsStore,
+        workspaceOps,
+        preferencesManager,
+        themeManager,
+        portScanner,
+        remoteControl,
+        agentHookServer,
+        agentStatus: agentStatusDriver,
+        webviewServer,
+        webviewPanes: webviewServer,
+        resolvePaneUrl,
+        getRendererWindows,
+        sessionOwners: backendRegistry.sessions,
+      }),
+      remoteDeviceStore,
+      // Rate limiter, audit log, and client directory all take their defaults.
+      { push: remotePush },
+    );
+    // Detected, never installed; started only by an explicit user action. The
+    // controller's shutdown guarantees the child dies with the app — a tunnel
+    // outliving Manor is the feature's worst failure mode.
+    const tunnel = new TunnelManager({
+      which: (bin) => backend.shell.which(bin),
+      spawn: (command, args) =>
+        spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] }),
+    });
+    return { server, tunnel };
+  };
   const remoteControl = new RemoteControlController(
-    remoteControlServer,
+    loadRemoteControlRuntime,
     remoteDeviceStore,
-    remoteTunnel,
+    // Same PATH probe the tunnel manager uses, without loading it.
+    (bin) => backend.shell.which(bin),
     () => safeStorage.isEncryptionAvailable(),
     remotePush,
   );
@@ -539,16 +557,6 @@ export function initApp(devTitle: string | null): void {
       notify: preferencesManager.get("notifyOnRequiresInput"),
     });
   }
-
-  // Ensure shell integration and agent hooks are set up — the same bootstrap
-  // a remote daemon runs on its own host (ADR-160 ticket 10). A connector
-  // that skips registration (e.g. a config it couldn't safely parse) is
-  // reported here, not thrown — one agent's bad config must never abort
-  // local startup.
-  for (const warning of bootstrapHost().warnings) {
-    console.warn(`[app-lifecycle] bootstrap: ${warning}`);
-  }
-  ensureManorCli();
 
   function broadcastAgent(agent: AgentInfo): void {
     sendAgentUpdate(mainWindow, agent, preferencesManager);
@@ -825,20 +833,64 @@ export function initApp(devTitle: string | null): void {
     // and replaced.
     initAutoUpdater(() => mainWindow);
 
-    // Start agent hook server FIRST to get the port number.
-    // The port must be in process.env BEFORE the daemon spawns,
-    // because the daemon inherits env at spawn time and passes it
-    // to PTY sessions (which need MANOR_HOOK_PORT for hook scripts).
-    await agentHookServer.start();
-    process.env.MANOR_HOOK_PORT = String(agentHookServer.hookPort);
+    // Start the local servers in parallel. Their ports must be in process.env
+    // BEFORE the daemon spawns, because the daemon inherits env at spawn time
+    // and passes it to PTY sessions (which need MANOR_HOOK_PORT for hook
+    // scripts). `loginPathReady()` is awaited for the same reason: the daemon
+    // inherits PATH at spawn. Kicked off before the sync bootstrap below so the
+    // sockets can be listening while it runs. A server that fails to start is
+    // logged and its port left unset; the daemon still connects without it.
+    const localServers = [
+      {
+        name: "agent hook server",
+        start: () => agentHookServer.start(),
+        env: "MANOR_HOOK_PORT",
+        port: () => agentHookServer.hookPort,
+      },
+      {
+        name: "webview server",
+        start: () => webviewServer.start(),
+        env: "MANOR_WEBVIEW_PORT",
+        port: () => webviewServer.serverPort,
+      },
+      {
+        name: "portless proxy",
+        start: () => portlessManager.start(),
+        env: "MANOR_PORTLESS_PORT",
+        port: () => portlessManager.proxyPort,
+      },
+    ];
+    const serversStarted = Promise.all([
+      Promise.allSettled(localServers.map((server) => server.start())),
+      loginPathReady(),
+    ]);
+
+    // Ensure shell integration and agent hooks are set up — the same bootstrap
+    // a remote daemon runs on its own host (ADR-160 ticket 10). A connector
+    // that skips registration (e.g. a config it couldn't safely parse) is
+    // reported here, not thrown — one agent's bad config must never abort
+    // local startup.
+    try {
+      for (const warning of bootstrapHost().warnings) {
+        console.warn(`[app-lifecycle] bootstrap: ${warning}`);
+      }
+      ensureManorCli();
+    } catch (err) {
+      console.error("[app-lifecycle] host bootstrap failed:", err);
+    }
+
+    const [results] = await serversStarted;
+    results.forEach((result, i) => {
+      const server = localServers[i];
+      if (result.status === "fulfilled") {
+        process.env[server.env] = String(server.port());
+      } else {
+        console.error(`Failed to start ${server.name}:`, result.reason);
+      }
+    });
     // Only remote-namespace panes set this; if Manor was launched from one,
     // local panes would otherwise send hooks to the remote daemon's listener.
     delete process.env.MANOR_HOOK_PORT_FILE;
-
-    await webviewServer.start();
-    await portlessManager.start();
-    process.env.MANOR_WEBVIEW_PORT = String(webviewServer.serverPort);
-    process.env.MANOR_PORTLESS_PORT = String(portlessManager.proxyPort);
 
     // Connect to daemon (spawns if needed) — now has MANOR_HOOK_PORT in env
     try {

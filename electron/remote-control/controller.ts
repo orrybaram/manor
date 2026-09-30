@@ -12,12 +12,28 @@
  *   - **Disabling means disabled.** Turning remote control off stops the tunnel
  *     too. A live tunnel pointed at a stopped listener still tells the world
  *     the machine is there, and still shows up in the indicator as reachable.
+ *
+ * The listener and the tunnel manager (the "runtime") are loaded lazily, the
+ * first time the user enables remote control or starts a tunnel (ADR-205 §3).
+ * Until then the controller answers from what it knows without them: status
+ * reports disabled with a stopped tunnel, detection probes PATH directly, and
+ * every teardown is a no-op for parts that were never loaded. The device store
+ * stays eager — the settings panel lists paired devices with remote control
+ * off, and it has no heavy dependencies.
  */
 
+import { lazy, type Lazy } from "../lib/lazy";
 import type { RemoteDeviceInfo, RemoteDeviceStore } from "./devices";
 import { isPushable, pushPayloadFor, type PushManager } from "./push";
 import type { RemoteControlServer, RemoteStatusEvent } from "./server";
-import type { TunnelKind, TunnelManager, TunnelStatus } from "./tunnel";
+import type { TunnelManager } from "./tunnel";
+import {
+  detectTunnelTools,
+  STOPPED_TUNNEL_STATUS,
+  type TunnelKind,
+  type TunnelStatus,
+  type WhichFn,
+} from "./tunnel-status";
 
 export interface RemoteControlStatus {
   /** Is the listener running? Loopback-only regardless. */
@@ -41,6 +57,12 @@ export interface PairResult {
   pairingUrl: string | null;
 }
 
+/** The heavy half of remote control, loaded on first real use. */
+export interface RemoteControlRuntime {
+  server: RemoteControlServer;
+  tunnel: TunnelManager;
+}
+
 export class RemoteControlController {
   private detected: Record<TunnelKind, boolean> = {
     tailscale: false,
@@ -48,15 +70,36 @@ export class RemoteControlController {
   };
   private listeners = new Set<(status: RemoteControlStatus) => void>();
 
+  /** Set once the runtime has loaded; everything sync reads this. */
+  private runtime: RemoteControlRuntime | null = null;
+  /** Loads the runtime at most once; concurrent callers share the load. */
+  private readonly ensureRuntime: Lazy<RemoteControlRuntime>;
+  /** The single in-flight listener start, shared by concurrent enables. */
+  private starting: Promise<void> | null = null;
+  /**
+   * The user's latest intent. Every async step re-checks it, so an enable that
+   * is overtaken by a disable (or by shutdown) undoes itself rather than
+   * leaving a listener up nobody asked for.
+   */
+  private wantEnabled = false;
+  /** Set by `shutdown()`. Nothing starts after this, whatever is in flight. */
+  private closed = false;
+
   constructor(
-    private readonly server: RemoteControlServer,
+    loadRuntime: () => Promise<RemoteControlRuntime>,
     private readonly deviceStore: RemoteDeviceStore,
-    private readonly tunnel: TunnelManager,
+    /** PATH probe for tunnel detection — must not need the runtime. */
+    private readonly which: WhichFn,
     private readonly encryptionAvailable: () => boolean,
     /** Null disables push; everything else still works. */
     private readonly push: PushManager | null = null,
   ) {
-    this.tunnel.onStatus(() => this.emit());
+    this.ensureRuntime = lazy(async () => {
+      const runtime = await loadRuntime();
+      this.runtime = runtime;
+      runtime.tunnel.onStatus(() => this.emit());
+      return runtime;
+    });
   }
 
   /**
@@ -70,8 +113,9 @@ export class RemoteControlController {
    * user's existing "agent needs input" preference, passed in rather than read
    * here — a phone is a second sink on that setting, not a second setting.
    *
-   * Cheap when nothing is running: the server drops the event with no
-   * listeners, and push returns early with no subscriptions.
+   * Cheap when nothing is running: with the runtime not loaded there is no
+   * listener to publish to, the server drops the event with no SSE clients,
+   * and push returns early with no subscriptions.
    */
   onAgentStatus(
     agent: { id: string; name: string | null; projectName: string | null },
@@ -79,14 +123,16 @@ export class RemoteControlController {
     status: string,
     { notify }: { notify: boolean },
   ): void {
-    const event: RemoteStatusEvent = {
-      agentId: agent.id,
-      name: agent.name,
-      projectName: agent.projectName,
-      status,
-      previousStatus: previousStatus ?? null,
-    };
-    this.server.publishStatus(event);
+    if (this.runtime) {
+      const event: RemoteStatusEvent = {
+        agentId: agent.id,
+        name: agent.name,
+        projectName: agent.projectName,
+        status,
+        previousStatus: previousStatus ?? null,
+      };
+      this.runtime.server.publishStatus(event);
+    }
 
     if (!this.push || !notify) return;
     if (!isPushable(status) || status === previousStatus) return;
@@ -100,32 +146,54 @@ export class RemoteControlController {
 
   status(): RemoteControlStatus {
     return {
-      enabled: this.server.running,
-      port: this.server.running ? this.server.serverPort : null,
+      ...this.runtimeStatus(),
       devices: this.deviceStore.list(),
-      tunnel: this.tunnel.status,
       detected: { ...this.detected },
       encryptionAvailable: this.encryptionAvailable(),
-      listeners: this.server.listenerCount,
     };
   }
 
-  /** Re-probe PATH. Cheap, and the user may have installed a tool since launch. */
+  /**
+   * Re-probe PATH. Cheap, and the user may have installed a tool since launch.
+   * Does not load the runtime: opening the settings panel must not.
+   */
   async refreshDetection(): Promise<RemoteControlStatus> {
-    this.detected = await this.tunnel.detect();
+    this.detected = await detectTunnelTools(this.which);
     this.emit();
     return this.status();
   }
 
   async setEnabled(enabled: boolean): Promise<RemoteControlStatus> {
     if (enabled) {
-      await this.server.start();
+      if (this.closed) return this.status();
+      this.wantEnabled = true;
+      // Loop rather than a single await: a start overtaken by a disable stops
+      // its own listener, and if the intent flipped back to "on" meanwhile we
+      // start again rather than report a listener that is not there.
+      while (
+        !this.closed &&
+        this.wantEnabled &&
+        !this.runtime?.server.running
+      ) {
+        if (!this.starting) {
+          this.starting = this.startListener().finally(() => {
+            this.starting = null;
+          });
+        }
+        await this.starting;
+      }
       await this.refreshDetection();
     } else {
-      // Order matters: drop the exposure before the thing being exposed, so
-      // there is no window where a tunnel points at a closing listener.
-      await this.tunnel.stop();
-      await this.server.stop();
+      this.wantEnabled = false;
+      // Never loads: waits for a load already in flight (so what it starts can
+      // be stopped), and is a no-op when the runtime was never asked for.
+      const runtime = await this.loadedRuntime();
+      if (runtime) {
+        // Order matters: drop the exposure before the thing being exposed, so
+        // there is no window where a tunnel points at a closing listener.
+        await runtime.tunnel.stop();
+        await runtime.server.stop();
+      }
     }
     this.emit();
     return this.status();
@@ -133,7 +201,7 @@ export class RemoteControlController {
 
   pair(label: string, canSend: boolean): PairResult {
     const { device, rawToken } = this.deviceStore.pair(label, canSend);
-    const url = this.tunnel.status.url;
+    const url = this.runtime?.tunnel.status.url ?? null;
     this.emit();
     return {
       device,
@@ -153,23 +221,36 @@ export class RemoteControlController {
    * omitted we take the preferred one, which is Tailscale whenever it exists.
    */
   async startTunnel(kind?: TunnelKind): Promise<RemoteControlStatus> {
-    if (!this.server.running) {
+    const runtime = this.closed ? null : await this.ensureRuntime();
+    if (!runtime || this.closed || !runtime.server.running) {
       throw new Error("Enable remote control before starting a tunnel.");
     }
-    const chosen = kind ?? (await this.tunnel.preferredKind());
+    const { server, tunnel } = runtime;
+    const chosen = kind ?? (await tunnel.preferredKind());
     if (!chosen) {
       throw new Error(
         "Neither tailscale nor cloudflared is on PATH. Manor does not install " +
           "either — install one and try again.",
       );
     }
-    await this.tunnel.start(chosen, this.server.serverPort);
+    // Remote control may have been turned off (or the app quit) while PATH
+    // was probed; spawning now would expose nothing, or outlive the app.
+    if (this.closed || !server.running) {
+      throw new Error("Enable remote control before starting a tunnel.");
+    }
+    await tunnel.start(chosen, server.serverPort);
+    if (this.closed || !server.running) {
+      // Torn down while the tunnel came up. It must not survive that.
+      await tunnel.stop();
+      throw new Error("Remote control was turned off while the tunnel started.");
+    }
     this.emit();
     return this.status();
   }
 
   async stopTunnel(): Promise<RemoteControlStatus> {
-    await this.tunnel.stop();
+    const runtime = await this.loadedRuntime();
+    if (runtime) await runtime.tunnel.stop();
     this.emit();
     return this.status();
   }
@@ -178,16 +259,74 @@ export class RemoteControlController {
    * Last-resort teardown for the paths that skip `before-quit` — `app.exit()`
    * and fatal errors. Synchronous because `process.on("exit")` is: a tunnel
    * surviving the app is this feature's worst failure mode, so it gets the
-   * ungraceful kill rather than a promise nobody will await.
+   * ungraceful kill rather than a promise nobody will await. A runtime still
+   * loading has spawned nothing yet, so there is nothing to kill.
    */
   killTunnelNow(): void {
-    this.tunnel.killNow();
+    this.runtime?.tunnel.killNow();
   }
 
-  /** Quit path: the tunnel must never outlive the app. */
+  /**
+   * Quit path: the tunnel must never outlive the app. Marks the controller
+   * closed first, so anything in flight (a load, a listener start, a tunnel
+   * start) sees it at its next step and backs out, then waits for a pending
+   * load and stops whatever it produced.
+   */
   async shutdown(): Promise<void> {
-    await this.tunnel.stop();
-    await this.server.stop();
+    this.closed = true;
+    this.wantEnabled = false;
+    const runtime = await this.loadedRuntime();
+    if (!runtime) return;
+    await runtime.tunnel.stop();
+    await runtime.server.stop();
+    // A listener start that was mid-`listen()` stops itself on seeing
+    // `closed`; wait for that so shutdown resolves with nothing running.
+    await this.starting?.catch(() => {});
+  }
+
+  /** The runtime if loaded or already loading. Never starts a load. */
+  private async loadedRuntime(): Promise<RemoteControlRuntime | null> {
+    if (this.runtime) return this.runtime;
+    const started = this.ensureRuntime.started();
+    if (!started) return null;
+    try {
+      return await started;
+    } catch {
+      return null;
+    }
+  }
+
+  private async startListener(): Promise<void> {
+    const runtime = await this.ensureRuntime();
+    if (this.closed || !this.wantEnabled) return;
+    await runtime.server.start();
+    if (this.closed || !this.wantEnabled) {
+      // Overtaken by a disable or by shutdown while `listen()` was pending.
+      // Their `stop()` found nothing to close yet, so close it here.
+      await runtime.server.stop();
+    }
+  }
+
+  /** The runtime's part of `status()`; disabled and stopped until it loads. */
+  private runtimeStatus(): Pick<
+    RemoteControlStatus,
+    "enabled" | "port" | "tunnel" | "listeners"
+  > {
+    if (!this.runtime) {
+      return {
+        enabled: false,
+        port: null,
+        tunnel: { ...STOPPED_TUNNEL_STATUS },
+        listeners: 0,
+      };
+    }
+    const { server, tunnel } = this.runtime;
+    return {
+      enabled: server.running,
+      port: server.running ? server.serverPort : null,
+      tunnel: tunnel.status,
+      listeners: server.listenerCount,
+    };
   }
 
   private emit(): void {

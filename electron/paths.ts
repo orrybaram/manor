@@ -83,6 +83,10 @@ export function remoteVapidFile(): string {
   return path.join(manorDataDir(), "remote-vapid.enc");
 }
 
+export function loginPathFile(): string {
+  return path.join(manorDataDir(), "login-path.json");
+}
+
 export function shellZdotdir(): string {
   return path.join(manorDataDir(), "zdotdir");
 }

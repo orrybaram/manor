@@ -20,6 +20,25 @@ vi.mock("electron", () => ({
   },
 }));
 
+// Stands in for the real module so the tests can see *whether* it is loaded:
+// the factory only runs on the first `import("web-push")`.
+const webPush = vi.hoisted(() => ({
+  imports: 0,
+  sendNotification: vi.fn(async () => ({})),
+  generateVAPIDKeys: vi.fn(() => ({
+    publicKey: "lazy-pub",
+    privateKey: "lazy-priv",
+  })),
+}));
+
+vi.mock("web-push", () => {
+  webPush.imports += 1;
+  return {
+    sendNotification: webPush.sendNotification,
+    generateVAPIDKeys: webPush.generateVAPIDKeys,
+  };
+});
+
 import { RemoteDeviceStore } from "../devices";
 import { PushManager, isPushable, pushPayloadFor } from "../push";
 
@@ -63,7 +82,7 @@ describe("PushManager", () => {
     return device;
   }
 
-  it("generates a key pair once and reuses it", () => {
+  it("generates a key pair once and reuses it", async () => {
     const generate = vi.fn(() => ({
       publicKey: "pub-key",
       privateKey: "priv-key",
@@ -74,23 +93,23 @@ describe("PushManager", () => {
       send as never,
       generate,
     );
-    expect(p.publicKey()).toBe("pub-key");
-    expect(p.publicKey()).toBe("pub-key");
+    expect(await p.publicKey()).toBe("pub-key");
+    expect(await p.publicKey()).toBe("pub-key");
     expect(generate).toHaveBeenCalledTimes(1);
   });
 
-  it("persists the key pair 0600 and reloads it", () => {
+  it("persists the key pair 0600 and reloads it", async () => {
     const file = path.join(dir, "vapid.enc");
-    expect(push.publicKey()).toBe("pub-key");
+    expect(await push.publicKey()).toBe("pub-key");
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
 
     const reopened = new PushManager(devices, file, send as never, () => {
       throw new Error("must not regenerate");
     });
-    expect(reopened.publicKey()).toBe("pub-key");
+    expect(await reopened.publicKey()).toBe("pub-key");
   });
 
-  it("refuses to store a key it cannot encrypt", () => {
+  it("refuses to store a key it cannot encrypt", async () => {
     keychain.available = false;
     const p = new PushManager(
       devices,
@@ -98,7 +117,7 @@ describe("PushManager", () => {
       send as never,
       () => ({ publicKey: "pub-key", privateKey: "priv-key" }),
     );
-    expect(p.publicKey()).toBeNull();
+    expect(await p.publicKey()).toBeNull();
     expect(fs.existsSync(path.join(dir, "vapid-2.enc"))).toBe(false);
   });
 
@@ -178,11 +197,63 @@ describe("PushManager", () => {
     });
   });
 
-  it("hands out only the public half of the pair", () => {
+  it("hands out only the public half of the pair", async () => {
     // `publicKey()` is what reaches the phone via `GET /me`; the private key
     // never leaves this module, and on disk it is safeStorage-encrypted at
     // 0600 (asserted above).
-    expect(push.publicKey()).toBe("pub-key");
+    expect(await push.publicKey()).toBe("pub-key");
+  });
+});
+
+describe("PushManager loading web-push lazily", () => {
+  let dir: string;
+  let devices: RemoteDeviceStore;
+
+  beforeEach(() => {
+    keychain.available = true;
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-push-lazy-"));
+    devices = new RemoteDeviceStore(path.join(dir, "devices.enc"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  // One ordered test: the module cache is per-file, so "not yet imported" is
+  // only observable before the first real use.
+  it("imports web-push only once there is something to sign or send", async () => {
+    const push = new PushManager(devices, path.join(dir, "vapid.enc"));
+
+    // Nothing subscribed: no key, no module, and nothing written.
+    expect(await push.notify(pushPayloadFor("requires_input", AGENT))).toBe(0);
+    expect(webPush.imports).toBe(0);
+    expect(fs.existsSync(path.join(dir, "vapid.enc"))).toBe(false);
+
+    // A subscriber makes the default seams load it, once.
+    const { device } = devices.pair("phone", false);
+    push.subscribe(device.id, SUBSCRIPTION);
+    expect(await push.notify(pushPayloadFor("requires_input", AGENT))).toBe(1);
+    expect(await push.notify(pushPayloadFor("error", AGENT))).toBe(1);
+    expect(webPush.imports).toBe(1);
+    expect(webPush.generateVAPIDKeys).toHaveBeenCalledTimes(1);
+    expect(webPush.sendNotification).toHaveBeenCalledTimes(2);
+    expect(await push.publicKey()).toBe("lazy-pub");
+  });
+
+  it("generates one key pair for concurrent first callers", async () => {
+    const generate = vi.fn(async () => ({
+      publicKey: "pub-key",
+      privateKey: "priv-key",
+    }));
+    const push = new PushManager(
+      devices,
+      path.join(dir, "vapid.enc"),
+      vi.fn(async () => ({})) as never,
+      generate,
+    );
+    const keys = await Promise.all([push.publicKey(), push.publicKey()]);
+    expect(keys).toEqual(["pub-key", "pub-key"]);
+    expect(generate).toHaveBeenCalledTimes(1);
   });
 });
 

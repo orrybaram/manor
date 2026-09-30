@@ -56,7 +56,7 @@ export function listenerRoutes({
           canSend: device.canSend,
           // The *public* half of the VAPID pair. It is an application server
           // key, not a secret — a client cannot subscribe without it.
-          vapidPublicKey: push?.publicKey() ?? null,
+          vapidPublicKey: (await push?.publicKey()) ?? null,
         });
       },
     },

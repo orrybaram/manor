@@ -3,6 +3,7 @@ import path from "path";
 import { execSync } from "child_process";
 import { type ElectronApplication, type Page } from "@playwright/test";
 import { killApp, launchApp, test as base, expect } from "./fixtures";
+import { installFakeGh, type FakePr } from "./helpers/fake-gh";
 
 /**
  * The dashboard's Needs you cards, rendered by the real app from PRs a fake
@@ -11,36 +12,6 @@ import { killApp, launchApp, test as base, expect } from "./fixtures";
  * writes screenshots of the panel at a wide and a narrow window to
  * `tests/e2e/artifacts/needs-you/` for eyeballing the layout.
  */
-
-const FAKE_GH = `#!/bin/bash
-sub="$1 $2"
-FIX="$HOME/gh-fixtures"
-case "$sub" in
-  "auth status")
-    echo "Logged in to github.com account tester (keyring)"
-    exit 0 ;;
-  "pr list")
-    head=""
-    prev=""
-    for a in "$@"; do
-      if [ "$prev" = "--head" ]; then head="$a"; fi
-      prev="$a"
-    done
-    if [ -f "$FIX/pr-$head.json" ]; then cat "$FIX/pr-$head.json"; else echo "[]"; fi
-    exit 0 ;;
-  "api graphql")
-    num=$(printf '%s' "$*" | grep -o 'number: [0-9]*' | grep -o '[0-9]*')
-    if [ -f "$FIX/gql-$num.json" ]; then
-      cat "$FIX/gql-$num.json"
-    else
-      echo '{"data":{"repository":{"pullRequest":{"isInMergeQueue":false,"reviewThreads":{"nodes":[]},"comments":{"totalCount":0,"nodes":[]},"reviews":{"totalCount":0,"nodes":[]}}}}}'
-    fi
-    exit 0 ;;
-  *)
-    echo "fake gh: unsupported: $*" >&2
-    exit 1 ;;
-esac
-`;
 
 type Check = { name: string; conclusion: string | null; status?: string; workflowName: string };
 
@@ -123,26 +94,24 @@ const CASES: Case[] = [
   },
 ];
 
-function prListJson(c: Case): string {
-  return JSON.stringify([
-    {
-      number: c.number,
-      state: "OPEN",
-      title: c.title,
-      url: `https://github.com/acme/app/pull/${c.number}`,
-      isDraft: false,
-      additions: 10,
-      deletions: 2,
-      reviewDecision: c.reviewDecision,
-      updatedAt: new Date(Date.now() - 12 * 60_000).toISOString(),
-      autoMergeRequest: null,
-      statusCheckRollup: c.rollup,
-      mergeable: c.conflicting ? "CONFLICTING" : "MERGEABLE",
-    },
-  ]);
+function fakePr(c: Case): FakePr {
+  return {
+    number: c.number,
+    state: "OPEN",
+    title: c.title,
+    url: `https://github.com/acme/app/pull/${c.number}`,
+    isDraft: false,
+    additions: 10,
+    deletions: 2,
+    reviewDecision: c.reviewDecision,
+    updatedAt: new Date(Date.now() - 12 * 60_000).toISOString(),
+    autoMergeRequest: null,
+    statusCheckRollup: c.rollup,
+    mergeable: c.conflicting ? "CONFLICTING" : "MERGEABLE",
+  };
 }
 
-function graphqlJson(c: Case): string {
+function conversation(c: Case): unknown {
   const threads = Array.from({ length: c.unresolved ?? 0 }, (_, i) => ({
     isResolved: false,
     path: `src/thing-${i}.ts`,
@@ -157,18 +126,12 @@ function graphqlJson(c: Case): string {
       ],
     },
   }));
-  return JSON.stringify({
-    data: {
-      repository: {
-        pullRequest: {
-          isInMergeQueue: false,
-          reviewThreads: { nodes: threads },
-          comments: { totalCount: 0, nodes: [] },
-          reviews: { totalCount: 0, nodes: [] },
-        },
-      },
-    },
-  });
+  return {
+    isInMergeQueue: false,
+    reviewThreads: { nodes: threads },
+    comments: { totalCount: 0, nodes: [] },
+    reviews: { totalCount: 0, nodes: [] },
+  };
 }
 
 const test = base.extend<{ app: ElectronApplication; window: Page }>({
@@ -225,16 +188,10 @@ const test = base.extend<{ app: ElectronApplication; window: Page }>({
       fs.writeFileSync(path.join(dir, "projects.json"), JSON.stringify(seed, null, 2));
     }
 
-    const fixDir = path.join(tempHome, "gh-fixtures");
-    fs.mkdirSync(fixDir, { recursive: true });
-    for (const c of CASES) {
-      fs.writeFileSync(path.join(fixDir, `pr-${c.branch}.json`), prListJson(c));
-      fs.writeFileSync(path.join(fixDir, `gql-${c.number}.json`), graphqlJson(c));
-    }
-
-    const binDir = path.join(tempHome, "bin");
-    fs.mkdirSync(binDir, { recursive: true });
-    fs.writeFileSync(path.join(binDir, "gh"), FAKE_GH, { mode: 0o755 });
+    const binDir = installFakeGh(tempHome, {
+      prs: Object.fromEntries(CASES.map((c) => [c.branch, fakePr(c)])),
+      conversations: Object.fromEntries(CASES.map((c) => [c.number, conversation(c)])),
+    });
     const originalPath = process.env.PATH ?? "";
     process.env.PATH = `${binDir}${path.delimiter}${originalPath}`;
 

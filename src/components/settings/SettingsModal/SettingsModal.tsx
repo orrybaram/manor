@@ -11,7 +11,6 @@ import Bell from "lucide-react/dist/esm/icons/bell";
 import Link from "lucide-react/dist/esm/icons/link";
 import Smartphone from "lucide-react/dist/esm/icons/smartphone";
 import Laptop from "lucide-react/dist/esm/icons/laptop";
-import Cloud from "lucide-react/dist/esm/icons/cloud";
 import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
 import { useHostStore } from "../../../store/host-store";
 import { isRemoteHost, memberHostName } from "../../../lib/hosts";
@@ -23,6 +22,7 @@ import { NotificationsPage } from "../NotificationsPage";
 import { IntegrationsPage } from "../IntegrationsPage";
 import { RemoteControlPage } from "../RemoteControlPage";
 import { GroupSettingsPage, ProjectSettingsPage } from "../ProjectSettingsPage";
+import { HostIndicator } from "../../hosts/HostIndicator";
 import { Button } from "../../ui/Button/Button";
 import { Input } from "../../ui/Input";
 import {
@@ -452,7 +452,7 @@ export function SettingsModal(props: SettingsModalProps) {
                                   onClick={() => setPage(memberPage)}
                                 >
                                   {remote ? (
-                                    <Cloud size={12} aria-hidden />
+                                    <HostIndicator hostId={member.hostId} variant="icon" />
                                   ) : (
                                     <Laptop size={12} aria-hidden />
                                   )}

@@ -2,8 +2,7 @@ import { useRef, useCallback, useEffect, useMemo, useState } from "react";
 import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
 import { useAppStore } from "../../../store/app-store";
 import { useHostStore, selectHost } from "../../../store/host-store";
-import { useHostDisplay } from "../../../hooks/useHostDisplay";
-import { HostIndicator } from "../../hosts/HostIndicator";
+import { HostCard, HostCardRow } from "../../hosts/HostCard";
 import { LOCAL_HOST_ID, isRemoteHost, remoteHostOptions } from "../../../lib/hosts";
 import { workspaceKey } from "../../../lib/workspace-key";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
@@ -106,7 +105,7 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
 
   const options = useMemo(() => {
     return [
-      { value: LOCAL_HOST_ID, label: "Local (this machine)" },
+      { value: LOCAL_HOST_ID, label: "This machine" },
       ...remoteHostOptions(hosts),
       { value: ADD_HOST_VALUE, label: "Add new host…" },
     ];
@@ -197,70 +196,50 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
     requestHostChange({ kind: "add", target });
   }, [requestHostChange, targetInput]);
 
-  const display = useHostDisplay(currentHostId);
-
   return (
     <Stack gap="xs">
       <SectionTitle id={sectionId}>Host</SectionTitle>
-      <label className={styles.fieldLabel}>Host</label>
-      <SearchableSelect
-        value={currentHostId}
-        onChange={handleSelect}
-        options={options}
-        maxWidth={320}
-      />
-      {switchError && (
-        <Row gap="xs" align="center">
-          <span className={styles.fieldHint} style={{ color: "var(--red)" }}>
-            Couldn't switch host: {switchError}
-          </span>
-          {switchFailedHostId === LOCAL_HOST_ID && (
-            <Button variant="secondary" size="sm" onClick={chooseLocalFolder}>
-              Choose local folder…
-            </Button>
-          )}
-        </Row>
-      )}
-      {display && (
-        <Stack gap="2xs">
-          <Row gap="xs" align="center">
-            <HostIndicator hostId={currentHostId} variant="chip" />
-            {!display.offline && (
-              <span className={`${styles.fieldHint} ${styles.fieldHintInline}`}>
-                {display.status}
-              </span>
-            )}
-          </Row>
-          {display.detail && (
-            <span
-              className={styles.fieldHint}
-              style={
-                display.tone === "error"
-                  ? { color: "var(--red)" }
-                  : display.tone === "warn"
-                    ? { color: "var(--yellow)" }
-                    : undefined
-              }
+      <div className={styles.fieldHint}>
+        Where this project's files, git and terminals live.
+      </div>
+      <HostCard
+        hostId={currentHostId}
+        actions={
+          // Switching is rare and closes the project's tabs, so the picker
+          // sits behind a "Change host…" trigger rather than leading the card.
+          <SearchableSelect
+            value=""
+            placeholder="Change host…"
+            onChange={handleSelect}
+            options={options}
+            maxWidth={200}
+            data-testid="project-host-select"
+          />
+        }
+      >
+        {pathMissing && hostConnected && (
+          <HostCardRow tone="warn">
+            <span>Repository not found on this host</span>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setCloneDialogHostId(currentHostId)}
             >
-              {display.detail}
-            </span>
-          )}
-        </Stack>
-      )}
-      {pathMissing && hostConnected && (
-        <Row gap="xs" align="center">
-          <span className={styles.fieldHint} style={{ color: "var(--yellow)" }}>
-            Repository not found on this host
-          </span>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setCloneDialogHostId(currentHostId)}
-          >
-            Clone onto host…
-          </Button>
-        </Row>
-      )}
+              Clone onto host…
+            </Button>
+          </HostCardRow>
+        )}
+        {switchError && (
+          <HostCardRow tone="error">
+            <span>Couldn't switch host: {switchError}</span>
+            {switchFailedHostId === LOCAL_HOST_ID && (
+              <Button variant="secondary" size="sm" onClick={chooseLocalFolder}>
+                Choose local folder…
+              </Button>
+            )}
+          </HostCardRow>
+        )}
+      </HostCard>
       {adding && (
         <Stack gap="xs">
           <Input
@@ -295,8 +274,7 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
         </Stack>
       )}
       <div className={styles.fieldHint}>
-        The machine this project's files, git and terminals live on. Moving it
-        does not move existing worktrees; their tabs close.
+        Changing host doesn't move existing worktrees. Their tabs close.
       </div>
       <ConfirmDialog
         open={pendingChange !== null}

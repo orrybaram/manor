@@ -16,7 +16,7 @@
   flex-shrink: 0;
 }
 
-.busy .glyph {
+.pulse {
   animation: pulse 1.4s ease-in-out infinite;
 }
 
@@ -27,7 +27,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .busy .glyph {
+  .pulse {
     animation: none;
   }
 }
@@ -92,8 +92,10 @@
   color: color-mix(in srgb, var(--blue, #89b4fa) 70%, var(--text-dim));
 }
 
-.state {
-  flex-shrink: 0;
+/* The tooltip's anchor around a popover trigger. */
+.trigger {
+  display: inline-flex;
+  min-width: 0;
 }
 
 /* ── this machine ── */

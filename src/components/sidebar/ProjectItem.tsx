@@ -10,7 +10,6 @@ import React, {
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import Check from "lucide-react/dist/esm/icons/check";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
-import Cloud from "lucide-react/dist/esm/icons/cloud";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import FolderGit2 from "lucide-react/dist/esm/icons/folder-git-2";
 import Laptop from "lucide-react/dist/esm/icons/laptop";
@@ -60,13 +59,13 @@ import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import { HostIndicator } from "../hosts/HostIndicator";
-import { Tooltip } from "../ui/Tooltip/Tooltip";
+import { useHostDisplay } from "../../hooks/useHostDisplay";
+import type { HostTone } from "../../lib/host-status";
 import { isRemoteHost } from "../../lib/hosts";
 import {
   remoteTargetForProject,
   workspaceDisplayName,
 } from "../../lib/sidebar-rail";
-import { isHostOffline } from "../../lib/host-status";
 import { normalizeHostId, workspaceKey } from "../../lib/workspace-key";
 import { useHostStore } from "../../store/host-store";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
@@ -296,34 +295,47 @@ const WorkspaceItem = React.forwardRef<
 });
 
 /**
- * A host heading's label (ADR-193 §3): host icon and name in small caps,
- * and a yellow dot while a remote host is away. Used by a linked group's section
- * headers and above a remote-only project's workspaces. A collapsed section shows its workspace count after the name. Kept
- * here (exported for the collapsed rail's popover, ADR-195) rather than folded into `LocalHostLabel`/`HostIndicator`,
- * which other callers (the New Workspace host picker) still use as chips.
+ * A host heading's label (ADR-193 §3): host icon and name. A remote host's
+ * icon is `HostIndicator`'s, so it crosses out and takes the same tone as
+ * every other host indicator while away, and opens the host popover. Used by
+ * a linked group's section headers and above a remote-only project's
+ * workspaces. A collapsed section shows its workspace count after the name.
  */
+const SECTION_HOST_TONE: Record<HostTone, string> = {
+  ok: "",
+  warn: styles.sectionHostWarn,
+  error: styles.sectionHostError,
+};
+
 function SectionHostLabel(props: {
   hostId: string;
+  projectId: string;
   path: string;
   label: string;
-  offline: boolean;
   collapsedCount: number | null;
 }) {
-  const { hostId, path, label, offline, collapsedCount } = props;
+  const { hostId, projectId, path, label, collapsedCount } = props;
   const remote = isRemoteHost(hostId);
+  // The name takes the host's tone while it is away; a connected host's
+  // heading stays dim. Hover or click the glyph for the state in words.
+  const tone = useHostDisplay(remote ? hostId : null)?.tone;
+  const toneClass = tone ? SECTION_HOST_TONE[tone] : "";
 
   return (
-    <span className={styles.sectionHost} title={path}>
-      {remote ? <Cloud size={11} aria-hidden /> : <Laptop size={11} aria-hidden />}
+    <span
+      className={`${styles.sectionHost} ${toneClass}`}
+      title={path}
+    >
+      {remote ? (
+        <span className={styles.sectionHostIcon}>
+          <HostIndicator hostId={hostId} variant="icon" projectId={projectId} />
+        </span>
+      ) : (
+        <Laptop size={11} aria-hidden />
+      )}
       <span className={styles.sectionHostName}>{label}</span>
       {collapsedCount !== null && (
         <CountBadge count={collapsedCount} size="xs" />
-      )}
-      {/* Only an away host shows a dot; a connected one needs no mark. */}
-      {remote && offline && (
-        <Tooltip label="Offline — host is unreachable" side="right">
-          <span className={styles.sectionHostDot} aria-label="Offline" />
-        </Tooltip>
       )}
     </span>
   );
@@ -405,9 +417,6 @@ export function ProjectItem(props: ProjectItemProps) {
   const remoteTarget = useHostStore((state) =>
     remoteTargetForProject(project, state),
   );
-  // A section's connection dot (ADR-193 §3) reads the same away state as the
-  // group header's own icon.
-  const hosts = useHostStore((s) => s.hosts);
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -1188,9 +1197,9 @@ export function ProjectItem(props: ProjectItemProps) {
             {isSection ? (
               <SectionHostLabel
                 hostId={project.hostId}
+                projectId={project.id}
                 path={project.path}
                 label={isRemoteHost(project.hostId) ? remoteTarget ?? project.hostId : "This machine"}
-                offline={isHostOffline(project.hostId, hosts)}
                 collapsedCount={expanded ? null : project.workspaces.length}
               />
             ) : (
@@ -1359,9 +1368,9 @@ export function ProjectItem(props: ProjectItemProps) {
               <div className={styles.hostHeading} data-testid="project-host-heading">
                 <SectionHostLabel
                   hostId={project.hostId}
+                  projectId={project.id}
                   path={project.path}
                   label={remoteTarget ?? project.hostId}
-                  offline={isHostOffline(project.hostId, hosts)}
                   collapsedCount={null}
                 />
               </div>

@@ -538,20 +538,27 @@
   flex-shrink: 0;
 }
 
+.sectionHostIcon {
+  display: inline-flex;
+  justify-content: center;
+  width: 12px;
+  flex-shrink: 0;
+}
+
 .sectionHostName {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* An away host's dot, right-aligned so it never competes with the name. */
-.sectionHostDot {
-  margin-left: auto;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: var(--yellow, #d29922);
+/* An away host's heading takes HostIndicator's tone: yellow while it is
+   reconnecting, red when it needs you. */
+.sectionHostWarn {
+  color: var(--yellow, #d29922);
+}
+
+.sectionHostError {
+  color: var(--red, var(--danger));
 }
 
 /* Host sections sit close together; an expanded section's list carries the
@@ -570,6 +577,13 @@
 /* Every host of the group is away. */
 .groupNameOffline {
   opacity: 0.6;
+}
+
+/* A collapsed group whose every host is away: one crossed-out cloud. */
+.groupOfflineIcon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--red, var(--danger));
 }
 
 /* An away host's section: its last known workspaces stay listed, dimmed. The

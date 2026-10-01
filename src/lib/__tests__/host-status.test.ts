@@ -59,7 +59,8 @@ describe("describeHost", () => {
     expect(describeHost(h, 6_000)).toMatchObject({
       tone: "warn",
       status: "Reconnecting in 4s",
-      banner: "Reconnecting to me@box in 4s",
+      banner: "Lost connection to me@box. Reconnecting in 4s",
+      summary: "Lost the connection. Reconnecting in 4s",
       canRetry: true,
     });
     expect(describeHost(host({ status: "reconnecting" }), 0)?.status).toBe("Reconnecting…");
@@ -74,8 +75,8 @@ describe("describeHost", () => {
       }),
       0,
     )!;
-    expect(d.status).toBe("Authentication failed");
-    expect(d.banner).toBe("Can't connect to me@box: authentication failed");
+    expect(d.status).toBe("Auth failed");
+    expect(d.banner).toBe("me@box rejected your ssh key");
     expect(d.tone).toBe("error");
     expect(d.detail).toContain("ssh-add");
     expect(d.canRetry).toBe(true);
@@ -94,20 +95,65 @@ describe("describeHost", () => {
       }),
       0,
     )!;
-    expect(d.status).toBe("Couldn't set up the remote host");
+    expect(d.status).toBe("Setup failed");
     expect(d.detail).toContain("build-host-tarball.mjs");
   });
 
   it("falls back to a generic label for an unclassified error", () => {
     expect(
       describeHost(host({ status: "error", error: "something else went wrong" }), 0),
-    ).toMatchObject({ status: "Can't connect", banner: "Can't connect to me@box" });
+    ).toMatchObject({ status: "Connection failed", banner: "Connection to me@box failed" });
+  });
+
+  it("labels ssh failing to reach the host as unreachable, in plain words", () => {
+    const d = describeHost(
+      host({
+        status: "error",
+        error:
+          "ssh to blade failed while bootstrapping (exit 255 running `uname -sm`): " +
+          "ssh: connect to host 192.168.1.175 port 2222: Host is down",
+      }),
+      0,
+    )!;
+    expect(d.status).toBe("Unreachable");
+    expect(d.banner).toBe("me@box isn't responding");
+    expect(d.tone).toBe("error");
+    expect(d.summary).toBe(
+      "Nothing answered at 192.168.1.175:2222. Check it's awake and on your network.",
+    );
+    expect(d.detail).toContain("exit 255");
+    expect(d.canRetry).toBe(true);
+  });
+
+  it("tells a refused connection and an unknown hostname apart", () => {
+    expect(
+      describeHost(
+        host({ status: "error", error: "ssh: connect to host box port 22: Connection refused" }),
+        0,
+      )?.summary,
+    ).toBe("box:22 refused the connection. Check sshd is running on that port.");
+    expect(
+      describeHost(
+        host({
+          status: "error",
+          error: "ssh: Could not resolve hostname nope: nodename nor servname provided",
+        }),
+        0,
+      )?.summary,
+    ).toBe("Couldn't find nope. Check the hostname or your ssh config.");
+  });
+
+  it("gives a classified failure a summary of its own", () => {
+    expect(
+      describeHost(host({ status: "error", failure: { reason: "auth", message: "x" } }), 0)
+        ?.summary,
+    ).toBe("ssh couldn't log in with your keys.");
   });
 
   it("shows disconnected for a host nobody has connected yet", () => {
     expect(describeHost(host({ status: "disconnected" }), 0)).toMatchObject({
       offline: true,
-      status: "Disconnected",
+      status: "Not connected",
       canRetry: true,
     });
   });

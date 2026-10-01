@@ -128,7 +128,7 @@ describe("Clone onto another host", () => {
     setStatus("cloud", "error");
 
     const cloud = cloneChoices("local-app").find((c) => c.hostId === "cloud")!;
-    expect(cloud.disabledReason).toMatch(/^Can't connect to me@cloud/);
+    expect(cloud.disabledReason).toMatch(/^me@cloud is offline/);
   });
 
   it("still offers a host that is only disconnected, since the clone connects it", () => {

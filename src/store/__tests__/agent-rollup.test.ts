@@ -3,7 +3,7 @@ import { act, createElement, Profiler, type ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { selectAgentRollup, type AgentRollupSources } from "../agent-rollup";
 import { selectPaneAgentIndex, useAgentStore } from "../agent-store";
-import { useAppStore, type WorkspaceLayout } from "../app-store";
+import { selectVisiblePaneIds, useAppStore, type WorkspaceLayout } from "../app-store";
 import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { useTabAgentStatus } from "../../hooks/useTabAgentStatus";
 import { workspaceKey } from "../../lib/workspace-key";
@@ -147,6 +147,21 @@ describe("selectPaneAgentIndex", () => {
     expect(index.get("p1")).toBe("a1");
     expect(selectPaneAgentIndex({ agents })).toBe(index);
     expect(selectPaneAgentIndex({ agents: [...agents] })).not.toBe(index);
+  });
+});
+
+describe("selectVisiblePaneIds", () => {
+  it("builds the on-screen set once per layout and active workspace", () => {
+    const workspaceLayouts = {
+      [workspaceKey("local", "/a")]: layout("a1", "a2"),
+      [workspaceKey("local", "/b")]: layout("b1"),
+    };
+    const onA = { workspaceLayouts, activeWorkspacePath: "/a", activeWorkspaceHostId: "local" };
+    const ids = selectVisiblePaneIds(onA);
+    expect([...ids]).toEqual(["a1"]);
+    expect(selectVisiblePaneIds({ ...onA })).toBe(ids);
+    expect([...selectVisiblePaneIds({ ...onA, activeWorkspacePath: "/b" })]).toEqual(["b1"]);
+    expect(selectVisiblePaneIds({ ...onA, workspaceLayouts: { ...workspaceLayouts } })).not.toBe(ids);
   });
 });
 

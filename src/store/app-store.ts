@@ -595,7 +595,7 @@ export function selectActiveLayout(
 
 // Selector for the active workspace's active panel (backward compat: same shape as old WorkspaceTabState)
 export function selectActiveWorkspace(
-  state: AppState,
+  state: Pick<AppState, "activeWorkspacePath" | "activeWorkspaceHostId" | "workspaceLayouts">,
 ): Panel | null {
   const layout = selectActiveLayout(state);
   if (!layout) return null;
@@ -619,6 +619,11 @@ export function selectWebviewFocusVisible(state: AppState): boolean {
   });
 }
 
+const visiblePaneIdSets = new WeakMap<
+  AppState["workspaceLayouts"],
+  Map<WorkspaceKey | null, ReadonlySet<string>>
+>();
+
 /**
  * Every pane the user can currently see: in the active workspace, inside each
  * panel's *selected* tab.
@@ -630,17 +635,30 @@ export function selectWebviewFocusVisible(state: AppState): boolean {
  * This is the single definition of "on screen" for read state (issue #142): a
  * agent whose pane is in this set has been seen, whether the user got there by
  * clicking the agent, switching tabs, focusing a pane, or changing workspace.
+ *
+ * Built once per layout and active workspace however many callers read it, so
+ * the same set comes back until either changes.
  */
 export function selectVisiblePaneIds(
   state: Pick<AppState, "activeWorkspacePath" | "activeWorkspaceHostId" | "workspaceLayouts">,
-): Set<string> {
-  const ids = new Set<string>();
-  const layout = selectActiveLayout(state);
-  if (!layout) return ids;
-  for (const panel of Object.values(layout.panels)) {
-    const tab = panel.tabs.find((t) => t.id === panel.selectedTabId);
-    if (!tab) continue;
-    for (const id of allPaneIds(tab.rootNode)) ids.add(id);
+): ReadonlySet<string> {
+  let byActiveKey = visiblePaneIdSets.get(state.workspaceLayouts);
+  if (!byActiveKey) {
+    byActiveKey = new Map();
+    visiblePaneIdSets.set(state.workspaceLayouts, byActiveKey);
+  }
+  const activeKey = selectActiveWorkspaceKey(state);
+  let ids = byActiveKey.get(activeKey);
+  if (!ids) {
+    const built = new Set<string>();
+    const layout = selectActiveLayout(state);
+    for (const panel of Object.values(layout?.panels ?? {})) {
+      const tab = panel.tabs.find((t) => t.id === panel.selectedTabId);
+      if (!tab) continue;
+      for (const id of allPaneIds(tab.rootNode)) built.add(id);
+    }
+    ids = built;
+    byActiveKey.set(activeKey, ids);
   }
   return ids;
 }

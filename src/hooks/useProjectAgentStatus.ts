@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import type { WorkspaceLayout } from "../store/app-store";
-import { useAgentRollup, type AgentRollup, type PaneSetSelector } from "../store/agent-rollup";
+import type { AgentRollup } from "../store/agent-rollup";
+import { useAgentRollup, type PaneSetSelector } from "./useAgentRollup";
 import { allPaneIds } from "../store/pane-tree";
 import { workspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";

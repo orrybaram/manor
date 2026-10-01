@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.18.7] - 2026-09-30
+
+### Fixes
+- Tasks for a linked group now load through any checkout that's reachable, even when another host is offline
+- Fixed keyboard handling for terminal apps that use the kitty keyboard protocol
+
+### Improvements
+- Manor starts faster: the initial app bundle is smaller and first paint no longer waits for fonts to load
+- Markdown rendering and diff syntax highlighting load only when first needed, reducing startup cost
+- Pull request status checks are batched, and refreshes when the window regains focus are throttled, cutting GitHub API usage
+- Agent status in sidebar rows and tabs now comes from a single shared source, so it stays consistent with less overhead
+- Terminal pane info is now read from the terminal parser that's already running, which lowers background CPU use
+- Port scanning is faster because it no longer starts a separate process for each running program
+
 ## [0.18.6] - 2026-09-30
 
 ### Fixes

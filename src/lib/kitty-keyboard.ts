@@ -15,18 +15,13 @@
 
 import type { IDisposable, IParser } from "@xterm/xterm";
 
-/** The part of a terminal this needs — xterm's `Terminal`, headless or not. */
-export interface KittyKeyboardTerminal {
-  readonly parser: Pick<IParser, "registerCsiHandler">;
-}
-
 /**
  * Answer kitty keyboard protocol sequences written to `term`, sending query
  * replies through `reply` (the pty's input). Disposing the result — or the
  * terminal — removes the handlers.
  */
 export function installKittyKeyboard(
-  term: KittyKeyboardTerminal,
+  term: { readonly parser: Pick<IParser, "registerCsiHandler"> },
   reply: (data: string) => void,
 ): IDisposable {
   let flags = 0;

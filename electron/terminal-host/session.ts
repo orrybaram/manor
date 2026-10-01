@@ -198,9 +198,7 @@ export class Session {
     this.serializeAddon = new SerializeAddon();
     this.headless.loadAddon(this.serializeAddon);
 
-    // The headless mirror is the one parser of this session's output: CWD,
-    // title and modes come from it, not from re-scanning each chunk (whose
-    // escape sequences may be split across chunks, or combined).
+    // Not re-scanned per chunk: escape sequences may be split across chunks.
     this.headless.parser.registerOscHandler(7, (payload) => {
       this.extractOsc7Cwd(payload);
       return true;
@@ -387,8 +385,8 @@ export class Session {
 
       case MSG.FGPROC: {
         const { name } = JSON.parse(payload.toString("utf-8")) as { name: string | null };
-        // Behind the mirror's write queue, like the output hints it resets.
-        this.writeHeadless("", () => this.paneFacts.setForeground(name));
+        // In stream order with the output hints it resets.
+        this.afterHeadless(() => this.paneFacts.setForeground(name));
         break;
       }
     }
@@ -555,6 +553,11 @@ export class Session {
         for (const cb of cbs) cb();
       }
     });
+  }
+
+  /** Run `cb` once the headless mirror has parsed everything written so far. */
+  private afterHeadless(cb: () => void): void {
+    this.writeHeadless("", cb);
   }
 
   /** Wait for all pending headless writes to flush */

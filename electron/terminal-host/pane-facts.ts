@@ -8,8 +8,7 @@
  * reported as raw hints with a timestamp, and main's Status reconciler
  * (`electron/agent-status`) weighs them.
  *
- * Titles are not parsed here: the session's headless terminal already parses
- * every byte, and hands its OSC 0/2 titles to `setTitle`.
+ * Titles arrive parsed, via `setTitle`.
  *
  * Pure: no Electron, no Node APIs, no timers. The daemon bundle and the pty
  * subprocess both import it.

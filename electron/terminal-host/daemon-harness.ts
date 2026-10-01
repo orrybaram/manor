@@ -291,10 +291,11 @@ export async function flushScrollback(
 ): Promise<void> {
   const session = sessionOf(host, sessionId);
   if (!session) return;
-  await session.getSnapshot();
-  const { scrollbackWriter } = session as unknown as {
+  const { flushHeadless, scrollbackWriter } = session as unknown as {
+    flushHeadless: () => Promise<void>;
     scrollbackWriter: ScrollbackWriter | null;
   };
+  await flushHeadless.call(session);
   await scrollbackWriter?.flush();
 }
 

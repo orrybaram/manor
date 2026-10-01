@@ -18,6 +18,7 @@ import { useProjectStore } from "../store/project-store";
 import { getAgentKindForCommand } from "../agent-defaults";
 import { isNavRegionFocused } from "../lib/focus-regions";
 import { classifyShellOutput } from "../lib/shell-ready";
+import { installKittyKeyboard } from "../lib/kitty-keyboard";
 import { paneCreateHostId, useTerminalConnection } from "./useTerminalConnection";
 import { useRemotePaneStore } from "../store/remote-pane-store";
 import { isRemotePane, pasteClipboardImage } from "../lib/remote-image-paste";
@@ -83,13 +84,11 @@ export function useTerminalLifecycle(
     useTerminalConnection(paneId, workspaceKey);
   const { attachHandler } = useTerminalHotkeys(onOpenSearch);
 
-  // Subscribe to stream events (pass write so the stream handler can
-  // respond to kitty keyboard protocol queries on behalf of xterm.js).
+  // Subscribe to stream events.
   // Output stays queued until openRestored() — see the create() call below.
   const { openRestored, closeOutput } = useTerminalStream(
     paneId,
     term,
-    write,
     setPtyError,
     resettingRef,
   );
@@ -258,6 +257,9 @@ export function useTerminalLifecycle(
 
       // Hotkeys
       attachHandler(t, paneId, write);
+
+      // Kitty keyboard protocol, answered from the parser (disposed with `t`)
+      installKittyKeyboard(t, write);
 
       termRef.current = t;
       setTerm(t);

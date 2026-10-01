@@ -8,6 +8,7 @@
   color: var(--text);
   z-index: 200;
   user-select: none;
+  white-space: pre-line;
   animation: fadeIn 150ms ease;
 }
 

@@ -9,24 +9,39 @@ import { primaryMember } from "../../lib/home-dashboard";
 import type { TaskContext, TaskProvider, TaskRow } from "../../lib/tasks";
 import { mergeSources, type SourceResult } from "../../lib/task-list";
 import { TRACKERS, type TrackerScope } from "../../lib/trackers";
+import { LOCAL_HOST_ID, normalizeHostId } from "../../lib/workspace-key";
 
 /** Query keys that already logged a failure — a flaky source logs once, not every refetch. */
 const loggedFailures = new Set<string>();
 
-/** Run `fetch`; a failure is logged once and counted, never thrown (ADR-198 §3). */
+/** An IPC rejection's message, without Electron's "Error invoking remote method" prefix. */
+function errorText(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.replace(/^Error invoking remote method '[^']*': /, "");
+}
+
+/**
+ * Run each of `fetches` until one succeeds; if all fail, the first failure is
+ * logged once and counted (labelled with `name`), never thrown (ADR-198 §3).
+ */
 async function settle(
   key: string,
-  fetch: () => Promise<TaskRow[]>,
+  name: string,
+  fetches: (() => Promise<TaskRow[]>)[],
 ): Promise<SourceResult> {
-  try {
-    return { rows: await fetch(), failed: false };
-  } catch (err) {
-    if (!loggedFailures.has(key)) {
-      loggedFailures.add(key);
-      console.warn(`[TasksView] source ${key} failed:`, err);
+  let first: unknown;
+  for (const fetch of fetches) {
+    try {
+      return { rows: await fetch(), failed: false };
+    } catch (err) {
+      first ??= err;
     }
-    return { rows: [], failed: true };
   }
+  if (!loggedFailures.has(key)) {
+    loggedFailures.add(key);
+    console.warn(`[TasksView] source ${key} failed:`, first);
+  }
+  return { rows: [], failed: true, error: `${name}: ${errorText(first)}` };
 }
 
 /** Fold the settled queries with `mergeSources`; still loading while any is pending. */
@@ -36,6 +51,7 @@ function combineResults(
   rows: TaskRow[];
   loading: boolean;
   failedCount: number;
+  failures: string[];
 } {
   return {
     ...mergeSources(results.flatMap((r) => (r.data ? [r.data] : []))),
@@ -43,11 +59,17 @@ function combineResults(
   };
 }
 
-/** One tracker to query: a top-level entry, through its primary member. */
+/**
+ * One tracker to query: a top-level entry, through one of its members —
+ * local checkouts first, then the primary — falling back to the others when
+ * that fails (its host is down).
+ */
 export type TaskSource = {
   key: string;
   provider: TaskProvider;
   ctx: TaskContext;
+  /** `ctx` through each other member that can list, in the same order. */
+  fallbacks: TaskContext[];
 };
 
 const PROVIDERS = Object.keys(TRACKERS) as TaskProvider[];
@@ -65,6 +87,25 @@ function providerSet(providers: TaskProvider[]): TaskProvider[] {
 
 function entryName(entry: TopLevelEntry<ProjectInfo>): string {
   return entry.kind === "project" ? entry.project.name : entry.group.name;
+}
+
+/**
+ * The members to list an entry through, in order: local checkouts first (no
+ * host to be down), `primary` first among its kind.
+ */
+function fetchOrder(
+  entry: TopLevelEntry<ProjectInfo>,
+  primary: ProjectInfo,
+): ProjectInfo[] {
+  if (entry.kind === "project") return [primary];
+  return [
+    primary,
+    ...entry.sections.map((s) => s.project).filter((p) => p !== primary),
+  ].sort(
+    (a, b) =>
+      Number(normalizeHostId(a.hostId) !== LOCAL_HOST_ID) -
+      Number(normalizeHostId(b.hostId) !== LOCAL_HOST_ID),
+  );
 }
 
 /**
@@ -122,15 +163,24 @@ export function useTrackerSources(): {
     for (const entry of entries) {
       const member = primaryMember(entry);
       if (!member) continue;
-      const ctx: TaskContext = {
+      const ctxOf = (project: ProjectInfo): TaskContext => ({
         entryKey: entry.key,
-        project: member,
+        project,
         projectName: entryName(entry),
         color: member.color,
-      };
+      });
+      const members = fetchOrder(entry, member);
       for (const provider of providers) {
         if (!TRACKERS[provider].canList(member)) continue;
-        out.push({ key: `${provider}:${member.id}`, provider, ctx });
+        const [first, ...rest] = members
+          .filter((p) => TRACKERS[provider].canList(p))
+          .map(ctxOf);
+        out.push({
+          key: `${provider}:${member.id}`,
+          provider,
+          ctx: first,
+          fallbacks: rest,
+        });
       }
     }
     return out;
@@ -195,13 +245,14 @@ const SCOPES: TrackerScope[] = ["assigned", "open"];
  * Tasks for the Tasks view and Up next (ADR-198 §3): for each top-level entry of
  * `provider` (just the chosen entry when `projectKey` is set), its open tasks
  * and the ones assigned to you — merged, with yours marked `assignedToMe`,
- * deduped and sorted by last update. A failing query contributes no rows and
- * is counted in `failedCount`.
+ * deduped and sorted by last update. A query whose members all fail
+ * contributes no rows, is counted in `failedCount` and says why in `failures`.
  */
 export function useTasks(options: UseTasksOptions): {
   rows: TaskRow[];
   loading: boolean;
   failedCount: number;
+  failures: string[];
 } {
   const { provider, projectKey } = options;
 
@@ -222,10 +273,18 @@ export function useTasks(options: UseTasksOptions): {
     combine: combineResults,
     queries: sources.flatMap((source) =>
       SCOPES.map((scope) => {
-        const query = TRACKERS[source.provider].listQuery(source.ctx, scope);
+        const tracker = TRACKERS[source.provider];
+        const query = tracker.listQuery(source.ctx, scope);
+        const fetches = [
+          query.queryFn,
+          ...source.fallbacks.map(
+            (ctx) => tracker.listQuery(ctx, scope).queryFn,
+          ),
+        ];
         return {
           ...query,
-          queryFn: () => settle(`${source.key}:${scope}`, query.queryFn),
+          queryFn: () =>
+            settle(`${source.key}:${scope}`, source.ctx.projectName, fetches),
           retry: false,
         };
       }),
@@ -237,5 +296,6 @@ export function useTasks(options: UseTasksOptions): {
     // Hold the skeleton while the tracker checks are still out, too.
     loading: result.loading || (tracker.checking && sources.length === 0),
     failedCount: result.failedCount,
+    failures: result.failures,
   };
 }

@@ -25,6 +25,7 @@ import type { RemoteControlController } from "../remote-control/controller";
 import type { AgentHookServer } from "../agent-hooks";
 import type { AgentStatusSignals } from "../agent-status/driver";
 import type { SessionOwners } from "../backend/session-owners";
+import type { HostStatus } from "../backend/host-connection";
 
 /** One buffered `console-message` from a webview's `WebContents`. */
 export interface ConsoleEntry {
@@ -105,6 +106,13 @@ export interface ControlDeps {
    * another host is still local to *this* process.
    */
   sessionOwners: SessionOwners | null;
+  /**
+   * A host's connection status, or undefined for one never registered —
+   * `BackendRegistry.status`. A create-workspace without `host` skips a
+   * group's last-used host while it is away. Optional so bags built without
+   * it (tests, the webview server's own) treat every host as reachable.
+   */
+  hostStatus?: ((hostId: string) => HostStatus | undefined) | null;
 }
 
 export type Json = (status: number, body: unknown) => void;

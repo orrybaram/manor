@@ -213,10 +213,11 @@ describe("Session", () => {
       expect(snapshot.cwd).toBe("/Users/test");
     });
 
-    it("broadcasts CWD event to attached clients", () => {
+    it("broadcasts CWD event to attached clients", async () => {
       const { socket, written } = mockSocket();
       session.attachClient(socket);
       pushDataFrame(session, "\x1b]7;file://localhost/new/cwd\x07");
+      await session.getSnapshot();
 
       const cwdEvents = written
         .map((line) => JSON.parse(line.trim()) as StreamEvent)
@@ -236,6 +237,13 @@ describe("Session", () => {
     it("ignores non-file:// OSC 7 payloads", async () => {
       pushDataFrame(session, "\x1b]7;http://example.com\x07");
       expect((await session.getSnapshot()).cwd).toBe("/tmp");
+    });
+
+    it("finds an OSC 7 sequence split across chunks", async () => {
+      pushDataFrame(session, "prompt \x1b]7;file://local");
+      pushDataFrame(session, "host/Users/te");
+      pushDataFrame(session, "st\x1b\\$ ");
+      expect((await session.getSnapshot()).cwd).toBe("/Users/test");
     });
   });
 
@@ -274,6 +282,35 @@ describe("Session", () => {
       expect((await session.getSnapshot()).modes.reverseWraparound).toBe(true);
       pushDataFrame(session, "\x1b[?45l");
       expect((await session.getSnapshot()).modes.reverseWraparound).toBe(false);
+    });
+
+    it("tracks combined mode sequences", async () => {
+      pushDataFrame(session, "\x1b[?1049;2004;1h");
+      const modes = (await session.getSnapshot()).modes;
+      expect(modes.altScreen).toBe(true);
+      expect(modes.bracketedPaste).toBe(true);
+      expect(modes.applicationCursor).toBe(true);
+
+      pushDataFrame(session, "\x1b[?2004;1049l");
+      const after = (await session.getSnapshot()).modes;
+      expect(after.altScreen).toBe(false);
+      expect(after.bracketedPaste).toBe(false);
+      expect(after.applicationCursor).toBe(true);
+    });
+
+    it("tracks mode sequences split across chunks", async () => {
+      pushDataFrame(session, "output\x1b[?20");
+      pushDataFrame(session, "04h");
+      expect((await session.getSnapshot()).modes.bracketedPaste).toBe(true);
+
+      pushDataFrame(session, "\x1b");
+      pushDataFrame(session, "[?1049h");
+      expect((await session.getSnapshot()).modes.altScreen).toBe(true);
+    });
+
+    it("counts any mouse protocol as mouse tracking", async () => {
+      pushDataFrame(session, "\x1b[?1003h");
+      expect((await session.getSnapshot()).modes.mouseTracking).toBe(true);
     });
 
     it("mode changes included in snapshot", async () => {
@@ -511,13 +548,14 @@ describe("Session", () => {
       });
     });
 
-    it("emits paneFacts when the foreground process changes", () => {
+    it("emits paneFacts when the foreground process changes", async () => {
       const { socket, written } = mockSocket();
       session.attachClient(socket);
 
       pushFgFrame("claude");
       pushFgFrame("claude");
       pushFgFrame(null);
+      await session.getSnapshot();
 
       const events = paneFactsEvents(written);
       expect(events.map((e) => e.facts.foreground)).toEqual([
@@ -527,19 +565,55 @@ describe("Session", () => {
       expect(events.every((e) => e.sessionId === "test-session")).toBe(true);
     });
 
-    it("emits paneFacts from terminal output: title and output hint", () => {
+    it("emits paneFacts from terminal output: title and output hint", async () => {
       const { socket, written } = mockSocket();
       session.attachClient(socket);
 
       pushDataFrame(session, "\x1b]0;my title\x07");
       pushDataFrame(session, "plain output\r\n");
       pushDataFrame(session, "Do you want to proceed? (y/n)\r\n");
+      await session.getSnapshot();
 
       const events = paneFactsEvents(written);
       expect(events).toHaveLength(2);
       expect(events[0].facts.title).toBe("my title");
       expect(events[1].facts.outputHint?.hint).toBe("requires_input");
       expect(session.getPaneFacts()).toEqual(events[1].facts);
+    });
+
+    it("takes titles from the headless parser, split or combined", async () => {
+      pushDataFrame(session, "\x1b]2;hal");
+      pushDataFrame(session, "f a title\x1b\\");
+      await session.getSnapshot();
+      expect(session.getPaneFacts().title).toBe("half a title");
+
+      pushDataFrame(session, "\x1b]0;first\x07\x1b]2;second\x07");
+      await session.getSnapshot();
+      expect(session.getPaneFacts().title).toBe("second");
+    });
+
+    it("ignores OSC sequences that are not titles", async () => {
+      pushDataFrame(session, "\x1b]7;file://host/tmp\x07");
+      await session.getSnapshot();
+      expect(session.getPaneFacts().title).toBeNull();
+    });
+
+    it("keeps foreground changes in order with the output before them", async () => {
+      const { socket, written } = mockSocket();
+      session.attachClient(socket);
+
+      pushFgFrame("claude");
+      pushDataFrame(session, "esc to interrupt\r\n");
+      pushFgFrame(null);
+      await session.getSnapshot();
+
+      const events = paneFactsEvents(written);
+      expect(events.map((e) => [e.facts.foreground?.name ?? null, e.facts.outputHint?.hint ?? null]))
+        .toEqual([
+          ["claude", null],
+          ["claude", "thinking"],
+          [null, "thinking"],
+        ]);
     });
   });
 });

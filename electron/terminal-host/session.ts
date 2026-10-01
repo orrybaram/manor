@@ -5,8 +5,8 @@
  * - Spawns a PTY subprocess (child process)
  * - Forwards output to attached stream sockets
  * - Maintains a headless xterm emulator for snapshots
- * - Tracks CWD via OSC 7
- * - Tracks terminal modes
+ * - Takes CWD (OSC 7), titles and terminal modes from that emulator's parser,
+ *   so every byte is parsed once
  */
 
 import { fork, type ChildProcess } from "node:child_process";
@@ -34,7 +34,6 @@ import type {
   PtySpawnPayload,
   PaneFacts,
 } from "./types";
-import { DEFAULT_TERMINAL_MODES } from "./types";
 
 /**
  * The argv for a pane's shell. A plain bash pane starts with Manor's rcfile
@@ -112,7 +111,6 @@ export class Session {
   private cwd: string | null;
   private cols: number;
   private rows: number;
-  private modes: TerminalModes = { ...DEFAULT_TERMINAL_MODES };
   private _alive = true;
   private exitCode = 0;
   private pid: number | null = null;
@@ -173,10 +171,6 @@ export class Session {
     timer: ReturnType<typeof setTimeout>;
   }> = [];
 
-  // OSC 7 parser state
-  private oscBuf: number[] = [];
-  private inOsc7 = false;
-
   /** Optional extra env vars injected on top of the shell env at spawn time */
   private envOverrides: Record<string, string>;
 
@@ -203,6 +197,13 @@ export class Session {
     });
     this.serializeAddon = new SerializeAddon();
     this.headless.loadAddon(this.serializeAddon);
+
+    // Not re-scanned per chunk: escape sequences may be split across chunks.
+    this.headless.parser.registerOscHandler(7, (payload) => {
+      this.extractOsc7Cwd(payload);
+      return true;
+    });
+    this.headless.onTitleChange((title) => this.paneFacts.setTitle(title));
 
     // Frame decoder for subprocess output
     this.decoder = new FrameDecoder((type, payload) => {
@@ -321,16 +322,13 @@ export class Session {
           this.pendingWrites = [];
         }
 
-        // Feed headless emulator (async — write callback fires after processing)
+        // Feed headless emulator (async — write callback fires after processing).
+        // Its OSC and title handlers fire while it parses the chunk; output
+        // hints follow in the callback, so Pane facts keep the stream's order.
         const seq = ++this.outputSeq;
-        this.headlessWritesPending++;
-        this.headless.write(data, () => {
+        this.writeHeadless(data, () => {
+          this.paneFacts.feedData(data);
           this.appliedSeq = seq;
-          this.headlessWritesPending--;
-          if (this.headlessWritesPending === 0) {
-            const cbs = this.headlessFlushCallbacks.splice(0);
-            for (const cb of cbs) cb();
-          }
         });
 
         // Scrollback persistence
@@ -341,15 +339,6 @@ export class Session {
             void this.scrollbackWriter.handleClearScrollback();
           }
         }
-
-        // Parse OSC 7 for CWD tracking
-        this.parseOsc7(data);
-
-        // Pane facts: titles, output hints (ADR-184 §3)
-        this.paneFacts.feedData(data);
-
-        // Track terminal modes from escape sequences
-        this.trackModes(data);
 
         // Broadcast to attached clients
         this.broadcastEvent({
@@ -396,7 +385,8 @@ export class Session {
 
       case MSG.FGPROC: {
         const { name } = JSON.parse(payload.toString("utf-8")) as { name: string | null };
-        this.paneFacts.setForeground(name);
+        // In stream order with the output hints it resets.
+        this.afterHeadless(() => this.paneFacts.setForeground(name));
         break;
       }
     }
@@ -549,6 +539,27 @@ export class Session {
     this.detachAllClients();
   }
 
+  /**
+   * Write to the headless mirror and run `applied` once it has parsed `data`,
+   * counting the write as pending until then so `flushHeadless` waits for it.
+   */
+  private writeHeadless(data: string, applied: () => void): void {
+    this.headlessWritesPending++;
+    this.headless.write(data, () => {
+      applied();
+      this.headlessWritesPending--;
+      if (this.headlessWritesPending === 0) {
+        const cbs = this.headlessFlushCallbacks.splice(0);
+        for (const cb of cbs) cb();
+      }
+    });
+  }
+
+  /** Run `cb` once the headless mirror has parsed everything written so far. */
+  private afterHeadless(cb: () => void): void {
+    this.writeHeadless("", cb);
+  }
+
   /** Wait for all pending headless writes to flush */
   private flushHeadless(): Promise<void> {
     if (this.headlessWritesPending === 0) return Promise.resolve();
@@ -578,7 +589,7 @@ export class Session {
       screenAnsi: this.serializeAddon.serialize(),
       seq: this.appliedSeq,
       scrollbackAnsi: "", // headless serialize already includes scrollback
-      modes: { ...this.modes },
+      modes: this.modes(),
       cwd: this.cwd,
       cols: this.cols,
       rows: this.rows,
@@ -632,44 +643,7 @@ export class Session {
     }
   }
 
-  // ── OSC 7 CWD Parsing ──
-
-  private parseOsc7(data: string): void {
-    for (let i = 0; i < data.length; i++) {
-      const byte = data.charCodeAt(i);
-
-      if (this.inOsc7) {
-        if (byte === 0x07 || byte === 0x1b) {
-          // BEL or ESC terminator
-          const payload = String.fromCharCode(...this.oscBuf);
-          this.extractOsc7Cwd(payload);
-          this.oscBuf = [];
-          this.inOsc7 = false;
-        } else {
-          this.oscBuf.push(byte);
-          if (this.oscBuf.length > 4096) {
-            this.oscBuf = [];
-            this.inOsc7 = false;
-          }
-        }
-      } else if (byte === 0x1b) {
-        this.oscBuf = [byte];
-      } else if (
-        this.oscBuf.length === 1 &&
-        this.oscBuf[0] === 0x1b &&
-        byte === 0x5d
-      ) {
-        this.oscBuf.push(byte);
-      } else if (this.oscBuf.length === 2 && byte === 0x37) {
-        this.oscBuf.push(byte);
-      } else if (this.oscBuf.length === 3 && byte === 0x3b) {
-        this.oscBuf = [];
-        this.inOsc7 = true;
-      } else {
-        this.oscBuf = [];
-      }
-    }
-  }
+  // ── OSC 7 CWD ──
 
   private extractOsc7Cwd(payload: string): void {
     if (!payload.startsWith("file://")) return;
@@ -685,27 +659,18 @@ export class Session {
     });
   }
 
-  // ── Mode Tracking ──
+  // ── Modes ──
 
-  private trackModes(data: string): void {
-    // Bracketed paste: CSI ?2004h (enable) / CSI ?2004l (disable)
-    if (data.includes("\x1b[?2004h")) this.modes.bracketedPaste = true;
-    if (data.includes("\x1b[?2004l")) this.modes.bracketedPaste = false;
-
-    // Application cursor: CSI ?1h (enable) / CSI ?1l (disable)
-    if (data.includes("\x1b[?1h")) this.modes.applicationCursor = true;
-    if (data.includes("\x1b[?1l")) this.modes.applicationCursor = false;
-
-    // Alt screen: CSI ?1049h (enable) / CSI ?1049l (disable)
-    if (data.includes("\x1b[?1049h")) this.modes.altScreen = true;
-    if (data.includes("\x1b[?1049l")) this.modes.altScreen = false;
-
-    // Mouse tracking: CSI ?1000h (enable) / CSI ?1000l (disable)
-    if (data.includes("\x1b[?1000h")) this.modes.mouseTracking = true;
-    if (data.includes("\x1b[?1000l")) this.modes.mouseTracking = false;
-
-    // Reverse wraparound: CSI ?45h (enable) / CSI ?45l (disable)
-    if (data.includes("\x1b[?45h")) this.modes.reverseWraparound = true;
-    if (data.includes("\x1b[?45l")) this.modes.reverseWraparound = false;
+  /** The terminal modes as the headless mirror has applied them. */
+  private modes(): TerminalModes {
+    const modes = this.headless.modes;
+    return {
+      bracketedPaste: modes.bracketedPasteMode,
+      applicationCursor: modes.applicationCursorKeysMode,
+      applicationKeypad: modes.applicationKeypadMode,
+      mouseTracking: modes.mouseTrackingMode !== "none",
+      altScreen: this.headless.buffer.active.type === "alternate",
+      reverseWraparound: modes.reverseWraparoundMode,
+    };
   }
 }

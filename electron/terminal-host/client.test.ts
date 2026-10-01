@@ -1063,6 +1063,8 @@ describe("TerminalHostClient", () => {
       const session = (daemon.getHost() as any).sessions.get("pane-1");
       session.decoder.push(encodeFrame(MSG.FGPROC, JSON.stringify({ name: "codex" })));
       session.decoder.push(encodeFrame(MSG.DATA, "\x1b]2;working on it\x07"));
+      // Facts come from the headless mirror, so wait for it to parse.
+      await session.getSnapshot();
 
       expect(await client.getPaneFacts("pane-1")).toEqual({
         foreground: { name: "codex", kind: "codex" },

@@ -101,7 +101,10 @@ export function TasksView(props: TasksViewProps) {
     [scope.sources],
   );
 
-  const { rows, loading, failedCount } = useTasks({ provider, projectKey });
+  const { rows, loading, failedCount, failures } = useTasks({
+    provider,
+    projectKey,
+  });
 
   const projects = useProjectStore((s) => s.projects);
 
@@ -420,9 +423,11 @@ export function TasksView(props: TasksViewProps) {
 
             <div className={styles.footer}>
               {failedCount > 0 && (
-                <span className={styles.failed}>
-                  {failedCount} source{failedCount === 1 ? "" : "s"} failed
-                </span>
+                <Tooltip label={failures.join("\n")} side="top">
+                  <span className={styles.failed} tabIndex={0}>
+                    {failedCount} source{failedCount === 1 ? "" : "s"} failed
+                  </span>
+                </Tooltip>
               )}
               {current.pageCount > 1 && (
                 <nav className={styles.pagination} aria-label="Pages">

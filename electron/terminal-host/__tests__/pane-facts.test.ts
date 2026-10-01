@@ -60,31 +60,25 @@ describe("PaneFactsExtractor (ADR-184)", () => {
   });
 
   describe("titles", () => {
-    it("reports the latest OSC 0/2 title of a chunk", () => {
+    it("reports the title the terminal set", () => {
       const { extractor, emitted } = setup();
-      extractor.feedData("\x1b]0;first\x07\x1b]2;second\x1b\\");
+      extractor.setTitle("first");
+      extractor.setTitle("second");
       expect(extractor.facts.title).toBe("second");
-      expect(emitted).toHaveLength(1);
+      expect(emitted.map((f) => f.title)).toEqual(["first", "second"]);
     });
 
-    it("finds a title split across chunks", () => {
-      const { extractor } = setup();
-      extractor.feedData("\x1b]2;hal");
-      extractor.feedData("f a title\x07");
-      expect(extractor.facts.title).toBe("half a title");
-    });
-
-    it("ignores other OSC sequences", () => {
+    it("does not read titles out of output bytes", () => {
       const { extractor, emitted } = setup();
-      extractor.feedData("\x1b]7;file://host/tmp\x07");
+      extractor.feedData("\x1b]2;not parsed here\x07");
       expect(extractor.facts.title).toBeNull();
       expect(emitted).toEqual([]);
     });
 
     it("does not emit when the same title is set again", () => {
       const { extractor, emitted } = setup();
-      extractor.feedData("\x1b]0;same\x07");
-      extractor.feedData("\x1b]0;same\x07");
+      extractor.setTitle("same");
+      extractor.setTitle("same");
       expect(emitted).toHaveLength(1);
     });
   });
@@ -194,9 +188,10 @@ describe("PaneFactsExtractor (ADR-184)", () => {
     it("emits the whole snapshot each time", () => {
       const { extractor, emitted } = setup();
       extractor.setForeground("claude");
-      extractor.feedData("\x1b]0;⠋ working\x07esc to interrupt\r\n");
-      expect(emitted).toHaveLength(2);
-      expect(emitted[1]).toEqual({
+      extractor.setTitle("⠋ working");
+      extractor.feedData("esc to interrupt\r\n");
+      expect(emitted).toHaveLength(3);
+      expect(emitted[2]).toEqual({
         foreground: { name: "claude", kind: "claude" },
         title: "⠋ working",
         outputHint: { hint: "thinking", at: 1000 },
@@ -400,6 +395,39 @@ describe("OutputPatternMatcher", () => {
         matcher.addData(`line ${i}`);
       }
       expect(matcher.getBuffer().length).toBe(15);
+    });
+  });
+
+  describe("chunk tail", () => {
+    it("keeps only the last lines of a large chunk, in order", () => {
+      const lines = Array.from({ length: 5000 }, (_, i) => `\x1b[32mline ${i}\x1b[0m`);
+      matcher.addData(lines.join("\r\n") + "\r\n");
+      const buffer = matcher.getBuffer();
+      expect(buffer).toHaveLength(15);
+      expect(buffer[0]).toBe("line 4985");
+      expect(buffer[14]).toBe("line 4999");
+    });
+
+    it("finds a hint at the end of a large chunk", () => {
+      const output = Array.from({ length: 5000 }, (_, i) => `file-${i}.txt`).join("\n");
+      matcher.addData(`${output}\nDo you want to proceed? (y/n)\n`);
+      expect(matcher.detect()).toBe("requires_input");
+    });
+
+    it("skips blank and box-drawing lines when filling from the tail", () => {
+      matcher.addData("esc to interrupt\r\n\r\n│ boxed\r\n\r\n\r\n");
+      expect(matcher.getBuffer()).toEqual(["esc to interrupt"]);
+      expect(matcher.detect()).toBe("thinking");
+    });
+
+    it("splits on bare and CRLF newlines alike", () => {
+      matcher.addData("one\ntwo\r\nthree");
+      expect(matcher.getBuffer()).toEqual(["one", "two", "three"]);
+    });
+
+    it("handles a chunk that starts with a newline", () => {
+      matcher.addData("\nesc to interrupt");
+      expect(matcher.getBuffer()).toEqual(["esc to interrupt"]);
     });
   });
 });

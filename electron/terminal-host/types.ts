@@ -12,15 +12,6 @@ export interface TerminalModes {
   reverseWraparound: boolean;
 }
 
-export const DEFAULT_TERMINAL_MODES: TerminalModes = {
-  bracketedPaste: false,
-  applicationCursor: false,
-  applicationKeypad: false,
-  mouseTracking: false,
-  altScreen: false,
-  reverseWraparound: false,
-};
-
 /**
  * Position in a session's output stream: the number of `data` events broadcast.
  *

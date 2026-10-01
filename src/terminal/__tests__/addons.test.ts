@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Terminal } from "@xterm/xterm";
 
 class FakeWebglAddon {}
 class FakeImageAddon {}
@@ -42,6 +43,25 @@ describe("whenTerminalCanOpen", () => {
     });
   });
 
+  it("opens without an add-on whose chunk failed to load", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.doMock("@xterm/addon-webgl", () => {
+      throw new Error("chunk failed");
+    });
+    try {
+      const { whenTerminalCanOpen } = await freshModule();
+
+      await expect(whenTerminalCanOpen()).resolves.toEqual({
+        WebglAddon: null,
+        ImageAddon: FakeImageAddon,
+        Unicode11Addon: FakeUnicode11Addon,
+      });
+    } finally {
+      vi.doMock("@xterm/addon-webgl", () => ({ WebglAddon: FakeWebglAddon }));
+      warn.mockRestore();
+    }
+  });
+
   it("does not resolve until the terminal fonts are ready", async () => {
     let fontsLoaded!: () => void;
     fonts.ready.mockImplementation(
@@ -75,5 +95,19 @@ describe("loadSearchAddon", () => {
     expect(a).toBe(FakeSearchAddon);
     expect(b).toBe(FakeSearchAddon);
     expect(searchImport).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("searchAddonFor", () => {
+  it("loads one search add-on onto each terminal", async () => {
+    const { searchAddonFor } = await freshModule();
+    const term = { loadAddon: vi.fn() } as unknown as Terminal;
+
+    expect(searchAddonFor(term)).toBe(searchAddonFor(term));
+    const addon = await searchAddonFor(term);
+
+    expect(addon).toBeInstanceOf(FakeSearchAddon);
+    expect(term.loadAddon).toHaveBeenCalledTimes(1);
+    expect(term.loadAddon).toHaveBeenCalledWith(addon);
   });
 });

@@ -55,6 +55,15 @@ function cancelPtyKill(paneId: string) {
   }
 }
 
+/** If the user explicitly closed the pane, schedule its PTY kill. */
+function killIfClosed(paneId: string) {
+  const { closedPaneIds } = useAppStore.getState();
+  if (closedPaneIds.has(paneId)) {
+    closedPaneIds.delete(paneId);
+    schedulePtyKill(paneId);
+  }
+}
+
 export function useTerminalLifecycle(
   containerRef: React.RefObject<HTMLDivElement | null>,
   paneId: string,
@@ -176,9 +185,10 @@ export function useTerminalLifecycle(
       t.loadAddon(fit);
       registerTerminal(paneId, t);
 
-      const unicode11 = new addons.Unicode11Addon();
-      t.loadAddon(unicode11);
-      t.unicode.activeVersion = "11";
+      if (addons.Unicode11Addon) {
+        t.loadAddon(new addons.Unicode11Addon());
+        t.unicode.activeVersion = "11";
+      }
 
       t.open(container);
 
@@ -202,12 +212,14 @@ export function useTerminalLifecycle(
       container.addEventListener("paste", onDomPaste, true);
 
       // Post-open addons (require DOM/canvas)
-      try {
-        const webgl = new addons.WebglAddon();
-        webgl.onContextLoss(() => webgl.dispose());
-        t.loadAddon(webgl);
-      } catch (e) {
-        console.warn("WebGL addon failed, using DOM renderer", e);
+      if (addons.WebglAddon) {
+        try {
+          const webgl = new addons.WebglAddon();
+          webgl.onContextLoss(() => webgl.dispose());
+          t.loadAddon(webgl);
+        } catch (e) {
+          console.warn("WebGL addon failed, using DOM renderer", e);
+        }
       }
 
       try {
@@ -215,10 +227,12 @@ export function useTerminalLifecycle(
       } catch {
         // ignored
       }
-      try {
-        t.loadAddon(new addons.ImageAddon());
-      } catch {
-        // ignored
+      if (addons.ImageAddon) {
+        try {
+          t.loadAddon(new addons.ImageAddon());
+        } catch {
+          // ignored
+        }
       }
       try {
         t.loadAddon(
@@ -499,12 +513,8 @@ export function useTerminalLifecycle(
         // If the user explicitly closed the pane, schedule a delayed kill
         // so they can undo within the grace period.
         if (unsentPaneCommand !== null) requeueUndelivered(unsentPaneCommand);
-        const { closedPaneIds } = useAppStore.getState();
         detach();
-        if (closedPaneIds.has(paneId)) {
-          closedPaneIds.delete(paneId);
-          schedulePtyKill(paneId);
-        }
+        killIfClosed(paneId);
         t.dispose();
       };
     };
@@ -532,11 +542,7 @@ export function useTerminalLifecycle(
       }
       // Closed before its terminal opened: still kill the session it would
       // have attached to (one a restored pane already had in the daemon).
-      const { closedPaneIds } = useAppStore.getState();
-      if (closedPaneIds.has(paneId)) {
-        closedPaneIds.delete(paneId);
-        schedulePtyKill(paneId);
-      }
+      killIfClosed(paneId);
     };
   });
 

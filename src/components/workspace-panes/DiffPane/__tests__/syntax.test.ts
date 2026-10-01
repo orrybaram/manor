@@ -37,6 +37,19 @@ describe("loadTokenizer", () => {
     expect(tokenize("x", "cobol")).toEqual([{ type: "text", value: "x" }]);
   });
 
+  it("starts the load when a diff subscribes, and tells it when it lands", async () => {
+    const { subscribeTokenizer, loadTokenizer, loadedTokenizer } =
+      await freshModule();
+    const onLoad = vi.fn();
+
+    const unsubscribe = subscribeTokenizer(onLoad);
+    const tokenize = await loadTokenizer();
+
+    expect(onLoad).toHaveBeenCalledTimes(1);
+    expect(loadedTokenizer()).toBe(tokenize);
+    unsubscribe();
+  });
+
   it("shares one load between callers", async () => {
     const { loadTokenizer } = await freshModule();
     expect(loadTokenizer()).toBe(loadTokenizer());

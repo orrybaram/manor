@@ -25,6 +25,8 @@
  * shell has nothing to measure, so it paints without them.
  */
 
+import { loadOnce } from "./load-once";
+
 /**
  * How long terminal creation waits on fonts.
  *
@@ -60,13 +62,8 @@ async function loadTerminalFonts(): Promise<void> {
   ]);
 }
 
-let fontsReady: Promise<void> | null = null;
-
 /**
  * The font load, started once and shared: every pane waits on the same load,
  * and a pane opened after it settled waits on nothing.
  */
-export function terminalFontsReady(): Promise<void> {
-  fontsReady ??= loadTerminalFonts();
-  return fontsReady;
-}
+export const terminalFontsReady = loadOnce(loadTerminalFonts);

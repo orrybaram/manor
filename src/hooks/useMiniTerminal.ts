@@ -2,6 +2,7 @@ import { useCallback, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import { terminalOptions, themeToXterm } from "../terminal/config";
 import { useThemeStore } from "../store/theme-store";
+import { terminalFontsReady } from "../lib/terminal-font";
 
 export interface UseMiniTerminalOptions {
   containerRef: React.RefObject<HTMLDivElement | null>;
@@ -71,6 +72,8 @@ export function useMiniTerminal(
       import("@xterm/addon-fit"),
     ]);
     await import("@xterm/xterm/css/xterm.css");
+    // Its cell is measured from the terminal font, like a pane's.
+    await terminalFontsReady();
 
     paneIdRef.current = sessionId;
 

@@ -1,4 +1,5 @@
 import type { RootContent } from "hast";
+import { loadOnce } from "../../../lib/load-once";
 
 export type Tokenize = (code: string, lang: string) => RootContent[];
 
@@ -33,7 +34,7 @@ export function extToLang(filePath: string): string | null {
 }
 
 let tokenizer: Tokenize | null = null;
-let loading: Promise<Tokenize> | null = null;
+const listeners = new Set<() => void>();
 
 /**
  * The highlighter, once it has loaded — `null` until then. Lets a diff opened
@@ -49,10 +50,28 @@ export function loadedTokenizer(): Tokenize | null {
  * app has no use for until a diff pane first highlights, so they live in their
  * own chunk; every caller shares the one load.
  */
-export function loadTokenizer(): Promise<Tokenize> {
-  loading ??= import("./syntax-highlighter").then((m) => {
+export const loadTokenizer = loadOnce(() =>
+  import("./syntax-highlighter").then((m) => {
     tokenizer = m.tokenize;
+    for (const listener of listeners) listener();
     return m.tokenize;
-  });
-  return loading;
+  }),
+);
+
+/**
+ * Subscribe to the highlighter arriving, for `useSyncExternalStore`.
+ * Subscribing is what asks for it: the load starts with the first diff that
+ * wants highlighting.
+ */
+export function subscribeTokenizer(onLoad: () => void): () => void {
+  listeners.add(onLoad);
+  if (!tokenizer) {
+    loadTokenizer().catch(() => {
+      // No highlighter is plain text, which every row already renders. The
+      // next diff to subscribe tries the load again.
+    });
+  }
+  return () => {
+    listeners.delete(onLoad);
+  };
 }

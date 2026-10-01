@@ -11,33 +11,43 @@
  * Each loader runs its import once; every caller after that shares the result.
  */
 
+import type { Terminal } from "@xterm/xterm";
+import type { SearchAddon } from "@xterm/addon-search";
+import { loadOnce } from "../lib/load-once";
 import { terminalFontsReady } from "../lib/terminal-font";
 
-function once<T>(load: () => Promise<T>): () => Promise<T> {
-  let pending: Promise<T> | null = null;
-  return () => {
-    pending ??= load().catch((err: unknown) => {
-      // A failed chunk load is retried by the next caller, not cached.
-      pending = null;
-      throw err;
-    });
-    return pending;
-  };
+/**
+ * Import an add-on the terminal can open without. A chunk that fails to load
+ * costs that add-on — the DOM renderer, no inline images, the default Unicode
+ * widths — not the pane.
+ */
+function optional<T>(name: string, load: () => Promise<T>): Promise<T | null> {
+  return load().catch((err: unknown) => {
+    console.warn(`Terminal ${name} add-on failed to load`, err);
+    return null;
+  });
 }
 
-const loadRenderAddons = once(async () => {
-  const [webgl, image, unicode11] = await Promise.all([
-    import("@xterm/addon-webgl"),
-    import("@xterm/addon-image"),
-    import("@xterm/addon-unicode11"),
-  ]);
-  return {
-    WebglAddon: webgl.WebglAddon,
-    ImageAddon: image.ImageAddon,
-    Unicode11Addon: unicode11.Unicode11Addon,
-  };
-});
+const loadWebgl = loadOnce(() =>
+  import("@xterm/addon-webgl").then((m) => m.WebglAddon),
+);
+const loadImage = loadOnce(() =>
+  import("@xterm/addon-image").then((m) => m.ImageAddon),
+);
+const loadUnicode11 = loadOnce(() =>
+  import("@xterm/addon-unicode11").then((m) => m.Unicode11Addon),
+);
 
+async function loadRenderAddons() {
+  const [WebglAddon, ImageAddon, Unicode11Addon] = await Promise.all([
+    optional("WebGL", loadWebgl),
+    optional("image", loadImage),
+    optional("Unicode 11", loadUnicode11),
+  ]);
+  return { WebglAddon, ImageAddon, Unicode11Addon };
+}
+
+/** Each is `null` when its chunk failed to load; the terminal opens without it. */
 export type RenderAddons = Awaited<ReturnType<typeof loadRenderAddons>>;
 
 /**
@@ -50,10 +60,39 @@ export async function whenTerminalCanOpen(): Promise<RenderAddons> {
   return addons;
 }
 
-export const loadSearchAddon = once(() =>
+export const loadSearchAddon = loadOnce(() =>
   import("@xterm/addon-search").then((m) => m.SearchAddon),
 );
 
-export const loadSerializeAddon = once(() =>
+const searchAddons = new WeakMap<Terminal, Promise<SearchAddon | null>>();
+
+/**
+ * The terminal's search add-on, loaded onto it the first time it is asked for
+ * and kept for the terminal's life (it is disposed with the terminal, like
+ * every add-on loaded onto it). The promise is stable per terminal, so a
+ * component can `use()` it — which is also why a failure is kept rather than
+ * retried: a fresh promise on every render would suspend forever. `null` when
+ * the chunk failed to load; a terminal created after that tries again.
+ */
+export function searchAddonFor(term: Terminal): Promise<SearchAddon | null> {
+  let pending = searchAddons.get(term);
+  if (!pending) {
+    pending = loadSearchAddon().then(
+      (SearchAddonCtor) => {
+        const addon = new SearchAddonCtor();
+        term.loadAddon(addon);
+        return addon;
+      },
+      (err: unknown) => {
+        console.warn("Terminal search failed to load", err);
+        return null;
+      },
+    );
+    searchAddons.set(term, pending);
+  }
+  return pending;
+}
+
+export const loadSerializeAddon = loadOnce(() =>
   import("@xterm/addon-serialize").then((m) => m.SerializeAddon),
 );

@@ -6,13 +6,14 @@
  * active terminal theme so highlights track the user's color scheme.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { use, useEffect, useRef, useState } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { SearchAddon, ISearchOptions } from "@xterm/addon-search";
 import Search from "lucide-react/dist/esm/icons/search";
 import ChevronUp from "lucide-react/dist/esm/icons/chevron-up";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import X from "lucide-react/dist/esm/icons/x";
+import { searchAddonFor } from "../../../terminal/addons";
 import styles from "./TerminalPane.module.css";
 
 type TerminalSearchBarProps = {
@@ -39,7 +40,20 @@ function searchOptions(term: Terminal): ISearchOptions {
   };
 }
 
-export function TerminalSearchBar(props: TerminalSearchBarProps) {
+type TerminalSearchProps = Omit<TerminalSearchBarProps, "searchAddon">;
+
+/**
+ * The search bar, once the terminal's search add-on has loaded — it loads the
+ * first time a pane's search opens. Suspends until then, so render it inside
+ * a `<Suspense>`. Renders nothing if the add-on failed to load.
+ */
+export function TerminalSearch(props: TerminalSearchProps) {
+  const searchAddon = use(searchAddonFor(props.term));
+  if (!searchAddon) return null;
+  return <TerminalSearchBar {...props} searchAddon={searchAddon} />;
+}
+
+function TerminalSearchBar(props: TerminalSearchBarProps) {
   const { term, searchAddon, openNonce, onClose } = props;
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<{ index: number; count: number }>({

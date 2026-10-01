@@ -5,6 +5,10 @@ import rehypeSanitize from "rehype-sanitize";
 import { Link } from "../Link/Link";
 import styles from "./PrCommentCard.module.css";
 
+type CommentMarkdownProps = {
+  source: string;
+};
+
 /**
  * GitHub-flavoured markdown, rendered to React nodes. Inline HTML — the
  * `<details>`, `<img>` and `<sub>` GitHub comments are full of — is parsed
@@ -13,7 +17,7 @@ import styles from "./PrCommentCard.module.css";
  * navigating the window; images are reduced to their alt text since the
  * popover cannot load remote content.
  */
-export default function CommentMarkdown(props: { source: string }) {
+export default function CommentMarkdown(props: CommentMarkdownProps) {
   return (
     <Markdown
       remarkPlugins={[remarkGfm]}

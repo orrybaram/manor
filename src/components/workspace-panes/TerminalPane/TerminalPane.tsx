@@ -13,6 +13,7 @@ import RotateCw from "lucide-react/dist/esm/icons/rotate-cw";
 import X from "lucide-react/dist/esm/icons/x";
 import { useThemeStore } from "../../../store/theme-store";
 import { useTerminalLifecycle } from "../../../hooks/useTerminalLifecycle";
+import { useTerminalSearchAddon } from "../../../hooks/useTerminalSearchAddon";
 import { useAppStore } from "../../../store/app-store";
 import { Row } from "../../ui/Layout/Layout";
 import { ConvertToSubmenu } from "../ConvertToSubmenu";
@@ -56,7 +57,7 @@ export function TerminalPane(props: TerminalPaneProps) {
     });
   }, [paneId, openSearch]);
 
-  const { ptyError, term, searchAddon, write, reset } = useTerminalLifecycle(
+  const { ptyError, term, write, reset } = useTerminalLifecycle(
     containerRef,
     paneId,
     cwd,
@@ -64,6 +65,7 @@ export function TerminalPane(props: TerminalPaneProps) {
     openSearch,
     workspaceKey,
   );
+  const searchAddon = useTerminalSearchAddon(term, searchOpen);
   const [dismissed, setDismissed] = useState(false);
   const splitPaneAt = useAppStore((s) => s.splitPaneAt);
   const closePaneById = useAppStore((s) => s.closePaneById);

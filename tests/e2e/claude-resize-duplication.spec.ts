@@ -120,7 +120,7 @@ async function paneText(window: Page, paneId: string): Promise<string> {
   return window.evaluate((id) => {
     const handle = window.__manorTerminals?.get(id);
     if (!handle) throw new Error(`no terminal registered for ${id}`);
-    return handle.serialize.serialize({ scrollback: 20_000 });
+    return handle.serialize({ scrollback: 20_000 });
   }, paneId);
 }
 

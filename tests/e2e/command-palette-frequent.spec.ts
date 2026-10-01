@@ -70,29 +70,31 @@ test("frequently used commands rise to the top of the palette", async ({
   await expect(frequentGroup(window)).toHaveCount(0);
   await closePalette(window);
 
-  // Use one command twice and another once. Toggle Sidebar is chosen because
+  // Use one command twice and another once. Collapse Sidebar is chosen because
   // running it twice leaves the app exactly as it was.
-  await runCommand(window, "Toggle Sidebar");
+  await runCommand(window, "Collapse Sidebar");
   await runCommand(window, "New Tab");
-  await runCommand(window, "Toggle Sidebar");
+  await runCommand(window, "Collapse Sidebar");
 
   // The pinned group appears first, ranked by use count.
   await openPalette(window);
   await expect(groupHeadings(window).first()).toHaveText(FREQUENT_HEADING);
   await expect.poll(() => frequentLabels(window)).toEqual([
-    "Toggle Sidebar",
+    "Collapse Sidebar",
     "New Tab",
   ]);
   await film.shot(window, "palette-frequent-group-pinned");
 
-  // Typing hands ranking over to search; the pinned group gets out of the way
-  // so a command is never listed twice.
+  // While searching, the pinned group stays on top holding only its matches,
+  // and a match it holds is lifted out of its home group so a command is
+  // never listed twice.
   await paletteInput(window).fill("new");
-  await expect(frequentGroup(window)).toHaveCount(0);
+  await expect(groupHeadings(window).first()).toHaveText(FREQUENT_HEADING);
+  await expect.poll(() => frequentLabels(window)).toEqual(["New Tab"]);
   await expect(
     window.locator("[cmdk-item]", { hasText: "New Tab" }),
   ).toHaveCount(1);
-  await film.shot(window, "palette-search-hides-frequent-group");
+  await film.shot(window, "palette-search-filters-frequent-group");
 
   // Clearing the search brings it straight back.
   await paletteInput(window).fill("");
@@ -111,7 +113,7 @@ test("frequently used commands rise to the top of the palette", async ({
   await openPalette(window);
   await expect(groupHeadings(window).first()).toHaveText(FREQUENT_HEADING);
   await expect.poll(() => frequentLabels(window)).toEqual([
-    "Toggle Sidebar",
+    "Collapse Sidebar",
     "New Tab",
   ]);
   await film.shot(window, "palette-frequent-group-after-reload");

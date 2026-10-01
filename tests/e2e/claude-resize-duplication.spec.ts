@@ -88,6 +88,15 @@ function seedClaudeConfig(tempHome: string): void {
   );
 }
 
+/**
+ * Whether Claude Code has drawn its start screen. Older versions greet with
+ * "Welcome back"; newer ones only draw the "Claude Code v<version>" banner.
+ * Matched against flattened scrollback, which has no spaces.
+ */
+function atClaudePrompt(text: string): boolean {
+  return text.includes("Welcomeback") || /ClaudeCodev\d/.test(text);
+}
+
 /** Wait for `predicate` over the pane's flattened scrollback, or throw. */
 async function untilScrollback(
   window: Page,
@@ -179,17 +188,21 @@ test.describe("claude, resized after its output lands", () => {
     await runInTerminal(window, `${CLAUDE_BIN} --model sonnet`);
 
     // A workspace is a fresh git worktree, so its path cannot be pre-trusted
-    // in the seeded config — Claude asks about it on first launch, and the
-    // default choice is the one we want.
+    // in the seeded config — Claude asks about it on first launch. Newer
+    // versions put the cursor on "No, exit", so step down to "Yes" first.
     await untilScrollback(
       window,
       tempHome,
       paneId,
       "the Claude Code prompt or its trust question",
-      (t) => t.includes("Welcomeback") || /trust/i.test(t),
+      (t) => atClaudePrompt(t) || /trust/i.test(t),
       120_000,
     );
-    if (/trust/i.test(scrollback(tempHome, paneId))) {
+    const trustQuestion = scrollback(tempHome, paneId);
+    if (/trust/i.test(trustQuestion)) {
+      if (/❯\s*No/.test(trustQuestion)) {
+        await window.keyboard.press("ArrowDown");
+      }
       await window.keyboard.press("Enter");
     }
     await untilScrollback(
@@ -197,7 +210,7 @@ test.describe("claude, resized after its output lands", () => {
       tempHome,
       paneId,
       "the Claude Code prompt",
-      (t) => t.includes("Welcomeback"),
+      (t) => atClaudePrompt(t),
       120_000,
     );
     await window.waitForTimeout(2_000);

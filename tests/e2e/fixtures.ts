@@ -37,6 +37,7 @@ export const test = base.extend<{
 
     await use(tempHome);
 
+    await killDaemons(tempHome);
     await removeTempHome(tempHome);
   },
 
@@ -68,6 +69,68 @@ export const test = base.extend<{
 });
 
 export { expect } from "@playwright/test";
+
+/**
+ * Kill every terminal-host daemon that ran out of `tempHome`.
+ *
+ * The daemon is spawned detached — its own process group — so `killApp`'s
+ * group kill never reaches it, and it outlives the test along with a PTY per
+ * session it holds. Leaked across runs they exhaust the machine's PTYs
+ * (kern.tty.ptmx_max, 511 on macOS), after which no shell anywhere can start
+ * and every terminal test fails with "shell never reached a prompt". Each
+ * daemon leads its group, and its pty-subprocesses are forked into it, so one
+ * group kill per pid file takes the lot.
+ *
+ * A test that ends quickly can kill the app just after it spawned a daemon but
+ * before that daemon wrote its pid file. The app opens the daemon's log before
+ * spawning it, so a log with no pid file beside it is a daemon still starting:
+ * wait for its pid file rather than leave it running.
+ */
+async function killDaemons(tempHome: string): Promise<void> {
+  const manorDir = path.join(tempHome, ".manor");
+  const killed = new Set<number>();
+  const deadline = Date.now() + 5_000;
+  for (;;) {
+    const files = fs.existsSync(manorDir)
+      ? fs.readdirSync(manorDir, { recursive: true, encoding: "utf8" })
+      : [];
+    const has = (name: string) =>
+      new Set(
+        files
+          .filter((file) => path.basename(file) === name)
+          .map((file) => path.dirname(file)),
+      );
+    const pidDirs = has("terminal-host.pid");
+    for (const dir of pidDirs) {
+      const pid = readPid(path.join(manorDir, dir, "terminal-host.pid"));
+      if (pid === null || killed.has(pid)) continue;
+      killed.add(pid);
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          /* already gone */
+        }
+      }
+    }
+    const starting = [...has("terminal-host.log")].some(
+      (dir) => !pidDirs.has(dir),
+    );
+    if (!starting || Date.now() > deadline) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+function readPid(file: string): number | null {
+  try {
+    const pid = Number.parseInt(fs.readFileSync(file, "utf8").trim(), 10);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Remove the temp home, allowing for the app still letting go of it.
@@ -130,6 +193,10 @@ export async function launchApp(
     env[key] = value;
   }
   env.PATH = pathWithoutAgents(env.PATH ?? "", tempHome);
+  // Keep the app behind whatever the person is doing: no Dock icon, windows
+  // shown without taking focus (electron/e2e-background.ts). Set
+  // MANOR_E2E_FOREGROUND=1 to watch a run in front instead.
+  if (process.env.MANOR_E2E_FOREGROUND !== "1") env.MANOR_E2E_BACKGROUND = "1";
 
   return _electron.launch({
     args: [

@@ -291,14 +291,14 @@ test.describe("regions", () => {
     await expect.poll(() => selectedTabFocused(window), FOCUS).toBe(true);
 
     // Sidebar hidden: ⌘⇧E brings it back and focuses the row.
-    await window.keyboard.press("Meta+\\");
+    await window.keyboard.press("Meta+Shift+\\");
     await expect(window.getByTestId("home-row")).toHaveCount(0, FOCUS);
     await window.keyboard.press("Meta+Shift+e");
     await expect(window.getByTestId("home-row")).toBeVisible(FOCUS);
     await expect.poll(() => focusedRowPath(window), FOCUS).toBe(wsPath);
 
     // Sidebar hidden: ⌘⇧Y still reaches the tab bar.
-    await window.keyboard.press("Meta+\\");
+    await window.keyboard.press("Meta+Shift+\\");
     await expect(window.getByTestId("home-row")).toHaveCount(0, FOCUS);
     await window.keyboard.press("Meta+Shift+y");
     await expect.poll(() => selectedTabFocused(window), FOCUS).toBe(true);
@@ -309,8 +309,9 @@ test.describe("regions", () => {
 
 test.describe("sidebar", () => {
   /**
-   * ↑ walks from the active row through the project header and the Projects
-   * row to Home; Home / End jump; the sidebar is a single Tab stop.
+   * ↑ walks from the active row through the project header and the Projects,
+   * Search and Tasks rows to Home; Home / End jump; the sidebar is a single
+   * Tab stop.
    */
   test("arrows, Home/End and a single Tab stop", async ({
     app,
@@ -330,6 +331,10 @@ test.describe("sidebar", () => {
     );
     await window.keyboard.press("ArrowUp");
     await expect.poll(() => focusedTestId(window), FOCUS).toBe("projects-row");
+    await window.keyboard.press("ArrowUp");
+    await expect.poll(() => focusedTestId(window), FOCUS).toBe("search-row");
+    await window.keyboard.press("ArrowUp");
+    await expect.poll(() => focusedTestId(window), FOCUS).toBe("tasks-row");
     await window.keyboard.press("ArrowUp");
     await expect.poll(() => focusedTestId(window), FOCUS).toBe("home-row");
 
@@ -351,6 +356,10 @@ test.describe("sidebar", () => {
     await expect.poll(() => focusedTestId(window), FOCUS).toBe("home-row");
 
     // Tab from a row leaves the rows altogether rather than visiting each.
+    await window.keyboard.press("ArrowDown");
+    await expect.poll(() => focusedTestId(window), FOCUS).toBe("tasks-row");
+    await window.keyboard.press("ArrowDown");
+    await expect.poll(() => focusedTestId(window), FOCUS).toBe("search-row");
     await window.keyboard.press("ArrowDown");
     await expect.poll(() => focusedTestId(window), FOCUS).toBe("projects-row");
     await window.keyboard.press("ArrowDown");

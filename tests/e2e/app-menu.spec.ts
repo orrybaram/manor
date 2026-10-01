@@ -73,6 +73,10 @@ function find(nodes: MenuNode[], label: string): MenuNode {
 
 test.describe("application menu", () => {
   test("has Manor's menus with display-only shortcuts", async ({ app }) => {
+    // Until startup installs Manor's menu, Electron's default one stands in.
+    await expect
+      .poll(async () => (await readMenu(app)).some((m) => m.label === "Workspace"))
+      .toBe(true);
     const menu = await readMenu(app);
     // Dev builds carry the branch in the app name ("Manor (my-branch)").
     expect(menu[0].label).toMatch(/^Manor/);
@@ -169,12 +173,12 @@ test.describe("application menu", () => {
       })
       .toBe(true);
 
-    // View › Toggle Sidebar hides the sidebar (Home row goes with it).
+    // View › Hide Sidebar hides the sidebar (Home row goes with it).
     const homeRow = window.locator('[data-testid="home-row"]');
     await expect(homeRow).toBeVisible();
-    await clickMenuItem(app, ["View", "Toggle Sidebar"]);
+    await clickMenuItem(app, ["View", "Hide Sidebar"]);
     await expect(homeRow).toBeHidden();
-    await clickMenuItem(app, ["View", "Toggle Sidebar"]);
+    await clickMenuItem(app, ["View", "Hide Sidebar"]);
     await expect(homeRow).toBeVisible();
 
     // Manor › Settings… opens the settings modal.

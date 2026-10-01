@@ -1,38 +1,9 @@
 import { useMemo } from "react";
-import { useAppStore } from "../store/app-store";
-import { useAgentStore } from "../store/agent-store";
-import { allPaneIds } from "../store/pane-tree";
-import { pickBestPaneStatus, useVisiblePaneIds } from "./useTabAgentStatus";
-import type { AgentStatus } from "../electron.d";
+import type { AgentRollup } from "../store/agent-rollup";
+import { useWorkspacesAgentStatus } from "./useProjectAgentStatus";
 import type { WorkspaceKey } from "../lib/workspace-key";
 
 /** Agent status of the workspace keyed `key` (ADR-191). */
-export function useWorkspaceAgentStatus(
-  key: WorkspaceKey,
-): { status: AgentStatus | null; pulse: boolean } {
-  const agents = useAgentStore((s) => s.agents);
-  const unseenRespondedAgentIds = useAgentStore((s) => s.unseenRespondedAgentIds);
-  const unseenInputAgentIds = useAgentStore((s) => s.unseenInputAgentIds);
-  const layout = useAppStore((s) => s.workspaceLayouts[key] ?? null);
-  const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
-  const visiblePaneIds = useVisiblePaneIds();
-
-  return useMemo(() => {
-    if (!layout) return { status: null, pulse: true };
-
-    const paneIds: string[] = [];
-    for (const panel of Object.values(layout.panels)) {
-      for (const tab of panel.tabs) {
-        paneIds.push(...allPaneIds(tab.rootNode));
-      }
-    }
-
-    return pickBestPaneStatus(paneIds, {
-      paneAgentStatus,
-      agents,
-      unseenRespondedAgentIds,
-      unseenInputAgentIds,
-      visiblePaneIds,
-    });
-  }, [layout, paneAgentStatus, agents, unseenRespondedAgentIds, unseenInputAgentIds, visiblePaneIds]);
+export function useWorkspaceAgentStatus(key: WorkspaceKey): AgentRollup {
+  return useWorkspacesAgentStatus(useMemo(() => [key], [key]));
 }

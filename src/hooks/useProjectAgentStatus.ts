@@ -1,11 +1,11 @@
-import { useMemo } from "react";
-import { useAppStore, type WorkspaceLayout } from "../store/app-store";
-import { useAgentStore } from "../store/agent-store";
+import { useCallback, useMemo } from "react";
+import type { WorkspaceLayout } from "../store/app-store";
+import type { AgentRollup } from "../store/agent-rollup";
+import { useAgentRollup, type PaneSetSelector } from "./useAgentRollup";
 import { allPaneIds } from "../store/pane-tree";
-import { useBestStatusForPanes } from "./useTabAgentStatus";
 import { workspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
-import type { AgentInfo, AgentStatus } from "../electron.d";
+import type { AgentInfo } from "../electron.d";
 
 type WorkspaceLayouts = Readonly<Record<string, WorkspaceLayout | undefined>>;
 
@@ -34,12 +34,12 @@ export function layoutPaneIds(
  * `useProjectAgentStatus`) or one folder's members.
  * Memoize `keys`: a new array each render recomputes.
  */
-export function useWorkspacesAgentStatus(
-  keys: readonly string[],
-): { status: AgentStatus | null; pulse: boolean } {
-  const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
-  const paneIds = useMemo(() => layoutPaneIds(keys, workspaceLayouts), [keys, workspaceLayouts]);
-  return useBestStatusForPanes(paneIds);
+export function useWorkspacesAgentStatus(keys: readonly string[]): AgentRollup {
+  const selectPanes = useCallback<PaneSetSelector>(
+    ({ app }) => layoutPaneIds(keys, app.workspaceLayouts),
+    [keys],
+  );
+  return useAgentRollup(selectPanes);
 }
 
 /** The workspace keys of `workspaces`, all on `hostId`, memoized. */
@@ -53,9 +53,7 @@ export function useWorkspaceKeys(
   );
 }
 
-export function useProjectAgentStatus(
-  project: ProjectInfo,
-): { status: AgentStatus | null; pulse: boolean } {
+export function useProjectAgentStatus(project: ProjectInfo): AgentRollup {
   return useWorkspacesAgentStatus(useWorkspaceKeys(project.workspaces, project.hostId));
 }
 
@@ -108,14 +106,10 @@ function agentWorkspaceKey(hostId: string, workspacePath: string): string | unde
  * Aggregate agent status across every host section of a linked group
  * (ADR-192), for the dot on its collapsed header.
  */
-export function useGroupAgentStatus(
-  members: readonly GroupMember[],
-): { status: AgentStatus | null; pulse: boolean } {
-  const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
-  const agents = useAgentStore((s) => s.agents);
-  const paneIds = useMemo(
-    () => groupAgentPaneIds(members, workspaceLayouts, agents),
-    [members, workspaceLayouts, agents],
+export function useGroupAgentStatus(members: readonly GroupMember[]): AgentRollup {
+  const selectPanes = useCallback<PaneSetSelector>(
+    ({ app, agents }) => groupAgentPaneIds(members, app.workspaceLayouts, agents.agents),
+    [members],
   );
-  return useBestStatusForPanes(paneIds);
+  return useAgentRollup(selectPanes);
 }

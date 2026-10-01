@@ -1,8 +1,8 @@
 import { useCallback } from "react";
 import type { AgentInfo } from "../electron.d";
 import { useAgentStore } from "../store/agent-store";
-import { useAppStore } from "../store/app-store";
-import { isUnseenStatus, useVisiblePaneIds } from "./useTabAgentStatus";
+import { useAppStore, selectVisiblePaneIds } from "../store/app-store";
+import { isUnseenStatus } from "../store/agent-rollup";
 
 /**
  * Returns the pulse predicate for agent dots in the agents lists — the sidebar
@@ -16,7 +16,7 @@ export function useAgentPulse(): (agent: AgentInfo) => boolean {
   const unseenRespondedAgentIds = useAgentStore((s) => s.unseenRespondedAgentIds);
   const unseenInputAgentIds = useAgentStore((s) => s.unseenInputAgentIds);
   const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
-  const visiblePaneIds = useVisiblePaneIds();
+  const visiblePaneIds = useAppStore(selectVisiblePaneIds);
 
   return useCallback(
     (agent: AgentInfo) => {

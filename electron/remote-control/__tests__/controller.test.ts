@@ -17,7 +17,14 @@ import {
 } from "../controller";
 import type { Capability, RemoteDeviceStore } from "../devices";
 import type { PushManager } from "../push";
+import type { RelayConnector } from "../relay/connector";
+import type { RelayIdentityStore } from "../relay/identity";
+import { parseFragment } from "../../../src/bridge/web-pairing";
+import { base64urlEncode } from "../../../src/lib/relay-crypto";
 import type { TailnetInfo, TunnelStatus } from "../tunnel";
+
+const ROOM = "AbCdEfGhIjKlMnOpQr_-01";
+const KEY = base64urlEncode(new Uint8Array(32).fill(9));
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -39,6 +46,7 @@ function fakes(options: { gateLoad?: boolean } = {}) {
     get listenerCount() {
       return serverState.listeners;
     },
+    closeDevice: vi.fn((id: string) => order.push(`close:${id}`)),
     start: vi.fn(async () => {
       serverState.running = true;
       serverState.port = 51234;
@@ -86,28 +94,104 @@ function fakes(options: { gateLoad?: boolean } = {}) {
     }),
   };
 
-  const paired: Array<{ id: string; label: string; capability: Capability }> =
-    [];
-  const deviceStore = {
-    pair: vi.fn((label: string, capability: Capability) => {
-      const device = {
-        id: `dev-${paired.length + 1}`,
-        label,
-        capability,
-        createdAt: 0,
-        lastSeenAt: null,
+  const order: string[] = [];
+  server.stop.mockImplementation(async () => {
+    order.push("server");
+    serverState.running = false;
+    serverState.port = 0;
+  });
+
+  let relayStatus: { state: string; url: string | null; error: null } = {
+    state: "stopped",
+    url: null,
+    error: null,
+  };
+  const relayListeners: Array<(s: unknown) => void> = [];
+  const relay = {
+    get status() {
+      return relayStatus;
+    },
+    origin: "https://relay.example.test",
+    onStatus: (cb: (s: unknown) => void) => {
+      relayListeners.push(cb);
+      return () => {};
+    },
+    start: vi.fn(() => {
+      relayStatus = {
+        state: "running",
+        url: "https://relay.example.test",
+        error: null,
       };
-      paired.push(device);
-      return { device, rawToken: "raw-token-value" };
+      for (const cb of relayListeners) cb(relayStatus);
     }),
+    stop: vi.fn(() => {
+      order.push("relay");
+      relayStatus = { state: "stopped", url: null, error: null };
+      for (const cb of relayListeners) cb(relayStatus);
+    }),
+  };
+  const identityState = { roomId: ROOM };
+  const identity = {
+    describe: () => ({
+      roomId: identityState.roomId,
+      x25519Pub: KEY,
+    }),
+    reset: vi.fn(() => {
+      order.push("identity");
+      return { roomId: "new", x25519Pub: "new" };
+    }),
+  };
+
+  const paired: Array<{
+    id: string;
+    label: string;
+    capability: Capability;
+    via?: string;
+    relayRoom?: string | null;
+  }> = [];
+  const deviceStore = {
+    pair: vi.fn(
+      (
+        label: string,
+        capability: Capability,
+        via = "tailscale",
+        relayRoom: string | null = null,
+      ) => {
+        const device = {
+          id: `dev-${paired.length + 1}`,
+          label,
+          capability,
+          via,
+          relayRoom,
+          createdAt: 0,
+          lastSeenAt: null,
+        };
+        paired.push(device);
+        return { device, rawToken: "raw-token-value" };
+      },
+    ),
     revoke: vi.fn((id: string) => {
+      order.push(`revoke:${id}`);
       const i = paired.findIndex((d) => d.id === id);
       if (i >= 0) paired.splice(i, 1);
     }),
     list: () => [...paired],
+    idsVia: (via: string) =>
+      paired.filter((d) => d.via === via).map((d) => d.id),
+    idsInOtherRelayRooms: (roomId: string) =>
+      paired
+        .filter(
+          (d) => d.via === "relay" && d.relayRoom && d.relayRoom !== roomId,
+        )
+        .map((d) => d.id),
   };
 
-  const runtime = { server, tunnel } as unknown as RemoteControlRuntime;
+  const runtime = {
+    server,
+    tunnel,
+    relay: relay as unknown as RelayConnector,
+    relayIdentity: identity as unknown as RelayIdentityStore,
+  } as unknown as RemoteControlRuntime;
   // With `gateLoad`, the load hangs until the test calls `releaseLoad()`, so a
   // test can act while it is in flight.
   const gate = deferred<void>();
@@ -126,6 +210,7 @@ function fakes(options: { gateLoad?: boolean } = {}) {
     which,
     () => true,
     push as unknown as PushManager,
+    "1.2.3",
   );
   return {
     controller,
@@ -136,6 +221,10 @@ function fakes(options: { gateLoad?: boolean } = {}) {
     which,
     push,
     releaseLoad: () => gate.resolve(),
+    relay,
+    identity,
+    identityState,
+    order,
   };
 }
 
@@ -324,6 +413,16 @@ describe("RemoteControlController", () => {
     expect(f.controller.status().enabled).toBe(false);
   });
 
+  it("revoke closes the revoked device's connections", async () => {
+    // A connection needs the listener or the relay, so the runtime.
+    await f.controller.setEnabled(true);
+    f.controller.pair("a", "full");
+    f.controller.pair("b", "full");
+    f.controller.revoke("dev-1");
+    expect(f.server.closeDevice).toHaveBeenCalledTimes(1);
+    expect(f.server.closeDevice).toHaveBeenCalledWith("dev-1");
+  });
+
   it("surfaces an unavailable keychain rather than hiding it", () => {
     const c = new RemoteControlController(
       async () => {
@@ -334,6 +433,180 @@ describe("RemoteControlController", () => {
       () => false,
     );
     expect(c.status().encryptionAvailable).toBe(false);
+  });
+
+  describe("relay (ADR-206)", () => {
+    it("is never started by enabling", async () => {
+      await f.controller.setEnabled(true);
+      expect(f.relay.start).not.toHaveBeenCalled();
+      expect(f.controller.status().relay.state).toBe("stopped");
+    });
+
+    it("requires remote control to be enabled", async () => {
+      await expect(f.controller.startRelay()).rejects.toThrow(
+        /Enable remote control/,
+      );
+      expect(f.relay.start).not.toHaveBeenCalled();
+    });
+
+    it("pushes relay status changes", async () => {
+      await f.controller.setEnabled(true);
+      const seen: string[] = [];
+      f.controller.onChange((s) => seen.push(s.relay.state));
+      await f.controller.startRelay();
+      expect(seen).toContain("running");
+    });
+
+    it("disabling stops the relay before the listener", async () => {
+      await f.controller.setEnabled(true);
+      await f.controller.startRelay();
+      f.order.length = 0;
+      await f.controller.setEnabled(false);
+      expect(f.order).toEqual(["relay", "server"]);
+      expect(f.controller.status().relay.state).toBe("stopped");
+    });
+
+    it("a Start relay racing a disable cannot outlive it", async () => {
+      await f.controller.setEnabled(true);
+      // Hold the disable inside `tunnel.stop`, where the listener is still up.
+      let release!: () => void;
+      f.tunnel.stop.mockImplementationOnce(
+        () => new Promise<void>((resolve) => (release = resolve)),
+      );
+      const disabling = f.controller.setEnabled(false);
+      const starting = f.controller.startRelay();
+      await Promise.resolve();
+      release();
+      await disabling;
+      await expect(starting).rejects.toThrow(/Enable remote control/);
+      expect(f.relay.start).not.toHaveBeenCalled();
+      expect(f.controller.status().relay.state).toBe("stopped");
+    });
+
+    it("refuses to start a tunnel while a disable is in flight", async () => {
+      await f.controller.setEnabled(true);
+      let release!: () => void;
+      f.tunnel.stop.mockImplementationOnce(
+        () => new Promise<void>((resolve) => (release = resolve)),
+      );
+      const disabling = f.controller.setEnabled(false);
+      // Let the disable reach `tunnel.stop`.
+      await new Promise((r) => setTimeout(r, 0));
+      await expect(f.controller.startTunnel()).rejects.toThrow(
+        /Enable remote control/,
+      );
+      release();
+      await disabling;
+      expect(f.tunnel.start).not.toHaveBeenCalled();
+    });
+
+    it("shutdown stops the relay before the listener", async () => {
+      await f.controller.setEnabled(true);
+      await f.controller.startRelay();
+      f.order.length = 0;
+      await f.controller.shutdown();
+      expect(f.order).toEqual(["relay", "server"]);
+    });
+
+    it("refuses a relay pairing below full", async () => {
+      await f.controller.setEnabled(true);
+      expect(() => f.controller.pair("p", "read", "relay")).toThrow(
+        /Everything/,
+      );
+      expect(() => f.controller.pair("p", "send", "relay")).toThrow(
+        /Everything/,
+      );
+      expect(f.deviceStore.pair).not.toHaveBeenCalled();
+    });
+
+    it("builds a relay link the browser's parser accepts", async () => {
+      await f.controller.setEnabled(true);
+      const result = f.controller.pair("browser", "full", "relay");
+      expect(result.pairingUrl).toBe(
+        `https://relay.example.test/app/1.2.3/#relay=${ROOM}.${KEY}&t=raw-token-value`,
+      );
+      expect(f.deviceStore.pair).toHaveBeenCalledWith(
+        "browser",
+        "full",
+        "relay",
+        ROOM,
+      );
+      const hash = result.pairingUrl!.slice(result.pairingUrl!.indexOf("#"));
+      expect(parseFragment(hash)).toEqual({
+        kind: "relay",
+        relay: { roomId: ROOM, serverKey: KEY, token: "raw-token-value" },
+      });
+    });
+
+    it("reports how many viewers came through the relay", async () => {
+      expect(f.controller.status().relayViewers).toBe(0);
+      await f.controller.setEnabled(true);
+      expect(f.controller.status().relayViewers).toBe(0);
+      (f.relay as unknown as { channelCount: number }).channelCount = 2;
+      expect(f.controller.status().relayViewers).toBe(2);
+    });
+
+    it("reset revokes only relay devices and stops the relay", async () => {
+      await f.controller.setEnabled(true);
+      f.controller.pair("ts", "full");
+      f.controller.pair("rl", "full", "relay");
+      await f.controller.startRelay();
+      const status = await f.controller.resetRelayAddress();
+      expect(f.relay.stop).toHaveBeenCalled();
+      expect(f.identity.reset).toHaveBeenCalled();
+      expect(status.relay.state).toBe("stopped");
+      expect(status.devices.map((d) => d.label)).toEqual(["ts"]);
+    });
+
+    it("reset closes relay devices while the relay is still up, then stops it", async () => {
+      await f.controller.setEnabled(true);
+      f.controller.pair("ts", "full");
+      f.controller.pair("rl1", "full", "relay");
+      f.controller.pair("rl2", "full", "relay");
+      await f.controller.startRelay();
+      f.order.length = 0;
+      await f.controller.resetRelayAddress();
+      // 4401 has to travel through the live relay; after `stop` it cannot.
+      expect(f.order).toEqual([
+        "revoke:dev-2",
+        "close:dev-2",
+        "revoke:dev-3",
+        "close:dev-3",
+        "relay",
+        "identity",
+      ]);
+    });
+
+    describe("an identity that changed underneath the devices", () => {
+      it("revokes relay devices paired to the old room when the relay starts", async () => {
+        await f.controller.setEnabled(true);
+        f.controller.pair("ts", "full");
+        f.controller.pair("rl", "full", "relay");
+        // The identity file could not be read; the store made a new room.
+        f.identityState.roomId = "another-room-entirely";
+        const status = await f.controller.startRelay();
+        expect(status.devices.map((d) => d.label)).toEqual(["ts"]);
+        expect(f.server.closeDevice).toHaveBeenCalledWith("dev-2");
+        expect(status.relayNotice).toMatch(/couldn't be read.*1 device/);
+      });
+
+      it("says nothing when the room is the one the devices were paired to", async () => {
+        await f.controller.setEnabled(true);
+        f.controller.pair("rl", "full", "relay");
+        const status = await f.controller.startRelay();
+        expect(status.devices).toHaveLength(1);
+        expect(status.relayNotice).toBeNull();
+      });
+
+      it("a reset clears the notice", async () => {
+        await f.controller.setEnabled(true);
+        f.controller.pair("rl", "full", "relay");
+        f.identityState.roomId = "another-room-entirely";
+        await f.controller.startRelay();
+        const status = await f.controller.resetRelayAddress();
+        expect(status.relayNotice).toBeNull();
+      });
+    });
   });
 });
 
@@ -356,6 +629,9 @@ describe("RemoteControlController before the runtime loads", () => {
       tailnet: null,
       encryptionAvailable: true,
       listeners: 0,
+      relay: { state: "stopped", url: null, error: null },
+      relayViewers: 0,
+      relayNotice: null,
     });
     expect(f.loadRuntime).not.toHaveBeenCalled();
   });
@@ -382,15 +658,32 @@ describe("RemoteControlController before the runtime loads", () => {
     expect(seen).toContain("running");
   });
 
-  it("does not load to disable, stop a tunnel, or shut down", async () => {
+  it("does not load to disable, stop a tunnel or the relay, or shut down", async () => {
     const status = await f.controller.setEnabled(false);
     await f.controller.stopTunnel();
+    await f.controller.stopRelay();
     f.controller.killTunnelNow();
     await f.controller.shutdown();
     expect(status.enabled).toBe(false);
     expect(f.loadRuntime).not.toHaveBeenCalled();
     expect(f.tunnel.stop).not.toHaveBeenCalled();
     expect(f.server.stop).not.toHaveBeenCalled();
+    expect(f.relay.stop).not.toHaveBeenCalled();
+  });
+
+  it("refuses a relay pairing until the runtime is loaded", () => {
+    expect(() => f.controller.pair("p", "full", "relay")).toThrow(
+      /Enable remote control/,
+    );
+    expect(f.deviceStore.pair).not.toHaveBeenCalled();
+    expect(f.loadRuntime).not.toHaveBeenCalled();
+  });
+
+  it("revoking with the runtime never loaded closes nothing and loads nothing", () => {
+    f.controller.pair("a", "full");
+    f.controller.revoke("dev-1");
+    expect(f.server.closeDevice).not.toHaveBeenCalled();
+    expect(f.loadRuntime).not.toHaveBeenCalled();
   });
 
   it("detects tunnel tools without loading", async () => {

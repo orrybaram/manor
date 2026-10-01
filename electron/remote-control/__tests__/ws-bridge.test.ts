@@ -38,6 +38,8 @@ import type { HostDeps } from "../../ipc/types";
 const READ_TOKEN = "read-token";
 const SEND_TOKEN = "send-token";
 const FULL_TOKEN = "full-token";
+const OTHER_TOKEN = "other-token";
+const RELAY_TOKEN = "relay-token";
 
 const reader: AuthenticatedDevice = {
   id: "dev-read",
@@ -55,11 +57,27 @@ const everything: AuthenticatedDevice = {
   capability: "full",
 };
 
+const otherFull: AuthenticatedDevice = {
+  id: "dev-other",
+  label: "other browser",
+  capability: "full",
+};
+
+/** Paired through the relay (ADR-206): `everything` is a Tailscale pairing. */
+const relayFull: AuthenticatedDevice = {
+  id: "dev-relay",
+  label: "relay browser",
+  capability: "full",
+  via: "relay",
+};
+
 const devices = {
   verify: (raw: unknown) => {
+    if (raw === RELAY_TOKEN) return relayFull;
     if (raw === READ_TOKEN) return reader;
     if (raw === SEND_TOKEN) return sender;
     if (raw === FULL_TOKEN) return everything;
+    if (raw === OTHER_TOKEN) return otherFull;
     return null;
   },
 };
@@ -150,7 +168,9 @@ describe("WsBridgeServer", () => {
           // The session's real grid, as the daemon holds it: what a follower
           // is told to render, and what the desktop is already rendering.
           getSnapshot: async (paneId: string) =>
-            sessionSize ? { screenAnsi: "", ...sessionSize, sessionId: paneId } : null,
+            sessionSize
+              ? { screenAnsi: "", ...sessionSize, sessionId: paneId }
+              : null,
         },
       },
       preferencesManager: {
@@ -308,6 +328,13 @@ describe("WsBridgeServer", () => {
       const client = await greet(FULL_TOKEN);
       const hello = await client.next((f) => f.type === "hello");
       expect(hello).toMatchObject({ type: "hello", ok: true, v: 1 });
+    });
+
+    it("admits a relay-paired device over the listener too", async () => {
+      // Loopback and the tailnet are narrower than the relay, not wider.
+      const client = await greet(RELAY_TOKEN);
+      const hello = await client.next((f) => f.type === "hello");
+      expect(hello).toMatchObject({ type: "hello", ok: true });
     });
 
     it("refuses to do anything before the hello lands", async () => {
@@ -941,7 +968,9 @@ describe("WsBridgeServer", () => {
     ): Promise<Record<string, unknown>[]> {
       await vi.waitFor(() => {
         if (ownerEvents(client).length < count) {
-          throw new Error(`only ${ownerEvents(client).length} of ${count} so far`);
+          throw new Error(
+            `only ${ownerEvents(client).length} of ${count} so far`,
+          );
         }
       });
       return ownerEvents(client);
@@ -1033,11 +1062,7 @@ describe("WsBridgeServer", () => {
       // `second` is now the owner (most recently attached); `first` is not.
       resized.length = 0;
 
-      const result = await invoke(first, "r1", "pty", "resize", [
-        PANE,
-        90,
-        20,
-      ]);
+      const result = await invoke(first, "r1", "pty", "resize", [PANE, 90, 20]);
       expect(result).toMatchObject({ ok: true });
       expect(resized).toEqual([]);
 
@@ -1061,6 +1086,22 @@ describe("WsBridgeServer", () => {
       client.socket.close();
       await client.closed;
       await vi.waitFor(() => expect(server.listenerCount).toBe(0));
+    });
+  });
+
+  describe("closeDevice", () => {
+    it("closes only that device's connections, with 4401", async () => {
+      const a1 = await greet(FULL_TOKEN);
+      const a2 = await greet(FULL_TOKEN);
+      const b = await greet(OTHER_TOKEN);
+      for (const c of [a1, a2, b]) await c.next((f) => f.type === "hello");
+      expect(bridge.size).toBe(3);
+
+      bridge.closeDevice("dev-full");
+      expect(await a1.closed).toBe(4401);
+      expect(await a2.closed).toBe(4401);
+      expect(bridge.size).toBe(1);
+      expect(b.socket.readyState).toBe(WebSocket.OPEN);
     });
   });
 

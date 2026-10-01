@@ -2,6 +2,7 @@ import { useState } from "react";
 import { PhoneTopBar } from "./PhoneTopBar";
 import { SidebarDrawer } from "./SidebarDrawer";
 import { PaneSwitcherSheet } from "./PaneSwitcherSheet";
+import { EnableNotifications } from "./EnableNotifications";
 
 type PhoneChromeProps = {
   onShowAgents: () => void;
@@ -37,6 +38,7 @@ export function PhoneChrome(props: PhoneChromeProps) {
         onOpenPaneSwitcher={() => setPaneSwitcherOpen(true)}
         onOpenPalette={onOpenPalette}
       />
+      <EnableNotifications />
       <SidebarDrawer
         open={drawerOpen}
         onOpenChange={setDrawerOpen}

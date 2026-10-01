@@ -538,6 +538,18 @@ export interface TunnelStatus {
 }
 
 /**
+ * The Manor relay's connection (ADR-206). Mirrors `RelayStatus` in
+ * `electron/remote-control/relay/connector.ts`. `error` is set in `failed`,
+ * and also while `starting` when a previous attempt to reach the relay
+ * failed and the connector is retrying.
+ */
+export interface RelayStatus {
+  state: TunnelState;
+  url: string | null;
+  error: string | null;
+}
+
+/**
  * How much of the machine a paired device may reach (ADR-178 D3): read the
  * allowlisted read routes, also act on the three acting routes, or reach
  * everything the desktop app can. Mirrors `Capability` in
@@ -550,6 +562,8 @@ export interface RemoteDeviceInfo {
   label: string;
   /** How far this device reaches. `read` unless explicitly granted more. */
   capability: RemoteCapability;
+  /** Which road the device was paired through. */
+  via: "tailscale" | "relay";
   createdAt: number;
   lastSeenAt: number | null;
   /** Whether the device has a live Web Push subscription. */
@@ -567,12 +581,18 @@ export interface RemoteControlStatus {
   port: number | null;
   devices: RemoteDeviceInfo[];
   tunnel: TunnelStatus;
+  relay: RelayStatus;
   /** Whether the tailscale CLI was found, on PATH or in the app bundle. */
   installed: boolean;
   /** Other devices on the tailnet while a tunnel runs; null otherwise. */
   tailnet: TailnetInfo | null;
   encryptionAvailable: boolean;
+  /** Live connections of every kind, relay viewers included. */
   listeners: number;
+  /** Of `listeners`, how many came through the relay. */
+  relayViewers: number;
+  /** A relay notice that is not a connection state (identity replaced). */
+  relayNotice: string | null;
 }
 
 export interface RemotePairResult {

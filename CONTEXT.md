@@ -76,6 +76,18 @@ How much a paired device may do, chosen at pairing and fixed per token: `read`
 (watch), `send` (reply, stop, launch), or `full` (everything the desktop app can).
 _Avoid_: permission, role, access level, canSend (the old boolean)
 
+**Relay**:
+The hosted blind pipe (`relay/`, a Cloudflare Worker) that a desktop and a phone both dial out to, so a device can reach the machine with nothing installed. It forwards Noise ciphertext between a **Room**'s host and its **Channels** and cannot read any of it; it also serves the web app, one build per version.
+_Avoid_: server, proxy, tunnel (a tunnel exposes the loopback listener; the relay feeds the bridge directly)
+
+**Room**:
+One desktop's place on the **Relay**, addressed by the hash of its relay public key and held by whoever holds the key. At most one host and a few **Channels**.
+_Avoid_: session (that is a terminal session), channel
+
+**Channel**:
+One viewer's encrypted stream inside a **Room** — its own Noise session, ending in the bridge's `hello`.
+_Avoid_: connection, socket (and not the `bridge:*` IPC channel name)
+
 ### Where things run
 
 **Renderer**:
@@ -168,10 +180,11 @@ _Avoid_: mirror, read-only viewer (a follower may still type)
 
 - A session has exactly one **Winsize owner** and any number of **Followers**; the remote client is always a **Follower**.
 - A **Host** is one **Manor server** plus one **Daemon**; the **Manor server** owns the layout, every **Renderer** holds a replica and sends commands.
-- Layout *structure* (panels, tabs, pane trees) is shared across all renderers of a host; *viewport* (which panel, tab and pane each one is looking at) is per renderer.
+- Layout _structure_ (panels, tabs, pane trees) is shared across all renderers of a host; _viewport_ (which panel, tab and pane each one is looking at) is per renderer.
 
 - The **Desktop app** issues tokens; a **Paired device** holds exactly one.
-- The **Web app** and the **Remote client** are both served to a **Paired device**, over the same tunnel.
+- The **Web app** and the **Remote client** are both served to a **Paired device**, by the desktop's listener (over Tailscale) or, for a relay **Paired device**, by the **Relay** origin.
+- A **Room** has one host and many **Channels**; each **Channel** is a **Transport** to the bridge, so a relay **Paired device** is always `full`.
 - A **Remote client** reaches a narrow **Remote surface**; a **Web app** reaches the full one.
 - A **Paired device**'s **Capability** decides its **Remote surface**: `read` and `send` are filtered by the allowlist; `full` is the unfiltered table.
 
@@ -191,4 +204,4 @@ _Avoid_: mirror, read-only viewer (a follower may still type)
   the live one is **Agent status**.
 
 - "mobile/web experience" was used to mean a new client; resolved: it is the **Web app**, one responsive codebase, not a second client.
-- "remote" is overloaded across ADRs: ADR-160 *remote workspace backends* means a workspace living on another machine; ADR-161 *remote control* means a **Paired device** reaching this one. Prefer **paired device** / **remote surface** for the latter.
+- "remote" is overloaded across ADRs: ADR-160 _remote workspace backends_ means a workspace living on another machine; ADR-161 _remote control_ means a **Paired device** reaching this one. Prefer **paired device** / **remote surface** for the latter.

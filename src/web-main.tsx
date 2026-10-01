@@ -1,9 +1,21 @@
-import { onBridgeOutcome, webToken } from "./bridge/install-web";
+import {
+  getReachability,
+  onBridgeOutcome,
+  retryBridgeNow,
+  subscribeReachability,
+  webToken,
+} from "./bridge/install-web";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { createQueryClient, AppRoot } from "./app-root";
 import { terminalFontsReady } from "./lib/terminal-font";
-import { NoTokenScreen, ForbiddenScreen } from "./web/screens";
+import {
+  NoTokenScreen,
+  ForbiddenScreen,
+  KeyMismatchScreen,
+  ReachabilityOverlay,
+} from "./web/screens";
+import { listenForOpenAgent } from "./web/open-agent";
 
 /**
  * The web app's entry (ADR-178 D1): the desktop renderer, served to a
@@ -49,7 +61,11 @@ let settled = false;
 
 onBridgeOutcome((outcome) => {
   settled = true;
-  show(outcome === "unauthorized" ? <NoTokenScreen /> : <ForbiddenScreen />);
+  if (outcome === "key-mismatch") {
+    show(<KeyMismatchScreen onRetry={() => location.reload()} />);
+  } else {
+    show(outcome === "unauthorized" ? <NoTokenScreen /> : <ForbiddenScreen />);
+  }
 });
 
 // Start loading the terminal fonts now, as `src/main.tsx` does, but render
@@ -57,5 +73,21 @@ onBridgeOutcome((outcome) => {
 void terminalFontsReady();
 
 if (!settled) {
-  show(token ? <AppRoot queryClient={queryClient} /> : <NoTokenScreen />);
+  show(
+    token ? (
+      <>
+        <AppRoot queryClient={queryClient} />
+        {/* Relay only: "not reachable" over the app while the host is away. */}
+        <ReachabilityOverlay
+          subscribe={subscribeReachability}
+          getSnapshot={getReachability}
+          onRetry={retryBridgeNow}
+        />
+      </>
+    ) : (
+      <NoTokenScreen />
+    ),
+  );
+  // A tapped push notification asks this tab to open its agent (`web/sw.ts`).
+  if (token) listenForOpenAgent();
 }

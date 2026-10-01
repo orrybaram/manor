@@ -24,6 +24,10 @@ describe("ptyCreate and pending commands", () => {
   /** What `createOrAttach` reports: a snapshot means the session existed. */
   let snapshot: { screenAnsi: string; seq: number } | null;
   let adopted: Set<string>;
+  /** The host `createOrAttachWith` reports the session on. */
+  let sessionHost: string;
+  /** Panes some layout still holds. */
+  let laidOut: Set<string>;
   let deps: HostDeps;
 
   beforeEach(() => {
@@ -32,10 +36,16 @@ describe("ptyCreate and pending commands", () => {
     afterReady = [];
     snapshot = null;
     adopted = new Set();
+    sessionHost = "local";
+    laidOut = new Set([PANE]);
     deps = {
       backend: {
         pty: {
-          createOrAttachWith: async () => ({ session: {}, snapshot, hostId: "local" }),
+          createOrAttachWith: async () => ({
+            session: {},
+            snapshot,
+            hostId: sessionHost,
+          }),
           write: (paneId: string, data: string) => {
             writes.push([paneId, data]);
           },
@@ -44,7 +54,11 @@ describe("ptyCreate and pending commands", () => {
           },
         },
       },
-      layoutStore: { pendingCommands },
+      layoutStore: {
+        pendingCommands,
+        locate: ({ paneId }: { paneId: string }) =>
+          laidOut.has(paneId) ? { workspacePath: "/repo", entry: {} } : null,
+      },
       prewarmManager: {
         claimAdopted: (paneId: string) => adopted.delete(paneId),
       },
@@ -142,5 +156,78 @@ describe("ptyCreate and pending commands", () => {
     // The caller has its session; a command that did not land is not a reason
     // to fail the pane it was meant for.
     expect(result.ok).toBe(true);
+  });
+
+  describe("a remote host that drops before the shell is ready (ADR-178 §6)", () => {
+    function failWrites(): void {
+      (
+        deps.backend.pty as unknown as { writeAfterReady: () => Promise<void> }
+      ).writeAfterReady = async () => {
+        throw new Error("host went away");
+      };
+    }
+    function healWrites(): void {
+      (
+        deps.backend.pty as unknown as {
+          writeAfterReady: (p: string, d: string) => Promise<void>;
+        }
+      ).writeAfterReady = async (paneId, data) => {
+        afterReady.push([paneId, data]);
+      };
+    }
+
+    beforeEach(() => {
+      sessionHost = "studio";
+    });
+
+    it("puts the command back and types it on the next create, even a reattach", async () => {
+      pendingCommands.set(PANE, "claude", "agent-startup");
+      failWrites();
+
+      await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
+      expect(pendingCommands.size).toBe(1);
+
+      // The host is back and the session survived on it: a reattach.
+      healWrites();
+      snapshot = { screenAnsi: "$ ", seq: 3 };
+      await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
+
+      expect(afterReady).toEqual([[PANE, "claude\r"]]);
+      expect(pendingCommands.size).toBe(0);
+    });
+
+    it("never puts it back over a command queued since", async () => {
+      pendingCommands.set(PANE, "old");
+      (
+        deps.backend.pty as unknown as { writeAfterReady: () => Promise<void> }
+      ).writeAfterReady = async () => {
+        pendingCommands.set(PANE, "new");
+        throw new Error("host went away");
+      };
+
+      await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
+
+      expect(pendingCommands.take(PANE)?.text).toBe("new");
+    });
+
+    it("drops it for a pane no layout holds any more", async () => {
+      pendingCommands.set(PANE, "echo hello");
+      laidOut.clear();
+      failWrites();
+
+      await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
+
+      expect(pendingCommands.size).toBe(0);
+    });
+
+    it("does not put back a local pane's command", async () => {
+      sessionHost = "local";
+      pendingCommands.set(PANE, "echo hello");
+      failWrites();
+
+      await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
+
+      expect(pendingCommands.size).toBe(0);
+    });
   });
 });

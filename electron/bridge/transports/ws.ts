@@ -41,12 +41,14 @@ import { randomUUID } from "node:crypto";
 
 import { WebSocket, WebSocketServer } from "ws";
 
+import type { FrameSocket } from "./frame-socket";
 import type { AuthenticatedDevice } from "../../remote-control/server";
 import type { BridgeServer } from "../server";
 import {
   BRIDGE_PROTOCOL_VERSION,
   CLOSE_UNAUTHORIZED,
   type BridgeConnection,
+  type HelloReplyFrame,
 } from "../types";
 
 /** The one path that upgrades. Anything else never reaches this file. */
@@ -68,7 +70,7 @@ export type BridgeAuthenticator = (token: unknown) => BridgeAuthResult;
 
 /** A live socket, and the connection it became once it said hello. */
 interface Socket {
-  socket: WebSocket;
+  socket: FrameSocket;
   /**
    * This socket's id, and so this browser's *renderer* id (ADR-179 D3): it
    * goes back in the hello reply and becomes the `BridgeConnection`'s id.
@@ -132,8 +134,13 @@ export class WsBridgeServer {
   /**
    * @param server The host surface to feed — shared with the IPC transport,
    *   and disposed by whoever built it, not by this.
+   * @param options.appVersion The desktop's version, sent in every hello
+   *   reply so a relay-served page can load the matching build (ADR-206 D4).
    */
-  constructor(private readonly server: BridgeServer) {}
+  constructor(
+    private readonly server: BridgeServer,
+    private readonly options: { appVersion?: string } = {},
+  ) {}
 
   /** Live bridge sockets. The UI's "a browser is attached" signal. */
   get size(): number {
@@ -152,7 +159,7 @@ export class WsBridgeServer {
     authenticate: BridgeAuthenticator,
   ): void {
     this.wss.handleUpgrade(req, socket, head, (ws) => {
-      this.open(ws, authenticate);
+      this.attach(wsFrameSocket(ws), authenticate);
     });
   }
 
@@ -162,12 +169,37 @@ export class WsBridgeServer {
       this.drop(entry);
       try {
         entry.socket.close(1001, "server stopping");
-        entry.socket.terminate();
+        entry.socket.terminate?.();
       } catch {
         // Already gone; nothing to do.
       }
     }
     this.sockets.clear();
+  }
+
+  /**
+   * Close every connection a device holds, with 4401 — the code a browser
+   * reads as "re-pair". Covers `ws` sockets and relay channels alike, since
+   * both are `FrameSocket`s here. Called when a device is revoked: auth is
+   * checked once, at hello, so without this a revoked device keeps its
+   * session until it drops.
+   *
+   * The connection is dead from this call on, not from when the peer
+   * acknowledges the close: the entry is dropped (so `onMessage` ignores
+   * anything that still arrives on it) and the socket is then terminated.
+   * A client that ignored the close frame would otherwise keep running
+   * invokes until `ws` gave up waiting for it, 30 s later.
+   */
+  closeDevice(deviceId: string): void {
+    for (const entry of [...this.sockets]) {
+      if (entry.connection?.deviceId !== deviceId) continue;
+      this.close(entry, CLOSE_UNAUTHORIZED, "device revoked");
+      try {
+        entry.socket.terminate?.();
+      } catch {
+        // Already gone.
+      }
+    }
   }
 
   /** The process is exiting; there is no restart. */
@@ -176,7 +208,11 @@ export class WsBridgeServer {
     this.wss.close();
   }
 
-  private open(socket: WebSocket, authenticate: BridgeAuthenticator): void {
+  /**
+   * Run the hello gate over any `FrameSocket` — a `ws` socket via
+   * `handleUpgrade`, or a relay channel.
+   */
+  attach(socket: FrameSocket, authenticate: BridgeAuthenticator): void {
     const entry: Socket = {
       socket,
       id: `bridge-${randomUUID()}`,
@@ -189,14 +225,13 @@ export class WsBridgeServer {
       // Silent for five seconds with no token is indistinguishable from a
       // scanner that opened the socket to see what answers.
       this.close(entry, CLOSE_UNAUTHORIZED, "no hello");
-    }, HELLO_TIMEOUT_MS);
+    }, socket.helloTimeoutMs ?? HELLO_TIMEOUT_MS);
     entry.helloTimer.unref?.();
 
-    socket.on("message", (raw) => {
-      void this.onMessage(entry, raw.toString(), authenticate);
+    socket.onMessage((text) => {
+      void this.onMessage(entry, text, authenticate);
     });
-    socket.on("close", () => this.drop(entry));
-    socket.on("error", () => this.drop(entry));
+    socket.onClose(() => this.drop(entry));
   }
 
   private async onMessage(
@@ -204,6 +239,9 @@ export class WsBridgeServer {
     text: string,
     authenticate: BridgeAuthenticator,
   ): Promise<void> {
+    // Closed by this side (revoked, refused, server stopping): whatever the
+    // peer still sends before its socket is gone is not a caller's.
+    if (!this.sockets.has(entry)) return;
     let frame: Record<string, unknown>;
     try {
       const parsed: unknown = JSON.parse(text);
@@ -259,12 +297,16 @@ export class WsBridgeServer {
       send: (outgoing) => this.send(entry, outgoing),
     };
     this.server.accept(entry.connection);
-    this.send(entry, {
+    const reply: HelloReplyFrame = {
       type: "hello",
       ok: true,
       v: BRIDGE_PROTOCOL_VERSION,
       rendererId: entry.id,
-    });
+      ...(this.options.appVersion !== undefined && {
+        appVersion: this.options.appVersion,
+      }),
+    };
+    this.send(entry, reply);
   }
 
   private idIsHeld(id: string, exclude: Socket): boolean {
@@ -275,7 +317,7 @@ export class WsBridgeServer {
   }
 
   private send(entry: Socket, frame: unknown): void {
-    if (entry.socket.readyState !== WebSocket.OPEN) return;
+    if (!entry.socket.open) return;
     try {
       entry.socket.send(this.json.of(frame));
     } catch {
@@ -303,4 +345,21 @@ export class WsBridgeServer {
       this.server.drop(entry.connection.id);
     }
   }
+}
+
+/** Adapt a `ws` socket to the bridge's `FrameSocket`. */
+function wsFrameSocket(ws: WebSocket): FrameSocket {
+  return {
+    send: (text) => ws.send(text),
+    close: (code, reason) => ws.close(code, reason),
+    onMessage: (cb) => ws.on("message", (raw) => cb(raw.toString())),
+    onClose: (cb) => {
+      ws.on("close", cb);
+      ws.on("error", cb);
+    },
+    get open() {
+      return ws.readyState === WebSocket.OPEN;
+    },
+    terminate: () => ws.terminate(),
+  };
 }

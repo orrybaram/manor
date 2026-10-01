@@ -82,3 +82,13 @@ button.iconButton {
   padding: 0;
   flex-shrink: 0;
 }
+
+.notifyStrip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-secondary, inherit);
+  border-bottom: 1px solid var(--border, rgba(128, 128, 128, 0.2));
+}

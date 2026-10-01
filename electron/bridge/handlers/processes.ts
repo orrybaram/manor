@@ -18,7 +18,12 @@ import {
  */
 export function processesList(ctx: HandlerCtx): Promise<ProcessesSnapshot> {
   const { backend, agentHookServer, webviewServer, portScanner } = ctx.deps;
-  return listProcesses({ backend, agentHookServer, webviewServer, portScanner });
+  return listProcesses({
+    backend,
+    agentHookServer,
+    webviewServer,
+    portScanner,
+  });
 }
 
 export async function processesKillSession(
@@ -28,7 +33,8 @@ export async function processesKillSession(
   assertString(sessionId, "sessionId");
   const { backend, agentManager, statsStore } = ctx.deps;
   const agent = agentManager.getAgentByPaneId(sessionId);
-  if (agent) for (const counter of killCounters(agent)) statsStore.record(counter);
+  if (agent)
+    for (const counter of killCounters(agent)) statsStore.record(counter);
   try {
     await backend.pty.kill(sessionId);
   } catch {

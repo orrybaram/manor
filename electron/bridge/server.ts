@@ -159,6 +159,9 @@ export class BridgeServer {
    * a newer client sending a frame this version does not have should
    * degrade, not disconnect.
    *
+   * A connection this server has not accepted, or has since dropped, gets
+   * nothing run and `null` back.
+   *
    * Returns the answer rather than sending it, for the reason `dispatch`
    * does.
    */
@@ -166,6 +169,12 @@ export class BridgeServer {
     connection: BridgeConnection,
     raw: unknown,
   ): Promise<ResultFrame | null> {
+    // A connection that was dropped (revoked, closed) is nobody's: a frame
+    // that raced the drop must not run. Checked by identity, not id — a
+    // reconnecting client may already hold the same id on a new connection.
+    if (this.connections.get(connection.id)?.connection !== connection) {
+      return null;
+    }
     const frame =
       typeof raw === "object" && raw !== null
         ? (raw as Record<string, unknown>)
@@ -182,7 +191,15 @@ export class BridgeServer {
             code: "bad-frame",
           };
         }
-        return this.dispatch(connection, invoke);
+        const result = await this.dispatch(connection, invoke);
+        // Dropped while the handler ran: anything it attached for this
+        // connection (a pane viewer, by `pty.create`) was attached after
+        // `drop` released it, so release it again — unless a new connection
+        // has taken the id meanwhile.
+        if (!this.connections.has(connection.id)) {
+          releaseViewer(connection.id);
+        }
+        return result;
       }
       case "subscribe":
       case "unsubscribe": {
@@ -227,9 +244,7 @@ export class BridgeServer {
     // That is exactly the line an owner reading this log after a lost phone
     // needs to see.
     const refusedLocalOnly =
-      !!handler &&
-      connection.callerClass === "device" &&
-      LOCAL_ONLY.has(key);
+      !!handler && connection.callerClass === "device" && LOCAL_ONLY.has(key);
     if (refusedLocalOnly) {
       this.auditInvoke(connection, key, args, "rejected", 403);
     }
@@ -251,7 +266,11 @@ export class BridgeServer {
     // does not get to say which caller it is (ADR-179 D3).
     const ctx: HandlerCtx = {
       deps: this.deps,
-      caller: { id: connection.id, callerClass: connection.callerClass },
+      caller: {
+        id: connection.id,
+        callerClass: connection.callerClass,
+        deviceId: connection.deviceId,
+      },
     };
     try {
       const result = await call(ctx, ...args);
@@ -282,6 +301,22 @@ export class BridgeServer {
     const keys = registered.subscriptions.get(name);
     if (keys) keys.add(key ?? ALL_KEYS);
     else registered.subscriptions.set(name, new Set([key ?? ALL_KEYS]));
+  }
+
+  /**
+   * Whether a paired device (not a desktop window) is subscribed to
+   * `ns.event` — someone is watching through a browser, which a hidden
+   * desktop window says nothing about (the `DiffWatcher` asks before it
+   * pauses).
+   */
+  hasDeviceSubscriber(ns: string, event: string): boolean {
+    const name = `${ns}.${event}`;
+    for (const { connection, subscriptions } of this.connections.values()) {
+      if (connection.callerClass === "device" && subscriptions.has(name)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Stop. An unsubscribe for something never subscribed to is not an error. */

@@ -31,6 +31,9 @@ export const LOCAL_ONLY_METHODS = [
   "remoteControl.revoke",
   "remoteControl.startTunnel",
   "remoteControl.stopTunnel",
+  "remoteControl.startRelay",
+  "remoteControl.stopRelay",
+  "remoteControl.resetRelayAddress",
   "linear.connect",
 ] as const;
 

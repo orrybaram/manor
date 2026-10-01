@@ -28,13 +28,17 @@ export interface RendererAgentUpdate {
   namePinned?: boolean;
 }
 
-function assertRendererAgentUpdate(updates: unknown): asserts updates is RendererAgentUpdate {
+function assertRendererAgentUpdate(
+  updates: unknown,
+): asserts updates is RendererAgentUpdate {
   if (!updates || typeof updates !== "object") {
     throw new Error("agents:update: updates must be an object");
   }
   for (const key of Object.keys(updates as object)) {
     if (!ALLOWED_RENDERER_TASK_FIELDS.has(key)) {
-      throw new Error(`agents:update: field "${key}" is not writable from renderer`);
+      throw new Error(
+        `agents:update: field "${key}" is not writable from renderer`,
+      );
     }
   }
   const u = updates as Record<string, unknown>;
@@ -187,7 +191,8 @@ export function agentsUpdate(
 
 export function agentsDelete(ctx: HandlerCtx, agentId: string): boolean {
   assertString(agentId, "agentId");
-  const { unseenRespondedAgents, unseenInputAgents, preferencesManager } = ctx.deps;
+  const { unseenRespondedAgents, unseenInputAgents, preferencesManager } =
+    ctx.deps;
   unseenRespondedAgents.delete(agentId);
   unseenInputAgents.delete(agentId);
   const result = ctx.deps.agentManager.deleteAgent(agentId);
@@ -207,7 +212,8 @@ export function agentsDelete(ctx: HandlerCtx, agentId: string): boolean {
  */
 export function agentsMarkSeen(ctx: HandlerCtx, agentId: string): void {
   assertString(agentId, "agentId");
-  const { unseenRespondedAgents, unseenInputAgents, preferencesManager } = ctx.deps;
+  const { unseenRespondedAgents, unseenInputAgents, preferencesManager } =
+    ctx.deps;
   unseenRespondedAgents.delete(agentId);
   unseenInputAgents.delete(agentId);
   markAgentNotificationsRead(agentId);

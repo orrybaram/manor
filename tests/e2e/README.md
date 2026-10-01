@@ -19,6 +19,10 @@ pnpm e2e:remote
 # The web app, with a build first / without one
 pnpm test:e2e:web
 pnpm e2e:web
+
+# The relay (needs Node >= 22 on PATH), with both builds first / without
+pnpm test:e2e:relay
+pnpm e2e:relay
 ```
 
 `pnpm test:e2e` runs `pnpm build` first, which produces `dist-electron/main.js`
@@ -296,6 +300,34 @@ would) is defined four times — once as the real helper,
 `helpers/window.ts`, which `bridge.spec.ts` imports, and independently again
 in `app-menu.spec.ts`, `keyboard-navigation.spec.ts` and `detach.spec.ts`. It
 should be one helper; nothing here does that yet.
+
+## The relay (ADR-206)
+
+`relay.spec.ts` reaches the app the way a relay device does: a browser opens
+the pairing link at the relay's origin, and the relay pipes Noise ciphertext
+between it and the desktop. The relay is the real Worker under `wrangler dev`
+(`helpers/relay.ts`) on a free port, with a persist directory of its own —
+never `relay/.wrangler/state` — whose local R2 holds this checkout's
+`pnpm build:web:relay` output and a copy of it rewritten to claim another
+version (for the version redirect). The app gets `MANOR_RELAY_URL` through the
+`appLaunch` fixture, and is launched from the repo root (`asPackage`) so that
+`app.getVersion()` is Manor's version rather than Electron's: relay links and
+the hello reply both name it.
+
+- **Node >= 22.** wrangler refuses anything older, so the fixture spawns it
+  as a child process rather than importing it, and fails up front, by name,
+  when the `node` on PATH is too old. `pnpm test:e2e:relay` also runs
+  `pnpm build:web:relay`; `pnpm e2e:relay` expects that output to exist.
+- **Blindness.** The relay runs with `--var RELAY_DEV_PAYLOAD_LOG:1`, and the
+  room prints every payload it forwards (`relay/src/room.ts`). That only
+  happens with the var set *and* a request addressed to loopback, so a deploy
+  cannot have it on by accident. The spec's first test is the control: raw,
+  unencrypted sockets push a plaintext canary through and the log must show
+  it. The main test then asserts that its markers and the device token appear
+  in no forwarded payload — as text, hex, or base64 — nor anywhere else in
+  wrangler's output.
+- Uploading a build is one wrangler process per file, so it happens once per
+  run (a worker fixture) and each test boots wrangler on a fresh copy.
 
 ## Long unattended runs
 

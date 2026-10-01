@@ -1,1 +1,4 @@
+packages:
+  - relay
+
 onlyBuiltDependencies: '["esbuild"]'

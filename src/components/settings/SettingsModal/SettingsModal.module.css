@@ -1114,3 +1114,15 @@ button.keybindingActionBtn:hover:not(:disabled) {
 .fieldHintInline {
   margin-top: 0;
 }
+
+/* The relay cannot be reached and the connector is retrying (ADR-206): not
+   an error to act on yet, but not something to hide behind "Connecting…". */
+.remoteRetrying {
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--yellow, #d29922) 10%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--yellow, #d29922) 60%, transparent);
+  border-radius: 6px;
+}

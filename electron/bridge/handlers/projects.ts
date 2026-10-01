@@ -349,7 +349,11 @@ export function projectsSetWorkspaceFolder(
   workspacePath: string,
   folderId: string | null,
 ): void {
-  ctx.deps.projectManager.setWorkspaceFolder(projectId, workspacePath, folderId);
+  ctx.deps.projectManager.setWorkspaceFolder(
+    projectId,
+    workspacePath,
+    folderId,
+  );
 }
 
 /** `orderedKeys` entries may be workspace paths or folder ids (ADR-167). */

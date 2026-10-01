@@ -1,0 +1,18 @@
+{
+  "name": "manor-relay",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --persist-to .wrangler/state",
+    "test": "vitest run",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/workers-types": "^5.20261001.1",
+    "typescript": "~5.8.3",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.124.0"
+  }
+}

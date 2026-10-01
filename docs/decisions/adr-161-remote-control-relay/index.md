@@ -20,7 +20,9 @@ database:
 # ADR-161: Remote control surface — check on agents from a phone
 
 _Amended by [ADR-178](../adr-178-web-app-and-single-bridge/index.md): capability
-tiers, the `/ws` bridge, and the web app._
+tiers, the `/ws` bridge, and the web app; by
+[ADR-206](../adr-206-relay-transport/index.md): the Manor relay as a second way
+to reach the machine._
 
 ## Context
 

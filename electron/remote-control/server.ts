@@ -44,7 +44,7 @@ import type {
   RouteContext,
 } from "../routes/types";
 import { remoteRouteTable, routeKey } from "./allowlist";
-import type { Capability } from "./devices";
+import type { Capability, PairedVia } from "./devices";
 import { listenerRoutes } from "./listener-routes";
 import { hashText, RemoteAuditLog } from "./audit";
 import type { PushManager } from "./push";
@@ -68,6 +68,11 @@ export interface AuthenticatedDevice {
   id: string;
   label: string;
   capability: Capability;
+  /**
+   * Which road the device was paired through. Absent reads as `tailscale`:
+   * the relay's hello gate admits only devices that say `relay`.
+   */
+  via?: PairedVia;
 }
 
 export interface DeviceVerifier {
@@ -245,6 +250,16 @@ export class RemoteControlServer {
   }
 
   /**
+   * Close every live connection a device holds: its SSE streams and its
+   * bridge sockets (listener `/ws` and relay channels alike). Auth happens
+   * once per connection, so revoking a device only stops new ones.
+   */
+  closeDevice(deviceId: string): void {
+    this.hub.closeDevice(deviceId);
+    this.bridge?.closeDevice(deviceId);
+  }
+
+  /**
    * Fan a status transition out to connected phones. Called from the same
    * signal that already drives the dock badge and OS notifications — this is a
    * second sink, not a second detector.
@@ -282,6 +297,27 @@ export class RemoteControlServer {
   }
 
   /**
+   * The relay's hello gate (ADR-206 D5): the same verify, backoff and tier
+   * decision as a local `/ws` socket, with every relay viewer under one
+   * `relay` source. Safe for the reason below — a valid token is checked
+   * before the backoff, so a guesser on the relay cannot lock the owner out.
+   *
+   * **Only a device paired through the relay gets in this way.** A token
+   * minted for a Tailscale pairing was handed out on the understanding that
+   * the tailnet is a first factor in front of it; admitting it here would
+   * take that factor away the moment the relay started. Such a token is
+   * treated exactly as an unknown one — 4401, and a failure for the backoff —
+   * so the relay is not an oracle for which Tailscale tokens are real.
+   *
+   * The converse is allowed: a relay-paired token works on the listener's own
+   * `/ws` (loopback, or through the tailnet). Both of those are strictly
+   * narrower than "anyone who can reach the relay", so nothing is widened.
+   */
+  authenticateRelayHello(token: unknown): BridgeAuthResult {
+    return this.authenticateBridge("relay", token, "relay");
+  }
+
+  /**
    * Verify a `hello`, in the order the HTTP pipeline verifies a request:
    * token first, backoff only if the token failed. The reasoning is the same
    * one `rate-limit.ts` spells out — every caller through a tunnel shares the
@@ -295,8 +331,13 @@ export class RemoteControlServer {
   private authenticateBridge(
     source: string,
     token: unknown,
+    road: PairedVia | null = null,
   ): BridgeAuthResult {
-    const device = token === undefined ? null : this.devices.verify(token);
+    const verified = token === undefined ? null : this.devices.verify(token);
+    const device =
+      verified && (road === null || (verified.via ?? "tailscale") === road)
+        ? verified
+        : null;
     if (!device) {
       if (this.limiter.retryAfterMs(source) > 0) {
         return { ok: false, code: CLOSE_UNAUTHORIZED };

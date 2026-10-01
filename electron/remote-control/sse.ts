@@ -91,6 +91,19 @@ export class SseHub {
     this.stopHeartbeat();
   }
 
+  /** End every stream a device holds — it was revoked. */
+  closeDevice(deviceId: string): void {
+    for (const client of [...this.clients]) {
+      if (client.deviceId !== deviceId) continue;
+      try {
+        client.res.end();
+      } catch {
+        // Already gone.
+      }
+      this.drop(client);
+    }
+  }
+
   /** Close this device's oldest streams until it is within the cap. */
   private trim(deviceId: string): void {
     const mine = [...this.clients].filter((c) => c.deviceId === deviceId);

@@ -62,6 +62,24 @@ describe("bridge events", () => {
     server.dispose();
   });
 
+  it("says whether a paired device, not a window, is subscribed", () => {
+    const desk = makeConnection("desk", "local");
+    const phone = makeConnection("phone", "device");
+    server.accept(desk.connection);
+    server.accept(phone.connection);
+    server.subscribe(desk.connection, "diffs", "changed");
+    expect(server.hasDeviceSubscriber("diffs", "changed")).toBe(false);
+
+    server.subscribe(phone.connection, "diffs", "changed");
+    expect(server.hasDeviceSubscriber("diffs", "changed")).toBe(true);
+    expect(server.hasDeviceSubscriber("diffs", "fingerprintsChange")).toBe(
+      false,
+    );
+
+    server.drop("phone");
+    expect(server.hasDeviceSubscriber("diffs", "changed")).toBe(false);
+  });
+
   it("delivers a broadcast to every connection that subscribed", () => {
     const a = makeConnection("a");
     const b = makeConnection("b");

@@ -30,16 +30,11 @@ export function Onboarding(props: OnboardingProps) {
           <h1 className={styles.heading}>Projects</h1>
           <span className={styles.headerMeta}>No projects yet</span>
         </div>
-        {isWebApp() ? (
-          // No filesystem picker and no clone onto the host from a browser tab
-          // (ADR-178): removed rather than left to open nothing, with one line
-          // saying where projects come from instead.
-          <div className={shared.subtitle}>
-            Projects are added from the desktop app.
-          </div>
-        ) : (
-          <div className={styles.addCard} data-testid="add-project-card">
-            <span className={styles.addCardTitle}>Add a project</span>
+        <div className={styles.addCard} data-testid="add-project-card">
+          <span className={styles.addCardTitle}>Add a project</span>
+          {/* No filesystem picker in a browser tab (ADR-178): "Open a folder"
+              is desktop-only, but cloning onto the host works from here. */}
+          {!isWebApp() && (
             <Button
               variant="ghost"
               className={`${shared.action} ${styles.row}`}
@@ -51,17 +46,23 @@ export function Onboarding(props: OnboardingProps) {
               </span>
               <span className={shared.actionLabel}>Open a folder</span>
             </Button>
-            <Button
-              variant="ghost"
-              className={`${shared.action} ${styles.row}`}
-              onClick={onClone}
-              data-testid="add-remote-project-button"
-            >
-              <span className={shared.actionIcon}>
-                <FolderGit2 size={16} />
-              </span>
-              <span className={shared.actionLabel}>Clone from a repo</span>
-            </Button>
+          )}
+          <Button
+            variant="ghost"
+            className={`${shared.action} ${styles.row}`}
+            onClick={onClone}
+            data-testid="add-remote-project-button"
+          >
+            <span className={shared.actionIcon}>
+              <FolderGit2 size={16} />
+            </span>
+            <span className={shared.actionLabel}>Clone from a repo</span>
+          </Button>
+        </div>
+        {isWebApp() && (
+          <div className={shared.subtitle} data-testid="onboarding-web-note">
+            Clone a repository onto this machine here. Opening an existing
+            folder needs the desktop app.
           </div>
         )}
       </div>

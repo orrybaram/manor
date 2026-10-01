@@ -691,7 +691,10 @@ describe("window.manorHost", () => {
     ) => () => void;
     subscribe("projects", "changed", null, vi.fn());
     expect(electronMock.sent).toEqual([
-      [BRIDGE_SUBSCRIBE, { kind: "subscribe", ns: "projects", event: "changed" }],
+      [
+        BRIDGE_SUBSCRIBE,
+        { kind: "subscribe", ns: "projects", event: "changed" },
+      ],
     ]);
   });
 });

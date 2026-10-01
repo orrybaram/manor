@@ -121,7 +121,9 @@
 
 /* ── Remote-control exposure indicator (ADR-161) ── */
 
-.remoteBadge {
+/* Doubled selectors so these win over the Button `link` variant's colour,
+   padding and underline without an !important. */
+.remoteBadge.remoteBadge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -131,13 +133,21 @@
   cursor: pointer;
   background: var(--green, #2ea043);
   color: #fff;
+  text-decoration: none;
   font-size: 9px;
   font-family: var(--font-mono);
   letter-spacing: 0.05em;
 }
 
-.remoteBadgeFailed {
+.remoteBadgeFailed.remoteBadgeFailed {
   background: var(--danger, #c74e39);
+}
+
+/* The relay is unreachable and the connector is retrying: not exposed yet,
+   not given up either. */
+.remoteBadgeWarning.remoteBadgeWarning {
+  background: var(--yellow, #d29922);
+  color: #000;
 }
 
 /* ── Usage stats segment (ADR-168) ── */

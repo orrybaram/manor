@@ -23,6 +23,12 @@
 #   APPLE_TEAM_ID
 #     Your Apple Developer Team ID.
 #     Find at: https://developer.apple.com/account -> Membership Details
+#
+#   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID  (optional)
+#     Publish the per-version web build to the relay's R2 bucket and deploy the
+#     relay Worker (ADR-206 D4). Skipped with a warning when absent, so forks
+#     still release. The token needs Workers Scripts:Edit and Workers R2
+#     Storage:Edit.
 
 name: Release
 
@@ -97,6 +103,26 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      # Wrangler needs Node >=22; the build above stays on 20. Runs once,
+      # on this single macOS job.
+      - name: Setup Node.js for wrangler
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Publish web build and deploy relay
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::warning::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set; skipping relay web build upload and Worker deploy"
+            exit 0
+          fi
+          pnpm run build:web:relay
+          node scripts/upload-web-relay.mjs --remote
+          pnpm run relay:deploy
 
       - name: Publish release
         run: |

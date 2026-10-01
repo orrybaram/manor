@@ -1,6 +1,9 @@
 import type { BrowserWindow } from "electron";
 import { assertString } from "../../ipc-validate";
-import { sendNotificationsUpdate, showPrNotification } from "../../notifications";
+import {
+  sendNotificationsUpdate,
+  showPrNotification,
+} from "../../notifications";
 import type { PrNotifyEventKind } from "../../notifications";
 import type { PrComment } from "../../../src/lib/pr-info";
 import type { NotificationRecord } from "../../notification-store";

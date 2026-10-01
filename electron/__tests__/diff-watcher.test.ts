@@ -115,9 +115,9 @@ const modified = (path: string, indexHash = "i1") =>
   `1 .M N... 100644 100644 100644 h0 ${indexHash} ${path}`;
 
 /** Start watching `/app` over `state` and run the first tick. */
-async function watch(state: RepoState) {
+async function watch(state: RepoState, deviceWatching?: () => boolean) {
   const { git, exec, shell, shellExec } = fakeGit(state);
-  const watcher = new DiffWatcher(hostsWith(git, shell));
+  const watcher = new DiffWatcher(hostsWith(git, shell), deviceWatching);
   const { window, send, hide, show } = fakeWindow();
   watcher.start([diffWs("/app")], window);
   await vi.advanceTimersByTimeAsync(0);
@@ -313,6 +313,29 @@ describe("DiffWatcher", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(callsOf(exec, "rev-parse").length).toBeGreaterThan(1);
     expect(fingerprintsSent(send)).toBe(1);
+    watcher.stop();
+  });
+
+  it("keeps polling while the window is hidden if a paired browser is watching", async () => {
+    let browserWatching = true;
+    const state = repo({ shortstat: " 1 file changed, 1 insertion(+)" });
+    const { watcher, exec, send, hide } = await watch(
+      state,
+      () => browserWatching,
+    );
+
+    hide();
+    send.mockClear();
+    state.head = "h2";
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(fingerprintsSent(send)).toBe(1);
+
+    // The browser goes away: the hidden window pauses it again.
+    browserWatching = false;
+    const calls = exec.mock.calls.length;
+    state.head = "h3";
+    await vi.advanceTimersByTimeAsync(15000);
+    expect(exec.mock.calls.length).toBe(calls);
     watcher.stop();
   });
 

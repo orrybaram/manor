@@ -36,7 +36,7 @@
 import type { Route } from "../routes/types";
 import { routeKey } from "./allowlist";
 import { canSend, type Capability } from "./devices";
-import type { PushManager } from "./push";
+import { asPushSubscription, type PushManager } from "./push";
 
 /** What the listener's own handlers need that `RouteContext` does not carry. */
 export interface ListenerRouteContext {
@@ -79,7 +79,7 @@ export function listenerRoutes({
           json(503, { error: "Push is not available" });
           return;
         }
-        const subscription = asSubscription(await readBody());
+        const subscription = asPushSubscription(await readBody());
         if (!subscription) {
           json(400, { error: "Expected a push subscription" });
           return;
@@ -134,21 +134,3 @@ export const LISTENER_OWN_ROUTES: readonly string[] = listenerRoutes({
   device: { id: "", label: "", capability: "read" },
   push: null,
 }).map(routeKey);
-
-/**
- * Validate a subscription body. `endpoint` must be https — a push endpoint is a
- * capability URL, and we will not store one that would be sent in the clear.
- */
-function asSubscription(
-  body: Record<string, unknown>,
-): { endpoint: string; keys: { p256dh: string; auth: string } } | null {
-  const endpoint = body.endpoint;
-  const keys = body.keys;
-  if (typeof endpoint !== "string" || !endpoint.startsWith("https://"))
-    return null;
-  if (typeof keys !== "object" || keys === null) return null;
-  const { p256dh, auth } = keys as Record<string, unknown>;
-  if (typeof p256dh !== "string" || p256dh.length === 0) return null;
-  if (typeof auth !== "string" || auth.length === 0) return null;
-  return { endpoint, keys: { p256dh, auth } };
-}

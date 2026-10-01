@@ -68,4 +68,24 @@ describe("PendingCommands", () => {
     expect(pending.take("pane-1")).toBeNull();
     expect(pending.size).toBe(0);
   });
+
+  it("requeues a taken command, marked, but never over a newer one", () => {
+    const pending = new PendingCommands();
+    pending.set("pane-1", "claude", "agent-startup", { submit: true });
+    const taken = pending.take("pane-1")!;
+    expect(pending.isRequeued("pane-1")).toBe(false);
+
+    pending.requeue("pane-1", taken);
+    expect(pending.isRequeued("pane-1")).toBe(true);
+    expect(pending.take("pane-1")).toEqual({
+      text: "claude",
+      kind: "agent-startup",
+      submit: true,
+      requeued: true,
+    });
+
+    pending.set("pane-1", "newer");
+    pending.requeue("pane-1", taken);
+    expect(pending.take("pane-1")?.text).toBe("newer");
+  });
 });

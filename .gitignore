@@ -17,6 +17,7 @@ dist-ssr
 
 # Electron build artifacts
 dist-electron/
+dist-relay-web/
 release/
 
 # Editor directories and files

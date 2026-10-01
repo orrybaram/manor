@@ -195,6 +195,57 @@ describe("RemoteDeviceStore", () => {
       ]);
     });
 
+    it("marks a record with no `via` as tailscale and writes it back", () => {
+      writeLegacy([legacy("sender", true)]);
+      expect(store().list()[0].via).toBe("tailscale");
+      expect(fs.readFileSync(file, "utf8")).toContain('"via":"tailscale"');
+    });
+
+    it("records via on pair and finds devices by it", () => {
+      const s = store();
+      s.pair("a", "full", "relay");
+      const b = s.pair("b", "full");
+      expect(s.list().map((d) => d.via)).toEqual(["relay", "tailscale"]);
+      expect(s.idsVia("relay")).toHaveLength(1);
+      expect(s.idsVia("tailscale")).toEqual([b.device.id]);
+      // Survives a reload.
+      expect(
+        store()
+          .list()
+          .map((d) => d.via),
+      ).toEqual(["relay", "tailscale"]);
+    });
+
+    it("remembers which relay room a relay device's link points at", () => {
+      const s = store();
+      const old = s.pair("old", "full", "relay", "room-a");
+      s.pair("current", "full", "relay", "room-b");
+      s.pair("ts", "full", "tailscale", "room-a");
+      // Survives a reload, and never leaks through list().
+      const reloaded = store();
+      expect(reloaded.idsInOtherRelayRooms("room-b")).toEqual([old.device.id]);
+      expect(reloaded.idsInOtherRelayRooms("room-a")).toHaveLength(1);
+      expect(JSON.stringify(reloaded.list())).not.toContain("room-");
+    });
+
+    it("leaves relay rows with no recorded room alone", () => {
+      writeLegacy([
+        { ...legacy("sender", true), capability: "full", via: "relay" },
+      ]);
+      expect(store().idsInOtherRelayRooms("anything")).toEqual([]);
+    });
+
+    it("carries fields it does not know through a rewrite", () => {
+      // What a newer release might have written; this one must not strip it.
+      writeLegacy([{ ...legacy("sender", true), futureField: { x: 1 } }]);
+      const s = store();
+      s.pair("another", "read");
+      const onDisk = fs.readFileSync(file, "utf8");
+      expect(onDisk).toContain('"futureField":{"x":1}');
+      expect(onDisk).not.toContain("canSend");
+      expect(JSON.stringify(s.list())).not.toContain("futureField");
+    });
+
     it("never migrates anything up to full", () => {
       writeLegacy([legacy("sender", true)]);
       expect(store().list()[0].capability).not.toBe("full");

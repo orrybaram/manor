@@ -19,12 +19,15 @@ import { Link } from "../ui/Link/Link";
 import { relativeShort } from "../../utils/relative-time";
 import {
   PairingResultDialog,
+  RelayConfirmDialog,
+  ResetRelayDialog,
   TunnelConfirmDialog,
 } from "./RemoteControlDialogs";
 import type {
   RemoteCapability,
   RemoteDeviceInfo,
   RemotePairResult,
+  RelayStatus,
   TailnetInfo,
   TunnelStatus,
 } from "../../electron.d";
@@ -69,6 +72,31 @@ const CAPABILITY_BADGE: Record<RemoteCapability, string | null> = {
   full: "everything",
 };
 
+type Via = "relay" | "tailscale";
+
+/**
+ * Tailscale first, and the default: it is the road with a first factor in
+ * front of the token, and the one that offers the narrow tiers. The relay is
+ * always `full` (it carries only the whole-app pipe), so choosing it is
+ * choosing Everything — which ADR-178 D3 says is never the default.
+ */
+const VIA_OPTIONS: { value: Via; label: string }[] = [
+  { value: "tailscale", label: "Tailscale" },
+  { value: "relay", label: "Manor relay" },
+];
+
+/** Shown in place of the tier picker when the relay is chosen. */
+const RELAY_PAIR_WARNING =
+  "A relay device always gets Everything: it can do anything the desktop " +
+  "app can, including removing workspaces, from anywhere — there is no " +
+  "tailnet in front of its link. The relay carries only the whole app, so " +
+  "there is no narrower tier to pick.";
+
+const VIA_LABEL: Record<Via, string> = {
+  relay: "relay",
+  tailscale: "Tailscale",
+};
+
 /**
  * The remote-control settings surface (ADR-161 ticket 6).
  *
@@ -89,6 +117,9 @@ export function RemoteControlPage() {
   const setEnabled = useRemoteControlStore((s) => s.setEnabled);
   const startTunnel = useRemoteControlStore((s) => s.startTunnel);
   const stopTunnel = useRemoteControlStore((s) => s.stopTunnel);
+  const startRelay = useRemoteControlStore((s) => s.startRelay);
+  const stopRelay = useRemoteControlStore((s) => s.stopRelay);
+  const resetRelayAddress = useRemoteControlStore((s) => s.resetRelayAddress);
   const revoke = useRemoteControlStore((s) => s.revoke);
   const refreshDetection = useRemoteControlStore((s) => s.refreshDetection);
   const pair = useRemoteControlStore((s) => s.pair);
@@ -100,6 +131,10 @@ export function RemoteControlPage() {
   const [capability, setCapability] = useState<RemoteCapability>("read");
   const [pairing, setPairing] = useState<RemotePairResult | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [relayConfirmOpen, setRelayConfirmOpen] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  // Same rule as the tier, for the same reason: the relay means `full`.
+  const [via, setVia] = useState<Via>("tailscale");
 
   useMountEffect(() => {
     void refreshDetection();
@@ -123,13 +158,19 @@ export function RemoteControlPage() {
       : error;
 
   const handlePair = useCallback(async () => {
-    const result = await pair(label.trim(), capability);
+    // The relay carries only the full pipe, so it never pairs a narrower tier.
+    const result = await pair(
+      label.trim(),
+      via === "relay" ? "full" : capability,
+      via,
+    );
     if (result) {
       setPairing(result);
       setLabel("");
       setCapability("read");
+      setVia("tailscale");
     }
-  }, [label, capability, pair]);
+  }, [label, capability, via, pair]);
 
   return (
     <Stack className={styles.pageContent}>
@@ -172,9 +213,24 @@ export function RemoteControlPage() {
 
       {status.enabled && (
         <>
+          <RelayCard
+            relay={status.relay}
+            viewers={status.relayViewers}
+            notice={status.relayNotice}
+            locked={locked}
+            onStart={() => setRelayConfirmOpen(true)}
+            onStop={() => void stopRelay()}
+            onReset={() => setResetOpen(true)}
+          />
+
           <ConnectionCard
             port={status.port}
-            listeners={status.listeners}
+            // Every connection that did not come through the relay.
+            listeners={Math.max(0, status.listeners - status.relayViewers)}
+            relayLive={
+              status.relay.state === "running" ||
+              status.relay.state === "starting"
+            }
             tunnel={tunnel}
             installed={status.installed}
             tailnet={status.tailnet}
@@ -191,6 +247,14 @@ export function RemoteControlPage() {
               effect on its next request.
             </div>
 
+            <div data-testid="remote-pair-via">
+              <ToggleGroup
+                size="sm"
+                value={via}
+                onChange={setVia}
+                options={VIA_OPTIONS}
+              />
+            </div>
             <Row gap="sm">
               <EmojiInput
                 data-testid="remote-pair-label"
@@ -212,27 +276,37 @@ export function RemoteControlPage() {
                 Pair
               </Button>
             </Row>
-            <div
-              className={styles.remoteCapabilityRow}
-              data-testid="remote-pair-capability"
-            >
-              <ToggleGroup
-                size="sm"
-                value={capability}
-                onChange={setCapability}
-                options={CAPABILITY_OPTIONS}
-              />
-              {capability === "full" ? (
-                <div className={styles.remoteWarning}>
-                  <ShieldAlert size={14} />
-                  <span>{CAPABILITY_HINT.full}</span>
-                </div>
-              ) : (
-                <span className={styles.fieldHint}>
-                  {CAPABILITY_HINT[capability]}
-                </span>
-              )}
-            </div>
+            {via === "relay" ? (
+              <div
+                className={styles.remoteWarning}
+                data-testid="remote-pair-relay-warning"
+              >
+                <ShieldAlert size={14} />
+                <span>{RELAY_PAIR_WARNING}</span>
+              </div>
+            ) : (
+              <div
+                className={styles.remoteCapabilityRow}
+                data-testid="remote-pair-capability"
+              >
+                <ToggleGroup
+                  size="sm"
+                  value={capability}
+                  onChange={setCapability}
+                  options={CAPABILITY_OPTIONS}
+                />
+                {capability === "full" ? (
+                  <div className={styles.remoteWarning}>
+                    <ShieldAlert size={14} />
+                    <span>{CAPABILITY_HINT.full}</span>
+                  </div>
+                ) : (
+                  <span className={styles.fieldHint}>
+                    {CAPABILITY_HINT[capability]}
+                  </span>
+                )}
+              </div>
+            )}
             {status.devices.length === 0 ? (
               <div className={styles.placeholder}>No devices paired yet</div>
             ) : (
@@ -264,12 +338,140 @@ export function RemoteControlPage() {
         }}
       />
 
+      <RelayConfirmDialog
+        open={relayConfirmOpen}
+        onCancel={() => setRelayConfirmOpen(false)}
+        onConfirm={() => {
+          setRelayConfirmOpen(false);
+          void startRelay();
+        }}
+      />
+
+      <ResetRelayDialog
+        open={resetOpen}
+        relayDevices={status.devices.filter((d) => d.via === "relay").length}
+        onCancel={() => setResetOpen(false)}
+        onConfirm={() => {
+          setResetOpen(false);
+          void resetRelayAddress();
+        }}
+      />
+
       <PairingResultDialog
         result={pairing}
         port={status.port}
+        relayRunning={status.relay.state === "running"}
         onClose={() => setPairing(null)}
       />
     </Stack>
+  );
+}
+
+/**
+ * The Manor relay: reach this machine with nothing installed (ADR-206).
+ *
+ * The connector reports "cannot reach the relay, retrying" as `starting` with
+ * an error, and gives up (`failed`) only on a verdict. The first is shown as
+ * a warning that it is still trying, the second as an error to act on —
+ * never as a bare "Connecting…" that hides why.
+ */
+function RelayCard(props: {
+  relay: RelayStatus;
+  /** Open relay channels. */
+  viewers: number;
+  notice: string | null;
+  locked: boolean;
+  onStart: () => void;
+  onStop: () => void;
+  onReset: () => void;
+}) {
+  const { relay, viewers, notice, locked } = props;
+
+  const running = relay.state === "running";
+  const starting = relay.state === "starting";
+  const retrying = starting && relay.error !== null;
+  return (
+    <div
+      data-settings-section="remote-relay"
+      data-testid="remote-relay-card"
+      tabIndex={-1}
+      className={`${styles.remoteExposureCard} ${running ? styles.remoteExposureOpen : ""}`}
+    >
+      <div className={styles.remoteExposureIcon}>
+        {running ? <Globe size={15} /> : <Laptop size={15} />}
+      </div>
+      <Stack gap="xs" className={styles.remoteExposureBody}>
+        <div className={styles.remoteExposureHeader}>
+          <div className={styles.remoteExposureTitle}>
+            {running
+              ? "Reachable through the Manor relay"
+              : retrying
+                ? "Can't reach the Manor relay"
+                : "Manor relay (no install)"}
+          </div>
+          <Row gap="xs">
+            <Button
+              data-testid="remote-relay-reset"
+              variant="ghost"
+              disabled={locked}
+              onClick={props.onReset}
+            >
+              Reset relay address
+            </Button>
+            {running || starting ? (
+              <Button
+                variant="secondary"
+                onClick={props.onStop}
+                data-testid="remote-relay-stop"
+              >
+                {starting ? "Cancel" : "Stop relay"}
+              </Button>
+            ) : (
+              <Button
+                data-testid="remote-relay-start"
+                variant="primary"
+                disabled={locked}
+                onClick={props.onStart}
+              >
+                {relay.state === "failed" ? "Try again" : "Start relay"}
+              </Button>
+            )}
+          </Row>
+        </div>
+        <div className={styles.fieldHint}>
+          Open a link in any browser, with nothing to install on either end.
+          Everything is end-to-end encrypted; the relay cannot read it. The
+          relay stops when Manor quits.
+        </div>
+        {notice && (
+          <div className={styles.linearError} data-testid="remote-relay-notice">
+            {notice}
+          </div>
+        )}
+        {relay.state === "failed" && relay.error && (
+          <div className={styles.linearError}>{relay.error}</div>
+        )}
+        {retrying && (
+          <div
+            className={styles.remoteRetrying}
+            data-testid="remote-relay-retrying"
+          >
+            Still trying — relay devices can&apos;t reach this machine until it
+            connects. {relay.error}
+          </div>
+        )}
+        {starting && !retrying && (
+          <div className={styles.fieldHint}>Connecting…</div>
+        )}
+        {running && (
+          <div className={styles.fieldHint}>
+            {viewers === 0
+              ? "No relay device connected"
+              : `${viewers} relay device${viewers === 1 ? "" : "s"} connected`}
+          </div>
+        )}
+      </Stack>
+    </div>
   );
 }
 
@@ -284,7 +486,10 @@ export function RemoteControlPage() {
  */
 function ConnectionCard(props: {
   port: number | null;
+  /** Connections that did not come through the relay. */
   listeners: number;
+  /** The relay is up or trying to be: this machine is not "local only". */
+  relayLive: boolean;
   tunnel: TunnelStatus;
   /** Whether `tailscale` is on PATH. */
   installed: boolean;
@@ -294,7 +499,7 @@ function ConnectionCard(props: {
   onStop: () => void;
   onRecheck: () => void;
 }) {
-  const { port, listeners, tunnel, installed, locked } = props;
+  const { port, listeners, relayLive, tunnel, installed, locked } = props;
   const running = tunnel.state === "running" && tunnel.url !== null;
   const starting = tunnel.state === "starting";
   const { onRecheck } = props;
@@ -316,9 +521,10 @@ function ConnectionCard(props: {
   }, [onRecheck]);
 
   const watching =
-    listeners === 0
+    (listeners === 0
       ? "Nothing connected"
-      : `${listeners} device${listeners === 1 ? "" : "s"} connected`;
+      : `${listeners} device${listeners === 1 ? "" : "s"} connected`) +
+    (relayLive ? " outside the relay" : "");
 
   let title: string;
   let description: ReactNode;
@@ -370,9 +576,14 @@ function ConnectionCard(props: {
       </Row>
     );
   } else {
-    title = "Reachable from this machine only";
-    description =
-      "Start a tunnel to reach Manor from your phone. Tailscale must be signed in; only devices on your tailnet can connect, and the tunnel stops when Manor quits.";
+    // With the relay up, "this machine only" would be false: relay devices
+    // are driving it from wherever they are.
+    title = relayLive
+      ? "Not reachable over Tailscale"
+      : "Reachable from this machine only";
+    description = relayLive
+      ? "Relay devices can reach this machine through the Manor relay above. Start a tunnel to reach it over your tailnet as well; only devices on your tailnet can connect, and the tunnel stops when Manor quits."
+      : "Start a tunnel to reach Manor from your phone. Tailscale must be signed in; only devices on your tailnet can connect, and the tunnel stops when Manor quits.";
     action = (
       <Button
         data-testid="remote-tunnel-start"
@@ -489,6 +700,9 @@ function DeviceRow(props: {
         <div className={styles.remoteDeviceLabel}>
           <span>{device.label}</span>
           {badge && <span className={styles.remoteSendBadge}>{badge}</span>}
+          <span className={styles.remoteSendBadge}>
+            via {VIA_LABEL[device.via]}
+          </span>
           {device.hasPush && (
             <span className={styles.remoteSendBadge}>push</span>
           )}

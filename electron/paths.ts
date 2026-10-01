@@ -87,6 +87,11 @@ export function loginPathFile(): string {
   return path.join(manorDataDir(), "login-path.json");
 }
 
+/** The relay identity keys (ADR-206 D3), `safeStorage`-encrypted. */
+export function relayIdentityFile(): string {
+  return path.join(manorDataDir(), "remote-relay-identity.enc");
+}
+
 export function shellZdotdir(): string {
   return path.join(manorDataDir(), "zdotdir");
 }

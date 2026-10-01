@@ -1,8 +1,9 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import pkg from "./package.json";
-import { WEB_CSP } from "./electron/remote-control/static";
+import { WEB_CSP } from "./src/lib/web-headers";
 
 /**
  * `src/web.html`'s CSP `<meta>` tag is a second line of defence for the same
@@ -18,6 +19,83 @@ function injectWebCsp(): Plugin {
         "<!--csp-->",
         `<meta http-equiv="Content-Security-Policy" content="${WEB_CSP}" />`,
       );
+    },
+  };
+}
+
+/** The remote client's icons: one set of artwork for both phone surfaces. */
+const ICONS_DIR = path.resolve(__dirname, "src/remote-client/public/icons");
+const ICONS = [
+  "apple-touch-icon.png",
+  "icon-192.png",
+  "icon-512.png",
+  "icon-maskable-512.png",
+];
+
+/**
+ * Installable, for the same reason the remote client is (ADR-206 D7): iOS
+ * grants Web Push only to a page added to the Home Screen *as a web app* —
+ * without a manifest (or `apple-mobile-web-app-capable`) Add to Home Screen
+ * makes a plain bookmark that opens in Safari, where there is no
+ * `PushManager`, and the "Add to Home Screen" strip could never go away.
+ *
+ * Emits `manifest.webmanifest` (`src/web/manifest.webmanifest`, whose
+ * `start_url` and icons are relative, so they resolve under whatever base
+ * this build has — `/app/` on the listener, `/app/<version>/` on the relay)
+ * and the icons beside it, and links them from the HTML with the base
+ * spelled out. `scope` and `id` are `/app/` on purpose: an installed relay
+ * app that the version redirect moves to `/app/<new>/` stays inside its own
+ * scope (and stays the same installed app) instead of leaving it. Not via `publicDir`: that is the repo-root `public/` the
+ * desktop renderer shares.
+ */
+function webAppManifest(): Plugin {
+  let base = "/";
+  return {
+    name: "web-app-manifest",
+    configResolved(config) {
+      base = config.base;
+    },
+    transformIndexHtml() {
+      const meta = (name: string, content: string) => ({
+        tag: "meta",
+        attrs: { name, content },
+        injectTo: "head" as const,
+      });
+      return [
+        {
+          tag: "link",
+          attrs: { rel: "manifest", href: `${base}manifest.webmanifest` },
+          injectTo: "head",
+        },
+        meta("theme-color", "#1e1e2e"),
+        meta("mobile-web-app-capable", "yes"),
+        meta("apple-mobile-web-app-capable", "yes"),
+        meta("apple-mobile-web-app-title", "Manor"),
+        {
+          tag: "link",
+          attrs: {
+            rel: "apple-touch-icon",
+            href: `${base}icons/apple-touch-icon.png`,
+          },
+          injectTo: "head",
+        },
+      ];
+    },
+    generateBundle() {
+      this.emitFile({
+        type: "asset",
+        fileName: "manifest.webmanifest",
+        source: readFileSync(
+          path.resolve(__dirname, "src/web/manifest.webmanifest"),
+        ),
+      });
+      for (const icon of ICONS) {
+        this.emitFile({
+          type: "asset",
+          fileName: `icons/${icon}`,
+          source: readFileSync(path.join(ICONS_DIR, icon)),
+        });
+      }
     },
   };
 }
@@ -50,19 +128,29 @@ function injectWebCsp(): Plugin {
  */
 export default defineConfig({
   root: path.resolve(__dirname, "src"),
-  base: "/app/",
+  base: process.env.MANOR_WEB_BASE ?? "/app/",
   // Fonts referenced by `App.css` (`@font-face`) come from the repo-root
   // `public/`, not `src/public/` — `root: "src"` would otherwise default to
   // the latter, which does not exist, and the app would boot with no
   // terminal font to load.
   publicDir: path.resolve(__dirname, "public"),
-  plugins: [react(), injectWebCsp()],
+  plugins: [react(), injectWebCsp(), webAppManifest()],
   build: {
-    outDir: path.resolve(__dirname, "dist-electron/web"),
+    outDir: path.resolve(
+      __dirname,
+      process.env.MANOR_WEB_OUT_DIR ?? "dist-electron/web",
+    ),
     emptyOutDir: true,
     rollupOptions: {
       input: {
         web: path.resolve(__dirname, "src/web.html"),
+        // Un-hashed, at the root of the base it controls (ADR-206 D7): the
+        // registration scope is the base, so a version path owns its own.
+        sw: path.resolve(__dirname, "src/web/sw.ts"),
+      },
+      output: {
+        entryFileNames: (chunk) =>
+          chunk.name === "sw" ? "sw.js" : "assets/[name]-[hash].js",
       },
     },
   },

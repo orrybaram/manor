@@ -224,7 +224,11 @@ describe("what a paired device may not call (LOCAL_ONLY)", () => {
     });
 
     expect(paired).toMatchObject({ ok: true });
-    expect(remoteControl.pair).toHaveBeenCalledWith("Orry's phone", "full");
+    expect(remoteControl.pair).toHaveBeenCalledWith(
+      "Orry's phone",
+      "full",
+      "tailscale",
+    );
 
     const connected = await server.dispatch(win.connection, {
       kind: "invoke",

@@ -213,6 +213,27 @@ export function pushPayloadFor(
   return {
     agentId: agent.id,
     title: status === "error" ? "Agent errored" : "Agent needs input",
-    body: [agent.name || "Agent", agent.projectName].filter(Boolean).join(" — "),
+    body: [agent.name || "Agent", agent.projectName]
+      .filter(Boolean)
+      .join(" — "),
   };
+}
+
+/**
+ * Validate a subscription body. `endpoint` must be https — a push endpoint is a
+ * capability URL, and we will not store one that would be sent in the clear.
+ * Shared by `POST /push/subscribe` and the bridge's `remoteControl.subscribePush`.
+ */
+export function asPushSubscription(
+  body: unknown,
+): PushSubscriptionRecord | null {
+  if (typeof body !== "object" || body === null) return null;
+  const { endpoint, keys } = body as Record<string, unknown>;
+  if (typeof endpoint !== "string" || !endpoint.startsWith("https://"))
+    return null;
+  if (typeof keys !== "object" || keys === null) return null;
+  const { p256dh, auth } = keys as Record<string, unknown>;
+  if (typeof p256dh !== "string" || p256dh.length === 0) return null;
+  if (typeof auth !== "string" || auth.length === 0) return null;
+  return { endpoint, keys: { p256dh, auth } };
 }

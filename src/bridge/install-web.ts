@@ -22,49 +22,56 @@
  * `onUnauthorized` / `onForbidden` into a tiny outcome `web-main.tsx` asks
  * for once it is ready to act on it — late, if the socket has not said
  * anything yet, or immediately, if it already has.
+ *
+ * ADR-206 adds a second way here: a page served by the relay origin, paired
+ * by a `#relay=…` link, dials the relay's `/join/<roomId>` through a Noise
+ * channel instead of the listener's `/ws`. `./web-pairing.ts` reads the link
+ * and states the rule that picks between them; this module picks the pipe,
+ * reports reachability (relay 4404/4429) and follows the version redirect.
  */
 
 import { createBridge } from "./client";
+import { relayJoinUrl, relayPipe } from "./transports/relay-pipe";
 import {
   bridgeUrlFromLocation,
   createWsTransport,
-  forgetWebToken,
-  WEB_TOKEN_KEY,
+  type Pipe,
 } from "./transports/ws";
+import {
+  forgetPairing,
+  readPairing,
+  serverKeyBytes,
+  versionRedirectTarget,
+} from "./web-pairing";
+
+const pairing = readPairing();
 
 /**
- * Take the token out of the URL fragment on first load, store it, and strip
- * it from the address bar so it cannot linger in history or a screenshot.
- * Copied from `src/remote-client/main.ts`'s `readToken` rather than shared —
- * the remote client is its own bundle, built by a different Vite config, and
- * cannot be imported from here. The key itself lives in
- * `bridge/transports/ws.ts`, which is the half of this pair that finds out
- * when a token has died.
+ * The relay pipe, or null for the listener's plain WebSocket. A stored key
+ * that no longer decodes is treated as no pairing at all.
  */
-function readToken(): string | null {
-  const fragment = location.hash.startsWith("#") ? location.hash.slice(1) : "";
-  if (fragment) {
-    try {
-      localStorage.setItem(WEB_TOKEN_KEY, fragment);
-    } catch {
-      // Storage denied (private browsing): this session still works, the
-      // next reload asks for the link again.
-    }
-    history.replaceState(null, "", location.pathname + location.search);
-    return fragment;
-  }
-  try {
-    return localStorage.getItem(WEB_TOKEN_KEY);
-  } catch {
-    return null;
-  }
+function relayPipeFor(): Pipe | null {
+  if (pairing.mode !== "relay") return null;
+  const serverKey = serverKeyBytes(pairing.relay);
+  if (serverKey === null) return null;
+  return relayPipe({ url: relayJoinUrl(pairing.relay.roomId), serverKey });
 }
 
+const pipe = relayPipeFor();
+
+/** Whether this page reaches the desktop through the relay (ADR-206 D3). */
+export const relayServed: boolean = pipe !== null;
+
 /** The pairing token this tab is dialling with, or `null` for none found. */
-export const webToken: string | null = readToken();
+export const webToken: string | null =
+  pairing.mode === "relay"
+    ? pipe
+      ? pairing.relay.token
+      : null
+    : pairing.token;
 
 /** What the socket has said about `webToken`, once it has said anything. */
-export type BridgeOutcome = "unauthorized" | "forbidden";
+export type BridgeOutcome = "unauthorized" | "forbidden" | "key-mismatch";
 
 let outcome: BridgeOutcome | null = null;
 let listener: ((outcome: BridgeOutcome) => void) | null = null;
@@ -85,17 +92,61 @@ export function onBridgeOutcome(cb: (outcome: BridgeOutcome) => void): void {
   if (outcome) cb(outcome);
 }
 
-window.electronAPI = createBridge(
-  createWsTransport({
-    token: webToken,
-    url: bridgeUrlFromLocation(),
-    onUnauthorized: () => {
-      // The token was revoked, or the host forgot it. Drop it — `web-main`
-      // renders `NoTokenScreen` rather than reconnecting forever against an
-      // answer that will not change.
-      forgetWebToken();
-      settle("unauthorized");
-    },
-    onForbidden: () => settle("forbidden"),
-  }),
-);
+/**
+ * Whether the host can be reached right now, for the "not reachable"
+ * overlay. Unlike a refusal this comes and goes: `unreachable` on a relay
+ * 4404/4429 (the dial keeps retrying), `connected` on the next hello. Shaped
+ * for `useSyncExternalStore`.
+ */
+export type Reachability = "unknown" | "connected" | "unreachable";
+
+let reachability: Reachability = "unknown";
+const reachabilityListeners = new Set<() => void>();
+
+export function getReachability(): Reachability {
+  return reachability;
+}
+
+export function subscribeReachability(cb: () => void): () => void {
+  reachabilityListeners.add(cb);
+  return () => reachabilityListeners.delete(cb);
+}
+
+function setReachability(next: Reachability): void {
+  if (next === reachability) return;
+  reachability = next;
+  for (const cb of [...reachabilityListeners]) cb();
+}
+
+const transport = createWsTransport({
+  token: webToken,
+  ...(pipe ? { pipe } : { url: bridgeUrlFromLocation() }),
+  onUnauthorized: () => {
+    // The token was revoked, the host forgot it, or (relay) the desktop's
+    // key is no longer the one this page was paired with. Drop it —
+    // `web-main` renders `NoTokenScreen` rather than reconnecting forever
+    // against an answer that will not change.
+    forgetPairing(pairing);
+    settle("unauthorized");
+  },
+  onForbidden: () => settle("forbidden"),
+  // Repeated bad Noise message 2s: the desktop's relay address was reset.
+  // The pairing is kept (this may just be a stale tab); the transport has
+  // stopped, so the screen offers a reload rather than a redial.
+  onKeyMismatch: () => settle("key-mismatch"),
+  onStatus: setReachability,
+  onHello: ({ appVersion }) => {
+    // Only a relay-served page: the listener serves the build that matches
+    // its own desktop by construction.
+    if (!relayServed) return;
+    const target = versionRedirectTarget(__APP_VERSION__, appVersion);
+    if (target) location.replace(target);
+  },
+});
+
+/** "Try again now" on the not-reachable overlay: skip the backoff wait. */
+export function retryBridgeNow(): void {
+  transport.retryNow();
+}
+
+window.electronAPI = createBridge(transport);

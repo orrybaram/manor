@@ -4,12 +4,16 @@ import { readBranchSync } from "./ipc/pty";
 import { initApp } from "./app-lifecycle";
 import { installMainLog } from "./main-log";
 import { startLoginPathResolution } from "./login-path";
+import { applyE2eBackgroundSwitches } from "./e2e-background";
 
 // Local minidumps, uploaded nowhere. A browser-process crash leaves nothing
 // usable in Apple's report — the release Electron framework symbolicates to the
 // nearest exported symbol, so every frame reads as unrelated noise (#164). The
 // dumps land in `app.getPath("crashDumps")`. Must be started before `ready`.
 crashReporter.start({ uploadToServer: false });
+
+// E2E runs keep the app behind the user's windows; a no-op otherwise.
+applyE2eBackgroundSwitches();
 
 // When launched from Finder/Dock, macOS gives the app a minimal PATH
 // (/usr/bin:/bin:/usr/sbin:/sbin) that doesn't include Homebrew paths

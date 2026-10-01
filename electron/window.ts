@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { windowBoundsFile, zoomLevelFile } from "./paths";
+import { e2eBackground, e2eWindowOptions, showE2eWindow } from "./e2e-background";
 
 interface WindowBounds {
   x: number;
@@ -91,6 +92,7 @@ function buildWebPreferences(
     sandbox: true,
     webviewTag: true,
     additionalArguments,
+    ...(e2eBackground && { backgroundThrottling: false }),
   };
 }
 
@@ -129,7 +131,9 @@ export function createWindow(): BrowserWindow {
     trafficLightPosition: { x: 13, y: 18 },
     backgroundColor: "#181825",
     webPreferences: buildWebPreferences(),
+    ...e2eWindowOptions(),
   });
+  showE2eWindow(mainWindow);
 
   if (useSaved && saved.isMaximized) {
     mainWindow.maximize();
@@ -206,7 +210,9 @@ export function createDetachedWindow(
     trafficLightPosition: { x: 13, y: 18 },
     backgroundColor: "#181825",
     webPreferences: buildWebPreferences(windowId),
+    ...e2eWindowOptions(),
   });
+  showE2eWindow(win);
 
   attachWindowOpenHandler(win);
   loadRenderer(win);

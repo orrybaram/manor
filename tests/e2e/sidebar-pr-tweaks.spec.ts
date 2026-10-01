@@ -262,12 +262,12 @@ test("sidebar PR badge, popover, notifications, folders and diff tree", async ({
   await expect(popover).toBeVisible({ timeout: 5_000 });
   await expect(popover.locator("details summary", { hasText: "Why" })).toBeVisible();
   await expect(popover.locator("code", { hasText: "bcrypt" })).toBeVisible();
-  const commentAuthors = await popover.locator('[class*="prPopoverCommentAuthor"]').allTextContents();
+  const commentAuthors = await popover.locator('[class*="_author_"]').allTextContents();
   log.push(`popover comment authors (bodiless dropped): ${JSON.stringify(commentAuthors)}`);
   expect(commentAuthors).toHaveLength(4); // jane thread, jane comment, sam resolved thread, lee outdated thread
   await expect(popover.getByText("No comment text.")).toHaveCount(0);
 
-  const unresolvedRow = popover.locator('[class*="prPopoverCommentUnresolved"]').first();
+  const unresolvedRow = popover.locator('[class*="_unresolved_"]').first();
   await unresolvedRow.hover();
   const sendButton = unresolvedRow.getByRole("button", { name: "Send this comment to an agent" });
   await expect(sendButton).toBeVisible();

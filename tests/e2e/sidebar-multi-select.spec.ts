@@ -33,6 +33,10 @@ const folderHeader = (window: Page, name: string) =>
     .locator("[data-sidebar-row][aria-expanded]:not([data-testid])")
     .filter({ hasText: name });
 
+/** Workspace rows inside a folder's block (its header no longer shows a count). */
+const folderMembers = (window: Page, name: string) =>
+  folderHeader(window, name).locator("xpath=..").getByTestId("workspace-item");
+
 /** Names of the rows marked selected, in DOM order. */
 const selectedNames = (window: Page) =>
   window
@@ -102,7 +106,7 @@ test("multi-select: range, toggle, bulk menu, and group drag", async ({
   await window.getByRole("menuitem", { name: "New Folder…" }).click();
   await window.getByPlaceholder("Folder name").fill("grp");
   await window.getByRole("button", { name: "Create", exact: true }).click();
-  await expect(folderHeader(window, "grp")).toContainText("3", { timeout: 10_000 });
+  await expect(folderMembers(window, "grp")).toHaveCount(3, { timeout: 10_000 });
   await expect.poll(() => selectedNames(window)).toEqual([]);
   await shot(window, "03-new-folder-with-three");
 
@@ -111,7 +115,7 @@ test("multi-select: range, toggle, bulk menu, and group drag", async ({
   await row(window, "ws-b").click({ modifiers: ["Shift"] });
   await expect.poll(() => selectedNames(window)).toEqual(["ws-a", "ws-b"]);
   await drag(window, row(window, "ws-a"), row(window, "ws-d"), "below", "04-drag-out-midway");
-  await expect(folderHeader(window, "grp")).toContainText("1", { timeout: 10_000 });
+  await expect(folderMembers(window, "grp")).toHaveCount(1, { timeout: 10_000 });
   const order = await window.getByTestId("workspace-name").allInnerTexts();
   expect(order.slice(-2)).toEqual(["ws-a", "ws-b"]);
   await shot(window, "05-after-drag-out");
@@ -120,7 +124,7 @@ test("multi-select: range, toggle, bulk menu, and group drag", async ({
   await row(window, "ws-a").click();
   await row(window, "ws-b").click({ modifiers: ["Shift"] });
   await drag(window, row(window, "ws-b"), folderHeader(window, "grp"), "middle", "06-drag-in-midway");
-  await expect(folderHeader(window, "grp")).toContainText("3", { timeout: 10_000 });
+  await expect(folderMembers(window, "grp")).toHaveCount(3, { timeout: 10_000 });
   await shot(window, "07-after-drag-in");
 
   // ── Bulk Remove from Folder ──────────────────────────────────────────
@@ -131,7 +135,7 @@ test("multi-select: range, toggle, bulk menu, and group drag", async ({
   await expect(window.getByText("2 workspaces selected")).toBeVisible();
   await shot(window, "07b-remove-menu");
   await window.getByRole("menuitem", { name: "Remove from Folder" }).click();
-  await expect(folderHeader(window, "grp")).toContainText("1", { timeout: 10_000 });
+  await expect(folderMembers(window, "grp")).toHaveCount(1, { timeout: 10_000 });
 
   // ── Bulk hide ────────────────────────────────────────────────────────
   await row(window, "ws-a").click();

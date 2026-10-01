@@ -249,6 +249,18 @@ describe("POST /projects/:projectId/workspaces", () => {
     expect(pm.createWorktree.mock.calls[0][0]).toBe("local-app");
   });
 
+  it("skips a last-used host that is away, for this machine's member", async () => {
+    const d = { ...deps(pm), hostStatus: () => "error" as const };
+    await call(create, d, { projectId: "box-app" }, { name: "feat" });
+    expect(pm.createWorktree.mock.calls[0][0]).toBe("local-app");
+  });
+
+  it("keeps the last-used host while it is connected", async () => {
+    const d = { ...deps(pm), hostStatus: () => "connected" as const };
+    await call(create, d, { projectId: "local-app" }, { name: "feat" });
+    expect(pm.createWorktree.mock.calls[0][0]).toBe("box-app");
+  });
+
   it("accepts the local host's label as listings show it", async () => {
     await call(create, deps(pm), { projectId: "box-app" }, {
       name: "feat",

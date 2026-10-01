@@ -141,7 +141,7 @@ const merged = mergeSources([
     rows: [listed(issue13, other), listed(otherIssue12, other)],
     failed: false,
   },
-  { rows: [], failed: true },
+  { rows: [], failed: true, error: "manor: host is down" },
   { rows: [eng45], failed: false },
 ]);
 
@@ -188,6 +188,7 @@ describe("mergeSources", () => {
 
   it("counts failed sources", () => {
     expect(merged.failedCount).toBe(1);
+    expect(merged.failures).toEqual(["manor: host is down"]);
     expect(mergeSources([]).failedCount).toBe(0);
   });
 });

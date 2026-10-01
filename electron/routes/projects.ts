@@ -195,6 +195,8 @@ interface WorkspaceTargetRequest {
   host?: string;
   /** Set when the request was relayed from a remote host (ADR-189). */
   callerHostId?: string;
+  /** Whether a host is away (registered, not connected). */
+  isAway?: (hostId: string) => boolean;
 }
 
 type WorkspaceTargetResult =
@@ -205,11 +207,20 @@ type WorkspaceTargetResult =
  * Which project a create-workspace request lands in. An unlinked project is
  * its own and only target. For a linked one, `host` picks that host's
  * member; without it, the caller's own host (a relayed remote CLI), then the
- * group's last-used host, then the project named in the path.
+ * group's last-used host if it isn't away, then any member whose host isn't
+ * (this machine first), then the last-used host anyway — so the create
+ * explains why it can't go ahead — then the project named in the path. The
+ * New Workspace dialog's `defaultHostChoice` follows the same order.
  */
 function workspaceTarget(
   pm: ProjectManager,
-  { project, projects, host, callerHostId }: WorkspaceTargetRequest,
+  {
+    project,
+    projects,
+    host,
+    callerHostId,
+    isAway = () => false,
+  }: WorkspaceTargetRequest,
 ): WorkspaceTargetResult {
   const members = (project.group?.memberIds ?? [project.id])
     .map((id) => projects.find((p) => p.id === id))
@@ -221,9 +232,19 @@ function workspaceTarget(
     hostId ? members.find((m) => m.hostId === hostId) : undefined;
 
   if (host === undefined) {
+    const lastUsed = onHost(project.group?.lastUsedHostId);
+    const reachable = members
+      .filter((m) => !isAway(m.hostId))
+      .sort(
+        (a, b) =>
+          Number(a.hostId !== LOCAL_HOST_ID) -
+          Number(b.hostId !== LOCAL_HOST_ID),
+      );
     const target =
       onHost(callerHostId) ??
-      onHost(project.group?.lastUsedHostId) ??
+      (lastUsed && !isAway(lastUsed.hostId) ? lastUsed : undefined) ??
+      reachable[0] ??
+      lastUsed ??
       project;
     return { ok: true, project: target };
   }
@@ -278,6 +299,11 @@ function resolveCreateTarget(
           projects,
           host: typeof body.host === "string" && body.host ? body.host : undefined,
           callerHostId: deps.callerHostId,
+          isAway: (hostId) => {
+            if (hostId === LOCAL_HOST_ID) return false;
+            const status = deps.hostStatus?.(hostId);
+            return status !== undefined && status !== "connected";
+          },
         });
   if (!target.ok) {
     json(target.status, { error: target.error });

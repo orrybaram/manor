@@ -3,6 +3,7 @@ import path from "path";
 import { execSync } from "child_process";
 import { type ElectronApplication, type Page } from "@playwright/test";
 import { killApp, launchApp, test as base, expect } from "./fixtures";
+import { installFakeGh, type FakePr } from "./helpers/fake-gh";
 import { Filmstrip } from "./helpers/filmstrip";
 import { activePaneId, scrollback } from "./helpers/terminal";
 
@@ -19,58 +20,142 @@ import { activePaneId, scrollback } from "./helpers/terminal";
  * the UI, with a filmstrip under `tests/e2e/artifacts/sidebar-tweaks/`.
  */
 
-const FAKE_GH = `#!/bin/bash
-# Fake gh for the evidence run. Answers auth, pr list, and the conversation
-# GraphQL query with canned data keyed by branch / PR number.
-sub="$1 $2"
-case "$sub" in
-  "auth status")
-    echo "Logged in to github.com account tester (keyring)"
-    exit 0 ;;
-  "pr list")
-    head=""
-    prev=""
-    for a in "$@"; do
-      if [ "$prev" = "--head" ]; then head="$a"; fi
-      prev="$a"
-    done
-    case "$head" in
-      api-auth)
-        cat <<'JSON'
-[{"number":101,"state":"OPEN","title":"Auth: rotate signing keys","url":"https://github.com/acme/app/pull/101","isDraft":false,"additions":120,"deletions":14,"reviewDecision":"APPROVED","updatedAt":"2026-09-08T10:00:00Z","autoMergeRequest":{"enabledAt":"2026-09-08T10:00:00Z"},"statusCheckRollup":[{"name":"unit","conclusion":"SUCCESS","workflowName":"CI"},{"name":"lint","conclusion":"SUCCESS","workflowName":"CI"}]}]
-JSON
-        ;;
-      ui-fix)
-        cat <<'JSON'
-[{"number":102,"state":"OPEN","title":"Sidebar: folder polish","url":"https://github.com/acme/app/pull/102","isDraft":false,"additions":40,"deletions":9,"reviewDecision":"REVIEW_REQUIRED","updatedAt":"2026-09-08T10:00:00Z","autoMergeRequest":null,"statusCheckRollup":[{"name":"unit","conclusion":"SUCCESS","workflowName":"CI"},{"name":"e2e","conclusion":null,"status":"IN_PROGRESS","workflowName":"CI"}]}]
-JSON
-        ;;
-      hotfix)
-        cat <<'JSON'
-[{"number":103,"state":"OPEN","title":"Hotfix: null deref","url":"https://github.com/acme/app/pull/103","isDraft":false,"additions":3,"deletions":1,"reviewDecision":"APPROVED","updatedAt":"2026-09-08T10:00:00Z","autoMergeRequest":null,"statusCheckRollup":[{"name":"unit","conclusion":"FAILURE","workflowName":"CI"},{"name":"lint","conclusion":"SUCCESS","workflowName":"CI"}]}]
-JSON
-        ;;
-      *) echo "[]" ;;
-    esac
-    exit 0 ;;
-  "api graphql")
-    num=$(printf '%s' "$*" | grep -o 'number: [0-9]*' | grep -o '[0-9]*')
-    case "$num" in
-      102)
-        cat <<'JSON'
-{"data":{"repository":{"pullRequest":{"isInMergeQueue":false,"reviewThreads":{"nodes":[{"isResolved":false,"path":"src/auth/session.ts","comments":{"nodes":[{"author":{"login":"reviewer-jane"},"body":"Please hash with <code>bcrypt</code> here, not MD5.<br><details><summary>Why</summary>MD5 has been broken since 2004.</details><img src=\\"https://example.invalid/s.png\\" alt=\\"screenshot\\">","url":"https://github.com/acme/app/pull/102#discussion_r1","createdAt":"2026-09-08T09:30:00Z"}]}},{"isResolved":true,"path":"src/ui/Sidebar.tsx","comments":{"nodes":[{"author":{"login":"reviewer-sam"},"body":"nit: rename","url":"https://github.com/acme/app/pull/102#discussion_r2","createdAt":"2026-09-08T08:00:00Z"}]}},{"isResolved":false,"isOutdated":true,"path":"src/components/workspace-panes/DiffPane/DiffLines/DiffLines.tsx","comments":{"nodes":[{"author":{"login":"reviewer-lee"},"body":"This hunk moved in the rebase.","url":"https://github.com/acme/app/pull/102#discussion_r3","createdAt":"2026-09-08T07:00:00Z"}]}}]},"comments":{"totalCount":2,"nodes":[{"author":{"login":"bot-ci"},"body":"","url":"https://github.com/acme/app/pull/102#issuecomment-1","createdAt":"2026-09-08T09:00:00Z"},{"author":{"login":"reviewer-jane"},"body":"Overall looks solid. **One blocker** inline.","url":"https://github.com/acme/app/pull/102#issuecomment-2","createdAt":"2026-09-08T09:31:00Z"}]},"reviews":{"totalCount":2,"nodes":[{"author":{"login":"reviewer-jane"},"body":"","url":"https://github.com/acme/app/pull/102#pullrequestreview-1","submittedAt":"2026-09-08T09:29:00Z","state":"COMMENTED"},{"author":{"login":"reviewer-sam"},"body":"","url":"https://github.com/acme/app/pull/102#pullrequestreview-2","submittedAt":"2026-09-08T08:30:00Z","state":"APPROVED"}]}}}}}
-JSON
-        ;;
-      *)
-        echo '{"data":{"repository":{"pullRequest":{"isInMergeQueue":false,"reviewThreads":{"nodes":[]},"comments":{"totalCount":0,"nodes":[]},"reviews":{"totalCount":0,"nodes":[]}}}}}'
-        ;;
-    esac
-    exit 0 ;;
-  *)
-    echo "fake gh: unsupported: $*" >&2
-    exit 1 ;;
-esac
-`;
+function fakePr(
+  number: number,
+  title: string,
+  extra: Pick<FakePr, "additions" | "deletions" | "reviewDecision" | "statusCheckRollup"> &
+    Partial<FakePr>,
+): FakePr {
+  return {
+    number,
+    state: "OPEN",
+    title,
+    url: `https://github.com/acme/app/pull/${number}`,
+    isDraft: false,
+    updatedAt: "2026-09-08T10:00:00Z",
+    autoMergeRequest: null,
+    ...extra,
+  };
+}
+
+const ci = (name: string, conclusion: string | null, status?: string) => ({
+  name,
+  conclusion,
+  ...(status ? { status } : {}),
+  workflowName: "CI",
+});
+
+/** Three canned PRs, by branch; #102 carries the conversation. */
+const FAKE_PRS: Record<string, FakePr> = {
+  "api-auth": fakePr(101, "Auth: rotate signing keys", {
+    additions: 120,
+    deletions: 14,
+    reviewDecision: "APPROVED",
+    autoMergeRequest: { enabledAt: "2026-09-08T10:00:00Z" },
+    statusCheckRollup: [ci("unit", "SUCCESS"), ci("lint", "SUCCESS")],
+  }),
+  "ui-fix": fakePr(102, "Sidebar: folder polish", {
+    additions: 40,
+    deletions: 9,
+    reviewDecision: "REVIEW_REQUIRED",
+    statusCheckRollup: [ci("unit", "SUCCESS"), ci("e2e", null, "IN_PROGRESS")],
+  }),
+  hotfix: fakePr(103, "Hotfix: null deref", {
+    additions: 3,
+    deletions: 1,
+    reviewDecision: "APPROVED",
+    statusCheckRollup: [ci("unit", "FAILURE"), ci("lint", "SUCCESS")],
+  }),
+};
+
+const PR_102 = "https://github.com/acme/app/pull/102";
+
+const PR_102_CONVERSATION = {
+  isInMergeQueue: false,
+  reviewThreads: {
+    nodes: [
+      {
+        isResolved: false,
+        path: "src/auth/session.ts",
+        comments: {
+          nodes: [
+            {
+              author: { login: "reviewer-jane" },
+              body: 'Please hash with <code>bcrypt</code> here, not MD5.<br><details><summary>Why</summary>MD5 has been broken since 2004.</details><img src="https://example.invalid/s.png" alt="screenshot">',
+              url: `${PR_102}#discussion_r1`,
+              createdAt: "2026-09-08T09:30:00Z",
+            },
+          ],
+        },
+      },
+      {
+        isResolved: true,
+        path: "src/ui/Sidebar.tsx",
+        comments: {
+          nodes: [
+            {
+              author: { login: "reviewer-sam" },
+              body: "nit: rename",
+              url: `${PR_102}#discussion_r2`,
+              createdAt: "2026-09-08T08:00:00Z",
+            },
+          ],
+        },
+      },
+      {
+        isResolved: false,
+        isOutdated: true,
+        path: "src/components/workspace-panes/DiffPane/DiffLines/DiffLines.tsx",
+        comments: {
+          nodes: [
+            {
+              author: { login: "reviewer-lee" },
+              body: "This hunk moved in the rebase.",
+              url: `${PR_102}#discussion_r3`,
+              createdAt: "2026-09-08T07:00:00Z",
+            },
+          ],
+        },
+      },
+    ],
+  },
+  comments: {
+    totalCount: 2,
+    nodes: [
+      {
+        author: { login: "bot-ci" },
+        body: "",
+        url: `${PR_102}#issuecomment-1`,
+        createdAt: "2026-09-08T09:00:00Z",
+      },
+      {
+        author: { login: "reviewer-jane" },
+        body: "Overall looks solid. **One blocker** inline.",
+        url: `${PR_102}#issuecomment-2`,
+        createdAt: "2026-09-08T09:31:00Z",
+      },
+    ],
+  },
+  reviews: {
+    totalCount: 2,
+    nodes: [
+      {
+        author: { login: "reviewer-jane" },
+        body: "",
+        url: `${PR_102}#pullrequestreview-1`,
+        submittedAt: "2026-09-08T09:29:00Z",
+        state: "COMMENTED",
+      },
+      {
+        author: { login: "reviewer-sam" },
+        body: "",
+        url: `${PR_102}#pullrequestreview-2`,
+        submittedAt: "2026-09-08T08:30:00Z",
+        state: "APPROVED",
+      },
+    ],
+  },
+};
 
 const test = base.extend<{ app: ElectronApplication; window: Page }>({
   app: async ({ tempHome }, use) => {
@@ -161,9 +246,10 @@ const test = base.extend<{ app: ElectronApplication; window: Page }>({
       fs.writeFileSync(path.join(dir, "notifications.json"), JSON.stringify(notifications, null, 2));
     }
 
-    const binDir = path.join(tempHome, "bin");
-    fs.mkdirSync(binDir, { recursive: true });
-    fs.writeFileSync(path.join(binDir, "gh"), FAKE_GH, { mode: 0o755 });
+    const binDir = installFakeGh(tempHome, {
+      prs: FAKE_PRS,
+      conversations: { 102: PR_102_CONVERSATION },
+    });
     const originalPath = process.env.PATH ?? "";
     process.env.PATH = `${binDir}${path.delimiter}${originalPath}`;
 

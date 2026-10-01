@@ -3,6 +3,7 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import { Link } from "../ui/Link/Link";
 import { isRemoteHost, resolveUrlForHost } from "../../lib/hosts";
+import { openExternal } from "../../lib/open-external";
 import { useAppStore } from "../../store/app-store";
 import { isHomePath } from "../../lib/home-path";
 import {
@@ -46,7 +47,7 @@ export function PortBadge(props: PortBadgeProps) {
   }, [withResolvedUrl, addBrowserTab]);
 
   const handleOpenExternalDirect = useCallback(() => {
-    withResolvedUrl((target) => window.electronAPI.shell.openExternal(target));
+    withResolvedUrl((target) => openExternal(target));
   }, [withResolvedUrl]);
 
   /** Primary activation: a tab when there is one, else the default browser. */
@@ -55,7 +56,7 @@ export function PortBadge(props: PortBadgeProps) {
   const handleOpenExternal = useCallback(
     (e: { stopPropagation: () => void }) => {
       e.stopPropagation();
-      withResolvedUrl((target) => window.electronAPI.shell.openExternal(target));
+      withResolvedUrl((target) => openExternal(target));
     },
     [withResolvedUrl],
   );

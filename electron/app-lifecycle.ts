@@ -41,8 +41,14 @@ import {
 } from "./backend/registry";
 import { RoutedBackend } from "./backend/routed-backend";
 import { PrewarmManager } from "./prewarm-manager";
+import { releaseViewer } from "./pty-attachments";
+import { publishRendererBroadcast } from "./renderer-broadcast";
 import { RemoteDeviceStore } from "./remote-control/devices";
-import { RemoteControlController } from "./remote-control/controller";
+import type { WsBridgeServer } from "./remote-control/ws-bridge-server";
+import {
+  RemoteControlController,
+  type RemoteControlRuntime,
+} from "./remote-control/controller";
 import { PushManager } from "./remote-control/push";
 import type { ControlDeps } from "./routes/types";
 import { handleRelayedControlRequest } from "./control-relay";
@@ -247,8 +253,15 @@ export function initApp(devTitle: string | null): void {
 
   function trackRendererWindow(win: BrowserWindow): void {
     rendererWindows.add(win);
+    // Read the id now: `closed` fires with a freed native window behind the
+    // wrapper, and `webContents` is not there to be asked by then.
+    const viewerId = win.webContents.id;
     win.on("closed", () => {
       rendererWindows.delete(win);
+      // A window that dies without unmounting its panes still let them go —
+      // otherwise every pane it held stays desktop-owned forever and a browser
+      // on the bridge follows a grid nothing is driving (ADR-178 D5).
+      releaseViewer(viewerId);
     });
   }
 
@@ -473,11 +486,24 @@ export function initApp(devTitle: string | null): void {
   // on the first enable or tunnel start.
   const remoteDeviceStore = new RemoteDeviceStore();
   const remotePush = new PushManager(remoteDeviceStore);
-  const loadRemoteControlRuntime = async () => {
-    const [{ RemoteControlServer }, { TunnelManager }] = await Promise.all([
-      import("./remote-control/server"),
-      import("./remote-control/tunnel"),
-    ]);
+  /**
+   * ADR-178's WebSocket bridge — the web app's way in. Built with the
+   * remote-control runtime, because it is only reachable through that
+   * listener (and so loads lazily with it, ADR-205 §3); its handler table runs
+   * against exactly the `ipcDeps` the IPC handlers get. The PTY forwarding
+   * below reads it, and finds null until remote control is first enabled.
+   */
+  let wsBridge: WsBridgeServer | null = null;
+  const loadRemoteControlRuntime = async (): Promise<RemoteControlRuntime> => {
+    const [{ RemoteControlServer }, { TunnelManager }, { WsBridgeServer }] =
+      await Promise.all([
+        import("./remote-control/server"),
+        import("./remote-control/tunnel"),
+        import("./remote-control/ws-bridge-server"),
+      ]);
+    // The web app's bridge (ADR-178 D8). Same deps the IPC handlers get, by
+    // design: one table of what this host can do, reachable two ways.
+    wsBridge = new WsBridgeServer(ipcDeps);
     const server = new RemoteControlServer(
       (): ControlDeps => ({
         projectManager,
@@ -504,7 +530,7 @@ export function initApp(devTitle: string | null): void {
       }),
       remoteDeviceStore,
       // Rate limiter, audit log, and client directory all take their defaults.
-      { push: remotePush },
+      { push: remotePush, bridge: wsBridge },
     );
     // Detected, never installed; started only by an explicit user action. The
     // controller's shutdown guarantees the child dies with the app — a tunnel
@@ -596,6 +622,8 @@ export function initApp(devTitle: string | null): void {
     publishPaneStatus: (update: PaneStatusUpdate) => {
       // One channel, every window, once per signal (ADR-184 §4).
       sendToRendererWindows("agent-status", update);
+      // Browser renderers (ADR-178) hear it on the same signal: `agents.onStatus`.
+      publishRendererBroadcast("agents", "status", update);
       // Recorded per Agent, not per pane: panes are ephemeral (ADR-199 §1).
       // A pane with no Agent has no lane to record into. The lookup waits for
       // the rest of this effect batch: the reconciler publishes before its
@@ -685,6 +713,10 @@ export function initApp(devTitle: string | null): void {
     // one whose shell exited: the renderer recovers it when the host's
     // `hosts:reconnected` arrives (ADR-178 §6).
     if (isRemoteSessionLoss(hostId, event)) return;
+    // Every host's stream events arrive here and only here, so this is where
+    // the web app's bridge is fed too (ADR-178): its browsers see the same
+    // panes the windows do.
+    wsBridge?.handleStreamEvent(event);
     dispatchStreamEvent(event, getRendererWindows(), {
       agentManager,
       agentStatus: agentStatusDriver,
@@ -744,6 +776,7 @@ export function initApp(devTitle: string | null): void {
       return appMenu;
     },
   };
+
 
   // Give control routes (ADR-171) the same manager bag IPC handlers have.
   webviewServer.setControlDeps({
@@ -961,6 +994,9 @@ export function initApp(devTitle: string | null): void {
     // Takes the tunnel down first, then the listener. A tunnel must never
     // outlive the app that opened it.
     void remoteControl.shutdown();
+    // Bridge sockets die with the listener above; this also releases the
+    // renderer-broadcast sink so nothing publishes into a dead socket set.
+    wsBridge?.dispose();
     portlessManager.stop();
     prewarmManager.dispose().catch(() => {});
     // Takes down the ssh children; remote sessions keep running on their hosts.

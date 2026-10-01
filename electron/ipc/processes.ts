@@ -10,19 +10,24 @@ import {
   killAllProcesses,
 } from "../process-control";
 
+/**
+ * The daemon/process status read, lifted for the ADR-178 bridge. Everything
+ * else in this module kills something, and none of it is on the bridge.
+ */
+export function processesList(deps: IpcDeps): unknown {
+  const { backend, agentHookServer, webviewServer, portScanner } = deps;
+  return listProcesses({ backend, agentHookServer, webviewServer, portScanner });
+}
+
 export function register(deps: IpcDeps): void {
   const {
     backend,
     portScanner,
-    agentHookServer,
-    webviewServer,
     agentManager,
     statsStore,
   } = deps;
 
-  ipcMain.handle("processes:list", () =>
-    listProcesses({ backend, agentHookServer, webviewServer, portScanner }),
-  );
+  ipcMain.handle("processes:list", () => processesList(deps));
 
   ipcMain.handle("processes:killSession", async (_event, sessionId: string) => {
     assertString(sessionId, "sessionId");

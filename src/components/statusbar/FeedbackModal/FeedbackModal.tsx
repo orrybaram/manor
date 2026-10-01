@@ -3,6 +3,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { EmojiInput, EmojiTextarea } from "../../ui/EmojiAutocomplete";
 import { Button } from "../../ui/Button/Button";
 import { useToastStore } from "../../../store/toast-store";
+import { openExternal } from "../../../lib/open-external";
 import styles from "./FeedbackModal.module.css";
 
 const REPO = "orrybaram/manor";
@@ -131,7 +132,7 @@ export function FeedbackModal(props: FeedbackModalProps) {
           status: "success",
           action: {
             label: "View",
-            onClick: () => window.electronAPI.shell.openExternal(result.url),
+            onClick: () => openExternal(result.url),
           },
         });
         reset();
@@ -148,7 +149,7 @@ export function FeedbackModal(props: FeedbackModalProps) {
       labels: labels.join(","),
     });
     const url = `https://github.com/${REPO}/issues/new?${params.toString()}`;
-    await window.electronAPI.shell.openExternal(url);
+    openExternal(url);
 
     updateToast(toastId, {
       message: "Opened in browser",

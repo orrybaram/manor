@@ -12,6 +12,7 @@ import crypto from "node:crypto";
 import { BrowserWindow, ipcMain } from "electron";
 import type { Json } from "./routes/types";
 import type { HostId } from "./backend/types";
+import { publishRendererBroadcast } from "./renderer-broadcast";
 
 /**
  * Payload of the main→renderer "app-command" channel.
@@ -221,6 +222,9 @@ export function runSetupScript(
  * the sidebar keeps showing the pre-mutation list until something else refetches.
  */
 export function notifyProjectsChanged(): void {
+  // Browser renderers (ADR-178) are not `BrowserWindow`s, so they are told on
+  // the same signal rather than by the line below.
+  publishRendererBroadcast("projects", "changed");
   const win = BrowserWindow.getAllWindows()[0];
   if (!win) return;
   win.webContents.send("projects-changed");

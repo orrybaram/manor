@@ -8,10 +8,10 @@ import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import { useRemoteControlStore } from "../../store/remote-control-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { Button } from "../ui/Button/Button";
-import { Checkbox } from "../ui/Checkbox/Checkbox";
 import { Input } from "../ui/Input";
 import { Stack, Row } from "../ui/Layout/Layout";
 import { Switch } from "../ui/Switch/Switch";
+import { ToggleGroup } from "../ui/ToggleGroup";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { CopyField } from "./CopyField";
 import { relativeShort } from "../../utils/relative-time";
@@ -20,16 +20,46 @@ import {
   TunnelConfirmDialog,
 } from "./RemoteControlDialogs";
 import type {
+  RemoteCapability,
   RemoteDeviceInfo,
   RemotePairResult,
   TunnelKind,
 } from "../../electron.d";
 import { SectionTitle } from "./SectionTitle";
+import { isWebApp } from "../../lib/platform";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 const TUNNEL_LABEL: Record<TunnelKind, string> = {
   tailscale: "Tailscale",
   cloudflared: "Cloudflare Tunnel",
+};
+
+/**
+ * The three tiers, as a person picks them (ADR-178 D3). Named for what the
+ * device gets to *do* rather than for the mechanism, and ordered by how much
+ * of the machine that is. `read` is first because it is the default.
+ */
+const CAPABILITY_OPTIONS: {
+  value: RemoteCapability;
+  label: string;
+}[] = [
+  { value: "read", label: "Watch" },
+  { value: "send", label: "Reply" },
+  { value: "full", label: "Everything" },
+];
+
+/** One sentence per tier, shown under the picker for whichever is selected. */
+const CAPABILITY_HINT: Record<RemoteCapability, string> = {
+  read: "It can see your sessions, their statuses and their full scrollback. It cannot type.",
+  send: "It can type into a live shell. Leave off unless you need it.",
+  full: "This device can do anything the desktop app can, including removing workspaces.",
+};
+
+/** Short badge for a device row. `read` gets none — it is the baseline. */
+const CAPABILITY_BADGE: Record<RemoteCapability, string | null> = {
+  read: null,
+  send: "can send",
+  full: "everything",
 };
 
 /**
@@ -55,7 +85,10 @@ export function RemoteControlPage() {
   const refreshDetection = useRemoteControlStore((s) => s.refreshDetection);
 
   const [label, setLabel] = useState("");
-  const [canSend, setCanSend] = useState(false);
+  // Never `full` by default, and never sticky between pairings: the widest
+  // tier has to be chosen every time, by someone who has just read the
+  // sentence under it.
+  const [capability, setCapability] = useState<RemoteCapability>("read");
   const [pairing, setPairing] = useState<RemotePairResult | null>(null);
   const [pairError, setPairError] = useState<string | null>(null);
   const [confirmKind, setConfirmKind] = useState<TunnelKind | null>(null);
@@ -63,6 +96,13 @@ export function RemoteControlPage() {
   useMountEffect(() => {
     void refreshDetection();
   });
+
+  // `remoteControl.*` isn't on the slice-1 bridge table (ADR-178) — not even
+  // the reads, so this page's own status never actually loads over the
+  // bridge. Read-only with a note beats a switch and a pairing form that
+  // silently do nothing.
+  const webApp = isWebApp();
+  const locked = webApp || busy || !status.encryptionAvailable;
 
   const tunnel = status.tunnel;
   const running = tunnel.state === "running";
@@ -75,15 +115,15 @@ export function RemoteControlPage() {
     try {
       const result = await window.electronAPI.remoteControl.pair(
         label.trim(),
-        canSend,
+        capability,
       );
       setPairing(result);
       setLabel("");
-      setCanSend(false);
+      setCapability("read");
     } catch (err) {
       setPairError(err instanceof Error ? err.message : String(err));
     }
-  }, [label, canSend]);
+  }, [label, capability]);
 
   return (
     <Stack className={styles.pageContent}>
@@ -99,10 +139,17 @@ export function RemoteControlPage() {
         <Switch
           data-testid="remote-control-switch"
           checked={status.enabled}
-          disabled={busy || !status.encryptionAvailable}
+          disabled={locked}
           onCheckedChange={(checked) => void setEnabled(checked)}
         />
       </div>
+
+      {webApp && (
+        <div className={styles.sectionDescription}>
+          This page isn&apos;t live from the browser yet — the switch, pairing
+          and tunnel controls are read-only here.
+        </div>
+      )}
 
       {!status.encryptionAvailable && (
         <div className={styles.remoteWarning}>
@@ -139,6 +186,7 @@ export function RemoteControlPage() {
                 placeholder="Device name, e.g. “my phone”"
                 value={label}
                 maxLength={64}
+                disabled={webApp}
                 onChange={(e) => setLabel(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && label.trim()) void handlePair();
@@ -147,25 +195,33 @@ export function RemoteControlPage() {
               <Button
                 data-testid="remote-pair-submit"
                 variant="secondary"
-                disabled={busy || label.trim().length === 0}
+                disabled={locked || label.trim().length === 0}
                 onClick={() => void handlePair()}
               >
                 Pair
               </Button>
             </Row>
-            <label className={styles.remoteCapabilityRow}>
-              <Checkbox
-                data-testid="remote-pair-can-send"
-                checked={canSend}
-                onCheckedChange={(checked) => setCanSend(checked === true)}
+            <div
+              className={styles.remoteCapabilityRow}
+              data-testid="remote-pair-capability"
+            >
+              <ToggleGroup
+                size="sm"
+                value={capability}
+                onChange={setCapability}
+                options={CAPABILITY_OPTIONS}
               />
-              <span>
-                Let this device send input
+              {capability === "full" ? (
+                <div className={styles.remoteWarning}>
+                  <ShieldAlert size={14} />
+                  <span>{CAPABILITY_HINT.full}</span>
+                </div>
+              ) : (
                 <span className={styles.fieldHint}>
-                  It can type into a live shell. Leave off unless you need it.
+                  {CAPABILITY_HINT[capability]}
                 </span>
-              </span>
-            </label>
+              )}
+            </div>
             {pairError && <div className={styles.linearError}>{pairError}</div>}
 
             {status.devices.length === 0 ? (
@@ -176,7 +232,7 @@ export function RemoteControlPage() {
                   <DeviceRow
                     key={device.id}
                     device={device}
-                    busy={busy}
+                    busy={locked}
                     onRevoke={() => void revoke(device.id)}
                   />
                 ))}
@@ -199,7 +255,7 @@ export function RemoteControlPage() {
               <Row gap="sm">
                 <Button
                   variant="secondary"
-                  disabled={busy}
+                  disabled={locked}
                   onClick={() => void stopTunnel()}
                 >
                   Stop tunnel
@@ -223,7 +279,7 @@ export function RemoteControlPage() {
                   >
                     <Button
                       variant="secondary"
-                      disabled={busy || tunnel.state === "starting"}
+                      disabled={locked || tunnel.state === "starting"}
                       onClick={() => setConfirmKind(kind)}
                     >
                       {tunnel.state === "starting"
@@ -241,7 +297,10 @@ export function RemoteControlPage() {
       <TunnelConfirmDialog
         kind={confirmKind}
         kindLabel={confirmKind ? TUNNEL_LABEL[confirmKind] : null}
-        canSendCount={status.devices.filter((d) => d.canSend).length}
+        capabilityCounts={{
+          send: status.devices.filter((d) => d.capability === "send").length,
+          full: status.devices.filter((d) => d.capability === "full").length,
+        }}
         onCancel={() => setConfirmKind(null)}
         onConfirm={(kind) => {
           setConfirmKind(null);
@@ -312,15 +371,14 @@ function DeviceRow(props: {
   onRevoke: () => void;
 }) {
   const { device, busy, onRevoke } = props;
+  const badge = CAPABILITY_BADGE[device.capability];
   return (
     <div data-testid="remote-device-row" className={styles.remoteDeviceRow}>
       <Smartphone size={14} className={styles.remoteDeviceIcon} />
       <div className={styles.remoteDeviceBody}>
         <div className={styles.remoteDeviceLabel}>
           <span>{device.label}</span>
-          {device.canSend && (
-            <span className={styles.remoteSendBadge}>can send</span>
-          )}
+          {badge && <span className={styles.remoteSendBadge}>{badge}</span>}
           {device.hasPush && (
             <span className={styles.remoteSendBadge}>push</span>
           )}

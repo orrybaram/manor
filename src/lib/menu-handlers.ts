@@ -36,6 +36,7 @@ import {
 import { hideWorkspaceAndNavigate } from "../store/workspace-actions";
 import {
   createSharedKeybindingHandlers,
+  guardHandlersForWeb,
   unlessOverviewShown,
   resolveWorkspaceCommand,
 } from "./keybinding-commands";
@@ -192,7 +193,11 @@ export function createMenuHandlers(
 ): Record<string, MenuHandler> {
   const app = () => useAppStore.getState();
 
-  return {
+  // `createSharedKeybindingHandlers` already guards its own half; wrapping
+  // the whole merged map (below) also neutralizes the primary-only entries
+  // — `open-in-editor`, `reveal-in-finder`, `detach-pane`, `detach-tab`, the
+  // help links — that only exist here (ADR-178 ticket 6).
+  return guardHandlersForWeb({
     ...createSharedKeybindingHandlers({ prewarmNewAgent: true }),
 
     // ── Primary-window keybindings ─────────────────────────────────────────
@@ -370,7 +375,7 @@ export function createMenuHandlers(
     "help-report-issue": () =>
       void window.electronAPI.shell.openExternal(EXTERNAL_LINKS.newIssue),
     ghosts: () => chrome.showGhosts(),
-  };
+  });
 }
 
 /** Command ids already reported as unhandled — warn once, not per click. */

@@ -1,10 +1,11 @@
 /**
  * Append-only log of every remote-control write (ADR-161 §4).
  *
- * The one route on the remote surface that can act types into a live shell, so
- * there has to be an answer to "what did that device do". This is that answer,
- * and it is deliberately a plain JSONL file rather than anything queryable: it
- * is written on a path that must not fail, and read rarely.
+ * Routes on the remote surface that act type into a live shell, start
+ * processes, and — for a `full` device (ADR-178) — do anything the desktop app
+ * can. So there has to be an answer to "what did that device do". This is that
+ * answer, and it is deliberately a plain JSONL file rather than anything
+ * queryable: it is written on a path that must not fail, and read rarely.
  *
  * **The text is never recorded** — only its length and SHA-256. Scrollback and
  * prompts routinely carry API keys, and an audit log that quietly accumulates
@@ -27,6 +28,28 @@ export interface RemoteAuditEntry {
   at: string;
   deviceId: string;
   deviceLabel: string;
+  /**
+   * Which capability tier wrote this line (ADR-178 D3).
+   *
+   * `send` lines are the three acting routes, each of which passed a
+   * `confirmed: true` gate and carries a text length and hash. `full` lines
+   * are *any* non-GET route the desktop app can reach, passed no gate at all,
+   * and carry no text — the shape of the bodies is too varied to pick a field
+   * out of safely, and the desktop UI's own confirmations are what stood in
+   * front of them. Absent on lines written before this field existed.
+   */
+  tier?: "send" | "full";
+  /**
+   * Which surface the device came in on (ADR-178 D8).
+   *
+   * `"http"` — omitted, for every line written before this field existed — is
+   * a route on the remote listener, and `route` reads `POST /sessions/send`.
+   * `"bridge"` is a WebSocket `invoke`, and `route` reads `pty.create`: a
+   * handler-table key, not an HTTP one. Two different namespaces in one field
+   * would be a trap for anyone grepping the trail, so the field that says
+   * which is right next to it.
+   */
+  transport?: "http" | "bridge";
   route: string;
   /** The `target` the caller named — an agent id, pane id, or branch. */
   target: string | null;

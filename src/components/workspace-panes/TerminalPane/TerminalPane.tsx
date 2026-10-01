@@ -22,6 +22,7 @@ import { TerminalSearch } from "./TerminalSearchBar";
 import { HostOfflineBanner } from "./HostOfflineBanner";
 import { onUiRequest } from "../../../utils/ui-request";
 import { isRemotePane, pasteClipboardImage } from "../../../lib/remote-image-paste";
+import { isWebApp } from "../../../lib/platform";
 import styles from "./TerminalPane.module.css";
 
 type TerminalPaneProps = {
@@ -56,7 +57,7 @@ export function TerminalPane(props: TerminalPaneProps) {
     });
   }, [paneId, openSearch]);
 
-  const { ptyError, term, write, reset } = useTerminalLifecycle(
+  const { ptyError, term, write, reset, follower } = useTerminalLifecycle(
     containerRef,
     paneId,
     cwd,
@@ -71,8 +72,21 @@ export function TerminalPane(props: TerminalPaneProps) {
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
-        <div ref={containerRef} className={styles.container} data-testid="terminal-pane">
+        <div
+          ref={containerRef}
+          className={`${styles.container} ${follower ? styles.containerFollowing : ""}`}
+          data-testid="terminal-pane"
+        >
           <HostOfflineBanner paneId={paneId} workspaceKey={workspaceKey} />
+          {/* Why this pane does not fit its box: the desktop app owns this
+              session's winsize and this viewer is following it (ADR-178 D5).
+              Saying so is cheaper than leaving the user to discover that
+              dragging the pane changes nothing. */}
+          {follower && (
+            <span className={styles.followerBadge} data-testid="terminal-follower">
+              following desktop · {follower.cols}×{follower.rows}
+            </span>
+          )}
           {searchOpen && term && (
             <Suspense fallback={null}>
               <TerminalSearch
@@ -99,16 +113,20 @@ export function TerminalPane(props: TerminalPaneProps) {
                   <strong>Developer Tools</strong>.
                 </p>
                 <Row gap="sm" className={styles.errorActions}>
-                  <button
-                    className={styles.errorButton}
-                    onClick={() => {
-                      window.electronAPI.shell.openExternal(
-                        "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
-                      );
-                    }}
-                  >
-                    Open Privacy &amp; Security
-                  </button>
+                  {/* A macOS Settings deep link — no such surface in a
+                      browser tab (ADR-178). */}
+                  {!isWebApp() && (
+                    <button
+                      className={styles.errorButton}
+                      onClick={() => {
+                        window.electronAPI.shell.openExternal(
+                          "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+                        );
+                      }}
+                    >
+                      Open Privacy &amp; Security
+                    </button>
+                  )}
                   <Dialog.Close asChild>
                     <button className={styles.errorButton}>
                       Dismiss

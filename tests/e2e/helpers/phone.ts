@@ -1,34 +1,53 @@
-import { chromium, type Locator, type Page } from "@playwright/test";
+import {
+  chromium,
+  type BrowserContextOptions,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 
 /**
- * The ADR-161 client, driven the way a paired phone drives it: an ordinary
- * browser page on a phone-shaped viewport that knows nothing but an address
- * and a bearer token, which is the whole contract the client may rely on.
+ * A browser page loaded against Manor's own address, driven the way any
+ * paired device drives it: it knows nothing but a URL — the pairing dialog's
+ * link, with a fragment holding the token — and a Chromium viewport.
+ *
+ * Two shapes come out of this. The ADR-161 phone client (`openPhoneClient`)
+ * loads `/#token` at a phone viewport and renders its own tiny UI. The
+ * ADR-178 web app (`openWebApp`) loads `/app#token` at a PC viewport and
+ * renders the *same* `App` the desktop shows — same test ids, same sidebar,
+ * same terminal pane — so a test can drive it with the desktop's own helpers.
  */
 
-export interface Phone {
+export interface Client {
   page: Page;
   /** Everything the page logged, plus any failed or 4xx/5xx request. */
   log: string[];
   close(): Promise<void>;
 }
 
-export async function openPhoneClient(
-  port: number,
-  token: string,
-  { headed = false }: { headed?: boolean } = {},
-): Promise<Phone> {
+/** Kept as the name every existing caller imports; `Client` is the same shape. */
+export type Phone = Client;
+
+export interface OpenClientOptions {
+  viewport: { width: number; height: number };
+  headed?: boolean;
+  /** Passed through to `newContext`, layered under `viewport`/`permissions`. */
+  context?: BrowserContextOptions;
+}
+
+/**
+ * Load `url` in its own browser, context and page — nothing shared with the
+ * Electron app or any other client this run opens.
+ */
+export async function openClient(
+  url: string,
+  { viewport, headed = false, context: contextOverrides = {} }: OpenClientOptions,
+): Promise<Client> {
   const browser = await chromium.launch({ headless: !headed });
-  const origin = `http://127.0.0.1:${port}`;
+  const origin = new URL(url).origin;
   const context = await browser.newContext({
-    viewport: { width: 390, height: 844 },
-    deviceScaleFactor: 2,
-    isMobile: true,
-    hasTouch: true,
-    // Granted rather than left to a prompt: the client asks for notification
-    // permission on load, and an unanswered prompt would leave push in a state
-    // no phone is ever in.
+    viewport,
     permissions: ["notifications"],
+    ...contextOverrides,
   });
   await context.grantPermissions(["notifications"], { origin });
 
@@ -47,7 +66,7 @@ export async function openPhoneClient(
     if (res.status() >= 400) log.push(`[http ${res.status()}] ${res.url()}`);
   });
 
-  await page.goto(`${origin}/#${token}`);
+  await page.goto(url);
 
   return {
     page,
@@ -59,8 +78,36 @@ export async function openPhoneClient(
   };
 }
 
+/** The ADR-161 client, at the phone viewport its layout is built for. */
+export async function openPhoneClient(
+  port: number,
+  token: string,
+  { headed = false }: { headed?: boolean } = {},
+): Promise<Phone> {
+  return openClient(`http://127.0.0.1:${port}/#${token}`, {
+    viewport: { width: 390, height: 844 },
+    headed,
+    context: { deviceScaleFactor: 2, isMobile: true, hasTouch: true },
+  });
+}
+
 /**
- * One session row in the client's list.
+ * The ADR-178 web app — the desktop renderer served to a browser — at a PC
+ * viewport. `pairDevice`'s token, `/app` in place of `/`, same fragment.
+ */
+export async function openWebApp(
+  port: number,
+  token: string,
+  { headed = false }: { headed?: boolean } = {},
+): Promise<Client> {
+  return openClient(`http://127.0.0.1:${port}/app#${token}`, {
+    viewport: { width: 1280, height: 800 },
+    headed,
+  });
+}
+
+/**
+ * One session row in the phone client's list.
  *
  * Addressed by what it says rather than by position: `GET /agents` also returns
  * the prewarmed session Manor keeps warm in the background, which has no

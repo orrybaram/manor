@@ -14,6 +14,8 @@ import { createFileLinkProvider } from "../terminal/file-link-provider";
 import { selectActiveLayout, useAppStore, type PendingPaneCommand } from "../store/app-store";
 import { parseWorkspaceKey, workspaceKey as makeWorkspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import { ownerOf } from "../lib/workspace-directory";
+import { openExternal } from "../lib/open-external";
+import { handleBridgeUnavailable } from "../lib/bridge-unavailable-toast";
 import { useProjectStore } from "../store/project-store";
 import { getAgentKindForCommand } from "../agent-defaults";
 import { isNavRegionKeyboardFocused } from "../lib/focus-regions";
@@ -22,6 +24,7 @@ import { installKittyKeyboard } from "../lib/kitty-keyboard";
 import { paneCreateHostId, useTerminalConnection } from "./useTerminalConnection";
 import { useRemotePaneStore } from "../store/remote-pane-store";
 import { isRemotePane, pasteClipboardImage } from "../lib/remote-image-paste";
+import type { PtyWinsize } from "../electron.d";
 import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
 import { useTerminalResize } from "./useTerminalResize";
@@ -77,7 +80,39 @@ export function useTerminalLifecycle(
   const [term, setTerm] = useState<Terminal | null>(null);
   const [fitAddon, setFitAddon] = useState<FitAddon | null>(null);
   const [ptyError, setPtyError] = useState<string | null>(null);
+  /**
+   * The winsize owner's grid, when this viewer is not the owner (ADR-178 D5).
+   *
+   * Null until the create reply says otherwise, and null forever in the desktop
+   * app: `winsizeOwner` is the bridge's field and the preload path never sets
+   * it, so absent means owner. Held as one object so the identity a follower
+   * hands `useTerminalResize` is stable between renders.
+   */
+  const [follower, setFollower] = useState<{ cols: number; rows: number } | null>(
+    null,
+  );
   const termRef = useRef<Terminal | null>(null);
+  /**
+   * Read the winsize ownership off a create-shaped reply.
+   *
+   * Every field here is optional and absent on the desktop, so the one shape
+   * this has to get right is "said nothing" — which means this viewer owns the
+   * winsize and the hook behaves exactly as it did before ADR-178.
+   */
+  const applyWinsize = useCallback((result: PtyWinsize) => {
+    const { winsizeOwner, cols, rows } = result;
+    if (winsizeOwner === false && cols && rows) {
+      // Same object back when the grid has not moved: this is the identity
+      // `useTerminalResize` re-runs its effect on.
+      setFollower((prev) =>
+        prev && prev.cols === cols && prev.rows === rows
+          ? prev
+          : { cols, rows },
+      );
+    } else {
+      setFollower(null);
+    }
+  }, []);
   const resettingRef = useRef(false);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { write, requeueUndelivered, resize, create, detach } =
@@ -93,8 +128,8 @@ export function useTerminalLifecycle(
     resettingRef,
   );
 
-  // Auto-resize
-  useTerminalResize(containerRef, fitAddon, term, resize);
+  // Auto-resize — or, for a follower, auto-*fit*: see ADR-178 D5.
+  useTerminalResize(containerRef, fitAddon, term, resize, follower);
 
   // Auto-focus terminal when this pane becomes the focused pane of the active tab.
   // Uses a selector + useEffect so focus() runs after React commits DOM changes
@@ -175,7 +210,7 @@ export function useTerminalLifecycle(
           ...(currentTheme ? { theme: currentTheme } : {}),
           linkHandler: {
             activate: (_event, text) => {
-              window.electronAPI.shell.openExternal(text);
+              openExternal(text);
             },
           },
         }),
@@ -237,7 +272,7 @@ export function useTerminalLifecycle(
       try {
         t.loadAddon(
           new WebLinksAddon((_event, url) => {
-            window.electronAPI.shell.openExternal(url);
+            openExternal(url);
           }),
         );
       } catch {
@@ -377,6 +412,7 @@ export function useTerminalLifecycle(
       create(spawnCwd, cols, rows, agentKindForCreate).then(
         (result) => {
           if (disposed) return;
+          applyWinsize(result);
           if (!result.ok) {
             // "host-unavailable" is not a failure: the pane's remote host is
             // away, its banner says so, and the pane is created once the host
@@ -402,12 +438,19 @@ export function useTerminalLifecycle(
             const project = cwdProject;
 
             // Fire-and-forget call to set pane context
-            window.electronAPI.agents.setPaneContext(paneId, {
-              projectId: project?.id ?? "",
-              projectName: project?.name ?? "",
-              workspacePath: cwd,
-              agentCommand: project?.agentCommand ?? null,
-            });
+            window.electronAPI.agents
+              .setPaneContext(paneId, {
+                projectId: project?.id ?? "",
+                projectName: project?.name ?? "",
+                workspacePath: cwd,
+                agentCommand: project?.agentCommand ?? null,
+              })
+              .catch(
+                handleBridgeUnavailable(
+                  "agents-set-pane-context-unavailable",
+                  "Pane context isn't synced from the browser yet",
+                ),
+              );
           }
 
           // Check for pending startup command (e.g. worktree start script)
@@ -566,6 +609,9 @@ export function useTerminalLifecycle(
         t.rows,
         { hostId: paneCreateHostId(paneId, workspaceKey) },
       );
+      // Reset is create-shaped on the bridge too, and a pane the desktop holds
+      // is still the desktop's after one (ADR-178 D5).
+      applyWinsize(result);
       if (!result.ok) {
         setPtyError(result.error ?? "Failed to create terminal session");
       } else {
@@ -581,7 +627,7 @@ export function useTerminalLifecycle(
         resettingRef.current = false;
       }, 1_000);
     }
-  }, [paneId, cwd, workspaceKey]);
+  }, [paneId, cwd, workspaceKey, applyWinsize]);
 
-  return { term, fitAddon, ptyError, write, reset };
+  return { term, fitAddon, ptyError, write, reset, follower };
 }

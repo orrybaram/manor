@@ -24,8 +24,8 @@ import {
 } from "./tasks";
 import { TRACKERS, type TaskTracker } from "./trackers";
 
-/** One list query's outcome: its rows, or a failure that contributed none. */
-export type SourceResult = { rows: TaskRow[]; failed: boolean };
+/** One list query's outcome: its rows, or a failure (and why) that contributed none. */
+export type SourceResult = { rows: TaskRow[]; failed: boolean; error?: string };
 
 /** A row of the list: a fetched task, or one linked to a workspace. */
 type ListRow = TaskRow | LinkedTask;
@@ -66,11 +66,13 @@ function collectTasks(rows: readonly TaskRow[]): TaskRow[] {
  * Merge the per-source query results (ADR-198 §3): a task the "assigned"
  * query listed is marked `assignedToMe` wherever it appears, repeats are
  * dropped keeping the first, and rows come most recently updated first.
- * `failedCount` is how many sources failed.
+ * `failedCount` is how many sources failed; `failures` says why, once per
+ * distinct reason.
  */
 export function mergeSources(results: readonly SourceResult[]): {
   rows: TaskRow[];
   failedCount: number;
+  failures: string[];
 } {
   const rows = results.flatMap((r) => r.rows);
   const mine = new Set(
@@ -85,6 +87,9 @@ export function mergeSources(results: readonly SourceResult[]): {
       ),
     ),
     failedCount: results.filter((r) => r.failed).length,
+    failures: [
+      ...new Set(results.flatMap((r) => (r.failed && r.error ? [r.error] : []))),
+    ],
   };
 }
 

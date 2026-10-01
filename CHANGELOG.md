@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.18.8] - 2026-09-30
+
+### Features
+- Panes whose SSH host is offline now show an overlay saying the host is away
+
+### Improvements
+- SSH hosts now look the same everywhere they appear in the app
+
 ## [0.18.7] - 2026-09-30
 
 ### Fixes

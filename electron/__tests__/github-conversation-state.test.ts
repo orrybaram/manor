@@ -321,6 +321,59 @@ describe("parseStatusCheckRollup", () => {
     ]);
   });
 
+  it("counts only the newest run of a check that ran more than once", () => {
+    // A cancelled workflow run and its replacement on the same commit: the
+    // rollup returns both attempts, and only the second one is current.
+    const { checks, checkRuns } = parseStatusCheckRollup([
+      {
+        name: "unit",
+        conclusion: "CANCELLED",
+        workflowName: "CI",
+        startedAt: "2026-10-01T16:15:18Z",
+      },
+      {
+        name: "unit",
+        conclusion: "SUCCESS",
+        workflowName: "CI",
+        startedAt: "2026-10-01T16:23:42Z",
+      },
+      // Same name, different workflow: a different check.
+      {
+        name: "unit",
+        conclusion: "FAILURE",
+        workflowName: "Nightly",
+        startedAt: "2026-10-01T16:00:00Z",
+      },
+      // A re-run still queued has no start time yet, and is the newest.
+      { name: "e2e", conclusion: "FAILURE", startedAt: "2026-10-01T16:10:00Z" },
+      { name: "e2e", conclusion: null, status: "QUEUED", startedAt: null },
+      {
+        context: "ci/legacy",
+        state: "FAILURE",
+        createdAt: "2026-10-01T16:00:00Z",
+      },
+      {
+        context: "ci/legacy",
+        state: "SUCCESS",
+        createdAt: "2026-10-01T16:30:00Z",
+      },
+    ]);
+
+    expect(checks).toEqual({
+      total: 4,
+      passing: 2,
+      failing: 1,
+      pending: 1,
+      skipped: 0,
+    });
+    expect(checkRuns?.map((r) => [r.name, r.workflow, r.status])).toEqual([
+      ["unit", "Nightly", "failing"],
+      ["e2e", null, "pending"],
+      ["unit", "CI", "passing"],
+      ["ci/legacy", null, "passing"],
+    ]);
+  });
+
   it("reads legacy status contexts, which carry state and a target url", () => {
     const { checkRuns } = parseStatusCheckRollup([
       {

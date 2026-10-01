@@ -874,6 +874,30 @@ function checkStatusOf(check: RawStatusCheck): PrCheckStatus {
 }
 
 /**
+ * The rollup lists every run on the head commit, so a workflow that was
+ * cancelled and run again (or a job re-run after failing) leaves its old
+ * attempt behind, still failing, next to the new one. Like `gh pr checks`,
+ * keep only the newest run of each check, a check being a name within a
+ * workflow. A run with no start time is still queued: newer than any that
+ * started.
+ */
+function latestAttempts(rollup: RawStatusCheck[]): RawStatusCheck[] {
+  const startOf = (check: RawStatusCheck) => {
+    const at = check.startedAt ?? check.createdAt;
+    if (at == null) return Infinity;
+    const time = Date.parse(at);
+    return Number.isNaN(time) ? -Infinity : time;
+  };
+  const latest = new Map<string, RawStatusCheck>();
+  for (const check of rollup) {
+    const key = `${check.workflowName ?? ""}\0${check.name ?? check.context ?? ""}`;
+    const seen = latest.get(key);
+    if (!seen || startOf(check) >= startOf(seen)) latest.set(key, check);
+  }
+  return Array.from(latest.values());
+}
+
+/**
  * Exported for tests. Returns both the counts the badge reads and the named
  * runs the popover lists, ordered failing → pending → passing → skipped so
  * the UI can truncate from the end and still show what matters.
@@ -885,6 +909,7 @@ export function parseStatusCheckRollup(rollup: unknown): {
   if (!Array.isArray(rollup) || rollup.length === 0) {
     return { checks: null };
   }
+  const latest = latestAttempts(rollup as RawStatusCheck[]);
 
   const rank: Record<PrCheckStatus, number> = {
     failing: 0,
@@ -893,7 +918,7 @@ export function parseStatusCheckRollup(rollup: unknown): {
     skipped: 3,
   };
   const counts: Required<ChecksSummary> = {
-    total: rollup.length,
+    total: latest.length,
     passing: 0,
     failing: 0,
     pending: 0,
@@ -901,7 +926,7 @@ export function parseStatusCheckRollup(rollup: unknown): {
   };
   const runs: PrCheckRun[] = [];
 
-  for (const raw of rollup as RawStatusCheck[]) {
+  for (const raw of latest) {
     const status = checkStatusOf(raw);
     counts[status]++;
     runs.push({

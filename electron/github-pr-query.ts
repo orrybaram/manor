@@ -20,6 +20,10 @@ export interface RawStatusCheck {
   detailsUrl?: string;
   targetUrl?: string;
   workflowName?: string;
+  /** Check runs: when it started; null while still queued. */
+  startedAt?: string | null;
+  /** Status contexts: when it was posted. */
+  createdAt?: string | null;
 }
 
 /** One PR as the batched branch query returns it, its rollup flattened. */
@@ -64,8 +68,8 @@ const PR_FIELDS =
   "autoMergeRequest { enabledAt } " +
   "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { " +
   "__typename " +
-  "... on CheckRun { name conclusion status detailsUrl checkSuite { workflowRun { workflow { name } } } } " +
-  "... on StatusContext { context state targetUrl } " +
+  "... on CheckRun { name conclusion status detailsUrl startedAt checkSuite { workflowRun { workflow { name } } } } " +
+  "... on StatusContext { context state targetUrl createdAt } " +
   "} } } } } }";
 
 /**

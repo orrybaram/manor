@@ -172,7 +172,7 @@ test("drag-selecting stays responsive while a terminal streams", async ({
   await window.waitForTimeout(1_000);
 
   // Back to the diff tab, with the flood still running behind it.
-  await window.keyboard.press("Meta+Shift+g");
+  await window.keyboard.press("ControlOrMeta+Shift+g");
   await expect(window.locator("[data-diff-lines]").first()).toBeVisible({
     timeout: 30_000,
   });
@@ -452,7 +452,7 @@ async function pickDragRows(window: Page): Promise<{
 
 /** Cmd+Shift+G, then wait for the pane to exist. */
 async function openDiffPane(window: Page): Promise<void> {
-  await window.keyboard.press("Meta+Shift+g");
+  await window.keyboard.press("ControlOrMeta+Shift+g");
   await expect(window.locator("[data-diff-lines]").first()).toBeVisible({
     timeout: 60_000,
   });

@@ -259,7 +259,7 @@ test.describe("agent rename", () => {
       await expect(window.getByTestId("notifications-bell")).toBeVisible({
         timeout: 30_000,
       });
-      await window.keyboard.press("Meta+k");
+      await window.keyboard.press("ControlOrMeta+k");
       const paletteInput = window.locator("[cmdk-input]");
       await expect(paletteInput).toBeVisible({ timeout: 10_000 });
       await paletteInput.fill("View All Agents");

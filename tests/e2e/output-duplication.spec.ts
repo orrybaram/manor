@@ -58,7 +58,7 @@ async function runOnce(
 /** Matches for `needle` in the visible terminal's buffer, via Cmd+F's n/m readout. */
 async function onScreenMatches(window: Page, needle: string): Promise<number> {
   await window.locator('[data-testid="terminal-pane"]:visible').first().click();
-  await window.keyboard.press("Meta+f");
+  await window.keyboard.press("ControlOrMeta+f");
   const input = window.getByPlaceholder("Search terminal");
   await expect(input).toBeVisible({ timeout: 5_000 });
   await input.fill(needle);
@@ -126,7 +126,7 @@ test("switching workspaces never resizes a terminal's PTY", async ({
   );
 
   await createWorkspace(window, "ws-winch-other");
-  await window.keyboard.press("Meta+t");
+  await window.keyboard.press("ControlOrMeta+t");
   await expect(
     window.locator('[data-testid="terminal-pane"]:visible'),
   ).toHaveCount(1, { timeout: 30_000 });
@@ -194,7 +194,7 @@ test("control: the SIGWINCH tripwire fires on a real resize", async ({
 
   // Splitting the pane genuinely halves its box — the PTY must be resized.
   // The resulting fit lands ~3s later (same on main), hence the wide timeout.
-  await window.keyboard.press("Meta+d");
+  await window.keyboard.press("ControlOrMeta+d");
   await expect(
     window.locator('[data-testid="workspace-pane"]:visible'),
   ).toHaveCount(2, { timeout: 10_000 });

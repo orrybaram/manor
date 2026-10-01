@@ -15,7 +15,7 @@ import type { Filmstrip } from "./filmstrip";
 export async function openSettings(window: Page): Promise<void> {
   const modal = window.getByTestId("settings-modal");
   if (await modal.isVisible().catch(() => false)) return;
-  await window.keyboard.press("Meta+,");
+  await window.keyboard.press("ControlOrMeta+,");
   await expect(modal).toBeVisible({ timeout: 10_000 });
 }
 

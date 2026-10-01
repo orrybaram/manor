@@ -267,7 +267,7 @@ async function createWorkspaceInFolder(
   strip: Filmstrip,
   shotName?: string,
 ): Promise<void> {
-  await window.keyboard.press("Meta+Shift+n");
+  await window.keyboard.press("ControlOrMeta+Shift+n");
   const dialog = window.locator('[data-testid="new-workspace-dialog"]');
   await expect(dialog).toBeVisible({ timeout: 5_000 });
   await window.locator('[data-testid="new-workspace-name-input"]').fill(name);
@@ -402,7 +402,7 @@ test("sidebar PR badge, popover, notifications, folders and diff tree", async ({
   fs.writeFileSync(path.join(uiFixPath!, "src-a.ts"), "export const a = 1;\nexport const b = 2;\n");
   fs.writeFileSync(path.join(uiFixPath!, "README.md"), "# ui-fix\n\nchanged\n");
   fs.writeFileSync(path.join(uiFixPath!, ".gitkeep"), "changed\n");
-  await window.keyboard.press("Meta+Shift+g");
+  await window.keyboard.press("ControlOrMeta+Shift+g");
   const rowStats = window.locator('[class*="rowStats"]').first();
   await expect(rowStats).toBeVisible({ timeout: 20_000 });
   const fontSize = await rowStats.evaluate((el) => getComputedStyle(el).fontSize);
@@ -458,7 +458,7 @@ test("PR badge popover from the keyboard", async ({ window }) => {
     );
 
   // The new workspace is the active row; the badge is its next Tab stop.
-  await window.keyboard.press("Meta+Shift+e");
+  await window.keyboard.press("ControlOrMeta+Shift+e");
   await expect
     .poll(() =>
       window.evaluate(

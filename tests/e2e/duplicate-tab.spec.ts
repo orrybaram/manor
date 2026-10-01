@@ -23,7 +23,7 @@ test("duplicating a tab with a horizontal pane split preserves both panes", asyn
   await bootWorkspaceWithTerminal(app, window, tempHome, "dup-tab-workspace");
 
   // split-h (Cmd+D): side-by-side split of the focused pane.
-  await window.keyboard.press("Meta+d");
+  await window.keyboard.press("ControlOrMeta+d");
   await assertVisiblePaneCount(window, 2);
 
   const sourceTabId = await window
@@ -50,7 +50,7 @@ test("duplicating a tab with a vertical pane split preserves both panes", async 
   await bootWorkspaceWithTerminal(app, window, tempHome, "dup-tab-workspace");
 
   // split-v (Cmd+Shift+D): stacked split of the focused pane.
-  await window.keyboard.press("Meta+Shift+d");
+  await window.keyboard.press("ControlOrMeta+Shift+d");
   await assertVisiblePaneCount(window, 2);
 
   await duplicateActiveTab(window);
@@ -64,9 +64,9 @@ test("duplicating a tab with nested splits preserves every pane", async ({
 }) => {
   await bootWorkspaceWithTerminal(app, window, tempHome, "dup-tab-workspace");
 
-  await window.keyboard.press("Meta+d");
+  await window.keyboard.press("ControlOrMeta+d");
   await assertVisiblePaneCount(window, 2);
-  await window.keyboard.press("Meta+Shift+d");
+  await window.keyboard.press("ControlOrMeta+Shift+d");
   await assertVisiblePaneCount(window, 3);
 
   await duplicateActiveTab(window);

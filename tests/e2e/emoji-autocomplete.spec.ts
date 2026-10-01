@@ -23,7 +23,7 @@ test("emoji suggestions in the new workspace dialog insert without submitting", 
   tempHome,
 }) => {
   await importSeededProject(app, window, tempHome);
-  await window.keyboard.press("Meta+Shift+n");
+  await window.keyboard.press("ControlOrMeta+Shift+n");
   const dialog = window.locator('[data-testid="new-workspace-dialog"]');
   await expect(dialog).toBeVisible({ timeout: 5_000 });
   const name = window.locator('[data-testid="new-workspace-name-input"]');

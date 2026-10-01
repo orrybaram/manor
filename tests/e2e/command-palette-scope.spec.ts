@@ -25,7 +25,7 @@ const groupHeading = (window: Page, name: string) =>
   window.locator("[cmdk-group-heading]", { hasText: name });
 
 async function openPalette(window: Page): Promise<void> {
-  await window.keyboard.press("Meta+k");
+  await window.keyboard.press("ControlOrMeta+k");
   await expect(paletteInput(window)).toBeVisible();
 }
 
@@ -134,7 +134,7 @@ test("palette search is scoped to the project and can be widened", async ({
   await expect(
     window.locator('[data-testid="palette-scope-footer"]'),
   ).toBeVisible();
-  await paletteInput(window).press("Meta+Enter");
+  await paletteInput(window).press("ControlOrMeta+Enter");
   await expect(chip(window)).toHaveAttribute("data-scope", "global");
   await expect(workspaceItems(window, "beta-ws")).toHaveCount(1);
   await closePalette(window);

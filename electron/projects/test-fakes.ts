@@ -26,6 +26,7 @@ export function shellFacts(shell: ShellBackend): MachineFacts {
         () => false,
       ),
     readFile: (p) => shell.exec("cat", [p]),
+    readlinks: async () => new Map(),
     join: posixJoin,
     defaultWorktreeRoot: async (name) =>
       posixJoin(await shell.homeDir(), ".manor", "worktrees", toDirSlug(name)),

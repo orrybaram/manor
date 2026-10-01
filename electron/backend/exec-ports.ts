@@ -175,6 +175,12 @@ export class ExecPortsBackend implements PortsBackend {
   private ssMissing = false;
   /** Set once "no ss, no lsof" has been logged, so it is logged once. */
   private warnedNoScanner = false;
+  /**
+   * Each listening pid's cwd, kept while that pid keeps listening (under the
+   * same process name, so a recycled pid is looked up afresh). A dev
+   * server's cwd does not change, so a steady scan looks up no cwds at all.
+   */
+  private cwdCache = new Map<number, { processName: string; cwd: string }>();
 
   constructor(
     private readonly execImpl: Exec = localExec,
@@ -211,9 +217,10 @@ export class ExecPortsBackend implements PortsBackend {
       cwdsByPid = (pids) => this.cwdsByPid(pids, lsof);
     }
 
+    // Asked even with no listeners, so the cache forgets every pid.
+    const cwds =
+      workspacePaths.length > 0 ? await this.cachedCwds(results, cwdsByPid) : new Map();
     if (workspacePaths.length > 0 && results.length > 0) {
-      const pids = results.map((p) => p.pid);
-      const cwds = await cwdsByPid(pids);
       const home = await this.facts.homeDir().catch(() => null);
 
       for (const port of results) {
@@ -232,6 +239,37 @@ export class ExecPortsBackend implements PortsBackend {
     return results
       .filter((p) => p.workspacePath !== null)
       .sort((a, b) => a.port - b.port);
+  }
+
+  /**
+   * The cwd of each listener's pid: from the cache where that pid was seen
+   * before, otherwise through `lookup` (only for the pids not cached).
+   * Pids no longer listening are dropped from the cache.
+   */
+  private async cachedCwds(
+    listeners: ScannedPort[],
+    lookup: (pids: number[]) => Promise<Map<number, string>>,
+  ): Promise<Map<number, string>> {
+    const cwds = new Map<number, string>();
+    const names = new Map<number, string>();
+    const missing = new Set<number>();
+    for (const { pid, processName } of listeners) {
+      names.set(pid, processName);
+      const cached = this.cwdCache.get(pid);
+      if (cached && cached.processName === processName) cwds.set(pid, cached.cwd);
+      else missing.add(pid);
+    }
+    for (const pid of this.cwdCache.keys()) {
+      if (!names.has(pid)) this.cwdCache.delete(pid);
+    }
+    if (missing.size > 0) {
+      for (const [pid, cwd] of await lookup(Array.from(missing))) {
+        if (!missing.has(pid)) continue;
+        cwds.set(pid, cwd);
+        this.cwdCache.set(pid, { processName: names.get(pid)!, cwd });
+      }
+    }
+    return cwds;
   }
 
   async kill(pid: number): Promise<void> {
@@ -306,24 +344,20 @@ export class ExecPortsBackend implements PortsBackend {
     return parseStatUids(stdout);
   }
 
-  /** Each pid's cwd from `/proc/<pid>/cwd`; unreadable ones are skipped. */
+  /**
+   * Each pid's cwd from `/proc/<pid>/cwd`; unreadable ones are skipped. All
+   * read in one go through the host's facts: in-process locally, one
+   * command on a remote host.
+   */
   private async cwdsByProcfs(pids: number[]): Promise<Map<number, string>> {
+    const links = await this.facts
+      .readlinks(pids.map((pid) => `/proc/${pid}/cwd`))
+      .catch(() => new Map<string, string>());
     const result = new Map<number, string>();
-    await Promise.all(
-      Array.from(new Set(pids), async (pid) => {
-        try {
-          const { stdout } = await this.execImpl.file(
-            "readlink",
-            [`/proc/${pid}/cwd`],
-            { timeout: 5000 },
-          );
-          const cwd = stdout.replace(/\n$/, "");
-          if (cwd) result.set(pid, cwd);
-        } catch {
-          // Exited, or not ours to read.
-        }
-      }),
-    );
+    for (const pid of pids) {
+      const cwd = links.get(`/proc/${pid}/cwd`);
+      if (cwd) result.set(pid, cwd);
+    }
     return result;
   }
 

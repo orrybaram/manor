@@ -170,7 +170,17 @@ function execError(fields: Partial<ExecError>): ExecError {
   }) as ExecError;
 }
 
-function fakeHost(platform: PortsPlatform, uid = 1000, home = "/home/me"): MachineFacts {
+/** Every batch of links a `fakeHost` was asked to read. */
+type ReadlinkCalls = string[][];
+
+function fakeHost(
+  platform: PortsPlatform,
+  uid = 1000,
+  home = "/home/me",
+  /** Each pid's `/proc/<pid>/cwd` target; unlisted pids are unreadable. */
+  cwds: Record<number, string> = {},
+  readlinkCalls: ReadlinkCalls = [],
+): MachineFacts {
   return {
     platform: async () => platform,
     uid: async () => uid,
@@ -178,6 +188,15 @@ function fakeHost(platform: PortsPlatform, uid = 1000, home = "/home/me"): Machi
     kill: async () => {},
     exists: async () => false,
     readFile: async () => "",
+    async readlinks(paths) {
+      readlinkCalls.push(paths);
+      const result = new Map<string, string>();
+      for (const p of paths) {
+        const pid = Number(p.split("/")[2]);
+        if (cwds[pid]) result.set(p, cwds[pid]);
+      }
+      return result;
+    },
     join: posixJoin,
     defaultWorktreeRoot: async (name) => posixJoin(home, ".manor", "worktrees", name),
   };
@@ -290,26 +309,86 @@ describe("ExecPortsBackend scanner selection", () => {
   });
 
   it("scans Linux with ss (no -H), trusts its users field as non-root, and reads cwds from /proc", async () => {
-    const { exec, calls } = fakeExec((cmd, args) => {
+    const { exec, calls } = fakeExec((cmd) => {
       if (cmd === "ss") return SS_FIXTURE;
-      if (cmd === "readlink") {
-        const pid = args[0].split("/")[2];
-        if (pid === "1234") return "/home/me/proj/web\n";
-        if (pid === "2000") return "/home/me/proj\n";
-        return execError({ code: 1 });
-      }
       throw new Error(`unexpected ${cmd}`);
     });
-    const backend = new ExecPortsBackend(exec, fakeHost("linux", 1000));
+    const readlinks: ReadlinkCalls = [];
+    const host = fakeHost(
+      "linux",
+      1000,
+      "/home/me",
+      { 1234: "/home/me/proj/web", 2000: "/home/me/proj" },
+      readlinks,
+    );
+    const backend = new ExecPortsBackend(exec, host);
     const ports = await backend.scan([WS]);
 
     expect(ports.map((p) => [p.port, p.pid, p.workspacePath])).toEqual([
       [3000, 1234, WS],
       [5173, 2000, WS],
     ]);
-    expect(calls[0]).toEqual({ cmd: "ss", args: ["-ltnp"] });
-    // Non-root ss only names our own processes: no uid lookup at all.
-    expect(calls.some((c) => c.cmd === "stat" || c.cmd === "ps")).toBe(false);
+    // ss is the only command run: every cwd is read in one batch.
+    expect(calls).toEqual([{ cmd: "ss", args: ["-ltnp"] }]);
+    expect(readlinks).toEqual([
+      ["/proc/1234/cwd", "/proc/2000/cwd", "/proc/3000/cwd", "/proc/4000/cwd", "/proc/1/cwd"],
+    ]);
+  });
+
+  it("caches each listening pid's cwd, asking only for new or recycled pids", async () => {
+    let ss = 'LISTEN 0 511 0.0.0.0:3000 0.0.0.0:* users:(("node",pid=10,fd=3))';
+    const { exec, calls } = fakeExec((cmd) => {
+      if (cmd === "ss") return ss;
+      throw new Error(`unexpected ${cmd}`);
+    });
+    const readlinks: ReadlinkCalls = [];
+    const cwds: Record<number, string> = { 10: `${WS}/a`, 11: `${WS}/b` };
+    const backend = new ExecPortsBackend(exec, fakeHost("linux", 1000, "/home/me", cwds, readlinks));
+
+    await backend.scan([WS]);
+    await backend.scan([WS]);
+    expect(readlinks).toEqual([["/proc/10/cwd"]]);
+
+    // A second listener appears: only its pid is looked up.
+    ss += '\nLISTEN 0 511 0.0.0.0:4000 0.0.0.0:* users:(("vite",pid=11,fd=3))';
+    expect((await backend.scan([WS])).map((p) => p.pid)).toEqual([10, 11]);
+    expect(readlinks).toEqual([["/proc/10/cwd"], ["/proc/11/cwd"]]);
+
+    // Pid 10 is recycled by another process: its cwd is asked again.
+    ss = ss.replace('"node",pid=10', '"python3",pid=10');
+    await backend.scan([WS]);
+    expect(readlinks[readlinks.length - 1]).toEqual(["/proc/10/cwd"]);
+    expect(calls.every((c) => c.cmd === "ss")).toBe(true);
+  });
+
+  it("forgets a pid once it stops listening", async () => {
+    let listening = true;
+    const { exec } = fakeExec(() =>
+      listening ? 'LISTEN 0 511 0.0.0.0:3000 0.0.0.0:* users:(("node",pid=10,fd=3))' : "",
+    );
+    const readlinks: ReadlinkCalls = [];
+    const backend = new ExecPortsBackend(
+      exec,
+      fakeHost("linux", 1000, "/home/me", { 10: WS }, readlinks),
+    );
+    await backend.scan([WS]);
+    listening = false;
+    expect(await backend.scan([WS])).toEqual([]);
+    listening = true;
+    await backend.scan([WS]);
+    expect(readlinks).toHaveLength(2);
+  });
+
+  it("runs lsof for cwds only while some listening pid is not yet cached", async () => {
+    const { exec, calls } = fakeExec((_cmd, args) => {
+      if (args.includes("-iTCP")) return "p100\ncnode\nn*:3000\n";
+      return "p100\nn/home/me/proj/app\n";
+    });
+    const backend = new ExecPortsBackend(exec, fakeHost("darwin", 501));
+    expect((await backend.scan([WS])).map((p) => p.workspacePath)).toEqual([WS]);
+    expect((await backend.scan([WS])).map((p) => p.workspacePath)).toEqual([WS]);
+    expect(calls.filter((c) => c.args.includes("cwd"))).toHaveLength(1);
+    expect(calls.filter((c) => c.args.includes("-iTCP"))).toHaveLength(2);
   });
 
   it("as root, keeps only root's pids by /proc owner, before collapsing to one per port", async () => {
@@ -329,10 +408,12 @@ describe("ExecPortsBackend scanner selection", () => {
           stdout: "/proc/3000 1001\n/proc/1234 0\n/proc/2000 0\n",
         });
       }
-      if (cmd === "readlink") return "/root/proj\n";
       throw new Error(`unexpected ${cmd}`);
     });
-    const backend = new ExecPortsBackend(exec, fakeHost("linux", 0, "/root"));
+    const backend = new ExecPortsBackend(
+      exec,
+      fakeHost("linux", 0, "/root", { 1234: "/root/proj", 2000: "/root/proj" }),
+    );
     const ports = await backend.scan(["/root/proj"]);
 
     expect(ports.map((p) => [p.port, p.pid])).toEqual([
@@ -346,11 +427,10 @@ describe("ExecPortsBackend scanner selection", () => {
   });
 
   it("never attributes a port to the home directory", async () => {
-    const { exec } = fakeExec((cmd) => {
-      if (cmd === "ss") return 'LISTEN 0 511 0.0.0.0:3000 0.0.0.0:* users:(("node",pid=5,fd=1))';
-      return "/home/me\n";
-    });
-    const backend = new ExecPortsBackend(exec, fakeHost("linux", 1000, "/home/me"));
+    const { exec } = fakeExec(
+      () => 'LISTEN 0 511 0.0.0.0:3000 0.0.0.0:* users:(("node",pid=5,fd=1))',
+    );
+    const backend = new ExecPortsBackend(exec, fakeHost("linux", 1000, "/home/me", { 5: "/home/me" }));
     expect(await backend.scan(["/home/me"])).toEqual([]);
   });
 

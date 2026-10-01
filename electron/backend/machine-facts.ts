@@ -32,6 +32,11 @@ export interface MachineFacts {
   exists(p: string): Promise<boolean>;
   /** A UTF-8 file's contents. Rejects when it cannot be read. */
   readFile(p: string): Promise<string>;
+  /**
+   * Each symlink's target, all asked at once: one call however many links
+   * there are. A link that cannot be read (gone, not ours) is absent.
+   */
+  readlinks(paths: string[]): Promise<Map<string, string>>;
   /** Join path segments the way that machine does. */
   join(...parts: string[]): string;
   /** Where a project's worktrees go unless it names a root of its own. */
@@ -101,6 +106,20 @@ export function localFacts(): MachineFacts {
     readFile(p) {
       return fs.readFile(p, "utf-8");
     },
+    async readlinks(paths) {
+      const result = new Map<string, string>();
+      // Read in-process: no command is spawned, however many links.
+      await Promise.all(
+        Array.from(new Set(paths), async (p) => {
+          try {
+            result.set(p, await fs.readlink(p));
+          } catch {
+            // Gone, or not ours to read.
+          }
+        }),
+      );
+      return result;
+    },
     join(...parts) {
       return path.join(...parts);
     },
@@ -108,6 +127,29 @@ export function localFacts(): MachineFacts {
       return path.join(worktreesDir(), toDirSlug(projectName));
     },
   };
+}
+
+/**
+ * Prints `<path>\t<target>` for each argument that is a readable link,
+ * skipping the rest, and always exits 0.
+ */
+const READLINKS_SCRIPT =
+  'for p in "$@"; do t=$(readlink "$p" 2>/dev/null) && printf \'%s\\t%s\\n\' "$p" "$t"; done; exit 0';
+
+/**
+ * Parse `READLINKS_SCRIPT` output into target by path, keeping only the
+ * paths that were asked about.
+ */
+function parseReadlinks(output: string, asked: Set<string>): Map<string, string> {
+  const result = new Map<string, string>();
+  for (const line of output.split("\n")) {
+    const tab = line.indexOf("\t");
+    if (tab < 0) continue;
+    const p = line.slice(0, tab);
+    const target = line.slice(tab + 1);
+    if (asked.has(p) && target) result.set(p, target);
+  }
+  return result;
 }
 
 /** How long a single fact query may take on a remote machine. */
@@ -155,6 +197,24 @@ export function execFacts(execImpl: Exec): MachineFacts {
     },
     async readFile(p) {
       return (await execImpl.file("cat", [p])).stdout;
+    },
+    async readlinks(paths) {
+      const result = new Map<string, string>();
+      const unique = Array.from(new Set(paths));
+      if (unique.length === 0) return result;
+      // One command for every link, so one round trip however many there
+      // are. A loop rather than `readlink a b …`: BusyBox's takes one path.
+      let stdout: string;
+      try {
+        ({ stdout } = await execImpl.file(
+          "sh",
+          ["-c", READLINKS_SCRIPT, "sh", ...unique],
+          { timeout: FACT_TIMEOUT_MS },
+        ));
+      } catch {
+        return result;
+      }
+      return parseReadlinks(stdout, new Set(unique));
     },
     join: posixJoin,
     async defaultWorktreeRoot(projectName) {

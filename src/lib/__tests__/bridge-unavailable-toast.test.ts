@@ -4,7 +4,7 @@ import {
   handleBridgeUnavailable,
 } from "../bridge-unavailable-toast";
 import { useToastStore } from "../../store/toast-store";
-import { BridgeUnavailableError } from "../../web/ws-bridge";
+import { BridgeUnavailableError } from "../../bridge/client";
 
 /**
  * The once-per-session toast shared by `layout.save` (ticket 6),

@@ -3,27 +3,31 @@ import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import type { BrowserWindow } from "electron";
 import { BranchWatcher } from "./branch-watcher";
 import { LOCAL_HOST_ID, type GitBackend } from "./backend/types";
 import { HostUnavailableError } from "./backend/registry";
 import type { HostBackends } from "./per-host-poller";
+import { addRendererBroadcastSink } from "./renderer-broadcast";
 
 function git(cwd: string, ...args: string[]) {
   return execFileSync("git", args, { cwd, encoding: "utf-8" });
 }
 
-/** A fake `BrowserWindow` capturing every `branches-changed` send. */
-function fakeWindow(): { window: BrowserWindow; sends: Array<Record<string, string>> } {
+/**
+ * Every `branches.changed` broadcast (ADR-180 D5: the watcher publishes to
+ * every renderer rather than sending on one window's `webContents`).
+ */
+const stopSinks: (() => void)[] = [];
+function captureBranches(): { sends: Array<Record<string, string>> } {
   const sends: Array<Record<string, string>> = [];
-  const window = {
-    webContents: {
-      send: (channel: string, payload: Record<string, string>) => {
-        if (channel === "branches-changed") sends.push(payload);
-      },
-    },
-  } as unknown as BrowserWindow;
-  return { window, sends };
+  stopSinks.push(
+    addRendererBroadcastSink((frame) => {
+      if (frame.ns === "branches" && frame.event === "changed") {
+        sends.push(frame.args[0] as Record<string, string>);
+      }
+    }),
+  );
+  return { sends };
 }
 
 /** A minimal `GitBackend` stub — only `currentBranch` matters here. */
@@ -69,6 +73,7 @@ describe("BranchWatcher", () => {
   });
 
   afterEach(async () => {
+    for (const stop of stopSinks.splice(0)) stop();
     watcher?.stop();
     vi.useRealTimers();
     await rm(tmpDir, { recursive: true, force: true });
@@ -77,9 +82,9 @@ describe("BranchWatcher", () => {
   it("emits the local branch, matching the old single-host watcher", async () => {
     const gitBackend = fakeGit(async () => "should-not-be-used");
     watcher = new BranchWatcher(hostsWith(gitBackend));
-    const { window, sends } = fakeWindow();
+    const { sends } = captureBranches();
 
-    watcher.start(window, [local(tmpDir)]);
+    watcher.start([local(tmpDir)]);
     // The initial tick runs synchronously-ish; flush microtasks.
     await new Promise((r) => setTimeout(r, 10));
 
@@ -89,15 +94,15 @@ describe("BranchWatcher", () => {
   it("emits {} once when started with no paths, clearing stale branches", async () => {
     const gitBackend = fakeGit(async () => null);
     watcher = new BranchWatcher(hostsWith(gitBackend));
-    const { window, sends } = fakeWindow();
+    const { sends } = captureBranches();
 
     // First populate lastBranches with something...
-    watcher.start(window, [local(tmpDir)]);
+    watcher.start([local(tmpDir)]);
     await new Promise((r) => setTimeout(r, 10));
     expect(sends).toEqual([{ [tmpDir]: "main" }]);
 
     // ...then restart with zero paths: the renderer must see the clear.
-    watcher.start(window, []);
+    watcher.start([]);
     await new Promise((r) => setTimeout(r, 10));
 
     expect(sends).toEqual([{ [tmpDir]: "main" }, {}]);
@@ -106,13 +111,13 @@ describe("BranchWatcher", () => {
   it("does not re-emit on restart with identical data", async () => {
     const gitBackend = fakeGit(async () => null);
     watcher = new BranchWatcher(hostsWith(gitBackend));
-    const { window, sends } = fakeWindow();
+    const { sends } = captureBranches();
 
-    watcher.start(window, [local(tmpDir)]);
+    watcher.start([local(tmpDir)]);
     await new Promise((r) => setTimeout(r, 10));
     expect(sends).toEqual([{ [tmpDir]: "main" }]);
 
-    watcher.start(window, [local(tmpDir)]);
+    watcher.start([local(tmpDir)]);
     await new Promise((r) => setTimeout(r, 10));
 
     // Same workspace, same branch — no second emit.
@@ -127,9 +132,9 @@ describe("BranchWatcher", () => {
       return "remote-branch";
     });
     watcher = new BranchWatcher(hostsWith(gitBackend));
-    const { window, sends } = fakeWindow();
+    const { sends } = captureBranches();
 
-    watcher.start(window, [onBox("/remote/ws")]);
+    watcher.start([onBox("/remote/ws")]);
     await vi.advanceTimersByTimeAsync(0);
     expect(sends).toEqual([{ "box:/remote/ws": "remote-branch" }]);
     expect(calls).toEqual(["/remote/ws"]);
@@ -147,9 +152,9 @@ describe("BranchWatcher", () => {
   it("keeps two hosts' identical paths apart, keyed by WorkspaceKey", async () => {
     const gitBackend = fakeGit(async () => "box-branch");
     watcher = new BranchWatcher(hostsWith(gitBackend));
-    const { window, sends } = fakeWindow();
+    const { sends } = captureBranches();
 
-    watcher.start(window, [local(tmpDir), { path: tmpDir, hostId: "box" }]);
+    watcher.start([local(tmpDir), { path: tmpDir, hostId: "box" }]);
     await new Promise((r) => setTimeout(r, 10));
 
     expect(sends[sends.length - 1]).toEqual({ [tmpDir]: "main", [`box:${tmpDir}`]: "box-branch" });
@@ -167,9 +172,9 @@ describe("BranchWatcher", () => {
       return p;
     });
     watcher = new BranchWatcher(hostsWith(gitBackend));
-    const { window } = fakeWindow();
+    captureBranches();
 
-    watcher.start(window, [onBox("/remote/ws")]);
+    watcher.start([onBox("/remote/ws")]);
     await vi.advanceTimersByTimeAsync(0);
     // Let two more 5s ticks fire while the first scan (20s) is still pending.
     await vi.advanceTimersByTimeAsync(10000);
@@ -185,9 +190,9 @@ describe("BranchWatcher", () => {
       return "remote-branch";
     });
     watcher = new BranchWatcher(hostsWith(gitBackend));
-    const { window, sends } = fakeWindow();
+    const { sends } = captureBranches();
 
-    watcher.start(window, [onBox("/remote/ws")]);
+    watcher.start([onBox("/remote/ws")]);
     await new Promise((r) => setTimeout(r, 10));
     expect(sends).toEqual([{ "box:/remote/ws": "remote-branch" }]);
 
@@ -195,7 +200,7 @@ describe("BranchWatcher", () => {
     // Manually trigger another scan by restarting (simulating the next
     // tick failing with HostUnavailableError).
     watcher.stop();
-    watcher.start(window, [onBox("/remote/ws")]);
+    watcher.start([onBox("/remote/ws")]);
     await new Promise((r) => setTimeout(r, 10));
 
     // No new emit (the failed scan contributes no update) and no error log.
@@ -226,14 +231,14 @@ describe("BranchWatcher", () => {
         }),
     );
     watcher = new BranchWatcher(hostsWith(gitBackend));
-    const { window, sends } = fakeWindow();
+    const { sends } = captureBranches();
 
-    watcher.start(window, [onBox("/remote/old")]);
+    watcher.start([onBox("/remote/old")]);
     await new Promise((r) => setTimeout(r, 0));
     expect(pending.map((p) => p.path)).toEqual(["/remote/old"]);
 
     watcher.stop();
-    watcher.start(window, [onBox("/remote/new")]);
+    watcher.start([onBox("/remote/new")]);
     await new Promise((r) => setTimeout(r, 0));
     // The restart did not start a second scan of the host beside the first.
     expect(pending).toHaveLength(1);

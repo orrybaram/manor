@@ -1,6 +1,11 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createPageKeyHandler } from "../webview-keys";
 import { resolveBindings } from "../../../src/lib/keybinding-defs";
+import {
+  addRendererBroadcastSink,
+  setRendererWindowResolver,
+  type RendererBroadcast,
+} from "../../renderer-broadcast";
 
 type Mods = Partial<Pick<Electron.Input, "meta" | "control" | "shift" | "alt">>;
 
@@ -36,7 +41,7 @@ function setup(overrides: Record<string, string> = {}) {
     }),
     reload: vi.fn(),
   };
-  const host = { send: vi.fn(), isDestroyed: vi.fn(() => false) };
+  const host = { id: 1, send: vi.fn(), isDestroyed: vi.fn(() => false) };
   const handler = createPageKeyHandler({
     paneId: "pane-1",
     page,
@@ -65,6 +70,22 @@ function setup(overrides: Record<string, string> = {}) {
 }
 
 describe("createPageKeyHandler", () => {
+  let frames: RendererBroadcast[];
+  let stopSink: () => void;
+
+  beforeEach(() => {
+    frames = [];
+    stopSink = addRendererBroadcastSink((frame) => frames.push(frame));
+    // The host's `id` names a connection the same way a real renderer window
+    // would (ADR-180 D5) — the transport this test stands in for.
+    setRendererWindowResolver((win) => String(win.webContents.id));
+  });
+
+  afterEach(() => {
+    stopSink();
+    setRendererWindowResolver(null);
+  });
+
   describe("double Escape", () => {
     it("blurs the page on a second Escape within 500ms", () => {
       const { press, host, advance } = setup();
@@ -130,40 +151,59 @@ describe("createPageKeyHandler", () => {
   });
 
   describe("app shortcuts", () => {
-    it("forwards a bound combo to the host renderer", () => {
-      const { press, host } = setup();
+    /** Every `keybindings.forwardedCommand` frame this press produced. */
+    function forwarded() {
+      return frames.filter(
+        (f) => f.ns === "keybindings" && f.event === "forwardedCommand",
+      );
+    }
+
+    it("forwards a bound combo to the host renderer's connection", () => {
+      const { press } = setup();
       const event = press(input("k", { meta: true }));
       expect(event.preventDefault).toHaveBeenCalled();
-      expect(host.send).toHaveBeenCalledWith("keybinding-command", {
-        commandId: "command-palette",
-        source: "webview",
-        paneId: "pane-1",
-      });
-    });
-
-    it("forwards F6 and Shift+F6", () => {
-      const { press, host } = setup();
-      press(input("F6"));
-      press(input("F6", { shift: true }));
-      expect(host.send.mock.calls.map((c) => c[1].commandId)).toEqual([
-        "focus-next-region",
-        "focus-prev-region",
+      expect(forwarded()).toEqual([
+        {
+          ns: "keybindings",
+          event: "forwardedCommand",
+          args: [
+            { commandId: "command-palette", source: "webview", paneId: "pane-1" },
+          ],
+          to: "1",
+        },
       ]);
     });
 
+    it("forwards F6 and Shift+F6", () => {
+      const { press } = setup();
+      press(input("F6"));
+      press(input("F6", { shift: true }));
+      expect(
+        forwarded().map(
+          (f) => (f.args[0] as { commandId: string }).commandId,
+        ),
+      ).toEqual(["focus-next-region", "focus-prev-region"]);
+    });
+
     it("tracks the user's edits to the bindings", () => {
-      const { press, host, rebind } = setup();
+      const { press, rebind } = setup();
       rebind({ "command-palette": "meta+shift+p" });
       expect(press(input("k", { meta: true })).preventDefault).not.toHaveBeenCalled();
       press(input("P", { meta: true, shift: true }));
-      expect(host.send).toHaveBeenCalledWith(
-        "keybinding-command",
-        expect.objectContaining({ commandId: "command-palette" }),
-      );
+      expect(forwarded()).toEqual([
+        {
+          ns: "keybindings",
+          event: "forwardedCommand",
+          args: [
+            expect.objectContaining({ commandId: "command-palette" }),
+          ],
+          to: "1",
+        },
+      ]);
     });
 
     it("leaves unbound keys and typing to the page", () => {
-      const { press, host, page } = setup();
+      const { press, page } = setup();
       for (const i of [
         input("c", { meta: true }),
         input("a"),
@@ -172,22 +212,22 @@ describe("createPageKeyHandler", () => {
       ]) {
         expect(press(i).preventDefault).not.toHaveBeenCalled();
       }
-      expect(host.send).not.toHaveBeenCalled();
+      expect(forwarded()).toEqual([]);
       expect(page.reload).not.toHaveBeenCalled();
     });
 
     it("ignores key-up events", () => {
-      const { press, host } = setup();
+      const { press } = setup();
       const event = press(input("k", { meta: true }, "keyUp"));
       expect(event.preventDefault).not.toHaveBeenCalled();
-      expect(host.send).not.toHaveBeenCalled();
+      expect(forwarded()).toEqual([]);
     });
 
-    it("does not send to a destroyed host", () => {
+    it("does not forward from a destroyed host", () => {
       const { press, host } = setup();
       host.isDestroyed.mockReturnValue(true);
       press(input("k", { meta: true }));
-      expect(host.send).not.toHaveBeenCalled();
+      expect(forwarded()).toEqual([]);
     });
   });
 });

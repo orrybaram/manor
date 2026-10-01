@@ -28,7 +28,6 @@
  * because the pane does not exist yet and no renderer has mounted it.
  */
 
-import { BrowserWindow } from "electron";
 import { proxyToRenderer } from "../renderer-bridge";
 import type { ControlDeps, Json, Route } from "./types";
 import { proxyWithWorkspaceHost, withWorkspaceHost } from "./workspace-host";
@@ -52,6 +51,7 @@ import { buildLayoutSnapshot } from "../../src/lib/layout/snapshot";
 import { killCounters } from "../stats-signals";
 import { cleanAgentTitle } from "../title-utils";
 import { getUnseenFlagsForAgent } from "../notifications";
+import { publishRendererBroadcast } from "../renderer-broadcast";
 
 // ── Every command from these routes names the same sender ──
 const ROUTE_ORIGIN: LayoutOrigin = { kind: "route", id: "cli" };
@@ -255,12 +255,16 @@ function paneIdsOf(layout: WorkspaceLayout): Set<string> {
 /**
  * Mark a closed pane's active agent abandoned.
  *
- * Mirrors `agents:abandonForPane` (`../ipc/agents.ts`) — the desktop store
+ * Mirrors `agentsAbandonForPane` (`../ipc/agents.ts`) — the desktop store
  * calls it before every `close-pane` it sends, and a structural close from a
  * route must still do it, or an agent whose pane a CLI/MCP caller closed
  * never learns its turn ended. The lifecycle is the Status reconciler's to
  * write (ADR-184): a `user` `abandon` signal moves the Agent to 'abandoned'
  * and broadcasts it; only the name, which is not status, is written here.
+ *
+ * `publishRendererBroadcast` reaches every desktop window and every browser
+ * on the bridge alike (ADR-180 ticket 9) — no `BrowserWindow` lookup, and no
+ * legacy `webContents.send` left beside it.
  */
 function abandonAgentForClosedPane(
   deps: ControlDeps,
@@ -285,13 +289,12 @@ function abandonAgentForClosedPane(
   // If the reconciler abandoned some other Agent, the rename still has to
   // reach the renderer.
   if (!named || persisted) return;
-  const win = BrowserWindow.getAllWindows()[0];
-  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
-  try {
-    win.webContents.send("agent-updated", named, getUnseenFlagsForAgent(named.id));
-  } catch {
-    // Render frame disposed — safe to ignore.
-  }
+  publishRendererBroadcast(
+    "agents",
+    "updated",
+    named,
+    getUnseenFlagsForAgent(named.id),
+  );
 }
 
 /**

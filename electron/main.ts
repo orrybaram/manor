@@ -1,6 +1,6 @@
 // electron/main.ts — Thin entry point
 import { app, crashReporter } from "electron";
-import { readBranchSync } from "./ipc/pty";
+import { readBranchSync } from "./bridge/handlers/pty";
 import { initApp } from "./app-lifecycle";
 import { installMainLog } from "./main-log";
 import { startLoginPathResolution } from "./login-path";

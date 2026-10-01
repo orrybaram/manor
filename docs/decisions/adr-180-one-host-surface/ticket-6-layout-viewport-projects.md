@@ -1,0 +1,81 @@
+---
+title: layout, viewport and projects cross
+status: done
+priority: high
+assignee: opus
+blocked_by: [5]
+---
+
+# layout, viewport and projects cross
+
+ADR-180 D8. The biggest namespace in the app (`projects`, 25 methods, 23
+`ipcMain` registrations) plus the two ADR-179 already half-moved.
+
+## layout (7 methods, already on the table)
+
+All seven are there. Delete `register()` from `electron/ipc/layout.ts`, remove
+the `layout` namespace from `manorHost.native`, and confirm `layout.onChanged`
+arrives as a broadcast frame rather than the `layout:changed` channel
+`app-lifecycle.ts:261` sends — that send goes away, the broadcast sink covers
+both renderer kinds.
+
+The **origin** is the piece to be careful with. ADR-179 D3 has the server
+append the caller's `LayoutOrigin` from the transport, never from the frame
+(`ORIGIN_ARGS`). A desktop window's origin is now its connection id, which is
+its `webContents.id` as a string — the same value `rendererId` already had, so
+selection hints keep landing on the window that sent the command. Assert this
+in a test; getting it wrong means every split jumps focus in the wrong window.
+
+## viewport (2 methods, 3 registrations)
+
+`viewport.load`/`save` read and write `~/.manor/viewport.json` — *this
+machine's* primary window's viewport. Add both to the table as `LOCAL_ONLY`: a
+browser keeps answering them out of `localStorage` through `LOCALLY_SERVED`,
+which is already true and must stay true.
+
+## projects (25 methods)
+
+`projects.getAll/getSelectedIndex/select/selectWorkspace` are on the table.
+Add the remaining ~21 — add/remove project, create/remove/rename workspace,
+folders, reorder, hidden, quick-merge, resync, the worktree setup path, the
+issue-linked creators. Lift each body out of its `ipcMain.handle` in
+`electron/ipc/projects.ts` into an exported function over `IpcDeps`, exactly
+as `ipc/pty.ts` already does, keeping every `assert*` call where it is.
+
+All of them are reachable by a `full` device, and that is ADR-178 D3 as
+written and as the pairing dialog's label already warns ("can do anything the
+desktop can, including remove workspaces"). Add each mutating one to
+`MUTATING` so it leaves an audit line.
+
+`projects.worktreeProgress` is an event now (ticket 4); it is addressed to the
+connection that called the creator, so the creator has to carry the caller's
+connection id. That is what `ORIGIN_ARGS` is for — add the entry.
+
+## Files to touch
+- `electron/bridge/handlers.ts` — ~23 new entries, `LOCAL_ONLY` for viewport, `MUTATING` and `ORIGIN_ARGS` additions
+- `electron/bridge/handlers/projects.ts` — new; the lifted bodies, if `handlers.ts` gets unwieldy
+- `electron/ipc/projects.ts` — lift every body, delete `register()`
+- `electron/ipc/layout.ts` — delete `register()`
+- `electron/ipc/viewport.ts` — lift, delete `register()`
+- `electron/app-lifecycle.ts` — drop the `layout:changed` send
+- `electron/preload.ts` — remove the `layout`, `viewport` and `projects` namespaces
+- `electron/bridge/__tests__/layout-origin.test.ts` — new; a desktop command's origin is its window
+
+## Folded in from ticket 4
+
+**A namespace crossing takes its legacy send with it.** Ticket 4 converted the
+pushes its tables named and left nine `webContents.send` broadcasts standing,
+each already publishing alongside — because each belongs to a namespace that
+crosses in a later ticket, and deleting a send without moving its `on*` is how
+a feature stops updating silently. The rule from here: **when a namespace
+crosses, delete its legacy `webContents.send` and the matching preload `on*`
+in the same commit.** This ticket owns `projects-changed`
+(`renderer-bridge.ts`) and `layout:changed` (`app-lifecycle.ts`).
+
+**`appCommands.result` goes in `LOCAL_ONLY`.** Ticket 4 left it open and
+flagged it. It should be closed: `appCommands.command` is addressed to the
+*primary window* only, so a browser never receives one and has nothing to
+reply to. Exploiting it means guessing a v4 UUID main told exactly one
+connection — not a real attack, but a method no device needs is a method no
+device should have, and D4's list is the place that argument is settled
+rather than rediscovered.

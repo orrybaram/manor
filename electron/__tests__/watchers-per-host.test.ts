@@ -12,6 +12,14 @@ import { PortScanner, RESCAN_MIN_MS } from "../ports";
 import type { ActivePort, GitBackend, PortsBackend, ScannedPort } from "../backend/types";
 import { HostUnavailableError } from "../backend/registry";
 import type { HostBackends, HostPath } from "../per-host-poller";
+import { addRendererBroadcastSink } from "../renderer-broadcast";
+
+/**
+ * The watchers publish to every renderer (ADR-180 D5) rather than sending on
+ * one window's `webContents`, so `send` below hears the broadcast sink:
+ * `send("ports.changed", ports)`.
+ */
+const stopSinks: (() => void)[] = [];
 
 /** Every host's backend, sharing `backend`'s git and ports. */
 function hostsWith(backend: { git?: GitBackend; ports?: PortsBackend }): HostBackends {
@@ -27,8 +35,10 @@ const diffWs = (path: string) => ({ ...ws(path), defaultBranch: "main" });
 
 function fakeWindow() {
   const send = vi.fn();
+  stopSinks.push(
+    addRendererBroadcastSink((frame) => send(`${frame.ns}.${frame.event}`, ...frame.args)),
+  );
   const window = {
-    webContents: { send },
     isDestroyed: () => false,
     isVisible: () => true,
     isMinimized: () => false,
@@ -41,6 +51,7 @@ function fakeWindow() {
 const never = () => new Promise<never>(() => {});
 
 afterEach(() => {
+  for (const stop of stopSinks.splice(0)) stop();
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -60,16 +71,16 @@ describe("DiffWatcher per host", () => {
     const watcher = new DiffWatcher(hostsWith({ git }));
     const { window, send } = fakeWindow();
 
-    watcher.start(window, [diffWs("/local/app"), diffWs("/remote/app")]);
+    watcher.start([diffWs("/local/app"), diffWs("/remote/app")], window);
     await vi.waitFor(() =>
-      expect(send).toHaveBeenCalledWith("diffs-changed", {
+      expect(send).toHaveBeenCalledWith("diffs.changed", {
         "/local/app": { added: 1, removed: 0 },
       }),
     );
 
     added = 2;
     await vi.advanceTimersByTimeAsync(5000);
-    expect(send).toHaveBeenLastCalledWith("diffs-changed", {
+    expect(send).toHaveBeenLastCalledWith("diffs.changed", {
       "/local/app": { added: 2, removed: 0 },
     });
     // The remote scan from the first tick is still pending; no second one
@@ -100,8 +111,8 @@ describe("DiffWatcher per host", () => {
       "box:/remote/app": { added: 4, removed: 0 },
     };
 
-    watcher.start(window, [diffWs("/local/app"), diffWs("/remote/app")]);
-    await vi.waitFor(() => expect(send).toHaveBeenLastCalledWith("diffs-changed", both));
+    watcher.start([diffWs("/local/app"), diffWs("/remote/app")], window);
+    await vi.waitFor(() => expect(send).toHaveBeenLastCalledWith("diffs.changed", both));
 
     remoteUp = false;
     send.mockClear();
@@ -126,12 +137,12 @@ describe("DiffWatcher per host", () => {
     const watcher = new DiffWatcher(hosts);
     const { window, send } = fakeWindow();
     // A remote workspace at a path that looks local: its host says otherwise.
-    watcher.start(window, [
+    watcher.start([
       { path: "/a", hostId: "local", defaultBranch: "main" },
       { path: "/b", hostId: "box", defaultBranch: "main" },
-    ]);
+    ], window);
     await vi.waitFor(() =>
-      expect(send).toHaveBeenCalledWith("diffs-changed", {
+      expect(send).toHaveBeenCalledWith("diffs.changed", {
         "/a": { added: 0, removed: 3 },
         "box:/b": { added: 0, removed: 5 },
       }),
@@ -154,12 +165,12 @@ describe("DiffWatcher per host", () => {
     const hosts = { get: (hostId: string) => ({ git: gits[hostId] }) } as unknown as HostBackends;
     const watcher = new DiffWatcher(hosts);
     const { window, send } = fakeWindow();
-    watcher.start(window, [
+    watcher.start([
       { path: "/same", hostId: "local", defaultBranch: "main" },
       { path: "/same", hostId: "box", defaultBranch: "main" },
-    ]);
+    ], window);
     await vi.waitFor(() =>
-      expect(send).toHaveBeenLastCalledWith("diffs-changed", {
+      expect(send).toHaveBeenLastCalledWith("diffs.changed", {
         "/same": { added: 0, removed: 3 },
         "box:/same": { added: 0, removed: 5 },
       }),
@@ -195,15 +206,15 @@ describe("PortScanner per host", () => {
     } as unknown as PortsBackend;
     const scanner = new PortScanner(hostsWith({ ports }));
     scanner.updateWorkspaces([ws("/local/app"), ws("/remote/app")]);
-    const { window, send } = fakeWindow();
+    const { send } = fakeWindow();
 
-    scanner.start(window);
+    scanner.start();
     await vi.advanceTimersByTimeAsync(3000);
-    expect(send).toHaveBeenLastCalledWith("ports-changed", [port(1, "/local/app")]);
+    expect(send).toHaveBeenLastCalledWith("ports.changed", [port(1, "/local/app")]);
 
     pid = 2;
     await vi.advanceTimersByTimeAsync(3000);
-    expect(send).toHaveBeenLastCalledWith("ports-changed", [port(2, "/local/app")]);
+    expect(send).toHaveBeenLastCalledWith("ports.changed", [port(2, "/local/app")]);
     expect(vi.mocked(ports.scan)).toHaveBeenCalledWith(["/local/app"]);
     expect(
       vi.mocked(ports.scan).mock.calls.filter(([paths]) => paths[0] === "/remote/app"),
@@ -226,7 +237,7 @@ describe("PortScanner per host", () => {
     } as unknown as PortsBackend;
     const scanner = new PortScanner(hostsWith({ ports }));
     scanner.updateWorkspaces([ws("/local/app"), ws("/remote/app")]);
-    const { window } = fakeWindow();
+    fakeWindow();
     const published: ActivePort[][] = [];
     const scannedHosts: string[] = [];
     scanner.onHostScanned((hostId) => {
@@ -239,7 +250,7 @@ describe("PortScanner per host", () => {
       published.push(merged);
       return merged;
     });
-    scanner.start(window);
+    scanner.start();
     await vi.advanceTimersByTimeAsync(3000);
     expect(scanner.hasScanned("local")).toBe(true);
     // An unavailable host has not been scanned…
@@ -270,12 +281,12 @@ describe("PortScanner per host", () => {
     } as unknown as PortsBackend;
     const scanner = new PortScanner(hostsWith({ ports }));
     scanner.updateWorkspaces([ws("/local/app"), ws("/remote/app")]);
-    const { window, send } = fakeWindow();
+    const { send } = fakeWindow();
 
-    scanner.start(window);
+    scanner.start();
     await vi.advanceTimersByTimeAsync(3000);
     const both = [port(1, "/local/app"), port(9, "/remote/app")];
-    expect(send).toHaveBeenLastCalledWith("ports-changed", both);
+    expect(send).toHaveBeenLastCalledWith("ports.changed", both);
 
     remoteUp = false;
     send.mockClear();
@@ -352,9 +363,9 @@ describe("PortScanner per host", () => {
     it("the poller joins an on-demand scan instead of racing it", async () => {
       vi.useFakeTimers();
       const { scanner, pending, remoteScans } = deferredScanner();
-      const { window, send } = fakeWindow();
+      const { send } = fakeWindow();
       const onDemand = scanner.scanHost("box");
-      scanner.start(window);
+      scanner.start();
       await vi.advanceTimersByTimeAsync(3000);
       // The poller saw the on-demand scan in flight and did not start another.
       expect(remoteScans()).toBe(1);
@@ -364,7 +375,7 @@ describe("PortScanner per host", () => {
       expect(remoteScans()).toBe(2);
       pending[1]([scanned(10, "/remote/app")]);
       await vi.advanceTimersByTimeAsync(0);
-      expect(send).toHaveBeenLastCalledWith("ports-changed", [port(10, "/remote/app")]);
+      expect(send).toHaveBeenLastCalledWith("ports.changed", [port(10, "/remote/app")]);
       // An on-demand call right after the poll reuses it rather than rescanning.
       await expect(scanner.scanHost("box")).resolves.toEqual([port(10, "/remote/app")]);
       expect(remoteScans()).toBe(2);

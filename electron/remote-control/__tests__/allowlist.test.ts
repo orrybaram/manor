@@ -25,6 +25,12 @@ import {
   unresolvedAllowlistEntries,
 } from "../allowlist";
 import { LISTENER_OWN_ROUTES } from "../listener-routes";
+import {
+  HANDLERS,
+  LOCAL_ONLY,
+  MUTATING,
+  SECRET_FIRST_ARG,
+} from "../../bridge/handlers";
 
 const keys = (table: readonly Route[]) => table.map(routeKey);
 
@@ -218,5 +224,118 @@ describe("the launch route", () => {
 
   it("does not put the read half behind the capability", () => {
     expect(keys(remoteRouteTable(routes, "read"))).toContain("GET /agents");
+  });
+});
+
+/**
+ * The handler table's own refusal list (ADR-180 D4). Not a route — a paired
+ * `full` device already reaches every route here — but the same idea one
+ * layer down: a method absent from `HANDLERS` is refused by not existing, and
+ * a method present but named here is refused on purpose, in writing, instead
+ * of by an accident of the preload never implementing it. This is the file
+ * that already tests "what a device may not do", so it is where that written
+ * refusal gets pinned too.
+ */
+describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
+  it("is exactly the methods that name a window or a per-host resource", () => {
+    expect([...LOCAL_ONLY].sort()).toEqual(
+      [
+        // ADR-180 ticket 5: one prewarmed session per host.
+        "pty.consumePrewarmed",
+        "pty.updatePrewarmCwd",
+        // ADR-180 ticket 6: the desk's own viewport file, and the reply half
+        // of an app-command addressed to the primary window only.
+        "viewport.load",
+        "viewport.save",
+        "appCommands.result",
+        // ADR-180 ticket 7: the keybindings page is read-only on web
+        // (ADR-178 ticket 6), and a popout's forwarded command names a
+        // window a device does not have.
+        "keybindings.set",
+        "keybindings.reset",
+        "keybindings.resetAll",
+        "keybindings.runInMainWindow",
+        // ADR-180 ticket 10: the keys, and the lock they turn. A stolen
+        // `full` token that can pair more devices is a token that survives
+        // its own revocation, and one that can stop the listener can lock the
+        // owner out of taking it back. `getStatus` and `refreshDetection` are
+        // absent from this list on purpose — a device's settings page may
+        // read the surface it is on.
+        "remoteControl.setEnabled",
+        "remoteControl.pair",
+        "remoteControl.revoke",
+        "remoteControl.startTunnel",
+        "remoteControl.stopTunnel",
+        // The one method in the whole surface that takes a raw credential as
+        // an argument. Everything else Linear does hands back the result of
+        // using the stored key and crosses like any other read.
+        "linear.connect",
+      ].sort(),
+    );
+  });
+
+  /**
+   * The half of the namespace that is *not* refused. Pinned beside the list
+   * above because "read-only on web" is a claim about both halves, and a
+   * future edit that widened `LOCAL_ONLY` to the whole namespace would leave
+   * a paired device's own settings page unable to say whether the host is
+   * reachable — while still passing the assertion above.
+   */
+  it("leaves remote control's two reads reachable from a device", () => {
+    expect(LOCAL_ONLY.has("remoteControl.getStatus")).toBe(false);
+    expect(LOCAL_ONLY.has("remoteControl.refreshDetection")).toBe(false);
+  });
+
+  /**
+   * `MUTATING` decides what lands in the audit log, and `bridgeTarget` puts
+   * the first string argument of an audited call in its `target` field. For
+   * `linear.connect` that argument is the API key.
+   *
+   * Asserted over `SECRET_FIRST_ARG` rather than over that one name, because
+   * the rule is about the class and not about Linear: a method that *takes* a
+   * credential goes in that set, and this is what the set is for.
+   * `surface.ts` makes the same assertion at compile time; this one is here
+   * because this is the file somebody reads when they want to know what a
+   * device may do.
+   */
+  it("never audits a method whose first argument is a credential", () => {
+    expect([...SECRET_FIRST_ARG]).toEqual(["linear.connect"]);
+    for (const method of SECRET_FIRST_ARG) {
+      expect(MUTATING.has(method)).toBe(false);
+    }
+  });
+
+  /**
+   * The other direction, and the one that would rot silently: every name in
+   * `LOCAL_ONLY` has to be a method the table actually has. A refusal for a
+   * method that no longer exists refuses nothing, and reads in a diff exactly
+   * like one that does.
+   */
+  it("names only methods that are on the table", () => {
+    for (const method of LOCAL_ONLY) {
+      expect(Object.keys(HANDLERS)).toContain(method);
+    }
+  });
+
+  /**
+   * What a `full` device's bridge surface *is*, said once: the table, minus
+   * the refusals. There is no third list and no per-method gate — `dispatch`
+   * looks the method up and asks `LOCAL_ONLY` about the caller's class, and
+   * that is the whole of it (ADR-180 D4). The HTTP tiers above are a
+   * different mechanism for a different surface; this is the bridge's.
+   */
+  it("is the whole of what a full device may not reach on the bridge", () => {
+    const table = Object.keys(HANDLERS);
+    const reachable = table.filter((method) => !LOCAL_ONLY.has(method));
+    const refused = table.filter((method) => LOCAL_ONLY.has(method));
+
+    expect(refused.sort()).toEqual([...LOCAL_ONLY].sort());
+    expect(reachable).toHaveLength(table.length - LOCAL_ONLY.size);
+    // Not a token subset: the reads, the writes and the whole of `pty` are in
+    // it, which is ADR-178 D3 as written.
+    expect(reachable).toContain("pty.create");
+    expect(reachable).toContain("projects.removeWorktree");
+    expect(reachable).toContain("git.commit");
+    expect(reachable).toContain("remoteControl.getStatus");
   });
 });

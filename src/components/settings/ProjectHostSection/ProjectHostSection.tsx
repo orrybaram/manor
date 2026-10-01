@@ -14,6 +14,7 @@ import { ConfirmDialog } from "../../ui/ConfirmDialog/ConfirmDialog";
 import { Stack, Row } from "../../ui/Layout/Layout";
 import { SectionTitle } from "../SectionTitle";
 import styles from "../SettingsModal/SettingsModal.module.css";
+import { pickDirectory } from "../../../lib/pick-directory";
 
 const ADD_HOST_VALUE = "__add_host__";
 
@@ -128,7 +129,7 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
   // No remembered local path (e.g. a project moved to a host before paths
   // were remembered): let the user point it at a checkout on this Mac.
   const chooseLocalFolder = useCallback(async () => {
-    const selected = await window.electronAPI.dialog.openDirectory();
+    const selected = await pickDirectory();
     if (selected) switchHost(LOCAL_HOST_ID, selected);
   }, [switchHost]);
 

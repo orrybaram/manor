@@ -1,18 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// ── Mock electron ──────────────────────────────────────────────────────────────
-const handlers: Map<string, (...args: unknown[]) => unknown> = new Map();
-
-vi.mock("electron", () => ({
-  ipcMain: {
-    handle: vi.fn(
-      (channel: string, handler: (...args: unknown[]) => unknown) => {
-        handlers.set(channel, handler);
-      },
-    ),
-  },
-}));
-
 // ── Mock the portless proxy ────────────────────────────────────────────────────
 const updateRoutes = vi.fn();
 
@@ -32,11 +19,29 @@ vi.mock("../ipc-validate", () => ({
   assertWorkspaceMeta: vi.fn(),
 }));
 
-import { register } from "../ipc/ports";
+import {
+  installPortEnricher,
+  portsRemoteUrl,
+  portsResolveUrl,
+  portsScanNow,
+  portsUpdateWorkspaceMetadata,
+} from "../bridge/handlers/ports";
 import { RemoteUrlResolver } from "../remote-forwards";
 import type { WorkspaceMeta } from "../ipc/types";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+/**
+ * The deps the handlers under test run over. There is no `register()` any
+ * more (ADR-180 D8): the handler table calls the lifted functions with the
+ * one long-lived `IpcDeps`, and `installPortEnricher` is the boot-time half
+ * of what `register()` used to do.
+ */
+let current: never;
+function register(deps: never): void {
+  current = deps;
+  installPortEnricher(deps);
+}
 
 function meta(overrides: Partial<WorkspaceMeta> = {}): WorkspaceMeta {
   return {
@@ -52,7 +57,7 @@ function meta(overrides: Partial<WorkspaceMeta> = {}): WorkspaceMeta {
 
 /**
  * A scan returns fresh objects tagged with their host ("local" unless
- * given), dressed by the enricher `ipc/ports` installs — as the real
+ * given), dressed by the enricher `bridge/handlers/ports` installs — as the real
  * scanner does.
  */
 function makeDeps(
@@ -137,7 +142,7 @@ function makeDeps(
     scanHost: vi.fn().mockImplementation(async (_hostId: string) => scanAndPublish()),
   };
 
-  // Built once here rather than by `ipc/ports.ts` (ADR-183 moved that
+  // Built once here rather than by `bridge/handlers/ports.ts` (ADR-183 moved that
   // construction to app-lifecycle.ts, alongside `paneHosts`).
   const remoteUrlResolver = new RemoteUrlResolver(
     portScanner as never,
@@ -172,7 +177,7 @@ function makeDeps(
 }
 
 async function scan() {
-  return (await handlers.get("ports:scanNow")!()) as {
+  return (await portsScanNow(current)) as {
     port: number;
     hostname?: string;
   }[];
@@ -182,7 +187,6 @@ async function scan() {
 
 describe("portless per-project gate", () => {
   beforeEach(() => {
-    handlers.clear();
     updateRoutes.mockClear();
   });
 
@@ -222,7 +226,7 @@ describe("portless per-project gate", () => {
     expect((await scan())[0].hostname).toBe("acme.localhost:7999");
 
     // What the renderer pushes when the settings switch changes.
-    handlers.get("ports:updateWorkspaceMetadata")!({} as never, [
+    portsUpdateWorkspaceMetadata(current, [
       meta({ portlessEnabled: false }),
     ]);
 
@@ -259,7 +263,6 @@ describe("portless per-project gate", () => {
 
 describe("remote ports", () => {
   beforeEach(() => {
-    handlers.clear();
     updateRoutes.mockClear();
   });
 
@@ -283,9 +286,7 @@ describe("remote ports", () => {
     ]);
 
     // Opening the portless URL makes the forward, which re-routes.
-    const url = await handlers.get("ports:resolveUrl")!(
-      {} as never,
-      "http://acme.box.localhost:7999/",
+    const url = await portsResolveUrl(current, "http://acme.box.localhost:7999/",
       "box",
     );
     expect(url).toBe("http://acme.box.localhost:7999/");
@@ -303,7 +304,7 @@ describe("remote ports", () => {
     register(deps as never);
     await scan();
     const resolve = (url: string, hostId: string) =>
-      handlers.get("ports:resolveUrl")!({} as never, url, hostId);
+      portsResolveUrl(current, url, hostId);
 
     // On 127.0.0.1, where the forward listens.
     expect(await resolve("http://localhost:3000/app?x=1", "box")).toBe(
@@ -321,7 +322,7 @@ describe("remote ports", () => {
     register(deps as never);
     await scan();
     const resolve = (url: string) =>
-      handlers.get("ports:resolveUrl")!({} as never, url, "box");
+      portsResolveUrl(current, url, "box");
 
     // A dev server started since the last poll: found by the rescan.
     deps.scanned.push({ port: 5173, workspacePath: "/srv/repo", hostId: "box" });
@@ -344,7 +345,7 @@ describe("remote ports", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     expect(
-      await handlers.get("ports:resolveUrl")!({} as never, "http://localhost:3000/", "box"),
+      await portsResolveUrl(current, "http://localhost:3000/", "box"),
     ).toBe("http://localhost:3000/");
     warn.mockRestore();
   });
@@ -355,7 +356,7 @@ describe("remote ports", () => {
     ]);
     register(deps as never);
     await scan();
-    await handlers.get("ports:resolveUrl")!({} as never, "http://[::1]:3000/", "box");
+    await portsResolveUrl(current, "http://[::1]:3000/", "box");
     expect(deps.remoteForwards.ensure).toHaveBeenCalledWith("box", 3000, { remoteHost: "::1" });
   });
 
@@ -368,7 +369,7 @@ describe("remote ports", () => {
 
     let result: string | undefined;
     void (
-      handlers.get("ports:resolveUrl")!({} as never, "http://localhost:3000/", "box") as Promise<string>
+      portsResolveUrl(current, "http://localhost:3000/", "box") as Promise<string>
     ).then((r) => (result = r));
     await new Promise((r) => setTimeout(r, 0));
     expect(result).toBeUndefined();
@@ -386,7 +387,7 @@ describe("remote ports", () => {
     deps.host.setStatus("box", "reconnecting");
     register(deps as never);
     expect(
-      await handlers.get("ports:resolveUrl")!({} as never, "https://example.com/", "box"),
+      await portsResolveUrl(current, "https://example.com/", "box"),
     ).toBe("https://example.com/");
   });
 
@@ -394,9 +395,7 @@ describe("remote ports", () => {
     const deps = makeDeps([], remoteScan);
     deps.host.setStatus("box", "connecting");
     register(deps as never);
-    const pending = handlers.get("ports:resolveUrl")!(
-      {} as never,
-      "http://localhost:3000/",
+    const pending = portsResolveUrl(current, "http://localhost:3000/",
       "box",
     );
     deps.host.setStatus("box", undefined);
@@ -408,7 +407,7 @@ describe("remote ports", () => {
     register(deps as never);
     await scan();
     const resolve = (url: string) =>
-      handlers.get("ports:resolveUrl")!({} as never, url, "box") as Promise<string>;
+      portsResolveUrl(current, url, "box") as Promise<string>;
     await resolve("http://localhost:3000/");
     // 53000 is 3000's forward: it resolves back onto the (same) forward.
     expect(await resolve("http://127.0.0.1:53000/x")).toBe("http://127.0.0.1:53000/x");
@@ -421,9 +420,9 @@ describe("remote ports", () => {
     const deps = makeDeps([], remoteScan);
     register(deps as never);
     await scan();
-    await handlers.get("ports:resolveUrl")!({} as never, "http://localhost:3000/", "box");
+    await portsResolveUrl(current, "http://localhost:3000/", "box");
     const remoteUrl = (url: string, hostId: string) =>
-      handlers.get("ports:remoteUrl")!({} as never, url, hostId);
+      portsRemoteUrl(current, url, hostId);
     expect(remoteUrl("http://127.0.0.1:53000/a?b#c", "box")).toBe("http://localhost:3000/a?b#c");
     expect(remoteUrl("http://127.0.0.1:53000/", "other")).toBe("http://127.0.0.1:53000/");
     expect(remoteUrl("http://127.0.0.1:53000/", "local")).toBe("http://127.0.0.1:53000/");
@@ -433,7 +432,7 @@ describe("remote ports", () => {
   it("gives an agent's navigate the same rewrite, bounded by a timeout", async () => {
     // `resolvePaneUrl` (app-lifecycle.ts, ADR-183) calls this same
     // `remoteUrlResolver` with a timeout; exercised directly here since that
-    // wiring no longer lives in `ipc/ports.ts`.
+    // wiring no longer lives in `bridge/handlers/ports.ts`.
     const deps = makeDeps([], remoteScan);
     register(deps as never);
     await scan();
@@ -458,7 +457,6 @@ describe("remote ports", () => {
 // and a name, so a remote hostname carries a segment from its host's id.
 describe("hostnames by host", () => {
   beforeEach(() => {
-    handlers.clear();
     updateRoutes.mockClear();
   });
 

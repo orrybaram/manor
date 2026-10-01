@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { BrowserWindow } from "electron";
 import { LOCAL_HOST_ID } from "./backend/types";
 import { HostUnavailableError } from "./backend/host-view";
 import { workspaceKey } from "../src/lib/workspace-key";
 import { PerHostPoller, type HostBackends, type HostPath } from "./per-host-poller";
+import { publishRendererBroadcast } from "./renderer-broadcast";
 
 /**
  * Local, fs-based HEAD read for `wsPath` (a repo or worktree root). Cheap
@@ -67,7 +67,6 @@ export async function readLocalBranch(wsPath: string): Promise<string | null> {
  */
 export class BranchWatcher {
   private readonly poller: PerHostPoller<Record<string, string>>;
-  private window: BrowserWindow | null = null;
 
   constructor(private readonly hosts: HostBackends) {
     this.poller = new PerHostPoller<Record<string, string>>({
@@ -76,7 +75,7 @@ export class BranchWatcher {
         hostId === LOCAL_HOST_ID ? this.scanLocal(paths) : this.scanRemote(hostId, paths),
       intervalMs: (hostId) => (hostId === LOCAL_HOST_ID ? 2000 : 5000),
       merge: (results) => Object.assign({}, ...results) as Record<string, string>,
-      emit: (branches) => this.window?.webContents.send("branches-changed", branches),
+      emit: (branches) => publishRendererBroadcast("branches", "changed", branches),
     });
   }
 
@@ -84,9 +83,14 @@ export class BranchWatcher {
    * Watch `workspaces`. With none, `{}` is emitted once so the renderer
    * clears out any branches left over from before; restarting with the
    * same branches emits nothing new.
+   *
+   * ADR-180 D5: there is no window argument. This used to push into one
+   * `webContents`; a `branches.changed` broadcast reaches every renderer
+   * attached to this host — both desktop windows and any paired browser —
+   * through the bridge's sink, and the watcher goes back to not knowing
+   * anything about windows.
    */
-  start(window: BrowserWindow, workspaces: readonly HostPath[]): void {
-    this.window = window;
+  start(workspaces: readonly HostPath[]): void {
     this.poller.reset({ reemit: false });
     this.poller.setEntries(workspaces);
     this.poller.start({ immediate: true });

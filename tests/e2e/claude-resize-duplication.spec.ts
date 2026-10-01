@@ -160,6 +160,25 @@ async function gridMoves(window: Page): Promise<GridMove[]> {
   return window.evaluate(() => window.__gridMoves ?? []);
 }
 
+/**
+ * Claude Code is up and waiting for a prompt.
+ *
+ * Three markers, OR'd, because this is a real third-party CLI whose chrome
+ * changes under us and a single string here costs 120 seconds and a silently
+ * disabled test when it moves. `Welcome back` is the old one and only shows
+ * on a *resumed* session; the other two are what a fresh launch prints — the
+ * mode hint under the composer, and the composer's own placeholder.
+ *
+ * `scrollback()` strips whitespace, hence the run-together spellings.
+ */
+function atClaudePrompt(t: string): boolean {
+  return (
+    t.includes("Welcomeback") ||
+    t.includes("shift+tabtocycle") ||
+    /❯Try/.test(t)
+  );
+}
+
 test.describe("claude, resized after its output lands", () => {
   test.skip(!HAVE_CLAUDE, "no Claude Code on this machine");
   test.setTimeout(300_000);

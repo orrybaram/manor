@@ -12,6 +12,17 @@ import type { BrowserWindow } from "electron";
 import { DIFF_CONCURRENCY, DiffWatcher, filesToFingerprint } from "../diff-watcher";
 import type { GitBackend } from "../backend/types";
 import type { HostBackends } from "../per-host-poller";
+import { addRendererBroadcastSink } from "../renderer-broadcast";
+
+/**
+ * The watcher publishes `diffs.changed` / `diffs.fingerprintsChange` to every
+ * renderer (ADR-180 D5) rather than sending on one window's `webContents`, so
+ * `send` below hears the broadcast sink: `send("diffs.changed", stats)`.
+ */
+const stopSinks: (() => void)[] = [];
+afterEach(() => {
+  for (const stop of stopSinks.splice(0)) stop();
+});
 
 interface RepoState {
   head: string;
@@ -69,10 +80,12 @@ const diffWs = (path: string) => ({ path, hostId: "local", defaultBranch: "main"
 /** A window that can be hidden and shown again, as the user would. */
 function fakeWindow() {
   const send = vi.fn();
+  stopSinks.push(
+    addRendererBroadcastSink((frame) => send(`${frame.ns}.${frame.event}`, ...frame.args)),
+  );
   const listeners = new Map<string, () => void>();
   let visible = true;
   const window = {
-    webContents: { send },
     isDestroyed: () => false,
     isVisible: () => visible,
     isMinimized: () => false,
@@ -106,14 +119,14 @@ async function watch(state: RepoState) {
   const { git, exec, shell, shellExec } = fakeGit(state);
   const watcher = new DiffWatcher(hostsWith(git, shell));
   const { window, send, hide, show } = fakeWindow();
-  watcher.start(window, [diffWs("/app")]);
+  watcher.start([diffWs("/app")], window);
   await vi.advanceTimersByTimeAsync(0);
   return { watcher, exec, shellExec, send, hide, show };
 }
 
 /** How many fingerprints `send` has sent for `/app` so far. */
 const fingerprintsSent = (send: ReturnType<typeof vi.fn>) =>
-  sentOn(send, "diff-fingerprints-changed").length;
+  sentOn(send, "diffs.fingerprintsChange").length;
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -162,7 +175,7 @@ describe("DiffWatcher", () => {
       files: { "a.ts": "x" },
     });
     const { watcher, exec, send } = await watch(state);
-    expect(sentOn(send, "diffs-changed")).toEqual([{ "/app": { added: 1, removed: 0 } }]);
+    expect(sentOn(send, "diffs.changed")).toEqual([{ "/app": { added: 1, removed: 0 } }]);
     expect(fingerprintsSent(send)).toBe(1);
 
     await vi.advanceTimersByTimeAsync(15000);
@@ -202,13 +215,13 @@ describe("DiffWatcher", () => {
     const { window, send } = fakeWindow();
     const workspaces = Array.from({ length: 10 }, (_, i) => diffWs(`/ws${i}`));
 
-    watcher.start(window, workspaces);
+    watcher.start(workspaces, window);
     await vi.advanceTimersByTimeAsync(1000);
 
     expect(callsOf(exec, "diff")).toHaveLength(10);
     expect(peak).toBe(DIFF_CONCURRENCY);
     // Every workspace still got its stats.
-    expect(Object.keys(last(sentOn(send, "diffs-changed")) as object)).toHaveLength(10);
+    expect(Object.keys(last(sentOn(send, "diffs.changed")) as object)).toHaveLength(10);
     watcher.stop();
   });
 
@@ -216,8 +229,8 @@ describe("DiffWatcher", () => {
     const state = repo();
     const { watcher, send } = await watch(state);
     // A clean workspace has no stats, but still has a fingerprint.
-    expect(sentOn(send, "diffs-changed")).toEqual([{}]);
-    const first = last(sentOn(send, "diff-fingerprints-changed")) as Record<string, string>;
+    expect(sentOn(send, "diffs.changed")).toEqual([{}]);
+    const first = last(sentOn(send, "diffs.fingerprintsChange")) as Record<string, string>;
     expect(first["/app"]).toMatch(/^[0-9a-f]{40}$/);
 
     // A commit that leaves the shortstat as it was still moves HEAD.
@@ -225,7 +238,7 @@ describe("DiffWatcher", () => {
     state.head = "h2";
     await vi.advanceTimersByTimeAsync(5000);
     expect(fingerprintsSent(send)).toBe(1);
-    expect(sentOn(send, "diffs-changed")).toHaveLength(0);
+    expect(sentOn(send, "diffs.changed")).toHaveLength(0);
     watcher.stop();
   });
 
@@ -242,7 +255,7 @@ describe("DiffWatcher", () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(fingerprintsSent(send)).toBe(1);
     // The stats did not change, so they are not re-sent.
-    expect(sentOn(send, "diffs-changed")).toHaveLength(0);
+    expect(sentOn(send, "diffs.changed")).toHaveLength(0);
     watcher.stop();
   });
 
@@ -336,7 +349,7 @@ describe("DiffWatcher", () => {
     const shell = { exec: vi.fn().mockRejectedValue(new Error("wc: gone.txt: No such file")) };
     const watcher = new DiffWatcher(hostsWith(git, shell));
     const { window, send } = fakeWindow();
-    watcher.start(window, [diffWs("/app")]);
+    watcher.start([diffWs("/app")], window);
     await vi.advanceTimersByTimeAsync(0);
     expect(fingerprintsSent(send)).toBe(1);
     watcher.stop();
@@ -348,7 +361,7 @@ describe("DiffWatcher", () => {
     const { git } = fakeGit(state);
     const watcher = new DiffWatcher(hostsWith(git));
     const { window, send } = fakeWindow();
-    watcher.start(window, [diffWs("/app")]);
+    watcher.start([diffWs("/app")], window);
     log.mockClear();
 
     await vi.advanceTimersByTimeAsync(0);

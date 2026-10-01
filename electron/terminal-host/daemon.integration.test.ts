@@ -529,7 +529,7 @@ describe("Daemon protocol (in-process)", () => {
       const host = daemon.getHost();
       const origCreate = host.create.bind(host);
       let callCount = 0;
-      host.create = (...args: any[]) => {
+      host.create = (...args: Parameters<typeof origCreate>) => {
         callCount++;
         if (callCount === 1) throw new Error("first call fails");
         return origCreate(...args);

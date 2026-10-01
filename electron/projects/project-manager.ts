@@ -607,6 +607,7 @@ export class ProjectManager {
     linkedIssue?: LinkedIssue,
     baseBranch?: string,
     useExistingBranch?: boolean,
+    origin: string | null = null,
   ): Promise<ProjectInfo | null> {
     return worktrees.createWorktree(
       this.ctx,
@@ -616,6 +617,7 @@ export class ProjectManager {
       linkedIssue,
       baseBranch,
       useExistingBranch,
+      origin,
     );
   }
 

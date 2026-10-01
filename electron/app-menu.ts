@@ -25,6 +25,7 @@ import {
 } from "./app-menu-template";
 import type { KeybindingsManager } from "./keybindings";
 import { manorDataDir } from "./paths";
+import { connectionIdForWindow, publishToRenderer } from "./renderer-broadcast";
 
 export interface AppMenuDeps {
   getMainWindow: () => BrowserWindow | null;
@@ -101,8 +102,14 @@ export function installAppMenu(deps: AppMenuDeps): AppMenuController {
         deps.getRendererWindows(),
       );
       if (!isLive(target)) return;
+      // ADR-180 D5: one of the two addressed pushes — the menu item was
+      // clicked *for* a window, and every native menu item in the app comes
+      // through here. A window with no connection has not installed the
+      // bridge yet and could not have heard the old channel either.
+      const to = connectionIdForWindow(target);
+      if (to === null) return;
       const payload: MenuCommandPayload = { commandId, args };
-      target.webContents.send("menu-command", payload);
+      publishToRenderer(to, "menu", "command", payload);
     },
     zoom(delta) {
       const focused = BrowserWindow.getFocusedWindow();

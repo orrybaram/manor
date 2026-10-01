@@ -14,6 +14,15 @@ import type {
 import { LOCAL_HOST_ID } from "./backend/types";
 import { normalizeHostId, workspaceKey, type WorkspaceKey } from "../src/lib/workspace-key";
 import type { GhRepo } from "../src/lib/gh-repo";
+import {
+  conversationsQueryArgs,
+  graphqlTarget,
+  normalizeRawPr,
+  prsQueryArgs,
+  type RawPr,
+  type RawStatusCheck,
+  type RepoPrNumbers,
+} from "./github-pr-query";
 
 const execFileAsync = promisify(execFile);
 
@@ -191,7 +200,7 @@ export class GitHubManager {
    * Merged and closed PRs by repo and head branch: they never change again,
    * so their branches are not queried again (#303).
    */
-  private finalPrs = new Map<string, PrInfo>();
+  private settledPrs = new Map<string, PrInfo>();
 
   /** `getPrsForBranches` lookups still running, by repo and branches. */
   private prLookupsInFlight = new Map<string, Promise<Map<string, PrInfo | null>>>();
@@ -222,7 +231,7 @@ export class GitHubManager {
 
   /**
    * Notified with the PR URL when a poll queries a merged PR — once per
-   * process, since a merged PR is not queried again (see `finalPrs`), but
+   * process, since a merged PR is not queried again (see `settledPrs`), but
    * again after a restart. Counting it once is the listener's job
    * (`StatsStore.recordOnce`); this side just reports what it saw, since the
    * poll is the only place in the app that learns a PR merged without anyone
@@ -243,7 +252,7 @@ export class GitHubManager {
   /**
    * Every branch's PR in one `gh api graphql` call for the repo, however many
    * branches (#303). A branch whose PR has merged or closed is answered from
-   * `finalPrs` and never asked about again. Concurrent calls for the same
+   * `settledPrs` and never asked about again. Concurrent calls for the same
    * repo and branches share one lookup rather than each running their own.
    */
   async getPrsForBranches(
@@ -262,21 +271,24 @@ export class GitHubManager {
     return branches.map((branch) => [branch, found.get(branch) ?? null]);
   }
 
+  /**
+   * Each branch's PR: settled ones from `settledPrs`, the rest from GitHub
+   * (`fetchPrsFromGitHub`), with their conversations.
+   */
   private async lookUpPrs(
     repo: GhRepo,
     branches: string[],
   ): Promise<Map<string, PrInfo | null>> {
-    const repoKey = repoCacheKey(repo);
     const result = new Map<string, PrInfo | null>();
     const toAsk: string[] = [];
     for (const branch of new Set(branches)) {
-      const final = this.finalPrs.get(`${repoKey}\0${branch}`);
-      if (final) result.set(branch, final);
+      const settled = this.settledPrs.get(settledPrKey(repo, branch));
+      if (settled) result.set(branch, settled);
       else toAsk.push(branch);
     }
     if (toAsk.length === 0) return result;
 
-    const raw = await this.queryPrs(repo, toAsk);
+    const raw = await this.fetchPrsFromGitHub(repo, toAsk);
     const conversations = await this.conversationsFor(
       Array.from(raw.values()).filter((pr): pr is RawPr => pr !== null),
     );
@@ -285,7 +297,7 @@ export class GitHubManager {
       const info = pr ? this.toPrInfo(pr, conversations.get(pr.url) ?? {}) : null;
       // Merged and closed PRs never change again: kept, never re-queried.
       if (info && info.state !== "open") {
-        this.finalPrs.set(`${repoKey}\0${branch}`, info);
+        this.settledPrs.set(settledPrKey(repo, branch), info);
       }
       result.set(branch, info);
     }
@@ -297,7 +309,7 @@ export class GitHubManager {
    * it, all in one GraphQL query. Every branch maps to null when the query
    * fails.
    */
-  private async queryPrs(
+  private async fetchPrsFromGitHub(
     repo: GhRepo,
     branches: string[],
   ): Promise<Map<string, RawPr | null>> {
@@ -450,26 +462,15 @@ export class GitHubManager {
     }
     if (byRepo.size === 0) return result;
 
-    // The newest entries of all three conversation surfaces: enough for the
-    // PR popover's comment list, and the newest of them is what a "new
-    // comment" notification carries (#177).
-    // `viewer` and `__typename` ride along so every entry can be tagged with
-    // who wrote it — you, or a GitHub App — which is what the comment
-    // notification filters gate on.
-    const fields = `isInMergeQueue reviewThreads(first: 100) { nodes { isResolved isOutdated path comments(first: 1) { nodes { author { __typename login } body url createdAt } } } } comments(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { __typename login } body url createdAt } } reviews(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { __typename login } body url submittedAt state } }`;
-    const repos = Array.from(byRepo, ([slug, repoPrs], r) => {
+    const repos: RepoPrNumbers[] = Array.from(byRepo, ([slug, repoPrs]) => {
       const [owner, name] = slug.split("/");
-      const pulls = repoPrs
-        .map((pr, p) => `p${p}: pullRequest(number: ${Number(pr.number)}) { ${fields} }`)
-        .join(" ");
-      return `r${r}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { ${pulls} }`;
+      return { owner, name, numbers: repoPrs.map((pr) => pr.number) };
     });
-    const query = `query { viewer { login } ${repos.join(" ")} }`;
 
     try {
       const { stdout } = await execFileAsync(
         "gh",
-        ["api", "graphql", "-f", `query=${query}`],
+        ["api", "graphql", ...conversationsQueryArgs(repos)],
         {
           encoding: "utf-8",
           timeout: 15000,
@@ -839,120 +840,17 @@ interface RawReviewThread {
   comments?: { nodes?: RawConversationNode[] };
 }
 
-/** How many comments and reviews to ask GitHub for. */
-const RECENT_COMMENT_FETCH = 20;
-
 /** How many conversation entries the popover keeps after interleaving. */
 const RECENT_COMMENT_LIMIT = 12;
-
-/** One PR as the batched branch query returns it, its rollup flattened. */
-interface RawPr {
-  number: number;
-  state: string;
-  title: string;
-  url: string;
-  isDraft: boolean;
-  additions: number;
-  deletions: number;
-  reviewDecision: string | null;
-  updatedAt: string;
-  mergeable: string;
-  autoMergeRequest: unknown;
-  statusCheckRollup: RawStatusCheck[];
-}
 
 /** What `getPrsForBranches` caches by: one checkout on one host. */
 function repoCacheKey({ path, hostId }: GhRepo): string {
   return `${normalizeHostId(hostId)}\0${path}`;
 }
 
-/**
- * `gh api graphql` takes no `--repo`: for a checkout `gh` cannot run inside
- * (`repoArgs` names its repo), the `{owner}`/`{repo}` placeholders are read
- * from `GH_REPO`, and a host other than github.com goes in `--hostname`.
- * A local checkout needs neither: the placeholders come from its directory.
- */
-function graphqlTarget(repoArgs: string[]): {
-  args: string[];
-  env: NodeJS.ProcessEnv | undefined;
-} {
-  const at = repoArgs.indexOf("--repo");
-  const repo = at >= 0 ? repoArgs[at + 1] : undefined;
-  if (!repo) return { args: [], env: undefined };
-  const segments = repo.split("/");
-  return {
-    args: segments.length === 3 ? ["--hostname", segments[0]] : [],
-    env: { ...process.env, GH_REPO: repo },
-  };
-}
-
-/** The `gh pr list --json` fields the badge used, as GraphQL. */
-const PR_FIELDS =
-  "number state title url isDraft additions deletions reviewDecision updatedAt mergeable " +
-  "autoMergeRequest { enabledAt } " +
-  "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { " +
-  "__typename " +
-  "... on CheckRun { name conclusion status detailsUrl checkSuite { workflowRun { workflow { name } } } } " +
-  "... on StatusContext { context state targetUrl } " +
-  "} } } } } }";
-
-/**
- * `gh api graphql` arguments asking for each branch's newest PR (any state,
- * newest created first, as `gh pr list --head` does), aliased `b<i>`. Branch
- * names go in as variables, so none needs escaping.
- */
-function prsQueryArgs(branches: string[]): string[] {
-  const vars = branches.map((_, i) => `$h${i}: String!`).join(", ");
-  const aliases = branches
-    .map(
-      (_, i) =>
-        `b${i}: pullRequests(headRefName: $h${i}, first: 1, ` +
-        `orderBy: { field: CREATED_AT, direction: DESC }) { nodes { ${PR_FIELDS} } }`,
-    )
-    .join(" ");
-  const query =
-    `query($owner: String!, $name: String!, ${vars}) ` +
-    `{ repository(owner: $owner, name: $name) { ${aliases} } }`;
-  return [
-    "-F",
-    "owner={owner}",
-    "-F",
-    "name={repo}",
-    ...branches.flatMap((branch, i) => ["-f", `h${i}=${branch}`]),
-    "-f",
-    `query=${query}`,
-  ];
-}
-
-/** A `pullRequests` node, with its last commit's rollup flattened as `gh` does. */
-function normalizeRawPr(node: Record<string, unknown>): RawPr {
-  type Context = RawStatusCheck & {
-    checkSuite?: { workflowRun?: { workflow?: { name?: string } | null } | null } | null;
-  };
-  const commits = node.commits as
-    | { nodes?: Array<{ commit?: { statusCheckRollup?: { contexts?: { nodes?: Context[] } } | null } }> }
-    | undefined;
-  const contexts = commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [];
-  const statusCheckRollup = contexts.map(({ checkSuite, ...check }) => {
-    const workflowName = checkSuite?.workflowRun?.workflow?.name;
-    return workflowName ? { ...check, workflowName } : check;
-  });
-  return { ...(node as unknown as RawPr), statusCheckRollup };
-}
-
-/**
- * `gh pr list --json statusCheckRollup` returns a union: check runs carry
- * `name`/`conclusion`/`detailsUrl`, legacy status contexts carry
- * `context`/`state`/`targetUrl`. Both shapes are flattened here.
- */
-interface RawStatusCheck {
-  name?: string;
-  context?: string;
-  conclusion?: string | null;
-  state?: string | null;
-  detailsUrl?: string;
-  targetUrl?: string;
-  workflowName?: string;
+/** `GitHubManager.settledPrs`' key: one branch of one checkout. */
+function settledPrKey(repo: GhRepo, branch: string): string {
+  return `${repoCacheKey(repo)}\0${branch}`;
 }
 
 const FAILING_CONCLUSIONS = new Set([

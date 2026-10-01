@@ -4,6 +4,7 @@ import {
   useProjectStore,
   type ProjectInfo,
 } from "../project-store";
+import { makeProject } from "../../test-utils/fixtures";
 
 // A window focus re-lists only remote projects' worktrees (#303): local
 // ones are kept current by main's worktree watcher.
@@ -21,29 +22,13 @@ vi.stubGlobal("window", {
 });
 
 function project(id: string, hostId: string, branch = "main"): ProjectInfo {
-  return {
+  return makeProject({
     id,
     name: id,
     path: `/code/${id}`,
     hostId,
-    defaultBranch: "main",
     workspaces: [{ path: `/code/${id}`, branch, isMain: true, name: null }],
-    selectedWorkspaceIndex: 0,
-    defaultRunCommand: null,
-    worktreePath: null,
-    worktreeStartScript: null,
-    worktreeTeardownScript: null,
-    linearAssociations: [],
-    color: null,
-    agentCommand: null,
-    commands: [],
-    themeName: null,
-    setupComplete: true,
-    portlessEnabled: true,
-    folders: [],
-    sidebarOrder: [],
-    group: null,
-  };
+  });
 }
 
 // The throttle is module state: each test starts well past the last refresh.

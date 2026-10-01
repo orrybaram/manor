@@ -344,6 +344,9 @@ describe("GitHubManager", () => {
       const conversationQuery = mockState.calls[1].find((a) => a.startsWith("query="))!;
       expect(conversationQuery).toContain("p0: pullRequest(number: 7)");
       expect(conversationQuery).toContain("p1: pullRequest(number: 8)");
+      // The repo goes in as variables, not spliced into the query.
+      expect(conversationQuery).toContain("r0: repository(owner: $o0, name: $n0)");
+      expect(mockState.calls[1]).toEqual(expect.arrayContaining(["o0=owner", "n0=repo"]));
     });
 
     it("never queries a merged or closed PR's branch again", async () => {

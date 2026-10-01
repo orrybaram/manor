@@ -122,7 +122,6 @@ function App() {
   const loadTheme = useThemeStore((s) => s.loadTheme);
   const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
   const loadProjects = useProjectStore((s) => s.loadProjects);
-  const refreshRemoteProjects = useProjectStore((s) => s.refreshRemoteProjects);
   const loadPersistedLayout = useAppStore((s) => s.loadPersistedLayout);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const [appReady, setAppReady] = useState(false);
@@ -474,11 +473,11 @@ function App() {
   // lives on another machine. Coming back to the window is when a stale
   // sidebar would be noticed. Local projects are left to the worktree
   // watcher, and the store throttles repeated focuses.
-  useEffect(() => {
-    const onFocus = () => void refreshRemoteProjects();
+  useMountEffect(() => {
+    const onFocus = () => void useProjectStore.getState().refreshRemoteProjects();
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [refreshRemoteProjects]);
+  });
 
   // A detached window sent its tab back to this primary window (ADR-156). Insert
   // it into the active panel; PTYs re-attach and webviews re-mount by paneId.

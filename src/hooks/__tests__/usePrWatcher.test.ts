@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { useProjectStore, type ProjectInfo } from "../../store/project-store";
 import { PR_FOCUS_MIN_INTERVAL, fetchPrs, refreshPrsOnFocus } from "../usePrWatcher";
+import { makeProject } from "../../test-utils/fixtures";
 
 // PR refreshes (#303): one at a time, and window focus at most once per
 // minimum interval.
@@ -17,12 +18,10 @@ vi.stubGlobal("window", {
 });
 
 function project(id: string, branches: string[]): ProjectInfo {
-  return {
+  return makeProject({
     id,
     name: id,
     path: `/code/${id}`,
-    hostId: "local",
-    defaultBranch: "main",
     workspaces: [
       { path: `/code/${id}`, branch: "main", isMain: true, name: null },
       ...branches.map((branch) => ({
@@ -32,22 +31,7 @@ function project(id: string, branches: string[]): ProjectInfo {
         name: null,
       })),
     ],
-    selectedWorkspaceIndex: 0,
-    defaultRunCommand: null,
-    worktreePath: null,
-    worktreeStartScript: null,
-    worktreeTeardownScript: null,
-    linearAssociations: [],
-    color: null,
-    agentCommand: null,
-    commands: [],
-    themeName: null,
-    setupComplete: true,
-    portlessEnabled: true,
-    folders: [],
-    sidebarOrder: [],
-    group: null,
-  };
+  });
 }
 
 // The throttle is module state: each test starts well past the last refresh.

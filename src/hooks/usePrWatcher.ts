@@ -8,6 +8,7 @@ import { keyOf } from "../lib/workspace-directory";
 import { branchesEqual } from "../utils/branch-name";
 import { deliverPrNotifications } from "../utils/pr-notifications";
 import { usePreferencesStore } from "../store/preferences-store";
+import { sharedRefresh } from "../lib/shared-refresh";
 import { useMountEffect } from "./useMountEffect";
 
 /**
@@ -46,31 +47,14 @@ function computeFingerprint() {
     .join("|");
 }
 
-/** The refresh running now, which every caller meanwhile shares. */
-let inFlight: Promise<void> | null = null;
-/** When the last refresh started; `-Infinity` before the first. */
-let lastStartedAt = -Infinity;
+const prRefresh = sharedRefresh(fetchAllPrs, PR_FOCUS_MIN_INTERVAL);
 
 /**
  * Refresh every tracked workspace's PR. Only one refresh runs at a time: a
  * call while one is running joins it rather than starting another.
  */
 export function fetchPrs(): Promise<void> {
-  if (!inFlight) {
-    lastStartedAt = Date.now();
-    inFlight = fetchAllPrs().finally(() => {
-      inFlight = null;
-    });
-  }
-  return inFlight;
-}
-
-/**
- * A refresh that sees the workspaces as they are now: `fetchPrs`, but after
- * the running refresh (which may predate them) rather than joining it.
- */
-function fetchPrsAfterCurrent(): Promise<void> {
-  return inFlight ? inFlight.then(fetchPrs) : fetchPrs();
+  return prRefresh.run();
 }
 
 /**
@@ -78,9 +62,7 @@ function fetchPrsAfterCurrent(): Promise<void> {
  * `PR_FOCUS_MIN_INTERVAL` ago. True when it refreshed.
  */
 export function refreshPrsOnFocus(): boolean {
-  if (Date.now() - lastStartedAt < PR_FOCUS_MIN_INTERVAL) return false;
-  void fetchPrs();
-  return true;
+  return prRefresh.runIfDue() !== null;
 }
 
 async function fetchAllPrs() {
@@ -149,7 +131,8 @@ export function usePrWatcher() {
       const fp = computeFingerprint();
       if (fp !== prevFingerprint) {
         prevFingerprint = fp;
-        void fetchPrsAfterCurrent();
+        // After the running refresh, which may predate the new workspaces.
+        void prRefresh.runAfterCurrent();
         startPolling();
       }
     });

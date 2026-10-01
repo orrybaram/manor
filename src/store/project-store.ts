@@ -12,6 +12,7 @@ import { ipcErrorMessage } from "../lib/ipc-error";
 import { splitShared } from "../lib/project-groups";
 import { isRemoteHost, type HostId } from "../lib/hosts";
 import { hostForPath, patch, reconcile } from "../lib/workspace-directory";
+import { sharedRefresh } from "../lib/shared-refresh";
 import {
   buildSidebarItems,
   folderParentsOf,
@@ -804,11 +805,23 @@ const initialSidebarMode = loadSidebarMode();
 /** The least time between two `refreshRemoteProjects` runs. */
 export const REMOTE_REFRESH_MIN_INTERVAL = 30_000;
 
-/** `refreshRemoteProjects`' running refresh and when the last one started. */
-const remoteRefresh: { inFlight: Promise<void> | null; lastStartedAt: number } = {
-  inFlight: null,
-  lastStartedAt: -Infinity,
-};
+/** `refreshRemoteProjects`' refresh: re-list remote projects, keep local ones. */
+const remoteRefresh = sharedRefresh(async () => {
+  try {
+    const fresh = new Map(
+      (await window.electronAPI.projects.getRemote()).map((p) => [p.id, p]),
+    );
+    // Local projects keep their objects, so nothing re-renders for them.
+    useProjectStore.setState((s) => ({
+      projects: s.projects.map((p) => {
+        const f = fresh.get(p.id);
+        return f ? reconcile([f], [p])[0] : p;
+      }),
+    }));
+  } catch {
+    // Host unreachable: the next focus tries again.
+  }
+}, REMOTE_REFRESH_MIN_INTERVAL);
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
   projects: [],
@@ -849,31 +862,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   refreshRemoteProjects: () => {
-    if (remoteRefresh.inFlight) return remoteRefresh.inFlight;
     if (!get().projects.some((p) => isRemoteHost(p.hostId))) return Promise.resolve();
-    if (Date.now() - remoteRefresh.lastStartedAt < REMOTE_REFRESH_MIN_INTERVAL) {
-      return Promise.resolve();
-    }
-    remoteRefresh.lastStartedAt = Date.now();
-    remoteRefresh.inFlight = (async () => {
-      try {
-        const fresh = new Map(
-          (await window.electronAPI.projects.getRemote()).map((p) => [p.id, p]),
-        );
-        // Local projects keep their objects, so nothing re-renders for them.
-        set((s) => ({
-          projects: s.projects.map((p) => {
-            const f = fresh.get(p.id);
-            return f ? reconcile([f], [p])[0] : p;
-          }),
-        }));
-      } catch {
-        // Host unreachable: the next focus tries again.
-      } finally {
-        remoteRefresh.inFlight = null;
-      }
-    })();
-    return remoteRefresh.inFlight;
+    return remoteRefresh.runIfDue() ?? Promise.resolve();
   },
 
   addProject: async (name: string, path: string) => {

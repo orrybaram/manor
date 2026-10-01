@@ -1,4 +1,4 @@
-import { Fragment, useState, useCallback, useMemo } from "react";
+import { Fragment, lazy, Suspense, useState, useCallback, useMemo } from "react";
 import {
   useAppStore,
   selectActiveWorkspaceKey,
@@ -9,7 +9,6 @@ import { useProjectStore } from "../../../store/project-store";
 import MessageSquarePlus from "lucide-react/dist/esm/icons/message-square-plus";
 import BarChart3 from "lucide-react/dist/esm/icons/bar-chart-3";
 import { ManorLogo } from "../../ui/ManorLogo";
-import { AboutModal } from "../AboutModal/AboutModal";
 import { hasJustUpdated } from "../../../lib/just-updated";
 import { FeedbackModal } from "../FeedbackModal/FeedbackModal";
 import { LinkedIssuesPopover } from "../LinkedIssuesPopover/LinkedIssuesPopover";
@@ -24,6 +23,11 @@ import type { LinkedIssue, WorkspaceFolder } from "../../../store/project-store"
 import type { CommandPaletteProps } from "../../command-palette/types";
 import { find } from "../../../lib/workspace-directory";
 import styles from "./StatusBar.module.css";
+
+// The changelog and the markdown renderer behind it load with the first open.
+const AboutModal = lazy(() =>
+  import("../AboutModal/AboutModal").then((m) => ({ default: m.AboutModal })),
+);
 
 function isGitHubIssue(issue: LinkedIssue): boolean {
   return issue.id.startsWith("gh-");
@@ -133,6 +137,8 @@ export function StatusBar(props: StatusBarProps) {
   // An update that just landed opens About on its own, so the changelog for
   // the version now running is the first thing the user sees.
   const [aboutOpen, setAboutOpen] = useState(hasJustUpdated);
+  // Mounted from the first open on, so closing still plays its exit.
+  const [aboutMounted, setAboutMounted] = useState(aboutOpen);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const activeWorkspaceKey = useAppStore(selectActiveWorkspaceKey);
@@ -233,14 +239,21 @@ export function StatusBar(props: StatusBarProps) {
         </button>
         <button
           className={styles.logoButton}
-          onClick={() => setAboutOpen(true)}
+          onClick={() => {
+            setAboutMounted(true);
+            setAboutOpen(true);
+          }}
           aria-label="About Manor"
         >
           <ManorLogo />
         </button>
       </div>
       <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
-      <AboutModal open={aboutOpen} onOpenChange={setAboutOpen} />
+      {aboutMounted && (
+        <Suspense fallback={null}>
+          <AboutModal open={aboutOpen} onOpenChange={setAboutOpen} />
+        </Suspense>
+      )}
     </div>
   );
 }

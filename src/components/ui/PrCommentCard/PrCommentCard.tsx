@@ -1,8 +1,4 @@
-import { useState } from "react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import rehypeRaw from "rehype-raw";
-import rehypeSanitize from "rehype-sanitize";
+import { lazy, Suspense, useState } from "react";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
@@ -15,6 +11,13 @@ import { Link } from "../Link/Link";
 import { Tooltip } from "../Tooltip/Tooltip";
 import styles from "./PrCommentCard.module.css";
 import { Collapse } from "../Collapse/Collapse";
+
+/**
+ * The markdown stack (remark, rehype, parse5) is a quarter of a megabyte the
+ * app does not need until a comment is on screen, so it loads with the first
+ * one. Until then the body shows as plain text.
+ */
+const CommentMarkdown = lazy(() => import("./CommentMarkdown"));
 
 /**
  * One comment, as a card: who said it, then the file it hangs off and the
@@ -89,7 +92,9 @@ export function PrCommentCard(props: {
           {isThread && comment.path && <CommentFile path={comment.path} />}
           {body ? (
             <div className={styles.body}>
-              <CommentMarkdown source={body} />
+              <Suspense fallback={<p className={styles.plain}>{body}</p>}>
+                <CommentMarkdown source={body} />
+              </Suspense>
             </div>
           ) : (
             <div className={styles.empty}>No comment text.</div>
@@ -159,41 +164,6 @@ function CommentTime(props: { iso: string }) {
     <Tooltip label={exact} side="top">
       <span className={styles.time}>{relativeShortThenDate(ms)}</span>
     </Tooltip>
-  );
-}
-
-/**
- * GitHub-flavoured markdown, rendered to React nodes. Inline HTML — the
- * `<details>`, `<img>` and `<sub>` GitHub comments are full of — is parsed
- * too, then run through the GitHub-style sanitiser so scripts, handlers and
- * unknown tags never reach the DOM. Links open in the browser rather than
- * navigating the window; images are reduced to their alt text since the
- * popover cannot load remote content.
- */
-function CommentMarkdown(props: { source: string }) {
-  return (
-    <Markdown
-      remarkPlugins={[remarkGfm]}
-      rehypePlugins={[rehypeRaw, rehypeSanitize]}
-      components={{
-        a: ({ href, children }) =>
-          href ? (
-            <Link
-              variant="inline"
-              href={href}
-              title={href}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {children}
-            </Link>
-          ) : (
-            <span>{children}</span>
-          ),
-        img: ({ alt }) => <span className={styles.tag}>{alt || "image"}</span>,
-      }}
-    >
-      {props.source}
-    </Markdown>
   );
 }
 

@@ -8,17 +8,14 @@ import { workspaceKey } from "../../lib/workspace-key";
 function layout(...paneIds: string[]): WorkspaceLayout {
   return {
     panelTree: { type: "leaf", panelId: "p1" },
-    activePanelId: "p1",
     panels: {
       p1: {
         id: "p1",
-        selectedTabId: "t0",
         pinnedTabIds: [],
         tabs: paneIds.map((paneId, i) => ({
           id: `t${i}`,
           title: "Terminal",
           rootNode: { type: "leaf", paneId },
-          focusedPaneId: paneId,
         })),
       },
     },
@@ -126,6 +123,8 @@ describe("groupAgentPaneIds", () => {
             remote: { status: "requires_input", reason: "test", kind: "claude" },
           },
           workspaceLayouts: {},
+          viewports: {},
+          claims: {},
           activeWorkspacePath: null,
           activeWorkspaceHostId: "local",
         },

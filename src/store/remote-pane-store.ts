@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { LOCAL_HOST_ID } from "../lib/hosts";
-import { allPaneIds, type PaneNode } from "./pane-tree";
+import { allPaneIds, type PaneNode } from "../lib/layout/pane-tree";
 
 /**
  * What the renderer knows about a pane that runs — or waits to run — on a

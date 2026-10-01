@@ -1,58 +1,153 @@
 import { ipcMain } from "electron";
-import { ScrollbackWriter } from "../terminal-host/scrollback";
-import type { PersistedWorkspace } from "../terminal-host/layout-persistence";
+import type { PersistedDefaultViewport } from "../terminal-host/layout-persistence";
+import type {
+  LayoutApplyResult,
+  LayoutEntry,
+  LayoutOrigin,
+} from "../layout/layout-store";
+import type { LayoutCommand } from "../../src/lib/layout/commands";
+import type {
+  PendingCommandKind,
+  PendingCommandOptions,
+} from "../layout/pending-commands";
+import { assertString } from "../ipc-validate";
 import type { IpcDeps } from "./types";
 
 /**
- * The read side, lifted out of its `ipcMain.handle` wrapper so the ADR-178
- * WebSocket bridge calls the same code the desktop renderer does.
+ * Layout, as every renderer sees it (ADR-179 D1).
  *
- * `layout:save` is deliberately *not* lifted. Layout is still owned by the
- * renderer until ADR-178's slice 2 (D6), and two renderers writing
- * `~/.manor/layout.json` is last-write-wins on the user's whole workspace
- * arrangement. The bridge refuses it by name instead — see `ws-handlers.ts`.
+ * Lifted out of the `ipcMain.handle` wrappers below so the ADR-178 WebSocket
+ * bridge calls the same code the desktop renderer does. There is no `save`
+ * and no `load`: the Manor server owns `~/.manor/layout.json`, a renderer
+ * reads the whole thing with `getAll` and changes it with `apply`.
  */
-export async function layoutLoad(deps: IpcDeps): Promise<unknown> {
-  // Waits for the one-time workspace-key migration (ADR-191), so a renderer
-  // only ever sees host-qualified keys.
-  await deps.layoutPersistence.whenReady();
-  return deps.layoutPersistence.load();
+export async function layoutGetAll(
+  deps: IpcDeps,
+): Promise<Record<string, LayoutEntry>> {
+  // Waits for the file, and so for the one-time workspace-key migration
+  // (ADR-191) under it: a renderer only ever sees host-qualified keys.
+  await deps.layoutStore.whenLoaded();
+  return deps.layoutStore.getAll();
 }
 
-export async function layoutGetRestoredSessions(deps: IpcDeps): Promise<{
-  daemonSessions: unknown[];
-  persistedSessionIds: string[];
-}> {
-  try {
-    // Get live daemon sessions and persisted scrollback sessions
-    const daemonSessions = await deps.backend.pty.listSessions();
-    const persistedSessionIds = ScrollbackWriter.listPersistedSessions();
-    return {
-      daemonSessions,
-      persistedSessionIds,
-    };
-  } catch {
-    return { daemonSessions: [], persistedSessionIds: [] };
+/** The fallback surface for a renderer with no viewport file of its own. */
+export async function layoutGetLastActive(deps: IpcDeps): Promise<string | null> {
+  await deps.layoutStore.whenLoaded();
+  return deps.layoutStore.getLastActiveWorkspacePath();
+}
+
+/**
+ * Run one layout command. The answer is the new version, not the new layout:
+ * the layout arrives on `layout.changed`, at every renderer at once.
+ */
+export function layoutApply(
+  deps: IpcDeps,
+  workspacePath: string,
+  command: LayoutCommand,
+  origin: LayoutOrigin = { kind: "route", id: "unknown" },
+): Promise<LayoutApplyResult> {
+  assertString(workspacePath, "workspacePath");
+  return deps.layoutStore.apply(workspacePath, command, origin);
+}
+
+/**
+ * Queue a command for a pane whose shell does not exist yet (ticket 11).
+ *
+ * The desktop's "new tab running `pnpm dev`", "split with agent" and agent
+ * launches all land here, so they take the same road as `POST /tabs
+ * { command }`: the line waits on the server and `pty.create` types it into
+ * whichever renderer mounts the pane first. It used to wait in the sending
+ * renderer's own store, which is why a route could not queue one at all.
+ *
+ * Ordering matters and is free: a producer sends this immediately before the
+ * `layout.apply` that creates the pane, both over the same ordered channel,
+ * and this handler is synchronous — so the entry is always in place before
+ * the broadcast that makes a renderer mount the pane goes out.
+ */
+export function layoutSetPendingCommand(
+  deps: IpcDeps,
+  paneId: string,
+  text: string,
+  kind: PendingCommandKind = "shell",
+  opts?: PendingCommandOptions,
+): void {
+  assertString(paneId, "paneId");
+  assertString(text, "text");
+  if (kind !== "shell" && kind !== "agent-startup") {
+    throw new Error(`Unknown pending command kind: ${String(kind)}`);
   }
+  if (opts?.submit !== undefined && typeof opts.submit !== "boolean") {
+    throw new Error("submit must be a boolean");
+  }
+  deps.layoutStore.pendingCommands.set(paneId, text, kind, opts);
+}
+
+/** Forget a workspace's layout — its worktree is gone. */
+export function layoutRemove(deps: IpcDeps, workspacePath: string): void {
+  assertString(workspacePath, "workspacePath");
+  deps.layoutStore.remove(workspacePath);
+}
+
+/**
+ * What one renderer is looking at (ADR-179 D3).
+ *
+ * `rendererId` is what the *caller* calls itself and `origin` is what the
+ * transport saw; the transport wins, because "was this a window or a
+ * browser?" decides whether the report stands in for the primary's viewport
+ * and a client cannot be trusted to answer it about itself.
+ */
+export function layoutReportViewport(
+  deps: IpcDeps,
+  workspacePath: string,
+  rendererId: string,
+  viewport: PersistedDefaultViewport,
+  origin: LayoutOrigin = { kind: "route", id: rendererId },
+): void {
+  assertString(workspacePath, "workspacePath");
+  assertString(rendererId, "rendererId");
+  deps.layoutStore.reportViewport(workspacePath, origin, viewport);
 }
 
 export function register(deps: IpcDeps): void {
-  const { layoutPersistence } = deps;
+  ipcMain.handle("layout:getAll", () => layoutGetAll(deps));
 
-  // Both wait for the one-time workspace-key migration (ADR-191), so the
-  // renderer only ever sees, and writes, host-qualified keys.
-  ipcMain.handle("layout:save", async (_event, workspace: PersistedWorkspace) => {
-    await layoutPersistence.whenReady();
-    try {
-      layoutPersistence.saveWorkspace(workspace);
-    } catch (err) {
-      console.error("Failed to save layout:", err);
-    }
-  });
+  ipcMain.handle("layout:getLastActive", () => layoutGetLastActive(deps));
 
-  ipcMain.handle("layout:load", () => layoutLoad(deps));
+  ipcMain.handle(
+    "layout:apply",
+    (event, workspacePath: string, command: LayoutCommand) =>
+      layoutApply(deps, workspacePath, command, {
+        kind: "window",
+        id: String(event.sender.id),
+      }),
+  );
 
-  ipcMain.handle("layout:getRestoredSessions", () =>
-    layoutGetRestoredSessions(deps),
+  ipcMain.handle(
+    "layout:setPendingCommand",
+    (
+      _event,
+      paneId: string,
+      text: string,
+      kind?: PendingCommandKind,
+      opts?: PendingCommandOptions,
+    ) => layoutSetPendingCommand(deps, paneId, text, kind, opts),
+  );
+
+  ipcMain.handle("layout:remove", (_event, workspacePath: string) =>
+    layoutRemove(deps, workspacePath),
+  );
+
+  ipcMain.handle(
+    "layout:reportViewport",
+    (
+      event,
+      workspacePath: string,
+      rendererId: string,
+      viewport: PersistedDefaultViewport,
+    ) =>
+      layoutReportViewport(deps, workspacePath, rendererId, viewport, {
+        kind: "window",
+        id: String(event.sender.id),
+      }),
   );
 }

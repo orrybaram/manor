@@ -2,6 +2,7 @@ import type { BrowserWindow } from "electron";
 import type { RoutedBackend } from "../backend/routed-backend";
 import type { BackendRegistry } from "../backend/registry";
 import type { LayoutPersistence } from "../terminal-host/layout-persistence";
+import type { LayoutStore } from "../layout/layout-store";
 import type { ProjectManager } from "../persistence";
 import type { ThemeManager } from "../theme";
 import type { PortScanner } from "../ports";
@@ -50,6 +51,8 @@ export interface IpcDeps {
   /** A pane's session owner, if any host has claimed it (ADR-191 §5). */
   getPaneHostId: PaneHostLookup;
   layoutPersistence: LayoutPersistence;
+  /** ADR-179. The one authority for every workspace's layout. */
+  layoutStore: LayoutStore;
   projectManager: ProjectManager;
   themeManager: ThemeManager;
   portScanner: PortScanner;

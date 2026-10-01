@@ -21,8 +21,8 @@
  */
 
 import type { AgentInfo } from "../electron.d";
-import type { PendingPaneCommand, WorkspaceLayout } from "../store/app-store";
-import { allPaneIds } from "../store/pane-tree";
+import type { WorkspaceLayout } from "../store/app-store";
+import { allPaneIds } from "../lib/layout/pane-tree";
 
 export interface HostResumePlan {
   /** Panes whose sessions survived: resnapshot. */
@@ -170,28 +170,4 @@ export async function recoverHostPanes(
   effects.reattach(plan.lost);
   effects.notify(restartNotice(plan.lost.length));
   return plan;
-}
-
-/**
- * Whether a command a mount of `paneId` took from the queue but never wrote
- * — it unmounted first, say because its host dropped again mid-recovery and
- * the pane was remounted — goes back on the queue for the next mount. Only
- * for a remote pane still in this window and not being closed, and never
- * over a command queued since.
- */
-export function shouldRequeuePaneCommand(
-  paneId: string,
-  state: {
-    remoteHostByPane: Readonly<Record<string, string>>;
-    windowPaneIds: ReadonlySet<string>;
-    closedPaneIds: ReadonlySet<string>;
-    pendingPaneCommands: Readonly<Record<string, PendingPaneCommand>>;
-  },
-): boolean {
-  return (
-    paneId in state.remoteHostByPane &&
-    state.windowPaneIds.has(paneId) &&
-    !state.closedPaneIds.has(paneId) &&
-    !(paneId in state.pendingPaneCommands)
-  );
 }

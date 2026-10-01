@@ -3,17 +3,11 @@
  */
 
 import { useCallback, useRef } from "react";
-import {
-  paneRemoteHost,
-  remoteHostByPane,
-  useRemotePaneStore,
-} from "../store/remote-pane-store";
+import { paneRemoteHost, useRemotePaneStore } from "../store/remote-pane-store";
 import { isRemoteHost, type HostId } from "../lib/hosts";
 import { parseWorkspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import { useHostStore } from "../store/host-store";
 import { isHostOffline } from "../lib/host-status";
-import { useAppStore, type PendingPaneCommand } from "../store/app-store";
-import { shouldRequeuePaneCommand, windowPaneIds } from "../lib/remote-recovery";
 import type { PtyCreateResult } from "../electron.d";
 
 /**
@@ -65,27 +59,6 @@ export function useTerminalConnection(paneId: string, workspaceKey?: WorkspaceKe
     return true;
   }, []);
 
-  /**
-   * Put back a pane command a mount took from the queue but `write` never
-   * delivered — the mount went first, say a remote pane remounted because
-   * its host dropped again mid-recovery — so the next mount runs it rather
-   * than it being lost (ADR-178 §6). See `shouldRequeuePaneCommand`.
-   */
-  const requeueUndelivered = useCallback((command: PendingPaneCommand) => {
-    const paneId = paneIdRef.current;
-    const app = useAppStore.getState();
-    if (
-      shouldRequeuePaneCommand(paneId, {
-        remoteHostByPane: remoteHostByPane(useRemotePaneStore.getState()),
-        windowPaneIds: windowPaneIds(app.workspaceLayouts),
-        closedPaneIds: app.closedPaneIds,
-        pendingPaneCommands: app.pendingPaneCommands,
-      })
-    ) {
-      app.setPendingPaneCommand(paneId, command.text, { submit: command.submit });
-    }
-  }, []);
-
   const resize = useCallback((cols: number, rows: number) => {
     return window.electronAPI.pty.resize(paneIdRef.current, cols, rows);
   }, []);
@@ -127,16 +100,10 @@ export function useTerminalConnection(paneId: string, workspaceKey?: WorkspaceKe
     [],
   );
 
-  /** Kill the PTY session in the daemon (user explicitly closed pane) */
-  const close = useCallback(() => {
-    window.electronAPI.pty.close(paneIdRef.current);
-    useRemotePaneStore.getState().forgetPane(paneIdRef.current);
-  }, []);
-
   /** Detach from the PTY session without killing it (effect cleanup / app quit) */
   const detach = useCallback(() => {
     window.electronAPI.pty.detach(paneIdRef.current);
   }, []);
 
-  return { write, requeueUndelivered, resize, create, close, detach };
+  return { write, resize, create, detach };
 }

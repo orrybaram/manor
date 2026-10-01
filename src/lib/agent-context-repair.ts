@@ -16,7 +16,7 @@
 import { parseWorkspaceKey } from "./workspace-key";
 import { ownerOf } from "./workspace-directory";
 import { isHomePath } from "./home";
-import { allPaneIds, type PaneNode } from "../store/pane-tree";
+import { allPaneIds, type PaneNode } from "../lib/layout/pane-tree";
 import type { AgentInfo } from "../electron.d";
 import type { ProjectInfo } from "../store/project-store";
 

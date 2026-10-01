@@ -8,6 +8,7 @@ import {
   useAppStore,
   selectActiveWorkspace,
   selectActiveWorkspaceKey,
+  useSelectedTab,
 } from "../../store/app-store";
 import { ownerOf } from "../../lib/workspace-directory";
 import { workspaceKey } from "../../lib/workspace-key";
@@ -114,7 +115,7 @@ export function CommandPalette(props: CommandPaletteProps) {
   const focusPrevPane = useAppStore((s) => s.focusPrevPane);
   const ws = useAppStore(selectActiveWorkspace);
   const tabs = useMemo(() => ws?.tabs ?? [], [ws?.tabs]);
-  const selectedTabId = ws?.selectedTabId ?? null;
+  const selectedTabId = useSelectedTab(ws?.id);
   const closeTab = useAppStore((s) => s.closeTab);
   const openOrFocusDiff = useAppStore((s) => s.openOrFocusDiff);
   const openDiffInNewPanel = useAppStore((s) => s.openDiffInNewPanel);

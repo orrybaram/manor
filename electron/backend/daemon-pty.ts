@@ -36,6 +36,10 @@ export class DaemonPtyBackend implements HookJournalPtyBackend {
     this.client.writeNoAck(sessionId, data);
   }
 
+  async writeAfterReady(sessionId: string, data: string): Promise<void> {
+    await this.client.writeAfterReady(sessionId, data);
+  }
+
   async resize(sessionId: string, cols: number, rows: number): Promise<void> {
     await this.client.resize(sessionId, cols, rows);
   }

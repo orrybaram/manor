@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import type { AgentInfo } from "../electron.d";
 import { useAgentStore } from "../store/agent-store";
 import { useAppStore } from "../store/app-store";
-import { allPaneIds } from "../store/pane-tree";
+import { allPaneIds } from "../lib/layout/pane-tree";
 
 /**
  * The agents the sidebar's Agents list shows. Shared with the collapsed rail's

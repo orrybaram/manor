@@ -2,7 +2,7 @@ import { useCallback, useMemo } from "react";
 import type { WorkspaceLayout } from "../store/app-store";
 import type { AgentRollup } from "../store/agent-rollup";
 import { useAgentRollup, type PaneSetSelector } from "./useAgentRollup";
-import { allPaneIds } from "../store/pane-tree";
+import { allPaneIds } from "../lib/layout/pane-tree";
 import { workspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
 import type { AgentInfo } from "../electron.d";

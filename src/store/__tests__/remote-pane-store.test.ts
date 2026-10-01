@@ -5,7 +5,7 @@ import {
   selectTabRemoteHostId,
   useRemotePaneStore,
 } from "../remote-pane-store";
-import type { PaneNode } from "../pane-tree";
+import type { PaneNode } from "../../lib/layout/pane-tree";
 
 const leaf = (paneId: string): PaneNode => ({ type: "leaf", paneId });
 const split = (a: PaneNode, b: PaneNode): PaneNode => ({

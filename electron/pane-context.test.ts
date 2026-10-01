@@ -48,6 +48,7 @@ function workspace(
     panelTree: { type: "leaf", panelId: firstPanelId },
     panels,
     activePanelId: firstPanelId,
+    defaultViewport: { activePanelId: firstPanelId, selectedTabIds: {}, focusedPaneIds: {} },
   };
 }
 

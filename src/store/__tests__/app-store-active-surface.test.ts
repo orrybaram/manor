@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { useAppStore, selectCurrentLocation } from "../app-store";
 import type { WorkspaceLayout, Tab, Panel } from "../app-store";
 import { workspaceKey } from "../../lib/workspace-key";
+import { resetFakeLayoutServer, seedLayout } from "./fake-layout-server";
 
 // window is provided by the setup file (src/store/__tests__/setup.ts)
 
@@ -15,30 +16,31 @@ function makeLayout(): WorkspaceLayout {
     id: TAB_ID,
     title: "Terminal",
     rootNode: { type: "leaf", paneId: PANE_ID },
-    focusedPaneId: PANE_ID,
   };
   const panel: Panel = {
     id: PANEL_ID,
     tabs: [tab],
-    selectedTabId: TAB_ID,
     pinnedTabIds: [],
   };
   return {
     panelTree: { type: "leaf", panelId: PANEL_ID },
     panels: { [PANEL_ID]: panel },
-    activePanelId: PANEL_ID,
   };
 }
 
 function seedTasksView() {
+  const layout = makeLayout();
+  resetFakeLayoutServer();
+  seedLayout(WS_PATH, layout);
   useAppStore.setState({
     activeWorkspacePath: WS_PATH,
     activeWorkspaceHostId: "local",
     activeSurface: "workspace",
-    workspaceLayouts: { [WS_PATH]: makeLayout() },
+    workspaceLayouts: { [WS_PATH]: layout },
+    viewports: {},
+    claims: {},
     paneContentType: {},
     paneUrl: {},
-    pendingPaneCommands: {},
   });
   useAppStore.getState().showTasksView();
 }

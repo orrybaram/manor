@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import type { WorkspaceKey } from "../../lib/workspace-key";
-import type { PanelNode } from "../../store/panel-tree";
-import type { SplitDirection } from "../../store/pane-tree";
+import type { PanelNode } from "../../lib/layout/panel-tree";
+import type { SplitDirection } from "../../lib/layout/pane-tree";
 import { useAppStore } from "../../store/app-store";
 import { useDragOverlayStore } from "../../store/drag-overlay-store";
 import { PanelLayout } from "./PanelLayout";

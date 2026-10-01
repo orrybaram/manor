@@ -11,7 +11,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { terminalOptions } from "../terminal/config";
 import { whenTerminalCanOpen, type RenderAddons } from "../terminal/addons";
 import { createFileLinkProvider } from "../terminal/file-link-provider";
-import { selectActiveLayout, useAppStore, type PendingPaneCommand } from "../store/app-store";
+import { selectFocusedPaneOfActiveTab, useAppStore } from "../store/app-store";
 import { parseWorkspaceKey, workspaceKey as makeWorkspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import { ownerOf } from "../lib/workspace-directory";
 import { openExternal } from "../lib/open-external";
@@ -34,39 +34,6 @@ import {
   unregisterTerminal,
 } from "../lib/terminal-registry";
 import type { ITheme } from "@xterm/xterm";
-
-/** Grace period (ms) before a closed pane's PTY session is killed. */
-const CLOSE_GRACE_MS = 10_000;
-
-/** Pending kill timers for panes that were explicitly closed. */
-const pendingKillTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-function schedulePtyKill(paneId: string) {
-  cancelPtyKill(paneId);
-  const timer = setTimeout(() => {
-    pendingKillTimers.delete(paneId);
-    window.electronAPI.pty.close(paneId);
-    useRemotePaneStore.getState().forgetPane(paneId);
-  }, CLOSE_GRACE_MS);
-  pendingKillTimers.set(paneId, timer);
-}
-
-function cancelPtyKill(paneId: string) {
-  const timer = pendingKillTimers.get(paneId);
-  if (timer != null) {
-    clearTimeout(timer);
-    pendingKillTimers.delete(paneId);
-  }
-}
-
-/** If the user explicitly closed the pane, schedule its PTY kill. */
-function killIfClosed(paneId: string) {
-  const { closedPaneIds } = useAppStore.getState();
-  if (closedPaneIds.has(paneId)) {
-    closedPaneIds.delete(paneId);
-    schedulePtyKill(paneId);
-  }
-}
 
 export function useTerminalLifecycle(
   containerRef: React.RefObject<HTMLDivElement | null>,
@@ -113,9 +80,35 @@ export function useTerminalLifecycle(
       setFollower(null);
     }
   }, []);
+
+  // Ownership can move after the create reply too (ADR-179 D6) — another
+  // bridge viewer's `pty.create` outbids this one, or a desktop window
+  // attaches or lets go — and `applyWinsize` only ever reads the reply of a
+  // call *this* viewer made. `pty.onWinsizeOwner` is the live half: on the
+  // desktop it is a no-op subscription (the desktop's own attach always wins,
+  // so it never needs to be told it lost something), and on the bridge it is
+  // what lets a follower become the owner, or the reverse, without a
+  // `pty.create` of its own. Flipping `follower` is the whole of the reaction
+  // — `useTerminalResize` re-runs on that dependency and sends a fit or
+  // re-fits to the new grid on its own.
+  useEffect(() => {
+    return window.electronAPI.pty.onWinsizeOwner(paneId, (payload) => {
+      if (payload.owner) {
+        setFollower(null);
+        return;
+      }
+      const { cols, rows } = payload;
+      if (!cols || !rows) return;
+      setFollower((prev) =>
+        prev && prev.cols === cols && prev.rows === rows
+          ? prev
+          : { cols, rows },
+      );
+    });
+  }, [paneId]);
   const resettingRef = useRef(false);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { write, requeueUndelivered, resize, create, detach } =
+  const { write, resize, create, detach } =
     useTerminalConnection(paneId, workspaceKey);
   const { attachHandler } = useTerminalHotkeys(onOpenSearch);
 
@@ -134,12 +127,9 @@ export function useTerminalLifecycle(
   // Auto-focus terminal when this pane becomes the focused pane of the active tab.
   // Uses a selector + useEffect so focus() runs after React commits DOM changes
   // (the container's visibility must be "visible" before focus can succeed).
-  const isFocusedPane = useAppStore((state) => {
-    const layout = selectActiveLayout(state);
-    const panel = layout ? layout.panels[layout.activePanelId] : undefined;
-    const tab = panel?.tabs.find((t) => t.id === panel?.selectedTabId);
-    return tab?.focusedPaneId === paneId;
-  });
+  const isFocusedPane = useAppStore(
+    (state) => selectFocusedPaneOfActiveTab(state) === paneId,
+  );
 
   // An explicit refocusActivePane() — Escape out of the sidebar, say — bumps
   // this nonce; the bump is the only thing that overrides the sidebar guard
@@ -189,10 +179,6 @@ export function useTerminalLifecycle(
   useMountEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-
-    // If this pane was recently closed and is being restored, cancel the
-    // pending kill so the daemon session stays alive for reattach.
-    cancelPtyKill(paneId);
 
     // The terminal is created once its fonts and render add-ons are in hand
     // (see `terminal/addons`); a pane unmounted before then never makes one.
@@ -347,12 +333,6 @@ export function useTerminalLifecycle(
         else shellReadyPending = fn;
       };
 
-      // A pane command this mount took from the queue and `write` has not
-      // delivered yet. Should the mount go first — a remote pane remounted
-      // because its host dropped again mid-recovery — it goes back on the
-      // queue for the next mount rather than being lost (ADR-178 §6).
-      let unsentPaneCommand: PendingPaneCommand | null = null;
-
       // Submit with a carriage return (\r) — that's what an Enter keypress
       // sends in xterm.js. Under zsh's raw-mode line editor, \n (Ctrl+J) is
       // not reliably bound to accept-line, so the command would sit in the
@@ -453,54 +433,16 @@ export function useTerminalLifecycle(
               );
           }
 
-          // Check for pending startup command (e.g. worktree start script)
-          const store = useAppStore.getState();
-          const wsPath = store.activeWorkspacePath;
-
-          // Pane-specific command (e.g. split-with-agent) takes priority
-          const paneCmd = store.consumePendingPaneCommand(paneId);
-          const startupCmd =
-            !paneCmd && wsPath && cwd === wsPath
-              ? store.consumePendingStartupCommand(wsPath)
-              : null;
-          const pendingCmd: PendingPaneCommand | null =
-            paneCmd ?? (startupCmd ? { text: startupCmd, submit: true } : null);
-          if (pendingCmd) {
-            // `prewarmed` only means the daemon session already existed — NOT
-            // that its shell has reached a prompt. React StrictMode (dev)
-            // double-mounts the pane: the first mount spawns the shell, then
-            // the second mount's create() sees the session already exists and
-            // reports prewarmed=true even though the shell is still sourcing
-            // rc files (~30ms old). Writing then lands the command in a
-            // not-yet-initialized ZLE, so the trailing \r is swallowed and the
-            // command sits in the buffer unsubmitted. Only take the
-            // immediate-write shortcut once we've actually observed the shell
-            // reach a prompt — paneCwd is populated from its OSC 7 event and
-            // persists across the remount. Otherwise wait like a cold start.
-            const shellReady = !!useAppStore.getState().paneCwd[paneId];
-            if (result.prewarmed && shellReady) {
-              // Shell is already at a prompt — write immediately. A pane
-              // command the away remote host dropped is kept for requeueing.
-              const delivered = write(withEnter(pendingCmd.text, pendingCmd.submit));
-              if (!delivered && paneCmd) unsentPaneCommand = paneCmd;
-            } else {
-              // Cold start (or a freshly-spawned session mislabelled as
-              // prewarmed) — wait for the shell prompt (CWD/OSC 7 event from
-              // the precmd hook) before sending the command. Sending on first
-              // output is too early: the shell may still be sourcing .zshrc,
-              // and ZLE discards buffered input when it initializes.
-              if (paneCmd) unsentPaneCommand = paneCmd;
-              sendOnShellReady(pendingCmd.text, {
-                submit: pendingCmd.submit,
-                onSent: () => {
-                  unsentPaneCommand = null;
-                },
-              });
-            }
-          } else if (!result.snapshot) {
-            // No pending command and no warm-restore snapshot → cold or fresh session.
-            // Check for an active agent that was interrupted (e.g. version upgrade,
-            // app crash) and auto-relaunch its agent command.
+          // A pane opened "with a command" — a new agent, a split with an
+          // agent, `POST /tabs { command }`, a fix-it command to review — has
+          // its line waiting on the server, and `pty.create` typed it on the
+          // way in (ADR-179 ticket 11). Nothing to read back here: the queue
+          // is not this renderer's any more, which is what lets a route open
+          // such a pane at all.
+          if (!result.snapshot) {
+            // No warm-restore snapshot → cold or fresh session. Check for an
+            // active agent that was interrupted (e.g. version upgrade, app
+            // crash) and auto-relaunch its agent command.
             void (async () => {
               const activeAgents = await window.electronAPI.agents.getAll({ status: "active" });
               const resumeAgent = activeAgents.find(
@@ -527,9 +469,10 @@ export function useTerminalLifecycle(
         },
       );
 
-      // Terminal title changes (OSC sequences) → store
+      // Terminal title changes (OSC sequences) → local side map only. The
+      // server hears the same title from the daemon and records it itself.
       const titleDisposable = t.onTitleChange((title) => {
-        useAppStore.getState().setPaneTitle(paneId, title);
+        useAppStore.getState().setPaneTitleFromStream(paneId, title);
       });
 
       // User input → PTY
@@ -555,12 +498,13 @@ export function useTerminalLifecycle(
         setFitAddon(null);
         termRef.current = null;
         unregisterTerminal(paneId);
-        // Always detach (keep the PTY alive in the daemon).
-        // If the user explicitly closed the pane, schedule a delayed kill
-        // so they can undo within the grace period.
-        if (unsentPaneCommand !== null) requeueUndelivered(unsentPaneCommand);
+        // Detach, always: the session stays alive in the daemon and this pane
+        // may be about to mount again somewhere else. Ending a session is the
+        // Manor server's job — it kills the panes a `close-pane` orphaned
+        // (ADR-179 D2 `effects.killPanes`) — so a pane that unmounts *because*
+        // it was closed has already lost its session by the time we get here,
+        // and detaching from a session that is gone is quiet by design.
         detach();
-        killIfClosed(paneId);
         t.dispose();
       };
     };
@@ -582,13 +526,7 @@ export function useTerminalLifecycle(
 
     return () => {
       unmounted = true;
-      if (teardown) {
-        teardown();
-        return;
-      }
-      // Closed before its terminal opened: still kill the session it would
-      // have attached to (one a restored pane already had in the daemon).
-      killIfClosed(paneId);
+      teardown?.();
     };
   });
 

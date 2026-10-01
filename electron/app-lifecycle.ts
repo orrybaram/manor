@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { performance } from "node:perf_hooks";
 import { TerminalHostClient } from "./terminal-host/client";
 import { LayoutPersistence } from "./terminal-host/layout-persistence";
+import { LayoutStore } from "./layout/layout-store";
 import { ProjectManager } from "./persistence";
 import { ThemeManager } from "./theme";
 import { PortScanner } from "./ports";
@@ -66,6 +67,7 @@ import {
 } from "./notifications";
 import * as ptyIpc from "./ipc/pty";
 import * as layoutIpc from "./ipc/layout";
+import * as viewportIpc from "./ipc/viewport";
 import * as projectsIpc from "./ipc/projects";
 import * as themeIpc from "./ipc/theme";
 import * as portsIpc from "./ipc/ports";
@@ -92,7 +94,7 @@ const NAVIGATE_HOST_WAIT_MS = 15_000;
 /**
  * How long the one-time layout.json key migration (ADR-191) waits for a
  * remote host to say where its worktrees live. It holds up the first
- * `layout:load` after the upgrade, so it is kept short: a host that misses
+ * `layout.getAll()` after the upgrade, so it is kept short: a host that misses
  * it is still matched by its project root and remembered workspace paths.
  */
 const LAYOUT_MIGRATION_HOST_WAIT_MS = 5_000;
@@ -246,8 +248,8 @@ export function initApp(devTitle: string | null): void {
   // ── Window registry ────────────────────────────────────────────────────
   // All live renderer windows (primary + any detached popup windows) are
   // tracked here so stream events can be broadcast to every window that might
-  // host a pane. Detached windows are additionally keyed by their windowId so
-  // ticket 2 can associate a handoff payload with the right window.
+  // host a pane. Detached windows are additionally keyed by their windowId,
+  // which is how one is reached after it was created.
   const rendererWindows = new Set<BrowserWindow>();
   const detachedWindows = new Map<string, BrowserWindow>();
 
@@ -262,6 +264,9 @@ export function initApp(devTitle: string | null): void {
       // otherwise every pane it held stays desktop-owned forever and a browser
       // on the bridge follows a grid nothing is driving (ADR-178 D5).
       releaseViewer(viewerId);
+      // And whatever tab it held comes back to the primary (ADR-179 D4): a
+      // claim that outlives its window is a tab no renderer shows.
+      layoutStore.releaseWindow(String(viewerId));
     });
   }
 
@@ -358,7 +363,7 @@ export function initApp(devTitle: string | null): void {
     backendRegistry.register(hostId, spec);
   }
   // layout.json keyed its workspaces by bare path before ADR-191. Rekey it
-  // once by host plus path, off the launch path; `layout:load` waits for it.
+  // once by host plus path, off the launch path; the layout store waits for it.
   void layoutPersistence.startWorkspaceKeyMigration(() =>
     projectManager.workspaceKeyOwners(LAYOUT_MIGRATION_HOST_WAIT_MS),
   );
@@ -381,6 +386,38 @@ export function initApp(devTitle: string | null): void {
     (p) => projectManager.hostIdForPath(p),
     (pid) => portScanner.hostsListeningOn(pid),
   );
+  /**
+   * ADR-179: layout is the Manor server's, not a renderer's. One broadcaster
+   * feeds both audiences from the one place the layout changes — the windows
+   * by `webContents.send`, a browser through the bridge's sink.
+   */
+  const layoutStore = new LayoutStore(
+    layoutPersistence,
+    (payload) => {
+      publishRendererBroadcast("layout", "changed", payload);
+      for (const win of getRendererWindows()) {
+        if (win.isDestroyed() || win.webContents.isDestroyed()) continue;
+        try {
+          win.webContents.send("layout:changed", payload);
+        } catch {
+          // Render frame disposed — safe to ignore.
+        }
+      }
+    },
+    backend,
+    // Which renderer is the primary window's (ADR-179 D4). Read at call time,
+    // not captured: `mainWindow` is nulled on close and set again on reopen,
+    // and a stale answer here would make `list_panes` describe a popout.
+    (rendererId) =>
+      mainWindow !== null &&
+      !mainWindow.isDestroyed() &&
+      !mainWindow.webContents.isDestroyed() &&
+      String(mainWindow.webContents.id) === rendererId,
+  );
+  // Read the file once its workspace-key migration (above) has settled —
+  // usually at once; `layout.getAll()` and every command wait for it, so a
+  // renderer only ever sees host-qualified keys.
+  void layoutStore.startLoad(layoutPersistence.whenReady());
   const themeManager = new ThemeManager();
   const portScanner = new PortScanner(backendRegistry);
   // Remote dev servers opened from Manor go through these (ADR-178 §5).
@@ -510,6 +547,7 @@ export function initApp(devTitle: string | null): void {
         githubManager,
         linearManager,
         layoutPersistence,
+        layoutStore,
         agentManager,
         backend,
         notificationStore,
@@ -624,6 +662,9 @@ export function initApp(devTitle: string | null): void {
       sendToRendererWindows("agent-status", update);
       // Browser renderers (ADR-178) hear it on the same signal: `agents.onStatus`.
       publishRendererBroadcast("agents", "status", update);
+      // Server-derived `paneSessions` (ADR-179 D3): the last status reaches
+      // the layout file for a cold restore to show.
+      layoutStore.onPaneStatus(update);
       // Recorded per Agent, not per pane: panes are ephemeral (ADR-199 §1).
       // A pane with no Agent has no lane to record into. The lookup waits for
       // the rest of this effect batch: the reconciler publishes before its
@@ -717,6 +758,9 @@ export function initApp(devTitle: string | null): void {
     // the web app's bridge is fed too (ADR-178): its browsers see the same
     // panes the windows do.
     wsBridge?.handleStreamEvent(event);
+    // `paneSessions` is server-derived (ADR-179 D3): cwd and title reach the
+    // layout file from the stream, not from a renderer reporting what it saw.
+    layoutStore.onPtyEvent(event);
     dispatchStreamEvent(event, getRendererWindows(), {
       agentManager,
       agentStatus: agentStatusDriver,
@@ -746,6 +790,7 @@ export function initApp(devTitle: string | null): void {
     backendRegistry,
     getPaneHostId,
     layoutPersistence,
+    layoutStore,
     projectManager,
     themeManager,
     portScanner,
@@ -784,6 +829,7 @@ export function initApp(devTitle: string | null): void {
     githubManager: ipcDeps.githubManager,
     linearManager: ipcDeps.linearManager,
     layoutPersistence: ipcDeps.layoutPersistence,
+    layoutStore: ipcDeps.layoutStore,
     agentManager: ipcDeps.agentManager,
     backend: ipcDeps.backend,
     notificationStore: ipcDeps.notificationStore,
@@ -812,6 +858,7 @@ export function initApp(devTitle: string | null): void {
 
   ptyIpc.register(ipcDeps);
   layoutIpc.register(ipcDeps);
+  viewportIpc.register(ipcDeps);
   projectsIpc.register(ipcDeps);
   themeIpc.register(ipcDeps);
   portsIpc.register(ipcDeps);
@@ -991,6 +1038,9 @@ export function initApp(devTitle: string | null): void {
   app.on("before-quit", () => {
     agentHookServer.stop();
     webviewServer.stop();
+    // The layout debounce is 300ms; a quit inside that window must not be the
+    // one that loses the user's arrangement.
+    layoutStore.flush();
     // Takes the tunnel down first, then the listener. A tunnel must never
     // outlive the app that opened it.
     void remoteControl.shutdown();

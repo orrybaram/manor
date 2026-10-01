@@ -117,6 +117,8 @@ export class RoutedBackend implements WorkspaceBackend {
       createOrAttach: (sessionId, cwd, cols, rows, shellArgs, env) =>
         this.pty.createOrAttachWith(sessionId, cwd, cols, rows, { shellArgs, env }),
       write: (sessionId, data) => bySession(sessionId).write(sessionId, data),
+      writeAfterReady: (sessionId, data) =>
+        bySession(sessionId).writeAfterReady(sessionId, data),
       resize: (sessionId, cols, rows) =>
         bySession(sessionId).resize(sessionId, cols, rows),
       kill: async (sessionId) => {

@@ -40,11 +40,10 @@ function makeDeps(opts: { currentHostId?: string; pathExists?: boolean } = {}) {
     moveProjectToHost: vi.fn().mockImplementation(async () => moved("box")),
   };
   const backendRegistry = { ensureConnected: vi.fn().mockResolvedValue(undefined) };
-  const layoutPersistence = {
-    whenReady: vi.fn().mockResolvedValue(undefined),
-    moveWorkspaces: vi.fn(),
-  };
-  return { projectManager, backendRegistry, layoutPersistence, statsStore: { record: vi.fn() } };
+  // The layouts are the server's to move (ADR-179 D1), and it broadcasts the
+  // move to every renderer.
+  const layoutStore = { moveWorkspaces: vi.fn().mockResolvedValue(undefined) };
+  return { projectManager, backendRegistry, layoutStore, statsStore: { record: vi.fn() } };
 }
 
 describe("projects:update", () => {
@@ -120,7 +119,7 @@ describe("projects:moveToHost (ADR-179)", () => {
     const deps = makeDeps();
     register(deps as never);
     await handlers.get("projects:moveToHost")!(null, "p1", opts);
-    expect(deps.layoutPersistence.moveWorkspaces).toHaveBeenCalledWith([
+    expect(deps.layoutStore.moveWorkspaces).toHaveBeenCalledWith([
       ["/srv/app", "box:/srv/app"],
     ]);
   });
@@ -135,7 +134,7 @@ describe("projects:switchHost layouts (ADR-191)", () => {
     const deps = makeDeps({ currentHostId: "box" });
     register(deps as never);
     await handlers.get("projects:switchHost")!(null, "p1", LOCAL_HOST_ID);
-    expect(deps.layoutPersistence.moveWorkspaces).toHaveBeenCalledWith([
+    expect(deps.layoutStore.moveWorkspaces).toHaveBeenCalledWith([
       ["box:/srv/app", "/srv/app"],
     ]);
   });

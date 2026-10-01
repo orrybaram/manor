@@ -105,9 +105,12 @@ export function PairingResultDialog(props: {
   const [qr, setQr] = useState<{ url: string; data: string } | null>(null);
 
   const tunnelUrl = result?.pairingUrl ?? null;
+  // Same page the tunnel link would use — the server decides it once and
+  // sends it back on the result, so a `full` device's loopback link opens the
+  // web app rather than the phone client.
   const localUrl =
     result && port !== null
-      ? `http://127.0.0.1:${port}/#${result.rawToken}`
+      ? `http://127.0.0.1:${port}${result.page}#${result.rawToken}`
       : null;
 
   useEffect(() => {

@@ -1,7 +1,6 @@
 import React, { Suspense } from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { rootLoaderFor } from "./lib/window-root";
 import { terminalFontsReady } from "./lib/terminal-font";
 import { ManorLogo } from "./components/ui/ManorLogo";
 import "./App.css";
@@ -16,20 +15,20 @@ const queryClient = new QueryClient({
   },
 });
 
-// Detached popup windows (ADR-156) boot a trimmed-down renderer that hosts a
-// single handed-off tab; every other window is the full primary app. Each is
-// its own chunk graph, so a popout never downloads or parses the primary
-// window's chrome. (The entry module is never hot-swapped, so fast refresh
-// has nothing to preserve here.)
+// One renderer for every window (ADR-179 D4). A detached window is not a
+// different app: it is `App` with a claim on one tab of the shared layout,
+// which it reads from `window.electronAPI.claim` and reports as viewport.
+// Loaded lazily so the splash paints while its chunk graph loads. (The entry
+// module is never hot-swapped, so fast refresh has nothing to preserve here.)
 // eslint-disable-next-line react-refresh/only-export-components
-const Root = React.lazy(rootLoaderFor(window.electronAPI?.isDetached === true));
+const App = React.lazy(() => import("./App"));
 
 // Start the terminal fonts now so they are usually in by the time the first
 // pane asks, but render without them: only terminal creation waits on them
 // (see `lib/terminal-font`).
 void terminalFontsReady();
 
-/** What both roots show while they boot, painted while the root itself loads. */
+/** What the window shows while it boots, painted while `App` itself loads. */
 const splash = (
   <div className="app splash-screen">
     <div className="splash-logo">
@@ -42,7 +41,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <Suspense fallback={splash}>
-        <Root />
+        <App />
       </Suspense>
     </QueryClientProvider>
   </React.StrictMode>,

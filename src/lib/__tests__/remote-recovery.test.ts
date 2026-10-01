@@ -4,7 +4,6 @@ import {
   planHostResume,
   recoverHostPanes,
   restartNotice,
-  shouldRequeuePaneCommand,
   windowPaneIds,
   type RecoveryEffects,
 } from "../remote-recovery";
@@ -75,28 +74,6 @@ describe("windowPaneIds", () => {
       }) as unknown as WorkspaceLayout;
     const ids = windowPaneIds({ "/a": layout([["a1", "a2"], ["a3"]]), "/b": layout([["b1"]]) });
     expect([...ids].sort()).toEqual(["a1", "a2", "a3", "b1"]);
-  });
-});
-
-describe("shouldRequeuePaneCommand", () => {
-  const base = {
-    remoteHostByPane: { p: "box" },
-    windowPaneIds: new Set(["p"]),
-    closedPaneIds: new Set<string>(),
-    pendingPaneCommands: {},
-  };
-
-  it("requeues a remote pane's unsent command while it is still this window's", () => {
-    expect(shouldRequeuePaneCommand("p", base)).toBe(true);
-  });
-
-  it("never for a local pane, one moved away or closing, or over a newer command", () => {
-    expect(shouldRequeuePaneCommand("p", { ...base, remoteHostByPane: {} })).toBe(false);
-    expect(shouldRequeuePaneCommand("p", { ...base, windowPaneIds: new Set() })).toBe(false);
-    expect(shouldRequeuePaneCommand("p", { ...base, closedPaneIds: new Set(["p"]) })).toBe(false);
-    expect(
-      shouldRequeuePaneCommand("p", { ...base, pendingPaneCommands: { p: { text: "newer", submit: true } } }),
-    ).toBe(false);
   });
 });
 

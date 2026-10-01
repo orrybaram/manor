@@ -22,6 +22,8 @@ const { mockState } = vi.hoisted(() => {
       calls: [] as string[][],
       /** The `cwd` option of each call in `calls`. */
       cwds: [] as Array<string | undefined>,
+      /** The `env` option of each call in `calls`. */
+      envs: [] as Array<Record<string, string | undefined> | undefined>,
     },
   };
 });
@@ -35,11 +37,12 @@ vi.mock("node:child_process", async () => {
   function execFile(
     _cmd: string,
     args: string[],
-    opts: { cwd?: string },
+    opts: { cwd?: string; env?: Record<string, string | undefined> },
     cb: ExecFileCb,
   ): void {
     mockState.calls.push(args);
     mockState.cwds.push(opts?.cwd);
+    mockState.envs.push(opts?.env);
     const spec = mockState.queue.shift();
     if (!spec) {
       cb(new Error("unexpected execFile call — queue exhausted"), "", "");
@@ -99,6 +102,7 @@ function setupExecFileCalls(calls: CallSpec[]) {
   mockState.queue = [...calls];
   mockState.calls = [];
   mockState.cwds = [];
+  mockState.envs = [];
 }
 
 function success(stdout: string, stderr = ""): CallSpec {
@@ -120,6 +124,50 @@ function failure(
 /** A checkout on this machine. */
 const REPO = { path: "/repo", hostId: "local" };
 
+/** A `pullRequests` node of the batched branch query. */
+function pr(number: number, over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    number,
+    state: "OPEN",
+    title: `PR ${number}`,
+    url: `https://github.com/owner/repo/pull/${number}`,
+    isDraft: false,
+    additions: 0,
+    deletions: 0,
+    reviewDecision: null,
+    updatedAt: "2026-09-06T10:00:00Z",
+    mergeable: "MERGEABLE",
+    autoMergeRequest: null,
+    ...rollup(),
+    ...over,
+  };
+}
+
+/** A PR node's `commits` carrying `contexts` as its last commit's rollup. */
+function rollup(...contexts: Array<Record<string, unknown>>) {
+  return {
+    commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: contexts } } } }] },
+  };
+}
+
+/** The batched branch query's answer: branch `i`'s PR, or none for null. */
+function prsAnswer(...prs: Array<Record<string, unknown> | null>): string {
+  const repository: Record<string, unknown> = {};
+  prs.forEach((node, i) => {
+    repository[`b${i}`] = { nodes: node ? [node] : [] };
+  });
+  return JSON.stringify({ data: { repository } });
+}
+
+/** The batched conversation query's answer, one pull request per PR asked. */
+function conversation(...pulls: Array<Record<string, unknown>>): string {
+  const r0: Record<string, unknown> = {};
+  pulls.forEach((pull, i) => {
+    r0[`p${i}`] = pull;
+  });
+  return JSON.stringify({ data: { viewer: { login: "me" }, r0 } });
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -133,43 +181,23 @@ describe("GitHubManager", () => {
   });
 
   // -------------------------------------------------------------------------
-  // getPrForBranch
+  // getPrForBranch / getPrsForBranches (#303: one query per repo)
   // -------------------------------------------------------------------------
   describe("getPrForBranch", () => {
-    it("returns PR info when gh pr list returns valid JSON with one PR", async () => {
-      const prData = [
-        {
-          number: 42,
-          state: "OPEN",
-          title: "My PR",
-          url: "https://github.com/owner/repo/pull/42",
-          isDraft: false,
-          additions: 10,
-          deletions: 2,
-          reviewDecision: "APPROVED",
-          statusCheckRollup: [
-            { conclusion: "SUCCESS" },
-            { conclusion: "SUCCESS" },
-            { conclusion: "FAILURE" },
-          ],
-        },
-      ];
-
-      const graphqlResponse = {
-        data: {
-          repository: {
-            pullRequest: {
-              reviewThreads: {
-                nodes: [{ isResolved: false }, { isResolved: true }],
-              },
-            },
-          },
-        },
-      };
-
+    it("returns PR info from the batched query and its conversation", async () => {
       setupExecFileCalls([
-        success(JSON.stringify(prData)), // gh pr list
-        success(JSON.stringify(graphqlResponse)), // gh api graphql (unresolved threads)
+        success(
+          prsAnswer(
+            pr(42, {
+              title: "My PR",
+              additions: 10,
+              deletions: 2,
+              reviewDecision: "APPROVED",
+              ...rollup({ conclusion: "SUCCESS" }, { conclusion: "SUCCESS" }, { conclusion: "FAILURE" }),
+            }),
+          ),
+        ),
+        success(conversation({ reviewThreads: { nodes: [{ isResolved: false }, { isResolved: true }] } })),
       ]);
 
       const result = await manager.getPrForBranch(REPO, "feat/my-branch");
@@ -188,22 +216,44 @@ describe("GitHubManager", () => {
       expect(result!.unresolvedThreads).toBe(1);
       expect(result!.reviewDecision).toBe("APPROVED");
       expect(result!.queuedToMerge).toBe(false);
+      // The branch goes in as a variable; the repo comes from the checkout.
+      expect(mockState.calls[0].slice(0, 2)).toEqual(["api", "graphql"]);
+      expect(mockState.calls[0]).toEqual(
+        expect.arrayContaining(["owner={owner}", "name={repo}", "h0=feat/my-branch"]),
+      );
+      expect(mockState.cwds[0]).toBe("/repo");
+    });
+
+    it("names each check run, with its workflow, and each status context", async () => {
+      setupExecFileCalls([
+        success(
+          prsAnswer(
+            pr(1, rollup(
+              {
+                __typename: "CheckRun",
+                name: "test",
+                conclusion: "FAILURE",
+                detailsUrl: "https://ci/1",
+                checkSuite: { workflowRun: { workflow: { name: "CI" } } },
+              },
+              { __typename: "StatusContext", context: "deploy", state: "PENDING", targetUrl: "https://d" },
+            )),
+          ),
+        ),
+        success(conversation({})),
+      ]);
+
+      const result = await manager.getPrForBranch(REPO, "b");
+      expect(result!.checkRuns).toEqual([
+        { name: "test", status: "failing", url: "https://ci/1", workflow: "CI" },
+        { name: "deploy", status: "pending", url: "https://d", workflow: null },
+      ]);
     });
 
     it("flags a PR as queued to merge when auto-merge is armed", async () => {
-      const prData = [
-        {
-          number: 43,
-          state: "OPEN",
-          title: "Auto",
-          url: "https://github.com/owner/repo/pull/43",
-          autoMergeRequest: { enabledAt: "2026-09-08T00:00:00Z" },
-          statusCheckRollup: [],
-        },
-      ];
       setupExecFileCalls([
-        success(JSON.stringify(prData)),
-        success(JSON.stringify({ data: { repository: { pullRequest: {} } } })),
+        success(prsAnswer(pr(43, { autoMergeRequest: { enabledAt: "2026-09-08T00:00:00Z" } }))),
+        success(conversation({})),
       ]);
 
       const result = await manager.getPrForBranch(REPO, "feat/auto");
@@ -211,31 +261,17 @@ describe("GitHubManager", () => {
     });
 
     it("flags a PR as queued to merge when it sits in the merge queue", async () => {
-      const prData = [
-        {
-          number: 44,
-          state: "OPEN",
-          title: "Queued",
-          url: "https://github.com/owner/repo/pull/44",
-          autoMergeRequest: null,
-          statusCheckRollup: [],
-        },
-      ];
       setupExecFileCalls([
-        success(JSON.stringify(prData)),
-        success(
-          JSON.stringify({
-            data: { repository: { pullRequest: { isInMergeQueue: true } } },
-          }),
-        ),
+        success(prsAnswer(pr(44))),
+        success(conversation({ isInMergeQueue: true })),
       ]);
 
       const result = await manager.getPrForBranch(REPO, "feat/queued");
       expect(result!.queuedToMerge).toBe(true);
     });
 
-    it("returns null when gh pr list returns empty array", async () => {
-      setupExecFileCalls([success("[]")]);
+    it("returns null when the branch has no PR", async () => {
+      setupExecFileCalls([success(prsAnswer(null))]);
 
       const result = await manager.getPrForBranch(REPO, "no-pr-branch");
       expect(result).toBeNull();
@@ -249,38 +285,20 @@ describe("GitHubManager", () => {
     });
 
     it("correctly computes checks summary with SUCCESS, FAILURE, CANCELLED, TIMED_OUT, and pending", async () => {
-      const prData = [
-        {
-          number: 1,
-          state: "OPEN",
-          title: "Checks PR",
-          url: "https://github.com/owner/repo/pull/1",
-          isDraft: false,
-          additions: 0,
-          deletions: 0,
-          reviewDecision: null,
-          statusCheckRollup: [
-            { conclusion: "SUCCESS" },
-            { conclusion: "FAILURE" },
-            { conclusion: "CANCELLED" },
-            { conclusion: "TIMED_OUT" },
-            { conclusion: null }, // pending
-            { conclusion: "IN_PROGRESS" }, // pending
-          ],
-        },
-      ];
-
       setupExecFileCalls([
-        success(JSON.stringify(prData)),
         success(
-          JSON.stringify({
-            data: {
-              repository: {
-                pullRequest: { reviewThreads: { nodes: [] } },
-              },
-            },
-          }),
+          prsAnswer(
+            pr(1, rollup(
+              { conclusion: "SUCCESS" },
+              { conclusion: "FAILURE" },
+              { conclusion: "CANCELLED" },
+              { conclusion: "TIMED_OUT" },
+              { conclusion: null }, // pending
+              { conclusion: "IN_PROGRESS" }, // pending
+            )),
+          ),
         ),
+        success(conversation({ reviewThreads: { nodes: [] } })),
       ]);
 
       const result = await manager.getPrForBranch(REPO, "branch");
@@ -293,111 +311,110 @@ describe("GitHubManager", () => {
       });
     });
 
-    it("sets checks to null when statusCheckRollup is empty", async () => {
-      const prData = [
-        {
-          number: 1,
-          state: "OPEN",
-          title: "No Checks PR",
-          url: "https://github.com/owner/repo/pull/1",
-          isDraft: false,
-          additions: 0,
-          deletions: 0,
-          reviewDecision: null,
-          statusCheckRollup: [],
-        },
-      ];
-
+    it("sets checks to null when the rollup is empty or missing", async () => {
       setupExecFileCalls([
-        success(JSON.stringify(prData)),
-        success(
-          JSON.stringify({
-            data: {
-              repository: {
-                pullRequest: { reviewThreads: { nodes: [] } },
-              },
-            },
-          }),
-        ),
+        success(prsAnswer(pr(1, rollup()), pr(2, { commits: { nodes: [{ commit: { statusCheckRollup: null } }] } }))),
+        success(conversation({}, {})),
       ]);
 
-      const result = await manager.getPrForBranch(REPO, "branch");
-      expect(result!.checks).toBeNull();
-    });
-
-    it("sets checks to null when statusCheckRollup is missing", async () => {
-      const prData = [
-        {
-          number: 1,
-          state: "OPEN",
-          title: "No Rollup PR",
-          url: "https://github.com/owner/repo/pull/1",
-          isDraft: false,
-          additions: 0,
-          deletions: 0,
-          reviewDecision: null,
-          // no statusCheckRollup field
-        },
-      ];
-
-      setupExecFileCalls([
-        success(JSON.stringify(prData)),
-        success(
-          JSON.stringify({
-            data: {
-              repository: {
-                pullRequest: { reviewThreads: { nodes: [] } },
-              },
-            },
-          }),
-        ),
-      ]);
-
-      const result = await manager.getPrForBranch(REPO, "branch");
-      expect(result!.checks).toBeNull();
+      const results = await manager.getPrsForBranches(REPO, ["a", "b"]);
+      expect(results.map(([, p]) => p!.checks)).toEqual([null, null]);
     });
   });
 
-  // -------------------------------------------------------------------------
-  // getPrsForBranches
-  // -------------------------------------------------------------------------
-  describe("conversation cache", () => {
-    const pr = (over: Record<string, unknown>) =>
-      JSON.stringify([
-        {
-          number: 9,
-          state: "OPEN",
-          title: "Cached",
-          url: "https://github.com/owner/repo/pull/9",
-          isDraft: false,
-          additions: 0,
-          deletions: 0,
-          reviewDecision: null,
-          statusCheckRollup: [],
-          updatedAt: "2026-09-06T10:00:00Z",
-          ...over,
-        },
+  describe("getPrsForBranches", () => {
+    it("asks for every branch in one gh call, and every conversation in one more", async () => {
+      setupExecFileCalls([
+        success(prsAnswer(pr(7), null, pr(8))),
+        success(conversation({ reviewThreads: { nodes: [{ isResolved: false }] } }, {})),
       ]);
-    const graphql = (unresolved: number) =>
-      JSON.stringify({
-        data: {
-          repository: {
-            pullRequest: {
-              reviewThreads: {
-                nodes: Array.from({ length: unresolved }, () => ({
-                  isResolved: false,
-                })),
-              },
-            },
-          },
+
+      const results = await manager.getPrsForBranches(REPO, ["branch-a", "branch-b", "branch-c"]);
+
+      expect(results.map(([b, p]) => [b, p?.number ?? null])).toEqual([
+        ["branch-a", 7],
+        ["branch-b", null],
+        ["branch-c", 8],
+      ]);
+      expect(results[0][1]!.unresolvedThreads).toBe(1);
+      expect(mockState.calls).toHaveLength(2);
+      expect(mockState.calls[0]).toEqual(
+        expect.arrayContaining(["h0=branch-a", "h1=branch-b", "h2=branch-c"]),
+      );
+      const conversationQuery = mockState.calls[1].find((a) => a.startsWith("query="))!;
+      expect(conversationQuery).toContain("p0: pullRequest(number: 7)");
+      expect(conversationQuery).toContain("p1: pullRequest(number: 8)");
+      // The repo goes in as variables, not spliced into the query.
+      expect(conversationQuery).toContain("r0: repository(owner: $o0, name: $n0)");
+      expect(mockState.calls[1]).toEqual(expect.arrayContaining(["o0=owner", "n0=repo"]));
+    });
+
+    it("never queries a merged or closed PR's branch again", async () => {
+      setupExecFileCalls([
+        success(prsAnswer(pr(1, { state: "MERGED" }), pr(2, { state: "CLOSED" }), pr(3))),
+        success(conversation({}, {}, {})),
+        // Next poll: only the open PR's branch is asked about.
+        success(prsAnswer(pr(3))),
+      ]);
+
+      await manager.getPrsForBranches(REPO, ["merged", "closed", "open"]);
+      const second = await manager.getPrsForBranches(REPO, ["merged", "closed", "open"]);
+
+      expect(second.map(([, p]) => p!.state)).toEqual(["merged", "closed", "open"]);
+      const branchArgs = mockState.calls[2].filter((a) => /^h\d+=/.test(a));
+      expect(branchArgs).toEqual(["h0=open"]);
+      expect(mockState.queue).toHaveLength(0);
+    });
+
+    it("runs no gh at all when every branch's PR is final", async () => {
+      setupExecFileCalls([
+        success(prsAnswer(pr(1, { state: "MERGED" }))),
+        success(conversation({})),
+      ]);
+      await manager.getPrsForBranches(REPO, ["done"]);
+      const calls = mockState.calls.length;
+
+      const again = await manager.getPrsForBranches(REPO, ["done"]);
+      expect(again[0][1]!.number).toBe(1);
+      expect(mockState.calls).toHaveLength(calls);
+    });
+
+    it("shares one lookup between concurrent calls for the same branches", async () => {
+      setupExecFileCalls([success(prsAnswer(null, null))]);
+
+      const [a, b] = await Promise.all([
+        manager.getPrsForBranches(REPO, ["x", "y"]),
+        manager.getPrsForBranches(REPO, ["y", "x"]),
+      ]);
+
+      expect(a).toEqual([["x", null], ["y", null]]);
+      expect(b).toEqual([["y", null], ["x", null]]);
+      expect(mockState.calls).toHaveLength(1);
+    });
+
+    it("returns [branch, null] for every branch when the query fails", async () => {
+      setupExecFileCalls([failure("gh not found")]);
+
+      const results = await manager.getPrsForBranches(REPO, ["bad-branch", "other"]);
+      expect(results).toEqual([["bad-branch", null], ["other", null]]);
+    });
+  });
+
+  describe("conversation cache", () => {
+    const at = (updatedAt: string, over: Record<string, unknown> = {}) =>
+      prsAnswer(pr(9, { updatedAt, ...over }));
+    const threads = (unresolved: number) =>
+      conversation({
+        reviewThreads: {
+          nodes: Array.from({ length: unresolved }, () => ({ isResolved: false })),
         },
       });
 
     it("skips the conversation query while updatedAt is unchanged", async () => {
       setupExecFileCalls([
-        success(pr({})), // poll 1: pr list
-        success(graphql(2)), // poll 1: graphql
-        success(pr({})), // poll 2: pr list only
+        success(at("2026-09-06T10:00:00Z")), // poll 1: PRs
+        success(threads(2)), // poll 1: conversation
+        success(at("2026-09-06T10:00:00Z")), // poll 2: PRs only
       ]);
 
       const first = await manager.getPrForBranch(REPO, "b");
@@ -409,10 +426,10 @@ describe("GitHubManager", () => {
 
     it("re-queries when updatedAt moves", async () => {
       setupExecFileCalls([
-        success(pr({})),
-        success(graphql(2)),
-        success(pr({ updatedAt: "2026-09-06T11:00:00Z" })),
-        success(graphql(0)),
+        success(at("2026-09-06T10:00:00Z")),
+        success(threads(2)),
+        success(at("2026-09-06T11:00:00Z")),
+        success(threads(0)),
       ]);
 
       await manager.getPrForBranch(REPO, "b");
@@ -421,41 +438,23 @@ describe("GitHubManager", () => {
       expect(mockState.queue).toHaveLength(0);
     });
 
-    it("never re-queries a merged PR, even after updatedAt moves", async () => {
-      setupExecFileCalls([
-        success(pr({ state: "MERGED" })),
-        success(graphql(1)),
-        success(pr({ state: "MERGED", updatedAt: "2026-09-07T00:00:00Z" })),
-      ]);
-
-      await manager.getPrForBranch(REPO, "b");
-      const second = await manager.getPrForBranch(REPO, "b");
-      expect(second!.unresolvedThreads).toBe(1);
-      expect(mockState.queue).toHaveLength(0);
-    });
-
-    it("reports every sighting of a merged PR to the merged listener", async () => {
+    it("reports a merged PR to the merged listener when it is queried", async () => {
       const seen = vi.fn();
       manager.setPrMergedListener(seen);
       setupExecFileCalls([
-        success(pr({})),
-        success(graphql(0)),
-        // The conversation query is still cached and fresh for both merged
-        // polls, so they are one `gh pr list` apiece.
-        success(pr({ state: "MERGED" })),
-        success(pr({ state: "MERGED" })),
+        success(at("2026-09-06T10:00:00Z")),
+        success(threads(0)),
+        // The conversation is still cached and fresh, so the merged poll is
+        // the PR query alone.
+        success(at("2026-09-06T10:00:00Z", { state: "MERGED" })),
       ]);
 
       await manager.getPrForBranch(REPO, "b"); // open: silent
       expect(seen).not.toHaveBeenCalled();
 
       await manager.getPrForBranch(REPO, "b");
-      await manager.getPrForBranch(REPO, "b");
-      // Deduping is the listener's job, so both sightings are reported.
-      expect(seen.mock.calls).toEqual([
-        ["https://github.com/owner/repo/pull/9"],
-        ["https://github.com/owner/repo/pull/9"],
-      ]);
+      await manager.getPrForBranch(REPO, "b"); // final: not queried again
+      expect(seen.mock.calls).toEqual([["https://github.com/owner/repo/pull/9"]]);
       expect(mockState.queue).toHaveLength(0);
     });
 
@@ -464,8 +463,8 @@ describe("GitHubManager", () => {
         throw new Error("stats exploded");
       });
       setupExecFileCalls([
-        success(pr({ state: "MERGED" })),
-        success(graphql(0)),
+        success(at("2026-09-06T10:00:00Z", { state: "MERGED" })),
+        success(threads(0)),
       ]);
 
       const result = await manager.getPrForBranch(REPO, "b");
@@ -474,10 +473,10 @@ describe("GitHubManager", () => {
 
     it("does not cache a failed conversation query", async () => {
       setupExecFileCalls([
-        success(pr({ state: "MERGED" })),
+        success(at("2026-09-06T10:00:00Z")),
         failure("GraphQL: API rate limit already exceeded"),
-        success(pr({ state: "MERGED" })),
-        success(graphql(1)),
+        success(at("2026-09-06T10:00:00Z")),
+        success(threads(1)),
       ]);
 
       const first = await manager.getPrForBranch(REPO, "b");
@@ -487,70 +486,6 @@ describe("GitHubManager", () => {
       expect(mockState.queue).toHaveLength(0);
     });
   });
-
-  describe("getPrsForBranches", () => {
-    it("calls getPrForBranchInner for each branch and returns results", async () => {
-      const emptyGraphql = JSON.stringify({
-        data: {
-          repository: {
-            pullRequest: { reviewThreads: { nodes: [] } },
-          },
-        },
-      });
-
-      const prSame = JSON.stringify([
-        {
-          number: 7,
-          state: "OPEN",
-          title: "PR Same",
-          url: "https://github.com/owner/repo/pull/7",
-          isDraft: false,
-          additions: 0,
-          deletions: 0,
-          reviewDecision: null,
-          statusCheckRollup: [],
-        },
-      ]);
-
-      // The two branch lookups start concurrently via Promise.allSettled.
-      // Because JS is single-threaded, microtasks interleave as:
-      //   call 1: branch-a pr list
-      //   call 2: branch-b pr list  (both initiated before either resolves)
-      //   call 3: branch-a graphql
-      //   call 4: branch-b graphql
-      setupExecFileCalls([
-        success(prSame), // call 1: branch-a pr list
-        success(prSame), // call 2: branch-b pr list
-        success(emptyGraphql), // call 3: branch-a graphql
-        success(emptyGraphql), // call 4: branch-b graphql
-      ]);
-
-      const results = await manager.getPrsForBranches(REPO, [
-        "branch-a",
-        "branch-b",
-      ]);
-
-      expect(results).toHaveLength(2);
-      expect(results[0][0]).toBe("branch-a");
-      expect(results[1][0]).toBe("branch-b");
-      expect(results[0][1]).not.toBeNull();
-      expect(results[1][1]).not.toBeNull();
-      expect(results[0][1]!.number).toBe(7);
-      expect(results[1][1]!.number).toBe(7);
-    });
-
-    it("returns [branch, null] for branches where the lookup rejects", async () => {
-      // getPrForBranchInner catches errors and returns null, so
-      // Promise.allSettled fulfills with [branch, null].
-      setupExecFileCalls([failure("gh not found")]);
-
-      const results = await manager.getPrsForBranches(REPO, ["bad-branch"]);
-      expect(results).toHaveLength(1);
-      expect(results[0][0]).toBe("bad-branch");
-      expect(results[0][1]).toBeNull();
-    });
-  });
-
   // -------------------------------------------------------------------------
   // getMyIssues
   // -------------------------------------------------------------------------
@@ -872,15 +807,25 @@ describe("GitHubManager", () => {
       const remote = new GitHubManager(resolver(async () => "owner/repo"));
       setupExecFileCalls([success("[]")]);
 
-      await remote.getPrForBranch(
-        { path: "/remote/repo", hostId: "box" },
-        "feat/x",
-      );
+      await remote.getMyIssues({ path: "/remote/repo", hostId: "box" });
 
       expect(mockState.calls[0]).toEqual(
-        expect.arrayContaining(["pr", "list", "--repo", "owner/repo"]),
+        expect.arrayContaining(["issue", "list", "--repo", "owner/repo"]),
       );
       expect(mockState.cwds[0]).toBeUndefined();
+    });
+
+    it("points the PR query's repo placeholders at the resolved repo", async () => {
+      const remote = new GitHubManager(resolver(async () => "ghe.example.com/owner/repo"));
+      setupExecFileCalls([success(prsAnswer(null))]);
+
+      await remote.getPrForBranch({ path: "/remote/repo", hostId: "box" }, "feat/x");
+
+      expect(mockState.calls[0]).toEqual(
+        expect.arrayContaining(["--hostname", "ghe.example.com", "owner={owner}"]),
+      );
+      expect(mockState.cwds[0]).toBeUndefined();
+      expect(mockState.envs[0]?.GH_REPO).toBe("ghe.example.com/owner/repo");
     });
 
     it("keeps running local checkouts in their directory", async () => {

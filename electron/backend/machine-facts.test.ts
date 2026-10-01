@@ -1,7 +1,8 @@
+import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, it, expect } from "vitest";
-import type { Exec, ExecError } from "./exec";
+import { localExec, type Exec, type ExecError } from "./exec";
 import { execFacts, localFacts, memoRetry, posixJoin } from "./machine-facts";
 import { worktreesDir } from "../paths";
 
@@ -159,6 +160,37 @@ describe("execFacts", () => {
     expect(calls).toEqual([{ cmd: "cat", args: ["/p/package.json"] }]);
   });
 
+  it("reads every link in one command, skipping unreadable ones", async () => {
+    const { exec, calls } = fakeExec(() => "/proc/1/cwd\t/home/me/a b\n/proc/9/cwd\t/x\nnoise\n");
+    const links = await execFacts(exec).readlinks(["/proc/1/cwd", "/proc/2/cwd", "/proc/1/cwd"]);
+    expect(links).toEqual(new Map([["/proc/1/cwd", "/home/me/a b"]]));
+    expect(calls).toHaveLength(1);
+    expect(calls[0].cmd).toBe("sh");
+    expect(calls[0].args.slice(2)).toEqual(["sh", "/proc/1/cwd", "/proc/2/cwd"]);
+  });
+
+  it("runs no command for no links, and reads none when the command fails", async () => {
+    const { exec, calls } = fakeExec(() => execError({ code: 1 }));
+    const facts = execFacts(exec);
+    expect(await facts.readlinks([])).toEqual(new Map());
+    expect(calls).toHaveLength(0);
+    expect(await facts.readlinks(["/a"])).toEqual(new Map());
+  });
+
+  it("reads real links through a real shell", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "readlinks-"));
+    try {
+      await fs.symlink("/some where/else", path.join(dir, "link"));
+      await fs.writeFile(path.join(dir, "file"), "");
+      const asked = ["link", "file", "missing"].map((n) => path.join(dir, n));
+      expect(await execFacts(localExec).readlinks(asked)).toEqual(
+        new Map([[asked[0], "/some where/else"]]),
+      );
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("puts default worktrees under the host's ~/.manor", async () => {
     const { exec } = fakeExec(() => "/home/me");
     const facts = execFacts(exec);
@@ -176,6 +208,17 @@ describe("localFacts", () => {
     expect(await facts.exists(os.homedir())).toBe(true);
     expect(await facts.exists(path.join(os.tmpdir(), "definitely-not-here-xyz"))).toBe(false);
     expect(facts.join("/a", "b")).toBe(path.join("/a", "b"));
+  });
+
+  it("reads links in-process, skipping unreadable ones", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "readlinks-"));
+    try {
+      await fs.symlink("/target", path.join(dir, "link"));
+      const asked = [path.join(dir, "link"), path.join(dir, "missing")];
+      expect(await facts.readlinks(asked)).toEqual(new Map([[asked[0], "/target"]]));
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("puts default worktrees under this machine's worktrees dir", async () => {

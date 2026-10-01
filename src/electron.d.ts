@@ -551,6 +551,8 @@ export interface ElectronAPI {
 
   projects: {
     getAll: () => Promise<import("./store/project-store").ProjectInfo[]>;
+    /** Only remote projects, their worktrees listed afresh. */
+    getRemote: () => Promise<import("./store/project-store").ProjectInfo[]>;
     getSelectedIndex: () => Promise<number>;
     select: (index: number) => Promise<void>;
     add: (

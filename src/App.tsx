@@ -471,12 +471,13 @@ function App() {
 
   // Backstop for worktree changes main can't watch — a remote project's git
   // lives on another machine. Coming back to the window is when a stale
-  // sidebar would be noticed.
-  useEffect(() => {
-    const onFocus = () => void loadProjects();
+  // sidebar would be noticed. Local projects are left to the worktree
+  // watcher, and the store throttles repeated focuses.
+  useMountEffect(() => {
+    const onFocus = () => void useProjectStore.getState().refreshRemoteProjects();
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [loadProjects]);
+  });
 
   // A detached window sent its tab back to this primary window (ADR-156). Insert
   // it into the active panel; PTYs re-attach and webviews re-mount by paneId.

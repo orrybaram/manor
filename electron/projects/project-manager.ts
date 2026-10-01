@@ -215,6 +215,19 @@ export class ProjectManager {
     return Promise.all(this.store.state.projects.map((p) => this.buildProjectInfo(p)));
   }
 
+  /**
+   * Only the projects on remote hosts, their worktrees listed afresh. Local
+   * projects' worktrees are kept current by `WorktreeWatcher`, so a refresh
+   * that only needs what no watcher sees (a window focus) skips them.
+   */
+  async getRemoteProjects(): Promise<ProjectInfo[]> {
+    return Promise.all(
+      this.store.state.projects
+        .filter((p) => p.hostId !== LOCAL_HOST_ID)
+        .map((p) => this.buildProjectInfo(p)),
+    );
+  }
+
   getSelectedProjectIndex(): number {
     return this.store.state.selectedProjectIndex;
   }

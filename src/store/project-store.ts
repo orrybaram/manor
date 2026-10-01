@@ -12,6 +12,7 @@ import { ipcErrorMessage } from "../lib/ipc-error";
 import { splitShared } from "../lib/project-groups";
 import { isRemoteHost, type HostId } from "../lib/hosts";
 import { hostForPath, patch, reconcile } from "../lib/workspace-directory";
+import { sharedRefresh } from "../lib/shared-refresh";
 import {
   buildSidebarItems,
   folderParentsOf,
@@ -566,6 +567,13 @@ interface ProjectState {
 
   // Actions
   loadProjects: () => Promise<void>;
+  /**
+   * Re-list remote projects' worktrees, which no watcher sees change — for
+   * a window focus. Local projects are left as they are. Joins a refresh
+   * already running, and skips one within `REMOTE_REFRESH_MIN_INTERVAL` of
+   * the last.
+   */
+  refreshRemoteProjects: () => Promise<void>;
   addProject: (name: string, path: string) => Promise<ProjectInfo>;
   addProjectFromDirectory: () => Promise<void>;
   /** ADR-178 ticket 5, ADR-194: clone a repo onto any host, then add it. */
@@ -794,6 +802,27 @@ function forgetDissolvedGroup(groupId: string | undefined): void {
 
 const initialSidebarMode = loadSidebarMode();
 
+/** The least time between two `refreshRemoteProjects` runs. */
+export const REMOTE_REFRESH_MIN_INTERVAL = 30_000;
+
+/** `refreshRemoteProjects`' refresh: re-list remote projects, keep local ones. */
+const remoteRefresh = sharedRefresh(async () => {
+  try {
+    const fresh = new Map(
+      (await window.electronAPI.projects.getRemote()).map((p) => [p.id, p]),
+    );
+    // Local projects keep their objects, so nothing re-renders for them.
+    useProjectStore.setState((s) => ({
+      projects: s.projects.map((p) => {
+        const f = fresh.get(p.id);
+        return f ? reconcile([f], [p])[0] : p;
+      }),
+    }));
+  } catch {
+    // Host unreachable: the next focus tries again.
+  }
+}, REMOTE_REFRESH_MIN_INTERVAL);
+
 export const useProjectStore = create<ProjectState>((set, get) => ({
   projects: [],
   selectedProjectIndex: 0,
@@ -830,6 +859,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     } catch {
       set({ loading: false, initialLoadDone: true });
     }
+  },
+
+  refreshRemoteProjects: () => {
+    if (!get().projects.some((p) => isRemoteHost(p.hostId))) return Promise.resolve();
+    return remoteRefresh.runIfDue() ?? Promise.resolve();
   },
 
   addProject: async (name: string, path: string) => {

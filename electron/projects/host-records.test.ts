@@ -97,6 +97,27 @@ describe("ProjectManager hosts (ADR-160)", () => {
     expect(reloaded.remoteHostIdsInUse()).toEqual(["box"]);
   });
 
+  it("lists only remote projects' worktrees for a remote refresh", async () => {
+    const gits = new Map<string, GitBackend>();
+    const resolver = (hostId: string) => {
+      if (!gits.has(hostId)) gits.set(hostId, gitNamed(hostId));
+      return gits.get(hostId)!;
+    };
+    const mgr = new ProjectManager(hostsOf(resolver), tmpDir);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    await mgr.addProject("Local", "/tmp/local");
+    await mgr.addProject("Remote", "/home/me/app", "box");
+    await mgr.getProjects();
+    vi.mocked(gits.get("local")!.worktreeList).mockClear();
+    vi.mocked(gits.get("box")!.worktreeList).mockClear();
+
+    const remote = await mgr.getRemoteProjects();
+
+    expect(remote.map((p) => [p.name, p.hostId])).toEqual([["Remote", "box"]]);
+    expect(gits.get("box")!.worktreeList).toHaveBeenCalledWith("/home/me/app");
+    expect(gits.get("local")!.worktreeList).not.toHaveBeenCalled();
+  });
+
   it("keeps extra per-host fields when a host's spec is replaced", () => {
     fs.writeFileSync(
       path.join(tmpDir, "projects.json"),

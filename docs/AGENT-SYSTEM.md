@@ -602,11 +602,13 @@ run simultaneously.
   MCP tools (`mcp__manor__*`). Renamed from `manor-webview` in ADR-110.
 - ADR-144 added agent-orchestration tools: `list_issues` (list a project's
   GitHub issues via `GitHubManager`), `start_agent` (launch an agent in a
-  workspace, round-tripping through the renderer via the `app-command`
-  channel), and `batch_create_workspaces` (fan a set of GitHub issues out
+  workspace), and `batch_create_workspaces` (fan a set of GitHub issues out
   into one workspace + agent each). Backed by new `WebviewServer` routes
   (`GET /projects/:id/issues`, `POST /agents`,
-  `POST /projects/:id/workspaces/batch`).
+  `POST /projects/:id/workspaces/batch`). `start_agent`/`POST /agents` used to
+  round-trip through the renderer via the `app-command` channel; ADR-179
+  ticket 11 moved it entirely onto the server, so it works with the desktop
+  window closed like every other structural command.
 - Lives outside the agent lifecycle; no agent field references it.
 - **ADR-170 added the `manor` CLI:** `~/.manor/bin/manor` is installed on
   startup by `ensureManorCli` (`electron/manor-cli-install.ts`) and

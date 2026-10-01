@@ -19,6 +19,9 @@ database:
 
 # ADR-156: Detach a tab into its own popup window
 
+_Amended by [ADR-179](../adr-179-server-owned-layout/index.md): detached
+windows are viewport claims; the hand-off payload is gone._
+
 ## Context
 
 Manor is today a **single-`BrowserWindow`** app. The entire UI hierarchy —

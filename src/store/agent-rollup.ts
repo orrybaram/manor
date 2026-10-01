@@ -27,6 +27,10 @@ const APP_FIELDS = [
   "workspaceLayouts",
   "activeWorkspacePath",
   "activeWorkspaceHostId",
+  // What this window is looking at, and what other windows hold (ADR-179
+  // D3/D4): both decide which panes are on screen.
+  "viewports",
+  "claims",
 ] as const satisfies readonly (keyof AppState)[];
 const AGENT_FIELDS = [
   "agents",

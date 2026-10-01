@@ -8,7 +8,7 @@ import {
   nextPaneId,
   updateRatio,
   type PaneNode,
-} from "./pane-tree";
+} from "../pane-tree";
 
 describe("allPaneIds", () => {
   it("returns single id for leaf", () => {

@@ -13,6 +13,7 @@ import type { ProjectManager } from "../persistence";
 import type { GitHubManager } from "../github";
 import type { LinearManager } from "../linear";
 import type { LayoutPersistence } from "../terminal-host/layout-persistence";
+import type { LayoutStore } from "../layout/layout-store";
 import type { AgentManager } from "../agent-persistence";
 import type { WorkspaceBackend } from "../backend/types";
 import type { NotificationStore } from "../notification-store";
@@ -55,6 +56,8 @@ export interface ControlDeps {
   githubManager: GitHubManager | null;
   linearManager: LinearManager | null;
   layoutPersistence: LayoutPersistence | null;
+  /** ADR-179. Structural pane routes drive this instead of a window (D5). */
+  layoutStore: LayoutStore | null;
   agentManager: AgentManager | null;
   backend: WorkspaceBackend | null;
   notificationStore: NotificationStore | null;

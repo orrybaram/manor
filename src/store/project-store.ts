@@ -1087,8 +1087,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           // The agent doesn't wait for the script: both run in parallel. Its
           // tab replaces the setup view, so progress moves to the background
           // toast that `startSetupScript`'s exit handler removes.
-          useAppStore.getState().setPendingStartupCommand(wsPath, agentCommand);
-          useAppStore.getState().addTab();
+          // The launch line waits on the server for the new tab's pane
+          // (ADR-179 ticket 11).
+          useAppStore
+            .getState()
+            .addTerminalTab(agentCommand, { kind: "agent-startup" });
           useToastStore.getState().addToast({
             id: `worktree-setup-${wsPath}`,
             message: `Setting up "${name}"…`,
@@ -1097,9 +1100,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           });
         }
       } else if (agentCommand) {
-        // No start script — use the existing pending startup command + addTab pattern
-        useAppStore.getState().setPendingStartupCommand(wsPath, agentCommand);
-        useAppStore.getState().addTab();
+        // No start script — open the agent tab and let the server type the
+        // launch line into it (ADR-179 ticket 11).
+        useAppStore.getState().addTerminalTab(agentCommand, { kind: "agent-startup" });
         useAppStore.getState().clearWorktreeSetup(wsPath);
       } else {
         // No commands at all — clear setup state
@@ -1176,8 +1179,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       if (newIdx >= 0) get().selectWorkspace(projectId, newIdx);
       const startScript = updated.worktreeStartScript;
       if (startScript) {
-        useAppStore.getState().setPendingStartupCommand(wsPath, startScript);
-        useAppStore.getState().addTab();
+        useAppStore.getState().addTerminalTab(startScript);
       }
     }
     return wsPath;

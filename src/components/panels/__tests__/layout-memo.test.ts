@@ -59,12 +59,18 @@ describe("layout components are memoized", () => {
           panels: {
             "panel-1": {
               id: "panel-1",
-              tabs: [{ id: "t1", title: "T", rootNode: paneNode, focusedPaneId: "p1" }],
-              selectedTabId: "t1",
+              tabs: [{ id: "t1", title: "T", rootNode: paneNode }],
               pinnedTabIds: [],
             },
           },
+        },
+      },
+      // What this window is looking at is viewport, not layout (ADR-179 D3).
+      viewports: {
+        [KEY]: {
           activePanelId: "panel-1",
+          selectedTabIds: { "panel-1": "t1" },
+          focusedPaneIds: { t1: "p1" },
         },
       },
     });

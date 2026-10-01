@@ -37,6 +37,9 @@ import { RemoteControlServer, type AuthenticatedDevice } from "../server";
 import { RemoteAuditLog } from "../audit";
 import { AuthRateLimiter } from "../rate-limit";
 import type { ControlDeps } from "../../routes/types";
+import { LayoutStore } from "../../layout/layout-store";
+import type { LayoutPersistence } from "../../terminal-host/layout-persistence";
+import type { LayoutStoreBackend } from "../../layout/layout-store";
 
 const READ_TOKEN = "read-token";
 const WRITE_TOKEN = "write-token";
@@ -102,6 +105,18 @@ describe("RemoteControlServer", () => {
       githubManager: null,
       linearManager: null,
       layoutPersistence: null,
+      // ADR-179 D5: `POST /tabs` and `DELETE /panes/:paneId` now drive this
+      // directly, no renderer round-trip — a real (unpersisted) store, same
+      // trick `layout-store.test.ts` uses.
+      layoutStore: new LayoutStore(
+        {
+          load: () => null,
+          save: () => {},
+          removeWorkspace: () => {},
+        } as unknown as LayoutPersistence,
+        () => {},
+        { pty: { kill: vi.fn().mockResolvedValue(undefined) } } as unknown as LayoutStoreBackend,
+      ),
       // Enough of an AgentManager for `GET /agents` to answer and for the
       // "did a handler run?" assertions to have something to observe.
       agentManager: {
@@ -159,6 +174,15 @@ describe("RemoteControlServer", () => {
     deps.backend = {
       pty: { write: ptyWrite },
     } as unknown as ControlDeps["backend"];
+  }
+
+  /**
+   * Which workspaces a launch actually reached. `POST /agents` opens the tab
+   * on the server now (ADR-179 ticket 11), so "nothing was launched" is a
+   * question for the layout store rather than for a renderer mock.
+   */
+  function launchedWorkspaces(): string[] {
+    return Object.keys(deps.layoutStore?.getAll() ?? {});
   }
 
   /** Give the deps one project, so `KNOWN_WORKSPACE` is a launchable target. */
@@ -496,7 +520,7 @@ describe("RemoteControlServer", () => {
       });
       // 404, not 403: the row was never in that device's table.
       expect(res.status).toBe(404);
-      expect(proxyToRenderer).not.toHaveBeenCalled();
+      expect(launchedWorkspaces()).toEqual([]);
       expect(audit.read()).toEqual([]);
     });
 
@@ -508,12 +532,23 @@ describe("RemoteControlServer", () => {
         confirmed: true,
       });
       expect(res.status).toBe(200);
-      expect(await res.json()).toMatchObject({ paneId: "pane-9" });
-      expect(proxyToRenderer).toHaveBeenCalledWith(
-        expect.any(Function),
-        "start-agent",
-        { workspacePath: KNOWN_WORKSPACE, prompt: "fix the login flake", hostId: "local" },
-      );
+      const started = (await res.json()) as {
+        tabId: string;
+        paneId: string;
+        workspacePath: string;
+      };
+      expect(started.workspacePath).toBe(KNOWN_WORKSPACE);
+      // The tab is the server's own doing (ADR-179 ticket 11) — no window is
+      // open in this test — and the prompt is waiting for the pane's shell.
+      // A local workspace's layout key is its bare path (ADR-191).
+      const entry = deps.layoutStore!.get(KNOWN_WORKSPACE)!;
+      const panel = entry.layout.panels[Object.keys(entry.layout.panels)[0]];
+      expect(panel.tabs.map((t) => t.id)).toContain(started.tabId);
+      expect(deps.layoutStore!.pendingCommands.take(started.paneId)).toEqual({
+        text: 'claude --dangerously-skip-permissions "fix the login flake"',
+        kind: "agent-startup",
+        submit: true,
+      });
     });
 
     it("rejects a launch that is not confirmed", async () => {
@@ -523,7 +558,7 @@ describe("RemoteControlServer", () => {
         prompt: "fix the login flake",
       });
       expect(res.status).toBe(400);
-      expect(proxyToRenderer).not.toHaveBeenCalled();
+      expect(launchedWorkspaces()).toEqual([]);
 
       const entries = audit.read();
       expect(entries).toHaveLength(1);
@@ -544,7 +579,7 @@ describe("RemoteControlServer", () => {
       });
       expect(res.status).toBe(403);
       expect(await res.json()).toEqual({ error: "Unknown workspace" });
-      expect(proxyToRenderer).not.toHaveBeenCalled();
+      expect(launchedWorkspaces()).toEqual([]);
 
       const entries = audit.read();
       expect(entries).toHaveLength(1);
@@ -570,7 +605,7 @@ describe("RemoteControlServer", () => {
         });
         expect(res.status).toBe(403);
       }
-      expect(proxyToRenderer).not.toHaveBeenCalled();
+      expect(launchedWorkspaces()).toEqual([]);
     });
 
     it("403s a launch with no workspacePath at all", async () => {
@@ -580,7 +615,7 @@ describe("RemoteControlServer", () => {
         confirmed: true,
       });
       expect(res.status).toBe(403);
-      expect(proxyToRenderer).not.toHaveBeenCalled();
+      expect(launchedWorkspaces()).toEqual([]);
     });
 
     it("403s every launch when there is no project manager", async () => {
@@ -589,7 +624,7 @@ describe("RemoteControlServer", () => {
         confirmed: true,
       });
       expect(res.status).toBe(403);
-      expect(proxyToRenderer).not.toHaveBeenCalled();
+      expect(launchedWorkspaces()).toEqual([]);
     });
 
     it("never reveals which workspaces would have worked", async () => {
@@ -659,19 +694,40 @@ describe("RemoteControlServer", () => {
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
 
+    /**
+     * ADR-179 D5: `DELETE /panes/:paneId` drives the layout store directly
+     * now, no renderer round-trip — so, unlike the other full-tier routes
+     * here, it needs a real pane to close.
+     */
+    async function withPaneSeven(): Promise<void> {
+      await deps.layoutStore!.apply(
+        "/ws-with-pane-7",
+        {
+          type: "new-tab",
+          tab: {
+            id: "tab-7",
+            title: "Terminal",
+            rootNode: { type: "leaf", paneId: "pane-7" },
+          },
+        },
+        { kind: "route", id: "test" },
+      );
+    }
+
     it("reaches a DELETE route that is absent for a send device", async () => {
+      await withPaneSeven();
       expect((await del("/panes/pane-7", WRITE_TOKEN)).status).toBe(404);
 
       const res = await del("/panes/pane-7", FULL_TOKEN);
       expect(res.status).toBe(200);
-      expect(proxyToRenderer).toHaveBeenCalledWith(
-        expect.any(Function),
-        "close-pane",
-        { paneId: "pane-7" },
-      );
+      // No renderer to observe a proxied command any more — the mutation
+      // itself is the proof the full tier actually reached the handler:
+      // closing the same pane again 400s because it is genuinely gone.
+      expect((await del("/panes/pane-7", FULL_TOKEN)).status).toBe(400);
     });
 
     it("needs no confirmed:true, and audits the write anyway", async () => {
+      await withPaneSeven();
       const res = await del("/panes/pane-7", FULL_TOKEN);
       expect(res.status).toBe(200);
 
@@ -698,6 +754,7 @@ describe("RemoteControlServer", () => {
       ).toBe(404);
 
       const res = await post("/tabs", FULL_TOKEN, {
+        contentType: "terminal",
         workspacePath: KNOWN_WORKSPACE,
       });
       expect(res.status).toBe(200);

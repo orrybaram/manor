@@ -202,7 +202,6 @@ function layoutWith(
       id: "tab-visible",
       title: "visible",
       rootNode: { type: "leaf", paneId: visiblePaneId },
-      focusedPaneId: visiblePaneId,
     },
   ];
   if (hiddenPaneId) {
@@ -210,7 +209,6 @@ function layoutWith(
       id: "tab-hidden",
       title: "hidden",
       rootNode: { type: "leaf", paneId: hiddenPaneId },
-      focusedPaneId: hiddenPaneId,
     });
   }
   return {
@@ -219,11 +217,9 @@ function layoutWith(
       "panel-1": {
         id: "panel-1",
         tabs,
-        selectedTabId: "tab-visible",
         pinnedTabIds: [],
       },
     },
-    activePanelId: "panel-1",
   };
 }
 

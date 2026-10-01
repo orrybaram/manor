@@ -27,6 +27,7 @@ import { openInEditor } from "../editor";
 import { sendNotificationsUpdate } from "../notifications";
 import { checkForUpdates, quitAndInstall } from "../updater";
 import { listWindows } from "../ipc/window";
+import { themeSetSelected } from "../ipc/theme";
 import { isPreferenceKey } from "../preferences";
 import type { TunnelKind } from "../remote-control/tunnel";
 import type { ControlDeps, Json, Route } from "./types";
@@ -335,8 +336,13 @@ export const systemRoutes: Route[] = [
         json(400, { error: "Missing 'name' string in request body" });
         return;
       }
-      themeManager.setSelectedThemeName(name);
-      json(200, { name, theme: themeManager.getTheme() });
+      // Not `setSelectedThemeName` directly: a theme set from the CLI or MCP
+      // is every viewer's, exactly as one set from the UI is (ADR-179 D6).
+      const theme = themeSetSelected(
+        { themeManager, getRendererWindows: deps.getRendererWindows ?? (() => []) },
+        name,
+      );
+      json(200, { name, theme });
     },
   },
 

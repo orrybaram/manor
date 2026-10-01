@@ -19,6 +19,9 @@ database:
 
 # ADR-152: Pane-tool correctness, and the deletions ADR-148–151 set up
 
+_Amended by [ADR-179](../adr-179-server-owned-layout/index.md): structural pane
+tools no longer round-trip through a window._
+
 ## Context
 
 A deep quality audit of the ADR-148/149/150/151 branch (35 commits, 66 files,

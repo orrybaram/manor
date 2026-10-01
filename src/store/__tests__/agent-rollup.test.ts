@@ -19,17 +19,14 @@ function live(status: AgentStatus): PaneAgentStatus {
 function layout(...paneIds: string[]): WorkspaceLayout {
   return {
     panelTree: { type: "leaf", panelId: "p1" },
-    activePanelId: "p1",
     panels: {
       p1: {
         id: "p1",
-        selectedTabId: "t0",
         pinnedTabIds: [],
         tabs: paneIds.map((paneId, i) => ({
           id: `t${i}`,
           title: "Terminal",
           rootNode: { type: "leaf", paneId },
-          focusedPaneId: paneId,
         })),
       },
     },
@@ -49,6 +46,9 @@ function sources(overrides: {
     app: {
       paneAgentStatus: overrides.paneAgentStatus ?? {},
       workspaceLayouts: active ? { [workspaceKey("local", "/active")]: layout(...active) } : {},
+      // No viewport: each panel shows its first tab (ADR-179 D3).
+      viewports: {},
+      claims: {},
       activeWorkspacePath: active ? "/active" : null,
       activeWorkspaceHostId: "local",
     },
@@ -151,17 +151,37 @@ describe("selectPaneAgentIndex", () => {
 });
 
 describe("selectVisiblePaneIds", () => {
-  it("builds the on-screen set once per layout and active workspace", () => {
+  it("builds the on-screen set once per layout, viewport and active workspace", () => {
+    const keyA = workspaceKey("local", "/a");
     const workspaceLayouts = {
-      [workspaceKey("local", "/a")]: layout("a1", "a2"),
+      [keyA]: layout("a1", "a2"),
       [workspaceKey("local", "/b")]: layout("b1"),
     };
-    const onA = { workspaceLayouts, activeWorkspacePath: "/a", activeWorkspaceHostId: "local" };
+    const onA = {
+      workspaceLayouts,
+      viewports: {},
+      activeWorkspacePath: "/a",
+      activeWorkspaceHostId: "local",
+    };
     const ids = selectVisiblePaneIds(onA);
     expect([...ids]).toEqual(["a1"]);
     expect(selectVisiblePaneIds({ ...onA })).toBe(ids);
     expect([...selectVisiblePaneIds({ ...onA, activeWorkspacePath: "/b" })]).toEqual(["b1"]);
-    expect(selectVisiblePaneIds({ ...onA, workspaceLayouts: { ...workspaceLayouts } })).not.toBe(ids);
+    expect(
+      selectVisiblePaneIds({
+        ...onA,
+        workspaceLayouts: { ...workspaceLayouts, [keyA]: layout("a1", "a2") },
+      }),
+    ).not.toBe(ids);
+    // Selecting another tab is a viewport change, and changes what is on screen.
+    expect([
+      ...selectVisiblePaneIds({
+        ...onA,
+        viewports: {
+          [keyA]: { activePanelId: "p1", selectedTabIds: { p1: "t1" }, focusedPaneIds: {} },
+        },
+      }),
+    ]).toEqual(["a2"]);
   });
 });
 

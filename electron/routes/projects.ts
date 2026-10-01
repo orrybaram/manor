@@ -19,8 +19,9 @@ import { LOCAL_HOST_ID } from "../backend/types";
 import { callerMaySee, OWN_HOST_ONLY } from "./caller-host";
 import { isIssueSource } from "../issue-sources";
 import { ghRepoOf } from "../../src/lib/gh-repo";
-import { notifyProjectsChanged, startAgent } from "../renderer-bridge";
+import { notifyProjectsChanged } from "../renderer-bridge";
 import type { WorkspaceOps } from "../workspace-ops";
+import { startAgentInWorkspace } from "./agents";
 import type { Json, Route, RouteContext } from "./types";
 
 /**
@@ -493,11 +494,11 @@ async function batchCreateWorkspaces(
 
   // 3. Resolve each issue to a result entry, assigning and launching as it
   // goes. This runs sequentially, not fanned out through `Promise.all` like
-  // steps 1 and 2 above: each launch is a correlated round-trip to the
-  // renderer (ADR-176), and firing N of those concurrently would be both
-  // needless load on the renderer and harder to reason about than N agents
-  // starting one after another. A `for` loop pushing into `results` keeps
-  // input order without relying on `Promise.all` to preserve it.
+  // steps 1 and 2 above: a launch is a layout command, and `LayoutStore`
+  // serialises those per workspace anyway — N at once would be harder to
+  // reason about than N agents starting one after another, for no gain. A
+  // `for` loop pushing into `results` keeps input order without relying on
+  // `Promise.all` to preserve it.
   const results: BatchResultEntry[] = [];
   for (const d of details) {
     if ("error" in d) {
@@ -529,12 +530,10 @@ async function batchCreateWorkspaces(
       }
     }
     if (ws.worktreePath && launch) {
-      const result = await startAgent(
-        ws.worktreePath,
-        renderPrompt(promptTemplate, ws),
-        undefined,
-        project.hostId,
-      );
+      const result = await startAgentInWorkspace(deps, ws.worktreePath, {
+        prompt: renderPrompt(promptTemplate, ws),
+        hostId: project.hostId,
+      });
       entry.started = result.ok;
       if (result.ok) {
         entry.paneId = result.data.paneId;

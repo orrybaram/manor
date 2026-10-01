@@ -3,7 +3,8 @@ import type { DraftComment } from "../store/review-store";
 import { useToastStore } from "../store/toast-store";
 import { navigateToAgent } from "../utils/agent-navigation";
 import { cleanAgentTitle } from "../utils/agent-title";
-import { flattenPrompt, startAgentWithPrompt } from "./agent-prompt-launch";
+import { startAgentWithPrompt } from "./agent-prompt-launch";
+import { flattenPrompt } from "./agent-command";
 import { adapterForKind } from "./harness";
 
 export type ReviewTarget =

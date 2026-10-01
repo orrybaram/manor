@@ -31,12 +31,10 @@ function layout(panelId: string): WorkspaceLayout {
     panels: {
       [panelId]: {
         id: panelId,
-        tabs: [{ id: `${panelId}-tab`, title: "T", rootNode: { type: "leaf", paneId }, focusedPaneId: paneId }],
-        selectedTabId: `${panelId}-tab`,
+        tabs: [{ id: `${panelId}-tab`, title: "T", rootNode: { type: "leaf", paneId } }],
         pinnedTabIds: [],
       },
     },
-    activePanelId: panelId,
   };
 }
 
@@ -74,7 +72,11 @@ describe("WorkspaceStack render isolation", () => {
   });
 
   it("re-renders no tree for a change inside a workspace's panels", () => {
-    patchLayout(B, { activePanelId: "other" });
+    patchLayout(B, {
+      panels: {
+        pb: { id: "pb", tabs: [], pinnedTabIds: ["pinned-elsewhere"] },
+      },
+    });
     expect(renders).toEqual({ [A]: 1, [B]: 1, [C]: 1 });
   });
 

@@ -31,18 +31,15 @@ function makeLayout(panelId: string, tabId: string): WorkspaceLayout {
     id: tabId,
     title: "Terminal",
     rootNode: { type: "leaf", paneId },
-    focusedPaneId: paneId,
   };
   const panel: Panel = {
     id: panelId,
     tabs: [tab],
-    selectedTabId: tabId,
     pinnedTabIds: [],
   };
   return {
     panelTree: { type: "leaf", panelId },
     panels: { [panelId]: panel },
-    activePanelId: panelId,
   };
 }
 
@@ -63,10 +60,6 @@ function seedStore(overrides?: Partial<AppState>) {
     paneFavicon: {},
     paneAudioPlaying: {},
     paneAudioMuted: {},
-    closedPaneIds: new Set(),
-    closedPaneStack: [],
-    pendingStartupCommands: {},
-    pendingPaneCommands: {},
     pendingCloseConfirmPaneId: null,
     pendingCloseConfirmTabId: null,
     webviewFocusedPaneId: null,
@@ -236,11 +229,9 @@ describe("navigator bridge — prune", () => {
         "panel-empty": {
           id: "panel-empty",
           tabs: [],
-          selectedTabId: "",
           pinnedTabIds: [],
         },
       },
-      activePanelId: "panel-empty",
     };
     const emptyLoc: Location = {
       kind: "workspace",

@@ -35,18 +35,17 @@ export function projectsSelectWorkspace(
 }
 
 export function register(deps: IpcDeps): void {
-  const { projectManager, workspaceOps, backendRegistry, layoutPersistence } = deps;
+  const { projectManager, workspaceOps, backendRegistry, layoutStore } = deps;
 
   /**
    * A project that moved from `oldHostId` keeps the saved layouts of the
    * workspaces it still has, under their keys on its new host (ADR-191 §3).
-   * The renderer's `closeWorkspacesLeftBehind` (`src/store/project-store.ts`)
-   * makes the same [old key, new key] moves in memory; keep them in step.
+   * The layout store owns them (ADR-179 D1) and broadcasts the move, so every
+   * renderer's replica follows.
    */
   async function moveLayouts(oldHostId: string, moved: ProjectInfo): Promise<ProjectInfo> {
     if (oldHostId !== moved.hostId) {
-      await layoutPersistence.whenReady();
-      layoutPersistence.moveWorkspaces(
+      await layoutStore.moveWorkspaces(
         moved.workspaces.map((ws) => [
           workspaceKey(oldHostId, ws.path),
           workspaceKey(moved.hostId, ws.path),

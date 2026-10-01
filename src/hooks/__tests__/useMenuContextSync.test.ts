@@ -47,21 +47,19 @@ function makeAppState(overrides: Partial<MenuAppState> = {}): MenuAppState {
   return {
     activeWorkspacePath: MAIN,
     activeWorkspaceHostId: "local",
+    viewports: {},
     workspaceLayouts: {
       [MAIN]: {
         panelTree: { type: "leaf", panelId: "panel-1" },
-        activePanelId: "panel-1",
         panels: {
           "panel-1": {
             id: "panel-1",
-            selectedTabId: "tab-1",
             pinnedTabIds: ["tab-1"],
             tabs: [
               {
                 id: "tab-1",
                 title: "Terminal",
                 rootNode: { type: "leaf", paneId: "pane-1" },
-                focusedPaneId: "pane-1",
               },
             ],
           },

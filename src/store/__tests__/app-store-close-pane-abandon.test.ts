@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useAppStore } from "../app-store";
 import type { WorkspaceLayout, Tab, Panel } from "../app-store";
+import {
+  resetFakeLayoutServer,
+  seedLayout,
+} from "./fake-layout-server";
 
 // window is provided by the setup file (src/store/__tests__/setup.ts)
 // with a minimal electronAPI mock.  We extend it here with agents.abandonForPane.
@@ -15,18 +19,15 @@ function makeLayout(): WorkspaceLayout {
     id: tabId,
     title: "Terminal",
     rootNode: { type: "leaf", paneId },
-    focusedPaneId: paneId,
   };
   const panel: Panel = {
     id: panelId,
     tabs: [tab],
-    selectedTabId: tabId,
     pinnedTabIds: [],
   };
   return {
     panelTree: { type: "leaf", panelId },
     panels: { [panelId]: panel },
-    activePanelId: panelId,
   };
 }
 
@@ -42,35 +43,35 @@ function makeTwoPaneLayout(): WorkspaceLayout {
       first: { type: "leaf", paneId: "pane-1" },
       second: { type: "leaf", paneId: "pane-2" },
     },
-    focusedPaneId: "pane-1",
   };
   const panel: Panel = {
     id: panelId,
     tabs: [tab],
-    selectedTabId: "tab-1",
     pinnedTabIds: [],
   };
   return {
     panelTree: { type: "leaf", panelId },
     panels: { [panelId]: panel },
-    activePanelId: panelId,
   };
 }
 
 function setupStore(layout?: WorkspaceLayout) {
+  // The server holds the same layout the store starts from: every
+  // structural action goes through it now (ADR-179 D1).
+  resetFakeLayoutServer();
+  const start = layout ?? makeLayout();
+  seedLayout(WS_PATH, start);
   useAppStore.setState({
     activeWorkspacePath: WS_PATH,
-    workspaceLayouts: { [WS_PATH]: layout ?? makeLayout() },
+    workspaceLayouts: { [WS_PATH]: start },
+    layoutVersions: {},
+    serverLayouts: {},
     paneCwd: {},
     paneTitle: {},
     paneAgentStatus: {},
     paneContentType: {},
     paneUrl: {},
     panePickedElement: {},
-    closedPaneIds: new Set(),
-    closedPaneStack: [],
-    pendingStartupCommands: {},
-    pendingPaneCommands: {},
     pendingCloseConfirmPaneId: null,
     pendingCloseConfirmTabId: null,
     webviewFocusedPaneId: null,

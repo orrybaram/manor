@@ -13,6 +13,16 @@ import type { AgentStatus } from "./terminal-host/types";
 import type { StatCounter, StatsStore } from "./stats-store";
 import { publishRendererBroadcast } from "./renderer-broadcast";
 
+/**
+ * An E2E run kept in the background (`electron/e2e-background.ts`). Read at
+ * call time rather than imported: that module reads `app.isPackaged` when it
+ * loads, and the many modules importing this one are loaded by tests that
+ * mock `electron` without an `app`.
+ */
+function isE2eBackgroundRun(): boolean {
+  return process.env.MANOR_E2E_BACKGROUND === "1" && app?.isPackaged === false;
+}
+
 /** Mirrors `PrNotifyEventKind` in `src/utils/pr-notifications.ts`. */
 export type PrNotifyEventKind =
   | "comment"
@@ -243,6 +253,9 @@ function presentNotification(
   if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isFocused()) {
     return false;
   }
+  // A test run must not put banners and sound on the developer's desktop; the
+  // record above is still written, which is what the tests read.
+  if (isE2eBackgroundRun()) return false;
 
   const notification = new Notification({
     title: opts.title,

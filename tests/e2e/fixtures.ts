@@ -178,6 +178,11 @@ async function removeTempHome(tempHome: string): Promise<void> {
  * `pnpm dev`, and the app prefers it over the bundled renderer — so a run from
  * such a shell silently tests the dev server, or loads a blank error page once
  * that server exits.
+ *
+ * The app is launched in the background (no dock icon, windows that never
+ * take focus, no notification banners — `electron/e2e-background.ts`) so a
+ * run does not take over the machine it runs on; `MANOR_E2E_HEADED=1` or
+ * `MANOR_E2E_FOREGROUND=1` puts its windows back in front.
  */
 export async function launchApp(
   tempHome: string,
@@ -208,8 +213,11 @@ export async function launchApp(
   env.PATH = pathWithoutAgents(env.PATH ?? "", tempHome);
   // Keep the app behind whatever the person is doing: no Dock icon, windows
   // shown without taking focus (electron/e2e-background.ts). Set
-  // MANOR_E2E_FOREGROUND=1 to watch a run in front instead.
-  if (process.env.MANOR_E2E_FOREGROUND !== "1") env.MANOR_E2E_BACKGROUND = "1";
+  // MANOR_E2E_FOREGROUND=1 (or MANOR_E2E_HEADED=1) to watch a run in front
+  // instead.
+  if (process.env.MANOR_E2E_FOREGROUND !== "1" && !isHeaded()) {
+    env.MANOR_E2E_BACKGROUND = "1";
+  }
 
   return _electron.launch({
     args: [
@@ -224,6 +232,17 @@ export async function launchApp(
     cwd: repoRoot,
     recordVideo: videoDir() ? { dir: videoDir()!, size: VIDEO_SIZE } : undefined,
   });
+}
+
+/**
+ * Whether this run wants to be watched.
+ *
+ * Off by default: the suite drives the renderer over CDP, which does not need
+ * a window on screen, and a visible run takes focus away from whatever the
+ * developer is doing for as long as it lasts.
+ */
+export function isHeaded(): boolean {
+  return process.env.MANOR_E2E_HEADED === "1";
 }
 
 /** Frame size for recorded videos; kept fixed so runs are comparable. */

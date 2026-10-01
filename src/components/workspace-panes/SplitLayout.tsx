@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import type { WorkspaceKey } from "../../lib/workspace-key";
-import type { PaneNode } from "../../store/pane-tree";
+import type { PaneNode } from "../../lib/layout/pane-tree";
 import { useDragOverlayStore } from "../../store/drag-overlay-store";
 import { PaneLayout } from "./PaneLayout/PaneLayout";
 import styles from "./PaneLayout/PaneLayout.module.css";

@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { selectActiveWorkspace } from "../store/app-store";
 import type { AgentRollup } from "../store/agent-rollup";
-import { allPaneIds } from "../store/pane-tree";
+import { allPaneIds } from "../lib/layout/pane-tree";
 import { useAgentRollup, type PaneSetSelector } from "./useAgentRollup";
 
 /** Agent status of the active workspace's tab `tabId` (see `useAgentRollup`). */

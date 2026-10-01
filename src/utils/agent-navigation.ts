@@ -3,7 +3,7 @@ import { useProjectStore } from "../store/project-store";
 import { useAppStore } from "../store/app-store";
 import { useAgentStore } from "../store/agent-store";
 import { useToastStore } from "../store/toast-store";
-import { hasPaneId } from "../store/pane-tree";
+import { hasPaneId } from "../lib/layout/pane-tree";
 import { workspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import { ownerOf } from "../lib/workspace-directory";
 import type { ProjectInfo } from "../store/project-store";

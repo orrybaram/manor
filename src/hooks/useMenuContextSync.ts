@@ -14,7 +14,10 @@
 
 import {
   selectActiveLayout,
+  selectActivePanelId,
   selectActiveWorkspaceKey,
+  selectFocusedPaneId,
+  selectSelectedTabId,
   useAppStore,
   type AppState,
 } from "../store/app-store";
@@ -42,6 +45,7 @@ export type MenuAppState = Pick<
   | "activeWorkspacePath"
   | "activeWorkspaceHostId"
   | "workspaceLayouts"
+  | "viewports"
   | "paneContentType"
   | "paneAgentStatus"
 >;
@@ -110,9 +114,10 @@ export function deriveMenuContext(
   const workspace = project?.workspaces.find((w) => w.path === path) ?? null;
 
   const layout = selectActiveLayout(app);
-  const panel = layout?.panels[layout.activePanelId] ?? null;
-  const tab = panel?.tabs.find((t) => t.id === panel.selectedTabId) ?? null;
-  const focusedPaneId = tab?.focusedPaneId ?? null;
+  const panelId = selectActivePanelId(app);
+  const panel = (panelId ? layout?.panels[panelId] : null) ?? null;
+  const selectedTabId = selectSelectedTabId(app, panel?.id);
+  const focusedPaneId = selectFocusedPaneId(app, selectedTabId);
 
   const workspaceLabelByPath = new Map<string, string>();
   for (const p of projects) {
@@ -174,10 +179,10 @@ export function deriveMenuContext(
         }
       : null,
     activeTab:
-      panel && panel.selectedTabId
+      panel && selectedTabId
         ? {
-            id: panel.selectedTabId,
-            pinned: (panel.pinnedTabIds ?? []).includes(panel.selectedTabId),
+            id: selectedTabId,
+            pinned: (panel.pinnedTabIds ?? []).includes(selectedTabId),
           }
         : null,
     panelCount: layout ? Object.keys(layout.panels).length : 0,

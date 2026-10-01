@@ -27,6 +27,7 @@ function layoutWithPane(paneId: string, key: WorkspaceKey): PersistedLayout {
         workspacePath: key,
         panelTree: { type: "leaf", panelId: "panel-1" },
         activePanelId: "panel-1",
+        defaultViewport: { activePanelId: "panel-1", selectedTabIds: {}, focusedPaneIds: {} },
         panels: {
           "panel-1": {
             id: "panel-1",
@@ -114,6 +115,30 @@ describe("GET /context", () => {
     const [status, body] = await getContext("paneId=pane-1&cwd=/repo/src", { sessionOwners });
     expect(status).toBe(200);
     expect(body.projectId).toBe("local-p");
+  });
+
+  // ADR-179: the server's layout store holds a pane the moment it exists;
+  // the file it writes on a debounce may not have it yet.
+  it("rung 1 asks the server's layout store before the file", async () => {
+    const layoutStore = {
+      getAll: () => ({
+        [workspaceKey("box", "/repo")]: {
+          layout: {
+            panelTree: { type: "leaf", panelId: "panel-1" },
+            panels: {
+              "panel-1": {
+                id: "panel-1",
+                tabs: [{ id: "tab-1", title: "t", rootNode: { type: "leaf", paneId: "pane-new" } }],
+                pinnedTabIds: [],
+              },
+            },
+          },
+        },
+      }),
+    } as unknown as ControlDeps["layoutStore"];
+    const [status, body] = await getContext("paneId=pane-new&cwd=/repo/src", { layoutStore });
+    expect(status).toBe(200);
+    expect(body.projectId).toBe("box-p");
   });
 
   it("rung 1 resolves a remote workspace key to the remote project even for a local caller", async () => {

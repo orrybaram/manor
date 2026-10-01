@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { useAppStore } from "../app-store";
+import {
+  useAppStore,
+  selectActivePanelId,
+  selectFocusedPaneId,
+  selectSelectedTabId,
+} from "../app-store";
 import type { AppState, WorkspaceLayout, Tab, Panel } from "../app-store";
 import { workspaceKey } from "../../lib/workspace-key";
 
@@ -19,18 +24,15 @@ function makeLayout(): WorkspaceLayout {
     id: TAB_ID,
     title: "Terminal",
     rootNode: { type: "leaf", paneId: PANE_ID },
-    focusedPaneId: PANE_ID,
   };
   const panel: Panel = {
     id: PANEL_ID,
     tabs: [tab],
-    selectedTabId: TAB_ID,
     pinnedTabIds: [],
   };
   return {
     panelTree: { type: "leaf", panelId: PANEL_ID },
     panels: { [PANEL_ID]: panel },
-    activePanelId: PANEL_ID,
   };
 }
 
@@ -39,6 +41,7 @@ function seedStore(overrides?: Partial<AppState>) {
     activeWorkspacePath: null,
     activeWorkspaceHostId: "local",
     workspaceLayouts: { [WS_PATH]: makeLayout() },
+    viewports: {},
     paneCwd: {},
     paneTitle: {},
     paneAgentStatus: {},
@@ -48,10 +51,6 @@ function seedStore(overrides?: Partial<AppState>) {
     paneFavicon: {},
     paneAudioPlaying: {},
     paneAudioMuted: {},
-    closedPaneIds: new Set(),
-    closedPaneStack: [],
-    pendingStartupCommands: {},
-    pendingPaneCommands: {},
     pendingCloseConfirmPaneId: null,
     pendingCloseConfirmTabId: null,
     webviewFocusedPaneId: null,
@@ -76,14 +75,10 @@ describe("navigateToContext", () => {
     const state = useAppStore.getState();
     expect(state.activeWorkspacePath).toBe(WS_PATH);
 
-    const layout = state.workspaceLayouts[WS_PATH];
-    expect(layout.activePanelId).toBe(PANEL_ID);
-
-    const panel = layout.panels[PANEL_ID];
-    expect(panel.selectedTabId).toBe(TAB_ID);
-
-    const tab = panel.tabs.find((t) => t.id === TAB_ID);
-    expect(tab?.focusedPaneId).toBe(PANE_ID);
+    // All three are viewport now — this renderer's alone (ADR-179 D3).
+    expect(selectActivePanelId(state)).toBe(PANEL_ID);
+    expect(selectSelectedTabId(state, PANEL_ID)).toBe(TAB_ID);
+    expect(selectFocusedPaneId(state, TAB_ID)).toBe(PANE_ID);
   });
 
   it("triggers the store subscriber exactly once", () => {

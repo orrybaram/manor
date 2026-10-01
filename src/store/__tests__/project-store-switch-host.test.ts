@@ -56,6 +56,29 @@ function project(path: string, extraWorkspaces: string[] = [], hostId = "local")
   };
 }
 
+/**
+ * A layout this window has open for `path`. The layout is the server's
+ * (ADR-179 D1): a window only ever holds a replica of what it was sent, so a
+ * test seeds the replica rather than building one with actions.
+ */
+function openLayout(key: string, tabId = "tab-1"): void {
+  useAppStore.setState((s) => ({
+    workspaceLayouts: {
+      ...s.workspaceLayouts,
+      [key]: {
+        panelTree: { type: "leaf", panelId: "panel-1" },
+        panels: {
+          "panel-1": {
+            id: "panel-1",
+            tabs: [{ id: tabId, title: "Terminal", rootNode: { type: "leaf", paneId: `${tabId}-pane` } }],
+            pinnedTabIds: [],
+          },
+        },
+      },
+    },
+  }));
+}
+
 describe("switchProjectHost", () => {
   beforeEach(() => {
     useProjectStore.setState({ projects: [project(OLD, [OLD_WT])], selectedProjectIndex: 0 });
@@ -97,6 +120,7 @@ describe("switchProjectHost", () => {
   });
 
   it("changes nothing when the switch is refused", async () => {
+    openLayout(OLD);
     useAppStore.getState().setActiveWorkspace(OLD);
     vi.mocked(window.electronAPI.projects.switchHost).mockRejectedValue(
       new Error("does not exist"),
@@ -111,8 +135,8 @@ describe("switchProjectHost", () => {
 
   // ADR-191: a path the new host has too keeps its tabs, under its new key.
   it("keeps the tabs of a workspace whose path the new host has too", async () => {
+    openLayout(OLD);
     useAppStore.getState().setActiveWorkspace(OLD, "local");
-    useAppStore.getState().addTab();
     const tabs = useAppStore.getState().workspaceLayouts[OLD].panels;
     vi.mocked(window.electronAPI.projects.switchHost).mockResolvedValue(
       project(OLD, [], "box"),

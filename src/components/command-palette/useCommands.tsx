@@ -40,7 +40,13 @@ import type { CommandItem, CategoryConfig } from "./types";
 import type { SettingsPageId } from "../settings/SettingsModal/SettingsModal";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
-import { selectActiveLayout, selectActiveWorkspaceKey, useAppStore } from "../../store/app-store";
+import {
+  selectActiveLayout,
+  selectActivePanelId,
+  selectActiveWorkspaceKey,
+  selectSelectedTabId,
+  useAppStore,
+} from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { useToastStore } from "../../store/toast-store";
 import { getAgentCommand } from "../../agent-defaults";
@@ -120,8 +126,10 @@ export function useCommands({
   const projects = useProjectStore((s) => s.projects);
   const activeTabPinned = useAppStore((s) => {
     const layout = selectActiveLayout(s);
-    const panel = layout?.panels[layout.activePanelId];
-    return !!panel && (panel.pinnedTabIds ?? []).includes(panel.selectedTabId);
+    const panelId = selectActivePanelId(s);
+    const panel = panelId ? layout?.panels[panelId] : undefined;
+    const tabId = selectSelectedTabId(s, panelId);
+    return !!panel && !!tabId && (panel.pinnedTabIds ?? []).includes(tabId);
   });
   const panelCount = useAppStore((s) => {
     const layout = selectActiveLayout(s);
@@ -479,9 +487,9 @@ export function useCommands({
         keywords: ["panel", "close"],
         action: () => {
           const state = useAppStore.getState();
-          const layout = selectActiveLayout(state);
-          if (!layout) return;
-          state.closePanel(layout.activePanelId);
+          const panelId = selectActivePanelId(state);
+          if (!panelId) return;
+          state.closePanel(panelId);
           onClose();
         },
       },

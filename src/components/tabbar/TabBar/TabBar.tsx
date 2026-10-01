@@ -10,15 +10,15 @@ import {
   useAppStore,
   selectActiveWorkspace,
   selectActiveWorkspaceKey,
+  selectFocusedPaneId,
+  useSelectedTab,
+  useVisibleTabs,
 } from "../../../store/app-store";
 import { parseWorkspaceKey, type WorkspaceKey } from "../../../lib/workspace-key";
-import { topLeftPanelId } from "../../../store/panel-tree";
+import { topLeftPanelId } from "../../../lib/layout/panel-tree";
+import { allPaneIds } from "../../../lib/layout/pane-tree";
 import { usePaneDrag } from "../../workspace-panes/PaneDragContext";
-import {
-  countTabsInWindow,
-  detachTabToNewWindow,
-  trackHandoff,
-} from "../../../lib/window-handoff";
+import { detachTabToNewWindow, hasOwnClaim } from "../../../lib/detach";
 import { pinnedAgentName, tabTitle } from "../../../lib/pane-title";
 import { useAgentStore } from "../../../store/agent-store";
 import { TabButton } from "../TabButton";
@@ -73,11 +73,13 @@ export function TabBar(props: TabBarProps) {
     }
     return selectActiveWorkspace(s);
   });
-  const tabs = useMemo(() => panel?.tabs ?? [], [panel?.tabs]);
   const layoutKey = useAppStore((s) => workspaceKey ?? selectActiveWorkspaceKey(s));
   // Tabs running elsewhere are badged against the workspace's own host.
   const layoutHostId = layoutKey ? parseWorkspaceKey(layoutKey).hostId : undefined;
-  const selectedTabId = panel?.selectedTabId ?? null;
+  // Tabs claimed by another window are somewhere else on screen and are not
+  // drawn here (ADR-179 D4); a claiming window draws only the one it holds.
+  const tabs = useVisibleTabs(layoutKey, panel);
+  const selectedTabId = useSelectedTab(panel?.id, layoutKey);
   const selectTab = useAppStore((s) => s.selectTab);
   const addTab = useAppStore((s) => s.addTab);
   const addBrowserTab = useAppStore((s) => s.addBrowserTab);
@@ -208,14 +210,17 @@ export function TabBar(props: TabBarProps) {
       // The title the tab shows, not the raw `tab.title`: that is a stale
       // placeholder for terminal tabs (the live title lives in the side-maps).
       const st = useAppStore.getState();
+      const focusedPaneId =
+        selectFocusedPaneId(st, tab.id, layoutKey) ??
+        allPaneIds(tab.rootNode)[0];
       const pinnedName = pinnedAgentName(
         useAgentStore.getState().agents,
-        tab.focusedPaneId,
+        focusedPaneId,
       );
       const img = buildTabDragImage(
-        tabTitle(st, tab.focusedPaneId, pinnedName),
-        st.paneContentType[tab.focusedPaneId],
-        st.paneFavicon[tab.focusedPaneId] ?? undefined,
+        tabTitle(st, focusedPaneId, pinnedName),
+        st.paneContentType[focusedPaneId],
+        st.paneFavicon[focusedPaneId] ?? undefined,
       );
       document.body.appendChild(img);
       e.dataTransfer.setDragImage(img, grabX, grabY);
@@ -242,7 +247,7 @@ export function TabBar(props: TabBarProps) {
         })
         .catch(() => {});
     },
-    [tabs, panelId, startDrag],
+    [tabs, panelId, layoutKey, startDrag],
   );
 
   // ── drag: fires continuously on the source, even outside the window ─────────
@@ -284,9 +289,10 @@ export function TabBar(props: TabBarProps) {
       );
       if (overOtherWindow) return;
 
-      // Sole tab of a detached window: tearing it off would orphan this window.
-      // Leave that to the release path, which moves this window to the drop.
-      if (window.electronAPI?.isDetached && countTabsInWindow() === 1) return;
+      // The one tab of a detached window: tearing it off would orphan this
+      // window. Leave that to the release path, which moves this window to
+      // the drop point instead.
+      if (hasOwnClaim()) return;
 
       // Commit the new-window tear-off NOW.
       tearOffCommitted.current = true;
@@ -303,9 +309,6 @@ export function TabBar(props: TabBarProps) {
       draggedTabId.current = null;
       draggedFromPanelId.current = undefined;
       endDrag();
-      // Emptying a popout closes it — but that is `DetachedApp`'s store
-      // subscription's job, not ours. Closing the window from here would do it
-      // synchronously, inside the drag event Chromium is still dispatching.
     },
     [endDrag, clearDragIndicators],
   );
@@ -473,13 +476,10 @@ export function TabBar(props: TabBarProps) {
             sy >= w.bounds.y &&
             sy <= w.bounds.y + w.bounds.height,
         ) ?? null;
-      // Sole tab of a detached window: tearing it off would orphan this empty
-      // window. Move this window to the drop point instead. (The primary window
-      // is never an orphan: it falls back to Home.)
-      const wouldOrphanWindow =
-        target === null &&
-        window.electronAPI?.isDetached === true &&
-        countTabsInWindow() === 1;
+      // The one tab of a detached window: tearing it off would orphan this
+      // empty window. Move this window to the drop point instead. (The primary
+      // window is never an orphan: it falls back to Home.)
+      const wouldOrphanWindow = target === null && hasOwnClaim();
 
       if (wouldOrphanWindow) {
         window.electronAPI.window.setPosition(
@@ -495,35 +495,16 @@ export function TabBar(props: TabBarProps) {
         width: 900,
         height: 600,
       };
-      // Both branches remove the tab from THIS window synchronously so the
-      // origin updates in the same frame — no snap-back of a tab that is on its
-      // way out — then fire the destination-window IPC without awaiting, so the
-      // new window appears immediately rather than after the drag's return
-      // animation. (Serialize first: removeDetachedTabLocally releases the
-      // panes the payload references.)
+      // Released over another manor window. From a detached window that means
+      // "put it back": closing releases the claim and the tab is already in
+      // the primary, with its panes and sessions untouched (ADR-179 D4).
+      // There is nothing to hand over, so from the primary it is a no-op —
+      // the tab it would "move" is the one that window is already showing.
       if (target) {
-        const store = useAppStore.getState();
-        const payload = store.serializeTabForDetach(tabId);
-        store.removeDetachedTabLocally(tabId);
-        void trackHandoff(
-          window.electronAPI.window
-            .transferTab(target.id, payload)
-            .then((accepted) => {
-              if (!accepted) {
-                return window.electronAPI.window.detachTab(payload, spawnBounds);
-              }
-            }),
-        ).catch((err) =>
-          console.error("Failed to move tab out of this window", err),
-        );
-      } else {
-        void detachTabToNewWindow(tabId, spawnBounds);
+        if (hasOwnClaim()) window.electronAPI.window.closeSelf();
+        return;
       }
-      // A detached window that just gave away its last tab has nothing left to
-      // show, and `DetachedApp`'s store subscription closes it — after the
-      // handoff above has actually left this renderer. Closing it here instead
-      // would race the payload and would run inside the `dragend` Chromium is
-      // still dispatching.
+      void detachTabToNewWindow(tabId, spawnBounds);
     },
     [endDrag, clearDragIndicators],
   );

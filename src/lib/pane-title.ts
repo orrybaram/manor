@@ -1,12 +1,22 @@
 import { shellTitlePath, stripTitleMarkers } from "../utils/agent-title";
-import type { AppState } from "../store/app-store";
 import type { AgentInfo } from "../electron.d";
+import {
+  selectPaneContentType,
+  selectPaneUrl,
+  type AppState,
+} from "../store/app-store";
 
-/** The pane side-maps a displayed title reads. */
-type PaneTitleState = Pick<
+/**
+ * The store fields a pane's title is derived from. What a pane *is* — its
+ * content type and saved url — is read from the tree (ADR-182 D9).
+ */
+export type PaneTitleState = Pick<
   AppState,
-  "paneTitle" | "paneCwd" | "paneContentType" | "paneUrl"
+  "paneTitle" | "paneCwd" | "paneLiveUrl" | "workspaceLayouts"
 >;
+
+/** The agent fields a pane's title reads: a user-pinned name labels it. */
+export type PaneTitleAgent = Pick<AgentInfo, "paneId" | "name" | "namePinned">;
 
 /**
  * A terminal's live title with its spinner frames and done markers stripped,
@@ -28,7 +38,10 @@ function cwdName(cwd: string): string {
  * "user@host:" prefix of default shell titles, else the last segment of its
  * cwd, else "Terminal".
  */
-export function paneHeaderTitle(state: PaneTitleState, paneId: string): string {
+export function paneHeaderTitle(
+  state: Pick<AppState, "paneTitle" | "paneCwd">,
+  paneId: string,
+): string {
   const title = terminalTitle(state.paneTitle[paneId]);
   if (title) return shellTitlePath(title) ?? title;
   const cwd = state.paneCwd[paneId];
@@ -37,7 +50,7 @@ export function paneHeaderTitle(state: PaneTitleState, paneId: string): string {
 
 /** The name the user pinned on the agent in `paneId` (a rename), if any. */
 export function pinnedAgentName(
-  agents: readonly AgentInfo[],
+  agents: readonly PaneTitleAgent[],
   paneId: string,
 ): string | null {
   const agent = agents.find((a) => a.paneId === paneId && a.namePinned && a.name);
@@ -54,7 +67,7 @@ export function tabTitle(
   paneId: string,
   pinnedName: string | null,
 ): string {
-  const contentType = state.paneContentType[paneId];
+  const contentType = selectPaneContentType(state, paneId);
   if (contentType === "diff") return "Diff";
   // A user-pinned agent name (rename in the Agents list) labels the tab too,
   // so the sidebar and tab bar never disagree about what a pane is called.
@@ -63,7 +76,7 @@ export function tabTitle(
   if (contentType === "browser") {
     const title = state.paneTitle[paneId];
     if (title) return title;
-    const url = state.paneUrl[paneId];
+    const url = selectPaneUrl(state, paneId);
     if (url) return url.replace(/^https?:\/\//, "");
   }
 
@@ -74,4 +87,17 @@ export function tabTitle(
   }
   const cwd = state.paneCwd[paneId];
   return cwd ? cwdName(cwd) : "Terminal";
+}
+
+/**
+ * A pane's displayed title — the one the tab bar, the tab drag chip and the
+ * phone's pane switcher all show, so none of them disagree about what a pane
+ * is called (ADR-182 D11). `tabTitle` with the pinned name looked up.
+ */
+export function paneTitle(
+  paneId: string,
+  state: PaneTitleState,
+  agents: readonly PaneTitleAgent[],
+): string {
+  return tabTitle(state, paneId, pinnedAgentName(agents, paneId));
 }

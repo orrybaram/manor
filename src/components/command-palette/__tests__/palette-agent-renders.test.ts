@@ -66,6 +66,7 @@ describe("command palette agent commands", () => {
         onResumeAgent: noop,
         onViewAllAgents: noop,
         onNewAgent: noop,
+        onRunCommand: noop,
       }),
     );
     // Mounting can take more than one commit; count only what follows.

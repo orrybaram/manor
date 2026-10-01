@@ -16,8 +16,8 @@ import { proxyToRenderer } from "../renderer-bridge";
 import { withWorkspaceHost } from "./workspace-host";
 import { OWN_HOST_ONLY } from "./caller-host";
 import { agentRoutes } from "./agents";
-import { tabRoutes, workspaceRoutes } from "./panes";
-import type { ControlDeps, Route } from "./types";
+import { paneRoutes } from "./panes";
+import type { RouteDeps, Route } from "./types";
 import { LayoutStore } from "../layout/layout-store";
 import { LayoutPersistence } from "../terminal-host/layout-persistence";
 import type { LayoutStoreBackend } from "../layout/layout-store";
@@ -25,7 +25,7 @@ import type { LayoutStoreBackend } from "../layout/layout-store";
 // ADR-191: main names the host of the workspace an app-command targets.
 const projectManager = {
   hostIdForPath: (p: string) => (p.startsWith("/srv/") ? "box" : "local"),
-} as unknown as ControlDeps["projectManager"];
+} as unknown as RouteDeps["projectManager"];
 
 describe("withWorkspaceHost", () => {
   it("names the host of the project that owns the path", () => {
@@ -60,7 +60,7 @@ describe("withWorkspaceHost", () => {
  */
 describe("relayed workspace commands", () => {
   const SHARED = "/home/me/app";
-  const relayed = { projectManager, callerHostId: "box" } as unknown as ControlDeps;
+  const relayed = { projectManager, callerHostId: "box" } as unknown as RouteDeps;
 
   function route(routes: Route[], path: string): Route {
     const found = routes.find((r) => r.method === "POST" && r.path === path);
@@ -68,7 +68,7 @@ describe("relayed workspace commands", () => {
     return found;
   }
 
-  async function post(r: Route, deps: ControlDeps, body: Record<string, unknown>) {
+  async function post(r: Route, deps: RouteDeps, body: Record<string, unknown>) {
     const json = vi.fn();
     await r.handler({ deps, params: {}, url: new URL("http://x/"), json, readBody: async () => body });
     return (json.mock.calls[0] ?? []) as [number?, unknown?];
@@ -76,7 +76,7 @@ describe("relayed workspace commands", () => {
 
   // Viewport commands still go to the primary window (ADR-179 D5).
   const cases: Array<[string, Route, string, Record<string, unknown>]> = [
-    ["/workspaces/active", route(workspaceRoutes, "/workspaces/active"), "set-active-workspace", {}],
+    ["/workspaces/active", route(paneRoutes, "/workspaces/active"), "set-active-workspace", {}],
   ];
 
   beforeEach(() => vi.mocked(proxyToRenderer).mockClear());
@@ -125,7 +125,7 @@ describe("relayed structural workspace commands", () => {
   const SHARED = "/home/me/app";
   let tmpDir: string;
   let store: LayoutStore;
-  let relayed: ControlDeps;
+  let relayed: RouteDeps;
 
   beforeEach(() => {
     tmpDir = path.join(os.tmpdir(), `manor-ws-host-${crypto.randomUUID()}`);
@@ -139,7 +139,7 @@ describe("relayed structural workspace commands", () => {
       projectManager: { ...projectManager, getProjects: async () => [] },
       callerHostId: "box",
       layoutStore: store,
-    } as unknown as ControlDeps;
+    } as unknown as RouteDeps;
   });
 
   afterEach(() => {
@@ -160,7 +160,7 @@ describe("relayed structural workspace commands", () => {
 
   const cases: Array<[string, Route, Record<string, unknown>]> = [
     ["/agents", route(agentRoutes, "/agents"), { prompt: "hi" }],
-    ["/tabs", route(tabRoutes, "/tabs"), { contentType: "terminal" }],
+    ["/tabs", route(paneRoutes, "/tabs"), { contentType: "terminal" }],
   ];
 
   describe.each(cases)("POST %s", (_path, r, extra) => {

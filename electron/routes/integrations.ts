@@ -18,10 +18,6 @@ export const integrationRoutes: Route[] = [
     method: "POST",
     path: "/linear/issues/:id/start",
     async handler({ deps, params, json }) {
-      if (!deps.linearManager) {
-        json(503, { error: "Linear is not available" });
-        return;
-      }
       try {
         await deps.linearManager.startIssue(params.id);
         json(200, { ok: true });
@@ -35,10 +31,6 @@ export const integrationRoutes: Route[] = [
     method: "POST",
     path: "/linear/issues/:id/close",
     async handler({ deps, params, json }) {
-      if (!deps.linearManager) {
-        json(503, { error: "Linear is not available" });
-        return;
-      }
       try {
         await deps.linearManager.closeIssue(params.id);
         json(200, { ok: true });
@@ -52,10 +44,6 @@ export const integrationRoutes: Route[] = [
     method: "GET",
     path: "/github/status",
     async handler({ deps, json }) {
-      if (!deps.githubManager) {
-        json(503, { error: "GitHub is not available" });
-        return;
-      }
       try {
         json(200, await deps.githubManager.checkStatus());
       } catch (err) {
@@ -72,10 +60,6 @@ export const integrationRoutes: Route[] = [
     method: "POST",
     path: "/projects/:projectId/issues",
     handler: withProject(async ({ deps, json, readBody }, _pm, project) => {
-      if (!deps.githubManager) {
-        json(503, { error: "GitHub is not available" });
-        return;
-      }
       const body = await readBody();
       const title = body.title;
       if (typeof title !== "string" || !title.trim()) {

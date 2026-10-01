@@ -1,11 +1,17 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useAppStore, selectFocusedPaneId } from "../app-store";
+import {
+  useAppStore,
+  selectFocusedPaneId,
+  selectPaneContentType,
+  selectPaneUrl,
+} from "../app-store";
 import { emptyViewport, reconcileViewport } from "../../lib/layout/viewport";
 import type { Panel, WorkspaceLayout } from "../app-store";
 import {
   queuedCommands,
   resetFakeLayoutServer,
   seedLayout,
+  settled,
 } from "./fake-layout-server";
 
 // window is provided by the setup file (src/store/__tests__/setup.ts)
@@ -47,12 +53,11 @@ function setupStore(layout?: WorkspaceLayout) {
     workspaceLayouts: { [WS_PATH]: start },
     viewports: { [WS_PATH]: reconcileViewport(start, emptyViewport()) },
     layoutVersions: {},
-    serverLayouts: {},
+    mountedWorkspaces: {},
     paneCwd: {},
     paneTitle: {},
     paneAgentStatus: {},
-    paneContentType: {},
-    paneUrl: {},
+    paneLiveUrl: {},
     panePickedElement: {},
     pendingCloseConfirmPaneId: null,
     pendingCloseConfirmTabId: null,
@@ -74,10 +79,11 @@ function getActiveTab() {
 describe("splitPaneAt", () => {
   beforeEach(() => setupStore());
 
-  it("returns the paneId it mints and grafts it into the tree", () => {
+  it("returns the paneId it mints and grafts it into the tree", async () => {
     const newPane = useAppStore
       .getState()
       .splitPaneAt(ORIGINAL_PANE_ID, "horizontal", "second");
+    await settled();
 
     expect(newPane).toBeTruthy();
     expect(newPane).not.toBe(ORIGINAL_PANE_ID);
@@ -93,18 +99,19 @@ describe("splitPaneAt", () => {
     });
   });
 
-  it("returns null and changes nothing for an unknown target pane", () => {
+  it("returns null and changes nothing for an unknown target pane", async () => {
     const before = useAppStore.getState().workspaceLayouts[WS_PATH];
 
     const result = useAppStore
       .getState()
       .splitPaneAt("pane-nope", "horizontal", "second");
+    await settled();
 
     expect(result).toBeNull();
     expect(useAppStore.getState().workspaceLayouts[WS_PATH]).toBe(before);
   });
 
-  it("returns null when there is no active workspace", () => {
+  it("returns null when there is no active workspace", async () => {
     useAppStore.setState({ activeWorkspacePath: null });
 
     expect(
@@ -112,17 +119,18 @@ describe("splitPaneAt", () => {
     ).toBeNull();
   });
 
-  it("lands the url in paneUrl when given", () => {
+  it("puts the url and content type on the new leaf when given", async () => {
     const newPane = useAppStore
       .getState()
       .splitPaneAt(ORIGINAL_PANE_ID, "horizontal", "second", {
         contentType: "browser",
         url: "https://example.com",
       })!;
+    await settled();
 
     const state = useAppStore.getState();
-    expect(state.paneUrl[newPane]).toBe("https://example.com");
-    expect(state.paneContentType[newPane]).toBe("browser");
+    expect(selectPaneUrl(state, newPane)).toBe("https://example.com");
+    expect(selectPaneContentType(state, newPane)).toBe("browser");
 
     const tab = getActiveTab();
     expect(tab.rootNode).toEqual({
@@ -139,28 +147,32 @@ describe("splitPaneAt", () => {
     });
   });
 
-  it("does not set paneUrl when no url is given", () => {
+  it("gives the new pane no url when none is given", async () => {
     const newPane = useAppStore
       .getState()
       .splitPaneAt(ORIGINAL_PANE_ID, "horizontal", "second", {
         contentType: "browser",
       })!;
+    await settled();
 
-    expect(useAppStore.getState().paneUrl[newPane]).toBeUndefined();
+    expect(selectPaneUrl(useAppStore.getState(), newPane)).toBeNull();
   });
 
-  it("does not persist contentType: 'agent' to the tree or paneContentType map", () => {
+  it("does not persist contentType: 'agent' to the tree", async () => {
     const newPane = useAppStore
       .getState()
       .splitPaneAt(ORIGINAL_PANE_ID, "horizontal", "second", {
         contentType: "agent",
         paneCommand: "npm test",
       })!;
+    await settled();
 
     const tab = getActiveTab();
     if (tab.rootNode.type !== "split") throw new Error("Expected split");
     expect(tab.rootNode.second).toEqual({ type: "leaf", paneId: newPane });
-    expect(useAppStore.getState().paneContentType[newPane]).toBeUndefined();
+    expect(selectPaneContentType(useAppStore.getState(), newPane)).toBe(
+      "terminal",
+    );
     // The command is queued on the server for the minted pane (ADR-179
     // ticket 11), not held in this store.
     expect(queuedCommands).toEqual([

@@ -6,11 +6,14 @@
  */
 
 import { LOCAL_HOST_ID } from "../backend/types";
+import { workspaceKey } from "../../src/lib/workspace-key";
 import { sanitizeBranchName, toDirSlug } from "../branch-name";
 import { errorMessage } from "../lib/errors";
 import type { ProjectContext } from "./context";
 import { emitSetupProgress } from "./progress";
+import type { SetupStep, StepStatus } from "../../src/store/project-store";
 import type {
+  CreateWorktreeOptions,
   IssueSeed,
   LinkedIssue,
   PersistedProject,
@@ -54,9 +57,7 @@ export async function createWorkspacesFromIssues(
   create: (
     projectId: string,
     name: string,
-    branch: undefined,
-    linkedIssue: LinkedIssue,
-    baseBranch?: string,
+    opts: CreateWorktreeOptions,
   ) => Promise<unknown>,
 ): Promise<WorkspaceFromIssue[]> {
   const project = ctx.find(projectId);
@@ -81,7 +82,7 @@ export async function createWorkspacesFromIssues(
       };
       const name = toDirSlug(seed.title) || "issue-" + seed.number;
       const worktreePath = await ctx.paths.worktreePathFor(project, name);
-      await create(projectId, name, undefined, linkedIssue, baseBranch);
+      await create(projectId, name, { linkedIssue, baseBranch });
       results.push({ ...base, worktreePath });
     } catch (err) {
       results.push({ ...base, error: String(err) });
@@ -94,16 +95,19 @@ export async function createWorktree(
   ctx: ProjectContext,
   projectId: string,
   name: string,
-  branch?: string,
-  linkedIssue?: LinkedIssue,
-  baseBranch?: string,
-  useExistingBranch?: boolean,
-  origin: string | null = null,
+  opts: CreateWorktreeOptions = {},
 ): Promise<ProjectInfo | null> {
   // `origin`: the bridge connection that asked, so its own window gets the
   // setup progress (ADR-180 D5). Null — the default, and what the CLI, MCP
   // and the issue-batch path pass — broadcasts it instead.
-  const progress = (step: string, status: string, message?: string) =>
+  const {
+    branch,
+    linkedIssue,
+    baseBranch,
+    useExistingBranch,
+    origin = null,
+  } = opts;
+  const progress = (step: SetupStep, status: StepStatus, message?: string) =>
     emitSetupProgress(origin, step, status, message);
   const project = ctx.find(projectId);
   if (!project) return null;
@@ -294,6 +298,12 @@ export async function removeWorktree(
   const project = ctx.find(projectId);
   if (!project) return;
   const git = gitOf(ctx, project);
+
+  // Before anything touches the directory: the workspace's panes end here —
+  // shells killed, agents abandoned — and every renderer drops its layout
+  // (ADR-182 D7). The one teardown for every way a worktree is removed: the
+  // sidebar, quick merge, the CLI and MCP all come through this function.
+  ctx.layout?.remove(workspaceKey(project.hostId, worktreePath));
 
   const progress = onProgress ?? (() => {});
 

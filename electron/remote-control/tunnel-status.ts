@@ -9,8 +9,6 @@
  * `tunnel.ts`, which re-exports the types so existing imports still work.
  */
 
-export type TunnelKind = "tailscale";
-
 /**
  * Where the Tailscale app keeps its CLI. The app does not put `tailscale` on
  * PATH, but this binary *is* the CLI when invoked with arguments, and it talks
@@ -23,7 +21,6 @@ export type TunnelState = "stopped" | "starting" | "running" | "failed";
 
 export interface TunnelStatus {
   state: TunnelState;
-  kind: TunnelKind | null;
   /** Set only in `running`. */
   url: string | null;
   /** Set only in `failed`. Never contains a token. */
@@ -58,7 +55,6 @@ export interface TailnetInfo {
 /** What a tunnel that was never started (or has been stopped) reports. */
 export const STOPPED_TUNNEL_STATUS: Readonly<TunnelStatus> = Object.freeze({
   state: "stopped",
-  kind: null,
   url: null,
   error: null,
 });
@@ -70,11 +66,8 @@ export type WhichFn = (bin: string) => Promise<string | null>;
  * Whether the tailscale CLI was found, on PATH or in the app bundle — the
  * `which` passed in decides where to look.
  */
-export async function detectTunnelTools(
-  which: WhichFn,
-): Promise<Record<TunnelKind, boolean>> {
-  const tailscale = await which("tailscale");
-  return { tailscale: tailscale !== null };
+export async function isTailscaleInstalled(which: WhichFn): Promise<boolean> {
+  return (await which("tailscale")) !== null;
 }
 
 /**

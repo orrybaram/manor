@@ -42,7 +42,6 @@ import {
 } from "./backend/registry";
 import { RoutedBackend } from "./backend/routed-backend";
 import { PrewarmManager } from "./prewarm-manager";
-import { releaseViewer } from "./pty-attachments";
 import { publishRendererBroadcast } from "./renderer-broadcast";
 import { RemoteDeviceStore } from "./remote-control/devices";
 import { BridgeServer } from "./bridge/server";
@@ -54,7 +53,7 @@ import {
 } from "./remote-control/controller";
 import { TAILSCALE_APP_CLI } from "./remote-control/tunnel-status";
 import { PushManager } from "./remote-control/push";
-import type { ControlDeps } from "./routes/types";
+import type { HostDeps } from "./ipc/types";
 import { handleRelayedControlRequest } from "./control-relay";
 import { createWindow, saveZoomLevel } from "./window";
 import { installAppMenu, type AppMenuController } from "./app-menu";
@@ -69,6 +68,7 @@ import {
   setStatsStore,
 } from "./notifications";
 import { killAllActivePushes } from "./bridge/handlers/branches-diffs";
+import { createAgentService } from "./bridge/handlers/agents";
 import { wireStatsBroadcast } from "./bridge/handlers/stats";
 import {
   wirePreferencesBroadcast,
@@ -208,25 +208,19 @@ export function initApp(devTitle: string | null): void {
   // which is how one is reached after it was created.
   const rendererWindows = new Set<BrowserWindow>();
   const detachedWindows = new Map<string, BrowserWindow>();
+  // The tab each detached window was opened to hold, by renderer id — the
+  // same fact its `--manor-claim=` argument tells the page (ADR-179 D4).
+  const windowClaims = new Map<string, { workspacePath: string; tabId: string }>();
 
+  // What a closed window held — the panes it was a viewer of, and the tab it
+  // claimed — is released when its bridge connection drops (the IPC
+  // transport drops it when the `webContents` is destroyed), not here: the
+  // connection is what holds them, and `BridgeServer.onDisconnect` below is
+  // the one place that hears it go.
   function trackRendererWindow(win: BrowserWindow): void {
     rendererWindows.add(win);
-    // Read the id now: `closed` fires with a freed native window behind the
-    // wrapper, and `webContents` is not there to be asked by then.
-    const viewerId = win.webContents.id;
     win.on("closed", () => {
       rendererWindows.delete(win);
-      // A window that dies without unmounting its panes still let them go —
-      // otherwise every pane it held stays desktop-owned forever and every
-      // other viewer follows a grid nothing is driving (ADR-178 D5). The
-      // window's connection id is its `webContents.id` as a string, which is
-      // what its panes are held under since `pty` crossed (ADR-180 D6); the
-      // IPC transport drops the same connection when the `webContents` is
-      // destroyed, and one of the two arrives first.
-      releaseViewer(String(viewerId));
-      // And whatever tab it held comes back to the primary (ADR-179 D4): a
-      // claim that outlives its window is a tab no renderer shows.
-      layoutStore.releaseWindow(String(viewerId));
     });
   }
 
@@ -279,15 +273,23 @@ export function initApp(devTitle: string | null): void {
   }
 
   /**
-   * Register a detached popup window created via `createDetachedWindow`. Ticket
-   * 2 calls this after creating the window so it can be reached by its windowId
+   * Register a detached popup window created via `createDetachedWindow`,
+   * called after creating the window so it can be reached by its windowId
    * (e.g. to deliver a one-shot detach payload) and receives broadcast events.
    */
-  function registerDetachedWindow(windowId: string, win: BrowserWindow): void {
+  function registerDetachedWindow(
+    windowId: string,
+    win: BrowserWindow,
+    claim: { workspacePath: string; tabId: string },
+  ): void {
+    // Read now: a closed window's `webContents` can no longer be asked.
+    const rendererId = String(win.webContents.id);
     detachedWindows.set(windowId, win);
+    windowClaims.set(rendererId, claim);
     trackRendererWindow(win);
     win.on("closed", () => {
       detachedWindows.delete(windowId);
+      windowClaims.delete(rendererId);
     });
   }
 
@@ -318,6 +320,10 @@ export function initApp(devTitle: string | null): void {
   // is away (ADR-192 §5).
   const projectManager = new ProjectManager((hostId) => backendRegistry.get(hostId), undefined, {
     isHostAway: (hostId) => backendRegistry.status(hostId) !== "connected",
+    // Removing a worktree or a project tears its layout down first (ADR-182
+    // D7), whichever caller — sidebar, quick merge, CLI or MCP — asked for it.
+    // Read at call time: the store is built just below.
+    layout: { remove: (key) => layoutStore.remove(key) },
   });
   for (const { hostId, spec } of projectManager.getHosts()) {
     backendRegistry.register(hostId, spec);
@@ -350,24 +356,38 @@ export function initApp(devTitle: string | null): void {
    * ADR-179: layout is the Manor server's, not a renderer's. One broadcaster
    * feeds every audience from the one place the layout changes.
    *
-   * It used to be two — a publish for the bridge, and a `layout:changed`
-   * send around every live window. The second one went with the namespace
-   * (ADR-180 ticket 6): a desktop window is a bridge connection now, so the
-   * sink reaches the windows and the sockets alike, and a renderer hears
-   * `layout.changed` by subscription rather than by having a `webContents`.
+   * A desktop window is a bridge connection, so the sink reaches the windows
+   * and the sockets alike, and a renderer hears `layout.changed` by
+   * subscription rather than by having a `webContents`.
    */
   const layoutStore = new LayoutStore(
     layoutPersistence,
     (payload) => publishRendererBroadcast("layout", "changed", payload),
     backend,
-    // Which renderer is the primary window's (ADR-179 D4). Read at call time,
-    // not captured: `mainWindow` is nulled on close and set again on reopen,
-    // and a stale answer here would make `list_panes` describe a popout.
-    (rendererId) =>
-      mainWindow !== null &&
-      !mainWindow.isDestroyed() &&
-      !mainWindow.webContents.isDestroyed() &&
-      String(mainWindow.webContents.id) === rendererId,
+    {
+      // Which renderer is the primary window's (ADR-179 D4). Read at call
+      // time, not captured: `mainWindow` is nulled on close and set again on
+      // reopen, and a stale answer here would make `list_panes` describe a
+      // popout.
+      isPrimary: (rendererId) =>
+        mainWindow !== null &&
+        !mainWindow.isDestroyed() &&
+        !mainWindow.webContents.isDestroyed() &&
+        String(mainWindow.webContents.id) === rendererId,
+      // The tab a detached window holds; its reports are how that takes effect.
+      claimOf: (rendererId) => windowClaims.get(rendererId) ?? null,
+    },
+    // A pane's title, off the command channel (ADR-182 D1) — the same
+    // `publishRendererBroadcast` sink as `layout.changed`, on its own event
+    // so a renderer's replica does not have to replace itself for a title.
+    (paneId, title) => publishRendererBroadcast("layout", "paneTitle", { paneId, title }),
+    // Every pane the store ends takes its agent with it (ADR-182 D7) — the
+    // one abandonment for every close path, a removed workspace, and a
+    // legacy Home entry dropped on load. Read at call time: the agent side
+    // is built below.
+    {
+      abandonForPanes: (panes) => agentService.abandonForPanes(panes),
+    },
   );
   // Read the file once its workspace-key migration (above) has settled —
   // usually at once; `layout.getAll()` and every command wait for it, so a
@@ -379,14 +399,14 @@ export function initApp(devTitle: string | null): void {
   const remoteForwards = new RemoteForwards(backendRegistry);
   // Which host each pane's workspace lives on, and the resolver that turns a
   // URL opened in that host's context into the one to load. Built here, once,
-  // so `resolvePaneUrl` below is wired into `ControlDeps` before any IPC
+  // so `resolvePaneUrl` below is wired into `HostDeps` before any IPC
   // module registers — no more racing a setter installed as a side effect of
   // `ports.register` (ADR-183).
   const paneHosts = new Map<string, string>();
   const remoteUrlResolver = new RemoteUrlResolver(portScanner, backendRegistry, remoteForwards);
   /**
    * The URL to actually load for a `navigate` in `paneId`'s webview
-   * (`ControlDeps.resolvePaneUrl`): itself, or rewritten through the pane's
+   * (`HostDeps.resolvePaneUrl`): itself, or rewritten through the pane's
    * host's port forward for a remote workspace (ADR-178 §5). Gives up
    * (rejects) rather than wait forever on an absent host.
    */
@@ -448,7 +468,7 @@ export function initApp(devTitle: string | null): void {
         body: badge.description,
         target: { type: "stats" },
       });
-      sendNotificationsUpdate(mainWindow);
+      sendNotificationsUpdate();
     },
   });
   setStatsStore(statsStore);
@@ -514,32 +534,11 @@ export function initApp(devTitle: string | null): void {
     // The web app's transport (ADR-178 D8, ADR-180 D1). `bridgeServer` is
     // built synchronously during `initApp`, long before anything can enable
     // remote control.
-    wsBridge = new WsBridgeServer(ipcDeps, { server: bridgeServer! });
+    wsBridge = new WsBridgeServer(bridgeServer!);
     const server = new RemoteControlServer(
-      (): ControlDeps => ({
-        projectManager,
-        githubManager,
-        linearManager,
-        layoutPersistence,
-        layoutStore,
-        agentManager,
-        backend,
-        notificationStore,
-        statsStore,
-        workspaceOps,
-        preferencesManager,
-        themeManager,
-        portScanner,
-        remoteControl,
-        agentHookServer,
-        agentStatus: agentStatusDriver,
-        webviewServer,
-        webviewPanes: webviewServer,
-        resolvePaneUrl,
-        getRendererWindows,
-        sessionOwners: backendRegistry.sessions,
-        hostStatus: (hostId) => backendRegistry.status(hostId),
-      }),
+      // The same `HostDeps` the bridge and the desktop's routes run over
+      // (ADR-182 D8), built synchronously during `initApp` too.
+      () => ipcDeps,
       remoteDeviceStore,
       // Rate limiter, audit log, and client directory all take their defaults.
       { push: remotePush, bridge: wsBridge },
@@ -650,6 +649,16 @@ export function initApp(devTitle: string | null): void {
     },
   });
 
+  // The agents side of a pane leaving a tree (ADR-182 D7): the store calls it
+  // for every pane it ends, and the abandonment is a `user` signal to the
+  // Status reconciler like any other close (ADR-184).
+  const agentService = createAgentService({
+    agentManager,
+    statsStore,
+    preferencesManager,
+    agentStatus: agentStatusDriver,
+  });
+
   /**
    * Resync a host's panes after it (re)connects: the `paneFacts` stream has
    * nothing to replay, so ask for each live session's current facts. Without
@@ -730,17 +739,14 @@ export function initApp(devTitle: string | null): void {
 
   // ── Register all IPC handlers before window creation to avoid race conditions ──
 
-  const webviewServer = webviewIpc.createWebviewServer(
-    projectManager,
-    githubManager,
-    linearManager,
-    layoutPersistence,
-    agentManager,
-    backend,
-  );
+  // Its control routes (ADR-171) run over `ipcDeps`, which holds this server
+  // and so is built just below; the first request waits on `start()`.
+  const webviewServer = webviewIpc.createWebviewServer(() => ipcDeps);
 
-  // Build shared deps object for extracted IPC modules
-  const ipcDeps = {
+  // The one deps object every host-side handler runs over — the bridge's
+  // table, the IPC modules below, and the control routes on both listeners
+  // (ADR-182 D8).
+  const ipcDeps: HostDeps = {
     get mainWindow() {
       return mainWindow;
     },
@@ -774,6 +780,12 @@ export function initApp(devTitle: string | null): void {
     unseenRespondedAgents,
     unseenInputAgents,
     webviewServer,
+    // Pane inspection routes' access to WebviewServer's own pane registry
+    // and console-log buffers (ADR-183) — always itself.
+    webviewPanes: webviewServer,
+    resolvePaneUrl,
+    sessionOwners: backendRegistry.sessions,
+    hostStatus: (hostId) => backendRegistry.status(hostId),
     workspaceMeta: [],
     prewarmManager,
     remoteControl,
@@ -783,37 +795,11 @@ export function initApp(devTitle: string | null): void {
   };
 
 
-  // Give control routes (ADR-171) the same manager bag IPC handlers have.
-  webviewServer.setControlDeps({
-    projectManager: ipcDeps.projectManager,
-    githubManager: ipcDeps.githubManager,
-    linearManager: ipcDeps.linearManager,
-    layoutPersistence: ipcDeps.layoutPersistence,
-    layoutStore: ipcDeps.layoutStore,
-    agentManager: ipcDeps.agentManager,
-    backend: ipcDeps.backend,
-    notificationStore: ipcDeps.notificationStore,
-    statsStore: ipcDeps.statsStore,
-    workspaceOps: ipcDeps.workspaceOps,
-    preferencesManager: ipcDeps.preferencesManager,
-    themeManager: ipcDeps.themeManager,
-    portScanner: ipcDeps.portScanner,
-    remoteControl: ipcDeps.remoteControl,
-    agentHookServer: ipcDeps.agentHookServer,
-    agentStatus: agentStatusDriver,
-    getRendererWindows: ipcDeps.getRendererWindows,
-    // Pane inspection routes' access to WebviewServer's own pane registry
-    // and console-log buffers (ADR-183) — always itself.
-    webviewPanes: webviewServer,
-    resolvePaneUrl,
-    sessionOwners: backendRegistry.sessions,
-    hostStatus: (hostId) => backendRegistry.status(hostId),
-  });
   // Remote hosts' `manor` CLIs reach the same routes, with the same deps,
   // behind the remote allowlist (ADR-189 §2). Set once those deps exist; a
   // request relayed before then is answered 503.
   backendRegistry.setControlRelaySink((hostId, req) =>
-    handleRelayedControlRequest(webviewServer.getControlDeps(), hostId, req),
+    handleRelayedControlRequest(webviewServer.getDeps(), hostId, req),
   );
 
   // The bridge (ADR-178 D8, ADR-180 D1). Same deps the native IPC modules
@@ -821,11 +807,19 @@ export function initApp(devTitle: string | null): void {
   // here rather than inside a transport because it is the thing every
   // transport attaches to.
   bridgeServer = new BridgeServer(ipcDeps);
+  // A connection that drops has already let go of every pane it viewed
+  // (`BridgeServer.drop`); whatever tab it claimed comes back to the primary
+  // too (ADR-179 D4) — a claim that outlives its window is a tab no renderer
+  // shows. Only a desktop window ever claims, so for a socket this is a
+  // no-op.
+  bridgeServer.onDisconnect((connectionId) =>
+    layoutStore.releaseWindow(connectionId),
+  );
   // The desktop's transport (D2): the same frames over `bridge:*` IPC, one
   // connection per renderer window. Started unconditionally and for the life
   // of the app — a window's first frame makes its connection, and remote
   // control being off has nothing to do with it.
-  ipcBridge = new IpcBridgeTransport(ipcDeps, { server: bridgeServer });
+  ipcBridge = new IpcBridgeTransport(ipcDeps, bridgeServer);
   ipcBridge.start();
 
   // `electron/ipc/` keeps exactly six things now (ADR-180 D8, ticket 11):

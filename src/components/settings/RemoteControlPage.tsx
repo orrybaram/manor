@@ -8,7 +8,7 @@ import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import { useRemoteControlStore } from "../../store/remote-control-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { Button } from "../ui/Button/Button";
-import { Input } from "../ui/Input";
+import { EmojiInput } from "../ui/EmojiAutocomplete";
 import { Stack, Row } from "../ui/Layout/Layout";
 import { Switch } from "../ui/Switch/Switch";
 import { ToggleGroup } from "../ui/ToggleGroup";
@@ -91,6 +91,7 @@ export function RemoteControlPage() {
   const stopTunnel = useRemoteControlStore((s) => s.stopTunnel);
   const revoke = useRemoteControlStore((s) => s.revoke);
   const refreshDetection = useRemoteControlStore((s) => s.refreshDetection);
+  const pair = useRemoteControlStore((s) => s.pair);
 
   const [label, setLabel] = useState("");
   // Never `full` by default, and never sticky between pairings: the widest
@@ -98,17 +99,15 @@ export function RemoteControlPage() {
   // sentence under it.
   const [capability, setCapability] = useState<RemoteCapability>("read");
   const [pairing, setPairing] = useState<RemotePairResult | null>(null);
-  const [pairError, setPairError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   useMountEffect(() => {
     void refreshDetection();
   });
 
-  // `remoteControl.*` isn't on the slice-1 bridge table (ADR-178) — not even
-  // the reads, so this page's own status never actually loads over the
-  // bridge. Read-only with a note beats a switch and a pairing form that
-  // silently do nothing.
+  // `remoteControl.setEnabled/pair/revoke/startTunnel/stopTunnel` are
+  // `localOnly` (ADR-180 D3) — a browser can read this page's status but
+  // can't touch the switch, pairing form or tunnel controls.
   const webApp = isWebApp();
   const locked = webApp || busy || !status.encryptionAvailable;
 
@@ -124,19 +123,13 @@ export function RemoteControlPage() {
       : error;
 
   const handlePair = useCallback(async () => {
-    setPairError(null);
-    try {
-      const result = await window.electronAPI.remoteControl.pair(
-        label.trim(),
-        capability,
-      );
+    const result = await pair(label.trim(), capability);
+    if (result) {
       setPairing(result);
       setLabel("");
       setCapability("read");
-    } catch (err) {
-      setPairError(err instanceof Error ? err.message : String(err));
     }
-  }, [label, capability]);
+  }, [label, capability, pair]);
 
   return (
     <Stack className={styles.pageContent}>
@@ -183,7 +176,7 @@ export function RemoteControlPage() {
             port={status.port}
             listeners={status.listeners}
             tunnel={tunnel}
-            installed={status.detected.tailscale}
+            installed={status.installed}
             tailnet={status.tailnet}
             locked={locked}
             onStart={() => setConfirmOpen(true)}
@@ -199,12 +192,12 @@ export function RemoteControlPage() {
             </div>
 
             <Row gap="sm">
-              <Input
+              <EmojiInput
                 data-testid="remote-pair-label"
                 placeholder="Device name, e.g. “my phone”"
                 value={label}
                 maxLength={64}
-                disabled={webApp}
+                disabled={locked}
                 onChange={(e) => setLabel(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && label.trim()) void handlePair();
@@ -240,8 +233,6 @@ export function RemoteControlPage() {
                 </span>
               )}
             </div>
-            {pairError && <div className={styles.linearError}>{pairError}</div>}
-
             {status.devices.length === 0 ? (
               <div className={styles.placeholder}>No devices paired yet</div>
             ) : (
@@ -269,7 +260,7 @@ export function RemoteControlPage() {
         onCancel={() => setConfirmOpen(false)}
         onConfirm={() => {
           setConfirmOpen(false);
-          void startTunnel("tailscale");
+          void startTunnel();
         }}
       />
 

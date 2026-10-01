@@ -2,7 +2,7 @@
  * `agentsUpdate` — the renderer's write allowlist.
  *
  * No `ipcMain` here any more: `agents` crossed to the handler table in
- * ADR-180 ticket 9, so this is a plain function over `IpcDeps` — the same
+ * ADR-180 ticket 9, so this is a plain function over `HostDeps` — the same
  * function the table calls, and a paired `full` device now reaches it the
  * same way the desktop does.
  */
@@ -23,6 +23,7 @@ vi.mock("../ipc-validate", () => ({
 }));
 
 import { agentsUpdate } from "../bridge/handlers/agents";
+import { localCtx } from "../bridge/method";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -61,20 +62,20 @@ describe("agents.update allowlist", () => {
   });
 
   it("accepts { name: 'x' } and forwards to agentManager.updateAgent", async () => {
-    const result = await agentsUpdate(deps as never, "agent-1", { name: "x" });
+    const result = await agentsUpdate(localCtx(deps as never), "agent-1", { name: "x" });
 
     expect(deps.agentManager.updateAgent).toHaveBeenCalledWith("agent-1", { name: "x" });
     expect(result).toMatchObject({ id: "agent-1", name: "x" });
   });
 
   it("accepts { name: null } and forwards to agentManager.updateAgent", async () => {
-    await agentsUpdate(deps as never, "agent-1", { name: null });
+    await agentsUpdate(localCtx(deps as never), "agent-1", { name: null });
 
     expect(deps.agentManager.updateAgent).toHaveBeenCalledWith("agent-1", { name: null });
   });
 
   it("accepts { name, namePinned: true } for a user rename and broadcasts", async () => {
-    await agentsUpdate(deps as never, "agent-1", { name: "Fix login", namePinned: true });
+    await agentsUpdate(localCtx(deps as never), "agent-1", { name: "Fix login", namePinned: true });
 
     expect(deps.agentManager.updateAgent).toHaveBeenCalledWith("agent-1", {
       name: "Fix login",
@@ -88,21 +89,21 @@ describe("agents.update allowlist", () => {
   });
 
   it("throws when namePinned is not a boolean", () => {
-    expect(() => agentsUpdate(deps as never, "agent-1", { namePinned: "yes" })).toThrow(
+    expect(() => agentsUpdate(localCtx(deps as never), "agent-1", { namePinned: "yes" } as never)).toThrow(
       "agents:update: namePinned must be a boolean",
     );
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
 
   it("throws when name is not a string or null", () => {
-    expect(() => agentsUpdate(deps as never, "agent-1", { name: 42 })).toThrow(
+    expect(() => agentsUpdate(localCtx(deps as never), "agent-1", { name: 42 } as never)).toThrow(
       "agents:update: name must be a string or null",
     );
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
 
   it("throws when updates contains status field", () => {
-    expect(() => agentsUpdate(deps as never, "agent-1", { status: "abandoned" })).toThrow(
+    expect(() => agentsUpdate(localCtx(deps as never), "agent-1", { status: "abandoned" } as never)).toThrow(
       'agents:update: field "status" is not writable from renderer',
     );
 
@@ -110,7 +111,7 @@ describe("agents.update allowlist", () => {
   });
 
   it("throws when updates contains both name and a forbidden field", () => {
-    expect(() => agentsUpdate(deps as never, "agent-1", { name: "x", status: "active" })).toThrow(
+    expect(() => agentsUpdate(localCtx(deps as never), "agent-1", { name: "x", status: "active" } as never)).toThrow(
       'agents:update: field "status" is not writable from renderer',
     );
 
@@ -118,7 +119,7 @@ describe("agents.update allowlist", () => {
   });
 
   it("throws when updates is not an object (string)", () => {
-    expect(() => agentsUpdate(deps as never, "agent-1", "not-an-object")).toThrow(
+    expect(() => agentsUpdate(localCtx(deps as never), "agent-1", "not-an-object" as never)).toThrow(
       "agents:update: updates must be an object",
     );
 
@@ -126,7 +127,7 @@ describe("agents.update allowlist", () => {
   });
 
   it("throws when updates is null", () => {
-    expect(() => agentsUpdate(deps as never, "agent-1", null)).toThrow(
+    expect(() => agentsUpdate(localCtx(deps as never), "agent-1", null as never)).toThrow(
       "agents:update: updates must be an object",
     );
 
@@ -134,13 +135,13 @@ describe("agents.update allowlist", () => {
   });
 
   it("throws when updates contains agentSessionId", () => {
-    expect(() => agentsUpdate(deps as never, "agent-1", { agentSessionId: "some-id" })).toThrow(
+    expect(() => agentsUpdate(localCtx(deps as never), "agent-1", { agentSessionId: "some-id" } as never)).toThrow(
       'agents:update: field "agentSessionId" is not writable from renderer',
     );
   });
 
   it("throws when updates contains paneId", () => {
-    expect(() => agentsUpdate(deps as never, "agent-1", { paneId: "pane-1" })).toThrow(
+    expect(() => agentsUpdate(localCtx(deps as never), "agent-1", { paneId: "pane-1" } as never)).toThrow(
       'agents:update: field "paneId" is not writable from renderer',
     );
   });

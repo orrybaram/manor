@@ -16,7 +16,6 @@ import {
   attach,
   release,
   releaseViewer,
-  isDesktopAttached,
   onAttachmentChange,
   ownerOf,
   resetAttachments,
@@ -30,6 +29,23 @@ const windowB: Viewer = { connectionId: "22", callerClass: "local" };
 
 const deviceA: Viewer = { connectionId: "device-a", callerClass: "device" };
 const deviceB: Viewer = { connectionId: "device-b", callerClass: "device" };
+
+/** The panes `run` changed the owner of, as `onAttachmentChange` hears them. */
+function changedBy(run: () => void): string[] {
+  const seen: string[] = [];
+  const unsubscribe = onAttachmentChange((paneId) => seen.push(paneId));
+  try {
+    run();
+  } finally {
+    unsubscribe();
+  }
+  return seen;
+}
+
+/** Is a window on this machine holding the pane (and so its owner)? */
+function isDesktopAttached(paneId: string): boolean {
+  return ownerOf(paneId)?.callerClass === "local";
+}
 
 describe("pty attachments", () => {
   beforeEach(() => {
@@ -76,13 +92,6 @@ describe("pty attachments", () => {
     attach("pane-a", windowA);
     attach("pane-a", windowA);
     release("pane-a", windowA);
-    expect(isDesktopAttached("pane-a")).toBe(false);
-  });
-
-  it("releases a pane outright when no viewer is named", () => {
-    attach("pane-a", windowA);
-    attach("pane-a", windowB);
-    release("pane-a");
     expect(isDesktopAttached("pane-a")).toBe(false);
   });
 
@@ -197,7 +206,7 @@ describe("pty attachments", () => {
     /**
      * What a create-shaped call asks before it runs: may this caller's
      * `cols×rows` reach the pty, or is it a follower being handed the owner's
-     * grid to render? (`createShaped` in `bridge/handlers.ts`.)
+     * grid to render? (`createShaped` in `bridge/handlers/pty.ts`.)
      */
     describe("wouldOwn", () => {
       it("says yes about a pane nobody has", () => {
@@ -240,40 +249,40 @@ describe("pty attachments", () => {
 
     describe("change detection", () => {
       it("reports the pane changed the first time a viewer attaches", () => {
-        expect(attach("pane-a", deviceA).changed).toEqual(["pane-a"]);
+        expect(changedBy(() => attach("pane-a", deviceA))).toEqual(["pane-a"]);
       });
 
       it("reports no change when the new owner is the same as the old", () => {
         attach("pane-a", deviceA);
-        expect(attach("pane-a", deviceA).changed).toEqual([]);
+        expect(changedBy(() => attach("pane-a", deviceA))).toEqual([]);
       });
 
       it("reports a change when a second device viewer takes over", () => {
         attach("pane-a", deviceA);
-        expect(attach("pane-a", deviceB).changed).toEqual(["pane-a"]);
+        expect(changedBy(() => attach("pane-a", deviceB))).toEqual(["pane-a"]);
       });
 
       it("reports a change when a second window joins the first", () => {
         attach("pane-a", windowA);
-        expect(attach("pane-a", windowB).changed).toEqual(["pane-a"]);
+        expect(changedBy(() => attach("pane-a", windowB))).toEqual(["pane-a"]);
       });
 
       it("reports a change when the owning device viewer releases", () => {
         attach("pane-a", deviceA);
-        expect(release("pane-a", deviceA).changed).toEqual(["pane-a"]);
+        expect(changedBy(() => release("pane-a", deviceA))).toEqual(["pane-a"]);
       });
 
       it("reports no change when a non-owning device viewer releases", () => {
         attach("pane-a", deviceA);
         attach("pane-a", deviceB);
-        expect(release("pane-a", deviceA).changed).toEqual([]);
+        expect(changedBy(() => release("pane-a", deviceA))).toEqual([]);
       });
 
       it("reports every pane whose owner changed when a connection drops", () => {
         attach("pane-a", deviceA);
         attach("pane-b", deviceB);
         attach("pane-b", deviceA);
-        expect(releaseViewer("device-a").changed.sort()).toEqual([
+        expect(changedBy(() => releaseViewer("device-a")).sort()).toEqual([
           "pane-a",
           "pane-b",
         ]);

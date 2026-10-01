@@ -15,7 +15,7 @@ vi.mock("../terminal-host/scrollback", () => ({
 
 import { ScrollbackWriter } from "../terminal-host/scrollback";
 import { agentRoutes } from "./agents";
-import type { ControlDeps, Route } from "./types";
+import type { HostDeps, Route } from "./types";
 
 const readRoute = agentRoutes.find(
   (r: Route) => r.path === "/sessions/read" && r.method === "POST",
@@ -59,7 +59,7 @@ async function read(
           id in snapshots ? snapshots[id] : null,
       },
     },
-  } as unknown as ControlDeps;
+  } as unknown as HostDeps;
 
   await readRoute.handler({
     deps,

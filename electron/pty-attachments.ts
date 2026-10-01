@@ -24,7 +24,7 @@
  * 3. Whoever stops being the owner — or starts — is told, through
  *    `onAttachmentChange`. A viewer never has to ask.
  *
- * This is a module-level registry rather than something hung off `IpcDeps`
+ * This is a module-level registry rather than something hung off `HostDeps`
  * because there is exactly one host per main process, and every caller — the
  * bridge's handler table, the bridge server's disconnect handler, a window
  * dying in `app-lifecycle.ts` — must be looking at the same set or the
@@ -49,12 +49,6 @@ export interface Viewer {
   connectionId: string;
   /** `local` = an Electron renderer window; `device` = a paired device. */
   callerClass: "local" | "device";
-}
-
-/** What an attach/release call did to ownership. */
-export interface AttachmentResult {
-  /** Pane ids whose owner changed as a result of this call. */
-  changed: string[];
 }
 
 /**
@@ -132,7 +126,7 @@ function mostRecent(
  * Would this viewer own the pane's winsize if it attached right now?
  *
  * What a create-shaped call has to know *before* it runs (`createShaped` in
- * `bridge/handlers.ts`): the caller's `cols×rows` is a request, and it may
+ * `bridge/handlers/pty.ts`): the caller's `cols×rows` is a request, and it may
  * only be granted to the viewer that is about to own the pane — everyone else
  * is handed the owner's grid to render instead.
  *
@@ -162,7 +156,7 @@ export function wouldOwn(paneId: string, viewer: Viewer): boolean {
  * of (a remount, a StrictMode double-mount) is not a new viewer arriving, and
  * taking the winsize back off whoever holds it would make a remount a resize.
  */
-export function attach(paneId: string, viewer: Viewer): AttachmentResult {
+export function attach(paneId: string, viewer: Viewer): void {
   const before = ownerFingerprint(ownerOf(paneId));
   const viewers = holders.get(paneId);
   if (viewers) {
@@ -173,39 +167,23 @@ export function attach(paneId: string, viewer: Viewer): AttachmentResult {
     holders.set(paneId, [viewer]);
   }
   const after = ownerFingerprint(ownerOf(paneId));
-  const changed = before === after ? [] : [paneId];
-  notifyChanged(changed);
-  return { changed };
+  if (before !== after) notifyChanged([paneId]);
 }
 
 /**
- * A viewer let this pane go.
- *
- * Without a `viewer` the pane is released outright — every viewer of it at
- * once. Nothing on the host surface asks for that (a caller is only ever done
- * with its own view; a caller that vanished is `releaseViewer`); it is kept
- * for the tests and for a future caller that genuinely means "this pane is
- * gone".
+ * A viewer let this pane go. A caller is only ever done with its own view;
+ * a caller that vanished is `releaseViewer`.
  */
-export function release(paneId: string, viewer?: Viewer): AttachmentResult {
-  if (viewer === undefined) {
-    const had = holders.has(paneId);
-    holders.delete(paneId);
-    const changed = had ? [paneId] : [];
-    notifyChanged(changed);
-    return { changed };
-  }
+export function release(paneId: string, viewer: Viewer): void {
   const before = ownerFingerprint(ownerOf(paneId));
   const viewers = holders.get(paneId);
-  if (!viewers) return { changed: [] };
+  if (!viewers) return;
   const idx = viewers.findIndex((existing) => sameViewer(existing, viewer));
-  if (idx === -1) return { changed: [] };
+  if (idx === -1) return;
   viewers.splice(idx, 1);
   if (viewers.length === 0) holders.delete(paneId);
   const after = ownerFingerprint(ownerOf(paneId));
-  const changed = before === after ? [] : [paneId];
-  notifyChanged(changed);
-  return { changed };
+  if (before !== after) notifyChanged([paneId]);
 }
 
 /**
@@ -219,7 +197,7 @@ export function release(paneId: string, viewer?: Viewer): AttachmentResult {
  * nothing at all the moment a desktop window's panes started being held under
  * its connection id.
  */
-export function releaseViewer(connectionId: string): AttachmentResult {
+export function releaseViewer(connectionId: string): void {
   const changed: string[] = [];
   for (const [paneId, viewers] of holders) {
     const idx = viewers.findIndex((v) => v.connectionId === connectionId);
@@ -231,20 +209,6 @@ export function releaseViewer(connectionId: string): AttachmentResult {
     if (before !== after) changed.push(paneId);
   }
   notifyChanged(changed);
-  return { changed };
-}
-
-/**
- * Is a renderer window on this machine the winsize owner of this pane?
- *
- * Equivalent to "does any `local` viewer hold it", because rule 1 says a
- * local viewer that exists is the owner. What it is *for* is the question a
- * device has to ask before it fits a pane to itself: `false` means the next
- * viewer to attach may own the winsize — which, on the bridge, is the browser
- * asking.
- */
-export function isDesktopAttached(paneId: string): boolean {
-  return ownerOf(paneId)?.callerClass === "local";
 }
 
 /** Forget everything. Tests only — a real main process never wants this. */

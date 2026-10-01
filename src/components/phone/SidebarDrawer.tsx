@@ -11,10 +11,9 @@ type SidebarDrawerProps = {
 };
 
 /**
- * ADR-181 D3/ticket 4: in phone mode the sidebar lives in a left-edge drawer
- * instead of inline — inline would eat the whole screen at phone width
- * (ticket 3). Radix `Dialog` supplies everything the ticket asks for on its
- * own: the overlay, Escape and an overlay tap both closing it, a focus trap
+ * ADR-181 D3: in phone mode the sidebar lives in a left-edge drawer
+ * instead of inline — inline would eat the whole screen at phone width.
+ * Radix `Dialog` supplies everything a drawer needs on its own: the overlay, Escape and an overlay tap both closing it, a focus trap
  * while open, and — since this is a controlled dialog with no
  * `Dialog.Trigger` of its own — focus returned to whatever had it when the
  * drawer opened (`PhoneTopBar`'s drawer toggle) once it closes.

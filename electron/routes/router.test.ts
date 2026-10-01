@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { matchPath, dispatch } from "./router";
 import { routes } from "./index";
-import type { ControlDeps, Route, RouteContext } from "./types";
+import type { HostDeps, Route, RouteContext } from "./types";
 
-const deps = {} as ControlDeps;
+const deps = {} as HostDeps;
 const noBody = () => Promise.resolve({});
 
 /** Collects the single `json(status, body)` a dispatch is allowed to write. */

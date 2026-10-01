@@ -15,6 +15,7 @@ export {
   normalizeOriginUrl,
 } from "./projects/remote-clone";
 export type {
+  CreateWorktreeOptions,
   CustomCommand,
   FolderLink,
   GroupUpdatableFields,

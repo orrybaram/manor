@@ -4,12 +4,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
-import {
-  useAppStore,
-  selectActiveWorkspace,
-  selectActiveWorkspaceKey,
-  useSelectedTab,
-} from "../../store/app-store";
+import { useAppStore, selectActiveWorkspaceKey } from "../../store/app-store";
 import { ownerOf } from "../../lib/workspace-directory";
 import { workspaceKey } from "../../lib/workspace-key";
 import { useRestoreFocus } from "../../hooks/useRestoreFocus";
@@ -101,24 +96,11 @@ function paletteFilter(
 }
 
 export function CommandPalette(props: CommandPaletteProps) {
-  const { open, onClose, onOpenSettings, onOpenFeedback, onNewWorkspace, onResumeAgent, onViewAllAgents, onNewAgent, onNewAgentWithPrompt, runCommand, initialView, initialIssueId, initialGitHubIssueNumber, origin = "shortcut" } = props;
+  const { open, onClose, onOpenSettings, onNewWorkspace, onResumeAgent, onViewAllAgents, onNewAgent, onNewAgentWithPrompt, onRunCommand, initialView, initialIssueId, initialGitHubIssueNumber, origin = "shortcut" } = props;
 
   const { onCloseAutoFocus: restoreFocusOnClose } = useRestoreFocus(open);
 
-  const addTab = useAppStore((s) => s.addTab);
   const addBrowserTab = useAppStore((s) => s.addBrowserTab);
-  const closePane = useAppStore((s) => s.closePane);
-  const splitPane = useAppStore((s) => s.splitPane);
-  const selectNextTab = useAppStore((s) => s.selectNextTab);
-  const selectPrevTab = useAppStore((s) => s.selectPrevTab);
-  const focusNextPane = useAppStore((s) => s.focusNextPane);
-  const focusPrevPane = useAppStore((s) => s.focusPrevPane);
-  const ws = useAppStore(selectActiveWorkspace);
-  const tabs = useMemo(() => ws?.tabs ?? [], [ws?.tabs]);
-  const selectedTabId = useSelectedTab(ws?.id);
-  const closeTab = useAppStore((s) => s.closeTab);
-  const openOrFocusDiff = useAppStore((s) => s.openOrFocusDiff);
-  const openDiffInNewPanel = useAppStore((s) => s.openDiffInNewPanel);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const activeWorkspaceKey = useAppStore(selectActiveWorkspaceKey);
   const activeSurface = useAppStore((s) => s.activeSurface);
@@ -305,26 +287,13 @@ export function CommandPalette(props: CommandPaletteProps) {
   });
 
   const commandCategories = useCommands({
-    addTab,
     addBrowserTab,
-    closePane,
-    closeTab,
-    splitPane,
-    selectNextTab,
-    selectPrevTab,
-    focusNextPane,
-    focusPrevPane,
     onClose: handleClose,
     onOpenSettings,
-    onOpenFeedback,
-    tabs,
-    selectedTabId,
+    onRunCommand,
     activePorts,
-    openOrFocusDiff,
-    openDiffInNewPanel,
     navigateToProcesses,
     navigateToStats,
-    runCommand,
   });
 
   const agentCommands = useAgentCommands({

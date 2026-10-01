@@ -14,20 +14,18 @@ import {
   assertWorkspaceMeta,
 } from "../../ipc-validate";
 import { publishRendererBroadcast } from "../../renderer-broadcast";
-import type { IpcDeps } from "../../ipc/types";
+import type { HostDeps, WorkspaceMeta } from "../../ipc/types";
+import type { HostPath } from "../../per-host-poller";
+import { method, type HandlerCtx } from "../method";
 
 /**
- * The port scanner, whole (ADR-180 ticket 8). Every one of these was already
- * an `ipcMain.handle` wrapper around a plain function; the wrappers are gone
- * now, and the handler table (`electron/bridge/handlers.ts`) is the only
- * caller left.
+ * The port scanner, whole, as the `ports` namespace of the
+ * handler table.
  *
- * `enrichPorts` used to close over a local `workspaceMeta` reassigned by
- * `updateWorkspaceMetadata` — that variable lived only as long as `register()`
- * did. `deps` is the one long-lived `IpcDeps` object app-lifecycle builds
- * once and hands to every table entry, so `deps.workspaceMeta` is where the
- * latest metadata lives now, and `portsUpdateWorkspaceMetadata` writes
- * straight through to it.
+ * `deps` is the one long-lived `HostDeps` object app-lifecycle builds once
+ * and hands to every table entry, so `deps.workspaceMeta` is where the latest
+ * metadata lives, and `portsUpdateWorkspaceMetadata` writes straight through
+ * to it.
  */
 
 /**
@@ -35,7 +33,7 @@ import type { IpcDeps } from "../../ipc/types";
  * the proxy's routes at them. Returns new objects: the scanner's own results
  * are never modified.
  */
-function enrichPorts(deps: IpcDeps, ports: ActivePort[]): ActivePort[] {
+function enrichPorts(deps: HostDeps, ports: ActivePort[]): ActivePort[] {
   const { backendRegistry, remoteForwards } = deps;
   const proxyPort = portlessManager.proxyPort;
   const routes: { hostname: string; port: number }[] = [];
@@ -75,34 +73,42 @@ function enrichPorts(deps: IpcDeps, ports: ActivePort[]): ActivePort[] {
  * going away re-dresses the latest ports because it changes where portless
  * routes point.
  */
-export function installPortEnricher(deps: IpcDeps): void {
+export function installPortEnricher(deps: HostDeps): void {
   deps.portScanner.setEnricher((ports) => enrichPorts(deps, ports));
   deps.remoteForwards.onChange(() => {
     deps.portScanner.refresh();
   });
 }
 
-export function portsStartScanner(deps: IpcDeps): void {
-  deps.portScanner.start();
+export function portsStartScanner(ctx: HandlerCtx): void {
+  ctx.deps.portScanner.start();
 }
 
-export function portsStopScanner(deps: IpcDeps): void {
-  deps.portScanner.stop();
+export function portsStopScanner(ctx: HandlerCtx): void {
+  ctx.deps.portScanner.stop();
 }
 
 /** Every open workspace, with its project's host (ADR-183). */
-export function portsUpdateWorkspaces(deps: IpcDeps, workspaces: unknown): void {
-  assertHostPaths(workspaces, "workspaces");
-  deps.portScanner.updateWorkspaces(workspaces);
+export function portsUpdateWorkspaces(
+  ctx: HandlerCtx,
+  workspaces: readonly HostPath[],
+): void {
+  const value: unknown = workspaces;
+  assertHostPaths(value, "workspaces");
+  ctx.deps.portScanner.updateWorkspaces(value);
 }
 
-export function portsUpdateWorkspaceMetadata(deps: IpcDeps, meta: unknown): void {
-  assertWorkspaceMeta(meta, "meta");
-  deps.workspaceMeta = meta;
+export function portsUpdateWorkspaceMetadata(
+  ctx: HandlerCtx,
+  meta: WorkspaceMeta[],
+): void {
+  const value: unknown = meta;
+  assertWorkspaceMeta(value, "meta");
+  ctx.deps.workspaceMeta = value;
 }
 
-export function portsScanNow(deps: IpcDeps): Promise<ActivePort[]> {
-  return deps.portScanner.scanNow();
+export function portsScanNow(ctx: HandlerCtx): Promise<ActivePort[]> {
+  return ctx.deps.portScanner.scanNow();
 }
 
 /**
@@ -110,17 +116,17 @@ export function portsScanNow(deps: IpcDeps): Promise<ActivePort[]> {
  * `localhost:<port>` becomes its forwarded local port (ADR-178 §5).
  *
  * `remoteUrlResolver` is built once in app-lifecycle.ts, alongside
- * `paneHosts`, so `ControlDeps.resolvePaneUrl` (an agent's `navigate` in a
+ * `paneHosts`, so `RouteDeps.resolvePaneUrl` (an agent's `navigate` in a
  * remote pane) uses the very same instance (ADR-183).
  */
 export function portsResolveUrl(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   url: string,
   hostId: string,
 ): Promise<string> {
   assertString(url, "url");
   assertString(hostId, "hostId");
-  return deps.remoteUrlResolver.resolve(url, hostId);
+  return ctx.deps.remoteUrlResolver.resolve(url, hostId);
 }
 
 /**
@@ -129,10 +135,11 @@ export function portsResolveUrl(
  * earlier), which means something after a restart; `url` otherwise.
  */
 export function portsRemoteUrl(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   url: string,
   hostId: string,
 ): string {
+  const { deps } = ctx;
   assertString(url, "url");
   assertString(hostId, "hostId");
   if (hostId === LOCAL_HOST_ID) return url;
@@ -146,7 +153,11 @@ export function portsRemoteUrl(
  * see, the same "moves state the other viewers of this host will see" line
  * that put `projects.remove` there.
  */
-export async function portsKillPort(deps: IpcDeps, pid: number): Promise<void> {
+export async function portsKillPort(
+  ctx: HandlerCtx,
+  pid: number,
+): Promise<void> {
+  const { deps } = ctx;
   assertPositiveInt(pid, "pid");
   try {
     await deps.backend.ports.kill(pid);
@@ -159,3 +170,21 @@ export async function portsKillPort(deps: IpcDeps, pid: number): Promise<void> {
   const ports = await deps.portScanner.scanNow();
   publishRendererBroadcast("ports", "changed", ports);
 }
+
+export const ports = {
+  // The scanner lifecycle is what a viewer does to its own view.
+  startScanner: method(portsStartScanner),
+  stopScanner: method(portsStopScanner),
+  updateWorkspaces: method(portsUpdateWorkspaces),
+  updateWorkspaceMetadata: method(portsUpdateWorkspaceMetadata),
+  scanNow: method(portsScanNow),
+  // The two URL translations for a remote host's dev servers (ADR-178 §5).
+  // Reads: a forward is opened on *this* machine either way, so a browser
+  // asking gets the URL the host would load — which a device can only reach
+  // if it reaches the host's loopback too. Not `localOnly`; the answer is
+  // harmless, and the web app's webview panes are absent anyway.
+  resolveUrl: method(portsResolveUrl),
+  remoteUrl: method(portsRemoteUrl),
+  // A port dying is "moves state the other viewers of this host will see".
+  killPort: method(portsKillPort, { mutating: true }),
+};

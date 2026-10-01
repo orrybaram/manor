@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { localCtx } from "../../method";
 
 const statusListeners: Array<(hosts: unknown[]) => void> = [];
 const resumedListeners: Array<(hostId: string, sessionIds: string[]) => void> = [];
@@ -17,7 +18,7 @@ import {
 /**
  * The handlers under test, by their old IPC channel names. There is no
  * `register()` any more (ADR-180 D8): the handler table calls the lifted
- * functions with the one long-lived `IpcDeps`, and the two broadcasts are
+ * functions with the one long-lived `HostDeps`, and the two broadcasts are
  * wired once at boot by `wireHostBroadcasts` — which is what `register` does
  * here, besides recording the deps. The first argument stands in for the
  * IPC event and is ignored.
@@ -30,7 +31,7 @@ function register(deps: unknown): void {
 const call =
   (fn: (...args: never[]) => unknown) =>
   (_event: unknown, ...args: unknown[]): unknown =>
-    (fn as (...args: unknown[]) => unknown)(current, ...args);
+    (fn as (...args: unknown[]) => unknown)(localCtx(current as never), ...args);
 const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>([
   ["hosts:add", call(hostsAdd)],
   ["hosts:retryConnect", call(hostsRetryConnect)],

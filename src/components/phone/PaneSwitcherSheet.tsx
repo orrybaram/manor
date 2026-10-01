@@ -1,4 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
+import { useShallow } from "zustand/react/shallow";
 import Terminal from "lucide-react/dist/esm/icons/terminal";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
@@ -6,14 +7,16 @@ import { allPaneIds } from "../../lib/layout/pane-tree";
 import { allPanelIds } from "../../lib/layout/panel-tree";
 import type { Panel } from "../../lib/layout/workspace-layout";
 import {
+  leafOf,
   useAppStore,
   selectActiveLayout,
   selectFocusedPaneOfActiveTab,
 } from "../../store/app-store";
 import { useAgentStore } from "../../store/agent-store";
 import { selectAgentRollup } from "../../store/agent-rollup";
-import { pinnedAgentName, tabTitle } from "../../lib/pane-title";
+import { paneTitle } from "../../lib/pane-title";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
+import { Button } from "../ui/Button/Button";
 import styles from "./PaneSwitcherSheet.module.css";
 
 type PaneSwitcherSheetProps = {
@@ -28,7 +31,7 @@ function PaneIcon({ contentType }: { contentType: "terminal" | "browser" | "diff
 }
 
 /**
- * ADR-181 D3/D4/ticket 5: with no swipe between panes, this sheet and the
+ * ADR-181 D3/D4: with no swipe between panes, this sheet and the
  * tab strip are the phone's only way to move. It lists the active
  * workspace's panels → tabs → panes, in layout order — every pane, not just
  * the ones a desktop window hasn't claimed, since a browser is never a
@@ -55,25 +58,55 @@ export function PaneSwitcherSheet(props: PaneSwitcherSheetProps) {
           {/* Radix requires an accessible title; the rows themselves carry
               the visual content, so this one is hidden. */}
           <Dialog.Title className="sr-only">Switch pane</Dialog.Title>
-          <PaneList onSelected={() => onOpenChange(false)} />
+          <PaneSwitcherList onSelect={() => onOpenChange(false)} />
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
   );
 }
 
+type PaneSwitcherListProps = {
+  /** Fires after a row has moved the viewport. */
+  onSelect: () => void;
+};
+
 /**
- * The rows. Mounted only while the sheet is open (Radix unmounts closed
- * content), so it reads the whole app and agent stores rather than picking
- * fields: titles (`tabTitle`, the tab bar's own rule) and dots
- * (`selectAgentRollup`, every dot's rule) come from the same state the desk
- * reads them from, and a closed sheet subscribes to nothing.
+ * The rows. A child of `Dialog.Content`, which mounts only while the sheet is
+ * open, so none of these store subscriptions run while it is closed.
  */
-function PaneList({ onSelected }: { onSelected: () => void }) {
-  const app = useAppStore();
-  const agentState = useAgentStore();
-  const layout = selectActiveLayout(app);
-  const currentPaneId = selectFocusedPaneOfActiveTab(app);
+function PaneSwitcherList(props: PaneSwitcherListProps) {
+  const { onSelect } = props;
+
+  const layout = useAppStore(selectActiveLayout);
+  const titleState = useAppStore(
+    useShallow((s) => ({
+      paneTitle: s.paneTitle,
+      paneCwd: s.paneCwd,
+      paneLiveUrl: s.paneLiveUrl,
+      workspaceLayouts: s.workspaceLayouts,
+    })),
+  );
+  // What every agent dot reads (`selectAgentRollup`), so a row's dot says
+  // what the pane's tab says.
+  const rollupApp = useAppStore(
+    useShallow((s) => ({
+      paneAgentStatus: s.paneAgentStatus,
+      workspaceLayouts: s.workspaceLayouts,
+      activeWorkspacePath: s.activeWorkspacePath,
+      activeWorkspaceHostId: s.activeWorkspaceHostId,
+      viewports: s.viewports,
+      claims: s.claims,
+    })),
+  );
+  const currentPaneId = useAppStore(selectFocusedPaneOfActiveTab);
+  const rollupAgents = useAgentStore(
+    useShallow((s) => ({
+      agents: s.agents,
+      unseenRespondedAgentIds: s.unseenRespondedAgentIds,
+      unseenInputAgentIds: s.unseenInputAgentIds,
+    })),
+  );
+  const agents = rollupAgents.agents;
 
   const panels: Panel[] = layout
     ? allPanelIds(layout.panelTree)
@@ -83,7 +116,7 @@ function PaneList({ onSelected }: { onSelected: () => void }) {
 
   function selectPane(paneId: string): void {
     useAppStore.getState().focusPane(paneId);
-    onSelected();
+    onSelect();
   }
 
   return (
@@ -91,39 +124,28 @@ function PaneList({ onSelected }: { onSelected: () => void }) {
       {panels.map((panel) =>
         panel.tabs.map((tab) =>
           allPaneIds(tab.rootNode).map((paneId) => {
-            const contentType = app.paneContentType[paneId] ?? "terminal";
-            const title = tabTitle(
-              app,
-              paneId,
-              pinnedAgentName(agentState.agents, paneId),
-            );
+            const contentType = leafOf(layout, paneId)?.contentType ?? "terminal";
+            const title = paneTitle(paneId, titleState, agents);
             const { status, pulse } = selectAgentRollup(
-              { app, agents: agentState },
+              { app: rollupApp, agents: rollupAgents },
               [paneId],
             );
             const isCurrent = paneId === currentPaneId;
 
             return (
-              <div
+              <Button
                 key={paneId}
-                role="button"
-                tabIndex={0}
+                variant="ghost"
                 className={`${styles.row} ${isCurrent ? styles.rowCurrent : ""}`}
                 data-testid="pane-switcher-row"
                 data-pane-id={paneId}
                 aria-current={isCurrent ? "true" : undefined}
                 onClick={() => selectPane(paneId)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    selectPane(paneId);
-                  }
-                }}
               >
                 <PaneIcon contentType={contentType} />
                 <span className={styles.rowTitle}>{title}</span>
                 <AgentDot status={status ?? undefined} size="tab" pulse={pulse} />
-              </div>
+              </Button>
             );
           }),
         ),

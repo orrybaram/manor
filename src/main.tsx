@@ -2,9 +2,9 @@
 // `window.electronAPI` as it is evaluated, and the stores imported by `./App`
 // reach for it as *they* are evaluated — see that module's header.
 import { bridgeInstalled } from "./bridge/install-desktop";
-import React, { Suspense } from "react";
+import React from "react";
 import ReactDOM from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient, AppRoot } from "./app-root";
 import { terminalFontsReady } from "./lib/terminal-font";
 import { ManorLogo } from "./components/ui/ManorLogo";
 import "./App.css";
@@ -22,23 +22,7 @@ import "./App.css";
  * `native` in the tickets after this one need no change here.
  */
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 1000 * 60 * 2, // 2 minutes
-      gcTime: 1000 * 60 * 10, // 10 minutes
-      refetchOnWindowFocus: false,
-    },
-  },
-});
-
-// One renderer for every window (ADR-179 D4). A detached window is not a
-// different app: it is `App` with a claim on one tab of the shared layout,
-// which it reads from `window.electronAPI.claim` and reports as viewport.
-// Loaded lazily so the splash paints while its chunk graph loads. (The entry
-// module is never hot-swapped, so fast refresh has nothing to preserve here.)
-// eslint-disable-next-line react-refresh/only-export-components
-const App = React.lazy(() => import("./App"));
+const queryClient = createQueryClient();
 
 /** What the window shows while it boots, painted while `App` itself loads. */
 const splash = (
@@ -64,11 +48,7 @@ if (!bridgeInstalled) {
 
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
-      <QueryClientProvider client={queryClient}>
-        <Suspense fallback={splash}>
-          <App />
-        </Suspense>
-      </QueryClientProvider>
+      <AppRoot queryClient={queryClient} fallback={splash} />
     </React.StrictMode>,
   );
 }

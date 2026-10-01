@@ -16,6 +16,7 @@ import {
   type WorkspaceViewport,
 } from "../viewport";
 import type { PaneNode } from "../pane-tree";
+import type { Visibility } from "../visible-tabs";
 import type { Tab, WorkspaceLayout } from "../workspace-layout";
 
 function leaf(paneId: string): PaneNode {
@@ -231,12 +232,26 @@ describe("applyHint", () => {
 });
 
 describe("reconcileViewport with claims (D4)", () => {
+  /** What the primary window sees with `tabIds` held by other windows. */
+  function claimed(...tabIds: string[]): Visibility {
+    return {
+      claims: tabIds.map((tabId) => ({ windowId: "7", tabId })),
+      platform: "electron",
+      ownClaim: null,
+    };
+  }
+
+  /** What a detached window holding `tabId` sees. */
+  function holding(tabId: string): Visibility {
+    return { claims: [], platform: "electron", ownClaim: tabId };
+  }
+
   it("does not select a tab another window has popped out", () => {
     const layout = singlePanel();
     const viewport = reconcileViewport(
       layout,
       emptyViewport(),
-      new Set(["tab-1"]),
+      claimed("tab-1"),
     );
 
     expect(viewport.selectedTabIds["panel-1"]).toBe("tab-2");
@@ -247,7 +262,7 @@ describe("reconcileViewport with claims (D4)", () => {
     const before = reconcileViewport(layout, emptyViewport());
     expect(before.selectedTabIds["panel-1"]).toBe("tab-1");
 
-    const after = reconcileViewport(layout, before, new Set(["tab-1"]));
+    const after = reconcileViewport(layout, before, claimed("tab-1"));
     expect(after.selectedTabIds["panel-1"]).toBe("tab-2");
   });
 
@@ -256,43 +271,49 @@ describe("reconcileViewport with claims (D4)", () => {
     const viewport = reconcileViewport(
       layout,
       emptyViewport(),
-      new Set(["tab-1", "tab-2"]),
+      claimed("tab-1", "tab-2"),
     );
 
     expect(viewport.selectedTabIds["panel-1"]).toBeUndefined();
   });
 
-  it("shows a claiming window its one tab, and the panel holding it", () => {
-    const layout = twoPanels();
-    const viewport = reconcileViewport(layout, {
-      ...emptyViewport(),
-      claim: "tab-9",
+  it("ignores every claim in a browser", () => {
+    const viewport = reconcileViewport(singlePanel(), emptyViewport(), {
+      ...claimed("tab-1"),
+      platform: "web",
     });
 
-    expect(viewport.claim).toBe("tab-9");
+    expect(viewport.selectedTabIds["panel-1"]).toBe("tab-1");
+  });
+
+  it("shows a claiming window its one tab, and the panel holding it", () => {
+    const layout = twoPanels();
+    const viewport = reconcileViewport(
+      layout,
+      emptyViewport(),
+      holding("tab-9"),
+    );
+
     expect(viewport.activePanelId).toBe("panel-2");
     expect(viewport.selectedTabIds["panel-2"]).toBe("tab-9");
     expect(viewport.selectedTabIds["panel-1"]).toBeUndefined();
   });
 
-  it("drops a claim on a tab that has left the layout", () => {
-    const viewport = reconcileViewport(singlePanel(), {
-      ...emptyViewport(),
-      claim: "tab-gone",
-    });
+  it("selects nothing once the claimed tab has left the layout", () => {
+    const viewport = reconcileViewport(
+      singlePanel(),
+      emptyViewport(),
+      holding("tab-gone"),
+    );
 
-    expect(viewport.claim).toBeUndefined();
-    expect(viewport.selectedTabIds["panel-1"]).toBe("tab-1");
+    expect(viewport.selectedTabIds["panel-1"]).toBeUndefined();
   });
 
   it("is the identity when a claim already points where it should", () => {
     const layout = singlePanel();
-    const settled = reconcileViewport(layout, {
-      ...emptyViewport(),
-      claim: "tab-2",
-    });
+    const settled = reconcileViewport(layout, emptyViewport(), holding("tab-2"));
 
-    expect(reconcileViewport(layout, settled)).toBe(settled);
+    expect(reconcileViewport(layout, settled, holding("tab-2"))).toBe(settled);
   });
 });
 

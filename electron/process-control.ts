@@ -4,8 +4,8 @@
  * `/processes` HTTP routes. Extracted so neither caller duplicates it.
  *
  * Each function takes exactly what it needs as explicit parameters — never
- * the full `IpcDeps` bag — so it stays callable from both an Electron
- * `ipcMain.handle` closure and a route handler that only has `ControlDeps`.
+ * the full `HostDeps` bag — so a caller (and a test) hands over only the
+ * managers the function actually touches.
  */
 
 import * as fs from "node:fs";

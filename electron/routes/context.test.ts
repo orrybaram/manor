@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { contextRoutes } from "./context";
-import type { ControlDeps } from "./types";
+import type { RouteDeps } from "./types";
 import type { ProjectInfo } from "../persistence";
 import type { PersistedLayout } from "../terminal-host/layout-persistence";
 import { workspaceKey, type WorkspaceKey } from "../../src/lib/workspace-key";
@@ -53,7 +53,7 @@ function layoutWithPane(paneId: string, key: WorkspaceKey): PersistedLayout {
 
 async function getContext(
   query: string,
-  extra: Partial<ControlDeps> = {},
+  extra: Partial<RouteDeps> = {},
   ps: ProjectInfo[] = projects,
 ) {
   const deps = {
@@ -61,9 +61,9 @@ async function getContext(
     layoutPersistence: null,
     githubManager: null,
     linearManager: null,
-    sessionOwners: null,
+    sessionOwners: { ownerOf: () => undefined },
     ...extra,
-  } as unknown as ControlDeps;
+  } as unknown as RouteDeps;
   const json = vi.fn();
   await contextRoutes[0].handler({
     deps,
@@ -102,7 +102,7 @@ describe("GET /context", () => {
   it("a local caller whose pane is owned by a remote host (SessionOwners) resolves to the remote project", async () => {
     const sessionOwners = {
       ownerOf: (id: string) => (id === "pane-1" ? "box" : undefined),
-    } as unknown as ControlDeps["sessionOwners"];
+    } as unknown as RouteDeps["sessionOwners"];
     const [status, body] = await getContext("paneId=pane-1&cwd=/repo/src", { sessionOwners });
     expect(status).toBe(200);
     expect(body.projectId).toBe("box-p");
@@ -111,7 +111,7 @@ describe("GET /context", () => {
   it("a local caller whose pane has no known owner still resolves locally", async () => {
     const sessionOwners = {
       ownerOf: () => undefined,
-    } as unknown as ControlDeps["sessionOwners"];
+    } as unknown as RouteDeps["sessionOwners"];
     const [status, body] = await getContext("paneId=pane-1&cwd=/repo/src", { sessionOwners });
     expect(status).toBe(200);
     expect(body.projectId).toBe("local-p");
@@ -135,7 +135,7 @@ describe("GET /context", () => {
           },
         },
       }),
-    } as unknown as ControlDeps["layoutStore"];
+    } as unknown as RouteDeps["layoutStore"];
     const [status, body] = await getContext("paneId=pane-new&cwd=/repo/src", { layoutStore });
     expect(status).toBe(200);
     expect(body.projectId).toBe("box-p");
@@ -146,7 +146,7 @@ describe("GET /context", () => {
     // says "box", so that must win over the caller's own (local) host.
     const layoutPersistence = { load: () => layoutWithPane("pane-1", workspaceKey("box", "/repo")) };
     const [status, body] = await getContext("paneId=pane-1", {
-      layoutPersistence: layoutPersistence as unknown as ControlDeps["layoutPersistence"],
+      layoutPersistence: layoutPersistence as unknown as RouteDeps["layoutPersistence"],
     });
     expect(status).toBe(200);
     expect(body.projectId).toBe("box-p");
@@ -158,7 +158,7 @@ describe("GET /context", () => {
     // misses and cwd resolves on the caller's own host.
     const layoutPersistence = { load: () => layoutWithPane("pane-1", workspaceKey("local", "/repo")) };
     const [status, body] = await getContext("paneId=pane-1&cwd=/repo/src", {
-      layoutPersistence: layoutPersistence as unknown as ControlDeps["layoutPersistence"],
+      layoutPersistence: layoutPersistence as unknown as RouteDeps["layoutPersistence"],
       callerHostId: "box",
     });
     expect(status).toBe(200);
@@ -168,7 +168,7 @@ describe("GET /context", () => {
   it("rung 1 resolves a relayed caller's own-host pane key", async () => {
     const layoutPersistence = { load: () => layoutWithPane("pane-1", workspaceKey("box", "/repo")) };
     const [status, body] = await getContext("paneId=pane-1", {
-      layoutPersistence: layoutPersistence as unknown as ControlDeps["layoutPersistence"],
+      layoutPersistence: layoutPersistence as unknown as RouteDeps["layoutPersistence"],
       callerHostId: "box",
     });
     expect(status).toBe(200);
@@ -178,7 +178,7 @@ describe("GET /context", () => {
   it("rung 1 falls through to cwd when the pane's own key's host has no project at that path", async () => {
     const layoutPersistence = { load: () => layoutWithPane("pane-1", workspaceKey("ghost", "/repo")) };
     const [status, body] = await getContext("paneId=pane-1&cwd=/repo/src", {
-      layoutPersistence: layoutPersistence as unknown as ControlDeps["layoutPersistence"],
+      layoutPersistence: layoutPersistence as unknown as RouteDeps["layoutPersistence"],
     });
     // No project on "ghost", so rung 1 misses and rung 2 falls back to the
     // caller's own (local) host via cwd instead of 404ing outright.
@@ -194,7 +194,7 @@ describe("GET /context", () => {
   });
 
   it("callerHostId wins over SessionOwners: a relayed caller whose pane SessionOwners says is local still resolves to its own (box) host", async () => {
-    const sessionOwners = { ownerOf: () => "local" } as unknown as ControlDeps["sessionOwners"];
+    const sessionOwners = { ownerOf: () => "local" } as unknown as RouteDeps["sessionOwners"];
     const [status, body] = await getContext("paneId=pane-1&cwd=/repo/src", {
       callerHostId: "box",
       sessionOwners,

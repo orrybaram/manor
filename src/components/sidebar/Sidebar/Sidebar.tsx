@@ -46,8 +46,8 @@ interface SidebarProps {
   onOpenProjectSettings?: (projectId: string) => void;
   onAddProject?: () => void;
   onOpenSearch?: () => void;
-  /** ADR-181 ticket 4: fires after a workspace (or Home, or Tasks) is chosen
-   *  — the phone drawer closes on this rather than duplicating the selection
+  /** ADR-181 D3: fires after a workspace (or Home, or Tasks) is chosen — the
+   *  phone drawer closes on this rather than duplicating the selection
    *  logic below. No-op inline in desk mode, where nothing passes it. */
   onNavigate?: () => void;
 }
@@ -65,10 +65,12 @@ export function Sidebar(props: SidebarProps) {
   const reorderProjects = useProjectStore((s) => s.reorderProjects);
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
   // ADR-181 D5: on a phone the sidebar lives in `SidebarDrawer`'s fixed-width
-  // sheet, so neither the width handle nor the pointer-drag reorder below
-  // has anywhere useful to go — and unlike the tab/pane drags, nothing here
-  // already gates `draggable` off, since this is a `pointerdown`-driven
-  // reorder, not native HTML5 DnD.
+  // sheet, so neither the width handle nor the pointer-drag reorders (the
+  // whole-project one below, the workspace/folder one in `ProjectItem`) have
+  // anywhere useful to go. These are `pointerdown`-driven, not native HTML5
+  // DnD: `setPointerCapture` claims the gesture the instant a finger lands,
+  // ahead of the drawer's scroll and a long-press opening a row's context
+  // menu, and no touch idiom needs reordering the sidebar.
   const isPhone = useLayoutMode() === "phone";
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
@@ -118,12 +120,6 @@ export function Sidebar(props: SidebarProps) {
 
   const handleProjectDragStart = useCallback(
     (idx: number, e: ReactPointerEvent) => {
-      // ADR-181 D5: a pointerdown-driven reorder, not native HTML5 DnD — the
-      // project header's own `touch-action: none` (`ProjectItem.tsx`) stops
-      // it fighting the sidebar's scroll on release, but `setPointerCapture`
-      // below still claims the gesture the instant a finger lands, ahead of
-      // a long-press opening the row's context menu. No touch idiom needs
-      // reordering projects, so the whole gesture is off in phone mode.
       if (isPhone) return;
       if (e.button !== 0) return;
 
@@ -408,6 +404,7 @@ export function Sidebar(props: SidebarProps) {
                           onDragStart={(e) => handleProjectDragStart(idx, e)}
                           justDraggedRef={projJustDragged}
                           onNavigate={onNavigate}
+                          dragDisabled={isPhone}
                         />
                       </div>
                     </React.Fragment>

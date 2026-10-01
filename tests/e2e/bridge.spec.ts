@@ -1,4 +1,5 @@
 import { expect, type Page } from "@playwright/test";
+import { SETTLE_MS } from "../../src/hooks/useTerminalResize";
 
 import {
   assertVisiblePaneCount,
@@ -171,10 +172,9 @@ test.describe("the desktop on the bridge (ADR-180)", () => {
     await film.shot(window, "primary-follows-the-newcomer");
 
     // The half that is the actual repair: the follower does not take it back.
-    // `useTerminalResize`'s settle window is 400ms and a fight would show up
-    // within one of them, so two seconds of nothing happening is the
-    // assertion.
-    await window.waitForTimeout(2_000);
+    // A fight would show up within one settle window, so several of them with
+    // nothing happening is the assertion.
+    await window.waitForTimeout(SETTLE_MS * 5);
     expect((await readSessionMeta(request, tempHome, paneId)).cols).toBe(cols);
 
     // The newcomer leaves: its connection dies with its window, which releases
@@ -194,7 +194,7 @@ test.describe("the desktop on the bridge (ADR-180)", () => {
   /**
    * The CLI with the window closed, and the window that comes back after it.
    *
-   * Two halves of ADR-179 D5 and ADR-180 ticket 4 meeting. A **structural**
+   * Two halves of ADR-179 D5 meeting. A **structural**
    * command — `manor split-pane`, which is this POST — is the layout server's
    * to apply and needs no renderer at all, so it lands on a machine with
    * nothing on screen. An **addressed** one has to name a connection: an

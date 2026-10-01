@@ -6,8 +6,12 @@
  * the command itself rather than asking a window to do it (ADR-179 ticket 11)
  * — and main cannot import renderer modules that reach for Zustand stores or
  * `window`. Renderer code keeps importing `DEFAULT_AGENT_COMMAND` from
- * `agent-defaults.ts` and `escapeShellDoubleQuoted` from `home.ts`, both of
- * which re-export from here.
+ * `agent-defaults.ts`, which re-exports from here, and `flattenPrompt` for
+ * `review-submit.ts`'s reply line. `escapeShellDoubleQuoted` has no caller
+ * outside this file any more — `agentCommandWithPrompt` is the one place a
+ * launch line gets built (ADR-182 ticket 1; `home.ts`'s re-export of it, and
+ * `App.tsx`'s hand-rolled line, both went with the old callers) — so it stays
+ * unexported rather than kept public on the chance something needs it again.
  *
  * Splitting the constant out also breaks the `agent-defaults → home → harness
  * → agent-defaults` cycle ADR-176's amendment recorded: `harness.ts` wanted
@@ -22,7 +26,7 @@ export const DEFAULT_AGENT_COMMAND = "claude --dangerously-skip-permissions";
  * The launch line is `<harness> "<escaped prompt>"`, which is how a harness's
  * first turn gets seeded.
  */
-export function escapeShellDoubleQuoted(text: string): string {
+function escapeShellDoubleQuoted(text: string): string {
   return text
     .replace(/\\/g, "\\\\")
     .replace(/"/g, '\\"')

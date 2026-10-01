@@ -1,6 +1,5 @@
 /**
- * The WebSocket transport, against a fake socket (ADR-178 ticket 4, moved by
- * ADR-180 ticket 3).
+ * The WebSocket transport, against a fake socket.
  *
  * The host half is tested over a real listener in
  * `electron/remote-control/__tests__/ws-bridge.test.ts`. What is left for
@@ -340,10 +339,10 @@ describe("the WebSocket transport", () => {
       expect(changed).toHaveBeenCalledWith({ statsEnabled: true });
     });
 
-    it("maps the root's onProjectsChanged onto projects.changed", () => {
+    it("maps projects.onChanged onto projects.changed", () => {
       const { api, socket } = connected();
       const changed = vi.fn();
-      api.onProjectsChanged(changed);
+      api.projects.onChanged(changed);
       expect(last(socket.of("subscribe"))).toEqual({
         kind: "subscribe",
         ns: "projects",
@@ -421,9 +420,9 @@ describe("the WebSocket transport", () => {
 
   describe("reconnecting", () => {
     /**
-     * ADR-179 ticket 4's report: a reconnecting client's id used to change
-     * every time, dropping a selection hint addressed to the id it had
-     * before. Sending it back lets the server reuse it when nothing else is.
+     * Sending back the id the host gave it lets the server reuse it when
+     * nothing else is — otherwise a selection hint addressed to the id it had
+     * before would be dropped.
      */
     it("says hello with the id the host gave it, after a reconnect", () => {
       const api = bridge();
@@ -533,8 +532,7 @@ describe("the WebSocket transport", () => {
     it("reports the platform the components branch on", () => {
       const api = bridge();
       expect(api.platform).toBe("web");
-      expect(api.isDetached).toBe(false);
-      expect(api.detachedWindowId).toBeNull();
+      expect(api.claim).toBeNull();
       expect(api.env.isPackaged).toBe(false);
     });
 

@@ -13,6 +13,7 @@ import {
   resetFakeLayoutServer,
   seedLayout,
   serverCalls,
+  settled,
 } from "./fake-layout-server";
 
 // window is provided by the setup file (src/store/__tests__/setup.ts).
@@ -56,19 +57,19 @@ function setupStore() {
     layoutVersions: {},
     viewports: {},
     claims: {},
-    paneContentType: {},
-    paneUrl: {},
   });
 }
 
 describe("addTerminalTab with submit: false (ADR-178 ticket 5 — fix in terminal)", () => {
   beforeEach(() => setupStore());
 
-  it("creates a new tab and queues the text, unsubmitted, before the tab", () => {
+  it("creates a new tab and queues the text, unsubmitted, before the tab", async () => {
     const result = useAppStore
       .getState()
       .addTerminalTab("claude setup-token", { submit: false });
     expect(result).not.toBeNull();
+    // The tab arrives with the server's broadcast (ADR-182 D9).
+    await settled();
 
     const panel = useAppStore.getState().workspaceLayouts[WS_PATH].panels["panel-1"];
     expect(panel.tabs).toHaveLength(2);

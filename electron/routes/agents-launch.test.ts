@@ -26,7 +26,7 @@ vi.mock("electron", () => ({
 }));
 
 import { agentRoutes } from "./agents";
-import type { ControlDeps, Route } from "./types";
+import type { RouteDeps, Route } from "./types";
 import { LayoutStore } from "../layout/layout-store";
 import { LayoutPersistence } from "../terminal-host/layout-persistence";
 import type { LayoutStoreBackend } from "../layout/layout-store";
@@ -45,10 +45,10 @@ const launchRoute = ((): Route => {
   return route;
 })();
 
-async function call(deps: Partial<ControlDeps>, body: Record<string, unknown>) {
+async function call(deps: Partial<RouteDeps>, body: Record<string, unknown>) {
   const calls: Array<{ status: number; body: any }> = [];
   await launchRoute.handler({
-    deps: deps as ControlDeps,
+    deps: deps as RouteDeps,
     params: {},
     url: new URL("http://localhost/agents"),
     json: (status, b) => calls.push({ status, body: b }),
@@ -60,7 +60,7 @@ async function call(deps: Partial<ControlDeps>, body: Record<string, unknown>) {
 describe("POST /agents", () => {
   let tmpDir: string;
   let store: LayoutStore;
-  let deps: Partial<ControlDeps>;
+  let deps: Partial<RouteDeps>;
 
   /**
    * A project manager that owns `WS` with an `agentCommand` of its own — and,
@@ -77,7 +77,7 @@ describe("POST /agents", () => {
           : []),
       ],
       hostIdForPath: () => "local",
-    } as unknown as ControlDeps["projectManager"];
+    } as unknown as RouteDeps["projectManager"];
   }
 
   /** The pane the answer named, as the layout store actually holds it. */
@@ -217,11 +217,5 @@ describe("POST /agents", () => {
     expect(res.status).toBe(400);
     expect(store.getAll()).toEqual({});
     expect(store.pendingCommands.size).toBe(0);
-  });
-
-  it("503s when there is no layout store to open a tab in", async () => {
-    const res = await call({ layoutStore: null }, { workspacePath: WS });
-
-    expect(res.status).toBe(503);
   });
 });

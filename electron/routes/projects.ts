@@ -2,7 +2,7 @@
  * `/projects`, `/projects/:projectId`, its `/workspaces` collection, and the
  * `/workspaces/batch` issue→worktree fan-out.
  *
- * Also home to `withProject`, the 503/404 preamble the project-scoped routes
+ * Also home to `withProject`, the 404 preamble the project-scoped routes
  * (here and in `issues.ts`) share.
  */
 
@@ -20,33 +20,9 @@ import { callerMaySee, OWN_HOST_ONLY } from "./caller-host";
 import { isIssueSource } from "../issue-sources";
 import { ghRepoOf } from "../../src/lib/gh-repo";
 import { notifyProjectsChanged } from "../renderer-bridge";
-import type { WorkspaceOps } from "../workspace-ops";
 import { startAgentInWorkspace } from "./agents";
 import type { Json, Route, RouteContext } from "./types";
 
-/**
- * Guard the routes that need a ProjectManager but no particular project —
- * `GET /projects` and `POST /projects`, which must not run a project lookup.
- */
-function withProjectManager(
-  handler: (ctx: RouteContext, pm: ProjectManager) => Promise<void>,
-): Route["handler"] {
-  return async (ctx) => {
-    const pm = ctx.deps.projectManager;
-    if (!pm) {
-      ctx.json(503, { error: "Project management is not available" });
-      return;
-    }
-    await handler(ctx, pm);
-  };
-}
-
-/**
- * The preamble every `/projects/:projectId/…` route ran inline: no manager is a
- * capability gap (503), an id that resolves to nothing is the caller's mistake
- * (404). Resolving the project here means it is fetched exactly once per
- * request, as before.
- */
 /** 404 unless `folderId` names one of the project's folders. */
 export function requireFolder(
   project: ProjectInfo,
@@ -69,6 +45,11 @@ export function requireWorkspace(
   return false;
 }
 
+/**
+ * The preamble every `/projects/:projectId/…` route ran inline: an id that
+ * resolves to nothing is the caller's mistake (404). Resolving the project
+ * here means it is fetched exactly once per request, as before.
+ */
 export function withProject(
   handler: (
     ctx: RouteContext,
@@ -77,7 +58,8 @@ export function withProject(
     projects: ProjectInfo[],
   ) => Promise<void>,
 ): Route["handler"] {
-  return withProjectManager(async (ctx, pm) => {
+  return async (ctx) => {
+    const pm = ctx.deps.projectManager;
     const projects = await pm.getProjects();
     const project = projects.find((p) => p.id === ctx.params.projectId);
     if (!project) {
@@ -85,7 +67,7 @@ export function withProject(
       return;
     }
     await handler(ctx, pm, project, projects);
-  });
+  };
 }
 
 // ── Linked-project groups on the control surface (ADR-192 ticket 8) ──
@@ -313,17 +295,6 @@ function resolveCreateTarget(
   return target.project;
 }
 
-/**
- * The workspace lifecycle (ADR-203), or a 503 when this bag has none — a
- * capability gap like a missing `projectManager`. Checked after the request's
- * own validation, so a malformed request still hears its 400 first.
- */
-function requireWorkspaceOps(ctx: RouteContext): WorkspaceOps | null {
-  const ops = ctx.deps.workspaceOps;
-  if (!ops) ctx.json(503, { error: "Workspace operations are not available" });
-  return ops ?? null;
-}
-
 export interface BatchResultEntry {
   number: number;
   title: string;
@@ -412,10 +383,7 @@ async function batchCreateWorkspaces(
   // "Work on GitHub issue #…" prompt template both assume numeric refs.
   // Reject a Linear caller loudly rather than silently treating it as GitHub.
   // `source` travels in the JSON body, like every other param on this route
-  // (unlike the issue routes, which read it off the query string) — read the
-  // body first so we can validate it before the 503 githubManager check, so
-  // a Linear caller gets the accurate 400 rather than a misleading 503 on a
-  // machine where `gh` happens to be unavailable.
+  // (unlike the issue routes, which read it off the query string).
   const { deps, json, readBody } = ctx;
   const body = await readBody();
   const source = body.source ?? "github";
@@ -436,14 +404,7 @@ async function batchCreateWorkspaces(
   const project = resolveCreateTarget(ctx, pm, named, projects, body);
   if (!project) return;
   const github = deps.githubManager;
-  if (!github) {
-    json(503, {
-      error: "GitHub and project management are required for batch creation",
-    });
-    return;
-  }
-  const ops = requireWorkspaceOps(ctx);
-  if (!ops) return;
+  const ops = deps.workspaceOps;
 
   const rawIssues = body.issues;
   if (
@@ -550,18 +511,19 @@ export const projectRoutes: Route[] = [
   {
     method: "GET",
     path: "/projects",
-    handler: withProjectManager(async ({ deps, json }, pm) => {
+    async handler({ deps, json }) {
+      const pm = deps.projectManager;
       json(
         200,
         withGroupMembers(pm, await pm.getProjects(), deps.callerHostId),
       );
-    }),
+    },
   },
 
   {
     method: "POST",
     path: "/projects",
-    handler: withProjectManager(async ({ json, readBody }, pm) => {
+    async handler({ deps, json, readBody }) {
       const body = await readBody();
       const name = body.name;
       const projectPath = body.path;
@@ -569,10 +531,10 @@ export const projectRoutes: Route[] = [
         json(400, { error: "Missing 'name' or 'path' string in request body" });
         return;
       }
-      const project = await pm.addProject(name, projectPath);
+      const project = await deps.projectManager.addProject(name, projectPath);
       notifyProjectsChanged();
       json(200, project);
-    }),
+    },
   },
 
   {
@@ -621,8 +583,7 @@ export const projectRoutes: Route[] = [
         typeof body.useExistingBranch === "boolean"
           ? body.useExistingBranch
           : undefined;
-      const ops = requireWorkspaceOps(ctx);
-      if (!ops) return;
+      const ops = ctx.deps.workspaceOps;
       // The UI runs `worktreeStartScript` from the renderer itself; a CLI /
       // MCP create has no renderer flow, so the op round-trips it (ADR-203).
       const { project: updated } = await ops.create(
@@ -646,8 +607,7 @@ export const projectRoutes: Route[] = [
       }
       const deleteBranch =
         typeof body.deleteBranch === "boolean" ? body.deleteBranch : undefined;
-      const ops = requireWorkspaceOps(ctx);
-      if (!ops) return;
+      const ops = ctx.deps.workspaceOps;
       await ops.remove(params.projectId, worktreePath, deleteBranch);
       json(200, { ok: true });
     }),
@@ -759,8 +719,7 @@ export const projectRoutes: Route[] = [
         json(400, { error: "Missing 'workspacePath' string in request body" });
         return;
       }
-      const ops = requireWorkspaceOps(ctx);
-      if (!ops) return;
+      const ops = ctx.deps.workspaceOps;
       await ops.quickMerge(params.projectId, workspacePath);
       json(200, { ok: true });
     }),
@@ -865,7 +824,7 @@ export const projectRoutes: Route[] = [
     path: "/projects/:projectId",
     handler: withProject(async ({ params, json, readBody }, pm) => {
       await readBody();
-      pm.removeProject(params.projectId);
+      await pm.removeProject(params.projectId);
       notifyProjectsChanged();
       json(200, { ok: true });
     }),
@@ -874,7 +833,7 @@ export const projectRoutes: Route[] = [
   {
     method: "POST",
     path: "/projects/reorder",
-    handler: withProjectManager(async ({ json, readBody }, pm) => {
+    async handler({ deps, json, readBody }) {
       const body = await readBody();
       const orderedIds = body.orderedIds;
       if (
@@ -886,20 +845,20 @@ export const projectRoutes: Route[] = [
         });
         return;
       }
-      pm.reorderProjects(orderedIds);
+      deps.projectManager.reorderProjects(orderedIds);
       notifyProjectsChanged();
       json(200, { ok: true });
-    }),
+    },
   },
 
   {
     method: "POST",
     path: "/projects/resync-default-branches",
-    handler: withProjectManager(async ({ json, readBody }, pm) => {
+    async handler({ deps, json, readBody }) {
       await readBody();
-      await pm.resyncDefaultBranches();
+      await deps.projectManager.resyncDefaultBranches();
       notifyProjectsChanged();
       json(200, { ok: true });
-    }),
+    },
   },
 ];

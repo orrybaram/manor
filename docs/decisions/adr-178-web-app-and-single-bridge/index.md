@@ -100,6 +100,10 @@ mutating request from a `full` device is audited (route key and target, no
 bodies); none of them needs `confirmed: true` — the desktop UI's own
 confirmation dialogs are in front of them.
 
+**Amended by [ADR-182](../adr-182-review-debt/index.md) D2.** Over HTTP a
+`full` device now gets exactly the `send` table; its reach beyond that exists
+only on `/ws`, where authentication was already the only boundary.
+
 **D4 — Three layers, named.** *Renderer* (React, pure client, no authoritative
 state). *Manor server* (everything in `electron/` that is not Electron:
 projects, routes, integrations, notifications, remote control — and, after D6,

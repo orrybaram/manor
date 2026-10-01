@@ -12,6 +12,7 @@ import {
   publishToRenderer,
 } from "../renderer-broadcast";
 import type { CloneProgress } from "./remote-clone";
+import type { SetupStep, StepStatus } from "../../src/store/project-store";
 
 /**
  * One step of creating a worktree, as a `projects.worktreeProgress` event.
@@ -25,16 +26,15 @@ import type { CloneProgress } from "./remote-clone";
  */
 export function emitSetupProgress(
   origin: string | null,
-  step: string,
-  status: string,
+  step: SetupStep,
+  status: StepStatus,
   message?: string,
 ): void {
-  const event = { step, status, message };
-  if (origin === null) {
-    publishRendererBroadcast("projects", "worktreeProgress", event);
-    return;
-  }
-  publishToRenderer(origin, "projects", "worktreeProgress", event);
+  publishToRenderer(origin, "projects", "worktreeProgress", {
+    step,
+    status,
+    message,
+  });
 }
 
 /** Clone progress on its own event, `projects.cloneProgress` (ADR-183 ticket 1). */

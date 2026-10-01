@@ -24,9 +24,6 @@ export interface Client {
   close(): Promise<void>;
 }
 
-/** Kept as the name every existing caller imports; `Client` is the same shape. */
-export type Phone = Client;
-
 export interface OpenClientOptions {
   viewport: { width: number; height: number };
   headed?: boolean;
@@ -83,7 +80,7 @@ export async function openPhoneClient(
   port: number,
   token: string,
   { headed = false }: { headed?: boolean } = {},
-): Promise<Phone> {
+): Promise<Client> {
   return openClient(`http://127.0.0.1:${port}/#${token}`, {
     viewport: { width: 390, height: 844 },
     headed,

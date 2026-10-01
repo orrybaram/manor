@@ -42,7 +42,7 @@ const panelNode = { type: "leaf", panelId: "panel-1" } as const;
 const cases: [string, () => ReactElement][] = [
   ["PanelLayout", () => createElement(PanelLayout, { node: panelNode, workspaceKey: KEY, onNewAgent })],
   ["LeafPanel", () => createElement(LeafPanel, { panelId: "panel-1", workspaceKey: KEY, onNewAgent })],
-  ["PaneLayout", () => createElement(PaneLayout, { node: paneNode, workspaceKey: KEY })],
+  ["PaneLayout", () => createElement(PaneLayout, { node: paneNode, tabId: "tab-1", workspaceKey: KEY })],
 ];
 
 describe("layout components are memoized", () => {

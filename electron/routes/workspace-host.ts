@@ -6,7 +6,7 @@
 
 import { proxyToRenderer } from "../renderer-bridge";
 import { callerMaySee, OWN_HOST_ONLY } from "./caller-host";
-import type { ControlDeps, Json } from "./types";
+import type { RouteDeps, Json } from "./types";
 
 /**
  * `body` with a `hostId` for its `workspacePath`, or a 403 to answer with.
@@ -19,7 +19,7 @@ import type { ControlDeps, Json } from "./types";
  * `workspacePath` is returned as is.
  */
 export function withWorkspaceHost(
-  deps: Pick<ControlDeps, "projectManager" | "callerHostId">,
+  deps: Pick<RouteDeps, "projectManager" | "callerHostId">,
   body: Record<string, unknown>,
 ): { ok: true; body: Record<string, unknown> } | { ok: false; status: 403; error: string } {
   const workspacePath = body.workspacePath;
@@ -42,7 +42,7 @@ export function withWorkspaceHost(
  * `withWorkspaceHost`, or answer its 403.
  */
 export async function proxyWithWorkspaceHost(
-  deps: Pick<ControlDeps, "projectManager" | "callerHostId">,
+  deps: Pick<RouteDeps, "projectManager" | "callerHostId">,
   json: Json,
   cmd: string,
   body: Record<string, unknown>,

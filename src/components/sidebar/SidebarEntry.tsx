@@ -24,8 +24,10 @@ type SidebarEntryProps = {
    */
   forceExpanded?: boolean;
   /** Fires after a workspace is chosen — the phone drawer closes on it
-   *  (ADR-181 ticket 4). */
+   *  (ADR-181 D3). */
   onNavigate?: () => void;
+  /** Turns off the workspace/folder reorder drag (phone mode, ADR-181 D5). */
+  dragDisabled?: boolean;
 };
 
 /**
@@ -41,6 +43,7 @@ export function SidebarEntry(props: SidebarEntryProps) {
     justDraggedRef,
     forceExpanded = false,
     onNavigate,
+    dragDisabled = false,
   } = props;
 
   const projects = useProjectStore((s) => s.projects);
@@ -111,10 +114,11 @@ export function SidebarEntry(props: SidebarEntryProps) {
           setWorkspaceHidden(project.id, ws.path, false)
         }
         onCreateWorktree={(projectId, name, branch, options) =>
-          createWorktree(projectId, name, branch, options)
+          createWorktree(projectId, name, { ...options, branch })
         }
         onOpenSettings={() => onOpenProjectSettings?.(project.id)}
         onDragStart={projectDragStart}
+        dragDisabled={dragDisabled}
         onOpenDiff={(wsIdx) => {
           selectWorkspace(project.id, wsIdx);
           openOrFocusDiff();
@@ -143,7 +147,7 @@ export function SidebarEntry(props: SidebarEntryProps) {
         renderProject(section.project, "section", undefined, selectionScope)
       }
       onCreateWorktree={(projectId, name, branch, options) =>
-        createWorktree(projectId, name, branch, options)
+        createWorktree(projectId, name, { ...options, branch })
       }
       onUnhideWorkspace={(project, ws) =>
         setWorkspaceHidden(project.id, ws.path, false)

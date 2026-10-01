@@ -46,24 +46,29 @@
   padding: 8px;
 }
 
-/* Touch targets are at least 44px tall (ADR-181 D3). */
-.row {
+/*
+ * Touch targets are at least 44px tall (ADR-181 D3). Each row is a ghost
+ * `Button`; `.list .row` outranks the button's own variant and size rules.
+ */
+.list .row {
   display: flex;
-  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
   gap: 8px;
   min-height: 44px;
   padding: 0 12px;
   border-radius: 8px;
-  cursor: pointer;
+  font-size: 14px;
+  text-align: left;
   color: var(--text-selected);
 }
 
-.row:hover,
-.row:focus-visible {
+.list .row:hover,
+.list .row:focus-visible {
   background: var(--hover);
 }
 
-.rowCurrent {
+.list .rowCurrent {
   background: var(--surface);
 }
 

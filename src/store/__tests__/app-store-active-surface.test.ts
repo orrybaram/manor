@@ -39,8 +39,6 @@ function seedTasksView() {
     workspaceLayouts: { [WS_PATH]: layout },
     viewports: {},
     claims: {},
-    paneContentType: {},
-    paneUrl: {},
   });
   useAppStore.getState().showTasksView();
 }

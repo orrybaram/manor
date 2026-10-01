@@ -1,8 +1,9 @@
 /**
- * `routes/system.ts` — the four behaviours that are this module's own rather
- * than the manager's: the notification re-broadcast, the preference-key
- * allowlist, the extracted `listProcesses` being the one the route calls, and
- * the `503` every handler owes a missing manager. Modeled on `git.test.ts`.
+ * `routes/system.ts` — the behaviours that are this module's own rather than
+ * the manager's: the notification re-broadcast (through the bridge's own
+ * `notifications.*` handlers), the preference-key allowlist, and the
+ * extracted `listProcesses` being the one the route calls. Modeled on
+ * `git.test.ts`.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -25,6 +26,7 @@ vi.mock("electron-updater", () => ({
 
 vi.mock("../notifications", () => ({
   sendNotificationsUpdate: vi.fn(),
+  showPrNotification: vi.fn(),
 }));
 
 vi.mock("../process-control", () => ({
@@ -43,7 +45,7 @@ vi.mock("../process-control", () => ({
 import { sendNotificationsUpdate } from "../notifications";
 import { listProcesses } from "../process-control";
 import { systemRoutes } from "./system";
-import type { ControlDeps, Route } from "./types";
+import type { HostDeps, Route } from "./types";
 
 function route(method: Route["method"], path: string): Route {
   const found = systemRoutes.find(
@@ -55,7 +57,7 @@ function route(method: Route["method"], path: string): Route {
 
 async function call(
   r: Route,
-  deps: Partial<ControlDeps>,
+  deps: Partial<HostDeps>,
   opts: {
     params?: Record<string, string>;
     body?: Record<string, unknown>;
@@ -63,7 +65,7 @@ async function call(
 ) {
   const calls: Array<{ status: number; body: unknown }> = [];
   await r.handler({
-    deps: deps as ControlDeps,
+    deps: deps as unknown as HostDeps,
     params: opts.params ?? {},
     url: new URL(`http://localhost${r.path}`),
     json: (status, body) => calls.push({ status, body }),
@@ -84,35 +86,26 @@ describe("notification routes", () => {
       markRead: vi.fn(() => markReadResult),
       markAllRead: vi.fn(),
       clear: vi.fn(),
-    } as unknown as ControlDeps["notificationStore"];
+    } as unknown as HostDeps["notificationStore"];
   }
 
-  it("re-broadcasts the list to the first renderer window after a mark-read", async () => {
-    const win = { id: 1 };
+  it("re-broadcasts the list after a mark-read", async () => {
     const store = notificationStore(true);
     const res = await call(
       route("POST", "/notifications/:id/read"),
-      {
-        notificationStore: store,
-        getRendererWindows: () =>
-          [win] as unknown as ReturnType<
-            NonNullable<ControlDeps["getRendererWindows"]>
-          >,
-      },
+      { notificationStore: store },
       { params: { id: "n1" } },
     );
 
     expect(res).toEqual({ status: 200, body: { ok: true, changed: true } });
-    expect(sendNotificationsUpdate).toHaveBeenCalledWith(win);
+    expect(store.markRead).toHaveBeenCalledWith("n1");
+    expect(sendNotificationsUpdate).toHaveBeenCalledWith();
   });
 
   it("skips the broadcast when the id changed nothing", async () => {
     const res = await call(
       route("POST", "/notifications/:id/read"),
-      {
-        notificationStore: notificationStore(false),
-        getRendererWindows: () => [],
-      },
+      { notificationStore: notificationStore(false) },
       { params: { id: "gone" } },
     );
 
@@ -120,30 +113,24 @@ describe("notification routes", () => {
     expect(sendNotificationsUpdate).not.toHaveBeenCalled();
   });
 
-  it("broadcasts a null window when no renderer is open", async () => {
+  it("broadcasts after a mark-all-read", async () => {
+    const store = notificationStore(true);
     await call(route("POST", "/notifications/read-all"), {
-      notificationStore: notificationStore(true),
-      getRendererWindows: () => [],
+      notificationStore: store,
     });
 
-    expect(sendNotificationsUpdate).toHaveBeenCalledWith(null);
-  });
-
-  it("503s without a notification store", async () => {
-    const res = await call(route("GET", "/notifications"), {
-      notificationStore: null,
-    });
-    expect(res.status).toBe(503);
+    expect(store.markAllRead).toHaveBeenCalled();
+    expect(sendNotificationsUpdate).toHaveBeenCalledWith();
   });
 });
 
 describe("GET /processes", () => {
   it("returns what the extracted listProcesses reports", async () => {
-    const deps: Partial<ControlDeps> = {
-      backend: {} as ControlDeps["backend"],
-      agentHookServer: { hookPort: 1 } as ControlDeps["agentHookServer"],
-      webviewServer: { serverPort: 2 },
-      portScanner: {} as ControlDeps["portScanner"],
+    const deps: Partial<HostDeps> = {
+      backend: {} as HostDeps["backend"],
+      agentHookServer: { hookPort: 1 } as HostDeps["agentHookServer"],
+      webviewServer: { serverPort: 2 } as HostDeps["webviewServer"],
+      portScanner: {} as HostDeps["portScanner"],
     };
     const res = await call(route("GET", "/processes"), deps);
 
@@ -163,12 +150,6 @@ describe("GET /processes", () => {
       },
     });
   });
-
-  it("503s when a dependency it needs is missing", async () => {
-    const res = await call(route("GET", "/processes"), { backend: null });
-    expect(res.status).toBe(503);
-    expect(listProcesses).not.toHaveBeenCalled();
-  });
 });
 
 describe("POST /preferences", () => {
@@ -176,7 +157,7 @@ describe("POST /preferences", () => {
     return {
       getAll: () => ({}),
       set: vi.fn(),
-    } as unknown as ControlDeps["preferencesManager"];
+    } as unknown as HostDeps["preferencesManager"];
   }
 
   it("400s an unknown key without touching the manager", async () => {
@@ -205,20 +186,12 @@ describe("POST /preferences", () => {
 });
 
 describe("GET /theme", () => {
-  it("503s when there is no theme manager", async () => {
-    const res = await call(route("GET", "/theme"), { themeManager: null });
-    expect(res).toEqual({
-      status: 503,
-      body: { error: "Themes is not available" },
-    });
-  });
-
   it("returns the selected name alongside the resolved theme", async () => {
     const res = await call(route("GET", "/theme"), {
       themeManager: {
         getSelectedThemeName: () => "Dracula",
         getTheme: () => ({ background: "#282a36" }),
-      } as unknown as ControlDeps["themeManager"],
+      } as unknown as HostDeps["themeManager"],
     });
 
     expect(res).toEqual({

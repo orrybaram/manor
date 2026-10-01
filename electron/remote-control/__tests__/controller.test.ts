@@ -52,7 +52,6 @@ function fakes(options: { gateLoad?: boolean } = {}) {
 
   let tunnelStatus: TunnelStatus = {
     state: "stopped",
-    kind: null,
     url: null,
     error: null,
   };
@@ -71,11 +70,10 @@ function fakes(options: { gateLoad?: boolean } = {}) {
         peers: [],
       }),
     ),
-    preferredKind: vi.fn(async () => "tailscale" as const),
-    start: vi.fn(async (kind: "tailscale") => {
+    detect: vi.fn(async () => true),
+    start: vi.fn(async () => {
       tunnelStatus = {
         state: "running",
-        kind,
         url: "https://studio.tail1234.ts.net",
         error: null,
       };
@@ -83,7 +81,7 @@ function fakes(options: { gateLoad?: boolean } = {}) {
       return { url: tunnelStatus.url! };
     }),
     stop: vi.fn(async () => {
-      tunnelStatus = { state: "stopped", kind: null, url: null, error: null };
+      tunnelStatus = { state: "stopped", url: null, error: null };
       for (const cb of tunnelListeners) cb(tunnelStatus);
     }),
   };
@@ -169,7 +167,7 @@ describe("RemoteControlController", () => {
   it("enabling probes for tunnel tools without installing anything", async () => {
     const status = await f.controller.setEnabled(true);
     expect(f.which).toHaveBeenCalledWith("tailscale");
-    expect(status.detected).toEqual({ tailscale: true });
+    expect(status.installed).toBe(true);
   });
 
   it("disabling stops the tunnel before the listener", async () => {
@@ -197,7 +195,7 @@ describe("RemoteControlController", () => {
   it("starts tailscale and points the tunnel at the listener's port", async () => {
     await f.controller.setEnabled(true);
     const status = await f.controller.startTunnel();
-    expect(f.tunnel.start).toHaveBeenCalledWith("tailscale", 51234);
+    expect(f.tunnel.start).toHaveBeenCalledWith(51234);
     expect(status.tunnel).toMatchObject({
       state: "running",
       url: "https://studio.tail1234.ts.net",
@@ -255,8 +253,8 @@ describe("RemoteControlController", () => {
   });
 
   it("explains itself when tailscale is not installed", async () => {
-    f.tunnel.preferredKind.mockResolvedValue(null as unknown as "tailscale");
     await f.controller.setEnabled(true);
+    f.tunnel.detect.mockResolvedValueOnce(false);
     await expect(f.controller.startTunnel()).rejects.toThrow(/not installed/);
   });
 
@@ -353,8 +351,8 @@ describe("RemoteControlController before the runtime loads", () => {
       enabled: false,
       port: null,
       devices: [],
-      tunnel: { state: "stopped", kind: null, url: null, error: null },
-      detected: { tailscale: false },
+      tunnel: { state: "stopped", url: null, error: null },
+      installed: false,
       tailnet: null,
       encryptionAvailable: true,
       listeners: 0,
@@ -400,7 +398,7 @@ describe("RemoteControlController before the runtime loads", () => {
       bin === "tailscale" ? "/usr/local/bin/tailscale" : null,
     );
     const status = await f.controller.refreshDetection();
-    expect(status.detected).toEqual({ tailscale: true });
+    expect(status.installed).toBe(true);
     expect(f.loadRuntime).not.toHaveBeenCalled();
   });
 
@@ -457,11 +455,11 @@ describe("RemoteControlController racing the runtime load", () => {
     await enabling;
 
     // Hold the PATH probe open so shutdown lands before the spawn.
-    const probe = deferred<"tailscale">();
-    f.tunnel.preferredKind.mockReturnValueOnce(probe.promise);
+    const probe = deferred<boolean>();
+    f.tunnel.detect.mockReturnValueOnce(probe.promise);
     const starting = f.controller.startTunnel();
     const shuttingDown = f.controller.shutdown();
-    probe.resolve("tailscale");
+    probe.resolve(true);
 
     await expect(starting).rejects.toThrow();
     await shuttingDown;

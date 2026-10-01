@@ -3,16 +3,15 @@
  * web half of the invariant `install-desktop.ts` states and holds for the
  * desktop: **no store module may evaluate before `window.electronAPI`
  * exists.** Imported first by `web-main.tsx`, before `./App`, for the same
- * reason that file's header spelled out (ADR-180 ticket 14 fixed the bug it
- * described but had not yet fixed): the stores reach for `window.electronAPI`
- * at module scope, inside `create()`'s initializer, and ES module evaluation
- * runs every static import of a module before the first statement of the
- * module itself — so a `web-main.tsx` that imported `./App` and only then
- * built the bridge ran every one of those calls against a
- * `window.electronAPI` that did not exist yet. Every one of those calls is
- * written `window.electronAPI?.…`, so none of them threw: they silently
- * never ran, and a browser tab came up with no preferences, no theme and no
- * agent updates until something else happened to re-read them.
+ * reason `install-desktop.ts`'s header spells out: the stores reach for
+ * `window.electronAPI` at module scope, inside `create()`'s initializer, and
+ * ES module evaluation runs every static import of a module before the first
+ * statement of the module itself — so a `web-main.tsx` that imported `./App`
+ * and only then built the bridge would run every one of those calls against a
+ * `window.electronAPI` that does not exist yet. Every one of those calls is
+ * written `window.electronAPI?.…`, so none of them would throw: they would
+ * silently never run, and a browser tab would come up with no preferences, no
+ * theme and no agent updates until something else happened to re-read them.
  *
  * The complication the desktop does not have: this bridge needs the pairing
  * token, which lives in the URL fragment on first load and in

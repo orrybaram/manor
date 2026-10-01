@@ -7,12 +7,12 @@ import { useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import type { SetupStep, StepStatus } from "../../store/project-store";
 import { useToastStore } from "../../store/toast-store";
-import { find } from "../../lib/workspace-directory";
 import { workspaceKey } from "../../lib/workspace-key";
 import { ManorLogo } from "../ui/ManorLogo";
 import { Row, Stack } from "../ui/Layout/Layout";
 import { Button } from "../ui/Button/Button";
 import { MiniTerminal } from "../ui/MiniTerminal";
+import { workspaceDisplayName } from "../../lib/workspace-display-name";
 import styles from "./WorkspaceSetupView.module.css";
 
 interface WorkspaceSetupViewProps {
@@ -88,11 +88,10 @@ function SetupChecklist({
 function resolveWorkspaceName(wsPath: string): string {
   if (wsPath === "__pending__") return "workspace";
   const { activeWorkspaceHostId } = useAppStore.getState();
-  const ws = find(
-    useProjectStore.getState().projects,
+  return workspaceDisplayName(
     workspaceKey(activeWorkspaceHostId, wsPath),
-  )?.workspace;
-  return ws?.name || ws?.branch || wsPath.split("/").pop() || "workspace";
+    useProjectStore.getState().projects,
+  );
 }
 
 export function WorkspaceSetupView({

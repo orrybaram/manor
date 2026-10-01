@@ -1,34 +1,37 @@
 /**
- * The terminal, as plain functions over `IpcDeps` (ADR-180 D8).
+ * The terminal (ADR-180 D8), as the `pty` namespace of the handler table.
  *
- * There is no `register()` here any more, and this is the first module to
- * lose one: `pty` crossed onto the handler table in ADR-180 ticket 5, so the
- * six `ipcMain.handle("pty:*")` wrappers that used to sit at the bottom of
- * this file are gone and `electron/bridge/handlers.ts` calls these functions
- * directly, for a renderer window and a paired device alike. What is left is
- * the implementation — the same `assert*` validation, the same daemon calls,
- * one caller fewer to keep in step.
- *
- * Winsize ownership is *not* decided here. The wrappers used to attach and
- * release viewers around these calls (`attach(paneId, event.sender.id)`),
- * which is why they had to exist at all; the table's entries do it now, with
- * the connection that asked (ADR-180 D6, `pty-attachments.ts`).
+ * `create` and `reset` answer with who owns the winsize, and attach the
+ * calling connection as a viewer once they succeed. Every caller comes
+ * through here — a renderer window over `bridge:*` IPC and a paired device
+ * over the socket — so this is the one place a pane gains a viewer, and
+ * `resize` is a no-op for anyone who is not the one that owns it (ADR-180 D6,
+ * `pty-attachments.ts`).
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { assertString, assertPositiveInt } from "../../ipc-validate";
 import { resolveSpawnCwd } from "../../paths";
+import {
+  attach,
+  ownerOf,
+  release,
+  wouldOwn,
+  type Viewer,
+} from "../../pty-attachments";
 import { HostUnavailableError } from "../../backend/host-view";
 import { LOCAL_HOST_ID, type HostId } from "../../backend/types";
 import { errorMessage } from "../../lib/errors";
 import { isHomePath } from "../../../src/lib/home-path";
-import type { IpcDeps } from "../../ipc/types";
+import type { HostDeps } from "../../ipc/types";
 import type {
   PtyCreateOptions,
   PtyCreateResult,
   PtyResetOptions,
+  PtyWinsize,
 } from "../../../src/electron.d";
+import { method, type Caller, type HandlerCtx } from "../method";
 
 /**
  * Read git branch synchronously from a repo or worktree root, for this
@@ -81,12 +84,82 @@ function validatePtyArgs(paneId: string, cwd: string | null, cols: number, rows:
  * of the workspace its pane belongs to — or undefined when it didn't, so
  * `RoutedBackend` falls back to the host the cwd belongs to.
  */
-function requestedHost(opts: PtyResetOptions | undefined): HostId | undefined {
+function requestedHost(
+  opts: PtyResetOptions | null | undefined,
+): HostId | undefined {
   if (opts === undefined || opts === null) return undefined;
   if (typeof opts !== "object") throw new Error("opts must be an object");
   if (opts.hostId === undefined) return undefined;
   assertString(opts.hostId, "hostId");
   return opts.hostId;
+}
+
+/** The caller, as the viewer `pty-attachments.ts` holds a pane under. */
+function asViewer(caller: Caller): Viewer {
+  return { connectionId: caller.id, callerClass: caller.callerClass };
+}
+
+/** What a create-shaped call tells the caller about the winsize (D5). */
+type WinsizeDecoration = Required<PtyWinsize>;
+
+/**
+ * The session's current grid, or null if the daemon has no opinion yet.
+ *
+ * Never throws: a caller that cannot be told the owner's size is better off
+ * with the size it asked for than with a failed `pty.create`. Exported for
+ * `server.ts`'s ownership-change push (D6), which needs the same "ask the
+ * daemon, shrug on failure" grid lookup outside of a create call.
+ */
+export async function sessionGrid(
+  deps: HostDeps,
+  paneId: string,
+): Promise<{ cols: number; rows: number } | null> {
+  try {
+    const snapshot = await deps.backend.pty.getSnapshot(paneId);
+    if (!snapshot?.cols || !snapshot.rows) return null;
+    return { cols: snapshot.cols, rows: snapshot.rows };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Run a create-shaped call, tell the caller who owns the winsize, and attach
+ * it as a viewer once the call succeeds (D5/D6).
+ *
+ * When someone who outranks this caller holds the pane, the caller's own
+ * `cols×rows` is dropped before the call: `createOrAttach` resizes the
+ * session before it snapshots it (see `terminal-host/client.ts`), so passing
+ * a follower's grid through would resize the owner's pane as a side effect of
+ * merely looking at it — the exact bug ADR-163/164/165 are about, arriving
+ * through the one door marked "read". The answer carries the owner's grid,
+ * which is what the follower renders.
+ *
+ * Who outranks whom is `pty-attachments.ts`'s rule: a caller is a follower
+ * exactly when attaching would *not* make it the owner (`wouldOwn`), which for
+ * a window on this machine is only when it already holds the pane and let
+ * another viewer take it.
+ */
+async function createShaped<T extends { ok: boolean }>(
+  ctx: HandlerCtx,
+  paneId: string,
+  cols: number,
+  rows: number,
+  run: (cols: number, rows: number) => Promise<T>,
+): Promise<T | (T & WinsizeDecoration)> {
+  const viewer = asViewer(ctx.caller);
+  const follower = !wouldOwn(paneId, viewer);
+  const owner = follower ? await sessionGrid(ctx.deps, paneId) : null;
+  const grid = owner ?? { cols, rows };
+  const result = await run(grid.cols, grid.rows);
+  if (!result.ok) return result;
+  attach(paneId, viewer);
+  return {
+    ...result,
+    winsizeOwner: !follower,
+    cols: grid.cols,
+    rows: grid.rows,
+  };
 }
 
 /**
@@ -100,7 +173,7 @@ function requestedHost(opts: PtyResetOptions | undefined): HostId | undefined {
  * reattach — the thing this predicate exists to exclude.
  */
 function isFreshSession(
-  deps: IpcDeps,
+  deps: HostDeps,
   paneId: string,
   hadSnapshot: boolean,
 ): boolean {
@@ -123,7 +196,7 @@ function isFreshSession(
  * caller has already got its session.
  */
 async function deliverPendingCommand(
-  deps: IpcDeps,
+  deps: HostDeps,
   paneId: string,
 ): Promise<void> {
   const pending = deps.layoutStore?.pendingCommands.take(paneId);
@@ -142,17 +215,27 @@ async function deliverPendingCommand(
 }
 
 /**
- * The bodies below were lifted out of `ipcMain.handle` wrappers so the
- * ADR-178 bridge could call exactly the same code the desktop renderer
- * reached, rather than dispatching reflectively into `ipcMain`'s private
- * handler map. ADR-180 ticket 5 removed the wrappers entirely: both callers
- * now arrive through the handler table, and both go through the same
- * `assert*` validation — because a browser on the far end of a tunnel is not
- * more trusted than a renderer, it is less, and a renderer is not more
- * trusted than it was when its arguments went unchecked.
+ * Open (or reattach to) a pane's session.
+ *
+ * A renderer window and a paired device go through the same `assert*`
+ * validation — a browser on the far end of a tunnel is not more trusted than
+ * a renderer, it is less.
  */
-export async function ptyCreate(
-  deps: IpcDeps,
+export function ptyCreate(
+  ctx: HandlerCtx,
+  paneId: string,
+  cwd: string | null,
+  cols: number,
+  rows: number,
+  opts?: PtyCreateOptions | null,
+): Promise<PtyCreateResult> {
+  return createShaped(ctx, paneId, cols, rows, (c, r) =>
+    createSession(ctx.deps, paneId, cwd, c, r, opts ?? undefined),
+  );
+}
+
+async function createSession(
+  deps: HostDeps,
   paneId: string,
   cwd: string | null,
   cols: number,
@@ -174,8 +257,8 @@ export async function ptyCreate(
       { env, hostId },
     );
     // A pane opened "with a command" — `POST /tabs { command }`, a split with
-    // an agent, `POST /agents` — has its line waiting on the server (ADR-179
-    // ticket 11). This is the moment it has a shell to be typed into.
+    // an agent, `POST /agents` — has its line waiting on the server. This is
+    // the moment it has a shell to be typed into.
     if (isFreshSession(deps, paneId, result.snapshot !== null)) {
       await deliverPendingCommand(deps, paneId);
     }
@@ -212,41 +295,72 @@ export async function ptyCreate(
   }
 }
 
-export function ptyWrite(deps: IpcDeps, paneId: string, data: string): void {
+export function ptyWrite(ctx: HandlerCtx, paneId: string, data: string): void {
   assertString(paneId, "paneId");
   assertString(data, "data");
-  deps.backend.pty.write(paneId, data);
+  ctx.deps.backend.pty.write(paneId, data);
 }
 
+/**
+ * A follower asking for a size is not an error, and it is not a resize.
+ *
+ * It is answered rather than refused because refusing is a rejected promise
+ * on every layout tick, which `useTerminalResize` would log; and it is
+ * dropped rather than forwarded because it is not this caller's grid to move
+ * (D6) — it belongs to another viewer, which may be a second window of the
+ * desktop as readily as a browser. A caller that owns the pane's winsize
+ * resizes normally.
+ */
 export async function ptyResize(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   paneId: string,
   cols: number,
   rows: number,
 ): Promise<void> {
+  const owner = ownerOf(paneId);
+  if (owner && owner.connectionId !== ctx.caller.id) return;
   assertString(paneId, "paneId");
   assertPositiveInt(cols, "cols");
   assertPositiveInt(rows, "rows");
   try {
-    await deps.backend.pty.resize(paneId, cols, rows);
+    await ctx.deps.backend.pty.resize(paneId, cols, rows);
   } catch {
     // ignore resize errors
   }
 }
 
-export async function ptyClose(deps: IpcDeps, paneId: string): Promise<void> {
+export async function ptyClose(ctx: HandlerCtx, paneId: string): Promise<void> {
+  release(paneId, asViewer(ctx.caller));
   assertString(paneId, "paneId");
   try {
-    await deps.backend.pty.kill(paneId);
+    await ctx.deps.backend.pty.kill(paneId);
   } catch {
     // ignore close errors
   }
 }
 
-export async function ptyDetach(deps: IpcDeps, paneId: string): Promise<void> {
+/**
+ * Stop *this* viewer watching — and drop the daemon stream only if it was
+ * the last one.
+ *
+ * The Manor server holds exactly one stream subscription per session for
+ * every renderer it serves (`terminal-host/client.ts`'s `wanted` set), and
+ * detaching unsubscribes it. Called unconditionally, one viewer's detach was
+ * everyone's: `useTerminalConnection` detaches on every effect cleanup, so a
+ * browser that merely switched away from a workspace it shared with the desk
+ * cut the desk's terminal off mid-stream.
+ *
+ * A socket that drops without detaching releases its viewers in
+ * `BridgeServer.drop` and leaves the stream subscribed — output with no
+ * subscriber is discarded at the fan-out, which costs a little and loses
+ * nothing, and the next `pty.create` reuses the live subscription.
+ */
+export async function ptyDetach(ctx: HandlerCtx, paneId: string): Promise<void> {
+  release(paneId, asViewer(ctx.caller));
+  if (ownerOf(paneId)) return;
   assertString(paneId, "paneId");
   try {
-    await deps.backend.pty.detach(paneId);
+    await ctx.deps.backend.pty.detach(paneId);
   } catch {
     // ignore detach errors
   }
@@ -255,25 +369,40 @@ export async function ptyDetach(deps: IpcDeps, paneId: string): Promise<void> {
 /**
  * Kill this pane's session and spawn a fresh one in its place.
  *
- * Lifted out of its `ipcMain.handle` wrapper for the reason the functions above
- * were: it is create-shaped — it answers with a snapshot and leaves the caller
- * attached — so the ADR-178 bridge has to reach the same code, and decorate it
- * with the same winsize ownership `pty.create` gets (D5).
+ * Create-shaped — it answers with a snapshot and leaves the caller attached —
+ * so it is decorated with the same winsize ownership `pty.create` gets (D5).
  */
-export async function ptyReset(
-  deps: IpcDeps,
+export function ptyReset(
+  ctx: HandlerCtx,
+  paneId: string,
+  cwd: string | null,
+  cols: number,
+  rows: number,
+  opts?: PtyResetOptions | null,
+): Promise<PtyResetResult> {
+  return createShaped(ctx, paneId, cols, rows, (c, r) =>
+    resetSession(ctx.deps, paneId, cwd, c, r, opts ?? undefined),
+  );
+}
+
+/** What `pty.reset` answers with (and the winsize half, `PtyWinsize`). */
+export type PtyResetResult = {
+  ok: boolean;
+  snapshot?: string | null;
+  error?: string;
+  prewarmed?: boolean;
+  /** The host the fresh session runs on (ADR-160). */
+  hostId?: string;
+} & PtyWinsize;
+
+async function resetSession(
+  deps: HostDeps,
   paneId: string,
   cwd: string | null,
   cols: number,
   rows: number,
   opts?: PtyResetOptions,
-): Promise<{
-  ok: boolean;
-  snapshot?: string | null;
-  prewarmed?: boolean;
-  hostId?: string;
-  error?: string;
-}> {
+): Promise<PtyResetResult> {
   const { backend } = deps;
   const resolvedCwd = validatePtyArgs(paneId, cwd, cols, rows);
   const hostId = requestedHost(opts);
@@ -327,31 +456,22 @@ export async function ptyReset(
  * Hand out the background-warmed session, if one is ready (ADR-083) and it
  * sits where the caller is asking for one — the renderer names the
  * workspace's host alongside its cwd (ADR-183).
- *
- * `local` only (ADR-180 D4): a prewarmed session belongs to the window that
- * asked for one. Its cwd tracks the *primary* window's active workspace, so
- * a caller looking at something else — a popout, or a phone on the bridge —
- * would adopt a shell sitting in the wrong directory.
  */
 export function ptyConsumePrewarmed(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   cwd: string | null,
-  hostId: string = LOCAL_HOST_ID,
+  hostId?: string | null,
 ): { paneId: string; commandInjected: boolean } | null {
+  const host = hostId ?? LOCAL_HOST_ID;
   if (cwd !== null) assertString(cwd, "cwd");
-  assertString(hostId, "hostId");
+  assertString(host, "hostId");
   if (isHomePath(cwd)) return null;
-  return deps.prewarmManager?.consume(resolveSpawnCwd(cwd), hostId) ?? null;
+  return ctx.deps.prewarmManager?.consume(resolveSpawnCwd(cwd), host) ?? null;
 }
 
-/**
- * Point the prewarmed session at a different workspace, respawning it.
- *
- * `local` only, for the reason above: there is one prewarmed session per
- * host, and it follows the window at the machine.
- */
+/** Point the prewarmed session at a different workspace, respawning it. */
 export async function ptyUpdatePrewarmCwd(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   cwd: string,
   hostId: string,
   agentCommand?: string | null,
@@ -361,10 +481,27 @@ export async function ptyUpdatePrewarmCwd(
   assertString(hostId, "hostId");
   // The Dashboard hosts no panes; never warm a shell for it.
   if (isHomePath(cwd)) return;
-  await deps.prewarmManager?.updateCwd(
+  await ctx.deps.prewarmManager?.updateCwd(
     resolveSpawnCwd(cwd),
     hostId,
     agentCommand,
     agentKind,
   );
 }
+
+export const pty = {
+  // Starting or ending a session is audited; `write` is the keyboard, and a
+  // line per keystroke is a keylogger (ADR-161). `resize` and `detach` are
+  // what a viewer does to its own view.
+  create: method(ptyCreate, { mutating: true }),
+  reset: method(ptyReset, { mutating: true }),
+  write: method(ptyWrite),
+  resize: method(ptyResize),
+  close: method(ptyClose, { mutating: true }),
+  detach: method(ptyDetach),
+  // One prewarmed session per host, and its cwd tracks the primary window's
+  // workspace: a device adopting it gets a shell somewhere else, and a device
+  // moving it moves the desktop's out from under it.
+  consumePrewarmed: method(ptyConsumePrewarmed, { localOnly: true }),
+  updatePrewarmCwd: method(ptyUpdatePrewarmCwd, { localOnly: true }),
+};

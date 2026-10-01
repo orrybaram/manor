@@ -8,6 +8,7 @@ import {
   selectActiveWorkspaceKey,
   sendPendingCommand,
   useAppStore,
+  usePaneContentType,
 } from "../../store/app-store";
 import { getAgentCommand } from "../../agent-defaults";
 import styles from "./PaneLayout/PaneLayout.module.css";
@@ -20,7 +21,7 @@ const PANE_TYPES = [
 ];
 
 export function ConvertToSubmenu({ paneId }: { paneId: string }) {
-  const currentType = useAppStore((s) => s.paneContentType[paneId] ?? "terminal");
+  const currentType = usePaneContentType(paneId);
   const setPaneContentType = useAppStore((s) => s.setPaneContentType);
 
   return (

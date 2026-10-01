@@ -17,6 +17,7 @@ import {
   selectActivePanelId,
   selectActiveWorkspaceKey,
   selectFocusedPaneId,
+  selectPaneContentType,
   selectSelectedTabId,
   useAppStore,
   type AppState,
@@ -46,7 +47,6 @@ export type MenuAppState = Pick<
   | "activeWorkspaceHostId"
   | "workspaceLayouts"
   | "viewports"
-  | "paneContentType"
   | "paneAgentStatus"
 >;
 
@@ -94,7 +94,7 @@ function focusedContentType(
   app: MenuAppState,
   paneId: string,
 ): "terminal" | "browser" | "diff" | "agent" {
-  const stored = app.paneContentType[paneId] ?? "terminal";
+  const stored = selectPaneContentType(app, paneId);
   if (stored !== "terminal") return stored;
   return app.paneAgentStatus[paneId]?.kind ? "agent" : "terminal";
 }
@@ -182,7 +182,7 @@ export function deriveMenuContext(
       panel && selectedTabId
         ? {
             id: selectedTabId,
-            pinned: (panel.pinnedTabIds ?? []).includes(selectedTabId),
+            pinned: panel.pinnedTabIds.includes(selectedTabId),
           }
         : null,
     panelCount: layout ? Object.keys(layout.panels).length : 0,

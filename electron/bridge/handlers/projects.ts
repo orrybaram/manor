@@ -1,43 +1,33 @@
 /**
- * Projects and workspaces, as plain functions over `IpcDeps` (ADR-180 D8).
+ * Projects and workspaces (ADR-180 D8), as the `projects` namespace of the
+ * handler table.
  *
- * The biggest namespace in the app, and the one that used to have the widest
- * gap between its two callers: four of these twenty-three were on the bridge
- * handler table and the other nineteen were `ipcMain.handle("projects:*")`
- * wrappers a browser could not reach at all. There is no `register()` here
- * any more — `electron/bridge/handlers.ts` calls these directly, for a
- * renderer window and a paired `full` device alike, which is ADR-178 D3 as
- * written and as the pairing dialog's label already warns ("can do anything
- * the desktop can, including remove workspaces"). Every mutating one is in
- * `MUTATING`, so a device's call leaves an audit line and the user at the
- * machine's does not.
+ * Every one of these is reachable by a paired `full` device — ADR-178 D3 as
+ * written, and as the pairing dialog's label already warns ("can do anything
+ * the desktop can, including remove workspaces"). The ones that create,
+ * rename, move or destroy a project, a workspace or a folder are `mutating`,
+ * so a device's call leaves an audit line and the user at the machine's does
+ * not.
  *
  * **Progress goes back to the caller, not to every window.** Making and
- * removing a worktree both report their steps, and both used to do it on
- * `event.sender` — the one thing a lifted function does not have. The caller
- * arrives as a `LayoutOrigin` instead (`ORIGIN_ARGS`, ADR-179 D3), and its
- * `id` *is* a connection id on both transports, so the events address the
- * same renderer the `event.sender` did. A call with no origin behind it —
- * the CLI, MCP, the issue-batch path — broadcasts, which is what every
- * window used to get unconditionally.
+ * removing a worktree both report their steps to `ctx.caller.id` — a
+ * connection id on both transports — so one dialog, in one window, sees its
+ * own progress bar and a second window sees nothing.
  */
 
 import { assertGroupUpdates, assertString } from "../../ipc-validate";
-import {
-  publishRendererBroadcast,
-  publishToRenderer,
-} from "../../renderer-broadcast";
+import { publishToRenderer } from "../../renderer-broadcast";
 import type {
+  CreateWorktreeOptions,
   GroupUpdatableFields,
   ProjectInfo,
   ProjectUpdatableFields,
   WorkspaceFolder,
 } from "../../persistence";
-import type { LinkedIssue } from "../../linear";
-import type { LayoutOrigin } from "../../layout/layout-store";
 import { LOCAL_HOST_ID } from "../../backend/types";
 import { workspaceKey } from "../../../src/lib/workspace-key";
-import type { IpcDeps } from "../../ipc/types";
+import type { HostDeps } from "../../ipc/types";
+import { method, type HandlerCtx } from "../method";
 
 /**
  * A project that moved from `oldHostId` keeps the saved layouts of the
@@ -46,7 +36,7 @@ import type { IpcDeps } from "../../ipc/types";
  * renderer's replica follows.
  */
 async function moveLayouts(
-  deps: IpcDeps,
+  deps: HostDeps,
   oldHostId: string,
   moved: ProjectInfo,
 ): Promise<ProjectInfo> {
@@ -62,43 +52,46 @@ async function moveLayouts(
 }
 
 /** The four the sidebar needs to paint itself. */
-export function projectsGetAll(deps: IpcDeps): unknown {
-  return deps.projectManager.getProjects();
+export function projectsGetAll(ctx: HandlerCtx): Promise<ProjectInfo[]> {
+  return ctx.deps.projectManager.getProjects();
 }
 
 /** Only remote projects, their worktrees listed afresh. */
-export function projectsGetRemote(deps: IpcDeps): unknown {
-  return deps.projectManager.getRemoteProjects();
+export function projectsGetRemote(ctx: HandlerCtx): Promise<ProjectInfo[]> {
+  return ctx.deps.projectManager.getRemoteProjects();
 }
 
-export function projectsGetSelectedIndex(deps: IpcDeps): number {
-  return deps.projectManager.getSelectedProjectIndex();
+export function projectsGetSelectedIndex(ctx: HandlerCtx): number {
+  return ctx.deps.projectManager.getSelectedProjectIndex();
 }
 
-export function projectsSelect(deps: IpcDeps, index: number): void {
-  deps.projectManager.selectProject(index);
+export function projectsSelect(ctx: HandlerCtx, index: number): void {
+  ctx.deps.projectManager.selectProject(index);
 }
 
 export function projectsSelectWorkspace(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
   workspaceIndex: number,
 ): void {
-  deps.projectManager.selectWorkspace(projectId, workspaceIndex);
+  ctx.deps.projectManager.selectWorkspace(projectId, workspaceIndex);
 }
 
 export function projectsAdd(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   name: string,
   projectPath: string,
 ): Promise<ProjectInfo> {
   assertString(name, "name");
   assertString(projectPath, "path");
-  return deps.projectManager.addProject(name, projectPath);
+  return ctx.deps.projectManager.addProject(name, projectPath);
 }
 
-export function projectsRemove(deps: IpcDeps, projectId: string): void {
-  deps.projectManager.removeProject(projectId);
+export function projectsRemove(
+  ctx: HandlerCtx,
+  projectId: string,
+): Promise<void> {
+  return ctx.deps.projectManager.removeProject(projectId);
 }
 
 /**
@@ -106,9 +99,10 @@ export function projectsRemove(deps: IpcDeps, projectId: string): void {
  * Progress goes out as `projects.cloneProgress`.
  */
 export async function projectsClone(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   opts: { hostId: string; repoUrl: string; targetDir: string; name: string },
 ): Promise<ProjectInfo> {
+  const { deps } = ctx;
   assertString(opts?.hostId, "hostId");
   assertString(opts?.repoUrl, "repoUrl");
   assertString(opts?.targetDir, "targetDir");
@@ -129,10 +123,11 @@ export async function projectsClone(
  * remote host and point the same project record at it.
  */
 export async function projectsMoveToHost(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
   opts: { hostId: string; repoUrl: string; remoteDir: string },
 ): Promise<ProjectInfo> {
+  const { deps } = ctx;
   assertString(projectId, "projectId");
   assertString(opts?.hostId, "hostId");
   assertString(opts?.repoUrl, "repoUrl");
@@ -149,19 +144,19 @@ export async function projectsMoveToHost(
 }
 
 export function projectsGetOriginUrl(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
 ): Promise<string | null> {
   assertString(projectId, "projectId");
-  return deps.projectManager.getOriginUrl(projectId);
+  return ctx.deps.projectManager.getOriginUrl(projectId);
 }
 
 export function projectsPathExists(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
 ): Promise<boolean> {
   assertString(projectId, "projectId");
-  return deps.projectManager.projectPathExists(projectId);
+  return ctx.deps.projectManager.projectPathExists(projectId);
 }
 
 /**
@@ -170,14 +165,15 @@ export function projectsPathExists(
  * exist on the host.
  */
 export async function projectsSwitchHost(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
   hostId: string,
   projectPath?: string | null,
 ): Promise<ProjectInfo> {
+  const { deps } = ctx;
   assertString(projectId, "projectId");
   assertString(hostId, "hostId");
-  // Null is an omitted argument that crossed the socket (see `surface.ts`).
+  // Null is an omitted argument that crossed the socket.
   const requestedPath = projectPath ?? undefined;
   if (requestedPath !== undefined) assertString(requestedPath, "path");
   const { projectManager } = deps;
@@ -194,83 +190,71 @@ export async function projectsSwitchHost(
 }
 
 /**
- * Tear a worktree down, reporting each step to whoever asked for it.
- *
- * The steps used to go out on `event.sender`; they are a
- * `projects.removeWorktreeProgress` event now, addressed to the caller's
- * connection (ADR-180 D5) — one dialog, in one window, and a second window
- * has no business watching its progress bar.
+ * Tear a worktree down, reporting each step to whoever asked for it as a
+ * `projects.removeWorktreeProgress` event (ADR-180 D5).
  */
 export async function projectsRemoveWorktree(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
   worktreePath: string,
   deleteBranch?: boolean,
-  origin?: LayoutOrigin,
 ): Promise<void> {
-  const to = origin?.id ?? null;
   // Through `workspaceOps` (ADR-203), which owes the stats counter and the
   // `projects.changed` broadcast.
-  await deps.workspaceOps.remove(
+  await ctx.deps.workspaceOps.remove(
     projectId,
     worktreePath,
     deleteBranch,
     (step: string) => {
-      if (to === null) {
-        publishRendererBroadcast("projects", "removeWorktreeProgress", step);
-      } else {
-        publishToRenderer(to, "projects", "removeWorktreeProgress", step);
-      }
+      publishToRenderer(
+        ctx.caller.id,
+        "projects",
+        "removeWorktreeProgress",
+        step,
+      );
     },
   );
 }
 
 export function projectsCanQuickMerge(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
   worktreePath: string,
 ): Promise<{ canMerge: boolean; reason?: string }> {
-  return deps.projectManager.canQuickMerge(projectId, worktreePath);
+  return ctx.deps.projectManager.canQuickMerge(projectId, worktreePath);
 }
 
 export async function projectsQuickMergeWorktree(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
   worktreePath: string,
 ): Promise<void> {
-  await deps.workspaceOps.quickMerge(projectId, worktreePath);
+  await ctx.deps.workspaceOps.quickMerge(projectId, worktreePath);
 }
 
 /**
- * Make a worktree, and tell the caller how it is going.
- *
- * The last argument is the caller's identity, appended by the bridge rather
- * than by the frame (`ORIGIN_ARGS`), and `ProjectManager` takes its `id` as
- * the connection its setup progress goes back to — the same window the
- * `event.sender.id` of the old wrapper named, and the same id a layout
- * command's origin carries.
+ * Make a worktree, and tell the caller how it is going: `ProjectManager`
+ * takes the caller's id as the connection its setup progress goes back to.
  */
 export async function projectsCreateWorktree(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
   name: string,
-  branch?: string,
-  linkedIssue?: LinkedIssue,
-  baseBranch?: string,
-  useExistingBranch?: boolean,
-  origin?: LayoutOrigin,
+  opts: Omit<CreateWorktreeOptions, "origin"> = {},
 ): Promise<ProjectInfo | null> {
-  // The renderer runs the setup script itself (its pending setup view may
-  // launch an agent alongside it), so main must not (ADR-203).
-  const { project } = await deps.workspaceOps.create(
+  // Picked field by field rather than spread: `origin` is who asked, and that
+  // is the transport's to say, never the frame's. The renderer runs the setup
+  // script itself (its pending setup view may launch an agent alongside it),
+  // so `workspaceOps` (ADR-203) must not.
+  const { project } = await ctx.deps.workspaceOps.create(
     {
       projectId,
       name,
-      branch,
-      linkedIssue,
-      baseBranch,
-      useExistingBranch,
-      origin: origin?.id ?? null,
+      branch: opts.branch,
+      linkedIssue: opts.linkedIssue,
+      baseBranch: opts.baseBranch,
+      useExistingBranch: opts.useExistingBranch,
+      origin: ctx.caller.id,
     },
     { runSetupScript: false },
   );
@@ -278,103 +262,107 @@ export async function projectsCreateWorktree(
 }
 
 export function projectsConvertMainToWorktree(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
   name: string,
 ): Promise<ProjectInfo | null> {
-  return deps.projectManager.convertMainToWorktree(projectId, name);
+  return ctx.deps.projectManager.convertMainToWorktree(projectId, name);
 }
 
 export function projectsListRemoteBranches(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
 ): Promise<string[]> {
-  return deps.projectManager.listRemoteBranches(projectId);
+  return ctx.deps.projectManager.listRemoteBranches(projectId);
 }
 
 export function projectsListLocalBranches(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
 ): Promise<string[]> {
-  return deps.projectManager.listLocalBranches(projectId);
+  return ctx.deps.projectManager.listLocalBranches(projectId);
 }
 
 export function projectsRenameWorkspace(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
   workspacePath: string,
   newName: string,
 ): void {
-  deps.projectManager.renameWorkspace(projectId, workspacePath, newName);
+  ctx.deps.projectManager.renameWorkspace(projectId, workspacePath, newName);
 }
 
 export function projectsSetWorkspaceHidden(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
   workspacePath: string,
   hidden: boolean,
 ): void {
-  deps.projectManager.setWorkspaceHidden(projectId, workspacePath, hidden);
+  ctx.deps.projectManager.setWorkspaceHidden(projectId, workspacePath, hidden);
 }
 
 export function projectsCreateWorkspaceFolder(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
   name: string,
   parentId?: string | null,
 ): WorkspaceFolder | null {
   assertString(name, "name");
-  return deps.projectManager.createWorkspaceFolder(projectId, name, parentId);
+  return ctx.deps.projectManager.createWorkspaceFolder(
+    projectId,
+    name,
+    parentId ?? null,
+  );
 }
 
 /** Returns false when the move would create a folder cycle (ADR-172). */
 export function projectsSetFolderParent(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
   folderId: string,
   parentId: string | null,
 ): boolean {
-  return deps.projectManager.setFolderParent(projectId, folderId, parentId);
+  return ctx.deps.projectManager.setFolderParent(projectId, folderId, parentId);
 }
 
 export function projectsRenameWorkspaceFolder(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
   folderId: string,
   name: string,
 ): void {
   assertString(name, "name");
-  deps.projectManager.renameWorkspaceFolder(projectId, folderId, name);
+  ctx.deps.projectManager.renameWorkspaceFolder(projectId, folderId, name);
 }
 
 export function projectsDeleteWorkspaceFolder(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
   folderId: string,
 ): void {
-  deps.projectManager.deleteWorkspaceFolder(projectId, folderId);
+  ctx.deps.projectManager.deleteWorkspaceFolder(projectId, folderId);
 }
 
 export function projectsSetWorkspaceFolder(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
   workspacePath: string,
   folderId: string | null,
 ): void {
-  deps.projectManager.setWorkspaceFolder(projectId, workspacePath, folderId);
+  ctx.deps.projectManager.setWorkspaceFolder(projectId, workspacePath, folderId);
 }
 
 /** `orderedKeys` entries may be workspace paths or folder ids (ADR-167). */
 export function projectsReorderWorkspaces(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
   orderedKeys: string[],
 ): void {
-  deps.projectManager.reorderWorkspaces(projectId, orderedKeys);
+  ctx.deps.projectManager.reorderWorkspaces(projectId, orderedKeys);
 }
 
-export function projectsReorder(deps: IpcDeps, orderedIds: string[]): void {
-  deps.projectManager.reorderProjects(orderedIds);
+export function projectsReorder(ctx: HandlerCtx, orderedIds: string[]): void {
+  ctx.deps.projectManager.reorderProjects(orderedIds);
 }
 
 /**
@@ -383,31 +371,31 @@ export function projectsReorder(deps: IpcDeps, orderedIds: string[]): void {
  * nothing else about it changes.
  */
 export function projectsLink(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
   otherId: string,
-): unknown {
+): ReturnType<HostDeps["projectManager"]["linkProjects"]> {
   assertString(projectId, "projectId");
   assertString(otherId, "otherId");
-  return deps.projectManager.linkProjects(projectId, otherId);
+  return ctx.deps.projectManager.linkProjects(projectId, otherId);
 }
 
-export function projectsUnlink(deps: IpcDeps, projectId: string): void {
+export function projectsUnlink(ctx: HandlerCtx, projectId: string): void {
   assertString(projectId, "projectId");
-  deps.projectManager.unlinkProject(projectId);
+  ctx.deps.projectManager.unlinkProject(projectId);
 }
 
-export function projectsUnlinkGroup(deps: IpcDeps, groupId: string): void {
+export function projectsUnlinkGroup(ctx: HandlerCtx, groupId: string): void {
   assertString(groupId, "groupId");
-  deps.projectManager.unlinkGroup(groupId);
+  ctx.deps.projectManager.unlinkGroup(groupId);
 }
 
 /** ADR-192 ticket 2: set a group's shared settings. Returns every member. */
 export function projectsUpdateGroup(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   groupId: unknown,
   updates: unknown,
-): unknown {
+): ReturnType<HostDeps["projectManager"]["updateGroup"]> {
   assertString(groupId, "groupId");
   assertGroupUpdates(updates, "updates");
   const { linearAssociations, ...rest } = updates;
@@ -416,43 +404,102 @@ export function projectsUpdateGroup(
   if (linearAssociations !== undefined) {
     clean.linearAssociations = linearAssociations ?? [];
   }
-  return deps.projectManager.updateGroup(groupId, clean);
+  return ctx.deps.projectManager.updateGroup(groupId, clean);
 }
 
 /** ADR-192: the host the New Workspace picker starts on next time. */
 export function projectsSetGroupLastUsedHost(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   groupId: string,
   hostId: string,
 ): void {
   assertString(groupId, "groupId");
   assertString(hostId, "hostId");
-  deps.projectManager.setGroupLastUsedHost(groupId, hostId);
+  ctx.deps.projectManager.setGroupLastUsedHost(groupId, hostId);
 }
 
 /**
  * ADR-192 ticket 5: projects on other hosts with the same `origin`, to offer
  * as links after an add or clone. Suggests only; never links.
  */
-export function projectsSuggestLinks(deps: IpcDeps, projectId: string): unknown {
+export function projectsSuggestLinks(
+  ctx: HandlerCtx,
+  projectId: string,
+): ReturnType<HostDeps["projectManager"]["suggestLinks"]> {
   assertString(projectId, "projectId");
-  return deps.projectManager.suggestLinks(projectId);
+  return ctx.deps.projectManager.suggestLinks(projectId);
 }
 
 export function projectsDismissLinkSuggestion(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
   otherId: string,
 ): void {
   assertString(projectId, "projectId");
   assertString(otherId, "otherId");
-  deps.projectManager.dismissLinkSuggestion(projectId, otherId);
+  ctx.deps.projectManager.dismissLinkSuggestion(projectId, otherId);
 }
 
 export function projectsUpdate(
-  deps: IpcDeps,
+  ctx: HandlerCtx,
   projectId: string,
   updates: ProjectUpdatableFields,
 ): Promise<ProjectInfo | null> {
-  return deps.projectManager.updateProject(projectId, updates);
+  return ctx.deps.projectManager.updateProject(projectId, updates);
 }
+
+export const projects = {
+  getAll: method(projectsGetAll),
+  getSelectedIndex: method(projectsGetSelectedIndex),
+  select: method(projectsSelect, { mutating: true }),
+  selectWorkspace: method(projectsSelectWorkspace, { mutating: true }),
+  add: method(projectsAdd, { mutating: true }),
+  remove: method(projectsRemove, { mutating: true }),
+  removeWorktree: method(projectsRemoveWorktree, { mutating: true }),
+  // `canQuickMerge` and the two branch listings read.
+  canQuickMerge: method(projectsCanQuickMerge),
+  quickMergeWorktree: method(projectsQuickMergeWorktree, { mutating: true }),
+  createWorktree: method(projectsCreateWorktree, { mutating: true }),
+  convertMainToWorktree: method(projectsConvertMainToWorktree, {
+    mutating: true,
+  }),
+  listRemoteBranches: method(projectsListRemoteBranches),
+  listLocalBranches: method(projectsListLocalBranches),
+  renameWorkspace: method(projectsRenameWorkspace, { mutating: true }),
+  setWorkspaceHidden: method(projectsSetWorkspaceHidden, { mutating: true }),
+  createWorkspaceFolder: method(projectsCreateWorkspaceFolder, {
+    mutating: true,
+  }),
+  setFolderParent: method(projectsSetFolderParent, { mutating: true }),
+  renameWorkspaceFolder: method(projectsRenameWorkspaceFolder, {
+    mutating: true,
+  }),
+  deleteWorkspaceFolder: method(projectsDeleteWorkspaceFolder, {
+    mutating: true,
+  }),
+  setWorkspaceFolder: method(projectsSetWorkspaceFolder, { mutating: true }),
+  reorderWorkspaces: method(projectsReorderWorkspaces, { mutating: true }),
+  reorder: method(projectsReorder, { mutating: true }),
+  update: method(projectsUpdate, { mutating: true }),
+  getRemote: method(projectsGetRemote),
+  // Main's remote-host project lifecycle (ADR-191/194 on main). `clone`'s
+  // progress is the `projects.cloneProgress` broadcast. Each of these moves
+  // a project, a group, or what the sidebar shows.
+  clone: method(projectsClone, { mutating: true }),
+  moveToHost: method(projectsMoveToHost, { mutating: true }),
+  getOriginUrl: method(projectsGetOriginUrl),
+  pathExists: method(projectsPathExists),
+  switchHost: method(projectsSwitchHost, { mutating: true }),
+  // ADR-192: linked project groups.
+  link: method(projectsLink, { mutating: true }),
+  unlink: method(projectsUnlink, { mutating: true }),
+  unlinkGroup: method(projectsUnlinkGroup, { mutating: true }),
+  updateGroup: method(projectsUpdateGroup, { mutating: true }),
+  setGroupLastUsedHost: method(projectsSetGroupLastUsedHost, {
+    mutating: true,
+  }),
+  suggestLinks: method(projectsSuggestLinks),
+  dismissLinkSuggestion: method(projectsDismissLinkSuggestion, {
+    mutating: true,
+  }),
+};

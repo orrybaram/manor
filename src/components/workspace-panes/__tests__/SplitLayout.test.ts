@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.hoisted(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   (window as unknown as { electronAPI: unknown }).electronAPI = {
-    isDetached: false,
+    claim: null,
   };
 });
 
@@ -129,7 +129,9 @@ function visibleLeaves(): string[] {
 
 function render(): void {
   act(() => {
-    root.render(createElement(PaneLayout, { node: ROOT, workspaceKey: WS as WorkspaceKey }));
+    root.render(
+      createElement(PaneLayout, { node: ROOT, tabId: TAB, workspaceKey: WS as WorkspaceKey }),
+    );
   });
 }
 

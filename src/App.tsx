@@ -7,6 +7,7 @@ import {
   lazy,
   Suspense,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import { PaneDragProvider } from "./components/workspace-panes/PaneDragContext";
 import { StatusBar } from "./components/statusbar/StatusBar/StatusBar";
@@ -52,7 +53,7 @@ import {
   runWorkspaceSetupScript,
   type ProjectInfo,
 } from "./store/project-store";
-import { find as findWorkspace, ownerOf } from "./lib/workspace-directory";
+import { ownerOf } from "./lib/workspace-directory";
 import { parseWorkspaceKey, type WorkspaceKey } from "./lib/workspace-key";
 import { appCommandHandlers } from "./lib/app-commands";
 import { handleRecordingCommand } from "./lib/webview-recorder";
@@ -89,16 +90,11 @@ import type { AgentInfo } from "./electron.d";
 import { agentWorkspaceKey, navigateToAgent } from "./utils/agent-navigation";
 import { hasPaneId } from "./lib/layout/pane-tree";
 import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults";
-import {
-  escapeShellDoubleQuoted,
-  isHomePath,
-  HOME_PATH,
-} from "./lib/home";
+import { isHomePath, HOME_PATH } from "./lib/home";
+import { launchAgentInWorkspace } from "./lib/agent-prompt-launch";
 import { isWebApp } from "./lib/platform";
 import { useLayoutMode } from "./hooks/useLayoutMode";
-import { PhoneTopBar } from "./components/phone/PhoneTopBar";
-import { SidebarDrawer } from "./components/phone/SidebarDrawer";
-import { PaneSwitcherSheet } from "./components/phone/PaneSwitcherSheet";
+import { PhoneChrome } from "./components/phone/PhoneChrome";
 import "./App.css";
 
 function App() {
@@ -109,17 +105,10 @@ function App() {
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const [appReady, setAppReady] = useState(false);
   // ADR-181 D2: one hook decides phone vs. desk for every renderer. A
-  // detached window (OWN_CLAIM below) reports its own `isDetached` and the
-  // hook always answers "desk" for it, so both render paths below can share
-  // this single call.
+  // detached window (OWN_CLAIM below) holds a claim, and the hook always
+  // answers "desk" for one, so both render paths below can share this single
+  // call.
   const layoutMode = useLayoutMode();
-  // ADR-181 D3/D4/D5: phone-only chrome state. `PhoneTopBar`'s buttons only
-  // toggle it here — ticket 4 renders the drawer this opens (below), ticket 5
-  // the pane-switcher sheet. The palette button reuses `paletteOpen` below
-  // rather than a state of its own: ticket 6 makes the existing
-  // `CommandPalette` full screen in phone mode, not a second surface.
-  const [phoneDrawerOpen, setPhoneDrawerOpen] = useState(false);
-  const [phonePaneSwitcherOpen, setPhonePaneSwitcherOpen] = useState(false);
 
   // Mirror main's persisted agent activity for Home's timeline and sparklines (ADR-199).
   useMountEffect(() => startAgentActivitySync());
@@ -469,21 +458,6 @@ function App() {
   // command actually changes, not on every unrelated project mutation.
   // By key: a local and a remote project can share a path (ADR-191).
   const activeProject = ownerOf(projects, activeWorkspaceKey);
-  // The phone top bar's centre label (ADR-181 D3). Home is the Dashboard
-  // (ADR-197) and has no workspace record, so it gets the label the sidebar
-  // gives it; a project workspace falls back the same way
-  // `resolveWorkspaceName` (WorkspaceSetupView) does — name, then branch,
-  // then the last path segment — so a workspace with neither still shows
-  // something.
-  const activeWorkspace = activeWorkspaceKey
-    ? findWorkspace(projects, activeWorkspaceKey)?.workspace
-    : undefined;
-  const activeWorkspaceDisplayName = isHomePath(activeWorkspacePath)
-    ? "Dashboard"
-    : activeWorkspace?.name ||
-      activeWorkspace?.branch ||
-      activeWorkspacePath?.split("/").pop() ||
-      "";
   // The launch command for the active project workspace. Shared by prewarming
   // and both new-agent handlers below.
   const activeWorkspaceCommand =
@@ -504,7 +478,7 @@ function App() {
   // Projects mutated outside the renderer (MCP, CLI) — the store never saw the
   // result, so refetch it. Creating a workspace this way must show up in the
   // sidebar without a manual refresh.
-  useEffect(() => window.electronAPI.onProjectsChanged(() => {
+  useEffect(() => window.electronAPI.projects.onChanged(() => {
     void loadProjects();
   }), [loadProjects]);
 
@@ -555,7 +529,7 @@ function App() {
   // `run-setup-script` is the last fire-and-forget straggler, kept here
   // because it needs this component's `runWorkspaceSetupScript`.
   useEffect(() => {
-    const cleanup = window.electronAPI.onAppCommand(
+    const cleanup = window.electronAPI.appCommands.onCommand(
       async ({ cmd, requestId, workspacePath, hostId, script, args }) => {
         if (cmd === "run-setup-script" && workspacePath && script) {
           await loadProjects(); // ensure a freshly-created workspace is visible
@@ -573,9 +547,9 @@ function App() {
           // replying `ok: true` to an unknown cmd hangs main until its timeout.
           if (!handler) throw new Error(`Unknown command: ${cmd}`);
           const data = await handler(args ?? {});
-          window.electronAPI.sendAppCommandResult({ requestId, ok: true, data });
+          void window.electronAPI.appCommands.result({ requestId, ok: true, data });
         } catch (err) {
-          window.electronAPI.sendAppCommandResult({
+          void window.electronAPI.appCommands.result({
             requestId,
             ok: false,
             error: err instanceof Error ? err.message : String(err),
@@ -587,63 +561,55 @@ function App() {
   }, [loadProjects, setActiveWorkspace]);
 
   // Keybindings
-  // One command ID → action map for BOTH the keyboard and the native menu
-  // (ADR-170). The window-agnostic half is shared with the detached-window
-  // renderer (see `keybinding-commands`); the rest either needs this window's
-  // chrome — the callbacks below — or is menu-only. The primary window is the
-  // one that owns the prewarmed session, so it is also the only window that
-  // consumes it for a new agent.
+  // One command ID → action map for the keyboard, the native menu AND the
+  // command palette — `run` over the command table (ADR-170, ADR-182 D10).
+  // The window-agnostic half is shared with the detached-window renderer (see
+  // `keybinding-commands`); the rest needs this window's chrome — the
+  // callbacks below. The primary window is the one that owns the prewarmed
+  // session, so it is also the only window that consumes it for a new agent.
+  //
+  // A detached window shows one tab and none of the primary's chrome (D4), so
+  // its map holds only the table's `scope: "any"` commands, and a combo bound
+  // to the sidebar, the palette or settings runs in the primary window
+  // instead of silently doing nothing here: the dispatcher finds no handler
+  // and the fallback forwards the command.
   const menuHandlersRef = useRef<Record<string, MenuHandler>>({});
-  menuHandlersRef.current = createMenuHandlers({
-    openSettings: (page) => {
-      // Deep links open the page they name; the bare command (⌘, and the app
-      // menu's Settings… item) keeps toggling, as the keybinding always did.
-      if (page) {
-        handleOpenSettings(page);
-        return;
-      }
-      setSettingsPage(null);
-      setSettingsOpen((v) => !v);
+  menuHandlersRef.current = createMenuHandlers(
+    {
+      openSettings: (page) => {
+        // Deep links open the page they name; the bare command (⌘, and the
+        // app menu's Settings… item) keeps toggling, as the keybinding always
+        // did.
+        if (page) {
+          handleOpenSettings(page);
+          return;
+        }
+        setSettingsPage(null);
+        setSettingsOpen((v) => !v);
+      },
+      togglePalette: () => {
+        setPaletteOrigin("shortcut");
+        setPaletteOpen((v) => !v);
+      },
+      openPaletteView: handleOpenPaletteView,
+      openNewWorkspace: () => setNewWorkspaceOpen(true),
+      addProject: () => void handleAddProject(),
+      openFeedback: handleOpenFeedback,
+      openAgents: () => setAgentsOpen(true),
+      openProjectSettings: handleOpenProjectSettings,
+      resumeAgent: (agentId) => {
+        // The menu only carries the id; resuming needs the whole record.
+        const agent = useAgentStore
+          .getState()
+          .agents.find((a) => a.id === agentId);
+        if (agent) void handleResumeAgent(agent);
+      },
+      showGhosts: triggerGhosts,
     },
-    togglePalette: () => {
-      setPaletteOrigin("shortcut");
-      setPaletteOpen((v) => !v);
-    },
-    openPaletteView: handleOpenPaletteView,
-    openNewWorkspace: () => setNewWorkspaceOpen(true),
-    addProject: () => void handleAddProject(),
-    openFeedback: handleOpenFeedback,
-    openAgents: () => setAgentsOpen(true),
-    openProjectSettings: handleOpenProjectSettings,
-    resumeAgent: (agentId) => {
-      // The menu only carries the id; resuming needs the whole record.
-      const agent = useAgentStore
-        .getState()
-        .agents.find((a) => a.id === agentId);
-      if (agent) void handleResumeAgent(agent);
-    },
-    showGhosts: triggerGhosts,
-  });
-
-  // The palette runs the same map, so its entries can't drift from the menu's.
-  const runPaletteCommand = useCallback(
-    (commandId: string) => menuHandlersRef.current[commandId]?.(),
-    [],
+    { primary: !OWN_CLAIM },
   );
 
-  // A detached window shows one tab and none of the primary's chrome (D4), so
-  // a combo bound to the sidebar, the palette or settings runs in the primary
-  // window instead of silently doing nothing here. Both halves are needed: the
-  // handler is withheld so the dispatcher looks for a fallback, and the
-  // fallback forwards the command.
-  const localHandlers = useCallback((): Record<string, MenuHandler> => {
-    if (!OWN_CLAIM) return menuHandlersRef.current;
-    const handlers: Record<string, MenuHandler> = {};
-    for (const [id, handler] of Object.entries(menuHandlersRef.current)) {
-      if (!MAIN_WINDOW_KEYBINDINGS.has(id)) handlers[id] = handler;
-    }
-    return handlers;
-  }, []);
+  const localHandlers = useCallback(() => menuHandlersRef.current, []);
   const dispatchOptions = useMemo(
     () =>
       OWN_CLAIM
@@ -656,6 +622,12 @@ function App() {
           }
         : {},
     [],
+  );
+  // The palette runs its table items through the same map.
+  const runCommand = useCallback(
+    (commandId: string, args?: Record<string, unknown>) =>
+      dispatchMenuCommand({ commandId, args }, localHandlers()),
+    [localHandlers],
   );
 
   useMountEffect(() => {
@@ -769,16 +741,16 @@ function App() {
   const handleNewAgentWithPrompt = useCallback(
     (prompt: string) => {
       if (!activeWorkspacePath) return;
-      const escaped = escapeShellDoubleQuoted(prompt);
       // Don't consume prewarmed — it has the base agent command running,
       // but we need a different command with the prompt argument.
-      useAppStore
-        .getState()
-        .addTerminalTab(`${activeWorkspaceCommand} "${escaped}"`, {
-          kind: "agent-startup",
-        });
+      // `launchAgentInWorkspace` flattens the prompt (ADR-176) before
+      // building the launch line, which hand-rolling it here skipped.
+      launchAgentInWorkspace(activeWorkspacePath, {
+        prompt,
+        hostId: activeWorkspaceHostId,
+      });
     },
-    [activeWorkspacePath, activeWorkspaceCommand],
+    [activeWorkspacePath, activeWorkspaceHostId],
   );
 
   // A detached window's one panel: the one holding the tab it claims, in this
@@ -805,272 +777,227 @@ function App() {
   // where "Move Back to Main Window" lives — and the panel tree around it
   // belongs to the primary, which is still showing every other tab of the
   // same workspace.
+  let content: ReactNode;
   if (OWN_CLAIM) {
-    return (
-      <TooltipProvider>
-        <div className="app" data-layout={layoutMode}>
-          {claimPanelId ? (
-            <div className="app-body">
-              <PaneDragProvider>
-                <div className="main-content main-content--gutter-left main-content--gutter-bottom">
-                  <PanelLayout
-                    node={{ type: "leaf", panelId: claimPanelId }}
-                    workspaceKey={OWN_CLAIM.workspacePath as WorkspaceKey}
+    content = claimPanelId ? (
+      <div className="app-body">
+        <PaneDragProvider>
+          <div className="main-content main-content--gutter-left main-content--gutter-bottom">
+            <PanelLayout
+              node={{ type: "leaf", panelId: claimPanelId }}
+              workspaceKey={OWN_CLAIM.workspacePath as WorkspaceKey}
+              onNewAgent={handleNewAgent}
+            />
+          </div>
+        </PaneDragProvider>
+      </div>
+    ) : (
+      // The tab is not here yet (the first broadcast is in flight) or
+      // not here any more — in which case the store has already asked
+      // this window to close.
+      <div className="splash-screen" style={{ flex: 1 }}>
+        <div className="drag-region" />
+        <div className="splash-logo">
+          <ManorLogo />
+        </div>
+      </div>
+    );
+  } else {
+    content = (
+      <>
+          <div
+            className="app-body"
+            style={layoutMode === "desk" ? appBodyStyle : undefined}
+            data-sidebar-animating={sidebarAnimating || undefined}
+          >
+            {/* One column for every sidebar mode, so a mode change animates its
+                width instead of swapping views at a new size. ADR-181 D3: in
+                phone mode the sidebar is a drawer instead, never rendered inline
+                — it would eat the whole screen at phone width. */}
+            {hasProjects && layoutMode === "desk" && (
+              <div
+                className="sidebar-column"
+                style={{ width: sidebarColumnWidth(sidebarMode, sidebarWidth) }}
+              >
+                {sidebarMode === "rail" && (
+                  <SidebarRail
+                    onShowAgents={() => setAgentsOpen(true)}
+                    onOpenProjectSettings={handleOpenProjectSettings}
+                    onOpenSearch={openPalette}
+                  />
+                )}
+                {sidebarMode === "full" && (
+                  <Sidebar
+                    onShowAgents={() => setAgentsOpen(true)}
+                    onOpenProjectSettings={handleOpenProjectSettings}
+                    onAddProject={handleAddProject}
+                    onOpenSearch={openPalette}
+                  />
+                )}
+              </div>
+            )}
+            <PaneDragProvider>
+              <div
+                className={`main-content ${hasProjects && layoutMode === "desk" ? "" : "main-content--gutter-left"}`}
+              >
+                {/* ADR-181 D3: the phone shell — top bar, sidebar drawer and pane
+                    switcher — sits around the workspace stack, not inside it. */}
+                {layoutMode === "phone" && (
+                  <PhoneChrome
+                    onShowAgents={() => setAgentsOpen(true)}
+                    onOpenProjectSettings={handleOpenProjectSettings}
+                    onAddProject={handleAddProject}
+                    onOpenPalette={() => {
+                      // The phone's command surface (ADR-181 D5), so it opens
+                      // scoped like the keyboard shortcut, not the search box.
+                      setPaletteOrigin("shortcut");
+                      setPaletteOpen(true);
+                    }}
+                  />
+                )}
+                {/* Every workspace renders through the same PanelLayout in a single
+                    positioned stack, active or not. Inactive ones are only hidden,
+                    never unmounted or re-parented, so their terminals keep the exact
+                    pixel box the active workspace has. Any geometry difference here
+                    resizes the PTY on every workspace switch, and a SIGWINCH makes
+                    full-screen TUIs repaint their frame into the scrollback — which
+                    shows up as the same output duplicated over and over. */}
+                <div className="workspace-stack">
+                  {/* `workspaceLayouts` is keyed by `WorkspaceKey` (ADR-191). */}
+                  <WorkspaceStack
+                    visibleKey={
+                      hasTabs && !showOnboarding && !showTasksView ? activeWorkspaceKey : null
+                    }
                     onNewAgent={handleNewAgent}
                   />
+                  {(showOnboarding || showTasksView || !(activeWorkspacePath && hasTabs)) && (
+                    <div className="empty-surface">
+                      <div className="drag-region" />
+                      <div className="terminal-container">
+                        {wizardStillValid && wizardProjectId
+                          ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
+                          : showOnboarding
+                          ? <Onboarding onAddLocal={handleAddLocalProject} onClone={handleCloneRepository} />
+                          : showTasksView
+                          ? <TasksView onNewWorkspace={handleNewWorkspace} onOpenPaletteView={handleOpenPaletteView} />
+                          : !hasTabs &&
+                            (isHomePath(activeWorkspacePath)
+                              ? (
+                                  <HomeEmptyState onNewWorkspace={handleNewWorkspace} />
+                                )
+                              : <WorkspaceEmptyState onOpenPaletteView={handleOpenPaletteView} onNewWorkspace={handleNewWorkspace} />)}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </PaneDragProvider>
-            </div>
-          ) : (
-            // The tab is not here yet (the first broadcast is in flight) or
-            // not here any more — in which case the store has already asked
-            // this window to close.
-            <div className="splash-screen" style={{ flex: 1 }}>
-              <div className="drag-region" />
-              <div className="splash-logo">
-                <ManorLogo />
+                {/* ADR-181 D3: no status bar in phone mode — the top bar and the
+                    palette are the phone's chrome. */}
+                {layoutMode === "desk" && (
+                  <StatusBar
+                    onNewWorkspace={handleNewWorkspace}
+                    onNewAgentWithPrompt={handleNewAgentWithPrompt}
+                    onOpenStats={handleOpenStats}
+                  />
+                )}
               </div>
-            </div>
-          )}
-          <CloseAgentPaneDialog
-            open={pendingCloseConfirmPaneId !== null}
-            onOpenChange={(open) => {
-              if (!open) setPendingCloseConfirmPaneId(null);
-            }}
-            onConfirm={() => {
-              if (pendingCloseConfirmPaneId !== null) {
-                closePaneById(pendingCloseConfirmPaneId);
-                setPendingCloseConfirmPaneId(null);
-              }
-            }}
-          />
-          <CloseAgentPaneDialog
-            open={pendingCloseConfirmTabId !== null}
-            onOpenChange={(open) => {
-              if (!open) setPendingCloseConfirmTabId(null);
-            }}
-            onConfirm={() => {
-              if (pendingCloseConfirmTabId !== null) {
-                closeTab(pendingCloseConfirmTabId);
-                setPendingCloseConfirmTabId(null);
-              }
-            }}
-          />
-          <ToastContainer />
-        </div>
-      </TooltipProvider>
+            </PaneDragProvider>
+            {/* The top-left and top-right controls (ADR-196). Not shown before the first
+                project: the onboarding overview has no sidebar to toggle or
+                history to walk, and its drag region clears the traffic lights.
+                Rendered last on purpose: Electron resolves overlapping
+                `-webkit-app-region`s in DOM order, so when the lead overlaps the
+                top-left tab bar (rail and hidden modes) its buttons must come
+                after the bar's drag region or clicks on them never arrive. */}
+            {hasProjects && layoutMode === "desk" && <WindowLead />}
+          </div>
+          <Suspense fallback={null}>
+            <CommandPalette
+              open={paletteOpen}
+              origin={paletteOrigin}
+              onClose={closePalette}
+              onOpenSettings={handleOpenSettings}
+              onNewWorkspace={handleNewWorkspace}
+              initialView={paletteInitialView}
+              initialIssueId={paletteInitialIssueId}
+              initialGitHubIssueNumber={paletteInitialGitHubIssueNumber}
+              onResumeAgent={handleResumeAgent}
+              onViewAllAgents={() => setAgentsOpen(true)}
+              onNewAgent={handleNewAgent}
+              onNewAgentWithPrompt={handleNewAgentWithPrompt}
+              onRunCommand={runCommand}
+            />
+            <SettingsModal
+              open={settingsOpen}
+              onClose={closeSettings}
+              initialProjectId={settingsProjectId}
+              initialPage={settingsPage}
+              initialSection={settingsSection}
+            />
+            <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+            <AgentsModal
+              open={agentsOpen}
+              onClose={closeAgents}
+              onResumeAgent={handleResumeAgent}
+            />
+            <AddProjectDialog
+              open={addProjectDialogOpen}
+              onClose={closeAddProjectDialog}
+              initialMode={addProjectDialogMode}
+              onAddLocal={handleAddLocalProject}
+              onLocalProjectCloned={handleLocalProjectCloned}
+              onRemoteProjectAdded={handleRemoteProjectAdded}
+            />
+            <NewWorkspaceDialog
+              open={newWorkspaceOpen}
+              onClose={closeNewWorkspace}
+              projects={projects}
+              selectedProjectIndex={selectedProjectIndex}
+              preselectedProjectId={preselectedProjectId}
+              initialName={initialName}
+              initialBranch={initialBranch}
+              onSubmit={async (projectId, name, branch, baseBranch, useExistingBranch, folderId) => {
+                let agentCommand: string | undefined;
+                const prompt = agentPromptRef.current;
+                if (prompt) {
+                  const project = projects.find((p) => p.id === projectId);
+                  const baseCommand =
+                    project?.agentCommand ?? DEFAULT_AGENT_COMMAND;
+                  const escaped = prompt
+                    .replace(/\\/g, "\\\\")
+                    .replace(/"/g, '\\"')
+                    .replace(/\$/g, "\\$")
+                    .replace(/`/g, "\\`")
+                    .replace(/!/g, "\\!");
+                  agentCommand = `${baseCommand} "${escaped}"`;
+                }
+                const result = await createWorktree(projectId, name, {
+                  branch,
+                  agentCommand,
+                  linkedIssue: pendingLinkedIssueRef.current ?? undefined,
+                  baseBranch,
+                  useExistingBranch,
+                });
+                if (result) {
+                  if (folderId) {
+                    await placeNewWorkspaceInFolder(projectId, result, folderId);
+                  }
+                  // Ensure the project is selected so the new workspace is visible
+                  const projIdx = useProjectStore.getState().projects.findIndex((p) => p.id === projectId);
+                  if (projIdx >= 0) selectProject(projIdx);
+                  setNewWorkspaceOpen(false);
+                }
+                return !!result;
+              }}
+            />
+          </Suspense>
+      </>
     );
   }
 
   return (
     <TooltipProvider>
     <div className="app" data-layout={layoutMode}>
-      <div
-        className="app-body"
-        style={layoutMode === "desk" ? appBodyStyle : undefined}
-        data-sidebar-animating={sidebarAnimating || undefined}
-      >
-        {/* One column for every sidebar mode, so a mode change animates its
-            width instead of swapping views at a new size. ADR-181 D3: in
-            phone mode the sidebar is a drawer instead, never rendered inline
-            — it would eat the whole screen at phone width. */}
-        {hasProjects && layoutMode === "desk" && (
-          <div
-            className="sidebar-column"
-            style={{ width: sidebarColumnWidth(sidebarMode, sidebarWidth) }}
-          >
-            {sidebarMode === "rail" && (
-              <SidebarRail
-                onShowAgents={() => setAgentsOpen(true)}
-                onOpenProjectSettings={handleOpenProjectSettings}
-                onOpenSearch={openPalette}
-              />
-            )}
-            {sidebarMode === "full" && (
-              <Sidebar
-                onShowAgents={() => setAgentsOpen(true)}
-                onOpenProjectSettings={handleOpenProjectSettings}
-                onAddProject={handleAddProject}
-                onOpenSearch={openPalette}
-              />
-            )}
-          </div>
-        )}
-        {layoutMode === "phone" && (
-          <SidebarDrawer
-            open={phoneDrawerOpen}
-            onOpenChange={setPhoneDrawerOpen}
-            onShowAgents={() => setAgentsOpen(true)}
-            onOpenProjectSettings={handleOpenProjectSettings}
-            onAddProject={handleAddProject}
-          />
-        )}
-        {/* ADR-181 D3/D4/ticket 5: the pane switcher — with no swipe, this and
-            the tab strip are the only ways a phone moves between panes. A
-            sibling of the workspace stack, like the sidebar drawer, so it
-            cannot affect any pane's geometry. */}
-        {layoutMode === "phone" && (
-          <PaneSwitcherSheet
-            open={phonePaneSwitcherOpen}
-            onOpenChange={setPhonePaneSwitcherOpen}
-          />
-        )}
-        <PaneDragProvider>
-          <div
-            className={`main-content ${hasProjects && layoutMode === "desk" ? "" : "main-content--gutter-left"}`}
-          >
-            {/* ADR-181 D3: the phone top bar sits around the workspace stack,
-                not inside it — a sibling here, like the sidebar and status
-                bar, so nothing about the split components' element tree
-                changes and a pane switch still remounts nothing. */}
-            {layoutMode === "phone" && (
-              <PhoneTopBar
-                workspaceName={activeWorkspaceDisplayName}
-                onToggleDrawer={() => setPhoneDrawerOpen((v) => !v)}
-                onOpenPaneSwitcher={() => setPhonePaneSwitcherOpen(true)}
-                onOpenPalette={() => {
-                  // The phone's command surface (ADR-181 D5), so it opens
-                  // scoped like the keyboard shortcut, not the search box.
-                  setPaletteOrigin("shortcut");
-                  setPaletteOpen(true);
-                }}
-              />
-            )}
-            {/* Every workspace renders through the same PanelLayout in a single
-                positioned stack, active or not. Inactive ones are only hidden,
-                never unmounted or re-parented, so their terminals keep the exact
-                pixel box the active workspace has. Any geometry difference here
-                resizes the PTY on every workspace switch, and a SIGWINCH makes
-                full-screen TUIs repaint their frame into the scrollback — which
-                shows up as the same output duplicated over and over. */}
-            <div className="workspace-stack">
-              {/* `workspaceLayouts` is keyed by `WorkspaceKey` (ADR-191). */}
-              <WorkspaceStack
-                visibleKey={
-                  hasTabs && !showOnboarding && !showTasksView ? activeWorkspaceKey : null
-                }
-                onNewAgent={handleNewAgent}
-              />
-              {(showOnboarding || showTasksView || !(activeWorkspacePath && hasTabs)) && (
-                <div className="empty-surface">
-                  <div className="drag-region" />
-                  <div className="terminal-container">
-                    {wizardStillValid && wizardProjectId
-                      ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
-                      : showOnboarding
-                      ? <Onboarding onAddLocal={handleAddLocalProject} onClone={handleCloneRepository} />
-                      : showTasksView
-                      ? <TasksView onNewWorkspace={handleNewWorkspace} onOpenPaletteView={handleOpenPaletteView} />
-                      : !hasTabs &&
-                        (isHomePath(activeWorkspacePath)
-                          ? (
-                              <HomeEmptyState onNewWorkspace={handleNewWorkspace} />
-                            )
-                          : <WorkspaceEmptyState onOpenPaletteView={handleOpenPaletteView} onNewWorkspace={handleNewWorkspace} />)}
-                  </div>
-                </div>
-              )}
-            </div>
-            {/* ADR-181 D3: no status bar in phone mode — the top bar and the
-                palette are the phone's chrome. */}
-            {layoutMode === "desk" && (
-              <StatusBar
-                onNewWorkspace={handleNewWorkspace}
-                onNewAgentWithPrompt={handleNewAgentWithPrompt}
-                onOpenStats={handleOpenStats}
-              />
-            )}
-          </div>
-        </PaneDragProvider>
-        {/* The top-left and top-right controls (ADR-196). Not shown before the first
-            project: the onboarding overview has no sidebar to toggle or
-            history to walk, and its drag region clears the traffic lights.
-            Rendered last on purpose: Electron resolves overlapping
-            `-webkit-app-region`s in DOM order, so when the lead overlaps the
-            top-left tab bar (rail and hidden modes) its buttons must come
-            after the bar's drag region or clicks on them never arrive. */}
-        {hasProjects && layoutMode === "desk" && <WindowLead />}
-      </div>
-      <Suspense fallback={null}>
-        <CommandPalette
-          open={paletteOpen}
-          origin={paletteOrigin}
-          onClose={closePalette}
-          onOpenSettings={handleOpenSettings}
-          onOpenFeedback={handleOpenFeedback}
-          onNewWorkspace={handleNewWorkspace}
-          initialView={paletteInitialView}
-          initialIssueId={paletteInitialIssueId}
-          initialGitHubIssueNumber={paletteInitialGitHubIssueNumber}
-          onResumeAgent={handleResumeAgent}
-          onViewAllAgents={() => setAgentsOpen(true)}
-          onNewAgent={handleNewAgent}
-          onNewAgentWithPrompt={handleNewAgentWithPrompt}
-          runCommand={runPaletteCommand}
-        />
-        <SettingsModal
-          open={settingsOpen}
-          onClose={closeSettings}
-          initialProjectId={settingsProjectId}
-          initialPage={settingsPage}
-          initialSection={settingsSection}
-        />
-        <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
-        <AgentsModal
-          open={agentsOpen}
-          onClose={closeAgents}
-          onResumeAgent={handleResumeAgent}
-        />
-        <AddProjectDialog
-          open={addProjectDialogOpen}
-          onClose={closeAddProjectDialog}
-          initialMode={addProjectDialogMode}
-          onAddLocal={handleAddLocalProject}
-          onLocalProjectCloned={handleLocalProjectCloned}
-          onRemoteProjectAdded={handleRemoteProjectAdded}
-        />
-        <NewWorkspaceDialog
-          open={newWorkspaceOpen}
-          onClose={closeNewWorkspace}
-          projects={projects}
-          selectedProjectIndex={selectedProjectIndex}
-          preselectedProjectId={preselectedProjectId}
-          initialName={initialName}
-          initialBranch={initialBranch}
-          onSubmit={async (projectId, name, branch, baseBranch, useExistingBranch, folderId) => {
-            let agentCommand: string | undefined;
-            const prompt = agentPromptRef.current;
-            if (prompt) {
-              const project = projects.find((p) => p.id === projectId);
-              const baseCommand =
-                project?.agentCommand ?? DEFAULT_AGENT_COMMAND;
-              const escaped = prompt
-                .replace(/\\/g, "\\\\")
-                .replace(/"/g, '\\"')
-                .replace(/\$/g, "\\$")
-                .replace(/`/g, "\\`")
-                .replace(/!/g, "\\!");
-              agentCommand = `${baseCommand} "${escaped}"`;
-            }
-            const result = await createWorktree(projectId, name, branch, {
-              agentCommand,
-              linkedIssue: pendingLinkedIssueRef.current ?? undefined,
-              baseBranch,
-              useExistingBranch,
-            });
-            if (result) {
-              if (folderId) {
-                await placeNewWorkspaceInFolder(projectId, result, folderId);
-              }
-              // Ensure the project is selected so the new workspace is visible
-              const projIdx = useProjectStore.getState().projects.findIndex((p) => p.id === projectId);
-              if (projIdx >= 0) selectProject(projIdx);
-              setNewWorkspaceOpen(false);
-            }
-            return !!result;
-          }}
-        />
-      </Suspense>
+      {content}
       <CloseAgentPaneDialog
         open={pendingCloseConfirmPaneId !== null}
         onOpenChange={(open) => {
@@ -1096,7 +1023,7 @@ function App() {
         }}
       />
       <ToastContainer />
-      {showGhosts && <GhostsOverlay />}
+      {!OWN_CLAIM && showGhosts && <GhostsOverlay />}
     </div>
     </TooltipProvider>
   );

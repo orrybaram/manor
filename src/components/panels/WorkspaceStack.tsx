@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { selectWorkspaceKeys, useAppStore } from "../../store/app-store";
+import { useAppStore } from "../../store/app-store";
 import type { WorkspaceKey } from "../../lib/workspace-key";
 import { TAB_HIDDEN_STYLE, TAB_VISIBLE_STYLE } from "../../lib/tab-styles";
 import { PanelLayout } from "./PanelLayout";
@@ -12,7 +12,11 @@ type WorkspaceStackProps = {
 };
 
 /**
- * Every workspace's panel tree, one hidden layer each. Selects only the keys:
+ * Every workspace this window has opened, its panel tree one hidden layer
+ * each — only an opened one renders at all, because mounting a pane creates
+ * its PTY (ADR-182 D9: the layout map holds every workspace the server has
+ * told this window about, `mountedWorkspaces` which of them it renders).
+ * Selects only the keys:
  * each layer selects its own tree, so a layout change in one workspace
  * re-renders only that workspace, not every mounted one.
  */
@@ -21,7 +25,13 @@ export const WorkspaceStack = memo(function WorkspaceStack(
 ) {
   const { visibleKey, onNewAgent } = props;
 
-  const keys = useAppStore(useShallow(selectWorkspaceKeys));
+  const keys = useAppStore(
+    useShallow((s) =>
+      (Object.keys(s.mountedWorkspaces) as WorkspaceKey[]).filter(
+        (key) => s.workspaceLayouts[key] !== undefined,
+      ),
+    ),
+  );
   return keys.map((key) => (
     <WorkspacePanelTree
       key={key}

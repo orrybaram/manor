@@ -50,6 +50,17 @@ export function useMiniTerminal(
   const paneIdRef = useRef<string>("");
   const cleanupFnsRef = useRef<(() => void)[]>([]);
 
+  // Follow the theme store rather than snapshotting it at start(): the setup
+  // view mounts in the same tick that a project switch kicks off its async
+  // theme load, so the theme at mount can belong to the previous project.
+  const prevThemeRef = useRef(theme);
+  if (theme !== prevThemeRef.current) {
+    prevThemeRef.current = theme;
+    if (termRef.current && theme) {
+      termRef.current.options.theme = themeToXterm(theme);
+    }
+  }
+
   const cleanup = useCallback(() => {
     cleanupFnsRef.current.forEach((fn) => fn());
     cleanupFnsRef.current = [];
@@ -83,7 +94,9 @@ export function useMiniTerminal(
     const container = containerRef.current;
     if (!container) return;
 
-    const xtermTheme = theme ? themeToXterm(theme) : undefined;
+    // Read at creation time, not from the closure — start() is captured on mount.
+    const currentTheme = useThemeStore.getState().theme;
+    const xtermTheme = currentTheme ? themeToXterm(currentTheme) : undefined;
 
     const term = new Terminal(
       terminalOptions({
@@ -171,7 +184,7 @@ export function useMiniTerminal(
       onExit?.();
     });
     cleanupFnsRef.current.push(unsubExit);
-  }, [sessionId, cwd, command, interactive, onOutput, onExit, exitOnComplete, attach, theme, containerRef]);
+  }, [sessionId, cwd, command, interactive, onOutput, onExit, exitOnComplete, attach, containerRef]);
 
   return { start, cleanup, termRef };
 }

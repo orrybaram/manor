@@ -1,4 +1,4 @@
-import { execSync } from "child_process";
+import { execFileSync, execSync } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -38,6 +38,7 @@ export const test = base.extend<{
     await use(tempHome);
 
     await killDaemons(tempHome);
+    killLeftovers(tempHome);
     await removeTempHome(tempHome);
   },
 
@@ -129,6 +130,18 @@ function readPid(file: string): number | null {
     return Number.isInteger(pid) && pid > 0 ? pid : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Kill whatever else the run left alive out of reach of `killApp`'s group
+ * kill — on Linux, Electron's crashpad handler moves into its own session.
+ */
+function killLeftovers(tempHome: string): void {
+  try {
+    execFileSync("pkill", ["-KILL", "-f", tempHome], { stdio: "ignore" });
+  } catch {
+    /* nothing matched */
   }
 }
 
@@ -301,16 +314,19 @@ export async function killApp(app: ElectronApplication): Promise<void> {
   const electronProcess = app.process();
   const pid = electronProcess.pid;
 
-  const closed = new Promise<void>((resolve) => {
+  // 'exit', not 'close': on Linux, Electron's crashpad handler moves into its
+  // own session holding the app's stdout/stderr, so the group kill below
+  // misses it and the pipes — and with them 'close' — never end.
+  const exited = new Promise<void>((resolve) => {
     if (
       electronProcess.exitCode !== null ||
       electronProcess.signalCode !== null
     ) {
       // Already exited — resolve after the current tick so Playwright's own
-      // 'close' listener (registered before ours) has had a chance to run.
+      // listener (registered before ours) has had a chance to run.
       setImmediate(resolve);
     } else {
-      electronProcess.once("close", () => setImmediate(resolve));
+      electronProcess.once("exit", () => setImmediate(resolve));
     }
   });
 
@@ -333,7 +349,7 @@ export async function killApp(app: ElectronApplication): Promise<void> {
     }
   }
 
-  await closed;
+  await exited;
 }
 
 /**
@@ -374,7 +390,7 @@ export async function importSeededProject(
 
 /** Open a terminal tab and wait for its pane to be the only visible one. */
 export async function openTerminalTab(window: Page): Promise<void> {
-  await window.keyboard.press("Meta+t");
+  await window.keyboard.press("ControlOrMeta+t");
   await expect(
     window.locator('[data-testid="terminal-pane"]').first(),
   ).toBeVisible({ timeout: 30_000 });
@@ -408,7 +424,7 @@ export async function createWorkspace(
   window: Page,
   name: string,
 ): Promise<void> {
-  await window.keyboard.press("Meta+Shift+n");
+  await window.keyboard.press("ControlOrMeta+Shift+n");
   const dialog = window.locator('[data-testid="new-workspace-dialog"]');
   await expect(dialog).toBeVisible({ timeout: 5_000 });
   await window.locator('[data-testid="new-workspace-name-input"]').fill(name);

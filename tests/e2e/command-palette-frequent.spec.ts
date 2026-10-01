@@ -5,8 +5,8 @@ import { Filmstrip } from "./helpers/filmstrip";
 /**
  * The command palette pins the commands a user runs most often at the top of
  * its root view, in a "Frequently Used" group. The group is ranked by how many
- * times each command has been picked, exists only while the search box is
- * empty, and survives a reload because usage is persisted.
+ * times each command has been picked, narrows to the matching commands while
+ * searching, and survives a reload because usage is persisted.
  */
 
 const FREQUENT_HEADING = "Frequently Used";
@@ -25,7 +25,7 @@ const frequentGroup = (window: Page) =>
   });
 
 async function openPalette(window: Page): Promise<void> {
-  await window.keyboard.press("Meta+k");
+  await window.keyboard.press("ControlOrMeta+k");
   await expect(paletteInput(window)).toBeVisible();
 }
 

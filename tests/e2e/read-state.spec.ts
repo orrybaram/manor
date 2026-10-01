@@ -77,7 +77,7 @@ async function openTabAwayFrom(
   window: Page,
   hiddenPaneId: string,
 ): Promise<void> {
-  await window.keyboard.press("Meta+t");
+  await window.keyboard.press("ControlOrMeta+t");
   await expectPaneHidden(window, hiddenPaneId);
   await assertVisiblePaneCount(window, 1);
 }

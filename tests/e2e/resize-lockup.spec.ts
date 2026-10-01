@@ -22,7 +22,7 @@ async function onScreenMatches(
   needle: string,
 ): Promise<number> {
   await window.locator('[data-testid="terminal-pane"]:visible').first().click();
-  await window.keyboard.press("Meta+f");
+  await window.keyboard.press("ControlOrMeta+f");
   const input = window.getByPlaceholder("Search terminal");
   await expect(input).toBeVisible({ timeout: 5_000 });
   await input.fill(needle);

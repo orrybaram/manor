@@ -283,24 +283,24 @@ test.describe("regions", () => {
   }) => {
     const { wsPath } = await boot(app, window, tempHome, "ws-direct");
 
-    await window.keyboard.press("Meta+Shift+e");
+    await window.keyboard.press("ControlOrMeta+Shift+e");
     await expect.poll(() => focusedRowPath(window), FOCUS).toBe(wsPath);
     await expect.poll(() => focusedRowIsCurrent(window), FOCUS).toBe(true);
 
-    await window.keyboard.press("Meta+Shift+y");
+    await window.keyboard.press("ControlOrMeta+Shift+y");
     await expect.poll(() => selectedTabFocused(window), FOCUS).toBe(true);
 
     // Sidebar hidden: ⌘⇧E brings it back and focuses the row.
-    await window.keyboard.press("Meta+Shift+\\");
+    await window.keyboard.press("ControlOrMeta+Shift+\\");
     await expect(window.getByTestId("home-row")).toHaveCount(0, FOCUS);
-    await window.keyboard.press("Meta+Shift+e");
+    await window.keyboard.press("ControlOrMeta+Shift+e");
     await expect(window.getByTestId("home-row")).toBeVisible(FOCUS);
     await expect.poll(() => focusedRowPath(window), FOCUS).toBe(wsPath);
 
     // Sidebar hidden: ⌘⇧Y still reaches the tab bar.
-    await window.keyboard.press("Meta+Shift+\\");
+    await window.keyboard.press("ControlOrMeta+Shift+\\");
     await expect(window.getByTestId("home-row")).toHaveCount(0, FOCUS);
-    await window.keyboard.press("Meta+Shift+y");
+    await window.keyboard.press("ControlOrMeta+Shift+y");
     await expect.poll(() => selectedTabFocused(window), FOCUS).toBe(true);
   });
 });
@@ -320,7 +320,7 @@ test.describe("sidebar", () => {
   }) => {
     const { mainPath, wsPath } = await boot(app, window, tempHome, "ws-nav");
 
-    await window.keyboard.press("Meta+Shift+e");
+    await window.keyboard.press("ControlOrMeta+Shift+e");
     await expect.poll(() => focusedRowPath(window), FOCUS).toBe(wsPath);
 
     await window.keyboard.press("ArrowUp");
@@ -386,7 +386,7 @@ test.describe("sidebar", () => {
     const mainRow = workspaceRow(window, mainPath);
     const wsRow = workspaceRow(window, wsPath);
 
-    await window.keyboard.press("Meta+Shift+e");
+    await window.keyboard.press("ControlOrMeta+Shift+e");
     await expect.poll(() => focusedRowPath(window), FOCUS).toBe(wsPath);
 
     // Enter on the non-active row opens it; no rename.
@@ -409,7 +409,7 @@ test.describe("sidebar", () => {
     const before = await visibleTabs(window).count();
     await window.keyboard.press("F2");
     await expect(wsRow.getByTestId("workspace-name-input")).toBeVisible(FOCUS);
-    await window.keyboard.press("Meta+t");
+    await window.keyboard.press("ControlOrMeta+t");
     await expect(visibleTabs(window)).toHaveCount(before + 1, FOCUS);
   });
 
@@ -422,7 +422,7 @@ test.describe("sidebar", () => {
     const { mainPath } = await boot(app, window, tempHome, "ws-collapse");
     const rows = workspaceRows(window);
 
-    await window.keyboard.press("Meta+Shift+e");
+    await window.keyboard.press("ControlOrMeta+Shift+e");
     await window.keyboard.press("ArrowUp");
     await expect.poll(() => focusedRowPath(window), FOCUS).toBe(mainPath);
     await window.keyboard.press("ArrowUp");
@@ -452,7 +452,7 @@ test.describe("sidebar", () => {
   }) => {
     await boot(app, window, tempHome, "ws-home");
 
-    await window.keyboard.press("Meta+Shift+e");
+    await window.keyboard.press("ControlOrMeta+Shift+e");
     await window.keyboard.press("Home");
     await expect.poll(() => focusedTestId(window), FOCUS).toBe("home-row");
     await window.keyboard.press("Enter");
@@ -474,7 +474,7 @@ test.describe("context menus", () => {
   }) => {
     const { wsPath } = await boot(app, window, tempHome, "ws-menu");
 
-    await window.keyboard.press("Meta+Shift+e");
+    await window.keyboard.press("ControlOrMeta+Shift+e");
     await expect.poll(() => focusedRowPath(window), FOCUS).toBe(wsPath);
 
     await window.keyboard.press("Shift+F10");
@@ -488,10 +488,10 @@ test.describe("context menus", () => {
     await expect.poll(() => focusedRowPath(window), FOCUS).toBe(wsPath);
 
     // Same on a tab, via ⌘.
-    await window.keyboard.press("Meta+Shift+y");
+    await window.keyboard.press("ControlOrMeta+Shift+y");
     await expect.poll(() => selectedTabFocused(window), FOCUS).toBe(true);
     const tabId = await focusedTabId(window);
-    await window.keyboard.press("Meta+Period");
+    await window.keyboard.press("ControlOrMeta+Period");
     await expect(openMenu(window)).toHaveCount(1, FOCUS);
     await window.keyboard.press("ArrowDown");
     await expect(
@@ -515,7 +515,7 @@ test.describe("tab bar", () => {
     const tabs = visibleTabs(window);
     await expect(tabs).toHaveCount(1);
 
-    await window.keyboard.press("Meta+t");
+    await window.keyboard.press("ControlOrMeta+t");
     await expect(tabs).toHaveCount(2, { timeout: 10_000 });
     await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
     const firstId = await tabs.nth(0).getAttribute("data-tab-id");
@@ -524,7 +524,7 @@ test.describe("tab bar", () => {
     await expect(window.getByRole("tablist")).toHaveCount(1);
     await expect(window.getByRole("button", { name: "New tab" })).toBeVisible();
 
-    await window.keyboard.press("Meta+Shift+y");
+    await window.keyboard.press("ControlOrMeta+Shift+y");
     await expect.poll(() => focusedTabId(window), FOCUS).toBe(secondId);
 
     // ← moves focus only.
@@ -562,7 +562,7 @@ test.describe("dialogs", () => {
           els.map((e) => e.getAttribute("data-settings-section")),
         );
 
-    await window.keyboard.press("Meta+,");
+    await window.keyboard.press("ControlOrMeta+,");
     await expect(modal).toBeVisible(FOCUS);
     const before = await sections();
 
@@ -581,7 +581,7 @@ test.describe("dialogs", () => {
 
     // ⌘T with Settings open does not touch the workspace behind it.
     const tabCount = await visibleTabs(window).count();
-    await window.keyboard.press("Meta+t");
+    await window.keyboard.press("ControlOrMeta+t");
     await window.waitForTimeout(500);
     await expect(visibleTabs(window)).toHaveCount(tabCount);
     await expect(modal).toBeVisible();
@@ -599,10 +599,10 @@ test.describe("dialogs", () => {
   }) => {
     const { wsPath } = await boot(app, window, tempHome, "ws-restore");
 
-    await window.keyboard.press("Meta+Shift+e");
+    await window.keyboard.press("ControlOrMeta+Shift+e");
     await expect.poll(() => focusedRowPath(window), FOCUS).toBe(wsPath);
 
-    await window.keyboard.press("Meta+k");
+    await window.keyboard.press("ControlOrMeta+k");
     await expect(paletteInput(window)).toBeFocused(FOCUS);
     await window.keyboard.press("Escape");
     await expect(paletteInput(window)).toHaveCount(0, FOCUS);
@@ -617,7 +617,7 @@ test.describe("dialogs", () => {
   }) => {
     await boot(app, window, tempHome, "ws-palette");
 
-    await window.keyboard.press("Meta+k");
+    await window.keyboard.press("ControlOrMeta+k");
     await expect(paletteInput(window)).toBeFocused(FOCUS);
     await window.keyboard.type("Settings: Appearance");
     await window.keyboard.press("Enter");
@@ -629,7 +629,7 @@ test.describe("dialogs", () => {
     await window.keyboard.press("Escape");
     await expect(modal).toBeHidden(FOCUS);
 
-    await window.keyboard.press("Meta+k");
+    await window.keyboard.press("ControlOrMeta+k");
     await expect(paletteInput(window)).toBeFocused(FOCUS);
     await window.keyboard.type("View All Agents");
     await window.keyboard.press("Enter");
@@ -650,7 +650,7 @@ test.describe("dialogs", () => {
   }) => {
     await boot(app, window, tempHome, "ws-bell");
 
-    await window.keyboard.press("Meta+Shift+e");
+    await window.keyboard.press("ControlOrMeta+Shift+e");
     await expect.poll(() => focusRegion(window), FOCUS).toBe("sidebar");
     // The bell sits in the sidebar's title bar, before the rows.
     const reached = await pressUntil(
@@ -677,7 +677,7 @@ test.describe("dialogs", () => {
   test("new workspace, keyboard only", async ({ app, window, tempHome }) => {
     await boot(app, window, tempHome, "ws-first");
 
-    await window.keyboard.press("Meta+Shift+n");
+    await window.keyboard.press("ControlOrMeta+Shift+n");
     const dialog = window.getByTestId("new-workspace-dialog");
     await expect(dialog).toBeVisible(FOCUS);
     await expect(window.getByTestId("new-workspace-name-input")).toBeFocused(
@@ -703,12 +703,12 @@ test.describe("browser pane", () => {
   }) => {
     await boot(app, window, tempHome, "ws-browser");
 
-    await window.keyboard.press("Meta+Shift+b");
+    await window.keyboard.press("ControlOrMeta+Shift+b");
     const webview = window.locator("webview:visible");
     await expect(webview).toHaveCount(1, { timeout: 10_000 });
 
     // Load a page through the URL bar.
-    await window.keyboard.press("Meta+l");
+    await window.keyboard.press("ControlOrMeta+l");
     await expect
       .poll(() => window.evaluate(() => document.activeElement?.tagName), FOCUS)
       .toBe("INPUT");
@@ -801,7 +801,7 @@ test.describe("popout window", () => {
     await boot(app, window, tempHome, "ws-popout");
 
     // Keep a tab in the main window, then move the selected one out.
-    await window.keyboard.press("Meta+t");
+    await window.keyboard.press("ControlOrMeta+t");
     await expect(visibleTabs(window)).toHaveCount(2, { timeout: 10_000 });
     const popoutOpened = app.waitForEvent("window");
     await expect
@@ -823,13 +823,13 @@ test.describe("popout window", () => {
       .poll(() => terminalFocused(popout), { timeout: 10_000 })
       .toBe(true);
 
-    await popout.keyboard.press("Meta+k");
+    await popout.keyboard.press("ControlOrMeta+k");
     await expect(paletteInput(window)).toBeVisible(FOCUS);
     await expect(paletteInput(popout)).toHaveCount(0);
     await window.keyboard.press("Escape");
     await expect(paletteInput(window)).toHaveCount(0, FOCUS);
 
-    await popout.keyboard.press("Meta+,");
+    await popout.keyboard.press("ControlOrMeta+,");
     await expect(window.getByTestId("settings-modal")).toBeVisible(FOCUS);
     await expect(popout.getByTestId("settings-modal")).toHaveCount(0);
   });
@@ -864,7 +864,7 @@ test.describe("focus visibility", () => {
       .toEqual(expect.arrayContaining(["sidebar", "tabbar"]));
 
     // Every sidebar row.
-    await window.keyboard.press("Meta+Shift+e");
+    await window.keyboard.press("ControlOrMeta+Shift+e");
     await window.keyboard.press("Home");
     await window.waitForTimeout(100);
     const rowCount = await window.locator("[data-sidebar-row]").count();
@@ -893,7 +893,7 @@ test.describe("focus visibility", () => {
 
     expect.soft(await pointerOnly(window), "main window").toEqual([]);
 
-    await window.keyboard.press("Meta+,");
+    await window.keyboard.press("ControlOrMeta+,");
     const modal = window.getByTestId("settings-modal");
     await expect(modal).toBeVisible(FOCUS);
     expect

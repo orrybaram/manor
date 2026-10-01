@@ -45,7 +45,7 @@ test("switching workspaces keeps every terminal mounted but only one visible", a
   expect(alphaPanes).toHaveLength(1);
 
   await createWorkspace(window, "ws-beta");
-  await window.keyboard.press("Meta+t");
+  await window.keyboard.press("ControlOrMeta+t");
   // Both workspaces' terminals are mounted now, so wait on the *visible* one —
   // `.first()` would resolve to ws-alpha's pane, which is correctly hidden.
   await expect(
@@ -90,7 +90,7 @@ test("switching tabs within a workspace shows only the selected tab", async ({
   const firstTabPanes = await visiblePaneIds(window);
   expect(firstTabPanes).toHaveLength(1);
 
-  await window.keyboard.press("Meta+t");
+  await window.keyboard.press("ControlOrMeta+t");
   await assertVisiblePaneCount(window, 1);
   const secondTabPanes = await visiblePaneIds(window);
   expect(secondTabPanes).toHaveLength(1);

@@ -177,6 +177,11 @@
   overflow-wrap: anywhere;
 }
 
+/* The raw source, shown for the moment before the markdown renderer loads. */
+.plain {
+  white-space: pre-wrap;
+}
+
 /* ── Markdown inside a comment body ── */
 
 .body p,

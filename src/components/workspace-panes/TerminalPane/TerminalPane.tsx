@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { WorkspaceKey } from "../../../lib/workspace-key";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as ContextMenu from "@radix-ui/react-context-menu";
@@ -18,7 +18,7 @@ import { Row } from "../../ui/Layout/Layout";
 import { ConvertToSubmenu } from "../ConvertToSubmenu";
 import { SplitWithSubmenu } from "../SplitWithSubmenu";
 import { PaneWindowMenuItems } from "../PaneWindowMenuItems";
-import { TerminalSearchBar } from "./TerminalSearchBar";
+import { TerminalSearch } from "./TerminalSearchBar";
 import { HostOfflineBanner } from "./HostOfflineBanner";
 import { onUiRequest } from "../../../utils/ui-request";
 import { isRemotePane, pasteClipboardImage } from "../../../lib/remote-image-paste";
@@ -56,7 +56,7 @@ export function TerminalPane(props: TerminalPaneProps) {
     });
   }, [paneId, openSearch]);
 
-  const { ptyError, term, searchAddon, write, reset } = useTerminalLifecycle(
+  const { ptyError, term, write, reset } = useTerminalLifecycle(
     containerRef,
     paneId,
     cwd,
@@ -73,13 +73,14 @@ export function TerminalPane(props: TerminalPaneProps) {
       <ContextMenu.Trigger asChild>
         <div ref={containerRef} className={styles.container} data-testid="terminal-pane">
           <HostOfflineBanner paneId={paneId} />
-          {searchOpen && term && searchAddon && (
-            <TerminalSearchBar
-              term={term}
-              searchAddon={searchAddon}
-              openNonce={searchNonce}
-              onClose={() => setSearchOpen(false)}
-            />
+          {searchOpen && term && (
+            <Suspense fallback={null}>
+              <TerminalSearch
+                term={term}
+                openNonce={searchNonce}
+                onClose={() => setSearchOpen(false)}
+              />
+            </Suspense>
           )}
           <Dialog.Root open={!!ptyError && !dismissed} onOpenChange={(open) => { if (!open) setDismissed(true); }}>
             <Dialog.Portal>

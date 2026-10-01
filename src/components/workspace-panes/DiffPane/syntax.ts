@@ -1,32 +1,7 @@
-import { refractor } from "refractor/core";
 import type { RootContent } from "hast";
-import javascript from "refractor/javascript";
-import typescript from "refractor/typescript";
-import tsx from "refractor/tsx";
-import jsx from "refractor/jsx";
-import css from "refractor/css";
-import markup from "refractor/markup";
-import json from "refractor/json";
-import python from "refractor/python";
-import go from "refractor/go";
-import rust from "refractor/rust";
-import bash from "refractor/bash";
-import yaml from "refractor/yaml";
-import markdown from "refractor/markdown";
+import { loadOnce } from "../../../lib/load-once";
 
-refractor.register(javascript);
-refractor.register(typescript);
-refractor.register(tsx);
-refractor.register(jsx);
-refractor.register(css);
-refractor.register(markup);
-refractor.register(json);
-refractor.register(python);
-refractor.register(go);
-refractor.register(rust);
-refractor.register(bash);
-refractor.register(yaml);
-refractor.register(markdown);
+export type Tokenize = (code: string, lang: string) => RootContent[];
 
 const EXT_MAP: Record<string, string> = {
   js: "javascript",
@@ -58,10 +33,45 @@ export function extToLang(filePath: string): string | null {
   return EXT_MAP[ext] ?? null;
 }
 
-export function tokenize(code: string, lang: string): RootContent[] {
-  if (!refractor.registered(lang)) {
-    return [{ type: "text", value: code }];
+let tokenizer: Tokenize | null = null;
+const listeners = new Set<() => void>();
+
+/**
+ * The highlighter, once it has loaded — `null` until then. Lets a diff opened
+ * after the first one highlight on its first render instead of flashing plain
+ * text for a tick.
+ */
+export function loadedTokenizer(): Tokenize | null {
+  return tokenizer;
+}
+
+/**
+ * Load the highlighter and its grammars. They are a few hundred kilobytes the
+ * app has no use for until a diff pane first highlights, so they live in their
+ * own chunk; every caller shares the one load.
+ */
+export const loadTokenizer = loadOnce(() =>
+  import("./syntax-highlighter").then((m) => {
+    tokenizer = m.tokenize;
+    for (const listener of listeners) listener();
+    return m.tokenize;
+  }),
+);
+
+/**
+ * Subscribe to the highlighter arriving, for `useSyncExternalStore`.
+ * Subscribing is what asks for it: the load starts with the first diff that
+ * wants highlighting.
+ */
+export function subscribeTokenizer(onLoad: () => void): () => void {
+  listeners.add(onLoad);
+  if (!tokenizer) {
+    loadTokenizer().catch(() => {
+      // No highlighter is plain text, which every row already renders. The
+      // next diff to subscribe tries the load again.
+    });
   }
-  const root = refractor.highlight(code, lang);
-  return root.children;
+  return () => {
+    listeners.delete(onLoad);
+  };
 }

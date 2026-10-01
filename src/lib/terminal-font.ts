@@ -18,24 +18,27 @@
  * size, and every row that overflowed is scrolled off where no later repaint
  * can erase it. That is the duplication in issue #169.
  *
- * So the fonts are loaded before the app renders. They are bundled files, so
- * this is a few milliseconds at startup, and it removes the race rather than
- * correcting after it: a re-fit *is* a `SIGWINCH`, and the whole point is not
- * to send one.
+ * So no terminal is created until the fonts are loaded. They are bundled
+ * files, so this is a few milliseconds at startup, and it removes the race
+ * rather than correcting after it: a re-fit *is* a `SIGWINCH`, and the whole
+ * point is not to send one. Only terminal creation waits — the rest of the app
+ * shell has nothing to measure, so it paints without them.
  */
 
+import { loadOnce } from "./load-once";
+
 /**
- * How long the first paint waits on fonts.
+ * How long terminal creation waits on fonts.
  *
  * The fallback is a perfectly measurable font — it is what the pane would be
  * drawn with anyway — so a font that never settles must cost a mismeasured
- * pane, not a blank window. Long enough that a local file never races it.
+ * pane, not a blank one. Long enough that a local file never races it.
  */
 const FONT_TIMEOUT_MS = 2_000;
 
 /**
  * Resolve once the terminal's fonts can be measured, or when waiting longer
- * stops being worth a blank window.
+ * stops being worth a blank pane.
  *
  * The set is read from `document.fonts` rather than a list kept here: every
  * `@font-face` the stylesheet declares is in it by the time this runs, so a
@@ -43,7 +46,7 @@ const FONT_TIMEOUT_MS = 2_000;
  * list here would be a second place to keep the same truth, which is exactly
  * the shape of the bug this exists to fix.
  */
-export async function loadTerminalFonts(): Promise<void> {
+async function loadTerminalFonts(): Promise<void> {
   if (typeof document === "undefined" || !document.fonts) return;
   const loaded = Promise.all(
     [...document.fonts].map((face) =>
@@ -58,3 +61,9 @@ export async function loadTerminalFonts(): Promise<void> {
     new Promise((resolve) => setTimeout(resolve, FONT_TIMEOUT_MS)),
   ]);
 }
+
+/**
+ * The font load, started once and shared: every pane waits on the same load,
+ * and a pane opened after it settled waits on nothing.
+ */
+export const terminalFontsReady = loadOnce(loadTerminalFonts);

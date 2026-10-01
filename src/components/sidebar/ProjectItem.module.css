@@ -551,14 +551,10 @@
   white-space: nowrap;
 }
 
-/* An away host's heading takes HostIndicator's tone: yellow while it is
-   reconnecting, red when it needs you. */
-.sectionHostWarn {
-  color: var(--yellow, #d29922);
-}
-
-.sectionHostError {
-  color: var(--red, var(--danger));
+/* The heading stays dim even while its host is away; doubled to beat
+   HostIndicator's warn/error tint on the glyph. */
+.sectionHostIcon.sectionHostIcon > * {
+  color: inherit;
 }
 
 /* Host sections sit close together; an expanded section's list carries the

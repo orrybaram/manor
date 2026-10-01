@@ -72,7 +72,7 @@ export function TerminalPane(props: TerminalPaneProps) {
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
         <div ref={containerRef} className={styles.container} data-testid="terminal-pane">
-          <HostOfflineBanner paneId={paneId} />
+          <HostOfflineBanner paneId={paneId} workspaceKey={workspaceKey} />
           {searchOpen && term && (
             <Suspense fallback={null}>
               <TerminalSearch

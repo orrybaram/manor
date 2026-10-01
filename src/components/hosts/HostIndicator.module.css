@@ -92,12 +92,6 @@
   color: color-mix(in srgb, var(--blue, #89b4fa) 70%, var(--text-dim));
 }
 
-/* The tooltip's anchor around a popover trigger. */
-.trigger {
-  display: inline-flex;
-  min-width: 0;
-}
-
 /* ── this machine ── */
 
 .local {
@@ -106,31 +100,103 @@
   gap: 4px;
 }
 
-/* ── banner ── */
+/* ── banner ── covers the pane and reads as terminal output. */
 
 .banner {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 8px;
-  background: color-mix(in srgb, var(--yellow, #d29922) 10%, var(--bg, #1e1e1e));
-  border-bottom: 1px solid var(--surface);
-  font-size: 11px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px 24px;
+  padding: 12px 16px;
+  overflow: auto;
+  background: var(--bg, #1e1e1e);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
+/* The tone colours only the status word, not the whole pane. */
+.banner.ok,
+.banner.warn,
 .banner.error {
-  background: color-mix(in srgb, var(--red, #c74e39) 12%, var(--bg, #1e1e1e));
+  color: var(--text-primary);
 }
 
-.bannerText {
+.banner.warn .status {
+  color: var(--yellow, #d29922);
+}
+
+.banner.error .status {
+  color: var(--red, var(--danger));
+}
+
+.headstone {
+  margin: 0;
+  font: inherit;
+  line-height: 1.15;
+  white-space: pre;
+  /* A step brighter than the diff spider: it's the pane's centrepiece. */
+  color: color-mix(in srgb, var(--text-dim) 60%, var(--border));
+}
+
+.output {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.retry {
-  flex-shrink: 0;
+.line {
+  margin: 0;
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.prompt {
+  color: var(--blue, #89b4fa);
+}
+
+.muted {
+  color: var(--text-dim);
+}
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+/* Doubled to win over the Button `link` variant. */
+.option.option {
+  display: inline-flex;
+  gap: 1ch;
+  padding: 0;
+  font: inherit;
+  color: var(--text-dim);
+  text-decoration: none;
+  white-space: pre;
+}
+
+.option.option:focus-visible {
+  outline: none;
+}
+
+.optionActive.optionActive {
   color: var(--text-primary);
+}
+
+.option[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.caret {
+  color: var(--blue, #89b4fa);
 }

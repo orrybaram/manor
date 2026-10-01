@@ -69,6 +69,18 @@ export function isNavRegionFocused(): boolean {
   return region !== null && region !== "pane";
 }
 
+/**
+ * True while the user is driving a navigation region from the keyboard:
+ * focus is in one and got there by keyboard (`:focus-visible`). A row or tab
+ * clicked with the mouse holds focus too, but the user means to work in the
+ * pane they just opened, so the terminal's auto-focus may take it.
+ */
+export function isNavRegionKeyboardFocused(): boolean {
+  if (!isNavRegionFocused()) return false;
+  const active = document.activeElement;
+  return !!active && active.matches(":focus-visible");
+}
+
 /** The element the sidebar hands focus to: the active row, else the first. */
 function sidebarTarget(roots: HTMLElement[]): HTMLElement | null {
   const rows = roots.flatMap((root) =>

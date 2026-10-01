@@ -1,9 +1,0 @@
-/* Overlays the terminal's top edge rather than pushing it down, so the
-   last screen stays where it was. */
-.overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 5;
-}

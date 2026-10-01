@@ -59,8 +59,6 @@ import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import { HostIndicator } from "../hosts/HostIndicator";
-import { useHostDisplay } from "../../hooks/useHostDisplay";
-import type { HostTone } from "../../lib/host-status";
 import { isRemoteHost } from "../../lib/hosts";
 import {
   remoteTargetForProject,
@@ -296,17 +294,12 @@ const WorkspaceItem = React.forwardRef<
 
 /**
  * A host heading's label (ADR-193 §3): host icon and name. A remote host's
- * icon is `HostIndicator`'s, so it crosses out and takes the same tone as
- * every other host indicator while away, and opens the host popover. Used by
- * a linked group's section headers and above a remote-only project's
- * workspaces. A collapsed section shows its workspace count after the name.
+ * icon is `HostIndicator`'s, so it crosses out while away and opens the host
+ * popover. The heading stays dim whatever the state: the crossed-out glyph
+ * says enough without pulling the eye. Used by a linked group's section
+ * headers and above a remote-only project's workspaces. A collapsed section
+ * shows its workspace count after the name.
  */
-const SECTION_HOST_TONE: Record<HostTone, string> = {
-  ok: "",
-  warn: styles.sectionHostWarn,
-  error: styles.sectionHostError,
-};
-
 function SectionHostLabel(props: {
   hostId: string;
   projectId: string;
@@ -316,14 +309,10 @@ function SectionHostLabel(props: {
 }) {
   const { hostId, projectId, path, label, collapsedCount } = props;
   const remote = isRemoteHost(hostId);
-  // The name takes the host's tone while it is away; a connected host's
-  // heading stays dim. Hover or click the glyph for the state in words.
-  const tone = useHostDisplay(remote ? hostId : null)?.tone;
-  const toneClass = tone ? SECTION_HOST_TONE[tone] : "";
 
   return (
     <span
-      className={`${styles.sectionHost} ${toneClass}`}
+      className={styles.sectionHost}
       title={path}
     >
       {remote ? (

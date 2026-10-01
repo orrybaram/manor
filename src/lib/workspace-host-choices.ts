@@ -131,7 +131,7 @@ export function hostsToCloneOnto(
       return {
         hostId: host.hostId,
         disabledReason: display
-          ? `Can't connect to ${display.target} (${display.status.toLowerCase()}). Reconnect it to clone there.`
+          ? `${display.target} is offline (${display.status.toLowerCase()}). Reconnect it to clone there.`
           : null,
       };
     });

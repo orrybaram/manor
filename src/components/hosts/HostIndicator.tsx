@@ -1,12 +1,12 @@
 import Cloud from "lucide-react/dist/esm/icons/cloud";
-import CloudOff from "lucide-react/dist/esm/icons/cloud-off";
 import Laptop from "lucide-react/dist/esm/icons/laptop";
 import { useHostStore } from "../../store/host-store";
 import { useHostDisplay } from "../../hooks/useHostDisplay";
 import type { HostDisplay } from "../../lib/host-status";
 import { Button } from "../ui/Button/Button";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
-import { requestUi } from "../../utils/ui-request";
+import { HostPopover } from "./HostPopover";
+import { HostStateIcon } from "./HostStateIcon";
 import styles from "./HostIndicator.module.css";
 
 type HostIndicatorProps = {
@@ -14,18 +14,17 @@ type HostIndicatorProps = {
   hostId: string | null | undefined;
   /**
    * - `icon`: the cloud alone, for the sidebar's project rows.
-   * - `chip`: cloud + host name, adding the state when not connected; click
-   *   retries. For the status bar and project settings.
+   * - `chip`: cloud + host name, never the state in words; click opens the
+   *   host popover. For the status bar.
    * - `banner`: one line over a pane, only while the host is away.
    * - `label`: the chip's look, inert and without a tooltip, for use inside
    *   another control (the New Workspace host picker).
    */
   variant: "icon" | "chip" | "banner" | "label";
   /**
-   * The project this indicator speaks for. When set, clicking the icon or
-   * chip opens that project's Host settings; without it the chip retries
-   * the connection instead (the settings page's own chip), and the icon is
-   * inert.
+   * The project this indicator speaks for. When set, the icon opens the
+   * host popover (and the popover links to this project's Host settings);
+   * without it the icon is inert and the chip's popover has no link.
    */
   projectId?: string;
   className?: string;
@@ -86,67 +85,58 @@ type VariantProps = {
   className?: string;
 };
 
-function openHostSettings(projectId: string): void {
-  requestUi({ type: "open-project-settings", projectId, section: "project-host" });
-}
-
 function toneClass(display: HostDisplay): string {
-  return [styles[display.tone], display.busy ? styles.busy : ""].join(" ");
+  return styles[display.tone];
 }
 
-function StateIcon(props: { display: HostDisplay; size: number }) {
-  const { display, size } = props;
-  const Icon = display.offline && !display.busy ? CloudOff : Cloud;
-  return <Icon size={size} className={styles.glyph} aria-hidden />;
-}
-
-function tooltipFor(display: HostDisplay, action: string | null): string {
-  const parts = [`${display.target} · ${display.status}`];
-  if (display.detail) parts.push(display.detail);
-  if (action) parts.push(action);
-  return parts.join(". ");
+/** Hover text: the state and its summary; the popover adds the actions. */
+function tooltipFor(display: HostDisplay): string {
+  const state = `${display.target} · ${display.status}`;
+  return display.summary ? `${state}. ${display.summary}` : state;
 }
 
 function HostIcon(props: VariantProps) {
-  const { display, projectId, className } = props;
-  const label = tooltipFor(display, null);
+  const { hostId, display, projectId, className } = props;
+  const label = tooltipFor(display);
   const iconClass = `${styles.icon} ${toneClass(display)} ${className ?? ""}`;
+  if (!projectId) {
+    return (
+      <Tooltip label={label} side="right">
+        <span className={iconClass} aria-label={label} data-testid="host-indicator-icon">
+          <HostStateIcon display={display} size={12} />
+        </span>
+      </Tooltip>
+    );
+  }
   return (
     <Tooltip label={label} side="right">
-      {projectId ? (
-        <Button
-          variant="link"
-          className={`${iconClass} ${styles.clickable}`}
-          aria-label={label}
-          data-testid="host-indicator-icon"
-          onClick={(e) => {
+      <span className={styles.trigger}>
+        <HostPopover hostId={hostId} projectId={projectId} side="right">
+          <Button
+            variant="link"
+            className={`${iconClass} ${styles.clickable}`}
+            aria-label={label}
+            data-testid="host-indicator-icon"
             // The icon sits inside rows that toggle or select on click.
-            e.stopPropagation();
-            openHostSettings(projectId);
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <StateIcon display={display} size={12} />
-        </Button>
-      ) : (
-        <span className={iconClass} aria-label={label} data-testid="host-indicator-icon">
-          <StateIcon display={display} size={12} />
-        </span>
-      )}
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <HostStateIcon display={display} size={12} />
+          </Button>
+        </HostPopover>
+      </span>
     </Tooltip>
   );
 }
 
+/** A chip names the host and nothing else; glyph and tone carry the state. */
 function ChipContent(props: { display: HostDisplay }) {
   const { display } = props;
 
   return (
     <>
-      <StateIcon display={display} size={11} />
+      <HostStateIcon display={display} size={11} />
       <span className={styles.target}>{display.target}</span>
-      {display.offline && (
-        <span className={styles.state}>· {display.status.toLowerCase()}</span>
-      )}
     </>
   );
 }
@@ -157,36 +147,22 @@ function chipClassFor(display: HostDisplay, className?: string): string {
 
 function HostChip(props: VariantProps) {
   const { hostId, display, projectId, className } = props;
-  const retryConnect = useHostStore((s) => s.retryConnect);
-  const onClick = projectId
-    ? () => openHostSettings(projectId)
-    : display.canRetry
-      ? () => void retryConnect(hostId)
-      : null;
-  const label = tooltipFor(
-    display,
-    !projectId && onClick ? "Click to retry." : null,
-  );
-  const content = <ChipContent display={display} />;
-  const chipClass = chipClassFor(display, className);
+  const label = tooltipFor(display);
 
   return (
     <Tooltip label={label} side="top">
-      {onClick ? (
-        <Button
-          variant="link"
-          className={`${chipClass} ${styles.clickable}`}
-          onClick={onClick}
-          aria-label={label}
-          data-testid="host-indicator-chip"
-        >
-          {content}
-        </Button>
-      ) : (
-        <span className={chipClass} aria-label={label} data-testid="host-indicator-chip">
-          {content}
-        </span>
-      )}
+      <span className={styles.trigger}>
+        <HostPopover hostId={hostId} projectId={projectId} side="top">
+          <Button
+            variant="link"
+            className={`${chipClassFor(display, className)} ${styles.clickable}`}
+            aria-label={label}
+            data-testid="host-indicator-chip"
+          >
+            <ChipContent display={display} />
+          </Button>
+        </HostPopover>
+      </span>
     </Tooltip>
   );
 }
@@ -211,7 +187,7 @@ function HostBanner(props: VariantProps) {
       role="status"
       data-testid="host-offline-banner"
     >
-      <StateIcon display={display} size={12} />
+      <HostStateIcon display={display} size={12} />
       {display.detail ? <Tooltip label={display.detail}>{text}</Tooltip> : text}
       {display.canRetry && (
         <Button

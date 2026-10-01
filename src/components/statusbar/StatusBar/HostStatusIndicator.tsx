@@ -11,8 +11,9 @@ import { activeWorkspaceHost } from "./active-workspace-host";
  * Mirrors `RemoteExposureIndicator`: nothing at all when the active
  * workspace lives on this machine, so it costs nothing in the (still
  * overwhelmingly common) local case. For a remote workspace it names the
- * host, adding the state while it isn't connected; clicking it opens the
- * owning project's Host settings, where Retry and the full error live.
+ * host, and only names it: the glyph and tone carry the state. Clicking it
+ * opens the host popover, with the state in words, Retry, and a link to the
+ * owning project's Host settings.
  *
  * It follows the active workspace's own host (`activeWorkspaceHostId`), so
  * in a linked group (ADR-192) it names the host the user opened it on.

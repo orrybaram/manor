@@ -522,7 +522,7 @@ describe("projectTiles", () => {
       host: {
         label: "local + devbox",
         state: "partial",
-        status: "Can't connect",
+        status: "Connection failed",
       },
       diff: { added: 15, removed: 3 },
       needsYou: 1,

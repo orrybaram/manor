@@ -1,6 +1,7 @@
 import React, { useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
+import CloudOff from "lucide-react/dist/esm/icons/cloud-off";
 import {
   collapsedFolderIdsOf,
   useProjectStore,
@@ -18,6 +19,7 @@ import {
 import { isRemoteHost, memberHostName } from "../../lib/hosts";
 import { startingMemberId, type WorkspaceHostChoice } from "../../lib/workspace-host-choices";
 import { HostIndicator } from "../hosts/HostIndicator";
+import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { NewFolderDialog } from "./NewFolderDialog";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
@@ -166,9 +168,10 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
           >
             <ProjectChevron expanded={!collapsed} />
             <span className={styles.projectSwatch} aria-hidden="true" />
-            {/* No icon or badge beside the name (ADR-193 §3): each host's
-                heading shows its own state. Only a group with every host
-                away dims its name. */}
+            {/* No icon beside the name while expanded (ADR-193 §3): each
+                host's heading shows its own state. A group with every host
+                away dims its name, and once collapsed — its headings hidden —
+                says so with one crossed-out cloud. */}
             <span
               className={`${styles.projectName} ${
                 hostState === "offline" ? styles.groupNameOffline : ""
@@ -176,6 +179,13 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
             >
               {group.name}
             </span>
+            {collapsed && hostState === "offline" && (
+              <Tooltip label="Every host of this project is offline" side="right">
+                <span className={styles.groupOfflineIcon} data-testid="group-offline-icon">
+                  <CloudOff size={11} aria-hidden />
+                </span>
+              </Tooltip>
+            )}
             {collapsed && indicator && <WorkspaceIndicatorDot indicator={indicator} />}
             <ProjectHeaderActions
               onNewWorkspace={() => setNewWorkspaceOpen(true)}

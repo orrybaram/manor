@@ -1,0 +1,59 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  max-width: 520px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dim) 70%, var(--bg));
+  overflow: hidden;
+}
+
+.card.error {
+  border-color: color-mix(in srgb, var(--red, var(--danger)) 35%, var(--border));
+}
+
+.card.warn {
+  border-color: color-mix(in srgb, var(--yellow, #d29922) 30%, var(--border));
+}
+
+.section {
+  padding: 12px 14px;
+}
+
+.section + .section {
+  border-top: 1px solid var(--border);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.row.warn {
+  color: var(--yellow, #d29922);
+}
+
+.row.error {
+  color: var(--red, var(--danger));
+}
+
+.buttonIcon {
+  margin-right: 4px;
+}
+
+.spacer {
+  flex: 1;
+}

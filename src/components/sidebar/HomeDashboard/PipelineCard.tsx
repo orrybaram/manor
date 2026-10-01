@@ -4,6 +4,7 @@ import type { PrStage } from "../../../lib/pr-readiness";
 import { projectColorStyle } from "../../../hooks/useProjectHeaderRow";
 import { Button } from "../../ui/Button/Button";
 import { PrPopover } from "../PrPopover";
+import { openExternal } from "../../../lib/open-external";
 import { formatAge } from "./format";
 import styles from "./PrPipeline.module.css";
 
@@ -26,7 +27,7 @@ export function PipelineCard(props: PipelineCardProps) {
       pr={pr}
       workspacePath={workspace.path}
       hostId={project.hostId}
-      onOpen={() => window.electronAPI.shell.openExternal(pr.url)}
+      onOpen={() => openExternal(pr.url)}
     >
       <Button
         variant="ghost"

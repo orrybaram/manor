@@ -82,6 +82,7 @@ import {
   isHomePath,
   HOME_PATH,
 } from "./lib/home";
+import { isWebApp } from "./lib/platform";
 import "./App.css";
 
 /**
@@ -266,6 +267,12 @@ function App() {
   }, [openWizardForProject]);
 
   const handleAddLocalProject = useCallback(async () => {
+    // No filesystem picker in a browser tab (ADR-178). The buttons that call
+    // this are hidden on web (`Onboarding`, `HomeEmptyState`); this
+    // guard covers any other route to it (the sidebar's context menu among
+    // them) so it is a no-op rather than an unhandled `dialog.openDirectory`
+    // rejection.
+    if (isWebApp()) return;
     const selected = await window.electronAPI.dialog.openDirectory();
     if (selected) {
       const name = selected.split("/").pop() || "Untitled";

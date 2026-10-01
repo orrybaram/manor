@@ -51,6 +51,8 @@ import {
 } from "../../lib/pane-actions";
 import { requestUi } from "../../utils/ui-request";
 import { focusRegionWhenReady } from "../../lib/focus-regions";
+import { isWebApp } from "../../lib/platform";
+import { commandAvailableOnWeb } from "../../lib/menu-commands";
 import type { ActivePort } from "../../electron.d.ts";
 import { isRemoteHost } from "../../lib/hosts";
 import { HOME_PATH, isHomePath } from "../../lib/home-path";
@@ -997,7 +999,7 @@ export function useCommands({
       );
     const visiblePortItems = onHome ? [] : portItems;
 
-    return [
+    const categories: CategoryConfig[] = [
       { id: "go-to", heading: "Go to", visible: true, items: goToItems },
       { id: "tabs", heading: "Tabs", visible: true, items: unlessHomeItems(tabItems) },
       { id: "panes", heading: "Panes", visible: true, items: unlessHomeItems(paneItems) },
@@ -1023,6 +1025,15 @@ export function useCommands({
         items: settingsItems,
       },
     ];
+
+    // ADR-178: a command whose only implementation is Electron-only (the
+    // file dialog, the native menu, a detached window, …) has nothing to do
+    // on the web app, so it never appears rather than opening and failing.
+    if (!isWebApp()) return categories;
+    return categories.map((category) => ({
+      ...category,
+      items: category.items.filter((item) => commandAvailableOnWeb(item.id)),
+    }));
   }, [
     addTab,
     addBrowserTab,

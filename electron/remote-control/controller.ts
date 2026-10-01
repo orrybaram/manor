@@ -23,7 +23,11 @@
  */
 
 import { lazy, type Lazy } from "../lib/lazy";
-import type { RemoteDeviceInfo, RemoteDeviceStore } from "./devices";
+import type {
+  Capability,
+  RemoteDeviceInfo,
+  RemoteDeviceStore,
+} from "./devices";
 import { isPushable, pushPayloadFor, type PushManager } from "./push";
 import type { RemoteControlServer, RemoteStatusEvent } from "./server";
 import type { TunnelManager } from "./tunnel";
@@ -199,14 +203,18 @@ export class RemoteControlController {
     return this.status();
   }
 
-  pair(label: string, canSend: boolean): PairResult {
-    const { device, rawToken } = this.deviceStore.pair(label, canSend);
+  pair(label: string, capability: Capability): PairResult {
+    const { device, rawToken } = this.deviceStore.pair(label, capability);
     const url = this.runtime?.tunnel.status.url ?? null;
     this.emit();
+    // A `full` device is a browser that wants the whole app, so its link
+    // lands on `/app` (ADR-178); the other two tiers get the phone client at
+    // `/`. Same fragment either way — the page reads and strips it.
+    const page = capability === "full" ? "/app" : "/";
     return {
       device,
       rawToken,
-      pairingUrl: url ? `${url}/#${rawToken}` : null,
+      pairingUrl: url ? `${url}${page}#${rawToken}` : null,
     };
   }
 

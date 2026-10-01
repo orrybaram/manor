@@ -33,6 +33,7 @@ import { Switch } from "../ui/Switch/Switch";
 import { Button } from "../ui/Button/Button";
 import { Stack, Row } from "../ui/Layout/Layout";
 import { SectionTitle } from "./SectionTitle";
+import { isWebApp } from "../../lib/platform";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 const worktreeScriptFields: Array<{
@@ -367,6 +368,7 @@ function AgentSection(props: ProjectFieldProps) {
           }
         }}
         placeholder={DEFAULT_AGENT_COMMAND}
+        disabled={isWebApp()}
       />
     </Stack>
   );
@@ -512,10 +514,26 @@ function CommandsSection(props: ProjectFieldProps) {
   );
 }
 
+/**
+ * `projects.update` isn't on the slice-1 bridge table (ADR-178): the
+ * optimistic local edit would look saved and then silently not persist.
+ * Read-only beats that, and this says so at the top of the page.
+ */
+function WebReadOnlyNotice() {
+  if (!isWebApp()) return null;
+  return (
+    <div className={styles.sectionDescription}>
+      The agent command and worktree scripts aren&apos;t editable from the
+      browser yet — shown read-only.
+    </div>
+  );
+}
+
 function WorktreesSection(props: ProjectFieldProps) {
   const { project } = props;
 
   const updateProject = useProjectStore((s) => s.updateProject);
+  const webApp = isWebApp();
 
   const saveField = (
     field: "worktreePath" | "worktreeStartScript" | "worktreeTeardownScript",
@@ -551,6 +569,7 @@ function WorktreesSection(props: ProjectFieldProps) {
             onBlur={(e) => saveField(field, e.target.value)}
             placeholder={placeholder}
             rows={4}
+            disabled={webApp}
           />
         </Stack>
       ))}
@@ -580,6 +599,7 @@ export function GroupSettingsPage(props: GroupSettingsPageProps) {
   // elsewhere (the CLI, say) shows here instead of the stale value.
   return (
     <Stack className={styles.pageContent}>
+      <WebReadOnlyNotice />
       <Stack gap="xs">
         <SectionTitle id="project-general">Shared</SectionTitle>
         <div className={styles.sectionDescription}>
@@ -618,6 +638,7 @@ function MemberSettingsPage(props: MemberSettingsPageProps) {
   // sits on the same baseline as the project name.
   return (
     <Stack className={styles.pageContent}>
+      <WebReadOnlyNotice />
       <Row gap="xs" align="center" className={styles.memberHeading}>
         <span>{group.name}</span>
         <span className={styles.memberHeadingOn}>on</span>
@@ -658,6 +679,7 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
 
   return (
     <Stack className={styles.pageContent}>
+      <WebReadOnlyNotice />
       <Stack gap="xs">
         <SectionTitle id="project-general">General</SectionTitle>
         <NameField project={project} />

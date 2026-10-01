@@ -9,12 +9,17 @@ import type { IpcDeps } from "./types";
  * mutation here re-broadcasts the whole list through the single send-site in
  * `../notifications`.
  */
+/** Lifted for the ADR-178 bridge; see `electron/remote-control/ws-handlers.ts`. */
+export function notificationsGetAll(deps: IpcDeps): unknown {
+  return deps.notificationStore.getAll();
+}
+
 export function register(deps: IpcDeps): void {
   const { notificationStore } = deps;
 
   const broadcast = () => sendNotificationsUpdate(deps.mainWindow);
 
-  ipcMain.handle("notifications:getAll", () => notificationStore.getAll());
+  ipcMain.handle("notifications:getAll", () => notificationsGetAll(deps));
 
   ipcMain.handle("notifications:markRead", (_event, id: string) => {
     assertString(id, "id");

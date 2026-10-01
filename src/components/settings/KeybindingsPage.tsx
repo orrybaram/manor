@@ -18,6 +18,7 @@ import {
   KeybindingCategory,
 } from "../../lib/keybindings";
 import { SectionTitle } from "./SectionTitle";
+import { isWebApp } from "../../lib/platform";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 const platform = navigator.platform.toLowerCase().includes("mac")
@@ -144,10 +145,21 @@ export function KeybindingsPage() {
     };
   }, [recordingId, bindings, cancelRecording]);
 
+  // `keybindings.set`/`reset`/`resetAll` aren't on the slice-1 bridge table
+  // (ADR-178), so a rebind here would only round-trip to a refusal. Read-only
+  // with a note beats a "Press keys..." recorder that can never confirm.
+  const webApp = isWebApp();
+
   return (
     <Stack className={styles.pageContent}>
       <Stack gap="xs">
         <SectionTitle id="keybindings-list">Keybindings</SectionTitle>
+        {webApp && (
+          <div className={styles.sectionDescription}>
+            Keybindings aren&apos;t editable from the browser yet — shown
+            read-only.
+          </div>
+        )}
         <Input
           className={styles.keybindingsSearch}
           type="text"
@@ -227,6 +239,7 @@ export function KeybindingsPage() {
                               variant="secondary"
                               size="sm"
                               className={styles.keybindingShortcut}
+                              disabled={webApp}
                               onClick={() => {
                                 setRecordingId(def.id);
                                 setRecordedCombo(null);
@@ -242,6 +255,7 @@ export function KeybindingsPage() {
                                 variant="ghost"
                                 size="sm"
                                 className={styles.keybindingActionBtn}
+                                disabled={webApp}
                                 onClick={() => store.reset(def.id)}
                                 title="Reset to default"
                                 aria-label={`Reset ${def.label} to its default shortcut`}
@@ -269,6 +283,7 @@ export function KeybindingsPage() {
         <Button
           variant="secondary"
           className={styles.keybindingResetAll}
+          disabled={webApp}
           onClick={() => store.resetAll()}
         >
           Reset All Keybindings

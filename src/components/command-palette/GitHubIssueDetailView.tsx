@@ -6,6 +6,7 @@ import { selectActiveWorkspaceKey, useAppStore } from "../../store/app-store";
 import { ownerOf } from "../../lib/workspace-directory";
 import { useProjectStore } from "../../store/project-store";
 import { addErrorToast } from "../../store/toast-store";
+import { openExternal } from "../../lib/open-external";
 import { stripMarkdown } from "./utils";
 import { IssueDetailSkeleton } from "./IssueDetailSkeleton";
 import type { CommandPaletteProps } from "./types";
@@ -64,7 +65,7 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
 
   const handleOpenInBrowser = useCallback(() => {
     if (!issueDetail) return;
-    window.electronAPI.shell.openExternal(issueDetail.url);
+    openExternal(issueDetail.url);
     onClose();
   }, [issueDetail, onClose]);
 

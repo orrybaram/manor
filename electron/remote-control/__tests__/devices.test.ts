@@ -47,17 +47,17 @@ describe("RemoteDeviceStore", () => {
 
   it("pairs a device whose token verifies", () => {
     const s = store();
-    const { device, rawToken } = s.pair("Orry's phone", false);
+    const { device, rawToken } = s.pair("Orry's phone", "read");
     const verified = s.verify(rawToken);
     expect(verified?.id).toBe(device.id);
     expect(verified?.label).toBe("Orry's phone");
-    expect(verified?.canSend).toBe(false);
+    expect(verified?.capability).toBe("read");
   });
 
   it("mints a distinct high-entropy token per device", () => {
     const s = store();
-    const a = s.pair("a", false).rawToken;
-    const b = s.pair("b", false).rawToken;
+    const a = s.pair("a", "read").rawToken;
+    const b = s.pair("b", "read").rawToken;
     expect(a).not.toBe(b);
     // 32 random bytes, base64url — no padding, comfortably over 40 chars.
     expect(a).toMatch(/^[A-Za-z0-9_-]{43}$/);
@@ -65,7 +65,7 @@ describe("RemoteDeviceStore", () => {
 
   it("rejects a mutated token", () => {
     const s = store();
-    const { rawToken } = s.pair("phone", false);
+    const { rawToken } = s.pair("phone", "read");
     const mutated =
       rawToken.slice(0, -1) + (rawToken.endsWith("A") ? "B" : "A");
     expect(s.verify(mutated)).toBeNull();
@@ -73,7 +73,7 @@ describe("RemoteDeviceStore", () => {
 
   it("rejects a wrong-length or non-string token without throwing", () => {
     const s = store();
-    s.pair("phone", false);
+    s.pair("phone", "read");
     expect(s.verify("")).toBeNull();
     expect(s.verify("short")).toBeNull();
     expect(s.verify("x".repeat(4096))).toBeNull();
@@ -84,15 +84,15 @@ describe("RemoteDeviceStore", () => {
 
   it("only matches the device the token belongs to", () => {
     const s = store();
-    const first = s.pair("first", true);
-    const second = s.pair("second", false);
+    const first = s.pair("first", "send");
+    const second = s.pair("second", "read");
     expect(s.verify(first.rawToken)?.id).toBe(first.device.id);
     expect(s.verify(second.rawToken)?.id).toBe(second.device.id);
   });
 
   it("revokes immediately, through a live store", () => {
     const s = store();
-    const { device, rawToken } = s.pair("phone", false);
+    const { device, rawToken } = s.pair("phone", "read");
     expect(s.verify(rawToken)).not.toBeNull();
     s.revoke(device.id);
     expect(s.verify(rawToken)).toBeNull();
@@ -101,8 +101,8 @@ describe("RemoteDeviceStore", () => {
 
   it("revoking one device leaves the others working", () => {
     const s = store();
-    const doomed = s.pair("doomed", false);
-    const kept = s.pair("kept", false);
+    const doomed = s.pair("doomed", "read");
+    const kept = s.pair("kept", "read");
     s.revoke(doomed.device.id);
     expect(s.verify(doomed.rawToken)).toBeNull();
     expect(s.verify(kept.rawToken)?.id).toBe(kept.device.id);
@@ -110,16 +110,16 @@ describe("RemoteDeviceStore", () => {
 
   it("never exposes the token hash through list()", () => {
     const s = store();
-    s.pair("phone", true);
+    s.pair("phone", "send");
     const listed = s.list();
     expect(listed).toHaveLength(1);
     expect(listed[0]).not.toHaveProperty("tokenHash");
-    expect(listed[0].canSend).toBe(true);
+    expect(listed[0].capability).toBe("send");
   });
 
   it("round-trips through the file, and never writes the raw token", () => {
     const first = store();
-    const { device, rawToken } = first.pair("phone", true);
+    const { device, rawToken } = first.pair("phone", "full");
 
     const onDisk = fs.readFileSync(file, "utf8");
     expect(onDisk).not.toContain(rawToken);
@@ -127,21 +127,21 @@ describe("RemoteDeviceStore", () => {
     const reopened = new RemoteDeviceStore(file);
     const verified = reopened.verify(rawToken);
     expect(verified?.id).toBe(device.id);
-    expect(verified?.canSend).toBe(true);
+    expect(verified?.capability).toBe("full");
   });
 
   it("writes the device file 0600", () => {
     const s = store();
-    s.pair("phone", false);
+    s.pair("phone", "read");
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
     // A second write must not relax it.
-    s.pair("laptop", false);
+    s.pair("laptop", "read");
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
   });
 
   it("records lastSeenAt on a successful verify", () => {
     const s = store();
-    const { rawToken } = s.pair("phone", false);
+    const { rawToken } = s.pair("phone", "read");
     expect(s.list()[0].lastSeenAt).toBeNull();
     s.verify(rawToken);
     expect(s.list()[0].lastSeenAt).toBeTypeOf("number");
@@ -150,7 +150,7 @@ describe("RemoteDeviceStore", () => {
   it("refuses to store when the OS cannot encrypt", () => {
     keychain.available = false;
     const s = store();
-    expect(() => s.pair("phone", false)).toThrow(EncryptionUnavailableError);
+    expect(() => s.pair("phone", "read")).toThrow(EncryptionUnavailableError);
     expect(fs.existsSync(file)).toBe(false);
   });
 
@@ -162,22 +162,109 @@ describe("RemoteDeviceStore", () => {
     expect(s.verify("anything")).toBeNull();
   });
 
+  /**
+   * ADR-178 replaced the `canSend` boolean with a three-way tier. Every device
+   * paired before it is on disk in the old shape, and a user who re-pairs
+   * every phone because of a refactor is a user who was failed by it.
+   */
+  describe("migrating a pre-ADR-178 record", () => {
+    /** Write the old shape straight into the (fake-)encrypted file. */
+    function writeLegacy(rows: Record<string, unknown>[]): void {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(
+        file,
+        Buffer.from(`enc:${JSON.stringify(rows)}`, "utf8"),
+      );
+    }
+
+    const legacy = (id: string, canSend: boolean) => ({
+      id,
+      label: id,
+      tokenHash: (id === "sender" ? "a" : "b").repeat(64),
+      canSend,
+      createdAt: 1,
+      lastSeenAt: null,
+    });
+
+    it("maps canSend true to send and false to read", () => {
+      writeLegacy([legacy("sender", true), legacy("reader", false)]);
+      const listed = store().list();
+      expect(listed.map((d) => [d.id, d.capability])).toEqual([
+        ["sender", "send"],
+        ["reader", "read"],
+      ]);
+    });
+
+    it("never migrates anything up to full", () => {
+      writeLegacy([legacy("sender", true)]);
+      expect(store().list()[0].capability).not.toBe("full");
+    });
+
+    it("writes the new shape back, dropping the old key", () => {
+      writeLegacy([legacy("sender", true)]);
+      store().list();
+      const onDisk = fs.readFileSync(file, "utf8");
+      expect(onDisk).toContain('"capability":"send"');
+      expect(onDisk).not.toContain("canSend");
+    });
+
+    it("leaves an already-migrated file alone", () => {
+      writeLegacy([legacy("sender", true)]);
+      store().list();
+      const afterFirst = fs.readFileSync(file, "utf8");
+      const mtime = fs.statSync(file).mtimeMs;
+      store().list();
+      expect(fs.readFileSync(file, "utf8")).toBe(afterFirst);
+      expect(fs.statSync(file).mtimeMs).toBe(mtime);
+    });
+
+    it("keeps the token working across the migration", () => {
+      const before = store();
+      const { rawToken } = before.pair("phone", "send");
+      // Rewrite the file in the shape the old code would have left it in.
+      const stored = JSON.parse(
+        fs.readFileSync(file, "utf8").replace(/^enc:/, ""),
+      ) as Record<string, unknown>[];
+      writeLegacy(
+        stored.map(({ capability: _capability, ...rest }) => ({
+          ...rest,
+          canSend: true,
+        })),
+      );
+
+      const reopened = new RemoteDeviceStore(file);
+      expect(reopened.verify(rawToken)?.capability).toBe("send");
+    });
+
+    it("prefers an explicit capability over a stale canSend", () => {
+      writeLegacy([{ ...legacy("sender", false), capability: "full" }]);
+      expect(store().list()[0].capability).toBe("full");
+    });
+  });
+
   it("drops persisted rows that are not well-formed devices", () => {
     const rows = [
       {
         id: "ok",
         label: "l",
         tokenHash: "a".repeat(64),
-        canSend: false,
+        capability: "read",
         createdAt: 1,
         lastSeenAt: null,
       },
-      { id: "no-hash", label: "l", canSend: false, createdAt: 1 },
+      { id: "no-hash", label: "l", capability: "read", createdAt: 1 },
       {
         id: "bad-hash",
         label: "l",
         tokenHash: "zz",
-        canSend: false,
+        capability: "read",
+        createdAt: 1,
+      },
+      {
+        // Neither shape: no tier to migrate from and none declared.
+        id: "no-tier",
+        label: "l",
+        tokenHash: "b".repeat(64),
         createdAt: 1,
       },
       null,

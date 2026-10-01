@@ -10,7 +10,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { serveClientAsset } from "../static";
+import { serveClientAsset, serveWebAsset } from "../static";
 
 /** Captures what a `ServerResponse` would have been given. */
 function fakeRes() {
@@ -123,6 +123,74 @@ describe("serveClientAsset", () => {
     expect(serve("/").written[0].headers["Cache-Control"]).toBe("no-store");
     expect(
       serve("/assets/app.js").written[0].headers["Cache-Control"],
+    ).toContain("immutable");
+  });
+});
+
+describe("serveWebAsset", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-web-"));
+    fs.writeFileSync(path.join(dir, "web.html"), "<title>Manor</title>");
+    fs.mkdirSync(path.join(dir, "assets"));
+    fs.writeFileSync(path.join(dir, "assets", "web.js"), "export {};");
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const serve = (pathname: string, root: string | null = dir) => {
+    const f = fakeRes();
+    const handled = serveWebAsset(
+      f.res as unknown as import("node:http").ServerResponse,
+      pathname,
+      root,
+    );
+    return { handled, ...f };
+  };
+
+  it("serves the shell at /app, mapped to web.html", () => {
+    const r = serve("/app");
+    expect(r.handled).toBe(true);
+    expect(r.written[0].status).toBe(200);
+    expect(String(r.body)).toContain("Manor");
+  });
+
+  it("serves the shell at /app/ too", () => {
+    expect(serve("/app/").handled).toBe(true);
+  });
+
+  it("serves a nested asset with the right content type", () => {
+    const r = serve("/app/assets/web.js");
+    expect(r.handled).toBe(true);
+    expect(r.written[0].headers["Content-Type"]).toContain("text/javascript");
+  });
+
+  it("sends the web app's CSP, not the remote client's", () => {
+    const r = serve("/app");
+    expect(r.written[0].headers["Content-Security-Policy"]).toContain(
+      "'wasm-unsafe-eval'",
+    );
+  });
+
+  it("refuses a traversal that escapes the web directory", () => {
+    const r = serve("/app/../../etc/passwd");
+    expect(r.handled).toBe(false);
+    expect(r.body).toBeNull();
+  });
+
+  it("serves nothing when there is no web directory", () => {
+    expect(serve("/app", null).handled).toBe(false);
+  });
+
+  it("never caches the shell, always caches hashed assets", () => {
+    expect(serve("/app").written[0].headers["Cache-Control"]).toBe(
+      "no-store",
+    );
+    expect(
+      serve("/app/assets/web.js").written[0].headers["Cache-Control"],
     ).toContain("immutable");
   });
 });

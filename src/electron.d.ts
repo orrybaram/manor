@@ -362,8 +362,25 @@ export interface PtyCreateOptions {
 /** Options for `pty.reset`: the host its fresh session runs on (see `PtyCreateOptions`). */
 export type PtyResetOptions = Pick<PtyCreateOptions, "hostId">;
 
+/**
+ * The winsize half of a create-shaped PTY reply (`pty.create`, `pty.reset`).
+ *
+ * These are the ADR-178 bridge's fields (D5) and only the bridge's: the
+ * preload path never sets them, and **absent means this viewer owns the
+ * winsize**, which is what the desktop app has always been. A browser told
+ * `winsizeOwner: false` is a follower — it renders the `cols×rows` here and
+ * never asks the pty for a different pair.
+ */
+export interface PtyWinsize {
+  /** False when another viewer — the desktop app — owns the winsize. */
+  winsizeOwner?: boolean;
+  /** The winsize owner's grid, to be rendered as-is. */
+  cols?: number;
+  rows?: number;
+}
+
 /** What `pty.create` resolves to (ADR-183: one type for main and renderer). */
-export type PtyCreateResult =
+export type PtyCreateResult = PtyWinsize & (
   | {
       ok: true;
       /**
@@ -388,7 +405,8 @@ export type PtyCreateResult =
       hostId: string;
       error: string;
     }
-  | { ok: false; reason: "error"; error: string };
+  | { ok: false; reason: "error"; error: string }
+);
 
 /** What `terminal.pasteClipboardImage` resolves to (ADR-187 §3). */
 export type PasteClipboardImageResult =
@@ -472,6 +490,14 @@ export type PushProgressEvent =
   | { pushId: string; type: "done"; exitCode: number | null; stderr: string };
 
 export interface ElectronAPI {
+  /**
+   * Which implementation of this interface is installed (ADR-178 D8): the
+   * Electron preload, or `src/web/ws-bridge.ts` over a WebSocket. Read it to
+   * hide what a browser genuinely cannot do (webview panes, detached windows,
+   * native dialogs) — never to guess at a capability the bridge can report.
+   */
+  platform: "electron" | "web";
+
   env: {
     isPackaged: boolean;
   };
@@ -510,7 +536,7 @@ export interface ElectronAPI {
       prewarmed?: boolean;
       /** The host the fresh session runs on (ADR-160). */
       hostId?: string;
-    }>;
+    } & PtyWinsize>;
     detach: (paneId: string) => Promise<void>;
     /** `hostId` is the workspace's host; only a local one is ever prewarmed. */
     consumePrewarmed: (cwd: string | null, hostId: string) => Promise<{
@@ -905,7 +931,10 @@ export interface ElectronAPI {
     getStatus: () => Promise<RemoteControlStatus>;
     refreshDetection: () => Promise<RemoteControlStatus>;
     setEnabled: (enabled: boolean) => Promise<RemoteControlStatus>;
-    pair: (label: string, canSend: boolean) => Promise<RemotePairResult>;
+    pair: (
+      label: string,
+      capability: RemoteCapability,
+    ) => Promise<RemotePairResult>;
     revoke: (id: string) => Promise<RemoteControlStatus>;
     startTunnel: (kind?: TunnelKind) => Promise<RemoteControlStatus>;
     stopTunnel: () => Promise<RemoteControlStatus>;
@@ -1339,11 +1368,19 @@ export interface TunnelStatus {
   error: string | null;
 }
 
+/**
+ * How much of the machine a paired device may reach (ADR-178 D3): read the
+ * allowlisted read routes, also act on the three acting routes, or reach
+ * everything the desktop app can. Mirrors `Capability` in
+ * `electron/remote-control/devices.ts`.
+ */
+export type RemoteCapability = "read" | "send" | "full";
+
 export interface RemoteDeviceInfo {
   id: string;
   label: string;
-  /** Whether this device may type into a session. Off unless explicitly granted. */
-  canSend: boolean;
+  /** How far this device reaches. `read` unless explicitly granted more. */
+  capability: RemoteCapability;
   createdAt: number;
   lastSeenAt: number | null;
   /** Whether the device has a live Web Push subscription. */

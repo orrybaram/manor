@@ -16,7 +16,7 @@ import { parseWorkspaceKey, workspaceKey as makeWorkspaceKey, type WorkspaceKey 
 import { ownerOf } from "../lib/workspace-directory";
 import { useProjectStore } from "../store/project-store";
 import { getAgentKindForCommand } from "../agent-defaults";
-import { isNavRegionFocused } from "../lib/focus-regions";
+import { isNavRegionKeyboardFocused } from "../lib/focus-regions";
 import { classifyShellOutput } from "../lib/shell-ready";
 import { installKittyKeyboard } from "../lib/kitty-keyboard";
 import { paneCreateHostId, useTerminalConnection } from "./useTerminalConnection";
@@ -127,10 +127,11 @@ export function useTerminalLifecycle(
     if (!isFocusedPane || !termRef.current) return;
     const t = termRef.current;
     // Focus the terminal for keyboard input — unless the user is driving a
-    // navigation region (sidebar, tab bar, status bar; ADR-175). Clicking a
-    // row switches workspaces, which flips this selector, and focusing here
-    // would yank focus straight back out of the row.
-    if (demanded || fresh || !isNavRegionFocused()) t.focus();
+    // navigation region (sidebar, tab bar, status bar; ADR-175) from the
+    // keyboard. Arrowing to a row switches workspaces, which flips this
+    // selector, and focusing here would yank focus straight back out of the
+    // row. A mouse click on a row or tab hands the keyboard to the pane.
+    if (demanded || fresh || !isNavRegionKeyboardFocused()) t.focus();
     // Force a full viewport refresh — TUIs (neovim, claude code) using the
     // WebGL renderer can have a stale canvas after being visibility:hidden.
     // The pane became visible either way, so this runs even when focus stayed
@@ -493,7 +494,7 @@ export function useTerminalLifecycle(
 
       // A reattached pane only takes focus back if it had it: its old xterm,
       // focused, was just unmounted from under the user's cursor.
-      if (!reattached || (isFocusedPane && !isNavRegionFocused())) t.focus();
+      if (!reattached || (isFocusedPane && !isNavRegionKeyboardFocused())) t.focus();
 
       return () => {
         disposed = true;

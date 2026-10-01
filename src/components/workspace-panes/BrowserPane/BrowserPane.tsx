@@ -95,6 +95,8 @@ type BrowserPaneProps = {
    * through a port forward (ADR-178 §5).
    */
   remoteHostId?: string | null;
+  /** The pane's project, so the host-away overlay can open its Host settings. */
+  projectId?: string;
   onNavStateChange?: (state: BrowserPaneNavState) => void;
 };
 
@@ -127,7 +129,7 @@ const WEBVIEW_ALLOW_POPUPS: any = { allowpopups: "true" };
 
 export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
   function BrowserPane(props: BrowserPaneProps, ref) {
-    const { paneId, initialUrl, remoteHostId = null, onNavStateChange } = props;
+    const { paneId, initialUrl, remoteHostId = null, projectId, onNavStateChange } = props;
 
     const webviewRef = useRef<WebviewElement>(null);
 
@@ -586,11 +588,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
             // the handler ever runs.
             {...WEBVIEW_ALLOW_POPUPS}
           />
-          <HostIndicator
-            hostId={remoteHostId}
-            variant="banner"
-            className={styles.hostBanner}
-          />
+          <HostIndicator hostId={remoteHostId} variant="banner" projectId={projectId} />
           {remoteBrowserUrl.waiting ? (
             <div className={styles.emptyState}>
               Waiting for {remoteBrowserUrl.hostLabel ?? "the remote host"}…

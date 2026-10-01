@@ -41,6 +41,7 @@ import { useMountEffect } from "../../hooks/useMountEffect";
 import { paneHeaderTitle } from "../../lib/pane-title";
 import { PaneHeaderTitle } from "./PaneHeaderTitle";
 import { useRemotePaneStore } from "../../store/remote-pane-store";
+import { useWorkspaceProjectId } from "../../hooks/useWorkspaceProjectId";
 
 import styles from "./PaneLayout/PaneLayout.module.css";
 import browserStyles from "./BrowserPane/BrowserPane.module.css";
@@ -74,6 +75,9 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
     contentType === "browser" && workspace && isRemoteHost(workspace.hostId)
       ? workspace.hostId
       : null;
+  // Only a remote browser pane needs it, for the host-away overlay's
+  // Host settings; everything else stays off the project store.
+  const remoteProjectId = useWorkspaceProjectId(remoteHostId ? workspaceKey : null);
   const recordingStartedAt = useAppStore((s) => s.paneRecordingStartedAt[paneId]);
   // Bumped when this pane's remote host comes back, to remount its terminal
   // and create/attach its session again (ADR-178 §6). 0 for every local pane.
@@ -648,6 +652,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
               paneId={paneId}
               initialUrl={paneUrl ?? "about:blank"}
               remoteHostId={remoteHostId}
+              projectId={remoteProjectId}
               onNavStateChange={handleNavStateChange}
             />
           </PaneContextMenu>

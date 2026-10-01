@@ -1,7 +1,7 @@
-import type { BrowserWindow } from "electron";
 import { LOCAL_HOST_ID, type ActivePort } from "./backend/types";
 import { HostUnavailableError } from "./backend/host-view";
 import { PerHostPoller, type HostBackends, type HostPath } from "./per-host-poller";
+import { publishRendererBroadcast } from "./renderer-broadcast";
 
 export type { ActivePort };
 
@@ -20,8 +20,10 @@ export const RESCAN_MIN_MS = 3000;
  */
 export class PortScanner {
   private readonly poller: PerHostPoller<ActivePort[]>;
-  private window: BrowserWindow | null = null;
-  /** Dresses the merged ports (portless hostnames); set by `ipc/ports.ts`. */
+  /**
+   * Dresses the merged ports (portless hostnames); set once by
+   * `installPortEnricher` in `bridge/handlers/ports.ts`.
+   */
   private enrich: (ports: ActivePort[]) => ActivePort[] = (ports) => ports;
 
   constructor(
@@ -36,7 +38,9 @@ export class PortScanner {
       },
       intervalMs: () => 3000,
       merge: (results) => this.enrich(results.flat()),
-      emit: (ports) => this.window?.webContents.send("ports-changed", ports),
+      // ADR-180 D5: every renderer — desktop windows and paired browsers —
+      // hears `ports.changed`; the scanner knows nothing about windows.
+      emit: (ports) => publishRendererBroadcast("ports", "changed", ports),
       // With no workspaces open, this machine's ports are still listed.
       hostsWhenEmpty: [LOCAL_HOST_ID],
       now,
@@ -48,14 +52,12 @@ export class PortScanner {
     this.enrich = enrich;
   }
 
-  start(window: BrowserWindow): void {
-    this.window = window;
+  start(): void {
     this.poller.start({ immediate: false });
   }
 
   stop(): void {
     this.poller.stop();
-    this.window = null;
   }
 
   /** Whether `hostId` has been scanned successfully since its paths appeared. */

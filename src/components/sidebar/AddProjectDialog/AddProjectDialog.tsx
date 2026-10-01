@@ -14,6 +14,8 @@ import { Row, Stack } from "../../ui/Layout/Layout";
 import { useHostCloneFlow } from "../../hosts/useHostCloneFlow";
 import { CloneDirField, HostCloneSteps, RepoUrlField } from "../../hosts/HostCloneSteps";
 import styles from "../../hosts/HostCloneSteps.module.css";
+import { isWebApp } from "../../../lib/platform";
+import { pickDirectory } from "../../../lib/pick-directory";
 
 export type AddProjectMode = "folder" | "clone";
 
@@ -74,7 +76,11 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
     onRemoteProjectAdded,
   } = props;
 
-  const [mode, setMode] = useState<AddProjectMode>(initialMode);
+  const [chosenMode, setMode] = useState<AddProjectMode>(initialMode);
+  // A browser has no folder picker (ADR-180 D8), so the web app only clones
+  // — onto any host, by typed location — and never shows "Open folder".
+  const webApp = isWebApp();
+  const mode: AddProjectMode = webApp ? "clone" : chosenMode;
   const [addingLocal, setAddingLocal] = useState(false);
 
   // Each open starts on the tab the caller asked for (the palette's
@@ -201,7 +207,7 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
   );
 
   const handleBrowse = useCallback(async () => {
-    const picked = await window.electronAPI.dialog.openDirectory();
+    const picked = await pickDirectory();
     if (!picked) return;
     setBrowsedParent(picked);
     // A typed location is replaced by the browsed one, which then follows
@@ -258,16 +264,18 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
           <Stack className={styles.body}>
             {flow.step === "form" && (
               <>
-                <ToggleGroup
-                  value={mode}
-                  onChange={setMode}
-                  size="sm"
-                  aria-label="How to add the project"
-                  options={[
-                    { value: "folder", label: "Open folder" },
-                    { value: "clone", label: "Clone repository" },
-                  ]}
-                />
+                {!webApp && (
+                  <ToggleGroup
+                    value={mode}
+                    onChange={setMode}
+                    size="sm"
+                    aria-label="How to add the project"
+                    options={[
+                      { value: "folder", label: "Open folder" },
+                      { value: "clone", label: "Clone repository" },
+                    ]}
+                  />
+                )}
                 {mode === "folder" ? (
                   <Stack gap="sm">
                     <div className={styles.fieldHint}>
@@ -333,7 +341,7 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
                       }}
                       placeholder={joinPath(parent, "repo")}
                       action={
-                        isLocal ? (
+                        isLocal && !webApp ? (
                           <Button variant="secondary" onClick={handleBrowse}>
                             Browse…
                           </Button>

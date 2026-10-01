@@ -1,41 +1,31 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import type { Mock } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
-import {
-  dispatchStreamEvent,
-  handleAgentStreamEvent,
-  handleStreamEvent,
-} from "./app-lifecycle";
+import { dispatchStreamEvent } from "./app-lifecycle";
 import { createAgentStatusDriver } from "./agent-status/driver";
 import type { PaneStatusUpdate } from "./agent-status/effects";
 import { AgentManager } from "./agent-persistence";
 import type { AgentInfo } from "./agent-persistence";
 import type { PaneFacts, StreamEvent } from "./terminal-host/types";
 
-// Mock BrowserWindow
-const createMockBrowserWindow = () => {
-  return {
-    webContents: {
-      send: vi.fn(),
-      isDestroyed: () => false,
-      mainFrame: true,
-    },
-    isDestroyed: () => false,
-  } as any;
-};
-
-describe("handleStreamEvent", () => {
+describe("dispatchStreamEvent", () => {
   let tmpDir: string;
   let agentManager: AgentManager;
-  let mockWindow: any;
+  /**
+   * The bridge's `handleStreamEvent` (ADR-180 D5): the one consumer that
+   * forwards a pane's events, to windows and devices alike. There is no
+   * `webContents.send` left in main's stream path to inspect.
+   */
+  let forward: Mock<(event: StreamEvent) => void>;
 
   beforeEach(() => {
     tmpDir = path.join(os.tmpdir(), `manor-test-${crypto.randomUUID()}`);
     fs.mkdirSync(tmpDir, { recursive: true });
     agentManager = new AgentManager(tmpDir);
-    mockWindow = createMockBrowserWindow();
+    forward = vi.fn<(event: StreamEvent) => void>();
   });
 
   afterEach(() => {
@@ -48,15 +38,14 @@ describe("handleStreamEvent", () => {
 
   /**
    * What main does with one stream event: the agent side once, then the
-   * per-window forwarding (ADR-184).
+   * bridge forward once (ADR-184, ADR-180 D5).
    */
   function runEvent(event: StreamEvent): void {
-    handleAgentStreamEvent(event, {
-      agentManager,
-      agentStatus: agentStatus as never,
-      broadcastAgent,
-    });
-    handleStreamEvent(event, mockWindow);
+    dispatchStreamEvent(
+      event,
+      { agentManager, agentStatus: agentStatus as never, broadcastAgent },
+      forward,
+    );
   }
 
   function createAgent(
@@ -93,11 +82,8 @@ describe("handleStreamEvent", () => {
 
       runEvent(event);
 
-      // Verify webContents.send was called with the cwd event
-      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
-        `pty-cwd-${paneId}`,
-        "/project/main/src",
-      );
+      // The pane's cwd event is forwarded to the bridge, once
+      expect(forward).toHaveBeenCalledWith(event);
 
       // Verify agent was updated in agentManager
       const updated = agentManager.getAgentByPaneId(paneId);
@@ -121,11 +107,8 @@ describe("handleStreamEvent", () => {
 
       runEvent(event);
 
-      // Verify webContents.send was called with the cwd event
-      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
-        `pty-cwd-${paneId}`,
-        "/project/main",
-      );
+      // The pane's cwd event is forwarded to the bridge, once
+      expect(forward).toHaveBeenCalledWith(event);
 
       // Verify agent-updated broadcast was NOT sent (no change)
       expect(broadcastAgent).not.toHaveBeenCalled();
@@ -143,11 +126,8 @@ describe("handleStreamEvent", () => {
 
       runEvent(event);
 
-      // Verify webContents.send was called with the cwd event to renderer
-      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
-        `pty-cwd-${paneId}`,
-        "/project/main/src",
-      );
+      // The pane's cwd event is forwarded to the bridge, once
+      expect(forward).toHaveBeenCalledWith(event);
 
       // Verify agent was NOT updated
       const updated = agentManager.getAgentByPaneId(paneId);
@@ -168,102 +148,45 @@ describe("handleStreamEvent", () => {
 
       runEvent(event);
 
-      // Verify webContents.send was called with the cwd event to renderer
-      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
-        `pty-cwd-${nonExistentPaneId}`,
-        "/project/main/src",
-      );
+      // The pane's cwd event is forwarded to the bridge, once
+      expect(forward).toHaveBeenCalledWith(event);
 
       // Verify agent-updated broadcast was NOT sent
       expect(broadcastAgent).not.toHaveBeenCalled();
     });
 
-    it("forwards data events to renderer", () => {
+    /**
+     * ADR-180 ticket 5. Output, exit, resize and error used to leave main on
+     * `pty-${kind}-${paneId}` channels, one send per live window whether or
+     * not it had the pane. They are bridge event frames now —
+     * `BridgeServer.handleStreamEvent` publishes them keyed by paneId, to
+     * windows and devices alike — so each event is handed to the bridge
+     * exactly once, unchanged (the `seq` included, ADR-159).
+     */
+    it("forwards every pane event to the bridge once, unchanged", () => {
       const paneId = `pane-${crypto.randomUUID()}`;
+      const events: StreamEvent[] = [
+        { type: "data", sessionId: paneId, data: "hello", seq: 7 },
+        // An older daemon predates ADR-159 and omits the seq entirely.
+        { type: "data", sessionId: paneId, data: "hello" },
+        { type: "exit", sessionId: paneId, exitCode: 0 },
+        { type: "resized", sessionId: paneId, cols: 100, rows: 30 },
+        { type: "error", sessionId: paneId, message: "test error" },
+      ];
 
-      const event: StreamEvent = {
-        type: "data",
-        sessionId: paneId,
-        data: "hello",
-        seq: 7,
-      };
+      for (const event of events) runEvent(event);
 
-      runEvent(event);
-
-      // The seq rides along so the renderer can drop output a warm-restore
-      // snapshot already covers (ADR-159).
-      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
-        `pty-output-${paneId}`,
-        "hello",
-        7,
-      );
-    });
-
-    it("forwards data from a daemon that sends no seq", () => {
-      const paneId = `pane-${crypto.randomUUID()}`;
-
-      // An older daemon predates ADR-159 and omits the field entirely.
-      const event: StreamEvent = {
-        type: "data",
-        sessionId: paneId,
-        data: "hello",
-      };
-
-      runEvent(event);
-
-      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
-        `pty-output-${paneId}`,
-        "hello",
-        undefined,
-      );
-    });
-
-    it("forwards exit events to renderer", () => {
-      const paneId = `pane-${crypto.randomUUID()}`;
-
-      const event: StreamEvent = {
-        type: "exit",
-        sessionId: paneId,
-        exitCode: 0,
-      };
-
-      runEvent(event);
-
-      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
-        `pty-exit-${paneId}`,
-      );
-    });
-
-    it("forwards error events to renderer", () => {
-      const paneId = `pane-${crypto.randomUUID()}`;
-
-      const event: StreamEvent = {
-        type: "error",
-        sessionId: paneId,
-        message: "test error",
-      };
-
-      runEvent(event);
-
-      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
-        `pty-error-${paneId}`,
-        "test error",
-      );
+      expect(forward.mock.calls.map(([e]) => e)).toEqual(events);
     });
   });
 
   describe("error handling", () => {
-    it("handles errors from webContents.send gracefully", () => {
+    it("a failing forward does not undo the agent side", () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       const agent = createAgent({ cwd: "/project/main", status: "active" });
       const paneId = agent.paneId!;
-
-      let callCount = 0;
-      mockWindow.webContents.send = vi.fn(() => {
-        callCount++;
-        // Throw on the pty-cwd forward: the agent side already ran
-        if (callCount === 1) {
-          throw new Error("Render frame was disposed");
-        }
+      forward.mockImplementation(() => {
+        throw new Error("Render frame was disposed");
       });
 
       const event: StreamEvent = {
@@ -280,26 +203,31 @@ describe("handleStreamEvent", () => {
       // Agent should still be updated
       const updated = agentManager.getAgentByPaneId(paneId);
       expect(updated!.cwd).toBe("/project/main/src");
+      expect(errorSpy).toHaveBeenCalledWith(
+        "Error forwarding stream event:",
+        expect.any(Error),
+      );
+      errorSpy.mockRestore();
     });
 
-    it("logs non-disposed errors", () => {
+    it("logs errors from the agent side", () => {
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-      mockWindow.webContents.send = vi.fn(() => {
+      vi.spyOn(agentManager, "getAgentByPaneId").mockImplementation(() => {
         throw new Error("Some other error");
       });
 
       const paneId = `pane-${crypto.randomUUID()}`;
       const event: StreamEvent = {
-        type: "data",
+        type: "cwd",
         sessionId: paneId,
-        data: "test",
+        cwd: "/project/main/src",
       };
 
       runEvent(event);
 
       expect(errorSpy).toHaveBeenCalledWith(
-        "Error in stream event handler:",
+        "Error in agent stream event handler:",
         expect.any(Error),
       );
 
@@ -349,7 +277,7 @@ describe("handleStreamEvent", () => {
         type: "paneFacts",
         facts: event.facts,
       });
-      expect(mockWindow.webContents.send).not.toHaveBeenCalled();
+      expect(forward).not.toHaveBeenCalled();
     });
 
     it("renames the pane's agent from the facts' title", () => {
@@ -375,8 +303,8 @@ describe("handleStreamEvent", () => {
     });
   });
 
-  describe("dispatchStreamEvent with two windows (ADR-184)", () => {
-    it("applies one signal's effects once, however many windows are open", () => {
+  describe("dispatchStreamEvent, once per event (ADR-184, ADR-180 D5)", () => {
+    it("applies one signal's effects once and forwards pane events once", () => {
       const agent = createAgent({ status: "active", lastAgentStatus: "working" });
       const paneId = agent.paneId!;
       const published: PaneStatusUpdate[] = [];
@@ -405,7 +333,6 @@ describe("handleStreamEvent", () => {
       broadcastAgent.mockClear();
       notify.mockClear();
 
-      const windows = [createMockBrowserWindow(), createMockBrowserWindow()];
       const deps = { agentManager, agentStatus: driver, broadcastAgent };
       // The agent process exits: facts say so.
       dispatchStreamEvent(
@@ -414,8 +341,8 @@ describe("handleStreamEvent", () => {
           sessionId: paneId,
           facts: { foreground: null, title: null, outputHint: null },
         },
-        windows,
         deps,
+        forward,
       );
 
       expect(published).toEqual([
@@ -424,13 +351,13 @@ describe("handleStreamEvent", () => {
       expect(notify).toHaveBeenCalledTimes(1);
       expect(broadcastAgent).toHaveBeenCalledTimes(1);
       expect(agentManager.getAgentByPaneId(paneId)!.lastAgentStatus).toBe("responded");
-      for (const win of windows) expect(win.webContents.send).not.toHaveBeenCalled();
+      expect(forward).not.toHaveBeenCalled();
 
-      // Pane channels still go to every window.
-      dispatchStreamEvent({ type: "cwd", sessionId: paneId, cwd: "/elsewhere" }, windows, deps);
-      for (const win of windows) {
-        expect(win.webContents.send).toHaveBeenCalledWith(`pty-cwd-${paneId}`, "/elsewhere");
-      }
+      // Pane events still reach the bridge, which serves every renderer.
+      const cwd: StreamEvent = { type: "cwd", sessionId: paneId, cwd: "/elsewhere" };
+      dispatchStreamEvent(cwd, deps, forward);
+      expect(forward).toHaveBeenCalledTimes(1);
+      expect(forward).toHaveBeenCalledWith(cwd);
       expect(broadcastAgent).toHaveBeenCalledTimes(2); // the cwd update, once
     });
   });

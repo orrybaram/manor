@@ -98,7 +98,13 @@ export async function createWorktree(
   linkedIssue?: LinkedIssue,
   baseBranch?: string,
   useExistingBranch?: boolean,
+  origin: string | null = null,
 ): Promise<ProjectInfo | null> {
+  // `origin`: the bridge connection that asked, so its own window gets the
+  // setup progress (ADR-180 D5). Null — the default, and what the CLI, MCP
+  // and the issue-batch path pass — broadcasts it instead.
+  const progress = (step: string, status: string, message?: string) =>
+    emitSetupProgress(origin, step, status, message);
   const project = ctx.find(projectId);
   if (!project) return null;
   const git = gitOf(ctx, project);
@@ -107,16 +113,16 @@ export async function createWorktree(
   const worktreePath = await ctx.paths.worktreePathFor(project, name);
 
   // Prune stale worktree entries (e.g. leftover from a previous failed creation)
-  emitSetupProgress("prune", "in-progress");
+  progress("prune", "in-progress");
   try {
     await git().exec(project.path, ["worktree", "prune"]);
   } catch (err) {
     console.error("[ProjectManager] git worktree prune failed:", errorMessage(err));
   }
-  emitSetupProgress("prune", "done");
+  progress("prune", "done");
 
   // If an existing branch was selected, fetch first so local refs are up-to-date
-  emitSetupProgress("fetch", "in-progress");
+  progress("fetch", "in-progress");
   if (branch) {
     try {
       await git().exec(project.path, ["fetch", "origin", branchName]);
@@ -134,13 +140,13 @@ export async function createWorktree(
       );
     }
   }
-  emitSetupProgress("fetch", "done");
+  progress("fetch", "done");
 
   const defaultBranchRef = baseBranch ?? `origin/${project.defaultBranch || "main"}`;
 
   if (useExistingBranch) {
     // Check out an existing remote branch without creating a new one
-    emitSetupProgress("create-worktree", "in-progress", `Checking out branch ${branchName}`);
+    progress("create-worktree", "in-progress", `Checking out branch ${branchName}`);
     try {
       // Try checking out as a local branch first
       await git().worktreeAdd(project.path, worktreePath, branchName);
@@ -160,7 +166,7 @@ export async function createWorktree(
       }
     }
   } else {
-    emitSetupProgress(
+    progress(
       "create-worktree",
       "in-progress",
       branch
@@ -195,7 +201,7 @@ export async function createWorktree(
       }
     }
   }
-  emitSetupProgress("create-worktree", "done");
+  progress("create-worktree", "done");
 
   // Set custom name only if it differs from the branch
   if (name !== branchName) {
@@ -212,9 +218,9 @@ export async function createWorktree(
     }
   }
 
-  emitSetupProgress("persist", "in-progress");
+  progress("persist", "in-progress");
   ctx.store.save();
-  emitSetupProgress("persist", "done");
+  progress("persist", "done");
 
   return ctx.info(project);
 }

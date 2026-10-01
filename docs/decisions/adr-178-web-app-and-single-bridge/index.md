@@ -145,6 +145,20 @@ to the **Manor server only**, never to the daemon: the daemon's token-file
 auth was designed for a loopback caller, and one authenticated endpoint per
 host is the number D3 settled on.
 
+**Amended by [ADR-180](../adr-180-one-host-surface/index.md) D2.** "Converging
+on the WebSocket" is not what shipped, and the record should say so rather
+than let the superseded plan stand. Dialling `ws://127.0.0.1:<port>` from the
+desktop was not worth what it cost: an always-on local listener would need its
+own authentication (any web page can open a WebSocket to loopback), a token
+would still have to reach the renderer through the preload, first paint would
+wait on a socket, and the PTY stream would leave Electron's structured clone
+for JSON over TCP. What shipped instead is one protocol, two transports: the
+desktop speaks the same frames over an Electron IPC channel
+(`bridge:invoke`/`bridge:subscribe`/`bridge:unsubscribe`/`bridge:event`), and
+a browser speaks them over the WebSocket. D8's actual rule — one interface,
+no new preload method, `electron/ipc/` down to what only Electron can do —
+stands unchanged; only the mechanism the desktop uses to reach it changes.
+
 **D9 — On a phone, walk the shared layout one leaf at a time.** One
 breakpoint (~768 px): above it the real grid; below it one pane full screen,
 the owning panel's tab row as a top strip, the sidebar as a drawer, a pane
@@ -160,14 +174,19 @@ live terminal for an existing session, and can type into it* — which forces
 D3, the served bundle, the WebSocket bridge with reads + PTY proxy (D8's
 boundary rule), and D5's follower mode, in miniature. Deliberately deferred to
 follow-up ADRs, in order: **slice 2** the layout-ownership flip (D6); **slice
-3** the desktop's convergence onto the WebSocket bridge and the deletion of
-`electron/ipc/` (D8); **slice 4** the phone layout (D9). Between slice 1 and
+3** one host surface for both callers and the deletion of `electron/ipc/`'s
+non-native modules (D8); **slice 4** the phone layout (D9). Between slice 1 and
 slice 2 the web app is *read-and-type*, not *read-and-arrange*: you can watch
 and drive any session from a browser; you cannot split, open tabs or start a
 workspace from it yet. That is a named intermediate state, not a bug.
 Slice 2 landed as [ADR-179](../adr-179-server-owned-layout/index.md): the
 Manor server owns layout, and a browser arranges a session exactly as the
 desktop does.
+Slice 3 landed as [ADR-180](../adr-180-one-host-surface/index.md): the 169
+`ipcMain` registrations and the 35-entry WebSocket table become one handler
+table reached over two transports — the desktop's is Electron IPC, not the
+WebSocket this ADR named (D8's amendment above) — and `electron/ipc/` shrinks
+to the six modules that are genuinely Electron-only.
 
 ### What can never mirror in a browser
 
@@ -238,9 +257,12 @@ Follower mode reuses a rule ADR-177 already measured.
 `docs/remote-control.md` currently promises its reader; the doc's honesty about
 scrollback has to extend to "and can remove a workspace". Every host-side
 feature now has to land in the WebSocket handler table, and until slice 3 also
-in `ipc/` — the drift gets briefly *worse* before it ends. The desktop's
-first paint will one day wait on a localhost socket; `useTerminalStream`'s
-warm-restore sequencing is the piece that has to survive that.
+in `ipc/` — the drift gets briefly *worse* before it ends. ~~The desktop's
+first paint will one day wait on a localhost socket~~ — superseded by
+[ADR-180](../adr-180-one-host-surface/index.md) D2: the desktop never dials a
+loopback socket at all, so first paint never waits on one.
+`useTerminalStream`'s warm-restore sequencing is still the piece that has to
+survive the desktop's transport swap; it survives an IPC channel instead.
 
 **Risks.** Serving the desktop bundle from the tunnel exposes far more
 JavaScript unauthenticated than the 16 KB remote client did — no data, but a

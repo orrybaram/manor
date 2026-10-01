@@ -7,6 +7,7 @@ import type { WorkspaceBackend } from "./backend/types";
 import { MergeBaseCache, resolveBasePoint, type BasePoint } from "./backend/merge-base";
 import { settleWithConcurrency } from "./lib/concurrency";
 import { errorMessage } from "./lib/errors";
+import { publishRendererBroadcast } from "./renderer-broadcast";
 
 export interface DiffStats {
   added: number;
@@ -99,8 +100,17 @@ export class DiffWatcher {
     });
   }
 
-  start(window: BrowserWindow, workspaces: readonly DiffWorkspace[]): void {
-    this.watchWindow(window);
+  /**
+   * ADR-180 D5: results are published as `diffs.changed` /
+   * `diffs.fingerprintsChange` to every renderer — desktop windows and paired
+   * browsers alike — rather than pushed at one window. `window` is only the
+   * visibility gate: while it is hidden or minimized no git runs (each host
+   * keeps its last result). The handler passes the primary window, so a
+   * browser watching while the desk is minimized sees the last stats until
+   * the desk is shown again.
+   */
+  start(workspaces: readonly DiffWorkspace[], window: BrowserWindow | null): void {
+    if (window) this.watchWindow(window);
     // Force the first result to emit so a fresh/reloaded renderer gets stats.
     this.poller.reset({ reemit: true });
     this.lastSent = null;
@@ -143,10 +153,10 @@ export class DiffWatcher {
     const prev = this.lastSent;
     this.lastSent = { stats, fingerprints };
     if (prev?.fingerprints !== fingerprints) {
-      this.window?.webContents.send("diff-fingerprints-changed", merged.fingerprints);
+      publishRendererBroadcast("diffs", "fingerprintsChange", merged.fingerprints);
     }
     if (prev?.stats !== stats) {
-      this.window?.webContents.send("diffs-changed", merged.stats);
+      publishRendererBroadcast("diffs", "changed", merged.stats);
     }
   }
 

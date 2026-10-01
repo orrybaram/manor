@@ -48,6 +48,11 @@ export interface CreateWorkspaceRequest {
   linkedIssue?: LinkedIssue;
   baseBranch?: string;
   useExistingBranch?: boolean;
+  /**
+   * The bridge connection that asked, so its own window gets the setup
+   * progress (ADR-180 D5); omitted or null broadcasts it.
+   */
+  origin?: string | null;
 }
 
 export interface WorkspaceOps {
@@ -115,6 +120,7 @@ export function createWorkspaceOps(deps: WorkspaceOpsDeps): WorkspaceOps {
         req.linkedIssue,
         req.baseBranch,
         req.useExistingBranch,
+        req.origin ?? null,
       );
       if (project) {
         statsStore.record("worktreesCreated");

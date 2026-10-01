@@ -9,7 +9,7 @@
  * for layout, one for preferences) each still get their own first toast.
  */
 
-import { BridgeUnavailableError } from "../web/ws-bridge";
+import { BridgeUnavailableError } from "../bridge/client";
 import { useToastStore } from "../store/toast-store";
 
 const shownIds = new Set<string>();

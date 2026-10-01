@@ -11,6 +11,14 @@
  * writes the snapshot and then only the queued chunks it does not already
  * cover; see `outputAfterSnapshot`.
  *
+ * **Subscribe first, create second, on every platform.** These subscriptions
+ * are bridge frames now (ADR-180 ticket 5), on both transports: the effect
+ * below runs before `useTerminalLifecycle`'s create effect — hooks run in the
+ * order they are called, and this one is called first — so the host has this
+ * viewer on the pane's subscriber list before `pty.create` reaches the table.
+ * Reversing those two would lose the opening bytes of a fresh shell, which no
+ * snapshot can put back: the session is new, so there is nothing to snapshot.
+ *
  * Kitty keyboard negotiation is not handled here but in the terminal's own
  * parser (`installKittyKeyboard`), which sees sequences split across chunks.
  */

@@ -546,7 +546,7 @@ describe("driver — lifecycle (ported)", () => {
 describe("paneContextBackfill", () => {
   const context = { projectId: "p", projectName: "tango", workspacePath: "/w", agentCommand: "claude" };
   const agent = (over: Partial<AgentInfo>): AgentInfo => ({
-    id: "a", name: null, status: "active", createdAt: "", updatedAt: "", completedAt: null,
+    id: "a", agentSessionId: "s", name: null, status: "active", createdAt: "", updatedAt: "", completedAt: null,
     activatedAt: null, projectId: null, projectName: null, hostId: "local", workspacePath: null,
     cwd: "", agentKind: "claude", agentCommand: null, paneId: "pane-1", lastAgentStatus: null,
     resumedAt: null, ...over,

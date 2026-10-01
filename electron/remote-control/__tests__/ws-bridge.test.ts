@@ -15,8 +15,20 @@ import { WebSocket } from "ws";
 import { RemoteControlServer, type AuthenticatedDevice } from "../server";
 import { RemoteAuditLog } from "../audit";
 import { AuthRateLimiter } from "../rate-limit";
-import { WsBridgeServer } from "../ws-bridge-server";
-import { attach, release, resetAttachments } from "../../pty-attachments";
+import { WsBridgeServer } from "../../bridge/transports/ws";
+import {
+  attach,
+  release,
+  resetAttachments,
+  type Viewer,
+} from "../../pty-attachments";
+
+/**
+ * A renderer window, as `pty-attachments.ts` now sees one (ADR-180 D6): a
+ * connection id — `webContents.id` as a string — and the class of caller it
+ * is. `local` is what outranks the sockets these tests open.
+ */
+const DESKTOP_WINDOW: Viewer = { connectionId: "1", callerClass: "local" };
 import { publishRendererBroadcast } from "../../renderer-broadcast";
 import { LayoutStore } from "../../layout/layout-store";
 import { LayoutPersistence } from "../../terminal-host/layout-persistence";
@@ -808,7 +820,7 @@ describe("WsBridgeServer", () => {
     });
 
     it("tells a browser it is a follower, and hands it the owner's grid", async () => {
-      attach(PANE, 1);
+      attach(PANE, DESKTOP_WINDOW);
       sessionSize = { cols: 160, rows: 45 };
       const client = await greet(FULL_TOKEN);
       const result = await invoke(client, "c2", "pty", "create", [
@@ -831,7 +843,7 @@ describe("WsBridgeServer", () => {
      * have resized it — through the call it has to make to see anything.
      */
     it("does not carry a browser's grid into a create on a desktop-owned pane", async () => {
-      attach(PANE, 1);
+      attach(PANE, DESKTOP_WINDOW);
       sessionSize = { cols: 160, rows: 45 };
       const client = await greet(FULL_TOKEN);
       await invoke(client, "c3", "pty", "create", [PANE, null, 100, 30]);
@@ -839,7 +851,7 @@ describe("WsBridgeServer", () => {
     });
 
     it("drops a follower's resize instead of refusing it", async () => {
-      attach(PANE, 1);
+      attach(PANE, DESKTOP_WINDOW);
       const client = await greet(FULL_TOKEN);
       const result = await invoke(client, "r1", "pty", "resize", [
         PANE,
@@ -859,7 +871,7 @@ describe("WsBridgeServer", () => {
     });
 
     it("decorates pty.reset the same way, being create-shaped", async () => {
-      attach(PANE, 1);
+      attach(PANE, DESKTOP_WINDOW);
       sessionSize = { cols: 160, rows: 45 };
       const client = await greet(FULL_TOKEN);
       const result = await invoke(client, "x1", "pty", "reset", [
@@ -978,7 +990,7 @@ describe("WsBridgeServer", () => {
       await ownerEventsAtLeast(first, 2); // lost ownership to `second`
       await ownerEventsAtLeast(second, 1); // its own attach, as the new owner
 
-      attach(PANE, 1);
+      attach(PANE, DESKTOP_WINDOW);
 
       const firstEvents = await ownerEventsAtLeast(first, 3);
       const secondEvents = await ownerEventsAtLeast(second, 2);
@@ -997,10 +1009,10 @@ describe("WsBridgeServer", () => {
       await invoke(first, "c1", "pty", "create", [PANE, null, 100, 30]);
       await ownerEventsAtLeast(first, 1); // its own attach
 
-      attach(PANE, 1);
+      attach(PANE, DESKTOP_WINDOW);
       await ownerEventsAtLeast(first, 2); // desktop took ownership
 
-      release(PANE, 1);
+      release(PANE, DESKTOP_WINDOW);
       const events = await ownerEventsAtLeast(first, 3);
       expect(events[2]).toMatchObject({
         args: [{ paneId: PANE, owner: true }],

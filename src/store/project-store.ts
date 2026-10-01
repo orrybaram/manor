@@ -13,6 +13,7 @@ import { splitShared } from "../lib/project-groups";
 import { isRemoteHost, type HostId } from "../lib/hosts";
 import { hostForPath, patch, reconcile } from "../lib/workspace-directory";
 import { sharedRefresh } from "../lib/shared-refresh";
+import { pickDirectory } from "../lib/pick-directory";
 import {
   buildSidebarItems,
   folderParentsOf,
@@ -877,7 +878,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   addProjectFromDirectory: async () => {
-    const selected = await window.electronAPI.dialog.openDirectory();
+    const selected = await pickDirectory();
     if (selected) {
       const name = selected.split("/").pop() || "Untitled";
       await get().addProject(name, selected);
@@ -1250,7 +1251,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   linkLocalFolder: async (projectId: string) => {
     const remote = get().projects.find((p) => p.id === projectId);
     if (!remote) return;
-    const selected = await window.electronAPI.dialog.openDirectory();
+    const selected = await pickDirectory();
     if (!selected) return;
 
     // Already a Manor project at that path — link it as is.

@@ -88,6 +88,8 @@ describe("create", () => {
         linkedIssue,
         baseBranch: "dev",
         useExistingBranch: true,
+        // The bridge connection that asked (ADR-180 D5).
+        origin: "7",
       },
       { runSetupScript: false },
     );
@@ -98,7 +100,14 @@ describe("create", () => {
       linkedIssue,
       "dev",
       true,
+      "7",
     );
+  });
+
+  it("broadcasts the setup progress of a request with no origin", async () => {
+    deps.projectManager.createWorktree.mockResolvedValue(null);
+    await ops.create({ projectId: "p1", name: "Feature" }, { runSetupScript: true });
+    expect(deps.projectManager.createWorktree.mock.calls[0][6]).toBeNull();
   });
 
   it("records the stat, broadcasts and returns the project and created path", async () => {

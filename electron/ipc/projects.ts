@@ -33,6 +33,10 @@ export function register(deps: IpcDeps): void {
     return projectManager.getProjects();
   });
 
+  ipcMain.handle("projects:getRemote", () => {
+    return projectManager.getRemoteProjects();
+  });
+
   ipcMain.handle("projects:getSelectedIndex", () => {
     return projectManager.getSelectedProjectIndex();
   });

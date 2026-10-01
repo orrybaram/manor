@@ -566,6 +566,13 @@ interface ProjectState {
 
   // Actions
   loadProjects: () => Promise<void>;
+  /**
+   * Re-list remote projects' worktrees, which no watcher sees change — for
+   * a window focus. Local projects are left as they are. Joins a refresh
+   * already running, and skips one within `REMOTE_REFRESH_MIN_INTERVAL` of
+   * the last.
+   */
+  refreshRemoteProjects: () => Promise<void>;
   addProject: (name: string, path: string) => Promise<ProjectInfo>;
   addProjectFromDirectory: () => Promise<void>;
   /** ADR-178 ticket 5, ADR-194: clone a repo onto any host, then add it. */
@@ -794,6 +801,15 @@ function forgetDissolvedGroup(groupId: string | undefined): void {
 
 const initialSidebarMode = loadSidebarMode();
 
+/** The least time between two `refreshRemoteProjects` runs. */
+export const REMOTE_REFRESH_MIN_INTERVAL = 30_000;
+
+/** `refreshRemoteProjects`' running refresh and when the last one started. */
+const remoteRefresh: { inFlight: Promise<void> | null; lastStartedAt: number } = {
+  inFlight: null,
+  lastStartedAt: -Infinity,
+};
+
 export const useProjectStore = create<ProjectState>((set, get) => ({
   projects: [],
   selectedProjectIndex: 0,
@@ -830,6 +846,34 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     } catch {
       set({ loading: false, initialLoadDone: true });
     }
+  },
+
+  refreshRemoteProjects: () => {
+    if (remoteRefresh.inFlight) return remoteRefresh.inFlight;
+    if (!get().projects.some((p) => isRemoteHost(p.hostId))) return Promise.resolve();
+    if (Date.now() - remoteRefresh.lastStartedAt < REMOTE_REFRESH_MIN_INTERVAL) {
+      return Promise.resolve();
+    }
+    remoteRefresh.lastStartedAt = Date.now();
+    remoteRefresh.inFlight = (async () => {
+      try {
+        const fresh = new Map(
+          (await window.electronAPI.projects.getRemote()).map((p) => [p.id, p]),
+        );
+        // Local projects keep their objects, so nothing re-renders for them.
+        set((s) => ({
+          projects: s.projects.map((p) => {
+            const f = fresh.get(p.id);
+            return f ? reconcile([f], [p])[0] : p;
+          }),
+        }));
+      } catch {
+        // Host unreachable: the next focus tries again.
+      } finally {
+        remoteRefresh.inFlight = null;
+      }
+    })();
+    return remoteRefresh.inFlight;
   },
 
   addProject: async (name: string, path: string) => {

@@ -12,11 +12,17 @@ import { useMountEffect } from "./useMountEffect";
 
 /**
  * Window focus and badge hover already refresh immediately, so the timer only
- * has to catch changes that happen while the app is idle. Every tick is at
- * least one GitHub call per worktree; at 15s eight worktrees came within
- * sight of the hourly limit on their own.
+ * has to catch changes that happen while the app is idle. Every tick is one
+ * GitHub call per repo (#303); at 15s, back when it was one per worktree,
+ * eight worktrees came within sight of the hourly limit on their own.
  */
 const PR_POLL_INTERVAL = 60_000;
+
+/**
+ * The least time between a refresh and one triggered by window focus, so
+ * alt-tabbing back and forth does not query GitHub on every switch.
+ */
+export const PR_FOCUS_MIN_INTERVAL = 30_000;
 
 /**
  * Worktrees always get a PR lookup. The main checkout does too once it's
@@ -40,7 +46,44 @@ function computeFingerprint() {
     .join("|");
 }
 
-export async function fetchPrs() {
+/** The refresh running now, which every caller meanwhile shares. */
+let inFlight: Promise<void> | null = null;
+/** When the last refresh started; `-Infinity` before the first. */
+let lastStartedAt = -Infinity;
+
+/**
+ * Refresh every tracked workspace's PR. Only one refresh runs at a time: a
+ * call while one is running joins it rather than starting another.
+ */
+export function fetchPrs(): Promise<void> {
+  if (!inFlight) {
+    lastStartedAt = Date.now();
+    inFlight = fetchAllPrs().finally(() => {
+      inFlight = null;
+    });
+  }
+  return inFlight;
+}
+
+/**
+ * A refresh that sees the workspaces as they are now: `fetchPrs`, but after
+ * the running refresh (which may predate them) rather than joining it.
+ */
+function fetchPrsAfterCurrent(): Promise<void> {
+  return inFlight ? inFlight.then(fetchPrs) : fetchPrs();
+}
+
+/**
+ * `fetchPrs` for a window focus, unless a refresh started less than
+ * `PR_FOCUS_MIN_INTERVAL` ago. True when it refreshed.
+ */
+export function refreshPrsOnFocus(): boolean {
+  if (Date.now() - lastStartedAt < PR_FOCUS_MIN_INTERVAL) return false;
+  void fetchPrs();
+  return true;
+}
+
+async function fetchAllPrs() {
   const { projects, updateWorkspacePr } = useProjectStore.getState();
   for (const project of projects) {
     // The main checkout back on the default branch keeps no stale badge from
@@ -96,8 +139,8 @@ export function usePrWatcher() {
     startPolling();
 
     const handleFocus = () => {
-      fetchPrs();
-      startPolling();
+      // A skipped refresh leaves the timer alone: it is not owed a reset.
+      if (refreshPrsOnFocus()) startPolling();
     };
     window.addEventListener("focus", handleFocus);
 
@@ -106,7 +149,7 @@ export function usePrWatcher() {
       const fp = computeFingerprint();
       if (fp !== prevFingerprint) {
         prevFingerprint = fp;
-        fetchPrs();
+        void fetchPrsAfterCurrent();
         startPolling();
       }
     });

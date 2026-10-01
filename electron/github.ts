@@ -188,6 +188,15 @@ export class GitHubManager {
   private onPrMerged: ((prUrl: string) => void) | undefined;
 
   /**
+   * Merged and closed PRs by repo and head branch: they never change again,
+   * so their branches are not queried again (#303).
+   */
+  private finalPrs = new Map<string, PrInfo>();
+
+  /** `getPrsForBranches` lookups still running, by repo and branches. */
+  private prLookupsInFlight = new Map<string, Promise<Map<string, PrInfo | null>>>();
+
+  /**
    * Keyed by PR URL. The conversation query is the expensive half of a poll —
    * one GraphQL call per branch, every tick — and it doubled the load that
    * pushed the account past GitHub's 5,000/hour limit with eight worktrees
@@ -212,11 +221,12 @@ export class GitHubManager {
   }
 
   /**
-   * Notified with the PR URL every time a poll sees a merged PR — which is
-   * every tick for as long as the workspace sticks around. Counting it once is
-   * the listener's job (`StatsStore.recordOnce`); this side just reports what
-   * it saw, since the poll is the only place in the app that learns a PR
-   * merged without anyone pressing a button in Manor.
+   * Notified with the PR URL when a poll queries a merged PR — once per
+   * process, since a merged PR is not queried again (see `finalPrs`), but
+   * again after a restart. Counting it once is the listener's job
+   * (`StatsStore.recordOnce`); this side just reports what it saw, since the
+   * poll is the only place in the app that learns a PR merged without anyone
+   * pressing a button in Manor.
    */
   setPrMergedListener(listener: ((prUrl: string) => void) | undefined): void {
     this.onPrMerged = listener;
@@ -226,177 +236,256 @@ export class GitHubManager {
     repo: GhRepo,
     branch: string,
   ): Promise<PrInfo | null> {
-    return this.getPrForBranchInner(repo, branch);
+    const [[, pr]] = await this.getPrsForBranches(repo, [branch]);
+    return pr;
   }
 
+  /**
+   * Every branch's PR in one `gh api graphql` call for the repo, however many
+   * branches (#303). A branch whose PR has merged or closed is answered from
+   * `finalPrs` and never asked about again. Concurrent calls for the same
+   * repo and branches share one lookup rather than each running their own.
+   */
   async getPrsForBranches(
     repo: GhRepo,
     branches: string[],
   ): Promise<[string, PrInfo | null][]> {
-    const results = await Promise.allSettled(
-      branches.map((branch) =>
-        this.getPrForBranchInner(repo, branch).then(
-          (pr): [string, PrInfo | null] => [branch, pr],
-        ),
-      ),
-    );
-
-    return results.map((result, i) => {
-      if (result.status === "fulfilled") return result.value;
-      return [branches[i], null];
-    });
+    const key = `${repoCacheKey(repo)}\0${[...branches].sort().join("\0")}`;
+    let pending = this.prLookupsInFlight.get(key);
+    if (!pending) {
+      pending = this.lookUpPrs(repo, branches).finally(() => {
+        this.prLookupsInFlight.delete(key);
+      });
+      this.prLookupsInFlight.set(key, pending);
+    }
+    const found = await pending;
+    return branches.map((branch) => [branch, found.get(branch) ?? null]);
   }
 
-  private async getPrForBranchInner(
+  private async lookUpPrs(
     repo: GhRepo,
-    branch: string,
-  ): Promise<PrInfo | null> {
+    branches: string[],
+  ): Promise<Map<string, PrInfo | null>> {
+    const repoKey = repoCacheKey(repo);
+    const result = new Map<string, PrInfo | null>();
+    const toAsk: string[] = [];
+    for (const branch of new Set(branches)) {
+      const final = this.finalPrs.get(`${repoKey}\0${branch}`);
+      if (final) result.set(branch, final);
+      else toAsk.push(branch);
+    }
+    if (toAsk.length === 0) return result;
+
+    const raw = await this.queryPrs(repo, toAsk);
+    const conversations = await this.conversationsFor(
+      Array.from(raw.values()).filter((pr): pr is RawPr => pr !== null),
+    );
+    for (const branch of toAsk) {
+      const pr = raw.get(branch) ?? null;
+      const info = pr ? this.toPrInfo(pr, conversations.get(pr.url) ?? {}) : null;
+      // Merged and closed PRs never change again: kept, never re-queried.
+      if (info && info.state !== "open") {
+        this.finalPrs.set(`${repoKey}\0${branch}`, info);
+      }
+      result.set(branch, info);
+    }
+    return result;
+  }
+
+  /**
+   * The newest PR (any state) of each branch, as `gh pr list --head` picks
+   * it, all in one GraphQL query. Every branch maps to null when the query
+   * fails.
+   */
+  private async queryPrs(
+    repo: GhRepo,
+    branches: string[],
+  ): Promise<Map<string, RawPr | null>> {
+    const result = new Map<string, RawPr | null>(branches.map((b) => [b, null]));
     try {
       const { cwd, repoArgs } = await this.ghTarget(repo);
+      const target = graphqlTarget(repoArgs);
       const { stdout } = await execFileAsync(
         "gh",
-        [
-          "pr",
-          "list",
-          ...repoArgs,
-          "--head",
-          branch,
-          "--state",
-          "all",
-          "--json",
-          "number,state,title,url,isDraft,additions,deletions,reviewDecision,statusCheckRollup,updatedAt,autoMergeRequest,mergeable",
-          "--limit",
-          "1",
-        ],
-        { cwd, encoding: "utf-8", timeout: 10000 },
+        ["api", "graphql", ...target.args, ...prsQueryArgs(branches)],
+        {
+          cwd,
+          encoding: "utf-8",
+          timeout: 15000,
+          env: target.env,
+          maxBuffer: 16 * 1024 * 1024,
+        },
       );
+      const repository = JSON.parse(stdout)?.data?.repository;
+      branches.forEach((branch, i) => {
+        const node = repository?.[`b${i}`]?.nodes?.[0];
+        if (node) result.set(branch, normalizeRawPr(node));
+      });
+    } catch {
+      // Rate limit, network, no repo: no PRs this time round.
+    }
+    return result;
+  }
 
-      const prs = JSON.parse(stdout);
-      if (!Array.isArray(prs) || prs.length === 0) return null;
+  private toPrInfo(pr: RawPr, conversation: PrConversationState): PrInfo {
+    const { checks, checkRuns } = parseStatusCheckRollup(pr.statusCheckRollup);
+    const {
+      unresolvedThreads,
+      commentCount,
+      latestComment,
+      recentComments,
+      isInMergeQueue,
+    } = conversation;
 
-      const pr = prs[0];
+    // "Queued to merge" covers both of GitHub's flavours: auto-merge armed
+    // on the PR (merges itself once requirements pass) and a merge-queue
+    // entry (the repo's queue will merge it). Either way, nobody needs to
+    // press the button — which is what the badge exists to say.
+    const queuedToMerge =
+      pr.autoMergeRequest != null || isInMergeQueue === true;
 
-      const { checks, checkRuns } = parseStatusCheckRollup(
-        pr.statusCheckRollup,
-      );
+    const state = pr.state.toLowerCase();
 
-      const {
-        unresolvedThreads,
-        commentCount,
-        latestComment,
-        recentComments,
-        isInMergeQueue,
-      } = await this.conversationFor(pr);
+    // GitHub answers MERGEABLE, CONFLICTING, or UNKNOWN while it is still
+    // computing the test merge. Only a definite CONFLICTING counts: an
+    // UNKNOWN resolves on a later poll rather than flashing the badge.
+    const hasConflicts = state === "open" && pr.mergeable === "CONFLICTING";
 
-      // "Queued to merge" covers both of GitHub's flavours: auto-merge armed
-      // on the PR (merges itself once requirements pass) and a merge-queue
-      // entry (the repo's queue will merge it). Either way, nobody needs to
-      // press the button — which is what the badge exists to say.
-      const queuedToMerge =
-        pr.autoMergeRequest != null || isInMergeQueue === true;
+    if (state === "merged" && this.onPrMerged) {
+      try {
+        this.onPrMerged(pr.url);
+      } catch (err) {
+        // A stats listener must never cost the caller its PR info.
+        console.error(
+          "[GitHubManager] onPrMerged listener threw:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
 
-      const state = (pr.state as string).toLowerCase();
+    return {
+      number: pr.number,
+      state,
+      title: pr.title,
+      url: pr.url,
+      isDraft: pr.isDraft,
+      additions: pr.additions,
+      deletions: pr.deletions,
+      reviewDecision: pr.reviewDecision || null,
+      checks,
+      unresolvedThreads,
+      commentCount,
+      latestComment,
+      recentComments,
+      checkRuns,
+      queuedToMerge,
+      hasConflicts,
+      updatedAt: pr.updatedAt,
+    };
+  }
 
-      // GitHub answers MERGEABLE, CONFLICTING, or UNKNOWN while it is still
-      // computing the test merge. Only a definite CONFLICTING counts: an
-      // UNKNOWN resolves on a later poll rather than flashing the badge.
-      const hasConflicts = state === "open" && pr.mergeable === "CONFLICTING";
-
-      if (state === "merged" && this.onPrMerged) {
-        try {
-          this.onPrMerged(pr.url as string);
-        } catch (err) {
-          // A stats listener must never cost the caller its PR info.
-          console.error(
-            "[GitHubManager] onPrMerged listener threw:",
-            err instanceof Error ? err.message : err,
-          );
+  /**
+   * Each PR's conversation, by URL: from the cache while it is fresh (or the
+   * PR is final), the rest in one query.
+   */
+  private async conversationsFor(
+    prs: RawPr[],
+  ): Promise<Map<string, PrConversationState>> {
+    const result = new Map<string, PrConversationState>();
+    const stale: RawPr[] = [];
+    for (const pr of prs) {
+      const cached = this.conversationCache.get(pr.url);
+      if (cached) {
+        const fresh =
+          cached.updatedAt === pr.updatedAt &&
+          Date.now() - cached.fetchedAt < CONVERSATION_MAX_AGE_MS;
+        if (cached.final || fresh) {
+          result.set(pr.url, cached.state);
+          continue;
         }
       }
+      stale.push(pr);
+    }
+    if (stale.length === 0) return result;
 
-      return {
-        number: pr.number,
-        state,
-        title: pr.title,
-        url: pr.url,
-        isDraft: pr.isDraft,
-        additions: pr.additions,
-        deletions: pr.deletions,
-        reviewDecision: pr.reviewDecision || null,
-        checks,
-        unresolvedThreads,
-        commentCount,
-        latestComment,
-        recentComments,
-        checkRuns,
-        queuedToMerge,
-        hasConflicts,
+    const fetched = await this.getPrConversationStates(stale);
+    for (const pr of stale) {
+      const state = fetched?.get(pr.url);
+      // A failed query (rate limit, network) is not worth remembering: the
+      // next poll should try again rather than serve "no comments" for five
+      // minutes — or, for a merged PR, forever.
+      if (!state) {
+        result.set(pr.url, this.conversationCache.get(pr.url)?.state ?? {});
+        continue;
+      }
+      this.conversationCache.set(pr.url, {
         updatedAt: pr.updatedAt,
-      };
-    } catch {
-      return null;
+        fetchedAt: Date.now(),
+        final: pr.state.toUpperCase() !== "OPEN",
+        state,
+      });
+      result.set(pr.url, state);
     }
+    return result;
   }
 
-  private async conversationFor(pr: {
-    url: string;
-    number: number;
-    state: string;
-    updatedAt?: string;
-  }): Promise<PrConversationState> {
-    const final = String(pr.state).toUpperCase() !== "OPEN";
-    const cached = this.conversationCache.get(pr.url);
-    if (cached) {
-      const fresh =
-        cached.updatedAt === pr.updatedAt &&
-        Date.now() - cached.fetchedAt < CONVERSATION_MAX_AGE_MS;
-      if (cached.final || fresh) return cached.state;
+  /**
+   * Every PR's conversation state by URL, in one GraphQL query. Null when
+   * the query itself failed, as opposed to PRs with no comments; a PR whose
+   * URL names no github.com repo maps to `{}`.
+   */
+  private async getPrConversationStates(
+    prs: RawPr[],
+  ): Promise<Map<string, PrConversationState> | null> {
+    const result = new Map<string, PrConversationState>();
+    const byRepo = new Map<string, RawPr[]>();
+    for (const pr of prs) {
+      const match = pr.url.match(/github\.com\/([^/]+)\/([^/]+)\//);
+      if (!match) {
+        result.set(pr.url, {});
+        continue;
+      }
+      const slug = `${match[1]}/${match[2]}`;
+      byRepo.set(slug, [...(byRepo.get(slug) ?? []), pr]);
     }
+    if (byRepo.size === 0) return result;
 
-    const state = await this.getPrConversationState(pr.url, pr.number);
-    // A failed query (rate limit, network) is not worth remembering: the next
-    // poll should try again rather than serve "no comments" for five minutes
-    // — or, for a merged PR, forever.
-    if (state === null) return cached?.state ?? {};
-
-    this.conversationCache.set(pr.url, {
-      updatedAt: pr.updatedAt,
-      fetchedAt: Date.now(),
-      final,
-      state,
+    // The newest entries of all three conversation surfaces: enough for the
+    // PR popover's comment list, and the newest of them is what a "new
+    // comment" notification carries (#177).
+    // `viewer` and `__typename` ride along so every entry can be tagged with
+    // who wrote it — you, or a GitHub App — which is what the comment
+    // notification filters gate on.
+    const fields = `isInMergeQueue reviewThreads(first: 100) { nodes { isResolved isOutdated path comments(first: 1) { nodes { author { __typename login } body url createdAt } } } } comments(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { __typename login } body url createdAt } } reviews(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { __typename login } body url submittedAt state } }`;
+    const repos = Array.from(byRepo, ([slug, repoPrs], r) => {
+      const [owner, name] = slug.split("/");
+      const pulls = repoPrs
+        .map((pr, p) => `p${p}: pullRequest(number: ${Number(pr.number)}) { ${fields} }`)
+        .join(" ");
+      return `r${r}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { ${pulls} }`;
     });
-    return state;
-  }
+    const query = `query { viewer { login } ${repos.join(" ")} }`;
 
-  /** Null when the query itself failed, as opposed to a PR with no comments. */
-  private async getPrConversationState(
-    prUrl: string,
-    prNumber: number,
-  ): Promise<PrConversationState | null> {
     try {
-      const match = prUrl.match(/github\.com\/([^/]+)\/([^/]+)\//);
-      if (!match) return {};
-      const [, owner, repo] = match;
-      // The newest entries of all three conversation surfaces: enough for the
-      // PR popover's comment list, and the newest of them is what a "new
-      // comment" notification carries (#177).
-      // `viewer` and `__typename` ride along so every entry can be tagged with
-      // who wrote it — you, or a GitHub App — which is what the comment
-      // notification filters gate on.
-      const query = `query { viewer { login } repository(owner: "${owner}", name: "${repo}") { pullRequest(number: ${prNumber}) { isInMergeQueue reviewThreads(first: 100) { nodes { isResolved isOutdated path comments(first: 1) { nodes { author { __typename login } body url createdAt } } } } comments(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { __typename login } body url createdAt } } reviews(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { __typename login } body url submittedAt state } } } } }`;
       const { stdout } = await execFileAsync(
         "gh",
         ["api", "graphql", "-f", `query=${query}`],
         {
           encoding: "utf-8",
-          timeout: 10000,
+          timeout: 15000,
+          maxBuffer: 16 * 1024 * 1024,
         },
       );
-      const data = JSON.parse(stdout);
-      return parsePrConversationState(
-        data?.data?.repository?.pullRequest,
-        data?.data?.viewer?.login,
-      );
+      const data = JSON.parse(stdout)?.data;
+      Array.from(byRepo.values()).forEach((repoPrs, r) => {
+        repoPrs.forEach((pr, p) => {
+          result.set(
+            pr.url,
+            parsePrConversationState(data?.[`r${r}`]?.[`p${p}`], data?.viewer?.login),
+          );
+        });
+      });
+      return result;
     } catch {
       return null;
     }
@@ -755,6 +844,101 @@ const RECENT_COMMENT_FETCH = 20;
 
 /** How many conversation entries the popover keeps after interleaving. */
 const RECENT_COMMENT_LIMIT = 12;
+
+/** One PR as the batched branch query returns it, its rollup flattened. */
+interface RawPr {
+  number: number;
+  state: string;
+  title: string;
+  url: string;
+  isDraft: boolean;
+  additions: number;
+  deletions: number;
+  reviewDecision: string | null;
+  updatedAt: string;
+  mergeable: string;
+  autoMergeRequest: unknown;
+  statusCheckRollup: RawStatusCheck[];
+}
+
+/** What `getPrsForBranches` caches by: one checkout on one host. */
+function repoCacheKey({ path, hostId }: GhRepo): string {
+  return `${normalizeHostId(hostId)}\0${path}`;
+}
+
+/**
+ * `gh api graphql` takes no `--repo`: for a checkout `gh` cannot run inside
+ * (`repoArgs` names its repo), the `{owner}`/`{repo}` placeholders are read
+ * from `GH_REPO`, and a host other than github.com goes in `--hostname`.
+ * A local checkout needs neither: the placeholders come from its directory.
+ */
+function graphqlTarget(repoArgs: string[]): {
+  args: string[];
+  env: NodeJS.ProcessEnv | undefined;
+} {
+  const at = repoArgs.indexOf("--repo");
+  const repo = at >= 0 ? repoArgs[at + 1] : undefined;
+  if (!repo) return { args: [], env: undefined };
+  const segments = repo.split("/");
+  return {
+    args: segments.length === 3 ? ["--hostname", segments[0]] : [],
+    env: { ...process.env, GH_REPO: repo },
+  };
+}
+
+/** The `gh pr list --json` fields the badge used, as GraphQL. */
+const PR_FIELDS =
+  "number state title url isDraft additions deletions reviewDecision updatedAt mergeable " +
+  "autoMergeRequest { enabledAt } " +
+  "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { " +
+  "__typename " +
+  "... on CheckRun { name conclusion status detailsUrl checkSuite { workflowRun { workflow { name } } } } " +
+  "... on StatusContext { context state targetUrl } " +
+  "} } } } } }";
+
+/**
+ * `gh api graphql` arguments asking for each branch's newest PR (any state,
+ * newest created first, as `gh pr list --head` does), aliased `b<i>`. Branch
+ * names go in as variables, so none needs escaping.
+ */
+function prsQueryArgs(branches: string[]): string[] {
+  const vars = branches.map((_, i) => `$h${i}: String!`).join(", ");
+  const aliases = branches
+    .map(
+      (_, i) =>
+        `b${i}: pullRequests(headRefName: $h${i}, first: 1, ` +
+        `orderBy: { field: CREATED_AT, direction: DESC }) { nodes { ${PR_FIELDS} } }`,
+    )
+    .join(" ");
+  const query =
+    `query($owner: String!, $name: String!, ${vars}) ` +
+    `{ repository(owner: $owner, name: $name) { ${aliases} } }`;
+  return [
+    "-F",
+    "owner={owner}",
+    "-F",
+    "name={repo}",
+    ...branches.flatMap((branch, i) => ["-f", `h${i}=${branch}`]),
+    "-f",
+    `query=${query}`,
+  ];
+}
+
+/** A `pullRequests` node, with its last commit's rollup flattened as `gh` does. */
+function normalizeRawPr(node: Record<string, unknown>): RawPr {
+  type Context = RawStatusCheck & {
+    checkSuite?: { workflowRun?: { workflow?: { name?: string } | null } | null } | null;
+  };
+  const commits = node.commits as
+    | { nodes?: Array<{ commit?: { statusCheckRollup?: { contexts?: { nodes?: Context[] } } | null } }> }
+    | undefined;
+  const contexts = commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [];
+  const statusCheckRollup = contexts.map(({ checkSuite, ...check }) => {
+    const workflowName = checkSuite?.workflowRun?.workflow?.name;
+    return workflowName ? { ...check, workflowName } : check;
+  });
+  return { ...(node as unknown as RawPr), statusCheckRollup };
+}
 
 /**
  * `gh pr list --json statusCheckRollup` returns a union: check runs carry

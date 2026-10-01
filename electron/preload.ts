@@ -145,6 +145,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   projects: {
     getAll: () => ipcRenderer.invoke("projects:getAll"),
+    getRemote: () => ipcRenderer.invoke("projects:getRemote"),
     getSelectedIndex: () => ipcRenderer.invoke("projects:getSelectedIndex"),
     select: (index: number) => ipcRenderer.invoke("projects:select", index),
     add: (name: string, path: string) =>

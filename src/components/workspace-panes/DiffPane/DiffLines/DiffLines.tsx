@@ -1,9 +1,9 @@
-import { memo, useMemo, useRef, useCallback } from "react";
+import { memo, useMemo, useRef, useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Rect, Virtualizer } from "@tanstack/react-virtual";
 import type { DiffLine } from "../types";
-import { extToLang, tokenize } from "../syntax";
+import { extToLang, loadTokenizer, loadedTokenizer, type Tokenize } from "../syntax";
 import { highlightSyntaxNodes, highlightText } from "./hast-utils";
 import { countMatches } from "../search-utils";
 import styles from "./DiffLines.module.css";
@@ -46,6 +46,29 @@ function observeUnboundedRect(
   cb(UNBOUNDED_RECT);
 }
 
+/**
+ * The syntax highlighter, loaded the first time a file that has a grammar is
+ * shown. Rows render as plain text until it arrives, then highlight in place.
+ */
+function useTokenizer(wanted: boolean): Tokenize | null {
+  const [tokenize, setTokenize] = useState(loadedTokenizer);
+  useEffect(() => {
+    if (!wanted || tokenize) return;
+    let live = true;
+    loadTokenizer().then(
+      (t) => {
+        if (live) setTokenize(() => t);
+      },
+      // No highlighter is plain text, which every row already renders.
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [wanted, tokenize]);
+  return tokenize;
+}
+
 /** Stable empty set so a file with nothing to mark keeps one identity. */
 const NO_MARKED_ROWS: ReadonlySet<number> = new Set();
 
@@ -70,14 +93,16 @@ export const DiffLines = memo(function DiffLines(props: DiffLinesProps) {
   } = props;
   const parentRef = useRef<HTMLDivElement>(null);
 
+  const lang = extToLang(filePath);
+  const tokenize = useTokenizer(lang !== null);
+
   const tokenizedLines = useMemo(() => {
-    const lang = extToLang(filePath);
-    if (!lang) return null;
+    if (!lang || !tokenize) return null;
     return lines.map((line) => {
       if (line.type === "hunk") return null;
       return tokenize(line.content, lang);
     });
-  }, [lines, filePath]);
+  }, [lines, lang, tokenize]);
 
   // Pre-compute cumulative match counts so each row knows its offset
   const cumulativeMatches = useMemo(() => {

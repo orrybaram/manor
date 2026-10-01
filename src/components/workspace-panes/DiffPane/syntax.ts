@@ -1,32 +1,6 @@
-import { refractor } from "refractor/core";
 import type { RootContent } from "hast";
-import javascript from "refractor/javascript";
-import typescript from "refractor/typescript";
-import tsx from "refractor/tsx";
-import jsx from "refractor/jsx";
-import css from "refractor/css";
-import markup from "refractor/markup";
-import json from "refractor/json";
-import python from "refractor/python";
-import go from "refractor/go";
-import rust from "refractor/rust";
-import bash from "refractor/bash";
-import yaml from "refractor/yaml";
-import markdown from "refractor/markdown";
 
-refractor.register(javascript);
-refractor.register(typescript);
-refractor.register(tsx);
-refractor.register(jsx);
-refractor.register(css);
-refractor.register(markup);
-refractor.register(json);
-refractor.register(python);
-refractor.register(go);
-refractor.register(rust);
-refractor.register(bash);
-refractor.register(yaml);
-refractor.register(markdown);
+export type Tokenize = (code: string, lang: string) => RootContent[];
 
 const EXT_MAP: Record<string, string> = {
   js: "javascript",
@@ -58,10 +32,27 @@ export function extToLang(filePath: string): string | null {
   return EXT_MAP[ext] ?? null;
 }
 
-export function tokenize(code: string, lang: string): RootContent[] {
-  if (!refractor.registered(lang)) {
-    return [{ type: "text", value: code }];
-  }
-  const root = refractor.highlight(code, lang);
-  return root.children;
+let tokenizer: Tokenize | null = null;
+let loading: Promise<Tokenize> | null = null;
+
+/**
+ * The highlighter, once it has loaded — `null` until then. Lets a diff opened
+ * after the first one highlight on its first render instead of flashing plain
+ * text for a tick.
+ */
+export function loadedTokenizer(): Tokenize | null {
+  return tokenizer;
+}
+
+/**
+ * Load the highlighter and its grammars. They are a few hundred kilobytes the
+ * app has no use for until a diff pane first highlights, so they live in their
+ * own chunk; every caller shares the one load.
+ */
+export function loadTokenizer(): Promise<Tokenize> {
+  loading ??= import("./syntax-highlighter").then((m) => {
+    tokenizer = m.tokenize;
+    return m.tokenize;
+  });
+  return loading;
 }

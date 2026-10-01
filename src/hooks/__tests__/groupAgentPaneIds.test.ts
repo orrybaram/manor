@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { groupAgentPaneIds, layoutPaneIds } from "../useProjectAgentStatus";
-import { pickBestPaneStatus } from "../useTabAgentStatus";
+import { selectAgentRollup } from "../../store/agent-rollup";
 import type { WorkspaceLayout } from "../../store/app-store";
 import { workspaceKey } from "../../lib/workspace-key";
 
@@ -118,15 +118,21 @@ describe("groupAgentPaneIds", () => {
     const ids = groupAgentPaneIds([localApp, boxApp], { "/Users/me/app": layout("a") }, [
       { hostId: "box", workspacePath: "/home/me/app", paneId: "remote" },
     ]);
-    const result = pickBestPaneStatus(ids, {
-      paneAgentStatus: {
-        a: { status: "working", reason: "test", kind: "claude" },
-        remote: { status: "requires_input", reason: "test", kind: "claude" },
+    const result = selectAgentRollup(
+      {
+        app: {
+          paneAgentStatus: {
+            a: { status: "working", reason: "test", kind: "claude" },
+            remote: { status: "requires_input", reason: "test", kind: "claude" },
+          },
+          workspaceLayouts: {},
+          activeWorkspacePath: null,
+          activeWorkspaceHostId: "local",
+        },
+        agents: { agents: [], unseenRespondedAgentIds: new Set(), unseenInputAgentIds: new Set() },
       },
-      agents: [],
-      unseenRespondedAgentIds: new Set(),
-      unseenInputAgentIds: new Set(),
-    });
+      ids,
+    );
     expect(result.status).toBe("requires_input");
   });
 });

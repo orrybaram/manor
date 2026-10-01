@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useAppStore } from "../app-store";
 import type { AgentStatus, PaneAgentStatusUpdate } from "../../electron.d";
-import { STATUS_PRIORITY } from "../../hooks/useTabAgentStatus";
+import { STATUS_PRIORITY } from "../agent-rollup";
 
 // Mock window.electronAPI since it doesn't exist in test
 vi.stubGlobal("window", {

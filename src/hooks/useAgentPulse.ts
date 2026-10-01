@@ -2,7 +2,8 @@ import { useCallback } from "react";
 import type { AgentInfo } from "../electron.d";
 import { useAgentStore } from "../store/agent-store";
 import { useAppStore } from "../store/app-store";
-import { isUnseenStatus, useVisiblePaneIds } from "./useTabAgentStatus";
+import { isUnseenStatus } from "../store/agent-rollup";
+import { useVisiblePaneIds } from "./useTabAgentStatus";
 
 /**
  * Returns the pulse predicate for agent dots in the agents lists — the sidebar

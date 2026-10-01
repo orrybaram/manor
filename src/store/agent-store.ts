@@ -8,7 +8,7 @@ import { cleanAgentTitle } from "../utils/agent-title";
 /** Page size used for the initial agent load and for `loadMoreAgents`. */
 const TASK_PAGE_SIZE = 100;
 
-interface AgentStoreState {
+export interface AgentStoreState {
   agents: AgentInfo[];
   loading: boolean;
   loaded: boolean;
@@ -54,6 +54,28 @@ interface AgentStoreState {
    * the user was already looking at (issue #142).
    */
   markVisibleAgentsSeen: () => void;
+}
+
+const paneAgentIndexes = new WeakMap<readonly AgentInfo[], ReadonlyMap<string, string>>();
+
+/**
+ * Pane id → id of the agent running in it, derived from `agents` and built
+ * once per `agents` change however many rows read it. History rows can share
+ * a pane id; the first row in `agents` order (newest first) wins.
+ */
+export function selectPaneAgentIndex(
+  state: Pick<AgentStoreState, "agents">,
+): ReadonlyMap<string, string> {
+  let index = paneAgentIndexes.get(state.agents);
+  if (!index) {
+    const built = new Map<string, string>();
+    for (const agent of state.agents) {
+      if (agent.paneId != null && !built.has(agent.paneId)) built.set(agent.paneId, agent.id);
+    }
+    index = built;
+    paneAgentIndexes.set(state.agents, index);
+  }
+  return index;
 }
 
 export const useAgentStore = create<AgentStoreState>((set, get) => {

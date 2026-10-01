@@ -5,7 +5,7 @@
  * **viewport** — focus, select, next/prev tab, activate a workspace — because
  * the server has no answer to "which window?" (D3). Every structural command
  * (split, close, move, new tab, reopen, …) moved to
- * `electron/routes/panes.ts`, which drives `LayoutStore` directly and needs no
+ * `electron/routes/panes-structural.ts`, which drives `LayoutStore` directly and needs no
  * renderer at all; `start-agent` followed it into `electron/routes/agents.ts`
  * once the pending launch line had a server-side home (ticket 11).
  *
@@ -103,7 +103,7 @@ function layoutHasPane(layout: WorkspaceLayout, paneId: string): boolean {
  * layout for any string, which would silently create the tab nowhere useful.
  */
 function isKnownWorkspace(state: AppState, key: WorkspaceKey): boolean {
-  if (state.workspaceLayouts[key] || state.serverLayouts[key]) return true;
+  if (state.workspaceLayouts[key]) return true;
   return ownerOf(useProjectStore.getState().projects, key) !== undefined;
 }
 

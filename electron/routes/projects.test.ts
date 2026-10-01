@@ -7,7 +7,7 @@ vi.mock("../renderer-bridge", () => ({
 
 import { projectRoutes } from "./projects";
 import { createWorkspaceOps, type WorkspaceOpsDeps } from "../workspace-ops";
-import type { ControlDeps, Route } from "./types";
+import type { RouteDeps, Route } from "./types";
 import type {
   IssueSeed,
   ProjectGroupInfo,
@@ -114,7 +114,7 @@ const github = {
  * which project id the create landed in. Its own side effects are covered by
  * `../workspace-ops.test.ts`.
  */
-function deps(pm: Pm, callerHostId?: string): ControlDeps {
+function deps(pm: Pm, callerHostId?: string): RouteDeps {
   const workspaceOps = createWorkspaceOps({
     projectManager: pm as unknown as WorkspaceOpsDeps["projectManager"],
     statsStore: { record: vi.fn() },
@@ -126,12 +126,12 @@ function deps(pm: Pm, callerHostId?: string): ControlDeps {
     githubManager: github,
     workspaceOps,
     callerHostId,
-  } as unknown as ControlDeps;
+  } as unknown as RouteDeps;
 }
 
 async function call(
   r: Route,
-  d: ControlDeps,
+  d: RouteDeps,
   params: Record<string, string> = {},
   body: Record<string, unknown> = {},
 ) {
@@ -451,35 +451,3 @@ describe("POST /projects/:projectId/workspaces/batch", () => {
   });
 });
 
-describe("workspace lifecycle routes without workspace ops", () => {
-  it("answer 503 once the request is valid", async () => {
-    const pm = makeProjectManager();
-    const d = { ...deps(pm), workspaceOps: null } as ControlDeps;
-    const unavailable = {
-      status: 503,
-      body: { error: "Workspace operations are not available" },
-    };
-    const params = { projectId: "solo" };
-    expect(
-      await call(route("POST", "/projects/:projectId/workspaces"), d, params, {
-        name: "feat",
-      }),
-    ).toEqual(unavailable);
-    expect(
-      await call(route("POST", "/projects/:projectId/workspaces/batch"), d, params, {
-        issues: [1],
-      }),
-    ).toEqual(unavailable);
-    expect(
-      await call(route("DELETE", "/projects/:projectId/workspaces"), d, params, {
-        worktreePath: "/local/app-feat",
-      }),
-    ).toEqual(unavailable);
-    expect(
-      await call(route("POST", "/projects/:projectId/workspaces/quick-merge"), d, params, {
-        workspacePath: "/local/app-feat",
-      }),
-    ).toEqual(unavailable);
-    expect(pm.createWorktree).not.toHaveBeenCalled();
-  });
-});

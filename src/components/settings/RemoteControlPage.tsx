@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import Smartphone from "lucide-react/dist/esm/icons/smartphone";
 import Laptop from "lucide-react/dist/esm/icons/laptop";
 import Globe from "lucide-react/dist/esm/icons/globe";
@@ -8,12 +8,14 @@ import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import { useRemoteControlStore } from "../../store/remote-control-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { Button } from "../ui/Button/Button";
-import { Input } from "../ui/Input";
+import { EmojiInput } from "../ui/EmojiAutocomplete";
 import { Stack, Row } from "../ui/Layout/Layout";
 import { Switch } from "../ui/Switch/Switch";
 import { ToggleGroup } from "../ui/ToggleGroup";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { CopyField } from "./CopyField";
+import { MiniTerminal } from "../ui/MiniTerminal";
+import { Link } from "../ui/Link/Link";
 import { relativeShort } from "../../utils/relative-time";
 import {
   PairingResultDialog,
@@ -23,16 +25,21 @@ import type {
   RemoteCapability,
   RemoteDeviceInfo,
   RemotePairResult,
-  TunnelKind,
+  TailnetInfo,
+  TunnelStatus,
 } from "../../electron.d";
 import { SectionTitle } from "./SectionTitle";
 import { isWebApp } from "../../lib/platform";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
-const TUNNEL_LABEL: Record<TunnelKind, string> = {
-  tailscale: "Tailscale",
-  cloudflared: "Cloudflare Tunnel",
-};
+/**
+ * The Tailscale app, not the `tailscale` formula: the app runs its own daemon
+ * as the user, so `tailscale serve` works without sudo, and signing in is a
+ * window rather than a URL in a terminal. Its CLI lives inside the bundle,
+ * where main looks for it when `tailscale` is not on PATH.
+ */
+const TAILSCALE_INSTALL_COMMAND =
+  "brew install --cask tailscale-app && open -a Tailscale";
 
 /**
  * The three tiers, as a person picks them (ADR-178 D3). Named for what the
@@ -70,9 +77,10 @@ const CAPABILITY_BADGE: Record<RemoteCapability, string | null> = {
  * by a different amount, and a single "turn on remote access" switch would
  * hide which of them the user actually agreed to.
  *
- * The page is ordered by how often you touch it — what is reachable right now,
- * then your devices, then the tunnel — and it states the current exposure as a
- * fact rather than leaving it to be inferred from which controls are showing.
+ * Once the listener is on, the tunnel is the main call to action: it sits on
+ * the card that states what is reachable right now, above the devices. The
+ * card states the exposure as a fact rather than leaving it to be inferred
+ * from which controls are showing.
  */
 export function RemoteControlPage() {
   const status = useRemoteControlStore((s) => s.status);
@@ -83,6 +91,7 @@ export function RemoteControlPage() {
   const stopTunnel = useRemoteControlStore((s) => s.stopTunnel);
   const revoke = useRemoteControlStore((s) => s.revoke);
   const refreshDetection = useRemoteControlStore((s) => s.refreshDetection);
+  const pair = useRemoteControlStore((s) => s.pair);
 
   const [label, setLabel] = useState("");
   // Never `full` by default, and never sticky between pairings: the widest
@@ -90,40 +99,37 @@ export function RemoteControlPage() {
   // sentence under it.
   const [capability, setCapability] = useState<RemoteCapability>("read");
   const [pairing, setPairing] = useState<RemotePairResult | null>(null);
-  const [pairError, setPairError] = useState<string | null>(null);
-  const [confirmKind, setConfirmKind] = useState<TunnelKind | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   useMountEffect(() => {
     void refreshDetection();
   });
 
-  // `remoteControl.*` isn't on the slice-1 bridge table (ADR-178) — not even
-  // the reads, so this page's own status never actually loads over the
-  // bridge. Read-only with a note beats a switch and a pairing form that
-  // silently do nothing.
+  // `remoteControl.setEnabled/pair/revoke/startTunnel/stopTunnel` are
+  // `localOnly` (ADR-180 D3) — a browser can read this page's status but
+  // can't touch the switch, pairing form or tunnel controls.
   const webApp = isWebApp();
   const locked = webApp || busy || !status.encryptionAvailable;
 
   const tunnel = status.tunnel;
-  const running = tunnel.state === "running";
-  const available = (["tailscale", "cloudflared"] as const).filter(
-    (kind) => status.detected[kind],
-  );
+  // A failed start rejects *and* lands in the tunnel status; the card already
+  // shows the latter, so don't say it twice at the top of the page.
+  const pageError =
+    error &&
+    tunnel.state === "failed" &&
+    tunnel.error &&
+    error.includes(tunnel.error)
+      ? null
+      : error;
 
   const handlePair = useCallback(async () => {
-    setPairError(null);
-    try {
-      const result = await window.electronAPI.remoteControl.pair(
-        label.trim(),
-        capability,
-      );
+    const result = await pair(label.trim(), capability);
+    if (result) {
       setPairing(result);
       setLabel("");
       setCapability("read");
-    } catch (err) {
-      setPairError(err instanceof Error ? err.message : String(err));
     }
-  }, [label, capability]);
+  }, [label, capability, pair]);
 
   return (
     <Stack className={styles.pageContent}>
@@ -162,15 +168,20 @@ export function RemoteControlPage() {
         </div>
       )}
 
-      {error && <div className={styles.linearError}>{error}</div>}
+      {pageError && <div className={styles.linearError}>{pageError}</div>}
 
       {status.enabled && (
         <>
-          <ExposureCard
+          <ConnectionCard
             port={status.port}
             listeners={status.listeners}
-            tunnelUrl={running ? tunnel.url : null}
-            tunnelKind={running ? (tunnel.kind ?? null) : null}
+            tunnel={tunnel}
+            installed={status.installed}
+            tailnet={status.tailnet}
+            locked={locked}
+            onStart={() => setConfirmOpen(true)}
+            onStop={() => void stopTunnel()}
+            onRecheck={() => void refreshDetection()}
           />
 
           <Stack gap="xs">
@@ -181,12 +192,12 @@ export function RemoteControlPage() {
             </div>
 
             <Row gap="sm">
-              <Input
+              <EmojiInput
                 data-testid="remote-pair-label"
                 placeholder="Device name, e.g. “my phone”"
                 value={label}
                 maxLength={64}
-                disabled={webApp}
+                disabled={locked}
                 onChange={(e) => setLabel(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && label.trim()) void handlePair();
@@ -222,8 +233,6 @@ export function RemoteControlPage() {
                 </span>
               )}
             </div>
-            {pairError && <div className={styles.linearError}>{pairError}</div>}
-
             {status.devices.length === 0 ? (
               <div className={styles.placeholder}>No devices paired yet</div>
             ) : (
@@ -239,72 +248,19 @@ export function RemoteControlPage() {
               </div>
             )}
           </Stack>
-
-          <Stack gap="xs">
-            <SectionTitle id="remote-tunnel">Tunnel</SectionTitle>
-            <div className={styles.sectionDescription}>
-              The listener binds 127.0.0.1. A tunnel is what lets your phone
-              reach it, and Manor never starts one on its own.
-            </div>
-
-            {tunnel.state === "failed" && tunnel.error && (
-              <div className={styles.linearError}>{tunnel.error}</div>
-            )}
-
-            {running ? (
-              <Row gap="sm">
-                <Button
-                  variant="secondary"
-                  disabled={locked}
-                  onClick={() => void stopTunnel()}
-                >
-                  Stop tunnel
-                </Button>
-                <span className={styles.fieldHint}>
-                  It also stops when Manor quits.
-                </span>
-              </Row>
-            ) : available.length === 0 ? (
-              <NoTunnelTools />
-            ) : (
-              <Row gap="sm">
-                {available.map((kind) => (
-                  <Tooltip
-                    key={kind}
-                    label={
-                      kind === "tailscale"
-                        ? "Preferred: your device is already authenticated at the network layer, so the pairing token is a second factor rather than the only one."
-                        : "A public quick tunnel. The pairing token is the only thing between the internet and your sessions."
-                    }
-                  >
-                    <Button
-                      variant="secondary"
-                      disabled={locked || tunnel.state === "starting"}
-                      onClick={() => setConfirmKind(kind)}
-                    >
-                      {tunnel.state === "starting"
-                        ? "Starting…"
-                        : `Start ${TUNNEL_LABEL[kind]}`}
-                    </Button>
-                  </Tooltip>
-                ))}
-              </Row>
-            )}
-          </Stack>
         </>
       )}
 
       <TunnelConfirmDialog
-        kind={confirmKind}
-        kindLabel={confirmKind ? TUNNEL_LABEL[confirmKind] : null}
+        open={confirmOpen}
         capabilityCounts={{
           send: status.devices.filter((d) => d.capability === "send").length,
           full: status.devices.filter((d) => d.capability === "full").length,
         }}
-        onCancel={() => setConfirmKind(null)}
-        onConfirm={(kind) => {
-          setConfirmKind(null);
-          void startTunnel(kind);
+        onCancel={() => setConfirmOpen(false)}
+        onConfirm={() => {
+          setConfirmOpen(false);
+          void startTunnel();
         }}
       />
 
@@ -318,49 +274,203 @@ export function RemoteControlPage() {
 }
 
 /**
- * What is reachable, right now, in one line — the question the rest of the
- * page is in service of. Loopback and tunnel are different enough facts to
- * deserve different words and a different colour, rather than a control the
- * reader has to decode.
+ * What is reachable right now, and the one thing to do about it.
+ *
+ * The tunnel is the step that makes remote control useful at all — without it
+ * the listener is loopback-only — so starting it is the page's main action and
+ * lives on the card that states the exposure, rather than in a section below
+ * the devices. Loopback and tunnel are different enough facts to get different
+ * words and a different colour.
  */
-function ExposureCard(props: {
+function ConnectionCard(props: {
   port: number | null;
   listeners: number;
-  tunnelUrl: string | null;
-  tunnelKind: TunnelKind | null;
+  tunnel: TunnelStatus;
+  /** Whether `tailscale` is on PATH. */
+  installed: boolean;
+  tailnet: TailnetInfo | null;
+  locked: boolean;
+  onStart: () => void;
+  onStop: () => void;
+  onRecheck: () => void;
 }) {
-  const { port, listeners, tunnelUrl, tunnelKind } = props;
-  const exposed = tunnelUrl !== null;
+  const { port, listeners, tunnel, installed, locked } = props;
+  const running = tunnel.state === "running" && tunnel.url !== null;
+  const starting = tunnel.state === "starting";
+  const { onRecheck } = props;
+
+  // The mini terminal the install runs in. Its session id is fresh per
+  // attempt so a retry never attaches to the previous run's PTY.
+  const [installSession, setInstallSession] = useState<string | null>(null);
+  const [installing, setInstalling] = useState(false);
+  const startInstall = () => {
+    setInstallSession(`tailscale-install-${Date.now()}`);
+    setInstalling(true);
+  };
+  // Whatever the exit code, ask again. A failed install leaves the card in
+  // the "not installed" state, with the terminal still showing why and the
+  // Install button back for a retry.
+  const handleInstallExit = useCallback(() => {
+    setInstalling(false);
+    onRecheck();
+  }, [onRecheck]);
 
   const watching =
     listeners === 0
       ? "Nothing connected"
       : `${listeners} device${listeners === 1 ? "" : "s"} connected`;
 
+  let title: string;
+  let description: ReactNode;
+  let action: ReactNode;
+  if (starting && tunnel.actionUrl) {
+    // `tailscale serve` is up but waiting on the admin console. It polls and
+    // carries on by itself, so the card just has to hand over the link.
+    title = "Enable Tailscale Serve for your tailnet";
+    description = (
+      <>
+        Tailscale needs Serve turned on once for your tailnet.{" "}
+        <Link href={tunnel.actionUrl}>Enable it in the admin console</Link> —
+        the tunnel starts by itself when you&apos;re done.
+      </>
+    );
+    // Not `locked`: the start call is still in flight, which is what sets
+    // `busy`, and Cancel has to work during exactly that.
+    action = (
+      <Button variant="secondary" onClick={props.onStop}>
+        Cancel
+      </Button>
+    );
+  } else if (running) {
+    title = "Reachable over Tailscale";
+    description = null;
+    action = (
+      <Button variant="secondary" disabled={locked} onClick={props.onStop}>
+        Stop tunnel
+      </Button>
+    );
+  } else if (!installed) {
+    title = "Install Tailscale to reach Manor from your phone";
+    description = installing
+      ? "Installing the Tailscale app. Sign in to it when it opens."
+      : "Manor installs the Tailscale app with Homebrew, then opens it so you can sign in.";
+    action = installing ? null : (
+      <Row gap="xs">
+        <Button variant="ghost" disabled={locked} onClick={props.onRecheck}>
+          Check again
+        </Button>
+        <Button
+          data-testid="remote-tailscale-install"
+          variant="primary"
+          disabled={locked}
+          onClick={startInstall}
+        >
+          Install
+        </Button>
+      </Row>
+    );
+  } else {
+    title = "Reachable from this machine only";
+    description =
+      "Start a tunnel to reach Manor from your phone. Tailscale must be signed in; only devices on your tailnet can connect, and the tunnel stops when Manor quits.";
+    action = (
+      <Button
+        data-testid="remote-tunnel-start"
+        variant="primary"
+        disabled={locked || starting}
+        onClick={props.onStart}
+      >
+        {starting
+          ? "Starting…"
+          : tunnel.state === "failed"
+            ? "Try again"
+            : "Start tunnel"}
+      </Button>
+    );
+  }
+
   return (
     <div
-      className={`${styles.remoteExposureCard} ${exposed ? styles.remoteExposureOpen : ""}`}
+      // The settings-search anchor for "Tunnel" — the card is that section now.
+      data-settings-section="remote-tunnel"
+      tabIndex={-1}
+      className={`${styles.remoteExposureCard} ${running ? styles.remoteExposureOpen : ""}`}
     >
       <div className={styles.remoteExposureIcon}>
-        {exposed ? <Globe size={15} /> : <Laptop size={15} />}
+        {running ? <Globe size={15} /> : <Laptop size={15} />}
       </div>
       <Stack gap="xs" className={styles.remoteExposureBody}>
-        <div className={styles.remoteExposureTitle}>
-          {exposed
-            ? `Reachable over ${TUNNEL_LABEL[tunnelKind ?? "tailscale"]}`
-            : "Reachable from this machine only"}
+        <div className={styles.remoteExposureHeader}>
+          <div className={styles.remoteExposureTitle}>{title}</div>
+          {action}
         </div>
-        {exposed ? (
-          <CopyField value={tunnelUrl} label="address" />
-        ) : port !== null ? (
+        {description && <div className={styles.fieldHint}>{description}</div>}
+        {tunnel.state === "failed" && tunnel.error && (
+          <div className={styles.linearError}>{tunnel.error}</div>
+        )}
+        {running && <CopyField value={tunnel.url ?? ""} label="address" />}
+        {running && props.tailnet && <TailnetDevices tailnet={props.tailnet} />}
+        {installSession !== null && !installed && (
+          <MiniTerminal
+            key={installSession}
+            sessionId={installSession}
+            cwd={null}
+            command={TAILSCALE_INSTALL_COMMAND}
+            interactive
+            exitOnComplete
+            onExit={handleInstallExit}
+            className={styles.remoteInstallTerminal}
+          />
+        )}
+        {!running && port !== null && (
           <CopyField
             value={`http://127.0.0.1:${port}`}
             label="address"
             testId="remote-listener-address"
           />
-        ) : null}
+        )}
         <div className={styles.fieldHint}>{watching}</div>
       </Stack>
+    </div>
+  );
+}
+
+/**
+ * A `*.ts.net` address opens only on devices in the tailnet, so a phone that
+ * has not joined gets "site can't be reached" with nothing to say why. Name
+ * that case on the card, with the account to sign in as; otherwise list who
+ * can reach the address.
+ */
+function TailnetDevices(props: { tailnet: TailnetInfo }) {
+  const { account, peers } = props.tailnet;
+  if (peers.length === 0) {
+    return (
+      <div
+        className={styles.remoteTailnetNote}
+        data-testid="remote-tailnet-empty"
+      >
+        Only this machine is on your tailnet, so your phone can&apos;t open this
+        address yet.{" "}
+        <Link href="https://tailscale.com/download">Install Tailscale</Link> on
+        your phone and sign in
+        {account ? (
+          <>
+            {" "}
+            as <strong>{account}</strong>
+          </>
+        ) : (
+          " with the same account"
+        )}
+        . This updates when it joins.
+      </div>
+    );
+  }
+  return (
+    <div className={styles.fieldHint}>
+      On your tailnet:{" "}
+      {peers
+        .map((peer) => (peer.online ? peer.name : `${peer.name} (offline)`))
+        .join(", ")}
     </div>
   );
 }
@@ -402,21 +512,5 @@ function DeviceRow(props: {
         </Button>
       </Tooltip>
     </div>
-  );
-}
-
-/** Neither binary is installed. Say what to do about it, not just what is wrong. */
-function NoTunnelTools() {
-  return (
-    <Stack gap="xs">
-      <div className={styles.fieldHint}>
-        Manor does not install either tool. Install one, then reopen this page.
-      </div>
-      <CopyField value="brew install cloudflared" label="install command" />
-      <CopyField
-        value="brew install --cask tailscale"
-        label="install command"
-      />
-    </Stack>
   );
 }

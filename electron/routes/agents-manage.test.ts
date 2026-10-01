@@ -1,34 +1,27 @@
 /**
  * `/agents/:agentId/*` management routes — rename, delete, mark-seen, and
  * resume-command. `POST /agents`, the launch route, has its own file
- * (`agents-launch.test.ts`) now that it opens the tab itself. Mirrors
- * `agents:update`/`agents:delete`/`agents:markSeen`/`agents:buildResumeCommand`
- * in `../ipc/agents.ts`; modeled on `agents-read.test.ts`.
+ * (`agents-launch.test.ts`) now that it opens the tab itself. Rename, delete
+ * and mark-seen call `agents.update`/`agents.delete`/`agents.markSeen` in
+ * `../bridge/handlers/agents.ts` (ADR-182 D8); modeled on `agents-read.test.ts`.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("electron", () => ({
-  BrowserWindow: { getAllWindows: () => [] },
-}));
-
 vi.mock("../notifications", () => ({
-  getUnseenFlagsForAgent: vi.fn(() => ({
-    responded: false,
-    requires_input: false,
-  })),
+  getUnseenSnapshot: vi.fn(),
   markAgentNotificationsRead: vi.fn(),
-  unseenInputAgents: new Set<string>(),
-  unseenRespondedAgents: new Set<string>(),
+  sendAgentUpdate: vi.fn(),
+  updateDockBadge: vi.fn(),
 }));
 
 import {
   markAgentNotificationsRead,
-  unseenInputAgents,
-  unseenRespondedAgents,
+  sendAgentUpdate,
+  updateDockBadge,
 } from "../notifications";
 import { agentRoutes } from "./agents";
-import type { ControlDeps, Route } from "./types";
+import type { HostDeps, Route } from "./types";
 
 function findRoute(method: Route["method"], path: string): Route {
   const route = agentRoutes.find((r) => r.method === method && r.path === path);
@@ -62,6 +55,10 @@ function agentManager(initial: Record<string, unknown> | null) {
   };
 }
 
+const unseenRespondedAgents = new Set<string>();
+const unseenInputAgents = new Set<string>();
+const preferencesManager = { get: vi.fn(() => false) };
+
 async function call(
   route: Route,
   {
@@ -70,13 +67,18 @@ async function call(
     body = {},
   }: {
     agentId?: string;
-    deps: Partial<ControlDeps>;
+    deps: Partial<HostDeps>;
     body?: Record<string, unknown>;
   },
 ) {
   const calls: Array<{ status: number; body: any }> = [];
   await route.handler({
-    deps: deps as ControlDeps,
+    deps: {
+      unseenRespondedAgents,
+      unseenInputAgents,
+      preferencesManager,
+      ...deps,
+    } as unknown as HostDeps,
     params: { agentId },
     url: new URL("http://localhost" + route.path.replace(":agentId", agentId)),
     json: (status, b) => calls.push({ status, body: b }),
@@ -89,14 +91,11 @@ beforeEach(() => {
   unseenRespondedAgents.clear();
   unseenInputAgents.clear();
   vi.mocked(markAgentNotificationsRead).mockClear();
+  vi.mocked(sendAgentUpdate).mockClear();
+  vi.mocked(updateDockBadge).mockClear();
 });
 
 describe("POST /agents/:agentId/rename", () => {
-  it("503s when agent management is unavailable", async () => {
-    const res = await call(renameRoute, { deps: { agentManager: null } });
-    expect(res.status).toBe(503);
-  });
-
   it("404s when the agent id does not resolve", async () => {
     const deps = { agentManager: agentManager(null) as any };
     const res = await call(renameRoute, {
@@ -129,6 +128,10 @@ describe("POST /agents/:agentId/rename", () => {
       name: "My Agent",
       namePinned: true,
     });
+    expect(sendAgentUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "agent-1", name: "My Agent" }),
+      preferencesManager,
+    );
   });
 
   it("clears and un-pins on an empty name", async () => {
@@ -171,18 +174,13 @@ describe("POST /agents/:agentId/rename", () => {
 });
 
 describe("DELETE /agents/:agentId", () => {
-  it("503s when agent management is unavailable", async () => {
-    const res = await call(deleteRoute, { deps: { agentManager: null } });
-    expect(res.status).toBe(503);
-  });
-
   it("404s when the agent id does not resolve", async () => {
     const deps = { agentManager: agentManager(null) as any };
     const res = await call(deleteRoute, { deps });
     expect(res.status).toBe(404);
   });
 
-  it("deletes the agent and clears both unseen sets", async () => {
+  it("deletes the agent, clears both unseen sets and refreshes the dock badge", async () => {
     unseenRespondedAgents.add("agent-1");
     unseenInputAgents.add("agent-1");
     const deps = { agentManager: agentManager({ id: "agent-1" }) as any };
@@ -194,15 +192,11 @@ describe("DELETE /agents/:agentId", () => {
     expect(deps.agentManager.deleteAgent).toHaveBeenCalledWith("agent-1");
     expect(unseenRespondedAgents.has("agent-1")).toBe(false);
     expect(unseenInputAgents.has("agent-1")).toBe(false);
+    expect(updateDockBadge).toHaveBeenCalledWith(preferencesManager);
   });
 });
 
 describe("POST /agents/:agentId/seen", () => {
-  it("503s when agent management is unavailable", async () => {
-    const res = await call(seenRoute, { deps: { agentManager: null } });
-    expect(res.status).toBe(503);
-  });
-
   it("404s when the agent id does not resolve", async () => {
     const deps = { agentManager: agentManager(null) as any };
     const res = await call(seenRoute, { deps });
@@ -220,16 +214,15 @@ describe("POST /agents/:agentId/seen", () => {
     expect(res.body).toEqual({ ok: true });
     expect(unseenRespondedAgents.has("agent-1")).toBe(false);
     expect(unseenInputAgents.has("agent-1")).toBe(false);
-    expect(markAgentNotificationsRead).toHaveBeenCalledWith("agent-1", null);
+    expect(markAgentNotificationsRead).toHaveBeenCalledWith("agent-1");
+    expect(sendAgentUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "agent-1" }),
+      preferencesManager,
+    );
   });
 });
 
 describe("GET /agents/:agentId/resume-command", () => {
-  it("503s when agent management is unavailable", async () => {
-    const res = await call(resumeRoute, { deps: { agentManager: null } });
-    expect(res.status).toBe(503);
-  });
-
   it("404s when the agent id does not resolve", async () => {
     const deps = { agentManager: agentManager(null) as any };
     const res = await call(resumeRoute, { deps });

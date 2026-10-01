@@ -15,10 +15,10 @@
  */
 
 import { dispatch } from "./router";
-import type { ControlDeps, Json, ReadBody, Route } from "./types";
+import type { RouteDeps, Json, ReadBody, Route } from "./types";
 import { agentRoutes } from "./agents";
 import { contextRoutes } from "./context";
-import { paneRoutes, tabRoutes } from "./panes";
+import { paneRoutes } from "./panes";
 import { folderRoutes } from "./folders";
 import { projectRoutes } from "./projects";
 import { issueRoutes } from "./issues";
@@ -36,7 +36,6 @@ export const routes: readonly Route[] = [
   ...agentRoutes,
   ...contextRoutes,
   ...paneRoutes,
-  ...tabRoutes,
   ...folderRoutes,
   ...projectRoutes,
   ...issueRoutes,
@@ -59,7 +58,7 @@ const OWNED_PREFIXES = new Set(routes.map((r) => r.path.split("/")[1]));
  * was written, false if the caller should try its own routes.
  */
 export async function handleControlRequest(
-  deps: ControlDeps,
+  deps: RouteDeps,
   method: string,
   url: URL,
   json: Json,

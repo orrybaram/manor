@@ -113,15 +113,13 @@ export function createWorkspaceOps(deps: WorkspaceOpsDeps): WorkspaceOps {
 
   return {
     async create(req, opts) {
-      const project = await pm.createWorktree(
-        req.projectId,
-        req.name,
-        req.branch,
-        req.linkedIssue,
-        req.baseBranch,
-        req.useExistingBranch,
-        req.origin ?? null,
-      );
+      const project = await pm.createWorktree(req.projectId, req.name, {
+        branch: req.branch,
+        linkedIssue: req.linkedIssue,
+        baseBranch: req.baseBranch,
+        useExistingBranch: req.useExistingBranch,
+        origin: req.origin ?? null,
+      });
       if (project) {
         statsStore.record("worktreesCreated");
         recordLastUsedHost(pm, project);

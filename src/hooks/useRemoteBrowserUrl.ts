@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { useAppStore } from "../store/app-store";
+import { selectPaneUrl, useAppStore } from "../store/app-store";
 import { useHostStore, selectHost } from "../store/host-store";
 import { isLocalhostHttpUrl, resolveUrlForHost } from "../lib/hosts";
 import { useHostDisplay } from "./useHostDisplay";
@@ -175,7 +175,7 @@ export function useRemoteBrowserUrl(
     if (hostStatus !== "connected" || prev === "connected" || prev === null) return;
     if (waitingForHostRef.current) return; // main is already waiting on it
     const hostId = remoteHostIdRef.current;
-    const remembered = useAppStore.getState().paneUrl[paneId];
+    const remembered = selectPaneUrl(useAppStore.getState(), paneId);
     if (!hostId || !remembered || !isLocalhostHttpUrl(remembered)) return;
     const seq = ++resolveSeqRef.current;
     resolveUrlForHost(remembered, hostId).then((target) => {

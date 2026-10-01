@@ -27,6 +27,7 @@ import {
   seedLayout,
   seedViewportFile,
   sentCommands,
+  settled,
 } from "./fake-layout-server";
 
 const WS_PATH = "/test/workspace";
@@ -56,7 +57,7 @@ function setup(layout: WorkspaceLayout = TWO_TABS()) {
     workspaceLayouts: { [WS_PATH]: layout },
     viewports: { [WS_PATH]: reconcileViewport(layout, emptyViewport()) },
     layoutVersions: {},
-    serverLayouts: {},
+    mountedWorkspaces: {},
     layoutLoaded: false,
   });
 }
@@ -78,48 +79,56 @@ afterEach(() => {
 });
 
 describe("viewport actions write nothing shared", () => {
-  it("selectTab sends no command", () => {
+  it("selectTab sends no command", async () => {
     useAppStore.getState().selectTab("tab-2");
+    await settled();
 
     expect(sentCommands).toHaveLength(0);
     expect(selectedTabId()).toBe("tab-2");
   });
 
-  it("setFocusedPane and setActivePanel send no command either", () => {
+  it("setFocusedPane and setActivePanel send no command either", async () => {
     useAppStore.getState().focusPane("pane-2");
+    await settled();
     useAppStore.getState().focusPanel("panel-1");
+    await settled();
 
     expect(sentCommands).toHaveLength(0);
     expect(selectFocusedPaneId(useAppStore.getState(), "tab-2")).toBe("pane-2");
     expect(selectActivePanelId(useAppStore.getState())).toBe("panel-1");
   });
 
-  it("keeps one viewport per workspace", () => {
+  it("keeps one viewport per workspace", async () => {
     const other = layoutOf([tab("tab-9", "pane-9")]);
     seedLayout("/other", other);
     useAppStore.getState().selectTab("tab-2");
+    await settled();
     broadcastLayout("/other", other);
     useAppStore.getState().setActiveWorkspace("/other");
+    await settled();
 
     expect(selectSelectedTabId(useAppStore.getState(), "panel-1")).toBe(
       "tab-9",
     );
     useAppStore.getState().setActiveWorkspace(WS_PATH);
+    await settled();
     expect(selectedTabId()).toBe("tab-2");
   });
 });
 
 describe("selection hints", () => {
-  it("are applied when the origin is this renderer", () => {
+  it("are applied when the origin is this renderer", async () => {
     // `new-tab` implies "select it"; the fake server sends the hint back
     // tagged with this renderer's id, exactly as the real one does.
     const created = useAppStore.getState().addTab()!;
+    await settled();
 
     expect(selectedTabId()).toBe(created.tabId);
   });
 
-  it("are ignored when the origin is another renderer", () => {
+  it("are ignored when the origin is another renderer", async () => {
     useAppStore.getState().selectTab("tab-2");
+    await settled();
 
     broadcastLayout(
       WS_PATH,
@@ -139,8 +148,9 @@ describe("selection hints", () => {
     expect(selectedTabId()).toBe("tab-2");
   });
 
-  it("never leave the selection pointing at nothing", () => {
+  it("never leave the selection pointing at nothing", async () => {
     useAppStore.getState().selectTab("tab-2");
+    await settled();
 
     // Another renderer closed the tab this one was showing.
     broadcastLayout(WS_PATH, layoutOf([tab("tab-1", "pane-1")]), 50, undefined, {
@@ -154,6 +164,7 @@ describe("selection hints", () => {
 describe("persistence, per renderer", () => {
   it("writes the whole viewport file after a change, debounced", async () => {
     useAppStore.getState().selectTab("tab-2");
+    await settled();
     expect(savedViewportFile()).toBeNull();
 
     await vi.advanceTimersByTimeAsync(400);
@@ -171,8 +182,9 @@ describe("persistence, per renderer", () => {
     });
   });
 
-  it("reports the change to the host as the workspace's default", () => {
+  it("reports the change to the host as the workspace's default", async () => {
     useAppStore.getState().selectTab("tab-2");
+    await settled();
 
     const last = reportedViewports[reportedViewports.length - 1];
     expect(last.workspacePath).toBe(WS_PATH);

@@ -13,12 +13,12 @@ import { splitShared } from "../../src/lib/project-groups";
 import { manorDataDir } from "../paths";
 import type { HostPath } from "../per-host-poller";
 import { detectDefaultBranch, listLocalBranches, listRemoteBranches, resyncDefaultBranches } from "./branches";
-import type { ProjectContext } from "./context";
+import type { ProjectContext, WorkspaceLayoutOwner } from "./context";
 import { HostRecords } from "./host-records";
 import { OriginLinks, forgetLinkDismissals } from "./origin-links";
 import { moveProjectToHost, planClone, runClone, switchProjectHost } from "./host-move";
 import { PathRouter } from "./path-router";
-import type { WorkspaceKeyOwner } from "../../src/lib/workspace-key";
+import { workspaceKey, type WorkspaceKeyOwner } from "../../src/lib/workspace-key";
 import * as groups from "./project-groups";
 import {
   buildProjectInfo,
@@ -30,6 +30,7 @@ import { StateStore } from "./state-store";
 import * as folders from "./workspace-folders";
 import * as worktrees from "./worktrees";
 import type {
+  CreateWorktreeOptions,
   GroupUpdatableFields,
   IssueSeed,
   LinkedIssue,
@@ -67,7 +68,15 @@ export class ProjectManager {
   constructor(
     hosts: ProjectHostResolver | GitBackend,
     dataDir?: string,
-    options: { isHostAway?: (hostId: string) => boolean } = {},
+    options: {
+      isHostAway?: (hostId: string) => boolean;
+      /**
+       * The server's layout store, as far as removing a worktree or a
+       * project needs it (ADR-182 D7). Optional so a test about projects
+       * alone need not build one.
+       */
+      layout?: WorkspaceLayoutOwner;
+    } = {},
   ) {
     this.lastKnownWorkspaces = new LastKnownWorkspaces(options.isHostAway ?? (() => false));
     if (typeof hosts === "function") {
@@ -91,6 +100,7 @@ export class ProjectManager {
       findAt: (hostId, dir) =>
         this.store.state.projects.find((p) => p.path === dir && p.hostId === hostId),
       info: (project) => this.buildProjectInfo(project),
+      layout: options.layout,
     };
     this.origins = new OriginLinks(this.ctx);
   }
@@ -378,7 +388,18 @@ export class ProjectManager {
     return this.hostFor(hostId).facts.exists(p);
   }
 
-  removeProject(projectId: string): void {
+  /**
+   * Forget a project, and tear down the layout of every one of its
+   * workspaces the same way `removeWorktree` does: their panes end and every
+   * renderer drops them (ADR-182 D7). The directories stay; only Manor lets
+   * go of them.
+   *
+   * The project leaves the list before the first `await`, so a caller that
+   * does not wait still sees it gone.
+   */
+  async removeProject(projectId: string): Promise<void> {
+    const project = this.findProject(projectId);
+    const known = project ? this.lastKnownWorkspaces.recall(project) : undefined;
     const state = this.store.state;
     const groupId = groups.groupOf(state, projectId)?.id;
     groups.forgetProject(state, projectId);
@@ -390,6 +411,18 @@ export class ProjectManager {
     }
     this.store.save();
     if (groupId) void this.origins.rememberGroupOrigin(groupId);
+    const layout = this.ctx.layout;
+    if (!project || !layout) return;
+
+    let paths: string[] = known?.map((ws) => ws.path) ?? [];
+    try {
+      paths = (await this.buildProjectInfo(project)).workspaces.map((ws) => ws.path);
+    } catch {
+      // Host away: the last listing it had is the best there is.
+    }
+    for (const path of new Set([project.path, ...paths])) {
+      layout.remove(workspaceKey(project.hostId, path));
+    }
   }
 
   /**
@@ -603,22 +636,9 @@ export class ProjectManager {
   createWorktree(
     projectId: string,
     name: string,
-    branch?: string,
-    linkedIssue?: LinkedIssue,
-    baseBranch?: string,
-    useExistingBranch?: boolean,
-    origin: string | null = null,
+    opts: CreateWorktreeOptions = {},
   ): Promise<ProjectInfo | null> {
-    return worktrees.createWorktree(
-      this.ctx,
-      projectId,
-      name,
-      branch,
-      linkedIssue,
-      baseBranch,
-      useExistingBranch,
-      origin,
-    );
+    return worktrees.createWorktree(this.ctx, projectId, name, opts);
   }
 
   convertMainToWorktree(projectId: string, name: string): Promise<ProjectInfo | null> {

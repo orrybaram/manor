@@ -6,7 +6,10 @@ import tseslint from "typescript-eslint";
 import eslintConfigPrettier from "eslint-config-prettier";
 
 export default tseslint.config(
-  { ignores: ["dist", "dist-electron", "scripts"] },
+  // `.claude/worktrees/` holds agent worktrees — whole second checkouts, with
+  // their own tsconfigs — and is already in `.gitignore`. Linting them from the
+  // root fails on a tsconfig clash that is not a real error in this tree.
+  { ignores: ["dist", "dist-electron", "scripts", ".claude/worktrees"] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],

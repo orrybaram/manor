@@ -14,16 +14,14 @@
  * silently never happen, and the app would come up with no preferences, no
  * theme and no agent updates.
  *
- * The preload used to make that impossible by installing the object before
- * the page ran a line. Now that the page builds it (ADR-180 D3), the import
- * *order* in `main.tsx` is what makes it impossible — which is why this is a
+ * The page builds `window.electronAPI` itself (ADR-180 D3), so the import
+ * *order* in `main.tsx` is what makes that impossible — which is why this is a
  * module whose evaluation does the work, and not a function somebody has to
  * remember to call early enough.
  *
  * The browser holds the same invariant the same way: `install-web.ts` is
  * `web-main.tsx`'s copy of this module, imported first for the identical
- * reason (ADR-180 ticket 14 — the bug this file's comment used to note the
- * browser "lived with"). The two differ only in how they find their
+ * reason. The two differ only in how they find their
  * transport — this one waits for the preload's `window.manorHost`,
  * `install-web.ts` reads the pairing token out of the URL fragment — never
  * in *when* they install it. If you touch one of these files, check the

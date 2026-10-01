@@ -43,8 +43,12 @@ const CSP = [
  * for everything: no CDN, no third-party script, no cross-origin fetch.
  * `connect-src 'self'` covers same-origin `ws:`/`wss:` under CSP3 in both
  * Chrome and Safari, so it does not need to be named separately.
+ *
+ * Exported so `vite.web.config.ts` can inject the same policy into
+ * `src/web.html`'s `<meta>` tag at build time — the second line of defence
+ * for a browser that, for whatever reason, does not see this header.
  */
-const WEB_CSP = [
+export const WEB_CSP = [
   "default-src 'self'",
   "script-src 'self' 'wasm-unsafe-eval'",
   "style-src 'self' 'unsafe-inline'",

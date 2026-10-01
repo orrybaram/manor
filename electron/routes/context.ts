@@ -86,18 +86,13 @@ export const contextRoutes: Route[] = [
     method: "GET",
     path: "/context",
     async handler({ deps, url, json }) {
-      const pm = deps.projectManager;
-      if (!pm) {
-        json(503, { error: "Project management is not available" });
-        return;
-      }
       const paneId = url.searchParams.get("paneId");
       const cwd = url.searchParams.get("cwd");
-      const projects = await pm.getProjects();
+      const projects = await deps.projectManager.getProjects();
 
       const callerHostId =
         deps.callerHostId ??
-        (paneId ? deps.sessionOwners?.ownerOf(paneId) : undefined) ??
+        (paneId ? deps.sessionOwners.ownerOf(paneId) : undefined) ??
         LOCAL_HOST_ID;
 
       // `callerHostId` here is always resolved (never undefined), so this
@@ -108,7 +103,7 @@ export const contextRoutes: Route[] = [
       );
       const resolved =
         resolveByPane(
-          { store: deps.layoutStore ?? null, persistence: deps.layoutPersistence },
+          { store: deps.layoutStore, persistence: deps.layoutPersistence },
           projects,
           paneId,
           deps.callerHostId,

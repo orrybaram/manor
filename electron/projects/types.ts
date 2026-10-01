@@ -45,6 +45,23 @@ export interface WorkspaceInfo {
   folderId?: string | null;
 }
 
+/** Everything about a new worktree beyond its project and name. */
+export interface CreateWorktreeOptions {
+  /** The branch to create or check out; defaults to one named after `name`. */
+  branch?: string;
+  linkedIssue?: LinkedIssue;
+  /** The ref a new branch starts from; defaults to the project's default. */
+  baseBranch?: string;
+  /** Check `branch` out as it is rather than creating it. */
+  useExistingBranch?: boolean;
+  /**
+   * The bridge connection that asked, so its own window gets the setup
+   * progress (ADR-180 D5). Null — the default, and what the CLI, MCP and the
+   * issue-batch path pass — broadcasts it instead.
+   */
+  origin?: string | null;
+}
+
 /** Pre-fetched issue data needed to create a workspace for it. */
 export interface IssueSeed {
   number: number;

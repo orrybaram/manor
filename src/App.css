@@ -49,7 +49,7 @@
      overrides the inset per sidebar mode; the default clears the macOS
      traffic lights for windows without a lead (DetachedApp). */
   --frame-gap: 6px;
-  --window-lead-inset: 78px;
+  --window-lead-inset: var(--traffic-light-inset);
   /* Height of the window's top row: the WindowLead and the top panels' tab
      bars all share it, and the macOS traffic lights are
      centred in it (`trafficLightPosition` in electron/window.ts). */
@@ -59,6 +59,12 @@
   --font-mono:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
     monospace;
+  /* Clears the macOS traffic lights (`trafficLightPosition` in
+     electron/window.ts). Shared so every piece of chrome that sits at the
+     window's top-left edge — the `--window-lead-inset` default above and,
+     in phone mode, `PhoneTopBar` — pads by the same number rather than each
+     picking its own. */
+  --traffic-light-inset: 78px;
 }
 
 * {

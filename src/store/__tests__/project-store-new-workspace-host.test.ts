@@ -157,17 +157,15 @@ describe("New Workspace host picker", () => {
 
     const wsPath = await useProjectStore
       .getState()
-      .createWorktree(chosen.projectId, "feat", "feat", { baseBranch: "main" });
+      .createWorktree(chosen.projectId, "feat", { branch: "feat", baseBranch: "main" });
 
     expect(wsPath).toBe("/code/box-app/feat");
-    expect(api.createWorktree).toHaveBeenCalledWith(
-      "box-app",
-      "feat",
-      "feat",
-      undefined,
-      "main",
-      undefined,
-    );
+    expect(api.createWorktree).toHaveBeenCalledWith("box-app", "feat", {
+      branch: "feat",
+      linkedIssue: undefined,
+      baseBranch: "main",
+      useExistingBranch: undefined,
+    });
     // Main records the last-used host (ADR-203, `electron/workspace-ops.ts`).
     expect(api.setGroupLastUsedHost).not.toHaveBeenCalled();
   });

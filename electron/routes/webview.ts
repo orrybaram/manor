@@ -7,7 +7,7 @@
  * listener lifecycle, console-message capture, and `getWebContents` — the
  * pane→`WebContents` lookup every handler below goes through via
  * `deps.webviewPanes`, so this module never imports the `WebviewServer`
- * class itself (see `ControlDeps.webviewPanes`'s header).
+ * class itself (see `RouteDeps.webviewPanes`'s header).
  */
 
 import * as fs from "node:fs";
@@ -21,7 +21,7 @@ import {
   getPaneRendererWebContents,
 } from "../ipc/webview";
 import type { StartRecordingResult } from "../recording-manager";
-import type { ControlDeps, Json, Route } from "./types";
+import type { RouteDeps, Json, Route } from "./types";
 
 /**
  * How long `/webview/:id/record/stop` waits for the renderer to confirm its
@@ -60,7 +60,7 @@ async function captureElementRegion(
  * `/webview/:paneId/*` handler below runs first.
  */
 function resolveWc(
-  deps: ControlDeps,
+  deps: RouteDeps,
   paneId: string,
   json: Json,
 ): Electron.WebContents | null {

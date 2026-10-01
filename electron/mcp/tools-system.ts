@@ -49,8 +49,8 @@ interface RemoteControlStatusRow {
   enabled: boolean;
   port: number | null;
   devices: Array<{ id: string; label: string }>;
-  tunnel: { state: string; kind: string | null; url: string | null };
-  detected: Record<string, boolean>;
+  tunnel: { state: string; url: string | null };
+  installed: boolean;
   listeners: number;
 }
 
@@ -78,17 +78,12 @@ function parsePreferenceValue(raw: string): unknown {
 function formatRemoteStatus(status: RemoteControlStatusRow): string {
   const lines = [
     `Remote control: ${status.enabled ? `on (port ${status.port})` : "off"}`,
-    `Tunnel: ${status.tunnel.state}${status.tunnel.kind ? ` (${status.tunnel.kind})` : ""}${
+    `Tunnel: ${status.tunnel.state}${
       status.tunnel.url ? ` — ${status.tunnel.url}` : ""
     }`,
     `Paired devices: ${status.devices.length}`,
     `Live listeners: ${status.listeners}`,
-    `Tunnel binaries on PATH: ${
-      Object.entries(status.detected)
-        .filter(([, present]) => present)
-        .map(([kind]) => kind)
-        .join(", ") || "none"
-    }`,
+    `Tailscale on PATH: ${status.installed ? "yes" : "no"}`,
   ];
   return lines.join("\n");
 }
@@ -284,18 +279,8 @@ const tools: ToolDef[] = [
   {
     name: "start_tunnel",
     description:
-      "Expose the remote-control listener through a tunnel. Requires remote control to be on and tailscale or cloudflared on PATH; Manor installs neither.",
-    inputSchema: {
-      type: "object" as const,
-      properties: {
-        kind: {
-          type: "string",
-          enum: ["tailscale", "cloudflared"],
-          description:
-            "Which tunnel to use. Defaults to tailscale when it is installed.",
-        },
-      },
-    },
+      "Expose the remote-control listener through a Tailscale tunnel. Requires remote control to be on and tailscale on PATH; Manor does not install it.",
+    inputSchema: { type: "object" as const, properties: {} },
   },
   {
     name: "stop_tunnel",
@@ -621,12 +606,9 @@ const handlers: ToolModule["handlers"] = {
     return text(formatRemoteStatus(status));
   },
 
-  async start_tunnel(args, http) {
-    const body: Record<string, unknown> = {};
-    if (args.kind !== undefined) body.kind = args.kind;
+  async start_tunnel(_args, http) {
     const status = (await http.post(
       "/remote-control/tunnel/start",
-      body,
     )) as RemoteControlStatusRow;
     return text(formatRemoteStatus(status));
   },

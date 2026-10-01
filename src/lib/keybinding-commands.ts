@@ -4,9 +4,14 @@ import {
   selectActivePanelId,
   selectActiveWorkspaceKey,
   selectFocusedPaneOfActiveTab,
+  selectPaneContentType,
   selectSelectedTabId,
 } from "../store/app-store";
-import { useProjectStore } from "../store/project-store";
+import {
+  useProjectStore,
+  type ProjectInfo,
+  type WorkspaceInfo,
+} from "../store/project-store";
 import { usePreferencesStore } from "../store/preferences-store";
 import { useKeybindingsStore } from "../store/keybindings-store";
 import { useToastStore } from "../store/toast-store";
@@ -23,22 +28,27 @@ import {
 } from "./keybindings";
 import { cycleRegion, focusRegion } from "./focus-regions";
 import { requestUi } from "../utils/ui-request";
-import { commandAvailableOnWeb, type ForwardedCommandPayload } from "./menu-commands";
+import type { ForwardedCommandPayload } from "./menu-commands";
+import {
+  commandHandlers,
+  type CommandHandler,
+  type SharedCommandContext,
+} from "./commands";
+import { findPanelWithTab } from "./layout/workspace-layout";
 import { isWebApp } from "./platform";
 
 /**
- * Keybinding commands that are meaningful in ANY window — the primary window
- * and the detached popup windows of ADR-156 alike.
+ * The renderer half of the command table (`commands.ts`) for commands that
+ * are meaningful in ANY window — the primary window and the detached popup
+ * windows of ADR-156 alike — plus the key dispatcher both kinds of window use.
  *
  * Every window runs `App` (ADR-179 D4), but a detached one withholds the
  * primary-only handlers and forwards those combos to the primary window
- * instead — so what is defined here is what a popout can actually run: new
- * tab / new agent / new browser / pane / panel / browser commands, with
- * settings, the command palette, the sidebar, new workspace and navigation
- * history layered on only where there is chrome for them.
- *
- * Every handler reads from `getState()` rather than React state so the map can
- * be built once, outside the render cycle.
+ * instead — so what the shared context backs is what a popout can actually
+ * run: new tab / new agent / new browser / pane / panel / browser commands,
+ * with settings, the command palette, the sidebar, new workspace and
+ * navigation history layered on (`menu-handlers.ts`) only where there is
+ * chrome for them.
  */
 
 /** The focused pane's id when that pane is a browser, else undefined. */
@@ -46,7 +56,7 @@ function focusedBrowserPaneId(): string | undefined {
   const state = useAppStore.getState();
   const focusedPaneId = selectFocusedPaneOfActiveTab(state);
   if (!focusedPaneId) return;
-  if (state.paneContentType[focusedPaneId] !== "browser") return;
+  if (selectPaneContentType(state, focusedPaneId) !== "browser") return;
   return focusedPaneId;
 }
 
@@ -91,7 +101,9 @@ export async function startNewAgent(
 ): Promise<void> {
   const { activeWorkspacePath, activeWorkspaceHostId: hostId } =
     useAppStore.getState();
-  const command = resolveWorkspaceCommand(selectActiveWorkspaceKey(useAppStore.getState()));
+  const command = resolveWorkspaceCommand(
+    selectActiveWorkspaceKey(useAppStore.getState()),
+  );
   const prewarmed = prewarm
     ? await window.electronAPI.pty.consumePrewarmed(activeWorkspacePath, hostId)
     : null;
@@ -113,153 +125,99 @@ export async function startNewAgent(
 }
 
 /**
- * Close shortcuts act on the active workspace's layout, which stays mounted but
- * hidden behind the Tasks view (ADR-198).
- * Ignore them there, so ⌘W can't close a tab the user can't see.
+ * Move a tab to the panel after the one holding it, wrapping — the active
+ * panel's selected tab by default. The one implementation behind the
+ * `move-tab-to-next-panel` command and the tab context menu's item.
  */
-export function unlessOverviewShown(fn: () => void): () => void {
-  return () => {
-    if (useAppStore.getState().activeSurface !== "workspace") return;
-    fn();
-  };
+export function moveTabToNextPanel(tabId?: string): void {
+  const state = useAppStore.getState();
+  const layout = selectActiveLayout(state);
+  if (!layout) return;
+  const id = tabId ?? selectSelectedTabId(state, selectActivePanelId(state));
+  if (!id) return;
+  const from = findPanelWithTab(layout, id)?.panel.id;
+  const panelIds = Object.keys(layout.panels);
+  if (!from || panelIds.length < 2) return;
+  const nextId = panelIds[(panelIds.indexOf(from) + 1) % panelIds.length];
+  state.moveTabToPanel(id, nextId);
+}
+
+/** The active surface, resolved back to its owning project and workspace. */
+export function activeSurface(): {
+  path: string | null;
+  project: ProjectInfo | null;
+  workspace: WorkspaceInfo | null;
+} {
+  const app = useAppStore.getState();
+  const path = app.activeWorkspacePath;
+  // By key: a local and a remote project can share a path (ADR-191).
+  const key = selectActiveWorkspaceKey(app);
+  const found = key ? find(useProjectStore.getState().projects, key) : undefined;
+  const project =
+    found?.project ?? ownerOf(useProjectStore.getState().projects, key) ?? null;
+  const workspace = found?.workspace ?? null;
+  return { path, project, workspace };
+}
+
+function copyToClipboard(text: string, label: string): void {
+  void navigator.clipboard.writeText(text);
+  useToastStore.getState().addToast({
+    id: `${label}-${Date.now()}`,
+    message: `Copied "${text}"`,
+    status: "success",
+  });
 }
 
 /**
- * The Dashboard (Home) has no tabs, panes, or panels (ADR-197). The store
- * already no-ops creation there; this keeps the shortcut from doing anything.
+ * What the command table's window-agnostic commands run against, backed by
+ * the stores. Every member reads `getState()` rather than React state so the
+ * context — and the handler map over it — can be built once, outside the
+ * render cycle.
  */
-export function unlessHome(fn: () => void): () => void {
-  return () => {
-    if (isHomePath(useAppStore.getState().activeWorkspacePath)) return;
-    fn();
-  };
-}
-
-/**
- * Neutralize a command→action map's Electron-only entries into no-ops when
- * running as the web app (ADR-178 ticket 6): `dispatchKeybinding` and
- * `dispatchMenuCommand` both run whatever this returns, including a command a
- * user has rebound onto a key `NATIVE_ONLY_COMMANDS` never expected — so the
- * guard sits here, at the one place both dispatchers get their map, rather
- * than in each command's own body. A command absent from `commandAvailableOnWeb`
- * has nothing to do on the web (no dialog, no native menu, no detached
- * window), so it running is a silently-dropped promise rejection waiting to
- * happen, not a feature to keep working.
- */
-export function guardHandlersForWeb<
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  T extends Record<string, (...args: any[]) => void>,
->(handlers: T): T {
-  if (!isWebApp()) return handlers;
-  const guarded: Record<string, (...args: never[]) => void> = { ...handlers };
-  for (const id of Object.keys(guarded)) {
-    if (!commandAvailableOnWeb(id)) guarded[id] = () => {};
-  }
-  return guarded as T;
-}
-
-/** Build the window-agnostic half of the command→action map. */
-export function createSharedKeybindingHandlers(
-  { prewarmNewAgent }: { prewarmNewAgent: boolean } = {
-    prewarmNewAgent: false,
-  },
-): Record<string, () => void> {
-  const store = () => useAppStore.getState();
-  return guardHandlersForWeb({
-    "new-tab": unlessHome(() => store().addTab()),
-    "new-agent": unlessHome(
-      () => void startNewAgent({ prewarm: prewarmNewAgent }),
-    ),
-    "new-browser": unlessHome(() => store().addBrowserTab("about:blank")),
-    "split-h": unlessHome(() => store().splitPane("horizontal")),
-    "split-v": unlessHome(() => store().splitPane("vertical")),
-    "close-pane": unlessOverviewShown(() => store().requestClosePane()),
-    "reopen-pane": unlessHome(() => store().reopenClosedPane()),
-    "close-tab": unlessOverviewShown(() => {
-      const state = store();
-      const tabId = selectSelectedTabId(state, selectActivePanelId(state));
-      if (tabId) state.requestCloseTab(tabId);
-    }),
-    "next-tab": () => store().selectNextTab(),
-    "prev-tab": () => store().selectPrevTab(),
-    "next-pane": () => store().focusNextPane(),
-    "prev-pane": () => store().focusPrevPane(),
-    "copy-branch": () => {
-      const key = selectActiveWorkspaceKey(store());
-      const branch = key
-        ? find(useProjectStore.getState().projects, key)?.workspace.branch
-        : undefined;
-      if (branch) {
-        navigator.clipboard.writeText(branch);
-        useToastStore.getState().addToast({
-          id: `copy-branch-${Date.now()}`,
-          message: `Copied "${branch}"`,
-          status: "success",
-        });
-      }
+export function createSharedCommandContext(
+  { prewarmNewAgent }: { prewarmNewAgent: boolean } = { prewarmNewAgent: false },
+): SharedCommandContext {
+  return {
+    app: () => useAppStore.getState(),
+    active: activeSurface,
+    activePanelId: () => selectActivePanelId(useAppStore.getState()),
+    activeTabId: () => {
+      const state = useAppStore.getState();
+      return selectSelectedTabId(state, selectActivePanelId(state));
     },
-    "split-panel-right": unlessHome(() => store().splitPanel("horizontal")),
-    "split-panel-down": unlessHome(() => store().splitPanel("vertical")),
-    "focus-next-panel": () => store().focusNextPanel(),
-    "focus-prev-panel": () => store().focusPrevPanel(),
-    "close-panel": unlessOverviewShown(() => {
-      const state = store();
-      const panelId = selectActivePanelId(state);
-      if (panelId) state.closePanel(panelId);
-    }),
-    "move-tab-to-next-panel": () => {
-      const state = store();
-      const layout = selectActiveLayout(state);
-      const panelId = selectActivePanelId(state);
-      if (!layout || !panelId) return;
-      const tabId = selectSelectedTabId(state, panelId);
-      if (!tabId) return;
-      const panelIds = Object.keys(layout.panels);
-      if (panelIds.length < 2) return;
-      const idx = panelIds.indexOf(panelId);
-      const nextId = panelIds[(idx + 1) % panelIds.length];
-      state.moveTabToPanel(tabId, nextId);
-    },
-    "browser-zoom-in": () => getFocusedBrowserRef()?.zoomIn(),
-    "browser-zoom-out": () => getFocusedBrowserRef()?.zoomOut(),
-    "browser-zoom-reset": () => getFocusedBrowserRef()?.zoomReset(),
-    "browser-reload": () => getFocusedBrowserRef()?.reload(),
-    "browser-focus-url": () => {
-      const state = store();
-      const focusedPaneId = selectFocusedPaneOfActiveTab(state);
-      if (
-        !focusedPaneId ||
-        state.paneContentType[focusedPaneId] !== "browser"
-      ) {
-        return;
-      }
+    focusedPaneId: () => selectFocusedPaneOfActiveTab(useAppStore.getState()),
+    copyToClipboard,
+    startNewAgent: () => void startNewAgent({ prewarm: prewarmNewAgent }),
+    moveTabToNextPanel: () => moveTabToNextPanel(),
+    focusedBrowser: getFocusedBrowserRef,
+    focusedBrowserPaneId,
+    focusBrowserUrlBar: (paneId) => {
       const input = document.querySelector<HTMLInputElement>(
-        `[data-pane-url-input="${focusedPaneId}"]`,
+        `[data-pane-url-input="${paneId}"]`,
       );
       input?.focus();
       input?.select();
     },
-    "browser-back": () => getFocusedBrowserRef()?.goBack(),
-    "browser-forward": () => getFocusedBrowserRef()?.goForward(),
-    "browser-find": () => {
-      const paneId = focusedBrowserPaneId();
-      if (paneId) requestUi({ type: "pane-search", paneId });
-    },
-    "focus-next-region": () => void cycleRegion(1),
-    "focus-prev-region": () => void cycleRegion(-1),
-    "focus-tabbar": () => void focusRegion("tabbar"),
-    "open-diff": unlessHome(() => {
-      const { diffOpensInNewPanel } =
-        usePreferencesStore.getState().preferences;
-      if (diffOpensInNewPanel) store().openDiffInNewPanel();
-      else store().openOrFocusDiff();
-    }),
-    ...Object.fromEntries(
-      Array.from({ length: 9 }, (_, i) => [
-        `select-tab-${i + 1}`,
-        () => store().selectTabByGlobalIndex(i),
-      ]),
-    ),
+    requestUi,
+    cycleRegion: (delta) => void cycleRegion(delta),
+    focusRegion,
+    diffOpensInNewPanel: () =>
+      usePreferencesStore.getState().preferences.diffOpensInNewPanel,
+    onDashboard: () => isHomePath(useAppStore.getState().activeWorkspacePath),
+    overviewShown: () => useAppStore.getState().activeSurface !== "workspace",
+  };
+}
+
+/**
+ * The window-agnostic half of the command→action map: the table's
+ * `scope: "any"` commands, less the native-only ones on the web.
+ */
+export function createSharedKeybindingHandlers(
+  options: { prewarmNewAgent: boolean } = { prewarmNewAgent: false },
+): Record<string, CommandHandler> {
+  return commandHandlers(createSharedCommandContext(options), {
+    web: isWebApp(),
+    primary: false,
   });
 }
 

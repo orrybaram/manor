@@ -14,6 +14,7 @@ vi.mock("../ipc-validate", () => ({
 }));
 
 import { agentsReconcileStale } from "../bridge/handlers/agents";
+import { localCtx } from "../bridge/method";
 import { LOCAL_HOST_ID } from "../backend/types";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -43,7 +44,7 @@ function makeAgent(
 const paneOwners = new Map<string, string>();
 
 /**
- * An `IpcDeps`-shaped fixture (ADR-183): every field `bridge/handlers/agents.ts`
+ * An `HostDeps`-shaped fixture (ADR-183): every field `bridge/handlers/agents.ts`
  * reaches, including the pane owners and host status
  * `isAgentHostConnected` reads — rather than a bag the handler had to
  * guard against being partial.
@@ -100,7 +101,7 @@ describe("agents:reconcileStale handler", () => {
     // listSessions() returns pane IDs — only pane-2 is live
     deps.backend.pty.listSessions.mockResolvedValue([{ sessionId: "pane-2" }]);
 
-    await agentsReconcileStale(deps as never);
+    await agentsReconcileStale(localCtx(deps as never));
 
     // The reconciler writes the lifecycle (ADR-184); the handler does not.
     expect(deps.agentStatus.signal).toHaveBeenCalledTimes(1);
@@ -119,7 +120,7 @@ describe("agents:reconcileStale handler", () => {
     deps.backend.pty.listSessions.mockResolvedValue([]);
     deps.agentStatus.isPaneLossExpected.mockImplementation((paneId) => paneId === "pane-1");
 
-    await agentsReconcileStale(deps as never);
+    await agentsReconcileStale(localCtx(deps as never));
 
     // Left active with its pane, for the cold restore to resume.
     expect(deps.agentStatus.signal).toHaveBeenCalledTimes(1);
@@ -132,7 +133,7 @@ describe("agents:reconcileStale handler", () => {
   it("does nothing when daemon is unreachable", async () => {
     deps.backend.pty.listSessions.mockRejectedValue(new Error("ECONNREFUSED"));
 
-    await agentsReconcileStale(deps as never);
+    await agentsReconcileStale(localCtx(deps as never));
 
     expect(deps.agentManager.getAllAgents).not.toHaveBeenCalled();
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
@@ -145,7 +146,7 @@ describe("agents:reconcileStale handler", () => {
     ]);
     deps.backend.pty.listSessions.mockResolvedValue([]);
 
-    await agentsReconcileStale(deps as never);
+    await agentsReconcileStale(localCtx(deps as never));
 
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
     expect(deps.agentStatus.signal).not.toHaveBeenCalled();
@@ -157,7 +158,7 @@ describe("agents:reconcileStale handler", () => {
     ]);
     deps.backend.pty.listSessions.mockResolvedValue([]);
 
-    await agentsReconcileStale(deps as never);
+    await agentsReconcileStale(localCtx(deps as never));
 
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
     expect(deps.agentStatus.signal).not.toHaveBeenCalled();
@@ -178,7 +179,7 @@ describe("agents:reconcileStale handler", () => {
     ]);
     deps.backend.pty.listSessions.mockResolvedValue([{ sessionId: "pane-1" }]);
 
-    await agentsReconcileStale(deps as never);
+    await agentsReconcileStale(localCtx(deps as never));
 
     // paneId "pane-1" is live → agent must NOT be abandoned
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
@@ -188,7 +189,7 @@ describe("agents:reconcileStale handler", () => {
 
 describe("agents:reconcileStale host connectivity (ADR-191 §5)", () => {
   let deps: ReturnType<typeof makeDeps>;
-  const reconcile = () => agentsReconcileStale(deps as never);
+  const reconcile = () => agentsReconcileStale(localCtx(deps as never));
   const abandoned = () => deps.agentStatus.signal.mock.calls.map((c) => (c as unknown[])[0]);
 
   beforeEach(() => {

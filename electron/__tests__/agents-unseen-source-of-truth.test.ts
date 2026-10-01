@@ -2,7 +2,7 @@
  * ADR-136 §"Change 3" — main is the source of truth for unseen flags.
  *
  * No `ipcMain` here any more: `agents` crossed to the handler table in
- * ADR-180 ticket 9, so these are plain functions over `IpcDeps` — the same
+ * ADR-180 ticket 9, so these are plain functions over `HostDeps` — the same
  * functions the table calls, and a paired `full` device now reaches them the
  * same way the desktop does (ADR-180's watch-for: a browser marking an agent
  * seen must produce the same `agents.updated` broadcast a desktop window
@@ -33,6 +33,7 @@ vi.mock("../ipc-validate", () => ({
 
 import * as notifications from "../notifications";
 import { agentsGetUnseen, agentsMarkSeen } from "../bridge/handlers/agents";
+import { localCtx } from "../bridge/method";
 
 const sendAgentUpdate = vi.mocked(notifications.sendAgentUpdate);
 const updateDockBadge = vi.mocked(notifications.updateDockBadge);
@@ -94,7 +95,7 @@ describe("agents.markSeen re-broadcast (ADR-136)", () => {
     const agent = { id: "t1", lastAgentStatus: "responded" };
     deps.agentManager.getAgentById.mockReturnValue(agent);
 
-    agentsMarkSeen(deps as never, "t1");
+    agentsMarkSeen(localCtx(deps as never), "t1");
 
     expect(deps.unseenRespondedAgents.has("t1")).toBe(false);
     expect(deps.unseenInputAgents.has("t1")).toBe(false);
@@ -111,18 +112,15 @@ describe("agents.markSeen re-broadcast (ADR-136)", () => {
       lastAgentStatus: "responded",
     });
 
-    agentsMarkSeen(deps as never, "t1");
+    agentsMarkSeen(localCtx(deps as never), "t1");
 
-    expect(markAgentNotificationsRead).toHaveBeenCalledWith(
-      "t1",
-      deps.mainWindow,
-    );
+    expect(markAgentNotificationsRead).toHaveBeenCalledWith("t1");
   });
 
   it("falls back to dock-badge refresh when the agent no longer exists", () => {
     deps.agentManager.getAgentById.mockReturnValue(null);
 
-    agentsMarkSeen(deps as never, "t1");
+    agentsMarkSeen(localCtx(deps as never), "t1");
 
     expect(deps.unseenRespondedAgents.has("t1")).toBe(false);
     expect(sendAgentUpdate).not.toHaveBeenCalled();

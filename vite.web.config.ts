@@ -1,7 +1,26 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 import pkg from "./package.json";
+import { WEB_CSP } from "./electron/remote-control/static";
+
+/**
+ * `src/web.html`'s CSP `<meta>` tag is a second line of defence for the same
+ * header `electron/remote-control/static.ts` sends for `/app` — this keeps
+ * the HTML from drifting out of sync with `WEB_CSP`, the one source, rather
+ * than trusting the two to stay hand-copied.
+ */
+function injectWebCsp(): Plugin {
+  return {
+    name: "inject-web-csp",
+    transformIndexHtml(html) {
+      return html.replace(
+        "<!--csp-->",
+        `<meta http-equiv="Content-Security-Policy" content="${WEB_CSP}" />`,
+      );
+    },
+  };
+}
 
 /**
  * The ADR-178 web app: the desktop renderer, built a second time for a
@@ -37,7 +56,7 @@ export default defineConfig({
   // the latter, which does not exist, and the app would boot with no
   // terminal font to load.
   publicDir: path.resolve(__dirname, "public"),
-  plugins: [react()],
+  plugins: [react(), injectWebCsp()],
   build: {
     outDir: path.resolve(__dirname, "dist-electron/web"),
     emptyOutDir: true,

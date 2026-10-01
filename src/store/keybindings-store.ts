@@ -5,16 +5,14 @@ import {
   resolveBindings,
   serializeCombo,
 } from "../lib/keybindings";
-import { handleBridgeUnavailable } from "../lib/bridge-unavailable-toast";
+import { isWebApp } from "../lib/platform";
 
 /**
  * `keybindings.set`/`reset`/`resetAll` stay off the ADR-178 bridge table —
- * ticket 6 made the keybindings page read-only on web — so every call from
- * here is refused with the same `BridgeUnavailableError` on a browser. One
- * toast per session beats a silent no-op or an unhandled rejection per edit.
+ * `KeybindingsPage` disables its controls on web, so these never fire from a
+ * browser. `persist` below still swallows a rejection rather than crash the
+ * store if that ever changes.
  */
-const KEYBINDINGS_UNAVAILABLE_MESSAGE =
-  "Keybinding changes aren't saved from the browser yet";
 
 interface KeybindingsState {
   /** Merged map: commandId → KeyCombo (defaults + overrides applied) */
@@ -28,25 +26,32 @@ interface KeybindingsState {
   resetAll: () => void;
 }
 
+/**
+ * The OS picks ⌘ versus Ctrl; being a browser tab only removes the chords the
+ * browser keeps for itself (ADR-181 D7). Two separate facts, passed separately
+ * — see `platformDefaults`.
+ */
+const resolve = (overrides: Record<string, string>) =>
+  resolveBindings(overrides, navigator.platform, { inBrowser: isWebApp() });
+
+/** Fires and forgets a bridge write — see the store-level comment above. */
+function persist(promise: Promise<void> | undefined): void {
+  promise?.catch(() => {});
+}
+
 export const useKeybindingsStore = create<KeybindingsState>((set) => {
-  const defaultBindings = resolveBindings({}, navigator.platform).bindings;
+  const defaultBindings = resolve({}).bindings;
 
   window.electronAPI?.keybindings
     .getAll()
     .then((overrides) => {
-      const { bindings, overriddenIds } = resolveBindings(
-        overrides,
-        navigator.platform,
-      );
+      const { bindings, overriddenIds } = resolve(overrides);
       set({ bindings, overriddenIds, loaded: true });
     })
     .catch(() => {});
 
   window.electronAPI?.keybindings.onChange((overrides) => {
-    const { bindings, overriddenIds } = resolveBindings(
-      overrides,
-      navigator.platform,
-    );
+    const { bindings, overriddenIds } = resolve(overrides);
     set({ bindings, overriddenIds });
   });
 
@@ -60,19 +65,13 @@ export const useKeybindingsStore = create<KeybindingsState>((set) => {
         bindings: { ...s.bindings, [commandId]: combo },
         overriddenIds: new Set([...s.overriddenIds, commandId]),
       }));
-      window.electronAPI?.keybindings
-        .set(commandId, serializeCombo(combo))
-        ?.catch(
-          handleBridgeUnavailable(
-            "keybindings-set-unavailable",
-            KEYBINDINGS_UNAVAILABLE_MESSAGE,
-          ),
-        );
+      persist(
+        window.electronAPI?.keybindings.set(commandId, serializeCombo(combo)),
+      );
     },
 
     reset: (commandId) => {
-      const platformDefault = resolveBindings({}, navigator.platform)
-        .bindings[commandId];
+      const platformDefault = resolve({}).bindings[commandId];
       set((s) => {
         const overriddenIds = new Set(s.overriddenIds);
         overriddenIds.delete(commandId);
@@ -81,27 +80,13 @@ export const useKeybindingsStore = create<KeybindingsState>((set) => {
           overriddenIds,
         };
       });
-      window.electronAPI?.keybindings
-        .reset(commandId)
-        ?.catch(
-          handleBridgeUnavailable(
-            "keybindings-set-unavailable",
-            KEYBINDINGS_UNAVAILABLE_MESSAGE,
-          ),
-        );
+      persist(window.electronAPI?.keybindings.reset(commandId));
     },
 
     resetAll: () => {
-      const defaults = resolveBindings({}, navigator.platform).bindings;
+      const defaults = resolve({}).bindings;
       set({ bindings: defaults, overriddenIds: new Set<string>() });
-      window.electronAPI?.keybindings
-        .resetAll()
-        ?.catch(
-          handleBridgeUnavailable(
-            "keybindings-set-unavailable",
-            KEYBINDINGS_UNAVAILABLE_MESSAGE,
-          ),
-        );
+      persist(window.electronAPI?.keybindings.resetAll());
     },
   };
 });

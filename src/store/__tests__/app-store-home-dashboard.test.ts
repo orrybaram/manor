@@ -49,8 +49,6 @@ function seedHome() {
     },
     viewports: {},
     claims: {},
-    paneContentType: {},
-    paneUrl: {},
   });
 }
 
@@ -82,7 +80,7 @@ describe("Home holds no tabs (ADR-197 §1)", () => {
       expect(sentCommands).toEqual([]);
       expect(queuedCommands).toEqual([]);
       expect(after.workspaceLayouts).toBe(before.workspaceLayouts);
-      expect(after.paneContentType).toBe(before.paneContentType);
+      expect(after.paneLiveUrl).toBe(before.paneLiveUrl);
     });
   }
 
@@ -134,7 +132,7 @@ describe("a Home layout from the server is never adopted", () => {
     seedLayout(OTHER, makeLayout("other"));
     useAppStore.setState({
       workspaceLayouts: {},
-      serverLayouts: {},
+      mountedWorkspaces: {},
       layoutVersions: {},
       viewports: {},
       claims: {},

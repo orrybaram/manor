@@ -32,9 +32,10 @@ import { isPushable, pushPayloadFor, type PushManager } from "./push";
 import type { RemoteControlServer, RemoteStatusEvent } from "./server";
 import type { TunnelManager } from "./tunnel";
 import {
-  detectTunnelTools,
+  isCancelled,
+  isTailscaleInstalled,
   STOPPED_TUNNEL_STATUS,
-  type TunnelKind,
+  type TailnetInfo,
   type TunnelStatus,
   type WhichFn,
 } from "./tunnel-status";
@@ -45,8 +46,13 @@ export interface RemoteControlStatus {
   port: number | null;
   devices: RemoteDeviceInfo[];
   tunnel: TunnelStatus;
-  /** Which tunnel binaries are on PATH. Manor installs neither. */
-  detected: Record<TunnelKind, boolean>;
+  /** Whether the tailscale CLI was found, on PATH or in the app bundle. */
+  installed: boolean;
+  /**
+   * Who else is on the tailnet, while a tunnel is running — the address opens
+   * only on those devices. Null when not running or Tailscale cannot say.
+   */
+  tailnet: TailnetInfo | null;
   /** False means pairing cannot store a token — see `RemoteDeviceStore`. */
   encryptionAvailable: boolean;
   /** Live SSE connections, so the UI can say whether anyone is watching. */
@@ -88,10 +94,9 @@ export interface RemoteControlRuntime {
 }
 
 export class RemoteControlController {
-  private detected: Record<TunnelKind, boolean> = {
-    tailscale: false,
-    cloudflared: false,
-  };
+  private installed = false;
+  private tailnet: TailnetInfo | null = null;
+  private tailnetTimer: ReturnType<typeof setInterval> | null = null;
   private listeners = new Set<(status: RemoteControlStatus) => void>();
 
   /** Set once the runtime has loaded; everything sync reads this. */
@@ -121,9 +126,40 @@ export class RemoteControlController {
     this.ensureRuntime = lazy(async () => {
       const runtime = await loadRuntime();
       this.runtime = runtime;
-      runtime.tunnel.onStatus(() => this.emit());
+      runtime.tunnel.onStatus((tunnel) => {
+        this.watchTailnet(tunnel.state === "running");
+        this.emit();
+      });
       return runtime;
     });
+  }
+
+  /**
+   * While the tunnel is up, re-ask who is on the tailnet every few seconds, so
+   * the card notices the phone joining without the user doing anything.
+   */
+  private watchTailnet(running: boolean): void {
+    if (!running) {
+      if (this.tailnetTimer) clearInterval(this.tailnetTimer);
+      this.tailnetTimer = null;
+      this.tailnet = null;
+      return;
+    }
+    if (this.tailnetTimer) return;
+    void this.refreshTailnet();
+    this.tailnetTimer = setInterval(() => void this.refreshTailnet(), 10_000);
+    this.tailnetTimer.unref?.();
+  }
+
+  private async refreshTailnet(): Promise<void> {
+    const tunnel = this.runtime?.tunnel;
+    if (!tunnel) return;
+    const next = await tunnel.tailnet();
+    if (JSON.stringify(next) === JSON.stringify(this.tailnet)) return;
+    // The tunnel may have stopped while we were asking.
+    if (!this.tailnetTimer) return;
+    this.tailnet = next;
+    this.emit();
   }
 
   /**
@@ -172,7 +208,8 @@ export class RemoteControlController {
     return {
       ...this.runtimeStatus(),
       devices: this.deviceStore.list(),
-      detected: { ...this.detected },
+      installed: this.installed,
+      tailnet: this.tailnet,
       encryptionAvailable: this.encryptionAvailable(),
     };
   }
@@ -182,7 +219,7 @@ export class RemoteControlController {
    * Does not load the runtime: opening the settings panel must not.
    */
   async refreshDetection(): Promise<RemoteControlStatus> {
-    this.detected = await detectTunnelTools(this.which);
+    this.installed = await isTailscaleInstalled(this.which);
     this.emit();
     return this.status();
   }
@@ -243,20 +280,21 @@ export class RemoteControlController {
   }
 
   /**
-   * Start a tunnel. `kind` comes from the user's confirmation dialog; when
-   * omitted we take the preferred one, which is Tailscale whenever it exists.
+   * Start the tunnel. Tailscale is the only kind there is. Detection is
+   * re-checked here rather than trusting the last `refreshDetection` — the
+   * user may only just have installed it.
    */
-  async startTunnel(kind?: TunnelKind): Promise<RemoteControlStatus> {
+  async startTunnel(): Promise<RemoteControlStatus> {
     const runtime = this.closed ? null : await this.ensureRuntime();
     if (!runtime || this.closed || !runtime.server.running) {
       throw new Error("Enable remote control before starting a tunnel.");
     }
     const { server, tunnel } = runtime;
-    const chosen = kind ?? (await tunnel.preferredKind());
-    if (!chosen) {
+    this.installed = await tunnel.detect();
+    if (!this.installed) {
       throw new Error(
-        "Neither tailscale nor cloudflared is on PATH. Manor does not install " +
-          "either — install one and try again.",
+        "Tailscale is not installed. Install it from Settings → Remote " +
+          "control, sign in, and try again.",
       );
     }
     // Remote control may have been turned off (or the app quit) while PATH
@@ -264,7 +302,12 @@ export class RemoteControlController {
     if (this.closed || !server.running) {
       throw new Error("Enable remote control before starting a tunnel.");
     }
-    await tunnel.start(chosen, server.serverPort);
+    try {
+      await tunnel.start(server.serverPort);
+    } catch (err) {
+      // A `stopTunnel()` while starting (Cancel) is not a failure.
+      if (!isCancelled(err)) throw err;
+    }
     if (this.closed || !server.running) {
       // Torn down while the tunnel came up. It must not survive that.
       await tunnel.stop();
@@ -301,6 +344,7 @@ export class RemoteControlController {
   async shutdown(): Promise<void> {
     this.closed = true;
     this.wantEnabled = false;
+    this.watchTailnet(false);
     const runtime = await this.loadedRuntime();
     if (!runtime) return;
     await runtime.tunnel.stop();

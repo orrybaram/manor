@@ -37,28 +37,18 @@ import { isHomePath } from "../../src/lib/home-path";
 // precedent as app-menu.ts importing src/lib/menu-commands.
 import type { PaneNode } from "../../src/lib/layout/pane-tree";
 import type { PanelNode } from "../../src/lib/layout/panel-tree";
-import type { WorkspaceViewport } from "../../src/lib/layout/viewport";
+import type {
+  PersistedDefaultViewport,
+  PersistedPaneSession,
+} from "../../src/lib/layout/protocol";
+
+export type {
+  PersistedAgentState,
+  PersistedDefaultViewport,
+  PersistedPaneSession,
+} from "../../src/lib/layout/protocol";
 
 export const LAYOUT_FILE = layoutFile();
-
-/**
- * A pane's last Agent status, as the Status reconciler published it (ADR-184
- * §4) — the renderer's `PaneAgentStatus`. Older files hold an earlier shape;
- * a renderer only ever reads `status` and `kind` back out of it.
- */
-export interface PersistedAgentState {
-  status: string;
-  reason?: string;
-  kind: string | null;
-}
-
-/** Persisted pane → daemon session mapping */
-export interface PersistedPaneSession {
-  daemonSessionId: string;
-  lastCwd: string | null;
-  lastTitle: string | null;
-  lastAgentStatus?: PersistedAgentState | null;
-}
 
 /**
  * Persisted tab layout.
@@ -91,7 +81,13 @@ export interface PersistedLayoutV1 {
   workspaces: PersistedWorkspaceV1[];
 }
 
-/** Persisted panel. `selectedTabId` is viewport: migration only. */
+/**
+ * Persisted panel (v2 and v3). `selectedTabId` is viewport: migration only.
+ *
+ * `pinnedTabIds` is required here and on `Panel`: every load path fills it
+ * (`migrateV1toV2`, `withoutTreeFocus`), so nothing downstream of the file
+ * ever sees a panel without one.
+ */
 export interface PersistedPanel {
   id: string;
   tabs: PersistedTab[];
@@ -124,17 +120,7 @@ export interface PersistedLayoutV2 {
 }
 
 /**
- * What one renderer is *looking at* — which panel is active, which tab each
- * panel shows, which pane each tab focuses (ADR-179 D3).
- *
- * The file keeps exactly one of these per workspace: the **default viewport**,
- * handed to a renderer that has none of its own. A renderer's live viewport is
- * persisted per renderer (`viewport.json`, `localStorage`), not here.
- */
-export type PersistedDefaultViewport = WorkspaceViewport;
-
-/**
- * Persisted workspace state.
+ * Persisted workspace state (v3).
  *
  * Structure plus one **default viewport** — and nothing else. The focus
  * fields left the tree in ADR-179 ticket 4; an older file still carries them,

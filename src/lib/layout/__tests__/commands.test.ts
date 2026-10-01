@@ -1,8 +1,8 @@
 /**
  * The layout command reducer (ADR-179 D2). One describe per command type,
- * plus the four properties the whole design rests on: an unknown id is a
- * no-op, a close reports `killPanes`, a move reports `releasedPanes`, and the
- * reducer is deterministic and mints nothing.
+ * plus the properties the whole design rests on: an unknown id is a no-op, a
+ * close reports `killPanes` and a move reports none, a move carries the leaf
+ * whole, and the reducer is deterministic and mints nothing.
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
@@ -112,31 +112,31 @@ describe("new-tab", () => {
   });
 
   it("hints the sender to select the tab it just opened", () => {
-    const { effects } = applyLayoutCommand(stateOf(twoPanels()), {
+    const { hint } = applyLayoutCommand(stateOf(twoPanels()), {
       type: "new-tab",
       tab: leafTab("tab-new", "pane-new"),
       panelId: "panel-2",
     });
 
-    expect(effects.selectTab).toEqual({
+    expect(hint?.selectTab).toEqual({
       panelId: "panel-2",
       tabId: "tab-new",
     });
-    expect(effects.focusPane).toEqual({
+    expect(hint?.focusPane).toEqual({
       tabId: "tab-new",
       paneId: "pane-new",
     });
   });
 
   it("hints nothing for a background tab", () => {
-    const { effects } = applyLayoutCommand(stateOf(onePanel()), {
+    const { hint } = applyLayoutCommand(stateOf(onePanel()), {
       type: "new-tab",
       tab: leafTab("tab-new", "pane-new"),
       panelId: "panel-1",
       select: false,
     });
 
-    expect(effects.selectTab).toBeUndefined();
+    expect(hint?.selectTab).toBeUndefined();
   });
 
   it("falls back to the active panel when none is named", () => {
@@ -155,15 +155,15 @@ describe("close-tab", () => {
       leafTab("tab-1", "pane-1"),
       leafTab("tab-2", "pane-2"),
     ]);
-    const { layout, effects } = applyLayoutCommand(stateOf(start), {
+    const { layout, hint, killPanes } = applyLayoutCommand(stateOf(start), {
       type: "close-tab",
       tabId: "tab-1",
     });
 
     expect(panelOf(layout, "panel-1").tabs.map((t) => t.id)).toEqual(["tab-2"]);
     // Viewport, so it comes back as a hint the sender applies to itself (D3).
-    expect(effects.selectTab).toEqual({ panelId: "panel-1", tabId: "tab-2" });
-    expect(effects.killPanes).toEqual(["pane-1"]);
+    expect(hint?.selectTab).toEqual({ panelId: "panel-1", tabId: "tab-2" });
+    expect(killPanes).toEqual(["pane-1"]);
   });
 
   it("reports every pane of a split tab as killed", () => {
@@ -171,24 +171,23 @@ describe("close-tab", () => {
       splitTab("tab-1", "pane-a", "pane-b"),
       leafTab("tab-2", "pane-2"),
     ]);
-    const { effects } = applyLayoutCommand(stateOf(start), {
+    const { killPanes } = applyLayoutCommand(stateOf(start), {
       type: "close-tab",
       tabId: "tab-1",
     });
 
-    expect(effects.killPanes.sort()).toEqual(["pane-a", "pane-b"]);
-    expect(effects.releasedPanes).toEqual([]);
+    expect(killPanes.sort()).toEqual(["pane-a", "pane-b"]);
   });
 
   it("takes the panel with the last tab while another panel remains", () => {
-    const { layout, effects } = applyLayoutCommand(stateOf(twoPanels()), {
+    const { layout, hint } = applyLayoutCommand(stateOf(twoPanels()), {
       type: "close-tab",
       tabId: "tab-1",
     });
 
     expect(layout.panels["panel-1"]).toBeUndefined();
     expect(allPanelIds(layout.panelTree)).toEqual(["panel-2"]);
-    expect(effects.activatePanel).toBe("panel-2");
+    expect(hint?.activatePanel).toBe("panel-2");
   });
 
   it("keeps the last panel of all, empty", () => {
@@ -200,23 +199,28 @@ describe("close-tab", () => {
     expect(panelOf(layout, "panel-1").tabs).toEqual([]);
   });
 
-  it("pushes an undo entry carrying the tab and the host's metadata", () => {
-    const { closedStack } = applyLayoutCommand(
-      stateOf(onePanel()),
-      { type: "close-tab", tabId: "tab-1" },
-      { "pane-1": { cwd: "/tmp", contentType: "browser" } },
-    );
+  it("pushes an undo entry carrying the whole tab, leaves and all", () => {
+    const browser: Tab = {
+      id: "tab-1",
+      title: "Docs",
+      rootNode: {
+        type: "leaf",
+        paneId: "pane-1",
+        contentType: "browser",
+        url: "https://example.com",
+      },
+    };
+    const { closedStack } = applyLayoutCommand(stateOf(onePanel([browser])), {
+      type: "close-tab",
+      tabId: "tab-1",
+    });
 
     expect(closedStack).toHaveLength(1);
     const entry = closedStack[0];
     expect(entry.kind).toBe("tab");
     if (entry.kind !== "tab") throw new Error("expected a tab entry");
-    expect(entry.tab.id).toBe("tab-1");
+    expect(entry.tab).toEqual(browser);
     expect(entry.panelId).toBe("panel-1");
-    expect(entry.paneMetadata["pane-1"]).toEqual({
-      cwd: "/tmp",
-      contentType: "browser",
-    });
   });
 
   it("records where a removed panel sat, so reopen can rebuild it", () => {
@@ -250,7 +254,7 @@ describe("close-tab", () => {
 describe("duplicate-tab", () => {
   it("adds the caller's clone beside the original and selects it", () => {
     const clone = splitTab("tab-clone", "pane-c1", "pane-c2");
-    const { layout, effects } = applyLayoutCommand(stateOf(onePanel()), {
+    const { layout, hint, killPanes } = applyLayoutCommand(stateOf(onePanel()), {
       type: "duplicate-tab",
       tabId: "tab-1",
       newTab: clone,
@@ -260,11 +264,11 @@ describe("duplicate-tab", () => {
       "tab-1",
       "tab-clone",
     ]);
-    expect(effects.selectTab).toEqual({
+    expect(hint?.selectTab).toEqual({
       panelId: "panel-1",
       tabId: "tab-clone",
     });
-    expect(effects.killPanes).toEqual([]);
+    expect(killPanes).toEqual([]);
   });
 });
 
@@ -275,13 +279,13 @@ describe("close-other-tabs", () => {
       leafTab("tab-2", "pane-2"),
       leafTab("tab-3", "pane-3"),
     ]);
-    const { layout, effects } = applyLayoutCommand(stateOf(start), {
+    const { layout, killPanes } = applyLayoutCommand(stateOf(start), {
       type: "close-other-tabs",
       tabId: "tab-2",
     });
 
     expect(panelOf(layout, "panel-1").tabs.map((t) => t.id)).toEqual(["tab-2"]);
-    expect(effects.killPanes.sort()).toEqual(["pane-1", "pane-3"]);
+    expect(killPanes.sort()).toEqual(["pane-1", "pane-3"]);
   });
 
   it("spares pinned tabs", () => {
@@ -312,7 +316,7 @@ describe("close-tabs-to-right", () => {
       leafTab("tab-2", "pane-2"),
       leafTab("tab-3", "pane-3"),
     ]);
-    const { layout, effects } = applyLayoutCommand(stateOf(start), {
+    const { layout, killPanes } = applyLayoutCommand(stateOf(start), {
       type: "close-tabs-to-right",
       tabId: "tab-2",
     });
@@ -321,7 +325,7 @@ describe("close-tabs-to-right", () => {
       "tab-1",
       "tab-2",
     ]);
-    expect(effects.killPanes).toEqual(["pane-3"]);
+    expect(killPanes).toEqual(["pane-3"]);
   });
 });
 
@@ -393,12 +397,13 @@ describe("toggle-pin-tab", () => {
 // Panes
 // ---------------------------------------------------------------------------
 
-describe("split-pane", () => {
+describe("split-pane-at", () => {
   it("splits the named pane and focuses the new one", () => {
-    const { layout, effects } = applyLayoutCommand(stateOf(onePanel()), {
-      type: "split-pane",
+    const { layout, hint } = applyLayoutCommand(stateOf(onePanel()), {
+      type: "split-pane-at",
       paneId: "pane-1",
       direction: "horizontal",
+      position: "second",
       newPaneId: "pane-new",
     });
 
@@ -410,7 +415,7 @@ describe("split-pane", () => {
       first: { type: "leaf", paneId: "pane-1" },
       second: { type: "leaf", paneId: "pane-new" },
     });
-    expect(effects.focusPane).toEqual({
+    expect(hint?.focusPane).toEqual({
       tabId: "tab-1",
       paneId: "pane-new",
     });
@@ -418,9 +423,10 @@ describe("split-pane", () => {
 
   it("reaches a pane in a non-active panel", () => {
     const { layout } = applyLayoutCommand(stateOf(twoPanels()), {
-      type: "split-pane",
+      type: "split-pane-at",
       paneId: "pane-2",
       direction: "vertical",
+      position: "second",
       newPaneId: "pane-new",
     });
 
@@ -429,9 +435,7 @@ describe("split-pane", () => {
       "pane-new",
     ]);
   });
-});
 
-describe("split-pane-at", () => {
   it("honours the drop position", () => {
     const { layout } = applyLayoutCommand(stateOf(onePanel()), {
       type: "split-pane-at",
@@ -472,7 +476,7 @@ describe("split-pane-at", () => {
 describe("move-pane", () => {
   it("reshuffles two panes inside one tab", () => {
     const start = onePanel([splitTab("tab-1", "pane-a", "pane-b")]);
-    const { layout, effects } = applyLayoutCommand(stateOf(start), {
+    const { layout, killPanes } = applyLayoutCommand(stateOf(start), {
       type: "move-pane",
       sourcePaneId: "pane-a",
       targetPaneId: "pane-b",
@@ -484,8 +488,7 @@ describe("move-pane", () => {
       "pane-b",
       "pane-a",
     ]);
-    expect(effects.releasedPanes).toEqual(["pane-a"]);
-    expect(effects.killPanes).toEqual([]);
+    expect(killPanes).toEqual([]);
   });
 
   it("moves a pane into another panel's tab and leaves the pane alive", () => {
@@ -493,7 +496,7 @@ describe("move-pane", () => {
       [splitTab("tab-1", "pane-a", "pane-b")],
       [leafTab("tab-2", "pane-2")],
     );
-    const { layout, effects } = applyLayoutCommand(stateOf(start), {
+    const { layout, hint, killPanes } = applyLayoutCommand(stateOf(start), {
       type: "move-pane",
       sourcePaneId: "pane-a",
       targetPaneId: "pane-2",
@@ -508,12 +511,11 @@ describe("move-pane", () => {
     expect(allPaneIds(tabOf(layout, "panel-1", "tab-1").rootNode)).toEqual([
       "pane-b",
     ]);
-    expect(effects.releasedPanes).toEqual(["pane-a"]);
-    expect(effects.killPanes).toEqual([]);
-    expect(effects.activatePanel).toBe("panel-2");
+    expect(killPanes).toEqual([]);
+    expect(hint?.activatePanel).toBe("panel-2");
   });
 
-  it("seeds an emptied last panel with the sender's fallback tab", () => {
+  it("drops a tab its last pane left, within one panel", () => {
     const start = onePanel([
       leafTab("tab-1", "pane-1"),
       leafTab("tab-2", "pane-2"),
@@ -535,13 +537,73 @@ describe("move-pane", () => {
   });
 });
 
+describe("moving a browser pane", () => {
+  const web = {
+    type: "leaf" as const,
+    paneId: "pane-web",
+    contentType: "browser" as const,
+    url: "http://localhost:3000",
+  };
+
+  it("keeps its url across tabs", () => {
+    const start = onePanel([
+      {
+        id: "tab-1",
+        title: "Terminal",
+        rootNode: {
+          type: "split",
+          direction: "horizontal",
+          ratio: 0.5,
+          first: { type: "leaf", paneId: "pane-a" },
+          second: web,
+        },
+      },
+      leafTab("tab-2", "pane-2"),
+    ]);
+    const { layout } = applyLayoutCommand(stateOf(start), {
+      type: "move-pane",
+      sourcePaneId: "pane-web",
+      targetPaneId: "pane-2",
+      direction: "horizontal",
+      position: "second",
+    });
+
+    const root = tabOf(layout, "panel-1", "tab-2").rootNode;
+    if (root.type !== "split") throw new Error("expected a split");
+    expect(root.second).toEqual(web);
+  });
+
+  it("keeps its url when extracted to a tab", () => {
+    const start = onePanel([
+      {
+        id: "tab-1",
+        title: "Terminal",
+        rootNode: {
+          type: "split",
+          direction: "horizontal",
+          ratio: 0.5,
+          first: { type: "leaf", paneId: "pane-a" },
+          second: web,
+        },
+      },
+    ]);
+    const { layout } = applyLayoutCommand(stateOf(start), {
+      type: "extract-pane-to-tab",
+      paneId: "pane-web",
+      newTabId: "tab-new",
+    });
+
+    expect(tabOf(layout, "panel-1", "tab-new").rootNode).toEqual(web);
+  });
+});
+
 describe("move-tab-to-pane", () => {
   it("grafts a one-pane tab into the target tree and drops the tab", () => {
     const start = onePanel([
       leafTab("tab-1", "pane-1"),
       leafTab("tab-2", "pane-2"),
     ]);
-    const { layout, effects } = applyLayoutCommand(stateOf(start), {
+    const { layout, killPanes } = applyLayoutCommand(stateOf(start), {
       type: "move-tab-to-pane",
       tabId: "tab-1",
       targetPaneId: "pane-2",
@@ -554,8 +616,7 @@ describe("move-tab-to-pane", () => {
       "pane-1",
       "pane-2",
     ]);
-    expect(effects.releasedPanes).toEqual(["pane-1"]);
-    expect(effects.killPanes).toEqual([]);
+    expect(killPanes).toEqual([]);
   });
 
   it("grafts a multi-pane tab as a whole subtree", () => {
@@ -582,7 +643,7 @@ describe("move-tab-to-pane", () => {
 describe("extract-pane-to-tab", () => {
   it("pulls a pane out of its split into a tab of its own", () => {
     const start = onePanel([splitTab("tab-1", "pane-a", "pane-b")]);
-    const { layout, effects } = applyLayoutCommand(stateOf(start), {
+    const { layout, hint, killPanes } = applyLayoutCommand(stateOf(start), {
       type: "extract-pane-to-tab",
       paneId: "pane-b",
       newTabId: "tab-new",
@@ -592,15 +653,26 @@ describe("extract-pane-to-tab", () => {
       "tab-1",
       "tab-new",
     ]);
-    expect(effects.selectTab).toEqual({
+    expect(hint?.selectTab).toEqual({
       panelId: "panel-1",
       tabId: "tab-new",
     });
     expect(allPaneIds(tabOf(layout, "panel-1", "tab-1").rootNode)).toEqual([
       "pane-a",
     ]);
-    expect(effects.releasedPanes).toEqual(["pane-b"]);
-    expect(effects.killPanes).toEqual([]);
+    expect(killPanes).toEqual([]);
+  });
+
+  it("changes nothing for a pane that is already its tab, but says which tab", () => {
+    const state = stateOf(onePanel());
+    const next = applyLayoutCommand(state, {
+      type: "extract-pane-to-tab",
+      paneId: "pane-1",
+      newTabId: "tab-new",
+    });
+
+    expect(next.layout).toBe(state.layout);
+    expect(next.hint?.selectTab).toEqual({ panelId: "panel-1", tabId: "tab-1" });
   });
 
   it("moves a whole one-pane tab across panels", () => {
@@ -628,7 +700,7 @@ describe("extract-pane-to-tab", () => {
 describe("close-pane", () => {
   it("collapses the split and reports the pane as killed", () => {
     const start = onePanel([splitTab("tab-1", "pane-a", "pane-b")]);
-    const { layout, closedStack, effects } = applyLayoutCommand(
+    const { layout, closedStack, killPanes } = applyLayoutCommand(
       stateOf(start),
       { type: "close-pane", paneId: "pane-a" },
     );
@@ -637,25 +709,13 @@ describe("close-pane", () => {
       type: "leaf",
       paneId: "pane-b",
     });
-    expect(effects.killPanes).toEqual(["pane-a"]);
-    expect(effects.releasedPanes).toEqual([]);
-    expect(closedStack[0]).toMatchObject({
+    expect(killPanes).toEqual(["pane-a"]);
+    expect(closedStack[0]).toEqual({
       kind: "pane",
-      paneId: "pane-a",
+      leaf: { type: "leaf", paneId: "pane-a" },
       tabId: "tab-1",
       panelId: "panel-1",
     });
-  });
-
-  it("carries the host's metadata into the undo entry", () => {
-    const start = onePanel([splitTab("tab-1", "pane-a", "pane-b")]);
-    const { closedStack } = applyLayoutCommand(
-      stateOf(start),
-      { type: "close-pane", paneId: "pane-a" },
-      { "pane-a": { cwd: "/repo", title: "vim" } },
-    );
-
-    expect(closedStack[0]).toMatchObject({ cwd: "/repo", title: "vim" });
   });
 
   it("closes the whole tab when it was the last pane", () => {
@@ -741,7 +801,7 @@ describe("reopen-closed-pane", () => {
 
     const tab = tabOf(reopened.layout, "panel-1", "tab-1");
     expect(allPaneIds(tab.rootNode)).toEqual(["pane-a", "pane-b"]);
-    expect(reopened.effects.focusPane).toEqual({
+    expect(reopened.hint?.focusPane).toEqual({
       tabId: "tab-1",
       paneId: "pane-b",
     });
@@ -749,15 +809,21 @@ describe("reopen-closed-pane", () => {
 
   it("gives a closed pane a new tab when its own tab is gone", () => {
     const start = stateOf(onePanel([splitTab("tab-1", "pane-a", "pane-b")]));
-    const closed = applyLayoutCommand(
-      start,
-      { type: "close-pane", paneId: "pane-b" },
-      { "pane-b": { title: "logs" } },
-    );
-    const withoutTab = applyLayoutCommand(closed, {
-      type: "new-tab",
-      tab: leafTab("tab-2", "pane-2"),
+    const closed = applyLayoutCommand(start, {
+      type: "close-pane",
+      paneId: "pane-b",
     });
+    const withoutTab = applyLayoutCommand(
+      // The title is the host's to record; `LayoutStore` fills it in.
+      {
+        ...closed,
+        closedStack: closed.closedStack.map((e) => ({ ...e, title: "logs" })),
+      },
+      {
+      type: "new-tab",
+        tab: leafTab("tab-2", "pane-2"),
+      },
+    );
     // Drop the original tab without touching the stack.
     const orphaned: LayoutState = {
       layout: {
@@ -783,17 +849,62 @@ describe("reopen-closed-pane", () => {
   });
 });
 
-describe("set-pane-title", () => {
-  it("is structurally inert until paneSessions move into the layout", () => {
-    const state = stateOf(onePanel());
-    const next = applyLayoutCommand(state, {
-      type: "set-pane-title",
-      paneId: "pane-1",
-      title: "vim",
+describe("reopen-closed-pane, browser panes", () => {
+  it("brings a closed browser pane back with its url and content type", () => {
+    const start = stateOf(
+      onePanel([
+        {
+          id: "tab-1",
+          title: "Terminal",
+          rootNode: {
+            type: "split",
+            direction: "horizontal",
+            ratio: 0.5,
+            first: { type: "leaf", paneId: "pane-a" },
+            second: {
+              type: "leaf",
+              paneId: "pane-web",
+              contentType: "browser",
+              url: "http://localhost:3000",
+            },
+          },
+        },
+      ]),
+    );
+    const closed = applyLayoutCommand(start, {
+      type: "close-pane",
+      paneId: "pane-web",
+    });
+    const reopened = applyLayoutCommand(closed, {
+      type: "reopen-closed-pane",
+      newTabId: "tab-new",
     });
 
-    expect(next.layout).toBe(state.layout);
-    expect(next.effects).toEqual({ killPanes: [], releasedPanes: [] });
+    expect(tabOf(reopened.layout, "panel-1", "tab-1").rootNode).toEqual(
+      start.layout.panels["panel-1"].tabs[0].rootNode,
+    );
+  });
+
+  it("keeps the url when the pane comes back in a tab of its own", () => {
+    const leaf = {
+      type: "leaf" as const,
+      paneId: "pane-web",
+      contentType: "browser" as const,
+      url: "http://localhost:3000",
+    };
+    const orphaned: LayoutState = {
+      layout: onePanel([leafTab("tab-2", "pane-2")]),
+      closedStack: [
+        { kind: "pane", leaf, tabId: "tab-gone", panelId: "panel-1" },
+      ],
+    };
+
+    const reopened = applyLayoutCommand(orphaned, {
+      type: "reopen-closed-pane",
+      newTabId: "tab-new",
+    });
+
+    expect(tabOf(reopened.layout, "panel-1", "tab-new").rootNode).toEqual(leaf);
   });
 });
 
@@ -877,7 +988,7 @@ describe("split-panel", () => {
       leafTab("tab-1", "pane-1"),
       leafTab("tab-2", "pane-2"),
     ]);
-    const { layout, effects } = applyLayoutCommand(stateOf(start), {
+    const { layout, hint } = applyLayoutCommand(stateOf(start), {
       type: "split-panel",
       panelId: "panel-1",
       direction: "horizontal",
@@ -890,22 +1001,36 @@ describe("split-panel", () => {
     expect(panelOf(layout, "panel-new").tabs.map((t) => t.id)).toEqual([
       "tab-1",
     ]);
-    expect(effects.activatePanel).toBe("panel-new");
+    expect(hint?.activatePanel).toBe("panel-new");
   });
 
-  it("leaves the emptied source panel with the sender's fallback tab", () => {
-    const { layout } = applyLayoutCommand(stateOf(onePanel()), {
+  it("will not split off a panel's only tab", () => {
+    const state = stateOf(onePanel());
+    const next = applyLayoutCommand(state, {
       type: "split-panel",
       panelId: "panel-1",
       direction: "horizontal",
       newPanelId: "panel-new",
       tabId: "tab-1",
-      fallbackTab: leafTab("tab-fresh", "pane-fresh"),
     });
 
-    expect(panelOf(layout, "panel-1").tabs.map((t) => t.id)).toEqual([
-      "tab-fresh",
-    ]);
+    expect(next.layout).toBe(state.layout);
+  });
+
+  it("unpins the tab it moves out", () => {
+    const start = onePanel(
+      [leafTab("tab-1", "pane-1"), leafTab("tab-2", "pane-2")],
+      ["tab-1"],
+    );
+    const { layout } = applyLayoutCommand(stateOf(start), {
+      type: "split-panel",
+      panelId: "panel-1",
+      direction: "horizontal",
+      newPanelId: "panel-new",
+      tabId: "tab-1",
+    });
+
+    expect(panelOf(layout, "panel-1").pinnedTabIds).toEqual([]);
   });
 });
 
@@ -915,34 +1040,33 @@ describe("close-panel", () => {
       [leafTab("tab-1", "pane-1")],
       [splitTab("tab-2", "pane-a", "pane-b")],
     );
-    const { layout, effects } = applyLayoutCommand(stateOf(start), {
+    const { layout, killPanes } = applyLayoutCommand(stateOf(start), {
       type: "close-panel",
       panelId: "panel-2",
     });
 
     expect(layout.panels["panel-2"]).toBeUndefined();
-    expect(effects.killPanes.sort()).toEqual(["pane-a", "pane-b"]);
+    expect(killPanes.sort()).toEqual(["pane-a", "pane-b"]);
   });
 
   it("moves focus off a closed active panel", () => {
-    const { effects } = applyLayoutCommand(stateOf(twoPanels()), {
+    const { hint } = applyLayoutCommand(stateOf(twoPanels()), {
       type: "close-panel",
       panelId: "panel-1",
     });
 
-    expect(effects.activatePanel).toBe("panel-2");
+    expect(hint?.activatePanel).toBe("panel-2");
   });
 
-  it("leaves an empty panel behind when it was the last one", () => {
-    const { layout, effects } = applyLayoutCommand(stateOf(onePanel()), {
+  it("leaves the last panel behind, empty, when it was the last one", () => {
+    const { layout, killPanes } = applyLayoutCommand(stateOf(onePanel()), {
       type: "close-panel",
       panelId: "panel-1",
-      fallbackPanelId: "panel-fresh",
     });
 
-    expect(allPanelIds(layout.panelTree)).toEqual(["panel-fresh"]);
-    expect(panelOf(layout, "panel-fresh").tabs).toEqual([]);
-    expect(effects.killPanes).toEqual(["pane-1"]);
+    expect(allPanelIds(layout.panelTree)).toEqual(["panel-1"]);
+    expect(panelOf(layout, "panel-1").tabs).toEqual([]);
+    expect(killPanes).toEqual(["pane-1"]);
   });
 });
 
@@ -964,7 +1088,7 @@ describe("move-tab-to-panel", () => {
       [leafTab("tab-1", "pane-1"), leafTab("tab-extra", "pane-extra")],
       [leafTab("tab-2", "pane-2")],
     );
-    const { layout, effects } = applyLayoutCommand(stateOf(start), {
+    const { layout, hint, killPanes } = applyLayoutCommand(stateOf(start), {
       type: "move-tab-to-panel",
       tabId: "tab-1",
       targetPanelId: "panel-2",
@@ -977,9 +1101,8 @@ describe("move-tab-to-panel", () => {
       "tab-2",
       "tab-1",
     ]);
-    expect(effects.activatePanel).toBe("panel-2");
-    expect(effects.killPanes).toEqual([]);
-    expect(effects.releasedPanes).toEqual(["pane-1"]);
+    expect(hint?.activatePanel).toBe("panel-2");
+    expect(killPanes).toEqual([]);
   });
 
   it("collapses a source panel it empties", () => {
@@ -1000,7 +1123,7 @@ describe("split-panel-with-tab", () => {
       [leafTab("tab-1", "pane-1"), leafTab("tab-extra", "pane-extra")],
       [leafTab("tab-2", "pane-2")],
     );
-    const { layout, effects } = applyLayoutCommand(stateOf(start), {
+    const { layout, hint } = applyLayoutCommand(stateOf(start), {
       type: "split-panel-with-tab",
       tabId: "tab-1",
       targetPanelId: "panel-2",
@@ -1014,8 +1137,37 @@ describe("split-panel-with-tab", () => {
     expect(panelOf(layout, "panel-1").tabs.map((t) => t.id)).toEqual([
       "tab-extra",
     ]);
-    expect(effects.activatePanel).toBe("panel-new");
-    expect(effects.releasedPanes).toEqual(["pane-1"]);
+    expect(hint?.activatePanel).toBe("panel-new");
+  });
+
+  it("collapses a source panel it empties", () => {
+    const start = twoPanels(
+      [leafTab("tab-1", "pane-1")],
+      [leafTab("tab-2", "pane-2")],
+    );
+    const { layout } = applyLayoutCommand(stateOf(start), {
+      type: "split-panel-with-tab",
+      tabId: "tab-1",
+      targetPanelId: "panel-2",
+      direction: "horizontal",
+      newPanelId: "panel-new",
+    });
+
+    expect(layout.panels["panel-1"]).toBeUndefined();
+    expect(allPanelIds(layout.panelTree)).toEqual(["panel-2", "panel-new"]);
+  });
+
+  it("dropping a panel's only tab on its own panel is a no-op", () => {
+    const state = stateOf(onePanel());
+    const next = applyLayoutCommand(state, {
+      type: "split-panel-with-tab",
+      tabId: "tab-1",
+      targetPanelId: "panel-1",
+      direction: "horizontal",
+      newPanelId: "panel-new",
+    });
+
+    expect(next.layout).toBe(state.layout);
   });
 });
 
@@ -1025,7 +1177,7 @@ describe("merge-tab-into-tab", () => {
       leafTab("tab-1", "pane-1"),
       splitTab("tab-2", "pane-2", "pane-3"),
     ]);
-    const { layout, effects } = applyLayoutCommand(stateOf(start), {
+    const { layout, hint, killPanes } = applyLayoutCommand(stateOf(start), {
       type: "merge-tab-into-tab",
       sourceTabId: "tab-2",
       targetTabId: "tab-1",
@@ -1033,13 +1185,12 @@ describe("merge-tab-into-tab", () => {
 
     const panelAfter = panelOf(layout, "panel-1");
     expect(panelAfter.tabs.map((t) => t.id)).toEqual(["tab-1"]);
-    expect(effects.selectTab).toEqual({ panelId: "panel-1", tabId: "tab-1" });
+    expect(hint?.selectTab).toEqual({ panelId: "panel-1", tabId: "tab-1" });
     const merged = tabOf(layout, "panel-1", "tab-1");
     expect(allPaneIds(merged.rootNode)).toEqual(["pane-1", "pane-2", "pane-3"]);
-    expect(effects.focusPane).toEqual({ tabId: "tab-1", paneId: "pane-2" });
+    expect(hint?.focusPane).toEqual({ tabId: "tab-1", paneId: "pane-2" });
     // The panes moved; none of them died.
-    expect(effects.killPanes).toEqual([]);
-    expect(effects.releasedPanes).toEqual(["pane-2", "pane-3"]);
+    expect(killPanes).toEqual([]);
   });
 
   it("puts the source first when asked", () => {
@@ -1073,15 +1224,12 @@ describe("merge-tab-into-tab", () => {
     ]);
   });
 
-  it("seeds the source panel with the fallback tab when it was the last one", () => {
+  it("leaves the target's panel holding only the target, same panel", () => {
     const start = onePanel([leafTab("tab-1", "pane-1"), leafTab("tab-2", "pane-2")]);
-    // Both tabs live in the one panel, so emptying cannot happen here; the
-    // fallback matters when the source panel is the last *and* is emptied.
     const { layout } = applyLayoutCommand(stateOf(start), {
       type: "merge-tab-into-tab",
       sourceTabId: "tab-2",
       targetTabId: "tab-1",
-      fallbackTab: leafTab("tab-fresh", "pane-fresh"),
     });
 
     expect(panelOf(layout, "panel-1").tabs.map((t) => t.id)).toEqual(["tab-1"]);
@@ -1116,7 +1264,7 @@ describe("merge-tab-into-tab", () => {
 describe("split-panel-with-new-tab", () => {
   it("opens a new panel beside the source without moving its tabs", () => {
     const start = onePanel([leafTab("tab-1", "pane-1"), leafTab("tab-2", "pane-2")]);
-    const { layout, effects } = applyLayoutCommand(stateOf(start), {
+    const { layout, hint, killPanes } = applyLayoutCommand(stateOf(start), {
       type: "split-panel-with-new-tab",
       tab: leafTab("tab-diff", "pane-diff", "Diff"),
       direction: "horizontal",
@@ -1133,10 +1281,9 @@ describe("split-panel-with-new-tab", () => {
       "tab-diff",
     ]);
     expect(allPanelIds(layout.panelTree)).toEqual(["panel-1", "panel-new"]);
-    expect(effects.killPanes).toEqual([]);
-    expect(effects.releasedPanes).toEqual([]);
-    expect(effects.activatePanel).toBe("panel-new");
-    expect(effects.selectTab).toEqual({
+    expect(killPanes).toEqual([]);
+    expect(hint?.activatePanel).toBe("panel-new");
+    expect(hint?.selectTab).toEqual({
       panelId: "panel-new",
       tabId: "tab-diff",
     });
@@ -1156,12 +1303,6 @@ describe("an id that is not in the tree", () => {
     { type: "close-tabs-to-right", tabId: "tab-nope" },
     { type: "reorder-tabs", panelId: "panel-nope", tabIds: [] },
     { type: "toggle-pin-tab", tabId: "tab-nope" },
-    {
-      type: "split-pane",
-      paneId: "pane-nope",
-      direction: "horizontal",
-      newPaneId: "pane-new",
-    },
     {
       type: "split-pane-at",
       paneId: "pane-nope",
@@ -1221,7 +1362,8 @@ describe("an id that is not in the tree", () => {
 
       expect(next.layout).toBe(state.layout);
       expect(next.closedStack).toBe(state.closedStack);
-      expect(next.effects).toEqual({ killPanes: [], releasedPanes: [] });
+      expect(next.killPanes).toEqual([]);
+      expect(next.hint).toBeUndefined();
     },
   );
 });
@@ -1234,9 +1376,10 @@ describe("purity", () => {
     const commands: LayoutCommand[] = [
       { type: "new-tab", tab: leafTab("tab-new", "pane-new") },
       {
-        type: "split-pane",
+        type: "split-pane-at",
         paneId: "pane-new",
         direction: "horizontal",
+        position: "second",
         newPaneId: "pane-split",
       },
       { type: "extract-pane-to-tab", paneId: "pane-split", newTabId: "tab-x" },

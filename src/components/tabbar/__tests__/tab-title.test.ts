@@ -22,8 +22,6 @@ describe("TabTitle", () => {
     useAppStore.setState({
       paneTitle: { [PANE]: "⠂ Fix the build" },
       paneCwd: {},
-      paneContentType: {},
-      paneUrl: {},
     });
     useAgentStore.setState({ agents: [] });
     root = createTestRoot();

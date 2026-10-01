@@ -46,7 +46,6 @@ function setup(l: WorkspaceLayout) {
     layoutVersions: {},
     viewports: {},
     claims: {},
-    paneContentType: {},
   });
   useRemotePaneStore.setState({ panes: {} });
   useRemotePaneStore.getState().setPaneHost("pane-1", "box");

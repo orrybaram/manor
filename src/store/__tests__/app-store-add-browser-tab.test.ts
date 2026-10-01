@@ -3,6 +3,8 @@ import {
   useAppStore,
   selectActivePanelId,
   selectFocusedPaneId,
+  selectPaneContentType,
+  selectPaneUrl,
   selectSelectedTabId,
 } from "../app-store";
 import { emptyViewport, reconcileViewport } from "../../lib/layout/viewport";
@@ -10,6 +12,8 @@ import type { Panel, WorkspaceLayout } from "../app-store";
 import {
   resetFakeLayoutServer,
   seedLayout,
+  sentCommands,
+  settled,
 } from "./fake-layout-server";
 
 // window is provided by the setup file (src/store/__tests__/setup.ts)
@@ -51,12 +55,11 @@ function setupStore(layout?: WorkspaceLayout) {
     workspaceLayouts: { [WS_PATH]: start },
     viewports: { [WS_PATH]: reconcileViewport(start, emptyViewport()) },
     layoutVersions: {},
-    serverLayouts: {},
+    mountedWorkspaces: {},
     paneCwd: {},
     paneTitle: {},
     paneAgentStatus: {},
-    paneContentType: {},
-    paneUrl: {},
+    paneLiveUrl: {},
     panePickedElement: {},
     pendingCloseConfirmPaneId: null,
     pendingCloseConfirmTabId: null,
@@ -82,12 +85,13 @@ function selectedTabId(): string | null {
 describe("addBrowserTab", () => {
   beforeEach(() => setupStore());
 
-  it("creates a new browser tab in the active panel (foreground by default)", () => {
+  it("creates a new browser tab in the active panel (foreground by default)", async () => {
     const panelBefore = getActivePanel();
     const originalSelectedTabId = selectedTabId();
     expect(panelBefore.tabs).toHaveLength(1);
 
     useAppStore.getState().addBrowserTab("https://example.com");
+    await settled();
 
     const panel = getActivePanel();
     expect(panel.tabs).toHaveLength(2);
@@ -99,12 +103,13 @@ describe("addBrowserTab", () => {
     expect(selectedTabId()).not.toBe(originalSelectedTabId);
   });
 
-  it("creates a browser tab WITHOUT changing selection when background: true", () => {
+  it("creates a browser tab WITHOUT changing selection when background: true", async () => {
     const panelBefore = getActivePanel();
     const originalSelectedTabId = selectedTabId();
     expect(panelBefore.tabs).toHaveLength(1);
 
     useAppStore.getState().addBrowserTab("https://example.com", { background: true });
+    await settled();
 
     const panel = getActivePanel();
     expect(panel.tabs).toHaveLength(2);
@@ -117,12 +122,13 @@ describe("addBrowserTab", () => {
     expect(newTab.id).not.toBe(originalSelectedTabId);
   });
 
-  it("creates a browser tab AND selects it when background: false (explicit)", () => {
+  it("creates a browser tab AND selects it when background: false (explicit)", async () => {
     const panelBefore = getActivePanel();
     const originalSelectedTabId = selectedTabId();
     expect(panelBefore.tabs).toHaveLength(1);
 
     useAppStore.getState().addBrowserTab("https://example.com", { background: false });
+    await settled();
 
     const panel = getActivePanel();
     expect(panel.tabs).toHaveLength(2);
@@ -133,47 +139,54 @@ describe("addBrowserTab", () => {
     expect(selectedTabId()).not.toBe(originalSelectedTabId);
   });
 
-  it("sets paneContentType to 'browser' for the new pane", () => {
+  it("makes the new pane a browser, on its leaf", async () => {
     useAppStore.getState().addBrowserTab("https://example.com");
+    await settled();
 
     const panel = getActivePanel();
     const newTab = panel.tabs[1];
     if (newTab.rootNode.type !== "leaf") throw new Error("Expected leaf");
     const paneId = newTab.rootNode.paneId;
 
-    expect(useAppStore.getState().paneContentType[paneId]).toBe("browser");
+    expect(selectPaneContentType(useAppStore.getState(), paneId)).toBe("browser");
   });
 
-  it("sets paneUrl for the new pane", () => {
+  it("gives the new pane its url, on its leaf", async () => {
     useAppStore.getState().addBrowserTab("https://example.com/path");
+    await settled();
 
     const panel = getActivePanel();
     const newTab = panel.tabs[1];
     if (newTab.rootNode.type !== "leaf") throw new Error("Expected leaf");
     const paneId = newTab.rootNode.paneId;
 
-    expect(useAppStore.getState().paneUrl[paneId]).toBe("https://example.com/path");
+    expect(selectPaneUrl(useAppStore.getState(), paneId)).toBe(
+      "https://example.com/path",
+    );
   });
 
-  it("uses the URL host as the tab title", () => {
+  it("uses the URL host as the tab title", async () => {
     useAppStore.getState().addBrowserTab("https://example.com/some/path");
+    await settled();
 
     const panel = getActivePanel();
     const newTab = panel.tabs[1];
     expect(newTab.title).toBe("example.com");
   });
 
-  it("falls back to the full URL as title when URL is not parseable", () => {
+  it("falls back to the full URL as title when URL is not parseable", async () => {
     const invalidUrl = "not-a-url";
     useAppStore.getState().addBrowserTab(invalidUrl);
+    await settled();
 
     const panel = getActivePanel();
     const newTab = panel.tabs[1];
     expect(newTab.title).toBe(invalidUrl);
   });
 
-  it("returns the tabId and paneId it minted", () => {
+  it("returns the tabId and paneId it minted", async () => {
     const created = useAppStore.getState().addBrowserTab("https://example.com");
+    await settled();
 
     expect(created).not.toBeNull();
     const { tabId, paneId } = created!;
@@ -184,27 +197,31 @@ describe("addBrowserTab", () => {
     expect(newTab.id).toBe(tabId);
     expect(newTab.rootNode.paneId).toBe(paneId);
     expect(selectFocusedPaneId(useAppStore.getState(), newTab.id)).toBe(paneId);
-    expect(useAppStore.getState().paneContentType[paneId]).toBe("browser");
-    expect(useAppStore.getState().paneUrl[paneId]).toBe("https://example.com");
+    expect(selectPaneContentType(useAppStore.getState(), paneId)).toBe("browser");
+    expect(selectPaneUrl(useAppStore.getState(), paneId)).toBe(
+      "https://example.com",
+    );
   });
 
-  it("returns null and creates nothing when there is no active panel", () => {
+  it("returns null and creates nothing when there is no active panel", async () => {
     useAppStore.setState({ activeWorkspacePath: null });
 
     expect(useAppStore.getState().addBrowserTab("https://example.com")).toBeNull();
-    expect(useAppStore.getState().paneUrl).toEqual({});
-    expect(useAppStore.getState().paneContentType).toEqual({});
+    await settled();
+    expect(sentCommands).toEqual([]);
   });
 
-  it("background: true does not change selection even when multiple tabs exist", () => {
+  it("background: true does not change selection even when multiple tabs exist", async () => {
     // Add a foreground tab first so we start with 2 tabs
     useAppStore.getState().addBrowserTab("https://first.com");
+    await settled();
     const panelMid = getActivePanel();
     const selectedAfterFirst = selectedTabId();
     expect(panelMid.tabs).toHaveLength(2);
 
     // Now add a background tab — selection must remain on the second tab
     useAppStore.getState().addBrowserTab("https://second.com", { background: true });
+    await settled();
 
     const panel = getActivePanel();
     expect(panel.tabs).toHaveLength(3);

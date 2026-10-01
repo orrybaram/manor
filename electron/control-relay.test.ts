@@ -22,7 +22,7 @@ import {
   isRemoteAllowed,
 } from "./control-relay";
 import { routes } from "./routes";
-import type { ControlDeps } from "./routes/types";
+import type { RouteDeps } from "./routes/types";
 import type { ProjectInfo } from "./persistence";
 
 /** A concrete path for a route pattern, every `:param` filled in. */
@@ -38,7 +38,7 @@ function project(id: string, hostId: string): ProjectInfo {
   } as unknown as ProjectInfo;
 }
 
-function deps(): ControlDeps {
+function deps(): RouteDeps {
   return {
     projectManager: {
       getProjects: async () => [project("local-p", "local"), project("box-p", "box")],
@@ -47,7 +47,7 @@ function deps(): ControlDeps {
     layoutPersistence: null,
     githubManager: null,
     linearManager: null,
-  } as unknown as ControlDeps;
+  } as unknown as RouteDeps;
 }
 
 describe("isRemoteAllowed", () => {
@@ -116,7 +116,7 @@ describe("handleRelayedControlRequest", () => {
   it("refuses a route off the allowlist with 403, without dispatching", async () => {
     const getProjects = vi.fn();
     const result = await handleRelayedControlRequest(
-      { ...deps(), projectManager: { getProjects } } as unknown as ControlDeps,
+      { ...deps(), projectManager: { getProjects } } as unknown as RouteDeps,
       "box",
       { method: "DELETE", path: "/projects/p1?x=1", body: undefined },
     );
@@ -139,7 +139,7 @@ describe("handleRelayedControlRequest", () => {
 
   it("answers 404 for an allowed path no route handled", async () => {
     const result = await handleRelayedControlRequest(
-      { ...deps(), projectManager: { getProjects: async () => [] } } as unknown as ControlDeps,
+      { ...deps(), projectManager: { getProjects: async () => [] } } as unknown as RouteDeps,
       "box",
       { method: "GET", path: "/projects/missing", body: undefined },
     );
@@ -155,7 +155,7 @@ describe("handleRelayedControlRequest", () => {
             throw new Error("disk on fire");
           },
         },
-      } as unknown as ControlDeps,
+      } as unknown as RouteDeps,
       "box",
       { method: "GET", path: "/context?cwd=/repo", body: undefined },
     );
@@ -194,7 +194,7 @@ describe("handleRelayedControlRequest", () => {
             { ...project("local-p", "local"), workspaces: [{ path: "/laptop/ws" }] },
           ],
         },
-      } as unknown as ControlDeps,
+      } as unknown as RouteDeps,
       "box",
       { method: "POST", path: "/agents", body: { workspacePath: "/laptop/ws" } },
     );
@@ -222,7 +222,7 @@ describe("handleRelayedControlRequest", () => {
         agentManager: {
           getActiveAgents: () => [agent("a-local", "local-p"), agent("a-box", "box-p")],
         },
-      } as unknown as ControlDeps,
+      } as unknown as RouteDeps,
       "box",
       { method: "GET", path: "/agents", body: undefined },
     );

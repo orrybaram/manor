@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { expect, type Page } from "@playwright/test";
+import { SETTLE_MS } from "../../src/hooks/useTerminalResize";
 
 import {
   assertVisiblePaneCount,
@@ -199,7 +200,7 @@ async function invokeInPage(
  * The paired devices, as a page's own `remoteControl.getStatus()` reports
  * them.
  *
- * `getStatus` is deliberately *not* `LOCAL_ONLY` (ADR-180 ticket 10) — a
+ * `getStatus` is deliberately *not* `LOCAL_ONLY` — a
  * device's settings page should not be lying to it about the surface it is on
  * — so the same call works from the desk and from a `full` browser, and each
  * is a witness for the other.
@@ -328,8 +329,8 @@ test.describe("web app (ADR-178 slice 1)", () => {
       // 3. The desktop owns the winsize: narrowing the browser's viewport
       // shrinks the font, not the grid, and the desktop's `cols` never moves.
       await client.page.setViewportSize({ width: 700, height: 800 });
-      // useTerminalResize's settle window is 400ms; give it margin.
-      await client.page.waitForTimeout(1_000);
+      // useTerminalResize's settle window; give it margin.
+      await client.page.waitForTimeout(SETTLE_MS + 600);
 
       const { cols: colsAfterBrowser } = await readSessionMeta(
         request,
@@ -351,18 +352,17 @@ test.describe("web app (ADR-178 slice 1)", () => {
 
     // 5. Audit: no line for keystrokes. Attaching a pane from the browser is
     // two audited bridge calls — `pty.create`, then the `agents.setPaneContext`
-    // that follows every successful create (ticket 10) — both aimed at the
-    // pane the two viewers shared.
+    // that follows every successful create — both aimed at the pane the two
+    // viewers shared.
     //
-    // `agents.markSeen` may join them, and is the reason this list is not
-    // two entries long any more (ADR-180 ticket 13). A browser that can see
-    // an agent marks it seen like any other viewer — `markVisibleAgentsSeen`
-    // fires on every viewport change — and ADR-180 ticket 9 put that call on
-    // the handler table and in `MUTATING`. Whether it appears depends on
-    // whether the desktop got there first: the unseen sets live on the Manor
-    // server, so a flag the desk already cleared leaves the browser nothing
-    // to clear. Both outcomes are correct, which is why this asserts the
-    // route is *allowed* rather than that it happened.
+    // `agents.markSeen` may join them, and is the reason this list is not two
+    // entries long. A browser that can see an agent marks it seen like any
+    // other viewer — `markVisibleAgentsSeen` fires on every viewport change —
+    // and that call is on the handler table and in `MUTATING`. Whether it
+    // appears depends on whether the desktop got there first: the unseen sets
+    // live on the Manor server, so a flag the desk already cleared leaves the
+    // browser nothing to clear. Both outcomes are correct, which is why this
+    // asserts the route is *allowed* rather than that it happened.
     //
     // It targets an **agent** id, not a pane id: `bridgeTarget` records the
     // first string argument, which for `markSeen(agentId)` is the agent.
@@ -511,7 +511,8 @@ test.describe("web app (ADR-178 slice 1)", () => {
       const follower = client.page.getByTestId("terminal-follower");
       await expect(follower).toBeVisible({ timeout: 20_000 });
       await client.page.setViewportSize({ width: 700, height: 800 });
-      await client.page.waitForTimeout(1_500);
+      // useTerminalResize's settle window; give it margin.
+      await client.page.waitForTimeout(SETTLE_MS + 1_100);
       expect((await readSessionMeta(request, tempHome, paneId)).cols).toBe(
         deskCols,
       );

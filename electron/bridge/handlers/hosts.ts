@@ -3,8 +3,8 @@
  * status, adding one, retrying a stuck connection, and checking one's tools
  * against a project (moved from `ipc/projects.ts` on main, ADR-183).
  *
- * Plain functions over `IpcDeps` on the handler table (ADR-180 D8), so a
- * renderer window and a paired `full` device reach the same code. Thin by
+ * One namespace table (ADR-182 D3), so a renderer window and a paired
+ * `full` device reach the same code. Thin by
  * design: every decision about what a host's state means, and what adding one
  * does, lives in `BackendRegistry` and `ProjectManager`. This only validates
  * the boundary and wires the two together.
@@ -14,18 +14,23 @@ import crypto from "node:crypto";
 import { assertString } from "../../ipc-validate";
 import { assertValidTarget } from "../../terminal-host/ssh-config";
 import type { HostStatusInfo } from "../../backend/registry";
-import { runHealthChecks } from "../../backend/health-check";
+import {
+  runHealthChecks,
+  type HealthCheckResult,
+} from "../../backend/health-check";
 import { publishRendererBroadcast } from "../../renderer-broadcast";
-import type { IpcDeps } from "../../ipc/types";
+import type { HostDeps } from "../../ipc/types";
+import { method, type HandlerCtx } from "../method";
 
-export function hostsList(deps: IpcDeps): HostStatusInfo[] {
-  return deps.backendRegistry.list();
+export function hostsList(ctx: HandlerCtx): HostStatusInfo[] {
+  return ctx.deps.backendRegistry.list();
 }
 
 export function hostsAdd(
-  deps: IpcDeps,
-  target: unknown,
+  ctx: HandlerCtx,
+  target: string,
 ): { hostId: string; spec: { kind: "ssh"; target: string } } {
+  const { deps } = ctx;
   assertString(target, "hosts:add.target");
   const trimmed = target.trim();
   if (trimmed === "") {
@@ -40,17 +45,18 @@ export function hostsAdd(
   return { hostId, spec };
 }
 
-export function hostsRetryConnect(deps: IpcDeps, hostId: unknown): void {
+export function hostsRetryConnect(ctx: HandlerCtx, hostId: string): void {
   assertString(hostId, "hosts:retryConnect.hostId");
-  deps.backendRegistry.retryNow(hostId);
+  ctx.deps.backendRegistry.retryNow(hostId);
 }
 
 /** The ADR-178 (main) §4 checks, run through the host itself. */
 export async function hostsHealthCheck(
-  deps: IpcDeps,
-  hostId: unknown,
-  projectPath: unknown,
-): Promise<unknown> {
+  ctx: HandlerCtx,
+  hostId: string,
+  projectPath: string,
+): Promise<HealthCheckResult[]> {
+  const { deps } = ctx;
   assertString(hostId, "hosts:healthCheck.hostId");
   assertString(projectPath, "hosts:healthCheck.projectPath");
   deps.projectManager.assertKnownHost(hostId);
@@ -70,7 +76,7 @@ export async function hostsHealthCheck(
  * window (ADR-180 D5).
  */
 export function wireHostBroadcasts(
-  deps: Pick<IpcDeps, "backendRegistry">,
+  deps: Pick<HostDeps, "backendRegistry">,
 ): void {
   deps.backendRegistry.onStatusChange((hosts: HostStatusInfo[]) => {
     publishRendererBroadcast("hosts", "statusChanged", hosts);
@@ -79,3 +85,18 @@ export function wireHostBroadcasts(
     publishRendererBroadcast("hosts", "reconnected", { hostId, sessionIds });
   });
 }
+
+/**
+ * The host list and its connection statuses, and the health check, are reads.
+ * `add` registers an ssh target and connects to it with this machine's ssh
+ * config and keys; `retryConnect` kicks a stuck connection. Neither is
+ * `localOnly`: a `full` device already reaches this machine's shell through
+ * `pty.*` (ADR-178 D3), so pointing ssh somewhere is not a new grant — but
+ * both change what every viewer's host list shows, so both are `mutating`.
+ */
+export const hosts = {
+  list: method(hostsList),
+  add: method(hostsAdd, { mutating: true }),
+  retryConnect: method(hostsRetryConnect, { mutating: true }),
+  healthCheck: method(hostsHealthCheck),
+};

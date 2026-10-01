@@ -56,6 +56,7 @@ vi.mock("../ipc/webview", async () => {
 });
 
 import { WebviewServer } from "../webview-server";
+import type { HostDeps } from "../ipc/types";
 import { webContents } from "electron";
 import {
   recordingManager,
@@ -114,6 +115,8 @@ function httpPost(
 
 describe("WebviewServer", () => {
   let server: WebviewServer;
+  /** What a test adds to the deps the routes run over. */
+  let extraDeps: Partial<HostDeps>;
   let registry: Map<string, number>;
 
   beforeEach(async () => {
@@ -170,7 +173,19 @@ describe("WebviewServer", () => {
       .mockReset()
       .mockReturnValue(mockWebContents);
 
-    server = new WebviewServer(registry);
+    // The webview routes reach their panes through the server itself, as
+    // `app-lifecycle.ts` wires it; a test adds what else a route reads.
+    extraDeps = {};
+    const built: WebviewServer = new WebviewServer(
+      registry,
+      () =>
+        ({
+          webviewServer: built,
+          webviewPanes: built,
+          ...extraDeps,
+        }) as unknown as HostDeps,
+    );
+    server = built;
     await server.start();
   });
 
@@ -564,7 +579,7 @@ describe("WebviewServer", () => {
           ? "http://127.0.0.1:53000/"
           : url,
       );
-      server.setControlDeps({ resolvePaneUrl });
+      extraDeps.resolvePaneUrl = resolvePaneUrl;
 
       const res = await httpPost(server.serverPort, "/webview/pane-1/navigate", {
         url: "http://localhost:3000/",
@@ -582,11 +597,9 @@ describe("WebviewServer", () => {
     });
 
     it("answers 503, loading nothing, when the remote host cannot be reached", async () => {
-      server.setControlDeps({
-        resolvePaneUrl: async () => {
-          throw new Error('Remote host "box" is not connected');
-        },
-      });
+      extraDeps.resolvePaneUrl = async () => {
+        throw new Error('Remote host "box" is not connected');
+      };
       (mockWebContents.loadURL as Mock).mockClear();
 
       const res = await httpPost(server.serverPort, "/webview/pane-1/navigate", {

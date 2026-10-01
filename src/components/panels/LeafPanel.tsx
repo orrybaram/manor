@@ -42,7 +42,7 @@ export const LeafPanel = memo(function LeafPanel(props: LeafPanelProps) {
             key={tab.id}
             style={tab.id === selectedTabId ? TAB_VISIBLE_STYLE : TAB_HIDDEN_STYLE}
           >
-            <PaneLayout node={tab.rootNode} workspaceKey={workspaceKey} />
+            <PaneLayout node={tab.rootNode} tabId={tab.id} workspaceKey={workspaceKey} />
           </div>
         ))}
       </div>

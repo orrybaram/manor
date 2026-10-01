@@ -16,6 +16,9 @@ import {
   useAppStore,
   selectActiveWorkspace,
   selectFocusedPaneOfActiveTab,
+  selectPaneContentType,
+  usePaneContentType,
+  usePaneUrl,
 } from "../../store/app-store";
 import { hasPaneId } from "../../lib/layout/pane-tree";
 import {
@@ -30,6 +33,7 @@ import { usePaneDrag } from "./PaneDragContext";
 import { TerminalPane } from "./TerminalPane/TerminalPane";
 import { BrowserPane, type BrowserPaneRef, type BrowserPaneNavState } from "./BrowserPane/BrowserPane";
 import { RecordingIndicator } from "./BrowserPane/RecordingIndicator";
+import { BrowserPaneUnavailable } from "./BrowserPane/BrowserPaneUnavailable";
 import { DiffPane, type DiffPaneRef } from "./DiffPane/DiffPane";
 import { PaneDropZone } from "./PaneDropZone";
 import { ConvertToSubmenu } from "./ConvertToSubmenu";
@@ -50,6 +54,7 @@ import { paneHeaderTitle } from "../../lib/pane-title";
 import { PaneHeaderTitle } from "./PaneHeaderTitle";
 import { useRemotePaneStore } from "../../store/remote-pane-store";
 import { useWorkspaceProjectId } from "../../hooks/useWorkspaceProjectId";
+import { isWebApp } from "../../lib/platform";
 
 import styles from "./PaneLayout/PaneLayout.module.css";
 import browserStyles from "./BrowserPane/BrowserPane.module.css";
@@ -71,8 +76,8 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
 
   const focusedPaneId = useAppStore(selectFocusedPaneOfActiveTab);
   const paneCwd = useAppStore((s) => s.paneCwd[paneId]);
-  const contentType = useAppStore((s) => s.paneContentType[paneId]);
-  const paneUrl = useAppStore((s) => s.paneUrl[paneId]);
+  const contentType = usePaneContentType(paneId);
+  const paneUrl = usePaneUrl(paneId);
   // A browser pane of a remote workspace reaches that host's dev servers
   // through port forwards (ADR-178 §5). Null for this machine.
   const remoteHostId =
@@ -91,7 +96,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   const splitPane = useAppStore((s) => s.splitPane);
   const requestClosePaneById = useAppStore((s) => s.requestClosePaneById);
   const setWebviewFocused = useAppStore((s) => s.setWebviewFocused);
-  const { drag, startDrag, endDrag } = usePaneDrag();
+  const { drag, dragEnabled, startDrag, endDrag } = usePaneDrag();
   const isFocused = focusedPaneId === paneId;
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -205,7 +210,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
     const img = buildDragImage(
       styles.paneDragImage,
       paneHeaderTitle(s, paneId),
-      s.paneContentType[paneId],
+      selectPaneContentType(s, paneId),
       s.paneFavicon[paneId] ?? undefined,
     );
     document.body.appendChild(img);
@@ -337,7 +342,8 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
       <ContextMenu.Trigger asChild>
       <div
         className={`${styles.paneStatusBar} ${isFocused ? styles.paneStatusBarFocused : ""} ${isThisPaneDragging ? styles.paneStatusBarDragging : ""} ${navState?.webviewFocused ? styles.paneStatusBarWebviewFocused : ""}`}
-        draggable
+        // This one gesture is drag-to-split AND detach-by-drag (ADR-181 D5).
+        draggable={dragEnabled}
         onDragStart={handleStatusBarDragStart}
         onDrag={handleStatusBarDrag}
         onDragEnd={handleStatusBarDragEnd}
@@ -620,14 +626,23 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
           </PaneContextMenu>
         ) : contentType === "browser" ? (
           <PaneContextMenu paneId={paneId} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
-            <BrowserPane
-              ref={browserRef}
-              paneId={paneId}
-              initialUrl={paneUrl ?? "about:blank"}
-              remoteHostId={remoteHostId}
-              projectId={remoteProjectId}
-              onNavStateChange={handleNavStateChange}
-            />
+            {/* `<webview>` is Electron-only (ADR-178); the web app gets a
+                stand-in whose ref methods all no-op. */}
+            {isWebApp() ? (
+              <BrowserPaneUnavailable
+                ref={browserRef}
+                initialUrl={paneUrl ?? "about:blank"}
+              />
+            ) : (
+              <BrowserPane
+                ref={browserRef}
+                paneId={paneId}
+                initialUrl={paneUrl ?? "about:blank"}
+                remoteHostId={remoteHostId}
+                projectId={remoteProjectId}
+                onNavStateChange={handleNavStateChange}
+              />
+            )}
           </PaneContextMenu>
         ) : (
           <TerminalPane

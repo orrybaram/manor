@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { localCtx } from "../../method";
 
 
 import {
@@ -10,7 +11,7 @@ import {
 /**
  * The handlers under test, by their old IPC channel names. There is no
  * `register()` any more (ADR-180 D8): the handler table calls the lifted
- * functions with the one long-lived `IpcDeps`, so `register` here only
+ * functions with the one long-lived `HostDeps`, so `register` here only
  * records the deps a test built, and each channel calls its function over
  * them. The first argument stands in for the IPC event and is ignored.
  */
@@ -21,7 +22,7 @@ function register(deps: unknown): void {
 const call =
   (fn: (...args: never[]) => unknown) =>
   (_event: unknown, ...args: unknown[]): unknown =>
-    (fn as (...args: unknown[]) => unknown)(current, ...args);
+    (fn as (...args: unknown[]) => unknown)(localCtx(current as never), ...args);
 const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>([
   ["projects:update", call(projectsUpdate)],
   ["projects:switchHost", call(projectsSwitchHost)],

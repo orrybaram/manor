@@ -23,6 +23,11 @@ type SidebarEntryProps = {
    * The collapsed rail's popover (ADR-195) exists to show them.
    */
   forceExpanded?: boolean;
+  /** Fires after a workspace is chosen — the phone drawer closes on it
+   *  (ADR-181 D3). */
+  onNavigate?: () => void;
+  /** Turns off the workspace/folder reorder drag (phone mode, ADR-181 D5). */
+  dragDisabled?: boolean;
 };
 
 /**
@@ -31,8 +36,15 @@ type SidebarEntryProps = {
  * both render the same rows, menus and actions.
  */
 export function SidebarEntry(props: SidebarEntryProps) {
-  const { entry, onOpenProjectSettings, onDragStart, justDraggedRef, forceExpanded = false } =
-    props;
+  const {
+    entry,
+    onOpenProjectSettings,
+    onDragStart,
+    justDraggedRef,
+    forceExpanded = false,
+    onNavigate,
+    dragDisabled = false,
+  } = props;
 
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
@@ -79,10 +91,12 @@ export function SidebarEntry(props: SidebarEntryProps) {
           setProjectExpanded(project.id);
           const wsIdx = project.selectedWorkspaceIndex;
           selectWorkspace(project.id, wsIdx >= 0 ? wsIdx : 0);
+          onNavigate?.();
         }}
         onRemove={() => removeProject(project.id)}
         onSelectWorkspace={(wsIdx) => {
           selectWorkspace(project.id, wsIdx);
+          onNavigate?.();
         }}
         onRemoveWorktree={(ws, deleteBranch) =>
           removeWorktreeWithToast(project, ws, deleteBranch)
@@ -100,10 +114,11 @@ export function SidebarEntry(props: SidebarEntryProps) {
           setWorkspaceHidden(project.id, ws.path, false)
         }
         onCreateWorktree={(projectId, name, branch, options) =>
-          createWorktree(projectId, name, branch, options)
+          createWorktree(projectId, name, { ...options, branch })
         }
         onOpenSettings={() => onOpenProjectSettings?.(project.id)}
         onDragStart={projectDragStart}
+        dragDisabled={dragDisabled}
         onOpenDiff={(wsIdx) => {
           selectWorkspace(project.id, wsIdx);
           openOrFocusDiff();
@@ -132,7 +147,7 @@ export function SidebarEntry(props: SidebarEntryProps) {
         renderProject(section.project, "section", undefined, selectionScope)
       }
       onCreateWorktree={(projectId, name, branch, options) =>
-        createWorktree(projectId, name, branch, options)
+        createWorktree(projectId, name, { ...options, branch })
       }
       onUnhideWorkspace={(project, ws) =>
         setWorkspaceHidden(project.id, ws.path, false)

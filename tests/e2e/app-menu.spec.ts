@@ -5,6 +5,7 @@ import {
   expect,
   test,
 } from "./fixtures";
+import { clickMenuItem } from "./helpers/window";
 
 /**
  * ADR-170: the native application menu.
@@ -41,24 +42,6 @@ function readMenu(app: ElectronApplication): Promise<MenuNode[]> {
     const menu = Menu.getApplicationMenu();
     return menu ? walk(menu.items) : [];
   });
-}
-
-/** Click a menu item by its label path, e.g. ["File", "New Tab"]. */
-function clickMenuItem(
-  app: ElectronApplication,
-  labels: string[],
-): Promise<void> {
-  return app.evaluate(({ Menu, BrowserWindow }, path) => {
-    let items = Menu.getApplicationMenu()?.items ?? [];
-    let item: Electron.MenuItem | undefined;
-    for (const label of path) {
-      item = items.find((candidate) => candidate.label === label);
-      if (!item) throw new Error(`Menu item not found: ${path.join(" › ")}`);
-      items = item.submenu?.items ?? [];
-    }
-    const win = BrowserWindow.getAllWindows()[0];
-    item!.click(undefined, win, undefined);
-  }, labels);
 }
 
 function find(nodes: MenuNode[], label: string): MenuNode {

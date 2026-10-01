@@ -16,7 +16,7 @@
 
 import { errorMessage } from "./lib/errors";
 import { handleControlRequest } from "./routes";
-import type { ControlDeps } from "./routes/types";
+import type { RouteDeps } from "./routes/types";
 import type { ProjectInfo } from "./persistence";
 import type {
   ControlRelayResult,
@@ -95,7 +95,7 @@ export function isRemoteAllowed(method: string, pathname: string): boolean {
 const PROJECT_PATH = /^\/projects\/([^/]+)/;
 
 /** The calling host's projects. */
-async function hostProjects(deps: ControlDeps, hostId: string): Promise<ProjectInfo[]> {
+async function hostProjects(deps: RouteDeps, hostId: string): Promise<ProjectInfo[]> {
   const projects = (await deps.projectManager?.getProjects()) ?? [];
   return projects.filter((p) => p.hostId === hostId);
 }
@@ -111,7 +111,7 @@ const notOnHost = (what: string): ControlRelayResult => ({
  * same as a missing one, so a box learns nothing about the laptop's projects.
  */
 async function refuseOtherHosts(
-  deps: ControlDeps,
+  deps: RouteDeps,
   hostId: string,
   method: string,
   path: string,
@@ -148,7 +148,7 @@ async function refuseOtherHosts(
  * projects, `GET /agents` to agents in them. Anything else passes through.
  */
 async function scopeToHost(
-  deps: ControlDeps,
+  deps: RouteDeps,
   hostId: string,
   method: string,
   path: string,
@@ -174,7 +174,7 @@ async function scopeToHost(
  * the route threw before answering. Never rejects.
  */
 export async function handleRelayedControlRequest(
-  deps: ControlDeps,
+  deps: RouteDeps,
   hostId: string,
   req: RelayedControlRequest,
 ): Promise<ControlRelayResult> {
@@ -210,7 +210,7 @@ export async function handleRelayedControlRequest(
  * after answering keeps its answer).
  */
 async function dispatchRelayed(
-  deps: ControlDeps,
+  deps: RouteDeps,
   hostId: string,
   method: string,
   url: URL,

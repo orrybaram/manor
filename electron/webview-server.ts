@@ -11,7 +11,7 @@
  * dispatches for every other Manor-control route (ADR-183). This class keeps
  * only what a route handler cannot own itself: the HTTP listener's lifecycle,
  * console-message capture, and the pane→`WebContents` lookup those routes
- * reach through `ControlDeps.webviewPanes`.
+ * reach through `HostDeps.webviewPanes`.
  */
 
 import * as http from "node:http";
@@ -20,13 +20,7 @@ import * as path from "node:path";
 import { webContents } from "electron";
 import { webviewServerPortFile } from "./paths";
 import { handleControlRequest } from "./routes";
-import type { ProjectManager } from "./persistence";
-import type { GitHubManager } from "./github";
-import type { LinearManager } from "./linear";
-import type { LayoutPersistence } from "./terminal-host/layout-persistence";
-import type { AgentManager } from "./agent-persistence";
-import type { WorkspaceBackend } from "./backend/types";
-import type { ControlDeps, ConsoleEntry } from "./routes/types";
+import type { ConsoleEntry, HostDeps } from "./routes/types";
 
 const MAX_CONSOLE_ENTRIES = 200;
 
@@ -35,90 +29,27 @@ const PORT_FILE = webviewServerPortFile();
 export class WebviewServer {
   private server: http.Server | null = null;
   private port = 0;
-  /** paneId → webContentsId. Part of `ControlDeps.webviewPanes` (ADR-183). */
-  readonly registry: Map<string, number>;
-  private projectManager: ProjectManager | null;
-  private githubManager: GitHubManager | null;
-  private linearManager: LinearManager | null;
-  private layoutPersistence: LayoutPersistence | null;
-  private agentManager: AgentManager | null;
-  private backend: WorkspaceBackend | null;
-  /** paneId → buffered console entries. Part of `ControlDeps.webviewPanes`. */
+  /** paneId → buffered console entries. Part of `HostDeps.webviewPanes`. */
   readonly consoleLogs: Map<string, ConsoleEntry[]> = new Map();
   private consoleListeners: Map<string, () => void> = new Map(); // paneId → cleanup fn
-  /**
-   * The full manager bag routes need (ADR-171), set once via
-   * `setControlDeps` after `app-lifecycle.ts` assembles `ipcDeps`. Merged
-   * over the six positional constructor fallbacks below in
-   * `handleControlRequest` so unit tests that construct a bare
-   * `WebviewServer` (no setter call) keep working.
-   */
-  private controlDeps: Partial<ControlDeps> = {};
 
+  /**
+   * `getDeps` is what the control routes (ADR-171) run over: the one
+   * `HostDeps` the bridge handlers get too (ADR-182 D8). A getter rather than
+   * the object because that object holds this server — `app-lifecycle.ts`
+   * builds it after constructing us — and the first request cannot arrive
+   * before `start()`, which runs once it exists. Public so requests relayed
+   * from remote hosts (ADR-189 §2) run with exactly what this server's own
+   * requests do.
+   */
   constructor(
-    registry: Map<string, number>,
-    projectManager?: ProjectManager,
-    githubManager?: GitHubManager,
-    linearManager?: LinearManager,
-    layoutPersistence?: LayoutPersistence,
-    agentManager?: AgentManager,
-    backend?: WorkspaceBackend,
-  ) {
-    this.registry = registry;
-    this.projectManager = projectManager ?? null;
-    this.githubManager = githubManager ?? null;
-    this.linearManager = linearManager ?? null;
-    this.layoutPersistence = layoutPersistence ?? null;
-    this.agentManager = agentManager ?? null;
-    this.backend = backend ?? null;
-  }
+    /** paneId → webContentsId. Part of `HostDeps.webviewPanes` (ADR-183). */
+    readonly registry: Map<string, number>,
+    readonly getDeps: () => HostDeps,
+  ) {}
 
   get serverPort(): number {
     return this.port;
-  }
-
-  /**
-   * Give control routes the full manager bag. Called once from
-   * `app-lifecycle.ts` right after `ipcDeps` is assembled; every field is
-   * optional so tests can pass a partial bag or skip the call entirely.
-   */
-  setControlDeps(deps: Partial<ControlDeps>): void {
-    this.controlDeps = deps;
-  }
-
-  /**
-   * The dependencies control routes run with: the six constructor fields as
-   * the fallback, `setControlDeps`'s bag winning where both are present and
-   * carrying the fields the constructor never took. Public so requests
-   * relayed from remote hosts (ADR-189 §2) run with exactly what this
-   * server's own requests do.
-   */
-  getControlDeps(): ControlDeps {
-    return {
-      projectManager: this.projectManager,
-      githubManager: this.githubManager,
-      linearManager: this.linearManager,
-      layoutPersistence: this.layoutPersistence,
-      layoutStore: null,
-      agentManager: this.agentManager,
-      backend: this.backend,
-      notificationStore: null,
-      statsStore: null,
-      workspaceOps: null,
-      preferencesManager: null,
-      themeManager: null,
-      portScanner: null,
-      remoteControl: null,
-      agentHookServer: null,
-      // Always us: the server answering the request is the one
-      // `GET /processes` has to report a port for.
-      webviewServer: this,
-      webviewPanes: this,
-      resolvePaneUrl: null,
-      getRendererWindows: null,
-      sessionOwners: null,
-      ...this.controlDeps,
-    };
   }
 
   /** Start the HTTP server on a random port */
@@ -222,7 +153,7 @@ export class WebviewServer {
 
   /**
    * Look up and validate webContents for a paneId. Part of
-   * `ControlDeps.webviewPanes` (ADR-183): every `/webview/:paneId/*` route
+   * `HostDeps.webviewPanes` (ADR-183): every `/webview/:paneId/*` route
    * in `electron/routes/webview.ts` resolves through this.
    */
   getWebContents(
@@ -280,7 +211,7 @@ export class WebviewServer {
     };
 
     // ── Manor-control routes (/projects…, /agents, /webview/:id/*…) ──
-    if (await handleControlRequest(this.getControlDeps(), method, url, json, readBody)) {
+    if (await handleControlRequest(this.getDeps(), method, url, json, readBody)) {
       return;
     }
 

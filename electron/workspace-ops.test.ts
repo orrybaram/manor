@@ -96,18 +96,23 @@ describe("create", () => {
     expect(deps.projectManager.createWorktree).toHaveBeenCalledWith(
       "p1",
       "Feature",
-      "feature",
-      linkedIssue,
-      "dev",
-      true,
-      "7",
+      {
+        branch: "feature",
+        linkedIssue,
+        baseBranch: "dev",
+        useExistingBranch: true,
+        origin: "7",
+      },
     );
   });
 
   it("broadcasts the setup progress of a request with no origin", async () => {
     deps.projectManager.createWorktree.mockResolvedValue(null);
     await ops.create({ projectId: "p1", name: "Feature" }, { runSetupScript: true });
-    expect(deps.projectManager.createWorktree.mock.calls[0][6]).toBeNull();
+    expect(
+      (deps.projectManager.createWorktree.mock.calls[0][2] as { origin?: unknown })
+        .origin,
+    ).toBeNull();
   });
 
   it("records the stat, broadcasts and returns the project and created path", async () => {

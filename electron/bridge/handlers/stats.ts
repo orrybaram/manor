@@ -1,8 +1,10 @@
 import { publishRendererBroadcast } from "../../renderer-broadcast";
-import type { IpcDeps } from "../../ipc/types";
+import type { HostDeps } from "../../ipc/types";
+import type { StatsSummary } from "../../stats-store";
+import { method, type HandlerCtx } from "../method";
 
 /**
- * ADR-168's usage-stats surface, whole (ADR-180 ticket 7). `statsStore` is
+ * ADR-168's usage-stats surface, whole. `statsStore` is
  * main's single source of truth; the renderer only caches the summary it
  * broadcasts here.
  *
@@ -12,23 +14,23 @@ import type { IpcDeps } from "../../ipc/types";
  */
 export const BROADCAST_DEBOUNCE_MS = 1000;
 
-export function statsGetSummary(deps: IpcDeps): unknown {
-  return deps.statsStore.getSummary();
+export function statsGetSummary(ctx: HandlerCtx): StatsSummary {
+  return ctx.deps.statsStore.getSummary();
 }
 
-export function statsReset(deps: IpcDeps): void {
-  deps.statsStore.reset();
+export function statsReset(ctx: HandlerCtx): void {
+  ctx.deps.statsStore.reset();
 }
 
 /**
  * Wire the debounced `stats.changed` broadcast.
  *
- * Not `register()` — there is no `ipcMain.handle` left in this file (ADR-180
- * ticket 7 lifted both calls onto the handler table) — but the subscription
- * that turns a burst of recording into one broadcast still has to run once,
- * at boot, so `app-lifecycle.ts` calls this in `register()`'s place.
+ * Not `register()` — there is no `ipcMain.handle` left in this file, both
+ * calls live on the handler table — but the subscription that turns a burst
+ * of recording into one broadcast still has to run once, at boot, so
+ * `app-lifecycle.ts` calls this in `register()`'s place.
  */
-export function wireStatsBroadcast(deps: Pick<IpcDeps, "statsStore">): void {
+export function wireStatsBroadcast(deps: Pick<HostDeps, "statsStore">): void {
   const { statsStore } = deps;
   let timer: ReturnType<typeof setTimeout> | null = null;
   statsStore.onChange(() => {
@@ -39,3 +41,8 @@ export function wireStatsBroadcast(deps: Pick<IpcDeps, "statsStore">): void {
     }, BROADCAST_DEBOUNCE_MS);
   });
 }
+
+export const stats = {
+  getSummary: method(statsGetSummary),
+  reset: method(statsReset, { mutating: true }),
+};

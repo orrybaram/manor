@@ -27,6 +27,7 @@ import {
   portsUpdateWorkspaceMetadata,
 } from "../bridge/handlers/ports";
 import { RemoteUrlResolver } from "../remote-forwards";
+import { localCtx } from "../bridge/method";
 import type { WorkspaceMeta } from "../ipc/types";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -34,7 +35,7 @@ import type { WorkspaceMeta } from "../ipc/types";
 /**
  * The deps the handlers under test run over. There is no `register()` any
  * more (ADR-180 D8): the handler table calls the lifted functions with the
- * one long-lived `IpcDeps`, and `installPortEnricher` is the boot-time half
+ * one long-lived `HostDeps`, and `installPortEnricher` is the boot-time half
  * of what `register()` used to do.
  */
 let current: never;
@@ -177,7 +178,7 @@ function makeDeps(
 }
 
 async function scan() {
-  return (await portsScanNow(current)) as {
+  return (await portsScanNow(localCtx(current))) as {
     port: number;
     hostname?: string;
   }[];
@@ -226,7 +227,7 @@ describe("portless per-project gate", () => {
     expect((await scan())[0].hostname).toBe("acme.localhost:7999");
 
     // What the renderer pushes when the settings switch changes.
-    portsUpdateWorkspaceMetadata(current, [
+    portsUpdateWorkspaceMetadata(localCtx(current), [
       meta({ portlessEnabled: false }),
     ]);
 
@@ -286,7 +287,7 @@ describe("remote ports", () => {
     ]);
 
     // Opening the portless URL makes the forward, which re-routes.
-    const url = await portsResolveUrl(current, "http://acme.box.localhost:7999/",
+    const url = await portsResolveUrl(localCtx(current), "http://acme.box.localhost:7999/",
       "box",
     );
     expect(url).toBe("http://acme.box.localhost:7999/");
@@ -304,7 +305,7 @@ describe("remote ports", () => {
     register(deps as never);
     await scan();
     const resolve = (url: string, hostId: string) =>
-      portsResolveUrl(current, url, hostId);
+      portsResolveUrl(localCtx(current), url, hostId);
 
     // On 127.0.0.1, where the forward listens.
     expect(await resolve("http://localhost:3000/app?x=1", "box")).toBe(
@@ -322,7 +323,7 @@ describe("remote ports", () => {
     register(deps as never);
     await scan();
     const resolve = (url: string) =>
-      portsResolveUrl(current, url, "box");
+      portsResolveUrl(localCtx(current), url, "box");
 
     // A dev server started since the last poll: found by the rescan.
     deps.scanned.push({ port: 5173, workspacePath: "/srv/repo", hostId: "box" });
@@ -345,7 +346,7 @@ describe("remote ports", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     expect(
-      await portsResolveUrl(current, "http://localhost:3000/", "box"),
+      await portsResolveUrl(localCtx(current), "http://localhost:3000/", "box"),
     ).toBe("http://localhost:3000/");
     warn.mockRestore();
   });
@@ -356,7 +357,7 @@ describe("remote ports", () => {
     ]);
     register(deps as never);
     await scan();
-    await portsResolveUrl(current, "http://[::1]:3000/", "box");
+    await portsResolveUrl(localCtx(current), "http://[::1]:3000/", "box");
     expect(deps.remoteForwards.ensure).toHaveBeenCalledWith("box", 3000, { remoteHost: "::1" });
   });
 
@@ -369,7 +370,7 @@ describe("remote ports", () => {
 
     let result: string | undefined;
     void (
-      portsResolveUrl(current, "http://localhost:3000/", "box") as Promise<string>
+      portsResolveUrl(localCtx(current), "http://localhost:3000/", "box") as Promise<string>
     ).then((r) => (result = r));
     await new Promise((r) => setTimeout(r, 0));
     expect(result).toBeUndefined();
@@ -387,7 +388,7 @@ describe("remote ports", () => {
     deps.host.setStatus("box", "reconnecting");
     register(deps as never);
     expect(
-      await portsResolveUrl(current, "https://example.com/", "box"),
+      await portsResolveUrl(localCtx(current), "https://example.com/", "box"),
     ).toBe("https://example.com/");
   });
 
@@ -395,7 +396,7 @@ describe("remote ports", () => {
     const deps = makeDeps([], remoteScan);
     deps.host.setStatus("box", "connecting");
     register(deps as never);
-    const pending = portsResolveUrl(current, "http://localhost:3000/",
+    const pending = portsResolveUrl(localCtx(current), "http://localhost:3000/",
       "box",
     );
     deps.host.setStatus("box", undefined);
@@ -407,7 +408,7 @@ describe("remote ports", () => {
     register(deps as never);
     await scan();
     const resolve = (url: string) =>
-      portsResolveUrl(current, url, "box") as Promise<string>;
+      portsResolveUrl(localCtx(current), url, "box") as Promise<string>;
     await resolve("http://localhost:3000/");
     // 53000 is 3000's forward: it resolves back onto the (same) forward.
     expect(await resolve("http://127.0.0.1:53000/x")).toBe("http://127.0.0.1:53000/x");
@@ -420,9 +421,9 @@ describe("remote ports", () => {
     const deps = makeDeps([], remoteScan);
     register(deps as never);
     await scan();
-    await portsResolveUrl(current, "http://localhost:3000/", "box");
+    await portsResolveUrl(localCtx(current), "http://localhost:3000/", "box");
     const remoteUrl = (url: string, hostId: string) =>
-      portsRemoteUrl(current, url, hostId);
+      portsRemoteUrl(localCtx(current), url, hostId);
     expect(remoteUrl("http://127.0.0.1:53000/a?b#c", "box")).toBe("http://localhost:3000/a?b#c");
     expect(remoteUrl("http://127.0.0.1:53000/", "other")).toBe("http://127.0.0.1:53000/");
     expect(remoteUrl("http://127.0.0.1:53000/", "local")).toBe("http://127.0.0.1:53000/");

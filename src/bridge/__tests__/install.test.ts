@@ -1,6 +1,6 @@
 /**
  * The ordering invariant `install-desktop.ts` and `install-web.ts` both
- * state and hold (ADR-180 ticket 14): no store module may evaluate — read
+ * state and hold: no store module may evaluate — read
  * or subscribe to `window.electronAPI` at module scope, inside `create()`'s
  * initializer — before `window.electronAPI` exists.
  *
@@ -12,9 +12,8 @@
  * the calls a store's initializer makes at module scope actually reach a
  * transport — which only happens if the side-effect module that installs
  * the bridge was imported, and finished evaluating, first. Reversing the
- * import order (the bug ADR-178 slice 1 shipped, and the web still had
- * until this ticket) reproduces it below: the same store, the same spies,
- * zero calls.
+ * import order reproduces it below: the same store, the same spies, zero
+ * calls.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { ManorHost } from "../../electron";
@@ -53,12 +52,17 @@ function hostWith(overrides: Partial<ManorHost> = {}): ManorHost {
   return {
     platform: "electron",
     rendererId: "1",
-    isDetached: false,
-    detachedWindowId: null,
     claim: null,
     env: { isPackaged: true },
-    native: {},
-    invoke: vi.fn(() => Promise.resolve(undefined)),
+    native: {} as ManorHost["native"],
+    invoke: vi.fn((frame: { id: unknown }) =>
+      Promise.resolve({
+        id: frame.id,
+        kind: "result" as const,
+        ok: true as const,
+        result: undefined,
+      }),
+    ),
     subscribe: vi.fn(() => () => {}),
     ...overrides,
   };
@@ -85,7 +89,9 @@ describe("the bridge-install ordering invariant", () => {
     // `preferences-store.ts`'s module-scope `getAll()` and `onChange(...)`
     // reached the real transport, which only happens if `window.electronAPI`
     // already existed when the store module was evaluated.
-    expect(host.invoke).toHaveBeenCalledWith("preferences", "getAll", []);
+    expect(host.invoke).toHaveBeenCalledWith(
+      expect.objectContaining({ ns: "preferences", method: "getAll", args: [] }),
+    );
     expect(host.subscribe).toHaveBeenCalledWith(
       "preferences",
       "changed",

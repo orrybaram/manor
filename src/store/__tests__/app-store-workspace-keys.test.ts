@@ -63,7 +63,7 @@ async function loadFromServer(layouts: Record<string, WorkspaceLayout>): Promise
   for (const [key, layout] of Object.entries(layouts)) seedLayout(key, layout);
   useAppStore.setState({
     workspaceLayouts: {},
-    serverLayouts: {},
+    mountedWorkspaces: {},
     layoutVersions: {},
     viewports: {},
     claims: {},
@@ -124,8 +124,8 @@ describe("layouts keyed by host plus path", () => {
     useAppStore.getState().setActiveWorkspace(SHARED, "local");
     useAppStore.setState((s) => {
       const { [BOX]: _, ...rest } = s.workspaceLayouts;
-      const { [BOX]: _server, ...serverRest } = s.serverLayouts;
-      return { workspaceLayouts: rest, serverLayouts: serverRest };
+      const { [BOX]: _mounted, ...mountedRest } = s.mountedWorkspaces;
+      return { workspaceLayouts: rest, mountedWorkspaces: mountedRest };
     });
 
     useAppStore.getState().moveWorkspaceLayout(workspaceKey("local", SHARED), BOX);

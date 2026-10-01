@@ -31,7 +31,15 @@
  * ADR-179 adds `layout`/`changed`, published by `LayoutStore` through the
  * broadcaster `app-lifecycle.ts` hands it — the one signal that carries state
  * a renderer must *replace* rather than merely refresh.
+ *
+ * Every `ns`/`event` pair, and the arguments it carries, is a row of
+ * `BridgeEvents` in `bridge/events.ts` (ADR-182 D4): publishing an event
+ * nobody declared, or a payload its listeners do not expect, is a compile
+ * error here rather than a feature that quietly stops updating. The import is
+ * a type, so this file stays a leaf.
  */
+
+import type { EventArgs, EventNs, EventOf } from "./bridge/events";
 
 export interface RendererBroadcast {
   ns: string;
@@ -109,27 +117,27 @@ export function addRendererBroadcastSink(sink: Sink): () => void {
  * Fan one broadcast out to every sink. Never throws: this runs on paths that
  * must not fail, and a sink that throws is that sink's bug, not the sender's.
  */
-export function publishRendererBroadcast(
-  ns: string,
-  event: string,
-  ...args: unknown[]
-): void {
+export function publishRendererBroadcast<
+  N extends EventNs,
+  E extends EventOf<N>,
+>(ns: N, event: E, ...args: EventArgs<N, E>): void {
   emit(null, ns, event, args);
 }
 
 /**
- * The same, for one connection only (ADR-180 D5).
+ * The same, for one connection only (ADR-180 D5) — or for everyone, when
+ * there is no one connection to address.
  *
  * `connectionId` comes either from `connectionIdForWindow` above or from the
- * renderer that asked for the thing this reports on — `ipc/*` handlers read
- * it off `event.sender.id`, which is what a desktop connection is named
- * after.
+ * caller that asked for the thing this reports on (a bridge handler's
+ * `ctx.caller.id`). Null is the callers with no connection behind them — the
+ * CLI, MCP, the issue-batch path — and broadcasts.
  */
-export function publishToRenderer(
-  connectionId: string,
-  ns: string,
-  event: string,
-  ...args: unknown[]
+export function publishToRenderer<N extends EventNs, E extends EventOf<N>>(
+  connectionId: string | null,
+  ns: N,
+  event: E,
+  ...args: EventArgs<N, E>
 ): void {
   emit(connectionId, ns, event, args);
 }

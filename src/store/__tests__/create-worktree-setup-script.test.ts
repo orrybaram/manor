@@ -5,6 +5,7 @@ import {
   fakeLayoutApi,
   fakeViewportApi,
   queuedCommands,
+  settled,
 } from "./fake-layout-server";
 
 // Mock electronAPI
@@ -110,7 +111,7 @@ describe("createWorktree setup script", () => {
     // Create the worktree
     const result = await useProjectStore
       .getState()
-      .createWorktree("proj-1", "my-feature", "my-feature");
+      .createWorktree("proj-1", "my-feature", { branch: "my-feature" });
 
     expect(result).toBe(worktreePath);
 
@@ -154,7 +155,7 @@ describe("createWorktree setup script", () => {
 
     await useProjectStore
       .getState()
-      .createWorktree("proj-1", "feat", "feat", { agentCommand: "claude" });
+      .createWorktree("proj-1", "feat", { branch: "feat", agentCommand: "claude" });
 
     // Setup state should exist with a setup-script step marked pending
     const setupState = useAppStore.getState().worktreeSetupState[worktreePath];
@@ -168,6 +169,8 @@ describe("createWorktree setup script", () => {
     expect(queuedCommands).toContainEqual(
       expect.objectContaining({ text: "claude", kind: "agent-startup" }),
     );
+    // The tab arrives with the server's broadcast (ADR-182 D9).
+    await settled();
     const layout = useAppStore.getState().workspaceLayouts[worktreePath];
     const tabs = Object.values(layout!.panels).flatMap((p) => p.tabs);
     expect(tabs.length).toBe(1);
@@ -199,7 +202,7 @@ describe("createWorktree setup script", () => {
 
     await useProjectStore
       .getState()
-      .createWorktree("proj-1", "plain", "plain");
+      .createWorktree("proj-1", "plain", { branch: "plain" });
 
     // Workspace activated, and nothing was sent to create a tab in it: a
     // workspace with no layout at all is what the empty state renders from

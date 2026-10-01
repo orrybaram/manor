@@ -31,7 +31,8 @@
  *
  * Close codes are in the application range on purpose — 4401 and 4403 read as
  * the HTTP statuses they mirror, and the client can tell "your token is wrong,
- * re-pair" from "your token is right and this tier cannot do this".
+ * re-pair" from "your token is right and this tier cannot do this". They are
+ * `../types.ts`'s, because the browser reads them too.
  */
 
 import type { IncomingMessage } from "node:http";
@@ -40,24 +41,16 @@ import { randomUUID } from "node:crypto";
 
 import { WebSocket, WebSocketServer } from "ws";
 
-import type { StreamEvent } from "../../terminal-host/types";
-import type { IpcDeps } from "../../ipc/types";
 import type { AuthenticatedDevice } from "../../remote-control/server";
-import { BridgeServer, type BridgeServerOptions } from "../server";
+import type { BridgeServer } from "../server";
 import {
   BRIDGE_PROTOCOL_VERSION,
-  readInvokeFrame,
-  readSubscribeFrame,
+  CLOSE_UNAUTHORIZED,
   type BridgeConnection,
 } from "../types";
 
 /** The one path that upgrades. Anything else never reaches this file. */
 export const BRIDGE_PATH = "/ws";
-
-/** No `hello`, a bad token, or a revoked device. */
-export const CLOSE_UNAUTHORIZED = 4401;
-/** A valid token for a device below the `full` tier. */
-export const CLOSE_FORBIDDEN = 4403;
 
 /** How long an accepted socket may stay silent before it is closed. */
 const HELLO_TIMEOUT_MS = 5_000;
@@ -82,7 +75,7 @@ interface Socket {
    *
    * Mutable, not `readonly`: `onHello` may replace the freshly generated id
    * with the one the client says it held before a reconnect, so long as
-   * nothing live is still using it (ADR-179 ticket 4's report). A stable id
+   * nothing live is still using it. A stable id
    * is what lets a selection hint addressed to "the tab that sent this"
    * still find it after a blip, and what keeps this connection's
    * `pty-attachments` viewer identity from resetting on every reconnect. It
@@ -98,17 +91,8 @@ interface Socket {
   connection: BridgeConnection | null;
 }
 
-export interface WsBridgeServerOptions extends BridgeServerOptions {
-  /**
-   * The host surface to feed. One is built if none is handed in, so a test
-   * can stand this transport up on its own; `app-lifecycle.ts` passes the
-   * shared one, because the IPC transport (D2) feeds the same registry.
-   */
-  server?: BridgeServer;
-}
-
 /**
- * One `JSON.stringify` per frame, not per socket (ADR-180 ticket 4).
+ * One `JSON.stringify` per frame, not per socket.
  *
  * `BridgeServer.publish` hands the *same* frame object to every subscribed
  * connection in one synchronous loop, so a pane's output was serialised once
@@ -142,16 +126,14 @@ export class WsBridgeServer {
     maxPayload: MAX_FRAME_BYTES,
   });
   private readonly sockets = new Set<Socket>();
-  private readonly server: BridgeServer;
-  /** Whether `dispose` also disposes the surface, or only this transport. */
-  private readonly ownsServer: boolean;
   /** One `JSON.stringify` per frame rather than per socket. See the class. */
   private readonly json = new FrameSerialiser();
 
-  constructor(deps: IpcDeps, options: WsBridgeServerOptions = {}) {
-    this.server = options.server ?? new BridgeServer(deps, options);
-    this.ownsServer = options.server === undefined;
-  }
+  /**
+   * @param server The host surface to feed — shared with the IPC transport,
+   *   and disposed by whoever built it, not by this.
+   */
+  constructor(private readonly server: BridgeServer) {}
 
   /** Live bridge sockets. The UI's "a browser is attached" signal. */
   get size(): number {
@@ -174,18 +156,6 @@ export class WsBridgeServer {
     });
   }
 
-  /**
-   * One PTY stream event, handed to the host surface.
-   *
-   * Forwarded rather than handled: the fan-out belongs to `BridgeServer`,
-   * because every transport's connections want it. It arrives here because
-   * the single `backend.pty.onEvent` subscription in `app-lifecycle.ts` is
-   * wired to the transport it was written against.
-   */
-  handleStreamEvent(event: StreamEvent): void {
-    this.server.handleStreamEvent(event);
-  }
-
   /** Close every socket. Called from `RemoteControlServer.stop()`. */
   closeAll(): void {
     for (const entry of [...this.sockets]) {
@@ -204,7 +174,6 @@ export class WsBridgeServer {
   dispose(): void {
     this.closeAll();
     this.wss.close();
-    if (this.ownsServer) this.server.dispose();
   }
 
   private open(socket: WebSocket, authenticate: BridgeAuthenticator): void {
@@ -251,41 +220,8 @@ export class WsBridgeServer {
       return;
     }
 
-    switch (frame.kind) {
-      case "invoke": {
-        const invoke = readInvokeFrame(frame);
-        if (!invoke) {
-          this.send(entry, {
-            id: frame.id,
-            kind: "result",
-            ok: false,
-            error: "invoke needs a string ns and method",
-            code: "bad-frame",
-          });
-          return;
-        }
-        this.send(entry, await this.server.dispatch(connection, invoke));
-        return;
-      }
-      case "subscribe": {
-        const asked = readSubscribeFrame(frame, "subscribe");
-        if (asked) {
-          this.server.subscribe(connection, asked.ns, asked.event, asked.key);
-        }
-        return;
-      }
-      case "unsubscribe": {
-        const asked = readSubscribeFrame(frame, "unsubscribe");
-        if (asked) {
-          this.server.unsubscribe(connection, asked.ns, asked.event, asked.key);
-        }
-        return;
-      }
-      default:
-        // Unknown kinds are ignored rather than fatal: a newer client sending
-        // a frame this version does not have should degrade, not disconnect.
-        return;
-    }
+    const answer = await this.server.receive(connection, frame);
+    if (answer) this.send(entry, answer);
   }
 
   private onHello(
@@ -306,13 +242,9 @@ export class WsBridgeServer {
       clearTimeout(entry.helloTimer);
       entry.helloTimer = null;
     }
-    // ADR-179 ticket 4's report: a reconnecting client's id used to change
-    // every time, so a selection hint addressed to the id it *used* to have
-    // was simply dropped, and its `pty-attachments` viewer identity reset —
-    // looking, to ownership, like a brand new viewer rather than the same one
-    // resuming after a blip. Reused only when nothing live already answers to
-    // it: two sockets racing to be the same renderer is worse than either of
-    // them keeping the id it was just given.
+    // A reconnecting client's previous id is reused only when nothing live
+    // already answers to it: two sockets racing to be the same renderer is
+    // worse than either of them keeping the id it was just given.
     const previousId =
       typeof frame.previousId === "string" ? frame.previousId : null;
     if (previousId && !this.idIsHeld(previousId, entry)) {

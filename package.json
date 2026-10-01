@@ -15,7 +15,7 @@
     "knip:ci": "knip --include files,dependencies,unlisted,binaries",
     "knip:fix": "knip --fix",
     "test:watch": "vitest",
-    "test:e2e": "pnpm build && playwright test",
+    "test:e2e": "pnpm build && playwright test --project=e2e && playwright test --project=perf",
     "test:e2e:remote": "pnpm build && playwright test tests/e2e/remote-control.spec.ts",
     "test:e2e:remote-host": "node scripts/test-remote-e2e.mjs",
     "test:e2e:remote-host:docker": "node scripts/test-remote-e2e.mjs --docker",

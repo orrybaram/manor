@@ -70,7 +70,12 @@ export function readBranchSync(repoPath: string): string | null {
   }
 }
 
-function validatePtyArgs(paneId: string, cwd: string | null, cols: number, rows: number): string {
+function validatePtyArgs(
+  paneId: string,
+  cwd: string | null,
+  cols: number,
+  rows: number,
+): string {
   assertString(paneId, "paneId");
   if (cwd !== null) assertString(cwd, "cwd");
   assertPositiveInt(cols, "cols");
@@ -355,7 +360,10 @@ export async function ptyClose(ctx: HandlerCtx, paneId: string): Promise<void> {
  * subscriber is discarded at the fan-out, which costs a little and loses
  * nothing, and the next `pty.create` reuses the live subscription.
  */
-export async function ptyDetach(ctx: HandlerCtx, paneId: string): Promise<void> {
+export async function ptyDetach(
+  ctx: HandlerCtx,
+  paneId: string,
+): Promise<void> {
   release(paneId, asViewer(ctx.caller));
   if (ownerOf(paneId)) return;
   assertString(paneId, "paneId");
@@ -425,7 +433,11 @@ async function resetSession(
         };
       }
 
-      try { await backend.pty.disposeDead(); } catch { /* ignore */ }
+      try {
+        await backend.pty.disposeDead();
+      } catch {
+        /* ignore */
+      }
 
       const result = await backend.pty.createOrAttachWith(
         paneId, resolvedCwd, cols, rows, { hostId },
@@ -440,7 +452,11 @@ async function resetSession(
       }
 
       // Reattached to old (dying) session — detach and retry.
-      try { await backend.pty.detach(paneId); } catch { /* ignore */ }
+      try {
+        await backend.pty.detach(paneId);
+      } catch {
+        /* ignore */
+      }
       await new Promise((r) => setTimeout(r, 100));
     }
   } catch (err) {

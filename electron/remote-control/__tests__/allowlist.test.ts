@@ -91,7 +91,9 @@ describe("the full tier, over HTTP", () => {
 
   it("excludes everything send excludes: any DELETE, layout mutation", () => {
     const full = keys(remoteRouteTable(routes, "full"));
-    expect(remoteRouteTable(routes, "full").filter((r) => r.method === "DELETE")).toEqual([]);
+    expect(
+      remoteRouteTable(routes, "full").filter((r) => r.method === "DELETE"),
+    ).toEqual([]);
     expect(full).not.toContain("POST /tabs");
     expect(full).not.toContain("POST /panes/split");
   });
@@ -245,9 +247,12 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
         // absent from this list on purpose — a device's settings page may
         // read the surface it is on.
         "remoteControl.setEnabled",
+        "remoteControl.startRelay",
         "remoteControl.pair",
+        "remoteControl.resetRelayAddress",
         "remoteControl.revoke",
         "remoteControl.startTunnel",
+        "remoteControl.stopRelay",
         "remoteControl.stopTunnel",
         // The one method in the whole surface that takes a raw credential as
         // an argument. Everything else Linear does hands back the result of

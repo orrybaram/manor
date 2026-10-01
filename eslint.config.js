@@ -9,7 +9,16 @@ export default tseslint.config(
   // `.claude/worktrees/` holds agent worktrees — whole second checkouts, with
   // their own tsconfigs — and is already in `.gitignore`. Linting them from the
   // root fails on a tsconfig clash that is not a real error in this tree.
-  { ignores: ["dist", "dist-electron", "scripts", ".claude/worktrees"] },
+  // `relay/.wrangler` is wrangler's scratch output (bundles), gitignored.
+  {
+    ignores: [
+      "dist",
+      "dist-electron",
+      "scripts",
+      ".claude/worktrees",
+      "relay/.wrangler",
+    ],
+  },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],

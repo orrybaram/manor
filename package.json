@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.electron.json",
     "build": "pnpm typecheck && vite build && vite build --config vite.remote.config.ts && vite build --config vite.web.config.ts",
     "build:web": "vite build --config vite.web.config.ts",
+    "build:web:relay": "node scripts/build-web-relay.mjs",
     "preview": "vite preview",
     "package": "source .env && pnpm typecheck && vite build && node scripts/build-host-tarball.mjs && electron-builder",
     "test": "vitest run && pnpm knip:ci",
@@ -25,18 +26,27 @@
     "e2e:remote:watch": "MANOR_E2E_HEADED=1 MANOR_E2E_HOLD=300 playwright test tests/e2e/remote-control.spec.ts --grep 'pair a phone'",
     "test:e2e:web": "pnpm build && playwright test tests/e2e/web-app.spec.ts",
     "e2e:web": "playwright test tests/e2e/web-app.spec.ts",
+    "test:e2e:relay": "pnpm build && pnpm build:web:relay && playwright test tests/e2e/relay.spec.ts",
+    "e2e:relay": "playwright test tests/e2e/relay.spec.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "postinstall": "electron-rebuild",
     "kill": "test -f ~/.manor/daemon/terminal-host.pid && kill $(cat ~/.manor/daemon/terminal-host.pid) 2>/dev/null; rm -f ~/.manor/daemon/terminal-host.pid ~/.manor/daemon/terminal-host.sock ~/.manor/daemon/terminal-host.token",
-    "release": "node scripts/release.mjs"
+    "release": "node scripts/release.mjs",
+    "relay:dev": "pnpm --filter manor-relay run dev",
+    "relay:test": "pnpm --filter manor-relay run test",
+    "relay:dev:upload": "node scripts/upload-web-relay.mjs --local",
+    "relay:deploy": "pnpm --filter manor-relay run deploy"
   },
   "dependencies": {
     "@electron/osx-sign": "^2.3.0",
     "@formkit/auto-animate": "^0.10.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
+    "@noble/ciphers": "^2.4.0",
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
     "@radix-ui/react-checkbox": "^1.3.3",
     "@radix-ui/react-context-menu": "^2.2.16",
     "@radix-ui/react-dialog": "^1.1.15",
@@ -145,7 +155,8 @@
     "onlyBuiltDependencies": [
       "node-pty",
       "electron",
-      "esbuild"
+      "esbuild",
+      "workerd"
     ]
   }
 }

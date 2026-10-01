@@ -19,8 +19,9 @@
  *
  * A frame is one of five kinds. The client sends `invoke`, `subscribe` and
  * `unsubscribe`; the host answers `result` and pushes `event`. The hello
- * frame is deliberately absent: it belongs to the WebSocket transport, which
- * is the only one that has anything to authenticate (D2).
+ * is not one of the five: it belongs to the socket transports, which are the
+ * only ones that have anything to authenticate (D2). Its *reply* is described
+ * at the bottom of this file, because the browser reads it too.
  */
 
 /** Bumped when a frame's shape changes in a way a client must notice. */
@@ -73,6 +74,23 @@ export const BRIDGE_RENDERER_ID = "bridge:rendererId";
 export const CLOSE_UNAUTHORIZED = 4401;
 /** A valid token for a device below the `full` tier. */
 export const CLOSE_FORBIDDEN = 4403;
+
+/**
+ * The host's answer to an accepted `hello` on a socket transport.
+ *
+ * `appVersion` is the desktop's `app.getVersion()` (ADR-206 D4): a page
+ * served by the relay origin compares it with its own build and navigates to
+ * the matching `/app/<appVersion>/` when they differ. Optional because an
+ * older host does not send it, and the listener-served page ignores it — the
+ * listener serves the build that matches by construction.
+ */
+export interface HelloReplyFrame {
+  type: "hello";
+  ok: true;
+  v: number;
+  rendererId: string;
+  appVersion?: string;
+}
 
 /** A call: `ns.method(...args)`, answered with a `ResultFrame` carrying `id`. */
 export interface InvokeFrame {

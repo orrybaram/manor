@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import QRCode from "qrcode";
 import * as Dialog from "@radix-ui/react-dialog";
 
+import { useMountEffect } from "../../hooks/useMountEffect";
 import { Button } from "../ui/Button/Button";
 import { CopyField } from "./CopyField";
 import type { RemotePairResult } from "../../electron.d";
@@ -75,40 +76,112 @@ export function TunnelConfirmDialog(props: {
 }
 
 /**
- * The one moment the raw token exists in the UI.
- *
- * What the device needs is a *link* — the token rides in its fragment — so the
- * link is what this leads with, and it is offered whether or not a tunnel is
- * running: without one it points at loopback, which still works in a browser
- * on this machine and is the fastest way to see what the phone will see. The
- * QR code only appears for an address a phone can actually reach.
+ * Starting the relay gets the same explicit confirmation as the tunnel: what
+ * becomes reachable, and the one thing that is different about this road.
  */
-export function PairingResultDialog(props: {
-  result: RemotePairResult | null;
-  /** Loopback address of the listener, for the local link. */
-  port: number | null;
-  onClose: () => void;
+export function RelayConfirmDialog(props: {
+  open: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
 }) {
-  const { result, port, onClose } = props;
-  // Keyed by the URL it encodes, so a stale code can never be shown for a new
-  // link, and nothing has to be cleared synchronously when the link goes away.
-  const [qr, setQr] = useState<{ url: string; data: string } | null>(null);
+  const { open, onCancel, onConfirm } = props;
+  return (
+    <Dialog.Root
+      open={open}
+      onOpenChange={(open) => {
+        if (!open) onCancel();
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Overlay className={dialogStyles.confirmOverlay} />
+        <Dialog.Content
+          data-testid="remote-relay-confirm"
+          className={dialogStyles.confirmDialog}
+        >
+          <Dialog.Title className={dialogStyles.confirmTitle}>
+            Make this machine reachable through the Manor relay?
+          </Dialog.Title>
+          <Dialog.Description className={dialogStyles.confirmDescription}>
+            Devices you pair through the relay can do anything the desktop app
+            can, including reading your sessions and their scrollback (which
+            routinely contains API keys and source code) and removing
+            workspaces. Everything between this machine and those devices is
+            end-to-end encrypted, so the relay itself cannot read any of it. The
+            relay stops when Manor quits.
+          </Dialog.Description>
+          <div className={dialogStyles.confirmActions}>
+            <Button variant="secondary" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={onConfirm}>
+              Start relay
+            </Button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
 
-  const tunnelUrl = result?.pairingUrl ?? null;
-  // Same page the tunnel link would use — the server decides it once and
-  // sends it back on the result, so a `full` device's loopback link opens the
-  // web app rather than the phone client.
-  const localUrl =
-    result && port !== null
-      ? `http://127.0.0.1:${port}${result.page}#${result.rawToken}`
-      : null;
+/** Resetting the address kills every relay link, so say so before doing it. */
+export function ResetRelayDialog(props: {
+  open: boolean;
+  relayDevices: number;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const { open, relayDevices, onCancel, onConfirm } = props;
+  return (
+    <Dialog.Root
+      open={open}
+      onOpenChange={(open) => {
+        if (!open) onCancel();
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Overlay className={dialogStyles.confirmOverlay} />
+        <Dialog.Content
+          data-testid="remote-relay-reset-confirm"
+          className={dialogStyles.confirmDialog}
+        >
+          <Dialog.Title className={dialogStyles.confirmTitle}>
+            Reset the relay address?
+          </Dialog.Title>
+          <Dialog.Description className={dialogStyles.confirmDescription}>
+            This stops the relay and gives this machine a new address. Every
+            device paired through the relay
+            {relayDevices > 0 ? ` (${relayDevices} now)` : ""} is disconnected,
+            revoked, and will need to be paired again. Devices paired over
+            Tailscale are not affected: the relay never admits them.
+          </Dialog.Description>
+          <div className={dialogStyles.confirmActions}>
+            <Button variant="secondary" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={onConfirm}>
+              Reset address
+            </Button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
 
-  useEffect(() => {
-    if (!tunnelUrl) return;
+/**
+ * The QR code for one link. Keyed by the link at the call site, so a new link
+ * is a new component: the code is generated once on mount, a stale one can
+ * never be shown for a different link, and nothing needs clearing.
+ */
+function PairingQr(props: { url: string }) {
+  const { url } = props;
+
+  const [data, setData] = useState<string | null>(null);
+  useMountEffect(() => {
     let live = true;
-    void QRCode.toDataURL(tunnelUrl, { margin: 1, width: 220 })
-      .then((data) => {
-        if (live) setQr({ url: tunnelUrl, data });
+    void QRCode.toDataURL(url, { margin: 1, width: 220 })
+      .then((encoded) => {
+        if (live) setData(encoded);
       })
       .catch(() => {
         // No code, just the link below it.
@@ -116,7 +189,43 @@ export function PairingResultDialog(props: {
     return () => {
       live = false;
     };
-  }, [tunnelUrl]);
+  });
+  if (!data) return null;
+  return <img className={styles.remoteQr} src={data} alt="Pairing QR code" />;
+}
+
+/**
+ * The one moment the raw token exists in the UI.
+ *
+ * What the device needs is a *link* — the token rides in its fragment — so the
+ * link is what this leads with, and it is offered whether or not a tunnel is
+ * running: without one it points at loopback, which still works in a browser
+ * on this machine and is the fastest way to see what the phone will see. The
+ * QR code only appears for an address a phone can actually reach.
+ *
+ * A relay link always has an address; what it may lack is a running relay,
+ * and an iPhone needs one more step for notifications (ADR-206 D7) — both
+ * said here, where the link is being handed over.
+ */
+export function PairingResultDialog(props: {
+  result: RemotePairResult | null;
+  /** Loopback address of the listener, for the local link. */
+  port: number | null;
+  /** Whether the relay is connected, for a relay device's link. */
+  relayRunning: boolean;
+  onClose: () => void;
+}) {
+  const { result, port, relayRunning, onClose } = props;
+
+  const tunnelUrl = result?.pairingUrl ?? null;
+  const viaRelay = result?.device.via === "relay";
+  // Same page the tunnel link would use — the server decides it once and
+  // sends it back on the result, so a `full` device's loopback link opens the
+  // web app rather than the phone client.
+  const localUrl =
+    result && port !== null
+      ? `http://127.0.0.1:${port}${result.page}#${result.rawToken}`
+      : null;
 
   return (
     <Dialog.Root
@@ -140,24 +249,41 @@ export function PairingResultDialog(props: {
           </Dialog.Description>
 
           <div className={styles.remotePairingBody}>
-            {qr?.url === tunnelUrl && (
-              <img
-                className={styles.remoteQr}
-                src={qr.data}
-                alt="Pairing QR code"
-              />
-            )}
+            {tunnelUrl && <PairingQr key={tunnelUrl} url={tunnelUrl} />}
 
             <div>
               <div className={styles.fieldLabel}>
                 {tunnelUrl ? "Link" : "Link (this machine only)"}
               </div>
-              <CopyField value={tunnelUrl ?? localUrl ?? ""} label="link" />
+              <CopyField
+                value={tunnelUrl ?? localUrl ?? ""}
+                label="link"
+                testId="remote-pairing-link"
+              />
               {!tunnelUrl && (
                 <div className={styles.fieldHint}>
                   No tunnel is running, so this address only works in a browser
                   here. Start a tunnel and pair again for a link your phone can
                   open.
+                </div>
+              )}
+              {viaRelay && !relayRunning && (
+                <div
+                  className={styles.fieldHint}
+                  data-testid="remote-pairing-relay-stopped"
+                >
+                  The relay isn&apos;t connected, so this link won&apos;t reach
+                  this machine until it is. Start the relay from the card above.
+                </div>
+              )}
+              {viaRelay && (
+                <div
+                  className={styles.fieldHint}
+                  data-testid="remote-pairing-ios-hint"
+                >
+                  On an iPhone or iPad, notifications need the page on the Home
+                  Screen: open the link in Safari, then Share → Add to Home
+                  Screen, and open Manor from there.
                 </div>
               )}
             </div>

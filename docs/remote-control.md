@@ -1,9 +1,10 @@
 # Remote control
 
 Manor can let you check on your agents from a phone. It is off by default, and
-turning it on is three separate, deliberate steps — enabling the listener,
-starting a tunnel, and pairing a device — because each one widens what is
-exposed by a different amount.
+turning it on is three separate, deliberate steps — enabling remote control,
+choosing a way to reach the machine (the Manor relay or a Tailscale tunnel),
+and pairing a device — because each one widens what is exposed by a different
+amount.
 
 This document is blunt about what that exposure is. Read it before you turn
 this on.
@@ -112,27 +113,124 @@ anything. Remote control is also off again after every restart, deliberately —
 a setting that silently reopens a listener after an update is exactly the
 surprise this feature cannot afford.
 
-**Tailscale is the only tunnel.** With `tailscale serve`, only devices on your
-tailnet can reach the address at all, so the pairing token is a _second_
-factor. Manor used to offer a public cloudflared quick tunnel as well, but there
-the token was the only thing between the internet and your session output, so
-it was dropped. Manor finds `tailscale` on `PATH` or inside the Tailscale app
-bundle. If neither is there, the settings card offers **Install**, which runs
-`brew install --cask tailscale-app` in a small terminal you can watch and type
-into, then opens the app so you can sign in.
+**Two ways to reach the machine.** Manor never starts either on its own: not
+at launch, not on restore, not as a side effect of anything.
+
+- **Tailscale** (`tailscale serve`) puts the loopback listener on your tailnet.
+  Only devices on your tailnet can reach the address at all, so the pairing
+  token is a _second_ factor. It stays the recommended choice for anyone who
+  already has Tailscale. Manor finds `tailscale` on `PATH` or inside the
+  Tailscale app bundle. If neither is there, the settings card offers
+  **Install**, which runs `brew install --cask tailscale-app` in a small
+  terminal you can watch and type into, then opens the app so you can sign in.
+- **The Manor relay** needs nothing installed on either end — see
+  [below](#the-manor-relay). The token is the only factor, which is the reason
+  it is paired at `full` only and the reason its encryption matters.
+
+Manor used to offer a public cloudflared quick tunnel too, and it stays dropped.
+There the token was the only thing between the internet and your session
+output, TLS ended at Cloudflare, and session output crossed it in the clear. The
+relay is also single-factor, but accepted for reasons cloudflared did not have:
+the relay only ever sees ciphertext, the token never leaves the encrypted
+channel (it is in no header a proxy can log), nothing on your machine answers
+HTTP to the internet, and Tailscale remains available for anyone who wants the
+network as a first factor.
+
+## The Manor relay
+
+The relay is a small hosted service (a Cloudflare Worker, `relay/` in this
+repo) that both your desktop and your phone dial _out_ to, so there is nothing
+to install on either end and no NAT to get through
+([ADR-206](decisions/adr-206-relay-transport/index.md)). Your desktop has a
+**room** on it, addressed by a hash of a key Manor generates on first use. The
+phone opens a **channel** into that room and the relay pipes bytes between the
+two. Between them is a Noise `NK` handshake: the phone learns the desktop's
+public key from the QR, so it knows it is talking to your desktop and not to the
+relay, and every message after that is encrypted end to end.
+
+**To use it.** Settings → Remote control, enable it, then **Start relay** on the
+**Manor relay (no install)** card. Manor names what becomes reachable and asks
+you to confirm first. Pair a device with **Manor relay** chosen above the name
+field — Tailscale is the default, so the relay is always picked on purpose —
+and scan the QR; the link looks like `https://<relay>/app/<version>/#relay=<room>.<key>&t=<token>`,
+and everything after the `#` goes to no server. Starting it requires remote
+control to be on, it is off again after a restart, and it stops when Manor quits.
+_Reset relay address_ on the same card generates a new room and new keys: every
+link for the old one is dead at once, and every device paired through the relay
+is revoked. Each connected relay browser is closed as revoked _before_ the relay
+stops, so it shows the re-pair prompt rather than "not reachable".
+
+If the card says **Can't reach the Manor relay**, the desktop is retrying in the
+background and shows why (DNS failure, connection lost); relay devices cannot
+connect until it succeeds. If the stored relay identity ever cannot be read (a
+restored backup, a new keychain), Manor makes a new one — a new address — and
+says so on the card; every relay device paired to the old address is revoked,
+since its link can no longer find this machine.
+
+**Each road admits only its own devices.** The relay lets in only devices that
+were paired through the relay. A device paired over Tailscale is refused there
+exactly as an unknown token would be, so starting the relay never removes the
+tailnet in front of a Tailscale device's token. The other direction is allowed:
+a relay device's token also works over Tailscale or on this machine, since both
+are narrower than the relay.
+
+**`full` only.** The relay carries the bridge, and the bridge refuses anything
+below `full`. The remote client at `/` speaks HTTP routes and SSE, which do not
+travel over the relay, so with the relay selected the tier picker is replaced
+by a warning that the device gets Everything, from anywhere. Watch and Reply
+devices need Tailscale.
+
+**Notifications work over the relay.** The phone registers its Web Push
+subscription over the bridge, and the desktop sends pushes straight to the
+browser's push service — the relay is not involved. On iOS the page must be
+added to the Home Screen first, same as above; the pairing dialog says so for a
+relay device.
+
+**Version skew.** The relay serves the web app from the origin, one build per
+Manor release (`/app/<version>/`). If a link was made by an older Manor, the
+page redirects to the build matching your desktop once connected. A version
+with no uploaded build (a development build) shows a stated screen rather than
+a blank page.
+
+### What the relay can and cannot see
+
+It **can** see: that a room exists and when its desktop is online, which IP
+addresses connect to it and when, how many channels are open, the size and
+timing of the encrypted messages, and roughly how much traffic a room moves.
+It enforces limits from that: 1 MiB per message, 8 channels per room, a daily
+byte budget per room, and a join rate limit per IP.
+
+It **cannot** see: your session list, scrollback, keystrokes, layout, the
+device token, or anything else inside a channel. It cannot join a room it does
+not hold the key for, and it cannot impersonate your desktop to your phone —
+the handshake fails.
+
+It does **not** protect against: **whoever serves the page.** The relay's origin
+serves the web app's JavaScript, and malicious JavaScript could read the token
+or your sessions after they are decrypted. End-to-end encryption protects
+against the relay's logs, Cloudflare, and a compromised relay _process_; it
+does not protect against a malicious deploy of the page. Anyone who runs their
+own relay is trusting themselves; everyone else is trusting whoever deploys
+Manor's. The relay and page are deployed only from the release workflow.
+
+If the relay is down, relay devices cannot connect; Tailscale devices are
+unaffected.
 
 ## Pairing a device
 
 1. **Settings → Remote control**, and turn on the toggle. The listener starts,
    still loopback-only.
-2. **Start the tunnel** — the main button on the card at the top of the page.
-   Manor names what becomes reachable before it starts anything.
-3. **Pair a device.** Give it a name and a tier — **Watch** (`read`), **Reply**
-   (`send`), or **Everything** (`full`). Watch is the default and the one
-   pre-selected; picking Everything shows its own warning in place of the usual
-   hint: "This device can do anything the desktop app can, including removing
-   workspaces." Manor shows a QR code and the link once — scan it with the
-   phone, or copy the link.
+2. **Start the tunnel or the relay** — the main button on the card for the way
+   you chose. Manor names what becomes reachable before it starts anything.
+3. **Pair a device.** Choose the road — **Tailscale** (the default) or **Manor
+   relay** — then give it a name and, for Tailscale, a tier: **Watch**
+   (`read`), **Reply** (`send`), or **Everything** (`full`). Watch is the
+   default and the one pre-selected; picking Everything shows its own warning
+   in place of the usual hint: "This device can do anything the desktop app
+   can, including removing workspaces." Choosing the relay shows the same kind
+   of warning, because a relay device is always Everything. Both reset to
+   Tailscale and Watch after every pairing. Manor shows a QR code and the link
+   once — scan it with the phone, or copy the link.
 4. On the phone, the page stores the token and immediately strips it out of the
    address bar, so it does not linger in history or in a screenshot of the URL.
 
@@ -159,7 +257,7 @@ Manor server, not to whichever window changed it
 ([ADR-179](decisions/adr-179-server-owned-layout/index.md)). A browser sees
 every tab in a workspace, including ones popped out into their own window on
 the desk — a detached window is just a desktop window's claim on a tab, not a
-place the tab moves to. What each window is *looking at* stays its own:
+place the tab moves to. What each window is _looking at_ stays its own:
 flipping tabs on a phone does not flip the desk, and that selection is per
 device, never shared.
 
@@ -203,12 +301,18 @@ one pane at a time instead of the desk's grid shrunk to fit
 
 ## Knowing whether you are exposed
 
-While a tunnel is live, a **REMOTE** badge sits in Manor's status bar, visible
-from anywhere in the app — not only inside settings. Tap it to stop the tunnel.
-If the tunnel dies on its own, the badge turns red and says so rather than
-continuing to claim you are reachable.
+While a tunnel or the relay is live, a **REMOTE** badge sits in Manor's status
+bar, visible from anywhere in the app — not only inside settings. Its tooltip
+lists each road that is on, with how many devices are connected through it.
+Clicking it stops **both** the tunnel and the relay: the badge is for the
+moment you want the machine unreachable now, and stopping only one road would
+leave the other open behind your back (the settings cards stop them one at a
+time). If a road dies on its own, the badge turns red and says so rather than
+continuing to claim you are reachable; while the relay cannot be reached and
+Manor is retrying, it turns amber and reads **RETRYING**.
 
-The tunnel also stops when Manor quits.
+The tunnel and the relay also stop when Manor quits, and when you turn remote
+control off.
 
 ## Notifications
 
@@ -232,14 +336,16 @@ into a push — a notification reaches your lock screen and is retained by the O
 
 Revoke that device: **Settings → Remote control → Paired devices → trash icon**.
 Revocation takes effect on the next request; nothing caches the device list.
-Its push subscription goes with it.
+It also cuts that device's **live** connections at once — an open bridge socket,
+over the relay or not, and the remote client's event stream — rather than
+waiting for it to reconnect. Its push subscription goes with it.
 
 Tokens are per device for exactly this reason — revoking one does not disturb
 the others. If you are unsure which device is affected, revoke all of them and
 re-pair; pairing takes a few seconds.
 
-If you suspect the machine itself was reached, stop the tunnel first, then
-revoke.
+If you suspect the machine itself was reached, stop the tunnel and the relay
+first, then revoke.
 
 ## Deliberately not supported
 
@@ -267,13 +373,14 @@ checking — without introducing another party to the trust model.
 
 ## Where things live
 
-| File                 | What                                                                               |
-| -------------------- | ---------------------------------------------------------------------------------- |
-| `remote-devices.enc` | Paired devices: label, token hash, capability, push subscription. Encrypted, 0600. |
-| `remote-audit.jsonl` | One line per remote send. No plaintext. 0600, size-rotated.                        |
-| `remote-vapid.enc`   | Web Push signing key pair. Encrypted, 0600.                                        |
+| File                        | What                                                                                                                                                                |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `remote-devices.enc`        | Paired devices: label, token hash, capability, push subscription. Encrypted, 0600.                                                                                  |
+| `remote-audit.jsonl`        | One line per remote send. No plaintext. 0600, size-rotated.                                                                                                         |
+| `remote-vapid.enc`          | Web Push signing key pair. Encrypted, 0600.                                                                                                                         |
+| `remote-relay-identity.enc` | The relay identity: an Ed25519 key (proves the room is yours) and an X25519 key (the Noise static key in the QR). Encrypted, 0600. Reset relay address replaces it. |
 
-All three are in Manor's application data directory
+All four are in Manor's application data directory
 (`~/Library/Application Support/Manor` on macOS).
 
 ---

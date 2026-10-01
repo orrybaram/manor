@@ -235,7 +235,10 @@ describe("the audit log, by caller class", () => {
     await invoke(server, device, "linear.connect", ["lin_api_stolen"]);
 
     const [line] = audit.read();
-    expect(line).toMatchObject({ route: "linear.connect", outcome: "rejected" });
+    expect(line).toMatchObject({
+      route: "linear.connect",
+      outcome: "rejected",
+    });
     expect(line.target).toBeNull();
     expect(JSON.stringify(audit.read())).not.toContain("lin_api_stolen");
   });

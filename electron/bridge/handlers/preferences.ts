@@ -33,7 +33,10 @@ export function preferencesSet<K extends keyof AppPreferences>(
   ctx.deps.preferencesManager.set(key, value);
 }
 
-export function preferencesPlaySound(_ctx: HandlerCtx, soundName: string): void {
+export function preferencesPlaySound(
+  _ctx: HandlerCtx,
+  soundName: string,
+): void {
   assertString(soundName, "soundName");
   playNotificationSound(soundName);
 }

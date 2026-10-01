@@ -21,6 +21,8 @@ export interface Caller {
   id: string;
   /** `local` = an Electron renderer window; `device` = a paired `full` device. */
   callerClass: "local" | "device";
+  /** The paired device behind a `device` caller; null/absent for `local`. */
+  deviceId?: string | null;
 }
 
 /** What every handler gets before its wire arguments. */

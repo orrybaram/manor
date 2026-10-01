@@ -1,53 +1,61 @@
 import Globe from "lucide-react/dist/esm/icons/globe";
 
-import {
-  useRemoteControlStore,
-  selectExposed,
-} from "../../../store/remote-control-store";
+import { useRemoteControlStore } from "../../../store/remote-control-store";
+import { Button } from "../../ui/Button/Button";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
+import { describeExposure } from "./remote-exposure";
 import styles from "./StatusBar.module.css";
 
+const TONE_CLASS = {
+  ok: "",
+  warning: styles.remoteBadgeWarning,
+  failed: styles.remoteBadgeFailed,
+};
+
 /**
- * Persistent "you are reachable from outside" indicator (ADR-161 ticket 6 §5).
+ * Persistent "you are reachable from outside" indicator (ADR-161 ticket 6 §5,
+ * ADR-206 D6).
  *
  * Lives in the status bar rather than in settings because the hazard is a user
- * who left a tunnel running and forgot. It renders nothing at all when no
- * tunnel is up, so it costs nothing in the normal case — and it deliberately
- * shows `failed` too, since a tunnel that died still needs explaining.
+ * who left a road open and forgot. It renders nothing at all when neither the
+ * tunnel nor the relay is up, so it costs nothing in the normal case — and it
+ * deliberately shows failures too, since a road that died still needs
+ * explaining.
+ *
+ * One badge for both roads. The tooltip lists each one that is not off, with
+ * its own connection count, and a click stops **every** road at once. That is
+ * the safer of the two choices: the badge exists for the moment someone wants
+ * this machine unreachable *now*, and a click that closed one road and left
+ * the other open is exactly the surprise it is there to prevent. (The
+ * settings page stops them one at a time.)
  */
 export function RemoteExposureIndicator() {
-  const exposed = useRemoteControlStore(selectExposed);
-  const tunnel = useRemoteControlStore((s) => s.status.tunnel);
-  const listeners = useRemoteControlStore((s) => s.status.listeners);
+  const status = useRemoteControlStore((s) => s.status);
   const stopTunnel = useRemoteControlStore((s) => s.stopTunnel);
+  const stopRelay = useRemoteControlStore((s) => s.stopRelay);
 
-  if (!exposed && tunnel.state !== "failed") return null;
+  const view = describeExposure(status);
+  if (!view) return null;
 
-  const starting = tunnel.state === "starting";
-  const failed = tunnel.state === "failed";
-
-  const label = failed
-    ? (tunnel.error ?? "The tunnel stopped unexpectedly.")
-    : starting
-      ? "Starting a tunnel. This machine is not reachable yet."
-      : `Reachable at ${tunnel.url}. ${
-          listeners === 0
-            ? "No device is connected right now."
-            : `${listeners} device${listeners === 1 ? "" : "s"} connected.`
-        } Click to stop.`;
+  const stopAll = () => {
+    if (view.stop.tunnel) void stopTunnel();
+    if (view.stop.relay) void stopRelay();
+  };
 
   return (
-    <Tooltip label={label} side="top">
-      <button
-        className={`${styles.remoteBadge} ${failed ? styles.remoteBadgeFailed : ""}`}
-        onClick={() => void stopTunnel()}
-        aria-label={failed ? "Tunnel failed" : "Stop remote tunnel"}
+    <Tooltip label={view.label} side="top">
+      <Button
+        variant="link"
+        data-testid="remote-exposure-badge"
+        className={`${styles.remoteBadge} ${TONE_CLASS[view.tone]}`}
+        onClick={stopAll}
+        aria-label={
+          view.exposed ? "Stop remote access" : "Dismiss remote failure"
+        }
       >
         <Globe size={10} />
-        <span>
-          {failed ? "TUNNEL FAILED" : starting ? "STARTING" : "REMOTE"}
-        </span>
-      </button>
+        <span>{view.text}</span>
+      </Button>
     </Tooltip>
   );
 }

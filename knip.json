@@ -1,39 +1,49 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": [
-    "index.html",
-    "src/remote-client/index.html",
-    "src/remote-client/sw.ts",
-    "src/web.html",
-    "src/web-main.tsx",
-    "electron/main.ts",
-    "electron/preload.ts",
-    "electron/terminal-host/index.ts",
-    "electron/terminal-host/pty-subprocess.ts",
-    "electron/mcp-webview-server.ts",
-    "electron/manor-cli.ts",
-    "electron/bridge/surface.ts",
-    "electron/scripts/agent-hook.js",
-    "scripts/*.{mjs,ts}",
-    "tests/e2e/**/*.spec.ts",
-    "tests/e2e/fixtures.ts",
-    "**/*.test.{ts,tsx}",
-    "**/__tests__/**/*.{ts,tsx}"
-  ],
-  "project": [
-    "src/**/*.{ts,tsx}",
-    "electron/**/*.{ts,js}",
-    "scripts/**/*.{ts,mjs}",
-    "tests/**/*.ts"
-  ],
-  "ignoreDependencies": ["@electron/osx-sign"],
-  "ignoreBinaries": ["afplay", "pkill"],
-  "vite": {
-    "config": [
-      "vite.config.ts",
-      "vite.remote.config.ts",
-      "vite.web.config.ts",
-      "vitest.config.ts"
-    ]
-  }
+  "workspaces": {
+    ".": {
+      "entry": [
+        "index.html",
+        "src/remote-client/index.html",
+        "src/remote-client/sw.ts",
+        "src/web/sw.ts",
+        "src/web.html",
+        "src/web-main.tsx",
+        "electron/main.ts",
+        "electron/preload.ts",
+        "electron/terminal-host/index.ts",
+        "electron/terminal-host/pty-subprocess.ts",
+        "electron/mcp-webview-server.ts",
+        "electron/manor-cli.ts",
+        "electron/bridge/surface.ts",
+        "electron/scripts/agent-hook.js",
+        "scripts/*.{mjs,ts}",
+        "tests/e2e/**/*.spec.ts",
+        "tests/e2e/fixtures.ts",
+        "**/*.test.{ts,tsx}",
+        "**/__tests__/**/*.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx}",
+        "electron/**/*.{ts,js}",
+        "scripts/**/*.{ts,mjs}",
+        "tests/**/*.ts"
+      ],
+      "ignoreDependencies": ["@electron/osx-sign"],
+      "vite": {
+        "config": [
+          "vite.config.ts",
+          "vite.remote.config.ts",
+          "vite.web.config.ts",
+          "vitest.config.ts"
+        ]
+      }
+    },
+    "relay": {
+      "entry": ["test/**/*.test.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts"],
+      "ignoreDependencies": ["cloudflare"]
+    }
+  },
+  "ignoreBinaries": ["afplay", "pkill"]
 }

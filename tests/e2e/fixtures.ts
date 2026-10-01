@@ -16,7 +16,18 @@ export const test = base.extend<{
   app: ElectronApplication;
   window: Page;
   tempHome: string;
+  /**
+   * How the `app` fixture launches the app (`LaunchOptions`). Empty unless a
+   * spec overrides it — `relay.spec.ts` hands it `MANOR_RELAY_URL` from its
+   * relay fixture.
+   */
+  appLaunch: LaunchOptions;
 }>({
+  // eslint-disable-next-line no-empty-pattern
+  appLaunch: async ({}, use) => {
+    await use({});
+  },
+
   // eslint-disable-next-line no-empty-pattern
   tempHome: async ({}, use) => {
     const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "manor-e2e-"));
@@ -42,8 +53,8 @@ export const test = base.extend<{
     await removeTempHome(tempHome);
   },
 
-  app: async ({ tempHome }, use) => {
-    const app = await launchApp(tempHome);
+  app: async ({ tempHome, appLaunch }, use) => {
+    const app = await launchApp(tempHome, appLaunch);
     // MANOR_E2E_LOG=1 forwards the app's own stdout/stderr into the test
     // output. The launched app is a separate process, so without this its
     // console — including anything the main process logs about a failing
@@ -170,6 +181,26 @@ async function removeTempHome(tempHome: string): Promise<void> {
   }
 }
 
+export interface LaunchOptions {
+  /**
+   * Extra environment, applied after `launchApp`'s `MANOR_*` scrub, so a
+   * spec can hand the app a `MANOR_*` variable on purpose —
+   * `relay.spec.ts` points it at a local relay with `MANOR_RELAY_URL` —
+   * without inheriting anyone else's.
+   */
+  env?: Record<string, string>;
+  /**
+   * Launch the repo root as the app rather than `dist-electron/main.js`
+   * directly. Same code either way; the difference is that Electron reads the
+   * root `package.json`, so `app.getVersion()` is Manor's version — as it is
+   * in a packaged build and under `pnpm dev` — instead of Electron's own.
+   * Off by default to leave every other spec launching as it always has;
+   * `relay.spec.ts` needs it because a relay pairing link and the hello
+   * reply both name the desktop's version (ADR-206 D4).
+   */
+  asPackage?: boolean;
+}
+
 /**
  * Launch the built app against `tempHome`.
  *
@@ -183,9 +214,12 @@ async function removeTempHome(tempHome: string): Promise<void> {
  * take focus, no notification banners — `electron/e2e-background.ts`) so a
  * run does not take over the machine it runs on; `MANOR_E2E_HEADED=1` or
  * `MANOR_E2E_FOREGROUND=1` puts its windows back in front.
+ *
+ * See `LaunchOptions` for what a spec can change.
  */
 export async function launchApp(
   tempHome: string,
+  { env: extraEnv = {}, asPackage = false }: LaunchOptions = {},
 ): Promise<ElectronApplication> {
   const { VITE_DEV_SERVER_URL: _devServer, ...rest } = process.env;
 
@@ -221,14 +255,15 @@ export async function launchApp(
 
   return _electron.launch({
     args: [
-      path.join(repoRoot, "dist-electron/main.js"),
+      // The repo root's package.json names the same `dist-electron/main.js`.
+      asPackage ? repoRoot : path.join(repoRoot, "dist-electron/main.js"),
       // Electron's userData — localStorage, IndexedDB, session storage —
       // defaults to ~/Library/Application Support/Electron regardless of HOME.
       // Left there, a run would see what the previous one persisted in the
       // renderer, and the real installation's storage sits one directory over.
       `--user-data-dir=${path.join(tempHome, "user-data")}`,
     ],
-    env: { ...env, HOME: tempHome },
+    env: { ...env, ...extraEnv, HOME: tempHome },
     cwd: repoRoot,
     recordVideo: videoDir() ? { dir: videoDir()!, size: VIDEO_SIZE } : undefined,
   });

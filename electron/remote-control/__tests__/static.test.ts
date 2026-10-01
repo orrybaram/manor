@@ -186,9 +186,7 @@ describe("serveWebAsset", () => {
   });
 
   it("never caches the shell, always caches hashed assets", () => {
-    expect(serve("/app").written[0].headers["Cache-Control"]).toBe(
-      "no-store",
-    );
+    expect(serve("/app").written[0].headers["Cache-Control"]).toBe("no-store");
     expect(
       serve("/app/assets/web.js").written[0].headers["Cache-Control"],
     ).toContain("immutable");

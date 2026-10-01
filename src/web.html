@@ -25,6 +25,12 @@
       whatever reason, does not see it.
     -->
     <!--csp-->
+    <!--
+      The web app manifest, `theme-color`, `apple-mobile-web-app-capable` and
+      the touch icon are injected by `vite.web.config.ts` (`webAppManifest`)
+      with this build's base: installable so that iOS Home Screen opens it as
+      a web app, the only place iOS offers Web Push (ADR-206 D7).
+    -->
     <title>Manor</title>
   </head>
 

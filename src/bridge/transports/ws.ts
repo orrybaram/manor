@@ -1,11 +1,18 @@
 /**
- * The browser's transport: one WebSocket to `/ws` (ADR-178 D8, ADR-180 D3).
+ * The browser's transport: one socket to the host (ADR-178 D8, ADR-180 D3).
  *
  * Everything that is *about the socket* and nothing that is about
  * `ns.method`: the connect, the hello, the JSON framing, the pending map, the
  * outbox, the live-subscription registry, the reconnect with its capped
  * backoff, and the two close codes that mean "stop dialling". The proxy above
  * it (`../client.ts`) is the same code the desktop runs.
+ *
+ * **The socket itself is a `Pipe`** (ADR-206 D3): "open something, send
+ * text, receive text, learn the close code". The listener-served `/app`
+ * uses `webSocketPipe` — a plain WebSocket to `/ws`, exactly what this file
+ * always did — and a relay-served page uses `./relay-pipe.ts`, which runs the
+ * Noise handshake under the same four callbacks. Everything above the pipe
+ * is one piece of code for both.
  *
  * The frame shapes and the close codes come from
  * `electron/bridge/types.ts` — the host's own definition of the protocol,
@@ -24,6 +31,7 @@ import {
   CLOSE_UNAUTHORIZED,
   type ClientFrame,
   type EventFrame,
+  type HelloReplyFrame,
   type ResultFrame,
 } from "../../../electron/bridge/types";
 import {
@@ -34,6 +42,67 @@ import {
 } from "../client";
 import { SubscriptionRegistry } from "../subscription-registry";
 import { LOCALLY_SERVED } from "../unavailable";
+
+/**
+ * What a `Pipe` tells the transport. Each connection calls `onClose` exactly
+ * once, and nothing after it.
+ */
+export interface PipeHandlers {
+  /** Ready to carry text frames: the transport says hello now. */
+  onOpen(): void;
+  onMessage(text: string): void;
+  onClose(code: number): void;
+}
+
+/** One connection a `Pipe` opened. */
+export interface PipeConnection {
+  /** True between `onOpen` and `onClose`. */
+  readonly open: boolean;
+  /** One text frame. May throw on a dying connection; the caller catches. */
+  send(text: string): void;
+}
+
+/** Something that can open connections carrying the bridge's text frames. */
+export interface Pipe {
+  connect(handlers: PipeHandlers): PipeConnection;
+  /**
+   * Close codes that mean "the host is not there right now" rather than "the
+   * line dropped": still retried with backoff, but also surfaced, so the page
+   * can say so instead of looking frozen. The plain WebSocket has none.
+   */
+  readonly unreachableCodes?: ReadonlySet<number>;
+}
+
+/** The listener's pipe: a plain WebSocket to `url`, text frames as-is. */
+export function webSocketPipe(url: string): Pipe {
+  return {
+    connect(handlers) {
+      const socket = new WebSocket(url);
+      socket.onopen = () => handlers.onOpen();
+      socket.onmessage = (event: MessageEvent) => {
+        handlers.onMessage(String(event.data));
+      };
+      socket.onclose = (event: CloseEvent) => handlers.onClose(event.code);
+      socket.onerror = () => {
+        // A `close` always follows, and it carries the code this cares about.
+      };
+      return {
+        get open() {
+          return socket.readyState === 1;
+        },
+        send: (text) => socket.send(text),
+      };
+    },
+  };
+}
+
+/**
+ * A pipe's verdict that the far end does not hold the key this page was
+ * paired with (`relay-pipe.ts`: several bad Noise message 2s in a row). Never
+ * on the wire. Unlike 4401 it is not proof the credentials are dead — so the
+ * transport stops dialling and asks to re-pair, but does not forget them.
+ */
+export const CLOSE_KEY_MISMATCH = 4502;
 
 /** Where `web-main.tsx` keeps the pairing token this bridge says hello with. */
 export const WEB_TOKEN_KEY = "manor.web.token";
@@ -56,11 +125,42 @@ const ROOT_VALUES: Record<string, unknown> = {
 export interface WsTransportOptions {
   /** The paired device's token. `null` installs a bridge that never dials. */
   token: string | null;
-  url: string;
+  /** A plain WebSocket to this URL. Ignored when `pipe` is given. */
+  url?: string;
+  /** What carries the frames. Defaults to `webSocketPipe(url)`. */
+  pipe?: Pipe;
   /** Close 4401: the token is dead. Default forgets it and reloads. */
   onUnauthorized?: () => void;
   /** Close 4403: paired below `full`. Default logs; `web-main` renders it. */
   onForbidden?: () => void;
+  /**
+   * `CLOSE_KEY_MISMATCH`: stop dialling and offer to re-pair, keeping the
+   * stored pairing. Without it the transport does not stop: it reports
+   * `unreachable` and keeps retrying, because wiping credentials on a
+   * verdict that is not certain is worse than retrying.
+   */
+  onKeyMismatch?: () => void;
+  /** Every accepted hello, with whatever the host said about itself. */
+  onHello?: (reply: HelloReply) => void;
+  /**
+   * Reachability, for the page: `unreachable` on a close the pipe lists in
+   * `unreachableCodes` (the dial is still retried), `connected` on every
+   * accepted hello.
+   */
+  onStatus?: (status: "connected" | "unreachable") => void;
+}
+
+/** The parts of the host's `HelloReplyFrame` a page acts on. */
+export interface HelloReply {
+  rendererId: string | null;
+  /** The desktop's version (ADR-206 D4), or null from an older host. */
+  appVersion: string | null;
+}
+
+/** `BridgeTransport`, plus the one thing a "not reachable" screen needs. */
+export interface WsBridgeTransport extends BridgeTransport {
+  /** Skip the rest of the backoff wait and dial now, if one is pending. */
+  retryNow(): void;
 }
 
 interface Pending {
@@ -95,8 +195,11 @@ function defaultForbidden(): void {
 }
 
 /** The socket, the pending calls and the live subscriptions. */
-class WsTransport implements BridgeTransport {
-  private socket: WebSocket | null = null;
+class WsTransport implements WsBridgeTransport {
+  private readonly pipe: Pipe;
+  private socket: PipeConnection | null = null;
+  /** Bumped per dial; a pipe callback from an older dial is ignored. */
+  private generation = 0;
   private ready = false;
   /**
    * What the host calls this socket, from the hello reply (ADR-179 D3).
@@ -132,7 +235,18 @@ class WsTransport implements BridgeTransport {
   readonly localNamespaces: Record<string, unknown> = {};
   readonly locallyServed = LOCALLY_SERVED;
 
-  constructor(private readonly options: WsTransportOptions) {}
+  constructor(private readonly options: WsTransportOptions) {
+    if (options.pipe) this.pipe = options.pipe;
+    else if (options.url !== undefined) this.pipe = webSocketPipe(options.url);
+    else throw new Error("createWsTransport needs a url or a pipe");
+  }
+
+  retryNow(): void {
+    if (!this.reconnectTimer || this.stopped) return;
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.open();
+  }
 
   /** Dial, if there is a token and nothing is dialling already. */
   start(): void {
@@ -171,32 +285,39 @@ class WsTransport implements BridgeTransport {
   }
 
   private open(): void {
-    const socket = new WebSocket(this.options.url);
-    this.socket = socket;
-    socket.onopen = () => {
-      // Authentication is a frame, not a URL — see the server's header.
-      // `previousId` is this connection's own rendererId from before the
-      // reconnect, if it had one — the server reuses it when nothing else is
-      // holding it, so a selection hint addressed to "the tab that sent this"
-      // still finds it after a blip, and this connection's `pty-attachments`
-      // viewer identity does not reset.
-      socket.send(
-        JSON.stringify({
-          type: "hello",
-          token: this.options.token,
-          ...(this.rendererId !== null && { previousId: this.rendererId }),
-        }),
-      );
-    };
-    socket.onmessage = (event: MessageEvent) => {
-      this.onFrame(String(event.data));
-    };
-    socket.onclose = (event: CloseEvent) => {
-      if (this.socket === socket) this.onClose(event.code);
-    };
-    socket.onerror = () => {
-      // A `close` always follows, and it carries the code this cares about.
-    };
+    // Each callback checks it is still about the current connection, so a
+    // pipe that reports late — a stale close after a reconnect — is ignored.
+    const generation = ++this.generation;
+    const current = (): boolean => this.generation === generation;
+    this.socket = this.pipe.connect({
+      onOpen: () => {
+        if (current()) this.sayHello();
+      },
+      onMessage: (text) => {
+        if (current()) this.onFrame(text);
+      },
+      onClose: (code) => {
+        if (current()) this.onClose(code);
+      },
+    });
+  }
+
+  /**
+   * Authentication is a frame, not a URL — see the server's header.
+   * `previousId` is this connection's own rendererId from before the
+   * reconnect, if it had one — the server reuses it when nothing else is
+   * holding it, so a selection hint addressed to "the tab that sent this"
+   * still finds it after a blip, and this connection's `pty-attachments`
+   * viewer identity does not reset.
+   */
+  private sayHello(): void {
+    this.write(
+      JSON.stringify({
+        type: "hello",
+        token: this.options.token,
+        ...(this.rendererId !== null && { previousId: this.rendererId }),
+      }),
+    );
   }
 
   private onFrame(text: string): void {
@@ -211,9 +332,16 @@ class WsTransport implements BridgeTransport {
 
     if (!this.ready) {
       if (frame.type === "hello" && frame.ok === true) {
+        const reply = frame as Partial<HelloReplyFrame>;
         this.rendererId =
-          typeof frame.rendererId === "string" ? frame.rendererId : null;
+          typeof reply.rendererId === "string" ? reply.rendererId : null;
         this.onReady();
+        this.options.onStatus?.("connected");
+        this.options.onHello?.({
+          rendererId: this.rendererId,
+          appVersion:
+            typeof reply.appVersion === "string" ? reply.appVersion : null,
+        });
       }
       return;
     }
@@ -279,6 +407,15 @@ class WsTransport implements BridgeTransport {
       (this.options.onForbidden ?? defaultForbidden)();
       return;
     }
+    if (code === CLOSE_KEY_MISMATCH && this.options.onKeyMismatch) {
+      this.stopped = true;
+      this.options.onKeyMismatch();
+      return;
+    }
+    if (code === CLOSE_KEY_MISMATCH) this.options.onStatus?.("unreachable");
+    if (this.pipe.unreachableCodes?.has(code)) {
+      this.options.onStatus?.("unreachable");
+    }
 
     // Capped exponential backoff: a laptop that closed its lid should not
     // find a hundred failed dials in the tunnel's log when it wakes.
@@ -312,7 +449,7 @@ class WsTransport implements BridgeTransport {
 
   private write(payload: string): void {
     const socket = this.socket;
-    if (!socket || socket.readyState !== 1) return;
+    if (!socket || !socket.open) return;
     try {
       socket.send(payload);
     } catch {
@@ -324,6 +461,6 @@ class WsTransport implements BridgeTransport {
 /** The transport `web-main.tsx` hands `createBridge`. */
 export function createWsTransport(
   options: WsTransportOptions,
-): BridgeTransport {
+): WsBridgeTransport {
   return new WsTransport(options);
 }

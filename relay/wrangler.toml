@@ -1,0 +1,40 @@
+# The Manor relay (ADR-206 D1): a blind pipe between one desktop (host) and
+# a few browsers (viewers) per room. `pnpm relay:dev` / `relay:deploy`.
+name = "manor-relay"
+main = "src/index.ts"
+compatibility_date = "2026-08-15"
+
+# The relay's one origin: sockets and the web app share it, so the page's
+# `connect-src 'self'` covers /join. A custom domain makes Cloudflare create
+# the DNS record and certificate on deploy; the manor.sh zone must be in the
+# same account. Keep in step with DEFAULT_RELAY_URL in
+# electron/remote-control/relay/connector.ts.
+routes = [
+  { pattern = "relay.manor.sh", custom_domain = true }
+]
+
+[vars]
+# Per-room byte budget per UTC day, both directions (2 GiB).
+RELAY_DAILY_BYTES = "2147483648"
+
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
+
+# Socket dials per client IP, counted separately for /join and /host (keys
+# `join:<ip>`, `host:<ip>`). Not a security boundary; it bounds abuse of an
+# anonymous relay. namespace_id is an account-unique integer.
+[[ratelimits]]
+name = "JOIN_LIMITER"
+namespace_id = "2061"
+simple = { limit = 30, period = 60 }
+
+# Per-version web app builds (ADR-206 D4), uploaded by the release workflow.
+[[r2_buckets]]
+binding = "WEB"
+bucket_name = "manor-relay-web"
+preview_bucket_name = "manor-relay-web-dev"

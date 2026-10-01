@@ -23,6 +23,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { ServerResponse } from "node:http";
+import { WEB_CSP, webContentType } from "../../src/lib/web-headers";
+
+// Re-exported so existing importers keep one name for the one definition.
+export { WEB_CSP };
 
 const CSP = [
   "default-src 'none'",
@@ -36,38 +40,6 @@ const CSP = [
   "form-action 'none'",
   "frame-ancestors 'none'",
 ].join("; ");
-
-/**
- * The web app's CSP. Looser than the remote client's on purpose — it is the
- * full desktop renderer, not a 16 KB page — but still locked to same-origin
- * for everything: no CDN, no third-party script, no cross-origin fetch.
- * `connect-src 'self'` covers same-origin `ws:`/`wss:` under CSP3 in both
- * Chrome and Safari, so it does not need to be named separately.
- *
- * Exported so `vite.web.config.ts` can inject the same policy into
- * `src/web.html`'s `<meta>` tag at build time — the second line of defence
- * for a browser that, for whatever reason, does not see this header.
- */
-export const WEB_CSP = [
-  "default-src 'self'",
-  "script-src 'self' 'wasm-unsafe-eval'",
-  "style-src 'self' 'unsafe-inline'",
-  "connect-src 'self'",
-  "font-src 'self'",
-  "img-src 'self' data:",
-  "worker-src 'self'",
-].join("; ");
-
-const CONTENT_TYPES: Record<string, string> = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".ico": "image/x-icon",
-  ".json": "application/json; charset=utf-8",
-  ".webmanifest": "application/manifest+json",
-};
 
 /** Where `vite.remote.config.ts` puts the built client, relative to the bundle. */
 export function defaultClientDir(): string | null {
@@ -109,8 +81,7 @@ function serveStaticFile(
   }
 
   res.writeHead(200, {
-    "Content-Type":
-      CONTENT_TYPES[path.extname(resolved)] ?? "application/octet-stream",
+    "Content-Type": webContentType(resolved),
     "Content-Security-Policy": csp,
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",

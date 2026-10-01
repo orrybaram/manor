@@ -45,6 +45,8 @@ const READ_TOKEN = "read-token";
 const WRITE_TOKEN = "write-token";
 /** ADR-178's third tier. Over HTTP it gets exactly the `send` table (ADR-182 D2). */
 const FULL_TOKEN = "full-token";
+/** A `full` device paired through the relay (ADR-206). */
+const RELAY_TOKEN = "relay-token";
 /** The one workspace `withKnownWorkspace()` teaches the machine about. */
 const KNOWN_WORKSPACE = "/Users/me/manor";
 
@@ -64,8 +66,16 @@ const everything: AuthenticatedDevice = {
   capability: "full",
 };
 
+const relayed: AuthenticatedDevice = {
+  id: "dev-relay",
+  label: "relay browser",
+  capability: "full",
+  via: "relay",
+};
+
 const devices = {
   verify: (raw: unknown) => {
+    if (raw === RELAY_TOKEN) return relayed;
     if (raw === READ_TOKEN) return reader;
     if (raw === WRITE_TOKEN) return writer;
     if (raw === FULL_TOKEN) return everything;
@@ -798,6 +808,30 @@ describe("RemoteControlServer", () => {
       expect((await get("/projects", READ_TOKEN)).status).toBe(404);
       expect(proxyToRenderer).not.toHaveBeenCalled();
       expect(audit.read()).toEqual([]);
+    });
+  });
+
+  describe("the relay's hello gate (ADR-206)", () => {
+    it("admits a device paired through the relay", () => {
+      expect(server.authenticateRelayHello(RELAY_TOKEN)).toEqual({
+        ok: true,
+        device: relayed,
+      });
+    });
+
+    it("refuses a Tailscale-paired full token exactly as an unknown one", () => {
+      // The tailnet is that token's first factor; the relay must not remove it.
+      expect(server.authenticateRelayHello(FULL_TOKEN)).toEqual({
+        ok: false,
+        code: 4401,
+      });
+    });
+
+    it("refuses tiers below full with 4401 too, since none is a relay pairing", () => {
+      expect(server.authenticateRelayHello(WRITE_TOKEN)).toEqual({
+        ok: false,
+        code: 4401,
+      });
     });
   });
 

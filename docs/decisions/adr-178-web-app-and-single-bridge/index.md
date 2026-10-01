@@ -19,6 +19,10 @@ database:
 
 # ADR-178: The desktop app in a browser, over one bridge
 
+_Amended by [ADR-206](../adr-206-relay-transport/index.md): the bridge gains a
+third transport, an end-to-end encrypted relay channel, behind the same
+`hello` gate._
+
 ## Context
 
 The ask: the mobile/web experience should closely mirror the desktop — all the

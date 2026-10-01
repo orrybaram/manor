@@ -210,7 +210,10 @@ export function initApp(devTitle: string | null): void {
   const detachedWindows = new Map<string, BrowserWindow>();
   // The tab each detached window was opened to hold, by renderer id — the
   // same fact its `--manor-claim=` argument tells the page (ADR-179 D4).
-  const windowClaims = new Map<string, { workspacePath: string; tabId: string }>();
+  const windowClaims = new Map<
+    string,
+    { workspacePath: string; tabId: string }
+  >();
 
   // What a closed window held — the panes it was a viewer of, and the tab it
   // claimed — is released when its bridge connection drops (the IPC
@@ -380,7 +383,8 @@ export function initApp(devTitle: string | null): void {
     // A pane's title, off the command channel (ADR-182 D1) — the same
     // `publishRendererBroadcast` sink as `layout.changed`, on its own event
     // so a renderer's replica does not have to replace itself for a title.
-    (paneId, title) => publishRendererBroadcast("layout", "paneTitle", { paneId, title }),
+    (paneId, title) =>
+      publishRendererBroadcast("layout", "paneTitle", { paneId, title }),
     // Every pane the store ends takes its agent with it (ADR-182 D7) — the
     // one abandonment for every close path, a removed workspace, and a
     // legacy Home entry dropped on load. Read at call time: the agent side
@@ -525,23 +529,35 @@ export function initApp(devTitle: string | null): void {
     return null;
   };
   const loadRemoteControlRuntime = async (): Promise<RemoteControlRuntime> => {
-    const [{ RemoteControlServer }, { TunnelManager }, { WsBridgeServer }] =
-      await Promise.all([
-        import("./remote-control/server"),
-        import("./remote-control/tunnel"),
-        import("./bridge/transports/ws"),
-      ]);
+    const [
+      { RemoteControlServer },
+      { TunnelManager },
+      { WsBridgeServer },
+      { RelayConnector },
+      { RelayIdentityStore },
+    ] = await Promise.all([
+      import("./remote-control/server"),
+      import("./remote-control/tunnel"),
+      import("./bridge/transports/ws"),
+      import("./remote-control/relay/connector"),
+      import("./remote-control/relay/identity"),
+    ]);
     // The web app's transport (ADR-178 D8, ADR-180 D1). `bridgeServer` is
     // built synchronously during `initApp`, long before anything can enable
-    // remote control.
-    wsBridge = new WsBridgeServer(bridgeServer!);
+    // remote control. Its hello reply carries the app version, so a relay
+    // page built for another version can move to the matching build
+    // (ADR-206 D4).
+    const ws = new WsBridgeServer(bridgeServer!, {
+      appVersion: app.getVersion(),
+    });
+    wsBridge = ws;
     const server = new RemoteControlServer(
       // The same `HostDeps` the bridge and the desktop's routes run over
       // (ADR-182 D8), built synchronously during `initApp` too.
       () => ipcDeps,
       remoteDeviceStore,
       // Rate limiter, audit log, and client directory all take their defaults.
-      { push: remotePush, bridge: wsBridge },
+      { push: remotePush, bridge: ws },
     );
     // Detected, never installed; started only by an explicit user action. The
     // controller's shutdown guarantees the child dies with the app — a tunnel
@@ -553,7 +569,16 @@ export function initApp(devTitle: string | null): void {
       exec: (command, args) =>
         backend.shell.exec(command, args, { timeout: 5_000 }),
     });
-    return { server, tunnel };
+    // ADR-206's relay: the third way to reach the machine, feeding the same
+    // bridge as the listener's `/ws`. Constructed, never started here — only
+    // an explicit user action (via the controller) dials it.
+    const relayIdentity = new RelayIdentityStore();
+    const relay = new RelayConnector({
+      identity: relayIdentity,
+      bridge: ws,
+      authenticate: (token) => server.authenticateRelayHello(token),
+    });
+    return { server, tunnel, relay, relayIdentity };
   };
   const remoteControl = new RemoteControlController(
     loadRemoteControlRuntime,
@@ -562,6 +587,7 @@ export function initApp(devTitle: string | null): void {
     whichTunnelBin,
     () => safeStorage.isEncryptionAvailable(),
     remotePush,
+    app.getVersion(),
   );
   const paneContextMap = new Map<
     string,

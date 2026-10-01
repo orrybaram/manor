@@ -279,7 +279,10 @@ export function linearUnlinkIssueFromWorkspace(
  * signed URL: an `Authorization` header a component could replay would be the
  * credential crossing under another name.
  */
-export function linearProxyImage(ctx: HandlerCtx, url: string): Promise<string> {
+export function linearProxyImage(
+  ctx: HandlerCtx,
+  url: string,
+): Promise<string> {
   assertString(url, "url");
   return ctx.deps.linearManager.proxyImage(url);
 }

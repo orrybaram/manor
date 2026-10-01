@@ -1,4 +1,5 @@
-import type { ReactNode, JSX } from "react";
+import { useSyncExternalStore, type ReactNode, type JSX } from "react";
+import { Button } from "../components/ui/Button/Button";
 
 /**
  * The web app's dead-end screens (ADR-178 D1), split out of `web-main.tsx`.
@@ -7,20 +8,30 @@ import type { ReactNode, JSX } from "react";
  * the bridge as a side effect of being imported — and a component defined
  * alongside that trips `react-refresh/only-export-components` (the plugin
  * wants a module that exports either components or non-components, not a mix
- * with side-effecting entry code). These three have no state and no reason to
- * live anywhere else, so they get their own module instead of a suppression
- * comment.
+ * with side-effecting entry code). These have no state of their own and no
+ * reason to live anywhere else, so they get their own module instead of a
+ * suppression comment.
  */
 
 /** One message, centred, on nothing. Every dead end here renders as one. */
 function FullPageMessage(props: {
   children: ReactNode;
   testId?: string;
+  /** Over whatever is already rendered, rather than in place of it. */
+  overlay?: boolean;
 }): JSX.Element {
   return (
     <div
       data-testid={props.testId}
+      role={props.overlay ? "alertdialog" : undefined}
       style={{
+        ...(props.overlay && {
+          position: "fixed",
+          inset: 0,
+          zIndex: 10_000,
+          flexDirection: "column",
+          gap: "1rem",
+        }),
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -62,4 +73,59 @@ export function ForbiddenScreen(): JSX.Element {
       <code style={{ marginLeft: "0.25rem" }}>/</code>.
     </FullPageMessage>
   );
+}
+
+/**
+ * The desktop's relay address was reset (ADR-206): this link's key no longer
+ * matches. The stored pairing is kept — this may be a stale tab, and a reload
+ * picks up a fresh link if the page was re-opened from one.
+ */
+export function KeyMismatchScreen(props: { onRetry: () => void }): JSX.Element {
+  return (
+    <FullPageMessage testId="web-app-key-mismatch" overlay>
+      <div>
+        This link&apos;s relay address has changed &mdash; the desktop&apos;s
+        relay address was reset. Scan a new pairing code from Manor&apos;s
+        settings.
+      </div>
+      <Button variant="secondary" onClick={props.onRetry}>
+        Try again
+      </Button>
+    </FullPageMessage>
+  );
+}
+
+/**
+ * The relay has no desktop to put this browser through to (ADR-206 D3): the
+ * relay said 4404 (the machine is asleep, offline, or relay mode is off) or
+ * 4429 (too many viewers, or today's budget is spent). Not a refusal — the
+ * credentials are kept and the bridge keeps dialling with backoff — so this
+ * covers the app rather than replacing it, and disappears on the next hello
+ * without the app below losing its state.
+ */
+export function UnreachableScreen(props: { onRetry: () => void }): JSX.Element {
+  return (
+    <FullPageMessage testId="web-app-unreachable" overlay>
+      <div>
+        Manor is not reachable right now. Check that the computer running Manor
+        is awake and that the relay is turned on in Settings &rarr; Remote
+        control. Retrying&hellip;
+      </div>
+      <Button variant="secondary" onClick={props.onRetry}>
+        Try again now
+      </Button>
+    </FullPageMessage>
+  );
+}
+
+/** `UnreachableScreen` while the bridge says so, and nothing otherwise. */
+export function ReachabilityOverlay(props: {
+  subscribe: (cb: () => void) => () => void;
+  getSnapshot: () => "unknown" | "connected" | "unreachable";
+  onRetry: () => void;
+}): JSX.Element | null {
+  const status = useSyncExternalStore(props.subscribe, props.getSnapshot);
+  return status === "unreachable" ? (
+    <UnreachableScreen onRetry={props.onRetry} />
+  ) : null;
 }

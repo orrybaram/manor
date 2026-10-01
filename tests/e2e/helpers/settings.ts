@@ -120,6 +120,12 @@ export async function pairDevice(
 ): Promise<PairedDevice> {
   await openRemoteControlSettings(window);
 
+  // Tailscale is the default road (the relay always means Everything, which
+  // is never the default — ADR-178 D3), but say so rather than lean on it.
+  await window
+    .getByTestId("remote-pair-via")
+    .getByRole("button", { name: "Tailscale", exact: true })
+    .click();
   await window.getByTestId("remote-pair-label").fill(label);
   // Clicked even for `read`, which is already the default: the assertion that
   // matters is that the button a user would press exists and selects the tier.
@@ -147,4 +153,108 @@ export async function pairDevice(
   ).toHaveCount(1);
 
   return { label, token, capability };
+}
+
+/**
+ * Start the Manor relay from its card and wait until the card says the
+ * machine is reachable through it (ADR-206 D6). Leaves Settings open.
+ *
+ * Goes through the confirmation dialog, which is the point: starting the
+ * relay is an explicit, confirmed action, and a test that could skip it
+ * would not notice if it stopped being one.
+ */
+export async function startRelay(window: Page): Promise<void> {
+  await openRemoteControlSettings(window);
+  const card = window.getByTestId("remote-relay-card");
+  await card.getByTestId("remote-relay-start").click();
+  const confirm = window.getByTestId("remote-relay-confirm");
+  await expect(confirm).toBeVisible({ timeout: 5_000 });
+  await confirm
+    .getByRole("button", { name: "Start relay", exact: true })
+    .click();
+  await expect(confirm).not.toBeVisible({ timeout: 5_000 });
+  await expect(card).toContainText("Reachable through the Manor relay", {
+    timeout: 30_000,
+  });
+}
+
+/** Stop the relay from its card. Leaves Settings open. */
+export async function stopRelay(window: Page): Promise<void> {
+  await openRemoteControlSettings(window);
+  const card = window.getByTestId("remote-relay-card");
+  await card.getByTestId("remote-relay-stop").click();
+  await expect(card.getByTestId("remote-relay-start")).toBeVisible({
+    timeout: 10_000,
+  });
+}
+
+export interface RelayPairedDevice {
+  label: string;
+  token: string;
+  /** `<relay-origin>/app/<version>/#relay=<roomId>.<key>&t=<token>`. */
+  link: string;
+}
+
+/**
+ * Pair a device through the relay (ADR-206 D3) and capture the link and
+ * token the dialog shows once. The relay has to be chosen explicitly — it is
+ * not the default — and a relay device is always Everything, so there is no
+ * tier to pick: the picker is replaced by the full-tier warning, and this
+ * checks it is.
+ */
+export async function pairDeviceViaRelay(
+  window: Page,
+  { label, film }: { label: string; film?: Filmstrip },
+): Promise<RelayPairedDevice> {
+  await openRemoteControlSettings(window);
+
+  await window
+    .getByTestId("remote-pair-via")
+    .getByRole("button", { name: "Manor relay", exact: true })
+    .click();
+  await expect(window.getByTestId("remote-pair-capability")).toHaveCount(0);
+  await expect(window.getByTestId("remote-pair-relay-warning")).toContainText(
+    "always gets Everything",
+  );
+
+  await window.getByTestId("remote-pair-label").fill(label);
+  await window.getByTestId("remote-pair-submit").click();
+
+  const dialog = window.getByTestId("remote-pairing-dialog");
+  await expect(dialog).toBeVisible({ timeout: 10_000 });
+  await film?.shot(window, "settings-relay-pairing");
+  const token = (
+    (await window.getByTestId("remote-pairing-token").textContent()) ?? ""
+  ).trim();
+  const link = (
+    (await window.getByTestId("remote-pairing-link").textContent()) ?? ""
+  ).trim();
+  if (!token) throw new Error("Pairing dialog showed no token");
+  if (!link.includes("#relay=")) {
+    throw new Error(`Pairing dialog showed no relay link (got "${link}")`);
+  }
+
+  await window.getByTestId("remote-pairing-done").click();
+  await expect(dialog).not.toBeVisible({ timeout: 5_000 });
+
+  const row = window
+    .getByTestId("remote-device-row")
+    .filter({ hasText: label });
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText("via relay");
+
+  return { label, token, link };
+}
+
+/** Revoke a paired device by its label, from its row's trash button. */
+export async function revokeDevice(window: Page, label: string): Promise<void> {
+  await openRemoteControlSettings(window);
+  await window
+    .getByTestId("remote-device-row")
+    .filter({ hasText: label })
+    .getByRole("button", { name: `Revoke ${label}`, exact: true })
+    .click();
+  await expect(
+    window.getByTestId("remote-device-row").filter({ hasText: label }),
+  ).toHaveCount(0, { timeout: 10_000 });
 }

@@ -63,7 +63,8 @@ interface WorkspaceScan {
  * workspace `rev-parse` and `status`, plus `hash-object` for changed files
  * and `wc -c` for untracked ones; the shortstat (and, when HEAD or the ref
  * moved, the merge-base) runs only when its fingerprint has moved. While the
- * window is hidden or minimized, nothing runs.
+ * window is hidden or minimized and no paired browser is watching, nothing
+ * runs.
  */
 export class DiffWatcher {
   private readonly poller: PerHostPoller<DiffScan>;
@@ -87,7 +88,15 @@ export class DiffWatcher {
     });
   };
 
-  constructor(private readonly hosts: HostBackends) {
+  constructor(
+    private readonly hosts: HostBackends,
+    /**
+     * Whether a paired device is subscribed to the diff events — a browser
+     * still needs fresh stats while the desktop window is hidden. Defaults
+     * to nobody.
+     */
+    private readonly deviceWatching: () => boolean = () => false,
+  ) {
     this.poller = new PerHostPoller<DiffScan>({
       label: "DiffWatcher",
       scan: (hostId, paths) => this.scan(hostId, paths),
@@ -104,10 +113,10 @@ export class DiffWatcher {
    * ADR-180 D5: results are published as `diffs.changed` /
    * `diffs.fingerprintsChange` to every renderer — desktop windows and paired
    * browsers alike — rather than pushed at one window. `window` is only the
-   * visibility gate: while it is hidden or minimized no git runs (each host
-   * keeps its last result). The handler passes the primary window, so a
-   * browser watching while the desk is minimized sees the last stats until
-   * the desk is shown again.
+   * visibility gate: while it is hidden or minimized, and no paired device
+   * is subscribed (`deviceWatching`), no git runs (each host keeps its last
+   * result). The handler passes the primary window; a browser watching while
+   * the desk is minimized keeps the polling going.
    */
   start(workspaces: readonly DiffWorkspace[], window: BrowserWindow | null): void {
     if (window) this.watchWindow(window);
@@ -163,7 +172,9 @@ export class DiffWatcher {
   private async scan(hostId: string, paths: string[]): Promise<DiffScan> {
     // Nobody can see the badges: keep the host's last result, run no git.
     const previous = this.lastHostScans.get(hostId);
-    if (previous && this.windowHidden()) return previous;
+    if (previous && this.windowHidden() && !this.deviceWatching()) {
+      return previous;
+    }
 
     const result: DiffScan = { stats: {}, fingerprints: {} };
     const results = await settleWithConcurrency(paths, DIFF_CONCURRENCY, (wsPath) =>

@@ -199,19 +199,34 @@ function isFreshSession(
  * Never fatal to the create: a pane that opened without running its command is
  * a worse outcome than a pane that never opened, but only slightly, and the
  * caller has already got its session.
+ *
+ * Not lost to a remote host that drops before the shell is ready, either
+ * (ADR-178 §6): the command goes back on the queue for the pane's next
+ * create, as long as the pane is still in a layout and nothing newer was
+ * queued for it meanwhile — the server's form of the renderer requeue
+ * (`shouldRequeuePaneCommand`) this queue replaced.
  */
 async function deliverPendingCommand(
   deps: HostDeps,
   paneId: string,
+  hostId: HostId,
 ): Promise<void> {
-  const pending = deps.layoutStore?.pendingCommands.take(paneId);
-  if (!pending) return;
+  const layoutStore = deps.layoutStore;
+  const pending = layoutStore?.pendingCommands.take(paneId);
+  if (!layoutStore || !pending) return;
   try {
     await deps.backend.pty.writeAfterReady(
       paneId,
       pending.submit ? pending.text + "\r" : pending.text,
     );
   } catch (err) {
+    if (
+      hostId !== LOCAL_HOST_ID &&
+      layoutStore.locate({ paneId }) !== null
+    ) {
+      layoutStore.pendingCommands.requeue(paneId, pending);
+      return;
+    }
     console.error(
       `[pty] failed to send the ${pending.kind} command queued for ${paneId}:`,
       err,
@@ -263,9 +278,12 @@ async function createSession(
     );
     // A pane opened "with a command" — `POST /tabs { command }`, a split with
     // an agent, `POST /agents` — has its line waiting on the server. This is
-    // the moment it has a shell to be typed into.
-    if (isFreshSession(deps, paneId, result.snapshot !== null)) {
-      await deliverPendingCommand(deps, paneId);
+    // the moment it has a shell to be typed into. A command put back after
+    // its remote host dropped is typed on a reattach too: the session it was
+    // meant for may have survived on the host, without it.
+    const fresh = isFreshSession(deps, paneId, result.snapshot !== null);
+    if (fresh || deps.layoutStore?.pendingCommands.isRequeued(paneId)) {
+      await deliverPendingCommand(deps, paneId, result.hostId);
     }
 
     // Return snapshot to the renderer so it can write it exactly once,

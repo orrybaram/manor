@@ -303,6 +303,22 @@ export class BridgeServer {
     else registered.subscriptions.set(name, new Set([key ?? ALL_KEYS]));
   }
 
+  /**
+   * Whether a paired device (not a desktop window) is subscribed to
+   * `ns.event` — someone is watching through a browser, which a hidden
+   * desktop window says nothing about (the `DiffWatcher` asks before it
+   * pauses).
+   */
+  hasDeviceSubscriber(ns: string, event: string): boolean {
+    const name = `${ns}.${event}`;
+    for (const { connection, subscriptions } of this.connections.values()) {
+      if (connection.callerClass === "device" && subscriptions.has(name)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /** Stop. An unsubscribe for something never subscribed to is not an error. */
   unsubscribe(
     connection: BridgeConnection,

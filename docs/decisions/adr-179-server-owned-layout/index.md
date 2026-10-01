@@ -218,6 +218,24 @@ tab" — a small new IPC, not built here.
 **Amends.** ADR-156 and ADR-157 (detach semantics), ADR-152 (`list_panes`
 source), ADR-178 D10's intermediate state.
 
+
+## Amendments after rebase
+
+Rebuilt on main after host-qualified workspace keys (ADR-191/204), the
+Dashboard (ADR-197) and the pending-command queue (ADR-183):
+
+- Every layout command, broadcast, viewport and claim is keyed by
+  `WorkspaceKey`; the viewport split is `layout.json` v4 (ADR-191 took v3),
+  and `LayoutStore.startLoad` waits for the key migration.
+- `LayoutStore` refuses Home commands and drops a legacy Home entry on load,
+  ending its panes (agents abandoned, shells killed).
+- The server `PendingCommands` queue carries `submit` (typed-only fix-it
+  text) and replaced the renderer's queue. Main's ADR-178 §6 requeue moved
+  with it: a command whose `writeAfterReady` fails on a remote host (it
+  dropped before the shell was ready) goes back on the queue, marked, for
+  the pane's next `pty.create` — which types it even on a reattach — unless
+  the pane left every layout or a newer command was queued meanwhile.
+
 ## Tickets
 
 <div data-type="database" data-path="." data-view="board"></div>

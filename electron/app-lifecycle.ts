@@ -420,7 +420,16 @@ export function initApp(devTitle: string | null): void {
     return remoteUrlResolver.resolve(url, hostId, NAVIGATE_HOST_WAIT_MS);
   };
   const branchWatcher = new BranchWatcher(backendRegistry);
-  const diffWatcher = new DiffWatcher(backendRegistry);
+  // Paused while the desktop window is hidden — unless a paired browser is
+  // subscribed to the diff events (read at scan time: the bridge is built
+  // below).
+  const diffWatcher = new DiffWatcher(
+    backendRegistry,
+    () =>
+      (bridgeServer?.hasDeviceSubscriber("diffs", "changed") ?? false) ||
+      (bridgeServer?.hasDeviceSubscriber("diffs", "fingerprintsChange") ??
+        false),
+  );
   // `gh` runs here, where it is authenticated; a remote project's checkout
   // isn't, so it is told the repo from that checkout's origin instead, read
   // on the host the caller named (ADR-191).

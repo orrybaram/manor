@@ -334,6 +334,34 @@ raised is recorded and left for a future ADR rather than answered here.
   drops newest overflow events") times out at 5s under full-suite load;
   passes 5/5 in isolation. Load-dependent, pre-existing, not chased.
 
+
+## Amendments after rebase
+
+Rebuilt on main after it had grown host-aware projects, remote hosts and the
+Status reconciler. What main added that a browser has to reach went onto the
+one table, so the surface is larger than the tickets list:
+
+- **New namespaces.** `hosts.*` (`list`, `add` and `retryConnect` mutating,
+  `healthCheck`) and `agentActivity.get`, each a `method()` table of its own.
+- **New methods on existing namespaces.** `projects.getRemote`, `clone`,
+  `moveToHost`, `getOriginUrl`, `pathExists`, `switchHost`, `link` /
+  `unlink` / `unlinkGroup` / `updateGroup` / `setGroupLastUsedHost`,
+  `suggestLinks`, `dismissLinkSuggestion`; `agents.getPaneStatuses`
+  (ADR-184); `ports.updateWorkspaces`, `resolveUrl`, `remoteUrl`;
+  `integrations` take a `GhRepo` and gain `listRepos`.
+- **New events.** `ports.changed`, `hosts.statusChanged`,
+  `hosts.reconnected`, `projects.cloneProgress`,
+  `diffs.fingerprintsChange`, `agents.status`, `agentActivity.changed`
+  (`pty.agentStatus` is gone, ADR-184).
+- **The directory picker on the web.** Every picker goes through
+  `src/lib/pick-directory.ts`, which on the web app shows a toast and
+  answers null instead of opening nothing; `AddProjectDialog` is clone-only
+  there, and the zero-projects onboarding offers the clone.
+- **`DiffWatcher` pause.** Its hidden-window pause (main's) now also
+  requires that no paired device is subscribed to the diff events
+  (`BridgeServer.hasDeviceSubscriber`), so a browser watching while the desk
+  is minimized keeps getting fresh stats.
+
 ## Tickets
 
 <div data-type="database" data-path="." data-view="board"></div>

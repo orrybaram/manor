@@ -35,6 +35,13 @@ export interface PendingCommand {
    * in terminal"). One queue for both (ADR-183).
    */
   submit: boolean;
+  /**
+   * Taken once already and never delivered: its remote host dropped before
+   * the shell was ready (ADR-178 §6). The next `pty.create` for the pane
+   * types it even on a reattach, since the session it was meant for may have
+   * survived on the host.
+   */
+  requeued?: boolean;
 }
 
 export interface PendingCommandOptions {
@@ -67,6 +74,21 @@ export class PendingCommands {
     if (!entry) return null;
     this.byPane.delete(paneId);
     return entry;
+  }
+
+  /**
+   * Put back a command `take` handed out that never reached the shell, for
+   * the pane's next `pty.create`. Never over a command queued since — that
+   * one is newer, and what the pane is now waiting for.
+   */
+  requeue(paneId: string, entry: PendingCommand): void {
+    if (this.byPane.has(paneId)) return;
+    this.byPane.set(paneId, { ...entry, requeued: true });
+  }
+
+  /** Whether the pane's queued command is one `requeue` put back. */
+  isRequeued(paneId: string): boolean {
+    return this.byPane.get(paneId)?.requeued === true;
   }
 
   /** Forget a pane's command: its structural change was refused, or its pane

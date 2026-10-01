@@ -282,7 +282,18 @@ export class LayoutStore {
     return this.loaded;
   }
 
-  /** Read `~/.manor/layout.json` into memory. Migration happens below it. */
+  /**
+   * Read `~/.manor/layout.json` into memory. Migration happens below it.
+   *
+   * Replaces entries rather than skipping ones already present (the "a
+   * second load never clobbers" guard the store once had), and that is safe
+   * because nothing can be clobbered: production reads the file once, through
+   * `startLoad` at boot — a window reload, a host reconnect and the key
+   * migration all go through `whenLoaded`/`apply`, never `load` — and the
+   * only paths that create an entry (`apply` → `ensureState`, and
+   * `moveWorkspaces`) wait for `this.loaded` first. A new caller of `load`
+   * after boot would need that guard back.
+   */
   load(): void {
     const file = this.persistence.load();
     if (!file) return;

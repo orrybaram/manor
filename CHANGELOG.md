@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.18.6] - 2026-09-30
+
+### Fixes
+- The sidebar PR badge now shows on the main checkout when it's on a branch other than the default
+
+### Improvements
+- Faster startup: the updater, remote control and web push now load only when needed, the login PATH resolves in the background, and post-launch work runs in parallel
+- Checking for diff changes stays fast as you add more workspaces
+- The terminal daemon now writes to disk in the background, so terminals stay responsive, and it no longer leaks resources
+- Fewer unnecessary UI re-renders, including when animated spinners update terminal titles and when you switch pane focus
+- The dashboard, the "Needs you" card and the popover badge now show the same pull request status and what's blocking it
+
 ## [0.18.5] - 2026-09-29
 
 **Features**

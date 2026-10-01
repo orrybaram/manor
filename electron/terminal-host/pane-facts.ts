@@ -2,11 +2,13 @@
  * Pane facts extractor (ADR-184 §3) — the daemon's one source of Status
  * signals for a session.
  *
- * Terminal bytes, OSC 0/2 titles and the foreground process go in; a
+ * Terminal bytes, the window title and the foreground process go in; a
  * `PaneFacts` snapshot comes out, and `onChange` fires only when that snapshot
  * actually changed. Nothing here decides an Agent status: output patterns are
  * reported as raw hints with a timestamp, and main's Status reconciler
  * (`electron/agent-status`) weighs them.
+ *
+ * Titles arrive parsed, via `setTitle`.
  *
  * Pure: no Electron, no Node APIs, no timers. The daemon bundle and the pty
  * subprocess both import it.
@@ -44,71 +46,6 @@ export function agentKindForProcess(name: string): AgentKind | null {
     if (base === agentName) return kind;
   }
   return null;
-}
-
-// ── OSC 0/2 titles ──
-
-/**
- * Parse OSC 0 and OSC 2 title sequences from terminal data. Stateful across
- * chunks, so a sequence split between two chunks is still found.
- *
- * OSC 0 = ESC ] 0 ; <title> BEL/ST  (set icon name and window title)
- * OSC 2 = ESC ] 2 ; <title> BEL/ST  (set window title)
- */
-export class OscTitleParser {
-  private buf: number[] = [];
-  private inOsc = false;
-
-  /** Parse data and return any titles found, oldest first. */
-  parse(data: string): string[] {
-    const titles: string[] = [];
-
-    for (let i = 0; i < data.length; i++) {
-      const byte = data.charCodeAt(i);
-
-      if (this.inOsc) {
-        if (byte === 0x07 || byte === 0x1b) {
-          // BEL or ESC terminator (ST = ESC \)
-          titles.push(String.fromCharCode(...this.buf));
-          this.buf = [];
-          this.inOsc = false;
-        } else {
-          this.buf.push(byte);
-          if (this.buf.length > 4096) {
-            this.buf = [];
-            this.inOsc = false;
-          }
-        }
-      } else if (byte === 0x1b) {
-        // ESC
-        this.buf = [byte];
-      } else if (this.buf.length === 1 && this.buf[0] === 0x1b && byte === 0x5d) {
-        // ESC ]
-        this.buf.push(byte);
-      } else if (this.buf.length === 2) {
-        // After ESC ], only '0' or '2' is a title.
-        if (byte === 0x30 || byte === 0x32) {
-          this.buf.push(byte);
-        } else {
-          this.buf = [];
-        }
-      } else if (this.buf.length === 3 && byte === 0x3b) {
-        // semicolon after the OSC type number
-        this.buf = [];
-        this.inOsc = true;
-      } else {
-        this.buf = [];
-      }
-    }
-
-    return titles;
-  }
-
-  /** Reset parser state */
-  reset(): void {
-    this.buf = [];
-    this.inOsc = false;
-  }
 }
 
 // ── Output patterns ──
@@ -207,18 +144,32 @@ export class OutputPatternMatcher {
   /** Value of `pushedCount` before the most recent addData() call. */
   private chunkStart = 0;
 
-  /** Add raw terminal data (may contain multiple lines and ANSI codes) */
+  /**
+   * Add raw terminal data (may contain multiple lines and ANSI codes).
+   *
+   * Only the tail of the chunk is read: lines are taken from the end until the
+   * ring buffer would be full, since anything before them would be pushed out
+   * again by the same call. A large `cat` costs a few `lastIndexOf`s, not a
+   * strip-and-split of the whole chunk.
+   */
   addData(data: string): void {
-    const lines = stripAnsi(data).split(/\r?\n/);
-
     this.chunkStart = this.pushedCount;
 
-    for (const line of lines) {
+    const tail: string[] = [];
+    let end = data.length;
+    while (tail.length < RING_BUFFER_SIZE) {
+      const newline = end > 0 ? data.lastIndexOf("\n", end - 1) : -1;
+      let raw = data.slice(newline + 1, end);
+      if (raw.endsWith("\r")) raw = raw.slice(0, -1);
+      const line = stripAnsi(raw);
       // Skip empty lines and box-drawing lines
-      if (line.trim().length === 0) continue;
-      if (isBoxDrawingLine(line)) continue;
+      if (line.trim().length > 0 && !isBoxDrawingLine(line)) tail.push(line);
+      if (newline < 0) break;
+      end = newline;
+    }
 
-      this.ringBuffer.push(line);
+    for (let i = tail.length - 1; i >= 0; i--) {
+      this.ringBuffer.push(tail[i]);
       this.pushedCount++;
       if (this.ringBuffer.length > RING_BUFFER_SIZE) {
         this.ringBuffer.shift();
@@ -289,8 +240,8 @@ export interface PaneFactsExtractorOptions {
  * - **Foreground**: every change of the foreground process (name or kind)
  *   emits, including back to the shell (`foreground: null`), so the Status
  *   reconciler never keeps a stale snapshot for its liveness rule.
- * - **Title**: the latest OSC 0/2 title of a chunk; emits when it differs from
- *   the last one.
+ * - **Title**: the latest title the headless terminal parsed; emits when it
+ *   differs from the last one.
  * - **Output hint**: a *new* hint gets a fresh, strictly increasing `at` and
  *   emits. A hint is new when it differs from the last hint seen, when it is
  *   `requires_input` (edge-triggered: each fresh prompt is its own event), or
@@ -301,7 +252,6 @@ export interface PaneFactsExtractorOptions {
  * - Nothing else emits: a snapshot equal to the last one is never sent.
  */
 export class PaneFactsExtractor {
-  private readonly titleParser = new OscTitleParser();
   private readonly matcher = new OutputPatternMatcher();
   private readonly now: () => number;
   private readonly onChange: ((facts: PaneFacts) => void) | undefined;
@@ -330,29 +280,21 @@ export class PaneFactsExtractor {
 
   /** Feed a chunk of terminal output (as broadcast on `MSG.DATA`). */
   feedData(data: string): void {
-    let changed = false;
-
-    const titles = this.titleParser.parse(data);
-    if (titles.length > 0) {
-      const latest = titles[titles.length - 1];
-      if (latest !== this.title) {
-        this.title = latest;
-        changed = true;
-      }
-    }
-
     this.matcher.addData(data);
     const hint = this.matcher.detect();
-    if (hint !== null) {
-      const isNew = hint !== this.lastHint || hint === "requires_input";
-      this.lastHint = hint;
-      if (isNew) {
-        this.outputHint = { hint, at: this.stamp() };
-        changed = true;
-      }
-    }
+    if (hint === null) return;
+    const isNew = hint !== this.lastHint || hint === "requires_input";
+    this.lastHint = hint;
+    if (!isNew) return;
+    this.outputHint = { hint, at: this.stamp() };
+    this.emit();
+  }
 
-    if (changed) this.emit();
+  /** The terminal set its window title (OSC 0/2, from the headless parser). */
+  setTitle(title: string): void {
+    if (title === this.title) return;
+    this.title = title;
+    this.emit();
   }
 
   /**

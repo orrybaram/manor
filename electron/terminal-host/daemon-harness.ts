@@ -281,16 +281,21 @@ export function feedSessionData(
   );
 }
 
-/** Force-flush scrollback writer inside a session */
+/**
+ * Force-flush scrollback writer inside a session — after the headless mirror
+ * has parsed what was fed, since the CWD it writes to meta.json comes from it.
+ */
 export async function flushScrollback(
   host: TerminalHost,
   sessionId: string,
 ): Promise<void> {
   const session = sessionOf(host, sessionId);
   if (!session) return;
-  const { scrollbackWriter } = session as unknown as {
+  const { flushHeadless, scrollbackWriter } = session as unknown as {
+    flushHeadless: () => Promise<void>;
     scrollbackWriter: ScrollbackWriter | null;
   };
+  await flushHeadless.call(session);
   await scrollbackWriter?.flush();
 }
 

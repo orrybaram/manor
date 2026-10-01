@@ -27,7 +27,8 @@ const emptyStatus: RemoteControlStatus = {
   port: null,
   devices: [],
   tunnel: { state: "stopped", kind: null, url: null, error: null },
-  detected: { tailscale: false, cloudflared: false },
+  detected: { tailscale: false },
+  tailnet: null,
   encryptionAvailable: true,
   listeners: 0,
 };

@@ -1,6 +1,7 @@
 import { useRef, useState, useCallback } from "react";
 import { usePaneDrag } from "./PaneDragContext";
 import { useAppStore } from "../../store/app-store";
+import { useLayoutMode } from "../../hooks/useLayoutMode";
 import type { SplitDirection } from "../../lib/layout/pane-tree";
 import styles from "./PaneLayout/PaneLayout.module.css";
 
@@ -65,6 +66,7 @@ export function PaneDropZone(props: PaneDropZoneProps) {
   const { endDrag } = usePaneDrag();
   const movePaneToTarget = useAppStore((s) => s.movePaneToTarget);
   const moveTabToPane = useAppStore((s) => s.moveTabToPane);
+  const layoutMode = useLayoutMode();
   const [zone, setZone] = useState<DropZone | null>(null);
   const zoneRef = useRef<DropZone | null>(null);
 
@@ -132,6 +134,13 @@ export function PaneDropZone(props: PaneDropZoneProps) {
     if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
     setZone(null);
   }, []);
+
+  // ADR-181 D5: `LeafPane`'s pane drag never starts in phone mode (its
+  // status bar's `draggable` is off there), and `PaneDragContext.startDrag`
+  // no-ops as a second gate — so `showDropZone` (`LeafPane.tsx`) should never
+  // mount this component in phone mode. Belt and suspenders anyway: no drop
+  // target renders here regardless of how it got mounted.
+  if (layoutMode === "phone") return null;
 
   return (
     <div

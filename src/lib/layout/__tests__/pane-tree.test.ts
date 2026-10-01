@@ -7,6 +7,7 @@ import {
   movePane,
   nextPaneId,
   updateRatio,
+  paneTreeContains,
   type PaneNode,
 } from "../pane-tree";
 
@@ -340,5 +341,45 @@ describe("clonePaneTree", () => {
     const snapshot = JSON.stringify(tree);
     clonePaneTree(tree, () => "mint");
     expect(JSON.stringify(tree)).toBe(snapshot);
+  });
+});
+
+describe("paneTreeContains", () => {
+  const tree: PaneNode = {
+    type: "split",
+    direction: "horizontal",
+    ratio: 0.5,
+    first: { type: "leaf", paneId: "a" },
+    second: {
+      type: "split",
+      direction: "vertical",
+      ratio: 0.5,
+      first: { type: "leaf", paneId: "b" },
+      second: { type: "leaf", paneId: "c" },
+    },
+  };
+
+  it("finds a leaf at any depth", () => {
+    expect(paneTreeContains(tree, "a")).toBe(true);
+    expect(paneTreeContains(tree, "c")).toBe(true);
+  });
+
+  it("scopes to the subtree it is given", () => {
+    if (tree.type !== "split") throw new Error("fixture is a split");
+    expect(paneTreeContains(tree.first, "b")).toBe(false);
+    expect(paneTreeContains(tree.second, "b")).toBe(true);
+  });
+
+  it("matches a lone leaf only by its own id", () => {
+    const leaf: PaneNode = { type: "leaf", paneId: "a" };
+    expect(paneTreeContains(leaf, "a")).toBe(true);
+    expect(paneTreeContains(leaf, "b")).toBe(false);
+  });
+
+  it("is false for an absent id", () => {
+    expect(paneTreeContains(tree, null)).toBe(false);
+    expect(paneTreeContains(tree, undefined)).toBe(false);
+    expect(paneTreeContains(tree, "")).toBe(false);
+    expect(paneTreeContains(tree, "zzz")).toBe(false);
   });
 });

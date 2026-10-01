@@ -91,6 +91,19 @@ export async function openPhoneClient(
   });
 }
 
+export interface OpenWebAppOptions {
+  headed?: boolean;
+  /**
+   * Defaults to a PC viewport. ADR-181's phone tests pass a phone size
+   * instead — the same `/app` bundle, the same desktop renderer, dropped
+   * into phone mode by width alone (ADR-181 D2), with nothing else about
+   * how it is opened any different from a PC browser.
+   */
+  viewport?: { width: number; height: number };
+  /** Passed through to `newContext`, layered under `viewport`. */
+  context?: BrowserContextOptions;
+}
+
 /**
  * The ADR-178 web app — the desktop renderer served to a browser — at a PC
  * viewport. `pairDevice`'s token, `/app` in place of `/`, same fragment.
@@ -98,11 +111,16 @@ export async function openPhoneClient(
 export async function openWebApp(
   port: number,
   token: string,
-  { headed = false }: { headed?: boolean } = {},
+  {
+    headed = false,
+    viewport = { width: 1280, height: 800 },
+    context,
+  }: OpenWebAppOptions = {},
 ): Promise<Client> {
   return openClient(`http://127.0.0.1:${port}/app#${token}`, {
-    viewport: { width: 1280, height: 800 },
+    viewport,
     headed,
+    context,
   });
 }
 

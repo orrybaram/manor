@@ -6,6 +6,7 @@ import {
   serializeCombo,
 } from "../lib/keybindings";
 import { handleBridgeUnavailable } from "../lib/bridge-unavailable-toast";
+import { isWebApp } from "../lib/platform";
 
 /**
  * `keybindings.set`/`reset`/`resetAll` stay off the ADR-178 bridge table —
@@ -28,8 +29,27 @@ interface KeybindingsState {
   resetAll: () => void;
 }
 
+/**
+ * The platform string `platformDefaults`/`resolveBindings` key their defaults
+ * on: `navigator.platform` (mac vs. everything else) normally, but the
+ * literal `"web"` on a browser, which is its own variant — ADR-181 D7 — that
+ * leaves the commands a browser reserves for itself unbound.
+ */
+/**
+ * The OS picks ⌘ versus Ctrl; being a browser tab only removes the chords the
+ * browser keeps for itself (ADR-181 D7). Two separate facts, passed separately
+ * — see `platformDefaults`.
+ */
+function bindingOpts(): { inBrowser: boolean } {
+  return { inBrowser: isWebApp() };
+}
+
 export const useKeybindingsStore = create<KeybindingsState>((set) => {
-  const defaultBindings = resolveBindings({}, navigator.platform).bindings;
+  const defaultBindings = resolveBindings(
+    {},
+    navigator.platform,
+    bindingOpts(),
+  ).bindings;
 
   window.electronAPI?.keybindings
     .getAll()
@@ -37,6 +57,7 @@ export const useKeybindingsStore = create<KeybindingsState>((set) => {
       const { bindings, overriddenIds } = resolveBindings(
         overrides,
         navigator.platform,
+        bindingOpts(),
       );
       set({ bindings, overriddenIds, loaded: true });
     })
@@ -46,6 +67,7 @@ export const useKeybindingsStore = create<KeybindingsState>((set) => {
     const { bindings, overriddenIds } = resolveBindings(
       overrides,
       navigator.platform,
+      bindingOpts(),
     );
     set({ bindings, overriddenIds });
   });
@@ -71,8 +93,11 @@ export const useKeybindingsStore = create<KeybindingsState>((set) => {
     },
 
     reset: (commandId) => {
-      const platformDefault = resolveBindings({}, navigator.platform)
-        .bindings[commandId];
+      const platformDefault = resolveBindings(
+        {},
+        navigator.platform,
+        bindingOpts(),
+      ).bindings[commandId];
       set((s) => {
         const overriddenIds = new Set(s.overriddenIds);
         overriddenIds.delete(commandId);
@@ -92,7 +117,11 @@ export const useKeybindingsStore = create<KeybindingsState>((set) => {
     },
 
     resetAll: () => {
-      const defaults = resolveBindings({}, navigator.platform).bindings;
+      const defaults = resolveBindings(
+        {},
+        navigator.platform,
+        bindingOpts(),
+      ).bindings;
       set({ bindings: defaults, overriddenIds: new Set<string>() });
       window.electronAPI?.keybindings
         .resetAll()

@@ -14,6 +14,7 @@ import { createFileLinkProvider } from "../terminal/file-link-provider";
 import { selectFocusedPaneOfActiveTab, useAppStore } from "../store/app-store";
 import { parseWorkspaceKey, workspaceKey as makeWorkspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import { ownerOf } from "../lib/workspace-directory";
+import { configureHelperTextarea } from "../terminal/helper-textarea";
 import { openExternal } from "../lib/open-external";
 import { handleBridgeUnavailable } from "../lib/bridge-unavailable-toast";
 import { useProjectStore } from "../store/project-store";
@@ -217,6 +218,12 @@ export function useTerminalLifecycle(
       }
 
       t.open(container);
+
+      // `open` is what creates xterm's hidden textarea — the one every
+      // keystroke, a phone's soft keyboard included, goes through. Keep the
+      // keyboard from capitalising or "correcting" what is typed into it
+      // (ADR-181 D6).
+      configureHelperTextarea(t.textarea);
 
       // Intercept the DOM paste event on remote panes when the clipboard holds
       // an image and no text (Cmd+V on macOS, Ctrl+Shift+V, the Edit menu —

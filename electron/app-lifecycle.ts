@@ -52,6 +52,7 @@ import {
   RemoteControlController,
   type RemoteControlRuntime,
 } from "./remote-control/controller";
+import { TAILSCALE_APP_CLI } from "./remote-control/tunnel-status";
 import { PushManager } from "./remote-control/push";
 import type { ControlDeps } from "./routes/types";
 import { handleRelayedControlRequest } from "./control-relay";
@@ -492,6 +493,17 @@ export function initApp(devTitle: string | null): void {
   let bridgeServer: BridgeServer | null = null;
   let wsBridge: WsBridgeServer | null = null;
   let ipcBridge: IpcBridgeTransport | null = null;
+  // `backend.shell.which`, plus the Tailscale app (`brew install --cask
+  // tailscale-app`, or the App Store), which ships its CLI inside the bundle
+  // and does not put it on PATH.
+  const whichTunnelBin = async (bin: string): Promise<string | null> => {
+    const onPath = await backend.shell.which(bin);
+    if (onPath) return onPath;
+    if (bin === "tailscale" && fs.existsSync(TAILSCALE_APP_CLI)) {
+      return TAILSCALE_APP_CLI;
+    }
+    return null;
+  };
   const loadRemoteControlRuntime = async (): Promise<RemoteControlRuntime> => {
     const [{ RemoteControlServer }, { TunnelManager }, { WsBridgeServer }] =
       await Promise.all([
@@ -536,17 +548,19 @@ export function initApp(devTitle: string | null): void {
     // controller's shutdown guarantees the child dies with the app — a tunnel
     // outliving Manor is the feature's worst failure mode.
     const tunnel = new TunnelManager({
-      which: (bin) => backend.shell.which(bin),
+      which: whichTunnelBin,
       spawn: (command, args) =>
         spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] }),
+      exec: (command, args) =>
+        backend.shell.exec(command, args, { timeout: 5_000 }),
     });
     return { server, tunnel };
   };
   const remoteControl = new RemoteControlController(
     loadRemoteControlRuntime,
     remoteDeviceStore,
-    // Same PATH probe the tunnel manager uses, without loading it.
-    (bin) => backend.shell.which(bin),
+    // Same probe the tunnel manager uses, without loading it.
+    whichTunnelBin,
     () => safeStorage.isEncryptionAvailable(),
     remotePush,
   );

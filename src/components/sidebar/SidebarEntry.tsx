@@ -23,6 +23,9 @@ type SidebarEntryProps = {
    * The collapsed rail's popover (ADR-195) exists to show them.
    */
   forceExpanded?: boolean;
+  /** Fires after a workspace is chosen — the phone drawer closes on it
+   *  (ADR-181 ticket 4). */
+  onNavigate?: () => void;
 };
 
 /**
@@ -31,8 +34,14 @@ type SidebarEntryProps = {
  * both render the same rows, menus and actions.
  */
 export function SidebarEntry(props: SidebarEntryProps) {
-  const { entry, onOpenProjectSettings, onDragStart, justDraggedRef, forceExpanded = false } =
-    props;
+  const {
+    entry,
+    onOpenProjectSettings,
+    onDragStart,
+    justDraggedRef,
+    forceExpanded = false,
+    onNavigate,
+  } = props;
 
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
@@ -79,10 +88,12 @@ export function SidebarEntry(props: SidebarEntryProps) {
           setProjectExpanded(project.id);
           const wsIdx = project.selectedWorkspaceIndex;
           selectWorkspace(project.id, wsIdx >= 0 ? wsIdx : 0);
+          onNavigate?.();
         }}
         onRemove={() => removeProject(project.id)}
         onSelectWorkspace={(wsIdx) => {
           selectWorkspace(project.id, wsIdx);
+          onNavigate?.();
         }}
         onRemoveWorktree={(ws, deleteBranch) =>
           removeWorktreeWithToast(project, ws, deleteBranch)

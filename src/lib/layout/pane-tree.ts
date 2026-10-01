@@ -50,6 +50,19 @@ export function hasPaneId(node: PaneNode, paneId: string): boolean {
   return hasPaneId(node.first, paneId) || hasPaneId(node.second, paneId);
 }
 
+/**
+ * Whether `paneId` is a leaf somewhere under `node`. Null-tolerant, because
+ * the id it is asked about is usually a viewport's (possibly absent) focused
+ * pane: a phone-mode split shows the child that contains it (ADR-181 D1).
+ */
+export function paneTreeContains(
+  node: PaneNode,
+  paneId: string | null | undefined,
+): boolean {
+  if (!paneId) return false;
+  return hasPaneId(node, paneId);
+}
+
 /** Insert a split at the given paneId, pushing the existing pane into `first`. */
 export function insertSplit(
   node: PaneNode,

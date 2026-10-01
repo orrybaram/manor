@@ -1467,7 +1467,7 @@ export interface PickedElementResult {
 
 // ── Remote control (ADR-161) ──
 
-export type TunnelKind = "tailscale" | "cloudflared";
+export type TunnelKind = "tailscale";
 export type TunnelState = "stopped" | "starting" | "running" | "failed";
 
 export interface TunnelStatus {
@@ -1475,6 +1475,8 @@ export interface TunnelStatus {
   kind: TunnelKind | null;
   url: string | null;
   error: string | null;
+  /** Set while starting, when Tailscale is waiting on the user (e.g. to enable Serve). */
+  actionUrl?: string | null;
 }
 
 /**
@@ -1496,12 +1498,20 @@ export interface RemoteDeviceInfo {
   hasPush: boolean;
 }
 
+/** Mirrors `TailnetInfo` in `electron/remote-control/tunnel.ts`. */
+export interface TailnetInfo {
+  account: string | null;
+  peers: { name: string; os: string; online: boolean }[];
+}
+
 export interface RemoteControlStatus {
   enabled: boolean;
   port: number | null;
   devices: RemoteDeviceInfo[];
   tunnel: TunnelStatus;
   detected: Record<TunnelKind, boolean>;
+  /** Other devices on the tailnet while a tunnel runs; null otherwise. */
+  tailnet: TailnetInfo | null;
   encryptionAvailable: boolean;
   listeners: number;
 }

@@ -22,6 +22,19 @@ export function hasPanelId(node: PanelNode, id: string): boolean {
   return hasPanelId(node.first, id) || hasPanelId(node.second, id);
 }
 
+/**
+ * Whether `panelId` is a leaf somewhere under `node`. Null-tolerant, because
+ * the id it is asked about is usually a viewport's (possibly absent) active
+ * panel: a phone-mode split shows the child that contains it (ADR-181 D1).
+ */
+export function panelTreeContains(
+  node: PanelNode,
+  panelId: string | null | undefined,
+): boolean {
+  if (!panelId) return false;
+  return hasPanelId(node, panelId);
+}
+
 export function insertPanelSplit(
   node: PanelNode,
   targetPanelId: string,

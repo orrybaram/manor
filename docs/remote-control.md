@@ -112,18 +112,21 @@ anything. Remote control is also off again after every restart, deliberately —
 a setting that silently reopens a listener after an update is exactly the
 surprise this feature cannot afford.
 
-**Tailscale is preferred over cloudflared**, and the difference is not
-convenience. With `tailscale serve`, only devices on your tailnet can reach the
-address at all, so the pairing token is a _second_ factor. With a Cloudflare
-quick tunnel the address is public and the token is the only thing between the
-internet and your session output. Manor detects both and installs neither.
+**Tailscale is the only tunnel.** With `tailscale serve`, only devices on your
+tailnet can reach the address at all, so the pairing token is a _second_
+factor. Manor used to offer a public cloudflared quick tunnel as well, but there
+the token was the only thing between the internet and your session output, so
+it was dropped. Manor finds `tailscale` on `PATH` or inside the Tailscale app
+bundle. If neither is there, the settings card offers **Install**, which runs
+`brew install --cask tailscale-app` in a small terminal you can watch and type
+into, then opens the app so you can sign in.
 
 ## Pairing a device
 
 1. **Settings → Remote control**, and turn on the toggle. The listener starts,
    still loopback-only.
-2. **Start a tunnel.** Manor names what becomes reachable, and which tool it
-   will use, before it starts anything.
+2. **Start the tunnel** — the main button on the card at the top of the page.
+   Manor names what becomes reachable before it starts anything.
 3. **Pair a device.** Give it a name and a tier — **Watch** (`read`), **Reply**
    (`send`), or **Everything** (`full`). Watch is the default and the one
    pre-selected; picking Everything shows its own warning in place of the usual
@@ -168,6 +171,35 @@ in Finder) show a stated empty state instead of failing silently — see
 
 One more thing worth knowing about a browser tab open next to the desktop app:
 it shows the desktop's grid at the desktop's size and never resizes it.
+
+### On a phone
+
+Below roughly 768 px the web app lays out differently — the same state, walked
+one pane at a time instead of the desk's grid shrunk to fit
+([ADR-181](decisions/adr-181-phone-layout/index.md)). What you get:
+
+- **One pane, full screen**, under a top bar: a drawer toggle, the workspace
+  name, a pane-switcher button, and a button for the command palette. No
+  sidebar, no status bar, no resize dividers.
+- **The tab strip** — the active panel's tabs, one row, scrolling
+  horizontally — and the **pane switcher**, a sheet listing every panel, tab
+  and pane of the current workspace, are how you move between panes. There is
+  no swipe between panes; the pan gesture is already spoken for by a follower
+  wider than the phone.
+- **The drawer** is the sidebar, opened from the top bar; picking a workspace
+  in it closes the drawer and shows that workspace.
+- **The command palette** opens full screen and is the phone's command
+  surface: split, close, move and every other pane action with no touch idiom
+  is a palette search away, the same as at a keyboard. Dragging (a tab, a
+  split, a detach) is off on a phone rather than half-working under a thumb.
+- **Typing is the native keyboard, straight into the terminal.** Tapping a
+  pane focuses it and raises your phone's own keyboard; there is no composer
+  and no extra row of special keys. That has a real limit, stated plainly
+  because it is a decision and not a bug: **a phone keyboard has no Esc, Tab
+  or Ctrl, so a phone cannot interrupt an agent or answer a TUI prompt that
+  needs one of those keys.** For that, use the desktop app or the remote
+  client's fixed `1` `2` `3` `y` `n` buttons, which do not need a keyboard at
+  all.
 
 ## Knowing whether you are exposed
 
@@ -230,7 +262,7 @@ checking — without introducing another party to the trust model.
   this document.
 - **A hard crash could orphan the tunnel process.** Manor stops it on quit and
   again on process exit, but a `SIGKILL` to Manor leaves nothing to run. If
-  Manor was killed outright, check for a stray `cloudflared` or `tailscale`
+  Manor was killed outright, check for a stray `tailscale serve`
   process.
 
 ## Where things live

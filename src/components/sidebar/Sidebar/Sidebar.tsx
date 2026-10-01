@@ -26,6 +26,7 @@ import { openContextMenuFromKeyboard } from "../../../lib/keyboard-context-menu"
 import { useBranchWatcher } from "../../../hooks/useBranchWatcher";
 import { useDiffWatcher } from "../../../hooks/useDiffWatcher";
 import { usePrWatcher } from "../../../hooks/usePrWatcher";
+import { useLayoutMode } from "../../../hooks/useLayoutMode";
 import { SidebarEntry } from "../SidebarEntry";
 import {
   buildTopLevelEntries,
@@ -45,15 +46,30 @@ interface SidebarProps {
   onOpenProjectSettings?: (projectId: string) => void;
   onAddProject?: () => void;
   onOpenSearch?: () => void;
+  /** ADR-181 ticket 4: fires after a workspace (or Home, or Tasks) is chosen
+   *  — the phone drawer closes on this rather than duplicating the selection
+   *  logic below. No-op inline in desk mode, where nothing passes it. */
+  onNavigate?: () => void;
 }
 
 export function Sidebar(props: SidebarProps) {
-  const { onShowAgents, onOpenProjectSettings, onAddProject, onOpenSearch } =
-    props;
+  const {
+    onShowAgents,
+    onOpenProjectSettings,
+    onAddProject,
+    onOpenSearch,
+    onNavigate,
+  } = props;
 
   const projects = useProjectStore((s) => s.projects);
   const reorderProjects = useProjectStore((s) => s.reorderProjects);
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
+  // ADR-181 D5: on a phone the sidebar lives in `SidebarDrawer`'s fixed-width
+  // sheet, so neither the width handle nor the pointer-drag reorder below
+  // has anywhere useful to go — and unlike the tab/pane drags, nothing here
+  // already gates `draggable` off, since this is a `pointerdown`-driven
+  // reorder, not native HTML5 DnD.
+  const isPhone = useLayoutMode() === "phone";
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const showTasksView = useAppStore((s) => s.showTasksView);
@@ -78,6 +94,16 @@ export function Sidebar(props: SidebarProps) {
   // drag below reorders entries; a group's members move together.
   const entries = useMemo(() => buildTopLevelEntries(projects), [projects]);
 
+  const handleSelectHome = useCallback(() => {
+    setActiveWorkspace(HOME_PATH);
+    onNavigate?.();
+  }, [setActiveWorkspace, onNavigate]);
+
+  const handleShowTasks = useCallback(() => {
+    showTasksView();
+    onNavigate?.();
+  }, [showTasksView, onNavigate]);
+
   // Project drag-and-drop state
   const [projDragIndex, setProjDragIndex] = useState<number | null>(null);
   const [projDropIndex, setProjDropIndex] = useState<number | null>(null);
@@ -92,6 +118,13 @@ export function Sidebar(props: SidebarProps) {
 
   const handleProjectDragStart = useCallback(
     (idx: number, e: ReactPointerEvent) => {
+      // ADR-181 D5: a pointerdown-driven reorder, not native HTML5 DnD — the
+      // project header's own `touch-action: none` (`ProjectItem.tsx`) stops
+      // it fighting the sidebar's scroll on release, but `setPointerCapture`
+      // below still claims the gesture the instant a finger lands, ahead of
+      // a long-press opening the row's context menu. No touch idiom needs
+      // reordering projects, so the whole gesture is off in phone mode.
+      if (isPhone) return;
       if (e.button !== 0) return;
 
       const target = e.currentTarget as HTMLElement;
@@ -177,7 +210,7 @@ export function Sidebar(props: SidebarProps) {
       target.addEventListener("pointerup", onUp);
       target.addEventListener("lostpointercapture", onUp);
     },
-    [entries, reorderProjects],
+    [entries, reorderProjects, isPhone],
   );
 
   const getProjectTransformStyle = (idx: number): React.CSSProperties => {
@@ -231,10 +264,10 @@ export function Sidebar(props: SidebarProps) {
               data-sidebar-row=""
               tabIndex={-1}
               aria-current={homeActive ? "true" : undefined}
-              onClick={() => setActiveWorkspace(HOME_PATH)}
+              onClick={handleSelectHome}
               onKeyDown={(e) =>
                 handleSidebarRowKeyDown(e, {
-                  activate: () => setActiveWorkspace(HOME_PATH),
+                  activate: handleSelectHome,
                 })
               }
             >
@@ -249,9 +282,9 @@ export function Sidebar(props: SidebarProps) {
               data-sidebar-row=""
               tabIndex={-1}
               aria-current={tasksActive ? "true" : undefined}
-              onClick={showTasksView}
+              onClick={handleShowTasks}
               onKeyDown={(e) =>
-                handleSidebarRowKeyDown(e, { activate: showTasksView })
+                handleSidebarRowKeyDown(e, { activate: handleShowTasks })
               }
             >
               <span className={styles.homeIcon}>
@@ -374,6 +407,7 @@ export function Sidebar(props: SidebarProps) {
                           onOpenProjectSettings={onOpenProjectSettings}
                           onDragStart={(e) => handleProjectDragStart(idx, e)}
                           justDraggedRef={projJustDragged}
+                          onNavigate={onNavigate}
                         />
                       </div>
                     </React.Fragment>
@@ -386,7 +420,11 @@ export function Sidebar(props: SidebarProps) {
         </div>
         <PortsList />
       </div>
-      <SidebarResizeHandle />
+      {/* ADR-181 D5: `SidebarDrawer` forces its own fixed width on the phone
+          sheet this renders inside (`.sheet [data-focus-region="sidebar"]`,
+          `SidebarDrawer.module.css`) — the handle has nothing to resize
+          there, and this is a mouse drag with no touch idiom regardless. */}
+      {!isPhone && <SidebarResizeHandle />}
     </div>
   );
 }

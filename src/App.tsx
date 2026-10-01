@@ -52,7 +52,7 @@ import {
   runWorkspaceSetupScript,
   type ProjectInfo,
 } from "./store/project-store";
-import { ownerOf } from "./lib/workspace-directory";
+import { find as findWorkspace, ownerOf } from "./lib/workspace-directory";
 import { parseWorkspaceKey, type WorkspaceKey } from "./lib/workspace-key";
 import { appCommandHandlers } from "./lib/app-commands";
 import { handleRecordingCommand } from "./lib/webview-recorder";
@@ -95,6 +95,10 @@ import {
   HOME_PATH,
 } from "./lib/home";
 import { isWebApp } from "./lib/platform";
+import { useLayoutMode } from "./hooks/useLayoutMode";
+import { PhoneTopBar } from "./components/phone/PhoneTopBar";
+import { SidebarDrawer } from "./components/phone/SidebarDrawer";
+import { PaneSwitcherSheet } from "./components/phone/PaneSwitcherSheet";
 import "./App.css";
 
 function App() {
@@ -104,6 +108,18 @@ function App() {
   const loadPersistedLayout = useAppStore((s) => s.loadPersistedLayout);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const [appReady, setAppReady] = useState(false);
+  // ADR-181 D2: one hook decides phone vs. desk for every renderer. A
+  // detached window (OWN_CLAIM below) reports its own `isDetached` and the
+  // hook always answers "desk" for it, so both render paths below can share
+  // this single call.
+  const layoutMode = useLayoutMode();
+  // ADR-181 D3/D4/D5: phone-only chrome state. `PhoneTopBar`'s buttons only
+  // toggle it here — ticket 4 renders the drawer this opens (below), ticket 5
+  // the pane-switcher sheet. The palette button reuses `paletteOpen` below
+  // rather than a state of its own: ticket 6 makes the existing
+  // `CommandPalette` full screen in phone mode, not a second surface.
+  const [phoneDrawerOpen, setPhoneDrawerOpen] = useState(false);
+  const [phonePaneSwitcherOpen, setPhonePaneSwitcherOpen] = useState(false);
 
   // Mirror main's persisted agent activity for Home's timeline and sparklines (ADR-199).
   useMountEffect(() => startAgentActivitySync());
@@ -453,6 +469,21 @@ function App() {
   // command actually changes, not on every unrelated project mutation.
   // By key: a local and a remote project can share a path (ADR-191).
   const activeProject = ownerOf(projects, activeWorkspaceKey);
+  // The phone top bar's centre label (ADR-181 D3). Home is the Dashboard
+  // (ADR-197) and has no workspace record, so it gets the label the sidebar
+  // gives it; a project workspace falls back the same way
+  // `resolveWorkspaceName` (WorkspaceSetupView) does — name, then branch,
+  // then the last path segment — so a workspace with neither still shows
+  // something.
+  const activeWorkspace = activeWorkspaceKey
+    ? findWorkspace(projects, activeWorkspaceKey)?.workspace
+    : undefined;
+  const activeWorkspaceDisplayName = isHomePath(activeWorkspacePath)
+    ? "Dashboard"
+    : activeWorkspace?.name ||
+      activeWorkspace?.branch ||
+      activeWorkspacePath?.split("/").pop() ||
+      "";
   // The launch command for the active project workspace. Shared by prewarming
   // and both new-agent handlers below.
   const activeWorkspaceCommand =
@@ -777,7 +808,7 @@ function App() {
   if (OWN_CLAIM) {
     return (
       <TooltipProvider>
-        <div className="app">
+        <div className="app" data-layout={layoutMode}>
           {claimPanelId ? (
             <div className="app-body">
               <PaneDragProvider>
@@ -833,15 +864,17 @@ function App() {
 
   return (
     <TooltipProvider>
-    <div className="app">
+    <div className="app" data-layout={layoutMode}>
       <div
         className="app-body"
-        style={appBodyStyle}
+        style={layoutMode === "desk" ? appBodyStyle : undefined}
         data-sidebar-animating={sidebarAnimating || undefined}
       >
         {/* One column for every sidebar mode, so a mode change animates its
-            width instead of swapping views at a new size. */}
-        {hasProjects && (
+            width instead of swapping views at a new size. ADR-181 D3: in
+            phone mode the sidebar is a drawer instead, never rendered inline
+            — it would eat the whole screen at phone width. */}
+        {hasProjects && layoutMode === "desk" && (
           <div
             className="sidebar-column"
             style={{ width: sidebarColumnWidth(sidebarMode, sidebarWidth) }}
@@ -863,10 +896,46 @@ function App() {
             )}
           </div>
         )}
+        {layoutMode === "phone" && (
+          <SidebarDrawer
+            open={phoneDrawerOpen}
+            onOpenChange={setPhoneDrawerOpen}
+            onShowAgents={() => setAgentsOpen(true)}
+            onOpenProjectSettings={handleOpenProjectSettings}
+            onAddProject={handleAddProject}
+          />
+        )}
+        {/* ADR-181 D3/D4/ticket 5: the pane switcher — with no swipe, this and
+            the tab strip are the only ways a phone moves between panes. A
+            sibling of the workspace stack, like the sidebar drawer, so it
+            cannot affect any pane's geometry. */}
+        {layoutMode === "phone" && (
+          <PaneSwitcherSheet
+            open={phonePaneSwitcherOpen}
+            onOpenChange={setPhonePaneSwitcherOpen}
+          />
+        )}
         <PaneDragProvider>
           <div
-            className={`main-content ${hasProjects ? "" : "main-content--gutter-left"}`}
+            className={`main-content ${hasProjects && layoutMode === "desk" ? "" : "main-content--gutter-left"}`}
           >
+            {/* ADR-181 D3: the phone top bar sits around the workspace stack,
+                not inside it — a sibling here, like the sidebar and status
+                bar, so nothing about the split components' element tree
+                changes and a pane switch still remounts nothing. */}
+            {layoutMode === "phone" && (
+              <PhoneTopBar
+                workspaceName={activeWorkspaceDisplayName}
+                onToggleDrawer={() => setPhoneDrawerOpen((v) => !v)}
+                onOpenPaneSwitcher={() => setPhonePaneSwitcherOpen(true)}
+                onOpenPalette={() => {
+                  // The phone's command surface (ADR-181 D5), so it opens
+                  // scoped like the keyboard shortcut, not the search box.
+                  setPaletteOrigin("shortcut");
+                  setPaletteOpen(true);
+                }}
+              />
+            )}
             {/* Every workspace renders through the same PanelLayout in a single
                 positioned stack, active or not. Inactive ones are only hidden,
                 never unmounted or re-parented, so their terminals keep the exact
@@ -902,11 +971,15 @@ function App() {
                 </div>
               )}
             </div>
-            <StatusBar
-              onNewWorkspace={handleNewWorkspace}
-              onNewAgentWithPrompt={handleNewAgentWithPrompt}
-              onOpenStats={handleOpenStats}
-            />
+            {/* ADR-181 D3: no status bar in phone mode — the top bar and the
+                palette are the phone's chrome. */}
+            {layoutMode === "desk" && (
+              <StatusBar
+                onNewWorkspace={handleNewWorkspace}
+                onNewAgentWithPrompt={handleNewAgentWithPrompt}
+                onOpenStats={handleOpenStats}
+              />
+            )}
           </div>
         </PaneDragProvider>
         {/* The top-left and top-right controls (ADR-196). Not shown before the first
@@ -916,7 +989,7 @@ function App() {
             `-webkit-app-region`s in DOM order, so when the lead overlaps the
             top-left tab bar (rail and hidden modes) its buttons must come
             after the bar's drag region or clicks on them never arrive. */}
-        {hasProjects && <WindowLead />}
+        {hasProjects && layoutMode === "desk" && <WindowLead />}
       </div>
       <Suspense fallback={null}>
         <CommandPalette

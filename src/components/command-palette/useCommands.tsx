@@ -3,6 +3,7 @@ import { usePreferencesStore } from "../../store/preferences-store";
 import Activity from "lucide-react/dist/esm/icons/activity";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
 import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
+import ArrowRightLeft from "lucide-react/dist/esm/icons/arrow-right-left";
 import BarChart3 from "lucide-react/dist/esm/icons/bar-chart-3";
 import Bell from "lucide-react/dist/esm/icons/bell";
 import BookOpen from "lucide-react/dist/esm/icons/book-open";
@@ -279,7 +280,11 @@ export function useCommands({
             {
               id: "move-tab-to-next-panel",
               label: "Move Tab to Next Panel",
+              icon: <ArrowRightLeft size={14} />,
               shortcut: fmt("move-tab-to-next-panel"),
+              // ADR-181 D5: the touch idiom for this is dragging a tab into
+              // another panel's tab bar, which phone mode disables — the
+              // palette is how a phone moves a tab.
               keywords: ["move", "tab", "panel"],
               action: run("move-tab-to-next-panel"),
             },

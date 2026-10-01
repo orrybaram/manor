@@ -27,6 +27,7 @@ import {
   type WindowInfo,
 } from "../../lib/detach-drag";
 import { usePaneDrag } from "./PaneDragContext";
+import { useLayoutMode } from "../../hooks/useLayoutMode";
 import { TerminalPane } from "./TerminalPane/TerminalPane";
 import { BrowserPane, type BrowserPaneRef, type BrowserPaneNavState } from "./BrowserPane/BrowserPane";
 import { RecordingIndicator } from "./BrowserPane/RecordingIndicator";
@@ -92,6 +93,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   const requestClosePaneById = useAppStore((s) => s.requestClosePaneById);
   const setWebviewFocused = useAppStore((s) => s.setWebviewFocused);
   const { drag, startDrag, endDrag } = usePaneDrag();
+  const layoutMode = useLayoutMode();
   const isFocused = focusedPaneId === paneId;
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -337,7 +339,10 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
       <ContextMenu.Trigger asChild>
       <div
         className={`${styles.paneStatusBar} ${isFocused ? styles.paneStatusBarFocused : ""} ${isThisPaneDragging ? styles.paneStatusBarDragging : ""} ${navState?.webviewFocused ? styles.paneStatusBarWebviewFocused : ""}`}
-        draggable
+        // ADR-181 D5: this one gesture is drag-to-split AND detach-by-drag —
+        // both disabled in phone mode rather than half-starting under a
+        // thumb and fighting the page's own scroll/long-press.
+        draggable={layoutMode === "desk"}
         onDragStart={handleStatusBarDragStart}
         onDrag={handleStatusBarDrag}
         onDragEnd={handleStatusBarDragEnd}

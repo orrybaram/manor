@@ -33,3 +33,10 @@
 .thumb[data-state="checked"] {
   transform: translateX(14px);
 }
+
+/* A thumb's hit area on a phone without changing how the switch looks. */
+:global(:root[data-layout="phone"]) .root::before {
+  content: "";
+  position: absolute;
+  inset: -14px -8px;
+}

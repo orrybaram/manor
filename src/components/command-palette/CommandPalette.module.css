@@ -1550,3 +1550,19 @@ button.processKill:hover:not(:disabled) {
   /* Below 16px iOS Safari zooms the page in on focus. */
   font-size: 16px;
 }
+
+/* A finger, not a pointer: rows a thumb can hit, and none of the keyboard
+   furniture — a phone has no Ctrl+Shift+] to be reminded of. */
+:global(:root[data-layout="phone"]) .item {
+  min-height: 44px;
+  font-size: 15px;
+}
+
+:global(:root[data-layout="phone"]) .shortcut,
+:global(:root[data-layout="phone"]) .footer {
+  display: none;
+}
+
+:global(:root[data-layout="phone"]) .activeBadge {
+  font-size: 11px;
+}

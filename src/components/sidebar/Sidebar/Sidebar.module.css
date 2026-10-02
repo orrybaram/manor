@@ -330,3 +330,15 @@
   opacity: 0.6;
   flex-shrink: 0;
 }
+
+/* In the phone's drawer (a portal, hence `:root`): no title row to clear,
+   and a thumb-sized add button. */
+:global(:root[data-layout="phone"]) .content {
+  padding-top: 12px;
+}
+
+:global(:root[data-layout="phone"]) .projectsAdd.projectsAdd {
+  width: 40px;
+  height: 40px;
+  margin-right: -10px;
+}

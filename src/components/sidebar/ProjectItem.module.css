@@ -587,3 +587,7 @@
 .sectionOffline .workspaces {
   opacity: 0.5;
 }
+
+:global(:root[data-layout="phone"]) .workspaceBranch {
+  font-size: 12px;
+}

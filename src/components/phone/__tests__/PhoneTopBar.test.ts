@@ -125,9 +125,9 @@ describe("PhoneTopBar — workspace name", () => {
     return container.querySelector('[data-testid="phone-top-bar"]')?.textContent;
   }
 
-  it("labels Home as Home", () => {
+  it("labels Home as Dashboard", () => {
     useAppStore.setState({ activeWorkspacePath: HOME_PATH });
-    expect(name()).toBe("Home");
+    expect(name()).toBe("Dashboard");
   });
 
   it("falls back from the name to the branch to the last path segment", () => {

@@ -54,6 +54,7 @@ export function PaneSwitcherSheet(props: PaneSwitcherSheetProps) {
           className={styles.sheet}
           data-testid="pane-switcher"
           aria-label="Switch pane"
+          aria-describedby={undefined}
         >
           {/* Radix requires an accessible title; the rows themselves carry
               the visual content, so this one is hidden. */}
@@ -121,9 +122,10 @@ function PaneSwitcherList(props: PaneSwitcherListProps) {
 
   return (
     <div className={styles.list}>
-      {panels.map((panel) =>
-        panel.tabs.map((tab) =>
-          allPaneIds(tab.rootNode).map((paneId) => {
+      {panels.map((panel, panelIndex) =>
+        panel.tabs.map((tab, tabIndex) => {
+          const paneIds = allPaneIds(tab.rootNode);
+          return paneIds.map((paneId, paneIndex) => {
             const contentType = leafOf(layout, paneId)?.contentType ?? "terminal";
             const title = paneTitle(paneId, titleState, agents);
             const { status, pulse } = selectAgentRollup(
@@ -131,6 +133,15 @@ function PaneSwitcherList(props: PaneSwitcherListProps) {
               [paneId],
             );
             const isCurrent = paneId === currentPaneId;
+            // Where it is, so two shells in the same directory — the usual
+            // case — are still two different rows.
+            const where = [
+              panels.length > 1 ? `Panel ${panelIndex + 1}` : null,
+              `Tab ${tabIndex + 1}`,
+              paneIds.length > 1 ? `pane ${paneIndex + 1} of ${paneIds.length}` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ");
 
             return (
               <Button
@@ -143,12 +154,15 @@ function PaneSwitcherList(props: PaneSwitcherListProps) {
                 onClick={() => selectPane(paneId)}
               >
                 <PaneIcon contentType={contentType} />
-                <span className={styles.rowTitle}>{title}</span>
+                <span className={styles.rowText}>
+                  <span className={styles.rowTitle}>{title}</span>
+                  <span className={styles.rowWhere}>{where}</span>
+                </span>
                 <AgentDot status={status ?? undefined} size="tab" pulse={pulse} />
               </Button>
             );
-          }),
-        ),
+          });
+        }),
       )}
     </div>
   );

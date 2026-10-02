@@ -36,6 +36,13 @@ export function SidebarDrawer(props: SidebarDrawerProps) {
           className={styles.sheet}
           data-testid="sidebar-drawer"
           aria-label="Sidebar"
+          aria-describedby={undefined}
+          // Focus the sheet, not its first button: on a phone that button's
+          // focus ring (and tooltip) is the first thing the drawer shows.
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            (e.currentTarget as HTMLElement).focus();
+          }}
         >
           {/* Radix requires an accessible title; the sidebar's own content
               already carries the visual heading, so this one is hidden. */}

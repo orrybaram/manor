@@ -15,7 +15,17 @@ export type LayoutMode = "phone" | "desk";
  */
 export const PHONE_MAX_WIDTH = 767;
 
-const PHONE_QUERY = `(max-width: ${PHONE_MAX_WIDTH}px)`;
+/**
+ * Below this height a *touch* screen is a phone on its side: an 844×390
+ * landscape iPhone is wider than the breakpoint, but the desk's sidebar,
+ * status bar and title row would leave the terminal a strip. A short window
+ * driven by a mouse is still a desk.
+ */
+export const PHONE_MAX_LANDSCAPE_HEIGHT = 500;
+
+const PHONE_QUERY =
+  `(max-width: ${PHONE_MAX_WIDTH}px), ` +
+  `(max-height: ${PHONE_MAX_LANDSCAPE_HEIGHT}px) and (pointer: coarse)`;
 
 /**
  * Put the layout mode on `<html data-layout>` as well as on `.app`.
@@ -55,6 +65,11 @@ function subscribe(onChange: () => void): () => void {
 function getSnapshot(): LayoutMode {
   if (window.electronAPI.claim) return "desk";
   return window.matchMedia(PHONE_QUERY).matches ? "phone" : "desk";
+}
+
+/** The layout mode right now, for code that decides once rather than renders. */
+export function currentLayoutMode(): LayoutMode {
+  return getSnapshot();
 }
 
 /** No window to measure on the server: default to the desk layout. */

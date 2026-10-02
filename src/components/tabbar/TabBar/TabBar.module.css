@@ -380,8 +380,9 @@
    phone's 44px tabs need the row to grow with them, and there is no
    WindowLead to clear. */
 :global(.app[data-layout="phone"]) .tabBar {
+  --tab-overlap: 6px;
   height: auto;
-  padding: 6px 8px 0;
+  padding: 4px 8px 0;
 }
 
 :global(.app[data-layout="phone"]) .tabBarTopLeft {
@@ -403,10 +404,28 @@
 
 :global(.app[data-layout="phone"]) .tab {
   flex: 0 0 auto;
-  min-height: 44px;
+  min-height: 40px;
+  padding: 0 14px var(--tab-overlap);
+  font-size: 13px;
 }
 
 :global(.app[data-layout="phone"]) .addButton {
   min-width: 44px;
   min-height: 44px;
+}
+
+/* Closing a tab is one deliberate tap on the selected tab's own button —
+   never a 16px glyph on a tab you were reaching for. */
+:global(.app[data-layout="phone"]) .tab .tabClose {
+  display: none;
+}
+
+:global(.app[data-layout="phone"]) .tabActive .tabClose {
+  display: flex;
+  opacity: 0.7;
+  min-width: 36px;
+  min-height: 36px;
+  left: 0;
+  top: 0;
+  margin-right: -10px;
 }

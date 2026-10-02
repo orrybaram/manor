@@ -26,3 +26,9 @@
     transform: translateY(0);
   }
 }
+
+/* No hover on a phone: a tooltip there only ever opens because something got
+   focus — a drawer's first button on open — and covers what is under it. */
+:global(:root[data-layout="phone"]) .content {
+  display: none;
+}

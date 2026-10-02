@@ -571,6 +571,7 @@ export function CommandPalette(props: CommandPaletteProps) {
           <Dialog.Overlay className={styles.overlay} />
           <Dialog.Content
             data-testid="command-palette"
+            aria-describedby={undefined}
             className={`${styles.palette} ${isDetailView ? styles.paletteWide : ""} ${view === "stats" ? styles.paletteStats : ""}`}
             onOpenAutoFocus={handleOpenAutoFocus}
             onCloseAutoFocus={handleCloseAutoFocus}

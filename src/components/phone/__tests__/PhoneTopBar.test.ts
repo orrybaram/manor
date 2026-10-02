@@ -40,7 +40,6 @@ function seedProjects(workspace: { name?: string; branch?: string }): void {
 
 const CALLBACKS = {
   onToggleDrawer: () => {},
-  onOpenPaneSwitcher: () => {},
   onOpenPalette: () => {},
 };
 
@@ -79,23 +78,18 @@ describe("PhoneTopBar", () => {
     expect(
       container.querySelector('[data-testid="phone-drawer-toggle"]'),
     ).not.toBeNull();
-    expect(
-      container.querySelector('[data-testid="phone-pane-switcher-button"]'),
-    ).not.toBeNull();
     expect(container.querySelector('[data-testid="phone-palette-button"]')).not.toBeNull();
     expect(container.textContent).toContain("my-workspace");
   });
 
   it("fires only the callback its own button was clicked for", () => {
     const onToggleDrawer = vi.fn();
-    const onOpenPaneSwitcher = vi.fn();
     const onOpenPalette = vi.fn();
 
     act(() => {
       root.render(
         createElement(PhoneTopBar, {
           onToggleDrawer,
-          onOpenPaneSwitcher,
           onOpenPalette,
         }),
       );
@@ -103,17 +97,12 @@ describe("PhoneTopBar", () => {
 
     click("phone-drawer-toggle");
     expect(onToggleDrawer).toHaveBeenCalledTimes(1);
-    expect(onOpenPaneSwitcher).not.toHaveBeenCalled();
     expect(onOpenPalette).not.toHaveBeenCalled();
-
-    click("phone-pane-switcher-button");
-    expect(onOpenPaneSwitcher).toHaveBeenCalledTimes(1);
 
     click("phone-palette-button");
     expect(onOpenPalette).toHaveBeenCalledTimes(1);
 
     expect(onToggleDrawer).toHaveBeenCalledTimes(1);
-    expect(onOpenPaneSwitcher).toHaveBeenCalledTimes(1);
   });
 });
 

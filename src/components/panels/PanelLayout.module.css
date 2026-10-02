@@ -11,6 +11,13 @@
   overflow: hidden;
 }
 
+/* A phone shows one panel at a time, edge to edge (`.main-content` drops its
+   gutters there), so the frame would only draw a border at the screen edge. */
+:global(.app[data-layout="phone"]) .panel {
+  border: none;
+  border-radius: 0;
+}
+
 .panelActive {
 }
 

@@ -80,6 +80,11 @@
   border-bottom: none;
 }
 
+/* Shown on a phone only (below). */
+.inputRow .phoneClose {
+  display: none;
+}
+
 .list {
   flex: 1;
   overflow-y: auto;
@@ -1252,6 +1257,13 @@ button.processKill:hover:not(:disabled) {
 :global(:root[data-layout="phone"]) .list,
 :global(:root[data-layout="phone"]) .paletteStats .list {
   max-height: none;
+}
+
+:global(:root[data-layout="phone"]) .inputRow .phoneClose {
+  display: flex;
+  flex-shrink: 0;
+  min-height: 44px;
+  margin-right: -8px;
 }
 
 :global(:root[data-layout="phone"]) .input {

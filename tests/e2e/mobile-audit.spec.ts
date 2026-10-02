@@ -48,7 +48,7 @@ import { activePaneId, awaitShellReady } from "./helpers/terminal";
  * local relay (`wrangler dev`, as `relay.spec.ts` runs it), the link opened
  * in a touch-emulating Chromium at an iPhone's size, with a mid-tier CPU and
  * Fast-4G network throttle. It walks every phone surface — cold load, the
- * terminal, the drawer, a workspace switch, the pane switcher, tabs, the
+ * terminal, the drawer, a workspace switch, the next pane, tabs, the
  * palette, Settings, typing, an output flood, landscape and the small and
  * large phone sizes — and for each one records geometry defects (overflow,
  * tap targets, iOS input zoom, tiny or clipped text), axe violations,
@@ -491,6 +491,35 @@ test("phone audit: every phone surface over the relay, throttled", async ({
     await report.screen(page, "drawer");
     await setCpuThrottle(cdp, true);
 
+    // ── Swipe the drawer closed ──────────────────────────────────────
+    // A finger dragged left across the sheet: CDP touch events, since
+    // Playwright's touchscreen only taps. Timed from the finger lifting.
+    const box = (await drawer.boundingBox())!;
+    const y = box.y + box.height / 2;
+    const fromX = box.x + box.width - 40;
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ x: fromX, y }],
+    });
+    for (let i = 1; i <= 8; i++) {
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ x: fromX - i * 25, y }],
+      });
+    }
+    report.time(
+      "swipe → drawer closed",
+      await timed(
+        page,
+        async () => {
+          await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+        },
+        () => !document.querySelector('[data-testid="sidebar-drawer"]'),
+      ),
+    );
+    await page.getByTestId("phone-drawer-toggle").tap();
+    await expect(drawer).toBeVisible();
+
     // ── Workspace switch from the drawer ─────────────────────────────
     report.time(
       "tap → workspace switched",
@@ -510,27 +539,29 @@ test("phone audit: every phone surface over the relay, throttled", async ({
     await drawer.getByTestId("workspace-item").filter({ hasText: W1 }).tap();
     await expect(drawer).toBeHidden();
 
-    // ── Pane switcher ────────────────────────────────────────────────
-    const sheet = page.getByTestId("pane-switcher");
+    // ── Next pane, from the palette ──────────────────────────────────
+    const paneBefore = await activePaneId(page);
+    await page.getByTestId("phone-palette-button").tap();
+    const paletteInput = page.getByTestId("command-palette").locator("[cmdk-input]");
+    await paletteInput.fill("Next Pane");
     report.time(
-      "tap → pane switcher open",
-      await timed(page, () => page.getByTestId("phone-pane-switcher-button").tap(), () => !!document.querySelector('[data-testid="pane-switcher"]')),
-    );
-    await page.waitForTimeout(400);
-    await setCpuThrottle(cdp, false);
-    await report.screen(page, "pane-switcher");
-    await setCpuThrottle(cdp, true);
-    const other = sheet.locator('[data-testid="pane-switcher-row"]:not([aria-current="true"])').first();
-    const targetPaneId = (await other.getAttribute("data-pane-id"))!;
-    report.time(
-      "tap → pane switched",
+      "palette → pane switched",
       await timed(
         page,
-        () => other.tap(),
-        (id: string) =>
-          !document.querySelector('[data-testid="pane-switcher"]') &&
-          window.__manorTerminals?.get(id)?.term.element?.checkVisibility({ visibilityProperty: true }) === true,
-        targetPaneId,
+        () =>
+          page
+            .getByTestId("command-palette")
+            .locator("[cmdk-item]", { hasText: "Next Pane" })
+            .first()
+            .tap(),
+        (before: string) =>
+          !document.querySelector('[data-testid="command-palette"]') &&
+          Array.from(window.__manorTerminals ?? []).some(
+            ([id, h]) =>
+              id !== before &&
+              h.term.element?.checkVisibility({ visibilityProperty: true }) === true,
+          ),
+        paneBefore,
       ),
     );
 
@@ -620,6 +651,12 @@ test("phone audit: every phone surface over the relay, throttled", async ({
     await page.waitForTimeout(800);
     await screenSettled("agents");
     await page.keyboard.press("Escape");
+
+    // Full screen, with no overlay to tap: Cancel is the way out.
+    await page.getByTestId("phone-palette-button").tap();
+    await expect(palette).toBeVisible();
+    await palette.getByTestId("command-palette-close").tap();
+    await expect(palette).toBeHidden();
 
     await fromPalette("New Workspace");
     await expect(page.getByTestId("new-workspace-dialog")).toBeVisible();
@@ -789,8 +826,8 @@ function checkBudgets(report: AuditReport, log: string[]) {
   for (const k of [
     "tap → drawer open",
     "tap → workspace switched",
-    "tap → pane switcher open",
-    "tap → pane switched",
+    "swipe → drawer closed",
+    "palette → pane switched",
     "tap → tab switched",
     "tap → palette open",
     "palette → settings open",

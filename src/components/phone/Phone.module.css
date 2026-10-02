@@ -7,18 +7,24 @@
  */
 
 /*
- * The phone shell is sized to the large viewport, not the visual one
+ * The phone shell is sized to the small viewport, not the visual one
  * (`100dvh`). iOS/Android shrink the *visual* viewport when the soft
  * keyboard opens; sizing `.app` off that would resize this box — and
  * everything under it, including a terminal pane this renderer owns the
  * winsize of — on every keyboard toggle. That is a SIGWINCH per toggle,
- * exactly the bug ADR-163/164/165 fixed for workspace switches. `100lvh` is
- * the viewport's size ignoring the keyboard, so opening it changes no row
- * count and sends no SIGWINCH. The native keyboard depends on this
- * holding.
+ * exactly the bug ADR-163/164/165 fixed for workspace switches. The `svh`
+ * and `lvh` units both ignore the keyboard, so opening it changes no row
+ * count and sends no SIGWINCH. The native keyboard depends on this holding.
+ *
+ * `svh` rather than `lvh`: `lvh` is the height with the browser's toolbars
+ * retracted, and a page that never scrolls never retracts them, so in a
+ * Safari tab the bottom of the app — a terminal's last rows, its Fit to
+ * screen button — sat behind the toolbar. `svh` is the height with them
+ * shown, the part of the screen that is actually the page's. Installed, the
+ * two are the same.
  */
 :global(.app[data-layout="phone"]) {
-  height: 100lvh;
+  height: 100svh;
 }
 
 .topBar {
@@ -86,9 +92,9 @@ button.iconButton {
 .notifyStrip {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
-  padding: 2px 4px 2px 12px;
+  /* Left edge level with the tab strip below it (`TabBar.module.css`). */
+  padding: 2px 4px 2px 8px;
   font-size: 12px;
   color: var(--text-secondary, inherit);
   border-bottom: 1px solid var(--border, rgba(128, 128, 128, 0.2));

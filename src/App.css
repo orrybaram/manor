@@ -172,9 +172,10 @@ body,
   padding-right: var(--window-edge-gap);
 }
 
-/* The phone's top bar sits above the workspace and supplies its own spacing. */
+/* A phone shows one panel edge to edge: the top bar sits above it and the
+   screen's own edges frame it, so the desk's window gutters are dead width. */
 .app[data-layout="phone"] .main-content {
-  padding-top: 0;
+  padding: 0;
 }
 
 .main-content--gutter-left {
@@ -234,6 +235,21 @@ body,
   padding: 0 12px 3px max(12px, var(--window-lead-inset));
   -webkit-app-region: drag;
   user-select: none;
+}
+
+/* Edge to edge on a phone like a tabbed panel, and the top bar already names
+   the view, so the header would be a second title in the same 40px. */
+.app[data-layout="phone"] .empty-surface {
+  border: none;
+  border-radius: 0;
+}
+
+.app[data-layout="phone"] .surface-header {
+  display: none;
+}
+
+.app[data-layout="phone"] .empty-surface > .terminal-container {
+  border-top: none;
 }
 
 .app-body[data-sidebar-animating] .surface-header {

@@ -333,6 +333,10 @@
 
 /* In the phone's drawer (a portal, hence `:root`): no title row to clear,
    and a thumb-sized add button. */
+:global(:root[data-layout="phone"]) .frame {
+  padding-top: var(--frame-gap);
+}
+
 :global(:root[data-layout="phone"]) .content {
   padding-top: 12px;
 }

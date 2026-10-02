@@ -674,3 +674,75 @@
 .compact .gridRow {
   grid-template-columns: 64px 112px minmax(0, 1fr) 120px;
 }
+
+/* ── Phone ── */
+
+/*
+ * A phone has no width for six columns, so each row is a card: the ID,
+ * status and age on one line with the action at its end, and the title and
+ * its context under them. The header goes — Sort is in the filter row — and
+ * so do Assignees and Priority, which the task's detail still shows.
+ */
+:global(:root[data-layout="phone"]) .headRow,
+:global(:root[data-layout="phone"]) .avatars,
+:global(:root[data-layout="phone"]) .priority {
+  display: none;
+}
+
+:global(:root[data-layout="phone"]) .gridRow {
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "id status updated action"
+    "title title title title";
+  column-gap: 8px;
+  row-gap: 8px;
+  padding: 12px 16px;
+}
+
+:global(:root[data-layout="phone"]) .bodyRow {
+  height: auto;
+}
+
+:global(:root[data-layout="phone"]) .idCell {
+  grid-area: id;
+}
+
+:global(:root[data-layout="phone"]) .statusCell {
+  grid-area: status;
+}
+
+:global(:root[data-layout="phone"]) .updated {
+  grid-area: updated;
+}
+
+:global(:root[data-layout="phone"]) .actionCell {
+  grid-area: action;
+}
+
+:global(:root[data-layout="phone"]) .titleCell {
+  grid-area: title;
+}
+
+/* Two lines of title before it ellipsizes: the row has the width now. */
+:global(:root[data-layout="phone"]) .taskTitle {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+  font-size: 14px;
+}
+
+/* Search on a line of its own, the pickers and menus wrapping under it. */
+:global(:root[data-layout="phone"]) .filters {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+:global(:root[data-layout="phone"]) .searchBox {
+  flex: 1 0 100%;
+  order: -1;
+}
+
+:global(:root[data-layout="phone"]) .searchInput {
+  height: 40px;
+}

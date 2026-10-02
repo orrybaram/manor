@@ -46,6 +46,7 @@ import type {
   CommandItem,
 } from "./types";
 import { Row } from "../ui/Layout/Layout";
+import { Button } from "../ui/Button/Button";
 import tasksStyles from "../tasks/TasksView.module.css";
 import styles from "./CommandPalette.module.css";
 
@@ -682,6 +683,17 @@ export function CommandPalette(props: CommandPaletteProps) {
                     }}
                     onKeyDown={handleRootInputKeyDown}
                   />
+                  {/* Full screen on a phone, with no overlay to tap and no
+                      Escape key: this is its way out. CSS shows it there only. */}
+                  <Dialog.Close asChild>
+                    <Button
+                      variant="ghost"
+                      className={styles.phoneClose}
+                      data-testid="command-palette-close"
+                    >
+                      Cancel
+                    </Button>
+                  </Dialog.Close>
                 </div>
               ) : (
                 <Command.Input

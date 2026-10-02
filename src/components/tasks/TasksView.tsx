@@ -1,10 +1,12 @@
 import {
   useCallback,
   useDeferredValue,
+  useEffect,
   useMemo,
   useState,
 } from "react";
 import { useProjectStore } from "../../store/project-store";
+import { useTasksSummaryStore } from "../../store/tasks-summary-store";
 import { useQueryClient } from "@tanstack/react-query";
 import Search from "lucide-react/dist/esm/icons/search";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
@@ -12,7 +14,6 @@ import ChevronLeft from "lucide-react/dist/esm/icons/chevron-left";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import ArrowDown from "lucide-react/dist/esm/icons/arrow-down";
-import X from "lucide-react/dist/esm/icons/x";
 import type { PaletteView } from "../command-palette/types";
 import { GitHubNudge } from "../sidebar/GitHubNudge";
 import { Button } from "../ui/Button/Button";
@@ -28,7 +29,6 @@ import type { NewWorkspaceHandler } from "../../lib/start-issue-work";
 import {
   DEFAULT_TASK_FILTERS,
   TASK_FIELDS,
-  facetLabel,
   fieldsFor,
   pageWindow,
   type TaskFieldId,
@@ -39,7 +39,7 @@ import {
 import { entryLookup, taskList } from "../../lib/task-list";
 import { TRACKER_STATUS_KEY, trackerFor } from "../../lib/trackers";
 import { useTaskScope, useTasks } from "./useTasks";
-import { TaskFilterMenu } from "./TaskFilterMenu";
+import { TaskFilterChip, TaskFilterMenu } from "./TaskFilterMenu";
 import { TaskSortMenu } from "./TaskSortMenu";
 import { TaskTableRow } from "./TaskTableRow";
 import { useStartTask } from "./useStartTask";
@@ -209,26 +209,31 @@ export function TasksView(props: TasksViewProps) {
 
   const nothingConnected = providers.length === 0 && !scope.checking;
 
+  // The count line lives in the status bar while this view is open.
+  const summary =
+    loading && listed.length === 0
+      ? "Loading…"
+      : (filterCount > 0
+          ? `${filtered.length} of ${plural(listed.length, "task")}`
+          : plural(listed.length, "task")) +
+        ` · ${plural(projectCount, "project")}`;
+  const setSummary = useTasksSummaryStore((s) => s.setSummary);
+  useEffect(() => {
+    setSummary(summary);
+  }, [summary, setSummary]);
+  useEffect(() => () => setSummary(null), [setSummary]);
+
   return (
     <div className={styles.page} data-testid="tasks-view">
       <div className={styles.content}>
-        <div className={styles.header}>
-          <h1 className={styles.heading}>Tasks</h1>
-          <span className={styles.headerMeta}>
-            {loading && listed.length === 0
-              ? "Loading…"
-              : (filterCount > 0
-                  ? `${filtered.length} of ${plural(listed.length, "task")}`
-                  : plural(listed.length, "task")) +
-                ` · ${plural(projectCount, "project")}`}
-          </span>
-          {homeUrl && (
+        {homeUrl && (
+          <div className={styles.header}>
             <Link href={homeUrl} variant="plain" className={styles.openLink}>
               <ExternalLink size={13} />
               Open in {tracker.label}
             </Link>
-          )}
-        </div>
+          </div>
+        )}
 
         {nothingConnected ? (
           <div className={styles.setup}>
@@ -315,28 +320,18 @@ export function TasksView(props: TasksViewProps) {
                 role="group"
                 aria-label="Active filters"
               >
-                {(Object.keys(TASK_FIELDS) as TaskFieldId[]).flatMap((id) => {
-                  const values = filters[id] ?? [];
-                  if (values.length === 0) return [];
-                  const label = TASK_FIELDS[id].label;
-                  const text = values.map((v) => facetLabel(id, v)).join(", ");
-                  return [
-                    <span key={id} className={styles.filterChip}>
-                      <span className={styles.filterChipField}>{label}:</span>
-                      <span className={styles.filterChipValues} title={text}>
-                        {text}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        className={styles.filterChipRemove}
-                        aria-label={`Remove ${label} filter`}
-                        onClick={() => removeFilter(id)}
-                      >
-                        <X size={12} />
-                      </Button>
-                    </span>,
-                  ];
-                })}
+                {(Object.keys(TASK_FIELDS) as TaskFieldId[])
+                  .filter((id) => (filters[id]?.length ?? 0) > 0)
+                  .map((id) => (
+                    <TaskFilterChip
+                      key={id}
+                      field={id}
+                      rows={listed}
+                      filters={filters}
+                      onChange={changeFilters}
+                      onRemove={() => removeFilter(id)}
+                    />
+                  ))}
                 {filterCount > 0 && (
                   <Button
                     variant="ghost"
@@ -366,6 +361,7 @@ export function TasksView(props: TasksViewProps) {
               aria-label="Tasks"
             >
               <div className={`${styles.gridRow} ${styles.headRow}`} role="row">
+                <span role="columnheader" aria-label="Actions" />
                 {SORT_COLUMNS.filter(
                   (c) => c.field !== "priority" || showPriority,
                 ).map((c) => (
@@ -377,7 +373,6 @@ export function TasksView(props: TasksViewProps) {
                     onSort={sortByColumn}
                   />
                 ))}
-                <span role="columnheader" aria-label="Actions" />
               </div>
               {loading && listed.length === 0 ? (
                 <TasksSkeleton showPriority={showPriority} />
@@ -529,6 +524,7 @@ function TasksSkeleton(props: { showPriority: boolean }) {
           className={`${styles.gridRow} ${styles.bodyRow}`}
           role="row"
         >
+          <span />
           <span className={`${styles.bone} ${styles.boneId}`} />
           <span className={styles.titleCell}>
             <span
@@ -543,7 +539,6 @@ function TasksSkeleton(props: { showPriority: boolean }) {
             <span className={`${styles.bone} ${styles.bonePriority}`} />
           )}
           <span className={`${styles.bone} ${styles.boneUpdated}`} />
-          <span />
         </div>
       ))}
     </div>

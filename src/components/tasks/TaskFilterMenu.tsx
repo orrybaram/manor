@@ -9,6 +9,7 @@ import * as Popover from "@radix-ui/react-popover";
 import ListFilter from "lucide-react/dist/esm/icons/list-filter";
 import ChevronLeft from "lucide-react/dist/esm/icons/chevron-left";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
+import X from "lucide-react/dist/esm/icons/x";
 import { Button } from "../ui/Button/Button";
 import { Checkbox } from "../ui/Checkbox/Checkbox";
 import { CountBadge } from "../ui/CountBadge/CountBadge";
@@ -38,6 +39,23 @@ type TaskFilterMenuProps = {
 /** Past this many values a field's list gets a search box. */
 const SEARCH_THRESHOLD = 8;
 
+/** `filters` with one value of one field ticked or unticked. */
+function toggleFilterValue(
+  filters: TaskFilters,
+  id: TaskFieldId,
+  value: string,
+  checked: boolean,
+): TaskFilters {
+  const current = filters[id] ?? [];
+  const values = checked
+    ? [...current, value]
+    : current.filter((v) => v !== value);
+  const next = { ...filters };
+  if (values.length > 0) next[id] = values;
+  else delete next[id];
+  return next;
+}
+
 /**
  * The Filter button (ADR-201 §5): a popover listing the provider's
  * filterable fields; picking one shows its values, with counts from the
@@ -62,16 +80,8 @@ export function TaskFilterMenu(props: TaskFilterMenuProps) {
     }
   };
 
-  const toggle = (id: TaskFieldId, value: string, checked: boolean) => {
-    const current = filters[id] ?? [];
-    const values = checked
-      ? [...current, value]
-      : current.filter((v) => v !== value);
-    const next = { ...filters };
-    if (values.length > 0) next[id] = values;
-    else delete next[id];
-    onChange(next);
-  };
+  const toggle = (id: TaskFieldId, value: string, checked: boolean) =>
+    onChange(toggleFilterValue(filters, id, value, checked));
 
   return (
     <Popover.Root open={open} onOpenChange={handleOpenChange}>
@@ -121,6 +131,83 @@ export function TaskFilterMenu(props: TaskFilterMenuProps) {
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
+  );
+}
+
+type TaskFilterChipProps = {
+  field: TaskFieldId;
+  /** The rows before filtering, so option counts don't move as filters change. */
+  rows: readonly (TaskRow | LinkedTask)[];
+  filters: TaskFilters;
+  onChange: (next: TaskFilters) => void;
+  onRemove: () => void;
+};
+
+/**
+ * An active filter under the toolbar: "Field: values". Clicking it opens that
+ * field's values, as the Filter menu shows them, to change the filter in
+ * place; the × removes it.
+ */
+export function TaskFilterChip(props: TaskFilterChipProps) {
+  const { field, rows, filters, onChange, onRemove } = props;
+
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const chosen = filters[field] ?? [];
+  const label = TASK_FIELDS[field].label;
+  const text = chosen.map((v) => facetLabel(field, v)).join(", ");
+
+  return (
+    <span className={styles.chip}>
+      <Popover.Root
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (next) setQuery("");
+        }}
+      >
+        <Popover.Trigger asChild>
+          <Button
+            variant="ghost"
+            className={styles.chipBody}
+            aria-label={`Edit ${label} filter: ${text}`}
+          >
+            <span className={styles.chipField}>{label}:</span>
+            <span className={styles.chipValues} title={text}>
+              {text}
+            </span>
+          </Button>
+        </Popover.Trigger>
+        <Popover.Portal>
+          <Popover.Content
+            className={styles.popover}
+            side="bottom"
+            align="start"
+            sideOffset={6}
+            collisionPadding={8}
+          >
+            <ValueList
+              field={field}
+              rows={rows}
+              chosen={chosen}
+              query={query}
+              onQuery={setQuery}
+              onToggle={(value, checked) =>
+                onChange(toggleFilterValue(filters, field, value, checked))
+              }
+            />
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
+      <Button
+        variant="ghost"
+        className={styles.chipRemove}
+        aria-label={`Remove ${label} filter`}
+        onClick={onRemove}
+      >
+        <X size={12} />
+      </Button>
+    </span>
   );
 }
 
@@ -182,7 +269,8 @@ type ValueListProps = {
   query: string;
   onQuery: (query: string) => void;
   onToggle: (value: string, checked: boolean) => void;
-  onBack: () => void;
+  /** Back to the Filter menu's field list; absent when opened from a chip. */
+  onBack?: () => void;
 };
 
 function ValueList(props: ValueListProps) {
@@ -218,12 +306,12 @@ function ValueList(props: ValueListProps) {
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const inSearch = (e.target as HTMLElement).tagName === "INPUT";
-    if (e.key === "ArrowLeft" && !inSearch) {
+    if (onBack && e.key === "ArrowLeft" && !inSearch) {
       e.preventDefault();
       onBack();
       return;
     }
-    if (e.key === "Backspace" && inSearch && query === "") {
+    if (onBack && e.key === "Backspace" && inSearch && query === "") {
       e.preventDefault();
       onBack();
       return;
@@ -239,15 +327,19 @@ function ValueList(props: ValueListProps) {
       aria-label={`${TASK_FIELDS[field].label} values`}
       onKeyDown={handleKeyDown}
     >
-      <Button
-        variant="ghost"
-        className={styles.back}
-        onClick={onBack}
-        aria-label={`Back to fields (${TASK_FIELDS[field].label})`}
-      >
-        <ChevronLeft size={13} />
-        {TASK_FIELDS[field].label}
-      </Button>
+      {onBack ? (
+        <Button
+          variant="ghost"
+          className={styles.back}
+          onClick={onBack}
+          aria-label={`Back to fields (${TASK_FIELDS[field].label})`}
+        >
+          <ChevronLeft size={13} />
+          {TASK_FIELDS[field].label}
+        </Button>
+      ) : (
+        <div className={styles.heading}>{TASK_FIELDS[field].label}</div>
+      )}
       {searchable && (
         <Input
           className={styles.search}

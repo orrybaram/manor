@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   FRAME_GAP,
   LEAD_COMPACT_WIDTH,
-  RAIL_WIDTH,
+  LIGHTS_WIDTH,
   windowLeadInset,
   windowLeadWidth,
 } from "../window-lead";
@@ -16,8 +16,11 @@ describe("windowLeadWidth", () => {
     expect(windowLeadWidth("full", 160)).toBe(LEAD_COMPACT_WIDTH);
   });
 
-  it("is compact in rail and hidden modes", () => {
-    expect(windowLeadWidth("rail", 240)).toBe(LEAD_COMPACT_WIDTH);
+  it("holds only the traffic lights in rail mode", () => {
+    expect(windowLeadWidth("rail", 240)).toBe(LIGHTS_WIDTH);
+  });
+
+  it("is compact in hidden mode", () => {
     expect(windowLeadWidth("hidden", 240)).toBe(LEAD_COMPACT_WIDTH);
   });
 });
@@ -28,15 +31,14 @@ describe("windowLeadInset", () => {
   });
 
   it("covers the lead's overhang past a narrow sidebar", () => {
-    expect(windowLeadInset("full", 160)).toBe(LEAD_COMPACT_WIDTH - 160 - 2 * FRAME_GAP);
+    expect(windowLeadInset("full", 140)).toBe(LEAD_COMPACT_WIDTH - 140 - 2 * FRAME_GAP);
   });
 
-  it("covers the lead's overhang past the rail", () => {
-    expect(windowLeadInset("rail", 240)).toBe(LEAD_COMPACT_WIDTH - RAIL_WIDTH - FRAME_GAP);
-    expect(windowLeadInset("rail", 240)).toBe(116);
+  it("is zero in rail mode, where the lights fit over the rail", () => {
+    expect(windowLeadInset("rail", 240)).toBe(0);
   });
 
   it("is the whole lead when the sidebar is hidden", () => {
-    expect(windowLeadInset("hidden", 240)).toBe(194);
+    expect(windowLeadInset("hidden", 240)).toBe(166);
   });
 });

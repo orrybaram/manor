@@ -3,30 +3,25 @@
  * panel — header (tracker tabs, project select), filter row, a CSS-grid
  * table and a pagination footer.
  */
-/* Same centred column as the Home dashboard (HomeDashboard.module.css `.page`):
-   1180px including its 16px gutters. */
+/* The panel's full width, starting at its top. */
 .page {
   height: 100%;
   width: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
   overflow-y: auto;
-  padding: 40px 0 24px;
+  padding: 16px 0 24px;
   color: var(--text-primary);
 }
 
 .content {
-  width: 1180px;
-  max-width: 100%;
+  width: 100%;
   padding-inline: 16px;
   min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 16px;
   padding-bottom: 24px;
-  /* Auto margins (not justify-content) so a short window still scrolls to the top. */
-  margin-block: auto;
 }
 
 /* ── Header ── */
@@ -37,18 +32,6 @@
   gap: 12px;
   flex-wrap: wrap;
   padding: 0 6px;
-}
-
-.heading {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-selected);
-}
-
-.headerMeta {
-  font-size: 12.5px;
-  color: var(--text-dim);
 }
 
 .providers {
@@ -141,41 +124,6 @@
   margin-top: -6px;
 }
 
-.filterChip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  max-width: 360px;
-  height: 24px;
-  padding: 0 2px 0 9px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-size: 11.5px;
-  color: var(--text-primary);
-  background: var(--hover);
-}
-
-.filterChipField {
-  flex-shrink: 0;
-  color: var(--text-dim);
-}
-
-.filterChipValues {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.filterChipRemove {
-  flex-shrink: 0;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border-radius: 50%;
-}
-
 .clearFilters {
   font-size: 11.5px;
 }
@@ -209,7 +157,7 @@
 
 .gridRow {
   display: grid;
-  grid-template-columns: 112px minmax(0, 1fr) 112px 128px 120px 92px;
+  grid-template-columns: 64px 112px minmax(0, 1fr) 112px 128px 120px;
   align-items: center;
   column-gap: 16px;
   padding: 0 16px;
@@ -217,7 +165,7 @@
 
 /* Linear adds a Priority column between Status and Updated. */
 .withPriority .gridRow {
-  grid-template-columns: 112px minmax(0, 1fr) 112px 128px 104px 120px 92px;
+  grid-template-columns: 64px 112px minmax(0, 1fr) 112px 128px 104px 120px;
 }
 
 .headRow {
@@ -477,7 +425,6 @@
 
 .actionCell {
   display: flex;
-  justify-content: flex-end;
 }
 
 .startButton {
@@ -621,7 +568,7 @@
   color: var(--text-dim);
 }
 
-/* Home's Up next: ID, title / context, updated, action. */
+/* Home's Up next: action, ID, title / context, updated. */
 .compact .gridRow {
-  grid-template-columns: 112px minmax(0, 1fr) 120px 92px;
+  grid-template-columns: 64px 112px minmax(0, 1fr) 120px;
 }

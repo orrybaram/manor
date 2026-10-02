@@ -133,7 +133,7 @@ function activeElementInfo(page: Page): Promise<ActiveElementInfo | null> {
  * palette — full screen, ADR-181 D5 — before anything is typed into it.
  */
 async function runOpenPaletteCommand(page: Page, label: string): Promise<void> {
-  const input = page.getByPlaceholder("Type a command...");
+  const input = page.locator("[cmdk-input]");
   await expect(input).toBeVisible();
   await input.fill(label);
   const item = page.locator("[cmdk-item]", { hasText: label }).first();
@@ -207,13 +207,13 @@ test.describe("phone layout (ADR-181)", () => {
     const tab1Id = await tabs(window).first().getAttribute("data-tab-id");
     expect(tab1Id).toBeTruthy();
 
-    await window.keyboard.press("Meta+d");
+    await window.keyboard.press("ControlOrMeta+d");
     await assertVisiblePaneCount(window, 2);
     const paneB = (await allPaneIdsOnPage(window)).find((id) => id !== paneA);
     expect(paneB).toBeTruthy();
     await awaitShellReady(window, tempHome, paneB!);
 
-    await window.keyboard.press("Meta+t");
+    await window.keyboard.press("ControlOrMeta+t");
     await expect.poll(() => tabs(window).count(), { timeout: 15_000 }).toBe(2);
     await assertVisiblePaneCount(window, 1);
     const paneC = await activePaneId(window);
@@ -430,7 +430,7 @@ test.describe("phone layout (ADR-181)", () => {
     await expectLayout(window, "desk");
 
     // A second tab, so detaching one leaves the primary something to show.
-    await window.keyboard.press("Meta+t");
+    await window.keyboard.press("ControlOrMeta+t");
     await expect.poll(() => tabs(window).count(), { timeout: 15_000 }).toBe(2);
 
     const popup = await Promise.all([
@@ -461,7 +461,7 @@ test.describe("phone layout (ADR-181)", () => {
     tempHome,
   }) => {
     await bootWorkspaceWithTerminal(app, window, tempHome, "phone-nodrag");
-    await window.keyboard.press("Meta+t");
+    await window.keyboard.press("ControlOrMeta+t");
     await expect.poll(() => tabs(window).count(), { timeout: 15_000 }).toBe(2);
 
     const port = await enableRemoteControl(window);

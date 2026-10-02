@@ -124,14 +124,14 @@ export async function pairDevice(
   // is never the default — ADR-178 D3), but say so rather than lean on it.
   await window
     .getByTestId("remote-pair-via")
-    .getByRole("button", { name: "Tailscale", exact: true })
+    .getByRole("radio", { name: "Tailscale", exact: true })
     .click();
   await window.getByTestId("remote-pair-label").fill(label);
   // Clicked even for `read`, which is already the default: the assertion that
   // matters is that the button a user would press exists and selects the tier.
   await window
     .getByTestId("remote-pair-capability")
-    .getByRole("button", { name: CAPABILITY_BUTTON[capability], exact: true })
+    .getByRole("radio", { name: CAPABILITY_BUTTON[capability], exact: true })
     .click();
   await window.getByTestId("remote-pair-submit").click();
 
@@ -210,7 +210,7 @@ export async function pairDeviceViaRelay(
 
   await window
     .getByTestId("remote-pair-via")
-    .getByRole("button", { name: "Manor relay", exact: true })
+    .getByRole("radio", { name: "Manor relay", exact: true })
     .click();
   await expect(window.getByTestId("remote-pair-capability")).toHaveCount(0);
   await expect(window.getByTestId("remote-pair-relay-warning")).toContainText(

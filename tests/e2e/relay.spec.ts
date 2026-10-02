@@ -133,7 +133,7 @@ async function paneText(page: Page, paneId: string): Promise<string> {
   return page.evaluate((id) => {
     const handle = window.__manorTerminals?.get(id);
     if (!handle) return "";
-    return handle.serialize.serialize({ scrollback: 20_000 });
+    return handle.serialize({ scrollback: 20_000 });
   }, paneId);
 }
 

@@ -94,7 +94,7 @@ async function paneText(page: Page, paneId: string): Promise<string> {
   return page.evaluate((id) => {
     const handle = window.__manorTerminals?.get(id);
     if (!handle) throw new Error(`no terminal registered for ${id}`);
-    return handle.serialize.serialize({ scrollback: 20_000 });
+    return handle.serialize({ scrollback: 20_000 });
   }, paneId);
 }
 
@@ -239,8 +239,8 @@ async function visiblePaneIds(page: Page): Promise<string[]> {
  * (split, close, …) that have no dedicated keybinding pressed here.
  */
 async function runPaletteCommand(page: Page, label: string): Promise<void> {
-  const input = page.getByPlaceholder("Type a command...");
-  await page.keyboard.press("Meta+k");
+  const input = page.locator("[cmdk-input]");
+  await page.keyboard.press("ControlOrMeta+k");
   await expect(input).toBeVisible();
   await input.fill(label);
   const item = page.locator("[cmdk-item]", { hasText: label }).first();
@@ -430,7 +430,7 @@ test.describe("web app (ADR-178 slice 1)", () => {
       ).toBeVisible({ timeout: 20_000 });
       await film.shot(client.page, "browser-follower-before");
 
-      await window.keyboard.press("Meta+w");
+      await window.keyboard.press("ControlOrMeta+w");
       await expect(
         window.locator('[data-testid="terminal-pane"]'),
       ).toHaveCount(0, { timeout: 10_000 });
@@ -628,7 +628,7 @@ test.describe("web app (ADR-178 slice 1)", () => {
       await window
         .locator(`[data-pane-id="${paneB}"] [data-testid="terminal-pane"]`)
         .click();
-      await window.keyboard.press("Meta+w");
+      await window.keyboard.press("ControlOrMeta+w");
       await assertVisiblePaneCount(window, 1);
       await assertVisiblePaneCount(client.page, 1);
       await expect(client.page.locator('[class*="iconError"]')).toHaveCount(0);
@@ -636,7 +636,7 @@ test.describe("web app (ADR-178 slice 1)", () => {
 
       // 4. Selection is local: the tab set is shared, but which tab each
       // renderer is looking at is each renderer's own business (D3).
-      await window.keyboard.press("Meta+t");
+      await window.keyboard.press("ControlOrMeta+t");
       await expect.poll(() => tabs(window).count(), { timeout: 15_000 }).toBe(2);
       const tab2Id = (
         await tabs(window).evaluateAll((els) =>
@@ -685,7 +685,7 @@ test.describe("web app (ADR-178 slice 1)", () => {
       const paneD = await activePaneId(window);
       await awaitShellReady(window, tempHome, paneD);
 
-      await window.keyboard.press("Meta+d");
+      await window.keyboard.press("ControlOrMeta+d");
       await assertVisiblePaneCount(window, 2);
       const paneG = (await visiblePaneIds(window)).find((id) => id !== paneD);
       expect(paneG).toBeTruthy();
@@ -703,12 +703,12 @@ test.describe("web app (ADR-178 slice 1)", () => {
       await window
         .locator(`[data-pane-id="${paneG}"] [data-testid="terminal-pane"]`)
         .click();
-      await window.keyboard.press("Meta+w");
+      await window.keyboard.press("ControlOrMeta+w");
       await assertVisiblePaneCount(window, 1);
 
       // Well inside the 10s grace (REOPEN_GRACE_MS): the browser reopens it
       // and it is the same shell, not a fresh one.
-      await client.page.keyboard.press("Meta+Shift+t");
+      await client.page.keyboard.press("ControlOrMeta+Shift+t");
       await expect
         .poll(
           async () =>

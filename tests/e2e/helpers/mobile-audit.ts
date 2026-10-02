@@ -75,7 +75,7 @@ export const PERF_INIT_SCRIPT = `
     app: () => document.querySelector(".app"),
     topBar: () => document.querySelector('[data-testid="phone-top-bar"]'),
     terminal: () => document.querySelector('[data-testid="terminal-pane"] .xterm-screen'),
-    prompt: () => Array.from(document.querySelectorAll(".xterm-rows")).some((r) => /\$\s*$/m.test(r.textContent || "")),
+    prompt: () => Array.from(document.querySelectorAll(".xterm-rows")).some((r) => /\\$\\s*$/m.test(r.textContent || "")),
   };
   const tick = () => {
     for (const [k, test] of Object.entries(milestones)) {
@@ -313,6 +313,9 @@ export async function layoutAudit(page: Page): Promise<LayoutIssue[]> {
       // xterm's hidden helper textarea is positioned under the cursor on
       // purpose; it is not a target anyone taps.
       if (el.classList.contains("xterm-helper-textarea")) continue;
+      // A link in running text is sized by the sentence (WCAG 2.5.8's
+      // inline exception).
+      if (el.tagName === "A" && getComputedStyle(el).display === "inline") continue;
       const r = el.getBoundingClientRect();
       const min = Math.min(r.width, r.height);
       const size = `${Math.round(r.width)}×${Math.round(r.height)}`;
@@ -349,6 +352,8 @@ export async function layoutAudit(page: Page): Promise<LayoutIssue[]> {
     }
     for (const el of textEls) {
       if (!visible(el)) continue;
+      // Screen-reader-only text is clipped to a pixel on purpose.
+      if (el.closest(".sr-only")) continue;
       const cs = getComputedStyle(el);
       const fs = parseFloat(cs.fontSize);
       if (fs < 11) {

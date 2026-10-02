@@ -119,3 +119,36 @@ button.notifyDismiss {
   margin-left: auto;
   flex-shrink: 0;
 }
+
+/*
+ * Every dialog fits the phone. The desk's dialogs are cards of a fixed
+ * width (480px, 640px, 760px) centred on the window; on a 390px screen
+ * they ran off both edges, and the New Workspace dialog's Create button
+ * with them. Clamping max-width keeps whichever centring a dialog uses —
+ * `left: 50%` plus a transform, or `inset: 0; margin: auto` — and only
+ * makes it narrower. Dialogs that are full screen on a phone already sit
+ * inside these bounds. (Portals, hence `:root`.)
+ */
+:global(:root[data-layout="phone"])
+  :is([role="dialog"], [role="alertdialog"]):not(
+    [data-testid="sidebar-drawer"],
+    [data-testid="pane-switcher"],
+    [data-testid="command-palette"],
+    [data-testid="settings-modal"]
+  ) {
+  max-width: calc(100vw - 24px) !important;
+  max-height: calc(100dvh - 24px) !important;
+  box-sizing: border-box;
+}
+
+/*
+ * Dim text reads at AA on a phone. The theme's `--text-dim` is the
+ * foreground at 40% — about 3:1 on `--surface`, fine for a desk's
+ * secondary labels and hard to read on a phone held outdoors. At 68% it is
+ * ~4.8:1 and still clearly secondary. Set on `body`, not `:root`: the theme
+ * store writes its variables inline on `<html>`, which a `:root` rule cannot
+ * outrank, and `body` reaches the portals too.
+ */
+:global(:root[data-layout="phone"]) body {
+  --text-dim: color-mix(in srgb, var(--fg) 68%, transparent);
+}

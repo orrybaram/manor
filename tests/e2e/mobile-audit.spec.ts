@@ -25,6 +25,7 @@ import {
   pct,
   perfSnapshot,
   resourceSummary,
+  type ResourceSummary,
   setCpuThrottle,
   terminalGeometry,
   throttle,
@@ -52,7 +53,7 @@ import { activePaneId, awaitShellReady } from "./helpers/terminal";
  * palette, Settings, typing, an output flood, landscape and the small and
  * large phone sizes — and for each one records geometry defects (overflow,
  * tap targets, iOS input zoom, tiny or clipped text), axe violations,
- * screenshots and timings into `test-results/mobile-audit/`.
+ * screenshots and timings into `tests/e2e/artifacts/mobile-audit/`.
  *
  * The budgets at the end are the regression guard: they hold what the
  * phone experience has been tightened to.
@@ -62,7 +63,9 @@ import { activePaneId, awaitShellReady } from "./helpers/terminal";
  */
 
 const PHONE = devices["iPhone 13"];
-const OUT = path.join(__dirname, "../../test-results/mobile-audit");
+// Beside the filmstrips, not under test-results/: every Playwright run
+// empties that, so the next unrelated run would delete the report.
+const OUT = path.join(__dirname, "artifacts/mobile-audit");
 
 const test = base.extend<{ relay: LocalRelay }, { relaySeed: string }>({
   relaySeed: [
@@ -506,6 +509,49 @@ test("phone audit: every phone surface over the relay, throttled", async ({
     await page.keyboard.press("Escape");
     await expect(settings).toBeHidden();
 
+    // ── The views a phone opens from the drawer and the palette ──────
+    const fromDrawer = async (testId: string) => {
+      await page.getByTestId("phone-drawer-toggle").tap();
+      await expect(drawer).toBeVisible();
+      await drawer.getByTestId(testId).tap();
+      await expect(drawer).toBeHidden();
+    };
+    const fromPalette = async (label: string) => {
+      await page.getByTestId("phone-palette-button").tap();
+      await expect(palette).toBeVisible();
+      await palette.locator("[cmdk-input]").fill(label);
+      await palette.locator("[cmdk-item]", { hasText: label }).first().tap();
+    };
+    const screenSettled = async (name: string) => {
+      await page.waitForTimeout(500);
+      await setCpuThrottle(cdp, false);
+      await report.screen(page, name);
+      await setCpuThrottle(cdp, true);
+    };
+
+    await fromDrawer("home-row");
+    await expect(page.getByTestId("home-view")).toBeVisible();
+    await screenSettled("dashboard");
+
+    await fromDrawer("tasks-row");
+    await expect(page.getByTestId("tasks-view")).toBeVisible();
+    await screenSettled("tasks");
+
+    await fromPalette("View All Agents");
+    await page.waitForTimeout(800);
+    await screenSettled("agents");
+    await page.keyboard.press("Escape");
+
+    await fromPalette("New Workspace");
+    await expect(page.getByTestId("new-workspace-dialog")).toBeVisible();
+    await screenSettled("new-workspace");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("new-workspace-dialog")).toBeHidden();
+
+    await page.getByTestId("phone-drawer-toggle").tap();
+    await drawer.getByTestId("workspace-item").filter({ hasText: W1 }).tap();
+    await expect(drawer).toBeHidden();
+
     // ── Sizes and orientation (layout only) ─────────────────────────
     await setCpuThrottle(cdp, false);
     for (const [name, size] of [
@@ -531,6 +577,8 @@ test("phone audit: every phone surface over the relay, throttled", async ({
     report.data.final = await page.evaluate(() => ({
       domNodes: document.getElementsByTagName("*").length,
     }));
+
+    checkBudgets(report, phone.log);
   } finally {
     report.data.consoleErrors ??= phone.log.slice(0, 40);
     await page.screenshot({ path: path.join(OUT, "last.png") }).catch(() => {});
@@ -542,5 +590,139 @@ test("phone audit: every phone surface over the relay, throttled", async ({
   }
 });
 
-/** Silence an unused import if a budget section is not yet written. */
-void pct;
+
+test("a phone that drops a chunk on a bad connection recovers, not a blank page", async ({
+  app,
+  window,
+  tempHome,
+}) => {
+  test.setTimeout(240_000);
+  await importSeededProject(app, window, tempHome);
+  await createWorkspace(window, W1);
+  await openTerminalTab(window);
+  await enableRemoteControl(window);
+  await startRelay(window);
+  const device = await pairDeviceViaRelay(window, { label: "flaky phone" });
+  await closeSettings(window);
+
+  const browser = await chromium.launch({ headless: process.env.MANOR_E2E_HEADED !== "1" });
+  try {
+    const context = await browser.newContext({
+      viewport: PHONE.viewport,
+      isMobile: true,
+      hasTouch: true,
+    });
+    const page = await context.newPage();
+    // The connection drops the app's own chunk, CSS and JS, the first time
+    // each is asked for — what a phone walking out of wifi does mid-load.
+    const dropped = new Set<string>();
+    await page.route(/\/assets\/App-[^/]+\.(css|js)$/, (route) => {
+      const kind = route.request().url().endsWith(".css") ? "css" : "js";
+      if (dropped.has(kind)) return route.continue();
+      dropped.add(kind);
+      return route.abort("connectionreset");
+    });
+    await page.goto(device.link);
+    const recovered = page
+      .getByTestId("phone-top-bar")
+      .or(page.getByTestId("web-app-load-failed"));
+    await expect(recovered).toBeVisible({ timeout: 60_000 });
+    // A reload is the better answer, but a screen with a Reload button is
+    // still not a blank page.
+    if (await page.getByTestId("web-app-load-failed").isVisible()) {
+      await page.getByTestId("web-app-load-failed").getByRole("button", { name: "Reload" }).tap();
+    }
+    await expect(page.getByTestId("phone-top-bar")).toBeVisible({ timeout: 60_000 });
+    expect(dropped.size).toBeGreaterThan(0);
+  } finally {
+    await browser.close();
+  }
+});
+
+/**
+ * What the phone experience has been tightened to, held. Soft, so one run
+ * lists every breach; the report is written either way.
+ *
+ * Timings are generous against what the audit measures today (see the PR
+ * that added them) so a slower CI box does not trip them, and tight enough
+ * that undoing any of the fixes they came from does.
+ */
+const BUDGET = {
+  /** The splash `web.html` paints before any script runs. */
+  firstPaintMs: 800,
+  /** The app's own shell, then a terminal showing its prompt. */
+  appShellMs: 1_600,
+  promptMs: 2_800,
+  /** A round trip, plus what the page itself may spend on a keystroke. */
+  echoP95Ms: PHONE_PROFILE.rttMs + 100,
+  /** Taps that change nothing on the host. */
+  tapMs: 400,
+  /** What a cold load may download before the terminal is up. */
+  coldFontKB: 300,
+  coldJsKB: 650,
+};
+
+/**
+ * Axe rules that fail on the desk's own markup, not on anything phone-only,
+ * and are left for a pass over the desk: the tab strip's tablist holds its
+ * add button and a tab holds its close and mute buttons (ADR-175's keyboard
+ * model), the sidebar's project header carries an ARIA attribute its role
+ * does not allow, and cmdk's list points `aria-controls` at an id Radix has
+ * not rendered. Listed so a *new* serious rule still fails the audit.
+ */
+const KNOWN_AXE = new Set([
+  "aria-required-children",
+  "nested-interactive",
+  "aria-allowed-attr",
+  "aria-valid-attr-value",
+  // Moderate, page-level: a single-app page with no <main> or <h1>.
+  "region",
+  "landmark-one-main",
+  "page-has-heading-one",
+]);
+
+function checkBudgets(report: AuditReport, log: string[]) {
+  const t = report.timings;
+  const one = (k: string) => t[k] as number;
+  const many = (k: string) => t[k] as number[];
+
+  for (const screen of report.screens) {
+    const where = `${screen.name} (${screen.viewport.width}×${screen.viewport.height})`;
+    const kinds = (k: string) => screen.layout.filter((i) => i.kind === k);
+    expect.soft(kinds("page-overflow-x"), `${where}: page scrolls sideways`).toEqual([]);
+    expect.soft(kinds("offscreen-x"), `${where}: something runs off the screen`).toEqual([]);
+    expect.soft(kinds("input-zoom"), `${where}: a field iOS would zoom into`).toEqual([]);
+    expect.soft(kinds("tiny-target"), `${where}: a tap target under 24px`).toEqual([]);
+    expect.soft(kinds("clipped-text"), `${where}: text cut off without an ellipsis`).toEqual([]);
+    const newAxe = screen.axe
+      .filter((a) => (a.impact === "critical" || a.impact === "serious") && !KNOWN_AXE.has(a.id))
+      .map((a) => `${a.id}: ${a.nodes[0]}`);
+    expect.soft(newAxe, `${where}: axe`).toEqual([]);
+  }
+
+  expect.soft(one("cold: first contentful paint"), "first paint").toBeLessThan(BUDGET.firstPaintMs);
+  expect.soft(one("cold: app shell on screen"), "app shell").toBeLessThan(BUDGET.appShellMs);
+  expect.soft(one("cold: prompt on screen"), "prompt").toBeLessThan(BUDGET.promptMs);
+  expect.soft(pct(many("keystroke → echo"), 95), "echo p95").toBeLessThan(BUDGET.echoP95Ms);
+  for (const k of [
+    "tap → drawer open",
+    "tap → workspace switched",
+    "tap → pane switcher open",
+    "tap → pane switched",
+    "tap → tab switched",
+    "tap → palette open",
+    "palette → settings open",
+  ]) {
+    expect.soft(one(k), k).toBeLessThan(BUDGET.tapMs);
+  }
+
+  const res = report.data.coldResources as ResourceSummary;
+  expect.soft(res.byType.woff2?.transferKB ?? 0, "cold font download").toBeLessThan(BUDGET.coldFontKB);
+  expect.soft(res.byType.ttf?.transferKB ?? 0, "cold TTF download").toBe(0);
+  expect.soft(res.byType.js?.transferKB ?? 0, "cold JS download").toBeLessThan(BUDGET.coldJsKB);
+
+  const terms = report.data.terminals as { mounted: number; webglCanvases: number };
+  expect.soft(terms.webglCanvases, "WebGL contexts on a phone").toBe(0);
+  expect.soft(report.data.tapFocusesTerminal, "a tap focuses the terminal").toBe(true);
+  expect.soft(log.filter((l) => l.startsWith("[pageerror]")), "page errors").toEqual([]);
+}

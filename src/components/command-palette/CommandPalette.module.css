@@ -1566,3 +1566,9 @@ button.processKill:hover:not(:disabled) {
 :global(:root[data-layout="phone"]) .activeBadge {
   font-size: 11px;
 }
+
+/* The current workspace's row keeps its "current" badge but not the 60%
+   fade, which takes its label under AA contrast on a phone. */
+:global(:root[data-layout="phone"]) .itemActive {
+  opacity: 1;
+}

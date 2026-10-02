@@ -23,20 +23,33 @@ export async function startLatencyProxy(
   const oneWay = rttMs / 2;
   const sockets = new Set<net.Socket>();
 
+  /**
+   * One ordered queue per direction, drained by one timer. (A timer per
+   * chunk is not enough: Node does not order two timers due at the same
+   * instant if they were created with different delays, and a reordered
+   * chunk is a corrupt response.)
+   */
   const pipeDelayed = (from: net.Socket, to: net.Socket) => {
-    let releaseAt = 0;
-    from.on("data", (chunk) => {
-      releaseAt = Math.max(releaseAt, Date.now() + oneWay);
-      setTimeout(() => {
-        if (!to.destroyed) to.write(chunk);
-      }, releaseAt - Date.now());
-    });
-    // After the last chunk is out, not half a trip after it arrived: a body
-    // still queued would be cut short.
-    from.on("end", () => {
-      releaseAt = Math.max(releaseAt, Date.now() + oneWay);
-      setTimeout(() => to.end(), releaseAt - Date.now() + 1);
-    });
+    const queue: { at: number; chunk: Buffer | null }[] = [];
+    let timer: NodeJS.Timeout | null = null;
+    const pump = () => {
+      timer = null;
+      const now = Date.now();
+      while (queue.length > 0 && queue[0].at <= now) {
+        const { chunk } = queue.shift()!;
+        if (to.destroyed) return;
+        if (chunk === null) to.end();
+        else to.write(chunk);
+      }
+      if (queue.length > 0) timer = setTimeout(pump, queue[0].at - now);
+    };
+    const push = (chunk: Buffer | null) => {
+      queue.push({ at: Date.now() + oneWay, chunk });
+      if (!timer) timer = setTimeout(pump, oneWay);
+    };
+    from.on("data", (chunk: Buffer) => push(chunk));
+    // `end` travels the same queue, so it can never overtake a chunk.
+    from.on("end", () => push(null));
   };
 
   const server = net.createServer((client) => {

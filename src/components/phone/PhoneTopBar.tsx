@@ -51,6 +51,8 @@ export function PhoneTopBar(props: PhoneTopBarProps) {
   const workspaceName = useProjectStore((s) =>
     workspaceDisplayName(activeWorkspaceKey, s.projects),
   );
+  // Tasks is a surface over the workspace, not a workspace of its own.
+  const onTasks = useAppStore((s) => s.activeSurface === "tasks");
   const macChrome = isElectronMacOS();
 
   return (
@@ -68,7 +70,7 @@ export function PhoneTopBar(props: PhoneTopBarProps) {
       >
         <PanelLeft size={18} />
       </Button>
-      <div className={styles.workspaceName}>{workspaceName}</div>
+      <div className={styles.workspaceName}>{onTasks ? "Tasks" : workspaceName}</div>
       <div className={styles.actions}>
         <Button
           variant="ghost"

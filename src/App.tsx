@@ -165,13 +165,9 @@ function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteOrigin, setPaletteOrigin] = useState<PaletteOrigin>("shortcut");
   const [paletteInitialView, setPaletteInitialView] = useState<PaletteView | undefined>();
-  const [paletteInitialIssueId, setPaletteInitialIssueId] = useState<string | null>(null);
-  const [paletteInitialGitHubIssueNumber, setPaletteInitialGitHubIssueNumber] = useState<number | null>(null);
   const closePalette = useCallback(() => {
     setPaletteOpen(false);
     setPaletteInitialView(undefined);
-    setPaletteInitialIssueId(null);
-    setPaletteInitialGitHubIssueNumber(null);
   }, []);
   const openPalette = useCallback(() => {
     setPaletteOrigin("search");
@@ -896,7 +892,7 @@ function App() {
                               ? (
                                   <HomeEmptyState onNewWorkspace={handleNewWorkspace} />
                                 )
-                              : <WorkspaceEmptyState onOpenPaletteView={handleOpenPaletteView} onNewWorkspace={handleNewWorkspace} />)}
+                              : <WorkspaceEmptyState onNewWorkspace={handleNewWorkspace} />)}
                       </div>
                     </div>
                   )}
@@ -929,8 +925,6 @@ function App() {
               onOpenSettings={handleOpenSettings}
               onNewWorkspace={handleNewWorkspace}
               initialView={paletteInitialView}
-              initialIssueId={paletteInitialIssueId}
-              initialGitHubIssueNumber={paletteInitialGitHubIssueNumber}
               onResumeAgent={handleResumeAgent}
               onViewAllAgents={() => setAgentsOpen(true)}
               onNewAgent={handleNewAgent}

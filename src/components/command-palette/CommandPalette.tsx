@@ -6,7 +6,6 @@ import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import { useAppStore, selectActiveWorkspaceKey } from "../../store/app-store";
-import { ownerOf } from "../../lib/workspace-directory";
 import { workspaceKey } from "../../lib/workspace-key";
 import { useRestoreFocus } from "../../hooks/useRestoreFocus";
 import { useProjectStore } from "../../store/project-store";
@@ -22,12 +21,6 @@ import { useCommands } from "./useCommands";
 import { useAgentCommands } from "./useAgentCommands";
 import { useCustomCommands } from "./useCustomCommands";
 import { usePortsData } from "../ports/usePortsData";
-import { LinearIcon } from "./LinearIcon";
-import { GitHubIcon } from "./GitHubIcon";
-import { LinearIssuesView } from "./LinearIssuesView";
-import { GitHubIssuesView } from "./GitHubIssuesView";
-import { IssueDetailView } from "./IssueDetailView";
-import { GitHubIssueDetailView } from "./GitHubIssueDetailView";
 import { ProcessesView, KillAllFooter } from "./ProcessesView";
 import { StatsView } from "./StatsView";
 import { wordPrefixFilter } from "./utils";
@@ -49,7 +42,6 @@ import type {
   CommandItem,
 } from "./types";
 import { Row } from "../ui/Layout/Layout";
-import { ghRepoOf } from "../../lib/gh-repo";
 import tasksStyles from "../tasks/TasksView.module.css";
 import styles from "./CommandPalette.module.css";
 
@@ -124,7 +116,7 @@ function paletteFilter(
 }
 
 export function CommandPalette(props: CommandPaletteProps) {
-  const { open, onClose, onOpenSettings, onNewWorkspace, onResumeAgent, onViewAllAgents, onNewAgent, onNewAgentWithPrompt, onRunCommand, initialView, initialIssueId, initialGitHubIssueNumber, origin = "shortcut" } = props;
+  const { open, onClose, onOpenSettings, onNewWorkspace, onResumeAgent, onViewAllAgents, onNewAgent, onNewAgentWithPrompt, onRunCommand, initialView, origin = "shortcut" } = props;
 
   const { onCloseAutoFocus: restoreFocusOnClose } = useRestoreFocus(open);
 
@@ -133,7 +125,6 @@ export function CommandPalette(props: CommandPaletteProps) {
   const activeWorkspaceKey = useAppStore(selectActiveWorkspaceKey);
   const activeSurface = useAppStore((s) => s.activeSurface);
   const projects = useProjectStore((s) => s.projects);
-  const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
   const commandUsage = useCommandUsageStore((s) => s.usage);
   const recordCommandUsage = useCommandUsageStore((s) => s.record);
@@ -151,14 +142,6 @@ export function CommandPalette(props: CommandPaletteProps) {
 
   const [view, setView] = useState<PaletteView>("root");
   const [search, setSearch] = useState("");
-  const [linearConnected, setLinearConnected] = useState(false);
-  const [githubConnected, setGithubConnected] = useState(false);
-  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
-  const [selectedGitHubIssueNumber, setSelectedGitHubIssueNumber] = useState<
-    number | null
-  >(null);
-  const [issueListOrigin, setIssueListOrigin] = useState<PaletteView>("linear-all");
-  const [issueListEmpty, setIssueListEmpty] = useState(false);
   const [selectedTask, setSelectedTask] = useState<SelectedTask | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -171,20 +154,6 @@ export function CommandPalette(props: CommandPaletteProps) {
     string | null
   >(null);
   const [scopeArmed, setScopeArmed] = useState(false);
-  // The project whose tracker the issue views read, set by the drill-in row.
-  const [trackerProjectId, setTrackerProjectId] = useState<string | null>(null);
-
-  // Derive the active project from the active workspace; on surfaces with no
-  // workspace (home) fall back to the sidebar's selected project so issue
-  // lists still resolve a tracker.
-  const activeProject = useMemo(
-    () =>
-      ownerOf(projects, activeWorkspaceKey) ??
-      projects[selectedProjectIndex] ??
-      null,
-    [projects, activeWorkspaceKey, selectedProjectIndex],
-  );
-
   const scopeProject = useMemo(
     () =>
       scopeProjectId
@@ -193,42 +162,9 @@ export function CommandPalette(props: CommandPaletteProps) {
     [projects, scopeProjectId],
   );
 
-  // The project the issue views read: the drilled-in row's project, else the
-  // scoped project, else the active project (so `initialView` deep links work).
-  const trackerProject = useMemo(
-    () =>
-      (trackerProjectId
-        ? projects.find((p) => p.id === trackerProjectId)
-        : undefined) ??
-      scopeProject ??
-      activeProject,
-    [projects, trackerProjectId, scopeProject, activeProject],
-  );
-
-  // Team IDs from the tracker project's Linear associations
-  const allTeamIds = useMemo(
-    () => (trackerProject?.linearAssociations ?? []).map((a) => a.teamId),
-    [trackerProject],
-  );
-
-  // The tracker project's checkout, on its host (ADR-191).
-  const repo = useMemo(
-    () => (trackerProject ? ghRepoOf(trackerProject) : null),
-    [trackerProject],
-  );
-
   // Check connection status when palette opens (render-time, ref-guarded)
   const prevOpenRef = useRef(false);
   if (open && !prevOpenRef.current) {
-    window.electronAPI.linear
-      .isConnected()
-      .then(setLinearConnected)
-      .catch(() => setLinearConnected(false));
-    window.electronAPI.github
-      .checkStatus()
-      .then((s) => setGithubConnected(s.installed && s.authenticated))
-      .catch(() => setGithubConnected(false));
-
     const openedScope = resolvePaletteScope({
       origin,
       activeSurface,
@@ -242,9 +178,6 @@ export function CommandPalette(props: CommandPaletteProps) {
     // Apply initial view state if provided
     if (initialView) {
       setView(initialView);
-      if (initialIssueId != null) setSelectedIssueId(initialIssueId);
-      if (initialGitHubIssueNumber != null)
-        setSelectedGitHubIssueNumber(initialGitHubIssueNumber);
     }
   }
   prevOpenRef.current = open;
@@ -252,28 +185,12 @@ export function CommandPalette(props: CommandPaletteProps) {
   const handleClose = useCallback(() => {
     setView("root");
     setSearch("");
-    setSelectedIssueId(null);
-    setSelectedGitHubIssueNumber(null);
-    setIssueListEmpty(false);
     setSelectedTask(null);
     setScopeProjectId(null);
     setOpenedScopeProjectId(null);
     setScopeArmed(false);
-    setTrackerProjectId(null);
     onClose();
   }, [onClose]);
-
-  const navigateToLinearAll = useCallback((projectId: string) => {
-    setTrackerProjectId(projectId);
-    setSearch("");
-    setView("linear-all");
-  }, []);
-
-  const navigateToGitHubAll = useCallback((projectId: string) => {
-    setTrackerProjectId(projectId);
-    setSearch("");
-    setView("github-all");
-  }, []);
 
   /** Drops the project scope; the query stays. */
   const widenScope = useCallback(() => {
@@ -295,8 +212,6 @@ export function CommandPalette(props: CommandPaletteProps) {
 
   const navigateToRoot = useCallback(() => {
     setSearch("");
-    setSelectedIssueId(null);
-    setSelectedGitHubIssueNumber(null);
     setView("root");
   }, []);
 
@@ -311,13 +226,6 @@ export function CommandPalette(props: CommandPaletteProps) {
       input.setSelectionRange(input.value.length, input.value.length);
     });
   }, []);
-
-  const navigateBackToList = useCallback(() => {
-    setSearch("");
-    setSelectedIssueId(null);
-    setSelectedGitHubIssueNumber(null);
-    setView(issueListOrigin);
-  }, [issueListOrigin]);
 
   const { workspaceGroups } = useWorkspaceCommands({
     projects,
@@ -432,11 +340,6 @@ export function CommandPalette(props: CommandPaletteProps) {
         navigateBackToSearch();
         return;
       }
-      if (view === "issue-detail" || view === "github-issue-detail") {
-        e.preventDefault();
-        navigateBackToList();
-        return;
-      }
       if (view !== "root") {
         e.preventDefault();
         navigateToRoot();
@@ -452,56 +355,14 @@ export function CommandPalette(props: CommandPaletteProps) {
     [
       view,
       navigateToRoot,
-      navigateBackToList,
       navigateBackToSearch,
       scopeArmed,
       widenScope,
     ],
   );
 
-  const isIssueListView =
-    view === "linear-all" ||
-    view === "github-all" ||
-    view === "processes" ||
-    view === "stats";
-  const isDetailView =
-    view === "issue-detail" ||
-    view === "github-issue-detail" ||
-    view === "task-detail";
-
-  // Tracker drill-ins: one row for the scoped project, or one per project
-  // with a tracker when global.
-  const trackerProjects = useMemo(
-    () => (scopeProject ? [scopeProject] : projects),
-    [scopeProject, projects],
-  );
-
-  const linearItems = useMemo<CommandItem[]>(() => {
-    if (!linearConnected) return [];
-    return trackerProjects
-      .filter((p) => p.linearAssociations.length > 0)
-      .map((p) => ({
-        id: scopeProject ? "linear-issues" : `linear-issues-${p.id}`,
-        label: scopeProject ? "Tasks" : `${p.name} Tasks`,
-        icon: <LinearIcon size={14} />,
-        suffix: <ChevronRight size={14} />,
-        action: () => navigateToLinearAll(p.id),
-      }));
-  }, [linearConnected, trackerProjects, scopeProject, navigateToLinearAll]);
-
-  const githubItems = useMemo<CommandItem[]>(() => {
-    if (!githubConnected) return [];
-    return trackerProjects
-      .filter((p) => ghRepoOf(p) !== null)
-      .map((p) => ({
-        id: scopeProject ? "github-issues" : `github-issues-${p.id}`,
-        label: scopeProject ? "Tasks" : `${p.name} Tasks`,
-        icon: <GitHubIcon size={14} />,
-        suffix: <ChevronRight size={14} />,
-        action: () => navigateToGitHubAll(p.id),
-        keywords: ["ticket"],
-      }));
-  }, [githubConnected, trackerProjects, scopeProject, navigateToGitHubAll]);
+  const isSubView = view === "processes" || view === "stats";
+  const isDetailView = view === "task-detail";
 
   const categories = useMemo<CategoryConfig[]>(() => {
     const workspaceCategories: CategoryConfig[] = scopedWorkspaceGroups.map(
@@ -534,26 +395,12 @@ export function CommandPalette(props: CommandPaletteProps) {
         items: customCommands,
       },
       ...otherCommands,
-      {
-        id: "linear",
-        heading: "Linear",
-        visible: linearItems.length > 0,
-        items: linearItems,
-      },
-      {
-        id: "github",
-        heading: "GitHub",
-        visible: githubItems.length > 0,
-        items: githubItems,
-      },
     ];
   }, [
     agentCommands,
     customCommands,
     scopedWorkspaceGroups,
     commandCategories,
-    linearItems,
-    githubItems,
   ]);
 
   // Pin the most-used commands above everything else. With an empty search box
@@ -756,7 +603,7 @@ export function CommandPalette(props: CommandPaletteProps) {
           >
             <Dialog.Title className="sr-only">Command Palette</Dialog.Title>
             <Command className={styles.command} loop filter={paletteFilter}>
-              {isIssueListView && (
+              {isSubView && (
                 <Row align="center" gap="xxs" className={styles.breadcrumb}>
                   <button
                     className={styles.breadcrumbBack}
@@ -765,8 +612,6 @@ export function CommandPalette(props: CommandPaletteProps) {
                     <ArrowLeft size={14} />
                   </button>
                   <span className={styles.breadcrumbLabel}>
-                    {view === "linear-all" && "Linear — Tasks"}
-                    {view === "github-all" && "GitHub — Tasks"}
                     {view === "processes" && "Processes"}
                     {view === "stats" && "Stats"}
                   </span>
@@ -796,9 +641,7 @@ export function CommandPalette(props: CommandPaletteProps) {
               ) : (
                 <Command.Input
                   className={styles.input}
-                  placeholder={
-                    isIssueListView ? "Search tasks..." : "Type a command..."
-                  }
+                  placeholder="Type a command..."
                   autoFocus
                   value={search}
                   onValueChange={(v) => {
@@ -808,8 +651,7 @@ export function CommandPalette(props: CommandPaletteProps) {
                   style={
                     isDetailView ||
                     view === "processes" ||
-                    view === "stats" ||
-                    (isIssueListView && issueListEmpty)
+                    view === "stats"
                       ? { position: "absolute", opacity: 0, pointerEvents: "none", height: 0, padding: 0, border: "none" }
                       : undefined
                   }
@@ -973,32 +815,6 @@ export function CommandPalette(props: CommandPaletteProps) {
                   </>
                 )}
 
-                {view === "linear-all" && (
-                  <LinearIssuesView
-                    allTeamIds={allTeamIds}
-                    onEmptyChange={setIssueListEmpty}
-                    onSelectIssue={(issueId) => {
-                      setIssueListOrigin(view);
-                      setSelectedIssueId(issueId);
-                      setSearch("");
-                      setView("issue-detail");
-                    }}
-                  />
-                )}
-
-                {view === "github-all" && repo && (
-                  <GitHubIssuesView
-                    repo={repo}
-                    onEmptyChange={setIssueListEmpty}
-                    onSelectIssue={(issueNumber) => {
-                      setIssueListOrigin(view);
-                      setSelectedGitHubIssueNumber(issueNumber);
-                      setSearch("");
-                      setView("github-issue-detail");
-                    }}
-                  />
-                )}
-
                 {view === "processes" && <ProcessesView />}
 
                 {view === "stats" && <StatsView />}
@@ -1056,27 +872,6 @@ export function CommandPalette(props: CommandPaletteProps) {
                   onDone={handleClose}
                 />
               )}
-              {view === "issue-detail" && selectedIssueId && (
-                <IssueDetailView
-                  issueId={selectedIssueId}
-                  onBack={navigateBackToList}
-                  onClose={handleClose}
-                  onNewWorkspace={onNewWorkspace}
-                  onNewAgentWithPrompt={onNewAgentWithPrompt}
-                />
-              )}
-              {view === "github-issue-detail" &&
-                selectedGitHubIssueNumber != null &&
-                repo && (
-                  <GitHubIssueDetailView
-                    repo={repo}
-                    issueNumber={selectedGitHubIssueNumber}
-                    onBack={navigateBackToList}
-                    onClose={handleClose}
-                    onNewWorkspace={onNewWorkspace}
-                    onNewAgentWithPrompt={onNewAgentWithPrompt}
-                  />
-                )}
             </Command>
           </Dialog.Content>
         </Dialog.Portal>

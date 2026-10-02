@@ -4,7 +4,7 @@ import { useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { ghRepoOf } from "../../lib/gh-repo";
 import { useMountEffect } from "../../hooks/useMountEffect";
-import type { PaletteView } from "../command-palette/types";
+import { entryLookup } from "../../lib/task-list";
 import type { ActionItem } from "./EmptyStateShell";
 
 /**
@@ -16,9 +16,7 @@ import type { ActionItem } from "./EmptyStateShell";
  * has issues assigned. Also reports whether the `gh` CLI is missing so callers
  * can render the nudge.
  */
-export function useIssuesShortcut(
-  onOpenPaletteView?: (view: PaletteView) => void,
-) {
+export function useIssuesShortcut() {
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const project = projects[selectedProjectIndex];
@@ -110,12 +108,22 @@ export function useIssuesShortcut(
   // its height so the shortcut list doesn't jump, then fades in if it resolves
   // to issues. Projects with no tracker at all get no row.
   const action: ActionItem | null =
-    onOpenPaletteView && probeKey
+    probeKey
       ? {
           icon: <ListTodo size={16} />,
           label: "Your Tasks",
           keys: [],
-          action: () => useAppStore.getState().showTasksView(),
+          action: () => {
+            // Preset the Tasks view to the selected project's top-level
+            // entry (the group's key for a project inside a group).
+            const { projects, selectedProjectIndex } = useProjectStore.getState();
+            const selected = projects[selectedProjectIndex];
+            useAppStore.getState().showTasksView(
+              selected
+                ? { project: entryLookup(projects)(selected).entryKey }
+                : undefined,
+            );
+          },
           hidden: issuesForKey !== probeKey,
         }
       : null;

@@ -1,12 +1,3 @@
-export const PRIORITY_LABELS: Record<number, { label: string; color: string }> =
-  {
-    0: { label: "None", color: "var(--text-dim)" },
-    1: { label: "Urgent", color: "#f76a6a" },
-    2: { label: "High", color: "#f0913a" },
-    3: { label: "Medium", color: "#f0c73a" },
-    4: { label: "Low", color: "#8da4ef" },
-  };
-
 const isSubsequence = (hay: string, needle: string): boolean => {
   let j = 0;
   for (let i = 0; i < hay.length && j < needle.length; i++) {
@@ -38,6 +29,3 @@ export const wordPrefixFilter = (value: string, search: string) => {
 
   return score / terms.length;
 };
-
-// Moved to `lib/task-images` (ADR-207); re-exported until the palette detail views go.
-export { extractImages, stripMarkdown } from "../../lib/task-images";

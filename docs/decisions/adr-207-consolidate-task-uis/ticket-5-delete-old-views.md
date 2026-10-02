@@ -1,6 +1,6 @@
 ---
 title: Delete palette issue lists, old detail views and dead plumbing
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [4]

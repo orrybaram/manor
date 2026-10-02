@@ -43,16 +43,10 @@ export interface CommandPaletteProps {
   /** Run a command-table command (`lib/commands.ts`) through `App`'s map. */
   onRunCommand: (commandId: string, args?: Record<string, unknown>) => void;
   initialView?: PaletteView;
-  initialIssueId?: string | null;
-  initialGitHubIssueNumber?: number | null;
 }
 
 export type PaletteView =
   | "root"
-  | "linear-all"
-  | "github-all"
-  | "issue-detail"
-  | "github-issue-detail"
   | "task-detail"
   | "processes"
   | "stats";

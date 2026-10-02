@@ -11,6 +11,7 @@ import { createQueryClient, AppRoot } from "./app-root";
 import { whenTerminalCanOpen } from "./terminal/addons";
 import {
   BootScreen,
+  LoadFailureBoundary,
   NoTokenScreen,
   ForbiddenScreen,
   KeyMismatchScreen,
@@ -60,6 +61,29 @@ function show(screen: React.ReactNode): void {
  */
 let settled = false;
 
+/**
+ * A lazy chunk whose preload failed — a phone's connection dropping one
+ * response is enough. A fresh load fetches it again; once, so a chunk that
+ * is really gone (a deploy replaced this version) shows `LoadFailedScreen`
+ * through the boundary below rather than reloading forever.
+ */
+const RELOADED_KEY = "manor.web.reloadedForChunk";
+function claimChunkReload(): boolean {
+  try {
+    const last = Number(sessionStorage.getItem(RELOADED_KEY) ?? 0);
+    if (Date.now() - last < 30_000) return false;
+    sessionStorage.setItem(RELOADED_KEY, String(Date.now()));
+    return true;
+  } catch {
+    return false;
+  }
+}
+window.addEventListener("vite:preloadError", (event) => {
+  if (!claimChunkReload()) return;
+  event.preventDefault();
+  location.reload();
+});
+
 onBridgeOutcome((outcome) => {
   settled = true;
   if (outcome === "key-mismatch") {
@@ -80,7 +104,9 @@ if (!settled) {
   show(
     token ? (
       <>
-        <AppRoot queryClient={queryClient} fallback={<BootScreen />} />
+        <LoadFailureBoundary>
+          <AppRoot queryClient={queryClient} fallback={<BootScreen />} />
+        </LoadFailureBoundary>
         {/* Relay only: "not reachable" over the app while the host is away. */}
         <ReachabilityOverlay
           subscribe={subscribeReachability}

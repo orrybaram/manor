@@ -1,4 +1,4 @@
-import { useSyncExternalStore, type ReactNode, type JSX } from "react";
+import { Component, useSyncExternalStore, type ReactNode, type JSX } from "react";
 import { Button } from "../components/ui/Button/Button";
 
 /**
@@ -142,4 +142,42 @@ export function BootScreen(): JSX.Element {
       Connecting to Manor…
     </div>
   );
+}
+
+/**
+ * A part of the app that failed to load — on a phone, usually a chunk the
+ * network dropped. Without this the page is blank for good; with it, there
+ * is a way back that does not mean finding the pairing link again.
+ */
+export function LoadFailedScreen(): JSX.Element {
+  return (
+    <FullPageMessage testId="web-app-load-failed">
+      <div style={{ display: "flex", flexDirection: "column", gap: "1rem", alignItems: "center" }}>
+        <div>Part of Manor didn&apos;t load. The connection may have dropped.</div>
+        <Button variant="secondary" onClick={() => location.reload()}>
+          Reload
+        </Button>
+      </div>
+    </FullPageMessage>
+  );
+}
+
+/** Shows `LoadFailedScreen` in place of a tree that threw while rendering. */
+export class LoadFailureBoundary extends Component<
+  { children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: unknown): void {
+    console.error("[web] the app failed to render", error);
+  }
+
+  render(): ReactNode {
+    return this.state.failed ? <LoadFailedScreen /> : this.props.children;
+  }
 }

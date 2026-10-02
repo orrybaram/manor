@@ -129,3 +129,17 @@ export function ReachabilityOverlay(props: {
     <UnreachableScreen onRetry={props.onRetry} />
   ) : null;
 }
+
+/**
+ * While `App`'s chunk loads: the same splash `web.html` paints before any
+ * script runs, so the first render replaces it with itself rather than with
+ * a blank page.
+ */
+export function BootScreen(): JSX.Element {
+  return (
+    <div className="boot" role="status">
+      <div className="boot-mark" />
+      Connecting to Manor…
+    </div>
+  );
+}

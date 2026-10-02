@@ -15,6 +15,8 @@ import type { Terminal } from "@xterm/xterm";
 import type { SearchAddon } from "@xterm/addon-search";
 import { loadOnce } from "../lib/load-once";
 import { terminalFontsReady } from "../lib/terminal-font";
+import { isWebApp } from "../lib/platform";
+import { currentLayoutMode } from "../hooks/useLayoutMode";
 
 /**
  * Import an add-on the terminal can open without. A chunk that fails to load
@@ -38,9 +40,21 @@ const loadUnicode11 = loadOnce(() =>
   import("@xterm/addon-unicode11").then((m) => m.Unicode11Addon),
 );
 
+/**
+ * A phone browser draws with xterm's DOM renderer. Every workspace's panes
+ * stay mounted (so a switch resizes nothing), and with WebGL each of them
+ * holds a context and a glyph atlas: on a phone that is most of the cold
+ * load's CPU, memory a phone does not have, and more contexts than mobile
+ * browsers keep alive at once. One small grid on screen at a time is what
+ * the DOM renderer is good at.
+ */
+function wantsWebgl(): boolean {
+  return !(isWebApp() && currentLayoutMode() === "phone");
+}
+
 async function loadRenderAddons() {
   const [WebglAddon, ImageAddon, Unicode11Addon] = await Promise.all([
-    optional("WebGL", loadWebgl),
+    wantsWebgl() ? optional("WebGL", loadWebgl) : null,
     optional("image", loadImage),
     optional("Unicode 11", loadUnicode11),
   ]);

@@ -8,8 +8,9 @@ import {
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { createQueryClient, AppRoot } from "./app-root";
-import { terminalFontsReady } from "./lib/terminal-font";
+import { whenTerminalCanOpen } from "./terminal/addons";
 import {
+  BootScreen,
   NoTokenScreen,
   ForbiddenScreen,
   KeyMismatchScreen,
@@ -70,13 +71,16 @@ onBridgeOutcome((outcome) => {
 
 // Start loading the terminal fonts now, as `src/main.tsx` does, but render
 // without them: only terminal creation waits on them (see `lib/terminal-font`).
-void terminalFontsReady();
+// The render add-ons too: they are chunks of their own, and fetched only when
+// the first pane mounts they cost a phone a round trip after the layout has
+// already arrived.
+void whenTerminalCanOpen();
 
 if (!settled) {
   show(
     token ? (
       <>
-        <AppRoot queryClient={queryClient} />
+        <AppRoot queryClient={queryClient} fallback={<BootScreen />} />
         {/* Relay only: "not reachable" over the app while the host is away. */}
         <ReachabilityOverlay
           subscribe={subscribeReachability}

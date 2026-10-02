@@ -86,6 +86,37 @@ export interface TaskContext {
 }
 
 /**
+ * ADR-207 §1: enough to fetch and act on one task, whether it came from a
+ * listed `TaskRow` (`refOf`) or a workspace's `LinkedIssue` (`refFromLink`).
+ */
+export interface TaskRef {
+  provider: TaskProvider;
+  /** The checkout the task is fetched and acted on through. */
+  project: ProjectInfo;
+  /** The link id: the Linear issue id, or `gh-<number>` for GitHub. */
+  id: string;
+  /** `#123` / `ENG-45`. */
+  displayId: string;
+  title: string;
+  url: string;
+}
+
+/** ADR-207 §1: a task's detail, normalised across trackers. */
+export interface TaskDetail {
+  /** The markdown body / description; null when it has none. */
+  body: string | null;
+  status: { label: string; tone: TaskStatusTone };
+  assignees: string[];
+  labels: TaskLabel[];
+  /** Linear only. */
+  priority?: { value: number; label: string };
+  /** GitHub only. */
+  milestone?: string;
+  /** Image URLs embedded in the body, in order. */
+  images: string[];
+}
+
+/**
  * A task linked to a workspace — the In progress list. Built from the
  * workspace's link (id, title, URL); tracker fields (labels, assignees,
  * status, updated) come from a fetched row for the same task when one is

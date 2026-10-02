@@ -7,7 +7,15 @@
 import type { LinearIssue } from "../../electron.d";
 import { startLinearIssueWork } from "../start-issue-work";
 import type { TaskContext, TaskRow, TaskStatusTone } from "../tasks";
-import { cssHex, sameUrl } from "./shared";
+import { addErrorToast } from "../../store/toast-store";
+import {
+  agentPrompt,
+  cssHex,
+  imagesOf,
+  linkBestEffort,
+  sameUrl,
+  unlinkTask,
+} from "./shared";
 import type { TaskTracker } from "./types";
 
 const STALE_MS = 60_000;
@@ -24,9 +32,39 @@ const LINEAR_TONE: Record<string, TaskStatusTone> = {
   canceled: "canceled",
 };
 
+function linearStatus(
+  state: LinearIssue["state"] | undefined,
+): TaskRow["status"] {
+  return {
+    label: state?.name ?? "Unknown",
+    tone: LINEAR_TONE[state?.type ?? ""] ?? "todo",
+  };
+}
+
+function linearPriority(issue: LinearIssue): TaskRow["priority"] {
+  if (typeof issue.priority !== "number") return undefined;
+  return {
+    value: issue.priority,
+    label:
+      issue.priorityLabel ||
+      (issue.priority === 0 ? "No priority" : `P${issue.priority}`),
+  };
+}
+
+function linearLabels(issue: LinearIssue): TaskRow["labels"] {
+  return (issue.labels ?? []).map((l) => ({
+    name: l.name,
+    color: cssHex(l.color),
+  }));
+}
+
+function linearAssignees(issue: LinearIssue): string[] {
+  const assignee = issue.assignee?.displayName || issue.assignee?.name;
+  return assignee ? [assignee] : [];
+}
+
 /** A Linear list result as a task row, listed through `ctx`. */
 export function toRow(issue: LinearIssue, ctx: TaskContext): TaskRow {
-  const assignee = issue.assignee?.displayName || issue.assignee?.name;
   const cycle = issue.cycle
     ? issue.cycle.name || `Cycle ${issue.cycle.number}`
     : undefined;
@@ -36,25 +74,11 @@ export function toRow(issue: LinearIssue, ctx: TaskContext): TaskRow {
     displayId: issue.identifier,
     title: issue.title,
     url: issue.url,
-    labels: (issue.labels ?? []).map((l) => ({
-      name: l.name,
-      color: cssHex(l.color),
-    })),
-    assignees: assignee ? [assignee] : [],
+    labels: linearLabels(issue),
+    assignees: linearAssignees(issue),
     author: issue.creator?.displayName || issue.creator?.name || undefined,
-    status: {
-      label: issue.state?.name ?? "Unknown",
-      tone: LINEAR_TONE[issue.state?.type ?? ""] ?? "todo",
-    },
-    priority:
-      typeof issue.priority === "number"
-        ? {
-            value: issue.priority,
-            label:
-              issue.priorityLabel ||
-              (issue.priority === 0 ? "No priority" : `P${issue.priority}`),
-          }
-        : undefined,
+    status: linearStatus(issue.state),
+    priority: linearPriority(issue),
     trackerProjects: issue.project?.name ? [issue.project.name] : [],
     cycle,
     team: issue.team?.key || undefined,
@@ -118,18 +142,40 @@ export const linearTracker: TaskTracker = {
     };
   },
 
-  detailQuery: (row) => {
-    const issue = issueOf(row);
-    return {
-      // Same key as the palette's detail view, so they share the cache.
-      queryKey: ["linear-issue-detail", issue.id],
-      queryFn: async () => {
-        const detail = await window.electronAPI.linear.getIssueDetail(issue.id);
-        return detail.description ?? null;
-      },
-      staleTime: STALE_MS,
-    };
-  },
+  refOf: (row) => ({
+    provider: "linear",
+    project: row.project,
+    id: issueOf(row).id,
+    displayId: row.displayId,
+    title: row.title,
+    url: row.url,
+  }),
+
+  refFromLink: (link, project) => ({
+    provider: "linear",
+    project,
+    id: link.id,
+    displayId: link.identifier,
+    title: link.title,
+    url: link.url,
+  }),
+
+  detailQuery: (ref) => ({
+    queryKey: ["task-detail", "linear", ref.id],
+    queryFn: async () => {
+      const issue = await window.electronAPI.linear.getIssueDetail(ref.id);
+      const body = issue.description ?? null;
+      return {
+        body,
+        status: linearStatus(issue.state),
+        assignees: linearAssignees(issue),
+        labels: linearLabels(issue),
+        priority: linearPriority(issue),
+        images: imagesOf(body),
+      };
+    },
+    staleTime: STALE_MS,
+  }),
 
   startWork: (row, body, onNewWorkspace) => {
     startLinearIssueWork({
@@ -145,6 +191,22 @@ export const linearTracker: TaskTracker = {
   matchesLink: (link, row) =>
     row.raw.provider === "linear" &&
     (sameUrl(link.url, row.url) || link.id === row.raw.issue.id),
+
+  startHere: (ref, detail, opts) => {
+    opts.onNewAgentWithPrompt(agentPrompt(ref, detail));
+    window.electronAPI.linear.startIssue(ref.id).catch((err) => {
+      addErrorToast(
+        `start-issue-error-${ref.id}`,
+        "Failed to mark task started",
+        err,
+      );
+    });
+    linkBestEffort(ref, opts.projectId, opts.workspacePath);
+  },
+
+  unlink: unlinkTask,
+
+  close: (ref) => window.electronAPI.linear.closeIssue(ref.id),
 
   homeUrl: (rows) => {
     for (const row of rows) {

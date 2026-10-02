@@ -6,9 +6,19 @@
 
 import type { GitHubIssue } from "../../electron.d";
 import { ghRepoOf } from "../gh-repo";
-import { startGitHubIssueWork } from "../start-issue-work";
-import type { TaskContext, TaskRow } from "../tasks";
-import { cssHex, sameUrl } from "./shared";
+import {
+  assignIssueBestEffort,
+  startGitHubIssueWork,
+} from "../start-issue-work";
+import type { TaskContext, TaskRef, TaskRow } from "../tasks";
+import {
+  agentPrompt,
+  cssHex,
+  imagesOf,
+  linkBestEffort,
+  sameUrl,
+  unlinkTask,
+} from "./shared";
 import type { TaskTracker } from "./types";
 
 const STALE_MS = 60_000;
@@ -24,6 +34,20 @@ function githubStatus(
     : { label: "Closed", tone: "closed" };
 }
 
+function githubLabels(issue: GitHubIssue): TaskRow["labels"] {
+  return (issue.labels ?? []).map((l) => ({
+    name: l.name,
+    color: cssHex(l.color),
+  }));
+}
+
+/** The issue number of a GitHub ref (`gh-12` → 12); throws for any other id. */
+export function issueNumberOf(ref: TaskRef): number {
+  const m = /^gh-(\d+)$/.exec(ref.id);
+  if (!m) throw new Error(`Not a GitHub task: ${ref.id}`);
+  return Number(m[1]);
+}
+
 /** A `gh` list result as a task row, listed through `ctx`. */
 export function toRow(issue: GitHubIssue, ctx: TaskContext): TaskRow {
   return {
@@ -32,10 +56,7 @@ export function toRow(issue: GitHubIssue, ctx: TaskContext): TaskRow {
     displayId: `#${issue.number}`,
     title: issue.title,
     url: issue.url,
-    labels: (issue.labels ?? []).map((l) => ({
-      name: l.name,
-      color: cssHex(l.color),
-    })),
+    labels: githubLabels(issue),
     assignees: (issue.assignees ?? []).map((a) => a.login),
     author: issue.author?.login || undefined,
     status: githubStatus(issue.state ?? "open", issue.stateReason),
@@ -103,25 +124,52 @@ export const githubTracker: TaskTracker = {
     };
   },
 
-  detailQuery: (row) => {
-    const issue = issueOf(row);
-    const repo = ghRepoOf(row.project);
+  refOf: (row) => ({
+    provider: "github",
+    project: row.project,
+    id: `gh-${issueOf(row).number}`,
+    displayId: row.displayId,
+    title: row.title,
+    url: row.url,
+  }),
+
+  refFromLink: (link, project) => ({
+    provider: "github",
+    project,
+    id: link.id,
+    displayId: link.identifier,
+    title: link.title,
+    url: link.url,
+  }),
+
+  detailQuery: (ref) => {
+    const repo = ghRepoOf(ref.project);
+    const number = issueNumberOf(ref);
     return {
-      // Same key as the palette's detail view, so they share the cache.
       queryKey: [
-        "github-issue-detail",
+        "task-detail",
+        "github",
         repo.hostId,
         repo.path,
-        issue.number,
-        issue.url,
+        number,
+        ref.url,
       ],
       queryFn: async () => {
-        const detail = await window.electronAPI.github.getIssueDetail(
+        // Looked up by URL when known, so an issue from another repo still resolves.
+        const issue = await window.electronAPI.github.getIssueDetail(
           repo,
-          issue.number,
-          issue.url,
+          number,
+          ref.url || undefined,
         );
-        return detail.body ?? null;
+        const body = issue.body ?? null;
+        return {
+          body,
+          status: githubStatus(issue.state ?? "open", issue.stateReason),
+          assignees: (issue.assignees ?? []).map((a) => a.login),
+          labels: githubLabels(issue),
+          milestone: issue.milestone?.title || undefined,
+          images: imagesOf(body),
+        };
       },
       staleTime: STALE_MS,
     };
@@ -141,6 +189,20 @@ export const githubTracker: TaskTracker = {
   // By URL only: `gh-N` ids aren't unique across repos.
   matchesLink: (link, row) =>
     row.provider === "github" && sameUrl(link.url, row.url),
+
+  startHere: (ref, detail, opts) => {
+    opts.onNewAgentWithPrompt(agentPrompt(ref, detail));
+    assignIssueBestEffort(ghRepoOf(ref.project), issueNumberOf(ref));
+    linkBestEffort(ref, opts.projectId, opts.workspacePath);
+  },
+
+  unlink: unlinkTask,
+
+  close: (ref) =>
+    window.electronAPI.github.closeIssue(
+      ghRepoOf(ref.project),
+      issueNumberOf(ref),
+    ),
 
   homeUrl: (rows) => {
     for (const row of rows) {

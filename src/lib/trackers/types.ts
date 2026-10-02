@@ -7,7 +7,13 @@
 
 import type { LinkedIssue, ProjectInfo } from "../../store/project-store";
 import type { NewWorkspaceHandler } from "../start-issue-work";
-import type { TaskContext, TaskProvider, TaskRow } from "../tasks";
+import type {
+  TaskContext,
+  TaskDetail,
+  TaskProvider,
+  TaskRef,
+  TaskRow,
+} from "../tasks";
 
 /** A query for a hook to run: key, fetcher and freshness. `queryFn` throws on failure. */
 export interface TrackerQuery<T> {
@@ -29,8 +35,15 @@ export interface TaskTracker {
   canList(member: ProjectInfo): boolean;
   /** The open, or assigned-to-me, rows of one source, already mapped to TaskRow. */
   listQuery(ctx: TaskContext, scope: TrackerScope): TrackerQuery<TaskRow[]>;
-  /** The row's body/description, for the agent prompt (null when unavailable). */
-  detailQuery(row: TaskRow): TrackerQuery<string | null>;
+  /** The ref of a listed row. */
+  refOf(row: TaskRow): TaskRef;
+  /** The ref of a workspace link this tracker owns, acted on through `project`. */
+  refFromLink(link: LinkedIssue, project: ProjectInfo): TaskRef;
+  /**
+   * The task's normalised detail, under `["task-detail", provider, …]` — a
+   * key nothing else caches a different shape under (ADR-207 §1).
+   */
+  detailQuery(ref: TaskRef): TrackerQuery<TaskDetail>;
   /** Open the New Workspace dialog prefilled, or reuse a workspace on the branch. */
   startWork(
     row: TaskRow,
@@ -43,4 +56,29 @@ export interface TaskTracker {
   matchesLink(link: LinkedIssue, row: TaskRow): boolean;
   /** Tracker page for one project's rows (repo issues / Linear team). */
   homeUrl(rows: readonly TaskRow[]): string | null;
+  /**
+   * New agent here: launch one with the task as its prompt, mark the task
+   * taken (Linear: started; GitHub: assigned) and link it to the workspace.
+   * Doesn't wait on the tracker; its failures are toasted.
+   */
+  startHere?(
+    ref: TaskRef,
+    detail: TaskDetail | null,
+    opts: StartHereOpts,
+  ): void;
+  /** Unlink the task from a workspace, then reload projects. Throws on failure. */
+  unlink?(
+    ref: TaskRef,
+    projectId: string,
+    workspacePath: string,
+  ): Promise<void>;
+  /** Close the task in the tracker. Throws on failure. */
+  close?(ref: TaskRef): Promise<void>;
+}
+
+/** Where `startHere` launches the agent and links the task. */
+export interface StartHereOpts {
+  onNewAgentWithPrompt: (prompt: string) => void;
+  projectId: string;
+  workspacePath: string;
 }

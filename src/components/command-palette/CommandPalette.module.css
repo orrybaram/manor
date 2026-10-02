@@ -336,6 +336,79 @@
   flex-shrink: 0;
 }
 
+/* ── Task rows (ADR-207 §4): ID, title, context, status, action ── */
+
+.taskItem {
+  gap: 10px;
+}
+
+.taskId {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.taskTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taskMatch {
+  color: inherit;
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 2px;
+}
+
+.taskContext {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.taskStatus {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 1px 8px;
+}
+
+/* "Start ↵" / "Open ↵" — only on the highlighted row. */
+.taskAction {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.taskItem[data-selected="true"] .taskAction {
+  display: inline-flex;
+}
+
+.seeAllTasks {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.seeAllTasks[data-selected="true"] {
+  color: var(--text-selected);
+}
+
 /* ── Linear issue items ── */
 
 .issueIdentifier {
@@ -384,6 +457,13 @@
 .paletteWide {
   width: 700px;
   max-height: 500px;
+}
+
+/* ADR-207 §4: a task's shared `TaskDetail` card — wider than the legacy
+   issue-detail views, so the meta column sits beside a readable body. */
+.paletteTask {
+  width: min(880px, 92vw);
+  max-height: min(600px, 85vh);
 }
 
 /* The stats readout carries four tiles, seventeen rows and a badge rack, so it

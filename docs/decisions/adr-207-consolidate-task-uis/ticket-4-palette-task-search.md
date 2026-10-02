@@ -1,6 +1,6 @@
 ---
 title: Palette — tasks inline in search, shared detail, popover swap
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [2, 3]

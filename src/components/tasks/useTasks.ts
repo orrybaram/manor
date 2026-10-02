@@ -234,9 +234,12 @@ export function useTaskScope(
 }
 
 export type UseTasksOptions = {
-  provider: TaskProvider;
+  /** One tracker, or null for every usable one (the palette's search). */
+  provider: TaskProvider | null;
   /** A top-level entry key, or null for every project. */
   projectKey: string | null;
+  /** Fetch nothing while false (default true) — the palette waits for a query. */
+  enabled?: boolean;
 };
 
 const SCOPES: TrackerScope[] = ["assigned", "open"];
@@ -254,7 +257,7 @@ export function useTasks(options: UseTasksOptions): {
   failedCount: number;
   failures: string[];
 } {
-  const { provider, projectKey } = options;
+  const { provider, projectKey, enabled = true } = options;
 
   const tracker = useTrackerSources();
 
@@ -262,7 +265,7 @@ export function useTasks(options: UseTasksOptions): {
     () =>
       tracker.sources.filter(
         (s) =>
-          s.provider === provider &&
+          (provider === null || s.provider === provider) &&
           (projectKey === null || s.ctx.entryKey === projectKey),
       ),
     [tracker.sources, provider, projectKey],
@@ -286,6 +289,7 @@ export function useTasks(options: UseTasksOptions): {
           queryFn: () =>
             settle(`${source.key}:${scope}`, source.ctx.projectName, fetches),
           retry: false,
+          enabled,
         };
       }),
     ),

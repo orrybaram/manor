@@ -1,6 +1,6 @@
 ---
 title: Tasks view detail drawer and showTasksView intent
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [2]

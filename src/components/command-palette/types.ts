@@ -53,5 +53,6 @@ export type PaletteView =
   | "github-all"
   | "issue-detail"
   | "github-issue-detail"
+  | "task-detail"
   | "processes"
   | "stats";

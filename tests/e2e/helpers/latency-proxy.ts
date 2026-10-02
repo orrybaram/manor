@@ -12,6 +12,11 @@ import net from "net";
 export interface LatencyProxy {
   /** `http://127.0.0.1:<port>`: the upstream's address, slowed down. */
   readonly url: string;
+  /** Cut every open connection, as a phone losing its network does. */
+  dropAll(): void;
+  /** Refuse new connections (and cut open ones) until `restore`. */
+  outage(): void;
+  restore(): void;
   close(): Promise<void>;
 }
 
@@ -52,7 +57,12 @@ export async function startLatencyProxy(
     from.on("end", () => push(null));
   };
 
+  let down = false;
   const server = net.createServer((client) => {
+    if (down) {
+      client.destroy();
+      return;
+    }
     const remote = net.connect(Number(target.port), target.hostname);
     sockets.add(client).add(remote);
     pipeDelayed(client, remote);
@@ -71,6 +81,16 @@ export async function startLatencyProxy(
 
   return {
     url: `http://127.0.0.1:${port}`,
+    dropAll() {
+      for (const s of sockets) s.destroy();
+    },
+    outage() {
+      down = true;
+      for (const s of sockets) s.destroy();
+    },
+    restore() {
+      down = false;
+    },
     async close() {
       for (const s of sockets) s.destroy();
       await new Promise<void>((resolve) => server.close(() => resolve()));

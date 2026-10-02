@@ -415,6 +415,59 @@ test("phone audit: every phone surface over the relay, throttled", async ({
     await expect(fit).toBeVisible();
     await window.keyboard.press("Backspace");
 
+    // ── The network drops: back to a live terminal on its own ─────────
+    {
+      const marker = "back-after-drop";
+      const t0 = Date.now();
+      proxy.dropAll();
+      // Typed into a dead line: it must still arrive once the line is back
+      // — or at least, typing again after reconnecting must work.
+      await expect
+        .poll(
+          async () => {
+            await page.evaluate(
+              ({ id, m }) => window.__manorTerminals!.get(id)!.term.input(`echo ${m}\r`, true),
+              { id: paneId, m: marker },
+            );
+            await page.waitForTimeout(1_000);
+            return page.evaluate(
+              ({ id, m }) => {
+                const b = window.__manorTerminals!.get(id)!.term.buffer.active;
+                for (let i = 0; i < b.length; i++) {
+                  if (b.getLine(i)?.translateToString(true) === m) return true;
+                }
+                return false;
+              },
+              { id: paneId, m: marker },
+            );
+          },
+          { timeout: 30_000, intervals: [0] },
+        )
+        .toBe(true);
+      report.time("network drop → terminal live again", Date.now() - t0);
+      // A long dead spell (a subway ride): the redial backoff grows while
+      // nothing answers. When the network is back, the page hears `online`
+      // and must not sit out the rest of a 16–30s wait.
+      proxy.outage();
+      await page.waitForTimeout(20_000);
+      proxy.restore();
+      const t1 = Date.now();
+      await page.evaluate(() => window.dispatchEvent(new Event("online")));
+      await expect(page.getByTestId("web-app-unreachable")).toBeHidden({ timeout: 30_000 });
+      const marker2 = "back-after-outage";
+      await page.evaluate(
+        ({ id, m }) => window.__manorTerminals!.get(id)!.term.input(`echo ${m}\r`, true),
+        { id: paneId, m: marker2 },
+      );
+      await waitForText(page, paneId, `\n${marker2}`);
+      report.time("long outage → terminal live again", Date.now() - t1);
+
+      report.data.unreachableShownOnDrop = await page
+        .getByTestId("web-app-unreachable")
+        .isVisible()
+        .catch(() => false);
+    }
+
     // ── Output flood: what a busy agent does to the phone ─────────────
     const before = (await perfSnapshot(page)).longTasks.length;
     const floodStart = await page.evaluate(() => performance.now());
@@ -687,6 +740,8 @@ const BUDGET = {
    *  typically; and no keystroke stuck for a second. */
   echoP50Ms: PHONE_PROFILE.rttMs + 80,
   echoMaxMs: 1_000,
+  /** From the line dropping to typing reaching the shell again. */
+  reconnectMs: 5_000,
   /** Taps that change nothing on the host. */
   tapMs: 400,
   /** What a cold load may download before the terminal is up. */
@@ -748,6 +803,9 @@ function checkBudgets(report: AuditReport, log: string[]) {
   ]) {
     expect.soft(one(k), k).toBeLessThan(BUDGET.tapMs);
   }
+
+  expect.soft(one("network drop → terminal live again"), "reconnect").toBeLessThan(BUDGET.reconnectMs);
+  expect.soft(one("long outage → terminal live again"), "reconnect after an outage").toBeLessThan(BUDGET.reconnectMs);
 
   const res = report.data.coldResources as ResourceSummary;
   expect.soft(res.byType.woff2?.transferKB ?? 0, "cold font download").toBeLessThan(BUDGET.coldFontKB);

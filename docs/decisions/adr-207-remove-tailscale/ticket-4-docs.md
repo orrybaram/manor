@@ -1,6 +1,6 @@
 ---
 title: Docs — one road
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [3]
@@ -51,3 +51,24 @@ and declarative.
 - `docs/remote-control.md`, `CONTEXT.md`, `docs/AGENT-SYSTEM.md`, `CHANGELOG.md`
 - `relay/src/index.ts`, `relay/test/web.test.ts`
 - stray comments found by grep
+
+## Carried over from tickets 2 and 3
+
+- `CONTEXT.md` still describes `src/remote-client/`.
+- `docs/research/mobile-connection-superset-orca.md` names deleted files. It is
+  a research note: add a one-line "superseded by ADR-207" note at the top
+  rather than rewriting it.
+- 4403 wording:
+  - `relay/README.md:49` and `relay/test/room.test.ts:305` still describe 4403
+    as "device paired below `full`". It is now reserved and never sent.
+  - Update the wording only; the relay still passes 4403 through.
+- `electron/remote-control/audit.ts` documents `interrupt` as "True for
+  `POST /sessions/interrupt`", a route that no longer exists. Fix the doc, or
+  drop the field if nothing reads it as true.
+- Test titles and comments that say "full device" or "pairs at full" (e.g.
+  `web-app.spec.ts`, `ws-bridge.test.ts` getStatus): reword them. There is only
+  one tier now.
+- `tests/e2e/README.md`: the relay section and the remote-control wording.
+- CHANGELOG: also say that downgrading to an older Manor after upgrading means
+  devices must be re-paired. An older build reads new rows as Tailscale; this
+  build then drops them.

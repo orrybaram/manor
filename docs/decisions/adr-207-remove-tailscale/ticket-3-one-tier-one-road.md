@@ -1,6 +1,6 @@
 ---
 title: One tier, one road — relay-only full pairing; drop old devices on load
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [2]

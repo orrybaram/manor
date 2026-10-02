@@ -9,15 +9,14 @@ import { useProjectStore } from "../../store/project-store";
 import { useTasksSummaryStore } from "../../store/tasks-summary-store";
 import { useQueryClient } from "@tanstack/react-query";
 import Search from "lucide-react/dist/esm/icons/search";
-import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import ChevronLeft from "lucide-react/dist/esm/icons/chevron-left";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import ArrowDown from "lucide-react/dist/esm/icons/arrow-down";
+import Loader2 from "lucide-react/dist/esm/icons/loader-2";
 import type { PaletteView } from "../command-palette/types";
 import { GitHubNudge } from "../sidebar/GitHubNudge";
 import { Button } from "../ui/Button/Button";
-import { Link } from "../ui/Link/Link";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import {
   SearchableSelect,
@@ -92,10 +91,20 @@ export function TasksView(props: TasksViewProps) {
   // Only projects the current tracker can be queried through.
   const projectOptions = useMemo<SearchableSelectOption[]>(
     () => [
-      { value: ALL_PROJECTS, label: "All projects" },
+      {
+        value: ALL_PROJECTS,
+        label: "All projects",
+        icon: <span className={styles.projectDot} />,
+      },
       ...scope.sources.map((s) => ({
         value: s.ctx.entryKey,
         label: s.ctx.projectName,
+        icon: (
+          <span
+            className={styles.projectDot}
+            style={projectColorStyle(s.ctx.color)}
+          />
+        ),
       })),
     ],
     [scope.sources],
@@ -126,8 +135,6 @@ export function TasksView(props: TasksViewProps) {
   );
   const { listed, filtered } = list;
   const current = list.page(page);
-  const tracker = trackerFor(provider);
-  const homeUrl = projectKey ? tracker.homeUrl(rows) : null;
   const projectCount = useMemo(
     () => new Set(listed.map((r) => r.projectEntryKey)).size,
     [listed],
@@ -208,6 +215,8 @@ export function TasksView(props: TasksViewProps) {
   const handleStart = useStartTask(onNewWorkspace);
 
   const nothingConnected = providers.length === 0 && !scope.checking;
+  // Some sources answered, others are still out: the rows are partial.
+  const loadingMore = loading && listed.length > 0;
 
   // The count line lives in the status bar while this view is open.
   const summary =
@@ -226,15 +235,6 @@ export function TasksView(props: TasksViewProps) {
   return (
     <div className={styles.page} data-testid="tasks-view">
       <div className={styles.content}>
-        {homeUrl && (
-          <div className={styles.header}>
-            <Link href={homeUrl} variant="plain" className={styles.openLink}>
-              <ExternalLink size={13} />
-              Open in {tracker.label}
-            </Link>
-          </div>
-        )}
-
         {nothingConnected ? (
           <div className={styles.setup}>
             <p className={styles.setupText}>
@@ -359,6 +359,7 @@ export function TasksView(props: TasksViewProps) {
               className={`${styles.table} ${showPriority ? styles.withPriority : ""}`}
               role="table"
               aria-label="Tasks"
+              aria-busy={loading}
             >
               <div className={`${styles.gridRow} ${styles.headRow}`} role="row">
                 <span role="columnheader" aria-label="Actions" />
@@ -416,55 +417,67 @@ export function TasksView(props: TasksViewProps) {
               )}
             </div>
 
-            <div className={styles.footer}>
-              {failedCount > 0 && (
-                <Tooltip label={failures.join("\n")} side="top">
-                  <span className={styles.failed} tabIndex={0}>
-                    {failedCount} source{failedCount === 1 ? "" : "s"} failed
+            {(loadingMore || failedCount > 0 || current.pageCount > 1) && (
+              <div className={styles.footer}>
+                {loadingMore && (
+                  <span
+                    className={styles.loadingMore}
+                    role="status"
+                    data-testid="tasks-loading-more"
+                  >
+                    <Loader2 size={12} className={styles.spinner} aria-hidden />
+                    Loading more tasks…
                   </span>
-                </Tooltip>
-              )}
-              {current.pageCount > 1 && (
-                <nav className={styles.pagination} aria-label="Pages">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={current.page <= 1}
-                    onClick={() => setPage(current.page - 1)}
-                  >
-                    <ChevronLeft size={14} />
-                    Previous
-                  </Button>
-                  {pageWindow(current.page, current.pageCount).map((p, i) =>
-                    p === "gap" ? (
-                      <span key={`gap-${i}`} className={styles.pageGap}>
-                        …
-                      </span>
-                    ) : (
-                      <Button
-                        key={p}
-                        variant="ghost"
-                        size="sm"
-                        className={`${styles.pageButton} ${p === current.page ? styles.pageButtonActive : ""}`}
-                        aria-current={p === current.page ? "page" : undefined}
-                        onClick={() => setPage(p)}
-                      >
-                        {p}
-                      </Button>
-                    ),
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={current.page >= current.pageCount}
-                    onClick={() => setPage(current.page + 1)}
-                  >
-                    Next
-                    <ChevronRight size={14} />
-                  </Button>
-                </nav>
-              )}
-            </div>
+                )}
+                {failedCount > 0 && (
+                  <Tooltip label={failures.join("\n")} side="top">
+                    <span className={styles.failed} tabIndex={0}>
+                      {failedCount} source{failedCount === 1 ? "" : "s"} failed
+                    </span>
+                  </Tooltip>
+                )}
+                {current.pageCount > 1 && (
+                  <nav className={styles.pagination} aria-label="Pages">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={current.page <= 1}
+                      onClick={() => setPage(current.page - 1)}
+                    >
+                      <ChevronLeft size={14} />
+                      Previous
+                    </Button>
+                    {pageWindow(current.page, current.pageCount).map((p, i) =>
+                      p === "gap" ? (
+                        <span key={`gap-${i}`} className={styles.pageGap}>
+                          …
+                        </span>
+                      ) : (
+                        <Button
+                          key={p}
+                          variant="ghost"
+                          size="sm"
+                          className={`${styles.pageButton} ${p === current.page ? styles.pageButtonActive : ""}`}
+                          aria-current={p === current.page ? "page" : undefined}
+                          onClick={() => setPage(p)}
+                        >
+                          {p}
+                        </Button>
+                      ),
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={current.page >= current.pageCount}
+                      onClick={() => setPage(current.page + 1)}
+                    >
+                      Next
+                      <ChevronRight size={14} />
+                    </Button>
+                  </nav>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>

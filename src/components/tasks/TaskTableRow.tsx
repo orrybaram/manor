@@ -97,7 +97,7 @@ export function TaskTableRow(props: TaskTableRowProps) {
         <Button
           variant="secondary"
           size="sm"
-          className={styles.startButton}
+          className={`${styles.startButton} ${actionLabel === "Start" ? styles.startButtonGo : ""}`}
           onClick={onAction}
           aria-label={`${actionLabel} ${row.displayId}`}
         >

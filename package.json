@@ -28,6 +28,8 @@
     "e2e:web": "playwright test tests/e2e/web-app.spec.ts",
     "test:e2e:relay": "pnpm build && pnpm build:web:relay && playwright test tests/e2e/relay.spec.ts",
     "e2e:relay": "playwright test tests/e2e/relay.spec.ts",
+    "test:e2e:mobile": "pnpm build && pnpm build:web:relay && playwright test tests/e2e/mobile-audit.spec.ts",
+    "e2e:mobile": "playwright test tests/e2e/mobile-audit.spec.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -85,6 +87,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@electron/rebuild": "^4.0.3",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.59.1",

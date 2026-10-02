@@ -167,6 +167,12 @@ After review (2026-10-01):
   views list the same tasks.
 - **Drawer:** the open-in-tracker link lives in the drawer header only.
 - **Palette** widened to 700px with the comps' row styling.
+- **Palette keys:** on a task row ↵ or → opens the detail; ⌘↵ starts it (or
+  opens a linked task's workspace) — also inside the detail. Root ⌘↵ still
+  widens the scope when no task row is highlighted; with one highlighted,
+  Tab does.
+- **Scope chip** is a project picker (All projects + each project), tinted
+  with the scoped project's colour.
 
 ## Tickets
 

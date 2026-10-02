@@ -61,6 +61,8 @@ const IS_MAC =
 
 /** The widen-to-global shortcut, as shown in hints. */
 const WIDEN_HINT = IS_MAC ? "⌘↵" : "Ctrl+↵";
+/** ⌘↵ on a task row starts it (opens a linked task's workspace). */
+const START_HINT = WIDEN_HINT;
 
 /** The Tasks group (ADR-207 §4): listed only while searching, never pinned as frequent. */
 const TASKS_CATEGORY_ID = "tasks";
@@ -293,7 +295,7 @@ export function CommandPalette(props: CommandPaletteProps) {
     [startTask, handleClose],
   );
 
-  // → on a task row: its detail.
+  // ↵ or → on a task row: its detail.
   const openTaskDetail = useCallback(
     (task: PaletteTask) => {
       const ref = paletteTaskRef(task, projects);
@@ -459,10 +461,10 @@ export function CommandPalette(props: CommandPaletteProps) {
         id: `${TASK_ITEM_PREFIX}${task.key}`,
         label: task.title,
         keywords: [task.displayId, ...task.labels.map((l) => l.name)],
-        action: () => void selectTask(task),
+        action: () => openTaskDetail(task),
       })),
     };
-  }, [search, paletteTasks.rows, selectTask]);
+  }, [search, paletteTasks.rows, openTaskDetail]);
 
   const rootCategories = useMemo<CategoryConfig[]>(() => {
     const rest =
@@ -530,6 +532,14 @@ export function CommandPalette(props: CommandPaletteProps) {
     [categories, search, tasksCategory],
   );
 
+  /** The task row cmdk has highlighted, if any. */
+  const selectedTaskRow = useCallback((): PaletteTask | undefined => {
+    const selected = listRef.current?.querySelector<HTMLElement>(
+      '[cmdk-item][data-selected="true"]',
+    );
+    return tasksByItemId.get(selected?.dataset.taskItem ?? "");
+  }, [tasksByItemId]);
+
   const handleRootInputKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLInputElement>) => {
       if (view !== "root") return;
@@ -540,18 +550,27 @@ export function CommandPalette(props: CommandPaletteProps) {
         else setScopeArmed(true);
         return;
       }
-      if (e.key === "Tab" && openedScopeProjectId) {
+      if (e.key === "Tab" && (scopeProjectId || openedScopeProjectId)) {
         e.preventDefault();
         setScopeProjectId((cur) => (cur ? null : openedScopeProjectId));
         setScopeArmed(false);
         listRef.current?.scrollTo(0, 0);
         return;
       }
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && scopeProjectId) {
-        // Stop cmdk from running the selected row.
-        e.preventDefault();
-        widenScope();
-        return;
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        // ⌘↵ on a task row starts it (or opens its workspace); elsewhere it
+        // widens the scope. Either way, stop cmdk from running the row.
+        const task = selectedTaskRow();
+        if (task) {
+          e.preventDefault();
+          void selectTask(task);
+          return;
+        }
+        if (scopeProjectId) {
+          e.preventDefault();
+          widenScope();
+          return;
+        }
       }
       if (
         e.key === "ArrowRight" &&
@@ -562,10 +581,7 @@ export function CommandPalette(props: CommandPaletteProps) {
         caretAtEnd(e.currentTarget)
       ) {
         // Only at the end of the query, so → still moves the caret.
-        const selected = listRef.current?.querySelector<HTMLElement>(
-          '[cmdk-item][data-selected="true"]',
-        );
-        const task = tasksByItemId.get(selected?.dataset.taskItem ?? "");
+        const task = selectedTaskRow();
         if (task) {
           e.preventDefault();
           openTaskDetail(task);
@@ -581,10 +597,25 @@ export function CommandPalette(props: CommandPaletteProps) {
       scopeArmed,
       openedScopeProjectId,
       widenScope,
-      tasksByItemId,
+      selectedTaskRow,
+      selectTask,
       openTaskDetail,
     ],
   );
+
+  /** The chip's picker: scope to another project (or all), back in the query. */
+  const changeScope = useCallback((projectId: string | null) => {
+    setScopeProjectId(projectId);
+    setScopeArmed(false);
+    listRef.current?.scrollTo(0, 0);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, []);
+
+  // ⌘↵ starts a highlighted task, so the widen hint falls back to Tab there.
+  const [highlighted, setHighlighted] = useState("");
+  const taskHighlighted =
+    tasksCategory !== null &&
+    highlighted.includes(`${VALUE_ID_SEPARATOR}${TASKS_CATEGORY_ID}:`);
 
   const scopeName = scopeProject?.name ?? null;
   const rootPlaceholder = scopeName
@@ -604,7 +635,12 @@ export function CommandPalette(props: CommandPaletteProps) {
             onEscapeKeyDown={handleEscapeKeyDown}
           >
             <Dialog.Title className="sr-only">Command Palette</Dialog.Title>
-            <Command className={styles.command} loop filter={paletteFilter}>
+            <Command
+              className={styles.command}
+              loop
+              filter={paletteFilter}
+              onValueChange={setHighlighted}
+            >
               {isSubView && (
                 <Row align="center" gap="xxs" className={styles.breadcrumb}>
                   <button
@@ -622,8 +658,10 @@ export function CommandPalette(props: CommandPaletteProps) {
               {view === "root" ? (
                 <div className={styles.inputRow}>
                   <ScopeChip
-                    projectName={scopeName}
+                    projects={projects}
+                    project={scopeProject}
                     armed={scopeArmed}
+                    onChange={changeScope}
                     onClear={widenScope}
                   />
                   <Command.Input
@@ -827,10 +865,10 @@ export function CommandPalette(props: CommandPaletteProps) {
                   {tasksCategory && (
                     <>
                       <span className={styles.footerItem}>
-                        <kbd className={styles.kbd}>↵</kbd> Start / Open
+                        <kbd className={styles.kbd}>↵</kbd> Details
                       </span>
                       <span className={styles.footerItem}>
-                        <kbd className={styles.kbd}>→</kbd> Details
+                        <kbd className={styles.kbd}>{START_HINT}</kbd> Start / Open
                       </span>
                     </>
                   )}
@@ -843,7 +881,9 @@ export function CommandPalette(props: CommandPaletteProps) {
                     {search && hasRootMatches && outOfScopeMatchCount > 0 && (
                       <span className={styles.footerItem}>
                         +{outOfScopeMatchCount} in other projects{" "}
-                        <kbd className={styles.kbd}>{WIDEN_HINT}</kbd>
+                        <kbd className={styles.kbd}>
+                          {taskHighlighted ? "Tab" : WIDEN_HINT}
+                        </kbd>
                       </span>
                     )}
                     {tasksCategory && (
@@ -963,7 +1003,7 @@ function TaskItem(props: TaskItemProps) {
         {task.status.label}
       </span>
       <span className={styles.taskAction}>
-        {linked ? "Open" : "Start"} <kbd className={styles.kbd}>↵</kbd>
+        {linked ? "Open" : "Start"} <kbd className={styles.kbd}>{START_HINT}</kbd>
       </span>
     </Command.Item>
   );

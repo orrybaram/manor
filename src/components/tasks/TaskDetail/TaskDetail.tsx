@@ -41,19 +41,16 @@ type TaskDetailProps = {
   onNewWorkspace: NewWorkspaceHandler;
   /** After an action that should close the host (started, opened, unlinked…). */
   onDone: () => void;
-  /** Handle ↵ / ⌘O on `window` while mounted (default true). */
+  /** Handle ⌘↵ (Start) / ⌘O on `window` while mounted (default true). */
   keyboard?: boolean;
 };
 
-/**
- * Focus that sits in a field or on a control keeps its own Enter: neither a
- * text input elsewhere on the page nor a focused button triggers Start.
- */
-function ownsEnter(target: EventTarget | null): boolean {
+/** Focus in a text field keeps its own ⌘↵ (e.g. a commit message's submit). */
+function inTextField(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLElement &&
     (target.isContentEditable ||
-      target.closest("input, textarea, select, button, a") !== null)
+      target.closest("input, textarea, select") !== null)
   );
 }
 
@@ -167,39 +164,26 @@ export function TaskDetail(props: TaskDetailProps) {
   const latestRef = useRef(latest);
   latestRef.current = latest;
 
-  // The Enter keyup that opened the detail can arrive after this effect
-  // registers its listener, so Enter waits on a `ready` flag set after a frame.
   useMountEffect(() => {
-    let ready = false;
-    const rafId = requestAnimationFrame(() => {
-      ready = true;
-    });
-    const onKeyUp = (e: globalThis.KeyboardEvent) => {
-      const l = latestRef.current;
-      if (!ready || !l.keyboard || l.mode !== "default") return;
-      if (e.key !== "Enter" || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) {
-        return;
-      }
-      if (!l.canStart || ownsEnter(e.target)) return;
-      e.preventDefault();
-      void l.handleStart();
-    };
     // ⌘-chords on keydown: macOS swallows a key's keyup while ⌘ is held.
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
       const l = latestRef.current;
-      if (!l.keyboard || !e.metaKey) return;
+      if (!l.keyboard || !(e.metaKey || e.ctrlKey)) return;
       if (e.key === "o") {
         e.preventDefault();
         l.handleOpen();
+      } else if (
+        e.key === "Enter" &&
+        l.mode === "default" &&
+        l.canStart &&
+        !inTextField(e.target)
+      ) {
+        e.preventDefault();
+        void l.handleStart();
       }
     };
-    window.addEventListener("keyup", onKeyUp);
     window.addEventListener("keydown", onKeyDown);
-    return () => {
-      cancelAnimationFrame(rafId);
-      window.removeEventListener("keyup", onKeyUp);
-      window.removeEventListener("keydown", onKeyDown);
-    };
+    return () => window.removeEventListener("keydown", onKeyDown);
   });
 
   const status = detail?.status ?? row?.status;
@@ -286,7 +270,7 @@ export function TaskDetail(props: TaskDetailProps) {
           {canStart && (
             <Button size="sm" variant="primary" onClick={handleStart}>
               {layout === "card" ? "Start in new workspace" : "Start"}
-              {keyboard && <kbd className={styles.kbd}>↵</kbd>}
+              {keyboard && <kbd className={styles.kbd}>⌘↵</kbd>}
             </Button>
           )}
         </>

@@ -94,7 +94,7 @@ async function paneText(page: Page, paneId: string): Promise<string> {
   return page.evaluate((id) => {
     const handle = window.__manorTerminals?.get(id);
     if (!handle) throw new Error(`no terminal registered for ${id}`);
-    return handle.serialize.serialize({ scrollback: 20_000 });
+    return handle.serialize({ scrollback: 20_000 });
   }, paneId);
 }
 
@@ -239,7 +239,7 @@ async function visiblePaneIds(page: Page): Promise<string[]> {
  * (split, close, …) that have no dedicated keybinding pressed here.
  */
 async function runPaletteCommand(page: Page, label: string): Promise<void> {
-  const input = page.getByPlaceholder("Type a command...");
+  const input = page.locator("[cmdk-input]");
   await page.keyboard.press("Meta+k");
   await expect(input).toBeVisible();
   await input.fill(label);

@@ -88,15 +88,6 @@ function seedClaudeConfig(tempHome: string): void {
   );
 }
 
-/**
- * Whether Claude Code has drawn its start screen. Older versions greet with
- * "Welcome back"; newer ones only draw the "Claude Code v<version>" banner.
- * Matched against flattened scrollback, which has no spaces.
- */
-function atClaudePrompt(text: string): boolean {
-  return text.includes("Welcomeback") || /ClaudeCodev\d/.test(text);
-}
-
 /** Wait for `predicate` over the pane's flattened scrollback, or throw. */
 async function untilScrollback(
   window: Page,
@@ -163,17 +154,19 @@ async function gridMoves(window: Page): Promise<GridMove[]> {
 /**
  * Claude Code is up and waiting for a prompt.
  *
- * Three markers, OR'd, because this is a real third-party CLI whose chrome
+ * Several markers, OR'd, because this is a real third-party CLI whose chrome
  * changes under us and a single string here costs 120 seconds and a silently
  * disabled test when it moves. `Welcome back` is the old one and only shows
- * on a *resumed* session; the other two are what a fresh launch prints — the
- * mode hint under the composer, and the composer's own placeholder.
+ * on a *resumed* session; newer versions draw a "Claude Code v<version>"
+ * banner; the last two are what a fresh launch prints — the mode hint under
+ * the composer, and the composer's own placeholder.
  *
  * `scrollback()` strips whitespace, hence the run-together spellings.
  */
 function atClaudePrompt(t: string): boolean {
   return (
     t.includes("Welcomeback") ||
+    /ClaudeCodev\d/.test(t) ||
     t.includes("shift+tabtocycle") ||
     /❯Try/.test(t)
   );

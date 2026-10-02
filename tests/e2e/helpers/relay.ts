@@ -344,6 +344,11 @@ export async function startLocalRelay(seedDir: string): Promise<LocalRelay> {
         String(inspectorPort),
         "--persist-to",
         persistDir,
+        // The custom-domain route in wrangler.toml would otherwise be the
+        // host the Worker sees (`http://relay.manor.sh/…`), and the payload
+        // log only runs for a request addressed to loopback.
+        "--local-upstream",
+        `127.0.0.1:${port}`,
         "--var",
         "RELAY_DEV_PAYLOAD_LOG:1",
         "--show-interactive-dev-session=false",

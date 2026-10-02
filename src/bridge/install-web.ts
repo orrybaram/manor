@@ -153,8 +153,10 @@ export function retryBridgeNow(): void {
 // network — dials now rather than sitting out a backoff that grew to 30s
 // while it was away. A no-op when no redial is pending.
 window.addEventListener("online", retryBridgeNow);
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") retryBridgeNow();
-});
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") retryBridgeNow();
+  });
+}
 
 window.electronAPI = createBridge(transport);

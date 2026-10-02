@@ -59,6 +59,7 @@ export function ScopeChip(props: ScopeChipProps) {
         icon={scope && <span className={styles.dot} />}
         maxWidth={200}
         className={styles.trigger}
+        aria-label="Search scope"
         emptyMessage="No projects"
       />
       {scope && (

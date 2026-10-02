@@ -1,16 +1,21 @@
 /* ── Tab Bar ── */
 
-/* The tab bar sits on the frame (ADR-196), above its panel's rounded body.
-   The title row lines up with the WindowLead, so the top row of panels forms
-   the window's title row. Tabs sit on the bottom edge and the active one
+/* The tab bar sits inside its panel's border (ADR-196), above the body.
+   It ends where the window's title row does, so the top row of panels lines
+   up with the WindowLead. Tabs sit on the bottom edge and the active one
    merges into the body below. */
 .tabBar {
   /* How far tabs hang over the panel body below; covers its 8px corner. */
   --tab-overlap: 14px;
+  /* A tab's bottom padding, which sets its label's height: with the panel
+     starting 9px down and a 33px row, labels centre 28px down the window
+     (12px above the title row's bottom), level with the traffic lights and
+     the WindowLead's buttons. */
+  --tab-bottom-padding: calc(var(--tab-overlap) - 5px);
   display: flex;
   align-items: flex-end;
   width: 100%;
-  height: var(--title-row);
+  height: var(--panel-header-height);
   flex-shrink: 0;
   padding: 0 8px 0 0;
   background: transparent;
@@ -48,6 +53,8 @@
   align-items: center;
   -webkit-app-region: no-drag;
   flex: 0 1 auto;
+  /* Full row height, so tabs can run flush to the panel's top border. */
+  align-self: stretch;
   min-width: 0;
   position: relative;
   /* Tabs hang down over the panel body's top edge, far enough to cover its
@@ -79,7 +86,10 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 12px calc(4px + var(--tab-overlap));
+  /* Flush with the panel's top border; the label centres in what is left
+     above the bottom padding. */
+  align-self: stretch;
+  padding: 0 12px var(--tab-bottom-padding);
   border: none;
   background: transparent;
   color: var(--text-dim);
@@ -93,20 +103,6 @@
   transition:
     background 0.15s,
     color 0.15s;
-  border-top: 2px solid transparent;
-}
-
-/* Only the active tab shows its content-type colour. */
-.tabActive.tabTerminal {
-  border-top-color: var(--fg-a10);
-}
-
-.tabActive.tabBrowser {
-  border-top-color: var(--blue-a40);
-}
-
-.tabActive.tabDiff {
-  border-top-color: var(--green-a40);
 }
 
 .tab:hover {
@@ -124,6 +120,19 @@
     inset -1px 0 0 var(--border);
   position: relative;
   z-index: 1;
+}
+
+/* The first tab runs flush to the panel's left border, which stands in for
+   its own left edge. The top-left panel's tabs are only flush when nothing
+   insets them: `min()` zeroes the edge exactly when the inset is 0. */
+.tabActive:first-child {
+  box-shadow: inset -1px 0 0 var(--border);
+}
+
+.tabBarTopLeft .tabActive:first-child {
+  box-shadow:
+    inset min(1px, var(--window-lead-inset)) 0 0 var(--border),
+    inset -1px 0 0 var(--border);
 }
 
 /* A click draws no ring — the active/hover states already show which tab is
@@ -264,7 +273,7 @@
   width: 40px;
   min-width: 40px;
   justify-content: center;
-  padding: 4px 0;
+  padding: 0 0 var(--tab-bottom-padding);
   gap: 0;
 }
 
@@ -348,10 +357,10 @@
   width: 24px;
   height: 24px;
   padding: 0;
-  /* Lines the button up with the tab labels: a tab's bottom padding runs
-     `--tab-overlap - 4px` past its top padding, so the row's centre sits that
-     far below the labels' centre (half from each side of the margin). */
-  margin-bottom: calc(var(--tab-overlap) - 4px);
+  /* Lines the button up with the tab labels: a tab has no top padding, so
+     the row's centre sits half its bottom padding below the labels' centre
+     (half from each side of the margin). */
+  margin-bottom: var(--tab-bottom-padding);
   border-radius: 6px;
   flex-shrink: 0;
   -webkit-app-region: no-drag;

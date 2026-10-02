@@ -54,6 +54,7 @@ import {
   type ProjectInfo,
 } from "./store/project-store";
 import { ownerOf } from "./lib/workspace-directory";
+import { workspaceDisplayName } from "./lib/workspace-display-name";
 import { parseWorkspaceKey, type WorkspaceKey } from "./lib/workspace-key";
 import { appCommandHandlers } from "./lib/app-commands";
 import { handleRecordingCommand } from "./lib/webview-recorder";
@@ -872,7 +873,17 @@ function App() {
                   />
                   {(showOnboarding || showTasksView || !(activeWorkspacePath && hasTabs)) && (
                     <div className="empty-surface">
-                      <div className="drag-region" />
+                      <div className="surface-header">
+                        <span className="surface-title">
+                          {wizardStillValid && wizardProjectId
+                            ? "Project setup"
+                            : showOnboarding
+                            ? "Welcome"
+                            : showTasksView
+                            ? "Tasks"
+                            : workspaceDisplayName(activeWorkspaceKey, projects)}
+                        </span>
+                      </div>
                       <div className="terminal-container">
                         {wizardStillValid && wizardProjectId
                           ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>

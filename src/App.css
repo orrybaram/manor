@@ -49,11 +49,18 @@
      overrides the inset per sidebar mode; the default clears the macOS
      traffic lights for windows without a lead (DetachedApp). */
   --frame-gap: 6px;
+  /* The workspace's top and right window edges get a wider gutter than the
+     one between panels. */
+  --window-edge-gap: 8px;
   --window-lead-inset: var(--traffic-light-inset);
   /* Height of the window's top row: the WindowLead and the top panels' tab
      bars all share it, and the macOS traffic lights are
      centred in it (`trafficLightPosition` in electron/window.ts). */
-  --title-row: 36px;
+  --title-row: 40px;
+  /* The tab row inside a framed panel, whose tabs run flush to its top
+     border. The panel starts one edge gutter and its 1px border down the
+     window, so the row ends 2px below the title row. */
+  --panel-header-height: calc(var(--title-row) - 7px);
   /* Fixed so the sidebar resize handle can end exactly where the panels do. */
   --status-bar-height: 36px; /* 10px padding above and below a 16px row */
   --font-mono:
@@ -140,7 +147,7 @@ body,
   }
 }
 
-/* The right window edge gets the frame gutter (ADR-196). The left edge only
+/* The top and right window edges get the edge gutter (ADR-196). The left edge only
    does when nothing to its left supplies one: with projects, the sidebar
    column ends in one in every mode (a bare gutter when hidden). The
    padding is the same for every workspace in the stack, so switching
@@ -150,7 +157,13 @@ body,
   flex-direction: column;
   flex: 1;
   overflow: hidden;
-  padding-right: var(--frame-gap);
+  padding-top: var(--window-edge-gap);
+  padding-right: var(--window-edge-gap);
+}
+
+/* The phone's top bar sits above the workspace and supplies its own spacing. */
+.app[data-layout="phone"] .main-content {
+  padding-top: 0;
 }
 
 .main-content--gutter-left {
@@ -187,16 +200,48 @@ body,
   margin-top: 8px;
 }
 
-/* Home, projects overview and wizard (ADR-196): a title-row strip on the frame,
-   matching the tab bar row, above a rounded panel body. */
-.empty-surface > .drag-region {
-  height: var(--title-row);
+/* Home, Tasks, projects overview and wizard (ADR-196): one bordered panel
+   from the top gutter down, like a tabbed panel, with a header naming the
+   view where the tab bar would be. */
+.empty-surface {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.surface-header {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  /* Level with a tabbed panel's tab row plus the gap under it, so the body
+     starts at the same height whichever kind of view is showing. */
+  height: calc(var(--panel-header-height) + 8px);
+  /* Clears the WindowLead where it overhangs the workspace (rail and hidden
+     sidebar modes), like the top-left tab bar. */
+  /* The bottom padding centres the title 28px down the window, level with
+     the tab labels, traffic lights and WindowLead buttons. */
+  padding: 0 12px 3px max(12px, var(--window-lead-inset));
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.app-body[data-sidebar-animating] .surface-header {
+  transition: padding-left var(--sidebar-mode-transition) ease;
+}
+
+.surface-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-selected);
 }
 
 .empty-surface > .terminal-container {
+  margin-top: 0;
   background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border-top: 1px solid var(--border);
 }
 
 .splash-screen {

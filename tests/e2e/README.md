@@ -23,6 +23,10 @@ pnpm e2e:web
 # The relay (needs Node >= 22 on PATH), with both builds first / without
 pnpm test:e2e:relay
 pnpm e2e:relay
+
+# The phone audit (needs Node >= 22 on PATH), with both builds first / without
+pnpm test:e2e:mobile
+pnpm e2e:mobile
 ```
 
 `pnpm test:e2e` runs `pnpm build` first, which produces `dist-electron/main.js`
@@ -328,6 +332,37 @@ the hello reply both name it.
   wrangler's output.
 - Uploading a build is one wrangler process per file, so it happens once per
   run (a worker fixture) and each test boots wrangler on a fresh copy.
+
+## The phone audit
+
+`mobile-audit.spec.ts` is a phone's whole experience over the relay, measured.
+It pairs through a local relay (the same fixture as `relay.spec.ts`) and opens
+the link in Chromium at an iPhone's size, density and touch, with a 4× CPU
+throttle, Fast-4G bandwidth, and a 150 ms round trip. The round trip is a TCP
+proxy in front of the relay (`helpers/latency-proxy.ts`), because Chromium's
+network emulation never delays WebSocket frames, and the WebSocket is where a
+phone's every bridge call goes.
+
+It walks the cold load, typing, Fit to screen, the key bar, a dropped network
+and a 20 s outage, an output flood, the drawer, a workspace switch, the pane
+switcher, tabs, the palette, Settings, the Dashboard, Tasks, the agents view,
+New Workspace, and small, large, landscape and tablet sizes. For every screen
+it records horizontal overflow, tap targets (under 24 px fails, under 44 px is
+noted), fields iOS would zoom into, tiny or clipped text, axe violations, the
+terminal's grid, font and boxes, and a screenshot. Cold load gets frame-exact
+milestones, long tasks, downloads by type, the bridge call waterfall and the
+WebSocket frame timeline; every interaction gets a timing from the input
+event's own timestamp to the first frame its result is on screen.
+
+Everything lands in `tests/e2e/artifacts/mobile-audit/` (`report.md`,
+`report.json`, numbered screenshots), not under `test-results/`, which the next
+Playwright run empties. The end of the test holds the budgets (`BUDGET`,
+`KNOWN_AXE`) as soft assertions, so one run lists every breach.
+
+- `MANOR_AUDIT_PROFILE=1` also writes `cold-load.cpuprofile`, a CPU profile
+  of the cold load (open it in DevTools' Performance panel).
+- A second test drops the app's own chunk on the first request and requires
+  the page to recover rather than stay blank.
 
 ## Long unattended runs
 

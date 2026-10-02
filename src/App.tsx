@@ -890,7 +890,7 @@ function App() {
                           : showOnboarding
                           ? <Onboarding onAddLocal={handleAddLocalProject} onClone={handleCloneRepository} />
                           : showTasksView
-                          ? <TasksView onNewWorkspace={handleNewWorkspace} onOpenPaletteView={handleOpenPaletteView} />
+                          ? <TasksView onNewWorkspace={handleNewWorkspace} onNewAgentWithPrompt={handleNewAgentWithPrompt} />
                           : !hasTabs &&
                             (isHomePath(activeWorkspacePath)
                               ? (

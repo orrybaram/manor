@@ -29,11 +29,27 @@ type TaskTableRowProps = {
   onAction: () => void;
   /** Just ID, title / context, updated and the action — Home's Up next. */
   compact?: boolean;
+  /** The Assignees column; hidden while the Tasks view's drawer is open. */
+  showAssignees?: boolean;
+  /** Makes the title open the task's detail (ADR-207 §3) instead of its URL. */
+  onOpen?: () => void;
+  /** The row whose detail is open. */
+  selected?: boolean;
 };
 
 /** One Tasks table row. Pair `compact` with the table's `.compact` class. */
 export function TaskTableRow(props: TaskTableRowProps) {
-  const { row, now, showPriority, actionLabel, onAction, compact = false } = props;
+  const {
+    row,
+    now,
+    showPriority,
+    actionLabel,
+    onAction,
+    compact = false,
+    showAssignees = true,
+    onOpen,
+    selected = false,
+  } = props;
 
   const shownAssignees = row.assignees.slice(0, MAX_AVATARS);
   const hiddenAssignees = row.assignees.length - shownAssignees.length;
@@ -41,9 +57,11 @@ export function TaskTableRow(props: TaskTableRowProps) {
 
   return (
     <div
-      className={`${styles.gridRow} ${styles.bodyRow}`}
+      className={`${styles.gridRow} ${styles.bodyRow} ${selected ? styles.bodyRowSelected : ""}`}
       role="row"
+      aria-selected={onOpen ? selected : undefined}
       data-testid="task-row"
+      data-task-key={row.key}
     >
       <span role="cell" className={styles.actionCell}>
         <Button
@@ -63,9 +81,20 @@ export function TaskTableRow(props: TaskTableRowProps) {
         </Link>
       </span>
       <span role="cell" className={styles.titleCell}>
-        <Link href={row.url} variant="plain" className={styles.taskTitle}>
-          {row.title}
-        </Link>
+        {onOpen ? (
+          <Button
+            variant="ghost"
+            className={`${styles.taskTitle} ${styles.taskTitleButton}`}
+            onClick={onOpen}
+            data-task-title=""
+          >
+            {row.title}
+          </Button>
+        ) : (
+          <Link href={row.url} variant="plain" className={styles.taskTitle}>
+            {row.title}
+          </Link>
+        )}
         <span className={styles.context}>
           <span
             className={styles.projectName}
@@ -115,19 +144,23 @@ export function TaskTableRow(props: TaskTableRowProps) {
       </span>
       {!compact && (
         <>
-          <span role="cell" className={styles.avatars}>
-            {shownAssignees.map((name) => (
-              <Tooltip key={name} label={name}>
-                <span className={styles.avatar} aria-label={name}>
-                  {initialOf(name)}
-                </span>
-              </Tooltip>
-            ))}
-            {hiddenAssignees > 0 && (
-              <span className={styles.avatarMore}>+{hiddenAssignees}</span>
-            )}
-            {row.assignees.length === 0 && <span className={styles.dim}>—</span>}
-          </span>
+          {showAssignees && (
+            <span role="cell" className={styles.avatars}>
+              {shownAssignees.map((name) => (
+                <Tooltip key={name} label={name}>
+                  <span className={styles.avatar} aria-label={name}>
+                    {initialOf(name)}
+                  </span>
+                </Tooltip>
+              ))}
+              {hiddenAssignees > 0 && (
+                <span className={styles.avatarMore}>+{hiddenAssignees}</span>
+              )}
+              {row.assignees.length === 0 && (
+                <span className={styles.dim}>—</span>
+              )}
+            </span>
+          )}
           <span role="cell">
             <span
               className={`${styles.status} ${styles[`tone-${row.status.tone}`]}`}

@@ -1,6 +1,6 @@
 ---
 title: TaskDetail component
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]

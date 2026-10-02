@@ -77,7 +77,7 @@ export function UpNextPanel(props: UpNextPanelProps) {
       sub={sub}
       className={className}
       right={
-        <Button variant="link" onClick={showTasksView}>
+        <Button variant="link" onClick={() => showTasksView()}>
           View all{total > 0 ? ` ${total}` : ""} →
         </Button>
       }

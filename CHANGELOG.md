@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Breaking
+- Tailscale tunnel support, the Watch and Reply device tiers and the lightweight phone client are removed. Remote control no longer opens any listener on your machine
+- The Manor relay is now the only way to reach your machine. Turning remote control on only loads it; starting the relay is a separate, confirmed step
+- Devices paired over Tailscale, or at Watch or Reply, are deleted the first time Manor starts after the upgrade and must be paired again through the relay
+- Every paired device can now do everything the desktop app can; there are no read-only devices
+- If you downgrade to an older Manor after upgrading, your devices must be paired again: the older build reads the new device entries as Tailscale devices, and this build then drops them
+
 ## [0.18.8] - 2026-09-30
 
 ### Features

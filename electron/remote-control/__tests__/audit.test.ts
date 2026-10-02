@@ -21,7 +21,6 @@ function entry(over: Partial<RemoteAuditEntry> = {}): RemoteAuditEntry {
     target: "agent-1",
     textLength: 5,
     textSha256: hashText("hello"),
-    interrupt: false,
     outcome: "sent",
     status: 200,
     ...over,

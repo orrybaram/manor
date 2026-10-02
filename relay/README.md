@@ -46,7 +46,7 @@ timeout, 4409 host replaced by a newer one, 4410 no heartbeat, 4429 channel
 cap or daily budget.
 
 Of the desktop's bridge verdicts, only **4401** (bad or revoked token) and
-**4403** (device paired below `full`) pass through to the viewer; anything else
+**4403** (reserved: the desktop no longer sends it) pass through to the viewer; anything else
 reaches it as a normal close. The relay's 4404, 4410 and 4429 mean
 "unreachable", not "your credentials are bad", and the page treats them that
 way. Revoking a device

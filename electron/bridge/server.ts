@@ -535,7 +535,6 @@ export class BridgeServer {
       // and one of them is a keystroke.
       textLength: null,
       textSha256: null,
-      interrupt: false,
       outcome,
       status,
     });

@@ -223,10 +223,11 @@ node scripts/test-remote-e2e.mjs --playwright-only --no-build -- --grep ports
 ## The web app (ADR-178)
 
 `web-app.spec.ts` proves slice 1's tracer bullet: a browser on a PC opens
-`/app`, pairs at `full`, and drives a live terminal over the bridge — through
-the real web bundle and the real daemon, the same discipline as the shared
-helpers above. It still opens the loopback listener's `/app`, which ADR-207
-deleted; it moves to the relay setup `relay.spec.ts` uses.
+`/app`, pairs, and drives a live terminal over the bridge — through the real
+web bundle and the real daemon, the same discipline as the shared helpers
+above. It reaches the app through the local relay setup `relay.spec.ts` uses
+(`helpers/relay-fixture.ts`): remote control opens no listener of its own, so
+the relay is the only way a browser gets in (ADR-207).
 
 The web app *is* the desktop renderer (ADR-178 D1), so once
 `helpers/phone.ts`'s `openWebApp` has loaded it, it shares the desktop's test
@@ -246,7 +247,7 @@ the daemon's `cols` refusing to move while the browser's own viewport does.
 ## The phone layout (ADR-181)
 
 `phone.spec.ts` proves the desk's shared layout walks one pane at a time on a
-phone, over the same paired-`full` web app `web-app.spec.ts` opens, at a
+phone, over the same paired web app `web-app.spec.ts` opens, at a
 390×844 viewport: one pane full screen with the top bar, tab strip and no
 status bar or inline sidebar (D3); picking the split's other pane in the pane
 switcher moves the viewport with **no `pty.create` and no pane resize** — the
@@ -274,7 +275,7 @@ repair, untested before this ADR), and the CLI's `app-command` path landing on
 whichever window comes back after every window has been closed. `web-app.spec.ts`
 itself carries the other two bridge scenarios ADR-180 added — a desktop window
 closing and handing winsize ownership to the browser it shared a pane with, and
-a `full` device refused a `LOCAL_ONLY` method with the device list unmoved —
+a paired device refused a `LOCAL_ONLY` method with the device list unmoved —
 because they are extensions of tests already living there.
 
 A small piece of debt worth knowing about rather than fixing in passing:
@@ -284,9 +285,10 @@ would) is defined four times — once as the real helper,
 in `app-menu.spec.ts`, `keyboard-navigation.spec.ts` and `detach.spec.ts`. It
 should be one helper; nothing here does that yet.
 
-## The relay (ADR-206)
+## The relay (ADR-206, ADR-207)
 
-`relay.spec.ts` reaches the app the way a relay device does: a browser opens
+The relay is the only road to the app, so every spec that opens the web app
+runs through it. `relay.spec.ts` reaches the app the way a relay device does: a browser opens
 the pairing link at the relay's origin, and the relay pipes Noise ciphertext
 between it and the desktop. The relay is the real Worker under `wrangler dev`
 (`helpers/relay.ts`) on a free port, with a persist directory of its own —

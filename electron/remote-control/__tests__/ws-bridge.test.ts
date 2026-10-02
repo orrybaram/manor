@@ -406,9 +406,9 @@ describe("WsBridgeServer", () => {
     /**
      * The read a `full` device needs to see who else is paired, added
      * alongside its status broadcast (ADR-178 ticket 9). Reads only —
-     * `setEnabled`/`pair`/`revoke`/tunnel stay off the table.
+     * `setEnabled`/`pair`/`revoke`/the relay methods stay off the table.
      */
-    it("resolves remoteControl.getStatus for a full device", async () => {
+    it("resolves remoteControl.getStatus for a paired device", async () => {
       const client = await greet(FULL_TOKEN);
       const result = await invoke(client, "rc1", "remoteControl", "getStatus");
       expect(result).toMatchObject({ ok: true });

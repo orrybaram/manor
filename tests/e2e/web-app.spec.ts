@@ -252,7 +252,7 @@ async function runPaletteCommand(page: Page, label: string): Promise<void> {
 test.describe("web app (ADR-178 slice 1)", () => {
   test.setTimeout(240_000);
 
-  test("a PC browser pairs at full, sees the sidebar, and drives a live terminal without moving the winsize or leaving a keystroke trail", async ({
+  test("a PC browser pairs, sees the sidebar, and drives a live terminal without moving the winsize or leaving a keystroke trail", async ({
     app,
     window,
     tempHome,
@@ -737,7 +737,7 @@ test.describe("web app (ADR-178 slice 1)", () => {
    * same namespace is the control: open to a device, and the witness that
    * the refused call changed nothing.
    */
-  test("a full device is refused a LOCAL_ONLY method, and the device list does not move", async ({
+  test("a paired device is refused a LOCAL_ONLY method, and the device list does not move", async ({
     app,
     window,
     tempHome,

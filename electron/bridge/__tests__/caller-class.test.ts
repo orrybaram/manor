@@ -346,7 +346,7 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
    * looks the method up and asks `LOCAL_ONLY` about the caller's class, and
    * that is the whole of it (ADR-180 D4).
    */
-  it("is the whole of what a full device may not reach on the bridge", () => {
+  it("is the whole of what a paired device may not reach on the bridge", () => {
     const table = Object.keys(HANDLERS);
     const reachable = table.filter((method) => !LOCAL_ONLY.has(method));
     const refused = table.filter((method) => LOCAL_ONLY.has(method));

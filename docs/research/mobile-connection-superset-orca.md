@@ -1,5 +1,7 @@
 # Mobile ↔ desktop connection: how Superset and Orca do it
 
+> Superseded by ADR-207: Tailscale, the tunnel and the loopback listener this note describes were removed. The relay (ADR-206) is the only road.
+
 Research date: 2026-09-30. Question: how do Superset and Orca connect a phone to the desktop app, and what zero-install options does that suggest for Manor (which today needs Tailscale or cloudflared, see [docs/remote-control.md](../remote-control.md)).
 
 Sources are the projects' own repos, cloned at:

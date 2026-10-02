@@ -62,6 +62,7 @@ import type { SetupStep, StepStatus } from "./project-store";
 import type { Location } from "./navigation-history-store";
 import { isHomePath } from "../lib/home-path";
 import { LOCAL_HOST_ID, type HostId } from "../lib/hosts";
+import type { TaskProvider } from "../lib/tasks";
 import { hostForPath } from "../lib/workspace-directory";
 import {
   parseWorkspaceKey,
@@ -78,9 +79,16 @@ export type AppSurface = "workspace" | "tasks";
 
 /**
  * What to open the Tasks view on (ADR-207 §5). `project` is a sidebar entry
- * key; `null` = all projects.
+ * key; `null` = all projects. `clearFilters` drops `provider`'s saved
+ * filters (ignored without one), so the view lists exactly what the caller
+ * counted.
  */
-type TasksIntent = { search?: string; project?: string | null };
+type TasksIntent = {
+  search?: string;
+  project?: string | null;
+  provider?: TaskProvider;
+  clearFilters?: boolean;
+};
 
 /**
  * Spread into a `set()` patch by actions that activate a workspace or put a

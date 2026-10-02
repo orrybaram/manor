@@ -5,6 +5,7 @@ import {
   DEFAULT_TASK_SORT,
   sortTasksBy,
   type LinkedTask,
+  type TaskProvider,
   type TaskRef,
   type TaskRow,
 } from "../../lib/tasks";
@@ -28,7 +29,12 @@ type UsePaletteTasksOptions = {
 type PaletteTasks = {
   /** The top matches, most recently updated first. */
   rows: PaletteTask[];
-  /** Every match — the "See all N" count. */
+  /**
+   * The tracker "See all" opens: the top match's. The Tasks view lists one
+   * tracker at a time.
+   */
+  seeAllProvider: TaskProvider | null;
+  /** Every match in `seeAllProvider` — the "See all N" count. */
   total: number;
   /** The scoped project's top-level entry key, for "See all". */
   projectKey: string | null;
@@ -60,24 +66,32 @@ export function usePaletteTasks(options: UsePaletteTasksOptions): PaletteTasks {
   const { rows } = useTasks({ provider: null, projectKey, enabled: active });
 
   return useMemo(() => {
-    if (!active) return { rows: NONE, total: 0, projectKey };
+    if (!active) {
+      return { rows: NONE, seeAllProvider: null, total: 0, projectKey };
+    }
     const input = { rows, projects, entryOf: entryLookup(projects) };
+    // Unfiltered, like the Tasks view after "See all" clears its filters.
+    const byProvider = new Map(
+      providers.map((provider) => [
+        provider,
+        taskList(input, {
+          provider,
+          projectKey,
+          filters: {},
+          sort: DEFAULT_TASK_SORT,
+          search: query,
+        }).matching,
+      ]),
+    );
     const matching = sortTasksBy(
-      providers.flatMap(
-        (provider) =>
-          taskList(input, {
-            provider,
-            projectKey,
-            filters: {},
-            sort: DEFAULT_TASK_SORT,
-            search: query,
-          }).matching,
-      ),
+      [...byProvider.values()].flat(),
       DEFAULT_TASK_SORT,
     );
+    const seeAllProvider = matching[0]?.provider ?? null;
     return {
       rows: matching.slice(0, PALETTE_TASK_LIMIT),
-      total: matching.length,
+      seeAllProvider,
+      total: seeAllProvider ? (byProvider.get(seeAllProvider)?.length ?? 0) : 0,
       projectKey,
     };
   }, [active, rows, projects, providers, projectKey, query]);

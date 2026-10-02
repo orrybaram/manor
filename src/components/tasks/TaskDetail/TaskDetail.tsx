@@ -22,7 +22,6 @@ import { useProjectStore } from "../../../store/project-store";
 import { addErrorToast } from "../../../store/toast-store";
 import { Button } from "../../ui/Button/Button";
 import { Link } from "../../ui/Link/Link";
-import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { PriorityIcon } from "../PriorityIcon";
 import { TrackerRowIcon } from "../tracker-icons";
 import { useStartTask } from "../useStartTask";
@@ -285,22 +284,17 @@ export function TaskDetail(props: TaskDetailProps) {
 
   const title = <h2 className={styles.title}>{taskRef.title}</h2>;
 
-  const openLabel = `Open in ${tracker.label}`;
-  const openLink = taskRef.url && (
+  // The drawer's host header carries the open link (ADR-207 §3).
+  const openLink = layout === "card" && taskRef.url && (
     <Link
       href={taskRef.url}
       variant="plain"
       className={styles.openLink}
       onClick={onDone}
-      aria-label={openLabel}
     >
       <ExternalLink size={13} aria-hidden />
-      {layout === "card" && (
-        <>
-          {openLabel}
-          <kbd className={styles.kbd}>⌘O</kbd>
-        </>
-      )}
+      Open in {tracker.label}
+      {keyboard && <kbd className={styles.kbd}>⌘O</kbd>}
     </Link>
   );
 
@@ -339,7 +333,7 @@ export function TaskDetail(props: TaskDetailProps) {
           {canStart && (
             <Button size="sm" variant="primary" onClick={handleStart}>
               {layout === "card" ? "Start in new workspace" : "Start"}
-              <kbd className={styles.kbd}>↵</kbd>
+              {keyboard && <kbd className={styles.kbd}>↵</kbd>}
             </Button>
           )}
           {canNewAgent && (
@@ -350,18 +344,13 @@ export function TaskDetail(props: TaskDetailProps) {
               onClick={handleNewAgent}
             >
               New agent here
-              <kbd className={styles.kbd}>⌘↵</kbd>
+              {keyboard && <kbd className={styles.kbd}>⌘↵</kbd>}
             </Button>
           )}
         </>
       )}
       <span className={styles.spacer} />
-      {openLink &&
-        (layout === "drawer" ? (
-          <Tooltip label={`${openLabel} (⌘O)`}>{openLink}</Tooltip>
-        ) : (
-          openLink
-        ))}
+      {openLink}
     </div>
   );
 

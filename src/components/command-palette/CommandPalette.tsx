@@ -2,8 +2,8 @@ import { useMemo, useCallback, useState, useRef, Fragment } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
-import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
+import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import { useAppStore, selectActiveWorkspaceKey } from "../../store/app-store";
 import { workspaceKey } from "../../lib/workspace-key";
@@ -307,12 +307,14 @@ export function CommandPalette(props: CommandPaletteProps) {
   );
 
   const seeAllTasks = useCallback(() => {
+    const { projectKey, seeAllProvider } = paletteTasks;
     useAppStore.getState().showTasksView({
       search: search.trim(),
-      project: paletteTasks.projectKey,
+      project: projectKey,
+      ...(seeAllProvider && { provider: seeAllProvider, clearFilters: true }),
     });
     handleClose();
-  }, [search, paletteTasks.projectKey, handleClose]);
+  }, [search, paletteTasks, handleClose]);
 
   const customCommands = useCustomCommands({
     onClose: handleClose,
@@ -729,9 +731,7 @@ export function CommandPalette(props: CommandPaletteProps) {
                                   {paletteTasks.total === 1 ? "task" : "tasks"}{" "}
                                   in Tasks view
                                 </span>
-                                <span className={styles.chevron}>
-                                  <ChevronRight size={14} />
-                                </span>
+                                <ArrowRight size={13} aria-hidden />
                               </Command.Item>
                             )}
                             {cat.id !== TASKS_CATEGORY_ID &&
@@ -832,9 +832,6 @@ export function CommandPalette(props: CommandPaletteProps) {
                       <span className={styles.footerItem}>
                         <kbd className={styles.kbd}>→</kbd> Details
                       </span>
-                      <span className={styles.footerItem}>
-                        <kbd className={styles.kbd}>esc</kbd> Close
-                      </span>
                     </>
                   )}
                   {scopeName && (
@@ -842,12 +839,19 @@ export function CommandPalette(props: CommandPaletteProps) {
                       <kbd className={styles.kbd}>⌫</kbd> clear scope
                     </span>
                   )}
-                  {search && hasRootMatches && outOfScopeMatchCount > 0 && (
-                    <span className={`${styles.footerItem} ${styles.footerRight}`}>
-                      +{outOfScopeMatchCount} in other projects{" "}
-                      <kbd className={styles.kbd}>{WIDEN_HINT}</kbd>
-                    </span>
-                  )}
+                  <span className={styles.footerRight}>
+                    {search && hasRootMatches && outOfScopeMatchCount > 0 && (
+                      <span className={styles.footerItem}>
+                        +{outOfScopeMatchCount} in other projects{" "}
+                        <kbd className={styles.kbd}>{WIDEN_HINT}</kbd>
+                      </span>
+                    )}
+                    {tasksCategory && (
+                      <span className={styles.footerItem}>
+                        <kbd className={styles.kbd}>esc</kbd> Close
+                      </span>
+                    )}
+                  </span>
                 </div>
               )}
               {view === "processes" && (

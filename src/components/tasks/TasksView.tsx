@@ -238,6 +238,10 @@ export function TasksView(props: TasksViewProps) {
       if (!intent) return;
       if (intent.search !== undefined) setSearch(intent.search);
       if (intent.project !== undefined) setProject(intent.project);
+      if (intent.provider !== undefined) {
+        setProvider(intent.provider);
+        if (intent.clearFilters) setFilters(intent.provider, NO_FILTERS);
+      }
       setPage(1);
       setOpenKey(null);
     };

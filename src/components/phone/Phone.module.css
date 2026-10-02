@@ -25,6 +25,13 @@
  */
 :global(.app[data-layout="phone"]) {
   height: 100svh;
+  /*
+   * While the soft keyboard is up, `KeyboardLift` lifts the shell so the
+   * cursor's row clears the keyboard. A translate moves no layout, so no
+   * row count changes. Unset, the declaration is invalid and computes to
+   * `none` — no transform, so no containing block for fixed descendants.
+   */
+  translate: 0 calc(-1 * var(--phone-keyboard-shift));
 }
 
 .topBar {

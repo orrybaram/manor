@@ -356,27 +356,6 @@ test("phone audit: every phone surface over the relay, throttled", async ({
     );
     report.data.tapFocusesTerminal = focused;
 
-    // The keys a phone keyboard lacks, above it while it is up — and not
-    // before, when the bar would only cover the terminal's bottom rows.
-    const keyBar = page.getByTestId("terminal-key-bar");
-    await expect(keyBar).toHaveCount(0);
-    const keyboardPx = 300;
-    await page.evaluate((px) => (window as unknown as { __setKeyboard(px: number): void }).__setKeyboard(px), keyboardPx);
-    await expect(keyBar).toBeVisible();
-    const barBottom = await keyBar.evaluate((el) => el.getBoundingClientRect().bottom);
-    expect(Math.round(barBottom)).toBe(PHONE.viewport.height - keyboardPx);
-    await page.evaluate((id) => window.__manorTerminals!.get(id)!.term.input("sleep 30", true), paneId);
-    await setCpuThrottle(cdp, false);
-    await report.screen(page, "key-bar");
-    await setCpuThrottle(cdp, true);
-    await keyBar.getByRole("button", { name: "Control C" }).tap();
-    await waitForText(page, paneId, "sleep 30^C");
-    report.data.keyBarKeepsFocus = await page.evaluate(
-      () => document.activeElement?.classList.contains("xterm-helper-textarea") ?? false,
-    );
-    await page.evaluate(() => (window as unknown as { __setKeyboard(px: number): void }).__setKeyboard(0));
-    await expect(keyBar).toHaveCount(0);
-
     // ── Fit to screen: the phone takes the winsize, the desk takes it back ─
     const fit = pane.getByTestId("terminal-follower");
     await expect(fit).toBeVisible();
@@ -405,6 +384,38 @@ test("phone audit: every phone surface over the relay, throttled", async ({
     await setCpuThrottle(cdp, false);
     await report.screen(page, "fitted");
     await setCpuThrottle(cdp, true);
+    // With the grid filling the pane, the soft keyboard covers its bottom
+    // rows. It lifts the shell, without resizing the pane, until the
+    // cursor's row clears it.
+    await pane.tap();
+    const keyboardPx = 300;
+    const setKeyboard = (px: number) =>
+      page.evaluate((px) => (window as unknown as { __setKeyboard(px: number): void }).__setKeyboard(px), px);
+    const cursorBottom = () =>
+      page.evaluate((id) => {
+        const term = window.__manorTerminals!.get(id)!.term;
+        const rect = term.element!.querySelector(".xterm-screen")!.getBoundingClientRect();
+        const buf = term.buffer.active;
+        const row = buf.cursorY + buf.baseY - buf.viewportY;
+        return rect.top + ((row + 1) * rect.height) / term.rows;
+      }, paneId);
+    const rowsBefore = (await terminalGeometry(page))[0].rows;
+    // Push the prompt to the pane's last row, under where the keyboard goes.
+    await page.evaluate((id) => window.__manorTerminals!.get(id)!.term.input("clear; for i in $(seq 200); do echo; done\r", true), paneId);
+    await expect.poll(cursorBottom).toBeGreaterThan(PHONE.viewport.height - keyboardPx);
+    await setKeyboard(keyboardPx);
+    await expect
+      .poll(cursorBottom)
+      .toBeLessThanOrEqual(PHONE.viewport.height - keyboardPx + 1);
+    expect((await terminalGeometry(page))[0].rows).toBe(rowsBefore);
+    await setCpuThrottle(cdp, false);
+    await report.screen(page, "keyboard");
+    await setCpuThrottle(cdp, true);
+    await setKeyboard(0);
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--phone-keyboard-shift")))
+      .toBe("");
+
     // …until someone types at the desk.
     await deskPane.click();
     await window.keyboard.type(" ");
@@ -846,6 +857,5 @@ function checkBudgets(report: AuditReport, log: string[]) {
   const terms = report.data.terminals as { mounted: number; webglCanvases: number };
   expect.soft(terms.webglCanvases, "WebGL contexts on a phone").toBe(0);
   expect.soft(report.data.tapFocusesTerminal, "a tap focuses the terminal").toBe(true);
-  expect.soft(report.data.keyBarKeepsFocus, "the key bar leaves the keyboard up").toBe(true);
   expect.soft(log.filter((l) => l.startsWith("[pageerror]")), "page errors").toEqual([]);
 }

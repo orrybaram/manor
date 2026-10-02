@@ -2,7 +2,7 @@ import { useState } from "react";
 import { PhoneTopBar } from "./PhoneTopBar";
 import { SidebarDrawer } from "./SidebarDrawer";
 import { EnableNotifications } from "./EnableNotifications";
-import { TerminalKeyBar } from "./TerminalKeyBar";
+import { KeyboardLift } from "./KeyboardLift";
 
 type PhoneChromeProps = {
   onShowAgents: () => void;
@@ -43,7 +43,7 @@ export function PhoneChrome(props: PhoneChromeProps) {
         onOpenProjectSettings={onOpenProjectSettings}
         onAddProject={onAddProject}
       />
-      <TerminalKeyBar />
+      <KeyboardLift />
     </>
   );
 }

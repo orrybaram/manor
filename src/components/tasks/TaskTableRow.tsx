@@ -1,5 +1,4 @@
 import type { CSSProperties } from "react";
-import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import FolderKanban from "lucide-react/dist/esm/icons/folder-kanban";
 import Milestone from "lucide-react/dist/esm/icons/milestone";
@@ -94,6 +93,17 @@ export function TaskTableRow(props: TaskTableRowProps) {
       role="row"
       data-testid="task-row"
     >
+      <span role="cell" className={styles.actionCell}>
+        <Button
+          variant="secondary"
+          size="sm"
+          className={styles.startButton}
+          onClick={onAction}
+          aria-label={`${actionLabel} ${row.displayId}`}
+        >
+          {actionLabel}
+        </Button>
+      </span>
       <span role="cell">
         <Link href={row.url} variant="plain" className={styles.idChip}>
           <TrackerRowIcon provider={row.provider} />
@@ -189,18 +199,6 @@ export function TaskTableRow(props: TaskTableRowProps) {
       )}
       <span role="cell" className={styles.updated}>
         {updated || <span className={styles.dim}>—</span>}
-      </span>
-      <span role="cell" className={styles.actionCell}>
-        <Button
-          variant="secondary"
-          size="sm"
-          className={styles.startButton}
-          onClick={onAction}
-          aria-label={`${actionLabel} ${row.displayId}`}
-        >
-          {actionLabel}
-          <ArrowRight size={13} />
-        </Button>
       </span>
     </div>
   );

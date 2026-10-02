@@ -88,14 +88,6 @@ function seedClaudeConfig(tempHome: string): void {
   );
 }
 
-/**
- * Whether Claude Code has drawn its start screen. Older versions greet with
- * "Welcome back"; newer ones only draw the "Claude Code v<version>" banner.
- * Matched against flattened scrollback, which has no spaces.
- */
-function atClaudePrompt(text: string): boolean {
-  return text.includes("Welcomeback") || /ClaudeCodev\d/.test(text);
-}
 
 /** Wait for `predicate` over the pane's flattened scrollback, or throw. */
 async function untilScrollback(
@@ -174,6 +166,8 @@ async function gridMoves(window: Page): Promise<GridMove[]> {
 function atClaudePrompt(t: string): boolean {
   return (
     t.includes("Welcomeback") ||
+    // Newer versions draw only the "Claude Code v<version>" banner.
+    /ClaudeCodev\d/.test(t) ||
     t.includes("shift+tabtocycle") ||
     /❯Try/.test(t)
   );

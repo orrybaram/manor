@@ -105,8 +105,9 @@
     color 0.15s;
 }
 
-.tab:hover {
-  background: var(--surface);
+/* A step dimmer than the active tab, so hovering never reads as selecting. */
+.tab:not(.tabActive):hover {
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
   color: var(--text-selected);
 }
 

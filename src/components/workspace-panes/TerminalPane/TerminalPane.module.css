@@ -57,11 +57,14 @@
   -webkit-touch-callout: none;
 }
 
+/* Says why the pane does not fit its box, and is the way to make it fit:
+   a tap claims the session's winsize for this viewer. */
 .followerBadge {
   position: absolute;
   bottom: 4px;
   right: 6px;
   z-index: 40;
+  height: auto;
   padding: 1px 6px;
   border-radius: 4px;
   background: var(--dim);
@@ -70,7 +73,27 @@
   font-size: 10px;
   line-height: 1.6;
   white-space: nowrap;
-  pointer-events: none;
+  opacity: 0.85;
+}
+
+.followerBadge:hover {
+  opacity: 1;
+  color: var(--text);
+}
+
+/* A thumb-sized target on a phone, where it is the main way out of a
+   desk-wide grid. */
+:global(.app[data-layout="phone"]) .followerBadge {
+  bottom: 10px;
+  right: 10px;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 18px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface);
+  opacity: 1;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
 /* Error dialog — shown when PTY creation fails */

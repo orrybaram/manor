@@ -70,6 +70,10 @@ function webAppManifest(): Plugin {
         meta("theme-color", "#1e1e2e"),
         meta("mobile-web-app-capable", "yes"),
         meta("apple-mobile-web-app-capable", "yes"),
+        // Installed, iOS gives the app its default status bar — white over a
+        // dark app. Opaque black keeps the content clear of the notch with no
+        // safe-area padding to get wrong.
+        meta("apple-mobile-web-app-status-bar-style", "black"),
         meta("apple-mobile-web-app-title", "Manor"),
         {
           tag: "link",

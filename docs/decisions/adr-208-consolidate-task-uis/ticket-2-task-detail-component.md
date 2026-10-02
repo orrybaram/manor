@@ -8,7 +8,7 @@ blocked_by: [1]
 
 # TaskDetail component
 
-ADR-207 §2. Build the component; do not wire it anywhere yet (tickets 3, 4).
+ADR-208 §2. Build the component; do not wire it anywhere yet (tickets 3, 4).
 Visual reference: comps "Palette — shared TaskDetail" and "Tasks view A" at
 https://claude.ai/artifact/C4JgdwPaPuRcxbN3D1YcAf
 

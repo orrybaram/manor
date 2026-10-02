@@ -31,7 +31,7 @@ type TaskTableRowProps = {
   compact?: boolean;
   /** The Assignees column; hidden while the Tasks view's drawer is open. */
   showAssignees?: boolean;
-  /** Makes the title open the task's detail (ADR-207 §3) instead of its URL. */
+  /** Makes the title open the task's detail (ADR-208 §3) instead of its URL. */
   onOpen?: () => void;
   /** The row whose detail is open. */
   selected?: boolean;

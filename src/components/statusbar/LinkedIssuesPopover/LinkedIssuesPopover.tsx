@@ -167,7 +167,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
   // because the popover closes when the dialog opens (focus steal).
   // selectedIssueId is only cleared when the dialog itself closes.
 
-  // Each link's ref, through the tracker that owns it (ADR-207 §6).
+  // Each link's ref, through the tracker that owns it (ADR-208 §6).
   const refs = useMemo(
     () => new Map(issues.map((i) => [i.id, refOfLink(i, project)])),
     [issues, project],

@@ -218,7 +218,7 @@ export function TasksView(props: TasksViewProps) {
 
   const handleStart = useStartTask(onNewWorkspace);
 
-  // ADR-207 §3: the row whose detail is open in the drawer. It only stays
+  // ADR-208 §3: the row whose detail is open in the drawer. It only stays
   // open while that row is on the current page.
   const [openKey, setOpenKey] = useState<string | null>(null);
   const openIndex =
@@ -227,7 +227,7 @@ export function TasksView(props: TasksViewProps) {
   if (openKey !== null && !openRow) setOpenKey(null);
   const drawerOpen = openRow !== undefined;
 
-  // ADR-207 §5: "See all" (palette) and friends open this view on a search
+  // ADR-208 §5: "See all" (palette) and friends open this view on a search
   // / project. The intent is one-shot — consumed on mount and whenever a new
   // one arrives while the view is open.
   useMountEffect(() => {
@@ -634,7 +634,7 @@ type TaskDrawerProps = {
 };
 
 /**
- * ADR-207 §3: the open row's `TaskDetail`, in a panel beside the table. A
+ * ADR-208 §3: the open row's `TaskDetail`, in a panel beside the table. A
  * tracker row opens in `default` mode; a task linked to a workspace resolves
  * its ref from the link and opens in `linked` mode.
  */

@@ -68,7 +68,7 @@ const WIDEN_HINT = IS_MAC ? "⌘↵" : "Ctrl+↵";
 /** ⌘↵ on a task row starts it (opens a linked task's workspace). */
 const START_HINT = WIDEN_HINT;
 
-/** The Tasks group (ADR-207 §4): listed only while searching, never pinned as frequent. */
+/** The Tasks group (ADR-208 §4): listed only while searching, never pinned as frequent. */
 const TASKS_CATEGORY_ID = "tasks";
 
 const TASKS_HEADING = "Tasks";
@@ -444,7 +444,7 @@ export function CommandPalette(props: CommandPaletteProps) {
     return { items, homeHeadings };
   }, [search, categories, commandUsage]);
 
-  // ADR-207 §4: the top task matches, as a group after agents and
+  // ADR-208 §4: the top task matches, as a group after agents and
   // workspaces. Kept out of `categories`, so tasks are never ranked or
   // recorded as frequent commands.
   const tasksByItemId = useMemo(
@@ -965,7 +965,7 @@ type TaskItemProps = {
 };
 
 /**
- * ADR-207 §4: a task in the palette's search — tracker glyph and ID, title,
+ * ADR-208 §4: a task in the palette's search — tracker glyph and ID, title,
  * its linked workspace (or project), and status. ↵ starts or opens it.
  */
 function TaskItem(props: TaskItemProps) {

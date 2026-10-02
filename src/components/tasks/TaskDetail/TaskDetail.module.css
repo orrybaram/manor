@@ -1,4 +1,4 @@
-/* ADR-207 §2: one task's detail. Ported from the palette's `.detail*`
+/* ADR-208 §2: one task's detail. Ported from the palette's `.detail*`
    styles (CommandPalette.module.css). `card` lays body and meta out side by
    side (palette, linked-task dialog); `drawer` stacks meta over body in a
    narrow panel with the action bar pinned to the bottom (Tasks view). */

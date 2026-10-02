@@ -617,7 +617,7 @@
   color: var(--text-dim);
 }
 
-/* ── Detail drawer (ADR-207 §3) ── */
+/* ── Detail drawer (ADR-208 §3) ── */
 
 .drawer {
   width: 440px;

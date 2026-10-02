@@ -8,7 +8,7 @@ blocked_by: [2]
 
 # Tasks view detail drawer and showTasksView intent
 
-ADR-207 §3 and §5. Comp: "Tasks view A — detail drawer".
+ADR-208 §3 and §5. Comp: "Tasks view A — detail drawer".
 
 ## Drawer
 

@@ -41,7 +41,7 @@ export interface TaskTracker {
   refFromLink(link: LinkedIssue, project: ProjectInfo): TaskRef;
   /**
    * The task's normalised detail, under `["task-detail", provider, …]` — a
-   * key nothing else caches a different shape under (ADR-207 §1).
+   * key nothing else caches a different shape under (ADR-208 §1).
    */
   detailQuery(ref: TaskRef): TrackerQuery<TaskDetail>;
   /** Open the New Workspace dialog prefilled, or reuse a workspace on the branch. */

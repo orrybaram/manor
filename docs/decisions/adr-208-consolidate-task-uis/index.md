@@ -17,7 +17,7 @@ database:
   groupBy: status
 ---
 
-# ADR-207: Consolidate the Tasks view and palette task UIs
+# ADR-208: Consolidate the Tasks view and palette task UIs
 
 Builds on ADR-198 (Tasks view), ADR-200 (palette search scope), ADR-201
 (filter/sort), ADR-202 (tracker seam). Design comps:

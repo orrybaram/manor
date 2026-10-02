@@ -8,7 +8,7 @@ blocked_by: [2, 3]
 
 # Palette — tasks inline in search, shared detail, popover swap
 
-ADR-207 §4 and §6. Comps: "Palette — tasks inline in search", "Palette — shared TaskDetail".
+ADR-208 §4 and §6. Comps: "Palette — tasks inline in search", "Palette — shared TaskDetail".
 
 ## Tasks category
 

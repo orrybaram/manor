@@ -105,7 +105,7 @@ describe("showTasksView (ADR-198)", () => {
   });
 });
 
-describe("showTasksView intent (ADR-207 §5)", () => {
+describe("showTasksView intent (ADR-208 §5)", () => {
   beforeEach(() => {
     seedTasksView();
     useAppStore.setState({ tasksIntent: null });

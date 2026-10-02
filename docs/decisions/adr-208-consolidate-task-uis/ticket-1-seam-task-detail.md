@@ -8,7 +8,7 @@ blocked_by: []
 
 # Seam — TaskRef, normalized TaskDetail and task actions
 
-ADR-207 §1. No UI changes in this ticket.
+ADR-208 §1. No UI changes in this ticket.
 
 ## Types (`src/lib/tasks.ts`)
 

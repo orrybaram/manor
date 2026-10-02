@@ -78,7 +78,7 @@ export type { Panel, Tab, WorkspaceLayout };
 export type AppSurface = "workspace" | "tasks";
 
 /**
- * What to open the Tasks view on (ADR-207 §5). `project` is a sidebar entry
+ * What to open the Tasks view on (ADR-208 §5). `project` is a sidebar entry
  * key; `null` = all projects. `clearFilters` drops `provider`'s saved
  * filters (ignored without one), so the view lists exactly what the caller
  * counted.
@@ -161,7 +161,7 @@ export interface AppState {
    */
   activeSurface: AppSurface;
   /**
-   * What the Tasks view should open on (ADR-207 §5) — one-shot: `TasksView`
+   * What the Tasks view should open on (ADR-208 §5) — one-shot: `TasksView`
    * consumes it via `consumeTasksIntent`. Not part of navigation history.
    */
   tasksIntent: TasksIntent | null;
@@ -197,7 +197,7 @@ export interface AppState {
 
   /**
    * Show the Tasks view (ADR-198); leaves the active workspace alone. An
-   * `intent` presets its search / project (ADR-207 §5).
+   * `intent` presets its search / project (ADR-208 §5).
    */
   showTasksView: (intent?: TasksIntent) => void;
   /** Return the pending `tasksIntent` and clear it. */

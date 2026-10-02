@@ -8,7 +8,7 @@ blocked_by: [4]
 
 # Delete palette issue lists, old detail views and dead plumbing
 
-ADR-207 §4–§5 cleanup. After this, `pnpm test` (vitest + knip) must be clean.
+ADR-208 §4–§5 cleanup. After this, `pnpm test` (vitest + knip) must be clean.
 
 ## Delete
 - `src/components/command-palette/LinearIssuesView.tsx`, `GitHubIssuesView.tsx`, `IssueListSkeleton.tsx`

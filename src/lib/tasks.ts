@@ -86,7 +86,7 @@ export interface TaskContext {
 }
 
 /**
- * ADR-207 §1: enough to fetch and act on one task, whether it came from a
+ * ADR-208 §1: enough to fetch and act on one task, whether it came from a
  * listed `TaskRow` (`refOf`) or a workspace's `LinkedIssue` (`refFromLink`).
  */
 export interface TaskRef {
@@ -101,7 +101,7 @@ export interface TaskRef {
   url: string;
 }
 
-/** ADR-207 §1: a task's detail, normalised across trackers. */
+/** ADR-208 §1: a task's detail, normalised across trackers. */
 export interface TaskDetail {
   /** The markdown body / description; null when it has none. */
   body: string | null;

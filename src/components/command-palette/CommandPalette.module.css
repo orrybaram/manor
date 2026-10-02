@@ -332,7 +332,7 @@
   flex-shrink: 0;
 }
 
-/* ── Task rows (ADR-207 §4): ID, title, context, status, action ── */
+/* ── Task rows (ADR-208 §4): ID, title, context, status, action ── */
 
 .taskItem {
   gap: 10px;
@@ -426,7 +426,7 @@
   max-height: 500px;
 }
 
-/* ADR-207 §4: a task's shared `TaskDetail` card — wide enough
+/* ADR-208 §4: a task's shared `TaskDetail` card — wide enough
    that the meta column sits beside a readable body. */
 .paletteTask {
   width: min(880px, 92vw);

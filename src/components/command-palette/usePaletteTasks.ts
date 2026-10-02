@@ -43,7 +43,7 @@ type PaletteTasks = {
 const NONE: PaletteTask[] = [];
 
 /**
- * ADR-207 §4: the tasks matching the palette's query, across every usable
+ * ADR-208 §4: the tasks matching the palette's query, across every usable
  * tracker, through the Tasks view's list pipeline (and query cache). Nothing
  * is fetched until the query is non-empty.
  */

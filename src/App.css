@@ -37,20 +37,6 @@
   unicode-range: U+0-24F, U+250-2FF, U+300-36F, U+370-3FF, U+400-4FF, U+1E00-1EFF, U+2000-206F, U+2070-209F, U+20A0-20CF, U+2100-214F, U+2150-218F, U+2190-21FF, U+2200-22FF, U+2300-23FF, U+2400-243F, U+2460-24FF, U+2500-257F, U+2580-259F, U+25A0-25FF, U+2600-26FF, U+2700-27BF, U+27C0-27FF, U+2800-28FF, U+2900-297F, U+FFFD;
 }
 
-@font-face {
-  font-family: "FiraCode Nerd Font";
-  src: url("/fonts/FiraCodeNerdFontMono-Regular.ttf") format("truetype");
-  font-weight: 400;
-  font-style: normal;
-}
-
-@font-face {
-  font-family: "FiraCode Nerd Font";
-  src: url("/fonts/FiraCodeNerdFontMono-Bold.ttf") format("truetype");
-  font-weight: 700;
-  font-style: normal;
-}
-
 :root {
   /* The palette below is dark; say so before a theme loads and overrides it,
      so the native scrollbars start dark instead of flashing light. */

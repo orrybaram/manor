@@ -60,17 +60,15 @@ export function NoTokenScreen(): JSX.Element {
 
 /**
  * Paired, but below `full` (ADR-178 D3). The token is good — it is a `read`
- * or `send` device, and those tiers are an allowlist of routes, not this
- * surface. Said plainly, and without forgetting the token: the same device
- * still works in the remote client at `/`.
+ * or `send` device, and those tiers were an allowlist of routes, not this
+ * surface. Said plainly, and without forgetting the token.
  */
 export function ForbiddenScreen(): JSX.Element {
   return (
     <FullPageMessage testId="web-app-forbidden">
       This device isn&apos;t paired with full access, so it can&apos;t open the
       full Manor app. Re-pair it at full access in Manor &rarr; Settings &rarr;
-      Remote control, or use the lightweight client at{" "}
-      <code style={{ marginLeft: "0.25rem" }}>/</code>.
+      Remote control.
     </FullPageMessage>
   );
 }

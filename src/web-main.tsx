@@ -19,11 +19,10 @@ import { listenForOpenAgent } from "./web/open-agent";
 
 /**
  * The web app's entry (ADR-178 D1): the desktop renderer, served to a
- * browser at `/app` instead of run inside Electron. Built by
- * `vite.web.config.ts`; unauthenticated at the HTTP layer, the same trade
- * `electron/remote-control/static.ts` documents for the remote client — the
- * pairing token rides in the URL fragment, which browsers never send to a
- * server, so the page has to load before it can authenticate anything.
+ * browser by the relay instead of run inside Electron. Built by
+ * `vite.web.config.ts`; unauthenticated at the HTTP layer — the pairing link
+ * rides in the URL fragment, which browsers never send to a server, so the
+ * page has to load before it can authenticate anything.
  *
  * Deliberately not `src/main.tsx` with a flag: that file reads
  * `window.electronAPI` as something the preload already installed — here it

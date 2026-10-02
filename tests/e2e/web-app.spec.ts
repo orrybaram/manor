@@ -35,7 +35,7 @@ import { closeRendererWindows } from "./helpers/window";
  * into it — the tracer bullet D10 names, proven through the real listener,
  * the real web bundle (`dist-electron/web/`) and the real daemon.
  *
- * Same discipline as `remote-control.spec.ts`: nothing here reaches inside the
+ * Same discipline as the shared e2e helpers: nothing here reaches inside the
  * app to fabricate state. The session comes from the fake agent reporting its
  * own lifecycle, the token comes from the pairing dialog, and the browser is
  * an ordinary Playwright page that knows nothing but an address and a bearer

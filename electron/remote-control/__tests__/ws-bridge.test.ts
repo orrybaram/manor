@@ -1,22 +1,24 @@
 /**
- * ADR-178's bridge, tested over a real socket against a real listener, for the
- * reason `server.test.ts` gives: the properties are transport-level. "A `send`
- * device is closed with 4403" is only true if the upgrade, the hello and the
- * tier check are wired to each other, and a unit-level call to
- * `WsBridgeServer` would let any of those three come loose and still pass.
+ * ADR-178's bridge, tested end to end through the relay's hello gate: the real
+ * `RelayGate`, the real `WsBridgeServer` and the real `BridgeServer` over an
+ * in-memory `FrameSocket` — what a relay channel is once its Noise handshake
+ * is done (ADR-207 D2). The properties are transport-level. "A `send` device
+ * is closed with 4403" is only true if the attach, the hello and the tier
+ * check are wired to each other, and a unit-level call to any one of them
+ * would let the others come loose and still pass.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { WebSocket } from "ws";
 
-import { RemoteControlServer, type AuthenticatedDevice } from "../server";
+import { RelayGate, type AuthenticatedDevice } from "../relay-gate";
 import { RemoteAuditLog } from "../audit";
 import { AuthRateLimiter } from "../rate-limit";
 import { BridgeServer } from "../../bridge/server";
 import { WsBridgeServer } from "../../bridge/transports/ws";
+import type { FrameSocket } from "../../bridge/transports/frame-socket";
 import {
   attach,
   release,
@@ -39,41 +41,45 @@ const READ_TOKEN = "read-token";
 const SEND_TOKEN = "send-token";
 const FULL_TOKEN = "full-token";
 const OTHER_TOKEN = "other-token";
-const RELAY_TOKEN = "relay-token";
+const TAILSCALE_TOKEN = "tailscale-token";
 
 const reader: AuthenticatedDevice = {
   id: "dev-read",
   label: "phone",
   capability: "read",
+  via: "relay",
 };
 const sender: AuthenticatedDevice = {
   id: "dev-send",
   label: "phone (send)",
   capability: "send",
+  via: "relay",
 };
 const everything: AuthenticatedDevice = {
   id: "dev-full",
   label: "laptop browser",
   capability: "full",
+  via: "relay",
 };
 
 const otherFull: AuthenticatedDevice = {
   id: "dev-other",
   label: "other browser",
   capability: "full",
+  via: "relay",
 };
 
-/** Paired through the relay (ADR-206): `everything` is a Tailscale pairing. */
-const relayFull: AuthenticatedDevice = {
-  id: "dev-relay",
-  label: "relay browser",
+/** A Tailscale pairing: the relay's gate never admits one (ADR-206 D5). */
+const tailscaleFull: AuthenticatedDevice = {
+  id: "dev-ts",
+  label: "tailnet browser",
   capability: "full",
-  via: "relay",
+  via: "tailscale",
 };
 
 const devices = {
   verify: (raw: unknown) => {
-    if (raw === RELAY_TOKEN) return relayFull;
+    if (raw === TAILSCALE_TOKEN) return tailscaleFull;
     if (raw === READ_TOKEN) return reader;
     if (raw === SEND_TOKEN) return sender;
     if (raw === FULL_TOKEN) return everything;
@@ -82,9 +88,61 @@ const devices = {
   },
 };
 
+/**
+ * The bridge's end of an in-memory connection, as a relay channel presents
+ * itself to `attach`. A frame the client sends arrives on a later macrotask,
+ * as it would off a real carrier, so a test can never observe an ordering a
+ * socket could not produce.
+ */
+class MemorySocket implements FrameSocket {
+  open = true;
+  private message: (text: string) => void = () => {};
+  private closeListener: () => void = () => {};
+
+  constructor(
+    private readonly toClient: (text: string) => void,
+    private readonly onClosed: (code: number) => void,
+  ) {}
+
+  send(text: string): void {
+    if (this.open) this.toClient(text);
+  }
+  close(code: number): void {
+    this.end(code);
+  }
+  terminate(): void {
+    this.end(1006);
+  }
+  onMessage(cb: (text: string) => void): void {
+    this.message = cb;
+  }
+  onClose(cb: () => void): void {
+    this.closeListener = cb;
+  }
+
+  /** A frame from the client side. */
+  deliver(text: string): void {
+    setImmediate(() => {
+      if (this.open) this.message(text);
+    });
+  }
+
+  /** The client hung up. */
+  hangUp(): void {
+    this.end(1000);
+  }
+
+  private end(code: number): void {
+    if (!this.open) return;
+    this.open = false;
+    this.onClosed(code);
+    this.closeListener();
+  }
+}
+
 /** Every frame a socket received, plus the close code if it closed. */
 interface Client {
-  socket: WebSocket;
+  socket: MemorySocket;
   frames: Record<string, unknown>[];
   closed: Promise<number>;
   send(frame: unknown): void;
@@ -95,14 +153,13 @@ interface Client {
 }
 
 describe("WsBridgeServer", () => {
-  let server: RemoteControlServer;
+  let gate: RelayGate;
   let bridge: WsBridgeServer;
   /** The host surface the socket transport feeds. */
   let host: BridgeServer;
   let deps: HostDeps;
   let auditDir: string;
   let audit: RemoteAuditLog;
-  let port: number;
   let clients: Client[];
   let written: Array<[string, string]>;
   let created: string[];
@@ -193,7 +250,6 @@ describe("WsBridgeServer", () => {
       remoteControl: {
         status: () => ({
           enabled: true,
-          port: 4177,
           devices: [
             {
               id: "dev-full",
@@ -205,39 +261,30 @@ describe("WsBridgeServer", () => {
             },
           ],
           encryptionAvailable: true,
-          listeners: 1,
+          relayViewers: 1,
         }),
       },
     } as unknown as HostDeps;
 
     host = new BridgeServer(deps, { audit });
     bridge = new WsBridgeServer(host);
-    server = new RemoteControlServer(
-      () => ({}) as unknown as HostDeps,
-      devices,
-      {
-        limiter: new AuthRateLimiter(),
-        audit,
-        clientDir: null,
-        webDir: null,
-        push: null,
-        bridge,
-      },
-    );
-    ({ port } = await server.start());
+    gate = new RelayGate(devices, bridge, new AuthRateLimiter());
+    gate.open();
   });
 
   afterEach(async () => {
-    for (const client of clients) client.socket.terminate();
+    for (const client of clients) client.socket.hangUp();
+    gate.close();
     bridge.dispose();
     host.dispose();
-    await server.stop();
     fs.rmSync(auditDir, { recursive: true, force: true });
   });
 
-  /** Open a socket and start collecting frames. Does not say hello. */
+  /**
+   * Open a connection through the gate and start collecting frames. Does not
+   * say hello.
+   */
   function connect(): Client {
-    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
     const frames: Record<string, unknown>[] = [];
     const waiters: Array<{
       match: (f: Record<string, unknown>) => boolean;
@@ -245,31 +292,36 @@ describe("WsBridgeServer", () => {
       reject: (err: Error) => void;
     }> = [];
 
-    socket.on("message", (raw) => {
-      const frame = JSON.parse(raw.toString()) as Record<string, unknown>;
-      frames.push(frame);
-      for (const waiter of [...waiters]) {
-        if (!waiter.match(frame)) continue;
-        waiters.splice(waiters.indexOf(waiter), 1);
-        waiter.resolve(frame);
-      }
+    let closedWith!: (code: number) => void;
+    const closed = new Promise<number>((resolve) => {
+      closedWith = resolve;
     });
 
-    const closed = new Promise<number>((resolve) => {
-      socket.on("close", (code) => {
+    const socket = new MemorySocket(
+      (text) => {
+        const frame = JSON.parse(text) as Record<string, unknown>;
+        frames.push(frame);
+        for (const waiter of [...waiters]) {
+          if (!waiter.match(frame)) continue;
+          waiters.splice(waiters.indexOf(waiter), 1);
+          waiter.resolve(frame);
+        }
+      },
+      (code) => {
         for (const waiter of waiters.splice(0)) {
           waiter.reject(new Error(`socket closed with ${code}`));
         }
-        resolve(code);
-      });
-    });
+        closedWith(code);
+      },
+    );
+    gate.attach(socket);
 
     const client: Client = {
       socket,
       frames,
       closed,
       send(frame) {
-        socket.send(JSON.stringify(frame));
+        socket.deliver(JSON.stringify(frame));
       },
       next(match) {
         const already = frames.find(match);
@@ -283,13 +335,9 @@ describe("WsBridgeServer", () => {
     return client;
   }
 
-  /** Open, say hello with `token`, and wait for the reply frame. */
+  /** Open and say hello with `token`. The reply is the caller's to await. */
   async function greet(token: string): Promise<Client> {
     const client = connect();
-    await new Promise<void>((resolve, reject) => {
-      client.socket.once("open", resolve);
-      client.socket.once("error", reject);
-    });
     client.send({ type: "hello", token });
     return client;
   }
@@ -327,16 +375,13 @@ describe("WsBridgeServer", () => {
       expect(hello).toMatchObject({ type: "hello", ok: true, v: 1 });
     });
 
-    it("admits a relay-paired device over the listener too", async () => {
-      // Loopback and the tailnet are narrower than the relay, not wider.
-      const client = await greet(RELAY_TOKEN);
-      const hello = await client.next((f) => f.type === "hello");
-      expect(hello).toMatchObject({ type: "hello", ok: true });
+    it("closes a Tailscale-paired full device with 4401", async () => {
+      const client = await greet(TAILSCALE_TOKEN);
+      expect(await client.closed).toBe(4401);
     });
 
     it("refuses to do anything before the hello lands", async () => {
       const client = connect();
-      await new Promise<void>((resolve) => client.socket.once("open", resolve));
       client.send({
         id: "1",
         kind: "invoke",
@@ -347,15 +392,6 @@ describe("WsBridgeServer", () => {
       expect(await client.closed).toBe(4401);
     });
 
-    it("upgrades nothing outside /ws", async () => {
-      const stray = new WebSocket(`ws://127.0.0.1:${port}/events`);
-      await new Promise<void>((resolve) => {
-        stray.once("error", () => resolve());
-        stray.once("close", () => resolve());
-      });
-      expect(stray.readyState).toBe(WebSocket.CLOSED);
-    });
-
     /**
      * ADR-179 ticket 4's report: a reconnecting client's id used to change
      * every time, dropping a selection hint addressed to the id it had
@@ -364,7 +400,6 @@ describe("WsBridgeServer", () => {
      */
     it("reuses the id a client says it held before, when nothing else is using it", async () => {
       const client = connect();
-      await new Promise<void>((resolve) => client.socket.once("open", resolve));
       client.send({
         type: "hello",
         token: FULL_TOKEN,
@@ -380,9 +415,6 @@ describe("WsBridgeServer", () => {
       const heldId = helloA.rendererId as string;
 
       const claimant = connect();
-      await new Promise<void>((resolve) =>
-        claimant.socket.once("open", resolve),
-      );
       claimant.send({ type: "hello", token: FULL_TOKEN, previousId: heldId });
       const helloB = await claimant.next((f) => f.type === "hello");
       expect(helloB.rendererId).not.toBe(heldId);
@@ -428,7 +460,7 @@ describe("WsBridgeServer", () => {
       expect(result).toMatchObject({ ok: true });
       expect(result.result).toMatchObject({
         enabled: true,
-        listeners: 1,
+        relayViewers: 1,
         devices: [{ id: "dev-full", capability: "full" }],
       });
     });
@@ -675,7 +707,7 @@ describe("WsBridgeServer", () => {
 
       publishRendererBroadcast("remoteControl", "status", {
         enabled: true,
-        listeners: 2,
+        relayViewers: 2,
       } as never);
 
       const event = await client.next((f) => f.kind === "event");
@@ -683,7 +715,7 @@ describe("WsBridgeServer", () => {
         kind: "event",
         ns: "remoteControl",
         event: "status",
-        args: [{ enabled: true, listeners: 2 }],
+        args: [{ enabled: true, relayViewers: 2 }],
       });
     });
 
@@ -1068,21 +1100,16 @@ describe("WsBridgeServer", () => {
     });
   });
 
-  describe("listenerCount", () => {
-    /**
-     * A browser on the bridge is a watcher. Counting only the SSE hub showed a
-     * paired laptop with the whole app open as "0 listening" in the settings
-     * page, which is the one number that page exists to be right about.
-     */
-    it("counts a bridge socket", async () => {
-      expect(server.listenerCount).toBe(0);
+  describe("size", () => {
+    it("counts a connection, and stops counting it once it hangs up", async () => {
+      expect(bridge.size).toBe(0);
       const client = await greet(FULL_TOKEN);
       await client.next((f) => f.type === "hello");
-      expect(server.listenerCount).toBe(1);
+      expect(bridge.size).toBe(1);
 
-      client.socket.close();
+      client.socket.hangUp();
       await client.closed;
-      await vi.waitFor(() => expect(server.listenerCount).toBe(0));
+      expect(bridge.size).toBe(0);
     });
   });
 
@@ -1094,23 +1121,23 @@ describe("WsBridgeServer", () => {
       for (const c of [a1, a2, b]) await c.next((f) => f.type === "hello");
       expect(bridge.size).toBe(3);
 
-      bridge.closeDevice("dev-full");
+      gate.closeDevice("dev-full");
       expect(await a1.closed).toBe(4401);
       expect(await a2.closed).toBe(4401);
       expect(bridge.size).toBe(1);
-      expect(b.socket.readyState).toBe(WebSocket.OPEN);
+      expect(b.socket.open).toBe(true);
     });
   });
 
   describe("shutdown", () => {
-    it("closes every open socket when the listener stops", async () => {
+    it("closes every open connection when remote control turns off", async () => {
       const a = await greet(FULL_TOKEN);
       const b = await greet(FULL_TOKEN);
       await a.next((f) => f.type === "hello");
       await b.next((f) => f.type === "hello");
       expect(bridge.size).toBe(2);
 
-      await server.stop();
+      gate.close();
       await Promise.all([a.closed, b.closed]);
       expect(bridge.size).toBe(0);
     });

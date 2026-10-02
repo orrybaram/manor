@@ -179,7 +179,7 @@ function assertDevice(ctx: HandlerCtx): string {
 export const remoteControl = {
   getStatus: method(remoteControlGetStatus),
   // A token that can pair more devices survives its own revocation, and one
-  // that can turn the listener off locks the owner out of the machine they
+  // that can turn remote control off locks the owner out of the machine they
   // are trying to take back: the six that change the exposure stay local.
   vapidPublicKey: method(remoteControlVapidPublicKey),
   subscribePush: method(remoteControlSubscribePush),

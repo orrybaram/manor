@@ -1,7 +1,8 @@
 /**
  * The audit log's job is to be readable after the fact and to contain nothing
- * that would make it worth stealing. Both are tested here; the "one line per
- * send" behaviour is tested against the real listener in `server.test.ts`.
+ * that would make it worth stealing. Both are tested here; which bridge calls
+ * write a line is tested in `ws-bridge.test.ts` and
+ * `electron/bridge/__tests__/caller-class.test.ts`.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";

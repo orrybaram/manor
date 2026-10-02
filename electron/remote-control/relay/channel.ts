@@ -60,8 +60,8 @@ export const CHANNEL_BACKLOG_BYTES = 8 * 1024 * 1024;
 /** What a viewer may send before its first frame (the hello) decrypts. */
 export const PRE_HELLO_BYTES = 64 * 1024;
 /**
- * The bridge's hello window for a relay channel. Longer than the listener's
- * 5 s: the clock starts when message 2 is queued, and on a slow uplink it
+ * The bridge's hello window for a relay channel. Longer than the bridge's
+ * default 5 s: the clock starts when message 2 is queued, and on a slow uplink it
  * can sit behind other viewers' output before it leaves the machine.
  */
 export const RELAY_HELLO_TIMEOUT_MS = 20_000;

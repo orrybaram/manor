@@ -1,8 +1,8 @@
 /**
- * Per-device bearer tokens for the remote-control listener (ADR-161).
+ * Per-device bearer tokens for remote control (ADR-161).
  *
- * The listener has no network boundary once a tunnel is up, so this store *is*
- * the boundary. Three properties are load-bearing and every change here should
+ * Anyone who can reach the relay can say hello, so this store *is* the
+ * boundary. Three properties are load-bearing and every change here should
  * be read against them:
  *
  *   1. A raw token exists exactly once, in the return value of `pair()`. Only
@@ -31,17 +31,11 @@ import { remoteDevicesFile } from "../paths";
  * How much of the machine a paired device may reach (ADR-178 D3, narrowed by
  * ADR-182 D2).
  *
- *   - `read`  — the read half of the remote allowlist and nothing else.
- *   - `send`  — the read half plus the three acting routes, each behind
- *               `confirmed: true` and an audit line.
- *   - `full`  — the same HTTP surface as `send`. The rest — the whole bridge
- *               table, authentication the only boundary, every mutation
- *               audited and nothing asking for `confirmed` — is reachable
- *               only over `/ws`.
- *
- * All three tiers are HTTP allowlists governed by `allowlist.ts`; `full`'s
- * wider reach lives entirely in the bridge (`electron/bridge/server.ts`),
- * not here.
+ *   - `read` and `send` — the tiers of the deleted HTTP surface (ADR-207
+ *               D2). Nothing serves them any more: the relay's hello gate
+ *               closes them with 4403.
+ *   - `full`  — the whole bridge table, authentication the only boundary,
+ *               every mutation audited (`electron/bridge/server.ts`).
  */
 export type Capability = "read" | "send" | "full";
 
@@ -236,9 +230,9 @@ export class RemoteDeviceStore {
   }
 
   /**
-   * Attach (or clear) a device's push subscription. Called from the listener's
-   * `POST /push/subscribe`; a revoked device is simply absent, so a late
-   * subscribe from one is dropped rather than resurrecting it.
+   * Attach (or clear) a device's push subscription. Called from the bridge's
+   * `remoteControl.subscribePush`; a revoked device is simply absent, so a
+   * late subscribe from one is dropped rather than resurrecting it.
    */
   setPushSubscription(
     id: string,

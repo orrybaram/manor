@@ -562,13 +562,10 @@ export interface RemoteDeviceInfo {
 
 export interface RemoteControlStatus {
   enabled: boolean;
-  port: number | null;
   devices: RemoteDeviceInfo[];
   relay: RelayStatus;
   encryptionAvailable: boolean;
-  /** Live connections of every kind, relay viewers included. */
-  listeners: number;
-  /** Of `listeners`, how many came through the relay. */
+  /** Open relay channels: every live remote connection there is. */
   relayViewers: number;
   /** A relay notice that is not a connection state (identity replaced). */
   relayNotice: string | null;
@@ -579,8 +576,6 @@ export interface RemotePairResult {
   /** Shown once. Never retrievable again. */
   rawToken: string;
   pairingUrl: string | null;
-  /** The page this device's link opens: `/app` for `full`, `/` otherwise. */
-  page: string;
 }
 
 // ── The host surface (ADR-180 D3) ──

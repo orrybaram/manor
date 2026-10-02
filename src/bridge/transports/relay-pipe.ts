@@ -19,8 +19,7 @@
  *
  * **Close codes.** The desktop's bridge verdicts 4401 (bad or revoked token)
  * and 4403 (paired below `full`) ride through the relay on `OP_CLOSE` and are
- * handed to the transport unchanged, so they mean exactly what they mean on
- * the listener: forget the pairing, or show Forbidden. Everything else that
+ * handed to the transport unchanged: forget the pairing, or show Forbidden. Everything else that
  * means "the desktop is not there right now" is *reachability*, not
  * credentials, and is listed in `unreachableCodes` so the transport retries
  * it with its usual backoff and the page says "not reachable" instead of

@@ -23,20 +23,15 @@
  * for once it is ready to act on it — late, if the socket has not said
  * anything yet, or immediately, if it already has.
  *
- * ADR-206 adds a second way here: a page served by the relay origin, paired
- * by a `#relay=…` link, dials the relay's `/join/<roomId>` through a Noise
- * channel instead of the listener's `/ws`. `./web-pairing.ts` reads the link
- * and states the rule that picks between them; this module picks the pipe,
+ * The page is served only by the relay origin (ADR-206, ADR-207 D2): paired
+ * by a `#relay=…` link, it dials the relay's `/join/<roomId>` through a Noise
+ * channel. `./web-pairing.ts` reads the link; this module builds the pipe,
  * reports reachability (relay 4404/4429) and follows the version redirect.
  */
 
 import { createBridge } from "./client";
 import { relayJoinUrl, relayPipe } from "./transports/relay-pipe";
-import {
-  bridgeUrlFromLocation,
-  createWsTransport,
-  type Pipe,
-} from "./transports/ws";
+import { createWsTransport, type Pipe } from "./transports/ws";
 import {
   forgetPairing,
   readPairing,
@@ -47,28 +42,30 @@ import {
 const pairing = readPairing();
 
 /**
- * The relay pipe, or null for the listener's plain WebSocket. A stored key
- * that no longer decodes is treated as no pairing at all.
+ * The relay pipe, or null with no pairing. A stored key that no longer
+ * decodes is treated as no pairing at all.
  */
 function relayPipeFor(): Pipe | null {
-  if (pairing.mode !== "relay") return null;
-  const serverKey = serverKeyBytes(pairing.relay);
+  if (pairing === null) return null;
+  const serverKey = serverKeyBytes(pairing);
   if (serverKey === null) return null;
-  return relayPipe({ url: relayJoinUrl(pairing.relay.roomId), serverKey });
+  return relayPipe({ url: relayJoinUrl(pairing.roomId), serverKey });
 }
 
 const pipe = relayPipeFor();
 
-/** Whether this page reaches the desktop through the relay (ADR-206 D3). */
-export const relayServed: boolean = pipe !== null;
+/**
+ * Unpaired: the transport never dials (its token is null), so this is never
+ * connected. It exists only so there is always a pipe to hand over.
+ */
+const UNPAIRED_PIPE: Pipe = {
+  connect() {
+    throw new Error("This browser is not paired with Manor");
+  },
+};
 
 /** The pairing token this tab is dialling with, or `null` for none found. */
-export const webToken: string | null =
-  pairing.mode === "relay"
-    ? pipe
-      ? pairing.relay.token
-      : null
-    : pairing.token;
+export const webToken: string | null = pipe && pairing ? pairing.token : null;
 
 /** What the socket has said about `webToken`, once it has said anything. */
 export type BridgeOutcome = "unauthorized" | "forbidden" | "key-mismatch";
@@ -120,10 +117,10 @@ function setReachability(next: Reachability): void {
 
 const transport = createWsTransport({
   token: webToken,
-  ...(pipe ? { pipe } : { url: bridgeUrlFromLocation() }),
+  pipe: pipe ?? UNPAIRED_PIPE,
   onUnauthorized: () => {
-    // The token was revoked, the host forgot it, or (relay) the desktop's
-    // key is no longer the one this page was paired with. Drop it —
+    // The token was revoked, the host forgot it, or the desktop's key is
+    // no longer the one this page was paired with. Drop it —
     // `web-main` renders `NoTokenScreen` rather than reconnecting forever
     // against an answer that will not change.
     forgetPairing(pairing);
@@ -136,9 +133,6 @@ const transport = createWsTransport({
   onKeyMismatch: () => settle("key-mismatch"),
   onStatus: setReachability,
   onHello: ({ appVersion }) => {
-    // Only a relay-served page: the listener serves the build that matches
-    // its own desktop by construction.
-    if (!relayServed) return;
     const target = versionRedirectTarget(__APP_VERSION__, appVersion);
     if (target) location.replace(target);
   },

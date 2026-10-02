@@ -4,9 +4,9 @@
  * with it. Both are asserted here against fakes, so the test is about the
  * decisions rather than about sockets.
  *
- * The runtime (listener + relay) loads lazily (ADR-205 §3), so the
- * second half covers what happens before it loads and what happens when calls
- * race the load — above all, that shutdown never leaves anything running.
+ * The runtime (gate + relay) loads lazily (ADR-205 §3), so the second half
+ * covers what happens before it loads and what happens when calls race the
+ * load — above all, that shutdown never leaves anything running.
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -34,35 +34,12 @@ function deferred<T>() {
 }
 
 function fakes(options: { gateLoad?: boolean } = {}) {
-  const serverState = { running: false, port: 0, listeners: 0 };
-  const server = {
-    get running() {
-      return serverState.running;
-    },
-    get serverPort() {
-      return serverState.port;
-    },
-    get listenerCount() {
-      return serverState.listeners;
-    },
-    closeDevice: vi.fn((id: string) => order.push(`close:${id}`)),
-    start: vi.fn(async () => {
-      serverState.running = true;
-      serverState.port = 51234;
-      return { port: 51234 };
-    }),
-    stop: vi.fn(async () => {
-      serverState.running = false;
-      serverState.port = 0;
-    }),
-  };
-
   const order: string[] = [];
-  server.stop.mockImplementation(async () => {
-    order.push("server");
-    serverState.running = false;
-    serverState.port = 0;
-  });
+  const gate = {
+    open: vi.fn(),
+    close: vi.fn(() => order.push("gate")),
+    closeDevice: vi.fn((id: string) => order.push(`close:${id}`)),
+  };
 
   let relayStatus: { state: string; url: string | null; error: null } = {
     state: "stopped",
@@ -150,15 +127,15 @@ function fakes(options: { gateLoad?: boolean } = {}) {
   };
 
   const runtime = {
-    server,
+    gate,
     relay: relay as unknown as RelayConnector,
     relayIdentity: identity as unknown as RelayIdentityStore,
   } as unknown as RemoteControlRuntime;
   // With `gateLoad`, the load hangs until the test calls `releaseLoad()`, so a
   // test can act while it is in flight.
-  const gate = deferred<void>();
+  const held = deferred<void>();
   const loadRuntime = vi.fn(async () => {
-    if (options.gateLoad) await gate.promise;
+    if (options.gateLoad) await held.promise;
     return runtime;
   });
   const push = { notify: vi.fn(async () => 1) };
@@ -172,11 +149,11 @@ function fakes(options: { gateLoad?: boolean } = {}) {
   );
   return {
     controller,
-    server,
+    gate,
     deviceStore,
     loadRuntime,
     push,
-    releaseLoad: () => gate.resolve(),
+    releaseLoad: () => held.resolve(),
     relay,
     identity,
     identityState,
@@ -194,33 +171,23 @@ describe("RemoteControlController", () => {
   it("starts disabled with no relay", () => {
     expect(f.controller.status()).toMatchObject({
       enabled: false,
-      port: null,
       relay: { state: "stopped" },
     });
-    expect(f.server.start).not.toHaveBeenCalled();
+    expect(f.gate.open).not.toHaveBeenCalled();
     expect(f.relay.start).not.toHaveBeenCalled();
   });
 
-  it("enabling starts the listener", async () => {
+  it("enabling loads the runtime and opens nothing to the network", async () => {
     const status = await f.controller.setEnabled(true);
     expect(status.enabled).toBe(true);
-    expect(status.port).toBe(51234);
+    expect(status).not.toHaveProperty("port");
+    expect(f.gate.open).toHaveBeenCalledTimes(1);
+    expect(f.relay.start).not.toHaveBeenCalled();
   });
 
   it("a pairing not through the relay has no URL to offer", async () => {
     await f.controller.setEnabled(true);
     expect(f.controller.pair("phone", "read").pairingUrl).toBeNull();
-  });
-
-  it("names the page, so the loopback link is right", async () => {
-    // The pairing dialog builds the loopback link itself, from the port and
-    // this field. Without it the dialog guessed, and guessed `/` for every
-    // tier — so a `full` device testing over loopback was sent to the phone
-    // client instead of the web app.
-    await f.controller.setEnabled(true);
-    expect(f.controller.pair("PC browser", "full").page).toBe("/app");
-    expect(f.controller.pair("phone", "send").page).toBe("/");
-    expect(f.controller.pair("watcher", "read").page).toBe("/");
   });
 
   it("notifies listeners on every state change", async () => {
@@ -235,13 +202,13 @@ describe("RemoteControlController", () => {
   });
 
   it("revoke closes the revoked device's connections", async () => {
-    // A connection needs the listener or the relay, so the runtime.
+    // A connection needs the relay, so the runtime.
     await f.controller.setEnabled(true);
     f.controller.pair("a", "full");
     f.controller.pair("b", "full");
     f.controller.revoke("dev-1");
-    expect(f.server.closeDevice).toHaveBeenCalledTimes(1);
-    expect(f.server.closeDevice).toHaveBeenCalledWith("dev-1");
+    expect(f.gate.closeDevice).toHaveBeenCalledTimes(1);
+    expect(f.gate.closeDevice).toHaveBeenCalledWith("dev-1");
   });
 
   it("surfaces an unavailable keychain rather than hiding it", () => {
@@ -277,40 +244,34 @@ describe("RemoteControlController", () => {
       expect(seen).toContain("running");
     });
 
-    it("disabling stops the relay before the listener", async () => {
+    it("disabling stops the relay before closing the gate", async () => {
       await f.controller.setEnabled(true);
       await f.controller.startRelay();
       f.order.length = 0;
       await f.controller.setEnabled(false);
-      expect(f.order).toEqual(["relay", "server"]);
+      expect(f.order).toEqual(["relay", "gate"]);
       expect(f.controller.status().relay.state).toBe("stopped");
+      expect(f.controller.status().enabled).toBe(false);
     });
 
     it("a Start relay racing a disable cannot outlive it", async () => {
       await f.controller.setEnabled(true);
-      // Hold the disable inside `server.stop`, where the listener is still up.
-      let release!: () => void;
-      const realStop = f.server.stop.getMockImplementation()!;
-      f.server.stop.mockImplementationOnce(async () => {
-        await new Promise<void>((resolve) => (release = resolve));
-        await realStop();
-      });
+      // Both are in flight at once: the disable has dropped its intent but
+      // not yet turned anything off when the relay start is queued.
       const disabling = f.controller.setEnabled(false);
       const starting = f.controller.startRelay();
-      await Promise.resolve();
-      release();
       await disabling;
       await expect(starting).rejects.toThrow(/Enable remote control/);
       expect(f.relay.start).not.toHaveBeenCalled();
       expect(f.controller.status().relay.state).toBe("stopped");
     });
 
-    it("shutdown stops the relay before the listener", async () => {
+    it("shutdown stops the relay before closing the gate", async () => {
       await f.controller.setEnabled(true);
       await f.controller.startRelay();
       f.order.length = 0;
       await f.controller.shutdown();
-      expect(f.order).toEqual(["relay", "server"]);
+      expect(f.order).toEqual(["relay", "gate"]);
     });
 
     it("refuses a relay pairing below full", async () => {
@@ -391,7 +352,7 @@ describe("RemoteControlController", () => {
         f.identityState.roomId = "another-room-entirely";
         const status = await f.controller.startRelay();
         expect(status.devices.map((d) => d.label)).toEqual(["ts"]);
-        expect(f.server.closeDevice).toHaveBeenCalledWith("dev-2");
+        expect(f.gate.closeDevice).toHaveBeenCalledWith("dev-2");
         expect(status.relayNotice).toMatch(/couldn't be read.*1 device/);
       });
 
@@ -424,13 +385,11 @@ describe("RemoteControlController before the runtime loads", () => {
     f = fakes();
   });
 
-  it("reports disabled, no port, no listeners and a stopped relay", () => {
+  it("reports disabled, no viewers and a stopped relay", () => {
     expect(f.controller.status()).toEqual({
       enabled: false,
-      port: null,
       devices: [],
       encryptionAvailable: true,
-      listeners: 0,
       relay: { state: "stopped", url: null, error: null },
       relayViewers: 0,
       relayNotice: null,
@@ -446,7 +405,7 @@ describe("RemoteControlController before the runtime loads", () => {
     expect(a.enabled).toBe(true);
     expect(b.enabled).toBe(true);
     expect(f.loadRuntime).toHaveBeenCalledTimes(1);
-    expect(f.server.start).toHaveBeenCalledTimes(1);
+    expect(f.gate.open).toHaveBeenCalledTimes(1);
 
     await f.controller.setEnabled(true);
     expect(f.loadRuntime).toHaveBeenCalledTimes(1);
@@ -458,7 +417,7 @@ describe("RemoteControlController before the runtime loads", () => {
     await f.controller.shutdown();
     expect(status.enabled).toBe(false);
     expect(f.loadRuntime).not.toHaveBeenCalled();
-    expect(f.server.stop).not.toHaveBeenCalled();
+    expect(f.gate.close).not.toHaveBeenCalled();
     expect(f.relay.stop).not.toHaveBeenCalled();
   });
 
@@ -473,7 +432,7 @@ describe("RemoteControlController before the runtime loads", () => {
   it("revoking with the runtime never loaded closes nothing and loads nothing", () => {
     f.controller.pair("a", "full");
     f.controller.revoke("dev-1");
-    expect(f.server.closeDevice).not.toHaveBeenCalled();
+    expect(f.gate.closeDevice).not.toHaveBeenCalled();
     expect(f.loadRuntime).not.toHaveBeenCalled();
   });
 
@@ -487,15 +446,9 @@ describe("RemoteControlController before the runtime loads", () => {
     expect(f.loadRuntime).not.toHaveBeenCalled();
   });
 
-  it("publishes an agent status to the listener once loaded", async () => {
-    const publishStatus = vi.fn();
-    (f.server as unknown as { publishStatus: typeof publishStatus }).publishStatus =
-      publishStatus;
+  it("does not push a status that is not worth one", async () => {
     await f.controller.setEnabled(true);
     f.controller.onAgentStatus(AGENT, "working", "idle", { notify: true });
-    expect(publishStatus).toHaveBeenCalledWith(
-      expect.objectContaining({ agentId: "agent-1", status: "idle" }),
-    );
     expect(f.push.notify).not.toHaveBeenCalled();
   });
 
@@ -519,25 +472,8 @@ describe("RemoteControlController racing the runtime load", () => {
 
     expect(f.controller.status().enabled).toBe(false);
     expect(f.controller.status().relay.state).toBe("stopped");
-    expect(f.server.start).not.toHaveBeenCalled();
+    expect(f.gate.open).not.toHaveBeenCalled();
     expect(f.relay.start).not.toHaveBeenCalled();
-  });
-
-  it("shutdown while the listener is binding stops it once bound", async () => {
-    const f = fakes();
-    const bound = deferred<void>();
-    const realStart = f.server.start.getMockImplementation()!;
-    f.server.start.mockImplementationOnce(async () => {
-      await bound.promise;
-      return realStart();
-    });
-    const enabling = f.controller.setEnabled(true);
-    // Let the load settle so `start()` is the pending step.
-    await vi.waitFor(() => expect(f.server.start).toHaveBeenCalled());
-    const shuttingDown = f.controller.shutdown();
-    bound.resolve();
-    await Promise.all([enabling, shuttingDown]);
-    expect(f.controller.status().enabled).toBe(false);
   });
 
   it("nothing starts after shutdown", async () => {
@@ -549,12 +485,13 @@ describe("RemoteControlController racing the runtime load", () => {
     expect(f.loadRuntime).not.toHaveBeenCalled();
   });
 
-  it("an enable overtaken by a disable does not leave the listener up", async () => {
+  it("an enable overtaken by a disable does not leave remote control on", async () => {
     const f = fakes({ gateLoad: true });
     const enabling = f.controller.setEnabled(true);
     const disabling = f.controller.setEnabled(false);
     f.releaseLoad();
     await Promise.all([enabling, disabling]);
     expect(f.controller.status().enabled).toBe(false);
+    expect(f.gate.open).not.toHaveBeenCalled();
   });
 });

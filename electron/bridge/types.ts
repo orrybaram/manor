@@ -81,8 +81,7 @@ export const CLOSE_FORBIDDEN = 4403;
  * `appVersion` is the desktop's `app.getVersion()` (ADR-206 D4): a page
  * served by the relay origin compares it with its own build and navigates to
  * the matching `/app/<appVersion>/` when they differ. Optional because an
- * older host does not send it, and the listener-served page ignores it — the
- * listener serves the build that matches by construction.
+ * older host does not send it.
  */
 export interface HelloReplyFrame {
   type: "hello";

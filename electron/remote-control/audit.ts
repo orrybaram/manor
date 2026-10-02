@@ -1,9 +1,8 @@
 /**
  * Append-only log of every remote-control write (ADR-161 §4).
  *
- * Routes on the remote surface that act type into a live shell, start
- * processes, and — for a `full` device on `/ws` (ADR-178, narrowed to the
- * bridge by ADR-182 D2) — do anything the desktop app can. So there has to be
+ * A paired device's bridge calls type into a live shell, start processes,
+ * and do anything else the desktop app can (ADR-178, ADR-207). So there has to be
  * an answer to "what did that device do". This is that answer, and it is
  * deliberately a plain JSONL file rather than anything queryable: it is
  * written on a path that must not fail, and read rarely.
@@ -48,7 +47,8 @@ export interface RemoteAuditEntry {
    * Which surface the device came in on (ADR-178 D8).
    *
    * `"http"` — omitted, for every line written before this field existed — is
-   * a route on the remote listener, and `route` reads `POST /sessions/send`.
+   * a route on the remote listener ADR-207 deleted, and `route` reads
+   * `POST /sessions/send`.
    * `"bridge"` is a WebSocket `invoke`, and `route` reads `pty.create`: a
    * handler-table key, not an HTTP one. Two different namespaces in one field
    * would be a trap for anyone grepping the trail, so the field that says

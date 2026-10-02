@@ -12,7 +12,6 @@ import { Stack, Row } from "../ui/Layout/Layout";
 import { Switch } from "../ui/Switch/Switch";
 import { ToggleGroup } from "../ui/ToggleGroup";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
-import { CopyField } from "./CopyField";
 import { relativeShort } from "../../utils/relative-time";
 import {
   PairingResultDialog,
@@ -85,12 +84,12 @@ const VIA_LABEL: Record<Via, string> = {
 /**
  * The remote-control settings surface (ADR-161 ticket 6).
  *
- * Three separate user actions, deliberately not collapsed into one: enabling
- * the listener, pairing a device, and starting the relay. Each widens exposure
- * by a different amount, and a single "turn on remote access" switch would
- * hide which of them the user actually agreed to.
+ * Three separate user actions, deliberately not collapsed into one: turning
+ * remote control on, pairing a device, and starting the relay. Each widens
+ * exposure by a different amount, and a single "turn on remote access" switch
+ * would hide which of them the user actually agreed to.
  *
- * Once the listener is on, the relay is the main call to action: it sits on
+ * Once remote control is on, the relay is the main call to action: it sits on
  * the card that states whether the machine is reachable, above the devices.
  * The card states the exposure as a fact rather than leaving it to be
  * inferred from which controls are showing.
@@ -144,9 +143,10 @@ export function RemoteControlPage() {
         <div>
           <div className={styles.notifToggleTitle}>Remote control</div>
           <div className={styles.notifToggleDesc}>
-            Check on your agents from your phone. Manor runs a second,
-            authenticated listener while this is on, and turns it off again
-            every time it restarts.
+            Check on your agents from your phone. Nothing on this machine
+            listens for connections: devices reach it only through the Manor
+            relay, once you start it. Remote control turns off again every time
+            Manor restarts.
           </div>
         </div>
         <Switch
@@ -188,20 +188,6 @@ export function RemoteControlPage() {
             onStop={() => void stopRelay()}
             onReset={() => setResetOpen(true)}
           />
-
-          {status.port !== null && (
-            <Stack gap="xs">
-              <div className={styles.fieldHint}>
-                The listener only answers this machine. Nothing else can connect
-                except through the relay.
-              </div>
-              <CopyField
-                value={`http://127.0.0.1:${status.port}`}
-                label="address"
-                testId="remote-listener-address"
-              />
-            </Stack>
-          )}
 
           <Stack gap="xs">
             <SectionTitle id="remote-devices">Devices</SectionTitle>
@@ -309,7 +295,6 @@ export function RemoteControlPage() {
 
       <PairingResultDialog
         result={pairing}
-        port={status.port}
         relayRunning={status.relay.state === "running"}
         onClose={() => setPairing(null)}
       />

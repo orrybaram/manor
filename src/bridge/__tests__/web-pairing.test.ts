@@ -1,12 +1,11 @@
 /**
- * The pairing link, both forms (ADR-178 D1, ADR-206 D3), and the relay's
+ * The pairing link (ADR-178 D1, ADR-206 D3, ADR-207 D2), and the relay's
  * version redirect guard (ADR-206 D4).
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { base64urlEncode } from "../../lib/relay-crypto";
-import { WEB_TOKEN_KEY } from "../transports/ws";
 import {
   VERSION_REDIRECT_KEY,
   WEB_RELAY_KEY,
@@ -21,7 +20,8 @@ const KEY = base64urlEncode(new Uint8Array(32).fill(9));
 const RELAY_HASH = `#relay=${ROOM}.${KEY}&t=tok_en-1`;
 /** Shaped like a minted device token: 32 bytes, base64url, 43 characters. */
 const TOKEN = base64urlEncode(new Uint8Array(32).fill(7));
-const OTHER_TOKEN = base64urlEncode(new Uint8Array(32).fill(8));
+/** The stored relay pairing `RELAY_HASH` makes. */
+const RELAY = { roomId: ROOM, serverKey: KEY, token: "tok_en-1" };
 
 function memoryStorage(): Storage & { map: Map<string, string> } {
   const map = new Map<string, string>();
@@ -44,12 +44,9 @@ describe("parseFragment", () => {
     expect(parseFragment("#")).toEqual({ kind: "none" });
   });
 
-  it("reads the legacy listener form as a bare token", () => {
+  it("reads the old loopback listener's bare token as an unusable credential", () => {
     expect(TOKEN).toHaveLength(43);
-    expect(parseFragment(`#${TOKEN}`)).toEqual({
-      kind: "listener",
-      token: TOKEN,
-    });
+    expect(parseFragment(`#${TOKEN}`)).toEqual({ kind: "invalid" });
   });
 
   it.each([
@@ -93,7 +90,6 @@ describe("readPairing", () => {
   let local: ReturnType<typeof memoryStorage>;
   let replaceState: ReturnType<typeof vi.fn>;
 
-  /** A relay-served page by default; pass `/app/` for the listener's. */
   function at(hash: string, pathname = "/app/1.0.0/"): void {
     vi.stubGlobal("location", { hash, pathname, search: "" });
   }
@@ -109,86 +105,64 @@ describe("readPairing", () => {
     vi.unstubAllGlobals();
   });
 
-  it("stores a relay link, strips the fragment, and picks relay mode", () => {
+  it("stores a relay link and strips the fragment", () => {
     at(RELAY_HASH);
-    expect(readPairing()).toEqual({
-      mode: "relay",
-      relay: { roomId: ROOM, serverKey: KEY, token: "tok_en-1" },
-    });
+    expect(readPairing()).toEqual(RELAY);
     expect(replaceState).toHaveBeenCalledWith(null, "", "/app/1.0.0/");
-    expect(JSON.parse(local.map.get(WEB_RELAY_KEY) ?? "null")).toEqual({
-      roomId: ROOM,
-      serverKey: KEY,
-      token: "tok_en-1",
-    });
+    expect(JSON.parse(local.map.get(WEB_RELAY_KEY) ?? "null")).toEqual(RELAY);
   });
 
-  it("stays in relay mode on the next load, from storage", () => {
+  it("reads the pairing from storage on the next load", () => {
     at(RELAY_HASH);
     readPairing();
     at("");
-    expect(readPairing().mode).toBe("relay");
+    expect(readPairing()).toEqual(RELAY);
     expect(replaceState).toHaveBeenCalledOnce();
   });
 
-  it("keeps the legacy form exactly as before", () => {
-    at(`#${TOKEN}`, "/app/");
-    expect(readPairing()).toEqual({ mode: "listener", token: TOKEN });
-    expect(local.map.get(WEB_TOKEN_KEY)).toBe(TOKEN);
-    at("", "/app");
-    expect(readPairing()).toEqual({ mode: "listener", token: TOKEN });
-  });
-
-  it("leaves an anchor fragment alone on a relay-paired page", () => {
+  it("leaves an anchor fragment alone on a paired page", () => {
     at(RELAY_HASH);
     readPairing();
     at("#details");
-    expect(readPairing().mode).toBe("relay");
+    expect(readPairing()).toEqual(RELAY);
     expect(replaceState).toHaveBeenCalledOnce();
     expect(local.map.has(WEB_RELAY_KEY)).toBe(true);
-    expect(local.map.has(WEB_TOKEN_KEY)).toBe(false);
   });
 
-  it("never lets a listener token replace relay credentials on a relay page", () => {
+  it("strips an old listener token without letting it touch the pairing", () => {
     at(RELAY_HASH);
     readPairing();
     at(`#${TOKEN}`, "/app/1.0.0/web.html");
-    expect(readPairing()).toEqual({
-      mode: "relay",
-      relay: { roomId: ROOM, serverKey: KEY, token: "tok_en-1" },
-    });
+    expect(readPairing()).toEqual(RELAY);
     // Stripped, since it looks like a credential, but not stored.
     expect(replaceState).toHaveBeenCalledTimes(2);
-    expect(local.map.has(WEB_TOKEN_KEY)).toBe(false);
+    expect([...local.map.keys()]).toEqual([WEB_RELAY_KEY]);
   });
 
-  it("does not store a listener token on a relay page with no pairing", () => {
-    at(`#${TOKEN}`);
-    expect(readPairing()).toEqual({ mode: "listener", token: null });
+  it("does not store an old listener token on an unpaired page", () => {
+    at(`#${TOKEN}`, "/app/");
+    expect(readPairing()).toBeNull();
+    expect(replaceState).toHaveBeenCalledOnce();
     expect(local.map.size).toBe(0);
   });
 
-  it("is in listener mode with no token when nothing is known", () => {
+  it("is unpaired when nothing is known", () => {
     at("");
-    expect(readPairing()).toEqual({ mode: "listener", token: null });
+    expect(readPairing()).toBeNull();
   });
 
-  it("lets the newest link win over the other form", () => {
-    // `localStorage` is per origin, so this only happens on one origin in a
-    // test: a listener page under `/app/`.
-    at(`#${TOKEN}`, "/app/");
+  it("lets the newest link win", () => {
+    at(RELAY_HASH);
     readPairing();
-    at(RELAY_HASH, "/app/");
-    readPairing();
-    expect(local.map.has(WEB_TOKEN_KEY)).toBe(false);
-    at(`#${OTHER_TOKEN}`, "/app/");
-    expect(readPairing().mode).toBe("listener");
-    expect(local.map.has(WEB_RELAY_KEY)).toBe(false);
+    at(`#relay=${ROOM}.${KEY}&t=newer`);
+    expect(readPairing()).toEqual({ ...RELAY, token: "newer" });
+    at("");
+    expect(readPairing()).toEqual({ ...RELAY, token: "newer" });
   });
 
   it("strips an invalid relay link without storing it", () => {
     at(`#relay=nope&t=x`);
-    expect(readPairing()).toEqual({ mode: "listener", token: null });
+    expect(readPairing()).toBeNull();
     expect(replaceState).toHaveBeenCalledOnce();
     expect(local.map.size).toBe(0);
   });
@@ -196,18 +170,11 @@ describe("readPairing", () => {
   it("ignores stored relay credentials that do not parse", () => {
     local.map.set(WEB_RELAY_KEY, JSON.stringify({ roomId: "x" }));
     at("");
-    expect(readPairing().mode).toBe("listener");
+    expect(readPairing()).toBeNull();
   });
 
   it("forgetPairing drops the relay pairing this tab used", () => {
     at(RELAY_HASH);
-    const pairing = readPairing();
-    forgetPairing(pairing);
-    expect(local.map.size).toBe(0);
-  });
-
-  it("forgetPairing drops the listener token this tab used", () => {
-    at(`#${TOKEN}`, "/app/");
     const pairing = readPairing();
     forgetPairing(pairing);
     expect(local.map.size).toBe(0);
@@ -220,16 +187,8 @@ describe("readPairing", () => {
     local.map.set(WEB_RELAY_KEY, JSON.stringify(newer));
     forgetPairing(stale);
     expect(JSON.parse(local.map.get(WEB_RELAY_KEY) ?? "null")).toEqual(newer);
-  });
-
-  it("forgetPairing keeps a newer listener token another tab stored", () => {
-    at(`#${TOKEN}`, "/app/");
-    const stale = readPairing();
-    local.map.set(WEB_TOKEN_KEY, OTHER_TOKEN);
-    forgetPairing(stale);
-    expect(local.map.get(WEB_TOKEN_KEY)).toBe(OTHER_TOKEN);
-    forgetPairing({ mode: "listener", token: null });
-    expect(local.map.get(WEB_TOKEN_KEY)).toBe(OTHER_TOKEN);
+    forgetPairing(null);
+    expect(JSON.parse(local.map.get(WEB_RELAY_KEY) ?? "null")).toEqual(newer);
   });
 });
 

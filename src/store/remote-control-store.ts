@@ -33,11 +33,9 @@ interface RemoteControlState {
 
 const emptyStatus: RemoteControlStatus = {
   enabled: false,
-  port: null,
   devices: [],
   relay: { state: "stopped", url: null, error: null },
   encryptionAvailable: true,
-  listeners: 0,
   relayViewers: 0,
   relayNotice: null,
 };

@@ -8,11 +8,10 @@
  * it (`../client.ts`) is the same code the desktop runs.
  *
  * **The socket itself is a `Pipe`** (ADR-206 D3): "open something, send
- * text, receive text, learn the close code". The listener-served `/app`
- * uses `webSocketPipe` — a plain WebSocket to `/ws`, exactly what this file
- * always did — and a relay-served page uses `./relay-pipe.ts`, which runs the
- * Noise handshake under the same four callbacks. Everything above the pipe
- * is one piece of code for both.
+ * text, receive text, learn the close code". The page is served only by the
+ * relay origin (ADR-207 D2), so the pipe is `./relay-pipe.ts`, which runs the
+ * Noise handshake under those four callbacks; the tests hand in fakes.
+ * Everything above the pipe knows nothing about the carrier.
  *
  * The frame shapes and the close codes come from
  * `electron/bridge/types.ts` — the host's own definition of the protocol,
@@ -68,32 +67,9 @@ export interface Pipe {
   /**
    * Close codes that mean "the host is not there right now" rather than "the
    * line dropped": still retried with backoff, but also surfaced, so the page
-   * can say so instead of looking frozen. The plain WebSocket has none.
+   * can say so instead of looking frozen.
    */
   readonly unreachableCodes?: ReadonlySet<number>;
-}
-
-/** The listener's pipe: a plain WebSocket to `url`, text frames as-is. */
-export function webSocketPipe(url: string): Pipe {
-  return {
-    connect(handlers) {
-      const socket = new WebSocket(url);
-      socket.onopen = () => handlers.onOpen();
-      socket.onmessage = (event: MessageEvent) => {
-        handlers.onMessage(String(event.data));
-      };
-      socket.onclose = (event: CloseEvent) => handlers.onClose(event.code);
-      socket.onerror = () => {
-        // A `close` always follows, and it carries the code this cares about.
-      };
-      return {
-        get open() {
-          return socket.readyState === 1;
-        },
-        send: (text) => socket.send(text),
-      };
-    },
-  };
 }
 
 /**
@@ -103,9 +79,6 @@ export function webSocketPipe(url: string): Pipe {
  * transport stops dialling and asks to re-pair, but does not forget them.
  */
 export const CLOSE_KEY_MISMATCH = 4502;
-
-/** Where `web-main.tsx` keeps the pairing token this bridge says hello with. */
-export const WEB_TOKEN_KEY = "manor.web.token";
 
 /** First reconnect delay, and the ceiling it doubles towards. */
 const RECONNECT_MIN_MS = 1_000;
@@ -125,11 +98,12 @@ const ROOT_VALUES: Record<string, unknown> = {
 export interface WsTransportOptions {
   /** The paired device's token. `null` installs a bridge that never dials. */
   token: string | null;
-  /** A plain WebSocket to this URL. Ignored when `pipe` is given. */
-  url?: string;
-  /** What carries the frames. Defaults to `webSocketPipe(url)`. */
-  pipe?: Pipe;
-  /** Close 4401: the token is dead. Default forgets it and reloads. */
+  /** What carries the frames. Never connected while `token` is null. */
+  pipe: Pipe;
+  /**
+   * Close 4401: the token is dead. Default logs; `install-web.ts` forgets
+   * the pairing and `web-main` renders the pairing screen.
+   */
   onUnauthorized?: () => void;
   /** Close 4403: paired below `full`. Default logs; `web-main` renders it. */
   onForbidden?: () => void;
@@ -168,24 +142,8 @@ interface Pending {
   reject: (error: Error) => void;
 }
 
-/** Drop a token the host refused. The next load shows the pairing screen. */
-export function forgetWebToken(): void {
-  try {
-    localStorage.removeItem(WEB_TOKEN_KEY);
-  } catch {
-    // Private browsing with storage denied. There was nothing to forget.
-  }
-}
-
-/** `ws://` or `wss://` this page's own host, at `BRIDGE_PATH`. */
-export function bridgeUrlFromLocation(): string {
-  const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-  return `${scheme}//${location.host}/ws`;
-}
-
 function defaultUnauthorized(): void {
-  forgetWebToken();
-  location.reload();
+  console.error("[ws-bridge] the host refused this device's token");
 }
 
 function defaultForbidden(): void {
@@ -236,9 +194,7 @@ class WsTransport implements WsBridgeTransport {
   readonly locallyServed = LOCALLY_SERVED;
 
   constructor(private readonly options: WsTransportOptions) {
-    if (options.pipe) this.pipe = options.pipe;
-    else if (options.url !== undefined) this.pipe = webSocketPipe(options.url);
-    else throw new Error("createWsTransport needs a url or a pipe");
+    this.pipe = options.pipe;
   }
 
   retryNow(): void {
@@ -418,7 +374,7 @@ class WsTransport implements WsBridgeTransport {
     }
 
     // Capped exponential backoff: a laptop that closed its lid should not
-    // find a hundred failed dials in the tunnel's log when it wakes.
+    // find a hundred failed dials in the relay's log when it wakes.
     const delay = Math.min(
       RECONNECT_MAX_MS,
       RECONNECT_MIN_MS * 2 ** this.attempt,

@@ -501,12 +501,12 @@ export function initApp(devTitle: string | null): void {
     statsStore.recordOnce("prsMerged", prUrl);
   });
 
-  // ADR-161's remote-control surface. Constructed here so the status sink and
-  // the quit hook can see it; deliberately *not* started — remote control is
-  // off until the user turns it on, and even then the listener is loopback-only
-  // until they separately start the relay. The listener and relay modules are
-  // not even loaded until then (ADR-205 §3): `loadRuntime` runs at most once,
-  // on the first enable.
+  // ADR-161's remote control. Constructed here so the status sink and the
+  // quit hook can see it; deliberately *not* started — remote control is off
+  // until the user turns it on, and even then nothing is reachable until they
+  // separately start the relay (ADR-207: there is no listener). The gate and
+  // relay modules are not even loaded until then (ADR-205 §3): `loadRuntime`
+  // runs at most once, on the first enable.
   const remoteDeviceStore = new RemoteDeviceStore();
   const remotePush = new PushManager(remoteDeviceStore);
   /**
@@ -515,9 +515,9 @@ export function initApp(devTitle: string | null): void {
    * handler table runs against exactly that object, and the PTY forwarding
    * below has to be able to see the bridge before it is assigned.
    *
-   * The WebSocket transport — the web app's way in — is built with the
-   * remote-control runtime instead, because it is only reachable through that
-   * listener (and so loads lazily with it, ADR-205 §3). It attaches to the
+   * The socket transport — the web app's way in — is built with the
+   * remote-control runtime instead, because it is only reachable through the
+   * relay (and so loads lazily with it, ADR-205 §3). It attaches to the
    * same `bridgeServer` the desktop's windows do: one table, one connection
    * registry, two transports.
    */
@@ -526,12 +526,12 @@ export function initApp(devTitle: string | null): void {
   let ipcBridge: IpcBridgeTransport | null = null;
   const loadRemoteControlRuntime = async (): Promise<RemoteControlRuntime> => {
     const [
-      { RemoteControlServer },
+      { RelayGate },
       { WsBridgeServer },
       { RelayConnector },
       { RelayIdentityStore },
     ] = await Promise.all([
-      import("./remote-control/server"),
+      import("./remote-control/relay-gate"),
       import("./bridge/transports/ws"),
       import("./remote-control/relay/connector"),
       import("./remote-control/relay/identity"),
@@ -545,24 +545,14 @@ export function initApp(devTitle: string | null): void {
       appVersion: app.getVersion(),
     });
     wsBridge = ws;
-    const server = new RemoteControlServer(
-      // The same `HostDeps` the bridge and the desktop's routes run over
-      // (ADR-182 D8), built synchronously during `initApp` too.
-      () => ipcDeps,
-      remoteDeviceStore,
-      // Rate limiter, audit log, and client directory all take their defaults.
-      { push: remotePush, bridge: ws },
-    );
-    // ADR-206's relay: the only way to reach the machine from off it, feeding
-    // the same bridge as the listener's `/ws`. Constructed, never started
-    // here — only an explicit user action (via the controller) dials it.
+    // The hello gate every relay channel passes (ADR-207 D3): device verify,
+    // failed-auth backoff, and the device's live connections for a revoke.
+    const gate = new RelayGate(remoteDeviceStore, ws);
+    // ADR-206's relay: the only way in. Constructed, never started here —
+    // only an explicit user action (via the controller) dials it.
     const relayIdentity = new RelayIdentityStore();
-    const relay = new RelayConnector({
-      identity: relayIdentity,
-      bridge: ws,
-      authenticate: (token) => server.authenticateRelayHello(token),
-    });
-    return { server, relay, relayIdentity };
+    const relay = new RelayConnector({ identity: relayIdentity, gate });
+    return { gate, relay, relayIdentity };
   };
   const remoteControl = new RemoteControlController(
     loadRemoteControlRuntime,
@@ -752,8 +742,7 @@ export function initApp(devTitle: string | null): void {
   const webviewServer = webviewIpc.createWebviewServer(() => ipcDeps);
 
   // The one deps object every host-side handler runs over — the bridge's
-  // table, the IPC modules below, and the control routes on both listeners
-  // (ADR-182 D8).
+  // table, the IPC modules below, and the control routes (ADR-182 D8).
   const ipcDeps: HostDeps = {
     get mainWindow() {
       return mainWindow;
@@ -1013,10 +1002,10 @@ export function initApp(devTitle: string | null): void {
     // The layout debounce is 300ms; a quit inside that window must not be the
     // one that loses the user's arrangement.
     layoutStore.flush();
-    // Takes the relay down first, then the listener. Nothing reachable may
-    // outlive the app that opened it.
+    // Takes the relay down first, then the connections it carried. Nothing
+    // reachable may outlive the app that opened it.
     void remoteControl.shutdown();
-    // Bridge sockets die with the listener above; disposing the surface then
+    // Bridge sockets close with remote control above; disposing the surface then
     // releases the renderer-broadcast and attachment sinks so nothing
     // publishes into a connection set that is gone.
     wsBridge?.dispose();

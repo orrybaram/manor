@@ -4,46 +4,29 @@
  * (ADR-206 D4). Pure enough to test without importing `install-web.ts`,
  * which installs the bridge as a side effect.
  *
- * Two link forms, both in the fragment — which no browser sends to any
- * server, the relay and Cloudflare's logs included:
- *
- * - **Listener:** `https://<listener>/app#<token>`. Unchanged since ADR-178.
- * - **Relay:** `https://<relay-origin>/app/<version>/#relay=<roomId>.<x25519Pub>&t=<token>`,
- *   with `roomId` and the key base64url, and the token as the device store
- *   minted it.
- *
- * **Which pipe a page uses** is decided by one rule: *relay mode iff relay
- * credentials are known* — from this load's fragment, or stored under
- * `WEB_RELAY_KEY`. A page served by a Manor listener can never hold them:
- * relay links name the relay origin, and `localStorage` is per origin, so the
- * listener origin's storage only ever sees listener tokens. A fresh fragment
- * of either form also clears the stored credentials of the other form, so the
- * most recent link is the one that counts — with one exception below.
+ * One link form, in the fragment — which no browser sends to any server, the
+ * relay and Cloudflare's logs included:
+ * `https://<relay-origin>/app/<version>/#relay=<roomId>.<x25519Pub>&t=<token>`,
+ * with `roomId` and the key base64url, and the token as the device store
+ * minted it. The relay origin is the only server the web app has (ADR-207
+ * D2); a page with no relay credentials is simply not paired.
  *
  * **Which fragments count as a link at all.** A fragment is also what an
  * ordinary in-page anchor (`#details`, a markdown footnote opened in a new
  * tab) leaves behind, so only two shapes are read:
  *
- * - `relay=…` — the relay form; one that does not parse is `invalid`
- *   (stripped, nothing stored).
+ * - `relay=…` — the link; one that does not parse is `invalid` (stripped,
+ *   nothing stored).
  * - exactly a device token as `devices.ts` mints it: 32 random bytes in
- *   base64url, 43 characters of `[A-Za-z0-9_-]` (`TOKEN_PATTERN`).
+ *   base64url, 43 characters of `[A-Za-z0-9_-]` (`TOKEN_PATTERN`) — the old
+ *   loopback listener's `/app#<token>` link. Nothing can use it any more, but
+ *   it is a credential: also `invalid`, so it is stripped from the URL and
+ *   history without being stored or touching a stored relay pairing.
  *
  * Anything else is `none`: left in the URL, nothing read, nothing forgotten.
- *
- * **A relay-served page never takes a listener token.** A page is
- * relay-served when its path is under `/app/<version>/` (`isRelayPath`):
- * that versioned base is the relay build's (`scripts/build-web-relay.mjs`);
- * the listener build's base is `/app/` and the listener serves nothing under
- * a version segment. On such a page a listener-form fragment is stripped (it
- * looks like a credential) but neither stored nor allowed to clear stored
- * relay credentials — a listener token cannot work against the relay origin
- * (it would dial the relay's nonexistent `/ws` forever), so accepting it
- * could only break a working relay pairing.
  */
 
 import { ROOM_ID_LENGTH, base64urlDecode } from "../lib/relay-crypto";
-import { WEB_TOKEN_KEY } from "./transports/ws";
 
 /** Where a relay pairing is kept: `{ roomId, serverKey, token }` as JSON. */
 export const WEB_RELAY_KEY = "manor.web.relay";
@@ -58,16 +41,17 @@ export interface RelayCredentials {
   token: string;
 }
 
-export type Pairing =
-  | { mode: "listener"; token: string | null }
-  | { mode: "relay"; relay: RelayCredentials };
+/** The relay pairing this page holds, or null for none. */
+export type Pairing = RelayCredentials | null;
 
 /** What one fragment says, before anything is stored. */
 export type FragmentPairing =
   | { kind: "none" }
-  | { kind: "listener"; token: string }
   | { kind: "relay"; relay: RelayCredentials }
-  /** Looked like a relay link but did not parse. Nothing is stored. */
+  /**
+   * Looked like a credential but is not a usable link: a relay link that did
+   * not parse, or a bare token. Stripped; nothing is stored.
+   */
   | { kind: "invalid" };
 
 const ROOM_ID_PATTERN = new RegExp(`^[A-Za-z0-9_-]{${ROOM_ID_LENGTH}}$`);
@@ -76,13 +60,6 @@ const ROOM_ID_PATTERN = new RegExp(`^[A-Za-z0-9_-]{${ROOM_ID_LENGTH}}$`);
  * `randomBytes(32).toString("base64url")`, unpadded — 43 characters.
  */
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-/** A path under a versioned base, `/app/<version>/…` — the relay's only. */
-const RELAY_PATH_PATTERN = /^\/app\/[^/]+\//;
-
-/** Whether a page at `pathname` is relay-served (see the header). */
-function isRelayPath(pathname: string): boolean {
-  return RELAY_PATH_PATTERN.test(pathname);
-}
 const X25519_KEY_BYTES = 32;
 
 function decodeKey(text: string): Uint8Array | null {
@@ -119,7 +96,7 @@ export function parseFragment(hash: string): FragmentPairing {
   if (!fragment.startsWith("relay=")) {
     // Not token-shaped: an in-page anchor or some other app's fragment.
     return TOKEN_PATTERN.test(fragment)
-      ? { kind: "listener", token: fragment }
+      ? { kind: "invalid" }
       : { kind: "none" };
   }
 
@@ -184,26 +161,19 @@ function storedRelay(): RelayCredentials | null {
 /**
  * Take a pairing out of the fragment on this load, store it, and strip the
  * fragment so it cannot linger in history or a screenshot; otherwise read
- * what was stored. See the header for the mode rule.
+ * what was stored. A fresh link replaces whatever was stored before it, so
+ * the most recent link is the one that counts.
  */
 export function readPairing(): Pairing {
   const fresh = parseFragment(location.hash);
   if (fresh.kind !== "none") {
     history.replaceState(null, "", location.pathname + location.search);
   }
-  if (fresh.kind === "listener" && !isRelayPath(location.pathname)) {
-    storageRemove(WEB_RELAY_KEY);
-    storageSet(WEB_TOKEN_KEY, fresh.token);
-    return { mode: "listener", token: fresh.token };
-  }
   if (fresh.kind === "relay") {
-    storageRemove(WEB_TOKEN_KEY);
     storageSet(WEB_RELAY_KEY, JSON.stringify(fresh.relay));
-    return { mode: "relay", relay: fresh.relay };
+    return fresh.relay;
   }
-  const relay = storedRelay();
-  if (relay) return { mode: "relay", relay };
-  return { mode: "listener", token: storageGet(WEB_TOKEN_KEY) };
+  return storedRelay();
 }
 
 /**
@@ -212,18 +182,13 @@ export function readPairing(): Pairing {
  * and a stale tab's refusal must not erase that.
  */
 export function forgetPairing(pairing: Pairing): void {
-  if (pairing.mode === "listener") {
-    if (pairing.token !== null && storageGet(WEB_TOKEN_KEY) === pairing.token) {
-      storageRemove(WEB_TOKEN_KEY);
-    }
-    return;
-  }
+  if (pairing === null) return;
   const stored = storedRelay();
   if (
     stored !== null &&
-    stored.roomId === pairing.relay.roomId &&
-    stored.serverKey === pairing.relay.serverKey &&
-    stored.token === pairing.relay.token
+    stored.roomId === pairing.roomId &&
+    stored.serverKey === pairing.serverKey &&
+    stored.token === pairing.token
   ) {
     storageRemove(WEB_RELAY_KEY);
   }

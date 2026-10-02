@@ -131,10 +131,9 @@ function PairingQr(props: { url: string }) {
  * The one moment the raw token exists in the UI.
  *
  * What the device needs is a *link* — the token rides in its fragment — so the
- * link is what this leads with. Without a pairing URL it points at loopback,
- * which still works in a browser on this machine and is the fastest way to see
- * what the phone will see. The QR code only appears for an address a phone can
- * actually reach.
+ * link is what this leads with, with its QR code. Only a relay pairing has one:
+ * the relay is the only road to this machine (ADR-207), so there is nothing
+ * else to link to.
  *
  * A relay link always has an address; what it may lack is a running relay,
  * and an iPhone needs one more step for notifications (ADR-206 D7) — both
@@ -142,23 +141,14 @@ function PairingQr(props: { url: string }) {
  */
 export function PairingResultDialog(props: {
   result: RemotePairResult | null;
-  /** Loopback address of the listener, for the local link. */
-  port: number | null;
   /** Whether the relay is connected, for a relay device's link. */
   relayRunning: boolean;
   onClose: () => void;
 }) {
-  const { result, port, relayRunning, onClose } = props;
+  const { result, relayRunning, onClose } = props;
 
   const pairingUrl = result?.pairingUrl ?? null;
   const viaRelay = result?.device.via === "relay";
-  // The server decides the page once and sends it back on the result, so a
-  // `full` device's loopback link opens the web app rather than the phone
-  // client.
-  const localUrl =
-    result && port !== null
-      ? `http://127.0.0.1:${port}${result.page}#${result.rawToken}`
-      : null;
 
   return (
     <Dialog.Root
@@ -185,14 +175,16 @@ export function PairingResultDialog(props: {
             {pairingUrl && <PairingQr key={pairingUrl} url={pairingUrl} />}
 
             <div>
-              <div className={styles.fieldLabel}>
-                {pairingUrl ? "Link" : "Link (this machine only)"}
-              </div>
-              <CopyField
-                value={pairingUrl ?? localUrl ?? ""}
-                label="link"
-                testId="remote-pairing-link"
-              />
+              {pairingUrl && (
+                <>
+                  <div className={styles.fieldLabel}>Link</div>
+                  <CopyField
+                    value={pairingUrl}
+                    label="link"
+                    testId="remote-pairing-link"
+                  />
+                </>
+              )}
               {viaRelay && !relayRunning && (
                 <div
                   className={styles.fieldHint}

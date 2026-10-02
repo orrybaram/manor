@@ -47,11 +47,10 @@ interface PortRow {
 
 interface RemoteControlStatusRow {
   enabled: boolean;
-  port: number | null;
   devices: Array<{ id: string; label: string }>;
   /** The Manor relay (ADR-206). Optional only for an older app's reply. */
   relay?: { state: string; url: string | null; error: string | null };
-  listeners: number;
+  /** Open relay channels. Optional only for an older app's reply. */
   relayViewers?: number;
 }
 
@@ -93,12 +92,10 @@ function relayLine(relay: RemoteControlStatusRow["relay"]): string {
 /** Render a remote-control status the same way for both of its tools. */
 function formatRemoteStatus(status: RemoteControlStatusRow): string {
   const lines = [
-    `Remote control: ${status.enabled ? `on (port ${status.port})` : "off"}`,
+    `Remote control: ${status.enabled ? "on" : "off"}`,
     `Relay: ${relayLine(status.relay)}`,
     `Paired devices: ${status.devices.length}`,
-    `Live listeners: ${status.listeners}${
-      status.relayViewers ? ` (${status.relayViewers} through the relay)` : ""
-    }`,
+    `Connected through the relay: ${status.relayViewers ?? 0}`,
   ];
   return lines.join("\n");
 }
@@ -279,13 +276,13 @@ const tools: ToolDef[] = [
   {
     name: "set_remote_control_enabled",
     description:
-      "Turn remote control's local listener on or off. Turning it off also stops the Manor relay. Pairing a device stays in the UI.",
+      "Turn remote control on or off. Nothing listens locally either way: devices connect only through the Manor relay, which is started from the UI. Turning it off also stops the relay. Pairing a device stays in the UI.",
     inputSchema: {
       type: "object" as const,
       properties: {
         enabled: {
           type: "boolean",
-          description: "True to start the listener, false to stop it.",
+          description: "True to turn remote control on, false to turn it off.",
         },
       },
       required: ["enabled"],

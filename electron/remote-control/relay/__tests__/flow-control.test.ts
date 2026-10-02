@@ -83,11 +83,19 @@ describe("relay host socket flow control", () => {
           },
         }),
       },
-      bridge,
-      authenticate: (token): BridgeAuthResult =>
-        token === TOKEN
-          ? { ok: true, device: { id: "d", label: "p", capability: "full" } }
-          : { ok: false, code: 4401 },
+      gate: {
+        attach: (socket) =>
+          bridge.attach(
+            socket,
+            (token): BridgeAuthResult =>
+              token === TOKEN
+                ? {
+                    ok: true,
+                    device: { id: "d", label: "p", capability: "full" },
+                  }
+                : { ok: false, code: 4401 },
+          ),
+      },
       relayUrl: link.url,
       timing: { backoffMinMs: 20, backoffMaxMs: 100, ...timing },
     });

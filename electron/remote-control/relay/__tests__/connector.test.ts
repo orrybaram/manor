@@ -1,8 +1,8 @@
 /**
  * The relay connector end to end (ADR-206 D5): a real `ws` relay in-process,
- * a viewer running the real Noise initiator, the real `WsBridgeServer` hello
- * gate and `RemoteControlServer.authenticateRelayHello` — only the bridge's
- * handler table is a stub.
+ * a viewer running the real Noise initiator, the real `RelayGate` in front of
+ * the real `WsBridgeServer` hello gate — only the bridge's handler table is a
+ * stub.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -18,9 +18,8 @@ import {
   type BridgeAuthResult,
 } from "../../../bridge/transports/ws";
 import type { BridgeConnection } from "../../../bridge/types";
-import type { HostDeps } from "../../../ipc/types";
 import { AuthRateLimiter } from "../../rate-limit";
-import { RemoteControlServer, type AuthenticatedDevice } from "../../server";
+import { RelayGate, type AuthenticatedDevice } from "../../relay-gate";
 import {
   RelayConnector,
   parseRelayUrl,
@@ -83,7 +82,7 @@ describe("RelayConnector", () => {
   let accepted: BridgeConnection[];
   let authResults: BridgeAuthResult[];
   let bridge: WsBridgeServer;
-  let remote: RemoteControlServer;
+  let gate: RelayGate;
 
   beforeEach(async () => {
     relay = new FakeRelay();
@@ -105,13 +104,13 @@ describe("RelayConnector", () => {
       },
     } as unknown as BridgeServer;
     bridge = new WsBridgeServer(host, { appVersion: "9.9.9" });
-    remote = new RemoteControlServer(
-      () => ({}) as unknown as HostDeps,
+    gate = new RelayGate(
       {
         verify: (raw) =>
           raw === FULL_TOKEN ? full : raw === SEND_TOKEN ? send : null,
       },
-      { limiter: new AuthRateLimiter(), clientDir: null, webDir: null },
+      bridge,
+      new AuthRateLimiter(),
     );
   });
 
@@ -125,11 +124,14 @@ describe("RelayConnector", () => {
   function connector(timing: Record<string, number> = {}): RelayConnector {
     const c = new RelayConnector({
       identity: { load: () => clone(identity) },
-      bridge,
-      authenticate: (token) => {
-        const result = remote.authenticateRelayHello(token);
-        authResults.push(result);
-        return result;
+      // The real gate, with every verdict it hands the bridge recorded.
+      gate: {
+        attach: (socket) =>
+          bridge.attach(socket, (token) => {
+            const result = gate.authenticate(token);
+            authResults.push(result);
+            return result;
+          }),
       },
       relayUrl: relay.url,
       timing: { backoffMinMs: 20, backoffMaxMs: 100, ...timing },
@@ -211,14 +213,13 @@ describe("RelayConnector", () => {
   });
 
   it("revoking a device closes its live relay channel with 4401", async () => {
-    remote.setBridge(bridge);
     const c = connector();
     await running(c);
     const v = await viewer();
     v.send({ type: "hello", token: FULL_TOKEN });
     await v.next((f) => f.type === "hello");
 
-    remote.closeDevice("d-full");
+    gate.closeDevice("d-full");
     expect(await v.closed).toBe(4401);
   });
 
@@ -361,8 +362,7 @@ describe("RelayConnector", () => {
           throw new Error("no keychain");
         },
       },
-      bridge,
-      authenticate: () => ({ ok: false, code: 4401 }),
+      gate,
       relayUrl: relay.url,
     });
     c.start();

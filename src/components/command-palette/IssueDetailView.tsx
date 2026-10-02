@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef } from "react";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { useQuery } from "@tanstack/react-query";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
@@ -8,6 +8,7 @@ import { useProjectStore } from "../../store/project-store";
 import type { LinearIssue, LinearIssueDetail } from "../../electron.d";
 import { PRIORITY_LABELS, stripMarkdown, extractImages } from "./utils";
 import { IssueDetailSkeleton } from "./IssueDetailSkeleton";
+import { ProxiedImage } from "../tasks/TaskDetail/ProxiedImage";
 import type { CommandPaletteProps } from "./types";
 import { Row, Stack } from "../ui/Layout/Layout";
 import { startLinearIssueWork } from "../../lib/start-issue-work";
@@ -190,7 +191,12 @@ export function IssueDetailView(props: IssueDetailViewProps) {
           {images.length > 0 && (
             <div className={styles.detailScreenshots}>
               {images.map((img) => (
-                <ProxiedImage key={img.url} url={img.url} alt={img.alt} />
+                <ProxiedImage
+                  key={img.url}
+                  provider="linear"
+                  url={img.url}
+                  alt={img.alt}
+                />
               ))}
             </div>
           )}
@@ -292,30 +298,5 @@ export function IssueDetailView(props: IssueDetailViewProps) {
         </button>
       </div>
     </>
-  );
-}
-
-function ProxiedImage({ url, alt }: { url: string; alt: string }) {
-  const [src, setSrc] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    window.electronAPI.linear.proxyImage(url).then((dataUrl) => {
-      if (!cancelled) setSrc(dataUrl);
-    }).catch(() => {
-      // Fallback to raw URL if proxy fails
-      if (!cancelled) setSrc(url);
-    });
-    return () => { cancelled = true; };
-  }, [url]);
-
-  if (!src) return null;
-
-  return (
-    <img
-      src={src}
-      alt={alt || "Screenshot"}
-      className={styles.detailScreenshot}
-    />
   );
 }

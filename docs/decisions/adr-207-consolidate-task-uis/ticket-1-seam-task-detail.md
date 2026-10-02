@@ -1,6 +1,6 @@
 ---
 title: Seam — TaskRef, normalized TaskDetail and task actions
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: []

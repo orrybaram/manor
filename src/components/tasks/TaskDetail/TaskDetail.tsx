@@ -1,0 +1,550 @@
+import { useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
+import ExternalLink from "lucide-react/dist/esm/icons/external-link";
+import { useMountEffect } from "../../../hooks/useMountEffect";
+import { projectColorStyle } from "../../../hooks/useProjectHeaderRow";
+import { isHomePath } from "../../../lib/home-path";
+import { openExternal } from "../../../lib/open-external";
+import type { NewWorkspaceHandler } from "../../../lib/start-issue-work";
+import { stripMarkdown } from "../../../lib/task-images";
+import {
+  initialOf,
+  relativeTime,
+  type TaskDetail as TaskDetailData,
+  type TaskRef,
+  type TaskRow,
+} from "../../../lib/tasks";
+import { trackerFor } from "../../../lib/trackers";
+import { agentPrompt } from "../../../lib/trackers/shared";
+import { ownerOf } from "../../../lib/workspace-directory";
+import { selectActiveWorkspaceKey, useAppStore } from "../../../store/app-store";
+import { useProjectStore } from "../../../store/project-store";
+import { addErrorToast } from "../../../store/toast-store";
+import { Button } from "../../ui/Button/Button";
+import { Link } from "../../ui/Link/Link";
+import { Tooltip } from "../../ui/Tooltip/Tooltip";
+import { PriorityIcon } from "../PriorityIcon";
+import { TrackerRowIcon } from "../tracker-icons";
+import { useStartTask } from "../useStartTask";
+import { ProxiedImage } from "./ProxiedImage";
+import { TaskBodySkeleton, TaskMetaSkeleton } from "./TaskDetailSkeleton";
+import tasksStyles from "../TasksView.module.css";
+import styles from "./TaskDetail.module.css";
+
+type TaskDetailProps = {
+  taskRef: TaskRef;
+  /** The listed row, when there is one — Start needs it. */
+  row?: TaskRow;
+  /** `linked`: the task is linked to a workspace — Unlink / Close & Unlink instead of Start. */
+  mode: "default" | "linked";
+  /** `card`: body beside meta (palette, dialogs). `drawer`: one narrow column (Tasks view). */
+  layout: "card" | "drawer";
+  /** The linked workspace's label (linked mode). */
+  linkedTo?: string;
+  /** The linked workspace's project and path (linked mode): what Unlink detaches from. */
+  projectId?: string;
+  workspacePath?: string;
+  onNewWorkspace: NewWorkspaceHandler;
+  /** Launches an agent in the active workspace; New agent here is offered only with it. */
+  onNewAgentWithPrompt?: (prompt: string) => void;
+  /** After an action that should close the host (started, opened, unlinked…). */
+  onDone: () => void;
+  /** Handle ↵ / ⌘↵ / ⌘O on `window` while mounted (default true). */
+  keyboard?: boolean;
+};
+
+/**
+ * Focus that sits in a field or on a control keeps its own Enter: neither a
+ * text input elsewhere on the page nor a focused button triggers Start.
+ */
+function ownsEnter(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable ||
+      target.closest("input, textarea, select, button, a") !== null)
+  );
+}
+
+/** A card takes focus so the host's (possibly hidden) search input doesn't keep the keys. */
+function focusOnMount(el: HTMLDivElement | null) {
+  el?.focus({ preventScroll: true });
+}
+
+/**
+ * ADR-207 §2: one task's detail — tracker-agnostic, fed by the tracker seam's
+ * `detailQuery`. Renders title, status, assignees, project, labels,
+ * priority / milestone, the body and its images, and the action bar.
+ */
+export function TaskDetail(props: TaskDetailProps) {
+  const {
+    taskRef,
+    row,
+    mode,
+    layout,
+    linkedTo,
+    projectId,
+    workspacePath,
+    onNewWorkspace,
+    onNewAgentWithPrompt,
+    onDone,
+    keyboard = true,
+  } = props;
+
+  const tracker = trackerFor(taskRef.provider);
+  const startTask = useStartTask(onNewWorkspace);
+  // The Dashboard has no tabs to host a new agent (ADR-197).
+  const onHome = useAppStore((s) => isHomePath(s.activeWorkspacePath));
+  const [busy, setBusy] = useState(false);
+
+  const { data: detail, isLoading, error, refetch } = useQuery({
+    ...tracker.detailQuery(taskRef),
+    // Tracker failures (not found, auth) are deterministic; Retry is offered instead.
+    retry: false,
+  });
+
+  const canStart = mode === "default" && row !== undefined;
+  const canNewAgent =
+    mode === "default" &&
+    tracker.startHere !== undefined &&
+    onNewAgentWithPrompt !== undefined &&
+    !onHome;
+
+  const handleStart = async () => {
+    if (!row) return;
+    try {
+      await startTask(row);
+    } catch (err) {
+      addErrorToast(`start-task-error-${row.key}`, "Failed to start task", err);
+      return;
+    }
+    onDone();
+  };
+
+  const handleNewAgent = () => {
+    if (!canNewAgent || !detail) return;
+    const state = useAppStore.getState();
+    const activePath = state.activeWorkspacePath;
+    const owner = ownerOf(
+      useProjectStore.getState().projects,
+      selectActiveWorkspaceKey(state),
+    );
+    if (owner && activePath) {
+      tracker.startHere?.(taskRef, detail, {
+        onNewAgentWithPrompt,
+        projectId: owner.id,
+        workspacePath: activePath,
+      });
+    } else {
+      // No workspace to link the task to — still launch the agent.
+      onNewAgentWithPrompt(agentPrompt(taskRef, detail));
+    }
+    onDone();
+  };
+
+  const handleOpen = () => {
+    openExternal(taskRef.url);
+    onDone();
+  };
+
+  const handleUnlink = async () => {
+    if (!projectId || !workspacePath || !tracker.unlink) return;
+    setBusy(true);
+    try {
+      await tracker.unlink(taskRef, projectId, workspacePath);
+    } catch (err) {
+      addErrorToast(
+        `unlink-issue-error-${taskRef.id}`,
+        "Failed to unlink task",
+        err,
+      );
+      setBusy(false);
+      return;
+    }
+    onDone();
+  };
+
+  const handleCloseAndUnlink = async () => {
+    if (!projectId || !workspacePath || !tracker.close || !tracker.unlink) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await tracker.close(taskRef);
+    } catch (err) {
+      addErrorToast(
+        `close-issue-error-${taskRef.id}`,
+        "Failed to close task",
+        err,
+      );
+      setBusy(false);
+      return;
+    }
+    onDone();
+    try {
+      await tracker.unlink(taskRef, projectId, workspacePath);
+    } catch (err) {
+      // The task genuinely is closed now — surface the stale link without
+      // undoing the close.
+      addErrorToast(
+        `unlink-after-close-error-${taskRef.id}`,
+        "Task closed, but failed to unlink",
+        err,
+      );
+    }
+  };
+
+  // Keyboard shortcuts — refs hold latest values so the mount effect never re-subscribes.
+  const latest = {
+    keyboard,
+    mode,
+    canStart,
+    canNewAgent,
+    handleStart,
+    handleNewAgent,
+    handleOpen,
+  };
+  const latestRef = useRef(latest);
+  latestRef.current = latest;
+
+  // The Enter keyup that opened the detail can arrive after this effect
+  // registers its listener, so Enter waits on a `ready` flag set after a frame.
+  useMountEffect(() => {
+    let ready = false;
+    const rafId = requestAnimationFrame(() => {
+      ready = true;
+    });
+    const onKeyUp = (e: globalThis.KeyboardEvent) => {
+      const l = latestRef.current;
+      if (!ready || !l.keyboard || l.mode !== "default") return;
+      if (e.key !== "Enter" || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) {
+        return;
+      }
+      if (!l.canStart || ownsEnter(e.target)) return;
+      e.preventDefault();
+      void l.handleStart();
+    };
+    // ⌘-chords on keydown: macOS swallows a key's keyup while ⌘ is held.
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      const l = latestRef.current;
+      if (!l.keyboard || !e.metaKey) return;
+      if (e.key === "o") {
+        e.preventDefault();
+        l.handleOpen();
+      } else if (
+        e.key === "Enter" &&
+        ready &&
+        l.mode === "default" &&
+        l.canNewAgent &&
+        !ownsEnter(e.target)
+      ) {
+        e.preventDefault();
+        l.handleNewAgent();
+      }
+    };
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  });
+
+  const status = detail?.status ?? row?.status;
+  const statusPill = status && (
+    <span
+      className={`${tasksStyles.status} ${tasksStyles[`tone-${status.tone}`]}`}
+    >
+      {status.label}
+    </span>
+  );
+
+  const meta = isLoading ? (
+    <TaskMetaSkeleton />
+  ) : (
+    <TaskMeta
+      detail={detail}
+      row={row}
+      taskRef={taskRef}
+      statusPill={layout === "drawer" ? statusPill : undefined}
+    />
+  );
+
+  const body = isLoading ? (
+    <TaskBodySkeleton />
+  ) : detail ? (
+    <TaskBody provider={taskRef.provider} detail={detail} />
+  ) : (
+    <TaskDetailError
+      taskRef={taskRef}
+      trackerLabel={tracker.label}
+      error={error}
+      onRetry={() => refetch()}
+    />
+  );
+
+  const title = <h2 className={styles.title}>{taskRef.title}</h2>;
+
+  const openLabel = `Open in ${tracker.label}`;
+  const openLink = taskRef.url && (
+    <Link
+      href={taskRef.url}
+      variant="plain"
+      className={styles.openLink}
+      onClick={onDone}
+      aria-label={openLabel}
+    >
+      <ExternalLink size={13} aria-hidden />
+      {layout === "card" && (
+        <>
+          {openLabel}
+          <kbd className={styles.kbd}>⌘O</kbd>
+        </>
+      )}
+    </Link>
+  );
+
+  const actions = (
+    <div className={styles.actions}>
+      {mode === "linked" ? (
+        <>
+          {linkedTo && (
+            <span className={styles.linked}>
+              Linked to <strong>{linkedTo}</strong>
+            </span>
+          )}
+          {tracker.unlink && (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={busy}
+              onClick={handleUnlink}
+            >
+              Unlink
+            </Button>
+          )}
+          {tracker.close && tracker.unlink && (
+            <Button
+              size="sm"
+              variant="danger"
+              disabled={busy}
+              onClick={handleCloseAndUnlink}
+            >
+              Close &amp; Unlink
+            </Button>
+          )}
+        </>
+      ) : (
+        <>
+          {canStart && (
+            <Button size="sm" variant="primary" onClick={handleStart}>
+              {layout === "card" ? "Start in new workspace" : "Start"}
+              <kbd className={styles.kbd}>↵</kbd>
+            </Button>
+          )}
+          {canNewAgent && (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!detail}
+              onClick={handleNewAgent}
+            >
+              New agent here
+              <kbd className={styles.kbd}>⌘↵</kbd>
+            </Button>
+          )}
+        </>
+      )}
+      <span className={styles.spacer} />
+      {openLink &&
+        (layout === "drawer" ? (
+          <Tooltip label={`${openLabel} (⌘O)`}>{openLink}</Tooltip>
+        ) : (
+          openLink
+        ))}
+    </div>
+  );
+
+  return (
+    <div
+      className={`${styles.root} ${styles[layout]}`}
+      data-testid="task-detail"
+      tabIndex={-1}
+      ref={layout === "card" && keyboard ? focusOnMount : undefined}
+    >
+      {layout === "card" ? (
+        <div className={styles.layout}>
+          <div className={styles.main}>
+            <div className={styles.header}>
+              <span className={styles.displayId}>
+                <TrackerRowIcon provider={taskRef.provider} />
+                {taskRef.displayId}
+              </span>
+              {statusPill}
+            </div>
+            {title}
+            {body}
+          </div>
+          <div className={styles.meta}>{meta}</div>
+        </div>
+      ) : (
+        <div className={styles.layout}>
+          {title}
+          <div className={styles.meta}>{meta}</div>
+          <div className={styles.main}>{body}</div>
+        </div>
+      )}
+      {actions}
+    </div>
+  );
+}
+
+type MetaFieldProps = {
+  label: string;
+  children: ReactNode;
+};
+
+function MetaField(props: MetaFieldProps) {
+  const { label, children } = props;
+
+  return (
+    <div className={styles.metaField}>
+      <span className={styles.metaLabel}>{label}</span>
+      <span className={styles.metaValue}>{children}</span>
+    </div>
+  );
+}
+
+type TaskMetaProps = {
+  detail: TaskDetailData | undefined;
+  row: TaskRow | undefined;
+  taskRef: TaskRef;
+  /** The drawer has no header line, so its status is a meta field. */
+  statusPill: ReactNode;
+};
+
+/** The meta fields; a field the task has nothing for is left out. */
+function TaskMeta(props: TaskMetaProps) {
+  const { detail, row, taskRef, statusPill } = props;
+
+  const [now] = useState(() => Date.now());
+  const assignees = detail?.assignees ?? row?.assignees ?? [];
+  const labels = detail?.labels ?? row?.labels ?? [];
+  const priority = detail?.priority ?? row?.priority;
+  const milestone = detail?.milestone ?? row?.milestone;
+  const projectName = row?.projectName ?? taskRef.project.name;
+  const projectColor = row ? row.color : taskRef.project.color;
+  const updated = row ? relativeTime(row.updatedAt, now) : "";
+
+  return (
+    <>
+      {statusPill && <MetaField label="Status">{statusPill}</MetaField>}
+      {assignees.length > 0 && (
+        <MetaField label={assignees.length > 1 ? "Assignees" : "Assignee"}>
+          {assignees.map((name) => (
+            <span key={name} className={styles.assignee}>
+              <span className={tasksStyles.avatar} aria-hidden>
+                {initialOf(name)}
+              </span>
+              {name}
+            </span>
+          ))}
+        </MetaField>
+      )}
+      {projectName && (
+        <MetaField label="Project">
+          <span
+            className={tasksStyles.projectName}
+            style={projectColorStyle(projectColor)}
+          >
+            {projectName}
+          </span>
+        </MetaField>
+      )}
+      {labels.length > 0 && (
+        <MetaField label="Labels">
+          {labels.map((label) => (
+            <span
+              key={label.name}
+              className={tasksStyles.label}
+              style={
+                label.color
+                  ? ({ "--label-color": label.color } as CSSProperties)
+                  : undefined
+              }
+            >
+              {label.name}
+            </span>
+          ))}
+        </MetaField>
+      )}
+      {priority && priority.value > 0 && (
+        <MetaField label="Priority">
+          <PriorityIcon value={priority.value} />
+          {priority.label}
+        </MetaField>
+      )}
+      {milestone && <MetaField label="Milestone">{milestone}</MetaField>}
+      {updated && <MetaField label="Updated">{updated}</MetaField>}
+    </>
+  );
+}
+
+type TaskBodyProps = {
+  provider: TaskRef["provider"];
+  detail: TaskDetailData;
+};
+
+function TaskBody(props: TaskBodyProps) {
+  const { provider, detail } = props;
+
+  const description = detail.body ? stripMarkdown(detail.body) : "";
+
+  return (
+    <>
+      {description ? (
+        <div className={styles.description}>{description}</div>
+      ) : (
+        <div className={styles.empty}>No description.</div>
+      )}
+      {detail.images.length > 0 && (
+        <div className={styles.screenshots}>
+          {detail.images.map((url) => (
+            <ProxiedImage key={url} provider={provider} url={url} />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+type TaskDetailErrorProps = {
+  taskRef: TaskRef;
+  trackerLabel: string;
+  error: unknown;
+  onRetry: () => void;
+};
+
+function TaskDetailError(props: TaskDetailErrorProps) {
+  const { taskRef, trackerLabel, error, onRetry } = props;
+
+  const message =
+    error instanceof Error ? error.message : error ? String(error) : null;
+
+  return (
+    <div className={styles.error} role="alert">
+      <p className={styles.errorTitle}>
+        Couldn't load task {taskRef.displayId}
+      </p>
+      {message && <div className={styles.description}>{message}</div>}
+      <div className={styles.errorActions}>
+        <Button size="sm" onClick={onRetry}>
+          Retry
+        </Button>
+        {taskRef.url && (
+          <Link href={taskRef.url}>Open in {trackerLabel}</Link>
+        )}
+      </div>
+    </div>
+  );
+}

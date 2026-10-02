@@ -131,7 +131,7 @@ const PAGE_SECTIONS: {
   {
     page: "remote",
     pageLabel: "Remote control",
-    pageKeywords: ["remote", "remote control", "devices", "phone", "tunnel", "mobile"],
+    pageKeywords: ["remote", "remote control", "devices", "phone", "relay", "mobile"],
     sections: [
       {
         id: "remote-devices",
@@ -139,9 +139,9 @@ const PAGE_SECTIONS: {
         keywords: ["device", "pairing", "token", "qr", "phone", "revoke"],
       },
       {
-        id: "remote-tunnel",
-        label: "Tunnel",
-        keywords: ["tunnel", "expose", "tailscale", "url", "remote"],
+        id: "remote-relay",
+        label: "Relay",
+        keywords: ["relay", "expose", "url", "remote", "address"],
       },
     ],
   },

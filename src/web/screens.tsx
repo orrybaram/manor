@@ -59,23 +59,6 @@ export function NoTokenScreen(): JSX.Element {
 }
 
 /**
- * Paired, but below `full` (ADR-178 D3). The token is good — it is a `read`
- * or `send` device, and those tiers are an allowlist of routes, not this
- * surface. Said plainly, and without forgetting the token: the same device
- * still works in the remote client at `/`.
- */
-export function ForbiddenScreen(): JSX.Element {
-  return (
-    <FullPageMessage testId="web-app-forbidden">
-      This device isn&apos;t paired with full access, so it can&apos;t open the
-      full Manor app. Re-pair it at full access in Manor &rarr; Settings &rarr;
-      Remote control, or use the lightweight client at{" "}
-      <code style={{ marginLeft: "0.25rem" }}>/</code>.
-    </FullPageMessage>
-  );
-}
-
-/**
  * The desktop's relay address was reset (ADR-206): this link's key no longer
  * matches. The stored pairing is kept — this may be a stale tab, and a reload
  * picks up a fresh link if the page was re-opened from one.

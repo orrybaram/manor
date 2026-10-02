@@ -4,7 +4,7 @@
  * Dials `wss://<relay>/host/<roomId>`, proves it owns the room by signing
  * the relay's challenge with the identity's Ed25519 key, and then turns each
  * `OP_OPEN` into a `RelayChannel` — a Noise responder that, once its
- * handshake is done, is handed to the bridge's hello gate like any socket.
+ * handshake is done, is handed to the hello gate (`../relay-gate.ts`).
  *
  * Host-side wire format (`relay-crypto/protocol.ts`):
  *
@@ -69,8 +69,6 @@ import {
   RELAY_HEADER_BYTES,
 } from "../../../src/lib/relay-crypto/protocol";
 import type { FrameSocket } from "../../bridge/transports/frame-socket";
-import type { BridgeAuthenticator } from "../../bridge/transports/ws";
-import type { TunnelState } from "../tunnel";
 import { RelayChannel } from "./channel";
 import { wipe } from "./identity";
 
@@ -81,9 +79,11 @@ import { wipe } from "./identity";
  */
 export const DEFAULT_RELAY_URL = "https://relay.manor.sh";
 
-/** Same shape as `TunnelStatus`: `url` (the relay origin) is set in `running`. */
+type RelayState = "stopped" | "starting" | "running" | "failed";
+
+/** `url` (the relay origin) is set only in `running`. */
 export interface RelayStatus {
-  state: TunnelState;
+  state: RelayState;
   url: string | null;
   /**
    * Set in `failed`, and in `starting` while reconnecting after a drop (why
@@ -164,10 +164,11 @@ export interface RelayIdentitySource {
 
 export interface RelayConnectorDeps {
   identity: RelayIdentitySource;
-  /** `WsBridgeServer` — each finished channel is `attach`ed to it. */
-  bridge: { attach(socket: FrameSocket, auth: BridgeAuthenticator): void };
-  /** `RemoteControlServer.authenticateRelayHello`. */
-  authenticate: BridgeAuthenticator;
+  /**
+   * `RelayGate` — each finished channel is `attach`ed to it, and so to the
+   * bridge behind the gate's hello check.
+   */
+  gate: { attach(socket: FrameSocket): void };
   /** Defaults to `resolveRelayUrl()`. */
   relayUrl?: string;
   /** Test seams; production uses the defaults. */
@@ -434,8 +435,7 @@ export class RelayConnector {
             ? undefined
             : Uint8Array.of((code >> 8) & 0xff, code & 0xff),
         ),
-      onReady: (ready) =>
-        this.deps.bridge.attach(ready, this.deps.authenticate),
+      onReady: (ready) => this.deps.gate.attach(ready),
       onGone: (gone) => {
         if (this.channels.get(ch) !== gone) return;
         this.channels.delete(ch);

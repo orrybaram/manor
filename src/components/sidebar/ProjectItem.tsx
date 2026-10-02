@@ -930,8 +930,8 @@ export function ProjectItem(props: ProjectItemProps) {
             onCloseAutoFocus={closeAutoFocus}
           >
             {/* `shell.*` has no browser meaning (ADR-178) — removed, not
-                disabled, following the remote client's rule for an
-                affordance a paired device can't use at all. */}
+                disabled, following the same rule for an affordance
+                a paired device can't use at all. */}
             {!isWebApp() && (
               <>
                 <ContextMenu.Item

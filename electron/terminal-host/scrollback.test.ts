@@ -529,7 +529,7 @@ describe("ScrollbackWriter static readers", () => {
 
   /**
    * `POST /sessions/read` passes an unresolved target through as a raw session
-   * id, and ADR-161 puts that route on a listener reachable through a tunnel.
+   * id, and a session id from a caller is untrusted input.
    * A session id therefore has to stay one directory name.
    */
   describe("session id containment", () => {

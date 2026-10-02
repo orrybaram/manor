@@ -133,7 +133,7 @@ export class BridgeUnavailableError extends Error {
  *
  * Every pending invoke gets one the moment the socket closes. The alternative
  * — leaving promises pending across a reconnect — is a UI that spins forever
- * because a tunnel blinked, and a caller that cannot tell "slow" from "gone".
+ * because the relay blinked, and a caller that cannot tell "slow" from "gone".
  * The reconnect happens regardless; it just does not carry the old calls,
  * which may have been applied on the host before it dropped.
  */

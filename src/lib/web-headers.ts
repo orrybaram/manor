@@ -1,14 +1,12 @@
 /**
- * Headers for serving the ADR-178 web app, shared by the Electron listener
- * (`electron/remote-control/static.ts`), the relay Worker (`relay/src/index.ts`,
- * ADR-206 D4) and `vite.web.config.ts`. Dependency-free on purpose: the Worker
+ * Headers for serving the ADR-178 web app, shared by the relay Worker
+ * (`relay/src/index.ts`, ADR-206 D4) — the only server the web app has since
+ * ADR-207 — and `vite.web.config.ts`. Dependency-free on purpose: the Worker
  * cannot import Node modules.
  */
 
 /**
- * The web app's CSP. Looser than the remote client's on purpose — it is the
- * full desktop renderer, not a 16 KB page — but still locked to same-origin
- * for everything: no CDN, no third-party script, no cross-origin fetch.
+ * The web app's CSP. Locked to same-origin for everything: no CDN, no third-party script, no cross-origin fetch.
  * `connect-src 'self'` covers same-origin `ws:`/`wss:` under CSP3 in both
  * Chrome and Safari, so the relay's same-origin `wss://…/join/<room>` socket
  * needs nothing extra.
@@ -25,8 +23,8 @@ export const WEB_CSP = [
 
 /**
  * Cache policy: the shell, the service worker and the manifest are served
- * under stable names (the listener's `/app/manifest.webmanifest` has no
- * version in its path), so they are never cached; everything else is hashed.
+ * under stable names (a version's `sw.js` keeps its name across rebuilds of
+ * that version), so they are never cached; everything else is hashed.
  */
 export function webCacheControl(filename: string): string {
   const base = filename.split("/").pop() ?? filename;

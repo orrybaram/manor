@@ -77,7 +77,7 @@ describe("PushManager", () => {
   });
 
   function pairedWithPush(label = "phone") {
-    const { device } = devices.pair(label, "read");
+    const { device } = devices.pair(label, "room");
     push.subscribe(device.id, SUBSCRIPTION);
     return device;
   }
@@ -129,7 +129,7 @@ describe("PushManager", () => {
   });
 
   it("sends nothing to a device that never subscribed", async () => {
-    devices.pair("silent", "read");
+    devices.pair("silent", "room");
     expect(await push.notify(pushPayloadFor("requires_input", AGENT))).toBe(0);
     expect(send).not.toHaveBeenCalled();
   });
@@ -198,7 +198,7 @@ describe("PushManager", () => {
   });
 
   it("hands out only the public half of the pair", async () => {
-    // `publicKey()` is what reaches the phone via `GET /me`; the private key
+    // `publicKey()` is what reaches the phone, over the bridge; the private key
     // never leaves this module, and on disk it is safeStorage-encrypted at
     // 0600 (asserted above).
     expect(await push.publicKey()).toBe("pub-key");
@@ -230,7 +230,7 @@ describe("PushManager loading web-push lazily", () => {
     expect(fs.existsSync(path.join(dir, "vapid.enc"))).toBe(false);
 
     // A subscriber makes the default seams load it, once.
-    const { device } = devices.pair("phone", "read");
+    const { device } = devices.pair("phone", "room");
     push.subscribe(device.id, SUBSCRIPTION);
     expect(await push.notify(pushPayloadFor("requires_input", AGENT))).toBe(1);
     expect(await push.notify(pushPayloadFor("error", AGENT))).toBe(1);

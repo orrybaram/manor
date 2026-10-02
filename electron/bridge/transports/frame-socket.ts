@@ -1,6 +1,6 @@
 /**
  * The seam between the bridge's hello gate and whatever carries its text
- * frames (ADR-206 D5): a `ws` WebSocket, or a relay channel.
+ * frames (ADR-206 D5): a relay channel, or a test's in-memory pair.
  */
 export interface FrameSocket {
   /** Text frame out. Must not throw; a dead socket drops it. */
@@ -13,7 +13,7 @@ export interface FrameSocket {
   terminate?(): void;
   /**
    * How long the hello gate waits for the hello on this socket; defaults to
-   * the listener's 5 s. A relay channel needs longer (`relay/channel.ts`).
+   * 5 s. A relay channel needs longer (`relay/channel.ts`).
    */
   readonly helloTimeoutMs?: number;
 }

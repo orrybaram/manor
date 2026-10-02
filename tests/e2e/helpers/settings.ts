@@ -4,8 +4,8 @@ import type { Filmstrip } from "./filmstrip";
 
 /**
  * Driving Manor's Settings modal: the agent command a project launches, and
- * the whole remote-control surface (ADR-161) — enabling the listener, reading
- * back the address it bound, and pairing a device.
+ * the whole remote-control surface — turning it on, starting and stopping the
+ * relay, and pairing and revoking a device (ADR-206, ADR-207).
  *
  * Everything here goes through the app's own UI on purpose. A token minted any
  * other way, or an agent command written straight to disk, would not prove the
@@ -42,13 +42,10 @@ export async function openRemoteControlSettings(window: Page): Promise<void> {
 }
 
 /**
- * Turn the listener on and return the port it bound.
- *
- * The port is read out of the address the settings page shows, which is the
- * same string a user would copy — if that line is wrong or missing, this fails
- * for the same reason the user would be stuck.
+ * Turn remote control on. Opens nothing to the network (ADR-207 D3): the
+ * relay is started separately, with `startRelay`. Leaves Settings open.
  */
-export async function enableRemoteControl(window: Page): Promise<number> {
+export async function enableRemoteControl(window: Page): Promise<void> {
   await openRemoteControlSettings(window);
 
   const toggle = window.getByTestId("remote-control-switch");
@@ -56,13 +53,10 @@ export async function enableRemoteControl(window: Page): Promise<number> {
   if ((await toggle.getAttribute("data-state")) !== "checked") {
     await toggle.click();
   }
-
-  const address = window.getByTestId("remote-listener-address");
-  await expect(address).toBeVisible({ timeout: 10_000 });
-  const text = ((await address.textContent()) ?? "").trim();
-  const match = /:(\d+)$/.exec(text);
-  if (!match) throw new Error(`Could not read a port out of "${text}"`);
-  return Number(match[1]);
+  // The relay card is only rendered once remote control is on.
+  await expect(window.getByTestId("remote-relay-card")).toBeVisible({
+    timeout: 10_000,
+  });
 }
 
 /**
@@ -91,74 +85,6 @@ export async function setAgentCommand(
   // window — the modal traps focus, same as every other settings helper here
   // that does not document leaving it open on purpose.
   await closeSettings(window);
-}
-
-/** Mirrors `RemoteCapability` in `src/electron.d.ts` (ADR-178 D3). */
-export type PairedCapability = "read" | "send" | "full";
-
-/** The tier picker's buttons, as a reader sees them. */
-const CAPABILITY_BUTTON: Record<PairedCapability, string> = {
-  read: "Watch",
-  send: "Reply",
-  full: "Everything",
-};
-
-export interface PairedDevice {
-  label: string;
-  token: string;
-  capability: PairedCapability;
-}
-
-/**
- * Pair a device through the UI and capture the one-time token.
- *
- * Takes the recorder because the pairing dialog is the one moment the token
- * and its QR code exist on screen, and this function owns that lifetime — a
- * caller has nowhere to photograph it from.
- */
-export async function pairDevice(
-  window: Page,
-  {
-    label,
-    capability,
-    film,
-  }: { label: string; capability: PairedCapability; film?: Filmstrip },
-): Promise<PairedDevice> {
-  await openRemoteControlSettings(window);
-
-  // Tailscale is the default road (the relay always means Everything, which
-  // is never the default — ADR-178 D3), but say so rather than lean on it.
-  await window
-    .getByTestId("remote-pair-via")
-    .getByRole("radio", { name: "Tailscale", exact: true })
-    .click();
-  await window.getByTestId("remote-pair-label").fill(label);
-  // Clicked even for `read`, which is already the default: the assertion that
-  // matters is that the button a user would press exists and selects the tier.
-  await window
-    .getByTestId("remote-pair-capability")
-    .getByRole("radio", { name: CAPABILITY_BUTTON[capability], exact: true })
-    .click();
-  await window.getByTestId("remote-pair-submit").click();
-
-  const dialog = window.getByTestId("remote-pairing-dialog");
-  await expect(dialog).toBeVisible({ timeout: 10_000 });
-  await film?.shot(window, "settings-pairing-token");
-  const token = (
-    (await window.getByTestId("remote-pairing-token").textContent()) ?? ""
-  ).trim();
-  if (!token) throw new Error("Pairing dialog showed no token");
-
-  await window.getByTestId("remote-pairing-done").click();
-  await expect(dialog).not.toBeVisible({ timeout: 5_000 });
-
-  // A paired device that does not appear in the list cannot be revoked, so
-  // the row is part of pairing rather than a separate thing to check for.
-  await expect(
-    window.getByTestId("remote-device-row").filter({ hasText: label }),
-  ).toHaveCount(1);
-
-  return { label, token, capability };
 }
 
 /**
@@ -194,7 +120,7 @@ export async function stopRelay(window: Page): Promise<void> {
   });
 }
 
-export interface RelayPairedDevice {
+export interface PairedDevice {
   label: string;
   token: string;
   /** `<relay-origin>/app/<version>/#relay=<roomId>.<key>&t=<token>`. */
@@ -202,33 +128,26 @@ export interface RelayPairedDevice {
 }
 
 /**
- * Pair a device through the relay (ADR-206 D3) and capture the link and
- * token the dialog shows once. The relay has to be chosen explicitly — it is
- * not the default — and a relay device is always Everything, so there is no
- * tier to pick: the picker is replaced by the full-tier warning, and this
- * checks it is.
+ * Pair a device through the UI (ADR-206 D3, ADR-207 D4) and capture the link
+ * and token the dialog shows once. Every device is a relay device that
+ * reaches the whole app, so the form is a name and a button.
+ *
+ * Takes the recorder because the pairing dialog is the one moment the token
+ * and its QR code exist on screen, and this function owns that lifetime — a
+ * caller has nowhere to photograph it from.
  */
-export async function pairDeviceViaRelay(
+export async function pairDevice(
   window: Page,
   { label, film }: { label: string; film?: Filmstrip },
-): Promise<RelayPairedDevice> {
+): Promise<PairedDevice> {
   await openRemoteControlSettings(window);
-
-  await window
-    .getByTestId("remote-pair-via")
-    .getByRole("radio", { name: "Manor relay", exact: true })
-    .click();
-  await expect(window.getByTestId("remote-pair-capability")).toHaveCount(0);
-  await expect(window.getByTestId("remote-pair-relay-warning")).toContainText(
-    "always gets Everything",
-  );
 
   await window.getByTestId("remote-pair-label").fill(label);
   await window.getByTestId("remote-pair-submit").click();
 
   const dialog = window.getByTestId("remote-pairing-dialog");
   await expect(dialog).toBeVisible({ timeout: 10_000 });
-  await film?.shot(window, "settings-relay-pairing");
+  await film?.shot(window, "settings-pairing-link");
   const token = (
     (await window.getByTestId("remote-pairing-token").textContent()) ?? ""
   ).trim();
@@ -243,13 +162,27 @@ export async function pairDeviceViaRelay(
   await window.getByTestId("remote-pairing-done").click();
   await expect(dialog).not.toBeVisible({ timeout: 5_000 });
 
-  const row = window
-    .getByTestId("remote-device-row")
-    .filter({ hasText: label });
-  await expect(row).toHaveCount(1);
-  await expect(row).toContainText("via relay");
+  // A paired device that does not appear in the list cannot be revoked, so
+  // the row is part of pairing rather than a separate thing to check for.
+  await expect(
+    window.getByTestId("remote-device-row").filter({ hasText: label }),
+  ).toHaveCount(1);
 
   return { label, token, link };
+}
+
+/**
+ * Everything a browser needs before it can open the web app: remote control
+ * on, the relay running, and a device paired. Returns the device; its `link`
+ * is what `openWebApp` opens. Leaves Settings open.
+ */
+export async function pairBrowser(
+  window: Page,
+  options: { label: string; film?: Filmstrip },
+): Promise<PairedDevice> {
+  await enableRemoteControl(window);
+  await startRelay(window);
+  return pairDevice(window, options);
 }
 
 /** Revoke a paired device by its label, from its row's trash button. */

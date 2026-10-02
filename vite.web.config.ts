@@ -7,9 +7,9 @@ import { WEB_CSP } from "./src/lib/web-headers";
 
 /**
  * `src/web.html`'s CSP `<meta>` tag is a second line of defence for the same
- * header `electron/remote-control/static.ts` sends for `/app` — this keeps
- * the HTML from drifting out of sync with `WEB_CSP`, the one source, rather
- * than trusting the two to stay hand-copied.
+ * header the relay sends for `/app/<version>/` — this keeps the HTML from
+ * drifting out of sync with `WEB_CSP`, the one source, rather than trusting
+ * the two to stay hand-copied.
  */
 function injectWebCsp(): Plugin {
   return {
@@ -23,8 +23,8 @@ function injectWebCsp(): Plugin {
   };
 }
 
-/** The remote client's icons: one set of artwork for both phone surfaces. */
-const ICONS_DIR = path.resolve(__dirname, "src/remote-client/public/icons");
+/** The web app's own icons, for the manifest and the Home Screen. */
+const ICONS_DIR = path.resolve(__dirname, "src/web/icons");
 const ICONS = [
   "apple-touch-icon.png",
   "icon-192.png",
@@ -33,15 +33,14 @@ const ICONS = [
 ];
 
 /**
- * Installable, for the same reason the remote client is (ADR-206 D7): iOS
- * grants Web Push only to a page added to the Home Screen *as a web app* —
+ * Installable (ADR-206 D7): iOS grants Web Push only to a page added to the Home Screen *as a web app* —
  * without a manifest (or `apple-mobile-web-app-capable`) Add to Home Screen
  * makes a plain bookmark that opens in Safari, where there is no
  * `PushManager`, and the "Add to Home Screen" strip could never go away.
  *
  * Emits `manifest.webmanifest` (`src/web/manifest.webmanifest`, whose
  * `start_url` and icons are relative, so they resolve under whatever base
- * this build has — `/app/` on the listener, `/app/<version>/` on the relay)
+ * this build has — `/app/<version>/` on the relay)
  * and the icons beside it, and links them from the HTML with the base
  * spelled out. `scope` and `id` are `/app/` on purpose: an installed relay
  * app that the version redirect moves to `/app/<new>/` stays inside its own
@@ -102,29 +101,27 @@ function webAppManifest(): Plugin {
 
 /**
  * The ADR-178 web app: the desktop renderer, built a second time for a
- * browser and served at `/app` by the remote-control listener.
+ * browser and served by the relay at `/app/<version>/` (ADR-206 D4). Not
+ * part of `pnpm build`: `pnpm build:web:relay` (`scripts/build-web-relay.mjs`)
+ * builds it with that base into `dist-relay-web/<version>/`. `pnpm build:web`
+ * builds it with the default base into `dist-web/`, as a quick check that it
+ * bundles.
  *
- * Separate from `vite.config.ts` for the same reason `vite.remote.config.ts`
- * is: that config's extra entries all go through `vite-plugin-electron`,
- * which targets Node, and `vite-plugin-electron-renderer`, which exists to
- * polyfill Node globals a *desktop* renderer running under Electron might
- * reach for. This bundle never does — `src/` imports nothing from
- * `"electron"` or a Node built-in, and reaches everything through
- * `window.electronAPI` — so it needs neither plugin, just `@vitejs/plugin-react`
- * and an ordinary browser build.
+ * Separate from `vite.config.ts` because that config's extra entries all go
+ * through `vite-plugin-electron`, which targets Node, and
+ * `vite-plugin-electron-renderer`, which exists to polyfill Node globals a
+ * *desktop* renderer running under Electron might reach for. This bundle
+ * never does — `src/` imports nothing from `"electron"` or a Node built-in,
+ * and reaches everything through `window.electronAPI` — so it needs neither
+ * plugin, just `@vitejs/plugin-react` and an ordinary browser build.
  *
  * `root: "src"` so the build can resolve `./App`, `./lib/*`, etc. exactly as
- * `vite.config.ts`'s implicit root does. `base: "/app/"` — absolute, not
- * `vite.remote.config.ts`'s `"./"` — because `/app` is a *subpath*, not the
- * origin's root the remote client mounts at: a relative base resolves against
- * the *document's* URL, and `/app` with no trailing slash (the address ADR-178
- * names, and the one a user is most likely to type or paste) has no path
- * segment for `./assets/…` to resolve underneath, so the browser requests
- * `/assets/…` instead — unauthenticated, 404 or (worse) answered by whatever
- * the remote client mounts at `/`. An absolute base names the one prefix this
- * bundle is ever served at and does not care what the document's own URL
- * looked like; it still says nothing about the tunnel's hostname, which is the
- * property the comment this replaces was actually protecting.
+ * `vite.config.ts`'s implicit root does. The base is absolute, not `"./"`:
+ * a relative base resolves against the *document's* URL, and a page URL
+ * missing its trailing slash has no path segment for `./assets/…` to resolve
+ * underneath, so the browser would request `/assets/…` instead. An absolute
+ * base names the one prefix this bundle is ever served at and does not care
+ * what the document's own URL looked like.
  */
 export default defineConfig({
   root: path.resolve(__dirname, "src"),
@@ -138,7 +135,7 @@ export default defineConfig({
   build: {
     outDir: path.resolve(
       __dirname,
-      process.env.MANOR_WEB_OUT_DIR ?? "dist-electron/web",
+      process.env.MANOR_WEB_OUT_DIR ?? "dist-web",
     ),
     emptyOutDir: true,
     rollupOptions: {

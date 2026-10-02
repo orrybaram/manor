@@ -1,7 +1,8 @@
 /**
- * `install-web.ts` on a relay-served page (ADR-206 D3, D4): the fragment
- * picks the relay pipe, the host's `appVersion` redirects once, relay
- * 4404 reads as "not reachable", and a bad message 2 does not forget it.
+ * `install-web.ts` on a relay-served page (ADR-206 D3, D4) — the only kind
+ * there is (ADR-207 D2): the fragment picks the relay pipe, the host's
+ * `appVersion` redirects once, relay 4404 reads as "not reachable", and a bad
+ * message 2 does not forget it.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -77,7 +78,6 @@ describe("install-web on a relay-served page", () => {
 
   it("dials the relay's /join with the token from the link", async () => {
     const { mod, api } = await install(relayHash());
-    expect(mod.relayServed).toBe(true);
     expect(mod.webToken).toBe("tok");
     expect(local.has(WEB_RELAY_KEY)).toBe(true);
 
@@ -98,7 +98,7 @@ describe("install-web on a relay-served page", () => {
     // The new page loads (same session) and still disagrees: it stays.
     vi.resetModules();
     const again = await install("");
-    expect(again.mod.relayServed).toBe(true);
+    expect(again.mod.webToken).toBe("tok");
     void again.api.projects.getAll().catch(() => {});
     FakeRelaySocket.last.handshake({ appVersion: "1.1.0" });
     expect(replace).toHaveBeenCalledOnce();
@@ -128,24 +128,19 @@ describe("install-web on a relay-served page", () => {
     await install(relayHash());
     vi.resetModules();
     const { mod } = await install("#details");
-    expect(mod.relayServed).toBe(true);
     expect(mod.webToken).toBe("tok");
     expect(local.has(WEB_RELAY_KEY)).toBe(true);
   });
 
-  it("never redirects a listener-served page", async () => {
+  it("dials nothing with an old listener link and no relay pairing", async () => {
+    // The loopback listener's `/app#<token>` link (ADR-207 D2): stripped,
+    // never stored, and nothing to dial.
     const token = base64urlEncode(new Uint8Array(32).fill(3));
     const { mod, api } = await install(`#${token}`, "/app/");
-    expect(mod.relayServed).toBe(false);
-    void api.projects.getAll().catch(() => {});
-    const socket = FakeRelaySocket.last;
-    expect(socket.url).toBe("wss://relay.test/ws");
-    expect(mod.webToken).toBe(token);
-    socket.readyState = 1;
-    socket.onopen?.();
-    socket.onmessage?.({
-      data: JSON.stringify({ type: "hello", ok: true, v: 1, appVersion: "2" }),
-    });
+    expect(mod.webToken).toBeNull();
+    await expect(api.projects.getAll()).rejects.toThrow(/not paired/);
+    expect(FakeRelaySocket.instances).toHaveLength(0);
+    expect(local.size).toBe(0);
     expect(replace).not.toHaveBeenCalled();
   });
 

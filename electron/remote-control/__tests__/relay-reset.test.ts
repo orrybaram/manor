@@ -1,6 +1,7 @@
 /**
  * "Reset relay address", end to end (ADR-206): the real controller, the real
- * connector against the in-process fake relay, the real bridge hello gate.
+ * connector against the in-process fake relay, the real relay gate and bridge
+ * hello gate.
  *
  * The property: a browser paired through the relay hears 4401 — "re-pair" —
  * when the address it holds is reset. Stopping the relay first would take the
@@ -16,7 +17,6 @@ import {
 } from "../../../src/lib/relay-crypto";
 import type { BridgeServer } from "../../bridge/server";
 import { WsBridgeServer } from "../../bridge/transports/ws";
-import type { HostDeps } from "../../ipc/types";
 import {
   RemoteControlController,
   type RemoteControlRuntime,
@@ -26,8 +26,7 @@ import { AuthRateLimiter } from "../rate-limit";
 import { RelayConnector } from "../relay/connector";
 import type { RelayIdentityStore } from "../relay/identity";
 import { FakeRelay, FakeViewer } from "../relay/__tests__/fake-relay";
-import { RemoteControlServer, type AuthenticatedDevice } from "../server";
-import type { TunnelManager } from "../tunnel";
+import { RelayGate, type AuthenticatedDevice } from "../relay-gate";
 
 const RELAY_TOKEN = "relay-token";
 
@@ -76,16 +75,12 @@ describe("resetting the relay address", () => {
     const roomId = roomIdFor(identity.ed25519.pub);
 
     const devices = new Map<string, AuthenticatedDevice>([
-      [
-        RELAY_TOKEN,
-        { id: "dev-relay", label: "browser", capability: "full", via: "relay" },
-      ],
+      [RELAY_TOKEN, { id: "dev-relay", label: "browser" }],
     ]);
     const deviceStore = {
       verify: (raw: unknown) =>
         typeof raw === "string" ? (devices.get(raw) ?? null) : null,
-      idsVia: (via: string) =>
-        [...devices.values()].filter((d) => d.via === via).map((d) => d.id),
+      ids: () => [...devices.values()].map((d) => d.id),
       idsInOtherRelayRooms: () => [],
       revoke: (id: string) => {
         for (const [token, d] of devices)
@@ -100,41 +95,25 @@ describe("resetting the relay address", () => {
       receive: async () => null,
     } as unknown as BridgeServer;
     bridge = new WsBridgeServer(host, { appVersion: "9.9.9" });
-    const server = new RemoteControlServer(
-      () => ({}) as unknown as HostDeps,
-      deviceStore,
-      {
-        limiter: new AuthRateLimiter(),
-        clientDir: null,
-        webDir: null,
-        bridge,
-      },
-    );
+    const gate = new RelayGate(deviceStore, bridge, new AuthRateLimiter());
     connector = new RelayConnector({
       identity: { load: () => clone(identity) },
-      bridge,
-      authenticate: (token) => server.authenticateRelayHello(token),
+      gate,
       relayUrl: relay.url,
       timing: { backoffMinMs: 20, backoffMaxMs: 100 },
     });
-    const tunnel = {
-      status: { state: "stopped", url: null, error: null },
-      onStatus: () => () => {},
-    };
     const identityStore = {
       describe: () => ({ roomId, x25519Pub: "" }),
       reset: () => ({ roomId: "new", x25519Pub: "" }),
     };
     const runtime: RemoteControlRuntime = {
-      server,
-      tunnel: tunnel as unknown as TunnelManager,
+      gate,
       relay: connector,
       relayIdentity: identityStore as unknown as RelayIdentityStore,
     };
     const controller = new RemoteControlController(
       async () => runtime,
       deviceStore as unknown as RemoteDeviceStore,
-      async () => null,
       () => true,
       null,
     );

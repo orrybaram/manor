@@ -773,10 +773,8 @@ list-themes List every theme Manor can load, with each one's background color.
 set-theme Switch Manor to a theme by name.
 get-stats Show Manor's usage stats: today, the last 7 days, all time, and badges.
 reset-stats Destructive: deletes every recorded usage stat and earned badge.
-remote-control-status Show whether remote control is on, which devices are paired, and the tunnel's state.
-set-remote-control-enabled Turn remote control's local listener on or off.
-start-tunnel Expose the remote-control listener through a tunnel.
-stop-tunnel Stop the running tunnel, leaving the remote-control listener up on loopback.
+remote-control-status Show whether remote control is on, which devices are paired, and the relay's state.
+set-remote-control-enabled Turn remote control on or off. Nothing listens locally; devices connect only through the Manor relay, which is started from the UI.
 open-in-editor Open a directory in the editor configured in Manor's preferences, or the system default.
 open-external Open a URL in the user's default browser.
 list-windows List Manor's visible windows with their screen bounds, most-recently-focused first.

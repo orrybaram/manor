@@ -1,8 +1,8 @@
 /**
- * Per-device bearer tokens for the remote-control listener (ADR-161).
+ * Per-device bearer tokens for remote control (ADR-161).
  *
- * The listener has no network boundary once a tunnel is up, so this store *is*
- * the boundary. Three properties are load-bearing and every change here should
+ * Anyone who can reach the relay can say hello, so this store *is* the
+ * boundary. Three properties are load-bearing and every change here should
  * be read against them:
  *
  *   1. A raw token exists exactly once, in the return value of `pair()`. Only
@@ -27,47 +27,6 @@ import { safeStorage } from "electron";
 
 import { remoteDevicesFile } from "../paths";
 
-/**
- * How much of the machine a paired device may reach (ADR-178 D3, narrowed by
- * ADR-182 D2).
- *
- *   - `read`  — the read half of the remote allowlist and nothing else.
- *   - `send`  — the read half plus the three acting routes, each behind
- *               `confirmed: true` and an audit line.
- *   - `full`  — the same HTTP surface as `send`. The rest — the whole bridge
- *               table, authentication the only boundary, every mutation
- *               audited and nothing asking for `confirmed` — is reachable
- *               only over `/ws`.
- *
- * All three tiers are HTTP allowlists governed by `allowlist.ts`; `full`'s
- * wider reach lives entirely in the bridge (`electron/bridge/server.ts`),
- * not here.
- */
-export type Capability = "read" | "send" | "full";
-
-/** The three tiers, in widening order. The one place they are enumerated. */
-export const CAPABILITIES: readonly Capability[] = ["read", "send", "full"];
-
-/** Narrow an unknown to a tier, for IPC and for persisted rows. */
-export function isCapability(value: unknown): value is Capability {
-  return CAPABILITIES.includes(value as Capability);
-}
-
-/**
- * May a device of this tier act? The send gates ask this rather than comparing
- * against a tier, so widening the ladder later is one edit rather than a grep.
- */
-export function canSend(capability: Capability): boolean {
-  return capability === "send" || capability === "full";
-}
-
-/** How a device reaches this machine: over the tailnet or through the relay. */
-export type PairedVia = "tailscale" | "relay";
-
-export function isPairedVia(value: unknown): value is PairedVia {
-  return value === "tailscale" || value === "relay";
-}
-
 export interface RemoteDevice {
   /** Random id. Safe to log — it is not a credential. */
   id: string;
@@ -75,21 +34,13 @@ export interface RemoteDevice {
   label: string;
   /** SHA-256 hex of the raw token. Never leaves this module. */
   tokenHash: string;
-  /** How far this device reaches. `read` unless explicitly granted more. */
-  capability: Capability;
   /**
-   * Which road the pairing link took. Rows from before ADR-206 are
-   * `tailscale`. Resetting the relay address revokes exactly the `relay` ones.
+   * The relay room the device's link points at. When the desktop's relay
+   * identity changes underneath it (an unreadable identity file is replaced
+   * by a new one), every device whose room is not the current one holds a
+   * dead link — the controller revokes those.
    */
-  via: PairedVia;
-  /**
-   * For a `relay` device, the room its link pointed at. When the desktop's
-   * relay identity changes underneath it (an unreadable identity file is
-   * replaced by a new one), every device whose room is not the current one
-   * holds a dead link — the controller revokes those. Null for Tailscale
-   * devices, and for relay rows that predate this field.
-   */
-  relayRoom: string | null;
+  relayRoom: string;
   createdAt: number;
   lastSeenAt: number | null;
   /**
@@ -100,11 +51,10 @@ export interface RemoteDevice {
   pushSubscription: PushSubscriptionRecord | null;
   /**
    * Fields a newer release wrote that this one does not know, carried
-   * through untouched so a downgrade-then-upgrade does not lose them. This
-   * is the lesson of `via`: an older build that rebuilt each row from the
-   * fields it knew would strip it, and the device would come back as a
-   * Tailscale one. (That case fails closed — the relay gate refuses it and
-   * the browser re-pairs — but the next field might not.)
+   * through untouched so a downgrade-then-upgrade does not lose them. A
+   * build that rebuilt each row from only the fields it knew would strip
+   * them on its first write, and whatever they meant would be gone by the
+   * time the newer build read the file again.
    */
   extra?: Record<string, unknown>;
 }
@@ -167,10 +117,8 @@ export class RemoteDeviceStore {
    */
   pair(
     label: string,
-    capability: Capability,
-    via: PairedVia = "tailscale",
-    /** The relay room the link points at; only meaningful for `relay`. */
-    relayRoom: string | null = null,
+    /** The relay room the device's link points at. */
+    relayRoom: string,
   ): {
     device: RemoteDeviceInfo;
     rawToken: string;
@@ -185,9 +133,7 @@ export class RemoteDeviceStore {
       id: crypto.randomUUID(),
       label,
       tokenHash: sha256Hex(rawToken),
-      capability,
-      via,
-      relayRoom: via === "relay" ? relayRoom : null,
+      relayRoom,
       createdAt: Date.now(),
       lastSeenAt: null,
       pushSubscription: null,
@@ -236,9 +182,9 @@ export class RemoteDeviceStore {
   }
 
   /**
-   * Attach (or clear) a device's push subscription. Called from the listener's
-   * `POST /push/subscribe`; a revoked device is simply absent, so a late
-   * subscribe from one is dropped rather than resurrecting it.
+   * Attach (or clear) a device's push subscription. Called from the bridge's
+   * `remoteControl.subscribePush`; a revoked device is simply absent, so a
+   * late subscribe from one is dropped rather than resurrecting it.
    */
   setPushSubscription(
     id: string,
@@ -272,26 +218,20 @@ export class RemoteDeviceStore {
     return targets;
   }
 
-  /** Ids of every device paired through `via`. */
-  idsVia(via: PairedVia): string[] {
+  /** Ids of every paired device. */
+  ids(): string[] {
     this.load();
-    return [...this.devices.values()]
-      .filter((d) => d.via === via)
-      .map((d) => d.id);
+    return [...this.devices.keys()];
   }
 
   /**
-   * Relay devices whose link points at a room other than `roomId` — dead
-   * links, once the identity has changed. Rows with no recorded room are
-   * left alone: there is nothing to compare.
+   * Devices whose link points at a room other than `roomId` — dead links,
+   * once the identity has changed.
    */
   idsInOtherRelayRooms(roomId: string): string[] {
     this.load();
     return [...this.devices.values()]
-      .filter(
-        (d) =>
-          d.via === "relay" && d.relayRoom !== null && d.relayRoom !== roomId,
-      )
+      .filter((d) => d.relayRoom !== roomId)
       .map((d) => d.id);
   }
 
@@ -334,16 +274,18 @@ export class RemoteDeviceStore {
       let migrated = false;
       for (const entry of parsed) {
         const device = asDevice(entry);
-        if (!device) continue;
+        if (!device) {
+          migrated = true;
+          continue;
+        }
         this.devices.set(device.id, device);
         const raw = entry as Record<string, unknown>;
-        if (!isCapability(raw.capability) || !isPairedVia(raw.via))
-          migrated = true;
+        if (RETIRED_FIELDS.some((field) => field in raw)) migrated = true;
       }
-      // A pre-ADR-178 file held `canSend`. `asDevice` has already mapped it to
-      // a tier in memory; write the new shape back now rather than waiting for
-      // the next pair or `lastSeenAt` flush, so the old key does not linger on
-      // disk for a device that is never used again.
+      // Rewrite now rather than waiting for the next pair or `lastSeenAt`
+      // flush: a dropped row (a Tailscale, Watch or Reply device — ADR-207
+      // D5) or a retired field would otherwise linger on disk for a device
+      // that is never used again.
       if (migrated) {
         try {
           this.persist();
@@ -401,35 +343,32 @@ function asSubscription(value: unknown): PushSubscriptionRecord | null {
   return { endpoint: v.endpoint, keys: { p256dh: k.p256dh, auth: k.auth } };
 }
 
-/**
- * The tier a persisted row carries, or null if it carries neither shape.
- *
- * A row written before ADR-178 has `canSend` and no `capability`: `true` was
- * "read plus the three acting routes", which is exactly `send`, and `false`
- * was `read`. Nothing is ever migrated *up* to `full` — that tier only exists
- * because a user picked it in the pairing dialog and read the sentence under
- * it.
- */
-function asCapability(v: Record<string, unknown>): Capability | null {
-  if (isCapability(v.capability)) return v.capability;
-  if (typeof v.canSend === "boolean") return v.canSend ? "send" : "read";
-  return null;
-}
-
 /** Every field `asDevice` reads; anything else on a row is `extra`. */
 const KNOWN_FIELDS = new Set([
   "id",
   "label",
   "tokenHash",
-  "capability",
-  "via",
   "relayRoom",
   "createdAt",
   "lastSeenAt",
   "pushSubscription",
 ]);
 
-/** Validate one persisted row. A row that fails any check is dropped. */
+/**
+ * Fields older releases wrote and this one no longer does: `canSend`
+ * (before ADR-178), then `capability` and `via` (before ADR-207). They are
+ * read to decide whether a row survives, never carried forward as `extra`.
+ */
+const RETIRED_FIELDS = ["canSend", "capability", "via"] as const;
+
+/**
+ * Validate one persisted row. A row that fails any check is dropped.
+ *
+ * Only relay devices survive (ADR-207 D5). A row in the old shape must say
+ * `via: "relay"` and, if it names a tier, `full` — relay pairings were never
+ * anything else. A row from before ADR-206 has no `via` and no `relayRoom`,
+ * so the room check drops it with the Tailscale, Watch and Reply rows.
+ */
 function asDevice(value: unknown): RemoteDevice | null {
   if (typeof value !== "object" || value === null) return null;
   const v = value as Record<string, unknown>;
@@ -437,26 +376,25 @@ function asDevice(value: unknown): RemoteDevice | null {
   if (typeof v.label !== "string") return null;
   if (typeof v.tokenHash !== "string" || !/^[0-9a-f]{64}$/.test(v.tokenHash))
     return null;
-  const capability = asCapability(v);
-  if (capability === null) return null;
+  if (typeof v.relayRoom !== "string") return null;
+  if ("via" in v && v.via !== "relay") return null;
+  if ("capability" in v && v.capability !== "full") return null;
+  if ("canSend" in v) return null;
   if (typeof v.createdAt !== "number") return null;
   const lastSeenAt = typeof v.lastSeenAt === "number" ? v.lastSeenAt : null;
-  const via = isPairedVia(v.via) ? v.via : "tailscale";
   const extra: Record<string, unknown> = {};
   for (const [field, value] of Object.entries(v)) {
-    // `canSend` is the pre-ADR-178 shape `asCapability` migrates away from;
-    // carrying it forward would undo the migration's rewrite.
-    if (!KNOWN_FIELDS.has(field) && field !== "canSend") extra[field] = value;
+    if (
+      !KNOWN_FIELDS.has(field) &&
+      !(RETIRED_FIELDS as readonly string[]).includes(field)
+    )
+      extra[field] = value;
   }
   return {
     id: v.id,
     label: v.label,
     tokenHash: v.tokenHash,
-    capability,
-    // Anything before ADR-206 was paired over the tailnet or loopback.
-    via,
-    relayRoom:
-      via === "relay" && typeof v.relayRoom === "string" ? v.relayRoom : null,
+    relayRoom: v.relayRoom,
     createdAt: v.createdAt,
     lastSeenAt,
     pushSubscription: asSubscription(v.pushSubscription),

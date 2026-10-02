@@ -1,7 +1,5 @@
 import { createHash, generateKeyPairSync, randomBytes, sign } from "crypto";
 import fs from "fs";
-import os from "os";
-import path from "path";
 import type { ElectronApplication, Page } from "@playwright/test";
 import WebSocket from "ws";
 
@@ -16,24 +14,16 @@ import {
   expect,
   importSeededProject,
   openTerminalTab,
-  test as base,
 } from "./fixtures";
 import { Filmstrip } from "./helpers/filmstrip";
 import { readSessionMeta } from "./helpers/local-api";
-import { openClient, type Client } from "./helpers/phone";
-import {
-  appVersion,
-  fakeVersionBuild,
-  findReadable,
-  readableForms,
-  seedRelayState,
-  startLocalRelay,
-  type LocalRelay,
-} from "./helpers/relay";
+import { openWebApp } from "./helpers/phone";
+import { appVersion, findReadable, readableForms } from "./helpers/relay";
+import { withLocalRelay } from "./helpers/relay-fixture";
 import {
   closeSettings,
   enableRemoteControl,
-  pairDeviceViaRelay,
+  pairDevice,
   revokeDevice,
   startRelay,
   stopRelay,
@@ -53,7 +43,8 @@ import {
  * The relay is the real Worker under `wrangler dev` (`helpers/relay.ts`), on
  * its own port with its own persist directory, its local R2 holding this
  * checkout's `pnpm build:web:relay` output. The app is pointed at it with
- * `MANOR_RELAY_URL`, and everything else is the product: remote control is
+ * `MANOR_RELAY_URL` (`helpers/relay-fixture.ts`, which every spec that opens
+ * the web app shares), and everything else is the product: remote control is
  * enabled, the relay started and the device paired through Settings, and the
  * browser is an ordinary Playwright page opened on the pairing link.
  *
@@ -77,53 +68,7 @@ const WEB_RELAY_KEY = "manor.web.relay";
 
 const PROJECT_NAME = "test-project";
 
-const test = base.extend<{ relay: LocalRelay }, { relaySeed: string }>({
-  // Uploading a web build is one wrangler process per file, so it happens
-  // once per run; each test gets a fresh copy of the result.
-  relaySeed: [
-    // eslint-disable-next-line no-empty-pattern
-    async ({}, use) => {
-      const scratch = fs.mkdtempSync(
-        path.join(os.tmpdir(), "manor-relay-web-"),
-      );
-      try {
-        const other = fakeVersionBuild(OTHER_VERSION, scratch);
-        const seed = await seedRelayState({ [OTHER_VERSION]: other });
-        try {
-          await use(seed);
-        } finally {
-          fs.rmSync(seed, { recursive: true, force: true });
-        }
-      } finally {
-        fs.rmSync(scratch, { recursive: true, force: true });
-      }
-    },
-    { scope: "worker", timeout: 240_000 },
-  ],
-
-  relay: [
-    async ({ relaySeed }, use, testInfo) => {
-      const relay = await startLocalRelay(relaySeed);
-      try {
-        await use(relay);
-      } finally {
-        if (fs.existsSync(relay.logFile)) {
-          await testInfo.attach("wrangler.log", {
-            path: relay.logFile,
-            contentType: "text/plain",
-          });
-        }
-        await relay.dispose();
-      }
-    },
-    // Its own budget: wrangler bundles the Worker before it listens.
-    { timeout: 120_000 },
-  ],
-
-  appLaunch: async ({ relay }, use) => {
-    await use({ env: { MANOR_RELAY_URL: relay.url }, asPackage: true });
-  },
-});
+const test = withLocalRelay({ otherVersions: [OTHER_VERSION] });
 
 /**
  * A pane's whole grid, read off the terminal itself — xterm draws into a
@@ -148,11 +93,6 @@ async function expectDesktopVersion(app: ElectronApplication): Promise<void> {
   expect(
     await app.evaluate(({ app: electronApp }) => electronApp.getVersion()),
   ).toBe(appVersion());
-}
-
-/** The relay web app at a PC viewport, opened on a pairing link. */
-function openRelayWebApp(link: string): Promise<Client> {
-  return openClient(link, { viewport: { width: 1280, height: 800 } });
 }
 
 /** The project header the web app shows once it is through to the desktop. */
@@ -336,7 +276,7 @@ test.describe("relay (ADR-206)", () => {
     await enableRemoteControl(window);
     await startRelay(window);
     await film.shot(window, "settings-relay-running");
-    const device = await pairDeviceViaRelay(window, {
+    const device = await pairDevice(window, {
       label: "relay browser",
       film,
     });
@@ -354,7 +294,7 @@ test.describe("relay (ADR-206)", () => {
     const marker = newMarker();
     const afterRestart = newMarker();
     const afterProcessRestart = newMarker();
-    const client = await openRelayWebApp(device.link);
+    const client = await openWebApp(device.link);
     try {
       // 1. Through to the desktop: the sidebar is the desktop's, the pane is
       // the one the desktop has open, and the fragment is gone from the URL.
@@ -507,7 +447,7 @@ test.describe("relay (ADR-206)", () => {
     await importSeededProject(app, window, tempHome);
     await enableRemoteControl(window);
     await startRelay(window);
-    const device = await pairDeviceViaRelay(window, { label: "old link" });
+    const device = await pairDevice(window, { label: "old link" });
     await closeSettings(window);
 
     const oldLink = device.link.replace(
@@ -516,7 +456,7 @@ test.describe("relay (ADR-206)", () => {
     );
     expect(oldLink).not.toBe(device.link);
 
-    const client = await openRelayWebApp(oldLink);
+    const client = await openWebApp(oldLink);
     try {
       await expect
         .poll(() => new URL(client.page.url()).pathname, { timeout: 45_000 })

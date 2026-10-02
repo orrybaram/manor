@@ -103,7 +103,7 @@ export class LocalTransport implements HostTransport {
   /**
    * SIGTERM the running daemon (if any) and clear its socket and pid file,
    * without spawning a replacement. The next `ensureRunning` starts a fresh
-   * one. Backs `manor-host restart`, which a remote client runs over ssh.
+   * one. Backs `manor-host restart`, which a client on another machine runs over ssh.
    */
   async stop(): Promise<void> {
     await this.killDaemonByPid();

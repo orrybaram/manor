@@ -302,7 +302,7 @@ describe("viewers", () => {
       expect(await closedWith(be(4401))).toBe(4401);
     });
 
-    it("passes 4403 through to the viewer", async () => {
+    it("passes the reserved 4403 through to the viewer", async () => {
       expect(await closedWith(be(4403))).toBe(4403);
     });
 

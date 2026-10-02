@@ -74,7 +74,7 @@ describe("GET /app/<version>/*", () => {
     expect(res.status).toBe(404);
     expect(res.headers.get("content-type")).toContain("text/html");
     expect(await res.text()).toContain(
-      "This Manor version's web app isn't published. Update Manor, or use Tailscale.",
+      "This Manor version's web app isn't published. Update Manor.",
     );
   });
 

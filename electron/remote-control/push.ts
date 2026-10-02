@@ -1,5 +1,5 @@
 /**
- * Web Push for the remote-control surface (ADR-161 §6).
+ * Web Push for remote control (ADR-161 §6, ADR-206 D7).
  *
  * The point of the feature is being *told*, not remembering to check. This is
  * a second sink on the transition Manor already computes for the dock badge
@@ -222,7 +222,7 @@ export function pushPayloadFor(
 /**
  * Validate a subscription body. `endpoint` must be https — a push endpoint is a
  * capability URL, and we will not store one that would be sent in the clear.
- * Shared by `POST /push/subscribe` and the bridge's `remoteControl.subscribePush`.
+ * Used by the bridge's `remoteControl.subscribePush`.
  */
 export function asPushSubscription(
   body: unknown,

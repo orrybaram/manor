@@ -57,28 +57,13 @@ The desktop app's own renderer, served to a browser and made responsive; one
 codebase, full functionality, authentication is its only boundary.
 _Avoid_: mobile app, mobile client, mobile/web experience, responsive client
 
-**Remote client**:
-The deliberately tiny phone page (`src/remote-client/`) for glancing at agents
-and tapping a reply; kept alongside the web app, not replaced by it.
-_Avoid_: phone client, mobile client, PWA
-
 **Paired device**:
 A phone or browser that holds a per-device token issued by the desktop app.
 _Avoid_: remote, client device, session
 
-**Remote surface**:
-The set of routes a paired device can reach; anything not on it is absent from
-the dispatch table, not rejected by a check.
-_Avoid_: API, allowlist (the allowlist is the mechanism, the surface is the result)
-
-**Capability**:
-How much a paired device may do, chosen at pairing and fixed per token: `read`
-(watch), `send` (reply, stop, launch), or `full` (everything the desktop app can).
-_Avoid_: permission, role, access level, canSend (the old boolean)
-
 **Relay**:
 The hosted blind pipe (`relay/`, a Cloudflare Worker) that a desktop and a phone both dial out to, so a device can reach the machine with nothing installed. It forwards Noise ciphertext between a **Room**'s host and its **Channels** and cannot read any of it; it also serves the web app, one build per version.
-_Avoid_: server, proxy, tunnel (a tunnel exposes the loopback listener; the relay feeds the bridge directly)
+_Avoid_: server, proxy, tunnel, listener (nothing on the machine listens for remote control; the desktop dials out to the relay, which feeds the bridge directly)
 
 **Room**:
 One desktop's place on the **Relay**, addressed by the hash of its relay public key and held by whoever holds the key. At most one host and a few **Channels**.
@@ -119,13 +104,13 @@ How a frame reaches the host surface — Electron IPC or a WebSocket today. Neve
 _Avoid_: connection (a transport makes connections; it is not one), channel (channel is the specific `bridge:*` IPC name)
 
 **Caller class**:
-What a connection is, as far as the bridge's dispatch is concerned: `local` (an Electron renderer window, authenticated by being one) or `device` (a paired `full` device, authenticated by its token). Decides which host-surface methods a `LOCAL_ONLY` entry refuses.
-_Avoid_: tier (a paired device's capability — `read`/`send`/`full` — is a different axis, decided at pairing rather than per call)
+What a connection is, as far as the bridge's dispatch is concerned: `local` (an Electron renderer window, authenticated by being one) or `device` (a paired device, authenticated by its token). Decides which host-surface methods a `LOCAL_ONLY` entry refuses.
+_Avoid_: tier (there is one kind of paired device; what it may not call is `LOCAL_ONLY`, decided per method)
 
 ### Viewing a session
 
 **Viewer**:
-Any client attached to a session's output stream — a desktop pane, a web-app pane, or the remote client.
+Any client attached to a session's output stream — a desktop pane or a web-app pane.
 _Avoid_: client, subscriber, socket
 
 **Winsize owner**:
@@ -178,15 +163,13 @@ _Avoid_: mirror, read-only viewer (a follower may still type)
 - The **Status reconciler** is the only writer of an **Agent**'s lifecycle and last **Agent status**;
   the renderer displays what it publishes and does not re-derive it.
 
-- A session has exactly one **Winsize owner** and any number of **Followers**; the remote client is always a **Follower**.
+- A session has exactly one **Winsize owner** and any number of **Followers**; a web-app viewer is a **Follower** whenever the desktop has the pane mounted.
 - A **Host** is one **Manor server** plus one **Daemon**; the **Manor server** owns the layout, every **Renderer** holds a replica and sends commands.
 - Layout _structure_ (panels, tabs, pane trees) is shared across all renderers of a host; _viewport_ (which panel, tab and pane each one is looking at) is per renderer.
 
 - The **Desktop app** issues tokens; a **Paired device** holds exactly one.
-- The **Web app** and the **Remote client** are both served to a **Paired device**, by the desktop's listener (over Tailscale) or, for a relay **Paired device**, by the **Relay** origin.
-- A **Room** has one host and many **Channels**; each **Channel** is a **Transport** to the bridge, so a relay **Paired device** is always `full`.
-- A **Remote client** reaches a narrow **Remote surface**; a **Web app** reaches the full one.
-- A **Paired device**'s **Capability** decides its **Remote surface**: `read` and `send` are filtered by the allowlist; `full` is the unfiltered table.
+- The **Web app** is served to a **Paired device** by the **Relay** origin, and only there.
+- A **Room** has one host and many **Channels**; each **Channel** is a **Transport** to the bridge, so every **Paired device** reaches the whole bridge, minus the `LOCAL_ONLY` methods.
 
 ## Example dialogue
 
@@ -195,7 +178,7 @@ _Avoid_: mirror, read-only viewer (a follower may still type)
 > weighs it against the last hook and decides the **Agent status**."
 
 > **Dev:** "Should the mobile app get the git panel?"
-> **Domain expert:** "There is no mobile app. The **web app** is the desktop app in a browser, so it already has the git panel — the question is whether it lays out on a phone. The **remote client** never gets it; that page exists to tap `y` over a bad connection."
+> **Domain expert:** "There is no mobile app. The **web app** is the desktop app in a browser, so it already has the git panel — the question is whether it lays out on a phone. It reaches the same bridge as the desktop, so the question is the layout, not what the device is allowed to call."
 
 ## Flagged ambiguities
 

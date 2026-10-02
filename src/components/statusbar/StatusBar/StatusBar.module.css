@@ -38,6 +38,11 @@
   text-overflow: ellipsis;
 }
 
+.separator {
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
 .logoButton {
   display: flex;
   align-items: center;
@@ -81,6 +86,11 @@
 
 .linearSection:hover {
   opacity: 1;
+}
+
+.ticketSpacer {
+  width: 24px;
+  flex-shrink: 0;
 }
 
 /* ── Browser Focus Badge ── */

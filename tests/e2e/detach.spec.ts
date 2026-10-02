@@ -7,7 +7,8 @@ import {
 } from "./fixtures";
 import { layout } from "./helpers/local-api";
 import { openWebApp } from "./helpers/phone";
-import { closeSettings, enableRemoteControl, pairDevice } from "./helpers/settings";
+import { relayTest } from "./helpers/relay-fixture";
+import { closeSettings, pairBrowser } from "./helpers/settings";
 import { activePaneId, awaitShellReady, runInTerminal, scrollback } from "./helpers/terminal";
 import { clickMenuItem } from "./helpers/window";
 
@@ -124,9 +125,9 @@ test("a pane popped out becomes a tab of the workspace, not a copy of one", asyn
  * A browser is never a claimant (D4): it always sees the whole workspace,
  * including a tab that is popped out on the desk right now, and can type
  * into it — the ADR-179 D7 half of the property `GET /panes` already pins
- * above.
+ * above. Through a local relay, the only road a browser has (ADR-207).
  */
-test("a browser still sees and can type into a tab popped out on the desk", async ({
+relayTest("a browser still sees and can type into a tab popped out on the desk", async ({
   app,
   window,
   tempHome,
@@ -141,14 +142,10 @@ test("a browser still sees and can type into a tab popped out on the desk", asyn
   const detachedPaneId = await activePaneId(window);
   await awaitShellReady(window, tempHome, detachedPaneId);
 
-  const port = await enableRemoteControl(window);
-  const device = await pairDevice(window, {
-    label: "detach browser",
-    capability: "full",
-  });
+  const device = await pairBrowser(window, { label: "detach browser" });
   await closeSettings(window);
 
-  const client = await openWebApp(port, device.token);
+  const client = await openWebApp(device.link);
   try {
     await expect(
       client.page.getByTestId("workspace-item").filter({

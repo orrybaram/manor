@@ -316,32 +316,9 @@ describe("the relay pipe", () => {
       return { api, socket };
     }
 
-    it("treats a 4401 from the desktop as unauthorised, like the listener", () => {
+    it("treats a 4401 from the desktop as unauthorised", () => {
       rejected().socket.hostClose(4401);
       expect(options.onUnauthorized).toHaveBeenCalledOnce();
-      vi.advanceTimersByTime(60_000);
-      expect(FakeRelaySocket.instances).toHaveLength(1);
-    });
-
-    it("treats a 4403 from the desktop as forbidden, like the listener", () => {
-      const onForbidden = vi.fn();
-      const transport = createWsTransport({
-        token: "full-token",
-        pipe: relayPipe({
-          url: "wss://relay.test/join/room",
-          serverKey: FakeRelaySocket.key.pub,
-        }),
-        ...options,
-        onForbidden,
-      });
-      const api = createBridge(transport);
-      void api.projects.getAll().catch(() => {});
-      const socket = FakeRelaySocket.last;
-      socket.accept();
-      socket.respond();
-      socket.hostClose(4403);
-      expect(onForbidden).toHaveBeenCalledOnce();
-      expect(options.onUnauthorized).not.toHaveBeenCalled();
       vi.advanceTimersByTime(60_000);
       expect(FakeRelaySocket.instances).toHaveLength(1);
     });

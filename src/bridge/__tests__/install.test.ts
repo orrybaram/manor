@@ -17,36 +17,8 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { ManorHost } from "../../electron";
-import { WEB_TOKEN_KEY } from "../transports/ws";
-
-/** A socket the test drives by hand — the same shape `ws.test.ts` uses. */
-class FakeSocket {
-  static instances: FakeSocket[] = [];
-  readyState = 0;
-  readonly frames: Record<string, unknown>[] = [];
-  onopen: (() => void) | null = null;
-  onmessage: ((event: { data: string }) => void) | null = null;
-  onclose: ((event: { code: number }) => void) | null = null;
-  onerror: (() => void) | null = null;
-
-  constructor(readonly url: string) {
-    FakeSocket.instances.push(this);
-  }
-  send(data: string): void {
-    this.frames.push(JSON.parse(data) as Record<string, unknown>);
-  }
-  close(): void {
-    this.readyState = 3;
-  }
-  /** Accept the connection and answer the hello, as the host would. */
-  handshake(): void {
-    this.readyState = 1;
-    this.onopen?.();
-    this.onmessage?.({
-      data: JSON.stringify({ type: "hello", ok: true, v: 1 }),
-    });
-  }
-}
+import { base64urlEncode } from "../../lib/relay-crypto";
+import { desktopKey, FakeRelaySocket } from "./fake-relay";
 
 function hostWith(overrides: Partial<ManorHost> = {}): ManorHost {
   return {
@@ -101,27 +73,32 @@ describe("the bridge-install ordering invariant", () => {
   });
 
   it("install-web.ts installs the bridge before preferences-store evaluates", async () => {
-    FakeSocket.instances = [];
-    const tokenStore = new Map([[WEB_TOKEN_KEY, "full-token"]]);
-    vi.stubGlobal("WebSocket", FakeSocket);
-    vi.stubGlobal("localStorage", {
-      getItem: (key: string) => tokenStore.get(key) ?? null,
-      setItem: (key: string, value: string) => tokenStore.set(key, value),
-      removeItem: (key: string) => tokenStore.delete(key),
-    });
+    FakeRelaySocket.instances = [];
+    FakeRelaySocket.key = desktopKey();
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    };
+    vi.stubGlobal("WebSocket", FakeRelaySocket);
+    vi.stubGlobal("localStorage", storage);
+    vi.stubGlobal("sessionStorage", storage);
     vi.stubGlobal("location", {
-      protocol: "http:",
-      host: "manor.test",
-      hash: "",
-      pathname: "/app",
+      protocol: "https:",
+      host: "relay.test",
+      hash: `#relay=AbCdEfGhIjKlMnOpQr_-01.${base64urlEncode(FakeRelaySocket.key.pub)}&t=full-token`,
+      pathname: "/app/1.0.0/",
       search: "",
+      replace: vi.fn(),
     });
     vi.stubGlobal("history", { replaceState: vi.fn() });
+    vi.stubGlobal("__APP_VERSION__", "1.0.0");
 
     await import("../install-web");
     await import("../../store/preferences-store");
 
-    const socket = FakeSocket.instances[0];
+    const socket = FakeRelaySocket.instances[0];
     expect(socket).toBeDefined();
     socket.handshake();
 

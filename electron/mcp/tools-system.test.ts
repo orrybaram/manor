@@ -4,11 +4,7 @@ import type { Http } from "./types";
 
 const base = {
   enabled: true,
-  port: 4177,
   devices: [{ id: "d1", label: "phone" }],
-  tunnel: { state: "stopped", url: null },
-  installed: true,
-  listeners: 2,
 };
 
 function httpReturning(status: unknown): Http {
@@ -32,17 +28,21 @@ describe("remote-control tools report the relay (ADR-206)", () => {
       relayViewers: 1,
     });
     expect(out).toContain("Relay: running — https://relay.example");
-    expect(out).toContain("Live listeners: 2 (1 through the relay)");
+    expect(out).toContain("Connected through the relay: 1");
+    expect(out).toContain("Remote control: on");
+    expect(out).not.toContain("port");
+    expect(out).not.toContain("listener");
   });
 
-  it("does not call the machine loopback-only after stop_tunnel while the relay runs", async () => {
-    const out = await run("stop_tunnel", {
+  it("does not call the machine loopback-only after a disable while the relay runs", async () => {
+    const out = await run("set_remote_control_enabled", {
       ...base,
       relay: { state: "running", url: "https://relay.example", error: null },
       relayViewers: 0,
     });
-    expect(out).toContain("Tunnel: stopped");
     expect(out).toContain("Relay: running");
+    expect(out).not.toContain("Tunnel");
+    expect(out).not.toContain("Tailscale");
   });
 
   it("names a relay it cannot reach rather than calling it starting", async () => {

@@ -20,6 +20,7 @@ import { topLeftPanelId } from "../../../lib/layout/panel-tree";
 import { allPaneIds } from "../../../lib/layout/pane-tree";
 import { usePaneDrag } from "../../workspace-panes/PaneDragContext";
 import { detachTabToNewWindow, hasOwnClaim } from "../../../lib/detach";
+import { beginPointerTracking, hasPointerLeftDocument } from "../../../lib/detach-drag";
 import { paneTitle } from "../../../lib/pane-title";
 import { useAgentStore } from "../../../store/agent-store";
 import { TabButton } from "../TabButton";
@@ -230,6 +231,7 @@ export function TabBar(props: TabBarProps) {
       startDrag({ type: "tab", tabId: tab.id, grabOffset: dragGrabOffset.current });
       setDragIndex(idx);
       tearOffCommitted.current = false;
+      beginPointerTracking();
 
       // Snapshot geometry for the dragend tear-off hit-test (no async there).
       windowBounds.current = null;
@@ -277,6 +279,9 @@ export function TabBar(props: TabBarProps) {
         sy < b.y - MARGIN ||
         sy > b.y + b.height + MARGIN;
       if (!outside) return;
+      // Screen coords can misreport mid-drag; only tear off once the app itself
+      // has stopped seeing the drag (the pointer really left the window).
+      if (!hasPointerLeftDocument()) return;
 
       // Over another manor window → this is a move-into-that-window; let the
       // release (dragend) hand it off rather than spawning a new window here.
@@ -463,7 +468,8 @@ export function TabBar(props: TabBarProps) {
         (sx < bounds.x ||
           sx > bounds.x + bounds.width ||
           sy < bounds.y ||
-          sy > bounds.y + bounds.height);
+          sy > bounds.y + bounds.height) &&
+        hasPointerLeftDocument();
       // Dropped in dead space inside the window → cancel (no-op).
       if (!releasedOutside) return;
 

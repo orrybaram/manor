@@ -133,7 +133,7 @@ function activeElementInfo(page: Page): Promise<ActiveElementInfo | null> {
  * palette — full screen, ADR-181 D5 — before anything is typed into it.
  */
 async function runOpenPaletteCommand(page: Page, label: string): Promise<void> {
-  const input = page.getByPlaceholder("Type a command...");
+  const input = page.locator("[cmdk-input]");
   await expect(input).toBeVisible();
   await input.fill(label);
   const item = page.locator("[cmdk-item]", { hasText: label }).first();

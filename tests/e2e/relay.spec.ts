@@ -133,7 +133,7 @@ async function paneText(page: Page, paneId: string): Promise<string> {
   return page.evaluate((id) => {
     const handle = window.__manorTerminals?.get(id);
     if (!handle) return "";
-    return handle.serialize.serialize({ scrollback: 20_000 });
+    return handle.serialize({ scrollback: 20_000 });
   }, paneId);
 }
 
@@ -394,6 +394,9 @@ test.describe("relay (ADR-206)", () => {
       );
       await expect(client.page.getByTestId("terminal-follower")).toBeVisible();
       await film.shot(client.page, "browser-follower");
+      // Back to desktop width: 700px is the phone layout (ADR-181), which has
+      // no sidebar, and the steps below look for the project header.
+      await client.page.setViewportSize({ width: 1280, height: 800 });
 
       // 4. Stopping the relay from Settings: the room has no host, says 4404,
       // and the page says "not reachable" over the app, not a frozen app.

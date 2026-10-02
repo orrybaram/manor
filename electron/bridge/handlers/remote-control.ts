@@ -2,18 +2,19 @@
  * The remote-control surface, as the `remoteControl` namespace of the
  * handler table.
  *
- * Thin by design: every decision — what starting a tunnel implies, what
+ * Thin by design: every decision — what starting the relay implies, what
  * disabling takes down with it — lives in `RemoteControlController`, so the
  * renderer cannot reach a half-state by calling these in an odd order.
  *
  * The raw pairing token crosses this boundary exactly once, in the return
  * value of `remoteControlPair`, and is never broadcast in a status push. That
- * return value is also why five of the seven below are `localOnly`: a stolen
+ * return value is also why six of the nine below are `localOnly`: a stolen
  * `full` token that can pair more devices is a token that survives its own
  * revocation, which is a different class of loss
  * from "can remove a workspace" — the one ADR-178 D3 accepted knowingly.
- * `getStatus` and `refreshDetection` are reads and stay open, so a device's
- * own settings page is not lying to it about the surface it is on.
+ * `getStatus` is a read and stays open, so a device's own settings page is
+ * not lying to it about the surface it is on; the two push methods are for
+ * paired devices only.
  *
  * There is no `register()` here any more. What is left of it is
  * `wireRemoteControlStatus`, which was never an IPC handler: it is the one
@@ -80,13 +81,6 @@ export function wireRemoteControlStatus(deps: HostDeps): void {
   });
 }
 
-/** Re-check which tunnel binaries are on PATH. A read, with a refresh in it. */
-export function remoteControlRefreshDetection(
-  ctx: HandlerCtx,
-): Promise<RemoteControlStatus> {
-  return ctx.deps.remoteControl.refreshDetection();
-}
-
 export function remoteControlSetEnabled(
   ctx: HandlerCtx,
   enabled: boolean,
@@ -126,18 +120,6 @@ export function remoteControlRevoke(
 ): RemoteControlStatus {
   assertString(id, "remoteControl.revoke.id");
   return ctx.deps.remoteControl.revoke(id);
-}
-
-export function remoteControlStartTunnel(
-  ctx: HandlerCtx,
-): Promise<RemoteControlStatus> {
-  return ctx.deps.remoteControl.startTunnel();
-}
-
-export function remoteControlStopTunnel(
-  ctx: HandlerCtx,
-): Promise<RemoteControlStatus> {
-  return ctx.deps.remoteControl.stopTunnel();
 }
 
 export function remoteControlStartRelay(
@@ -196,17 +178,14 @@ function assertDevice(ctx: HandlerCtx): string {
 
 export const remoteControl = {
   getStatus: method(remoteControlGetStatus),
-  refreshDetection: method(remoteControlRefreshDetection),
   // A token that can pair more devices survives its own revocation, and one
   // that can turn the listener off locks the owner out of the machine they
-  // are trying to take back: the five that change the exposure stay local.
+  // are trying to take back: the six that change the exposure stay local.
   vapidPublicKey: method(remoteControlVapidPublicKey),
   subscribePush: method(remoteControlSubscribePush),
   setEnabled: method(remoteControlSetEnabled, { localOnly: true }),
   pair: method(remoteControlPair, { localOnly: true }),
   revoke: method(remoteControlRevoke, { localOnly: true }),
-  startTunnel: method(remoteControlStartTunnel, { localOnly: true }),
-  stopTunnel: method(remoteControlStopTunnel, { localOnly: true }),
   startRelay: method(remoteControlStartRelay, { localOnly: true }),
   stopRelay: method(remoteControlStopRelay, { localOnly: true }),
   resetRelayAddress: method(remoteControlResetRelayAddress, {

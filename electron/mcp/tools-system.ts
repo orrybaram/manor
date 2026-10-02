@@ -49,10 +49,8 @@ interface RemoteControlStatusRow {
   enabled: boolean;
   port: number | null;
   devices: Array<{ id: string; label: string }>;
-  tunnel: { state: string; url: string | null };
   /** The Manor relay (ADR-206). Optional only for an older app's reply. */
   relay?: { state: string; url: string | null; error: string | null };
-  installed: boolean;
   listeners: number;
   relayViewers?: number;
 }
@@ -78,7 +76,7 @@ function parsePreferenceValue(raw: string): unknown {
 }
 
 /**
- * The relay is a second road out of the machine, so a status that leaves it
+ * The relay is the only road out of the machine, so a status that leaves it
  * out can call a machine "loopback only" while relay devices are driving it.
  */
 function relayLine(relay: RemoteControlStatusRow["relay"]): string {
@@ -92,19 +90,15 @@ function relayLine(relay: RemoteControlStatusRow["relay"]): string {
   return relay.state;
 }
 
-/** Render a remote-control status the same way for all five of its tools. */
+/** Render a remote-control status the same way for both of its tools. */
 function formatRemoteStatus(status: RemoteControlStatusRow): string {
   const lines = [
     `Remote control: ${status.enabled ? `on (port ${status.port})` : "off"}`,
-    `Tunnel: ${status.tunnel.state}${
-      status.tunnel.url ? ` — ${status.tunnel.url}` : ""
-    }`,
     `Relay: ${relayLine(status.relay)}`,
     `Paired devices: ${status.devices.length}`,
     `Live listeners: ${status.listeners}${
       status.relayViewers ? ` (${status.relayViewers} through the relay)` : ""
     }`,
-    `Tailscale on PATH: ${status.installed ? "yes" : "no"}`,
   ];
   return lines.join("\n");
 }
@@ -279,13 +273,13 @@ const tools: ToolDef[] = [
   {
     name: "remote_control_status",
     description:
-      "Show whether remote control is on, which devices are paired, and the state of the tunnel and the Manor relay.",
+      "Show whether remote control is on, which devices are paired, and the state of the Manor relay.",
     inputSchema: { type: "object" as const, properties: {} },
   },
   {
     name: "set_remote_control_enabled",
     description:
-      "Turn remote control's local listener on or off. Turning it off also stops any running tunnel and the Manor relay. Pairing a device stays in the UI.",
+      "Turn remote control's local listener on or off. Turning it off also stops the Manor relay. Pairing a device stays in the UI.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -297,19 +291,6 @@ const tools: ToolDef[] = [
       required: ["enabled"],
     },
   },
-  {
-    name: "start_tunnel",
-    description:
-      "Expose the remote-control listener through a Tailscale tunnel. Requires remote control to be on and tailscale on PATH; Manor does not install it.",
-    inputSchema: { type: "object" as const, properties: {} },
-  },
-  {
-    name: "stop_tunnel",
-    description:
-      "Stop the running tunnel, leaving the remote-control listener up on loopback. The Manor relay, if running, is not affected — the status this returns says whether it is.",
-    inputSchema: { type: "object" as const, properties: {} },
-  },
-
   // ── Shell ──
   {
     name: "open_in_editor",
@@ -624,20 +605,6 @@ const handlers: ToolModule["handlers"] = {
     const status = (await http.post("/remote-control/enabled", {
       enabled: args.enabled,
     })) as RemoteControlStatusRow;
-    return text(formatRemoteStatus(status));
-  },
-
-  async start_tunnel(_args, http) {
-    const status = (await http.post(
-      "/remote-control/tunnel/start",
-    )) as RemoteControlStatusRow;
-    return text(formatRemoteStatus(status));
-  },
-
-  async stop_tunnel(_args, http) {
-    const status = (await http.post(
-      "/remote-control/tunnel/stop",
-    )) as RemoteControlStatusRow;
     return text(formatRemoteStatus(status));
   },
 

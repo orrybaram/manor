@@ -1,6 +1,6 @@
 ---
 title: Delete the Tailscale tunnel subsystem
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: []

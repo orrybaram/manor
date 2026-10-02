@@ -527,16 +527,6 @@ export interface PickedElementResult {
 
 // ── Remote control (ADR-161) ──
 
-export type TunnelState = "stopped" | "starting" | "running" | "failed";
-
-export interface TunnelStatus {
-  state: TunnelState;
-  url: string | null;
-  error: string | null;
-  /** Set while starting, when Tailscale is waiting on the user (e.g. to enable Serve). */
-  actionUrl?: string | null;
-}
-
 /**
  * The Manor relay's connection (ADR-206). Mirrors `RelayStatus` in
  * `electron/remote-control/relay/connector.ts`. `error` is set in `failed`,
@@ -544,7 +534,7 @@ export interface TunnelStatus {
  * failed and the connector is retrying.
  */
 export interface RelayStatus {
-  state: TunnelState;
+  state: "stopped" | "starting" | "running" | "failed";
   url: string | null;
   error: string | null;
 }
@@ -570,22 +560,11 @@ export interface RemoteDeviceInfo {
   hasPush: boolean;
 }
 
-/** Mirrors `TailnetInfo` in `electron/remote-control/tunnel.ts`. */
-export interface TailnetInfo {
-  account: string | null;
-  peers: { name: string; os: string; online: boolean }[];
-}
-
 export interface RemoteControlStatus {
   enabled: boolean;
   port: number | null;
   devices: RemoteDeviceInfo[];
-  tunnel: TunnelStatus;
   relay: RelayStatus;
-  /** Whether the tailscale CLI was found, on PATH or in the app bundle. */
-  installed: boolean;
-  /** Other devices on the tailnet while a tunnel runs; null otherwise. */
-  tailnet: TailnetInfo | null;
   encryptionAvailable: boolean;
   /** Live connections of every kind, relay viewers included. */
   listeners: number;

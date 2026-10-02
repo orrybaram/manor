@@ -849,8 +849,8 @@ button.keybindingActionBtn:hover:not(:disabled) {
   border-radius: 8px;
 }
 
-/* A tunnel is a different fact about the machine, not a different control —
-   so it reads differently at a glance. */
+/* Being reachable is a different fact about the machine, not a different
+   control — so it reads differently at a glance. */
 .remoteExposureOpen {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--surface));
   background: color-mix(in srgb, var(--accent) 6%, var(--bg));
@@ -881,7 +881,7 @@ button.keybindingActionBtn:hover:not(:disabled) {
   color: var(--text-selected);
 }
 
-/* Title on the left, the card's one action on the right — the tunnel is the
+/* Title on the left, the card's one action on the right — the relay is the
    page's main call to action, so it sits where the eye lands first. */
 .remoteExposureHeader {
   display: flex;
@@ -893,31 +893,6 @@ button.keybindingActionBtn:hover:not(:disabled) {
 
 .remoteExposureHeader > :last-child {
   flex-shrink: 0;
-}
-
-/* Not a warning — nothing is wrong with the tunnel — but the one thing
-   standing between the user and a working phone, so it is set apart. */
-.remoteTailnetNote {
-  padding: 8px 10px;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--surface));
-  border-radius: 6px;
-}
-
-.remoteInstallTerminal {
-  height: 180px;
-  padding: 4px 8px;
-  background: var(--bg);
-  border: 1px solid var(--surface);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.remoteInstallTerminal :global(.xterm) {
-  height: 100%;
 }
 
 /* The pairing dialog stacks several labelled blocks; the shared confirm dialog

@@ -17,30 +17,19 @@ const TONE_CLASS = {
  * ADR-206 D6).
  *
  * Lives in the status bar rather than in settings because the hazard is a user
- * who left a road open and forgot. It renders nothing at all when neither the
- * tunnel nor the relay is up, so it costs nothing in the normal case — and it
- * deliberately shows failures too, since a road that died still needs
- * explaining.
+ * who left the relay running and forgot. It renders nothing at all when the
+ * relay is off, so it costs nothing in the normal case — and it deliberately
+ * shows failures too, since a relay that died still needs explaining.
  *
- * One badge for both roads. The tooltip lists each one that is not off, with
- * its own connection count, and a click stops **every** road at once. That is
- * the safer of the two choices: the badge exists for the moment someone wants
- * this machine unreachable *now*, and a click that closed one road and left
- * the other open is exactly the surprise it is there to prevent. (The
- * settings page stops them one at a time.)
+ * A click stops the relay: the badge exists for the moment someone wants this
+ * machine unreachable *now*. On a failure, stopping it is the dismissal.
  */
 export function RemoteExposureIndicator() {
   const status = useRemoteControlStore((s) => s.status);
-  const stopTunnel = useRemoteControlStore((s) => s.stopTunnel);
   const stopRelay = useRemoteControlStore((s) => s.stopRelay);
 
   const view = describeExposure(status);
   if (!view) return null;
-
-  const stopAll = () => {
-    if (view.stop.tunnel) void stopTunnel();
-    if (view.stop.relay) void stopRelay();
-  };
 
   return (
     <Tooltip label={view.label} side="top">
@@ -48,7 +37,7 @@ export function RemoteExposureIndicator() {
         variant="link"
         data-testid="remote-exposure-badge"
         className={`${styles.remoteBadge} ${TONE_CLASS[view.tone]}`}
-        onClick={stopAll}
+        onClick={() => void stopRelay()}
         aria-label={
           view.exposed ? "Stop remote access" : "Dismiss remote failure"
         }

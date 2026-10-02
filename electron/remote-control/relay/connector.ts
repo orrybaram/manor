@@ -70,7 +70,6 @@ import {
 } from "../../../src/lib/relay-crypto/protocol";
 import type { FrameSocket } from "../../bridge/transports/frame-socket";
 import type { BridgeAuthenticator } from "../../bridge/transports/ws";
-import type { TunnelState } from "../tunnel";
 import { RelayChannel } from "./channel";
 import { wipe } from "./identity";
 
@@ -81,9 +80,11 @@ import { wipe } from "./identity";
  */
 export const DEFAULT_RELAY_URL = "https://relay.manor.sh";
 
-/** Same shape as `TunnelStatus`: `url` (the relay origin) is set in `running`. */
+type RelayState = "stopped" | "starting" | "running" | "failed";
+
+/** `url` (the relay origin) is set only in `running`. */
 export interface RelayStatus {
-  state: TunnelState;
+  state: RelayState;
   url: string | null;
   /**
    * Set in `failed`, and in `starting` while reconnecting after a drop (why

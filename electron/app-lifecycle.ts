@@ -1,7 +1,6 @@
 import { app, BrowserWindow, nativeImage, powerMonitor, safeStorage } from "electron";
 import fs from "node:fs";
 import path from "node:path";
-import { spawn } from "node:child_process";
 import { performance } from "node:perf_hooks";
 import { TerminalHostClient } from "./terminal-host/client";
 import { LayoutPersistence } from "./terminal-host/layout-persistence";
@@ -51,7 +50,6 @@ import {
   RemoteControlController,
   type RemoteControlRuntime,
 } from "./remote-control/controller";
-import { TAILSCALE_APP_CLI } from "./remote-control/tunnel-status";
 import { PushManager } from "./remote-control/push";
 import type { HostDeps } from "./ipc/types";
 import { handleRelayedControlRequest } from "./control-relay";
@@ -506,9 +504,9 @@ export function initApp(devTitle: string | null): void {
   // ADR-161's remote-control surface. Constructed here so the status sink and
   // the quit hook can see it; deliberately *not* started — remote control is
   // off until the user turns it on, and even then the listener is loopback-only
-  // until they separately start a tunnel. The listener and tunnel modules are
+  // until they separately start the relay. The listener and relay modules are
   // not even loaded until then (ADR-205 §3): `loadRuntime` runs at most once,
-  // on the first enable or tunnel start.
+  // on the first enable.
   const remoteDeviceStore = new RemoteDeviceStore();
   const remotePush = new PushManager(remoteDeviceStore);
   /**
@@ -526,27 +524,14 @@ export function initApp(devTitle: string | null): void {
   let bridgeServer: BridgeServer | null = null;
   let wsBridge: WsBridgeServer | null = null;
   let ipcBridge: IpcBridgeTransport | null = null;
-  // `backend.shell.which`, plus the Tailscale app (`brew install --cask
-  // tailscale-app`, or the App Store), which ships its CLI inside the bundle
-  // and does not put it on PATH.
-  const whichTunnelBin = async (bin: string): Promise<string | null> => {
-    const onPath = await backend.shell.which(bin);
-    if (onPath) return onPath;
-    if (bin === "tailscale" && fs.existsSync(TAILSCALE_APP_CLI)) {
-      return TAILSCALE_APP_CLI;
-    }
-    return null;
-  };
   const loadRemoteControlRuntime = async (): Promise<RemoteControlRuntime> => {
     const [
       { RemoteControlServer },
-      { TunnelManager },
       { WsBridgeServer },
       { RelayConnector },
       { RelayIdentityStore },
     ] = await Promise.all([
       import("./remote-control/server"),
-      import("./remote-control/tunnel"),
       import("./bridge/transports/ws"),
       import("./remote-control/relay/connector"),
       import("./remote-control/relay/identity"),
@@ -568,32 +553,20 @@ export function initApp(devTitle: string | null): void {
       // Rate limiter, audit log, and client directory all take their defaults.
       { push: remotePush, bridge: ws },
     );
-    // Detected, never installed; started only by an explicit user action. The
-    // controller's shutdown guarantees the child dies with the app — a tunnel
-    // outliving Manor is the feature's worst failure mode.
-    const tunnel = new TunnelManager({
-      which: whichTunnelBin,
-      spawn: (command, args) =>
-        spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] }),
-      exec: (command, args) =>
-        backend.shell.exec(command, args, { timeout: 5_000 }),
-    });
-    // ADR-206's relay: the third way to reach the machine, feeding the same
-    // bridge as the listener's `/ws`. Constructed, never started here — only
-    // an explicit user action (via the controller) dials it.
+    // ADR-206's relay: the only way to reach the machine from off it, feeding
+    // the same bridge as the listener's `/ws`. Constructed, never started
+    // here — only an explicit user action (via the controller) dials it.
     const relayIdentity = new RelayIdentityStore();
     const relay = new RelayConnector({
       identity: relayIdentity,
       bridge: ws,
       authenticate: (token) => server.authenticateRelayHello(token),
     });
-    return { server, tunnel, relay, relayIdentity };
+    return { server, relay, relayIdentity };
   };
   const remoteControl = new RemoteControlController(
     loadRemoteControlRuntime,
     remoteDeviceStore,
-    // Same probe the tunnel manager uses, without loading it.
-    whichTunnelBin,
     () => safeStorage.isEncryptionAvailable(),
     remotePush,
     app.getVersion(),
@@ -1030,13 +1003,6 @@ export function initApp(devTitle: string | null): void {
     });
   });
 
-  // `before-quit` covers the ordinary path. This covers the ones that skip it
-  // — `app.exit()`, an unhandled fatal — where a surviving tunnel would leave
-  // this machine reachable with nothing listening behind it.
-  process.on("exit", () => {
-    remoteControl.killTunnelNow();
-  });
-
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
   });
@@ -1047,7 +1013,7 @@ export function initApp(devTitle: string | null): void {
     // The layout debounce is 300ms; a quit inside that window must not be the
     // one that loses the user's arrangement.
     layoutStore.flush();
-    // Takes the tunnel down first, then the listener. A tunnel must never
+    // Takes the relay down first, then the listener. Nothing reachable may
     // outlive the app that opened it.
     void remoteControl.shutdown();
     // Bridge sockets die with the listener above; disposing the surface then

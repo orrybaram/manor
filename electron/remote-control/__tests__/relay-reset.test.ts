@@ -27,7 +27,6 @@ import { RelayConnector } from "../relay/connector";
 import type { RelayIdentityStore } from "../relay/identity";
 import { FakeRelay, FakeViewer } from "../relay/__tests__/fake-relay";
 import { RemoteControlServer, type AuthenticatedDevice } from "../server";
-import type { TunnelManager } from "../tunnel";
 
 const RELAY_TOKEN = "relay-token";
 
@@ -117,24 +116,18 @@ describe("resetting the relay address", () => {
       relayUrl: relay.url,
       timing: { backoffMinMs: 20, backoffMaxMs: 100 },
     });
-    const tunnel = {
-      status: { state: "stopped", url: null, error: null },
-      onStatus: () => () => {},
-    };
     const identityStore = {
       describe: () => ({ roomId, x25519Pub: "" }),
       reset: () => ({ roomId: "new", x25519Pub: "" }),
     };
     const runtime: RemoteControlRuntime = {
       server,
-      tunnel: tunnel as unknown as TunnelManager,
       relay: connector,
       relayIdentity: identityStore as unknown as RelayIdentityStore,
     };
     const controller = new RemoteControlController(
       async () => runtime,
       deviceStore as unknown as RemoteDeviceStore,
-      async () => null,
       () => true,
       null,
     );

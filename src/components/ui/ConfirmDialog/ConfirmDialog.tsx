@@ -19,7 +19,7 @@ type ConfirmDialogProps = {
 
 /**
  * A non-blocking replacement for `window.confirm` — same look as the app's
- * other confirmation dialogs (RemoveProjectDialog, TunnelConfirmDialog).
+ * other confirmation dialogs (RemoveProjectDialog, RelayConfirmDialog).
  */
 export function ConfirmDialog(props: ConfirmDialogProps) {
   const {

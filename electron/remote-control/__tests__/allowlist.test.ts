@@ -243,17 +243,15 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
         // ADR-180 ticket 10: the keys, and the lock they turn. A stolen
         // `full` token that can pair more devices is a token that survives
         // its own revocation, and one that can stop the listener can lock the
-        // owner out of taking it back. `getStatus` and `refreshDetection` are
-        // absent from this list on purpose — a device's settings page may
-        // read the surface it is on.
+        // owner out of taking it back. `getStatus` is absent from this list
+        // on purpose — a device's settings page may read the surface it is
+        // on.
         "remoteControl.setEnabled",
         "remoteControl.startRelay",
         "remoteControl.pair",
         "remoteControl.resetRelayAddress",
         "remoteControl.revoke",
-        "remoteControl.startTunnel",
         "remoteControl.stopRelay",
-        "remoteControl.stopTunnel",
         // The one method in the whole surface that takes a raw credential as
         // an argument. Everything else Linear does hands back the result of
         // using the stored key and crosses like any other read.
@@ -269,9 +267,8 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
    * a paired device's own settings page unable to say whether the host is
    * reachable — while still passing the assertion above.
    */
-  it("leaves remote control's two reads reachable from a device", () => {
+  it("leaves remote control's read reachable from a device", () => {
     expect(LOCAL_ONLY.has("remoteControl.getStatus")).toBe(false);
-    expect(LOCAL_ONLY.has("remoteControl.refreshDetection")).toBe(false);
   });
 
   /**

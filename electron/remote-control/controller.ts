@@ -1,6 +1,7 @@
 /**
- * One object the UI talks to for all of ADR-161: the listener, the device
- * store, and the tunnel, plus the single status shape the settings panel and
+ * One object the UI talks to for all of remote control: the loopback
+ * listener, the device store, and the relay (ADR-206 — since ADR-207 the only
+ * way off the machine), plus the single status shape the settings panel and
  * the exposure indicator both render.
  *
  * Two policies live here rather than in the pieces:
@@ -9,27 +10,26 @@
  *     enabled state is deliberately not persisted. A setting that silently
  *     re-opens a listener after an update is exactly the surprise this feature
  *     cannot afford, and re-ticking a box costs the user a second.
- *   - **Disabling means disabled.** Turning remote control off stops the tunnel
- *     too. A live tunnel pointed at a stopped listener still tells the world
- *     the machine is there, and still shows up in the indicator as reachable.
+ *   - **Disabling means disabled.** Turning remote control off stops the relay
+ *     too. A live relay connection for a stopped listener still tells the
+ *     world the machine is there, and still shows up in the indicator as
+ *     reachable.
  *
- * The listener and the tunnel manager (the "runtime") are loaded lazily, the
- * first time the user enables remote control or starts a tunnel (ADR-205 §3).
- * Until then the controller answers from what it knows without them: status
- * reports disabled with a stopped tunnel, detection probes PATH directly, and
- * every teardown is a no-op for parts that were never loaded. The device store
- * stays eager — the settings panel lists paired devices with remote control
- * off, and it has no heavy dependencies. The relay (ADR-206) is part of the
- * runtime too: it only runs while remote control is enabled, and its
- * connector and identity pull in `ws` and the Noise crypto.
+ * The listener and the relay (the "runtime") are loaded lazily, the first
+ * time the user enables remote control (ADR-205 §3) — the connector and
+ * identity pull in `ws` and the Noise crypto. Until then the controller
+ * answers from what it knows without them: status reports disabled with a
+ * stopped relay, and every teardown is a no-op for parts that were never
+ * loaded. The device store stays eager — the settings panel lists paired
+ * devices with remote control off, and it has no heavy dependencies.
  *
  * The transitions that change what is reachable — enabling, disabling,
  * starting and stopping the relay, resetting its address — must not
  * interleave into a half-state. A disable drops `wantEnabled` before its
- * first await, and every relay or tunnel start checks it: without that, a
- * Start relay landing while a disable was awaiting the tunnel's exit saw a
- * listener that was still up, and the relay outlived remote control. The
- * relay transitions themselves run one at a time (`serially`).
+ * first await, and every relay start checks it: without that, a Start relay
+ * landing while a disable was awaiting the listener's close saw a listener
+ * that was still up, and the relay outlived remote control. The relay
+ * transitions themselves run one at a time (`serially`).
  */
 
 import { lazy, type Lazy } from "../lib/lazy";
@@ -44,31 +44,14 @@ import type { RelayIdentityStore } from "./relay/identity";
 import { isPushable, pushPayloadFor, type PushManager } from "./push";
 import type { PushSubscriptionRecord } from "./devices";
 import type { RemoteControlServer, RemoteStatusEvent } from "./server";
-import type { TunnelManager } from "./tunnel";
-import {
-  isCancelled,
-  isTailscaleInstalled,
-  STOPPED_TUNNEL_STATUS,
-  type TailnetInfo,
-  type TunnelStatus,
-  type WhichFn,
-} from "./tunnel-status";
 
 export interface RemoteControlStatus {
   /** Is the listener running? Loopback-only regardless. */
   enabled: boolean;
   port: number | null;
   devices: RemoteDeviceInfo[];
-  tunnel: TunnelStatus;
-  /** The Manor relay (ADR-206): same shape and policies as the tunnel. */
+  /** The Manor relay (ADR-206). */
   relay: RelayStatus;
-  /** Whether the tailscale CLI was found, on PATH or in the app bundle. */
-  installed: boolean;
-  /**
-   * Who else is on the tailnet, while a tunnel is running — the address opens
-   * only on those devices. Null when not running or Tailscale cannot say.
-   */
-  tailnet: TailnetInfo | null;
   /** False means pairing cannot store a token — see `RemoteDeviceStore`. */
   encryptionAvailable: boolean;
   /**
@@ -90,13 +73,13 @@ export interface PairResult {
   device: RemoteDeviceInfo;
   /** Shown once, never stored. */
   rawToken: string;
-  /** `https://<tunnel-host><page>#<token>`, or null with no tunnel running. */
+  /** The relay link (`https://<relay>/app/<version>/#relay=…`), or null. */
   pairingUrl: string | null;
   /**
    * The page this device's link should open — `/app` or `/`, per `pageFor`.
    *
    * Carried on the result rather than recomputed by the caller: the pairing
-   * dialog also builds a loopback link for the no-tunnel case, and when the
+   * dialog also builds a loopback link for this machine, and when the
    * rule lived in two places that link kept pointing at the phone client for
    * a `full` device.
    */
@@ -117,7 +100,6 @@ export function pageFor(capability: Capability): string {
 /** The heavy half of remote control, loaded on first real use. */
 export interface RemoteControlRuntime {
   server: RemoteControlServer;
-  tunnel: TunnelManager;
   /** The relay connector (ADR-206). Absent: the relay is unavailable. */
   relay?: RelayConnector | null;
   /** The relay's keys, the room and the Noise static. Absent with `relay`. */
@@ -131,9 +113,6 @@ const STOPPED_RELAY_STATUS: Readonly<RelayStatus> = Object.freeze({
 });
 
 export class RemoteControlController {
-  private installed = false;
-  private tailnet: TailnetInfo | null = null;
-  private tailnetTimer: ReturnType<typeof setInterval> | null = null;
   private listeners = new Set<(status: RemoteControlStatus) => void>();
   private relayNotice: string | null = null;
   /** The tail of the `serially` queue. */
@@ -157,8 +136,6 @@ export class RemoteControlController {
   constructor(
     loadRuntime: () => Promise<RemoteControlRuntime>,
     private readonly deviceStore: RemoteDeviceStore,
-    /** PATH probe for tunnel detection — must not need the runtime. */
-    private readonly which: WhichFn,
     private readonly encryptionAvailable: () => boolean,
     /** Null disables push; everything else still works. */
     private readonly push: PushManager | null = null,
@@ -169,10 +146,6 @@ export class RemoteControlController {
       const runtime = await loadRuntime();
       this.runtime = runtime;
       runtime.relay?.onStatus(() => this.emit());
-      runtime.tunnel.onStatus((tunnel) => {
-        this.watchTailnet(tunnel.state === "running");
-        this.emit();
-      });
       return runtime;
     });
   }
@@ -191,34 +164,6 @@ export class RemoteControlController {
     subscription: PushSubscriptionRecord,
   ): boolean {
     return this.push?.subscribe(deviceId, subscription) ?? false;
-  }
-
-  /**
-   * While the tunnel is up, re-ask who is on the tailnet every few seconds, so
-   * the card notices the phone joining without the user doing anything.
-   */
-  private watchTailnet(running: boolean): void {
-    if (!running) {
-      if (this.tailnetTimer) clearInterval(this.tailnetTimer);
-      this.tailnetTimer = null;
-      this.tailnet = null;
-      return;
-    }
-    if (this.tailnetTimer) return;
-    void this.refreshTailnet();
-    this.tailnetTimer = setInterval(() => void this.refreshTailnet(), 10_000);
-    this.tailnetTimer.unref?.();
-  }
-
-  private async refreshTailnet(): Promise<void> {
-    const tunnel = this.runtime?.tunnel;
-    if (!tunnel) return;
-    const next = await tunnel.tailnet();
-    if (JSON.stringify(next) === JSON.stringify(this.tailnet)) return;
-    // The tunnel may have stopped while we were asking.
-    if (!this.tailnetTimer) return;
-    this.tailnet = next;
-    this.emit();
   }
 
   /**
@@ -267,21 +212,9 @@ export class RemoteControlController {
     return {
       ...this.runtimeStatus(),
       devices: this.deviceStore.list(),
-      installed: this.installed,
-      tailnet: this.tailnet,
       encryptionAvailable: this.encryptionAvailable(),
       relayNotice: this.relayNotice,
     };
-  }
-
-  /**
-   * Re-probe PATH. Cheap, and the user may have installed a tool since launch.
-   * Does not load the runtime: opening the settings panel must not.
-   */
-  async refreshDetection(): Promise<RemoteControlStatus> {
-    this.installed = await isTailscaleInstalled(this.which);
-    this.emit();
-    return this.status();
   }
 
   async setEnabled(enabled: boolean): Promise<RemoteControlStatus> {
@@ -303,7 +236,6 @@ export class RemoteControlController {
         }
         await this.starting;
       }
-      await this.refreshDetection();
     } else {
       this.wantEnabled = false;
       // Never loads: waits for a load already in flight (so what it starts can
@@ -311,9 +243,8 @@ export class RemoteControlController {
       const runtime = await this.loadedRuntime();
       if (runtime) {
         // Order matters: drop the exposure before the thing being exposed, so
-        // there is no window where a tunnel points at a closing listener.
+        // there is no window where the relay feeds a closing listener.
         runtime.relay?.stop();
-        await runtime.tunnel.stop();
         await runtime.server.stop();
       }
     }
@@ -328,15 +259,9 @@ export class RemoteControlController {
   ): PairResult {
     if (via === "relay") return this.pairViaRelay(label, capability);
     const { device, rawToken } = this.deviceStore.pair(label, capability, via);
-    const url = this.runtime?.tunnel.status.url ?? null;
     this.emit();
-    const page = pageFor(capability);
-    return {
-      device,
-      rawToken,
-      page,
-      pairingUrl: url ? `${url}${page}#${rawToken}` : null,
-    };
+    // No road off the machine but the relay any more: only the loopback link.
+    return { device, rawToken, page: pageFor(capability), pairingUrl: null };
   }
 
   /**
@@ -387,60 +312,8 @@ export class RemoteControlController {
   }
 
   /**
-   * Start the tunnel. Tailscale is the only kind there is. Detection is
-   * re-checked here rather than trusting the last `refreshDetection` — the
-   * user may only just have installed it.
-   */
-  async startTunnel(): Promise<RemoteControlStatus> {
-    const runtime = this.closed ? null : await this.ensureRuntime();
-    // `wantEnabled` is false while a disable is taking things down, before
-    // the listener has actually stopped.
-    if (
-      !runtime ||
-      this.closed ||
-      !this.wantEnabled ||
-      !runtime.server.running
-    ) {
-      throw new Error("Enable remote control before starting a tunnel.");
-    }
-    const { server, tunnel } = runtime;
-    this.installed = await tunnel.detect();
-    if (!this.installed) {
-      throw new Error(
-        "Tailscale is not installed. Install it from Settings → Remote " +
-          "control, sign in, and try again.",
-      );
-    }
-    // Remote control may have been turned off (or the app quit) while PATH
-    // was probed; spawning now would expose nothing, or outlive the app.
-    if (this.closed || !this.wantEnabled || !server.running) {
-      throw new Error("Enable remote control before starting a tunnel.");
-    }
-    try {
-      await tunnel.start(server.serverPort);
-    } catch (err) {
-      // A `stopTunnel()` while starting (Cancel) is not a failure.
-      if (!isCancelled(err)) throw err;
-    }
-    if (this.closed || !this.wantEnabled || !server.running) {
-      // Torn down while the tunnel came up. It must not survive that.
-      await tunnel.stop();
-      throw new Error("Remote control was turned off while the tunnel started.");
-    }
-    this.emit();
-    return this.status();
-  }
-
-  async stopTunnel(): Promise<RemoteControlStatus> {
-    const runtime = await this.loadedRuntime();
-    if (runtime) await runtime.tunnel.stop();
-    this.emit();
-    return this.status();
-  }
-
-  /**
-   * Start the relay. Like the tunnel, only while remote control is on — so
-   * the runtime is loaded, and this never loads it.
+   * Start the relay. Only while remote control is on — so the runtime is
+   * loaded, and this never loads it.
    */
   startRelay(): Promise<RemoteControlStatus> {
     return this.serially(() => {
@@ -543,30 +416,17 @@ export class RemoteControlController {
   }
 
   /**
-   * Last-resort teardown for the paths that skip `before-quit` — `app.exit()`
-   * and fatal errors. Synchronous because `process.on("exit")` is: a tunnel
-   * surviving the app is this feature's worst failure mode, so it gets the
-   * ungraceful kill rather than a promise nobody will await. A runtime still
-   * loading has spawned nothing yet, so there is nothing to kill.
-   */
-  killTunnelNow(): void {
-    this.runtime?.tunnel.killNow();
-  }
-
-  /**
-   * Quit path: the tunnel must never outlive the app. Marks the controller
-   * closed first, so anything in flight (a load, a listener start, a tunnel
-   * start) sees it at its next step and backs out, then waits for a pending
-   * load and stops whatever it produced.
+   * Quit path: nothing reachable may outlive the app. Marks the controller
+   * closed first, so anything in flight (a load, a listener start) sees it at
+   * its next step and backs out, then waits for a pending load and stops
+   * whatever it produced.
    */
   async shutdown(): Promise<void> {
     this.closed = true;
     this.wantEnabled = false;
-    this.watchTailnet(false);
     const runtime = await this.loadedRuntime();
     if (!runtime) return;
     runtime.relay?.stop();
-    await runtime.tunnel.stop();
     await runtime.server.stop();
     // A listener start that was mid-`listen()` stops itself on seeing
     // `closed`; wait for that so shutdown resolves with nothing running.
@@ -599,23 +459,21 @@ export class RemoteControlController {
   /** The runtime's part of `status()`; disabled and stopped until it loads. */
   private runtimeStatus(): Pick<
     RemoteControlStatus,
-    "enabled" | "port" | "tunnel" | "relay" | "listeners" | "relayViewers"
+    "enabled" | "port" | "relay" | "listeners" | "relayViewers"
   > {
     if (!this.runtime) {
       return {
         enabled: false,
         port: null,
-        tunnel: { ...STOPPED_TUNNEL_STATUS },
         relay: { ...STOPPED_RELAY_STATUS },
         listeners: 0,
         relayViewers: 0,
       };
     }
-    const { server, tunnel, relay } = this.runtime;
+    const { server, relay } = this.runtime;
     return {
       enabled: server.running,
       port: server.running ? server.serverPort : null,
-      tunnel: tunnel.status,
       relay: relay?.status ?? { ...STOPPED_RELAY_STATUS },
       listeners: server.listenerCount,
       relayViewers: relay?.channelCount ?? 0,

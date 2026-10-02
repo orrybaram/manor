@@ -19,13 +19,10 @@ interface RemoteControlState {
   busy: boolean;
   error: string | null;
   setEnabled: (enabled: boolean) => Promise<void>;
-  startTunnel: () => Promise<void>;
-  stopTunnel: () => Promise<void>;
   startRelay: () => Promise<void>;
   stopRelay: () => Promise<void>;
   resetRelayAddress: () => Promise<void>;
   revoke: (id: string) => Promise<void>;
-  refreshDetection: () => Promise<void>;
   pair: (
     label: string,
     capability: RemoteCapability,
@@ -38,10 +35,7 @@ const emptyStatus: RemoteControlStatus = {
   enabled: false,
   port: null,
   devices: [],
-  tunnel: { state: "stopped", url: null, error: null },
   relay: { state: "stopped", url: null, error: null },
-  installed: false,
-  tailnet: null,
   encryptionAvailable: true,
   listeners: 0,
   relayViewers: 0,
@@ -85,10 +79,6 @@ export const useRemoteControlStore = create<RemoteControlState>((set) => {
 
     setEnabled: (enabled) =>
       runStatus(() => window.electronAPI.remoteControl.setEnabled(enabled)),
-    startTunnel: () =>
-      runStatus(() => window.electronAPI.remoteControl.startTunnel()),
-    stopTunnel: () =>
-      runStatus(() => window.electronAPI.remoteControl.stopTunnel()),
     startRelay: () =>
       runStatus(() => window.electronAPI.remoteControl.startRelay()),
     stopRelay: () =>
@@ -97,8 +87,6 @@ export const useRemoteControlStore = create<RemoteControlState>((set) => {
       runStatus(() => window.electronAPI.remoteControl.resetRelayAddress()),
     revoke: (id) =>
       runStatus(() => window.electronAPI.remoteControl.revoke(id)),
-    refreshDetection: () =>
-      runStatus(() => window.electronAPI.remoteControl.refreshDetection()),
     pair: (label, capability, via = "tailscale") =>
       run(() => window.electronAPI.remoteControl.pair(label, capability, via)),
     clearError: () => set({ error: null }),

@@ -40,17 +40,22 @@ test("the selected tab survives a relaunch", async ({ tempHome }) => {
     expect(secondTabId).toBeTruthy();
     await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
 
-    // The viewport file is written 300ms after the last selection change.
-    await expect
-      .poll(
-        () => {
-          const file = path.join(tempHome, ".manor", "viewport.json");
-          if (!fs.existsSync(file)) return "";
-          return fs.readFileSync(file, "utf-8");
-        },
-        { timeout: 15_000 },
-      )
-      .toContain(secondTabId);
+    // Both files are written 300ms after the last change, each on its own
+    // debounce, and `killApp` is a SIGKILL that skips the quit-time flush.
+    // Waiting on the viewport alone kills the app before `layout.json` lands
+    // about half the time, and the relaunch then has no tabs to select.
+    for (const name of ["viewport.json", "layout.json"]) {
+      await expect
+        .poll(
+          () => {
+            const file = path.join(tempHome, ".manor", name);
+            if (!fs.existsSync(file)) return "";
+            return fs.readFileSync(file, "utf-8");
+          },
+          { timeout: 15_000 },
+        )
+        .toContain(secondTabId);
+    }
   } finally {
     await killApp(first);
   }

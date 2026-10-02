@@ -527,16 +527,6 @@ export interface PickedElementResult {
 
 // ── Remote control (ADR-161) ──
 
-export type TunnelState = "stopped" | "starting" | "running" | "failed";
-
-export interface TunnelStatus {
-  state: TunnelState;
-  url: string | null;
-  error: string | null;
-  /** Set while starting, when Tailscale is waiting on the user (e.g. to enable Serve). */
-  actionUrl?: string | null;
-}
-
 /**
  * The Manor relay's connection (ADR-206). Mirrors `RelayStatus` in
  * `electron/remote-control/relay/connector.ts`. `error` is set in `failed`,
@@ -544,52 +534,30 @@ export interface TunnelStatus {
  * failed and the connector is retrying.
  */
 export interface RelayStatus {
-  state: TunnelState;
+  state: "stopped" | "starting" | "running" | "failed";
   url: string | null;
   error: string | null;
 }
 
-/**
- * How much of the machine a paired device may reach (ADR-178 D3): read the
- * allowlisted read routes, also act on the three acting routes, or reach
- * everything the desktop app can. Mirrors `Capability` in
- * `electron/remote-control/devices.ts`.
- */
-export type RemoteCapability = "read" | "send" | "full";
-
 export interface RemoteDeviceInfo {
   id: string;
   label: string;
-  /** How far this device reaches. `read` unless explicitly granted more. */
-  capability: RemoteCapability;
-  /** Which road the device was paired through. */
-  via: "tailscale" | "relay";
   createdAt: number;
   lastSeenAt: number | null;
   /** Whether the device has a live Web Push subscription. */
   hasPush: boolean;
 }
 
-/** Mirrors `TailnetInfo` in `electron/remote-control/tunnel.ts`. */
-export interface TailnetInfo {
-  account: string | null;
-  peers: { name: string; os: string; online: boolean }[];
-}
-
 export interface RemoteControlStatus {
   enabled: boolean;
-  port: number | null;
   devices: RemoteDeviceInfo[];
-  tunnel: TunnelStatus;
   relay: RelayStatus;
-  /** Whether the tailscale CLI was found, on PATH or in the app bundle. */
-  installed: boolean;
-  /** Other devices on the tailnet while a tunnel runs; null otherwise. */
-  tailnet: TailnetInfo | null;
+  /** Where pairing links point; null when nothing can be paired. */
+  relayOrigin: string | null;
+  /** The web app on the relay, without credentials; null when `relayOrigin` is. */
+  relayAppUrl: string | null;
   encryptionAvailable: boolean;
-  /** Live connections of every kind, relay viewers included. */
-  listeners: number;
-  /** Of `listeners`, how many came through the relay. */
+  /** Open relay channels: every live remote connection there is. */
   relayViewers: number;
   /** A relay notice that is not a connection state (identity replaced). */
   relayNotice: string | null;
@@ -599,9 +567,8 @@ export interface RemotePairResult {
   device: RemoteDeviceInfo;
   /** Shown once. Never retrievable again. */
   rawToken: string;
-  pairingUrl: string | null;
-  /** The page this device's link opens: `/app` for `full`, `/` otherwise. */
-  page: string;
+  /** The relay link the device opens (ADR-206). */
+  pairingUrl: string;
 }
 
 // ── The host surface (ADR-180 D3) ──

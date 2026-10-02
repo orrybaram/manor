@@ -240,7 +240,7 @@ async function deliverPendingCommand(
  * Open (or reattach to) a pane's session.
  *
  * A renderer window and a paired device go through the same `assert*`
- * validation — a browser on the far end of a tunnel is not more trusted than
+ * validation — a browser on the far end of the relay is not more trusted than
  * a renderer, it is less.
  */
 export function ptyCreate(

@@ -56,7 +56,6 @@ const authenticate: BridgeAuthenticator = (token) => {
   if (token === "good") {
     return { ok: true, device: { id: "dev-1", label: "Phone" } as never };
   }
-  if (token === "read-only") return { ok: false, code: 4403 };
   return { ok: false, code: 4401 };
 };
 
@@ -140,14 +139,6 @@ describe("WsBridgeServer.attach with a FrameSocket", () => {
       expect(socket.closed?.code).toBe(4401);
       expect(ws.size).toBe(0);
     });
-  });
-
-  it("closes 4403 for a device below full", async () => {
-    const socket = new FakeSocket();
-    ws.attach(socket, authenticate);
-    socket.receive({ type: "hello", token: "read-only" });
-    await flush();
-    expect(socket.closed?.code).toBe(4403);
   });
 
   it("answers hello and then an invoke", async () => {

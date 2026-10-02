@@ -524,7 +524,6 @@ export class BridgeServer {
       at: new Date().toISOString(),
       deviceId,
       deviceLabel,
-      tier: "full",
       transport: "bridge",
       route,
       // Never a secret. `linear.connect`'s first argument is an API key, and
@@ -536,7 +535,6 @@ export class BridgeServer {
       // and one of them is a keystroke.
       textLength: null,
       textSha256: null,
-      interrupt: false,
       outcome,
       status,
     });

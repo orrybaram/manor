@@ -1,5 +1,4 @@
 import type { CSSProperties } from "react";
-import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import FolderKanban from "lucide-react/dist/esm/icons/folder-kanban";
 import Milestone from "lucide-react/dist/esm/icons/milestone";
@@ -14,59 +13,11 @@ import {
   type LinkedTask,
   type TaskRow,
 } from "../../lib/tasks";
+import { PriorityIcon } from "./PriorityIcon";
 import { TrackerRowIcon } from "./tracker-icons";
 import styles from "./TasksView.module.css";
 
 const MAX_AVATARS = 3;
-
-/** Linear's priority glyph: an alert square for Urgent, else 3 bars — High 3 lit, Medium 2, Low 1. */
-function PriorityIcon(props: { value: number }) {
-  const { value } = props;
-
-  if (value === 1) {
-    return (
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 16 16"
-        className={styles.priorityUrgent}
-        aria-hidden
-      >
-        <rect x="1" y="1" width="14" height="14" rx="3" fill="currentColor" />
-        <path
-          d="M8 4.5v4.5"
-          stroke="var(--bg)"
-          strokeWidth="2"
-          strokeLinecap="round"
-        />
-        <circle cx="8" cy="11.75" r="1.1" fill="var(--bg)" />
-      </svg>
-    );
-  }
-  const lit = 5 - value;
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      className={styles.priorityBars}
-      aria-hidden
-    >
-      {[0, 1, 2].map((i) => (
-        <rect
-          key={i}
-          x={1.5 + i * 5}
-          y={10 - i * 4}
-          width="3"
-          height={5 + i * 4}
-          rx="1"
-          fill="currentColor"
-          opacity={i < lit ? 1 : 0.3}
-        />
-      ))}
-    </svg>
-  );
-}
 
 type TaskTableRowProps = {
   row: TaskRow | LinkedTask;
@@ -78,11 +29,27 @@ type TaskTableRowProps = {
   onAction: () => void;
   /** Just ID, title / context, updated and the action — Home's Up next. */
   compact?: boolean;
+  /** The Assignees column; hidden while the Tasks view's drawer is open. */
+  showAssignees?: boolean;
+  /** Makes the title open the task's detail (ADR-208 §3) instead of its URL. */
+  onOpen?: () => void;
+  /** The row whose detail is open. */
+  selected?: boolean;
 };
 
 /** One Tasks table row. Pair `compact` with the table's `.compact` class. */
 export function TaskTableRow(props: TaskTableRowProps) {
-  const { row, now, showPriority, actionLabel, onAction, compact = false } = props;
+  const {
+    row,
+    now,
+    showPriority,
+    actionLabel,
+    onAction,
+    compact = false,
+    showAssignees = true,
+    onOpen,
+    selected = false,
+  } = props;
 
   const shownAssignees = row.assignees.slice(0, MAX_AVATARS);
   const hiddenAssignees = row.assignees.length - shownAssignees.length;
@@ -90,10 +57,23 @@ export function TaskTableRow(props: TaskTableRowProps) {
 
   return (
     <div
-      className={`${styles.gridRow} ${styles.bodyRow}`}
+      className={`${styles.gridRow} ${styles.bodyRow} ${selected ? styles.bodyRowSelected : ""}`}
       role="row"
+      aria-selected={onOpen ? selected : undefined}
       data-testid="task-row"
+      data-task-key={row.key}
     >
+      <span role="cell" className={styles.actionCell}>
+        <Button
+          variant="secondary"
+          size="sm"
+          className={`${styles.startButton} ${actionLabel === "Start" ? styles.startButtonGo : ""}`}
+          onClick={onAction}
+          aria-label={`${actionLabel} ${row.displayId}`}
+        >
+          {actionLabel}
+        </Button>
+      </span>
       <span role="cell">
         <Link href={row.url} variant="plain" className={styles.idChip}>
           <TrackerRowIcon provider={row.provider} />
@@ -101,9 +81,20 @@ export function TaskTableRow(props: TaskTableRowProps) {
         </Link>
       </span>
       <span role="cell" className={styles.titleCell}>
-        <Link href={row.url} variant="plain" className={styles.taskTitle}>
-          {row.title}
-        </Link>
+        {onOpen ? (
+          <Button
+            variant="ghost"
+            className={`${styles.taskTitle} ${styles.taskTitleButton}`}
+            onClick={onOpen}
+            data-task-title=""
+          >
+            {row.title}
+          </Button>
+        ) : (
+          <Link href={row.url} variant="plain" className={styles.taskTitle}>
+            {row.title}
+          </Link>
+        )}
         <span className={styles.context}>
           <span
             className={styles.projectName}
@@ -153,19 +144,23 @@ export function TaskTableRow(props: TaskTableRowProps) {
       </span>
       {!compact && (
         <>
-          <span role="cell" className={styles.avatars}>
-            {shownAssignees.map((name) => (
-              <Tooltip key={name} label={name}>
-                <span className={styles.avatar} aria-label={name}>
-                  {initialOf(name)}
-                </span>
-              </Tooltip>
-            ))}
-            {hiddenAssignees > 0 && (
-              <span className={styles.avatarMore}>+{hiddenAssignees}</span>
-            )}
-            {row.assignees.length === 0 && <span className={styles.dim}>—</span>}
-          </span>
+          {showAssignees && (
+            <span role="cell" className={styles.avatars}>
+              {shownAssignees.map((name) => (
+                <Tooltip key={name} label={name}>
+                  <span className={styles.avatar} aria-label={name}>
+                    {initialOf(name)}
+                  </span>
+                </Tooltip>
+              ))}
+              {hiddenAssignees > 0 && (
+                <span className={styles.avatarMore}>+{hiddenAssignees}</span>
+              )}
+              {row.assignees.length === 0 && (
+                <span className={styles.dim}>—</span>
+              )}
+            </span>
+          )}
           <span role="cell">
             <span
               className={`${styles.status} ${styles[`tone-${row.status.tone}`]}`}
@@ -189,18 +184,6 @@ export function TaskTableRow(props: TaskTableRowProps) {
       )}
       <span role="cell" className={styles.updated}>
         {updated || <span className={styles.dim}>—</span>}
-      </span>
-      <span role="cell" className={styles.actionCell}>
-        <Button
-          variant="secondary"
-          size="sm"
-          className={styles.startButton}
-          onClick={onAction}
-          aria-label={`${actionLabel} ${row.displayId}`}
-        >
-          {actionLabel}
-          <ArrowRight size={13} />
-        </Button>
       </span>
     </div>
   );

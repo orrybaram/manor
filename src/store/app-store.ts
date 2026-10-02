@@ -62,6 +62,7 @@ import type { SetupStep, StepStatus } from "./project-store";
 import type { Location } from "./navigation-history-store";
 import { isHomePath } from "../lib/home-path";
 import { LOCAL_HOST_ID, type HostId } from "../lib/hosts";
+import type { TaskProvider } from "../lib/tasks";
 import { hostForPath } from "../lib/workspace-directory";
 import {
   parseWorkspaceKey,
@@ -75,6 +76,19 @@ export type { Panel, Tab, WorkspaceLayout };
 
 /** App-level surfaces that can fill the main area (ADR-194). */
 export type AppSurface = "workspace" | "tasks";
+
+/**
+ * What to open the Tasks view on (ADR-208 §5). `project` is a sidebar entry
+ * key; `null` = all projects. `clearFilters` drops `provider`'s saved
+ * filters (ignored without one), so the view lists exactly what the caller
+ * counted.
+ */
+type TasksIntent = {
+  search?: string;
+  project?: string | null;
+  provider?: TaskProvider;
+  clearFilters?: boolean;
+};
 
 /**
  * Spread into a `set()` patch by actions that activate a workspace or put a
@@ -146,6 +160,11 @@ export interface AppState {
    * back to `"workspace"`. Not persisted.
    */
   activeSurface: AppSurface;
+  /**
+   * What the Tasks view should open on (ADR-208 §5) — one-shot: `TasksView`
+   * consumes it via `consumeTasksIntent`. Not part of navigation history.
+   */
+  tasksIntent: TasksIntent | null;
   paneCwd: Record<string, string>;
   paneTitle: Record<string, string>;
   paneAgentStatus: Record<string, PaneAgentStatus>;
@@ -176,8 +195,13 @@ export interface AppState {
    */
   setActiveWorkspace: (path: string, hostId?: HostId | null) => void;
 
-  /** Show the Tasks view (ADR-198); leaves the active workspace alone. */
-  showTasksView: () => void;
+  /**
+   * Show the Tasks view (ADR-198); leaves the active workspace alone. An
+   * `intent` presets its search / project (ADR-208 §5).
+   */
+  showTasksView: (intent?: TasksIntent) => void;
+  /** Return the pending `tasksIntent` and clear it. */
+  consumeTasksIntent: () => TasksIntent | null;
 
   /**
    * Atomically navigate to a specific pane inside a workspace.
@@ -1532,6 +1556,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeWorkspacePath: null,
   activeWorkspaceHostId: LOCAL_HOST_ID,
   activeSurface: "workspace",
+  tasksIntent: null,
   paneCwd: {},
   paneTitle: {},
   paneAgentStatus: {},
@@ -1646,10 +1671,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }),
 
-  showTasksView: () =>
-    set((state) =>
-      state.activeSurface === "tasks" ? state : { activeSurface: "tasks" },
-    ),
+  showTasksView: (intent) =>
+    set((state) => {
+      if (intent) return { activeSurface: "tasks", tasksIntent: intent };
+      return state.activeSurface === "tasks"
+        ? state
+        : { activeSurface: "tasks" };
+    }),
+
+  consumeTasksIntent: () => {
+    const intent = get().tasksIntent;
+    if (intent) set({ tasksIntent: null });
+    return intent;
+  },
 
   navigateToContext: ({ workspaceKey: key, tabId, paneId }) =>
     set((state) => {

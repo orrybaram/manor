@@ -6,17 +6,14 @@ End-to-end tests for Manor, driving the packaged renderer through Playwright's
 ## How to run
 
 ```bash
-# Build the app (renderer, electron, and the remote client) and run everything
+# Build the app (renderer and electron) and run everything
 pnpm test:e2e
 
 # One file, against whatever is already built
 pnpm exec playwright test tests/e2e/smoke.spec.ts
 
-# The remote-control flow, with a build first / without one
-pnpm test:e2e:remote
-pnpm e2e:remote
-
-# The web app, with a build first / without one
+# The web app (through the local relay, so Node >= 22 on PATH), with both
+# builds first / without
 pnpm test:e2e:web
 pnpm e2e:web
 
@@ -29,10 +26,14 @@ pnpm test:e2e:mobile
 pnpm e2e:mobile
 ```
 
-`pnpm test:e2e` runs `pnpm build` first, which produces `dist-electron/main.js`
-**and** `dist-electron/remote/` — the phone client the remote-control listener
-serves. Running Playwright directly skips that, which is what you want while
-iterating on test code and not on app code.
+`pnpm test:e2e` runs `pnpm build` first, which produces `dist-electron/main.js`,
+and then `pnpm build:web:relay`. Running Playwright directly skips both, which
+is what you want while iterating on test code and not on app code. The web app
+is not part of `pnpm build`: a browser reaches it only through the relay, which
+serves `pnpm build:web:relay`'s output (see "The relay" below). Every spec that
+opens the web app — `web-app.spec.ts`, `relay.spec.ts`, and the browser tests
+in `phone.spec.ts` and `detach.spec.ts` — runs a local relay through
+`helpers/relay-fixture.ts`, so it needs that output and Node >= 22.
 
 **`pnpm build` runs `pnpm typecheck` first** (`tsc --noEmit` over both
 `tsconfig.json` and `tsconfig.electron.json`, zero baseline in either,
@@ -53,10 +54,7 @@ Useful environment variables:
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MANOR_E2E_LOG=1`          | Forward the launched app's stdout/stderr into the test output. The app is a separate process, so this is the only way to see what main logged. |
 | `MANOR_E2E_HEADED=1`       | Put the run on screen: the app's windows are shown, it gets a dock icon, and the browser that plays the phone is not headless.                  |
-| `MANOR_E2E_HOLD=<seconds>` | Pause the remote-control test at the point where a phone is paired and live, so you can drive both by hand.                                    |
 | `MANOR_E2E_VIDEO=1`        | Record a video of every app window into `tests/e2e/artifacts/video/`. Set it to a path to record there instead. Off by default.                |
-
-`pnpm e2e:remote:watch` is those last two together.
 
 ## Runs stay out of your way
 
@@ -150,47 +148,42 @@ element passes only as a member of a roving group (`[data-sidebar-row]`,
 the sweep reports a new clickable `div`, give it a real `Button` or a
 keyboard handler plus `tabIndex`. Don't widen the sweep's exemptions.
 
-## The remote-control harness (ADR-161)
+## Shared helpers
 
-`remote-control.spec.ts` drives the whole feature: a live session in the app, a
-device paired through Settings, and the phone client in a real browser talking
-to the authenticated listener over loopback.
-
-The helpers it stands on:
+The specs that drive a live session (`web-app.spec.ts`, `phone.spec.ts`,
+`relay.spec.ts` and others) stand on the same helpers:
 
 - **`helpers/fake-agent.sh`** — a stand-in agent CLI. Manor does not learn about
   a session by watching a process: an agent reports its own lifecycle to the
-  hook endpoint, and the relay turns those events into the agent rows the phone
-  renders. So the fake agent speaks that hook protocol using the
-  `MANOR_HOOK_PORT` / `MANOR_PANE_ID` the pty layer gives it. It parks in
-  `requires_input` — the state the feature exists to surface — echoes anything
-  sent to it, and reads its input non-canonically, the way a real harness does,
-  because a send arrives as an ESC interrupt followed by the text and a bare CR.
-  Send it `FAKE_AGENT_HUSH` and it ends the turn without re-arming the prompt,
-  which is the only way to park a session in `responded`. `fake-agent.ts`
-  exports its path and the strings it prints.
+  hook endpoint, and the relay turns those events into agent rows. So the fake
+  agent speaks that hook protocol using the `MANOR_HOOK_PORT` /
+  `MANOR_PANE_ID` the pty layer gives it. It parks in `requires_input`, echoes
+  anything sent to it, and reads its input non-canonically, the way a real
+  harness does, because a send arrives as an ESC interrupt followed by the
+  text and a bare CR. Send it `FAKE_AGENT_HUSH` and it ends the turn without
+  re-arming the prompt, which is the only way to park a session in
+  `responded`. `fake-agent.ts` exports its path and the strings it prints.
 - **`helpers/terminal.ts`** — typing into a pane and reading the daemon's
   scrollback back out.
 - **`helpers/local-api.ts`** — the app's unauthenticated loopback surface
   (`WebviewServer`), for state the DOM does not hold, and as an independent
   witness that a send reached the pty rather than only the view that asked for
   it. Its response types are the app's own, imported rather than re-declared.
-- **`helpers/settings.ts`** — enabling the listener, reading back the address it
-  bound, pairing a device through the real dialog.
-- **`helpers/phone.ts`** — the client in a phone-shaped Chromium context, with
-  its console and any failed request captured.
+- **`helpers/settings.ts`** — turning remote control on and pairing a device
+  through the real dialog.
+- **`helpers/phone.ts`** — a browser in its own Chromium context, with its
+  console and any failed request captured.
 - **`helpers/filmstrip.ts`** — numbered screenshots into
   `tests/e2e/artifacts/<run>/`. A run is reviewable afterwards without having
   watched it happen.
 
-Nothing in the flow reaches inside the app to fabricate state. The session comes
-from an agent reporting itself, the token comes from the pairing dialog, and the
-client knows nothing but an address and a bearer token — which is the whole
-claim the feature makes.
+Nothing in these flows reaches inside the app to fabricate state. A session
+comes from an agent reporting itself, a token comes from the pairing dialog,
+and a browser knows nothing but its pairing link.
 
 ### Why the agent is started by typing
 
-The session is started by typing the fake agent's path into a terminal pane
+A session is started by typing the fake agent's path into a terminal pane
 rather than with Cmd+N. Cmd+N consumes Manor's prewarmed session, which boots
 the project's agent command _before_ the pane exists — so its agent row is
 created with no project and no name — and the prewarm that replaces it keeps
@@ -198,22 +191,11 @@ running the same agent in the background. Typing into a pane that is already on
 screen gives the hook relay its context the first time, and keeps the test off
 a race it would otherwise have to retry through.
 
-### Things this harness knows about, on purpose
-
-- **The prewarmed session shows up as a session.** Manor keeps a warm pty with
-  the agent command already injected, so that agent reports a lifecycle too and
-  earns an agent row — no project, no pane in the layout, name is just a uuid. It
-  is visible on the phone. Tests pick their session by intersecting `GET /agents`
-  with `GET /panes` rather than taking the first row.
-- **The detail view does not follow a session.** Scrollback is read when a
-  session is opened and once immediately after a send, which is too early to
-  catch the reply; the live stream updates the list, not the open transcript.
-  The test taps the client's own Refresh button rather than waiting.
-- **A name that lands after the client connected never reaches it.** The stream
-  carries status transitions only, so tests wait for the agent to be named before
-  the phone loads.
-- **Push is not exercised.** Web Push needs a real push service, so the tests
-  cover the live-stream path and leave the notification itself untested.
+The prewarmed session still shows up as an agent: Manor keeps a warm pty with
+the agent command already injected, so that agent reports a lifecycle too and
+earns an agent row — no project, no pane in the layout, name is just a uuid.
+Tests pick their session by intersecting `GET /agents` with `GET /panes`
+rather than taking the first row.
 
 ## The remote-host harness (ADR-160 / ADR-178)
 
@@ -245,9 +227,11 @@ node scripts/test-remote-e2e.mjs --playwright-only --no-build -- --grep ports
 ## The web app (ADR-178)
 
 `web-app.spec.ts` proves slice 1's tracer bullet: a browser on a PC opens
-`/app`, pairs at `full`, and drives a live terminal over the WebSocket bridge
-— through the real listener, the real `dist-electron/web/` bundle and the real
-daemon, the same discipline as the remote-control harness above.
+`/app`, pairs, and drives a live terminal over the bridge — through the real
+web bundle and the real daemon, the same discipline as the shared helpers
+above. It reaches the app through the local relay setup `relay.spec.ts` uses
+(`helpers/relay-fixture.ts`): remote control opens no listener of its own, so
+the relay is the only way a browser gets in (ADR-207).
 
 The web app *is* the desktop renderer (ADR-178 D1), so once
 `helpers/phone.ts`'s `openWebApp` has loaded it, it shares the desktop's test
@@ -256,8 +240,8 @@ spec reads a pane's grid through `window.__manorTerminals`
 (`src/lib/terminal-registry.ts`), the same seam
 `claude-resize-duplication.spec.ts` uses for the desktop window, because the
 browser page runs the identical component. `helpers/phone.ts` also exports the
-more general `openClient(url, { viewport })` that `openPhoneClient` and
-`openWebApp` are both built on, for anything future that needs a third shape.
+more general `openClient(url, { viewport })` that `openWebApp` is built on,
+for anything future that needs another shape.
 
 `terminal-follower` (`TerminalPane.tsx`) is the D5 affordance: it appears in
 the browser exactly when the desktop still has the pane mounted, and the
@@ -267,7 +251,7 @@ the daemon's `cols` refusing to move while the browser's own viewport does.
 ## The phone layout (ADR-181)
 
 `phone.spec.ts` proves the desk's shared layout walks one pane at a time on a
-phone, over the same paired-`full` web app `web-app.spec.ts` opens, at a
+phone, over the same paired web app `web-app.spec.ts` opens, at a
 390×844 viewport: one pane full screen with the top bar, tab strip and no
 status bar or inline sidebar (D3); picking the split's other pane in the pane
 switcher moves the viewport with **no `pty.create` and no pane resize** — the
@@ -295,7 +279,7 @@ repair, untested before this ADR), and the CLI's `app-command` path landing on
 whichever window comes back after every window has been closed. `web-app.spec.ts`
 itself carries the other two bridge scenarios ADR-180 added — a desktop window
 closing and handing winsize ownership to the browser it shared a pane with, and
-a `full` device refused a `LOCAL_ONLY` method with the device list unmoved —
+a paired device refused a `LOCAL_ONLY` method with the device list unmoved —
 because they are extensions of tests already living there.
 
 A small piece of debt worth knowing about rather than fixing in passing:
@@ -305,9 +289,10 @@ would) is defined four times — once as the real helper,
 in `app-menu.spec.ts`, `keyboard-navigation.spec.ts` and `detach.spec.ts`. It
 should be one helper; nothing here does that yet.
 
-## The relay (ADR-206)
+## The relay (ADR-206, ADR-207)
 
-`relay.spec.ts` reaches the app the way a relay device does: a browser opens
+The relay is the only road to the app, so every spec that opens the web app
+runs through it. `relay.spec.ts` reaches the app the way a relay device does: a browser opens
 the pairing link at the relay's origin, and the relay pipes Noise ciphertext
 between it and the desktop. The relay is the real Worker under `wrangler dev`
 (`helpers/relay.ts`) on a free port, with a persist directory of its own —

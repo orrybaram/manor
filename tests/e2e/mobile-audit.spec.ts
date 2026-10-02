@@ -39,9 +39,7 @@ import {
 } from "./helpers/relay";
 import {
   closeSettings,
-  enableRemoteControl,
-  pairDeviceViaRelay,
-  startRelay,
+  pairBrowser,
 } from "./helpers/settings";
 import { activePaneId, awaitShellReady } from "./helpers/terminal";
 
@@ -262,9 +260,7 @@ test("phone audit: every phone surface over the relay, throttled", async ({
   await expect(tabs(window)).toHaveCount(2);
   await tabs(window).first().click();
 
-  await enableRemoteControl(window);
-  await startRelay(window);
-  const device = await pairDeviceViaRelay(window, { label: "audit phone" });
+  const device = await pairBrowser(window, { label: "audit phone" });
   await closeSettings(window);
 
   // ── Cold load ────────────────────────────────────────────────────────
@@ -683,9 +679,7 @@ test("a phone that drops a chunk on a bad connection recovers, not a blank page"
   await importSeededProject(app, window, tempHome);
   await createWorkspace(window, W1);
   await openTerminalTab(window);
-  await enableRemoteControl(window);
-  await startRelay(window);
-  const device = await pairDeviceViaRelay(window, { label: "flaky phone" });
+  const device = await pairBrowser(window, { label: "flaky phone" });
   await closeSettings(window);
 
   const browser = await chromium.launch({ headless: process.env.MANOR_E2E_HEADED !== "1" });

@@ -11,18 +11,16 @@ import { removeWorktreeWithToast } from "../../store/workspace-actions";
 import { EmptyStateShell, type ActionItem } from "./EmptyStateShell";
 import { useIssuesShortcut } from "./useIssuesShortcut";
 import { WorkspaceSetupView } from "./WorkspaceSetupView";
-import type { PaletteView } from "../command-palette/types";
 import { GitHubNudge } from "./GitHubNudge";
 import styles from "../EmptyState.module.css";
 
 type WorkspaceEmptyStateProps = {
-  onOpenPaletteView?: (view: PaletteView) => void;
   onNewWorkspace?: () => void;
 };
 
 /** Shown when the active workspace has no tabs. */
 export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
-  const { onOpenPaletteView, onNewWorkspace } = props;
+  const { onNewWorkspace } = props;
 
   const addTab = useAppStore((s) => s.addTab);
   const addBrowserTab = useAppStore((s) => s.addBrowserTab);
@@ -42,7 +40,7 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
     action: issuesAction,
     showGitHubNudge,
     onGitHubInstalled,
-  } = useIssuesShortcut(onOpenPaletteView);
+  } = useIssuesShortcut();
 
   const actions: ActionItem[] = [
     ...(isMain && onNewWorkspace

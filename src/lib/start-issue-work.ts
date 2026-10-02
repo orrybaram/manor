@@ -25,7 +25,7 @@ export type NewWorkspaceHandler = CommandPaletteProps["onNewWorkspace"];
  * failure is reported even though it is not awaited. Silently dropping it is the
  * bug ADR-152 exists to remove, not a lighter version of it.
  */
-export function assignIssueBestEffort(repo: GhRepo, issueNumber: number): void {
+function assignIssueBestEffort(repo: GhRepo, issueNumber: number): void {
   window.electronAPI.github.assignIssue(repo, issueNumber).catch((err) => {
     addErrorToast(
       `assign-issue-error-gh-${issueNumber}`,

@@ -1,8 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { linearTracker, toRow } from "./linear";
 import { toRow as githubRow } from "./github";
 import type { TaskContext } from "../tasks";
-import type { GitHubIssue, LinearIssue } from "../../electron.d";
+import type {
+  GitHubIssue,
+  LinearIssue,
+  LinearIssueDetail,
+} from "../../electron.d";
 import type { LinkedIssue, ProjectInfo } from "../../store/project-store";
 
 const project = { id: "p1", name: "manor", color: "blue" } as ProjectInfo;
@@ -164,5 +168,93 @@ describe("linearTracker.homeUrl", () => {
     );
     expect(linearTracker.homeUrl([ghRow])).toBeNull();
     expect(linearTracker.homeUrl([])).toBeNull();
+  });
+});
+
+describe("linearTracker refs", () => {
+  it("refs a listed row by its issue id", () => {
+    expect(linearTracker.refOf(toRow(linear(), ctx))).toEqual({
+      provider: "linear",
+      project,
+      id: "lin-1",
+      displayId: "ENG-45",
+      title: "Ship it",
+      url: "https://linear.app/acme/issue/ENG-45/ship-it",
+    });
+  });
+
+  it("refs a workspace link by its id", () => {
+    const linked = link({
+      id: "lin-1",
+      identifier: "ENG-45",
+      title: "Ship it",
+      url: "https://linear.app/acme/issue/ENG-45/ship-it",
+    });
+    expect(linearTracker.refFromLink(linked, project)).toEqual(
+      linearTracker.refOf(toRow(linear(), ctx)),
+    );
+  });
+});
+
+describe("linearTracker.detailQuery", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubDetail(over: Partial<LinearIssueDetail> = {}) {
+    const detail: LinearIssueDetail = {
+      ...linear(),
+      description: "Body\n\n![shot](https://uploads.linear.app/a.png)",
+      labels: [{ id: "l1", name: "Feature", color: "#5e6ad2" }],
+      assignee: {
+        id: "u1",
+        name: "Alice Smith",
+        displayName: "alice",
+        avatarUrl: null,
+      },
+      ...over,
+    };
+    const getIssueDetail = vi.fn(async () => detail);
+    vi.stubGlobal("window", { electronAPI: { linear: { getIssueDetail } } });
+    return getIssueDetail;
+  }
+
+  const ref = linearTracker.refOf(toRow(linear(), ctx));
+
+  it("keys by issue id under task-detail", () => {
+    expect(linearTracker.detailQuery(ref).queryKey).toEqual([
+      "task-detail",
+      "linear",
+      "lin-1",
+    ]);
+  });
+
+  it("normalises the issue detail", async () => {
+    const getIssueDetail = stubDetail({ priority: 1, priorityLabel: "Urgent" });
+    expect(await linearTracker.detailQuery(ref).queryFn()).toEqual({
+      body: "Body\n\n![shot](https://uploads.linear.app/a.png)",
+      status: { label: "In Progress", tone: "started" },
+      assignees: ["alice"],
+      labels: [{ name: "Feature", color: "#5e6ad2" }],
+      priority: { value: 1, label: "Urgent" },
+      images: ["https://uploads.linear.app/a.png"],
+    });
+    expect(getIssueDetail).toHaveBeenCalledWith("lin-1");
+  });
+
+  it("handles a missing description and assignee", async () => {
+    stubDetail({
+      description: null,
+      assignee: null,
+      labels: [],
+      state: { name: "Done", type: "completed" },
+    });
+    expect(await linearTracker.detailQuery(ref).queryFn()).toMatchObject({
+      body: null,
+      status: { label: "Done", tone: "closed" },
+      assignees: [],
+      labels: [],
+      images: [],
+    });
   });
 });

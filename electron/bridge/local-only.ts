@@ -12,7 +12,7 @@
  * same as `./types.ts`.
  *
  * Two reasons put a method here. Most name a resource only the machine has —
- * a prewarmed session, the desk's viewport file, a window. The last six are a
+ * a prewarmed session, the desk's viewport file, a window. The last seven are a
  * key, or the lock it turns, and they are the only entries whose absence would
  * be a security bug rather than a wrong answer.
  */
@@ -29,8 +29,6 @@ export const LOCAL_ONLY_METHODS = [
   "remoteControl.setEnabled",
   "remoteControl.pair",
   "remoteControl.revoke",
-  "remoteControl.startTunnel",
-  "remoteControl.stopTunnel",
   "remoteControl.startRelay",
   "remoteControl.stopRelay",
   "remoteControl.resetRelayAddress",

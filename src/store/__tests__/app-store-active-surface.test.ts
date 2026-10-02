@@ -104,3 +104,50 @@ describe("showTasksView (ADR-198)", () => {
     });
   });
 });
+
+describe("showTasksView intent (ADR-208 §5)", () => {
+  beforeEach(() => {
+    seedTasksView();
+    useAppStore.setState({ tasksIntent: null });
+  });
+
+  it("stores no intent when called bare", () => {
+    useAppStore.getState().showTasksView();
+    expect(useAppStore.getState().tasksIntent).toBeNull();
+    expect(useAppStore.getState().consumeTasksIntent()).toBeNull();
+  });
+
+  it("stores the intent and shows the tasks surface", () => {
+    useAppStore.setState({ activeSurface: "workspace" });
+    useAppStore.getState().showTasksView({ search: "login", project: "p1" });
+    const state = useAppStore.getState();
+    expect(state.activeSurface).toBe("tasks");
+    expect(state.tasksIntent).toEqual({ search: "login", project: "p1" });
+  });
+
+  it("replaces a pending intent while the view is already shown", () => {
+    useAppStore.getState().showTasksView({ search: "a" });
+    useAppStore.getState().showTasksView({ search: "b", project: null });
+    expect(useAppStore.getState().tasksIntent).toEqual({
+      search: "b",
+      project: null,
+    });
+  });
+
+  it("consumeTasksIntent returns the intent once, then clears it", () => {
+    useAppStore.getState().showTasksView({ search: "login" });
+    expect(useAppStore.getState().consumeTasksIntent()).toEqual({
+      search: "login",
+    });
+    expect(useAppStore.getState().tasksIntent).toBeNull();
+    expect(useAppStore.getState().consumeTasksIntent()).toBeNull();
+  });
+
+  it("is not part of the navigation location", () => {
+    useAppStore.getState().showTasksView({ search: "login" });
+    expect(selectCurrentLocation(useAppStore.getState())).toEqual({
+      kind: "surface",
+      surface: "tasks",
+    });
+  });
+});

@@ -1,14 +1,15 @@
 /**
- * The WebSocket transport, against a fake socket.
+ * The socket transport, against a fake pipe.
  *
- * The host half is tested over a real listener in
+ * The host half is tested end to end in
  * `electron/remote-control/__tests__/ws-bridge.test.ts`. What is left for
  * this file is everything the socket owns and the proxy above it does not:
  * the hello, the outbox, the correlation of a reply with its call, the
  * delivery of an event to the pane that asked for it, the reconnect, and what
- * happens to the calls that were in flight when it dropped. A fake
- * `WebSocket` is the only way to ask the last one at all — a real socket
- * cannot be made to drop mid-invoke on demand.
+ * happens to the calls that were in flight when it dropped. A fake socket is
+ * the only way to ask the last one at all — a real one cannot be made to drop
+ * mid-invoke on demand. `relay-pipe.test.ts` runs the same transport over the
+ * real relay pipe.
  *
  * Driven through the real client (`../client.ts`) rather than the transport
  * interface directly: these are end-to-end properties of a browser tab, and
@@ -21,9 +22,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { BridgeDisconnectedError, BridgeUnavailableError } from "../client";
 import { createBridge } from "../client";
 import {
-  bridgeUrlFromLocation,
   createWsTransport,
-  WEB_TOKEN_KEY,
+  type Pipe,
   type WsTransportOptions,
 } from "../transports/ws";
 import type { ElectronAPI } from "../../electron";
@@ -85,6 +85,24 @@ class FakeSocket {
   }
 }
 
+/** A pipe whose every connection is a new `FakeSocket`. */
+function fakePipe(): Pipe {
+  return {
+    connect(handlers) {
+      const socket = new FakeSocket("relay");
+      socket.onopen = () => handlers.onOpen();
+      socket.onmessage = (event) => handlers.onMessage(event.data);
+      socket.onclose = (event) => handlers.onClose(event.code);
+      return {
+        get open() {
+          return socket.readyState === 1;
+        },
+        send: (text) => socket.send(text),
+      };
+    },
+  };
+}
+
 /** The frame of its kind the client sent most recently. */
 function last(frames: Frame[]): Frame {
   const frame = frames[frames.length - 1];
@@ -92,15 +110,12 @@ function last(frames: Frame[]): Frame {
   return frame;
 }
 
-describe("the WebSocket transport", () => {
-  let reload: ReturnType<typeof vi.fn>;
-  let store: Map<string, string>;
-
+describe("the socket transport", () => {
   function bridge(options: Partial<WsTransportOptions> = {}): ElectronAPI {
     return createBridge(
       createWsTransport({
         token: "full-token",
-        url: "ws://manor.test/ws",
+        pipe: fakePipe(),
         ...options,
       }),
     );
@@ -122,19 +137,6 @@ describe("the WebSocket transport", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     FakeSocket.instances = [];
-    store = new Map();
-    reload = vi.fn();
-    vi.stubGlobal("WebSocket", FakeSocket);
-    vi.stubGlobal("localStorage", {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => store.set(key, value),
-      removeItem: (key: string) => store.delete(key),
-    });
-    vi.stubGlobal("location", {
-      protocol: "http:",
-      host: "manor.test:7777",
-      reload,
-    });
   });
 
   afterEach(() => {
@@ -143,12 +145,6 @@ describe("the WebSocket transport", () => {
   });
 
   describe("connecting", () => {
-    it("derives ws:// or wss:// from the page", () => {
-      expect(bridgeUrlFromLocation()).toBe("ws://manor.test:7777/ws");
-      vi.stubGlobal("location", { protocol: "https:", host: "x.ts.net" });
-      expect(bridgeUrlFromLocation()).toBe("wss://x.ts.net/ws");
-    });
-
     it("opens nothing until something calls", () => {
       bridge();
       expect(FakeSocket.instances).toHaveLength(0);
@@ -474,7 +470,7 @@ describe("the WebSocket transport", () => {
       connected();
       let opened = 1;
       // 1s doubling to a 30s cap: a laptop that closed its lid should not
-      // leave a hundred failed dials in the tunnel's log.
+      // leave a hundred failed dials in the relay's log.
       for (const delay of [
         1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000,
       ]) {
@@ -508,21 +504,11 @@ describe("the WebSocket transport", () => {
       await expect(pending).rejects.toBeInstanceOf(BridgeDisconnectedError);
     });
 
-    it("does not reconnect after a 4403", () => {
-      const onForbidden = vi.fn();
-      const { socket } = connected({ onForbidden });
-      socket.drop(4403);
-      vi.advanceTimersByTime(60_000);
-      expect(onForbidden).toHaveBeenCalledOnce();
-      expect(FakeSocket.instances).toHaveLength(1);
-    });
-
-    it("forgets the token and reloads on a 4401", () => {
-      store.set(WEB_TOKEN_KEY, "full-token");
-      const { socket } = connected();
+    it("stops dialling and reports a 4401", () => {
+      const onUnauthorized = vi.fn();
+      const { socket } = connected({ onUnauthorized });
       socket.drop(4401);
-      expect(store.has(WEB_TOKEN_KEY)).toBe(false);
-      expect(reload).toHaveBeenCalledOnce();
+      expect(onUnauthorized).toHaveBeenCalledOnce();
       vi.advanceTimersByTime(60_000);
       expect(FakeSocket.instances).toHaveLength(1);
     });

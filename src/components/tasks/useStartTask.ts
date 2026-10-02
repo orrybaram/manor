@@ -23,9 +23,13 @@ export function useStartTask(
       try {
         const tracker = trackerFor(row.provider);
         // Title only if the detail fetch fails.
-        const body = await queryClient
-          .fetchQuery({ ...tracker.detailQuery(row), retry: false })
+        const detail = await queryClient
+          .fetchQuery({
+            ...tracker.detailQuery(tracker.refOf(row)),
+            retry: false,
+          })
           .catch(() => null);
+        const body = detail?.body ?? null;
         tracker.startWork(row, body, onNewWorkspace);
       } finally {
         startingRef.current = false;

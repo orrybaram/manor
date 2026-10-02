@@ -1,13 +1,14 @@
-/* ── Palette scope chip (ADR-200) ── */
+/* ── Palette scope chip (ADR-200): a project picker, tinted with the
+   scoped project's colour (`--project-color`, falling back to accent). ── */
 
 .chip {
+  --chip-color: var(--project-color, var(--accent));
   display: inline-flex;
   align-items: center;
   gap: 2px;
   flex-shrink: 0;
-  max-width: 200px;
-  height: 22px;
-  padding: 0 8px;
+  max-width: 220px;
+  height: 24px;
   border-radius: 5px;
   border: 1px solid transparent;
   font-size: 12px;
@@ -19,14 +20,14 @@
 
 .scoped {
   padding-right: 2px;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 15%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--chip-color);
+  background: color-mix(in srgb, var(--chip-color) 15%, transparent);
+  border-color: color-mix(in srgb, var(--chip-color) 35%, transparent);
 }
 
 .armed {
-  background: color-mix(in srgb, var(--accent) 32%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  background: color-mix(in srgb, var(--chip-color) 32%, transparent);
+  border-color: color-mix(in srgb, var(--chip-color) 60%, transparent);
 }
 
 .global {
@@ -34,9 +35,32 @@
   border-color: var(--border);
 }
 
-.name {
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* Doubled selector so SearchableSelect's trigger border and padding lose. */
+.trigger.trigger {
+  height: 100%;
+  padding: 0 4px 0 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.trigger.trigger:hover {
+  background: color-mix(in srgb, var(--chip-color) 20%, transparent);
+}
+
+.global .trigger.trigger:hover {
+  background: var(--surface);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--project-color, var(--text-dim));
 }
 
 /* Doubled selector so the ghost Button's sizing and colour lose. */
@@ -50,6 +74,11 @@
 
 .clear.clear:hover {
   opacity: 1;
-  background: color-mix(in srgb, var(--accent) 25%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--chip-color) 25%, transparent);
+  color: var(--chip-color);
+}
+
+/* The picker's list renders inside the chip; don't inherit its weight. */
+.chip [role="listbox"] {
+  font-weight: 400;
 }

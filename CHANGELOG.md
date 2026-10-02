@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.19.0] - 2026-10-01
+
+### Features
+- Remote Control settings now use a single switch, with a QR code that opens Manor on your phone
+- Reach your machine remotely over an end-to-end encrypted relay
+- Use Manor in a browser, with a phone layout that shows one pane at a time
+- Tasks now appear in command palette search results and share one detail view with the Tasks view
+- In the palette, ⌘↵ starts a task and ↵ or → opens its details
+- A scope chip in the palette picks which projects to search
+- Linked checkouts appear as a single entry in the palette scope
+- The Tasks view has a new detail drawer, uses the full window width and has editable filter chips
+
+### Improvements
+- Remote pairing now works only through the relay, and Tailscale support has been removed. Devices paired the old way must be paired again.
+- The sidebar toggle is gone, and the notification bell has moved to the rail
+- Removed "New agent here" from the task detail view
+- Main content is now framed from the top of the window
+- Hovered tabs below the active tab are now dimmed
+
+### Fixes
+- The workspace breadcrumb is back in the status bar
+- The setup mini terminal now uses the theme of the workspace's project
+- PR check badges now update correctly, counting only the latest run of each check
+
+## [Unreleased]
+
+### Breaking
+- Tailscale tunnel support, the Watch and Reply device tiers and the lightweight phone client are removed. Remote control no longer opens any listener on your machine
+- The Manor relay is now the only way to reach your machine. Turning remote control on only loads it; starting the relay is a separate, confirmed step
+- Devices paired over Tailscale, or at Watch or Reply, are deleted the first time Manor starts after the upgrade and must be paired again through the relay
+- Every paired device can now do everything the desktop app can; there are no read-only devices
+- If you downgrade to an older Manor after upgrading, your devices must be paired again: the older build reads the new device entries as Tailscale devices, and this build then drops them
+
 ## [0.18.8] - 2026-09-30
 
 ### Features

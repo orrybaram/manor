@@ -5,6 +5,7 @@ import {
   selectWebviewFocusVisible,
 } from "../../../store/app-store";
 import { useProjectStore } from "../../../store/project-store";
+import { useTasksSummaryStore } from "../../../store/tasks-summary-store";
 
 import MessageSquarePlus from "lucide-react/dist/esm/icons/message-square-plus";
 import BarChart3 from "lucide-react/dist/esm/icons/bar-chart-3";
@@ -81,7 +82,6 @@ function LinkedIssueIcon(props: LinkedIssueIconProps) {
 
 interface StatusBarProps {
   onNewWorkspace?: CommandPaletteProps["onNewWorkspace"];
-  onNewAgentWithPrompt?: (prompt: string) => void;
   /** Opens the command palette on the stats view (ADR-168 §6). */
   onOpenStats?: () => void;
 }
@@ -132,7 +132,7 @@ function StatsSegment(props: StatsSegmentProps) {
 }
 
 export function StatusBar(props: StatusBarProps) {
-  const { onNewWorkspace, onNewAgentWithPrompt, onOpenStats } = props;
+  const { onNewWorkspace, onOpenStats } = props;
 
   // An update that just landed opens About on its own, so the changelog for
   // the version now running is the first thing the user sees.
@@ -157,6 +157,7 @@ export function StatusBar(props: StatusBarProps) {
       : find(projects, activeWorkspaceKey);
   const project = found?.project;
   const workspace = found?.workspace;
+  const tasksSummary = useTasksSummaryStore((s) => s.summary);
 
   const workspaceLabel = workspace
     ? (workspace.name ?? workspace.branch)
@@ -171,10 +172,8 @@ export function StatusBar(props: StatusBarProps) {
   return (
     <div className={styles.statusBar} data-focus-region="statusbar">
       <div className={styles.left}>
-        {!project && (
-          <span className={styles.segment}>
-            {onboardingShown ? "Projects" : tasksShown ? "Tasks" : "Dashboard"}
-          </span>
+        {tasksShown && tasksSummary && (
+          <span className={styles.segment}>{tasksSummary}</span>
         )}
         {project && (
           <>
@@ -201,7 +200,6 @@ export function StatusBar(props: StatusBarProps) {
                   projectId={project.id}
                   workspacePath={workspace!.path}
                   onNewWorkspace={onNewWorkspace}
-                  onNewAgentWithPrompt={onNewAgentWithPrompt}
                 >
                   <button
                     className={styles.linearSection}

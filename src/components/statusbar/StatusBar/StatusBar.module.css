@@ -123,31 +123,40 @@
 
 /* Doubled selectors so these win over the Button `link` variant's colour,
    padding and underline without an !important. */
+/* Matches the host chip (HostIndicator `.chip`): a faint wash with tinted
+   mono text, not a solid block. Doubled selectors beat the Button `link`
+   variant. */
 .remoteBadge.remoteBadge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   padding: 1px 6px;
   border: none;
   border-radius: 3px;
   cursor: pointer;
-  background: var(--green, #2ea043);
-  color: #fff;
+  background: color-mix(in srgb, var(--green, #2ea043) 14%, transparent);
+  color: color-mix(in srgb, var(--green, #2ea043) 80%, var(--text-dim));
   text-decoration: none;
-  font-size: 9px;
+  font-size: 10px;
+  line-height: 16px;
   font-family: var(--font-mono);
-  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.remoteBadge.remoteBadge:hover {
+  filter: brightness(1.35);
 }
 
 .remoteBadgeFailed.remoteBadgeFailed {
-  background: var(--danger, #c74e39);
+  background: color-mix(in srgb, var(--red, #c74e39) 16%, transparent);
+  color: color-mix(in srgb, var(--red, #c74e39) 80%, var(--text-dim));
 }
 
 /* The relay is unreachable and the connector is retrying: not exposed yet,
    not given up either. */
 .remoteBadgeWarning.remoteBadgeWarning {
-  background: var(--yellow, #d29922);
-  color: #000;
+  background: color-mix(in srgb, var(--yellow, #d29922) 14%, transparent);
+  color: color-mix(in srgb, var(--yellow, #d29922) 80%, var(--text-dim));
 }
 
 /* ── Usage stats segment (ADR-168) ── */

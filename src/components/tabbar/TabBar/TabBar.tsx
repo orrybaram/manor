@@ -98,7 +98,7 @@ export function TabBar(props: TabBarProps) {
     }
   }, [panelId]);
   // Only the window's top-left panel starts in far enough to clear the
-  // WindowLead (ADR-196); every other panel's tabs start 8px in.
+  // WindowLead (ADR-196); every other panel's tabs run flush to its left edge.
   const isTopLeft = useAppStore((s) => {
     if (!panelId || !workspaceKey) return false;
     const tree = s.workspaceLayouts[workspaceKey]?.panelTree;

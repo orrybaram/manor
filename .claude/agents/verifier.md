@@ -22,7 +22,9 @@ Run these, in order, from the repo root:
    baseline. This is also the only thing that runs ADR-180 D7's host-surface
    check (`electron/bridge/surface.ts`), which is a type error and invisible
    to Vite and to Vitest.
-2. `pnpm build` — Vite, three bundles (app, remote, web). It runs
+2. `pnpm build` — Vite, the desktop app (renderer, main process, preload,
+   daemon, and the CLI, MCP and hook scripts). The web app is not in it: `pnpm build:web` bundles that on
+   its own, and `pnpm build:web:relay` builds it for the relay. It runs
    `pnpm typecheck` first, so check 1 failing means this fails too; run both
    anyway, because a type-clean tree can still fail to bundle.
 3. `pnpm test` — Vitest plus `knip`.

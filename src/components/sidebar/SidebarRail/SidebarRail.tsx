@@ -19,6 +19,7 @@ import { RailProjectTile } from "./RailProjectTile";
 import { useRailPopover } from "./useRailPopover";
 import { RailPopoverShell } from "./RailPopoverShell";
 import { AgentsList } from "../AgentsList";
+import { NotificationsPopover } from "../../notifications/NotificationsPopover";
 import styles from "./SidebarRail.module.css";
 
 /** The Agents button's key in the rail's one open popover; never a project id. */
@@ -119,8 +120,8 @@ export function SidebarRail(props: SidebarRailProps) {
           tabIndex={-1}
           aria-label="Tasks"
           aria-current={tasksActive ? "true" : undefined}
-          onClick={showTasks}
-          onKeyDown={(e) => handleSidebarRowKeyDown(e, { activate: showTasks })}
+          onClick={() => showTasks()}
+          onKeyDown={(e) => handleSidebarRowKeyDown(e, { activate: () => showTasks() })}
         >
           <ListTodo size={14} />
         </Button>
@@ -129,7 +130,7 @@ export function SidebarRail(props: SidebarRailProps) {
         <Tooltip label="Search" side="right">
           <Button
             variant="ghost"
-            className={`${styles.iconButton} ${styles.searchButton}`}
+            className={styles.iconButton}
             data-testid="rail-search"
             data-sidebar-row=""
             tabIndex={-1}
@@ -163,6 +164,9 @@ export function SidebarRail(props: SidebarRailProps) {
         ))}
       </div>
       <div className={styles.footer}>
+        {/* The WindowLead holds only the traffic lights over the rail, so the
+            bell lives here while the sidebar is collapsed. */}
+        <NotificationsPopover triggerClassName={styles.iconButton} side="right" />
         {agentCount > 0 ? (
           // The full sidebar's Agents panel, on hover or click (ADR-195).
           <RailPopoverShell

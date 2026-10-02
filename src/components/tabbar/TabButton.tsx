@@ -218,7 +218,6 @@ export function TabButton(props: TabButtonProps) {
   const foreignHostId = tabBadgeHostId(tabHostId, workspaceHostId);
   const isBrowser = contentType === "browser";
   const isDiff = contentType === "diff";
-  const contentTypeClass = isDiff ? styles.tabDiff : isBrowser ? styles.tabBrowser : styles.tabTerminal;
   // Set when the context menu was opened via `openMenu` (keyboard), so
   // `onCloseAutoFocus` knows to return focus to the tab; a mouse-opened menu
   // keeps Radix's own default (don't steal focus after a click).
@@ -232,7 +231,7 @@ export function TabButton(props: TabButtonProps) {
             tabElRef.current = el;
             buttonRef(el);
           }}
-          className={`${styles.tab} ${contentTypeClass} ${isActive ? styles.tabActive : ""} ${isDragging ? styles.tabDragging : ""} ${isPinned ? styles.tabPinned : ""} ${isDropTarget ? styles.tabDropTarget : ""}`}
+          className={`${styles.tab} ${isActive ? styles.tabActive : ""} ${isDragging ? styles.tabDragging : ""} ${isPinned ? styles.tabPinned : ""} ${isDropTarget ? styles.tabDropTarget : ""}`}
           onClick={onSelect}
           onKeyDown={(e) =>
             handleTabKeyDown(e, {

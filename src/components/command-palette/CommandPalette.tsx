@@ -2,13 +2,16 @@ import { useMemo, useCallback, useState, useRef, Fragment } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
-import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
+import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
+import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import { useAppStore, selectActiveWorkspaceKey } from "../../store/app-store";
-import { ownerOf } from "../../lib/workspace-directory";
 import { workspaceKey } from "../../lib/workspace-key";
 import { useRestoreFocus } from "../../hooks/useRestoreFocus";
 import { useProjectStore } from "../../store/project-store";
+import { addErrorToast } from "../../store/toast-store";
+import { projectColorStyle } from "../../hooks/useProjectHeaderRow";
+import type { LinkedTask, TaskRef, TaskRow } from "../../lib/tasks";
 import {
   useCommandUsageStore,
   rankCommandIds,
@@ -18,17 +21,24 @@ import { useCommands } from "./useCommands";
 import { useAgentCommands } from "./useAgentCommands";
 import { useCustomCommands } from "./useCustomCommands";
 import { usePortsData } from "../ports/usePortsData";
-import { LinearIcon } from "./LinearIcon";
-import { GitHubIcon } from "./GitHubIcon";
-import { LinearIssuesView } from "./LinearIssuesView";
-import { GitHubIssuesView } from "./GitHubIssuesView";
-import { IssueDetailView } from "./IssueDetailView";
-import { GitHubIssueDetailView } from "./GitHubIssueDetailView";
 import { ProcessesView, KillAllFooter } from "./ProcessesView";
 import { StatsView } from "./StatsView";
 import { wordPrefixFilter } from "./utils";
-import { resolvePaletteScope } from "./scope";
+import {
+  paletteScopeEntries,
+  resolvePaletteScope,
+  scopeEntryOf,
+} from "./scope";
 import { ScopeChip } from "./ScopeChip";
+import {
+  usePaletteTasks,
+  paletteTaskRef,
+  type PaletteTask,
+} from "./usePaletteTasks";
+import { useStartTask } from "../tasks/useStartTask";
+import { openLinkedTask } from "../tasks/open-linked-task";
+import { TrackerRowIcon } from "../tasks/tracker-icons";
+import { TaskDetail } from "../tasks/TaskDetail/TaskDetail";
 import type {
   CommandPaletteProps,
   PaletteView,
@@ -36,7 +46,7 @@ import type {
   CommandItem,
 } from "./types";
 import { Row } from "../ui/Layout/Layout";
-import { ghRepoOf } from "../../lib/gh-repo";
+import tasksStyles from "../tasks/TasksView.module.css";
 import styles from "./CommandPalette.module.css";
 
 const HIDDEN_STYLE = { display: "none" } as const;
@@ -55,6 +65,22 @@ const IS_MAC =
 
 /** The widen-to-global shortcut, as shown in hints. */
 const WIDEN_HINT = IS_MAC ? "⌘↵" : "Ctrl+↵";
+/** ⌘↵ on a task row starts it (opens a linked task's workspace). */
+const START_HINT = WIDEN_HINT;
+
+/** The Tasks group (ADR-208 §4): listed only while searching, never pinned as frequent. */
+const TASKS_CATEGORY_ID = "tasks";
+
+const TASKS_HEADING = "Tasks";
+
+/** Prefix of a task row's command id; the rest is the row's key. */
+const TASK_ITEM_PREFIX = "task:";
+
+/** The "See all" row's cmdk value — force-mounted, so cmdk never scores it. */
+const SEE_ALL_TASKS_VALUE = "\u0000see-all-tasks";
+
+/** The task open in the `task-detail` view. */
+type SelectedTask = { ref: TaskRef; row?: TaskRow; linked?: LinkedTask };
 
 /** Keyword marking an item of the Frequently Used group for `paletteFilter`. */
 const FREQUENT_KEYWORD = "\u0000frequent";
@@ -96,7 +122,7 @@ function paletteFilter(
 }
 
 export function CommandPalette(props: CommandPaletteProps) {
-  const { open, onClose, onOpenSettings, onNewWorkspace, onResumeAgent, onViewAllAgents, onNewAgent, onNewAgentWithPrompt, onRunCommand, initialView, initialIssueId, initialGitHubIssueNumber, origin = "shortcut" } = props;
+  const { open, onClose, onOpenSettings, onNewWorkspace, onResumeAgent, onViewAllAgents, onNewAgent, onRunCommand, initialView, origin = "shortcut" } = props;
 
   const { onCloseAutoFocus: restoreFocusOnClose } = useRestoreFocus(open);
 
@@ -105,7 +131,6 @@ export function CommandPalette(props: CommandPaletteProps) {
   const activeWorkspaceKey = useAppStore(selectActiveWorkspaceKey);
   const activeSurface = useAppStore((s) => s.activeSurface);
   const projects = useProjectStore((s) => s.projects);
-  const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
   const commandUsage = useCommandUsageStore((s) => s.usage);
   const recordCommandUsage = useCommandUsageStore((s) => s.record);
@@ -123,14 +148,7 @@ export function CommandPalette(props: CommandPaletteProps) {
 
   const [view, setView] = useState<PaletteView>("root");
   const [search, setSearch] = useState("");
-  const [linearConnected, setLinearConnected] = useState(false);
-  const [githubConnected, setGithubConnected] = useState(false);
-  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
-  const [selectedGitHubIssueNumber, setSelectedGitHubIssueNumber] = useState<
-    number | null
-  >(null);
-  const [issueListOrigin, setIssueListOrigin] = useState<PaletteView>("linear-all");
-  const [issueListEmpty, setIssueListEmpty] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<SelectedTask | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -142,64 +160,17 @@ export function CommandPalette(props: CommandPaletteProps) {
     string | null
   >(null);
   const [scopeArmed, setScopeArmed] = useState(false);
-  // The project whose tracker the issue views read, set by the drill-in row.
-  const [trackerProjectId, setTrackerProjectId] = useState<string | null>(null);
-
-  // Derive the active project from the active workspace; on surfaces with no
-  // workspace (home) fall back to the sidebar's selected project so issue
-  // lists still resolve a tracker.
-  const activeProject = useMemo(
-    () =>
-      ownerOf(projects, activeWorkspaceKey) ??
-      projects[selectedProjectIndex] ??
-      null,
-    [projects, activeWorkspaceKey, selectedProjectIndex],
+  // Scoped to a sidebar entry: a project, or a group's linked checkouts.
+  const scopeEntries = useMemo(() => paletteScopeEntries(projects), [projects]);
+  const scope = useMemo(
+    () => (scopeProjectId ? scopeEntryOf(scopeEntries, scopeProjectId) : null),
+    [scopeEntries, scopeProjectId],
   );
-
-  const scopeProject = useMemo(
-    () =>
-      scopeProjectId
-        ? (projects.find((p) => p.id === scopeProjectId) ?? null)
-        : null,
-    [projects, scopeProjectId],
-  );
-
-  // The project the issue views read: the drilled-in row's project, else the
-  // scoped project, else the active project (so `initialView` deep links work).
-  const trackerProject = useMemo(
-    () =>
-      (trackerProjectId
-        ? projects.find((p) => p.id === trackerProjectId)
-        : undefined) ??
-      scopeProject ??
-      activeProject,
-    [projects, trackerProjectId, scopeProject, activeProject],
-  );
-
-  // Team IDs from the tracker project's Linear associations
-  const allTeamIds = useMemo(
-    () => (trackerProject?.linearAssociations ?? []).map((a) => a.teamId),
-    [trackerProject],
-  );
-
-  // The tracker project's checkout, on its host (ADR-191).
-  const repo = useMemo(
-    () => (trackerProject ? ghRepoOf(trackerProject) : null),
-    [trackerProject],
-  );
+  const scopeProjectIds = scope?.memberIds ?? null;
 
   // Check connection status when palette opens (render-time, ref-guarded)
   const prevOpenRef = useRef(false);
   if (open && !prevOpenRef.current) {
-    window.electronAPI.linear
-      .isConnected()
-      .then(setLinearConnected)
-      .catch(() => setLinearConnected(false));
-    window.electronAPI.github
-      .checkStatus()
-      .then((s) => setGithubConnected(s.installed && s.authenticated))
-      .catch(() => setGithubConnected(false));
-
     const openedScope = resolvePaletteScope({
       origin,
       activeSurface,
@@ -213,9 +184,6 @@ export function CommandPalette(props: CommandPaletteProps) {
     // Apply initial view state if provided
     if (initialView) {
       setView(initialView);
-      if (initialIssueId != null) setSelectedIssueId(initialIssueId);
-      if (initialGitHubIssueNumber != null)
-        setSelectedGitHubIssueNumber(initialGitHubIssueNumber);
     }
   }
   prevOpenRef.current = open;
@@ -223,27 +191,12 @@ export function CommandPalette(props: CommandPaletteProps) {
   const handleClose = useCallback(() => {
     setView("root");
     setSearch("");
-    setSelectedIssueId(null);
-    setSelectedGitHubIssueNumber(null);
-    setIssueListEmpty(false);
+    setSelectedTask(null);
     setScopeProjectId(null);
     setOpenedScopeProjectId(null);
     setScopeArmed(false);
-    setTrackerProjectId(null);
     onClose();
   }, [onClose]);
-
-  const navigateToLinearAll = useCallback((projectId: string) => {
-    setTrackerProjectId(projectId);
-    setSearch("");
-    setView("linear-all");
-  }, []);
-
-  const navigateToGitHubAll = useCallback((projectId: string) => {
-    setTrackerProjectId(projectId);
-    setSearch("");
-    setView("github-all");
-  }, []);
 
   /** Drops the project scope; the query stays. */
   const widenScope = useCallback(() => {
@@ -265,17 +218,20 @@ export function CommandPalette(props: CommandPaletteProps) {
 
   const navigateToRoot = useCallback(() => {
     setSearch("");
-    setSelectedIssueId(null);
-    setSelectedGitHubIssueNumber(null);
     setView("root");
   }, []);
 
-  const navigateBackToList = useCallback(() => {
-    setSearch("");
-    setSelectedIssueId(null);
-    setSelectedGitHubIssueNumber(null);
-    setView(issueListOrigin);
-  }, [issueListOrigin]);
+  // Esc from a task's detail: back to the search it was opened from.
+  const navigateBackToSearch = useCallback(() => {
+    setSelectedTask(null);
+    setView("root");
+    requestAnimationFrame(() => {
+      const input = inputRef.current;
+      if (!input) return;
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    });
+  }, []);
 
   const { workspaceGroups } = useWorkspaceCommands({
     projects,
@@ -301,17 +257,70 @@ export function CommandPalette(props: CommandPaletteProps) {
     onViewAllAgents,
     onClose: handleClose,
     onNewAgent,
-    scopeProjectId,
+    scopeProjectIds,
     enabled: open,
   });
 
   const scopedWorkspaceGroups = useMemo(
     () =>
-      scopeProjectId
-        ? workspaceGroups.filter((g) => g.projectId === scopeProjectId)
+      scopeProjectIds
+        ? workspaceGroups.filter((g) => scopeProjectIds.has(g.projectId))
         : workspaceGroups,
-    [workspaceGroups, scopeProjectId],
+    [workspaceGroups, scopeProjectIds],
   );
+
+  const paletteTasks = usePaletteTasks({
+    search,
+    scopeProjectId,
+    enabled: open && view === "root",
+  });
+
+  const startTask = useStartTask(onNewWorkspace);
+
+  // ↵ on a task row: start a tracker task, or go to a linked task's workspace.
+  const selectTask = useCallback(
+    async (task: PaletteTask) => {
+      if ("workspacePath" in task) {
+        openLinkedTask(task);
+      } else {
+        try {
+          await startTask(task);
+        } catch (err) {
+          addErrorToast(
+            `start-task-error-${task.key}`,
+            "Failed to start task",
+            err,
+          );
+          return;
+        }
+      }
+      handleClose();
+    },
+    [startTask, handleClose],
+  );
+
+  // ↵ or → on a task row: its detail.
+  const openTaskDetail = useCallback(
+    (task: PaletteTask) => {
+      const ref = paletteTaskRef(task, projects);
+      if (!ref) return;
+      setSelectedTask(
+        "workspacePath" in task ? { ref, linked: task } : { ref, row: task },
+      );
+      setView("task-detail");
+    },
+    [projects],
+  );
+
+  const seeAllTasks = useCallback(() => {
+    const { projectKey, seeAllProvider } = paletteTasks;
+    useAppStore.getState().showTasksView({
+      search: search.trim(),
+      project: projectKey,
+      ...(seeAllProvider && { provider: seeAllProvider, clearFilters: true }),
+    });
+    handleClose();
+  }, [search, paletteTasks, handleClose]);
 
   const customCommands = useCustomCommands({
     onClose: handleClose,
@@ -334,9 +343,9 @@ export function CommandPalette(props: CommandPaletteProps) {
 
   const handleEscapeKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (view === "issue-detail" || view === "github-issue-detail") {
+      if (view === "task-detail") {
         e.preventDefault();
-        navigateBackToList();
+        navigateBackToSearch();
         return;
       }
       if (view !== "root") {
@@ -351,50 +360,17 @@ export function CommandPalette(props: CommandPaletteProps) {
         widenScope();
       }
     },
-    [view, navigateToRoot, navigateBackToList, scopeArmed, widenScope],
+    [
+      view,
+      navigateToRoot,
+      navigateBackToSearch,
+      scopeArmed,
+      widenScope,
+    ],
   );
 
-  const isIssueListView =
-    view === "linear-all" ||
-    view === "github-all" ||
-    view === "processes" ||
-    view === "stats";
-  const isDetailView =
-    view === "issue-detail" || view === "github-issue-detail";
-
-  // Tracker drill-ins: one row for the scoped project, or one per project
-  // with a tracker when global.
-  const trackerProjects = useMemo(
-    () => (scopeProject ? [scopeProject] : projects),
-    [scopeProject, projects],
-  );
-
-  const linearItems = useMemo<CommandItem[]>(() => {
-    if (!linearConnected) return [];
-    return trackerProjects
-      .filter((p) => p.linearAssociations.length > 0)
-      .map((p) => ({
-        id: scopeProject ? "linear-issues" : `linear-issues-${p.id}`,
-        label: scopeProject ? "Tasks" : `${p.name} Tasks`,
-        icon: <LinearIcon size={14} />,
-        suffix: <ChevronRight size={14} />,
-        action: () => navigateToLinearAll(p.id),
-      }));
-  }, [linearConnected, trackerProjects, scopeProject, navigateToLinearAll]);
-
-  const githubItems = useMemo<CommandItem[]>(() => {
-    if (!githubConnected) return [];
-    return trackerProjects
-      .filter((p) => ghRepoOf(p) !== null)
-      .map((p) => ({
-        id: scopeProject ? "github-issues" : `github-issues-${p.id}`,
-        label: scopeProject ? "Tasks" : `${p.name} Tasks`,
-        icon: <GitHubIcon size={14} />,
-        suffix: <ChevronRight size={14} />,
-        action: () => navigateToGitHubAll(p.id),
-        keywords: ["ticket"],
-      }));
-  }, [githubConnected, trackerProjects, scopeProject, navigateToGitHubAll]);
+  const isSubView = view === "processes" || view === "stats";
+  const isDetailView = view === "task-detail";
 
   const categories = useMemo<CategoryConfig[]>(() => {
     const workspaceCategories: CategoryConfig[] = scopedWorkspaceGroups.map(
@@ -427,26 +403,12 @@ export function CommandPalette(props: CommandPaletteProps) {
         items: customCommands,
       },
       ...otherCommands,
-      {
-        id: "linear",
-        heading: "Linear",
-        visible: linearItems.length > 0,
-        items: linearItems,
-      },
-      {
-        id: "github",
-        heading: "GitHub",
-        visible: githubItems.length > 0,
-        items: githubItems,
-      },
     ];
   }, [
     agentCommands,
     customCommands,
     scopedWorkspaceGroups,
     commandCategories,
-    linearItems,
-    githubItems,
   ]);
 
   // Pin the most-used commands above everything else. With an empty search box
@@ -482,45 +444,88 @@ export function CommandPalette(props: CommandPaletteProps) {
     return { items, homeHeadings };
   }, [search, categories, commandUsage]);
 
+  // ADR-208 §4: the top task matches, as a group after agents and
+  // workspaces. Kept out of `categories`, so tasks are never ranked or
+  // recorded as frequent commands.
+  const tasksByItemId = useMemo(
+    () =>
+      new Map(
+        paletteTasks.rows.map((task) => [`${TASK_ITEM_PREFIX}${task.key}`, task]),
+      ),
+    [paletteTasks.rows],
+  );
+
+  const tasksCategory = useMemo<CategoryConfig | null>(() => {
+    if (!search.trim() || paletteTasks.rows.length === 0) return null;
+    return {
+      id: TASKS_CATEGORY_ID,
+      heading: TASKS_HEADING,
+      visible: true,
+      items: paletteTasks.rows.map((task) => ({
+        id: `${TASK_ITEM_PREFIX}${task.key}`,
+        label: task.title,
+        keywords: [task.displayId, ...task.labels.map((l) => l.name)],
+        action: () => openTaskDetail(task),
+      })),
+    };
+  }, [search, paletteTasks.rows, openTaskDetail]);
+
   const rootCategories = useMemo<CategoryConfig[]>(() => {
-    if (frequent.items.length === 0) return categories;
+    const rest =
+      search && frequent.items.length > 0
+        ? categories.map((cat) => ({
+            ...cat,
+            items: cat.items.filter(
+              (item) => !frequent.homeHeadings.has(item.id),
+            ),
+          }))
+        : categories;
+    let listed = rest;
+    if (tasksCategory) {
+      const after = rest.reduce(
+        (last, c, i) =>
+          c.id === "agents" || c.id.startsWith("workspace-") ? i : last,
+        -1,
+      );
+      listed = [
+        ...rest.slice(0, after + 1),
+        tasksCategory,
+        ...rest.slice(after + 1),
+      ];
+    }
+    if (frequent.items.length === 0) return listed;
     const pinned: CategoryConfig = {
       id: FREQUENT_CATEGORY_ID,
       heading: "Frequently Used",
       visible: true,
       items: frequent.items,
     };
-    const rest = search
-      ? categories.map((cat) => ({
-          ...cat,
-          items: cat.items.filter((item) => !frequent.homeHeadings.has(item.id)),
-        }))
-      : categories;
-    return [pinned, ...rest];
-  }, [frequent, categories, search]);
+    return [pinned, ...listed];
+  }, [frequent, categories, search, tasksCategory]);
 
   // Project-owned rows outside the scope that match the query: the other
   // projects' workspace groups and agents. Drives the widening hints.
   const outOfScopeMatchCount = useMemo(() => {
-    if (!scopeProjectId || !search) return 0;
+    if (!scopeProjectIds || !search) return 0;
     const matches = (heading: string, cmd: CommandItem) =>
       wordPrefixFilter(itemValue(heading, cmd), search) > 0;
     let count = 0;
     for (const group of workspaceGroups) {
-      if (group.projectId === scopeProjectId) continue;
+      if (scopeProjectIds.has(group.projectId)) continue;
       for (const cmd of group.items) if (matches(group.heading, cmd)) count++;
     }
     for (const cmd of agentCommands.outOfScope) {
       if (matches(AGENTS_HEADING, cmd)) count++;
     }
     return count;
-  }, [scopeProjectId, search, workspaceGroups, agentCommands.outOfScope]);
+  }, [scopeProjectIds, search, workspaceGroups, agentCommands.outOfScope]);
 
   // Whether the root view shows any row for the query (what cmdk's Empty
   // mirrors), for the footer's "+N in other projects" hint.
   const hasRootMatches = useMemo(
     () =>
       !search ||
+      tasksCategory !== null ||
       categories.some(
         (cat) =>
           cat.visible &&
@@ -528,8 +533,16 @@ export function CommandPalette(props: CommandPaletteProps) {
             (cmd) => wordPrefixFilter(itemValue(cat.heading, cmd), search) > 0,
           ),
       ),
-    [categories, search],
+    [categories, search, tasksCategory],
   );
+
+  /** The task row cmdk has highlighted, if any. */
+  const selectedTaskRow = useCallback((): PaletteTask | undefined => {
+    const selected = listRef.current?.querySelector<HTMLElement>(
+      '[cmdk-item][data-selected="true"]',
+    );
+    return tasksByItemId.get(selected?.dataset.taskItem ?? "");
+  }, [tasksByItemId]);
 
   const handleRootInputKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -541,25 +554,74 @@ export function CommandPalette(props: CommandPaletteProps) {
         else setScopeArmed(true);
         return;
       }
-      if (e.key === "Tab" && openedScopeProjectId) {
+      if (e.key === "Tab" && (scopeProjectId || openedScopeProjectId)) {
         e.preventDefault();
         setScopeProjectId((cur) => (cur ? null : openedScopeProjectId));
         setScopeArmed(false);
         listRef.current?.scrollTo(0, 0);
         return;
       }
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && scopeProjectId) {
-        // Stop cmdk from running the selected row.
-        e.preventDefault();
-        widenScope();
-        return;
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        // ⌘↵ on a task row starts it (or opens its workspace); elsewhere it
+        // widens the scope. Either way, stop cmdk from running the row.
+        const task = selectedTaskRow();
+        if (task) {
+          e.preventDefault();
+          void selectTask(task);
+          return;
+        }
+        if (scopeProjectId) {
+          e.preventDefault();
+          widenScope();
+          return;
+        }
+      }
+      if (
+        e.key === "ArrowRight" &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !e.shiftKey &&
+        caretAtEnd(e.currentTarget)
+      ) {
+        // Only at the end of the query, so → still moves the caret.
+        const task = selectedTaskRow();
+        if (task) {
+          e.preventDefault();
+          openTaskDetail(task);
+          return;
+        }
       }
       if (scopeArmed) setScopeArmed(false);
     },
-    [view, search, scopeProjectId, scopeArmed, openedScopeProjectId, widenScope],
+    [
+      view,
+      search,
+      scopeProjectId,
+      scopeArmed,
+      openedScopeProjectId,
+      widenScope,
+      selectedTaskRow,
+      selectTask,
+      openTaskDetail,
+    ],
   );
 
-  const scopeName = scopeProject?.name ?? null;
+  /** The chip's picker: scope to another project (or all), back in the query. */
+  const changeScope = useCallback((projectId: string | null) => {
+    setScopeProjectId(projectId);
+    setScopeArmed(false);
+    listRef.current?.scrollTo(0, 0);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, []);
+
+  // ⌘↵ starts a highlighted task, so the widen hint falls back to Tab there.
+  const [highlighted, setHighlighted] = useState("");
+  const taskHighlighted =
+    tasksCategory !== null &&
+    highlighted.includes(`${VALUE_ID_SEPARATOR}${TASKS_CATEGORY_ID}:`);
+
+  const scopeName = scope?.name ?? null;
   const rootPlaceholder = scopeName
     ? `Search ${scopeName}…`
     : "Search all projects…";
@@ -572,14 +634,19 @@ export function CommandPalette(props: CommandPaletteProps) {
           <Dialog.Content
             data-testid="command-palette"
             aria-describedby={undefined}
-            className={`${styles.palette} ${isDetailView ? styles.paletteWide : ""} ${view === "stats" ? styles.paletteStats : ""}`}
+            className={`${styles.palette} ${isDetailView ? styles.paletteWide : ""} ${view === "task-detail" ? styles.paletteTask : ""} ${view === "stats" ? styles.paletteStats : ""}`}
             onOpenAutoFocus={handleOpenAutoFocus}
             onCloseAutoFocus={handleCloseAutoFocus}
             onEscapeKeyDown={handleEscapeKeyDown}
           >
             <Dialog.Title className="sr-only">Command Palette</Dialog.Title>
-            <Command className={styles.command} loop filter={paletteFilter}>
-              {isIssueListView && (
+            <Command
+              className={styles.command}
+              loop
+              filter={paletteFilter}
+              onValueChange={setHighlighted}
+            >
+              {isSubView && (
                 <Row align="center" gap="xxs" className={styles.breadcrumb}>
                   <button
                     className={styles.breadcrumbBack}
@@ -588,8 +655,6 @@ export function CommandPalette(props: CommandPaletteProps) {
                     <ArrowLeft size={14} />
                   </button>
                   <span className={styles.breadcrumbLabel}>
-                    {view === "linear-all" && "Linear — Tasks"}
-                    {view === "github-all" && "GitHub — Tasks"}
                     {view === "processes" && "Processes"}
                     {view === "stats" && "Stats"}
                   </span>
@@ -598,8 +663,10 @@ export function CommandPalette(props: CommandPaletteProps) {
               {view === "root" ? (
                 <div className={styles.inputRow}>
                   <ScopeChip
-                    projectName={scopeName}
+                    entries={scopeEntries}
+                    scope={scope}
                     armed={scopeArmed}
+                    onChange={changeScope}
                     onClear={widenScope}
                   />
                   <Command.Input
@@ -619,9 +686,7 @@ export function CommandPalette(props: CommandPaletteProps) {
               ) : (
                 <Command.Input
                   className={styles.input}
-                  placeholder={
-                    isIssueListView ? "Search tasks..." : "Type a command..."
-                  }
+                  placeholder="Type a command..."
                   autoFocus
                   value={search}
                   onValueChange={(v) => {
@@ -631,8 +696,7 @@ export function CommandPalette(props: CommandPaletteProps) {
                   style={
                     isDetailView ||
                     view === "processes" ||
-                    view === "stats" ||
-                    (isIssueListView && issueListEmpty)
+                    view === "stats"
                       ? { position: "absolute", opacity: 0, pointerEvents: "none", height: 0, padding: 0, border: "none" }
                       : undefined
                   }
@@ -675,7 +739,46 @@ export function CommandPalette(props: CommandPaletteProps) {
                             heading={cat.heading}
                             className={styles.group}
                           >
-                            {cat.items.map((cmd) => (
+                            {cat.id === TASKS_CATEGORY_ID &&
+                              cat.items.map((cmd) => {
+                                const task = tasksByItemId.get(cmd.id);
+                                return (
+                                  task && (
+                                    <TaskItem
+                                      key={cmd.id}
+                                      itemId={cmd.id}
+                                      value={uniqueItemValue(
+                                        cat.heading,
+                                        cmd,
+                                        cat.id,
+                                      )}
+                                      keywords={cmd.keywords}
+                                      task={task}
+                                      query={search}
+                                      onSelect={cmd.action}
+                                    />
+                                  )
+                                );
+                              })}
+                            {cat.id === TASKS_CATEGORY_ID && (
+                              // Force-mounted and unscored: cmdk sorts it
+                              // after every task.
+                              <Command.Item
+                                value={SEE_ALL_TASKS_VALUE}
+                                forceMount
+                                onSelect={seeAllTasks}
+                                className={`${styles.item} ${styles.seeAllTasks}`}
+                              >
+                                <span className={styles.label}>
+                                  See all {paletteTasks.total} matching{" "}
+                                  {paletteTasks.total === 1 ? "task" : "tasks"}{" "}
+                                  in Tasks view
+                                </span>
+                                <ArrowRight size={13} aria-hidden />
+                              </Command.Item>
+                            )}
+                            {cat.id !== TASKS_CATEGORY_ID &&
+                              cat.items.map((cmd) => (
                               <Command.Item
                                 key={cmd.id}
                                 value={uniqueItemValue(
@@ -721,7 +824,7 @@ export function CommandPalette(props: CommandPaletteProps) {
                                   </span>
                                 )}
                               </Command.Item>
-                            ))}
+                              ))}
                           </Command.Group>
                         </Fragment>
                       ))}
@@ -755,47 +858,45 @@ export function CommandPalette(props: CommandPaletteProps) {
                   </>
                 )}
 
-                {view === "linear-all" && (
-                  <LinearIssuesView
-                    allTeamIds={allTeamIds}
-                    onEmptyChange={setIssueListEmpty}
-                    onSelectIssue={(issueId) => {
-                      setIssueListOrigin(view);
-                      setSelectedIssueId(issueId);
-                      setSearch("");
-                      setView("issue-detail");
-                    }}
-                  />
-                )}
-
-                {view === "github-all" && repo && (
-                  <GitHubIssuesView
-                    repo={repo}
-                    onEmptyChange={setIssueListEmpty}
-                    onSelectIssue={(issueNumber) => {
-                      setIssueListOrigin(view);
-                      setSelectedGitHubIssueNumber(issueNumber);
-                      setSearch("");
-                      setView("github-issue-detail");
-                    }}
-                  />
-                )}
-
                 {view === "processes" && <ProcessesView />}
 
                 {view === "stats" && <StatsView />}
               </Command.List>
-              {view === "root" && scopeName && (
-                <div className={styles.footer} data-testid="palette-scope-footer">
-                  <span className={styles.footerItem}>
-                    <kbd className={styles.kbd}>⌫</kbd> clear scope
-                  </span>
-                  {search && hasRootMatches && outOfScopeMatchCount > 0 && (
-                    <span className={`${styles.footerItem} ${styles.footerRight}`}>
-                      +{outOfScopeMatchCount} in other projects{" "}
-                      <kbd className={styles.kbd}>{WIDEN_HINT}</kbd>
+              {view === "root" && (scopeName || tasksCategory) && (
+                <div
+                  className={styles.footer}
+                  data-testid={scopeName ? "palette-scope-footer" : "palette-footer"}
+                >
+                  {tasksCategory && (
+                    <>
+                      <span className={styles.footerItem}>
+                        <kbd className={styles.kbd}>↵</kbd> Details
+                      </span>
+                      <span className={styles.footerItem}>
+                        <kbd className={styles.kbd}>{START_HINT}</kbd> Start
+                      </span>
+                    </>
+                  )}
+                  {scopeName && (
+                    <span className={styles.footerItem}>
+                      <kbd className={styles.kbd}>⌫</kbd> clear scope
                     </span>
                   )}
+                  <span className={styles.footerRight}>
+                    {search && hasRootMatches && outOfScopeMatchCount > 0 && (
+                      <span className={styles.footerItem}>
+                        +{outOfScopeMatchCount} in other projects{" "}
+                        <kbd className={styles.kbd}>
+                          {taskHighlighted ? "Tab" : WIDEN_HINT}
+                        </kbd>
+                      </span>
+                    )}
+                    {tasksCategory && (
+                      <span className={styles.footerItem}>
+                        <kbd className={styles.kbd}>esc</kbd> Close
+                      </span>
+                    )}
+                  </span>
                 </div>
               )}
               {view === "processes" && (
@@ -805,31 +906,110 @@ export function CommandPalette(props: CommandPaletteProps) {
                   }}
                 />
               )}
-              {view === "issue-detail" && selectedIssueId && (
-                <IssueDetailView
-                  issueId={selectedIssueId}
-                  onBack={navigateBackToList}
-                  onClose={handleClose}
+              {view === "task-detail" && selectedTask && (
+                <TaskDetail
+                  key={selectedTask.ref.id}
+                  taskRef={selectedTask.ref}
+                  row={selectedTask.row}
+                  mode={selectedTask.linked ? "linked" : "default"}
+                  layout="card"
+                  linkedTo={selectedTask.linked?.workspaceName}
+                  projectId={selectedTask.linked?.projectId}
+                  workspacePath={selectedTask.linked?.workspacePath}
                   onNewWorkspace={onNewWorkspace}
-                  onNewAgentWithPrompt={onNewAgentWithPrompt}
+                  onDone={handleClose}
                 />
               )}
-              {view === "github-issue-detail" &&
-                selectedGitHubIssueNumber != null &&
-                repo && (
-                  <GitHubIssueDetailView
-                    repo={repo}
-                    issueNumber={selectedGitHubIssueNumber}
-                    onBack={navigateBackToList}
-                    onClose={handleClose}
-                    onNewWorkspace={onNewWorkspace}
-                    onNewAgentWithPrompt={onNewAgentWithPrompt}
-                  />
-                )}
             </Command>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
     </>
+  );
+}
+
+/** Is the input's caret collapsed at the end of its value. */
+function caretAtEnd(input: HTMLInputElement): boolean {
+  const end = input.value.length;
+  return input.selectionStart === end && input.selectionEnd === end;
+}
+
+type HighlightProps = {
+  text: string;
+  query: string;
+};
+
+/** `text` with its first case-insensitive match of `query` marked. */
+function Highlight(props: HighlightProps) {
+  const { text, query } = props;
+
+  const q = query.trim().toLowerCase();
+  const at = q ? text.toLowerCase().indexOf(q) : -1;
+  if (at < 0) return text;
+  return (
+    <>
+      {text.slice(0, at)}
+      <mark className={styles.taskMatch}>{text.slice(at, at + q.length)}</mark>
+      {text.slice(at + q.length)}
+    </>
+  );
+}
+
+type TaskItemProps = {
+  /** The row's command id, read back by → to find the task. */
+  itemId: string;
+  value: string;
+  keywords?: string[];
+  task: PaletteTask;
+  query: string;
+  onSelect: () => void;
+};
+
+/**
+ * ADR-208 §4: a task in the palette's search — tracker glyph and ID, title,
+ * its linked workspace (or project), and status. ↵ starts or opens it.
+ */
+function TaskItem(props: TaskItemProps) {
+  const { itemId, value, keywords, task, query, onSelect } = props;
+
+  const linked = "workspacePath" in task ? task : null;
+
+  return (
+    <Command.Item
+      value={value}
+      keywords={keywords}
+      onSelect={onSelect}
+      className={`${styles.item} ${styles.taskItem}`}
+      data-task-item={itemId}
+    >
+      <span className={styles.taskId}>
+        <TrackerRowIcon provider={task.provider} />
+        {task.displayId}
+      </span>
+      <span className={styles.taskTitle}>
+        <Highlight text={task.title} query={query} />
+      </span>
+      {linked ? (
+        <span className={styles.taskContext}>
+          <GitBranch size={11} aria-hidden />
+          {linked.workspaceName}
+        </span>
+      ) : (
+        <span
+          className={`${styles.taskContext} ${tasksStyles.projectName}`}
+          style={projectColorStyle(task.color)}
+        >
+          {task.projectName}
+        </span>
+      )}
+      <span
+        className={`${tasksStyles.status} ${tasksStyles[`tone-${task.status.tone}`]} ${styles.taskStatus}`}
+      >
+        {task.status.label}
+      </span>
+      <span className={styles.taskAction}>
+        {linked ? "Open" : "Start"} <kbd className={styles.kbd}>{START_HINT}</kbd>
+      </span>
+    </Command.Item>
   );
 }

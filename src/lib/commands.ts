@@ -129,7 +129,7 @@ export interface CommandChrome {
   openSettings(page?: "keybindings" | "remote"): void;
   togglePalette(): void;
   openPaletteView(
-    view: "processes" | "stats" | "linear-all" | "github-all",
+    view: "processes" | "stats",
   ): void;
   openNewWorkspace(): void;
   addProject(): void;

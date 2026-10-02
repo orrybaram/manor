@@ -1,6 +1,7 @@
 import Globe from "lucide-react/dist/esm/icons/globe";
 
 import { useRemoteControlStore } from "../../../store/remote-control-store";
+import { requestUi } from "../../../utils/ui-request";
 import { Button } from "../../ui/Button/Button";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { describeExposure } from "./remote-exposure";
@@ -17,30 +18,18 @@ const TONE_CLASS = {
  * ADR-206 D6).
  *
  * Lives in the status bar rather than in settings because the hazard is a user
- * who left a road open and forgot. It renders nothing at all when neither the
- * tunnel nor the relay is up, so it costs nothing in the normal case — and it
- * deliberately shows failures too, since a road that died still needs
- * explaining.
+ * who left the relay running and forgot. It renders nothing at all when the
+ * relay is off, so it costs nothing in the normal case — and it deliberately
+ * shows failures too, since a relay that died still needs explaining.
  *
- * One badge for both roads. The tooltip lists each one that is not off, with
- * its own connection count, and a click stops **every** road at once. That is
- * the safer of the two choices: the badge exists for the moment someone wants
- * this machine unreachable *now*, and a click that closed one road and left
- * the other open is exactly the surprise it is there to prevent. (The
- * settings page stops them one at a time.)
+ * Styled like the host chip beside it. A click opens Settings → Remote
+ * control, where turning it off is one switch away.
  */
 export function RemoteExposureIndicator() {
   const status = useRemoteControlStore((s) => s.status);
-  const stopTunnel = useRemoteControlStore((s) => s.stopTunnel);
-  const stopRelay = useRemoteControlStore((s) => s.stopRelay);
 
   const view = describeExposure(status);
   if (!view) return null;
-
-  const stopAll = () => {
-    if (view.stop.tunnel) void stopTunnel();
-    if (view.stop.relay) void stopRelay();
-  };
 
   return (
     <Tooltip label={view.label} side="top">
@@ -48,10 +37,8 @@ export function RemoteExposureIndicator() {
         variant="link"
         data-testid="remote-exposure-badge"
         className={`${styles.remoteBadge} ${TONE_CLASS[view.tone]}`}
-        onClick={stopAll}
-        aria-label={
-          view.exposed ? "Stop remote access" : "Dismiss remote failure"
-        }
+        onClick={() => requestUi({ type: "open-remote-settings" })}
+        aria-label="Open remote control settings"
       >
         <Globe size={10} />
         <span>{view.text}</span>

@@ -265,7 +265,15 @@ function CommentPreview(props: {
  * hover-triggered like `PrPopover`: this is something you deliberately open,
  * not a badge you brush past.
  */
-export function NotificationsPopover() {
+type NotificationsPopoverProps = {
+  /** Replaces the bell's default 24px lead styling, e.g. with a rail tile's. */
+  triggerClassName?: string;
+  /** Where the list opens: under the bell in the lead, beside it in the rail. */
+  side?: "bottom" | "right";
+};
+
+export function NotificationsPopover(props: NotificationsPopoverProps) {
+  const { triggerClassName, side = "bottom" } = props;
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<KindFilter>("all");
   const notifications = useNotificationStore((s) => s.notifications);
@@ -316,12 +324,12 @@ export function NotificationsPopover() {
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
-      <Tooltip label="Notifications">
+      <Tooltip label="Notifications" side={side}>
         <Popover.Trigger asChild>
           <Button
             variant="ghost"
             size="sm"
-            className={styles.bellButton}
+            className={`${styles.bellButton} ${triggerClassName ?? ""}`}
             aria-label="Notifications"
             data-testid="notifications-bell"
           >
@@ -336,8 +344,8 @@ export function NotificationsPopover() {
         <Popover.Content
           className={styles.popover}
           data-testid="notifications-popover"
-          side="bottom"
-          align="end"
+          side={side}
+          align={side === "bottom" ? "end" : "start"}
           sideOffset={6}
           collisionPadding={8}
           onOpenAutoFocus={(e) => e.preventDefault()}

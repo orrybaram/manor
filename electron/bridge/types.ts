@@ -66,13 +66,15 @@ export const BRIDGE_RENDERER_ID = "bridge:rendererId";
 
 /**
  * The WebSocket transport's close codes, in the application range so they
- * read as the HTTP statuses they mirror: the client can tell "your token is
- * wrong, re-pair" from "your token is right and this tier cannot do this",
- * and stops dialling on either.
+ * read as the HTTP statuses they mirror. The client stops dialling on 4401.
  */
 /** No `hello`, a bad token, or a revoked device. */
 export const CLOSE_UNAUTHORIZED = 4401;
-/** A valid token for a device below the `full` tier. */
+/**
+ * Reserved, not sent. It meant "a valid token for a device below the `full`
+ * tier" until ADR-207 D4 removed the tiers; it stays defined so the code is
+ * never reused for something an older browser would misread.
+ */
 export const CLOSE_FORBIDDEN = 4403;
 
 /**
@@ -81,8 +83,7 @@ export const CLOSE_FORBIDDEN = 4403;
  * `appVersion` is the desktop's `app.getVersion()` (ADR-206 D4): a page
  * served by the relay origin compares it with its own build and navigates to
  * the matching `/app/<appVersion>/` when they differ. Optional because an
- * older host does not send it, and the listener-served page ignores it — the
- * listener serves the build that matches by construction.
+ * older host does not send it.
  */
 export interface HelloReplyFrame {
   type: "hello";

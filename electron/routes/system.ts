@@ -257,10 +257,9 @@ export const systemRoutes: Route[] = [
 
   // ── Remote control ──
   //
-  // The controller throws for the orders it refuses (starting a tunnel with
-  // the listener down, with neither tunnel binary installed): that is the
-  // caller's mistake, so it becomes a 400 carrying the controller's sentence
-  // rather than the listener's generic 500.
+  // The controller throws for the orders it refuses: that is the caller's
+  // mistake, so it becomes a 400 carrying the controller's sentence rather
+  // than the listener's generic 500.
 
   {
     method: "GET",
@@ -284,34 +283,6 @@ export const systemRoutes: Route[] = [
       } catch (err) {
         json(400, { error: String(err) });
       }
-    },
-  },
-
-  {
-    method: "POST",
-    path: "/remote-control/refresh",
-    async handler({ deps, json }) {
-      json(200, await deps.remoteControl.refreshDetection());
-    },
-  },
-
-  {
-    method: "POST",
-    path: "/remote-control/tunnel/start",
-    async handler({ deps, json }) {
-      try {
-        json(200, await deps.remoteControl.startTunnel());
-      } catch (err) {
-        json(400, { error: String(err) });
-      }
-    },
-  },
-
-  {
-    method: "POST",
-    path: "/remote-control/tunnel/stop",
-    async handler({ deps, json }) {
-      json(200, await deps.remoteControl.stopTunnel());
     },
   },
 

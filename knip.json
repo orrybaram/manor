@@ -4,8 +4,6 @@
     ".": {
       "entry": [
         "index.html",
-        "src/remote-client/index.html",
-        "src/remote-client/sw.ts",
         "src/web/sw.ts",
         "src/web.html",
         "src/web-main.tsx",
@@ -31,12 +29,7 @@
       ],
       "ignoreDependencies": ["@electron/osx-sign"],
       "vite": {
-        "config": [
-          "vite.config.ts",
-          "vite.remote.config.ts",
-          "vite.web.config.ts",
-          "vitest.config.ts"
-        ]
+        "config": ["vite.config.ts", "vite.web.config.ts", "vitest.config.ts"]
       }
     },
     "relay": {

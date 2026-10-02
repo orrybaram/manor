@@ -1,48 +1,42 @@
 /**
- * The WebSocket transport (ADR-178 D8, ADR-180 D1).
+ * The bridge's socket transport (ADR-178 D8, ADR-180 D1, ADR-207 D2).
  *
- * One multiplexed socket per web renderer, carrying the bridge's frames for
- * what `invoke` did and what `on` did, plus the PTY stream. The renderer
+ * One multiplexed connection per web renderer, carrying the bridge's frames
+ * for what `invoke` did and what `on` did, plus the PTY stream. The renderer
  * talks to the Manor server only — never to the daemon, whose token-file auth
  * was designed for a loopback caller — so everything arrives here and is
  * proxied.
  *
- * What is left in this file after ADR-180 is *the socket*: the upgrade, the
- * hello handshake, the close codes, JSON, and the id a client keeps across a
+ * What is left in this file after ADR-180 is *the connection*: the hello
+ * handshake, the close codes, JSON, and the id a client keeps across a
  * reconnect. What `ns.method` means, who is subscribed to what, and what
  * happens when a pane's owner changes are `bridge/server.ts`'s, because a
  * desktop window needs all three and none of this. The only thing this file
  * hands over is a `BridgeConnection`.
  *
- * **Authentication is a frame, not a URL.** The upgrade request carries no
- * token: a token in a query string is a token in a proxy log, in
- * `window.history`, and in whatever the tunnel writes down. The socket is
- * accepted, and then has five seconds to present `{"type":"hello","token":…}`
+ * **What carries the frames is a `FrameSocket`.** Since ADR-207 there is no
+ * listener and so no `/ws` upgrade: every connection is a relay channel that
+ * `remote-control/relay-gate.ts` hands to `attach`.
+ *
+ * **Authentication is a frame, not a URL.** The connection is accepted, and
+ * then has until its hello timeout to present `{"type":"hello","token":…}`
  * before it is closed. Until that frame lands the connection can do exactly
- * nothing, and `remote-control/server.ts` runs the same `DeviceVerifier` and
- * the same failed-auth backoff the HTTP path runs — one gate, two transports.
+ * nothing, and the gate's `BridgeAuthenticator` runs the device verify and
+ * the failed-auth backoff against it.
  *
- * **Only a `full` device.** The `read` and `send` tiers are defined by an
- * allowlist of routes (ADR-161), and this surface is not an allowlist: it is
- * a handler table containing the terminal. A device below `full` is closed
- * with 4403 rather than given a smaller bridge, because a smaller bridge is a
- * second surface to keep honest. Every connection this transport makes is
- * therefore `callerClass: "device"` — it is the only kind that gets in here.
+ * **Every device is the same device.** There are no tiers (ADR-207 D4): a
+ * paired device reaches the whole handler table, terminal included, and
+ * every connection this transport makes is `callerClass: "device"`.
  *
- * Close codes are in the application range on purpose — 4401 and 4403 read as
- * the HTTP statuses they mirror, and the client can tell "your token is wrong,
- * re-pair" from "your token is right and this tier cannot do this". They are
+ * Close codes are in the application range on purpose — 4401 reads as the
+ * HTTP status it mirrors: "your token is wrong, re-pair". They are
  * `../types.ts`'s, because the browser reads them too.
  */
 
-import type { IncomingMessage } from "node:http";
-import type { Duplex } from "node:stream";
 import { randomUUID } from "node:crypto";
 
-import { WebSocket, WebSocketServer } from "ws";
-
 import type { FrameSocket } from "./frame-socket";
-import type { AuthenticatedDevice } from "../../remote-control/server";
+import type { AuthenticatedDevice } from "../../remote-control/relay-gate";
 import type { BridgeServer } from "../server";
 import {
   BRIDGE_PROTOCOL_VERSION,
@@ -51,21 +45,15 @@ import {
   type HelloReplyFrame,
 } from "../types";
 
-/** The one path that upgrades. Anything else never reaches this file. */
-export const BRIDGE_PATH = "/ws";
-
 /** How long an accepted socket may stay silent before it is closed. */
 const HELLO_TIMEOUT_MS = 5_000;
 
-/** A frame larger than this is not a frame this protocol has. */
-const MAX_FRAME_BYTES = 1024 * 1024;
-
-/** What `remote-control/server.ts` answers when asked to check a hello. */
+/** What `remote-control/relay-gate.ts` answers when asked to check a hello. */
 export type BridgeAuthResult =
   | { ok: true; device: AuthenticatedDevice }
   | { ok: false; code: number };
 
-/** The `verify + backoff + tier` decision, which lives in `server.ts`. */
+/** The `verify + backoff` decision, which lives in `relay-gate.ts`. */
 export type BridgeAuthenticator = (token: unknown) => BridgeAuthResult;
 
 /** A live socket, and the connection it became once it said hello. */
@@ -123,10 +111,6 @@ export class FrameSerialiser {
 }
 
 export class WsBridgeServer {
-  private readonly wss = new WebSocketServer({
-    noServer: true,
-    maxPayload: MAX_FRAME_BYTES,
-  });
   private readonly sockets = new Set<Socket>();
   /** One `JSON.stringify` per frame rather than per socket. See the class. */
   private readonly json = new FrameSerialiser();
@@ -147,23 +131,7 @@ export class WsBridgeServer {
     return this.sockets.size;
   }
 
-  /**
-   * Take over a `/ws` upgrade. The socket is accepted before it has proved
-   * anything — see the header — and `authenticate` is run against the first
-   * frame it sends.
-   */
-  handleUpgrade(
-    req: IncomingMessage,
-    socket: Duplex,
-    head: Buffer,
-    authenticate: BridgeAuthenticator,
-  ): void {
-    this.wss.handleUpgrade(req, socket, head, (ws) => {
-      this.attach(wsFrameSocket(ws), authenticate);
-    });
-  }
-
-  /** Close every socket. Called from `RemoteControlServer.stop()`. */
+  /** Close every socket. Called when remote control is turned off. */
   closeAll(): void {
     for (const entry of [...this.sockets]) {
       this.drop(entry);
@@ -179,8 +147,7 @@ export class WsBridgeServer {
 
   /**
    * Close every connection a device holds, with 4401 — the code a browser
-   * reads as "re-pair". Covers `ws` sockets and relay channels alike, since
-   * both are `FrameSocket`s here. Called when a device is revoked: auth is
+   * reads as "re-pair". Called when a device is revoked: auth is
    * checked once, at hello, so without this a revoked device keeps its
    * session until it drops.
    *
@@ -188,7 +155,7 @@ export class WsBridgeServer {
    * acknowledges the close: the entry is dropped (so `onMessage` ignores
    * anything that still arrives on it) and the socket is then terminated.
    * A client that ignored the close frame would otherwise keep running
-   * invokes until `ws` gave up waiting for it, 30 s later.
+   * invokes until its carrier gave up waiting for it.
    */
   closeDevice(deviceId: string): void {
     for (const entry of [...this.sockets]) {
@@ -205,12 +172,12 @@ export class WsBridgeServer {
   /** The process is exiting; there is no restart. */
   dispose(): void {
     this.closeAll();
-    this.wss.close();
   }
 
   /**
-   * Run the hello gate over any `FrameSocket` — a `ws` socket via
-   * `handleUpgrade`, or a relay channel.
+   * Run the hello gate over a `FrameSocket`. The socket is accepted before it
+   * has proved anything — see the header — and `authenticate` is run against
+   * the first frame it sends.
    */
   attach(socket: FrameSocket, authenticate: BridgeAuthenticator): void {
     const entry: Socket = {
@@ -345,21 +312,4 @@ export class WsBridgeServer {
       this.server.drop(entry.connection.id);
     }
   }
-}
-
-/** Adapt a `ws` socket to the bridge's `FrameSocket`. */
-function wsFrameSocket(ws: WebSocket): FrameSocket {
-  return {
-    send: (text) => ws.send(text),
-    close: (code, reason) => ws.close(code, reason),
-    onMessage: (cb) => ws.on("message", (raw) => cb(raw.toString())),
-    onClose: (cb) => {
-      ws.on("close", cb);
-      ws.on("error", cb);
-    },
-    get open() {
-      return ws.readyState === WebSocket.OPEN;
-    },
-    terminate: () => ws.terminate(),
-  };
 }

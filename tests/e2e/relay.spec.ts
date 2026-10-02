@@ -274,7 +274,6 @@ test.describe("relay (ADR-206)", () => {
     expect(colsBefore).not.toBeNull();
 
     await enableRemoteControl(window);
-    await startRelay(window);
     await film.shot(window, "settings-relay-running");
     const device = await pairDevice(window, {
       label: "relay browser",
@@ -338,14 +337,14 @@ test.describe("relay (ADR-206)", () => {
       // no sidebar, and the steps below look for the project header.
       await client.page.setViewportSize({ width: 1280, height: 800 });
 
-      // 4. Stopping the relay from Settings: the room has no host, says 4404,
+      // 4. Turning remote control off stops the relay: the room has no host, says 4404,
       // and the page says "not reachable" over the app, not a frozen app.
       const unreachable = client.page.getByTestId("web-app-unreachable");
       await stopRelay(window);
       await expect(unreachable).toBeVisible({ timeout: 30_000 });
       await film.shot(client.page, "browser-not-reachable");
 
-      // Starting it again: the browser finds its way back on its own — no
+      // Turning it on again: the browser finds its way back on its own — no
       // click on "Try again now", no reload.
       await startRelay(window);
       await closeSettings(window);
@@ -446,7 +445,6 @@ test.describe("relay (ADR-206)", () => {
 
     await importSeededProject(app, window, tempHome);
     await enableRemoteControl(window);
-    await startRelay(window);
     const device = await pairDevice(window, { label: "old link" });
     await closeSettings(window);
 

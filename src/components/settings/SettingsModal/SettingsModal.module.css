@@ -839,60 +839,126 @@ button.keybindingActionBtn:hover:not(:disabled) {
   border-radius: 6px;
 }
 
-.remoteExposureCard {
+/* The status card is the whole state machine: off, connecting, live, down.
+   Being reachable is a different fact about the machine, so live reads
+   differently at a glance. */
+.remoteStatusCard {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
   background: var(--bg);
   border: 1px solid var(--surface);
   border-radius: 8px;
 }
 
-/* Being reachable is a different fact about the machine, not a different
-   control — so it reads differently at a glance. */
-.remoteExposureOpen {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--surface));
-  background: color-mix(in srgb, var(--accent) 6%, var(--bg));
+.remoteStatusLive {
+  border-color: color-mix(in srgb, var(--green) 40%, var(--surface));
 }
 
-.remoteExposureIcon {
+.remoteStatusHeader {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-dim);
-  /* Centred on the 28px header row. */
-  margin-top: 7px;
+  align-items: flex-start;
+  gap: 12px;
 }
 
-.remoteExposureOpen .remoteExposureIcon {
-  color: var(--accent);
+.remoteDot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  opacity: 0.6;
 }
 
-.remoteExposureBody {
+.remoteDotOk {
+  background: var(--green);
+  opacity: 1;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent);
+}
+
+.remoteDotPending {
+  background: var(--yellow);
+  opacity: 1;
+}
+
+.remoteDotBad {
+  background: var(--red);
+  opacity: 1;
+}
+
+.remoteStatusText {
   flex: 1;
   min-width: 0;
-  gap: 6px;
 }
 
-.remoteExposureTitle {
-  font-size: 13px;
+.remoteStatusTitle {
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-selected);
 }
 
-/* Title on the left, the card's one action on the right — the relay is the
-   page's main call to action, so it sits where the eye lands first. */
-.remoteExposureHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 28px;
+.remoteStatusDetail {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-dim);
 }
 
-.remoteExposureHeader > :last-child {
+.remoteStatusActions {
   flex-shrink: 0;
+}
+
+.remoteOpenOnPhone {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--surface);
+}
+
+.remoteOpenOnPhone .remoteQr {
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.remoteOpenOnPhoneBody {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Unpairs every device, so it sits apart from the list — quiet until
+   hovered. `button.` outranks the Button link variant's colour. */
+button.remoteResetLink {
+  align-self: flex-start;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-decoration: none;
+}
+
+button.remoteResetLink:hover:not(:disabled) {
+  color: var(--danger, #c74e39);
+  text-decoration: underline;
+}
+
+/* The title shares its row with Add device, so it drops its own gap. */
+.remoteDevicesHeader .sectionTitle {
+  margin-bottom: 0;
+}
+
+.remoteEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 18px;
+  font-size: 13px;
+  color: var(--text-dim);
+  text-align: center;
+  border: 1px dashed var(--surface);
+  border-radius: 8px;
 }
 
 /* The pairing dialog stacks several labelled blocks; the shared confirm dialog
@@ -904,29 +970,18 @@ button.keybindingActionBtn:hover:not(:disabled) {
   margin-bottom: 16px;
 }
 
+/* The pairing dialog: the QR code, Copy link and small print, centred. */
+.remotePairingQrBody {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  text-align: center;
+}
+
 .remotePairingBody .fieldLabel {
   margin: 0 0 4px;
-}
-
-.remoteCopyRow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.remoteCode {
-  flex: 1;
-  min-width: 0;
-  padding: 6px 8px;
-  background: var(--dim);
-  border: 1px solid var(--surface);
-  border-radius: 6px;
-  font-family: var(--font-mono, monospace);
-  font-size: 11px;
-  color: var(--text-primary);
-  word-break: break-all;
-  user-select: all;
 }
 
 .remoteDeviceList {
@@ -1068,14 +1123,3 @@ button.keybindingActionBtn:hover:not(:disabled) {
   margin-top: 0;
 }
 
-/* The relay cannot be reached and the connector is retrying (ADR-206): not
-   an error to act on yet, but not something to hide behind "Connecting…". */
-.remoteRetrying {
-  padding: 8px 10px;
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--yellow, #d29922) 10%, var(--bg));
-  border: 1px solid color-mix(in srgb, var(--yellow, #d29922) 60%, transparent);
-  border-radius: 6px;
-}

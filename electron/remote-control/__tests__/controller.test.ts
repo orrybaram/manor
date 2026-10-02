@@ -35,10 +35,17 @@ function deferred<T>() {
 
 function fakes(options: { gateLoad?: boolean } = {}) {
   const order: string[] = [];
+  const seenListeners: Array<() => void> = [];
   const gate = {
     open: vi.fn(),
     close: vi.fn(() => order.push("gate")),
     closeDevice: vi.fn((id: string) => order.push(`close:${id}`)),
+    onDeviceSeen: vi.fn((cb: () => void) => {
+      seenListeners.push(cb);
+      return () => {};
+    }),
+    /** Test hook: a hello was accepted. */
+    seen: () => seenListeners.forEach((cb) => cb()),
   };
 
   let relayStatus: { state: string; url: string | null; error: null } = {
@@ -225,6 +232,14 @@ describe("RemoteControlController", () => {
       expect(seen).toContain("running");
     });
 
+    it("pushes a fresh status when a device says hello", async () => {
+      await f.controller.setEnabled(true);
+      const listener = vi.fn();
+      f.controller.onChange(listener);
+      f.gate.seen();
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
     it("disabling stops the relay before closing the gate", async () => {
       await f.controller.setEnabled(true);
       await f.controller.startRelay();
@@ -260,8 +275,12 @@ describe("RemoteControlController", () => {
       expect(f.controller.status().relayOrigin).toBe(
         "https://relay.example.test",
       );
+      expect(f.controller.status().relayAppUrl).toBe(
+        "https://relay.example.test/app/1.2.3/",
+      );
       (f.relay as { origin: string | null }).origin = null;
       expect(f.controller.status().relayOrigin).toBeNull();
+      expect(f.controller.status().relayAppUrl).toBeNull();
       expect(() => f.controller.pair("p")).toThrow(/not configured/);
       expect(f.deviceStore.pair).not.toHaveBeenCalled();
     });
@@ -368,6 +387,7 @@ describe("RemoteControlController before the runtime loads", () => {
       encryptionAvailable: true,
       relay: { state: "stopped", url: null, error: null },
       relayOrigin: null,
+      relayAppUrl: null,
       relayViewers: 0,
       relayNotice: null,
     });

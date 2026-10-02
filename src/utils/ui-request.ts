@@ -25,7 +25,9 @@ export type UiRequest =
   /** Open the Add Project dialog on its "Clone repository" tab (ADR-194). */
   | { type: "clone-repository" }
   /** Open a project's settings, scrolled to `section` (a `data-settings-section` id). */
-  | { type: "open-project-settings"; projectId: string; section?: string };
+  | { type: "open-project-settings"; projectId: string; section?: string }
+  /** Open Settings → Remote control (the status-bar REMOTE chip). */
+  | { type: "open-remote-settings" };
 
 type Listener = (request: UiRequest) => void;
 

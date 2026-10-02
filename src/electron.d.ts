@@ -554,6 +554,8 @@ export interface RemoteControlStatus {
   relay: RelayStatus;
   /** Where pairing links point; null when nothing can be paired. */
   relayOrigin: string | null;
+  /** The web app on the relay, without credentials; null when `relayOrigin` is. */
+  relayAppUrl: string | null;
   encryptionAvailable: boolean;
   /** Open relay channels: every live remote connection there is. */
   relayViewers: number;

@@ -52,6 +52,14 @@ export class RelayGate {
     this.limiter = limiter;
   }
 
+  private readonly seenListeners = new Set<() => void>();
+
+  /** Called after every accepted hello, once the device's last-seen moved. */
+  onDeviceSeen(listener: () => void): () => void {
+    this.seenListeners.add(listener);
+    return () => this.seenListeners.delete(listener);
+  }
+
   /** Remote control is on: sweep the backoff map while it is. */
   open(): void {
     this.limiter.start();
@@ -97,6 +105,8 @@ export class RelayGate {
       return { ok: false, code: CLOSE_UNAUTHORIZED };
     }
     this.limiter.recordSuccess(RELAY_SOURCE);
+    // `verify` just moved the device's `lastSeenAt`.
+    for (const listener of this.seenListeners) listener();
     return { ok: true, device };
   }
 }

@@ -30,10 +30,8 @@ export interface ExposureView {
   /** The badge's text. */
   text: string;
   tone: "ok" | "warning" | "failed";
-  /** The tooltip: what the relay is doing, then the action. */
+  /** The tooltip: what the relay is doing. */
   label: string;
-  /** True while the relay is up or trying to be; false: it failed. */
-  exposed: boolean;
 }
 
 /** Null when the relay is off — the badge renders nothing. */
@@ -44,31 +42,27 @@ export function describeExposure(
   switch (relayState(relay)) {
     case "live":
       return {
-        text: "REMOTE",
+        text: "remote",
         tone: "ok",
-        label: `Manor relay: reachable (${connected(relayViewers)}). Click to stop.`,
-        exposed: true,
+        label: `Manor relay: reachable (${connected(relayViewers)}).`,
       };
     case "starting":
       return {
-        text: "STARTING",
+        text: "connecting",
         tone: "ok",
-        label: "Manor relay: connecting. Click to stop.",
-        exposed: true,
+        label: "Manor relay: connecting.",
       };
     case "retrying":
       return {
-        text: "RETRYING",
+        text: "retrying",
         tone: "warning",
-        label: `Manor relay: can't reach the relay, retrying. ${relay.error} Click to stop.`,
-        exposed: true,
+        label: `Manor relay: can't reach the relay, retrying. ${relay.error}`,
       };
     case "failed":
       return {
-        text: "RELAY FAILED",
+        text: "relay failed",
         tone: "failed",
-        label: `Manor relay: ${relay.error ?? "stopped unexpectedly."} Click to dismiss.`,
-        exposed: false,
+        label: `Manor relay: ${relay.error ?? "stopped unexpectedly."}`,
       };
     default:
       return null;

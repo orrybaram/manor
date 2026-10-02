@@ -4,8 +4,8 @@ import type { Filmstrip } from "./filmstrip";
 
 /**
  * Driving Manor's Settings modal: the agent command a project launches, and
- * the whole remote-control surface — turning it on, starting and stopping the
- * relay, and pairing and revoking a device (ADR-206, ADR-207).
+ * the whole remote-control surface — turning it on (which starts the relay),
+ * turning it off, and pairing and revoking a device (ADR-206, ADR-207).
  *
  * Everything here goes through the app's own UI on purpose. A token minted any
  * other way, or an agent command written straight to disk, would not prove the
@@ -42,20 +42,32 @@ export async function openRemoteControlSettings(window: Page): Promise<void> {
 }
 
 /**
- * Turn remote control on. Opens nothing to the network (ADR-207 D3): the
- * relay is started separately, with `startRelay`. Leaves Settings open.
+ * Turn remote control on — one switch that also starts the relay — and wait
+ * until the card says it is live (ADR-206 D6). Leaves Settings open.
+ *
+ * Goes through the confirmation dialog, which is the point: turning it on is
+ * an explicit, confirmed action, and a test that could skip it would not
+ * notice if it stopped being one.
  */
 export async function enableRemoteControl(window: Page): Promise<void> {
   await openRemoteControlSettings(window);
 
+  const card = window.getByTestId("remote-relay-card");
   const toggle = window.getByTestId("remote-control-switch");
   await expect(toggle).toBeEnabled({ timeout: 10_000 });
   if ((await toggle.getAttribute("data-state")) !== "checked") {
     await toggle.click();
+    const confirm = window.getByTestId("remote-relay-confirm");
+    await expect(confirm).toBeVisible({ timeout: 5_000 });
+    await confirm.getByRole("button", { name: "Turn on", exact: true }).click();
+    await expect(confirm).not.toBeVisible({ timeout: 5_000 });
+  } else {
+    // On but the relay gave up: retry it.
+    const retry = card.getByTestId("remote-relay-retry");
+    if (await retry.isVisible().catch(() => false)) await retry.click();
   }
-  // The relay card is only rendered once remote control is on.
-  await expect(window.getByTestId("remote-relay-card")).toBeVisible({
-    timeout: 10_000,
+  await expect(card).toContainText("Remote control is on", {
+    timeout: 30_000,
   });
 }
 
@@ -87,35 +99,21 @@ export async function setAgentCommand(
   await closeSettings(window);
 }
 
-/**
- * Start the Manor relay from its card and wait until the card says the
- * machine is reachable through it (ADR-206 D6). Leaves Settings open.
- *
- * Goes through the confirmation dialog, which is the point: starting the
- * relay is an explicit, confirmed action, and a test that could skip it
- * would not notice if it stopped being one.
- */
+/** Bring the relay back up after `stopRelay`: the same switch. */
 export async function startRelay(window: Page): Promise<void> {
-  await openRemoteControlSettings(window);
-  const card = window.getByTestId("remote-relay-card");
-  await card.getByTestId("remote-relay-start").click();
-  const confirm = window.getByTestId("remote-relay-confirm");
-  await expect(confirm).toBeVisible({ timeout: 5_000 });
-  await confirm
-    .getByRole("button", { name: "Start relay", exact: true })
-    .click();
-  await expect(confirm).not.toBeVisible({ timeout: 5_000 });
-  await expect(card).toContainText("Reachable through the Manor relay", {
-    timeout: 30_000,
-  });
+  await enableRemoteControl(window);
 }
 
-/** Stop the relay from its card. Leaves Settings open. */
+/**
+ * Turn remote control off, which stops the relay with it. Leaves Settings
+ * open.
+ */
 export async function stopRelay(window: Page): Promise<void> {
   await openRemoteControlSettings(window);
-  const card = window.getByTestId("remote-relay-card");
-  await card.getByTestId("remote-relay-stop").click();
-  await expect(card.getByTestId("remote-relay-start")).toBeVisible({
+  const toggle = window.getByTestId("remote-control-switch");
+  await expect(toggle).toHaveAttribute("data-state", "checked");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("data-state", "unchecked", {
     timeout: 10_000,
   });
 }
@@ -129,8 +127,9 @@ export interface PairedDevice {
 
 /**
  * Pair a device through the UI (ADR-206 D3, ADR-207 D4) and capture the link
- * and token the dialog shows once. Every device is a relay device that
- * reaches the whole app, so the form is a name and a button.
+ * the dialog hands over once, and the token inside it. Every device is a
+ * relay device that reaches the whole app, so the Add device dialog is a
+ * name and a button.
  *
  * Takes the recorder because the pairing dialog is the one moment the token
  * and its QR code exist on screen, and this function owns that lifetime — a
@@ -142,22 +141,26 @@ export async function pairDevice(
 ): Promise<PairedDevice> {
   await openRemoteControlSettings(window);
 
-  await window.getByTestId("remote-pair-label").fill(label);
-  await window.getByTestId("remote-pair-submit").click();
+  await window.getByTestId("remote-add-device").click();
+  const addDialog = window.getByTestId("remote-add-device-dialog");
+  await expect(addDialog).toBeVisible({ timeout: 5_000 });
+  await addDialog.getByTestId("remote-pair-label").fill(label);
+  await addDialog.getByTestId("remote-pair-submit").click();
 
   const dialog = window.getByTestId("remote-pairing-dialog");
   await expect(dialog).toBeVisible({ timeout: 10_000 });
   await film?.shot(window, "settings-pairing-link");
-  const token = (
-    (await window.getByTestId("remote-pairing-token").textContent()) ?? ""
-  ).trim();
-  const link = (
-    (await window.getByTestId("remote-pairing-link").textContent()) ?? ""
-  ).trim();
-  if (!token) throw new Error("Pairing dialog showed no token");
+  // The dialog shows only the QR code and a Copy link button; the link rides
+  // on the button's `data-link`, and the token in the link's fragment.
+  const link =
+    (await window
+      .getByTestId("remote-pairing-link")
+      .getAttribute("data-link")) ?? "";
   if (!link.includes("#relay=")) {
     throw new Error(`Pairing dialog showed no relay link (got "${link}")`);
   }
+  const token = new URLSearchParams(new URL(link).hash.slice(1)).get("t") ?? "";
+  if (!token) throw new Error("Pairing link carried no token");
 
   await window.getByTestId("remote-pairing-done").click();
   await expect(dialog).not.toBeVisible({ timeout: 5_000 });
@@ -173,7 +176,7 @@ export async function pairDevice(
 
 /**
  * Everything a browser needs before it can open the web app: remote control
- * on, the relay running, and a device paired. Returns the device; its `link`
+ * on (the relay running), and a device paired. Returns the device; its `link`
  * is what `openWebApp` opens. Leaves Settings open.
  */
 export async function pairBrowser(
@@ -181,7 +184,6 @@ export async function pairBrowser(
   options: { label: string; film?: Filmstrip },
 ): Promise<PairedDevice> {
   await enableRemoteControl(window);
-  await startRelay(window);
   return pairDevice(window, options);
 }
 

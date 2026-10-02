@@ -59,6 +59,12 @@
 
 /* Says why the pane does not fit its box, and is the way to make it fit:
    a tap claims the session's winsize for this viewer. */
+/* Focus-scrolling a phone to the cursor leaves it above the key bar that
+   sits on the soft keyboard (`TerminalKeyBar`), not under it. */
+:global(.app[data-layout="phone"]) .container :global(.xterm-helper-textarea) {
+  scroll-margin-bottom: 56px;
+}
+
 .followerBadge {
   position: absolute;
   bottom: 4px;

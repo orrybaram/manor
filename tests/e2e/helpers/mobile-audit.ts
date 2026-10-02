@@ -143,6 +143,29 @@ export async function bridgeCalls(page: Page): Promise<BridgeCall[]> {
   );
 }
 
+/**
+ * A stand-in for the soft keyboard, which Chromium cannot open: a
+ * `visualViewport` whose height `window.__setKeyboard(px)` shrinks, the way
+ * a phone's keyboard shrinks the real one without touching the layout.
+ */
+export const FAKE_KEYBOARD_SCRIPT = `
+(() => {
+  let keyboard = 0;
+  const vv = new EventTarget();
+  Object.defineProperties(vv, {
+    height: { get: () => innerHeight - keyboard },
+    width: { get: () => innerWidth },
+    offsetTop: { get: () => 0 },
+    offsetLeft: { get: () => 0 },
+    pageTop: { get: () => scrollY },
+    pageLeft: { get: () => scrollX },
+    scale: { get: () => 1 },
+  });
+  Object.defineProperty(window, "visualViewport", { configurable: true, get: () => vv });
+  window.__setKeyboard = (px) => { keyboard = px; vv.dispatchEvent(new Event("resize")); };
+})();
+`;
+
 export interface PerfSnapshot {
   longTasks: { start: number; duration: number }[];
   shifts: { at: number; value: number }[];

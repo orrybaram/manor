@@ -3,6 +3,7 @@ import { PhoneTopBar } from "./PhoneTopBar";
 import { SidebarDrawer } from "./SidebarDrawer";
 import { PaneSwitcherSheet } from "./PaneSwitcherSheet";
 import { EnableNotifications } from "./EnableNotifications";
+import { TerminalKeyBar } from "./TerminalKeyBar";
 
 type PhoneChromeProps = {
   onShowAgents: () => void;
@@ -50,6 +51,7 @@ export function PhoneChrome(props: PhoneChromeProps) {
         open={paneSwitcherOpen}
         onOpenChange={setPaneSwitcherOpen}
       />
+      <TerminalKeyBar />
     </>
   );
 }

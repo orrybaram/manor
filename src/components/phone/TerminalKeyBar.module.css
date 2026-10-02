@@ -1,0 +1,31 @@
+.bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  display: flex;
+  gap: 3px;
+  padding: 4px 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--dim);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.bar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Nine keys share a 320px phone's width without scrolling. */
+button.key {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-selected);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}

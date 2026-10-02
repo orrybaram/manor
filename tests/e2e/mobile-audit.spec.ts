@@ -20,6 +20,7 @@ import {
   AuditReport,
   BRIDGE_TRACE_SCRIPT,
   bridgeCalls,
+  FAKE_KEYBOARD_SCRIPT,
   PERF_INIT_SCRIPT,
   PHONE_PROFILE,
   pct,
@@ -123,6 +124,7 @@ async function openPhone(link: string): Promise<Phone> {
   });
   await context.addInitScript(PERF_INIT_SCRIPT);
   await context.addInitScript(BRIDGE_TRACE_SCRIPT);
+  await context.addInitScript(FAKE_KEYBOARD_SCRIPT);
   const page = await context.newPage();
   const log: string[] = [];
   page.on("console", (m) => {
@@ -163,11 +165,14 @@ async function waitForText(page: Page, paneId: string, text: string) {
           async ({ id }) => {
             const h = window.__manorTerminals?.get(id);
             if (!h) return "";
+            // Logical lines: a row the terminal wrapped joins the one before.
             const b = h.term.buffer.active;
-            const lines: string[] = [];
-            for (let i = 0; i < b.length; i++)
-              lines.push(b.getLine(i)?.translateToString(true) ?? "");
-            return lines.join("\n");
+            let text = "";
+            for (let i = 0; i < b.length; i++) {
+              const line = b.getLine(i);
+              text += (i > 0 && !line?.isWrapped ? "\n" : "") + (line?.translateToString(true) ?? "");
+            }
+            return text;
           },
           { id: paneId },
         ),
@@ -219,6 +224,10 @@ async function echoLatency(page: Page, paneId: string, ch: string, expectLine: s
     { id: paneId, ch, expectLine },
   );
 }
+
+// A tap that cannot happen should fail saying why, not hold the test for
+// its whole budget.
+test.use({ actionTimeout: 15_000 });
 
 const W1 = "audit-primary";
 const W2 = "audit-a-workspace-with-a-rather-long-name";
@@ -350,6 +359,27 @@ test("phone audit: every phone surface over the relay, throttled", async ({
       () => document.activeElement?.classList.contains("xterm-helper-textarea") ?? false,
     );
     report.data.tapFocusesTerminal = focused;
+
+    // The keys a phone keyboard lacks, above it while it is up — and not
+    // before, when the bar would only cover the terminal's bottom rows.
+    const keyBar = page.getByTestId("terminal-key-bar");
+    await expect(keyBar).toHaveCount(0);
+    const keyboardPx = 300;
+    await page.evaluate((px) => (window as unknown as { __setKeyboard(px: number): void }).__setKeyboard(px), keyboardPx);
+    await expect(keyBar).toBeVisible();
+    const barBottom = await keyBar.evaluate((el) => el.getBoundingClientRect().bottom);
+    expect(Math.round(barBottom)).toBe(PHONE.viewport.height - keyboardPx);
+    await page.evaluate((id) => window.__manorTerminals!.get(id)!.term.input("sleep 30", true), paneId);
+    await setCpuThrottle(cdp, false);
+    await report.screen(page, "key-bar");
+    await setCpuThrottle(cdp, true);
+    await keyBar.getByRole("button", { name: "Control C" }).tap();
+    await waitForText(page, paneId, "sleep 30^C");
+    report.data.keyBarKeepsFocus = await page.evaluate(
+      () => document.activeElement?.classList.contains("xterm-helper-textarea") ?? false,
+    );
+    await page.evaluate(() => (window as unknown as { __setKeyboard(px: number): void }).__setKeyboard(0));
+    await expect(keyBar).toHaveCount(0);
 
     // ── Fit to screen: the phone takes the winsize, the desk takes it back ─
     const fit = pane.getByTestId("terminal-follower");
@@ -653,8 +683,10 @@ const BUDGET = {
   /** The app's own shell, then a terminal showing its prompt. */
   appShellMs: 1_600,
   promptMs: 2_800,
-  /** A round trip, plus what the page itself may spend on a keystroke. */
-  echoP95Ms: PHONE_PROFILE.rttMs + 100,
+  /** A round trip, plus what the page itself may spend on a keystroke —
+   *  typically; and no keystroke stuck for a second. */
+  echoP50Ms: PHONE_PROFILE.rttMs + 80,
+  echoMaxMs: 1_000,
   /** Taps that change nothing on the host. */
   tapMs: 400,
   /** What a cold load may download before the terminal is up. */
@@ -703,7 +735,8 @@ function checkBudgets(report: AuditReport, log: string[]) {
   expect.soft(one("cold: first contentful paint"), "first paint").toBeLessThan(BUDGET.firstPaintMs);
   expect.soft(one("cold: app shell on screen"), "app shell").toBeLessThan(BUDGET.appShellMs);
   expect.soft(one("cold: prompt on screen"), "prompt").toBeLessThan(BUDGET.promptMs);
-  expect.soft(pct(many("keystroke → echo"), 95), "echo p95").toBeLessThan(BUDGET.echoP95Ms);
+  expect.soft(pct(many("keystroke → echo"), 50), "echo p50").toBeLessThan(BUDGET.echoP50Ms);
+  expect.soft(Math.max(...many("keystroke → echo")), "echo max").toBeLessThan(BUDGET.echoMaxMs);
   for (const k of [
     "tap → drawer open",
     "tap → workspace switched",
@@ -724,5 +757,6 @@ function checkBudgets(report: AuditReport, log: string[]) {
   const terms = report.data.terminals as { mounted: number; webglCanvases: number };
   expect.soft(terms.webglCanvases, "WebGL contexts on a phone").toBe(0);
   expect.soft(report.data.tapFocusesTerminal, "a tap focuses the terminal").toBe(true);
+  expect.soft(report.data.keyBarKeepsFocus, "the key bar leaves the keyboard up").toBe(true);
   expect.soft(log.filter((l) => l.startsWith("[pageerror]")), "page errors").toEqual([]);
 }

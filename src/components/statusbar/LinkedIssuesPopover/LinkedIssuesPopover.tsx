@@ -2,26 +2,37 @@ import { useState, useCallback, useMemo } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries } from "@tanstack/react-query";
 import Unlink from "lucide-react/dist/esm/icons/unlink";
 import CircleX from "lucide-react/dist/esm/icons/circle-x";
-import type { LinkedIssue, LinearIssueDetail, GitHubIssueDetail } from "../../../electron.d";
+import type { LinkedIssue } from "../../../electron.d";
 import type { CommandPaletteProps } from "../../command-palette/types";
-import { IssueDetailView } from "../../command-palette/IssueDetailView";
-import { GitHubIssueDetailView } from "../../command-palette/GitHubIssueDetailView";
 import { LinearIcon } from "../../command-palette/LinearIcon";
 import { GitHubIcon } from "../../command-palette/GitHubIcon";
-import { useProjectStore } from "../../../store/project-store";
-import { ghRepoOf } from "../../../lib/gh-repo";
-import { addErrorToast, useToastStore } from "../../../store/toast-store";
+import { TaskDetail } from "../../tasks/TaskDetail/TaskDetail";
+import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
+import { TRACKERS, type TaskTracker } from "../../../lib/trackers";
+import type { TaskDetail as TaskDetailData, TaskRef } from "../../../lib/tasks";
+import { addErrorToast } from "../../../store/toast-store";
+import tasksStyles from "../../tasks/TasksView.module.css";
 import styles from "./LinkedIssuesPopover.module.css";
-
-type IssueDetail =
-  | { source: "linear"; data: LinearIssueDetail }
-  | { source: "github"; data: GitHubIssueDetail };
 
 function isGitHubIssue(issue: LinkedIssue): boolean {
   return issue.id.startsWith("gh-");
+}
+
+/** The tracker that owns a workspace link. */
+function trackerOfLink(issue: LinkedIssue): TaskTracker | undefined {
+  return Object.values(TRACKERS).find((t) => t.ownsLink(issue));
+}
+
+/** The ref to fetch and act on a link through, on the workspace's project. */
+function refOfLink(
+  issue: LinkedIssue,
+  project: ProjectInfo | undefined,
+): TaskRef | null {
+  const tracker = trackerOfLink(issue);
+  return tracker && project ? tracker.refFromLink(issue, project) : null;
 }
 
 type LinkedIssueIconProps = {
@@ -56,7 +67,6 @@ type LinkedIssuesPopoverProps = {
   projectId: string;
   workspacePath: string;
   onNewWorkspace: CommandPaletteProps["onNewWorkspace"];
-  onNewAgentWithPrompt?: (prompt: string) => void;
   children: React.ReactNode;
 };
 
@@ -79,38 +89,9 @@ function IssueRowSkeleton(props: IssueRowSkeletonProps) {
   );
 }
 
-function getStatusStyle(detail: IssueDetail | undefined): {
-  color: string;
-  background: string;
-} {
-  if (detail?.source === "linear") {
-    switch (detail.data.state.type) {
-      case "started":
-        return { color: "var(--yellow)", background: "var(--yellow-a20, rgba(249,226,175,0.13))" };
-      case "completed":
-        return { color: "var(--green)", background: "var(--green-a20, rgba(166,227,161,0.13))" };
-      case "cancelled":
-        return { color: "var(--red)", background: "var(--red-a20, rgba(238,85,85,0.13))" };
-      default:
-        return { color: "var(--text-dim)", background: "var(--surface)" };
-    }
-  }
-  if (detail?.source === "github") {
-    switch (detail.data.state) {
-      case "open":
-        return { color: "var(--green)", background: "var(--green-a20, rgba(166,227,161,0.13))" };
-      case "closed":
-        return { color: "var(--red)", background: "var(--red-a20, rgba(238,85,85,0.13))" };
-      default:
-        return { color: "var(--text-dim)", background: "var(--surface)" };
-    }
-  }
-  return { color: "var(--text-dim)", background: "var(--surface)" };
-}
-
 type IssueRowProps = {
   issue: LinkedIssue;
-  detail: IssueDetail | undefined;
+  detail: TaskDetailData | undefined;
   isLoading: boolean;
   onClick: () => void;
   onUnlink: () => void;
@@ -120,37 +101,25 @@ type IssueRowProps = {
 function IssueRow(props: IssueRowProps) {
   const { issue, detail, isLoading, onClick, onUnlink, onCloseTicket } = props;
 
-  const stateName =
-    detail?.source === "linear"
-      ? detail.data.state.name
-      : detail?.source === "github"
-        ? detail.data.state
-        : undefined;
-
-  const assigneeName =
-    detail?.source === "linear"
-      ? detail.data.assignee?.displayName
-      : detail?.source === "github"
-        ? detail.data.assignees[0]?.login
-        : undefined;
-
-  const statusStyle = getStatusStyle(detail);
+  const assigneeName = detail?.assignees[0];
 
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
         <button className={styles.issueRow} onClick={onClick}>
           <span className={styles.issueIdentifier}>{issue.identifier}</span>
-          <span className={styles.issueTitle}>
-            {detail?.data.title ?? issue.title}
-          </span>
+          <span className={styles.issueTitle}>{issue.title}</span>
           {isLoading ? (
             <span
               className={`${styles.skeletonBone} ${styles.skeletonState}`}
             />
           ) : detail ? (
             <>
-              <span className={styles.issueStatus} style={statusStyle}>{stateName}</span>
+              <span
+                className={`${styles.issueStatus} ${tasksStyles[`tone-${detail.status.tone}`]}`}
+              >
+                {detail.status.label}
+              </span>
               {assigneeName && (
                 <span className={styles.issueAssignee}>
                   {assigneeName}
@@ -183,7 +152,7 @@ function IssueRow(props: IssueRowProps) {
 }
 
 export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
-  const { issues, isOpen, onClose, projectId, workspacePath, onNewWorkspace, onNewAgentWithPrompt, children } = props;
+  const { issues, isOpen, onClose, projectId, workspacePath, onNewWorkspace, children } = props;
 
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
   const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
@@ -191,14 +160,6 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
 
   // Look up project and workspace info
   const project = projects.find((p) => p.id === projectId);
-  // On the project's host: a local and a remote checkout can share a path.
-  // Memoized on the strings, so a store update doesn't make a new repo.
-  const repoPath = project?.path;
-  const repoHostId = project?.hostId;
-  const repo = useMemo(
-    () => (repoPath === undefined ? null : ghRepoOf({ path: repoPath, hostId: repoHostId })),
-    [repoPath, repoHostId],
-  );
   const workspace = project?.workspaces.find((w) => w.path === workspacePath);
   const workspaceLabel = workspace?.name ?? workspace?.branch ?? "";
 
@@ -206,69 +167,29 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
   // because the popover closes when the dialog opens (focus steal).
   // selectedIssueId is only cleared when the dialog itself closes.
 
-  // Fetch live details for all linked issues
-  const issueIds = issues.map((i) => i.id);
-  const { data: details, isLoading } = useQuery({
-    queryKey: ["linked-issue-details", ...issueIds],
-    queryFn: async () => {
-      const results: Record<string, IssueDetail> = {};
+  // Each link's ref, through the tracker that owns it (ADR-208 §6).
+  const refs = useMemo(
+    () => new Map(issues.map((i) => [i.id, refOfLink(i, project)])),
+    [issues, project],
+  );
 
-      const githubIssues = issues.filter(isGitHubIssue);
-      const linearIssues = issues.filter((i) => !isGitHubIssue(i));
-
-      await Promise.all([
-        // Fetch GitHub issue details
-        ...githubIssues.map(async (issue) => {
-          if (!repo) return;
-          try {
-            const number = parseInt(issue.id.replace("gh-", ""), 10);
-            const detail = await window.electronAPI.github.getIssueDetail(
-              repo,
-              number,
-              issue.url,
-            );
-            results[issue.id] = { source: "github", data: detail };
-          } catch {
-            // GitHub uses gh CLI — no auth toast needed, just skip
-          }
-        }),
-        // Fetch Linear issue details
-        ...linearIssues.map(async (issue) => {
-          try {
-            const detail = await window.electronAPI.linear.getIssueDetail(
-              issue.id,
-            );
-            results[issue.id] = { source: "linear", data: detail };
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            if (
-              message.includes("401") ||
-              message.includes("token") ||
-              message.includes("auth") ||
-              message.includes("unauthorized")
-            ) {
-              useToastStore.getState().addToast({
-                id: `linear-auth-error-${Date.now()}`,
-                message: "Linear token expired",
-                status: "error",
-                detail:
-                  "Update your Linear API key to see task details.",
-                action: {
-                  label: "Open Settings",
-                  onClick: () => {
-                    onClose();
-                  },
-                },
-              });
-            }
-            // Fall back to cached data — just skip this issue's detail
-          }
-        }),
-      ]);
-      return results;
-    },
-    enabled: isOpen && issues.length > 1,
-    staleTime: 30_000,
+  // Live status for the list, from the same cache `TaskDetail` reads.
+  const queried = issues.filter((i) => refs.get(i.id));
+  const detailQueries = useQueries({
+    queries: queried.map((issue) => {
+      const ref = refs.get(issue.id) as TaskRef;
+      return {
+        ...TRACKERS[ref.provider].detailQuery(ref),
+        retry: false,
+        enabled: isOpen && issues.length > 1,
+      };
+    }),
+  });
+  const details: Record<string, TaskDetailData | undefined> = {};
+  const loadingIds = new Set<string>();
+  queried.forEach((issue, i) => {
+    details[issue.id] = detailQueries[i]?.data;
+    if (detailQueries[i]?.isLoading) loadingIds.add(issue.id);
   });
 
   const visibleIssues = issues.filter((i) => !removedIds.has(i.id));
@@ -285,6 +206,9 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
 
   const handleUnlink = useCallback(
     async (issueId: string) => {
+      const ref = refs.get(issueId);
+      const unlink = ref && TRACKERS[ref.provider].unlink;
+      if (!ref || !unlink) return;
       setRemovedIds((prev) => new Set(prev).add(issueId));
       // If that was the last visible issue, close the popover
       const remaining = visibleIssues.filter((i) => i.id !== issueId);
@@ -292,37 +216,28 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
         onClose();
       }
       try {
-        await window.electronAPI.linear.unlinkIssueFromWorkspace(
-          projectId,
-          workspacePath,
-          issueId,
-        );
+        await unlink(ref, projectId, workspacePath);
       } catch (err) {
         // Revert the optimistic removal — the link still exists on disk.
         revertRemoval(issueId);
         addErrorToast(`unlink-issue-error-${issueId}`, "Failed to unlink task", err);
-        return;
       }
-      useProjectStore.getState().loadProjects();
     },
-    [projectId, workspacePath, visibleIssues, onClose, revertRemoval],
+    [refs, projectId, workspacePath, visibleIssues, onClose, revertRemoval],
   );
 
   const handleCloseTicket = useCallback(
     async (issueId: string) => {
+      const ref = refs.get(issueId);
+      const tracker = ref && TRACKERS[ref.provider];
+      if (!ref || !tracker?.close || !tracker.unlink) return;
       setRemovedIds((prev) => new Set(prev).add(issueId));
       const remaining = visibleIssues.filter((i) => i.id !== issueId);
       if (remaining.length === 0) {
         onClose();
       }
       try {
-        if (issueId.startsWith("gh-")) {
-          const number = parseInt(issueId.replace("gh-", ""), 10);
-          if (!repo) throw new Error("The task's project no longer exists.");
-          await window.electronAPI.github.closeIssue(repo, number);
-        } else {
-          await window.electronAPI.linear.closeIssue(issueId);
-        }
+        await tracker.close(ref);
       } catch (err) {
         // Revert the optimistic removal — the issue is still open.
         revertRemoval(issueId);
@@ -330,11 +245,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
         return;
       }
       try {
-        await window.electronAPI.linear.unlinkIssueFromWorkspace(
-          projectId,
-          workspacePath,
-          issueId,
-        );
+        await tracker.unlink(ref, projectId, workspacePath);
       } catch (err) {
         // The issue genuinely is closed now — do not revert the removal,
         // just surface that the workspace link is stale.
@@ -343,11 +254,9 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
           "Task closed, but failed to unlink from workspace",
           err,
         );
-        return;
       }
-      useProjectStore.getState().loadProjects();
     },
-    [projectId, workspacePath, repo, visibleIssues, onClose, revertRemoval],
+    [refs, projectId, workspacePath, visibleIssues, onClose, revertRemoval],
   );
 
   const handleRowClick = useCallback((issueId: string) => {
@@ -372,8 +281,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
     onClose();
   }, [onClose]);
 
-  const selectedIsGitHub = dialogIssueId?.startsWith("gh-") ?? false;
-  const selectedIssueUrl = issues.find((i) => i.id === dialogIssueId)?.url;
+  const dialogRef = dialogIssueId ? refs.get(dialogIssueId) : undefined;
 
   return (
     <>
@@ -394,13 +302,13 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
             </div>
             <div className={styles.listScroll}>
               {visibleIssues.map((issue, i) =>
-                isLoading && !details?.[issue.id] ? (
+                loadingIds.has(issue.id) ? (
                   <IssueRowSkeleton key={issue.id} index={i} />
                 ) : (
                   <IssueRow
                     key={issue.id}
                     issue={issue}
-                    detail={details?.[issue.id]}
+                    detail={details[issue.id]}
                     isLoading={false}
                     onClick={() => handleRowClick(issue.id)}
                     onUnlink={() => handleUnlink(issue.id)}
@@ -423,35 +331,18 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
             <Dialog.Title className={styles.dialogSrOnly}>
               Task Detail
             </Dialog.Title>
-            {dialogIssueId && (
-              selectedIsGitHub ? (
-                repo && <GitHubIssueDetailView
-                  repo={repo}
-                  issueNumber={parseInt(
-                    dialogIssueId.replace("gh-", ""),
-                    10,
-                  )}
-                  issueUrl={selectedIssueUrl}
-                  onBack={handleDialogClose}
-                  onClose={handleCloseAll}
-                  onNewWorkspace={onNewWorkspace}
-                  onNewAgentWithPrompt={onNewAgentWithPrompt}
-                  linkedTo={workspaceLabel}
-                  projectId={projectId}
-                  workspacePath={workspacePath}
-                />
-              ) : (
-                <IssueDetailView
-                  issueId={dialogIssueId}
-                  onBack={handleDialogClose}
-                  onClose={handleCloseAll}
-                  onNewWorkspace={onNewWorkspace}
-                  onNewAgentWithPrompt={onNewAgentWithPrompt}
-                  linkedTo={workspaceLabel}
-                  projectId={projectId}
-                  workspacePath={workspacePath}
-                />
-              )
+            {dialogRef && (
+              <TaskDetail
+                key={dialogRef.id}
+                taskRef={dialogRef}
+                mode="linked"
+                layout="card"
+                linkedTo={workspaceLabel}
+                projectId={projectId}
+                workspacePath={workspacePath}
+                onNewWorkspace={onNewWorkspace}
+                onDone={handleCloseAll}
+              />
             )}
           </Dialog.Content>
         </Dialog.Portal>

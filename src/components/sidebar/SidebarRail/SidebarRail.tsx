@@ -120,8 +120,8 @@ export function SidebarRail(props: SidebarRailProps) {
           tabIndex={-1}
           aria-label="Tasks"
           aria-current={tasksActive ? "true" : undefined}
-          onClick={showTasks}
-          onKeyDown={(e) => handleSidebarRowKeyDown(e, { activate: showTasks })}
+          onClick={() => showTasks()}
+          onKeyDown={(e) => handleSidebarRowKeyDown(e, { activate: () => showTasks() })}
         >
           <ListTodo size={14} />
         </Button>

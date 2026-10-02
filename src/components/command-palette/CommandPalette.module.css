@@ -21,8 +21,8 @@
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 101;
-  width: 620px;
-  max-height: 400px;
+  width: min(700px, 92vw);
+  max-height: 480px;
   background: var(--dim);
   border: 1px solid var(--surface);
   border-radius: 10px;
@@ -52,7 +52,7 @@
   border: none;
   background: transparent;
   color: var(--text-selected);
-  font-size: 14px;
+  font-size: 15px;
   outline: none;
   border-bottom: 1px solid var(--surface);
   font-family: inherit;
@@ -76,15 +76,15 @@
 .inputRow .inputInRow {
   flex: 1;
   min-width: 0;
-  padding: 14px 0;
+  padding: 17px 0;
   border-bottom: none;
 }
 
 .list {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 4px 8px;
-  max-height: 320px;
+  padding: 4px 6px 8px;
+  max-height: 400px;
 }
 
 .group {
@@ -92,12 +92,11 @@
 }
 
 .group [cmdk-group-heading] {
-  padding: 6px 12px 2px;
+  padding: 8px 10px 4px;
   font-size: 11px;
   font-weight: 600;
   color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   margin-top: 4px;
 }
 
@@ -172,13 +171,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.recentMeta {
-  font-size: 11px;
-  color: var(--text-dim);
-  flex-shrink: 0;
-  margin-left: 8px;
 }
 
 .separator {
@@ -272,10 +264,11 @@
 .footer {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 6px 12px;
+  gap: 16px;
+  min-height: 38px;
+  padding: 6px 16px;
   border-top: 1px solid var(--surface);
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--text-dim);
   flex-shrink: 0;
 }
@@ -288,6 +281,9 @@
 
 .footerRight {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
 }
 
 /* ── Breadcrumb (nested views) ── */
@@ -336,54 +332,105 @@
   flex-shrink: 0;
 }
 
-/* ── Linear issue items ── */
+/* ── Task rows (ADR-208 §4): ID, title, context, status, action ── */
 
-.issueIdentifier {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-dim);
-  margin-right: 8px;
-  flex-shrink: 0;
-  font-family: inherit;
+.taskItem {
+  gap: 10px;
+  min-height: 42px;
+  padding-block: 0;
 }
 
-.issueState {
-  font-size: 11px;
-  color: var(--text-dim);
-  flex-shrink: 0;
-  margin-left: 8px;
-}
-
-/* ── Linear loading state ── */
-
-.linearLoading {
-  display: flex;
+/* Fixed width so titles line up down the group. */
+.taskId {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
-  padding: 24px 16px;
+  flex-shrink: 0;
+  width: 84px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
   color: var(--text-dim);
-  font-size: 13px;
 }
 
-.spinner {
-  animation: spin 1s linear infinite;
+.taskTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-selected);
 }
 
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.taskMatch {
+  color: var(--accent);
+  background: none;
+  font-weight: 600;
 }
 
-/* ── Issue detail view ── */
+.taskContext {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.taskStatus {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 1px 8px;
+}
+
+/* "Start ↵" / "Open ↵" — only on the highlighted row, in a reserved
+   column so status pills don't shift as the selection moves. */
+.taskAction {
+  display: inline-flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  width: 72px;
+  font-size: 12px;
+  color: var(--text-dim);
+  visibility: hidden;
+}
+
+.taskItem[data-selected="true"] .taskAction {
+  visibility: visible;
+}
+
+.seeAllTasks {
+  gap: 8px;
+  color: var(--accent);
+  font-size: 12.5px;
+}
+
+.seeAllTasks .label {
+  flex: 0 1 auto;
+}
+
+.seeAllTasks[data-selected="true"] {
+  color: var(--accent);
+}
+
+/* ── Task detail view ── */
 
 .paletteWide {
   width: 700px;
   max-height: 500px;
+}
+
+/* ADR-208 §4: a task's shared `TaskDetail` card — wide enough
+   that the meta column sits beside a readable body. */
+.paletteTask {
+  width: min(880px, 92vw);
+  max-height: min(600px, 85vh);
 }
 
 /* The stats readout carries four tiles, seventeen rows and a badge rack, so it
@@ -396,117 +443,6 @@
 
 .paletteStats .list {
   max-height: none;
-}
-
-.detailBody {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px 16px;
-  max-height: 280px;
-}
-
-.detailLayout {
-  flex: 1;
-  display: grid;
-  grid-template-columns: 1fr 220px;
-  grid-template-rows: auto 1fr;
-  overflow: hidden;
-  min-height: 0;
-}
-
-.detailBack {
-  grid-column: 1 / -1;
-  padding: 12px 16px 0;
-}
-
-.detailMain {
-  padding: 12px 24px 24px;
-  overflow-y: auto;
-  min-height: 400px;
-}
-
-.detailTitle {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text-selected);
-  margin: 0 0 12px;
-  line-height: 1.3;
-}
-
-.detailDescription {
-  font-size: 13px;
-  color: var(--text-primary);
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.detailScreenshots {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.detailScreenshot {
-  max-width: 100%;
-  border-radius: 6px;
-  border: 1px solid var(--surface);
-}
-
-.detailSidebar {
-  border-left: 1px solid var(--surface);
-  padding: 12px 16px;
-  overflow-y: auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-
-.sidebarLabel {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.sidebarValue {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-selected);
-}
-
-.statusDot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: var(--green, #4ade80);
-}
-
-.priorityDot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.sidebarLabels {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.detailLabel {
-  font-size: 11px;
-  font-weight: 500;
-  padding: 2px 8px;
-  border-radius: 4px;
 }
 
 /* ── Detail footer (keyboard hints) ── */
@@ -536,11 +472,6 @@
 
 .footerHint:hover {
   color: var(--text);
-}
-
-.footerLinked {
-  font-size: 11px;
-  color: var(--text-dim);
 }
 
 .kbd {
@@ -594,201 +525,6 @@
   to {
     opacity: 0;
     transform: translate(-50%, -50%) translateY(-8px);
-  }
-}
-
-/* ── Filter bar (Linear issues) ── */
-
-.filterBar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  margin: -4px -4px 0;
-  border-bottom: 1px solid var(--surface);
-  position: sticky;
-  top: -4px;
-  z-index: 5;
-  background: var(--dim);
-}
-
-.filterToggle {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-dim);
-  background: transparent;
-  border: 1px solid var(--surface);
-  border-radius: 4px;
-  padding: 4px 10px;
-  cursor: pointer;
-  font-family: inherit;
-  transition: background 100ms, color 100ms, border-color 100ms;
-}
-
-.filterToggle:hover {
-  background: var(--surface);
-  color: var(--text-primary);
-}
-
-.filterToggleActive {
-  background: var(--surface);
-  color: var(--text-selected);
-  border-color: var(--text-dim);
-}
-
-.filterDropdown {
-  position: relative;
-}
-
-.filterButton {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-dim);
-  background: transparent;
-  border: 1px solid var(--surface);
-  border-radius: 4px;
-  padding: 4px 10px;
-  cursor: pointer;
-  font-family: inherit;
-  transition: background 100ms, color 100ms;
-}
-
-.filterButton:hover {
-  background: var(--surface);
-  color: var(--text-primary);
-}
-
-.filterMenu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 10;
-  min-width: 140px;
-  background: var(--dim);
-  border: 1px solid var(--surface);
-  border-radius: 6px;
-  padding: 4px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-}
-
-.filterMenuItem {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 5px 8px;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 12px;
-  font-family: inherit;
-  border-radius: 4px;
-  cursor: pointer;
-  text-align: left;
-}
-
-.filterMenuItem:hover {
-  background: var(--surface);
-}
-
-.filterMenuItemActive {
-  color: var(--text-selected);
-}
-
-.filterCheck {
-  width: 14px;
-  font-size: 11px;
-  text-align: center;
-  flex-shrink: 0;
-}
-
-.filterSelect {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-dim);
-  background: transparent;
-  border: 1px solid var(--surface);
-  border-radius: 4px;
-  padding: 4px 10px;
-  cursor: pointer;
-  font-family: inherit;
-  appearance: none;
-  padding-right: 20px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 5px center;
-}
-
-.filterSelect:hover {
-  background-color: var(--surface);
-  color: var(--text-primary);
-}
-
-.filterSelect option {
-  background: var(--dim);
-  color: var(--text-primary);
-}
-
-/* ── Skeleton loading states ── */
-
-.skeletonBone {
-  background: var(--surface);
-  border-radius: 4px;
-  animation: skeletonPulse 1.5s ease-in-out infinite;
-}
-
-.skeletonRow {
-  padding: 8px 12px;
-}
-
-.skeletonIdentifier {
-  width: 48px;
-  height: 14px;
-  flex-shrink: 0;
-}
-
-.skeletonTitle {
-  height: 14px;
-  flex: 1;
-}
-
-.skeletonState {
-  width: 56px;
-  height: 14px;
-  flex-shrink: 0;
-}
-
-.skeletonDetailTitle {
-  width: 70%;
-  height: 22px;
-  margin-bottom: 16px;
-}
-
-.skeletonDetailLine {
-  height: 14px;
-  margin-bottom: 8px;
-}
-
-.skeletonSidebarLabel {
-  width: 50%;
-  height: 10px;
-}
-
-.skeletonSidebarValue {
-  width: 80%;
-  height: 14px;
-}
-
-@keyframes skeletonPulse {
-  0%,
-  100% {
-    opacity: 0.4;
-  }
-  50% {
-    opacity: 0.8;
   }
 }
 
@@ -911,33 +647,6 @@ button.processKill:hover:not(:disabled) {
   opacity: 0.4;
   flex-shrink: 0;
   margin-right: 8px;
-}
-
-.processInfo {
-  display: inline-flex;
-  align-items: center;
-  cursor: help;
-  color: var(--text-dim);
-  margin-left: 4px;
-  background: none;
-  border: none;
-  padding: 0;
-}
-
-.processCleanup {
-  font-size: 10px;
-  color: var(--text-dim);
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 1px 6px;
-  cursor: pointer;
-  margin-left: auto;
-}
-
-.processCleanup:hover {
-  color: var(--text);
-  border-color: var(--text-dim);
 }
 
 /* ── Stats view (ADR-168) ── */
@@ -1496,7 +1205,7 @@ button.processKill:hover:not(:disabled) {
  * off its `data-layout` attribute rather than a media query of its own. The
  * palette is the phone's command surface — the input pinned to the top, the
  * list filling and scrolling the rest — rather than the desk layout's
- * centered card. `.paletteWide`/`.paletteStats` (the issue-detail and stats
+ * centered card. `.paletteWide`/`.paletteStats` (the task-detail and stats
  * views) fold into the same full-screen box instead of keeping their
  * desk-mode widths: there is no narrower "wide" to be on a phone.
  *

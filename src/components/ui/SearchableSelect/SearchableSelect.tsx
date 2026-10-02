@@ -13,6 +13,8 @@ import styles from "./SearchableSelect.module.css";
 export type SearchableSelectOption = {
   value: string;
   label: string;
+  /** Shown before the label in the list. */
+  icon?: React.ReactNode;
 };
 
 type SearchableSelectProps = {
@@ -200,6 +202,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
                   selectOption(option.value);
                 }}
               >
+                {option.icon}
                 {option.label}
               </div>
             ))

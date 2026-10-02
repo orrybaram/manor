@@ -1,11 +1,20 @@
-import { describe, it, expect } from "vitest";
-import { githubTracker, toRow } from "./github";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { githubTracker, issueNumberOf, toRow } from "./github";
 import { toRow as linearRow } from "./linear";
 import type { TaskContext } from "../tasks";
-import type { GitHubIssue, LinearIssue } from "../../electron.d";
+import type {
+  GitHubIssue,
+  GitHubIssueDetail,
+  LinearIssue,
+} from "../../electron.d";
 import type { LinkedIssue, ProjectInfo } from "../../store/project-store";
 
-const project = { id: "p1", name: "manor", color: "blue" } as ProjectInfo;
+const project = {
+  id: "p1",
+  name: "manor",
+  color: "blue",
+  path: "/code/manor",
+} as ProjectInfo;
 const ctx: TaskContext = {
   entryKey: "p1",
   project,
@@ -154,5 +163,99 @@ describe("githubTracker.homeUrl", () => {
     ).toBe("https://github.com/acme/manor/issues");
     expect(githubTracker.homeUrl([linearRow(linear, ctx)])).toBeNull();
     expect(githubTracker.homeUrl([])).toBeNull();
+  });
+});
+
+describe("githubTracker refs", () => {
+  it("refs a listed row by its gh-N link id", () => {
+    expect(githubTracker.refOf(toRow(gh(), ctx))).toEqual({
+      provider: "github",
+      project,
+      id: "gh-12",
+      displayId: "#12",
+      title: "Fix the thing",
+      url: "https://github.com/acme/manor/issues/12",
+    });
+  });
+
+  it("refs a workspace link, parsing its number for the detail query", () => {
+    const ref = githubTracker.refFromLink(
+      link({
+        id: "gh-34",
+        identifier: "#34",
+        title: "Other",
+        url: "https://github.com/acme/manor/issues/34",
+      }),
+      project,
+    );
+    expect(ref).toMatchObject({ id: "gh-34", displayId: "#34", project });
+    expect(issueNumberOf(ref)).toBe(34);
+    expect(githubTracker.detailQuery(ref).queryKey).toEqual([
+      "task-detail",
+      "github",
+      "local",
+      "/code/manor",
+      34,
+      "https://github.com/acme/manor/issues/34",
+    ]);
+  });
+
+  it("rejects a ref that isn't gh-N", () => {
+    const ref = githubTracker.refFromLink(link({ id: "lin-1" }), project);
+    expect(() => issueNumberOf(ref)).toThrow();
+  });
+});
+
+describe("githubTracker.detailQuery", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubDetail(over: Partial<GitHubIssueDetail> = {}) {
+    const detail: GitHubIssueDetail = {
+      ...gh(),
+      body: "Steps\n\n![a](https://example.com/a.png) ![b](https://example.com/b.png)",
+      milestone: { title: "v1" },
+      ...over,
+    };
+    const getIssueDetail = vi.fn(async () => detail);
+    vi.stubGlobal("window", { electronAPI: { github: { getIssueDetail } } });
+    return getIssueDetail;
+  }
+
+  const ref = githubTracker.refOf(toRow(gh(), ctx));
+
+  it("normalises the issue detail, looked up by URL", async () => {
+    const getIssueDetail = stubDetail();
+    expect(await githubTracker.detailQuery(ref).queryFn()).toEqual({
+      body: "Steps\n\n![a](https://example.com/a.png) ![b](https://example.com/b.png)",
+      status: { label: "Open", tone: "open" },
+      assignees: ["alice"],
+      labels: [{ name: "bug", color: "#d73a4a" }],
+      milestone: "v1",
+      images: ["https://example.com/a.png", "https://example.com/b.png"],
+    });
+    expect(getIssueDetail).toHaveBeenCalledWith(
+      { path: "/code/manor", hostId: "local" },
+      12,
+      "https://github.com/acme/manor/issues/12",
+    );
+  });
+
+  it("handles a null body, no milestone and a not-planned close", async () => {
+    stubDetail({
+      body: null,
+      milestone: null,
+      state: "CLOSED",
+      stateReason: "NOT_PLANNED",
+    });
+    const detail = await githubTracker.detailQuery(ref).queryFn();
+    expect(detail).toMatchObject({
+      body: null,
+      status: { label: "Closed (not planned)", tone: "canceled" },
+      images: [],
+    });
+    expect(detail.milestone).toBeUndefined();
+    expect(detail.priority).toBeUndefined();
   });
 });

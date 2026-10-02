@@ -92,7 +92,6 @@ import { agentWorkspaceKey, navigateToAgent } from "./utils/agent-navigation";
 import { hasPaneId } from "./lib/layout/pane-tree";
 import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults";
 import { isHomePath, HOME_PATH } from "./lib/home";
-import { launchAgentInWorkspace } from "./lib/agent-prompt-launch";
 import { isWebApp } from "./lib/platform";
 import { useLayoutMode } from "./hooks/useLayoutMode";
 import { PhoneChrome } from "./components/phone/PhoneChrome";
@@ -165,13 +164,9 @@ function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteOrigin, setPaletteOrigin] = useState<PaletteOrigin>("shortcut");
   const [paletteInitialView, setPaletteInitialView] = useState<PaletteView | undefined>();
-  const [paletteInitialIssueId, setPaletteInitialIssueId] = useState<string | null>(null);
-  const [paletteInitialGitHubIssueNumber, setPaletteInitialGitHubIssueNumber] = useState<number | null>(null);
   const closePalette = useCallback(() => {
     setPaletteOpen(false);
     setPaletteInitialView(undefined);
-    setPaletteInitialIssueId(null);
-    setPaletteInitialGitHubIssueNumber(null);
   }, []);
   const openPalette = useCallback(() => {
     setPaletteOrigin("search");
@@ -739,21 +734,6 @@ function App() {
     await startNewAgent({ prewarm: true });
   }, []);
 
-  const handleNewAgentWithPrompt = useCallback(
-    (prompt: string) => {
-      if (!activeWorkspacePath) return;
-      // Don't consume prewarmed — it has the base agent command running,
-      // but we need a different command with the prompt argument.
-      // `launchAgentInWorkspace` flattens the prompt (ADR-176) before
-      // building the launch line, which hand-rolling it here skipped.
-      launchAgentInWorkspace(activeWorkspacePath, {
-        prompt,
-        hostId: activeWorkspaceHostId,
-      });
-    },
-    [activeWorkspacePath, activeWorkspaceHostId],
-  );
-
   // A detached window's one panel: the one holding the tab it claims, in this
   // window's replica of the shared layout (ADR-179 D4). A string, so the
   // selector is stable across unrelated layout changes.
@@ -890,13 +870,13 @@ function App() {
                           : showOnboarding
                           ? <Onboarding onAddLocal={handleAddLocalProject} onClone={handleCloneRepository} />
                           : showTasksView
-                          ? <TasksView onNewWorkspace={handleNewWorkspace} onOpenPaletteView={handleOpenPaletteView} />
+                          ? <TasksView onNewWorkspace={handleNewWorkspace} />
                           : !hasTabs &&
                             (isHomePath(activeWorkspacePath)
                               ? (
                                   <HomeEmptyState onNewWorkspace={handleNewWorkspace} />
                                 )
-                              : <WorkspaceEmptyState onOpenPaletteView={handleOpenPaletteView} onNewWorkspace={handleNewWorkspace} />)}
+                              : <WorkspaceEmptyState onNewWorkspace={handleNewWorkspace} />)}
                       </div>
                     </div>
                   )}
@@ -906,7 +886,6 @@ function App() {
                 {layoutMode === "desk" && (
                   <StatusBar
                     onNewWorkspace={handleNewWorkspace}
-                    onNewAgentWithPrompt={handleNewAgentWithPrompt}
                     onOpenStats={handleOpenStats}
                   />
                 )}
@@ -929,12 +908,9 @@ function App() {
               onOpenSettings={handleOpenSettings}
               onNewWorkspace={handleNewWorkspace}
               initialView={paletteInitialView}
-              initialIssueId={paletteInitialIssueId}
-              initialGitHubIssueNumber={paletteInitialGitHubIssueNumber}
               onResumeAgent={handleResumeAgent}
               onViewAllAgents={() => setAgentsOpen(true)}
               onNewAgent={handleNewAgent}
-              onNewAgentWithPrompt={handleNewAgentWithPrompt}
               onRunCommand={runCommand}
             />
             <SettingsModal

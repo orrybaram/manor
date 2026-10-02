@@ -26,8 +26,11 @@ interface UseAgentCommandsParams {
   onViewAllAgents: () => void;
   onClose: () => void;
   onNewAgent: () => void;
-  /** Only list agents of this project; `null` lists all, each with a project tag. */
-  scopeProjectId: string | null;
+  /**
+   * Only list agents of these projects (a project, or a group's linked
+   * checkouts); `null` lists all, each with a project tag.
+   */
+  scopeProjectIds: ReadonlySet<string> | null;
   /**
    * Whether the palette is open. While closed the hook reads no agent,
    * status or title state, so agent activity does no work in the palette.
@@ -47,7 +50,7 @@ export function useAgentCommands({
   onViewAllAgents,
   onClose,
   onNewAgent,
-  scopeProjectId,
+  scopeProjectIds,
   enabled,
 }: UseAgentCommandsParams): AgentCommands {
   const agents = useAgentStore((s) => (enabled ? s.agents : NO_AGENTS));
@@ -92,7 +95,7 @@ export function useAgentCommands({
         keywords: agent.projectName ? [agent.projectName] : undefined,
         // Scoped, every agent shares the project; global, tag each one.
         suffix:
-          scopeProjectId === null && agent.projectName ? (
+          scopeProjectIds === null && agent.projectName ? (
             <span className={styles.projectTag}>{agent.projectName}</span>
           ) : undefined,
         action: () => {
@@ -104,13 +107,17 @@ export function useAgentCommands({
 
     const active = agents.filter((t) => t.status === "active");
     const inScope =
-      scopeProjectId === null
+      scopeProjectIds === null
         ? active
-        : active.filter((a) => a.projectId === scopeProjectId);
+        : active.filter(
+            (a) => a.projectId !== null && scopeProjectIds.has(a.projectId),
+          );
     const outOfScope =
-      scopeProjectId === null
+      scopeProjectIds === null
         ? []
-        : active.filter((a) => a.projectId !== scopeProjectId);
+        : active.filter(
+            (a) => a.projectId === null || !scopeProjectIds.has(a.projectId),
+          );
 
     items.push(...inScope.slice(0, AGENT_LIMIT).map(toItem));
 
@@ -125,5 +132,5 @@ export function useAgentCommands({
     });
 
     return { items, outOfScope: outOfScope.map(toItem) };
-  }, [agents, onResumeAgent, onViewAllAgents, onClose, onNewAgent, bindings, paneAgentStatus, paneTitle, onHome, scopeProjectId]);
+  }, [agents, onResumeAgent, onViewAllAgents, onClose, onNewAgent, bindings, paneAgentStatus, paneTitle, onHome, scopeProjectIds]);
 }

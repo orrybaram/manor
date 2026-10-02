@@ -1,6 +1,6 @@
 ---
 title: One tier, one road — relay-only full pairing; drop old devices on load
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [2]
@@ -127,3 +127,17 @@ Read `relay.spec.ts` and its helpers first.
 - `src/web/screens.tsx`, `src/web-main.tsx`, `src/bridge/install-web.ts`, `src/bridge/transports/ws.ts`, `src/lib/relay-crypto/protocol.ts`
 - tests under `electron/remote-control/__tests__/`, `electron/remote-control/relay/__tests__/`, `electron/bridge/__tests__/`, `src/bridge/__tests__/`
 - `tests/e2e/helpers/settings.ts`, `tests/e2e/web-app.spec.ts`, `phone.spec.ts`, `detach.spec.ts` and the e2e launch helper
+
+## Carried over from ticket 2
+
+- `helpers/settings.ts` `enableRemoteControl` still waits for
+  `remote-listener-address`, which no longer exists.
+- `test:e2e` and `test:e2e:web` in `package.json` run `pnpm build`, which no
+  longer builds the web app. Add `pnpm build:web:relay` where the relay-backed
+  specs need `dist-relay-web/`.
+- A non-relay pairing still "works" and shows a dialog with no link. Make sure
+  that path is gone.
+- Stale comments:
+  - `pairViaRelay` still mentions the `/ws` pipe.
+  - The audit `transport: "http"` doc describes a deleted surface. Drop the
+    `"http"` variant if nothing writes it.

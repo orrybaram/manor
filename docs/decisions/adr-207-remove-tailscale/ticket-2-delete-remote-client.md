@@ -1,85 +1,142 @@
 ---
-title: Delete the remote client and the listener's HTTP surface
-status: todo
+title: Delete the remote client and the loopback listener
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [1]
 ---
 
-# Delete the remote client and the listener's HTTP surface
+# Delete the remote client and the loopback listener
 
-ADR-207 D2 and D3. After this ticket, the loopback listener in
-`electron/remote-control/server.ts` serves only these things. It still binds
-`127.0.0.1:0`.
+ADR-207 D2 and D3. After this ticket, remote control opens no listening socket.
+The relay is the only way in.
 
-| Path | What it serves |
-|---|---|
-| `GET /app`, `/app/*` | The web app, unauthenticated static files, from `dist-electron/web` |
-| `/ws` upgrade | The bridge, handled by `WsBridgeServer.handleUpgrade` |
-| Any other path | 404 |
+Tiers and `via` stay for now (ticket 3). If a tier check lived only in the HTTP
+surface, it goes with it. The bridge 4403 tier check moves to the gate unchanged.
 
-`RemoteControlServer` keeps these:
-
-- `authenticateBridge`
-- `authenticateRelayHello`
-- the `AuthRateLimiter`
-- `closeDevice`
-- `running`
-- `listenerCount`, which now counts bridge sockets only
+E2E specs that open the loopback `/app` will be broken after this ticket.
+Ticket 3 moves them to the relay setup. Do not run Playwright, but make sure
+`tests/e2e` still typechecks if it is in a tsconfig.
 
 ## Steps
 
-1. Delete the remote client.
-   - Delete `src/remote-client/` and `vite.remote.config.ts`.
-   - Move `src/remote-client/public/icons` to `src/web/public/icons` (or the web
-     app's own public dir) and fix `vite.web.config.ts:27`. Fix its comments
-     at :105-126.
-   - `package.json`: drop the `vite build --config vite.remote.config.ts` steps
-     from `dev`/`build`, and the `test:e2e:remote`, `e2e:remote` and
-     `e2e:remote:watch` scripts.
-   - `knip.json`: remove the remote-client entries.
-2. Delete the listener's HTTP route surface.
-   - Delete `electron/remote-control/sse.ts`, `listener-routes.ts` and
-     `allowlist.ts` (plus `__tests__/allowlist.test.ts`).
-   - Before deleting `allowlist.test.ts`, move its LOCAL_ONLY assertion block
-     (:240-262) into a bridge test. Drop the tunnel names from it.
-3. Trim `static.ts` to the web-app half and update `__tests__/static.test.ts`.
-   Delete it if nothing remains worth testing.
-4. `server.ts`:
-   - Remove `serveClientAsset`, `/events`, `listenerRoutes`,
-     `remoteRouteTable`, `guardWrites`/`guardedWrite` and the
-     `SEND_ROUTE`/`INTERRUPT_ROUTE`/`LAUNCH_ROUTE`/`ALLOWED_METHODS` constants.
-   - Remove the SSE hub and `publishStatus` if it only feeds SSE. Check the
-     controller.
-   - Keep the bridge 4403 tier check for now; ticket 3 removes tiers.
-   - Rewrite the header comment.
-5. Push: delete HTTP `POST /push/subscribe` (it lived in listener-routes). The
-   bridge `remoteControl.subscribePush`/`vapidPublicKey` stays. Fix the HTTP
-   mention in the `devices.setPushSubscription` doc.
-6. `server.test.ts`: delete the HTTP and tier describes (route surface, send
-   and launch gates, the full tier over HTTP, served client, `/me`,
-   `/workspaces`, `/push/subscribe`, `/events`). Keep or adapt:
-   - binding
-   - authentication on `/ws`
-   - rate limiting
-   - the relay hello gate
-   - request hygiene, if it is still relevant
-   - a test that `/` and unknown paths 404 while `/app` serves
-7. `ws-bridge.test.ts`: delete "upgrades nothing outside /ws" only if the
-   behaviour changed. Keep the invoke/events/layout coverage.
-8. E2E:
-   - Delete `tests/e2e/remote-control.spec.ts`.
-   - In `tests/e2e/helpers/phone.ts`, delete `openPhoneClient` and `sessionRow`.
-   - Update `tests/e2e/README.md` sections about the remote client and
-     `dist-electron/remote/`.
-9. Fix comments that mention the remote client in `src/lib/web-headers.ts`,
-   `rate-limit.ts` and `audit.test.ts`.
+### 1. RelayGate (new: `electron/remote-control/relay-gate.ts`)
+
+Read `server.ts` first. The relay uses `authenticateRelayHello` (:316-357),
+`closeDevice` and `running`; `controller.ts` uses `server.*`;
+`relay/connector.ts` calls `bridge.attach(socket, auth)`.
+
+- Move into the gate:
+  - device verification;
+  - the `AuthRateLimiter` failed-auth backoff (`rate-limit.ts`; trim its
+    HTTP/IP wording);
+  - the `AuthenticatedDevice` type;
+  - `closeDevice(id)`, which closes that device's attached bridge connections.
+- Keep the road check (`via`) and the 4403-for-non-full behaviour exactly as
+  they are; ticket 3 removes them.
+- The controller's `enabled` becomes its own flag instead of `server.running`.
+  `setEnabled(true)` loads the runtime and no longer starts a listener.
+- In `status()`, remove `port`. `listeners` collapses to the relay viewer count
+  (keep `relayViewers` or rename; update the renderer to match).
+- `relay/connector.ts` and its tests take the gate instead of a
+  `RemoteControlServer`.
+- `app-lifecycle.ts` `loadRemoteControlRuntime` builds the gate instead of the
+  server.
+
+### 2. Delete the listener
+
+- Delete:
+  - `electron/remote-control/server.ts`, `static.ts`, `sse.ts`,
+    `listener-routes.ts` and `allowlist.ts`;
+  - their tests: `server.test.ts`, `static.test.ts`, `allowlist.test.ts`.
+- `allowlist.test.ts` has a LOCAL_ONLY assertion block (:240-262 or so). If
+  that coverage isn't already in a bridge test, move it there first.
+- The relay hello gate tests in `server.test.ts` (around :814-836) move to a new
+  `__tests__/relay-gate.test.ts`, along with the auth and backoff tests that
+  still apply.
+- `WEB_CSP` and `webContentType` live in `src/lib/web-headers.ts` and are still
+  used by the relay and `vite.web.config.ts`. Keep them, and fix the header
+  comment.
+
+### 3. Bridge transport (`electron/bridge/transports/ws.ts`)
+
+- Delete `handleUpgrade`, `BRIDGE_PATH` and the `ws` `WebSocketServer`. Keep
+  `attach`.
+- Fix the `AuthenticatedDevice` import.
+- `ws-bridge.test.ts` ran over the real listener `/ws`. Re-host its invoke,
+  events and layout coverage on `attach` with an in-memory or paired
+  `FrameSocket`. Do **not** just delete it. Drop only the cases that tested
+  the HTTP upgrade itself.
+- If `ws` stops being imported anywhere in `electron/`, check knip and
+  `package.json` (the relay connector may still use it).
+
+### 4. Push
+
+The HTTP `POST /push/subscribe` route goes with `listener-routes.ts`. The bridge
+`remoteControl.subscribePush`/`vapidPublicKey` stays. Fix the HTTP mention in
+the `devices.setPushSubscription` doc.
+
+### 5. Web app
+
+The relay origin is the only server, so delete the loopback pairing path:
+
+- `src/bridge/web-pairing.ts`: `mode: "listener"` (around :62, 68, 122,
+  194-215).
+- `src/bridge/transports/ws.ts`: `webSocketPipe`, `bridgeUrlFromLocation` and
+  `WEB_TOKEN_KEY`, if they are only used by listener mode.
+- `src/bridge/install-web.ts`: the listener branch (around :50-71).
+
+Update their tests:
+
+- `src/bridge/__tests__/web-pairing.test.ts`
+- `install-web-relay.test.ts` ("never redirects a listener-served page")
+- `ws.test.ts`
+
+Keep the relay path intact.
+
+### 6. Remote client and build
+
+- Delete `src/remote-client/` and `vite.remote.config.ts`.
+- Move `src/remote-client/public/icons` into the web app's public dir and fix
+  `vite.web.config.ts:27` and its comments (:105-126).
+- `package.json`:
+  - Drop the remote vite build from `dev`/`build`.
+  - Drop the `test:e2e:remote`, `e2e:remote` and `e2e:remote:watch` scripts.
+  - Check whether `dist-electron/web` (the listener's web build) is still
+    needed by anything. The relay serves `dist-relay-web/` from
+    `pnpm build:web:relay`. If nothing else uses the `dist-electron/web` build
+    step, drop it from `dev`/`build` as well, along with any packaging
+    `files`/`extraResources` entries.
+- `knip.json`: remove the remote-client entries.
+- `.claude/agents/verifier.md` says "three bundles (app, remote, web)". Update
+  it to say what `pnpm build` now builds.
+
+### 7. Renderer
+
+- Remove `port` from the status type and the store's empty status.
+- `RemoteControlPage.tsx`: delete the loopback-address line
+  (`remote-listener-address`). The switch copy ("Manor runs a second,
+  authenticated listener while this is on") must change: nothing listens
+  locally.
+- `RemoteControlDialogs.tsx` `PairingResultDialog`: delete the `port` prop and
+  the loopback link. It shows only the relay pairing URL and QR.
+- MCP `set_remote_control_enabled` and the status text in
+  `electron/mcp/tools-system.ts`: remove "local listener" and port wording.
+
+### 8. E2E
+
+- Delete `tests/e2e/remote-control.spec.ts`.
+- In `tests/e2e/helpers/phone.ts`, delete `openPhoneClient` and `sessionRow`.
+- Leave `openWebApp` and `enableRemoteControl` for ticket 3 to rewrite. Only
+  make them compile.
+- Update the remote-client sections of `tests/e2e/README.md`.
 
 ## Files to touch
-- `src/remote-client/**`, `vite.remote.config.ts` — delete
-- `vite.web.config.ts`, `package.json`, `knip.json`
-- `electron/remote-control/server.ts`, `static.ts`, `sse.ts`, `listener-routes.ts`, `allowlist.ts`, `rate-limit.ts`, `push.ts`, `devices.ts` (doc only)
-- `electron/remote-control/__tests__/server.test.ts`, `static.test.ts`, `allowlist.test.ts`, `ws-bridge.test.ts`, `audit.test.ts`
-- a bridge test that keeps the LOCAL_ONLY assertions
-- `tests/e2e/remote-control.spec.ts` (delete), `tests/e2e/helpers/phone.ts`, `tests/e2e/README.md`
-- `src/lib/web-headers.ts` (comment)
+- new `electron/remote-control/relay-gate.ts`, `__tests__/relay-gate.test.ts`
+- delete: `electron/remote-control/server.ts`, `static.ts`, `sse.ts`, `listener-routes.ts`, `allowlist.ts` and their tests; `src/remote-client/**`; `vite.remote.config.ts`; `tests/e2e/remote-control.spec.ts`
+- `electron/remote-control/controller.ts`, `rate-limit.ts`, `push.ts`, `devices.ts` (doc), `relay/connector.ts`, `relay/__tests__/connector.test.ts`, `__tests__/controller.test.ts`, `__tests__/relay-reset.test.ts`, `__tests__/ws-bridge.test.ts`, `__tests__/audit.test.ts` (comment)
+- `electron/app-lifecycle.ts`, `electron/bridge/transports/ws.ts`, `electron/mcp/tools-system.ts` (+ test)
+- `src/bridge/web-pairing.ts`, `src/bridge/transports/ws.ts`, `src/bridge/install-web.ts` and their tests
+- `src/electron.d.ts`, `src/store/remote-control-store.ts`, `src/components/settings/RemoteControlPage.tsx`, `RemoteControlDialogs.tsx`, `src/components/statusbar/StatusBar/remote-exposure.ts` (+ test)
+- `src/lib/web-headers.ts` (comment), `vite.web.config.ts`, `package.json`, `knip.json`, `.claude/agents/verifier.md`
+- `tests/e2e/helpers/phone.ts`, `tests/e2e/README.md`

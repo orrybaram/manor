@@ -67,25 +67,43 @@ delete:
   `TunnelConfirmDialog`;
 - the tunnel road in `remote-exposure.ts` and `RemoteExposureIndicator`.
 
-**D2 — Delete the remote client and the listener's HTTP surface.** Delete:
+**D2 — Delete the remote client and the loopback listener.** Once the tunnel is
+gone, nothing outside the machine can reach the listener. Its only remaining
+users are the "Link (this machine only)" link and three e2e specs, so it goes
+too. Delete:
 
-- `src/remote-client/` and `vite.remote.config.ts`. Its icons move to
-  `src/web/public/icons`, because `vite.web.config.ts` borrows them;
-- `static.ts`'s client half, `sse.ts`, `listener-routes.ts` and `allowlist.ts`;
-- `guardWrites` and the allowlisted route table in `server.ts`;
-- HTTP `POST /push/subscribe`. The bridge `remoteControl.subscribePush` stays;
+- `src/remote-client/` and `vite.remote.config.ts`. Their icons move to the
+  web app's own public dir, because `vite.web.config.ts` borrows them.
+- `electron/remote-control/server.ts`, `static.ts`, `sse.ts`,
+  `listener-routes.ts` and `allowlist.ts`, along with their tests.
+- HTTP `POST /push/subscribe`. The bridge's `remoteControl.subscribePush`
+  stays.
+- The `/ws` upgrade path on `WsBridgeServer`: `handleUpgrade`, `BRIDGE_PATH`
+  and the `ws` `WebSocketServer`. `attach(socket, auth)` is what the relay uses,
+  and it stays.
+- The web app's loopback pairing path: `mode: "listener"` in
+  `src/bridge/web-pairing.ts`, `webSocketPipe`, `bridgeUrlFromLocation` and
+  `WEB_TOKEN_KEY` in `src/bridge/transports/ws.ts`, and the listener branch of
+  `src/bridge/install-web.ts`. The web app is served only by the relay origin.
+- The loopback link in the pairing dialog and the listener-address line in
+  settings.
 - `tests/e2e/remote-control.spec.ts` and its package scripts.
 
-**D3 — Keep a slim loopback listener.** `RemoteControlServer` still binds
-`127.0.0.1:0`. It serves only the web app (`/app`, `/app/*`) and the bridge
-upgrade (`/ws`). It also still owns device auth, the auth rate limiter and
-`closeDevice`, which the relay hello uses. This keeps two things working:
+**D3 — A `RelayGate` replaces the server object.** The relay needed the server
+for device auth, failed-auth backoff and `closeDevice`. Those move to a small
+`electron/remote-control/relay-gate.ts`, built from `DeviceStore`,
+`AuthRateLimiter` (`rate-limit.ts`, now keyed only on the relay's hello) and
+the bridge's set of attached connections. Two other changes:
 
-- the "this machine" link in the pairing dialog;
-- the e2e specs that open `http://127.0.0.1:<port>/app#<token>` (`web-app`,
-  `phone`, `detach`).
+- "Remote control is on" becomes a controller flag. It used to be
+  `server.running`.
+- Enabling remote control now just loads the runtime: identity, push, gate and
+  bridge. Starting the relay is still a separate, confirmed action.
 
-Nothing is reachable from off the machine except through the relay.
+The e2e specs that used `http://127.0.0.1:<port>/app#<token>` (`web-app`,
+`phone` and `detach`) now run through the local relay setup that
+`relay.spec.ts` already uses: wrangler, `MANOR_RELAY_URL` and
+`pnpm build:web:relay`.
 
 **D4 — One tier, one road.** The changes:
 
@@ -121,9 +139,9 @@ tunnel. Add a CHANGELOG entry. Historical ADRs are not edited.
   install.
 - There is one mental model: scan a QR and the relay carries the whole bridge.
   The settings page, the status badge and the MCP status all get simpler.
-- The security surface shrinks. There is no unauthenticated static client and no
-  HTTP route table for paired devices. The only paired-device surface is the
-  bridge.
+- The security surface shrinks. Remote control no longer opens any listening
+  socket: no static files, no HTTP route table and no `/ws`. The only way in
+  is a Noise handshake through the relay, followed by the bridge.
 
 **Harder**
 - **Every remote device now depends on the relay being up.** There is no
@@ -135,12 +153,14 @@ tunnel. Add a CHANGELOG entry. Historical ADRs are not edited.
 - The lightweight, no-JS-framework client is gone. Phones load the full web app.
 
 **Risks**
-- E2E pairing now needs a relay origin to build a pairing URL. The helpers set a
-  dummy `MANOR_RELAY_URL` and use the loopback `/app` link. Relay tokens are
-  already admitted on loopback, so no relay process is needed for those specs.
-- The `server.test.ts` and `ws-bridge.test.ts` suites shrink a lot. Bridge
-  coverage (invoke, events, layout) must be kept, not deleted with the HTTP
-  tests.
+- **The web-app, phone and detach e2e specs need the local relay** (wrangler
+  plus the relay web build). They become slower and gain more moving parts. In
+  exchange, they test the road users actually take.
+- **`ws-bridge.test.ts` ran the bridge over the real listener's `/ws`.** Its
+  invoke, events and layout coverage must move onto `WsBridgeServer.attach`
+  with an in-memory `FrameSocket`, not be deleted with the listener.
+- **Nothing can open the web app from this machine without the relay.** That
+  is acceptable: the desktop app is already open there.
 
 ## Tickets
 

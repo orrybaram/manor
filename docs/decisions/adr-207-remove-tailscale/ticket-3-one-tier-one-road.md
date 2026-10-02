@@ -32,11 +32,10 @@ ADR-207 D4 and D5.
 
 ## Server and bridge
 
-- `server.ts`:
-  - `authenticateBridge` loses the `road` parameter and the 4403 tier check.
-    `authenticateRelayHello` becomes a plain verify plus backoff.
+- `relay-gate.ts` (created by ticket 2): drop the road (`via`) check and the
+  4403 tier check. Authentication becomes a plain verify plus backoff.
   - Drop `AuthenticatedDevice.via`.
-  - Update `electron/bridge/transports/ws.ts` docs and imports.
+  - Update `electron/bridge/transports/ws.ts` docs.
 - `electron/bridge/handlers/remote-control.ts`:
   - `pair` takes only `label`.
   - Delete `assertCapability`.
@@ -82,24 +81,46 @@ ADR-207 D4 and D5.
     dropped.
   - `push.test.ts`
   - `controller.test.ts`
-  - `server.test.ts`
+  - `relay-gate.test.ts`
   - `ws-bridge.test.ts`
   - `integrations-crossing.test.ts`
-- E2E helpers (`tests/e2e/helpers/settings.ts`):
-  - `pairDevice` pairs through the relay form. There is no radio and no
-    capability.
+
+## E2E — move the loopback specs to the local relay
+
+The loopback listener is gone (ticket 2), so `web-app.spec.ts`,
+`phone.spec.ts` and `detach.spec.ts` can no longer open
+`http://127.0.0.1:<port>/app#token`. Move them onto the local relay setup
+`tests/e2e/relay.spec.ts` already uses:
+
+- wrangler dev relay;
+- `MANOR_RELAY_URL`;
+- the `dist-relay-web/` build from `pnpm build:web:relay`;
+- start the relay, pair, open the pairing URL.
+
+Read `relay.spec.ts` and its helpers first.
+
+- Factor the relay start/stop and launch-with-relay code out of
+  `relay.spec.ts` into a shared helper or fixture. Do not copy it into each
+  spec.
+- `tests/e2e/helpers/settings.ts`:
+  - `enableRemoteControl` no longer returns a port.
+  - `pairDevice` pairs through the relay form, with no radio and no capability.
+    It returns the pairing URL. It can merge with `pairDeviceViaRelay`.
   - Delete `PairedCapability` and `CAPABILITY_BUTTON`.
-  - The Electron launch for specs that pair must set `MANOR_RELAY_URL` to a
-    dummy origin, so a pairing URL can be built. Relay tokens are admitted on
-    loopback `/ws`, so `openWebApp` keeps using `http://127.0.0.1:<port>/app#token`.
-  - Update `pairDeviceViaRelay` assertions.
-- Delete `tests/e2e/web-app.spec.ts` "a send device cannot open the full web
-  app".
-- Update `web-app.spec.ts`, `phone.spec.ts` and `detach.spec.ts` call sites.
-- Don't run the e2e suite here. Make sure it typechecks.
+- `tests/e2e/helpers/phone.ts`: `openWebApp` opens the relay pairing URL.
+- Delete `web-app.spec.ts` "a send device cannot open the full web app".
+- Update every call site in `web-app.spec.ts`, `phone.spec.ts` and
+  `detach.spec.ts`.
+- Make sure the e2e entry points build what the relay specs need. If
+  `relay.spec.ts` relies on a manual `pnpm build:web:relay`, put that step
+  where the e2e scripts or `tests/e2e/README.md` will run it for these specs
+  too.
+- **Do NOT run Playwright yourself.** It runs past agent watchdogs. Make sure
+  it typechecks; the orchestrator runs the e2e suite.
 
 ## Files to touch
-- `electron/remote-control/devices.ts`, `server.ts`, `controller.ts`, `audit.ts`, `relay/connector.ts`
+- `electron/remote-control/devices.ts`, `relay-gate.ts`, `controller.ts`, `audit.ts`, `relay/connector.ts`
+- `tests/e2e/relay.spec.ts` and a new shared relay e2e helper/fixture
 - `electron/bridge/handlers/remote-control.ts`, `electron/bridge/server.ts`, `electron/bridge/transports/ws.ts`, `electron/bridge/types.ts`
 - `src/electron.d.ts`, `src/store/remote-control-store.ts`
 - `src/components/settings/RemoteControlPage.tsx`, `RemoteControlDialogs.tsx`, `SettingsModal/SettingsModal.module.css`

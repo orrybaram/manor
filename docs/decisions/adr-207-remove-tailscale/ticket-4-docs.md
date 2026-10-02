@@ -16,9 +16,11 @@ and declarative.
     install flow and the relay vs Tailscale gate.
   - Remove the "orphaned `tailscale serve`" known gap and the "stops both"
     badge copy.
-  - Keep and update: enabling remote control, the slim loopback listener
-    (`/app` and `/ws`, this machine only), relay pairing, reset, push, the
-    exposure badge, token leak, and where things live.
+  - Keep and update: enabling remote control (no local listener; it only loads
+    the runtime), relay pairing, reset, push, the exposure badge, token leak,
+    and where things live.
+  - Add the removed loopback listener to the trust model: nothing on the
+    machine listens for remote control.
 - `CONTEXT.md`:
   - Delete the **Remote client**, **Capability** and **Remote surface** terms
     and their relationships.

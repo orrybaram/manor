@@ -60,8 +60,6 @@ import styles from "./TasksView.module.css";
 
 type TasksViewProps = {
   onNewWorkspace: NewWorkspaceHandler;
-  /** Launches an agent in the active workspace — the drawer's New agent here. */
-  onNewAgentWithPrompt?: (prompt: string) => void;
 };
 
 const ALL_PROJECTS = "__all__";
@@ -79,7 +77,7 @@ const SORT_COLUMNS: { field: TaskFieldId; label: string }[] = [
 ];
 
 export function TasksView(props: TasksViewProps) {
-  const { onNewWorkspace, onNewAgentWithPrompt } = props;
+  const { onNewWorkspace } = props;
 
   const queryClient = useQueryClient();
 
@@ -543,7 +541,6 @@ export function TasksView(props: TasksViewProps) {
                   onNext={nextKey === null ? undefined : () => moveTo(nextKey)}
                   onClose={closeDrawer}
                   onNewWorkspace={onNewWorkspace}
-                  onNewAgentWithPrompt={onNewAgentWithPrompt}
                 />
               )}
             </div>
@@ -634,7 +631,6 @@ type TaskDrawerProps = {
   onNext?: () => void;
   onClose: () => void;
   onNewWorkspace: NewWorkspaceHandler;
-  onNewAgentWithPrompt?: (prompt: string) => void;
 };
 
 /**
@@ -643,8 +639,7 @@ type TaskDrawerProps = {
  * its ref from the link and opens in `linked` mode.
  */
 function TaskDrawer(props: TaskDrawerProps) {
-  const { row, onPrev, onNext, onClose, onNewWorkspace, onNewAgentWithPrompt } =
-    props;
+  const { row, onPrev, onNext, onClose, onNewWorkspace } = props;
 
   const tracker = trackerFor(row.provider);
   const projects = useProjectStore((s) => s.projects);
@@ -750,7 +745,6 @@ function TaskDrawer(props: TaskDrawerProps) {
             mode="default"
             layout="drawer"
             onNewWorkspace={onNewWorkspace}
-            onNewAgentWithPrompt={onNewAgentWithPrompt}
             onDone={onClose}
             keyboard={false}
           />

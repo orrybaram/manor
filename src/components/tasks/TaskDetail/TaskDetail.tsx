@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { projectColorStyle } from "../../../hooks/useProjectHeaderRow";
-import { isHomePath } from "../../../lib/home-path";
 import { openExternal } from "../../../lib/open-external";
 import type { NewWorkspaceHandler } from "../../../lib/start-issue-work";
 import { stripMarkdown } from "../../../lib/task-images";
@@ -15,10 +14,6 @@ import {
   type TaskRow,
 } from "../../../lib/tasks";
 import { trackerFor } from "../../../lib/trackers";
-import { agentPrompt } from "../../../lib/trackers/shared";
-import { ownerOf } from "../../../lib/workspace-directory";
-import { selectActiveWorkspaceKey, useAppStore } from "../../../store/app-store";
-import { useProjectStore } from "../../../store/project-store";
 import { addErrorToast } from "../../../store/toast-store";
 import { Button } from "../../ui/Button/Button";
 import { Link } from "../../ui/Link/Link";
@@ -44,11 +39,9 @@ type TaskDetailProps = {
   projectId?: string;
   workspacePath?: string;
   onNewWorkspace: NewWorkspaceHandler;
-  /** Launches an agent in the active workspace; New agent here is offered only with it. */
-  onNewAgentWithPrompt?: (prompt: string) => void;
   /** After an action that should close the host (started, opened, unlinked…). */
   onDone: () => void;
-  /** Handle ↵ / ⌘↵ / ⌘O on `window` while mounted (default true). */
+  /** Handle ↵ / ⌘O on `window` while mounted (default true). */
   keyboard?: boolean;
 };
 
@@ -84,15 +77,12 @@ export function TaskDetail(props: TaskDetailProps) {
     projectId,
     workspacePath,
     onNewWorkspace,
-    onNewAgentWithPrompt,
     onDone,
     keyboard = true,
   } = props;
 
   const tracker = trackerFor(taskRef.provider);
   const startTask = useStartTask(onNewWorkspace);
-  // The Dashboard has no tabs to host a new agent (ADR-197).
-  const onHome = useAppStore((s) => isHomePath(s.activeWorkspacePath));
   const [busy, setBusy] = useState(false);
 
   const { data: detail, isLoading, error, refetch } = useQuery({
@@ -102,11 +92,6 @@ export function TaskDetail(props: TaskDetailProps) {
   });
 
   const canStart = mode === "default" && row !== undefined;
-  const canNewAgent =
-    mode === "default" &&
-    tracker.startHere !== undefined &&
-    onNewAgentWithPrompt !== undefined &&
-    !onHome;
 
   const handleStart = async () => {
     if (!row) return;
@@ -115,27 +100,6 @@ export function TaskDetail(props: TaskDetailProps) {
     } catch (err) {
       addErrorToast(`start-task-error-${row.key}`, "Failed to start task", err);
       return;
-    }
-    onDone();
-  };
-
-  const handleNewAgent = () => {
-    if (!canNewAgent || !detail) return;
-    const state = useAppStore.getState();
-    const activePath = state.activeWorkspacePath;
-    const owner = ownerOf(
-      useProjectStore.getState().projects,
-      selectActiveWorkspaceKey(state),
-    );
-    if (owner && activePath) {
-      tracker.startHere?.(taskRef, detail, {
-        onNewAgentWithPrompt,
-        projectId: owner.id,
-        workspacePath: activePath,
-      });
-    } else {
-      // No workspace to link the task to — still launch the agent.
-      onNewAgentWithPrompt(agentPrompt(taskRef, detail));
     }
     onDone();
   };
@@ -197,9 +161,7 @@ export function TaskDetail(props: TaskDetailProps) {
     keyboard,
     mode,
     canStart,
-    canNewAgent,
     handleStart,
-    handleNewAgent,
     handleOpen,
   };
   const latestRef = useRef(latest);
@@ -229,15 +191,6 @@ export function TaskDetail(props: TaskDetailProps) {
       if (e.key === "o") {
         e.preventDefault();
         l.handleOpen();
-      } else if (
-        e.key === "Enter" &&
-        ready &&
-        l.mode === "default" &&
-        l.canNewAgent &&
-        !ownsEnter(e.target)
-      ) {
-        e.preventDefault();
-        l.handleNewAgent();
       }
     };
     window.addEventListener("keyup", onKeyUp);
@@ -334,17 +287,6 @@ export function TaskDetail(props: TaskDetailProps) {
             <Button size="sm" variant="primary" onClick={handleStart}>
               {layout === "card" ? "Start in new workspace" : "Start"}
               {keyboard && <kbd className={styles.kbd}>↵</kbd>}
-            </Button>
-          )}
-          {canNewAgent && (
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={!detail}
-              onClick={handleNewAgent}
-            >
-              New agent here
-              {keyboard && <kbd className={styles.kbd}>⌘↵</kbd>}
             </Button>
           )}
         </>

@@ -78,9 +78,9 @@ In `src/lib/trackers/types.ts` / `src/lib/tasks.ts`:
   under a new key `["task-detail", provider, …]` used by nothing else — fixes
   the collision. `useStartTask` reads `.body`.
 - Optional adapter methods, moved out of the detail views and popover:
-  `startHere(ref, onNewAgentWithPrompt, workspace)` (prompt + mark
-  started/assign + link to the active workspace), `unlink(ref, projectId,
-  workspacePath)`, `close(ref)`. Errors surface as toasts in one place.
+  `unlink(ref, projectId, workspacePath)`, `close(ref)`. Errors surface as
+  toasts in one place. (A `startHere` for "New agent here" was built, then
+  removed — see Amendments.)
 
 ### 2. `TaskDetail` component
 
@@ -89,8 +89,7 @@ In `src/lib/trackers/types.ts` / `src/lib/tasks.ts`:
 project, labels, priority/milestone, markdown body + proxied images, and an
 action bar. Modes:
 
-- `default` — Start in new workspace (↵), New agent here (⌘↵, hidden on Home
-  per ADR-197), Link to workspace, Open in tracker (⌘O).
+- `default` — Start in new workspace (↵), Open in tracker (⌘O).
 - `linked` — Linked to *X*, Unlink, Close & Unlink, Open in tracker.
 
 Layout variants: `card` (palette wide card, popover dialog) and `drawer`.
@@ -118,8 +117,7 @@ Option B (full-page detail) from the comps is rejected — it loses the list.
 - A trailing row "See all N matching tasks in Tasks view" calls
   `showTasksView({ search, project })`.
 - Detail is one palette view, `task-detail`, holding a `TaskRef`, rendering
-  `TaskDetail` (`card`). ⌘↵ = New agent here *inside the detail*; at the root
-  ⌘↵ keeps its ADR-200 meaning (widen scope).
+  `TaskDetail` (`card`). Root ⌘↵ keeps its ADR-200 meaning (widen scope).
 - `PaletteView` loses `linear-all`, `github-all`, `issue-detail`,
   `github-issue-detail`; `initialIssueId` / `initialGitHubIssueNumber` go.
 
@@ -154,6 +152,21 @@ views; its context-menu Unlink/Close call the seam's `unlink` / `close`.
 - Orphaned localStorage keys (`*-issues-filter:*`) are left; harmless.
 - Risk: palette keyboard handling — → on a task row must not break cmdk
   input caret movement; only intercept → when the input caret is at the end.
+
+## Amendments
+
+After review (2026-10-01):
+
+- **"New agent here" removed.** It was too easy to confuse with Start; Start
+  (new workspace) is the one way to begin a task. Gone with it: the seam's
+  `startHere`, the ⌘↵ shortcut in the detail, and the `onNewAgentWithPrompt`
+  plumbing through the palette, Tasks view and status bar. "Link to
+  workspace" was never built.
+- **"See all" clears filters.** It opens the top match's tracker with that
+  tracker's filters cleared, and counts only that tracker's matches, so both
+  views list the same tasks.
+- **Drawer:** the open-in-tracker link lives in the drawer header only.
+- **Palette** widened to 700px with the comps' row styling.
 
 ## Tickets
 

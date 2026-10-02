@@ -56,16 +56,6 @@ export interface TaskTracker {
   matchesLink(link: LinkedIssue, row: TaskRow): boolean;
   /** Tracker page for one project's rows (repo issues / Linear team). */
   homeUrl(rows: readonly TaskRow[]): string | null;
-  /**
-   * New agent here: launch one with the task as its prompt, mark the task
-   * taken (Linear: started; GitHub: assigned) and link it to the workspace.
-   * Doesn't wait on the tracker; its failures are toasted.
-   */
-  startHere?(
-    ref: TaskRef,
-    detail: TaskDetail | null,
-    opts: StartHereOpts,
-  ): void;
   /** Unlink the task from a workspace, then reload projects. Throws on failure. */
   unlink?(
     ref: TaskRef,
@@ -76,9 +66,3 @@ export interface TaskTracker {
   close?(ref: TaskRef): Promise<void>;
 }
 
-/** Where `startHere` launches the agent and links the task. */
-export interface StartHereOpts {
-  onNewAgentWithPrompt: (prompt: string) => void;
-  projectId: string;
-  workspacePath: string;
-}

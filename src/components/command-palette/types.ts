@@ -39,7 +39,6 @@ export interface CommandPaletteProps {
   onResumeAgent: (agent: import("../../electron.d").AgentInfo) => void;
   onViewAllAgents: () => void;
   onNewAgent: () => void;
-  onNewAgentWithPrompt?: (prompt: string) => void;
   /** Run a command-table command (`lib/commands.ts`) through `App`'s map. */
   onRunCommand: (commandId: string, args?: Record<string, unknown>) => void;
   initialView?: PaletteView;

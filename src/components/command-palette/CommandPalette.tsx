@@ -116,7 +116,7 @@ function paletteFilter(
 }
 
 export function CommandPalette(props: CommandPaletteProps) {
-  const { open, onClose, onOpenSettings, onNewWorkspace, onResumeAgent, onViewAllAgents, onNewAgent, onNewAgentWithPrompt, onRunCommand, initialView, origin = "shortcut" } = props;
+  const { open, onClose, onOpenSettings, onNewWorkspace, onResumeAgent, onViewAllAgents, onNewAgent, onRunCommand, initialView, origin = "shortcut" } = props;
 
   const { onCloseAutoFocus: restoreFocusOnClose } = useRestoreFocus(open);
 
@@ -872,7 +872,6 @@ export function CommandPalette(props: CommandPaletteProps) {
                   projectId={selectedTask.linked?.projectId}
                   workspacePath={selectedTask.linked?.workspacePath}
                   onNewWorkspace={onNewWorkspace}
-                  onNewAgentWithPrompt={onNewAgentWithPrompt}
                   onDone={handleClose}
                 />
               )}

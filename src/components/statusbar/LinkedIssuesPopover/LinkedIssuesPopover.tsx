@@ -67,7 +67,6 @@ type LinkedIssuesPopoverProps = {
   projectId: string;
   workspacePath: string;
   onNewWorkspace: CommandPaletteProps["onNewWorkspace"];
-  onNewAgentWithPrompt?: (prompt: string) => void;
   children: React.ReactNode;
 };
 
@@ -153,7 +152,7 @@ function IssueRow(props: IssueRowProps) {
 }
 
 export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
-  const { issues, isOpen, onClose, projectId, workspacePath, onNewWorkspace, onNewAgentWithPrompt, children } = props;
+  const { issues, isOpen, onClose, projectId, workspacePath, onNewWorkspace, children } = props;
 
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
   const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
@@ -342,7 +341,6 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
                 projectId={projectId}
                 workspacePath={workspacePath}
                 onNewWorkspace={onNewWorkspace}
-                onNewAgentWithPrompt={onNewAgentWithPrompt}
                 onDone={handleCloseAll}
               />
             )}

@@ -1,9 +1,8 @@
 /** ADR-202 §2: small helpers the tracker adapters share. */
 
-import { useProjectStore, type LinkedIssue } from "../../store/project-store";
-import { addErrorToast } from "../../store/toast-store";
+import { useProjectStore } from "../../store/project-store";
 import { extractImages } from "../task-images";
-import type { TaskDetail, TaskRef } from "../tasks";
+import type { TaskRef } from "../tasks";
 
 /** A hex colour from `gh` (no `#`) or Linear (with `#`) as CSS; undefined if unusable. */
 export function cssHex(color: string | null | undefined): string | undefined {
@@ -24,31 +23,6 @@ export function sameUrl(a: string, b: string): boolean {
 /** The URLs of the images embedded in a task body. */
 export function imagesOf(body: string | null): string[] {
   return body ? extractImages(body).map((img) => img.url) : [];
-}
-
-/** A new agent's prompt for a task: its title, then its body. */
-export function agentPrompt(ref: TaskRef, detail: TaskDetail | null): string {
-  return ref.title + "\n\n" + (detail?.body ?? "");
-}
-
-/** Link `ref` to a workspace without blocking the caller; a failure is toasted. */
-export function linkBestEffort(
-  ref: TaskRef,
-  projectId: string,
-  workspacePath: string,
-): void {
-  const link: LinkedIssue = {
-    id: ref.id,
-    identifier: ref.displayId,
-    title: ref.title,
-    url: ref.url,
-  };
-  useProjectStore
-    .getState()
-    .linkIssueToWorkspace(projectId, workspacePath, link)
-    .catch((err) => {
-      addErrorToast(`link-issue-error-${ref.id}`, "Failed to link task", err);
-    });
 }
 
 /** Unlink `ref` from a workspace and reload projects; throws on failure. Links of both trackers live on the Linear API. */

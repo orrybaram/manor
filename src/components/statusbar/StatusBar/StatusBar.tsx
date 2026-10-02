@@ -61,7 +61,6 @@ function LinkedIssueIcon(props: LinkedIssueIconProps) {
 
 interface StatusBarProps {
   onNewWorkspace?: CommandPaletteProps["onNewWorkspace"];
-  onNewAgentWithPrompt?: (prompt: string) => void;
   /** Opens the command palette on the stats view (ADR-168 §6). */
   onOpenStats?: () => void;
 }
@@ -112,7 +111,7 @@ function StatsSegment(props: StatsSegmentProps) {
 }
 
 export function StatusBar(props: StatusBarProps) {
-  const { onNewWorkspace, onNewAgentWithPrompt, onOpenStats } = props;
+  const { onNewWorkspace, onOpenStats } = props;
 
   // An update that just landed opens About on its own, so the changelog for
   // the version now running is the first thing the user sees.
@@ -157,7 +156,6 @@ export function StatusBar(props: StatusBarProps) {
             projectId={project.id}
             workspacePath={workspace!.path}
             onNewWorkspace={onNewWorkspace}
-            onNewAgentWithPrompt={onNewAgentWithPrompt}
           >
             <button
               className={styles.linearSection}

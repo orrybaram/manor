@@ -6,19 +6,9 @@
 
 import type { GitHubIssue } from "../../electron.d";
 import { ghRepoOf } from "../gh-repo";
-import {
-  assignIssueBestEffort,
-  startGitHubIssueWork,
-} from "../start-issue-work";
+import { startGitHubIssueWork } from "../start-issue-work";
 import type { TaskContext, TaskRef, TaskRow } from "../tasks";
-import {
-  agentPrompt,
-  cssHex,
-  imagesOf,
-  linkBestEffort,
-  sameUrl,
-  unlinkTask,
-} from "./shared";
+import { cssHex, imagesOf, sameUrl, unlinkTask } from "./shared";
 import type { TaskTracker } from "./types";
 
 const STALE_MS = 60_000;
@@ -189,12 +179,6 @@ export const githubTracker: TaskTracker = {
   // By URL only: `gh-N` ids aren't unique across repos.
   matchesLink: (link, row) =>
     row.provider === "github" && sameUrl(link.url, row.url),
-
-  startHere: (ref, detail, opts) => {
-    opts.onNewAgentWithPrompt(agentPrompt(ref, detail));
-    assignIssueBestEffort(ghRepoOf(ref.project), issueNumberOf(ref));
-    linkBestEffort(ref, opts.projectId, opts.workspacePath);
-  },
 
   unlink: unlinkTask,
 

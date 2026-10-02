@@ -7,15 +7,7 @@
 import type { LinearIssue } from "../../electron.d";
 import { startLinearIssueWork } from "../start-issue-work";
 import type { TaskContext, TaskRow, TaskStatusTone } from "../tasks";
-import { addErrorToast } from "../../store/toast-store";
-import {
-  agentPrompt,
-  cssHex,
-  imagesOf,
-  linkBestEffort,
-  sameUrl,
-  unlinkTask,
-} from "./shared";
+import { cssHex, imagesOf, sameUrl, unlinkTask } from "./shared";
 import type { TaskTracker } from "./types";
 
 const STALE_MS = 60_000;
@@ -191,18 +183,6 @@ export const linearTracker: TaskTracker = {
   matchesLink: (link, row) =>
     row.raw.provider === "linear" &&
     (sameUrl(link.url, row.url) || link.id === row.raw.issue.id),
-
-  startHere: (ref, detail, opts) => {
-    opts.onNewAgentWithPrompt(agentPrompt(ref, detail));
-    window.electronAPI.linear.startIssue(ref.id).catch((err) => {
-      addErrorToast(
-        `start-issue-error-${ref.id}`,
-        "Failed to mark task started",
-        err,
-      );
-    });
-    linkBestEffort(ref, opts.projectId, opts.workspacePath);
-  },
 
   unlink: unlinkTask,
 

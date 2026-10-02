@@ -2,7 +2,6 @@
 import { act, createElement, type ComponentProps } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { HOME_PATH } from "../../../lib/home-path";
 import type { TaskDetail as TaskDetailData, TaskRef, TaskRow } from "../../../lib/tasks";
 import { trackerFor } from "../../../lib/trackers";
 import { useAppStore } from "../../../store/app-store";
@@ -82,7 +81,6 @@ describe("TaskDetail", () => {
             mode: "default",
             layout: "card",
             onNewWorkspace: noop,
-            onNewAgentWithPrompt: noop,
             onDone: noop,
             ...props,
           }),
@@ -110,7 +108,7 @@ describe("TaskDetail", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders a task's detail with Start, New agent here and Open", () => {
+  it("renders a task's detail with Start and Open", () => {
     render(fullDetail, { row });
     const text = root.container.textContent ?? "";
 
@@ -129,7 +127,7 @@ describe("TaskDetail", () => {
     );
 
     expect(buttons().some((b) => b.startsWith("Start in new workspace"))).toBe(true);
-    expect(buttons().some((b) => b.startsWith("New agent here"))).toBe(true);
+    expect(buttons().some((b) => b.startsWith("New agent here"))).toBe(false);
     const open = root.container.querySelector("a");
     expect(open?.getAttribute("href")).toBe(ref.url);
     expect(open?.textContent).toContain("Open in GitHub");
@@ -138,18 +136,6 @@ describe("TaskDetail", () => {
   it("has no Start without a row", () => {
     render(fullDetail);
     expect(buttons().some((b) => b.startsWith("Start"))).toBe(false);
-  });
-
-  it("hides New agent here on Home", () => {
-    useAppStore.setState({ activeWorkspacePath: HOME_PATH });
-    render(fullDetail, { row });
-    expect(buttons().some((b) => b.startsWith("New agent here"))).toBe(false);
-    expect(buttons().some((b) => b.startsWith("Start"))).toBe(true);
-  });
-
-  it("hides New agent here without a launcher", () => {
-    render(fullDetail, { row, onNewAgentWithPrompt: undefined });
-    expect(buttons().some((b) => b.startsWith("New agent here"))).toBe(false);
   });
 
   it("leaves out fields the task has nothing for", () => {

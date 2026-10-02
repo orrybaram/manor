@@ -1261,8 +1261,12 @@ button.processKill:hover:not(:disabled) {
 
 :global(:root[data-layout="phone"]) .inputRow .phoneClose {
   display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  width: 44px;
   min-height: 44px;
+  padding: 0;
   margin-right: -8px;
 }
 

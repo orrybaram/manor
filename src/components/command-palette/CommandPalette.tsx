@@ -5,6 +5,7 @@ import { Command } from "cmdk";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
 import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
+import X from "lucide-react/dist/esm/icons/x";
 import { useAppStore, selectActiveWorkspaceKey } from "../../store/app-store";
 import { workspaceKey } from "../../lib/workspace-key";
 import { useRestoreFocus } from "../../hooks/useRestoreFocus";
@@ -690,8 +691,9 @@ export function CommandPalette(props: CommandPaletteProps) {
                       variant="ghost"
                       className={styles.phoneClose}
                       data-testid="command-palette-close"
+                      aria-label="Close"
                     >
-                      Cancel
+                      <X size={20} />
                     </Button>
                   </Dialog.Close>
                 </div>

@@ -652,7 +652,7 @@ test("phone audit: every phone surface over the relay, throttled", async ({
     await screenSettled("agents");
     await page.keyboard.press("Escape");
 
-    // Full screen, with no overlay to tap: Cancel is the way out.
+    // Full screen, with no overlay to tap: the X button is the way out.
     await page.getByTestId("phone-palette-button").tap();
     await expect(palette).toBeVisible();
     await palette.getByTestId("command-palette-close").tap();

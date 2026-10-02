@@ -71,7 +71,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: var(--rail-gap);
   /* `.tiles` already leaves one gap above. */
   padding-bottom: var(--rail-gap);
 }
@@ -165,7 +165,8 @@
 }
 
 /* Search stacks under Home with the rail's usual gap. */
-.rail .searchButton {
+/* Dashboard, Tasks and Search stack with the same gap as the tiles. */
+.rail .iconButton + .iconButton {
   margin-top: var(--rail-gap);
 }
 

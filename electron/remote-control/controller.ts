@@ -33,12 +33,7 @@
  */
 
 import { lazy, type Lazy } from "../lib/lazy";
-import type {
-  Capability,
-  PairedVia,
-  RemoteDeviceInfo,
-  RemoteDeviceStore,
-} from "./devices";
+import type { RemoteDeviceInfo, RemoteDeviceStore } from "./devices";
 import type { RelayConnector, RelayStatus } from "./relay/connector";
 import type { RelayIdentityStore } from "./relay/identity";
 import { isPushable, pushPayloadFor, type PushManager } from "./push";
@@ -51,6 +46,12 @@ export interface RemoteControlStatus {
   devices: RemoteDeviceInfo[];
   /** The Manor relay (ADR-206). */
   relay: RelayStatus;
+  /**
+   * The relay's web origin, which pairing links point at — or null when
+   * nothing can be paired: the runtime has not loaded, the relay is
+   * unavailable, or its configured address is not a valid URL.
+   */
+  relayOrigin: string | null;
   /** False means pairing cannot store a token — see `RemoteDeviceStore`. */
   encryptionAvailable: boolean;
   /**
@@ -61,7 +62,7 @@ export interface RemoteControlStatus {
   /**
    * Something the relay card has to tell the user that is not a connection
    * state — today, that the relay identity could not be read and was
-   * replaced, so relay devices were revoked. Null when there is nothing.
+   * replaced, so paired devices were revoked. Null when there is nothing.
    */
   relayNotice: string | null;
 }
@@ -70,8 +71,8 @@ export interface PairResult {
   device: RemoteDeviceInfo;
   /** Shown once, never stored. */
   rawToken: string;
-  /** The relay link (`https://<relay>/app/<version>/#relay=…`), or null. */
-  pairingUrl: string | null;
+  /** The relay link (`https://<relay>/app/<version>/#relay=…`). */
+  pairingUrl: string;
 }
 
 /** The heavy half of remote control, loaded on first real use. */
@@ -206,30 +207,14 @@ export class RemoteControlController {
     return this.status();
   }
 
-  pair(
-    label: string,
-    capability: Capability,
-    via: PairedVia = "tailscale",
-  ): PairResult {
-    if (via === "relay") return this.pairViaRelay(label, capability);
-    const { device, rawToken } = this.deviceStore.pair(label, capability, via);
-    this.emit();
-    // The relay is the only road (ADR-207): a pairing not through it has no
-    // link to offer.
-    return { device, rawToken, pairingUrl: null };
-  }
-
   /**
-   * A relay device reaches the whole bridge or nothing: the relay carries only
-   * the `/ws` pipe, which the narrower tiers' HTTP allowlists never use.
+   * Pair a device through the relay — the only road (ADR-207 D4). Every
+   * device reaches the whole bridge.
    *
    * Needs the runtime (the identity lives there), which is loaded whenever
-   * remote control is on — and the pairing dialog only shows then.
+   * remote control is on — and the pairing form only shows then.
    */
-  private pairViaRelay(label: string, capability: Capability): PairResult {
-    if (capability !== "full") {
-      throw new Error("Devices paired through the relay must be Everything.");
-    }
+  pair(label: string): PairResult {
     const relay = this.runtime?.relay;
     const identity = this.runtime?.relayIdentity;
     if (!this.runtime) {
@@ -242,12 +227,7 @@ export class RemoteControlController {
     if (!origin) throw new Error("The relay address is not configured.");
     const { roomId, x25519Pub } = identity.describe();
     this.revokeStaleRelayDevices(roomId);
-    const { device, rawToken } = this.deviceStore.pair(
-      label,
-      capability,
-      "relay",
-      roomId,
-    );
+    const { device, rawToken } = this.deviceStore.pair(label, roomId);
     this.emit();
     return {
       device,
@@ -300,7 +280,7 @@ export class RemoteControlController {
 
   /**
    * New room, new keys: every link ever shared for the old address is dead,
-   * so every device paired through it is revoked.
+   * so every device is revoked.
    *
    * The order is what makes each relay browser hear *why*. Revoking closes a
    * device's channels with 4401, which travels to the browser through the
@@ -311,7 +291,7 @@ export class RemoteControlController {
    * keys) and reset.
    *
    * An explicit user action, so it may load the runtime (the identity lives
-   * there) — a reset with remote control off still kills every relay link.
+   * there) — a reset with remote control off still kills every link.
    */
   resetRelayAddress(): Promise<RemoteControlStatus> {
     return this.serially(async () => {
@@ -321,8 +301,7 @@ export class RemoteControlController {
       if (!runtime || !relay || !identity) {
         throw new Error("The relay is not available.");
       }
-      const ids = this.deviceStore.idsVia("relay");
-      for (const id of ids) {
+      for (const id of this.deviceStore.ids()) {
         this.deviceStore.revoke(id);
         runtime.gate.closeDevice(id);
       }
@@ -335,7 +314,7 @@ export class RemoteControlController {
   }
 
   /**
-   * Relay devices paired to a room this desktop no longer owns hold dead
+   * Devices paired to a room this desktop no longer owns hold dead
    * links. The identity store replaces an identity it cannot read with a new
    * one (a new room) without a word, so this is where the user finds out:
    * those devices are revoked, and the relay card says why.
@@ -401,12 +380,14 @@ export class RemoteControlController {
   /** The runtime's part of `status()`; disabled and stopped until it loads. */
   private runtimeStatus(): Pick<
     RemoteControlStatus,
-    "enabled" | "relay" | "relayViewers"
+    "enabled" | "relay" | "relayOrigin" | "relayViewers"
   > {
     const relay = this.runtime?.relay;
     return {
       enabled: this.enabled,
       relay: relay?.status ?? { ...STOPPED_RELAY_STATUS },
+      relayOrigin:
+        relay && this.runtime?.relayIdentity ? relay.origin : null,
       relayViewers: relay?.channelCount ?? 0,
     };
   }

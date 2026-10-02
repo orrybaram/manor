@@ -504,15 +504,6 @@ describe("the socket transport", () => {
       await expect(pending).rejects.toBeInstanceOf(BridgeDisconnectedError);
     });
 
-    it("does not reconnect after a 4403", () => {
-      const onForbidden = vi.fn();
-      const { socket } = connected({ onForbidden });
-      socket.drop(4403);
-      vi.advanceTimersByTime(60_000);
-      expect(onForbidden).toHaveBeenCalledOnce();
-      expect(FakeSocket.instances).toHaveLength(1);
-    });
-
     it("stops dialling and reports a 4401", () => {
       const onUnauthorized = vi.fn();
       const { socket } = connected({ onUnauthorized });

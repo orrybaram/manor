@@ -10,7 +10,6 @@ import { Button } from "../ui/Button/Button";
 import { EmojiInput } from "../ui/EmojiAutocomplete";
 import { Stack, Row } from "../ui/Layout/Layout";
 import { Switch } from "../ui/Switch/Switch";
-import { ToggleGroup } from "../ui/ToggleGroup";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { relativeShort } from "../../utils/relative-time";
 import {
@@ -19,7 +18,6 @@ import {
   ResetRelayDialog,
 } from "./RemoteControlDialogs";
 import type {
-  RemoteCapability,
   RemoteDeviceInfo,
   RemotePairResult,
   RelayStatus,
@@ -27,59 +25,6 @@ import type {
 import { SectionTitle } from "./SectionTitle";
 import { isWebApp } from "../../lib/platform";
 import styles from "./SettingsModal/SettingsModal.module.css";
-
-/**
- * The three tiers, as a person picks them (ADR-178 D3). Named for what the
- * device gets to *do* rather than for the mechanism, and ordered by how much
- * of the machine that is. `read` is first because it is the default.
- */
-const CAPABILITY_OPTIONS: {
-  value: RemoteCapability;
-  label: string;
-}[] = [
-  { value: "read", label: "Watch" },
-  { value: "send", label: "Reply" },
-  { value: "full", label: "Everything" },
-];
-
-/** One sentence per tier, shown under the picker for whichever is selected. */
-const CAPABILITY_HINT: Record<RemoteCapability, string> = {
-  read: "It can see your sessions, their statuses and their full scrollback. It cannot type.",
-  send: "It can type into a live shell. Leave off unless you need it.",
-  full: "This device can do anything the desktop app can, including removing workspaces.",
-};
-
-/** Short badge for a device row. `read` gets none — it is the baseline. */
-const CAPABILITY_BADGE: Record<RemoteCapability, string | null> = {
-  read: null,
-  send: "can send",
-  full: "everything",
-};
-
-type Via = "relay" | "tailscale";
-
-/**
- * Tailscale first, and the default: it is the road with a first factor in
- * front of the token, and the one that offers the narrow tiers. The relay is
- * always `full` (it carries only the whole-app pipe), so choosing it is
- * choosing Everything — which ADR-178 D3 says is never the default.
- */
-const VIA_OPTIONS: { value: Via; label: string }[] = [
-  { value: "tailscale", label: "Tailscale" },
-  { value: "relay", label: "Manor relay" },
-];
-
-/** Shown in place of the tier picker when the relay is chosen. */
-const RELAY_PAIR_WARNING =
-  "A relay device always gets Everything: it can do anything the desktop " +
-  "app can, including removing workspaces, from anywhere — there is no " +
-  "tailnet in front of its link. The relay carries only the whole app, so " +
-  "there is no narrower tier to pick.";
-
-const VIA_LABEL: Record<Via, string> = {
-  relay: "relay",
-  tailscale: "Tailscale",
-};
 
 /**
  * The remote-control settings surface (ADR-161 ticket 6).
@@ -106,36 +51,26 @@ export function RemoteControlPage() {
   const pair = useRemoteControlStore((s) => s.pair);
 
   const [label, setLabel] = useState("");
-  // Never `full` by default, and never sticky between pairings: the widest
-  // tier has to be chosen every time, by someone who has just read the
-  // sentence under it.
-  const [capability, setCapability] = useState<RemoteCapability>("read");
   const [pairing, setPairing] = useState<RemotePairResult | null>(null);
   const [relayConfirmOpen, setRelayConfirmOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
-  // Same rule as the tier, for the same reason: the relay means `full`.
-  const [via, setVia] = useState<Via>("tailscale");
 
   // `remoteControl.setEnabled/pair/revoke/startRelay/stopRelay` are
   // `localOnly` (ADR-180 D3) — a browser can read this page's status but
   // can't touch the switch, pairing form or relay controls.
   const webApp = isWebApp();
   const locked = webApp || busy || !status.encryptionAvailable;
+  // Every pairing is a relay link (ADR-207 D4), so with no relay address
+  // there is nothing to hand the device.
+  const canPair = !locked && status.relayOrigin !== null;
 
   const handlePair = useCallback(async () => {
-    // The relay carries only the full pipe, so it never pairs a narrower tier.
-    const result = await pair(
-      label.trim(),
-      via === "relay" ? "full" : capability,
-      via,
-    );
+    const result = await pair(label.trim());
     if (result) {
       setPairing(result);
       setLabel("");
-      setCapability("read");
-      setVia("tailscale");
     }
-  }, [label, capability, via, pair]);
+  }, [label, pair]);
 
   return (
     <Stack className={styles.pageContent}>
@@ -192,25 +127,17 @@ export function RemoteControlPage() {
           <Stack gap="xs">
             <SectionTitle id="remote-devices">Devices</SectionTitle>
             <div className={styles.sectionDescription}>
-              Every device gets its own token, shown once. Revoking one takes
-              effect on its next request.
+              Every device gets its own relay link and token, shown once.
+              Revoking one takes effect on its next request.
             </div>
 
-            <div data-testid="remote-pair-via">
-              <ToggleGroup
-                size="sm"
-                value={via}
-                onChange={setVia}
-                options={VIA_OPTIONS}
-              />
-            </div>
             <Row gap="sm">
               <EmojiInput
                 data-testid="remote-pair-label"
                 placeholder="Device name, e.g. “my phone”"
                 value={label}
                 maxLength={64}
-                disabled={locked}
+                disabled={!canPair}
                 onChange={(e) => setLabel(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && label.trim()) void handlePair();
@@ -219,41 +146,30 @@ export function RemoteControlPage() {
               <Button
                 data-testid="remote-pair-submit"
                 variant="secondary"
-                disabled={locked || label.trim().length === 0}
+                disabled={!canPair || label.trim().length === 0}
                 onClick={() => void handlePair()}
               >
                 Pair
               </Button>
             </Row>
-            {via === "relay" ? (
+            {status.relayOrigin === null ? (
               <div
-                className={styles.remoteWarning}
-                data-testid="remote-pair-relay-warning"
+                className={styles.fieldHint}
+                data-testid="remote-pair-unavailable"
               >
-                <ShieldAlert size={14} />
-                <span>{RELAY_PAIR_WARNING}</span>
+                Pairing needs the Manor relay, and this machine has no valid
+                relay address configured.
               </div>
             ) : (
               <div
-                className={styles.remoteCapabilityRow}
-                data-testid="remote-pair-capability"
+                className={styles.remoteWarning}
+                data-testid="remote-pair-warning"
               >
-                <ToggleGroup
-                  size="sm"
-                  value={capability}
-                  onChange={setCapability}
-                  options={CAPABILITY_OPTIONS}
-                />
-                {capability === "full" ? (
-                  <div className={styles.remoteWarning}>
-                    <ShieldAlert size={14} />
-                    <span>{CAPABILITY_HINT.full}</span>
-                  </div>
-                ) : (
-                  <span className={styles.fieldHint}>
-                    {CAPABILITY_HINT[capability]}
-                  </span>
-                )}
+                <ShieldAlert size={14} />
+                <span>
+                  A paired device can do anything the desktop app can, including
+                  removing workspaces, from anywhere its link is opened.
+                </span>
               </div>
             )}
             {status.devices.length === 0 ? (
@@ -285,7 +201,7 @@ export function RemoteControlPage() {
 
       <ResetRelayDialog
         open={resetOpen}
-        relayDevices={status.devices.filter((d) => d.via === "relay").length}
+        devices={status.devices.length}
         onCancel={() => setResetOpen(false)}
         onConfirm={() => {
           setResetOpen(false);
@@ -416,17 +332,12 @@ function DeviceRow(props: {
   onRevoke: () => void;
 }) {
   const { device, busy, onRevoke } = props;
-  const badge = CAPABILITY_BADGE[device.capability];
   return (
     <div data-testid="remote-device-row" className={styles.remoteDeviceRow}>
       <Smartphone size={14} className={styles.remoteDeviceIcon} />
       <div className={styles.remoteDeviceBody}>
         <div className={styles.remoteDeviceLabel}>
           <span>{device.label}</span>
-          {badge && <span className={styles.remoteSendBadge}>{badge}</span>}
-          <span className={styles.remoteSendBadge}>
-            via {VIA_LABEL[device.via]}
-          </span>
           {device.hasPush && (
             <span className={styles.remoteSendBadge}>push</span>
           )}

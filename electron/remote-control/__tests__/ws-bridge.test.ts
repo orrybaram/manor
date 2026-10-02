@@ -2,10 +2,10 @@
  * ADR-178's bridge, tested end to end through the relay's hello gate: the real
  * `RelayGate`, the real `WsBridgeServer` and the real `BridgeServer` over an
  * in-memory `FrameSocket` — what a relay channel is once its Noise handshake
- * is done (ADR-207 D2). The properties are transport-level. "A `send` device
- * is closed with 4403" is only true if the attach, the hello and the tier
- * check are wired to each other, and a unit-level call to any one of them
- * would let the others come loose and still pass.
+ * is done (ADR-207 D2). The properties are transport-level. "A bad token is
+ * closed with 4401" is only true if the attach, the hello and the verify are
+ * wired to each other, and a unit-level call to any one of them would let
+ * the others come loose and still pass.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -37,51 +37,21 @@ import { LayoutStore } from "../../layout/layout-store";
 import { LayoutPersistence } from "../../terminal-host/layout-persistence";
 import type { HostDeps } from "../../ipc/types";
 
-const READ_TOKEN = "read-token";
-const SEND_TOKEN = "send-token";
 const FULL_TOKEN = "full-token";
 const OTHER_TOKEN = "other-token";
-const TAILSCALE_TOKEN = "tailscale-token";
 
-const reader: AuthenticatedDevice = {
-  id: "dev-read",
-  label: "phone",
-  capability: "read",
-  via: "relay",
-};
-const sender: AuthenticatedDevice = {
-  id: "dev-send",
-  label: "phone (send)",
-  capability: "send",
-  via: "relay",
-};
 const everything: AuthenticatedDevice = {
   id: "dev-full",
   label: "laptop browser",
-  capability: "full",
-  via: "relay",
 };
 
 const otherFull: AuthenticatedDevice = {
   id: "dev-other",
   label: "other browser",
-  capability: "full",
-  via: "relay",
-};
-
-/** A Tailscale pairing: the relay's gate never admits one (ADR-206 D5). */
-const tailscaleFull: AuthenticatedDevice = {
-  id: "dev-ts",
-  label: "tailnet browser",
-  capability: "full",
-  via: "tailscale",
 };
 
 const devices = {
   verify: (raw: unknown) => {
-    if (raw === TAILSCALE_TOKEN) return tailscaleFull;
-    if (raw === READ_TOKEN) return reader;
-    if (raw === SEND_TOKEN) return sender;
     if (raw === FULL_TOKEN) return everything;
     if (raw === OTHER_TOKEN) return otherFull;
     return null;
@@ -254,7 +224,6 @@ describe("WsBridgeServer", () => {
             {
               id: "dev-full",
               label: "laptop browser",
-              capability: "full",
               createdAt: "2024-01-01T00:00:00.000Z",
               lastSeenAt: null,
               hasPush: false,
@@ -359,25 +328,10 @@ describe("WsBridgeServer", () => {
       expect(await client.closed).toBe(4401);
     });
 
-    it("closes a send device with 4403", async () => {
-      const client = await greet(SEND_TOKEN);
-      expect(await client.closed).toBe(4403);
-    });
-
-    it("closes a read device with 4403", async () => {
-      const client = await greet(READ_TOKEN);
-      expect(await client.closed).toBe(4403);
-    });
-
-    it("answers a full device with the protocol version", async () => {
+    it("answers a paired device with the protocol version", async () => {
       const client = await greet(FULL_TOKEN);
       const hello = await client.next((f) => f.type === "hello");
       expect(hello).toMatchObject({ type: "hello", ok: true, v: 1 });
-    });
-
-    it("closes a Tailscale-paired full device with 4401", async () => {
-      const client = await greet(TAILSCALE_TOKEN);
-      expect(await client.closed).toBe(4401);
     });
 
     it("refuses to do anything before the hello lands", async () => {
@@ -461,7 +415,7 @@ describe("WsBridgeServer", () => {
       expect(result.result).toMatchObject({
         enabled: true,
         relayViewers: 1,
-        devices: [{ id: "dev-full", capability: "full" }],
+        devices: [{ id: "dev-full" }],
       });
     });
 
@@ -778,7 +732,6 @@ describe("WsBridgeServer", () => {
       const entries = audit.read();
       expect(entries).toHaveLength(1);
       expect(entries[0]).toMatchObject({
-        tier: "full",
         transport: "bridge",
         deviceId: everything.id,
         deviceLabel: everything.label,

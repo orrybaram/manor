@@ -323,29 +323,6 @@ describe("the relay pipe", () => {
       expect(FakeRelaySocket.instances).toHaveLength(1);
     });
 
-    it("treats a 4403 from the desktop as forbidden", () => {
-      const onForbidden = vi.fn();
-      const transport = createWsTransport({
-        token: "full-token",
-        pipe: relayPipe({
-          url: "wss://relay.test/join/room",
-          serverKey: FakeRelaySocket.key.pub,
-        }),
-        ...options,
-        onForbidden,
-      });
-      const api = createBridge(transport);
-      void api.projects.getAll().catch(() => {});
-      const socket = FakeRelaySocket.last;
-      socket.accept();
-      socket.respond();
-      socket.hostClose(4403);
-      expect(onForbidden).toHaveBeenCalledOnce();
-      expect(options.onUnauthorized).not.toHaveBeenCalled();
-      vi.advanceTimersByTime(60_000);
-      expect(FakeRelaySocket.instances).toHaveLength(1);
-    });
-
     it("reconnects on a desktop close the relay does not pass through", () => {
       rejected().socket.hostClose(4999);
       expect(options.onUnauthorized).not.toHaveBeenCalled();

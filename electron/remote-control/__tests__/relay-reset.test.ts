@@ -75,16 +75,12 @@ describe("resetting the relay address", () => {
     const roomId = roomIdFor(identity.ed25519.pub);
 
     const devices = new Map<string, AuthenticatedDevice>([
-      [
-        RELAY_TOKEN,
-        { id: "dev-relay", label: "browser", capability: "full", via: "relay" },
-      ],
+      [RELAY_TOKEN, { id: "dev-relay", label: "browser" }],
     ]);
     const deviceStore = {
       verify: (raw: unknown) =>
         typeof raw === "string" ? (devices.get(raw) ?? null) : null,
-      idsVia: (via: string) =>
-        [...devices.values()].filter((d) => d.via === via).map((d) => d.id),
+      ids: () => [...devices.values()].map((d) => d.id),
       idsInOtherRelayRooms: () => [],
       revoke: (id: string) => {
         for (const [token, d] of devices)

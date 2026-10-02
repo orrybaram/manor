@@ -539,21 +539,9 @@ export interface RelayStatus {
   error: string | null;
 }
 
-/**
- * How much of the machine a paired device may reach (ADR-178 D3): read the
- * allowlisted read routes, also act on the three acting routes, or reach
- * everything the desktop app can. Mirrors `Capability` in
- * `electron/remote-control/devices.ts`.
- */
-export type RemoteCapability = "read" | "send" | "full";
-
 export interface RemoteDeviceInfo {
   id: string;
   label: string;
-  /** How far this device reaches. `read` unless explicitly granted more. */
-  capability: RemoteCapability;
-  /** Which road the device was paired through. */
-  via: "tailscale" | "relay";
   createdAt: number;
   lastSeenAt: number | null;
   /** Whether the device has a live Web Push subscription. */
@@ -564,6 +552,8 @@ export interface RemoteControlStatus {
   enabled: boolean;
   devices: RemoteDeviceInfo[];
   relay: RelayStatus;
+  /** Where pairing links point; null when nothing can be paired. */
+  relayOrigin: string | null;
   encryptionAvailable: boolean;
   /** Open relay channels: every live remote connection there is. */
   relayViewers: number;
@@ -575,7 +565,8 @@ export interface RemotePairResult {
   device: RemoteDeviceInfo;
   /** Shown once. Never retrievable again. */
   rawToken: string;
-  pairingUrl: string | null;
+  /** The relay link the device opens (ADR-206). */
+  pairingUrl: string;
 }
 
 // ── The host surface (ADR-180 D3) ──

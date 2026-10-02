@@ -29,32 +29,17 @@ export interface RemoteAuditEntry {
   deviceId: string;
   deviceLabel: string;
   /**
-   * Which capability tier wrote this line (ADR-178 D3, narrowed by ADR-182
-   * D2).
-   *
-   * Over HTTP, `send` and `full` are the same gate — the three acting
-   * routes, each behind a `confirmed: true` and a text length and hash — and
-   * the field just says which of the two devices made the call. On the
-   * bridge, every caller is `full` (nothing else authenticates there): those
-   * lines cover any mutating method the desktop app can reach, pass no gate
-   * at all, and carry no text — the shape of the bodies is too varied to pick
-   * a field out of safely, and the desktop UI's own confirmations are what
-   * stood in front of them. Absent on lines written before this field
-   * existed.
-   */
-  tier?: "send" | "full";
-  /**
-   * Which surface the device came in on (ADR-178 D8).
-   *
-   * `"http"` — omitted, for every line written before this field existed — is
-   * a route on the remote listener ADR-207 deleted, and `route` reads
+   * Which surface the device came in on (ADR-178 D8). Always `"bridge"`
+   * now: a WebSocket `invoke`, and `route` reads `pty.create` — a
+   * handler-table key. Absent on lines written before this field existed,
+   * which came from the HTTP routes ADR-207 deleted and whose `route` reads
    * `POST /sessions/send`.
-   * `"bridge"` is a WebSocket `invoke`, and `route` reads `pty.create`: a
-   * handler-table key, not an HTTP one. Two different namespaces in one field
-   * would be a trap for anyone grepping the trail, so the field that says
-   * which is right next to it.
+   *
+   * A bridge line covers any mutating method the desktop app can reach and
+   * carries no text: the shape of the bodies is too varied to pick a field
+   * out of safely.
    */
-  transport?: "http" | "bridge";
+  transport?: "bridge";
   route: string;
   /** The `target` the caller named — an agent id, pane id, or branch. */
   target: string | null;

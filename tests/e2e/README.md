@@ -12,7 +12,8 @@ pnpm test:e2e
 # One file, against whatever is already built
 pnpm exec playwright test tests/e2e/smoke.spec.ts
 
-# The web app, with a build first / without one
+# The web app (through the local relay, so Node >= 22 on PATH), with both
+# builds first / without
 pnpm test:e2e:web
 pnpm e2e:web
 
@@ -21,11 +22,14 @@ pnpm test:e2e:relay
 pnpm e2e:relay
 ```
 
-`pnpm test:e2e` runs `pnpm build` first, which produces `dist-electron/main.js`.
-Running Playwright directly skips that, which is what you want while iterating
-on test code and not on app code. The web app is not part of `pnpm build`: a
-browser reaches it only through the relay, which serves
-`pnpm build:web:relay`'s output (see "The relay" below).
+`pnpm test:e2e` runs `pnpm build` first, which produces `dist-electron/main.js`,
+and then `pnpm build:web:relay`. Running Playwright directly skips both, which
+is what you want while iterating on test code and not on app code. The web app
+is not part of `pnpm build`: a browser reaches it only through the relay, which
+serves `pnpm build:web:relay`'s output (see "The relay" below). Every spec that
+opens the web app — `web-app.spec.ts`, `relay.spec.ts`, and the browser tests
+in `phone.spec.ts` and `detach.spec.ts` — runs a local relay through
+`helpers/relay-fixture.ts`, so it needs that output and Node >= 22.
 
 **`pnpm build` runs `pnpm typecheck` first** (`tsc --noEmit` over both
 `tsconfig.json` and `tsconfig.electron.json`, zero baseline in either,

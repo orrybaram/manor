@@ -91,7 +91,7 @@ describe("relay host socket flow control", () => {
               token === TOKEN
                 ? {
                     ok: true,
-                    device: { id: "d", label: "p", capability: "full" },
+                    device: { id: "d", label: "p" },
                   }
                 : { ok: false, code: 4401 },
           ),

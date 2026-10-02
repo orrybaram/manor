@@ -15,7 +15,7 @@ import {
   RemoteControlController,
   type RemoteControlRuntime,
 } from "../controller";
-import type { Capability, RemoteDeviceStore } from "../devices";
+import type { RemoteDeviceStore } from "../devices";
 import type { PushManager } from "../push";
 import type { RelayConnector } from "../relay/connector";
 import type { RelayIdentityStore } from "../relay/identity";
@@ -85,45 +85,31 @@ function fakes(options: { gateLoad?: boolean } = {}) {
   const paired: Array<{
     id: string;
     label: string;
-    capability: Capability;
-    via?: string;
-    relayRoom?: string | null;
+    relayRoom: string;
   }> = [];
+  let minted = 0;
   const deviceStore = {
-    pair: vi.fn(
-      (
-        label: string,
-        capability: Capability,
-        via = "tailscale",
-        relayRoom: string | null = null,
-      ) => {
-        const device = {
-          id: `dev-${paired.length + 1}`,
-          label,
-          capability,
-          via,
-          relayRoom,
-          createdAt: 0,
-          lastSeenAt: null,
-        };
-        paired.push(device);
-        return { device, rawToken: "raw-token-value" };
-      },
-    ),
+    pair: vi.fn((label: string, relayRoom: string) => {
+      minted += 1;
+      const device = {
+        id: `dev-${minted}`,
+        label,
+        relayRoom,
+        createdAt: 0,
+        lastSeenAt: null,
+      };
+      paired.push(device);
+      return { device, rawToken: "raw-token-value" };
+    }),
     revoke: vi.fn((id: string) => {
       order.push(`revoke:${id}`);
       const i = paired.findIndex((d) => d.id === id);
       if (i >= 0) paired.splice(i, 1);
     }),
     list: () => [...paired],
-    idsVia: (via: string) =>
-      paired.filter((d) => d.via === via).map((d) => d.id),
+    ids: () => paired.map((d) => d.id),
     idsInOtherRelayRooms: (roomId: string) =>
-      paired
-        .filter(
-          (d) => d.via === "relay" && d.relayRoom && d.relayRoom !== roomId,
-        )
-        .map((d) => d.id),
+      paired.filter((d) => d.relayRoom !== roomId).map((d) => d.id),
   };
 
   const runtime = {
@@ -185,16 +171,11 @@ describe("RemoteControlController", () => {
     expect(f.relay.start).not.toHaveBeenCalled();
   });
 
-  it("a pairing not through the relay has no URL to offer", async () => {
-    await f.controller.setEnabled(true);
-    expect(f.controller.pair("phone", "read").pairingUrl).toBeNull();
-  });
-
   it("notifies listeners on every state change", async () => {
     const seen: boolean[] = [];
     f.controller.onChange((s) => seen.push(s.enabled));
     await f.controller.setEnabled(true);
-    f.controller.pair("phone", "read");
+    f.controller.pair("phone");
     f.controller.revoke("dev-1");
     await f.controller.setEnabled(false);
     expect(seen.length).toBeGreaterThanOrEqual(4);
@@ -204,8 +185,8 @@ describe("RemoteControlController", () => {
   it("revoke closes the revoked device's connections", async () => {
     // A connection needs the relay, so the runtime.
     await f.controller.setEnabled(true);
-    f.controller.pair("a", "full");
-    f.controller.pair("b", "full");
+    f.controller.pair("a");
+    f.controller.pair("b");
     f.controller.revoke("dev-1");
     expect(f.gate.closeDevice).toHaveBeenCalledTimes(1);
     expect(f.gate.closeDevice).toHaveBeenCalledWith("dev-1");
@@ -274,30 +255,25 @@ describe("RemoteControlController", () => {
       expect(f.order).toEqual(["relay", "gate"]);
     });
 
-    it("refuses a relay pairing below full", async () => {
+    it("refuses to pair while the relay address is not configured", async () => {
       await f.controller.setEnabled(true);
-      expect(() => f.controller.pair("p", "read", "relay")).toThrow(
-        /Everything/,
+      expect(f.controller.status().relayOrigin).toBe(
+        "https://relay.example.test",
       );
-      expect(() => f.controller.pair("p", "send", "relay")).toThrow(
-        /Everything/,
-      );
+      (f.relay as { origin: string | null }).origin = null;
+      expect(f.controller.status().relayOrigin).toBeNull();
+      expect(() => f.controller.pair("p")).toThrow(/not configured/);
       expect(f.deviceStore.pair).not.toHaveBeenCalled();
     });
 
     it("builds a relay link the browser's parser accepts", async () => {
       await f.controller.setEnabled(true);
-      const result = f.controller.pair("browser", "full", "relay");
+      const result = f.controller.pair("browser");
       expect(result.pairingUrl).toBe(
         `https://relay.example.test/app/1.2.3/#relay=${ROOM}.${KEY}&t=raw-token-value`,
       );
-      expect(f.deviceStore.pair).toHaveBeenCalledWith(
-        "browser",
-        "full",
-        "relay",
-        ROOM,
-      );
-      const hash = result.pairingUrl!.slice(result.pairingUrl!.indexOf("#"));
+      expect(f.deviceStore.pair).toHaveBeenCalledWith("browser", ROOM);
+      const hash = result.pairingUrl.slice(result.pairingUrl.indexOf("#"));
       expect(parseFragment(hash)).toEqual({
         kind: "relay",
         relay: { roomId: ROOM, serverKey: KEY, token: "raw-token-value" },
@@ -312,53 +288,53 @@ describe("RemoteControlController", () => {
       expect(f.controller.status().relayViewers).toBe(2);
     });
 
-    it("reset revokes only relay devices and stops the relay", async () => {
+    it("reset revokes every device and stops the relay", async () => {
       await f.controller.setEnabled(true);
-      f.controller.pair("ts", "full");
-      f.controller.pair("rl", "full", "relay");
+      f.controller.pair("a");
+      f.controller.pair("b");
       await f.controller.startRelay();
       const status = await f.controller.resetRelayAddress();
       expect(f.relay.stop).toHaveBeenCalled();
       expect(f.identity.reset).toHaveBeenCalled();
       expect(status.relay.state).toBe("stopped");
-      expect(status.devices.map((d) => d.label)).toEqual(["ts"]);
+      expect(status.devices).toEqual([]);
     });
 
-    it("reset closes relay devices while the relay is still up, then stops it", async () => {
+    it("reset closes devices while the relay is still up, then stops it", async () => {
       await f.controller.setEnabled(true);
-      f.controller.pair("ts", "full");
-      f.controller.pair("rl1", "full", "relay");
-      f.controller.pair("rl2", "full", "relay");
+      f.controller.pair("rl1");
+      f.controller.pair("rl2");
       await f.controller.startRelay();
       f.order.length = 0;
       await f.controller.resetRelayAddress();
       // 4401 has to travel through the live relay; after `stop` it cannot.
       expect(f.order).toEqual([
+        "revoke:dev-1",
+        "close:dev-1",
         "revoke:dev-2",
         "close:dev-2",
-        "revoke:dev-3",
-        "close:dev-3",
         "relay",
         "identity",
       ]);
     });
 
     describe("an identity that changed underneath the devices", () => {
-      it("revokes relay devices paired to the old room when the relay starts", async () => {
+      it("revokes devices paired to the old room when the relay starts", async () => {
         await f.controller.setEnabled(true);
-        f.controller.pair("ts", "full");
-        f.controller.pair("rl", "full", "relay");
+        f.controller.pair("old");
+        // Already on the room the identity is about to become.
+        f.deviceStore.pair("current", "another-room-entirely");
         // The identity file could not be read; the store made a new room.
         f.identityState.roomId = "another-room-entirely";
         const status = await f.controller.startRelay();
-        expect(status.devices.map((d) => d.label)).toEqual(["ts"]);
-        expect(f.gate.closeDevice).toHaveBeenCalledWith("dev-2");
+        expect(status.devices.map((d) => d.label)).toEqual(["current"]);
+        expect(f.gate.closeDevice).toHaveBeenCalledWith("dev-1");
         expect(status.relayNotice).toMatch(/couldn't be read.*1 device/);
       });
 
       it("says nothing when the room is the one the devices were paired to", async () => {
         await f.controller.setEnabled(true);
-        f.controller.pair("rl", "full", "relay");
+        f.controller.pair("rl");
         const status = await f.controller.startRelay();
         expect(status.devices).toHaveLength(1);
         expect(status.relayNotice).toBeNull();
@@ -366,7 +342,7 @@ describe("RemoteControlController", () => {
 
       it("a reset clears the notice", async () => {
         await f.controller.setEnabled(true);
-        f.controller.pair("rl", "full", "relay");
+        f.controller.pair("rl");
         f.identityState.roomId = "another-room-entirely";
         await f.controller.startRelay();
         const status = await f.controller.resetRelayAddress();
@@ -391,6 +367,7 @@ describe("RemoteControlController before the runtime loads", () => {
       devices: [],
       encryptionAvailable: true,
       relay: { state: "stopped", url: null, error: null },
+      relayOrigin: null,
       relayViewers: 0,
       relayNotice: null,
     });
@@ -421,16 +398,14 @@ describe("RemoteControlController before the runtime loads", () => {
     expect(f.relay.stop).not.toHaveBeenCalled();
   });
 
-  it("refuses a relay pairing until the runtime is loaded", () => {
-    expect(() => f.controller.pair("p", "full", "relay")).toThrow(
-      /Enable remote control/,
-    );
+  it("refuses to pair until the runtime is loaded", () => {
+    expect(() => f.controller.pair("p")).toThrow(/Enable remote control/);
     expect(f.deviceStore.pair).not.toHaveBeenCalled();
     expect(f.loadRuntime).not.toHaveBeenCalled();
   });
 
   it("revoking with the runtime never loaded closes nothing and loads nothing", () => {
-    f.controller.pair("a", "full");
+    f.deviceStore.pair("a", ROOM);
     f.controller.revoke("dev-1");
     expect(f.gate.closeDevice).not.toHaveBeenCalled();
     expect(f.loadRuntime).not.toHaveBeenCalled();

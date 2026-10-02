@@ -9,7 +9,7 @@
  * The raw pairing token crosses this boundary exactly once, in the return
  * value of `remoteControlPair`, and is never broadcast in a status push. That
  * return value is also why six of the nine below are `localOnly`: a stolen
- * `full` token that can pair more devices is a token that survives its own
+ * device token that can pair more devices is a token that survives its own
  * revocation, which is a different class of loss
  * from "can remove a workspace" — the one ADR-178 D3 accepted knowingly.
  * `getStatus` is a read and stays open, so a device's own settings page is
@@ -26,12 +26,6 @@ import type {
   PairResult,
   RemoteControlStatus,
 } from "../../remote-control/controller";
-import {
-  CAPABILITIES,
-  isCapability,
-  isPairedVia,
-} from "../../remote-control/devices";
-import type { Capability, PairedVia } from "../../remote-control/devices";
 import { asPushSubscription } from "../../remote-control/push";
 import { publishRendererBroadcast } from "../../renderer-broadcast";
 import type { HostDeps } from "../../ipc/types";
@@ -39,30 +33,12 @@ import { method, type HandlerCtx } from "../method";
 
 /**
  * The one read the ADR-178 bridge needs, lifted out of its `ipcMain.handle`
- * wrapper the way `preferencesGetAll` was — a `full` device may see who else
- * is paired and what they can do (device labels and capabilities, never
- * tokens), the same view the desktop settings panel gets.
+ * wrapper the way `preferencesGetAll` was — a paired device may see who else
+ * is paired (device labels, never tokens), the same view the desktop settings
+ * panel gets.
  */
 export function remoteControlGetStatus(ctx: HandlerCtx): RemoteControlStatus {
   return ctx.deps.remoteControl.status();
-}
-
-/**
- * The tier is a string off the renderer, so it is checked against the three
- * literals rather than cast. An unrecognised value is an error and not a
- * silent fall back to `read`: a pairing that quietly granted less than the
- * user chose would be reported as a bug, and one that quietly granted more
- * would be a great deal worse.
- */
-function assertCapability(
-  value: unknown,
-  name: string,
-): asserts value is Capability {
-  if (!isCapability(value)) {
-    throw new Error(
-      `${name}: expected one of ${CAPABILITIES.join(", ")}, got ${String(value)}`,
-    );
-  }
 }
 
 /**
@@ -90,28 +66,20 @@ export function remoteControlSetEnabled(
 }
 
 /**
- * Pair a device, returning the raw token once.
+ * Pair a device through the relay, returning the raw token and its pairing
+ * link once.
  *
  * The label is trimmed and bounded here rather than in the dialog, because
  * the dialog is not the only caller any more — an empty label on a device in
  * the revoke list is a device nobody can identify well enough to revoke.
  */
-export function remoteControlPair(
-  ctx: HandlerCtx,
-  label: string,
-  capability: Capability,
-  via: PairedVia = "tailscale",
-): PairResult {
+export function remoteControlPair(ctx: HandlerCtx, label: string): PairResult {
   assertString(label, "remoteControl.pair.label");
-  assertCapability(capability, "remoteControl.pair.capability");
-  if (!isPairedVia(via)) {
-    throw new Error(`remoteControl.pair.via: got ${String(via)}`);
-  }
   const trimmed = label.trim();
   if (trimmed.length === 0 || trimmed.length > 64) {
     throw new Error("A device label must be 1–64 characters.");
   }
-  return ctx.deps.remoteControl.pair(trimmed, capability, via);
+  return ctx.deps.remoteControl.pair(trimmed);
 }
 
 export function remoteControlRevoke(
@@ -134,7 +102,7 @@ export function remoteControlStopRelay(
   return ctx.deps.remoteControl.stopRelay();
 }
 
-/** New relay address; every device paired through the relay is revoked. */
+/** New relay address; every paired device is revoked. */
 export function remoteControlResetRelayAddress(
   ctx: HandlerCtx,
 ): Promise<RemoteControlStatus> {
@@ -142,9 +110,8 @@ export function remoteControlResetRelayAddress(
 }
 
 /**
- * Push, over the bridge (ADR-206 D7): a relay-paired web app cannot call
- * `POST /push/subscribe`, so the same store path is reachable here. Device
- * callers only — a desktop window has no device to subscribe — and the
+ * Push, over the bridge (ADR-206 D7) — since ADR-207 the only way a device
+ * subscribes. Device callers only — a desktop window has no device to subscribe — and the
  * subscription lands on the calling connection's device, never one the frame
  * names.
  */

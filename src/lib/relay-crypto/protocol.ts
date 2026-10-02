@@ -109,9 +109,12 @@ export const CLOSE_LIMIT = 4429;
 
 /**
  * Bridge close codes a host may pass through `OP_CLOSE` to its viewer: 4401
- * (no hello, bad or revoked token) and 4403 (capability below `full`). The
- * page treats them as "forget credentials" and "forbidden"; anything else
- * reaches the viewer as `CLOSE_NORMAL`.
+ * (no hello, bad or revoked token), which the page treats as "forget
+ * credentials", and 4403 — reserved, not sent. 4403 meant "capability below
+ * `full`" until ADR-207 D4 removed the tiers; it stays listed (and stays
+ * `CLOSE_FORBIDDEN` in `electron/bridge/types.ts`) so the code is never
+ * reused for something an older page would misread. Anything else reaches
+ * the viewer as `CLOSE_NORMAL`.
  */
 export const PASSTHROUGH_CLOSE_CODES: ReadonlySet<number> = new Set([
   4401, 4403,

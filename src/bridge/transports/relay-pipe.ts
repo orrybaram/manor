@@ -17,9 +17,9 @@
  *    browser sends one frame's chunks per batch, splitting a frame across
  *    batches only when it would exceed the relay's per-message cap.
  *
- * **Close codes.** The desktop's bridge verdicts 4401 (bad or revoked token)
- * and 4403 (paired below `full`) ride through the relay on `OP_CLOSE` and are
- * handed to the transport unchanged: forget the pairing, or show Forbidden. Everything else that
+ * **Close codes.** The desktop's bridge verdict 4401 (bad or revoked token)
+ * rides through the relay on `OP_CLOSE` and is handed to the transport
+ * unchanged: forget the pairing. Everything else that
  * means "the desktop is not there right now" is *reachability*, not
  * credentials, and is listed in `unreachableCodes` so the transport retries
  * it with its usual backoff and the page says "not reachable" instead of

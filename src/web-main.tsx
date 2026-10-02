@@ -11,7 +11,6 @@ import { createQueryClient, AppRoot } from "./app-root";
 import { terminalFontsReady } from "./lib/terminal-font";
 import {
   NoTokenScreen,
-  ForbiddenScreen,
   KeyMismatchScreen,
   ReachabilityOverlay,
 } from "./web/screens";
@@ -63,7 +62,7 @@ onBridgeOutcome((outcome) => {
   if (outcome === "key-mismatch") {
     show(<KeyMismatchScreen onRetry={() => location.reload()} />);
   } else {
-    show(outcome === "unauthorized" ? <NoTokenScreen /> : <ForbiddenScreen />);
+    show(<NoTokenScreen />);
   }
 });
 

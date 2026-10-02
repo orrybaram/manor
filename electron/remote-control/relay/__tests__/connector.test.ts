@@ -29,18 +29,9 @@ import {
 import { FakeRelay, FakeViewer } from "./fake-relay";
 
 const FULL_TOKEN = "full-token";
-const SEND_TOKEN = "send-token";
 const full: AuthenticatedDevice = {
   id: "d-full",
   label: "browser",
-  capability: "full",
-  via: "relay",
-};
-const send: AuthenticatedDevice = {
-  id: "d-send",
-  label: "phone",
-  capability: "send",
-  via: "relay",
 };
 
 /** A 1 MiB-ish reply, as close to the frame cap as the JSON envelope allows. */
@@ -106,8 +97,7 @@ describe("RelayConnector", () => {
     bridge = new WsBridgeServer(host, { appVersion: "9.9.9" });
     gate = new RelayGate(
       {
-        verify: (raw) =>
-          raw === FULL_TOKEN ? full : raw === SEND_TOKEN ? send : null,
+        verify: (raw) => (raw === FULL_TOKEN ? full : null),
       },
       bridge,
       new AuthRateLimiter(),
@@ -233,15 +223,6 @@ describe("RelayConnector", () => {
     expect(authResults).toEqual([{ ok: false, code: 4401 }]);
     expect(accepted).toHaveLength(0);
     await until(() => c.channelCount === 0, "channel dropped");
-  });
-
-  it("closes the channel for a device below full (4403)", async () => {
-    const c = connector();
-    await running(c);
-    const v = await viewer();
-    v.send({ type: "hello", token: SEND_TOKEN });
-    expect(await v.closed).toBe(4403);
-    expect(authResults).toEqual([{ ok: false, code: 4403 }]);
   });
 
   it("closes the channel on tampered ciphertext, and only that channel", async () => {

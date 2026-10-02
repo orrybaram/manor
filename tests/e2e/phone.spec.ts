@@ -13,7 +13,8 @@ import {
 import { Filmstrip } from "./helpers/filmstrip";
 import { readSessionMeta } from "./helpers/local-api";
 import { openWebApp } from "./helpers/phone";
-import { closeSettings, enableRemoteControl, pairDevice } from "./helpers/settings";
+import { relayTest } from "./helpers/relay-fixture";
+import { closeSettings, pairBrowser } from "./helpers/settings";
 import { activePaneId, awaitShellReady } from "./helpers/terminal";
 
 /**
@@ -25,9 +26,11 @@ import { activePaneId, awaitShellReady } from "./helpers/terminal";
  * keyboard (D6).
  *
  * Same discipline as `web-app.spec.ts`: nothing here reaches inside the app
- * to fabricate state. A phone is an ordinary Playwright page that knows an
- * address and a bearer token, driven at a 390×844 viewport — the only thing
- * that tells this renderer to be a phone at all (ADR-181 D2).
+ * to fabricate state. A phone is an ordinary Playwright page that knows a
+ * pairing link, driven at a 390×844 viewport — the only thing that tells
+ * this renderer to be a phone at all (ADR-181 D2). The link goes through a
+ * local relay (`helpers/relay-fixture.ts`), so the tests that open one are
+ * `relayTest`s; the rest need no relay.
  */
 
 const WORKSPACE_1 = "phone-primary";
@@ -36,7 +39,7 @@ const WORKSPACE_2 = "phone-second";
 /** One line of `RemoteAuditLog` (`electron/remote-control/audit.ts`). */
 interface AuditEntry {
   route: string;
-  transport?: "http" | "bridge";
+  transport?: "bridge";
   target: string | null;
   outcome: "sent" | "rejected" | "failed";
 }
@@ -189,7 +192,7 @@ test.describe("phone layout (ADR-181)", () => {
    * — the ticket's own suggestion for keeping the spec fast — but each
    * block below stands on its own assertions.
    */
-  test("a phone walks the desk's layout: one pane at a time, the switcher moves nothing but focus, the drawer, the palette, and a tap focuses xterm", async ({
+  relayTest("a phone walks the desk's layout: one pane at a time, the switcher moves nothing but focus, the drawer, the palette, and a tap focuses xterm", async ({
     app,
     window,
     tempHome,
@@ -233,12 +236,11 @@ test.describe("phone layout (ADR-181)", () => {
     await assertVisiblePaneCount(window, 2);
     await film.shot(window, "desk-ready");
 
-    // ── Pair at full, open the phone ────────────────────────────────────
-    const port = await enableRemoteControl(window);
-    const device = await pairDevice(window, { label: "phone", capability: "full" });
+    // ── Pair, open the phone ────────────────────────────────────────────
+    const device = await pairBrowser(window, { label: "phone" });
     await closeSettings(window);
 
-    const client = await openWebApp(port, device.token, {
+    const client = await openWebApp(device.link, {
       viewport: { width: 390, height: 844 },
       context: { isMobile: true, hasTouch: true },
     });
@@ -455,7 +457,7 @@ test.describe("phone layout (ADR-181)", () => {
    * the actual mechanism (`TabBar.tsx`), so a real drag attempt is a no-op:
    * the tab order never moves.
    */
-  test("no drags on a phone: a tab does not start a drag", async ({
+  relayTest("no drags on a phone: a tab does not start a drag", async ({
     app,
     window,
     tempHome,
@@ -464,14 +466,10 @@ test.describe("phone layout (ADR-181)", () => {
     await window.keyboard.press("Meta+t");
     await expect.poll(() => tabs(window).count(), { timeout: 15_000 }).toBe(2);
 
-    const port = await enableRemoteControl(window);
-    const device = await pairDevice(window, {
-      label: "no-drag phone",
-      capability: "full",
-    });
+    const device = await pairBrowser(window, { label: "no-drag phone" });
     await closeSettings(window);
 
-    const client = await openWebApp(port, device.token, {
+    const client = await openWebApp(device.link, {
       viewport: { width: 390, height: 844 },
       context: { isMobile: true, hasTouch: true },
     });

@@ -2,12 +2,11 @@
  * What a caller's *class* changes, and nothing else (ADR-180 D4).
  *
  * Dispatch knows two kinds of caller: `local`, an Electron renderer window on
- * this machine, authenticated by being one, and `device`, a paired `full`
- * device that got past remote control's token check. One table answers both,
+ * this machine, authenticated by being one, and `device`, a paired device
+ * that got past remote control's token check. One table answers both,
  * and exactly two things read the difference:
  *
- * - **`LOCAL_ONLY`** — fifteen methods a device may not call, however `full`
- *   its tier. It is asserted here through real dispatch, method by method,
+ * - **`LOCAL_ONLY`** — fifteen methods a device may not call. It is asserted here through real dispatch, method by method,
  *   because the whole point of D4 is that the refusal is a decision written
  *   down rather than an absence: a `Set` entry is one line to delete, and
  *   deleting it has to fail something. The last block pins the membership
@@ -171,7 +170,6 @@ describe("the audit log, by caller class", () => {
       {
         deviceId: "dev-1",
         deviceLabel: "Orry's phone",
-        tier: "full",
         transport: "bridge",
         route: "preferences.set",
         // The key, never the value: `bridgeTarget` takes the first primitive

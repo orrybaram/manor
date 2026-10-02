@@ -1,9 +1,5 @@
 import { create } from "zustand";
-import type {
-  RemoteCapability,
-  RemoteControlStatus,
-  RemotePairResult,
-} from "../electron.d";
+import type { RemoteControlStatus, RemotePairResult } from "../electron.d";
 
 /**
  * Live mirror of the main process's remote-control state (ADR-161).
@@ -23,11 +19,7 @@ interface RemoteControlState {
   stopRelay: () => Promise<void>;
   resetRelayAddress: () => Promise<void>;
   revoke: (id: string) => Promise<void>;
-  pair: (
-    label: string,
-    capability: RemoteCapability,
-    via?: "tailscale" | "relay",
-  ) => Promise<RemotePairResult | null>;
+  pair: (label: string) => Promise<RemotePairResult | null>;
   clearError: () => void;
 }
 
@@ -35,6 +27,7 @@ const emptyStatus: RemoteControlStatus = {
   enabled: false,
   devices: [],
   relay: { state: "stopped", url: null, error: null },
+  relayOrigin: null,
   encryptionAvailable: true,
   relayViewers: 0,
   relayNotice: null,
@@ -85,8 +78,7 @@ export const useRemoteControlStore = create<RemoteControlState>((set) => {
       runStatus(() => window.electronAPI.remoteControl.resetRelayAddress()),
     revoke: (id) =>
       runStatus(() => window.electronAPI.remoteControl.revoke(id)),
-    pair: (label, capability, via = "tailscale") =>
-      run(() => window.electronAPI.remoteControl.pair(label, capability, via)),
+    pair: (label) => run(() => window.electronAPI.remoteControl.pair(label)),
     clearError: () => set({ error: null }),
   };
 });

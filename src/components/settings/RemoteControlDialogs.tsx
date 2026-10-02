@@ -36,9 +36,9 @@ export function RelayConfirmDialog(props: {
             Make this machine reachable through the Manor relay?
           </Dialog.Title>
           <Dialog.Description className={dialogStyles.confirmDescription}>
-            Devices you pair through the relay can do anything the desktop app
-            can, including reading your sessions and their scrollback (which
-            routinely contains API keys and source code) and removing
+            Paired devices can do everything the desktop app can, including
+            reading your sessions and their scrollback (which routinely contains
+            API keys and source code), typing into terminals and removing
             workspaces. Everything between this machine and those devices is
             end-to-end encrypted, so the relay itself cannot read any of it. The
             relay stops when Manor quits.
@@ -57,14 +57,14 @@ export function RelayConfirmDialog(props: {
   );
 }
 
-/** Resetting the address kills every relay link, so say so before doing it. */
+/** Resetting the address kills every link, so say so before doing it. */
 export function ResetRelayDialog(props: {
   open: boolean;
-  relayDevices: number;
+  devices: number;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  const { open, relayDevices, onCancel, onConfirm } = props;
+  const { open, devices, onCancel, onConfirm } = props;
   return (
     <Dialog.Root
       open={open}
@@ -83,9 +83,8 @@ export function ResetRelayDialog(props: {
           </Dialog.Title>
           <Dialog.Description className={dialogStyles.confirmDescription}>
             This stops the relay and gives this machine a new address. Every
-            device paired through the relay
-            {relayDevices > 0 ? ` (${relayDevices} now)` : ""} is disconnected,
-            revoked, and will need to be paired again.
+            paired device{devices > 0 ? ` (${devices} now)` : ""} is
+            disconnected, revoked, and will need to be paired again.
           </Dialog.Description>
           <div className={dialogStyles.confirmActions}>
             <Button variant="secondary" onClick={onCancel}>
@@ -131,24 +130,22 @@ function PairingQr(props: { url: string }) {
  * The one moment the raw token exists in the UI.
  *
  * What the device needs is a *link* — the token rides in its fragment — so the
- * link is what this leads with, with its QR code. Only a relay pairing has one:
- * the relay is the only road to this machine (ADR-207), so there is nothing
- * else to link to.
+ * link is what this leads with, with its QR code. Every pairing is a relay
+ * link: the relay is the only road to this machine (ADR-207).
  *
- * A relay link always has an address; what it may lack is a running relay,
+ * The link always has an address; what it may lack is a running relay,
  * and an iPhone needs one more step for notifications (ADR-206 D7) — both
  * said here, where the link is being handed over.
  */
 export function PairingResultDialog(props: {
   result: RemotePairResult | null;
-  /** Whether the relay is connected, for a relay device's link. */
+  /** Whether the relay is connected, so the link reaches this machine. */
   relayRunning: boolean;
   onClose: () => void;
 }) {
   const { result, relayRunning, onClose } = props;
 
   const pairingUrl = result?.pairingUrl ?? null;
-  const viaRelay = result?.device.via === "relay";
 
   return (
     <Dialog.Root
@@ -185,7 +182,7 @@ export function PairingResultDialog(props: {
                   />
                 </>
               )}
-              {viaRelay && !relayRunning && (
+              {!relayRunning && (
                 <div
                   className={styles.fieldHint}
                   data-testid="remote-pairing-relay-stopped"
@@ -194,16 +191,14 @@ export function PairingResultDialog(props: {
                   this machine until it is. Start the relay from the card above.
                 </div>
               )}
-              {viaRelay && (
-                <div
-                  className={styles.fieldHint}
-                  data-testid="remote-pairing-ios-hint"
-                >
-                  On an iPhone or iPad, notifications need the page on the Home
-                  Screen: open the link in Safari, then Share → Add to Home
-                  Screen, and open Manor from there.
-                </div>
-              )}
+              <div
+                className={styles.fieldHint}
+                data-testid="remote-pairing-ios-hint"
+              >
+                On an iPhone or iPad, notifications need the page on the Home
+                Screen: open the link in Safari, then Share → Add to Home
+                Screen, and open Manor from there.
+              </div>
             </div>
 
             <div>

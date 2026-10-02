@@ -26,7 +26,6 @@
  */
 
 import {
-  CLOSE_FORBIDDEN,
   CLOSE_UNAUTHORIZED,
   type ClientFrame,
   type EventFrame,
@@ -105,8 +104,6 @@ export interface WsTransportOptions {
    * the pairing and `web-main` renders the pairing screen.
    */
   onUnauthorized?: () => void;
-  /** Close 4403: paired below `full`. Default logs; `web-main` renders it. */
-  onForbidden?: () => void;
   /**
    * `CLOSE_KEY_MISMATCH`: stop dialling and offer to re-pair, keeping the
    * stored pairing. Without it the transport does not stop: it reports
@@ -146,12 +143,6 @@ function defaultUnauthorized(): void {
   console.error("[ws-bridge] the host refused this device's token");
 }
 
-function defaultForbidden(): void {
-  console.error(
-    "[ws-bridge] this device is paired below the 'full' capability",
-  );
-}
-
 /** The socket, the pending calls and the live subscriptions. */
 class WsTransport implements WsBridgeTransport {
   private readonly pipe: Pipe;
@@ -169,7 +160,7 @@ class WsTransport implements WsBridgeTransport {
    * tab looking where it was looking.
    */
   rendererId: string | null = null;
-  /** Set by a 4401/4403: this token will not work, so stop dialling. */
+  /** Set by a 4401: this token will not work, so stop dialling. */
   private stopped = false;
   private attempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -356,11 +347,6 @@ class WsTransport implements WsBridgeTransport {
     if (code === CLOSE_UNAUTHORIZED) {
       this.stopped = true;
       (this.options.onUnauthorized ?? defaultUnauthorized)();
-      return;
-    }
-    if (code === CLOSE_FORBIDDEN) {
-      this.stopped = true;
-      (this.options.onForbidden ?? defaultForbidden)();
       return;
     }
     if (code === CLOSE_KEY_MISMATCH && this.options.onKeyMismatch) {

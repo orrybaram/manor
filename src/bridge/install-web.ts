@@ -16,10 +16,10 @@
  * The complication the desktop does not have: this bridge needs the pairing
  * token, which lives in the URL fragment on first load and in
  * `localStorage` after, and `web-main.tsx` still owns the decision to render
- * `NoTokenScreen` / `ForbiddenScreen` instead of `<App />` — a decision that
+ * `NoTokenScreen` / `KeyMismatchScreen` instead of `<App />` — a decision that
  * cannot move into a side-effect module because it is what to *render*, not
  * a side effect. So this module reads the token and exports it, and turns
- * `onUnauthorized` / `onForbidden` into a tiny outcome `web-main.tsx` asks
+ * `onUnauthorized` / `onKeyMismatch` into a tiny outcome `web-main.tsx` asks
  * for once it is ready to act on it — late, if the socket has not said
  * anything yet, or immediately, if it already has.
  *
@@ -68,7 +68,7 @@ const UNPAIRED_PIPE: Pipe = {
 export const webToken: string | null = pipe && pairing ? pairing.token : null;
 
 /** What the socket has said about `webToken`, once it has said anything. */
-export type BridgeOutcome = "unauthorized" | "forbidden" | "key-mismatch";
+export type BridgeOutcome = "unauthorized" | "key-mismatch";
 
 let outcome: BridgeOutcome | null = null;
 let listener: ((outcome: BridgeOutcome) => void) | null = null;
@@ -126,7 +126,6 @@ const transport = createWsTransport({
     forgetPairing(pairing);
     settle("unauthorized");
   },
-  onForbidden: () => settle("forbidden"),
   // Repeated bad Noise message 2s: the desktop's relay address was reset.
   // The pairing is kept (this may just be a stale tab); the transport has
   // stopped, so the screen offers a reload rather than a redial.

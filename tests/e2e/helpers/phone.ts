@@ -86,19 +86,19 @@ export interface OpenWebAppOptions {
 }
 
 /**
- * The ADR-178 web app — the desktop renderer served to a browser — at a PC
- * viewport. `pairDevice`'s token, `/app` in place of `/`, same fragment.
+ * The ADR-178 web app — the desktop renderer served to a browser by the
+ * relay — at a PC viewport, opened on `pairDevice`'s link. The spec has to
+ * run against a local relay (`./relay-fixture.ts`) for the link to load.
  */
 export async function openWebApp(
-  port: number,
-  token: string,
+  link: string,
   {
     headed = false,
     viewport = { width: 1280, height: 800 },
     context,
   }: OpenWebAppOptions = {},
 ): Promise<Client> {
-  return openClient(`http://127.0.0.1:${port}/app#${token}`, {
+  return openClient(link, {
     viewport,
     headed,
     context,

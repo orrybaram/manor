@@ -9,17 +9,16 @@ import {
   createWorkspace,
   importSeededProject,
   openTerminalTab,
-  test,
 } from "./fixtures";
 import { FAKE_AGENT, FAKE_AGENT_BANNER, FAKE_AGENT_ECHO } from "./helpers/fake-agent";
 import { Filmstrip } from "./helpers/filmstrip";
 import { layout, readSessionMeta, waitForVisibleSession } from "./helpers/local-api";
 import { openWebApp } from "./helpers/phone";
+import { relayTest as test } from "./helpers/relay-fixture";
 import {
   closeSettings,
-  enableRemoteControl,
   openRemoteControlSettings,
-  pairDevice,
+  pairBrowser,
 } from "./helpers/settings";
 import {
   activePaneId,
@@ -30,16 +29,17 @@ import {
 import { closeRendererWindows } from "./helpers/window";
 
 /**
- * ADR-178 slice 1 end to end: a browser on a PC opens `/app`, pairs at `full`,
+ * ADR-178 slice 1 end to end: a browser on a PC opens the web app, pairs,
  * shows the sidebar and a live terminal for an existing session, and can type
- * into it — the tracer bullet D10 names, proven through the real listener,
- * the real web bundle (`dist-electron/web/`) and the real daemon.
+ * into it — the tracer bullet D10 names, proven through a local relay
+ * (`helpers/relay-fixture.ts`, ADR-207 D3), the real relay web build
+ * (`dist-relay-web/`) and the real daemon.
  *
  * Same discipline as the shared e2e helpers: nothing here reaches inside the
  * app to fabricate state. The session comes from the fake agent reporting its
- * own lifecycle, the token comes from the pairing dialog, and the browser is
- * an ordinary Playwright page that knows nothing but an address and a bearer
- * token — the whole contract a `full` device gets.
+ * own lifecycle, the link comes from the pairing dialog, and the browser is
+ * an ordinary Playwright page that knows nothing but that link — the whole
+ * contract a paired device gets.
  *
  * The web app is the desktop renderer, so it shares the desktop's test ids
  * and its "terminal draws into a WebGL canvas" problem (see the README).
@@ -56,7 +56,7 @@ const PROJECT_NAME = "test-project";
 /** One line of `RemoteAuditLog` (`electron/remote-control/audit.ts`). */
 interface AuditEntry {
   route: string;
-  transport?: "http" | "bridge";
+  transport?: "bridge";
   target: string | null;
   outcome: "sent" | "rejected" | "failed";
 }
@@ -282,15 +282,11 @@ test.describe("web app (ADR-178 slice 1)", () => {
       session.id,
     );
 
-    const port = await enableRemoteControl(window);
-    const device = await pairDevice(window, {
-      label: "pc browser",
-      capability: "full",
-    });
+    const device = await pairBrowser(window, { label: "pc browser" });
     await film.shot(window, "settings-web-device-paired");
     await closeSettings(window);
 
-    const client = await openWebApp(port, device.token);
+    const client = await openWebApp(device.link);
     try {
       // 1. Pairs at full and boots: the sidebar shows the seeded project and
       // the workspace `createWorkspace` made.
@@ -411,14 +407,10 @@ test.describe("web app (ADR-178 slice 1)", () => {
     const desktopPaneId = await activePaneId(window);
     await awaitShellReady(window, tempHome, desktopPaneId);
 
-    const port = await enableRemoteControl(window);
-    const device = await pairDevice(window, {
-      label: "d6 browser",
-      capability: "full",
-    });
+    const device = await pairBrowser(window, { label: "d6 browser" });
     await closeSettings(window);
 
-    const client = await openWebApp(port, device.token);
+    const client = await openWebApp(device.link);
     try {
       const browserPaneId = await activePaneId(client.page);
       expect(browserPaneId).toBe(desktopPaneId);
@@ -489,14 +481,10 @@ test.describe("web app (ADR-178 slice 1)", () => {
     const deskCols = (await readSessionMeta(request, tempHome, paneId)).cols;
     expect(deskCols).not.toBeNull();
 
-    const port = await enableRemoteControl(window);
-    const device = await pairDevice(window, {
-      label: "inherit browser",
-      capability: "full",
-    });
+    const device = await pairBrowser(window, { label: "inherit browser" });
     await closeSettings(window);
 
-    const client = await openWebApp(port, device.token);
+    const client = await openWebApp(device.link);
     try {
       await expect(
         client.page
@@ -589,14 +577,10 @@ test.describe("web app (ADR-178 slice 1)", () => {
     const tab1Id = await tabs(window).first().getAttribute("data-tab-id");
     expect(tab1Id).toBeTruthy();
 
-    const port = await enableRemoteControl(window);
-    const device = await pairDevice(window, {
-      label: "d7 browser",
-      capability: "full",
-    });
+    const device = await pairBrowser(window, { label: "d7 browser" });
     await closeSettings(window);
 
-    const client = await openWebApp(port, device.token);
+    const client = await openWebApp(device.link);
     try {
       await expect(
         client.page.getByTestId("project-header").filter({ hasText: PROJECT_NAME }),
@@ -736,26 +720,6 @@ test.describe("web app (ADR-178 slice 1)", () => {
     }
   });
 
-  test("a send device cannot open the full web app", async ({ window }) => {
-    const port = await enableRemoteControl(window);
-    const device = await pairDevice(window, {
-      label: "send-only phone",
-      capability: "send",
-    });
-    await closeSettings(window);
-
-    const client = await openWebApp(port, device.token);
-    try {
-      await expect(client.page.getByTestId("web-app-forbidden")).toBeVisible({
-        timeout: 15_000,
-      });
-      await expect(client.page.getByTestId("project-header")).toHaveCount(0);
-      await expect(client.page.getByTestId("workspace-item")).toHaveCount(0);
-    } finally {
-      await client.close();
-    }
-  });
-
   /**
    * ADR-180 D4: `LOCAL_ONLY` is a decision in the table, and a `full` device
    * meets it.
@@ -779,14 +743,10 @@ test.describe("web app (ADR-178 slice 1)", () => {
     tempHome,
   }) => {
     await importSeededProject(app, window, tempHome);
-    const port = await enableRemoteControl(window);
-    const device = await pairDevice(window, {
-      label: "full browser",
-      capability: "full",
-    });
+    const device = await pairBrowser(window, { label: "full browser" });
     await closeSettings(window);
 
-    const client = await openWebApp(port, device.token);
+    const client = await openWebApp(device.link);
     try {
       await expect(
         client.page.getByTestId("project-header").filter({ hasText: PROJECT_NAME }),
@@ -797,7 +757,6 @@ test.describe("web app (ADR-178 slice 1)", () => {
 
       const pair = await invokeInPage(client.page, "remoteControl", "pair", [
         "paired by a stolen token",
-        "full",
       ]);
       expect(pair).toMatchObject({
         ok: false,

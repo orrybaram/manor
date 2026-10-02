@@ -10,7 +10,7 @@
  *   frame now (D5). Get the origin wrong and a second window's toast tracks
  *   somebody else's push — silently, with a green suite behind it.
  * - **`LOCAL_ONLY` is the whole of the refusal.** Pairing, revoking and the
- *   relay controls refuse a paired device because a stolen `full` token that
+ *   relay controls refuse a paired device because a stolen device token that
  *   can pair more devices is a token that survives its own revocation;
  *   `linear.connect` refuses one because it is the only method in the surface
  *   whose *argument* is a credential. Both are one flag on a table entry —
@@ -217,15 +217,11 @@ describe("what a paired device may not call (LOCAL_ONLY)", () => {
       id: "p",
       ns: "remoteControl",
       method: "pair",
-      args: ["Orry's phone", "full"],
+      args: ["Orry's phone"],
     });
 
     expect(paired).toMatchObject({ ok: true });
-    expect(remoteControl.pair).toHaveBeenCalledWith(
-      "Orry's phone",
-      "full",
-      "tailscale",
-    );
+    expect(remoteControl.pair).toHaveBeenCalledWith("Orry's phone");
 
     const connected = await server.dispatch(win.connection, {
       kind: "invoke",

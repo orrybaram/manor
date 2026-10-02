@@ -24,16 +24,12 @@
  * nothing, and the gate's `BridgeAuthenticator` runs the device verify and
  * the failed-auth backoff against it.
  *
- * **Only a `full` device.** The `read` and `send` tiers were defined by an
- * allowlist of routes (ADR-161), and this surface is not an allowlist: it is
- * a handler table containing the terminal. A device below `full` is closed
- * with 4403 rather than given a smaller bridge, because a smaller bridge is a
- * second surface to keep honest. Every connection this transport makes is
- * therefore `callerClass: "device"` — it is the only kind that gets in here.
+ * **Every device is the same device.** There are no tiers (ADR-207 D4): a
+ * paired device reaches the whole handler table, terminal included, and
+ * every connection this transport makes is `callerClass: "device"`.
  *
- * Close codes are in the application range on purpose — 4401 and 4403 read as
- * the HTTP statuses they mirror, and the client can tell "your token is wrong,
- * re-pair" from "your token is right and this tier cannot do this". They are
+ * Close codes are in the application range on purpose — 4401 reads as the
+ * HTTP status it mirrors: "your token is wrong, re-pair". They are
  * `../types.ts`'s, because the browser reads them too.
  */
 
@@ -57,7 +53,7 @@ export type BridgeAuthResult =
   | { ok: true; device: AuthenticatedDevice }
   | { ok: false; code: number };
 
-/** The `verify + backoff + tier` decision, which lives in `relay-gate.ts`. */
+/** The `verify + backoff` decision, which lives in `relay-gate.ts`. */
 export type BridgeAuthenticator = (token: unknown) => BridgeAuthResult;
 
 /** A live socket, and the connection it became once it said hello. */

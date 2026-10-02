@@ -1,8 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { resolvePaletteScope } from "../scope";
+import {
+  paletteScopeEntries,
+  resolvePaletteScope,
+  scopeEntryOf,
+} from "../scope";
 import { HOME_PATH } from "../../../lib/home-path";
 import { workspaceKey } from "../../../lib/workspace-key";
 import type { ProjectInfo } from "../../../store/project-store";
+import { makeProject } from "../../../test-utils/fixtures";
 
 const projects = [
   { id: "p1", workspaces: [{ path: "/a" }, { path: "/b" }] },
@@ -41,5 +46,36 @@ describe("resolvePaletteScope", () => {
   it("is global for an unknown or null workspace path", () => {
     expect(resolvePaletteScope({ ...base, activeWorkspaceKey: workspaceKey(null, "/zzz") })).toBeNull();
     expect(resolvePaletteScope({ ...base, activeWorkspaceKey: null })).toBeNull();
+  });
+});
+
+describe("paletteScopeEntries", () => {
+  const group = {
+    id: "g1",
+    name: "manor",
+    memberIds: ["local", "remote"],
+    lastUsedHostId: null,
+  };
+  const linked = [
+    makeProject({ id: "local", name: "manor", color: "pink", group }),
+    makeProject({ id: "solo", name: "tango", color: "yellow" }),
+    makeProject({ id: "remote", name: "manor", hostId: "box", group }),
+  ];
+
+  it("lists linked checkouts once, as their group", () => {
+    const entries = paletteScopeEntries(linked);
+    expect(entries.map((e) => [e.id, e.name])).toEqual([
+      ["local", "manor"],
+      ["solo", "tango"],
+    ]);
+    expect([...entries[0].memberIds]).toEqual(["local", "remote"]);
+    expect(entries[0].color).toBe("pink");
+  });
+
+  it("scopes any member to its whole group", () => {
+    const entries = paletteScopeEntries(linked);
+    expect(scopeEntryOf(entries, "remote")?.id).toBe("local");
+    expect(scopeEntryOf(entries, "solo")?.name).toBe("tango");
+    expect(scopeEntryOf(entries, "gone")).toBeNull();
   });
 });

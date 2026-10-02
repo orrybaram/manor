@@ -24,7 +24,11 @@ import { usePortsData } from "../ports/usePortsData";
 import { ProcessesView, KillAllFooter } from "./ProcessesView";
 import { StatsView } from "./StatsView";
 import { wordPrefixFilter } from "./utils";
-import { resolvePaletteScope } from "./scope";
+import {
+  paletteScopeEntries,
+  resolvePaletteScope,
+  scopeEntryOf,
+} from "./scope";
 import { ScopeChip } from "./ScopeChip";
 import {
   usePaletteTasks,
@@ -156,13 +160,13 @@ export function CommandPalette(props: CommandPaletteProps) {
     string | null
   >(null);
   const [scopeArmed, setScopeArmed] = useState(false);
-  const scopeProject = useMemo(
-    () =>
-      scopeProjectId
-        ? (projects.find((p) => p.id === scopeProjectId) ?? null)
-        : null,
-    [projects, scopeProjectId],
+  // Scoped to a sidebar entry: a project, or a group's linked checkouts.
+  const scopeEntries = useMemo(() => paletteScopeEntries(projects), [projects]);
+  const scope = useMemo(
+    () => (scopeProjectId ? scopeEntryOf(scopeEntries, scopeProjectId) : null),
+    [scopeEntries, scopeProjectId],
   );
+  const scopeProjectIds = scope?.memberIds ?? null;
 
   // Check connection status when palette opens (render-time, ref-guarded)
   const prevOpenRef = useRef(false);
@@ -253,16 +257,16 @@ export function CommandPalette(props: CommandPaletteProps) {
     onViewAllAgents,
     onClose: handleClose,
     onNewAgent,
-    scopeProjectId,
+    scopeProjectIds,
     enabled: open,
   });
 
   const scopedWorkspaceGroups = useMemo(
     () =>
-      scopeProjectId
-        ? workspaceGroups.filter((g) => g.projectId === scopeProjectId)
+      scopeProjectIds
+        ? workspaceGroups.filter((g) => scopeProjectIds.has(g.projectId))
         : workspaceGroups,
-    [workspaceGroups, scopeProjectId],
+    [workspaceGroups, scopeProjectIds],
   );
 
   const paletteTasks = usePaletteTasks({
@@ -502,19 +506,19 @@ export function CommandPalette(props: CommandPaletteProps) {
   // Project-owned rows outside the scope that match the query: the other
   // projects' workspace groups and agents. Drives the widening hints.
   const outOfScopeMatchCount = useMemo(() => {
-    if (!scopeProjectId || !search) return 0;
+    if (!scopeProjectIds || !search) return 0;
     const matches = (heading: string, cmd: CommandItem) =>
       wordPrefixFilter(itemValue(heading, cmd), search) > 0;
     let count = 0;
     for (const group of workspaceGroups) {
-      if (group.projectId === scopeProjectId) continue;
+      if (scopeProjectIds.has(group.projectId)) continue;
       for (const cmd of group.items) if (matches(group.heading, cmd)) count++;
     }
     for (const cmd of agentCommands.outOfScope) {
       if (matches(AGENTS_HEADING, cmd)) count++;
     }
     return count;
-  }, [scopeProjectId, search, workspaceGroups, agentCommands.outOfScope]);
+  }, [scopeProjectIds, search, workspaceGroups, agentCommands.outOfScope]);
 
   // Whether the root view shows any row for the query (what cmdk's Empty
   // mirrors), for the footer's "+N in other projects" hint.
@@ -617,7 +621,7 @@ export function CommandPalette(props: CommandPaletteProps) {
     tasksCategory !== null &&
     highlighted.includes(`${VALUE_ID_SEPARATOR}${TASKS_CATEGORY_ID}:`);
 
-  const scopeName = scopeProject?.name ?? null;
+  const scopeName = scope?.name ?? null;
   const rootPlaceholder = scopeName
     ? `Search ${scopeName}…`
     : "Search all projects…";
@@ -658,8 +662,8 @@ export function CommandPalette(props: CommandPaletteProps) {
               {view === "root" ? (
                 <div className={styles.inputRow}>
                   <ScopeChip
-                    projects={projects}
-                    project={scopeProject}
+                    entries={scopeEntries}
+                    scope={scope}
                     armed={scopeArmed}
                     onChange={changeScope}
                     onClear={widenScope}
@@ -868,7 +872,7 @@ export function CommandPalette(props: CommandPaletteProps) {
                         <kbd className={styles.kbd}>↵</kbd> Details
                       </span>
                       <span className={styles.footerItem}>
-                        <kbd className={styles.kbd}>{START_HINT}</kbd> Start / Open
+                        <kbd className={styles.kbd}>{START_HINT}</kbd> Start
                       </span>
                     </>
                   )}

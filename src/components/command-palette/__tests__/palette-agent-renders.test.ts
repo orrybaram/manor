@@ -55,7 +55,7 @@ function AgentLabels() {
     onViewAllAgents: noop,
     onClose: noop,
     onNewAgent: noop,
-    scopeProjectId: null,
+    scopeProjectIds: null,
     enabled: true,
   });
   return items.map((i) => i.label).join("|");

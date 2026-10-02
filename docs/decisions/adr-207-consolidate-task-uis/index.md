@@ -171,8 +171,10 @@ After review (2026-10-01):
   opens a linked task's workspace) — also inside the detail. Root ⌘↵ still
   widens the scope when no task row is highlighted; with one highlighted,
   Tab does.
-- **Scope chip** is a project picker (All projects + each project), tinted
-  with the scoped project's colour.
+- **Scope chip** is a picker of sidebar entries (All projects + each
+  project), tinted with the entry's colour. Linked checkouts (a group's local
+  and remote members) are one entry, and scoping to it covers every member's
+  workspaces, agents and tasks.
 
 ## Tickets
 

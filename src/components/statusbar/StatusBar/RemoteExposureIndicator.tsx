@@ -1,6 +1,7 @@
 import Globe from "lucide-react/dist/esm/icons/globe";
 
 import { useRemoteControlStore } from "../../../store/remote-control-store";
+import { requestUi } from "../../../utils/ui-request";
 import { Button } from "../../ui/Button/Button";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { describeExposure } from "./remote-exposure";
@@ -21,12 +22,11 @@ const TONE_CLASS = {
  * relay is off, so it costs nothing in the normal case — and it deliberately
  * shows failures too, since a relay that died still needs explaining.
  *
- * A click stops the relay: the badge exists for the moment someone wants this
- * machine unreachable *now*. On a failure, stopping it is the dismissal.
+ * Styled like the host chip beside it. A click opens Settings → Remote
+ * control, where turning it off is one switch away.
  */
 export function RemoteExposureIndicator() {
   const status = useRemoteControlStore((s) => s.status);
-  const stopRelay = useRemoteControlStore((s) => s.stopRelay);
 
   const view = describeExposure(status);
   if (!view) return null;
@@ -37,10 +37,8 @@ export function RemoteExposureIndicator() {
         variant="link"
         data-testid="remote-exposure-badge"
         className={`${styles.remoteBadge} ${TONE_CLASS[view.tone]}`}
-        onClick={() => void stopRelay()}
-        aria-label={
-          view.exposed ? "Stop remote access" : "Dismiss remote failure"
-        }
+        onClick={() => requestUi({ type: "open-remote-settings" })}
+        aria-label="Open remote control settings"
       >
         <Globe size={10} />
         <span>{view.text}</span>

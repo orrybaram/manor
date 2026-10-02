@@ -387,8 +387,14 @@ function App() {
         if (request.type === "open-project-settings") {
           handleOpenProjectSettings(request.projectId, request.section);
         }
+        if (request.type === "open-remote-settings") handleOpenSettings("remote");
       }),
-    [triggerGhosts, handleOpenProjectSettings, handleCloneRepository],
+    [
+      triggerGhosts,
+      handleOpenProjectSettings,
+      handleCloneRepository,
+      handleOpenSettings,
+    ],
   );
 
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);

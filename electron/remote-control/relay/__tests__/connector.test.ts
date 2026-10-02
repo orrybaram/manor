@@ -316,7 +316,14 @@ describe("RelayConnector", () => {
     await v.closed;
     await until(() => relay.authCount === 2, "re-authenticated");
     await until(() => c.status.state === "running", "running again");
-    expect(states).toEqual(["starting", "running"]);
+    // A channel closing notifies too, with the state unchanged — so the
+    // viewer's channel going may land as a "running" before the drop. Compare
+    // what came after it.
+    const transitions = states.slice(states.indexOf("starting"));
+    expect(transitions.filter((s, i) => s !== transitions[i - 1])).toEqual([
+      "starting",
+      "running",
+    ]);
     expect(c.channelCount).toBe(0);
 
     const again = await viewer();

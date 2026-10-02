@@ -1,96 +1,97 @@
 import { useCallback, useState } from "react";
 import Smartphone from "lucide-react/dist/esm/icons/smartphone";
-import Laptop from "lucide-react/dist/esm/icons/laptop";
-import Globe from "lucide-react/dist/esm/icons/globe";
 import ShieldAlert from "lucide-react/dist/esm/icons/shield-alert";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
+import Plus from "lucide-react/dist/esm/icons/plus";
 
 import { useRemoteControlStore } from "../../store/remote-control-store";
 import { Button } from "../ui/Button/Button";
-import { EmojiInput } from "../ui/EmojiAutocomplete";
 import { Stack, Row } from "../ui/Layout/Layout";
 import { Switch } from "../ui/Switch/Switch";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { relativeShort } from "../../utils/relative-time";
 import {
+  AddDeviceDialog,
+  CopyLinkButton,
+  PairingQr,
   PairingResultDialog,
   RelayConfirmDialog,
   ResetRelayDialog,
 } from "./RemoteControlDialogs";
 import type {
+  RemoteControlStatus,
   RemoteDeviceInfo,
   RemotePairResult,
-  RelayStatus,
 } from "../../electron.d";
 import { SectionTitle } from "./SectionTitle";
 import { isWebApp } from "../../lib/platform";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 /**
- * The remote-control settings surface (ADR-161 ticket 6).
+ * The remote-control settings surface.
  *
- * Three separate user actions, deliberately not collapsed into one: turning
- * remote control on, pairing a device, and starting the relay. Each widens
- * exposure by a different amount, and a single "turn on remote access" switch
- * would hide which of them the user actually agreed to.
+ * One control: remote control on means the relay is running, or trying to
+ * be. Turning it on is the confirmed, outward-facing action; pairing a device
+ * turns it on too, behind the same "full control" warning, so the link handed
+ * over works straight away.
  *
- * Once remote control is on, the relay is the main call to action: it sits on
- * the card that states whether the machine is reachable, above the devices.
- * The card states the exposure as a fact rather than leaving it to be
- * inferred from which controls are showing.
+ * While the relay is live the status card shows a QR code for the web app
+ * with no credentials in it: a phone that was already paired keeps its
+ * pairing in its own storage, so this is how it gets back in without
+ * re-pairing.
  */
 export function RemoteControlPage() {
   const status = useRemoteControlStore((s) => s.status);
   const busy = useRemoteControlStore((s) => s.busy);
   const error = useRemoteControlStore((s) => s.error);
-  const setEnabled = useRemoteControlStore((s) => s.setEnabled);
-  const startRelay = useRemoteControlStore((s) => s.startRelay);
-  const stopRelay = useRemoteControlStore((s) => s.stopRelay);
+  const turnOn = useRemoteControlStore((s) => s.turnOn);
+  const turnOff = useRemoteControlStore((s) => s.turnOff);
   const resetRelayAddress = useRemoteControlStore((s) => s.resetRelayAddress);
   const revoke = useRemoteControlStore((s) => s.revoke);
   const pair = useRemoteControlStore((s) => s.pair);
+  const clearError = useRemoteControlStore((s) => s.clearError);
 
-  const [label, setLabel] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
   const [pairing, setPairing] = useState<RemotePairResult | null>(null);
-  const [relayConfirmOpen, setRelayConfirmOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
 
   // `remoteControl.setEnabled/pair/revoke/startRelay/stopRelay` are
   // `localOnly` (ADR-180 D3) — a browser can read this page's status but
-  // can't touch the switch, pairing form or relay controls.
+  // can't touch the switch, pairing or relay controls.
   const webApp = isWebApp();
   const locked = webApp || busy || !status.encryptionAvailable;
-  // Every pairing is a relay link (ADR-207 D4), so with no relay address
-  // there is nothing to hand the device.
-  const canPair = !locked && status.relayOrigin !== null;
 
-  const handlePair = useCallback(async () => {
-    const result = await pair(label.trim());
-    if (result) {
-      setPairing(result);
-      setLabel("");
-    }
-  }, [label, pair]);
+  const handlePair = useCallback(
+    async (label: string) => {
+      const result = await pair(label);
+      if (result) {
+        setAddOpen(false);
+        setPairing(result);
+      }
+    },
+    [pair],
+  );
+
+  const openAdd = () => {
+    clearError();
+    setAddOpen(true);
+  };
+
+  const relayUp =
+    status.relay.state === "running" || status.relay.state === "starting";
+  const on = isOn(status);
 
   return (
     <Stack className={styles.pageContent}>
-      <div className={styles.notifToggleCard}>
-        <div>
-          <div className={styles.notifToggleTitle}>Remote control</div>
-          <div className={styles.notifToggleDesc}>
-            Check on your agents from your phone. Nothing on this machine
-            listens for connections: devices reach it only through the Manor
-            relay, once you start it. Remote control turns off again every time
-            Manor restarts.
-          </div>
-        </div>
-        <Switch
-          data-testid="remote-control-switch"
-          checked={status.enabled}
-          disabled={locked}
-          onCheckedChange={(checked) => void setEnabled(checked)}
-        />
-      </div>
+      <StatusCard
+        status={status}
+        locked={locked}
+        onToggle={(checked) =>
+          checked ? setConfirmOpen(true) : void turnOff()
+        }
+        onRetry={() => void turnOn()}
+      />
 
       {webApp && (
         <div className={styles.sectionDescription}>
@@ -110,93 +111,85 @@ export function RemoteControlPage() {
         </div>
       )}
 
-      {error && <div className={styles.linearError}>{error}</div>}
+      {error && !addOpen && <div className={styles.linearError}>{error}</div>}
 
-      {status.enabled && (
-        <>
-          <RelayCard
-            relay={status.relay}
-            viewers={status.relayViewers}
-            notice={status.relayNotice}
-            locked={locked}
-            onStart={() => setRelayConfirmOpen(true)}
-            onStop={() => void stopRelay()}
-            onReset={() => setResetOpen(true)}
-          />
-
-          <Stack gap="xs">
-            <SectionTitle id="remote-devices">Devices</SectionTitle>
-            <div className={styles.sectionDescription}>
-              Every device gets its own relay link and token, shown once.
-              Revoking one takes effect on its next request.
-            </div>
-
-            <Row gap="sm">
-              <EmojiInput
-                data-testid="remote-pair-label"
-                placeholder="Device name, e.g. “my phone”"
-                value={label}
-                maxLength={64}
-                disabled={!canPair}
-                onChange={(e) => setLabel(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && label.trim()) void handlePair();
-                }}
+      <Stack gap="xs">
+        <Row
+          align="center"
+          justify="space-between"
+          className={styles.remoteDevicesHeader}
+        >
+          <SectionTitle id="remote-devices">Devices</SectionTitle>
+          {status.devices.length > 0 && (
+            <Button
+              data-testid="remote-add-device"
+              variant="secondary"
+              size="sm"
+              disabled={locked}
+              onClick={openAdd}
+            >
+              <Plus size={13} />
+              Add device
+            </Button>
+          )}
+        </Row>
+        {status.devices.length === 0 ? (
+          <div className={styles.remoteEmpty}>
+            <span>
+              No devices yet. Pair your phone to check on agents away from
+              your desk.
+            </span>
+            <Button
+              data-testid="remote-add-device"
+              variant="primary"
+              disabled={locked}
+              onClick={openAdd}
+            >
+              <Plus size={13} />
+              Add device
+            </Button>
+          </div>
+        ) : (
+          <div className={styles.remoteDeviceList}>
+            {status.devices.map((device) => (
+              <DeviceRow
+                key={device.id}
+                device={device}
+                busy={locked}
+                onRevoke={() => void revoke(device.id)}
               />
-              <Button
-                data-testid="remote-pair-submit"
-                variant="secondary"
-                disabled={!canPair || label.trim().length === 0}
-                onClick={() => void handlePair()}
-              >
-                Pair
-              </Button>
-            </Row>
-            {status.relayOrigin === null ? (
-              <div
-                className={styles.fieldHint}
-                data-testid="remote-pair-unavailable"
-              >
-                Pairing needs the Manor relay, and this machine has no valid
-                relay address configured.
-              </div>
-            ) : (
-              <div
-                className={styles.remoteWarning}
-                data-testid="remote-pair-warning"
-              >
-                <ShieldAlert size={14} />
-                <span>
-                  A paired device can do anything the desktop app can, including
-                  removing workspaces, from anywhere its link is opened.
-                </span>
-              </div>
-            )}
-            {status.devices.length === 0 ? (
-              <div className={styles.placeholder}>No devices paired yet</div>
-            ) : (
-              <div className={styles.remoteDeviceList}>
-                {status.devices.map((device) => (
-                  <DeviceRow
-                    key={device.id}
-                    device={device}
-                    busy={locked}
-                    onRevoke={() => void revoke(device.id)}
-                  />
-                ))}
-              </div>
-            )}
-          </Stack>
-        </>
-      )}
+            ))}
+          </div>
+        )}
+        {status.devices.length > 0 && (
+          <Button
+            data-testid="remote-relay-reset"
+            variant="link"
+            className={styles.remoteResetLink}
+            disabled={locked}
+            onClick={() => setResetOpen(true)}
+          >
+            Reset relay address…
+          </Button>
+        )}
+      </Stack>
 
       <RelayConfirmDialog
-        open={relayConfirmOpen}
-        onCancel={() => setRelayConfirmOpen(false)}
+        open={confirmOpen}
+        onCancel={() => setConfirmOpen(false)}
         onConfirm={() => {
-          setRelayConfirmOpen(false);
-          void startRelay();
+          setConfirmOpen(false);
+          void turnOn();
         }}
+      />
+
+      <AddDeviceDialog
+        open={addOpen}
+        enabled={on}
+        busy={locked}
+        error={error}
+        onCancel={() => setAddOpen(false)}
+        onPair={(label) => void handlePair(label)}
       />
 
       <ResetRelayDialog
@@ -211,117 +204,162 @@ export function RemoteControlPage() {
 
       <PairingResultDialog
         result={pairing}
-        relayRunning={status.relay.state === "running"}
+        relayUp={relayUp}
         onClose={() => setPairing(null)}
       />
     </Stack>
   );
 }
 
-/**
- * The Manor relay: reach this machine with nothing installed (ADR-206).
- *
- * The connector reports "cannot reach the relay, retrying" as `starting` with
- * an error, and gives up (`failed`) only on a verdict. The first is shown as
- * a warning that it is still trying, the second as an error to act on —
- * never as a bare "Connecting…" that hides why.
- */
-function RelayCard(props: {
-  relay: RelayStatus;
-  /** Open relay channels. */
-  viewers: number;
-  notice: string | null;
-  locked: boolean;
-  onStart: () => void;
-  onStop: () => void;
-  onReset: () => void;
-}) {
-  const { relay, viewers, notice, locked } = props;
+type StatusView = {
+  tone: "off" | "ok" | "pending" | "bad";
+  title: string;
+  detail: string;
+  /** A button beside the switch: retrying a relay that is down. */
+  retry: string | null;
+};
 
-  const running = relay.state === "running";
-  const starting = relay.state === "starting";
-  const retrying = starting && relay.error !== null;
+/**
+ * Whether the page shows remote control as on. Enabled with the relay stopped
+ * (after a reset, or enabled through the agent API, which never starts the
+ * relay) reaches nothing, so it reads as off; turning it on starts the relay.
+ */
+function isOn(status: RemoteControlStatus): boolean {
+  return status.enabled && status.relay.state !== "stopped";
+}
+
+/**
+ * What the card says for each state. The connector reports "cannot reach the
+ * relay, retrying" as `starting` with an error and gives up (`failed`) only
+ * on a verdict — the first is a warning that it is still trying, the second
+ * an error to act on, never a bare "Connecting…" that hides why.
+ */
+function describe(status: RemoteControlStatus): StatusView {
+  const { relay } = status;
+  if (!isOn(status)) {
+    return {
+      tone: "off",
+      title: "Remote control is off",
+      detail:
+        "Turn on to check on your agents from your phone. Turns off again when Manor quits.",
+      retry: null,
+    };
+  }
+  if (relay.state === "running") {
+    const n = status.relayViewers;
+    return {
+      tone: "ok",
+      title: "Remote control is on",
+      detail:
+        n === 0
+          ? "Your devices can connect. None connected right now."
+          : `${n} device${n === 1 ? "" : "s"} connected.`,
+      retry: null,
+    };
+  }
+  if (relay.state === "starting") {
+    return relay.error
+      ? {
+          tone: "pending",
+          title: "Can't reach the relay",
+          detail: `Still trying — paired devices can't reach this machine until it connects. ${relay.error}`,
+          retry: null,
+        }
+      : {
+          tone: "pending",
+          title: "Turning on…",
+          detail: "Paired devices can reach this machine once it connects.",
+          retry: null,
+        };
+  }
+  return {
+    tone: "bad",
+    title: "Can't reach the relay",
+    detail: relay.error ?? "The relay connection failed.",
+    retry: "Try again",
+  };
+}
+
+const DOT_CLASS: Record<StatusView["tone"], string> = {
+  off: "",
+  ok: styles.remoteDotOk,
+  pending: styles.remoteDotPending,
+  bad: styles.remoteDotBad,
+};
+
+function StatusCard(props: {
+  status: RemoteControlStatus;
+  locked: boolean;
+  onToggle: (checked: boolean) => void;
+  onRetry: () => void;
+}) {
+  const { status, locked } = props;
+  const view = describe(status);
+  const live = status.relay.state === "running" && status.enabled;
+
   return (
     <div
       data-settings-section="remote-relay"
       data-testid="remote-relay-card"
       tabIndex={-1}
-      className={`${styles.remoteExposureCard} ${running ? styles.remoteExposureOpen : ""}`}
+      className={`${styles.remoteStatusCard} ${live ? styles.remoteStatusLive : ""}`}
     >
-      <div className={styles.remoteExposureIcon}>
-        {running ? <Globe size={15} /> : <Laptop size={15} />}
-      </div>
-      <Stack gap="xs" className={styles.remoteExposureBody}>
-        <div className={styles.remoteExposureHeader}>
-          <div className={styles.remoteExposureTitle}>
-            {running
-              ? "Reachable through the Manor relay"
-              : retrying
-                ? "Can't reach the Manor relay"
-                : "Manor relay (no install)"}
-          </div>
-          <Row gap="xs">
+      <div className={styles.remoteStatusHeader}>
+        <span className={`${styles.remoteDot} ${DOT_CLASS[view.tone]}`} />
+        <div className={styles.remoteStatusText}>
+          <div className={styles.remoteStatusTitle}>{view.title}</div>
+          <div className={styles.remoteStatusDetail}>{view.detail}</div>
+        </div>
+        <Row gap="xs" align="center" className={styles.remoteStatusActions}>
+          {view.retry && (
             <Button
-              data-testid="remote-relay-reset"
-              variant="ghost"
+              data-testid="remote-relay-retry"
+              variant="secondary"
+              size="sm"
               disabled={locked}
-              onClick={props.onReset}
+              onClick={props.onRetry}
             >
-              Reset relay address
+              {view.retry}
             </Button>
-            {running || starting ? (
-              <Button
-                variant="secondary"
-                onClick={props.onStop}
-                data-testid="remote-relay-stop"
-              >
-                {starting ? "Cancel" : "Stop relay"}
-              </Button>
-            ) : (
-              <Button
-                data-testid="remote-relay-start"
-                variant="primary"
-                disabled={locked}
-                onClick={props.onStart}
-              >
-                {relay.state === "failed" ? "Try again" : "Start relay"}
-              </Button>
-            )}
-          </Row>
+          )}
+          <Switch
+            data-testid="remote-control-switch"
+            aria-label="Remote control"
+            checked={isOn(status)}
+            disabled={locked}
+            onCheckedChange={props.onToggle}
+          />
+        </Row>
+      </div>
+
+      {status.relayNotice && (
+        <div className={styles.linearError} data-testid="remote-relay-notice">
+          {status.relayNotice}
         </div>
-        <div className={styles.fieldHint}>
-          Open a link in any browser, with nothing to install on either end.
-          Everything is end-to-end encrypted; the relay cannot read it. The
-          relay stops when Manor quits.
+      )}
+
+      {live && status.relayAppUrl && status.devices.length > 0 && (
+        <div className={styles.remoteOpenOnPhone} data-testid="remote-open-app">
+          <PairingQr
+            key={status.relayAppUrl}
+            url={status.relayAppUrl}
+            size={128}
+            alt="QR code to open Manor"
+          />
+          <Stack gap="xs" align="flex-start" className={styles.remoteOpenOnPhoneBody}>
+            <div className={styles.remoteStatusTitle}>
+              Open on a paired phone
+            </div>
+            <div className={styles.remoteStatusDetail}>
+              Scan with a device you&apos;ve already added to open Manor.
+            </div>
+            <CopyLinkButton
+              url={status.relayAppUrl}
+              testId="remote-open-app-link"
+            />
+          </Stack>
         </div>
-        {notice && (
-          <div className={styles.linearError} data-testid="remote-relay-notice">
-            {notice}
-          </div>
-        )}
-        {relay.state === "failed" && relay.error && (
-          <div className={styles.linearError}>{relay.error}</div>
-        )}
-        {retrying && (
-          <div
-            className={styles.remoteRetrying}
-            data-testid="remote-relay-retrying"
-          >
-            Still trying — relay devices can&apos;t reach this machine until it
-            connects. {relay.error}
-          </div>
-        )}
-        {starting && !retrying && (
-          <div className={styles.fieldHint}>Connecting…</div>
-        )}
-        {running && (
-          <div className={styles.fieldHint}>
-            {viewers === 0
-              ? "No relay device connected"
-              : `${viewers} relay device${viewers === 1 ? "" : "s"} connected`}
-          </div>
-        )}
-      </Stack>
+      )}
     </div>
   );
 }

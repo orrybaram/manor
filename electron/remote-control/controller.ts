@@ -52,6 +52,14 @@ export interface RemoteControlStatus {
    * unavailable, or its configured address is not a valid URL.
    */
   relayOrigin: string | null;
+  /**
+   * The web app on the relay, with no credentials in it
+   * (`https://<relay>/app/<version>/`). A browser that was already paired
+   * keeps its pairing in its own storage, so this opens it paired; it is safe
+   * to show as a QR code whenever the relay is running. Null exactly when
+   * `relayOrigin` is.
+   */
+  relayAppUrl: string | null;
   /** False means pairing cannot store a token — see `RemoteDeviceStore`. */
   encryptionAvailable: boolean;
   /**
@@ -125,6 +133,7 @@ export class RemoteControlController {
       const runtime = await loadRuntime();
       this.runtime = runtime;
       runtime.relay?.onStatus(() => this.emit());
+      runtime.gate.onDeviceSeen(() => this.emit());
       return runtime;
     });
   }
@@ -380,14 +389,16 @@ export class RemoteControlController {
   /** The runtime's part of `status()`; disabled and stopped until it loads. */
   private runtimeStatus(): Pick<
     RemoteControlStatus,
-    "enabled" | "relay" | "relayOrigin" | "relayViewers"
+    "enabled" | "relay" | "relayOrigin" | "relayAppUrl" | "relayViewers"
   > {
     const relay = this.runtime?.relay;
+    const relayOrigin =
+      relay && this.runtime?.relayIdentity ? relay.origin : null;
     return {
       enabled: this.enabled,
       relay: relay?.status ?? { ...STOPPED_RELAY_STATUS },
-      relayOrigin:
-        relay && this.runtime?.relayIdentity ? relay.origin : null,
+      relayOrigin,
+      relayAppUrl: relayOrigin ? `${relayOrigin}/app/${this.appVersion}/` : null,
       relayViewers: relay?.channelCount ?? 0,
     };
   }

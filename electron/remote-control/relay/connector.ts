@@ -440,12 +440,14 @@ export class RelayConnector {
         if (this.channels.get(ch) !== gone) return;
         this.channels.delete(ch);
         this.outbound.delete(ch);
+        this.notify();
       },
       handshakeTimeoutMs: this.timing.channelHandshakeTimeoutMs,
       flushIntervalMs: this.timing.flushIntervalMs,
       flushBytes: this.timing.flushBytes,
     });
     this.channels.set(ch, channel);
+    this.notify();
   }
 
   // --- Sending: control now, data through the per-channel queues ---------
@@ -624,7 +626,15 @@ export class RelayConnector {
 
   private setState(next: RelayStatus): void {
     this.state = next;
-    const snapshot = { ...next };
+    this.notify();
+  }
+
+  /**
+   * Tell listeners. Also on a channel opening or closing, with the state
+   * unchanged: the status they build carries `channelCount`.
+   */
+  private notify(): void {
+    const snapshot = { ...this.state };
     for (const listener of this.listeners) listener(snapshot);
   }
 }

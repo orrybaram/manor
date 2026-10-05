@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.19.1] - 2026-10-05
+
+### Features
+- Click anywhere on a task row to open its details
+- Resize the task detail drawer
+- The task filter button now sits in the chip row
+- Create a folder while making a new workspace
+- Selected values in select menus stay pinned to the top of the list
+- Remote: fit a terminal you're following to your current screen
+
+### Fixes
+- Dragging a tab or pane only pops it out into a new window once the pointer leaves the app
+- Phone: the app fills the whole screen edge to edge, and you can now leave search
+- Phone: the drawer scrolls and closes with a swipe
+- Phone: the cursor stays above the on-screen keyboard
+- Phone: close the full-screen palette with an X button instead of Cancel
+- Phone: dialogs fit the screen, buttons are big enough to tap, and labels are readable
+- Phone: card actions are evenly spaced, and the status bar is dark when installed as an app
+- Phone: tighter app chrome, and the palette's scope picker has a proper label and size
+- Web: reconnects as soon as the phone comes back
+- Web: a chunk that fails to load is reloaded instead of leaving a blank page
+
+### Improvements
+- Faster first load on phones over the relay
+- Smaller app download, because the bundled FiraCode Nerd Font was removed
+
 ## [0.19.0] - 2026-10-01
 
 ### Features

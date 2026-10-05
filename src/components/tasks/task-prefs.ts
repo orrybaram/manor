@@ -21,6 +21,7 @@ const PREF_PROJECT = "tasks-view:project";
 /** Followed by the provider: each tracker remembers its own sort and filters. */
 const PREF_SORT = "tasks-view:sort:";
 const PREF_FILTERS = "tasks-view:filters:";
+const PREF_DRAWER_WIDTH = "tasks-view:drawer-width";
 /** The saved project value for "All projects". */
 const ALL_PROJECTS = "__all__";
 
@@ -166,4 +167,28 @@ export function useTaskPrefs(): TaskPrefs {
     setSort,
     setFilters,
   };
+}
+
+export const DEFAULT_DRAWER_WIDTH = 440;
+export const MIN_DRAWER_WIDTH = 320;
+
+/** The detail drawer's last dragged width; the default when unset or unreadable. */
+function readDrawerWidth(): number {
+  const saved = Number(readPref(PREF_DRAWER_WIDTH));
+  return Number.isFinite(saved) && saved >= MIN_DRAWER_WIDTH
+    ? saved
+    : DEFAULT_DRAWER_WIDTH;
+}
+
+/**
+ * The detail drawer's width: `setWidth` follows a drag without saving,
+ * `saveWidth` remembers where it ended.
+ */
+export function useDrawerWidth() {
+  const [width, setWidth] = useState(readDrawerWidth);
+  const saveWidth = useCallback((next: number) => {
+    setWidth(next);
+    writePref(PREF_DRAWER_WIDTH, String(Math.round(next)));
+  }, []);
+  return { width, setWidth, saveWidth };
 }

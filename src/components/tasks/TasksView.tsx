@@ -5,6 +5,8 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from "react";
 import { useAppStore } from "../../store/app-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
@@ -30,6 +32,8 @@ import {
   type SearchableSelectOption,
 } from "../ui/SearchableSelect/SearchableSelect";
 import { Input } from "../ui/Input";
+import { ResizeHandle } from "../ui/ResizeHandle/ResizeHandle";
+import { useDragOverlayStore } from "../../store/drag-overlay-store";
 import { projectColorStyle } from "../../hooks/useProjectHeaderRow";
 import type { NewWorkspaceHandler } from "../../lib/start-issue-work";
 import {
@@ -52,7 +56,13 @@ import { TaskSortMenu } from "./TaskSortMenu";
 import { TaskTableRow } from "./TaskTableRow";
 import { useStartTask } from "./useStartTask";
 import { activeFilterCount, initialDirection } from "./task-menus";
-import { isDefaultFilters, useTaskPrefs } from "./task-prefs";
+import {
+  DEFAULT_DRAWER_WIDTH,
+  MIN_DRAWER_WIDTH,
+  isDefaultFilters,
+  useDrawerWidth,
+  useTaskPrefs,
+} from "./task-prefs";
 import { openLinkedTask } from "./open-linked-task";
 import { TrackerIcon, TrackerRowIcon } from "./tracker-icons";
 import { TaskDetail } from "./TaskDetail/TaskDetail";
@@ -399,12 +409,6 @@ export function TasksView(props: TasksViewProps) {
                   spellCheck={false}
                 />
               </div>
-              <TaskFilterMenu
-                provider={provider}
-                rows={listed}
-                filters={filters}
-                onChange={changeFilters}
-              />
               <TaskSortMenu
                 provider={provider}
                 sort={sort}
@@ -412,46 +416,50 @@ export function TasksView(props: TasksViewProps) {
               />
             </div>
 
-            {(filterCount > 0 || !filtersAreDefault) && (
-              <div
-                className={styles.activeFilters}
-                role="group"
-                aria-label="Active filters"
-              >
-                {(Object.keys(TASK_FIELDS) as TaskFieldId[])
-                  .filter((id) => (filters[id]?.length ?? 0) > 0)
-                  .map((id) => (
-                    <TaskFilterChip
-                      key={id}
-                      field={id}
-                      rows={listed}
-                      filters={filters}
-                      onChange={changeFilters}
-                      onRemove={() => removeFilter(id)}
-                    />
-                  ))}
-                {filterCount > 0 && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={styles.clearFilters}
-                    onClick={clearFilters}
-                  >
-                    Clear all
-                  </Button>
-                )}
-                {!filtersAreDefault && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={styles.clearFilters}
-                    onClick={resetFilters}
-                  >
-                    Reset to default
-                  </Button>
-                )}
-              </div>
-            )}
+            <div
+              className={styles.activeFilters}
+              role="group"
+              aria-label="Filters"
+            >
+              <TaskFilterMenu
+                provider={provider}
+                rows={listed}
+                filters={filters}
+                onChange={changeFilters}
+              />
+              {(Object.keys(TASK_FIELDS) as TaskFieldId[])
+                .filter((id) => (filters[id]?.length ?? 0) > 0)
+                .map((id) => (
+                  <TaskFilterChip
+                    key={id}
+                    field={id}
+                    rows={listed}
+                    filters={filters}
+                    onChange={changeFilters}
+                    onRemove={() => removeFilter(id)}
+                  />
+                ))}
+              {filterCount > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={styles.clearFilters}
+                  onClick={clearFilters}
+                >
+                  Clear all
+                </Button>
+              )}
+              {!filtersAreDefault && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={styles.clearFilters}
+                  onClick={resetFilters}
+                >
+                  Reset to default
+                </Button>
+              )}
+            </div>
 
             <div className={styles.tableArea}>
               <div
@@ -535,13 +543,19 @@ export function TasksView(props: TasksViewProps) {
                 )}
               </div>
               {openRow && (
-                <TaskDrawer
-                  row={openRow}
-                  onPrev={prevKey === null ? undefined : () => moveTo(prevKey)}
-                  onNext={nextKey === null ? undefined : () => moveTo(nextKey)}
-                  onClose={closeDrawer}
-                  onNewWorkspace={onNewWorkspace}
-                />
+                <ResizableDrawerFrame>
+                  <TaskDrawer
+                    row={openRow}
+                    onPrev={
+                      prevKey === null ? undefined : () => moveTo(prevKey)
+                    }
+                    onNext={
+                      nextKey === null ? undefined : () => moveTo(nextKey)
+                    }
+                    onClose={closeDrawer}
+                    onNewWorkspace={onNewWorkspace}
+                  />
+                </ResizableDrawerFrame>
               )}
             </div>
 
@@ -621,6 +635,71 @@ function keysBelongElsewhere(target: EventTarget | null): boolean {
       target.closest(
         'input, textarea, select, [role="menu"], [role="listbox"], [role="dialog"]',
       ) !== null)
+  );
+}
+
+/** The table keeps at least this much room beside the drawer. */
+const MIN_TABLE_WIDTH = 360;
+
+/**
+ * Holds the drawer at its remembered width, with a handle in the gap on its
+ * left: dragging resizes it, double-clicking restores the default.
+ */
+function ResizableDrawerFrame(props: { children: ReactNode }) {
+  const { children } = props;
+
+  const { width, setWidth, saveWidth } = useDrawerWidth();
+  const [dragging, setDragging] = useState(false);
+  const frameRef = useRef<HTMLDivElement>(null);
+
+  const startDrag = (e: ReactMouseEvent) => {
+    e.preventDefault();
+    const frame = frameRef.current;
+    const area = frame?.parentElement;
+    if (!frame || !area) return;
+    const startX = e.clientX;
+    const startWidth = frame.getBoundingClientRect().width;
+    const maxWidth = Math.max(
+      MIN_DRAWER_WIDTH,
+      area.clientWidth - MIN_TABLE_WIDTH,
+    );
+    const widthAt = (x: number) =>
+      Math.max(MIN_DRAWER_WIDTH, Math.min(maxWidth, startWidth + startX - x));
+    let last = startWidth;
+
+    useDragOverlayStore.getState().incrementDragCount();
+    setDragging(true);
+
+    const onMouseMove = (ev: MouseEvent) => {
+      last = widthAt(ev.clientX);
+      setWidth(last);
+    };
+    const cleanup = () => {
+      useDragOverlayStore.getState().decrementDragCount();
+      setDragging(false);
+      saveWidth(last);
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", cleanup);
+      window.removeEventListener("blur", cleanup);
+    };
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", cleanup);
+    window.addEventListener("blur", cleanup);
+  };
+
+  return (
+    <div ref={frameRef} className={styles.drawerFrame} style={{ width }}>
+      <ResizeHandle
+        orientation="vertical"
+        active={dragging}
+        className={styles.drawerResizeHandle}
+        aria-label="Resize task detail"
+        data-testid="task-drawer-resize-handle"
+        onMouseDown={startDrag}
+        onDoubleClick={() => saveWidth(DEFAULT_DRAWER_WIDTH)}
+      />
+      {children}
+    </div>
   );
 }
 

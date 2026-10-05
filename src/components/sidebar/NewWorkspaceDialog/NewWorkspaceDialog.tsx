@@ -6,7 +6,10 @@ import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import Box from "lucide-react/dist/esm/icons/box";
 import Folder from "lucide-react/dist/esm/icons/folder";
 import { useQuery } from "@tanstack/react-query";
-import type { ProjectInfo } from "../../../store/project-store";
+import {
+  useProjectStore,
+  type ProjectInfo,
+} from "../../../store/project-store";
 import { Input } from "../../ui/Input";
 import { EmojiInput } from "../../ui/EmojiAutocomplete";
 import { Button } from "../../ui/Button/Button";
@@ -251,6 +254,23 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   // A folder belongs to one project; a stale pick would silently vanish.
   const activeFolderId =
     folderId && folders.some((f) => f.id === folderId) ? folderId : null;
+
+  const createWorkspaceFolder = useProjectStore((s) => s.createWorkspaceFolder);
+  // Typing a name the folder list doesn't have makes that folder, then picks it.
+  const createFolder = useCallback(
+    async (folderName: string) => {
+      if (!activeProjectId) return;
+      try {
+        const folder = await createWorkspaceFolder(activeProjectId, folderName);
+        if (folder) setFolderId(folder.id);
+      } catch (err) {
+        setError(
+          `Couldn't create folder: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    },
+    [activeProjectId, createWorkspaceFolder],
+  );
 
   const handleOpenAutoFocus = useCallback(
     (e: Event) => {
@@ -509,10 +529,12 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                         data-testid="new-workspace-project-select"
                       />
                     )}
-                    {folders.length > 0 && (
+                    {activeProject && (
                       <SearchableSelect
                         value={activeFolderId ?? ""}
                         onChange={(id) => setFolderId(id || null)}
+                        onCreate={(folderName) => void createFolder(folderName)}
+                        createLabel={(q) => `New folder "${q}"`}
                         options={folderOptions}
                         icon={<Folder size={12} />}
                         maxWidth={140}

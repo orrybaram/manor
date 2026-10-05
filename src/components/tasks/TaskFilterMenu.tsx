@@ -100,7 +100,7 @@ export function TaskFilterMenu(props: TaskFilterMenuProps) {
         <Popover.Content
           className={styles.popover}
           side="bottom"
-          align="end"
+          align="start"
           sideOffset={6}
           collisionPadding={8}
         >

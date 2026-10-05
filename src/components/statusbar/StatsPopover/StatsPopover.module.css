@@ -1,0 +1,111 @@
+/*
+ * The status bar's stats hover card. The shell follows PrPopover.module.css.
+ */
+
+.anchor {
+  display: flex;
+  align-items: center;
+}
+
+.popover {
+  background: var(--dim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  min-width: 240px;
+  font-size: 11.5px;
+  color: var(--text-primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: popoverFadeIn 150ms ease-out;
+}
+
+/* Radix keeps the content mounted until this finishes, so it fades out too. */
+.popover[data-state="closed"] {
+  animation: popoverFadeOut 120ms ease-in forwards;
+}
+
+.table {
+  border-collapse: collapse;
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+
+.table th,
+.table td {
+  padding: 3px 0;
+}
+
+.table .column {
+  padding-left: 16px;
+  text-align: right;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.label {
+  text-align: left;
+  font-weight: 400;
+  color: var(--text-primary);
+}
+
+.table .today,
+.table .week {
+  padding-left: 16px;
+  text-align: right;
+}
+
+.today {
+  color: var(--text-selected);
+  font-weight: 600;
+}
+
+.week {
+  color: var(--text-primary);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 10.5px;
+}
+
+.streak {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.hint {
+  margin-left: auto;
+  color: var(--text-dim);
+}
+
+@keyframes popoverFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes popoverFadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}

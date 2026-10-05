@@ -1,4 +1,4 @@
-import { Fragment, lazy, Suspense, useState, useCallback, useMemo } from "react";
+import { Fragment, lazy, Suspense, useState, useCallback } from "react";
 import {
   useAppStore,
   selectActiveWorkspaceKey,
@@ -16,8 +16,8 @@ import { LinkedIssuesPopover } from "../LinkedIssuesPopover/LinkedIssuesPopover"
 import { RemoteExposureIndicator } from "./RemoteExposureIndicator";
 import { HostStatusIndicator } from "./HostStatusIndicator";
 import { Button } from "../../ui/Button/Button";
-import { Tooltip } from "../../ui/Tooltip/Tooltip";
-import { useStatsStore, formatUnblockLatency } from "../../../store/stats-store";
+import { useStatsStore } from "../../../store/stats-store";
+import { StatsPopover } from "../StatsPopover/StatsPopover";
 import { LinearIcon } from "../../command-palette/LinearIcon";
 import { GitHubIcon } from "../../command-palette/GitHubIcon";
 import type { LinkedIssue, WorkspaceFolder } from "../../../store/project-store";
@@ -99,26 +99,13 @@ function StatsSegment(props: StatsSegmentProps) {
   const { onOpenStats } = props;
   const summary = useStatsStore((s) => s.summary);
 
-  const tooltip = useMemo(() => {
-    if (!summary) return "";
-    const { today } = summary;
-    const parts = [
-      `${today.prompts ?? 0} prompts`,
-      `${today.toolCalls ?? 0} tool calls`,
-      `${today.agentsKilled ?? 0} agents killed`,
-    ];
-    const latency = formatUnblockLatency(today);
-    if (latency) parts.push(`${latency} to unblock`);
-    return `Today — ${parts.join(", ")}`;
-  }, [summary]);
-
   if (!summary || !summary.enabled) return null;
   const hasHistory =
     (summary.allTime.prompts ?? 0) > 0 || (summary.allTime.agentsKilled ?? 0) > 0;
   if (!hasHistory) return null;
 
   return (
-    <Tooltip label={tooltip} side="top">
+    <StatsPopover summary={summary}>
       <Button
         variant="link"
         className={styles.statsSegment}
@@ -127,7 +114,7 @@ function StatsSegment(props: StatsSegmentProps) {
       >
         <BarChart3 size={12} />
       </Button>
-    </Tooltip>
+    </StatsPopover>
   );
 }
 

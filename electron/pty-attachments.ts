@@ -24,6 +24,16 @@
  * 3. Whoever stops being the owner — or starts — is told, through
  *    `onAttachmentChange`. A viewer never has to ask.
  *
+ * Rules 1 and 2 are the default; a **claim** overrides them. A viewer that
+ * holds a pane can ask for its winsize outright (`claim`): a phone whose
+ * follower grid is a desk-wide 6px blur taps "fit to this screen" and the
+ * session is resized to the phone. The claim lasts until the claimant lets
+ * the pane go, another viewer claims, a new viewer attaches (an arrival is
+ * still rule 1 and 2's to decide), or someone types into the pane at the desk
+ * (`reclaimOnInput`) — the person at the keyboard gets their grid back
+ * without hunting for a button, which is tmux's `window-size latest` with
+ * the desk as the only viewer whose keystrokes count implicitly.
+ *
  * This is a module-level registry rather than something hung off `HostDeps`
  * because there is exactly one host per main process, and every caller — the
  * bridge's handler table, the bridge server's disconnect handler, a window
@@ -62,6 +72,9 @@ export interface Viewer {
  * after one of them lets go.
  */
 const holders = new Map<string, Viewer[]>();
+
+/** `paneId` → the connection that explicitly claimed its winsize. */
+const claims = new Map<string, string>();
 
 /**
  * A sink told which panes just got a new answer to `ownerOf`.
@@ -109,6 +122,9 @@ function ownerFingerprint(viewer: Viewer | null): string {
 export function ownerOf(paneId: string): Viewer | null {
   const viewers = holders.get(paneId);
   if (!viewers || viewers.length === 0) return null;
+  const claimant = claims.get(paneId);
+  const claimed = claimant && viewers.find((v) => v.connectionId === claimant);
+  if (claimed) return claimed;
   return mostRecent(viewers, "local") ?? mostRecent(viewers, "device");
 }
 
@@ -162,6 +178,8 @@ export function attach(paneId: string, viewer: Viewer): void {
   if (viewers) {
     if (!viewers.some((existing) => sameViewer(existing, viewer))) {
       viewers.push(viewer);
+      // A new arrival is decided by the default rules, as `wouldOwn` told it.
+      claims.delete(paneId);
     }
   } else {
     holders.set(paneId, [viewer]);
@@ -182,6 +200,36 @@ export function release(paneId: string, viewer: Viewer): void {
   if (idx === -1) return;
   viewers.splice(idx, 1);
   if (viewers.length === 0) holders.delete(paneId);
+  if (claims.get(paneId) === viewer.connectionId) claims.delete(paneId);
+  const after = ownerFingerprint(ownerOf(paneId));
+  if (before !== after) notifyChanged([paneId]);
+}
+
+/**
+ * A viewer that holds this pane takes its winsize. Returns whether it holds
+ * the pane (a viewer that does not cannot claim it).
+ */
+export function claim(paneId: string, viewer: Viewer): boolean {
+  const viewers = holders.get(paneId);
+  if (!viewers?.some((v) => sameViewer(v, viewer))) return false;
+  const before = ownerFingerprint(ownerOf(paneId));
+  claims.set(paneId, viewer.connectionId);
+  const after = ownerFingerprint(ownerOf(paneId));
+  if (before !== after) notifyChanged([paneId]);
+  return true;
+}
+
+/**
+ * Someone typed into this pane. A keystroke at the desk ends another
+ * viewer's claim, handing the winsize back to the default rules — which for
+ * a desk window holding the pane means the desk.
+ */
+export function reclaimOnInput(paneId: string, viewer: Viewer): void {
+  if (viewer.callerClass !== "local") return;
+  const claimant = claims.get(paneId);
+  if (!claimant || claimant === viewer.connectionId) return;
+  const before = ownerFingerprint(ownerOf(paneId));
+  claims.delete(paneId);
   const after = ownerFingerprint(ownerOf(paneId));
   if (before !== after) notifyChanged([paneId]);
 }
@@ -205,6 +253,7 @@ export function releaseViewer(connectionId: string): void {
     const before = ownerFingerprint(ownerOf(paneId));
     viewers.splice(idx, 1);
     if (viewers.length === 0) holders.delete(paneId);
+    if (claims.get(paneId) === connectionId) claims.delete(paneId);
     const after = ownerFingerprint(ownerOf(paneId));
     if (before !== after) changed.push(paneId);
   }
@@ -214,4 +263,5 @@ export function releaseViewer(connectionId: string): void {
 /** Forget everything. Tests only — a real main process never wants this. */
 export function resetAttachments(): void {
   holders.clear();
+  claims.clear();
 }

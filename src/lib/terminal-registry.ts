@@ -60,3 +60,8 @@ export function registerTerminal(paneId: string, term: Terminal): void {
 export function unregisterTerminal(paneId: string): void {
   registry().delete(paneId);
 }
+
+/** A pane's live terminal, if it has one mounted. */
+export function terminalFor(paneId: string): Terminal | null {
+  return registry().get(paneId)?.term ?? null;
+}

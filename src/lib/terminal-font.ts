@@ -26,6 +26,16 @@
  */
 
 import { loadOnce } from "./load-once";
+import { FONT_FAMILY } from "../terminal/config";
+
+/** The first family in the terminal's font stack: the one it draws with. */
+const PRIMARY_FAMILY = FONT_FAMILY.split(",")[0].trim();
+
+/** The faces a cell is measured in: regular, and bold for bold text. */
+const TEXT_FACES = [`400 13px ${PRIMARY_FAMILY}`, `700 13px ${PRIMARY_FAMILY}`];
+
+/** What xterm measures a cell with. */
+const CELL_SAMPLE = "W";
 
 /**
  * How long terminal creation waits on fonts.
@@ -40,17 +50,18 @@ const FONT_TIMEOUT_MS = 2_000;
  * Resolve once the terminal's fonts can be measured, or when waiting longer
  * stops being worth a blank pane.
  *
- * The set is read from `document.fonts` rather than a list kept here: every
- * `@font-face` the stylesheet declares is in it by the time this runs, so a
- * font added to the CSS is covered without anyone remembering this file. A
- * list here would be a second place to keep the same truth, which is exactly
- * the shape of the bug this exists to fix.
+ * `document.fonts.load` with a sample glyph loads exactly the faces needed to
+ * draw it: the regular and bold text faces of the family the terminal draws
+ * with. Not the fallback families behind it in `FONT_FAMILY` (never drawn
+ * while the first is there), and not its Nerd Font icons face — a megabyte
+ * a phone would otherwise download before its terminal could open, which
+ * `unicode-range` leaves until a pane draws an icon (`App.css`).
  */
 async function loadTerminalFonts(): Promise<void> {
   if (typeof document === "undefined" || !document.fonts) return;
   const loaded = Promise.all(
-    [...document.fonts].map((face) =>
-      face.load().catch(() => {
+    TEXT_FACES.map((font) =>
+      document.fonts.load(font, CELL_SAMPLE).catch(() => {
         // A font file that fails to load leaves the fallback in place, which
         // is measurable. Only a *pending* one is the problem.
       }),

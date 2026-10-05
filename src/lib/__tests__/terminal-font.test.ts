@@ -1,12 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-/** A font face whose load settles when the test says so. */
-function deferredFace() {
-  let settle!: () => void;
-  const loaded = new Promise<void>((resolve) => {
-    settle = resolve;
-  });
-  return { load: vi.fn(() => loaded), settle };
+/**
+ * A `document.fonts` whose `load(font, text)` calls each settle when the
+ * test says so, keyed by the font string asked for.
+ */
+function deferredFonts() {
+  const pending = new Map<string, () => void>();
+  const load = vi.fn(
+    (font: string, _text?: string) =>
+      new Promise<void>((resolve) => {
+        pending.set(font, resolve);
+      }),
+  );
+  return {
+    fonts: { load },
+    load,
+    settle(match: string) {
+      for (const [font, resolve] of pending) if (font.startsWith(match)) resolve();
+    },
+  };
 }
 
 async function freshModule() {
@@ -35,37 +47,48 @@ describe("terminalFontsReady", () => {
     vi.unstubAllGlobals();
   });
 
-  it("waits for every declared font face to load", async () => {
-    const regular = deferredFace();
-    const bold = deferredFace();
-    vi.stubGlobal("document", { fonts: [regular, bold] });
+  it("waits for the regular and bold text faces to load", async () => {
+    const fonts = deferredFonts();
+    vi.stubGlobal("document", { fonts: fonts.fonts });
     const { terminalFontsReady } = await freshModule();
 
     const ready = terminalFontsReady();
-    regular.settle();
+    fonts.settle("400");
     expect(await isSettled(ready)).toBe(false);
 
-    bold.settle();
+    fonts.settle("700");
     await expect(ready).resolves.toBeUndefined();
   });
 
+  it("asks only for the family the terminal draws with, by the glyph it measures", async () => {
+    const fonts = deferredFonts();
+    vi.stubGlobal("document", { fonts: fonts.fonts });
+    const { terminalFontsReady } = await freshModule();
+
+    void terminalFontsReady();
+    expect(fonts.load.mock.calls).toEqual([
+      ["400 13px 'MesloLGM Nerd Font Mono'", "W"],
+      ["700 13px 'MesloLGM Nerd Font Mono'", "W"],
+    ]);
+  });
+
   it("starts the load once and shares it between callers", async () => {
-    const face = deferredFace();
-    vi.stubGlobal("document", { fonts: [face] });
+    const fonts = deferredFonts();
+    vi.stubGlobal("document", { fonts: fonts.fonts });
     const { terminalFontsReady } = await freshModule();
 
     const first = terminalFontsReady();
     const second = terminalFontsReady();
-    face.settle();
+    fonts.settle("");
     await Promise.all([first, second]);
     await terminalFontsReady();
 
     expect(second).toBe(first);
-    expect(face.load).toHaveBeenCalledTimes(1);
+    expect(fonts.load).toHaveBeenCalledTimes(2);
   });
 
   it("gives up on a font that never settles rather than blocking terminals", async () => {
-    vi.stubGlobal("document", { fonts: [deferredFace()] });
+    vi.stubGlobal("document", { fonts: deferredFonts().fonts });
     const { terminalFontsReady } = await freshModule();
 
     const ready = terminalFontsReady();
@@ -76,8 +99,8 @@ describe("terminalFontsReady", () => {
   });
 
   it("does not wait on a font file that fails to load", async () => {
-    const broken = { load: vi.fn(() => Promise.reject(new Error("404"))) };
-    vi.stubGlobal("document", { fonts: [broken] });
+    const load = vi.fn(() => Promise.reject(new Error("404")));
+    vi.stubGlobal("document", { fonts: { load } });
     const { terminalFontsReady } = await freshModule();
 
     await expect(terminalFontsReady()).resolves.toBeUndefined();

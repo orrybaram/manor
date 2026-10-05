@@ -80,6 +80,11 @@
   border-bottom: none;
 }
 
+/* Shown on a phone only (below). */
+.inputRow .phoneClose {
+  display: none;
+}
+
 .list {
   flex: 1;
   overflow-y: auto;
@@ -1254,8 +1259,41 @@ button.processKill:hover:not(:disabled) {
   max-height: none;
 }
 
+:global(:root[data-layout="phone"]) .inputRow .phoneClose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  margin-right: -8px;
+}
+
 :global(:root[data-layout="phone"]) .input {
   padding: 16px;
   /* Below 16px iOS Safari zooms the page in on focus. */
   font-size: 16px;
+}
+
+/* A finger, not a pointer: rows a thumb can hit, and none of the keyboard
+   furniture — a phone has no Ctrl+Shift+] to be reminded of. */
+:global(:root[data-layout="phone"]) .item {
+  min-height: 44px;
+  font-size: 15px;
+}
+
+:global(:root[data-layout="phone"]) .shortcut,
+:global(:root[data-layout="phone"]) .footer {
+  display: none;
+}
+
+:global(:root[data-layout="phone"]) .activeBadge {
+  font-size: 11px;
+}
+
+/* The current workspace's row keeps its "current" badge but not the 60%
+   fade, which takes its label under AA contrast on a phone. */
+:global(:root[data-layout="phone"]) .itemActive {
+  opacity: 1;
 }

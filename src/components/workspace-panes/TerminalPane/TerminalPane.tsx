@@ -17,6 +17,7 @@ import { useTerminalTouch } from "../../../hooks/useTerminalTouch";
 import { useLayoutMode } from "../../../hooks/useLayoutMode";
 import { useAppStore } from "../../../store/app-store";
 import { Row } from "../../ui/Layout/Layout";
+import { Button } from "../../ui/Button/Button";
 import { ConvertToSubmenu } from "../ConvertToSubmenu";
 import { SplitWithSubmenu } from "../SplitWithSubmenu";
 import { PaneWindowMenuItems } from "../PaneWindowMenuItems";
@@ -94,9 +95,22 @@ export function TerminalPane(props: TerminalPaneProps) {
               purpose: `pty.onWinsizeOwner` says whether this viewer owns it,
               not who does. */}
           {follower && (
-            <span className={styles.followerBadge} data-testid="terminal-follower">
-              following · {follower.cols}×{follower.rows}
-            </span>
+            <Button
+              variant="secondary"
+              size="sm"
+              className={styles.followerBadge}
+              data-testid="terminal-follower"
+              title="Resize this terminal to fit here"
+              aria-label={`Following a ${follower.cols}×${follower.rows} grid. Fit to this screen`}
+              // Not a long-press on the terminal, and not a tap that focuses it.
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                void window.electronAPI.pty.claimWinsize(paneId);
+              }}
+            >
+              {phone ? "Fit to screen" : "following"} · {follower.cols}×{follower.rows}
+            </Button>
           )}
           {searchOpen && term && (
             <Suspense fallback={null}>

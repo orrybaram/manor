@@ -31,6 +31,9 @@ type SearchableSelectProps = {
   "data-testid"?: string;
   /** Set on the trigger button, so a `<label htmlFor>` can point at it. */
   id?: string;
+  /** The trigger's accessible name when no `<label>` points at it: a
+   *  combobox is not named by the value it shows. */
+  "aria-label"?: string;
 };
 
 const LISTBOX_ID = "searchable-select-listbox";
@@ -138,6 +141,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
           }
           style={{ maxWidth }}
           role="combobox"
+          aria-label={props["aria-label"]}
           aria-expanded={open}
           aria-controls={LISTBOX_ID}
           data-testid={dataTestId}

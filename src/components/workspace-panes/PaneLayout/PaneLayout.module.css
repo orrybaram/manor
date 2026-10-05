@@ -311,3 +311,10 @@
   margin: 4px 0;
   background: var(--border);
 }
+
+/* A phone shows one pane at a time, already named in the top bar and the
+   pane switcher; its split and close are palette commands (ADR-181 D5). The
+   bar would be a third title and two 20px targets. */
+:global(.app[data-layout="phone"]) .paneStatusBar {
+  display: none;
+}

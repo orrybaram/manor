@@ -16,6 +16,7 @@ import { parseWorkspaceKey, workspaceKey as makeWorkspaceKey, type WorkspaceKey 
 import { ownerOf } from "../lib/workspace-directory";
 import { configureHelperTextarea } from "../terminal/helper-textarea";
 import { openExternal } from "../lib/open-external";
+import { isWebApp } from "../lib/platform";
 import { handleBridgeUnavailable } from "../lib/bridge-unavailable-toast";
 import { useProjectStore } from "../store/project-store";
 import { getAgentKindForCommand } from "../agent-defaults";
@@ -292,10 +293,14 @@ export function useTerminalLifecycle(
       // frame into the scrollback.
       fit.fit();
 
-      // File path links (Cmd/Ctrl+click to open in editor)
-      t.registerLinkProvider(
-        createFileLinkProvider(t, paneId, cwd ?? ""),
-      );
+      // File path links (Cmd/Ctrl+click to open in editor). Not in the
+      // browser: each hover resolves its paths through `shell`, which the
+      // web app does not have, and the editor they open is on the desk.
+      if (!isWebApp()) {
+        t.registerLinkProvider(
+          createFileLinkProvider(t, paneId, cwd ?? ""),
+        );
+      }
 
       // Hotkeys
       attachHandler(t, paneId, write);

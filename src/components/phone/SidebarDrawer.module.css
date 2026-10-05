@@ -39,6 +39,19 @@
   animation: slideIn 180ms ease-out;
 }
 
+/* Swipe to close (`useSwipeToClose`): the sheet follows the finger, and
+   springs back if let go short of closing. `pan-y` keeps the list's own
+   scroll and hands horizontal moves to the swipe. */
+.sheet {
+  touch-action: pan-y;
+  transform: translateX(var(--swipe-x, 0px));
+  transition: transform 150ms ease-out;
+}
+
+.sheet[data-swiping] {
+  transition: none;
+}
+
 .sheet[data-state="closed"] {
   animation: slideOut 140ms ease-in;
 }
@@ -88,7 +101,7 @@
 
 @keyframes slideOut {
   from {
-    transform: translateX(0);
+    transform: translateX(var(--swipe-x, 0px));
   }
   to {
     transform: translateX(-100%);

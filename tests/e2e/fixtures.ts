@@ -253,7 +253,7 @@ export async function launchApp(
     env.MANOR_E2E_BACKGROUND = "1";
   }
 
-  return _electron.launch({
+  const app = await _electron.launch({
     args: [
       // The repo root's package.json names the same `dist-electron/main.js`.
       asPackage ? repoRoot : path.join(repoRoot, "dist-electron/main.js"),
@@ -267,6 +267,15 @@ export async function launchApp(
     cwd: repoRoot,
     recordVideo: videoDir() ? { dir: videoDir()!, size: VIDEO_SIZE } : undefined,
   });
+  // Linux: a temp HOME has no keyring, so safeStorage falls back to its
+  // basic_text store and reports no encryption, which locks every
+  // remote-control control. Fine for a throwaway profile.
+  if (process.platform === "linux") {
+    await app.evaluate(({ safeStorage }) =>
+      safeStorage.setUsePlainTextEncryption(true),
+    );
+  }
+  return app;
 }
 
 /**

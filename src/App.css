@@ -1,29 +1,40 @@
+/*
+ * The terminal font, split in two per weight (scripts/fonts): a small face
+ * with the text a terminal draws all the time, and a large one with the
+ * Nerd Font icons. Same family, so xterm sees one font; the browser fetches
+ * the icons face only once a pane draws a glyph outside the text face's
+ * `unicode-range` (faces are matched last-declared first, which is why the
+ * catch-all icons face comes first). A terminal waits on the text face
+ * alone before measuring its cell (`src/lib/terminal-font.ts`).
+ */
 @font-face {
   font-family: "MesloLGM Nerd Font Mono";
-  src: url("/fonts/MesloLGMNerdFontMono-Regular.ttf") format("truetype");
+  src: url("/fonts/MesloLGMNerdFontMono-Regular-symbols.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
 }
 
 @font-face {
   font-family: "MesloLGM Nerd Font Mono";
-  src: url("/fonts/MesloLGMNerdFontMono-Bold.ttf") format("truetype");
+  src: url("/fonts/MesloLGMNerdFontMono-Bold-symbols.woff2") format("woff2");
   font-weight: 700;
   font-style: normal;
 }
 
 @font-face {
-  font-family: "FiraCode Nerd Font";
-  src: url("/fonts/FiraCodeNerdFontMono-Regular.ttf") format("truetype");
+  font-family: "MesloLGM Nerd Font Mono";
+  src: url("/fonts/MesloLGMNerdFontMono-Regular.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
+  unicode-range: U+0-24F, U+250-2FF, U+300-36F, U+370-3FF, U+400-4FF, U+1E00-1EFF, U+2000-206F, U+2070-209F, U+20A0-20CF, U+2100-214F, U+2150-218F, U+2190-21FF, U+2200-22FF, U+2300-23FF, U+2400-243F, U+2460-24FF, U+2500-257F, U+2580-259F, U+25A0-25FF, U+2600-26FF, U+2700-27BF, U+27C0-27FF, U+2800-28FF, U+2900-297F, U+FFFD;
 }
 
 @font-face {
-  font-family: "FiraCode Nerd Font";
-  src: url("/fonts/FiraCodeNerdFontMono-Bold.ttf") format("truetype");
+  font-family: "MesloLGM Nerd Font Mono";
+  src: url("/fonts/MesloLGMNerdFontMono-Bold.woff2") format("woff2");
   font-weight: 700;
   font-style: normal;
+  unicode-range: U+0-24F, U+250-2FF, U+300-36F, U+370-3FF, U+400-4FF, U+1E00-1EFF, U+2000-206F, U+2070-209F, U+20A0-20CF, U+2100-214F, U+2150-218F, U+2190-21FF, U+2200-22FF, U+2300-23FF, U+2400-243F, U+2460-24FF, U+2500-257F, U+2580-259F, U+25A0-25FF, U+2600-26FF, U+2700-27BF, U+27C0-27FF, U+2800-28FF, U+2900-297F, U+FFFD;
 }
 
 :root {
@@ -161,9 +172,10 @@ body,
   padding-right: var(--window-edge-gap);
 }
 
-/* The phone's top bar sits above the workspace and supplies its own spacing. */
+/* A phone shows one panel edge to edge: the top bar sits above it and the
+   screen's own edges frame it, so the desk's window gutters are dead width. */
 .app[data-layout="phone"] .main-content {
-  padding-top: 0;
+  padding: 0;
 }
 
 .main-content--gutter-left {
@@ -223,6 +235,21 @@ body,
   padding: 0 12px 3px max(12px, var(--window-lead-inset));
   -webkit-app-region: drag;
   user-select: none;
+}
+
+/* Edge to edge on a phone like a tabbed panel, and the top bar already names
+   the view, so the header would be a second title in the same 40px. */
+.app[data-layout="phone"] .empty-surface {
+  border: none;
+  border-radius: 0;
+}
+
+.app[data-layout="phone"] .surface-header {
+  display: none;
+}
+
+.app[data-layout="phone"] .empty-surface > .terminal-container {
+  border-top: none;
 }
 
 .app-body[data-sidebar-animating] .surface-header {

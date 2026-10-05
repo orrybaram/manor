@@ -210,13 +210,13 @@ test.describe("phone layout (ADR-181)", () => {
     const tab1Id = await tabs(window).first().getAttribute("data-tab-id");
     expect(tab1Id).toBeTruthy();
 
-    await window.keyboard.press("Meta+d");
+    await window.keyboard.press("ControlOrMeta+d");
     await assertVisiblePaneCount(window, 2);
     const paneB = (await allPaneIdsOnPage(window)).find((id) => id !== paneA);
     expect(paneB).toBeTruthy();
     await awaitShellReady(window, tempHome, paneB!);
 
-    await window.keyboard.press("Meta+t");
+    await window.keyboard.press("ControlOrMeta+t");
     await expect.poll(() => tabs(window).count(), { timeout: 15_000 }).toBe(2);
     await assertVisiblePaneCount(window, 1);
     const paneC = await activePaneId(window);
@@ -248,8 +248,7 @@ test.describe("phone layout (ADR-181)", () => {
     try {
       // 1. One pane at a time. The top bar, the tab strip — no status bar,
       // no sidebar inline — and exactly one pane visible: the one the
-      // viewport focuses (ADR-179 D3), which the pane switcher's own
-      // "current" row proves rather than assuming.
+      // viewport focuses (ADR-179 D3).
       await expect(client.page.getByTestId("phone-top-bar")).toBeVisible({
         timeout: 30_000,
       });
@@ -265,16 +264,8 @@ test.describe("phone layout (ADR-181)", () => {
       expect([paneA, paneB]).toContain(initialPaneId);
       await film.shot(client.page, "01-one-pane");
 
-      await client.page.getByTestId("phone-pane-switcher-button").click();
-      const sheet = client.page.getByTestId("pane-switcher");
-      await expect(sheet).toBeVisible();
-      await expect(
-        client.page.locator('[data-testid="pane-switcher-row"][aria-current="true"]'),
-      ).toHaveAttribute("data-pane-id", initialPaneId);
-      await film.shot(client.page, "02-pane-switcher-open");
-
-      // 2. The switcher moves, and nothing remounts. Every pane of the tab
-      // is already mounted (ADR-181 D1), so picking the split's other pane
+      // 2. Next Pane moves, and nothing remounts. Every pane of the tab is
+      // already mounted (ADR-181 D1), so focusing the split's other pane
       // must not create a new pty or resize either pane's grid.
       const otherPaneId = (initialPaneId === paneA ? paneB : paneA)!;
       const auditBefore = bridgeCreateCount(tempHome);
@@ -283,10 +274,8 @@ test.describe("phone layout (ADR-181)", () => {
       const metaABefore = await readSessionMeta(request, tempHome, paneA);
       const metaBBefore = await readSessionMeta(request, tempHome, paneB!);
 
-      await client.page
-        .locator(`[data-testid="pane-switcher-row"][data-pane-id="${otherPaneId}"]`)
-        .click();
-      await expect(sheet).not.toBeVisible();
+      await client.page.getByTestId("phone-palette-button").click();
+      await runOpenPaletteCommand(client.page, "Next Pane");
       await assertVisiblePaneCount(client.page, 1);
       await expect
         .poll(() => activePaneId(client.page), { timeout: 10_000 })
@@ -432,7 +421,7 @@ test.describe("phone layout (ADR-181)", () => {
     await expectLayout(window, "desk");
 
     // A second tab, so detaching one leaves the primary something to show.
-    await window.keyboard.press("Meta+t");
+    await window.keyboard.press("ControlOrMeta+t");
     await expect.poll(() => tabs(window).count(), { timeout: 15_000 }).toBe(2);
 
     const popup = await Promise.all([
@@ -463,7 +452,7 @@ test.describe("phone layout (ADR-181)", () => {
     tempHome,
   }) => {
     await bootWorkspaceWithTerminal(app, window, tempHome, "phone-nodrag");
-    await window.keyboard.press("Meta+t");
+    await window.keyboard.press("ControlOrMeta+t");
     await expect.poll(() => tabs(window).count(), { timeout: 15_000 }).toBe(2);
 
     const device = await pairBrowser(window, { label: "no-drag phone" });

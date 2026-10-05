@@ -15,7 +15,9 @@ import { assertString, assertPositiveInt } from "../../ipc-validate";
 import { resolveSpawnCwd } from "../../paths";
 import {
   attach,
+  claim,
   ownerOf,
+  reclaimOnInput,
   release,
   wouldOwn,
   type Viewer,
@@ -321,7 +323,21 @@ async function createSession(
 export function ptyWrite(ctx: HandlerCtx, paneId: string, data: string): void {
   assertString(paneId, "paneId");
   assertString(data, "data");
+  // Typing, not xterm answering a query: replies to DA/DSR/focus reports
+  // start with ESC and are sent without anyone touching a key.
+  if (!data.startsWith("\x1b")) reclaimOnInput(paneId, asViewer(ctx.caller));
   ctx.deps.backend.pty.write(paneId, data);
+}
+
+/**
+ * Take this pane's winsize: the viewer stops following and fits the session
+ * to itself (`pty-attachments.ts`, `claim`). Nothing is resized here — the
+ * ownership push tells this viewer it owns the grid now, and its own fit
+ * sends the resize, through `ptyResize`, as any owner's does.
+ */
+export function ptyClaimWinsize(ctx: HandlerCtx, paneId: string): boolean {
+  assertString(paneId, "paneId");
+  return claim(paneId, asViewer(ctx.caller));
 }
 
 /**
@@ -531,6 +547,7 @@ export const pty = {
   reset: method(ptyReset, { mutating: true }),
   write: method(ptyWrite),
   resize: method(ptyResize),
+  claimWinsize: method(ptyClaimWinsize),
   close: method(ptyClose, { mutating: true }),
   detach: method(ptyDetach),
   // One prewarmed session per host, and its cwd tracks the primary window's

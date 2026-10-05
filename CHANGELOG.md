@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.19.3] - 2026-10-05
+
+### Features
+- The New Workspace dialog has a new optional agent prompt field
+- Hovering the stats icon in the status bar now shows a popover with quick stats
+
+### Fixes
+- Count badges on accent backgrounds now use dark text, so they're easier to read
+- PR merge-queue status now comes from the latest PR poll instead of stale cached data
+
 ## [0.19.2] - 2026-10-05
 
 ### Features

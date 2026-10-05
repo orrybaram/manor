@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.19.2] - 2026-10-05
+
+### Features
+- The pull request popover now shows assigned reviewers and who has approved
+
+### Fixes
+- Agents no longer trigger false "responded" alerts
+- Agents now keep their names
+- Lost agents can be resumed
+
 ## [0.19.1] - 2026-10-05
 
 ### Features

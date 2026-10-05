@@ -28,6 +28,7 @@ import type {
   PrCheckRun,
   PrComment,
   PrInfo,
+  PrReviewer,
 } from "../lib/pr-info";
 
 export type {
@@ -35,6 +36,7 @@ export type {
   PrCheckRun,
   PrComment,
   PrInfo,
+  PrReviewer,
 } from "../lib/pr-info";
 
 const COLLAPSED_KEY = "manor:collapsedProjectIds";
@@ -377,6 +379,7 @@ export function prEqual(a?: PrInfo | null, b?: PrInfo | null): boolean {
     a.additions === b.additions &&
     a.deletions === b.deletions &&
     a.reviewDecision === b.reviewDecision &&
+    reviewersEqual(a.reviewers, b.reviewers) &&
     a.queuedToMerge === b.queuedToMerge &&
     a.hasConflicts === b.hasConflicts &&
     a.unresolvedThreads === b.unresolvedThreads &&
@@ -387,6 +390,12 @@ export function prEqual(a?: PrInfo | null, b?: PrInfo | null): boolean {
     checkRunsEqual(a.checkRuns, b.checkRuns) &&
     checksEqual(a.checks, b.checks)
   );
+}
+
+function reviewersEqual(a?: PrReviewer[], b?: PrReviewer[]): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((r, i) => r.name === b[i].name && r.state === b[i].state);
 }
 
 function commentsEqual(a?: PrComment[], b?: PrComment[]): boolean {

@@ -17,7 +17,14 @@ import ShieldQuestion from "lucide-react/dist/esm/icons/shield-question";
 import MessageSquare from "lucide-react/dist/esm/icons/message-square";
 import GitPullRequestDraft from "lucide-react/dist/esm/icons/git-pull-request-draft";
 import LoaderCircle from "lucide-react/dist/esm/icons/loader-circle";
-import type { PrCheckRun, PrComment, PrInfo } from "../../store/project-store";
+import Users from "lucide-react/dist/esm/icons/users";
+import Bot from "lucide-react/dist/esm/icons/bot";
+import type {
+  PrCheckRun,
+  PrComment,
+  PrInfo,
+  PrReviewer,
+} from "../../store/project-store";
 import {
   PR_BLOCKER,
   prVerdict,
@@ -308,6 +315,7 @@ export function PrPopover(props: PrPopoverProps) {
           <SummaryRows pr={pr} />
 
           <div className={styles.prPopoverScroll}>
+            <ReviewersSection pr={pr} />
             <CommentsSection
               pr={pr}
               onSendToAgent={workspacePath ? handleSendToAgent : undefined}
@@ -410,15 +418,26 @@ function SummaryRows(props: { pr: PrInfo }) {
     );
   }
 
+  const approvers = (pr.reviewers ?? [])
+    .filter((r) => r.state === "approved")
+    .map((r) => r.name);
+  // A repo without required reviews has no decision, but an approval there
+  // is still worth naming.
+  const decision =
+    pr.reviewDecision ?? (approvers.length > 0 ? "APPROVED" : null);
+
   let reviewElement: React.ReactNode = null;
-  if (pr.reviewDecision) {
+  if (decision) {
     let reviewText: string;
     let toneClass: string;
     let ReviewIcon: typeof ShieldCheck;
 
-    switch (pr.reviewDecision) {
+    switch (decision) {
       case "APPROVED":
-        reviewText = "Approved";
+        reviewText =
+          approvers.length > 0
+            ? `Approved by ${approvers.join(", ")}`
+            : "Approved";
         toneClass = styles.toneGood;
         ReviewIcon = ShieldCheck;
         break;
@@ -524,6 +543,49 @@ function ChecksSection(props: { pr: PrInfo }) {
           {expanded ? "Show fewer" : `+${hidden} more`}
         </Button>
       )}
+    </section>
+  );
+}
+
+const REVIEWER_STATE: Record<
+  PrReviewer["state"],
+  { Icon: typeof CircleCheck; label: string; tone: string }
+> = {
+  approved: { Icon: ShieldCheck, label: "approved", tone: styles.toneGood },
+  "changes-requested": {
+    Icon: ShieldAlert,
+    label: "changes requested",
+    tone: styles.toneWarn,
+  },
+  requested: { Icon: Clock, label: "awaiting review", tone: styles.toneMuted },
+  commented: { Icon: MessageSquare, label: "commented", tone: styles.toneMuted },
+};
+
+/** Who was asked to review and where each of them stands, approvals first. */
+function ReviewersSection(props: { pr: PrInfo }) {
+  const reviewers = props.pr.reviewers;
+  if (!reviewers || reviewers.length === 0) return null;
+
+  return (
+    <section className={styles.prPopoverSection}>
+      <div className={styles.prPopoverSectionLabel}>Reviewers</div>
+      {reviewers.map((reviewer) => {
+        const { Icon, label, tone } = REVIEWER_STATE[reviewer.state];
+        const KindIcon = reviewer.isTeam ? Users : reviewer.isBot ? Bot : null;
+        return (
+          <div
+            key={reviewer.name}
+            className={styles.prPopoverCheck}
+            data-review-state={reviewer.state}
+            title={`${reviewer.name}: ${label}`}
+          >
+            <Icon size={11} className={tone} />
+            <span className={styles.prPopoverCheckName}>{reviewer.name}</span>
+            {KindIcon && <KindIcon size={11} className={styles.toneMuted} />}
+            <span className={styles.prPopoverCheckWorkflow}>{label}</span>
+          </div>
+        );
+      })}
     </section>
   );
 }

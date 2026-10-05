@@ -4,6 +4,8 @@
  * and caches the answers; this module only knows the query shapes.
  */
 
+import type { PrReviewer, PrReviewerState } from "../src/lib/pr-info";
+
 /** How many comments and reviews to ask GitHub for. */
 const RECENT_COMMENT_FETCH = 20;
 
@@ -40,6 +42,24 @@ export interface RawPr {
   mergeable: string;
   autoMergeRequest: unknown;
   statusCheckRollup: RawStatusCheck[];
+  reviewRequests?: { nodes?: RawReviewRequest[] } | null;
+  latestReviews?: { nodes?: RawLatestReview[] } | null;
+}
+
+/** A pending review request: a person, a bot, or a whole team. */
+export interface RawReviewRequest {
+  requestedReviewer?: {
+    __typename?: string;
+    login?: string;
+    slug?: string;
+    organization?: { login?: string } | null;
+  } | null;
+}
+
+/** Each reviewer's newest review, as `latestReviews` returns it. */
+export interface RawLatestReview {
+  author?: { __typename?: string; login?: string } | null;
+  state?: string;
 }
 
 /**
@@ -66,6 +86,10 @@ export function graphqlTarget(repoArgs: string[]): {
 const PR_FIELDS =
   "number state title url isDraft additions deletions reviewDecision updatedAt mergeable " +
   "autoMergeRequest { enabledAt } " +
+  "reviewRequests(first: 20) { nodes { requestedReviewer { __typename " +
+  "... on User { login } ... on Bot { login } ... on Mannequin { login } " +
+  "... on Team { slug organization { login } } } } } " +
+  "latestReviews(first: 20) { nodes { author { __typename login } state } } " +
   "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { " +
   "__typename " +
   "... on CheckRun { name conclusion status detailsUrl startedAt checkSuite { workflowRun { workflow { name } } } } " +
@@ -150,4 +174,58 @@ export function conversationsQueryArgs(repos: RepoPrNumbers[]): string[] {
     "-f",
     `query=query(${vars}) { viewer { login } ${aliases} }`,
   ];
+}
+
+const REVIEW_STATES: Record<string, PrReviewerState> = {
+  APPROVED: "approved",
+  CHANGES_REQUESTED: "changes-requested",
+  COMMENTED: "commented",
+};
+
+const REVIEWER_ORDER: Record<PrReviewerState, number> = {
+  approved: 0,
+  "changes-requested": 1,
+  requested: 2,
+  commented: 3,
+};
+
+/**
+ * Who has been asked to review and where each reviewer stands. A reviewer
+ * who has been re-requested since their last review is waiting on again, so
+ * the open request wins over the old verdict. Dismissed and still-pending
+ * (unsubmitted) reviews say nothing about the PR and are left out.
+ */
+export function prReviewers(pr: RawPr): PrReviewer[] {
+  const byName = new Map<string, PrReviewer>();
+
+  for (const review of pr.latestReviews?.nodes ?? []) {
+    const name = review.author?.login;
+    const state = review.state ? REVIEW_STATES[review.state] : undefined;
+    if (!name || !state) continue;
+    const reviewer: PrReviewer = { name, state };
+    if (review.author?.__typename === "Bot") reviewer.isBot = true;
+    byName.set(name.toLowerCase(), reviewer);
+  }
+
+  for (const request of pr.reviewRequests?.nodes ?? []) {
+    const who = request.requestedReviewer;
+    if (!who) continue;
+    if (who.__typename === "Team") {
+      if (!who.slug) continue;
+      const org = who.organization?.login;
+      const name = org ? `${org}/${who.slug}` : who.slug;
+      byName.set(name.toLowerCase(), { name, state: "requested", isTeam: true });
+      continue;
+    }
+    if (!who.login) continue;
+    const reviewer: PrReviewer = { name: who.login, state: "requested" };
+    if (who.__typename === "Bot") reviewer.isBot = true;
+    byName.set(who.login.toLowerCase(), reviewer);
+  }
+
+  return Array.from(byName.values()).sort(
+    (a, b) =>
+      REVIEWER_ORDER[a.state] - REVIEWER_ORDER[b.state] ||
+      a.name.localeCompare(b.name),
+  );
 }

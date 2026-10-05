@@ -70,6 +70,26 @@ export interface PrCheckRun {
   workflow?: string | null;
 }
 
+/**
+ * Where one reviewer stands: asked and not yet answered, or the verdict of
+ * their newest submitted review.
+ */
+export type PrReviewerState =
+  | "requested"
+  | "approved"
+  | "changes-requested"
+  | "commented";
+
+export interface PrReviewer {
+  /** GitHub login, or `org/team-slug` for a team. */
+  name: string;
+  state: PrReviewerState;
+  /** A whole team was requested rather than a person. */
+  isTeam?: boolean;
+  /** A GitHub App, e.g. Copilot. */
+  isBot?: boolean;
+}
+
 export interface PrInfo {
   number: number;
   state: string;
@@ -79,6 +99,11 @@ export interface PrInfo {
   additions?: number;
   deletions?: number;
   reviewDecision?: string | null;
+  /**
+   * Requested reviewers and everyone who has submitted a review, approvals
+   * first. Absent on older payloads.
+   */
+  reviewers?: PrReviewer[];
   checks?: ChecksSummary | null;
   unresolvedThreads?: number;
   commentCount?: number;

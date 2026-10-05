@@ -212,6 +212,11 @@
   background: color-mix(in srgb, var(--surface) 55%, var(--hover));
 }
 
+/* A row that opens its detail when clicked anywhere. */
+.bodyRowOpenable {
+  cursor: pointer;
+}
+
 /* The row whose detail is open in the drawer. */
 .bodyRowSelected,
 .bodyRowSelected:hover {

@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, MouseEvent } from "react";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import FolderKanban from "lucide-react/dist/esm/icons/folder-kanban";
 import Milestone from "lucide-react/dist/esm/icons/milestone";
@@ -55,13 +55,24 @@ export function TaskTableRow(props: TaskTableRowProps) {
   const hiddenAssignees = row.assignees.length - shownAssignees.length;
   const updated = relativeTime(row.updatedAt, now);
 
+  // A click anywhere on the row opens its detail, except on the row's own
+  // controls (Start, the ID link, the title) or when it ends a text selection.
+  // The title stays the keyboard's way in.
+  const handleRowClick = (e: MouseEvent<HTMLDivElement>) => {
+    if (!onOpen) return;
+    if ((e.target as HTMLElement).closest("button, a, input, label")) return;
+    if (window.getSelection()?.toString()) return;
+    onOpen();
+  };
+
   return (
     <div
-      className={`${styles.gridRow} ${styles.bodyRow} ${selected ? styles.bodyRowSelected : ""}`}
+      className={`${styles.gridRow} ${styles.bodyRow} ${onOpen ? styles.bodyRowOpenable : ""} ${selected ? styles.bodyRowSelected : ""}`}
       role="row"
       aria-selected={onOpen ? selected : undefined}
       data-testid="task-row"
       data-task-key={row.key}
+      onClick={onOpen ? handleRowClick : undefined}
     >
       <span role="cell" className={styles.actionCell}>
         <Button
@@ -188,4 +199,3 @@ export function TaskTableRow(props: TaskTableRowProps) {
     </div>
   );
 }
-

@@ -5,13 +5,16 @@ import Loader2 from "lucide-react/dist/esm/icons/loader-2";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import Box from "lucide-react/dist/esm/icons/box";
 import Folder from "lucide-react/dist/esm/icons/folder";
+import Bot from "lucide-react/dist/esm/icons/bot";
+import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import { useQuery } from "@tanstack/react-query";
 import {
   useProjectStore,
   type ProjectInfo,
 } from "../../../store/project-store";
 import { Input } from "../../ui/Input";
-import { EmojiInput } from "../../ui/EmojiAutocomplete";
+import { EmojiInput, EmojiTextarea } from "../../ui/EmojiAutocomplete";
+import { Collapse } from "../../ui/Collapse/Collapse";
 import { Button } from "../../ui/Button/Button";
 import { SearchableSelect } from "../../ui/SearchableSelect";
 import { ToggleGroup } from "../../ui/ToggleGroup";
@@ -54,6 +57,8 @@ type NewWorkspaceDialogProps = {
     useExistingBranch?: boolean,
     /** Sidebar folder to file the new workspace under; null for none. */
     folderId?: string | null,
+    /** First message for an agent started in the new workspace; none when empty. */
+    agentPrompt?: string,
   ) => Promise<boolean>;
   projects: ProjectInfo[];
   selectedProjectIndex: number;
@@ -62,6 +67,11 @@ type NewWorkspaceDialogProps = {
   initialBranch?: string;
   /** Folder preselected when the dialog opens from a folder's own menu. */
   initialFolderId?: string | null;
+  /**
+   * Prefills the agent prompt and opens its section, e.g. when the dialog
+   * is opened from a task.
+   */
+  initialAgentPrompt?: string;
   /**
    * For a linked project (ADR-192): the member the host picker starts on
    * ahead of the group's last-used host, because the dialog was opened from
@@ -81,6 +91,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     initialName = "",
     initialBranch = "",
     initialFolderId = null,
+    initialAgentPrompt = "",
     preferredMemberId = null,
   } = props;
 
@@ -95,6 +106,8 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   const [existingBranch, setExistingBranch] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [folderId, setFolderId] = useState<string | null>(null);
+  const [agentPrompt, setAgentPrompt] = useState("");
+  const [agentOpen, setAgentOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   /**
@@ -109,6 +122,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     open: boolean;
   } | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
 
   const handleOpenChange = useCallback(
@@ -289,6 +303,8 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       setExistingBranch("");
       setSelectedProjectId(defaultProjectId);
       setFolderId(initialFolderId);
+      setAgentPrompt(initialAgentPrompt);
+      setAgentOpen(!!initialAgentPrompt);
       setError(null);
       setIsCreating(false);
       setCloneSession(null);
@@ -300,6 +316,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     },
     [
       defaultProjectId,
+      initialAgentPrompt,
       initialBranch,
       initialFolderId,
       initialName,
@@ -328,6 +345,8 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
         setError(branchMissingMessage);
         return;
       }
+      // A collapsed section starts no agent, whatever it still holds.
+      const promptToSend = agentOpen ? agentPrompt.trim() || undefined : undefined;
 
       if (mode === "existing") {
         if (!existingBranch) {
@@ -344,6 +363,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
           "",
           true,
           activeFolderId,
+          promptToSend,
         );
         if (!success) setIsCreating(false);
         return;
@@ -372,6 +392,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
         baseBranch,
         false,
         activeFolderId,
+        promptToSend,
       );
       if (!success) {
         setIsCreating(false);
@@ -386,6 +407,8 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       activeProjectId,
       activeFolderId,
       activeHostChoice,
+      agentOpen,
+      agentPrompt,
       waitingForBranches,
       branchMissingMessage,
       onSubmit,
@@ -412,7 +435,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
               </Button>
             </Dialog.Close>
           </Row>
-          <form onSubmit={handleSubmit}>
+          <form ref={formRef} onSubmit={handleSubmit}>
             <Stack className={styles.body}>
               <fieldset disabled={isCreating} className={styles.fieldset}>
                 {hostChoices && (
@@ -503,6 +526,39 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                     </Stack>
                   </>
                 )}
+                <Stack className={styles.agentSection}>
+                  <Button
+                    type="button"
+                    variant="link"
+                    className={styles.agentToggle}
+                    aria-expanded={agentOpen}
+                    onClick={() => setAgentOpen((v) => !v)}
+                    data-testid="new-workspace-agent-toggle"
+                  >
+                    <Bot size={12} />
+                    Start an agent
+                    <ChevronRight
+                      size={12}
+                      className={agentOpen ? styles.chevronOpen : styles.chevron}
+                    />
+                  </Button>
+                  <Collapse open={agentOpen}>
+                    <EmojiTextarea
+                      value={agentPrompt}
+                      onChange={(e) => setAgentPrompt(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                          e.preventDefault();
+                          formRef.current?.requestSubmit();
+                        }
+                      }}
+                      placeholder="What should the agent work on?"
+                      rows={initialAgentPrompt ? 6 : 3}
+                      aria-label="Agent prompt"
+                      data-testid="new-workspace-agent-prompt"
+                    />
+                  </Collapse>
+                </Stack>
                 {error ? (
                   <div className={styles.error}>{error}</div>
                 ) : (

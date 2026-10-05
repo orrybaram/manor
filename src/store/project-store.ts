@@ -14,6 +14,7 @@ import { isRemoteHost, type HostId } from "../lib/hosts";
 import { hostForPath, patch, reconcile } from "../lib/workspace-directory";
 import { sharedRefresh } from "../lib/shared-refresh";
 import { pickDirectory } from "../lib/pick-directory";
+import { agentCommandWithPrompt, DEFAULT_AGENT_COMMAND } from "../lib/agent-command";
 import {
   buildSidebarItems,
   folderParentsOf,
@@ -492,6 +493,11 @@ export interface CreateWorktreeOptions {
   branch?: string;
   /** Run in the new workspace once it (and any setup script) is ready. */
   agentCommand?: string;
+  /**
+   * Start the project's agent with this as its first message, once the
+   * workspace is ready. Ignored when `agentCommand` is given.
+   */
+  agentPrompt?: string;
   linkedIssue?: LinkedIssue;
   /** What a new branch starts from; the default branch when omitted. */
   baseBranch?: string;
@@ -992,9 +998,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     name: string,
     opts: CreateWorktreeOptions = {},
   ) => {
-    const { branch, agentCommand, linkedIssue, baseBranch, useExistingBranch } =
+    const { branch, agentPrompt, linkedIssue, baseBranch, useExistingBranch } =
       opts;
     const project = get().projects.find((p) => p.id === projectId);
+    const agentCommand =
+      opts.agentCommand ??
+      (agentPrompt?.trim()
+        ? agentCommandWithPrompt(
+            project?.agentCommand ?? DEFAULT_AGENT_COMMAND,
+            agentPrompt,
+          )
+        : undefined);
     const startScript = project?.worktreeStartScript ?? null;
 
     // Init setup state before IPC call

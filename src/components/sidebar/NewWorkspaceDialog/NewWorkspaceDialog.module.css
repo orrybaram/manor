@@ -164,3 +164,30 @@
 .hostPickerRow {
   flex-wrap: wrap;
 }
+
+.agentSection {
+  gap: 6px;
+}
+
+/* Quiet until asked for: most workspaces start without an agent. */
+.agentToggle {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.agentToggle:hover {
+  color: var(--text-selected);
+}
+
+.chevron {
+  transition: transform 150ms ease-out;
+}
+
+.chevronOpen {
+  composes: chevron;
+  transform: rotate(90deg);
+}

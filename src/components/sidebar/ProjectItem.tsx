@@ -357,7 +357,7 @@ type ProjectItemProps = {
     projectId: string,
     name: string,
     branch: string,
-    options: Pick<CreateWorktreeOptions, "baseBranch" | "useExistingBranch">,
+    options: Pick<CreateWorktreeOptions, "baseBranch" | "useExistingBranch" | "agentPrompt">,
   ) => Promise<string | null>;
   onOpenSettings?: () => void;
   onDragStart?: (e: ReactPointerEvent) => void;
@@ -1391,10 +1391,11 @@ export function ProjectItem(props: ProjectItemProps) {
         // Opened from this host's own section or folder: start there.
         preferredMemberId={isSection ? project.id : null}
         initialFolderId={newWorkspaceFolderId}
-        onSubmit={async (createInId, name, branch, baseBranch, useExistingBranch, folderId) => {
+        onSubmit={async (createInId, name, branch, baseBranch, useExistingBranch, folderId, agentPrompt) => {
           const result = await onCreateWorktree(createInId, name, branch, {
             baseBranch,
             useExistingBranch,
+            agentPrompt,
           });
           if (result) {
             setNewWorkspaceOpen(false);

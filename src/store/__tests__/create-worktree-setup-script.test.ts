@@ -177,6 +177,38 @@ describe("createWorktree setup script", () => {
     expect(window.electronAPI.pty.create).toHaveBeenCalled();
   });
 
+  it("starts the project's agent with the prompt as its first message", async () => {
+    const worktreePath = "/worktrees/test-project/prompted";
+
+    const project = { ...makeProject(), agentCommand: "codex" };
+    useProjectStore.setState({ projects: [project] });
+    vi.mocked(window.electronAPI.projects.createWorktree).mockResolvedValue({
+      ...project,
+      workspaces: [
+        ...project.workspaces,
+        {
+          path: worktreePath,
+          branch: "prompted",
+          isMain: false,
+          name: "prompted",
+          linkedIssues: [],
+        },
+      ],
+    });
+
+    await useProjectStore.getState().createWorktree("proj-1", "prompted", {
+      branch: "prompted",
+      agentPrompt: 'Fix "the" bug\nin $HOME',
+    });
+
+    expect(queuedCommands).toContainEqual(
+      expect.objectContaining({
+        text: 'codex "Fix \\"the\\" bug in \\$HOME"',
+        kind: "agent-startup",
+      }),
+    );
+  });
+
   it("does not create a tab when there is no startup command", async () => {
     const worktreePath = "/worktrees/test-project/plain";
 

@@ -57,7 +57,7 @@ type ProjectGroupItemProps = {
     projectId: string,
     name: string,
     branch: string,
-    options: Pick<CreateWorktreeOptions, "baseBranch" | "useExistingBranch">,
+    options: Pick<CreateWorktreeOptions, "baseBranch" | "useExistingBranch" | "agentPrompt">,
   ) => Promise<string | null>;
   onUnhideWorkspace: (project: ProjectInfo, ws: WorkspaceInfo) => void;
   /** Opens the group's settings page. */
@@ -330,10 +330,11 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
           projects={members}
           selectedProjectIndex={0}
           preselectedProjectId={lead.id}
-          onSubmit={async (createInId, name, branch, baseBranch, useExistingBranch) => {
+          onSubmit={async (createInId, name, branch, baseBranch, useExistingBranch, _folderId, agentPrompt) => {
             const result = await onCreateWorktree(createInId, name, branch, {
               baseBranch,
               useExistingBranch,
+              agentPrompt,
             });
             if (result) setNewWorkspaceOpen(false);
             return !!result;

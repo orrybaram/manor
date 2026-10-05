@@ -212,9 +212,8 @@ function App() {
   >(null);
   const [initialName, setInitialName] = useState("");
   const [initialBranch, setInitialBranch] = useState("");
-  const [_agentPrompt, setAgentPrompt] = useState<string | null>(null);
+  const [agentPrompt, setAgentPrompt] = useState<string | null>(null);
   const [_pendingLinkedIssue, setPendingLinkedIssue] = useState<import("./store/project-store").LinkedIssue | null>(null);
-  const agentPromptRef = useRef<string | null>(null);
   const pendingLinkedIssueRef = useRef<import("./store/project-store").LinkedIssue | null>(null);
   const closeNewWorkspace = useCallback(() => {
     setNewWorkspaceOpen(false);
@@ -223,7 +222,6 @@ function App() {
     setInitialBranch("");
     setAgentPrompt(null);
     setPendingLinkedIssue(null);
-    agentPromptRef.current = null;
     pendingLinkedIssueRef.current = null;
   }, []);
 
@@ -340,10 +338,7 @@ function App() {
       if (opts?.projectId) setPreselectedProjectId(opts.projectId);
       if (opts?.name) setInitialName(opts.name);
       if (opts?.branch) setInitialBranch(opts.branch);
-      if (opts?.agentPrompt) {
-        setAgentPrompt(opts.agentPrompt);
-        agentPromptRef.current = opts.agentPrompt;
-      }
+      if (opts?.agentPrompt) setAgentPrompt(opts.agentPrompt);
       if (opts?.linkedIssue) {
         setPendingLinkedIssue(opts.linkedIssue);
         pendingLinkedIssueRef.current = opts.linkedIssue;
@@ -953,24 +948,11 @@ function App() {
               preselectedProjectId={preselectedProjectId}
               initialName={initialName}
               initialBranch={initialBranch}
-              onSubmit={async (projectId, name, branch, baseBranch, useExistingBranch, folderId) => {
-                let agentCommand: string | undefined;
-                const prompt = agentPromptRef.current;
-                if (prompt) {
-                  const project = projects.find((p) => p.id === projectId);
-                  const baseCommand =
-                    project?.agentCommand ?? DEFAULT_AGENT_COMMAND;
-                  const escaped = prompt
-                    .replace(/\\/g, "\\\\")
-                    .replace(/"/g, '\\"')
-                    .replace(/\$/g, "\\$")
-                    .replace(/`/g, "\\`")
-                    .replace(/!/g, "\\!");
-                  agentCommand = `${baseCommand} "${escaped}"`;
-                }
+              initialAgentPrompt={agentPrompt ?? undefined}
+              onSubmit={async (projectId, name, branch, baseBranch, useExistingBranch, folderId, prompt) => {
                 const result = await createWorktree(projectId, name, {
                   branch,
-                  agentCommand,
+                  agentPrompt: prompt,
                   linkedIssue: pendingLinkedIssueRef.current ?? undefined,
                   baseBranch,
                   useExistingBranch,

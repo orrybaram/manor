@@ -71,8 +71,8 @@ export function planHostResume(
 
 /**
  * The agent to resume in lost pane `paneId`, if it had one: the active agent
- * on that pane with a command to relaunch — the same agent the relaunch path
- * resumes. Unlike relaunch it does not skip one resumed before: that marker
+ * on that pane — the same agent the relaunch path resumes. One with no
+ * recorded command still resumes: main falls back to its project's command. Unlike relaunch it does not skip one resumed before: that marker
  * guards against launching twice on remount, while a restarted host means
  * the agent really is gone again.
  */
@@ -82,7 +82,7 @@ export function agentToResume(
 ): AgentInfo | null {
   return (
     activeAgents.find(
-      (a) => a.status === "active" && a.paneId === paneId && !!a.agentCommand,
+      (a) => a.status === "active" && a.paneId === paneId,
     ) ?? null
   );
 }

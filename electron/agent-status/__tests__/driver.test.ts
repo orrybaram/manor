@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { AgentInfo } from "../../agent-persistence";
 import type { AgentHookEvent } from "../../agent-hook-events";
 import type { AgentKind, PaneFacts } from "../../terminal-host/types";
-import { createAgentStatusDriver, type AgentStatusDriverDeps } from "../driver";
+import { createAgentStatusDriver, OUTPUT_SIGNAL_MS, type AgentStatusDriverDeps } from "../driver";
 import { paneContextBackfill, type PaneStatusUpdate } from "../effects";
 import { STALE_ACTIVE_MS, STALE_STOP_MS, STALE_SUBAGENT_MS } from "../reconciler";
 
@@ -302,6 +302,61 @@ describe("driver — ticks replace the sweeps (ported)", () => {
     expect(t.agentManager.getAgentBySessionId("s1")!.lastAgentStatus).toBe("responded");
     expect(last(t.published)).toMatchObject({ status: "responded" });
     expect(last(t.published)!.reason).toMatch(/stuck-working recovery/);
+  });
+
+  it("an active hook clears resumedAt, so a later lost pane can resume the Agent again", () => {
+    t.agentManager.seed({ agentSessionId: "s1", paneId: "pane-1", resumedAt: "2026-10-05T10:00:00Z" });
+    t.driver.hook(userPromptSubmit({ sessionId: "s1" }));
+    expect(t.agentManager.getAgentBySessionId("s1")!.resumedAt).toBeNull();
+  });
+
+  it("stuck-working: its inferred responded neither flags the Agent unseen nor notifies", () => {
+    t.driver.hook(preToolUse({ sessionId: "s1" }));
+    t.driver.hook(postToolUse({ sessionId: "s1" }));
+    const agent = t.agentManager.getAgentBySessionId("s1")!;
+    const notifiedBefore = t.maybeSendNotification.mock.calls.length;
+    t.advance(STALE_ACTIVE_MS + 1_000);
+    t.driver.tick();
+
+    expect(t.agentManager.getAgentBySessionId("s1")!.lastAgentStatus).toBe("responded");
+    expect(t.unseenRespondedAgents.has(agent.id)).toBe(false);
+    expect(t.maybeSendNotification.mock.calls.length).toBe(notifiedBefore);
+    expect(t.broadcastAgent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: agent.id, lastAgentStatus: "responded" }),
+    );
+  });
+
+  it("stuck-working: output keeps a long streamed reply working (noteOutput)", () => {
+    t.driver.hook(preToolUse({ sessionId: "s1" }));
+    t.driver.hook(postToolUse({ sessionId: "s1" }));
+    // The model streams for two minutes: no hook, but the pane keeps drawing.
+    for (let elapsed = 0; elapsed < 2 * STALE_ACTIVE_MS; elapsed += 1_000) {
+      t.advance(1_000);
+      t.driver.noteOutput("pane-1");
+      t.driver.tick();
+    }
+    expect(t.agentManager.getAgentBySessionId("s1")!.lastAgentStatus).toBe("thinking");
+
+    // It stops drawing (a lost Stop leaves the agent idle at its prompt).
+    t.advance(STALE_ACTIVE_MS);
+    t.driver.tick();
+    expect(t.agentManager.getAgentBySessionId("s1")!.lastAgentStatus).toBe("responded");
+  });
+
+  it("noteOutput is throttled, and ignores panes without a root session", () => {
+    t.driver.noteOutput("pane-unknown");
+    expect(t.driver.getPaneState("pane-unknown")).toBeUndefined();
+
+    t.driver.hook(preToolUse({ sessionId: "s1" }));
+    t.driver.noteOutput("pane-1");
+    const first = t.driver.getPaneState("pane-1")!.lastOutputAt;
+    expect(first).toBe(t.clock.mono);
+    t.advance(OUTPUT_SIGNAL_MS - 1);
+    t.driver.noteOutput("pane-1");
+    expect(t.driver.getPaneState("pane-1")!.lastOutputAt).toBe(first);
+    t.advance(1);
+    t.driver.noteOutput("pane-1");
+    expect(t.driver.getPaneState("pane-1")!.lastOutputAt).toBe(t.clock.mono);
   });
 
   it("stuck-working: the root's next active hook resumes the turn (a long think, not a lost Stop)", () => {

@@ -1,4 +1,6 @@
-import { getConnector } from "../../agent-connectors";
+import { getConnector, getConnectorForCommand } from "../../agent-connectors";
+import { resolveAgentCommand } from "../../../src/lib/resolve-agent-command";
+import { workspaceKey } from "../../../src/lib/workspace-key";
 import { agentHostId, type AgentInfo } from "../../agent-persistence";
 import {
   paneContextBackfill,
@@ -118,17 +120,35 @@ export function agentsGetPaneStatuses(ctx: HandlerCtx): PaneStatusUpdate[] {
   return ctx.deps.agentStatus.getAllPaneStatuses();
 }
 
-export function agentsBuildResumeCommand(
+export async function agentsBuildResumeCommand(
   ctx: HandlerCtx,
   agentId: string,
-): string | null {
+): Promise<string | null> {
   assertString(agentId, "agentId");
   const agent = ctx.deps.agentManager.getAgentById(agentId);
-  if (!agent || !agent.agentCommand) return null;
-  return getConnector(agent.agentKind).getResumeCommand(
-    agent.agentCommand,
-    agent.agentSessionId,
-  );
+  if (!agent) return null;
+  const base = agent.agentCommand ?? (await fallbackAgentCommand(ctx, agent));
+  return getConnector(agent.agentKind).getResumeCommand(base, agent.agentSessionId);
+}
+
+/**
+ * The command to resume an Agent that recorded none — one started by typing
+ * the CLI into a shell rather than from Manor. Its project's agent command
+ * when that runs the same kind of agent, else the kind's default.
+ */
+async function fallbackAgentCommand(ctx: HandlerCtx, agent: AgentInfo): Promise<string> {
+  const connector = getConnector(agent.agentKind);
+  if (!agent.workspacePath) return connector.defaultCommand;
+  try {
+    const projectCommand = resolveAgentCommand({
+      key: workspaceKey(agent.hostId, agent.workspacePath),
+      projects: await ctx.deps.projectManager.getProjects(),
+    });
+    if (getConnectorForCommand(projectCommand).kind === agent.agentKind) return projectCommand;
+  } catch {
+    // No projects to ask: the kind's default still resumes the session.
+  }
+  return connector.defaultCommand;
 }
 
 /**

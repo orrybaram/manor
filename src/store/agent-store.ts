@@ -362,7 +362,12 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
           }
         }
 
-        if (nextStatus === "responded") {
+        // Main flags a responded Agent unseen only when the agent itself ended
+        // its turn; one inferred from silence (a long reply, a lost Stop)
+        // arrives without the flag and must not interrupt anyone. Older
+        // preloads send no flags, and keep the old behaviour.
+        const reportedResponse = !unseen || unseen.responded;
+        if (nextStatus === "responded" && reportedResponse) {
           if (!isAlreadyVisible) {
             const toastId = `agent-responded-${agent.id}`;
             useToastStore.getState().addToast({

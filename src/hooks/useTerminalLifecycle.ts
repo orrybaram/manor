@@ -471,7 +471,7 @@ export function useTerminalLifecycle(
             void (async () => {
               const activeAgents = await window.electronAPI.agents.getAll({ status: "active" });
               const resumeAgent = activeAgents.find(
-                (t) => t.paneId === paneId && !t.resumedAt && t.agentCommand,
+                (t) => t.paneId === paneId && !t.resumedAt,
               );
               if (!resumeAgent || disposed) return;
 
@@ -481,7 +481,8 @@ export function useTerminalLifecycle(
               // Resume the prior agent session if we can; otherwise relaunch the bare command.
               const resumeCmd = await window.electronAPI.agents.buildResumeCommand(resumeAgent.id);
               if (disposed) return;
-              sendOnShellReady(resumeCmd ?? resumeAgent.agentCommand!, { submit: true });
+              const command = resumeCmd ?? resumeAgent.agentCommand;
+              if (command) sendOnShellReady(command, { submit: true });
             })();
           }
         },

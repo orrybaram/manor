@@ -16,6 +16,7 @@ import {
   STALE_STOP_MS,
   STALE_SUBAGENT_MS,
   STALE_ACTIVE_MS,
+  OUTPUT_LIVE_MS,
   HOOK_DEBOUNCE_MS,
 } from "../reconciler";
 import type {
@@ -983,7 +984,36 @@ describe("reconcile — ticks", () => {
     const r = reconcile(start, tick(STALE_ACTIVE_MS + 1), ctx({ existingAgent: agent({ lastAgentStatus: "working" }) }));
     expect(r.status).toBe("responded");
     expect(r.reason).toBe("no hook for 60s (stuck-working recovery)");
-    expect(persisted(r.effects)).toEqual([respond()]);
+    // Inferred, not reported: persisted quietly (no unseen flag, no notification).
+    expect(persisted(r.effects)).toEqual([
+      { kind: "PersistAgentStatus", sessionId: "sess-1", transition: { to: "responded", quiet: true } },
+    ]);
+  });
+
+  it("T2 waits STALE_SUBAGENT_MS while the pane is still drawing (a long streamed reply)", () => {
+    const c = ctx({ existingAgent: agent({ lastAgentStatus: "working" }) });
+    const start = activePane({ status: "working", lastHookAt: 0 });
+
+    // Output just now: the agent is redrawing its spinner, not stuck.
+    const drawing = reconcile(start, { type: "output" }, ctx({ nowMs: STALE_ACTIVE_MS })).state;
+    expect(drawing.lastOutputAt).toBe(STALE_ACTIVE_MS);
+    expect(reconcile(drawing, tick(STALE_ACTIVE_MS + 1), c).effects).toEqual([]);
+    expect(reconcile(drawing, tick(STALE_ACTIVE_MS + OUTPUT_LIVE_MS), c).effects).toEqual([]);
+
+    // Output stopped: once it has been quiet past OUTPUT_LIVE_MS, T2 applies.
+    const quiet = reconcile(drawing, tick(STALE_ACTIVE_MS + OUTPUT_LIVE_MS + 1), c);
+    expect(quiet.status).toBe("responded");
+
+    // Still drawing at the cap: STALE_SUBAGENT_MS is the last resort.
+    const stillDrawing = { ...drawing, lastOutputAt: STALE_SUBAGENT_MS };
+    expect(reconcile(stillDrawing, tick(STALE_SUBAGENT_MS + 1), c).status).toBe("responded");
+  });
+
+  it("output never changes the status or publishes", () => {
+    const start = activePane({ status: "working", lastHookAt: 0 });
+    const r = reconcile(start, { type: "output" }, ctx({ nowMs: 5 }));
+    expect(r.status).toBe("working");
+    expect(r.effects).toEqual([]);
   });
 
   it("T2 waits STALE_SUBAGENT_MS while a foreground subagent keyed by agent_id runs (ADR-186)", () => {

@@ -64,10 +64,16 @@
  *      (ADR-186: exact pairing, so a quiet background subagent is not lost).
  *  T2  Stuck-working (ADR-131): root turn quiet > STALE_ACTIVE_MS while the
  *      Agent is still active → `stalled` (STALE_SUBAGENT_MS while every active
- *      subagent has an `agent:` key, ADR-186, or while a root tool call is
- *      open — PreToolUse without its PostToolUse).
+ *      subagent has an `agent:` key, ADR-186, while a root tool call is
+ *      open — PreToolUse without its PostToolUse — or while the pane is still
+ *      writing output within OUTPUT_LIVE_MS: a long streamed reply sends no
+ *      hook but keeps redrawing). The turn it ends is a guess, so its
+ *      responded is persisted quietly: no unseen flag, no notification.
  *  T3  Orphan (ADR-132): the pane's Agent is stuck active but has no turn state,
  *      and is older than STALE_ACTIVE_MS.
+ *
+ * Output (`reconcileOutput`)
+ *  O1  Stamps `lastOutputAt`; never changes the status.
  *
  * User signals (`reconcileUser`)
  *  U1  abandon / end: an active Agent's lifecycle becomes `abandoned`; pane →
@@ -104,6 +110,12 @@ export const STALE_SUBAGENT_MS = 15 * 60_000;
 export const STALE_ACTIVE_MS = 60_000;
 /** An orphaned active Agent is forced to responded at this age (ADR-132). */
 export const ORPHAN_AGENT_MS = STALE_ACTIVE_MS;
+/**
+ * Output this recent means the pane is still drawing, so T2 does not take its
+ * hook silence for a lost Stop. Comfortably above the driver's output
+ * throttle, so a pane that keeps drawing never looks quiet between signals.
+ */
+export const OUTPUT_LIVE_MS = 15_000;
 /** Pane facts may not override an unattributed hook within this window. */
 export const HOOK_DEBOUNCE_MS = 2_000;
 
@@ -181,6 +193,7 @@ export function initialPaneState(paneId: string): PaneAgentState {
     finishedSubagents: new Set(),
     openToolCalls: 0,
     lastHookAt: null,
+    lastOutputAt: null,
     pendingStopAt: null,
     lastUnattributedHookAt: null,
     lastFacts: null,
@@ -380,6 +393,8 @@ export function reconcile(
       return reconcileHook(state, signal.event, ctx);
     case "paneFacts":
       return reconcileFacts(state, signal.facts, ctx);
+    case "output":
+      return reconcileOutput(state, ctx);
     case "tick":
       return reconcileTick(state, signal.nowMs, ctx);
     case "user":
@@ -892,6 +907,13 @@ function reconcileFacts(
   return result(state, next, reason);
 }
 
+// ── Output ──
+
+/** O1 — the pane is still drawing; only T2 reads it. */
+function reconcileOutput(state: PaneAgentState, ctx: ReconcileContext): ReconcileResult {
+  return result(state, { ...state, lastOutputAt: ctx.nowMs }, "pane output");
+}
+
 // ── Ticks ──
 
 function reconcileTick(
@@ -906,7 +928,7 @@ function reconcileTick(
 
   if (root !== null && state.phase !== "none") {
     const idle = state.lastHookAt !== null ? nowMs - state.lastHookAt : 0;
-    const early = reconcileTurnTick(state, root, idle, rootAgent);
+    const early = reconcileTurnTick(state, root, idle, nowMs, rootAgent);
     if (early) return early;
   }
 
@@ -943,6 +965,7 @@ function reconcileTurnTick(
   state: PaneAgentState,
   root: string,
   idle: number,
+  nowMs: number,
   rootAgent: AgentInfo | null,
 ): ReconcileResult | null {
   // T1 — held-Stop drain (ADR-130). When every active subagent is paired by
@@ -970,8 +993,15 @@ function reconcileTurnTick(
   // its `agent_id` can be quiet for minutes inside one tool call (a test run),
   // so it gets the same STALE_SUBAGENT_MS window as T1 (ADR-186). So can the
   // root's own tool call: a long foreground Bash sends no hook until it ends.
+  // So can a long reply — the model streaming one big answer or tool input —
+  // but the agent keeps redrawing its spinner meanwhile, which a lost Stop
+  // (an agent idle at its prompt) does not.
+  const stillDrawing =
+    state.lastOutputAt !== null && nowMs - state.lastOutputAt <= OUTPUT_LIVE_MS;
   const activeThreshold =
-    state.openToolCalls > 0 || allSubagentsHaveAgentIds(state.activeSubagents)
+    state.openToolCalls > 0 ||
+    allSubagentsHaveAgentIds(state.activeSubagents) ||
+    stillDrawing
       ? STALE_SUBAGENT_MS
       : STALE_ACTIVE_MS;
   if (
@@ -987,7 +1017,7 @@ function reconcileTurnTick(
       reason,
     );
     return result(state, next, reason, [
-      { kind: "PersistAgentStatus", sessionId: root, transition: { to: "responded" } },
+      { kind: "PersistAgentStatus", sessionId: root, transition: { to: "responded", quiet: true } },
     ]);
   }
 

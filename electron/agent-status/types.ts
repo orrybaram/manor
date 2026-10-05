@@ -51,6 +51,12 @@ export type UserAction =
 export type StatusSignal =
   | { type: "hook"; event: AgentHookEvent }
   | { type: "paneFacts"; facts: PaneFacts }
+  /**
+   * The pane wrote output (throttled by the driver). Says nothing about what
+   * the agent is doing, only that something in the pane is still drawing — an
+   * agent mid-reply redraws its spinner while no hook fires.
+   */
+  | { type: "output" }
   /** The current monotonic time. Every time-based rule runs on a tick. */
   | { type: "tick"; nowMs: number }
   | { type: "user"; action: UserAction };
@@ -104,6 +110,8 @@ export interface PaneAgentState {
   readonly openToolCalls: number;
   /** Monotonic ms of the root session's last hook, or null. */
   readonly lastHookAt: number | null;
+  /** Monotonic ms of the pane's last `output` signal, or null. */
+  readonly lastOutputAt: number | null;
   /** Monotonic ms when a Stop was first held for active subagents, or null. */
   readonly pendingStopAt: number | null;
   /**
@@ -141,7 +149,9 @@ export interface PaneAgentState {
  *               to unseen-input; notify; broadcast.
  * - `responded` (was `ApplyStop` / `applyStopForSession`): lifecycle `active`,
  *               last status `responded`; add to unseen-responded; notify;
- *               broadcast.
+ *               broadcast. `quiet` (a turn ended by inference, not by its
+ *               Stop) skips the unseen flag and the notification: a guess
+ *               may be wrong, and must not interrupt anyone.
  * - `completed` (was `MarkCompleted`): lifecycle `completed`, last status
  *               `idle` (was `"complete"`), `completedAt`; clear unseen; broadcast.
  * - `error`     (was `MarkError`): lifecycle `error`, last status `error`,
@@ -151,7 +161,7 @@ export interface PaneAgentState {
  */
 export type AgentStatusTransition =
   | { to: "active"; status: ActiveAgentStatus }
-  | { to: "responded" }
+  | { to: "responded"; quiet?: true }
   | { to: "completed" }
   | { to: "error" }
   | { to: "abandoned" };

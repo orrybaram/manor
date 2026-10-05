@@ -229,6 +229,10 @@ function applyTransition(
         lastAgentStatus: transition.status,
         status: "active",
         ...(existing.activatedAt ? {} : { activatedAt: now }),
+        // Running again since its last resume: if its pane is lost again, the
+        // cold start may resume it again (`resumedAt` only stops a re-mount
+        // from launching the same resume twice).
+        ...(existing.resumedAt ? { resumedAt: null } : {}),
       });
       if (agent) {
         if (transition.status === "requires_input") {
@@ -247,8 +251,12 @@ function applyTransition(
         status: "active",
       });
       if (agent) {
-        deps.unseenRespondedAgents.add(agent.id);
-        deps.maybeSendNotification(agent, prevStatus, "responded");
+        // A quiet responded is inferred, not reported by the agent: it may be
+        // wrong, so it neither flags the Agent unseen nor notifies.
+        if (!transition.quiet) {
+          deps.unseenRespondedAgents.add(agent.id);
+          deps.maybeSendNotification(agent, prevStatus, "responded");
+        }
         deps.broadcastAgent(agent);
       }
       return;

@@ -114,7 +114,7 @@ function manorVersion(): string {
 
 export interface AgentStreamDeps {
   agentManager: Pick<AgentManager, "getAgentByPaneId" | "updateAgent">;
-  agentStatus: Pick<AgentStatusDriver, "signal" | "forgetPane">;
+  agentStatus: Pick<AgentStatusDriver, "signal" | "noteOutput" | "forgetPane">;
   /** Broadcast an updated Agent (and refresh the dock badge). */
   broadcastAgent: (agent: AgentInfo) => void;
 }
@@ -125,6 +125,8 @@ export interface AgentStreamDeps {
  * - `paneFacts` → a Status signal for the pane, and the Agent's name from the
  *   terminal title (unless the user pinned one);
  * - `cwd` → the active Agent's cwd;
+ * - `data` → the pane is still drawing (throttled in the driver), which keeps
+ *   a long streamed reply from reading as a stuck turn;
  * - `exit` → the pane's reconciler state is dropped.
  */
 export function handleAgentStreamEvent(event: StreamEvent, deps: AgentStreamDeps): void {
@@ -134,11 +136,13 @@ export function handleAgentStreamEvent(event: StreamEvent, deps: AgentStreamDeps
         deps.agentStatus.signal(event.sessionId, { type: "paneFacts", facts: event.facts });
         // Update the persisted Agent name from the terminal title — unless the
         // user pinned a name of their own, which the title sync must not
-        // clobber.
-        const cleaned = cleanAgentTitle(event.facts.title);
+        // clobber. Only an agent still running in the foreground names
+        // itself: once it exits, the title is the shell's, and a finished
+        // Agent keeps the name it ended with.
+        const cleaned = event.facts.foreground?.kind ? cleanAgentTitle(event.facts.title) : null;
         if (cleaned) {
           const agent = deps.agentManager.getAgentByPaneId(event.sessionId);
-          if (agent && !agent.namePinned && agent.name !== cleaned) {
+          if (agent && agent.status === "active" && !agent.namePinned && agent.name !== cleaned) {
             const updated = deps.agentManager.updateAgent(agent.id, { name: cleaned });
             if (updated) deps.broadcastAgent(updated);
           }
@@ -154,6 +158,9 @@ export function handleAgentStreamEvent(event: StreamEvent, deps: AgentStreamDeps
         }
         break;
       }
+      case "data":
+        deps.agentStatus.noteOutput(event.sessionId);
+        break;
       case "exit":
         deps.agentStatus.forgetPane(event.sessionId);
         break;

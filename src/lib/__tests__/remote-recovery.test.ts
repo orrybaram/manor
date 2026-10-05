@@ -83,10 +83,14 @@ describe("agentToResume", () => {
     expect(agentToResume("p-lost-agent", [a])).toBe(a);
   });
 
-  it("skips finished agents, other panes and agents with nothing to relaunch", () => {
+  it("skips finished agents and other panes", () => {
     expect(agentToResume("p-lost-agent", [agent({ status: "completed" })])).toBeNull();
     expect(agentToResume("p-lost-agent", [agent({ paneId: "elsewhere" })])).toBeNull();
-    expect(agentToResume("p-lost-agent", [agent({ agentCommand: null })])).toBeNull();
+  });
+
+  it("resumes an agent started by hand, with no recorded command (main supplies one)", () => {
+    const a = agent({ agentCommand: null });
+    expect(agentToResume("p-lost-agent", [a])).toBe(a);
   });
 });
 

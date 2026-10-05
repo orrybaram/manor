@@ -89,6 +89,7 @@ import {
 } from "./hooks/useNavigationHistory";
 import type { AgentInfo } from "./electron.d";
 import { agentWorkspaceKey, navigateToAgent } from "./utils/agent-navigation";
+import { paneHasNoAgent, resumeAgentInPane } from "./lib/agent-resume-in-pane";
 import { hasPaneId } from "./lib/layout/pane-tree";
 import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults";
 import { isHomePath, HOME_PATH } from "./lib/home";
@@ -692,6 +693,10 @@ function App() {
           );
           if (paneExists) {
             navigateToAgent(agent);
+            // Its pane came back as a bare shell (the terminal session was
+            // lost): bring the agent back there rather than show it empty.
+            const paneStatus = useAppStore.getState().paneAgentStatus[agent.paneId];
+            if (paneHasNoAgent(paneStatus)) void resumeAgentInPane(agent);
             return;
           }
         }

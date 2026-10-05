@@ -93,6 +93,12 @@ export interface AgentStatusDriver extends AgentStatusSignals {
     sessionIds: readonly string[],
     getPaneFacts: (sessionId: string) => Promise<PaneFacts | null>,
   ): Promise<void>;
+  /**
+   * The pane wrote output. Called for every chunk; fed to the reconciler as an
+   * `output` signal at most once per `OUTPUT_SIGNAL_MS`, and only for a pane
+   * with a root session — the only panes whose rules read it.
+   */
+  noteOutput(paneId: string): void;
   /** Drop a pane's state (its pty exited). */
   forgetPane(paneId: string): void;
   /**
@@ -119,6 +125,12 @@ function defaultMonoClock(): number {
   return Number(process.hrtime.bigint() / 1_000_000n);
 }
 
+/**
+ * How often a pane that keeps writing output reaches the reconciler. Well
+ * inside `OUTPUT_LIVE_MS`, so a pane that is still drawing never looks quiet.
+ */
+export const OUTPUT_SIGNAL_MS = 5_000;
+
 /** The key used for an orphaned Agent that no longer has a pane. */
 const NO_PANE = "__no-pane__";
 
@@ -134,6 +146,8 @@ export function createAgentStatusDriver(deps: AgentStatusDriverDeps): AgentStatu
   const states = new Map<string, PaneAgentState>();
   /** Expected-loss windows (ADR-185 §A): pane id → monotonic deadline. */
   const expectedLoss = new Map<string, number>();
+  /** Pane id → monotonic ms of its last `output` signal (`noteOutput`). */
+  const lastOutputSignalAt = new Map<string, number>();
   let interval: ReturnType<typeof setInterval> | null = null;
 
   // Boot timestamps for the orphan rule's age clamp (ADR-132, as in the old
@@ -181,6 +195,8 @@ export function createAgentStatusDriver(deps: AgentStatusDriverDeps): AgentStatu
         return `hook ${signal.event.type} session=${signal.event.sessionId}`;
       case "paneFacts":
         return "paneFacts";
+      case "output":
+        return "output";
       case "tick":
         return "tick";
       case "user":
@@ -401,8 +417,18 @@ export function createAgentStatusDriver(deps: AgentStatusDriverDeps): AgentStatu
       interval = null;
     },
     resync,
+    noteOutput(paneId) {
+      const state = states.get(paneId);
+      if (!state || state.rootSessionId === null) return;
+      const nowMs = monoClock();
+      const last = lastOutputSignalAt.get(paneId);
+      if (last !== undefined && nowMs - last < OUTPUT_SIGNAL_MS) return;
+      lastOutputSignalAt.set(paneId, nowMs);
+      signal(paneId, { type: "output" });
+    },
     forgetPane(paneId) {
       states.delete(paneId);
+      lastOutputSignalAt.delete(paneId);
     },
     expectPaneLoss(paneIds, ttlMs = EXPECTED_PANE_LOSS_TTL_MS) {
       const deadline = monoClock() + ttlMs;

@@ -288,6 +288,10 @@ function ValueList(props: ValueListProps) {
     return [...ordered, ...missing];
   }, [rows, field, chosen]);
 
+  // Values ticked when the list opened lead it, above a divider. Fixed at
+  // open, so ticking or unticking doesn't move a row out from under the pointer.
+  const [pinned] = useState(() => new Set(chosen));
+
   const searchable = options.length > SEARCH_THRESHOLD;
   const q = query.trim().toLowerCase();
   const shown = q
@@ -366,10 +370,21 @@ function ValueList(props: ValueListProps) {
             {options.length === 0 ? "No values in these tasks." : "No matches."}
           </div>
         ) : (
-          shown.map((o) => {
+          [
+            ...shown.filter((o) => pinned.has(o.value)),
+            ...shown.filter((o) => !pinned.has(o.value)),
+          ].map((o, i, all) => {
             const checked = chosen.includes(o.value);
+            // The divider closes the pinned group, when both groups show.
+            const lastPinned =
+              pinned.has(o.value) &&
+              i < all.length - 1 &&
+              !pinned.has(all[i + 1].value);
             return (
-              <label key={o.value} className={styles.option}>
+              <label
+                key={o.value}
+                className={`${styles.option} ${lastPinned ? styles.optionLastPinned : ""}`}
+              >
                 <Checkbox
                   checked={checked}
                   onCheckedChange={(next) => onToggle(o.value, next === true)}

@@ -9,6 +9,7 @@ import * as Popover from "@radix-ui/react-popover";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import Loader2 from "lucide-react/dist/esm/icons/loader-2";
 import Plus from "lucide-react/dist/esm/icons/plus";
+import Check from "lucide-react/dist/esm/icons/check";
 import styles from "./SearchableSelect.module.css";
 
 export type SearchableSelectOption = {
@@ -74,11 +75,18 @@ export function SearchableSelect(props: SearchableSelectProps) {
     return found ? found.label : placeholder;
   }, [options, value, placeholder]);
 
+  // The selected option leads the list, above a divider.
   const filtered = useMemo(() => {
-    if (!search) return options;
     const lower = search.toLowerCase();
-    return options.filter((o) => o.label.toLowerCase().includes(lower));
-  }, [options, search]);
+    const matching = search
+      ? options.filter((o) => o.label.toLowerCase().includes(lower))
+      : options;
+    return [
+      ...matching.filter((o) => o.value === value),
+      ...matching.filter((o) => o.value !== value),
+    ];
+  }, [options, search, value]);
+  const dividerAfterFirst = filtered.length > 1 && filtered[0].value === value;
 
   // The text a create row would make, when there's one to offer.
   const createQuery = useMemo(() => {
@@ -229,7 +237,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
                 id={`searchable-select-option-${index}`}
                 role="option"
                 aria-selected={index === highlightIndex}
-                className={`${styles.option} ${index === highlightIndex ? styles.optionHighlighted : ""}`}
+                className={`${styles.option} ${index === highlightIndex ? styles.optionHighlighted : ""} ${index === 0 && dividerAfterFirst ? styles.optionSelected : ""}`}
                 onMouseEnter={() => setHighlightIndex(index)}
                 onMouseDown={(e) => {
                   e.preventDefault();
@@ -237,7 +245,10 @@ export function SearchableSelect(props: SearchableSelectProps) {
                 }}
               >
                 {option.icon}
-                {option.label}
+                <span className={styles.optionLabel}>{option.label}</span>
+                {option.value === value && (
+                  <Check size={12} className={styles.optionCheck} />
+                )}
               </div>
             ))
           )}

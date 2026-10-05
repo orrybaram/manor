@@ -101,6 +101,22 @@
   font-size: 12px;
 }
 
+/* The divider under the values ticked when the list opened. */
+.optionLastPinned {
+  position: relative;
+  margin-bottom: 9px;
+}
+
+.optionLastPinned::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -5px;
+  border-bottom: 1px solid var(--border);
+  pointer-events: none;
+}
+
 .values {
   display: flex;
   flex-direction: column;

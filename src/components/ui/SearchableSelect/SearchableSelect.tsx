@@ -8,6 +8,8 @@ import React, {
 import * as Popover from "@radix-ui/react-popover";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import Loader2 from "lucide-react/dist/esm/icons/loader-2";
+import Plus from "lucide-react/dist/esm/icons/plus";
+import Check from "lucide-react/dist/esm/icons/check";
 import styles from "./SearchableSelect.module.css";
 
 export type SearchableSelectOption = {
@@ -31,6 +33,13 @@ type SearchableSelectProps = {
   "data-testid"?: string;
   /** Set on the trigger button, so a `<label htmlFor>` can point at it. */
   id?: string;
+  /**
+   * Offers a "create" row at the end of the list for search text that
+   * matches no option's label exactly. Called with the trimmed text.
+   */
+  onCreate?: (query: string) => void;
+  /** The create row's label for a query; defaults to `Create "…"`. */
+  createLabel?: (query: string) => string;
   /** The trigger's accessible name when no `<label>` points at it: a
    *  combobox is not named by the value it shows. */
   "aria-label"?: string;
@@ -51,6 +60,8 @@ export function SearchableSelect(props: SearchableSelectProps) {
     emptyMessage = "No results",
     "data-testid": dataTestId,
     id,
+    onCreate,
+    createLabel = (q) => `Create "${q}"`,
   } = props;
 
   const [open, setOpen] = useState(false);
@@ -64,11 +75,30 @@ export function SearchableSelect(props: SearchableSelectProps) {
     return found ? found.label : placeholder;
   }, [options, value, placeholder]);
 
+  // The selected option leads the list, above a divider.
   const filtered = useMemo(() => {
-    if (!search) return options;
     const lower = search.toLowerCase();
-    return options.filter((o) => o.label.toLowerCase().includes(lower));
-  }, [options, search]);
+    const matching = search
+      ? options.filter((o) => o.label.toLowerCase().includes(lower))
+      : options;
+    return [
+      ...matching.filter((o) => o.value === value),
+      ...matching.filter((o) => o.value !== value),
+    ];
+  }, [options, search, value]);
+  const dividerAfterFirst = filtered.length > 1 && filtered[0].value === value;
+
+  // The text a create row would make, when there's one to offer.
+  const createQuery = useMemo(() => {
+    const trimmed = search.trim();
+    if (!onCreate || !trimmed) return null;
+    const lower = trimmed.toLowerCase();
+    return options.some((o) => o.label.toLowerCase() === lower)
+      ? null
+      : trimmed;
+  }, [onCreate, options, search]);
+  // The create row sits after the options, so it's reachable by arrow key.
+  const rowCount = filtered.length + (createQuery ? 1 : 0);
 
   const handleOpenChange = useCallback((nextOpen: boolean) => {
     setOpen(nextOpen);
@@ -88,27 +118,37 @@ export function SearchableSelect(props: SearchableSelectProps) {
     [onChange],
   );
 
+  const create = useCallback(
+    (query: string) => {
+      onCreate?.(query);
+      setOpen(false);
+      setSearch("");
+      setHighlightIndex(0);
+    },
+    [onCreate],
+  );
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (filtered.length === 0) return;
+      if (rowCount === 0) return;
 
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setHighlightIndex((prev) => (prev + 1) % filtered.length);
+        setHighlightIndex((prev) => (prev + 1) % rowCount);
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setHighlightIndex((prev) =>
-          prev <= 0 ? filtered.length - 1 : prev - 1,
-        );
+        setHighlightIndex((prev) => (prev <= 0 ? rowCount - 1 : prev - 1));
       } else if (e.key === "Enter") {
         e.preventDefault();
         const target = filtered[highlightIndex];
         if (target) {
           selectOption(target.value);
+        } else if (createQuery) {
+          create(createQuery);
         }
       }
     },
-    [filtered, highlightIndex, selectOption],
+    [rowCount, filtered, highlightIndex, selectOption, createQuery, create],
   );
 
   const handleSearchChange = useCallback(
@@ -127,9 +167,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
   }, [highlightIndex]);
 
   const highlightedId =
-    filtered.length > 0
-      ? `searchable-select-option-${highlightIndex}`
-      : undefined;
+    rowCount > 0 ? `searchable-select-option-${highlightIndex}` : undefined;
 
   return (
     <Popover.Root open={open} onOpenChange={handleOpenChange}>
@@ -172,7 +210,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
         <input
           ref={inputRef}
           className={styles.searchInput}
-          placeholder="Search..."
+          placeholder={onCreate ? "Search or create..." : "Search..."}
           value={search}
           onChange={handleSearchChange}
           onKeyDown={handleKeyDown}
@@ -190,7 +228,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
               <Loader2 size={14} className={styles.spinner} />
               Loading...
             </div>
-          ) : filtered.length === 0 ? (
+          ) : rowCount === 0 ? (
             <div className={styles.empty}>{emptyMessage}</div>
           ) : (
             filtered.map((option, index) => (
@@ -199,7 +237,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
                 id={`searchable-select-option-${index}`}
                 role="option"
                 aria-selected={index === highlightIndex}
-                className={`${styles.option} ${index === highlightIndex ? styles.optionHighlighted : ""}`}
+                className={`${styles.option} ${index === highlightIndex ? styles.optionHighlighted : ""} ${index === 0 && dividerAfterFirst ? styles.optionSelected : ""}`}
                 onMouseEnter={() => setHighlightIndex(index)}
                 onMouseDown={(e) => {
                   e.preventDefault();
@@ -207,9 +245,29 @@ export function SearchableSelect(props: SearchableSelectProps) {
                 }}
               >
                 {option.icon}
-                {option.label}
+                <span className={styles.optionLabel}>{option.label}</span>
+                {option.value === value && (
+                  <Check size={12} className={styles.optionCheck} />
+                )}
               </div>
             ))
+          )}
+          {!loading && createQuery && (
+            <div
+              id={`searchable-select-option-${filtered.length}`}
+              role="option"
+              aria-selected={highlightIndex === filtered.length}
+              className={`${styles.option} ${highlightIndex === filtered.length ? styles.optionHighlighted : ""}`}
+              data-testid={dataTestId ? `${dataTestId}-create` : undefined}
+              onMouseEnter={() => setHighlightIndex(filtered.length)}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                create(createQuery);
+              }}
+            >
+              <Plus size={12} />
+              {createLabel(createQuery)}
+            </div>
           )}
         </div>
       </Popover.Content>

@@ -1,13 +1,13 @@
 /*
  * The Tasks view's Filter button and popover (ADR-201 §5). The popover
- * shell follows PrPopover.module.css; the trigger matches the filter row's
- * 32px controls.
+ * shell follows PrPopover.module.css; the trigger leads the chip row, so
+ * it's sized to sit beside the chips.
  */
 
 .trigger {
-  height: 32px;
-  padding: 0 10px;
-  gap: 6px;
+  height: 26px;
+  padding: 0 9px;
+  gap: 5px;
   font-size: 12.5px;
   flex-shrink: 0;
   color: var(--text-primary);
@@ -99,6 +99,22 @@
   margin: 4px 0;
   padding: 5px 8px;
   font-size: 12px;
+}
+
+/* The divider under the values ticked when the list opened. */
+.optionLastPinned {
+  position: relative;
+  margin-bottom: 9px;
+}
+
+.optionLastPinned::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -5px;
+  border-bottom: 1px solid var(--border);
+  pointer-events: none;
 }
 
 .values {

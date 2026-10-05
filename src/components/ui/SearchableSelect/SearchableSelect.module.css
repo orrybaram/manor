@@ -89,6 +89,32 @@
   color: var(--text-primary);
 }
 
+.optionLabel {
+  flex: 1;
+  min-width: 0;
+}
+
+.optionCheck {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+/* The selected option, pinned first: a divider sets it off from the rest. */
+.optionSelected {
+  position: relative;
+  margin-bottom: 9px;
+}
+
+.optionSelected::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -5px;
+  border-bottom: 1px solid var(--surface);
+  pointer-events: none;
+}
+
 .optionHighlighted {
   background: var(--surface);
   color: var(--text-selected);

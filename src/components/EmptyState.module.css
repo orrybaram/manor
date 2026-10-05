@@ -285,3 +285,9 @@
 .fadeIn {
   animation: fadeIn 0.5s ease-out forwards;
 }
+
+:global(:root[data-layout="phone"]) .nudgeInstallBtn {
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 14px;
+}

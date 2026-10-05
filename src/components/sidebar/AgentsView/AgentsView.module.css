@@ -283,3 +283,13 @@
     transform: scale(0.96);
   }
 }
+
+:global(:root[data-layout="phone"]) .filterTab {
+  min-height: 36px;
+  font-size: 14px;
+}
+
+:global(:root[data-layout="phone"]) .closeButton {
+  min-width: 44px;
+  min-height: 44px;
+}

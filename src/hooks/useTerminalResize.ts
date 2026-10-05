@@ -287,6 +287,22 @@ export function useOwnerFit(
 }
 
 /**
+ * What one row costs, in CSS pixels, at the terminal's current font size —
+ * the render service's cell height, which includes the line height. Null
+ * before the renderer has measured anything.
+ */
+export function measureCellHeight(term: Terminal): number | null {
+  const css = (
+    term as unknown as {
+      _core?: {
+        _renderService?: { dimensions?: { css?: { cell?: { height?: number } } } };
+      };
+    }
+  )._core?._renderService?.dimensions?.css?.cell?.height;
+  return typeof css === "number" && css > 0 ? css : null;
+}
+
+/**
  * The follower's half of D5: fit the *pane* to the owner's grid, never the
  * other way around.
  *
@@ -348,12 +364,15 @@ export function useFollowerFit(
       const current = term.options.fontSize ?? ceiling;
       const cell = measureCellWidth(term);
       if (cell !== null) {
-        const size = followerFontSize(
-          current,
-          el.clientWidth,
-          t.cols,
-          cell,
-          ceiling,
+        // Both ways: a landscape phone is wide enough for the columns and
+        // nowhere near tall enough for the rows, and the rows it would cut
+        // off are the bottom ones — where a TUI keeps its prompt.
+        const cellHeight = measureCellHeight(term);
+        const size = Math.min(
+          followerFontSize(current, el.clientWidth, t.cols, cell, ceiling),
+          cellHeight === null
+            ? ceiling
+            : followerFontSize(current, el.clientHeight, t.rows, cellHeight, ceiling),
         );
         if (size !== current) {
           term.options.fontSize = size;

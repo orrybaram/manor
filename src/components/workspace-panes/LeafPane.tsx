@@ -26,6 +26,8 @@ import {
   findWindowAtPoint,
   spawnBoundsFor,
   buildDragImage,
+  beginPointerTracking,
+  hasPointerLeftDocument,
   type Bounds,
   type WindowInfo,
 } from "../../lib/detach-drag";
@@ -220,6 +222,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
     // Signal an active pane drag so pane drop zones render and highlight.
     startDrag({ type: "pane", paneId, grabOffset: dragGrabOffset.current });
     tearOffCommitted.current = false;
+    beginPointerTracking();
 
     // Snapshot geometry for the dragend tear-off hit-test (no async there).
     windowBounds.current = null;
@@ -254,6 +257,9 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
     if (sx === 0 && sy === 0) return;
 
     if (!isOutsideWindow(sx, sy, b)) return;
+    // Screen coords can misreport mid-drag; only tear off once the app itself
+    // has stopped seeing the drag (the pointer really left the window).
+    if (!hasPointerLeftDocument()) return;
 
     // Over another manor window → this is a move-into-that-window; let the
     // release (dragend) hand it off rather than spawning a new window here.
@@ -295,7 +301,10 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
 
     // Not consumed by any in-app drop target. Where it landed decides:
     const bounds = windowBounds.current;
-    const releasedOutside = bounds !== null && isOutsideWindow(sx, sy, bounds, 0);
+    const releasedOutside =
+      bounds !== null &&
+      isOutsideWindow(sx, sy, bounds, 0) &&
+      hasPointerLeftDocument();
     // Dropped in dead space inside the window → cancel (no-op).
     if (!releasedOutside) return;
 

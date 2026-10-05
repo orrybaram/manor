@@ -32,10 +32,31 @@
       a web app, the only place iOS offers Web Push (ADR-206 D7).
     -->
     <title>Manor</title>
+    <!--
+      Painted before a byte of script has run. Over the relay the app's first
+      frame waits on its bundle, a handshake and the host's layout — seconds
+      on a phone — and until then this is what is on screen instead of a
+      white page. React replaces it on its first render.
+    -->
+    <style>
+      html, body { margin: 0; background: #1e1e2e; color: #a6adc8; }
+      .boot {
+        position: fixed; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 14px;
+        font: 14px system-ui, -apple-system, sans-serif;
+      }
+      .boot-mark {
+        width: 28px; height: 28px; border-radius: 50%;
+        border: 2px solid #45475a; border-top-color: #b4befe;
+        animation: boot-spin 0.9s linear infinite;
+      }
+      @keyframes boot-spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .boot-mark { animation: none; } }
+    </style>
   </head>
 
   <body>
-    <div id="root"></div>
+    <div id="root"><div class="boot" role="status"><div class="boot-mark"></div>Connecting to Manor…</div></div>
     <script type="module" src="./web-main.tsx"></script>
   </body>
 </html>

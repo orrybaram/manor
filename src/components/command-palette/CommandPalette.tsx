@@ -5,6 +5,7 @@ import { Command } from "cmdk";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
 import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
+import X from "lucide-react/dist/esm/icons/x";
 import { useAppStore, selectActiveWorkspaceKey } from "../../store/app-store";
 import { workspaceKey } from "../../lib/workspace-key";
 import { useRestoreFocus } from "../../hooks/useRestoreFocus";
@@ -46,6 +47,7 @@ import type {
   CommandItem,
 } from "./types";
 import { Row } from "../ui/Layout/Layout";
+import { Button } from "../ui/Button/Button";
 import tasksStyles from "../tasks/TasksView.module.css";
 import styles from "./CommandPalette.module.css";
 
@@ -633,6 +635,7 @@ export function CommandPalette(props: CommandPaletteProps) {
           <Dialog.Overlay className={styles.overlay} />
           <Dialog.Content
             data-testid="command-palette"
+            aria-describedby={undefined}
             className={`${styles.palette} ${isDetailView ? styles.paletteWide : ""} ${view === "task-detail" ? styles.paletteTask : ""} ${view === "stats" ? styles.paletteStats : ""}`}
             onOpenAutoFocus={handleOpenAutoFocus}
             onCloseAutoFocus={handleCloseAutoFocus}
@@ -681,6 +684,18 @@ export function CommandPalette(props: CommandPaletteProps) {
                     }}
                     onKeyDown={handleRootInputKeyDown}
                   />
+                  {/* Full screen on a phone, with no overlay to tap and no
+                      Escape key: this is its way out. CSS shows it there only. */}
+                  <Dialog.Close asChild>
+                    <Button
+                      variant="ghost"
+                      className={styles.phoneClose}
+                      data-testid="command-palette-close"
+                      aria-label="Close"
+                    >
+                      <X size={20} />
+                    </Button>
+                  </Dialog.Close>
                 </div>
               ) : (
                 <Command.Input

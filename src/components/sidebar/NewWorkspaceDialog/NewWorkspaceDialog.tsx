@@ -407,7 +407,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
           <Row align="center" justify="space-between" className={styles.header}>
             <Dialog.Title className={styles.title}>New Workspace</Dialog.Title>
             <Dialog.Close asChild>
-              <Button variant="ghost" size="sm">
+              <Button variant="ghost" size="sm" aria-label="Close">
                 <X size={14} />
               </Button>
             </Dialog.Close>
@@ -526,6 +526,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                         options={projectOptions}
                         icon={<Box size={12} />}
                         maxWidth={160}
+                        aria-label="Project"
                         data-testid="new-workspace-project-select"
                       />
                     )}
@@ -539,6 +540,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                         icon={<Folder size={12} />}
                         maxWidth={140}
                         placeholder="No folder"
+                        aria-label="Folder"
                         data-testid="new-workspace-folder-select"
                       />
                     )}
@@ -558,6 +560,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                         emptyMessage="No matching branches"
                         icon={<GitBranch size={12} />}
                         maxWidth={180}
+                        aria-label="Base branch"
                         data-testid="new-workspace-base-branch-select"
                       />
                     )}

@@ -255,3 +255,15 @@
   border-color: var(--hd-fg-4);
   color: var(--text-selected);
 }
+
+/* Thumb-sized on a phone — every action in a card the same height, links
+   and buttons alike. */
+:global(:root[data-layout="phone"]) .action.action {
+  height: 36px;
+  line-height: 34px;
+  font-size: 13px;
+}
+
+:global(:root[data-layout="phone"]) .tool.tool {
+  width: 36px;
+}

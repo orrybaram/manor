@@ -39,6 +39,9 @@ type SearchableSelectProps = {
   onCreate?: (query: string) => void;
   /** The create row's label for a query; defaults to `Create "…"`. */
   createLabel?: (query: string) => string;
+  /** The trigger's accessible name when no `<label>` points at it: a
+   *  combobox is not named by the value it shows. */
+  "aria-label"?: string;
 };
 
 const LISTBOX_ID = "searchable-select-listbox";
@@ -168,6 +171,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
           }
           style={{ maxWidth }}
           role="combobox"
+          aria-label={props["aria-label"]}
           aria-expanded={open}
           aria-controls={LISTBOX_ID}
           data-testid={dataTestId}

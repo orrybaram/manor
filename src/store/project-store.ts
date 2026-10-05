@@ -845,9 +845,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   loadProjects: async () => {
     set({ loading: true });
     try {
-      const projects = await window.electronAPI.projects.getAll();
-      const selectedIndex =
-        await window.electronAPI.projects.getSelectedIndex();
+      // Together, not one after the other: over the relay each is a round
+      // trip, and the first paint waits on both.
+      const [projects, selectedIndex] = await Promise.all([
+        window.electronAPI.projects.getAll(),
+        window.electronAPI.projects.getSelectedIndex(),
+      ]);
       const firstLoad = !get().initialLoadDone;
       set((s) => ({
         projects: reconcile(projects, s.projects),

@@ -86,3 +86,16 @@
   padding: 6px 14px;
   font-size: 13px;
 }
+
+/* A phone's floor for a tap target. Icon buttons that sit inside a larger
+   target (a tab, a row) set their own size and are not affected by these. */
+:global(:root[data-layout="phone"]) .sm {
+  min-height: 36px;
+  min-width: 36px;
+  font-size: 13px;
+}
+
+:global(:root[data-layout="phone"]) .md {
+  min-height: 40px;
+  font-size: 14px;
+}

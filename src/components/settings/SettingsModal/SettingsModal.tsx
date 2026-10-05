@@ -281,10 +281,17 @@ export function SettingsModal(props: SettingsModalProps) {
         <Dialog.Overlay className={styles.overlay} />
         <Dialog.Content
           data-testid="settings-modal"
+          aria-describedby={undefined}
           className={styles.modal}
           onOpenAutoFocus={(e) => {
             e.preventDefault();
-            searchRef.current?.focus();
+            // A phone would raise its keyboard over half the page for a
+            // search nobody asked for yet.
+            if (document.documentElement.dataset.layout === "phone") {
+              (e.currentTarget as HTMLElement).focus();
+            } else {
+              searchRef.current?.focus();
+            }
           }}
           onCloseAutoFocus={restoreFocusOnClose}
         >

@@ -32,6 +32,39 @@ export function isOutsideWindow(
   );
 }
 
+// ── pointer-left-the-app tracking ────────────────────────────────────────────
+// The source's `drag`/`dragend` screen coords alone are not trustworthy (on some
+// platforms/DPI setups they read as outside the window while the pointer is
+// still over the app), which tore tabs off mid-split. While the pointer is over
+// this document Chromium keeps dispatching `dragover` to it (on every move, and
+// on a ~350ms repeat timer when still), so a recent `dragover` is proof the
+// pointer is still inside the app.
+const DRAGOVER_STALE_MS = 600;
+let lastDocumentDragOverAt = 0;
+let dragOverListenerInstalled = false;
+
+function noteDocumentDragOver(): void {
+  lastDocumentDragOverAt = performance.now();
+}
+
+/**
+ * Call at dragstart: installs the (idempotent) document listener and treats
+ * the pointer as inside the app, since the drag starts on one of our elements.
+ */
+export function beginPointerTracking(): void {
+  if (!dragOverListenerInstalled) {
+    document.addEventListener("dragenter", noteDocumentDragOver, true);
+    document.addEventListener("dragover", noteDocumentDragOver, true);
+    dragOverListenerInstalled = true;
+  }
+  noteDocumentDragOver();
+}
+
+/** True when the document has stopped seeing the drag, i.e. it left the app. */
+export function hasPointerLeftDocument(now = performance.now()): boolean {
+  return now - lastDocumentDragOverAt > DRAGOVER_STALE_MS;
+}
+
 /**
  * Topmost window whose bounds contain the point, or null. `windows` is
  * already ordered topmost-first.

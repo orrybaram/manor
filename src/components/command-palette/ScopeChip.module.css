@@ -82,3 +82,13 @@
 .chip [role="listbox"] {
   font-weight: 400;
 }
+
+/* Thumb-sized on a phone (a portal, hence `:root`). */
+:global(:root[data-layout="phone"]) .chip {
+  height: 36px;
+  font-size: 14px;
+}
+
+:global(:root[data-layout="phone"]) .trigger.trigger {
+  font-size: 14px;
+}

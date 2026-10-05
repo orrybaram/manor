@@ -74,7 +74,7 @@ export function TaskTableRow(props: TaskTableRowProps) {
           {actionLabel}
         </Button>
       </span>
-      <span role="cell">
+      <span role="cell" className={styles.idCell}>
         <Link href={row.url} variant="plain" className={styles.idChip}>
           <TrackerRowIcon provider={row.provider} />
           {row.displayId}
@@ -161,7 +161,7 @@ export function TaskTableRow(props: TaskTableRowProps) {
               )}
             </span>
           )}
-          <span role="cell">
+          <span role="cell" className={styles.statusCell}>
             <span
               className={`${styles.status} ${styles[`tone-${row.status.tone}`]}`}
             >

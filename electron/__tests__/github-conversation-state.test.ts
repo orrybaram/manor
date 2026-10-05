@@ -123,12 +123,6 @@ describe("parsePrConversationState", () => {
     expect(state.recentComments?.some((c) => c.isViewer)).toBe(false);
   });
 
-  it("reads the merge-queue flag, leaving it undefined when absent", () => {
-    expect(parsePrConversationState({ isInMergeQueue: true }).isInMergeQueue).toBe(true);
-    expect(parsePrConversationState({ isInMergeQueue: false }).isInMergeQueue).toBe(false);
-    expect(parsePrConversationState({}).isInMergeQueue).toBeUndefined();
-  });
-
   it("tolerates a deleted author and a bodiless review", () => {
     const state = parsePrConversationState({
       comments: { totalCount: 0, nodes: [] },

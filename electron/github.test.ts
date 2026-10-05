@@ -262,8 +262,8 @@ describe("GitHubManager", () => {
 
     it("flags a PR as queued to merge when it sits in the merge queue", async () => {
       setupExecFileCalls([
-        success(prsAnswer(pr(44))),
-        success(conversation({ isInMergeQueue: true })),
+        success(prsAnswer(pr(44, { isInMergeQueue: true }))),
+        success(conversation({})),
       ]);
 
       const result = await manager.getPrForBranch(REPO, "feat/queued");
@@ -421,6 +421,22 @@ describe("GitHubManager", () => {
       const second = await manager.getPrForBranch(REPO, "b");
       expect(first!.unresolvedThreads).toBe(2);
       expect(second!.unresolvedThreads).toBe(2);
+      expect(mockState.queue).toHaveLength(0);
+    });
+
+    it("sees the PR join the merge queue without re-querying the conversation", async () => {
+      // Joining the queue leaves updatedAt alone, so the cached conversation
+      // must not be where the flag comes from.
+      setupExecFileCalls([
+        success(at("2026-09-06T10:00:00Z")),
+        success(threads(0)),
+        success(at("2026-09-06T10:00:00Z", { isInMergeQueue: true })),
+      ]);
+
+      const first = await manager.getPrForBranch(REPO, "b");
+      const second = await manager.getPrForBranch(REPO, "b");
+      expect(first!.queuedToMerge).toBe(false);
+      expect(second!.queuedToMerge).toBe(true);
       expect(mockState.queue).toHaveLength(0);
     });
 

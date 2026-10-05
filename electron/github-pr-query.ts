@@ -41,6 +41,8 @@ export interface RawPr {
   updatedAt: string;
   mergeable: string;
   autoMergeRequest: unknown;
+  /** Sits in the repository's merge queue. */
+  isInMergeQueue?: boolean;
   statusCheckRollup: RawStatusCheck[];
   reviewRequests?: { nodes?: RawReviewRequest[] } | null;
   latestReviews?: { nodes?: RawLatestReview[] } | null;
@@ -85,7 +87,9 @@ export function graphqlTarget(repoArgs: string[]): {
 /** The `gh pr list --json` fields the badge used, as GraphQL. */
 const PR_FIELDS =
   "number state title url isDraft additions deletions reviewDecision updatedAt mergeable " +
-  "autoMergeRequest { enabledAt } " +
+  // Here rather than with the conversation: joining the queue does not bump
+  // `updatedAt`, so a cached conversation would hide it for minutes.
+  "isInMergeQueue autoMergeRequest { enabledAt } " +
   "reviewRequests(first: 20) { nodes { requestedReviewer { __typename " +
   "... on User { login } ... on Bot { login } ... on Mannequin { login } " +
   "... on Team { slug organization { login } } } } } " +
@@ -145,7 +149,7 @@ export function normalizeRawPr(node: Record<string, unknown>): RawPr {
 // notification carries (#177). `viewer` and `__typename` ride along so every
 // entry can be tagged with who wrote it — you, or a GitHub App — which is
 // what the comment notification filters gate on.
-const CONVERSATION_FIELDS = `isInMergeQueue reviewThreads(first: 100) { nodes { isResolved isOutdated path comments(first: 1) { nodes { author { __typename login } body url createdAt } } } } comments(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { __typename login } body url createdAt } } reviews(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { __typename login } body url submittedAt state } }`;
+const CONVERSATION_FIELDS = `reviewThreads(first: 100) { nodes { isResolved isOutdated path comments(first: 1) { nodes { author { __typename login } body url createdAt } } } } comments(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { __typename login } body url createdAt } } reviews(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { __typename login } body url submittedAt state } }`;
 
 /** PRs of one github.com repo, for `conversationsQueryArgs`. */
 export interface RepoPrNumbers {

@@ -347,7 +347,6 @@ export class GitHubManager {
       commentCount,
       latestComment,
       recentComments,
-      isInMergeQueue,
     } = conversation;
 
     // "Queued to merge" covers both of GitHub's flavours: auto-merge armed
@@ -355,7 +354,7 @@ export class GitHubManager {
     // entry (the repo's queue will merge it). Either way, nobody needs to
     // press the button — which is what the badge exists to say.
     const queuedToMerge =
-      pr.autoMergeRequest != null || isInMergeQueue === true;
+      pr.autoMergeRequest != null || pr.isInMergeQueue === true;
 
     const state = pr.state.toLowerCase();
 
@@ -822,8 +821,6 @@ interface PrConversationState {
   commentCount?: number;
   latestComment?: PrComment | null;
   recentComments?: PrComment[];
-  /** Sits in the repository's merge queue. Absent when the query failed. */
-  isInMergeQueue?: boolean;
 }
 
 interface RawConversationNode {
@@ -957,7 +954,6 @@ export function parsePrConversationState(
 ): PrConversationState {
   if (!pullRequest || typeof pullRequest !== "object") return {};
   const pr = pullRequest as {
-    isInMergeQueue?: boolean;
     reviewThreads?: { nodes?: RawReviewThread[] };
     comments?: { totalCount?: number; nodes?: RawConversationNode[] };
     reviews?: { totalCount?: number; nodes?: RawConversationNode[] };
@@ -996,15 +992,11 @@ export function parsePrConversationState(
     threads,
     viewerLogin,
   );
-  const isInMergeQueue =
-    typeof pr.isInMergeQueue === "boolean" ? pr.isInMergeQueue : undefined;
-
   return {
     unresolvedThreads,
     commentCount,
     latestComment,
     recentComments,
-    isInMergeQueue,
   };
 }
 

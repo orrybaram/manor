@@ -37,7 +37,7 @@ const toolClass = `${styles.action} ${styles.tool}`;
 export function NeedsYouCard(props: NeedsYouCardProps) {
   const { card, onOpenWorkspace, onSnooze } = props;
 
-  const actions = cardActions(card, onOpenWorkspace);
+  const actions = cardActions(card, onOpenWorkspace, () => onSnooze(card.key));
   const title = needsYouTitle(card);
   const workspace = card.workspace;
 
@@ -98,10 +98,13 @@ type CardActions = { primary: ReactNode; secondary: ReactNode };
 /**
  * A card's primary and secondary action (ADR-198 §4). Open workspace and
  * Snooze sit in every card's icon row, so they aren't repeated here.
+ * Taking the primary action dismisses the card (a snooze, so it returns
+ * if it still needs the user once the snooze lapses).
  */
 function cardActions(
   card: NeedsYouCardData,
   onOpenWorkspace: (project: ProjectInfo, workspace: WorkspaceInfo) => boolean,
+  dismiss: () => void,
 ): CardActions {
   if (card.kind === "agent") {
     const focus = (label: string) => (
@@ -109,7 +112,10 @@ function cardActions(
         variant="primary"
         size="sm"
         className={primaryClass}
-        onClick={() => navigateToAgent(card.agent)}
+        onClick={() => {
+          navigateToAgent(card.agent);
+          dismiss();
+        }}
       >
         {label}
       </Button>
@@ -137,15 +143,15 @@ function cardActions(
   }
 
   const { pr, workspace, project, context } = card;
-  const openPr = (className: string) => (
-    <Link href={pr.url} variant="plain" className={className}>
+  const openPr = (className: string, onClick?: () => void) => (
+    <Link href={pr.url} variant="plain" className={className} onClick={onClick}>
       Open PR
     </Link>
   );
 
   if (!isFixable(context)) {
     // Ready to merge. No GitHub merge API yet (ADR-198 Context): merging happens on GitHub.
-    return { primary: openPr(primaryClass), secondary: null };
+    return { primary: openPr(primaryClass, dismiss), secondary: null };
   }
 
   const firstRun =
@@ -156,9 +162,10 @@ function cardActions(
         variant="primary"
         size="sm"
         className={primaryClass}
-        onClick={() =>
-          startAgentWithPrompt(workspace.path, fixPrPrompt(pr, context), project.hostId)
-        }
+        onClick={() => {
+          startAgentWithPrompt(workspace.path, fixPrPrompt(pr, context), project.hostId);
+          dismiss();
+        }}
       >
         Fix with agent
       </Button>

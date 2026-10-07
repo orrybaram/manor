@@ -242,6 +242,16 @@ export interface AppState {
     command: string,
     opts?: { submit?: boolean; kind?: "shell" | "agent-startup" },
   ) => { tabId: string; paneId: string } | null;
+  /**
+   * Open a terminal tab running `command` in workspace `key` without
+   * switching to it: the workspace is mounted hidden, so the new pane still
+   * mounts and its PTY types the command (the Dashboard's background launch).
+   */
+  addTerminalTabIn: (
+    key: WorkspaceKey,
+    command: string,
+    opts?: { kind?: "shell" | "agent-startup" },
+  ) => { tabId: string; paneId: string };
   addBrowserTab: (
     url: string,
     opts?: { background?: boolean },
@@ -473,6 +483,26 @@ export function selectActiveWorkspaceKey(
  * its target through this — adding tabs, splits, reopening closed panes — is
  * a no-op there in this one place.
  */
+/**
+ * First visit: render what the server already holds for `key`. A workspace
+ * the server has never heard of has no layout yet — the empty state renders,
+ * and the first command (`new-tab`) creates the panel. Empty when it is
+ * already mounted.
+ */
+function mountPatch(state: AppState, key: WorkspaceKey): Partial<AppState> {
+  if (state.mountedWorkspaces[key]) return {};
+  const layout = state.workspaceLayouts[key];
+  return {
+    mountedWorkspaces: { ...state.mountedWorkspaces, [key]: true },
+    ...(layout && {
+      viewports: {
+        ...state.viewports,
+        [key]: reconcileFor(state, key, layout, viewportOf(state, key)),
+      },
+    }),
+  };
+}
+
 function activeLayoutKey(
   state: Pick<AppState, "activeWorkspacePath" | "activeWorkspaceHostId">,
 ): WorkspaceKey | null {
@@ -1652,23 +1682,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
       // Home is the Dashboard (ADR-197 §1): selectable as the active surface,
       // but it never gets a layout.
-      if (isHomePath(path) || state.mountedWorkspaces[key]) {
-        return active;
-      }
-      // First visit: render what the server already holds for it. A
-      // workspace the server has never heard of has no layout yet — the empty
-      // state renders, and the first command (`new-tab`) creates the panel.
-      const layout = state.workspaceLayouts[key];
-      return {
-        ...active,
-        mountedWorkspaces: { ...state.mountedWorkspaces, [key]: true },
-        ...(layout && {
-          viewports: {
-            ...state.viewports,
-            [key]: reconcileFor(state, key, layout, viewportOf(state, key)),
-          },
-        }),
-      };
+      if (isHomePath(path)) return active;
+      return { ...active, ...mountPatch(state, key) };
     }),
 
   showTasksView: (intent) =>
@@ -1735,6 +1750,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
     sendLayoutCommand(path, { type: "new-tab", tab, ...activePanelOf(get()) });
     return { tabId: tab.id, paneId: tabPaneId };
+  },
+
+  addTerminalTabIn: (key, command, opts) => {
+    set((state) => mountPatch(state, key));
+    const tab = createTab();
+    const paneId = firstPaneOfTab(tab);
+    sendPendingCommand(paneId, command, opts?.kind ?? "shell");
+    // No panel named: it lands in the workspace's first panel, or the one the
+    // server creates for a workspace with no layout yet.
+    sendLayoutCommand(key, { type: "new-tab", tab });
+    return { tabId: tab.id, paneId };
   },
 
   addBrowserTab: (url: string, opts?: { background?: boolean }) => {

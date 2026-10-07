@@ -66,3 +66,22 @@ export function startAgentWithPrompt(
 ): void {
   launchAgentInWorkspace(workspacePath, { prompt, hostId });
 }
+
+/**
+ * Open a new agent tab in `workspacePath` with `prompt` as its first message,
+ * without leaving the current view: no workspace is selected and the active
+ * surface stays put. For launches from the Dashboard, which confirm with a
+ * toast instead of taking the user to the agent.
+ */
+export function startAgentInBackground(
+  workspacePath: string,
+  prompt: string,
+  hostId?: HostId | null,
+): void {
+  const key = layoutKeyFor(workspacePath, hostId);
+  useAppStore
+    .getState()
+    .addTerminalTabIn(key, agentCommandWithPrompt(getAgentCommand(key), prompt), {
+      kind: "agent-startup",
+    });
+}

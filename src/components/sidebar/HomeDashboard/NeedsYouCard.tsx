@@ -7,7 +7,8 @@ import type { NeedsYouCard as NeedsYouCardData } from "../../../lib/home-dashboa
 import type { ProjectInfo, WorkspaceInfo } from "../../../store/project-store";
 import { useAppStore } from "../../../store/app-store";
 import { navigateToAgent } from "../../../utils/agent-navigation";
-import { startAgentWithPrompt } from "../../../lib/agent-prompt-launch";
+import { startAgentInBackground } from "../../../lib/agent-prompt-launch";
+import { useToastStore } from "../../../store/toast-store";
 import { projectColorStyle } from "../../../hooks/useProjectHeaderRow";
 import { Button } from "../../ui/Button/Button";
 import { Link } from "../../ui/Link/Link";
@@ -163,7 +164,15 @@ function cardActions(
         size="sm"
         className={primaryClass}
         onClick={() => {
-          startAgentWithPrompt(workspace.path, fixPrPrompt(pr, context), project.hostId);
+          // Stay on the Dashboard: the agent works in the background, and
+          // the toast says so.
+          startAgentInBackground(workspace.path, fixPrPrompt(pr, context), project.hostId);
+          useToastStore.getState().addToast({
+            id: `fix-pr-${card.key}`,
+            message: `Agent is fixing #${pr.number}`,
+            status: "info",
+            detail: `Working in ${workspace.name ?? workspace.branch}. It shows up here again if it needs you.`,
+          });
           dismiss();
         }}
       >

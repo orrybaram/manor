@@ -1,6 +1,6 @@
 ---
 title: Renderer launches pass the prompt separately from the command
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

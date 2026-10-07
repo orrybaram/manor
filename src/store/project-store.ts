@@ -14,7 +14,7 @@ import { isRemoteHost, type HostId } from "../lib/hosts";
 import { hostForPath, patch, reconcile } from "../lib/workspace-directory";
 import { sharedRefresh } from "../lib/shared-refresh";
 import { pickDirectory } from "../lib/pick-directory";
-import { agentCommandWithPrompt, DEFAULT_AGENT_COMMAND } from "../lib/agent-command";
+import { DEFAULT_AGENT_COMMAND } from "../lib/agent-command";
 import {
   buildSidebarItems,
   folderParentsOf,
@@ -1001,14 +1001,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const { branch, agentPrompt, linkedIssue, baseBranch, useExistingBranch } =
       opts;
     const project = get().projects.find((p) => p.id === projectId);
+    // The prompt is not baked into the line: it rides beside the bare command
+    // and the server delivers it through a file on the pane's host (ADR-209).
+    // An explicit `opts.agentCommand` already carries whatever it needs.
+    const prompt = agentPrompt?.trim() ? agentPrompt : undefined;
     const agentCommand =
       opts.agentCommand ??
-      (agentPrompt?.trim()
-        ? agentCommandWithPrompt(
-            project?.agentCommand ?? DEFAULT_AGENT_COMMAND,
-            agentPrompt,
-          )
+      (prompt
+        ? (project?.agentCommand ?? DEFAULT_AGENT_COMMAND)
         : undefined);
+    const launchPrompt = opts.agentCommand ? undefined : prompt;
     const startScript = project?.worktreeStartScript ?? null;
 
     // Init setup state before IPC call
@@ -1116,7 +1118,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           // (ADR-179 ticket 11).
           useAppStore
             .getState()
-            .addTerminalTab(agentCommand, { kind: "agent-startup" });
+            .addTerminalTab(agentCommand, {
+              kind: "agent-startup",
+              prompt: launchPrompt,
+            });
           useToastStore.getState().addToast({
             id: `worktree-setup-${wsPath}`,
             message: `Setting up "${name}"…`,
@@ -1127,7 +1132,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       } else if (agentCommand) {
         // No start script — open the agent tab and let the server type the
         // launch line into it (ADR-179 ticket 11).
-        useAppStore.getState().addTerminalTab(agentCommand, { kind: "agent-startup" });
+        useAppStore.getState().addTerminalTab(agentCommand, {
+          kind: "agent-startup",
+          prompt: launchPrompt,
+        });
         useAppStore.getState().clearWorktreeSetup(wsPath);
       } else {
         // No commands at all — clear setup state

@@ -17,8 +17,9 @@
  * launch line — the prompt waits in a file on the pane's host and the typed
  * line only names it, so it stays far below the tty's canonical line limit
  * (1024 bytes on macOS) however long the prompt is. `agentCommandWithPrompt`
- * inlines the prompt, and is what a launch falls back to when that file
- * cannot be written on the local host.
+ * inlines the prompt, and is now only the main process's fallback when that
+ * file cannot be written on the local host — renderer launches pass the
+ * prompt beside the bare command instead.
  *
  * Splitting the constant out also breaks the `agent-defaults → home → harness
  * → agent-defaults` cycle ADR-176's amendment recorded: `harness.ts` wanted

@@ -87,6 +87,20 @@ describe("addTerminalTab with submit: false (ADR-178 ticket 5 — fix in termina
     ]);
   });
 
+  it("passes an agent prompt beside the command (ADR-209)", () => {
+    const result = useAppStore
+      .getState()
+      .addTerminalTab("claude", { kind: "agent-startup", prompt: 'say "hi"\nnow' });
+    expect(queuedCommands).toEqual([
+      {
+        paneId: result!.paneId,
+        text: "claude",
+        kind: "agent-startup",
+        prompt: 'say "hi"\nnow',
+      },
+    ]);
+  });
+
   it("returns null, and queues nothing, when there is no active workspace", () => {
     useAppStore.setState({ activeWorkspacePath: null });
     expect(

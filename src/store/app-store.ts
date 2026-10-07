@@ -240,7 +240,13 @@ export interface AppState {
    */
   addTerminalTab: (
     command: string,
-    opts?: { submit?: boolean; kind?: "shell" | "agent-startup" },
+    opts?: {
+      submit?: boolean;
+      kind?: "shell" | "agent-startup";
+      /** The agent's first message, delivered through a file on the pane's
+       *  host rather than typed into `command` (ADR-209). */
+      prompt?: string;
+    },
   ) => { tabId: string; paneId: string } | null;
   /**
    * Open a terminal tab running `command` in workspace `key` without
@@ -250,7 +256,7 @@ export interface AppState {
   addTerminalTabIn: (
     key: WorkspaceKey,
     command: string,
-    opts?: { kind?: "shell" | "agent-startup" },
+    opts?: { kind?: "shell" | "agent-startup"; prompt?: string },
   ) => { tabId: string; paneId: string };
   addBrowserTab: (
     url: string,
@@ -1221,6 +1227,10 @@ function sendLayoutCommand(
  * a `pendingPaneCommands` entry in this store, which only worked because the
  * renderer that queued it was also the one that mounted the pane.
  *
+ * `opts.prompt` is an agent's first message, kept apart from `text` so the
+ * server can deliver it through a file on the pane's host instead of typing
+ * it inline (ADR-209).
+ *
  * Send this *before* the `apply` that creates the pane. Both go over the same
  * ordered channel and the main-side handler is synchronous, so the entry is
  * recorded before the broadcast that makes any renderer mount the pane.
@@ -1229,7 +1239,7 @@ export function sendPendingCommand(
   paneId: string,
   text: string,
   kind: "shell" | "agent-startup" = "shell",
-  opts?: { submit?: boolean },
+  opts?: { submit?: boolean; prompt?: string },
 ): void {
   void window.electronAPI?.layout
     ?.setPendingCommand(paneId, text, kind, opts)
@@ -1736,7 +1746,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   addTerminalTab: (
     command: string,
-    opts?: { submit?: boolean; kind?: "shell" | "agent-startup" },
+    opts?: {
+      submit?: boolean;
+      kind?: "shell" | "agent-startup";
+      prompt?: string;
+    },
   ) => {
     const path = activeLayoutKey(get());
     if (!path) return null;
@@ -1747,6 +1761,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // lands, and `pty.create` is what types this.
     sendPendingCommand(tabPaneId, command, opts?.kind ?? "shell", {
       submit: opts?.submit ?? true,
+      prompt: opts?.prompt,
     });
     sendLayoutCommand(path, { type: "new-tab", tab, ...activePanelOf(get()) });
     return { tabId: tab.id, paneId: tabPaneId };
@@ -1756,7 +1771,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => mountPatch(state, key));
     const tab = createTab();
     const paneId = firstPaneOfTab(tab);
-    sendPendingCommand(paneId, command, opts?.kind ?? "shell");
+    sendPendingCommand(paneId, command, opts?.kind ?? "shell", {
+      prompt: opts?.prompt,
+    });
     // No panel named: it lands in the workspace's first panel, or the one the
     // server creates for a workspace with no layout yet.
     sendLayoutCommand(key, { type: "new-tab", tab });

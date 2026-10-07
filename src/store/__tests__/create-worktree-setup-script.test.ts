@@ -203,8 +203,9 @@ describe("createWorktree setup script", () => {
 
     expect(queuedCommands).toContainEqual(
       expect.objectContaining({
-        text: 'codex "Fix \\"the\\" bug in \\$HOME"',
+        text: "codex",
         kind: "agent-startup",
+        prompt: 'Fix "the" bug\nin $HOME',
       }),
     );
   });

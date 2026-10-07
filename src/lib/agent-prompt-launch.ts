@@ -4,7 +4,11 @@ import { ownerOf } from "./workspace-directory";
 import { parseWorkspaceKey } from "./workspace-key";
 import { useProjectStore } from "../store/project-store";
 import { getAgentCommand } from "../agent-defaults";
-import { agentCommandWithPrompt } from "./agent-command";
+
+/** A blank prompt is no prompt (ADR-209), matching `POST /agents`. */
+function promptOrUndefined(prompt: string | undefined): string | undefined {
+  return prompt?.trim() ? prompt : undefined;
+}
 
 /**
  * Open a new agent tab in `workspacePath`, optionally seeded with `prompt` as
@@ -13,11 +17,12 @@ import { agentCommandWithPrompt } from "./agent-command";
  * Every step keys off the given `workspacePath`, not whatever happens to be
  * active: the workspace is selected first — through the project store, so the
  * sidebar highlight and main's persisted selection follow — the launch
- * command is resolved via `getAgentCommand`, the prompt (if any) is
- * flattened before it is queued for the new tab's pane on the server
- * (ADR-179 ticket 11), and the tab is opened. Prewarmed sessions are not
+ * command is resolved via `getAgentCommand`, the command and the
+ * prompt (if any) are queued separately for the new tab's pane on the server
+ * (ADR-179 ticket 11) — which delivers the prompt through a file on the
+ * pane's host (ADR-209) — and the tab is opened. Prewarmed sessions are not
  * consumed: they run the bare agent command, and a seeded launch needs the
- * command-with-prompt argument.
+ * prompt argument.
  *
  * Shared by `startAgentWithPrompt` (fire-and-forget, no override, no return
  * value) and the agent-resume/new-agent surfaces — the callers that used to
@@ -46,11 +51,12 @@ export function launchAgentInWorkspace(
   const base = getAgentCommand(key, options.agentCommand);
   // Queued on the new tab's own pane, not the workspace, on the server:
   // whichever renderer mounts that pane first types it (ADR-179 ticket 11).
-  return useAppStore
-    .getState()
-    .addTerminalTab(agentCommandWithPrompt(base, options.prompt), {
-      kind: "agent-startup",
-    });
+  // The prompt travels beside the bare command, not inside it: the server
+  // delivers it through a file on the pane's host (ADR-209).
+  return useAppStore.getState().addTerminalTab(base, {
+    kind: "agent-startup",
+    prompt: promptOrUndefined(options.prompt),
+  });
 }
 
 /**
@@ -79,9 +85,8 @@ export function startAgentInBackground(
   hostId?: HostId | null,
 ): void {
   const key = layoutKeyFor(workspacePath, hostId);
-  useAppStore
-    .getState()
-    .addTerminalTabIn(key, agentCommandWithPrompt(getAgentCommand(key), prompt), {
-      kind: "agent-startup",
-    });
+  useAppStore.getState().addTerminalTabIn(key, getAgentCommand(key), {
+    kind: "agent-startup",
+    prompt: promptOrUndefined(prompt),
+  });
 }

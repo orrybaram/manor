@@ -211,6 +211,7 @@ export const queuedCommands: Array<{
   kind: string;
   /** Present only when the text is to be typed, not run (ADR-183). */
   submit?: false;
+  prompt?: string;
 }> = [];
 
 /**
@@ -375,9 +376,10 @@ export function fakeLayoutApi(): LayoutApi {
         text,
         kind,
         ...(opts?.submit === false && { submit: false as const }),
+        ...(opts?.prompt !== undefined && { prompt: opts.prompt }),
       });
       serverCalls.push("pending");
-      server.pendingCommands.set(paneId, text, kind);
+      server.pendingCommands.set(paneId, text, kind, opts ?? undefined);
     },
     reportViewport: (workspacePath, viewport) => {
       reportedViewports.push({

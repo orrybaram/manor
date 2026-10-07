@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.19.4] - 2026-10-07
+
+### Features
+
+- "Fix with agent" on the dashboard now starts the agent in the background and shows a toast, so you stay where you are.
+- A "Needs you" card on the dashboard now goes away once you take its main action.
+
+### Fixes
+
+- Clicking Retry on a disconnected host now starts a reconnect attempt right away.
+
+### Improvements
+
+- An agent's first prompt now reaches it more reliably. The prompt is passed in a file on the pane's host instead of inside the launch command.
+
 ## [0.19.3] - 2026-10-05
 
 ### Features

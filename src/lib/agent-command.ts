@@ -8,10 +8,17 @@
  * `window`. Renderer code keeps importing `DEFAULT_AGENT_COMMAND` from
  * `agent-defaults.ts`, which re-exports from here, and `flattenPrompt` for
  * `review-submit.ts`'s reply line. `escapeShellDoubleQuoted` has no caller
- * outside this file any more — `agentCommandWithPrompt` is the one place a
- * launch line gets built (ADR-182 ticket 1; `home.ts`'s re-export of it, and
- * `App.tsx`'s hand-rolled line, both went with the old callers) — so it stays
- * unexported rather than kept public on the chance something needs it again.
+ * outside this file any more — launch lines are only built here (ADR-182
+ * ticket 1; `home.ts`'s re-export of it, and `App.tsx`'s hand-rolled line,
+ * both went with the old callers) — so it stays unexported rather than kept
+ * public on the chance something needs it again.
+ *
+ * Two builders, since ADR-209: `agentCommandWithPromptFile` is the normal
+ * launch line — the prompt waits in a file on the pane's host and the typed
+ * line only names it, so it stays far below the tty's canonical line limit
+ * (1024 bytes on macOS) however long the prompt is. `agentCommandWithPrompt`
+ * inlines the prompt, and is what a launch falls back to when that file
+ * cannot be written on the local host.
  *
  * Splitting the constant out also breaks the `agent-defaults → home → harness
  * → agent-defaults` cycle ADR-176's amendment recorded: `harness.ts` wanted
@@ -48,9 +55,32 @@ export function flattenPrompt(prompt: string): string {
 
 /**
  * The line that starts an agent: the harness command on its own, or with the
- * prompt flattened and quoted as its first argument.
+ * prompt flattened and quoted as its first argument. Bounded by the tty's
+ * canonical line limit when typed into a fresh shell, so it is only the
+ * fallback for an agent launch (ADR-209).
  */
 export function agentCommandWithPrompt(base: string, prompt?: string): string {
   if (!prompt) return base;
   return `${base} "${escapeShellDoubleQuoted(flattenPrompt(prompt))}"`;
+}
+
+/** Quote `text` as one single-quoted shell word (`'` becomes `'\''`). */
+function shellSingleQuote(text: string): string {
+  return `'${text.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * The line that starts an agent whose prompt waits in `filePath` on the
+ * pane's host (ADR-209): `<harness> "$(cat '<file>'; rm -f '<file>')"`. The
+ * shell reads the prompt as the harness's first argument and deletes the
+ * file as it does. Not flattened — `"$(…)"` keeps the prompt's newlines, and
+ * strips only trailing ones. Needs `$(…)` inside double quotes: bash, zsh,
+ * fish ≥ 3.4.
+ */
+export function agentCommandWithPromptFile(
+  base: string,
+  filePath: string,
+): string {
+  const q = shellSingleQuote(filePath);
+  return `${base} "$(cat ${q}; rm -f ${q})"`;
 }

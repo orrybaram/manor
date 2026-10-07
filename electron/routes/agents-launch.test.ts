@@ -10,8 +10,9 @@
  *   whatever a window happens to be looking at;
  * - the answer names a pane that really exists, so a failed launch is
  *   retryable rather than reported as success;
- * - the line the shell will be given is queued for exactly that pane,
- *   flattened and quoted;
+ * - the launch is queued for exactly that pane, as the bare harness command
+ *   with the prompt beside it, raw — `pty.create` delivers it through a file
+ *   on the pane's host (ADR-209);
  * - and none of it needs a window.
  */
 
@@ -117,9 +118,10 @@ describe("POST /agents", () => {
     const res = await call(deps, { workspacePath: WS, prompt: "fix the bug" });
 
     expect(store.pendingCommands.take(res.body.paneId)).toEqual({
-      text: `${PROJECT_COMMAND} "fix the bug"`,
+      text: PROJECT_COMMAND,
       kind: "agent-startup",
       submit: true,
+      prompt: "fix the bug",
     });
     expect(store.pendingCommands.size).toBe(0);
   });
@@ -130,8 +132,18 @@ describe("POST /agents", () => {
     // here to pick up in the first place.
     const res = await call(deps, { workspacePath: WS });
 
-    expect(store.pendingCommands.take(res.body.paneId)?.text).toBe(
-      PROJECT_COMMAND,
+    expect(store.pendingCommands.take(res.body.paneId)).toEqual({
+      text: PROJECT_COMMAND,
+      kind: "agent-startup",
+      submit: true,
+    });
+  });
+
+  it("queues no prompt for a blank one", async () => {
+    const res = await call(deps, { workspacePath: WS, prompt: "  \n " });
+
+    expect(store.pendingCommands.take(res.body.paneId)).not.toHaveProperty(
+      "prompt",
     );
   });
 
@@ -140,9 +152,9 @@ describe("POST /agents", () => {
 
     const res = await call(deps, { workspacePath: WS, prompt: "go" });
 
-    expect(store.pendingCommands.take(res.body.paneId)?.text).toBe(
-      `${DEFAULT_COMMAND} "go"`,
-    );
+    const queued = store.pendingCommands.take(res.body.paneId);
+    expect(queued?.text).toBe(DEFAULT_COMMAND);
+    expect(queued?.prompt).toBe("go");
   });
 
   it("falls back to the default command for a workspace no project owns", async () => {
@@ -160,9 +172,9 @@ describe("POST /agents", () => {
       agentCommand: "my-agent --flag",
     });
 
-    expect(store.pendingCommands.take(res.body.paneId)?.text).toBe(
-      'my-agent --flag "go"',
-    );
+    const queued = store.pendingCommands.take(res.body.paneId);
+    expect(queued?.text).toBe("my-agent --flag");
+    expect(queued?.prompt).toBe("go");
   });
 
   it("refuses the Dashboard, which hosts no panes (ADR-197)", async () => {
@@ -184,31 +196,17 @@ describe("POST /agents", () => {
     expect(store.pendingCommands.take(res.body.paneId)?.text).toBe("codex");
   });
 
-  it("escapes shell metacharacters in the prompt", async () => {
-    const res = await call(deps, {
-      workspacePath: WS,
-      prompt: 'say "hi" $NOW',
-    });
-
-    expect(store.pendingCommands.take(res.body.paneId)?.text).toBe(
-      `${PROJECT_COMMAND} "say \\"hi\\" \\$NOW"`,
-    );
-  });
-
-  it("flattens a multi-line prompt before quoting it", async () => {
+  it("queues the prompt raw — unescaped and unflattened (ADR-209)", async () => {
     // The exact shape `renderPrompt` (routes/projects.ts) builds for the
-    // default batch prompt. An unflattened newline either stalls the shell on
-    // a continuation prompt or submits the turn early (ADR-176's amendment).
-    const res = await call(deps, {
-      workspacePath: WS,
-      prompt: "Work on GitHub issue #1: title\n\nbody",
-    });
+    // default batch prompt. It reaches the agent through a file on the pane's
+    // host, so its quotes, `$` and newlines arrive as written; nothing here is
+    // typed into a shell.
+    const prompt = 'Work on GitHub issue #1: title\n\nsay "hi" $NOW';
+    const res = await call(deps, { workspacePath: WS, prompt });
 
     const queued = store.pendingCommands.take(res.body.paneId)!;
-    expect(queued.text).not.toContain("\n");
-    expect(queued.text).toBe(
-      `${PROJECT_COMMAND} "Work on GitHub issue #1: title body"`,
-    );
+    expect(queued.text).toBe(PROJECT_COMMAND);
+    expect(queued.prompt).toBe(prompt);
   });
 
   it("400s without a workspacePath, and opens nothing", async () => {

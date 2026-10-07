@@ -88,4 +88,26 @@ describe("PendingCommands", () => {
     pending.requeue("pane-1", taken);
     expect(pending.take("pane-1")?.text).toBe("newer");
   });
+
+  it("keeps an agent's prompt beside its bare command, through a requeue (ADR-209)", () => {
+    const pending = new PendingCommands();
+    pending.set("pane-1", "claude", "agent-startup", { prompt: "line 1\nline 2" });
+
+    const taken = pending.take("pane-1")!;
+    expect(taken).toEqual({
+      text: "claude",
+      kind: "agent-startup",
+      submit: true,
+      prompt: "line 1\nline 2",
+    });
+    pending.requeue("pane-1", taken);
+    expect(pending.take("pane-1")?.prompt).toBe("line 1\nline 2");
+  });
+
+  it("has no prompt key when none was given", () => {
+    const pending = new PendingCommands();
+    pending.set("pane-1", "claude", "agent-startup", { prompt: undefined });
+
+    expect(pending.take("pane-1")).not.toHaveProperty("prompt");
+  });
 });

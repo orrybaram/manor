@@ -100,6 +100,9 @@ export function layoutSetPendingCommand(
   if (opts?.submit !== undefined && typeof opts.submit !== "boolean") {
     throw new Error("submit must be a boolean");
   }
+  if (opts?.prompt !== undefined && typeof opts.prompt !== "string") {
+    throw new Error("prompt must be a string");
+  }
   ctx.deps.layoutStore.pendingCommands.set(paneId, text, kind, opts ?? undefined);
 }
 

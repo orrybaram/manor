@@ -13,7 +13,6 @@
 
 import type { AgentInfo, AgentManager } from "../agent-persistence";
 import { getConnector } from "../agent-connectors";
-import { agentCommandWithPrompt } from "../../src/lib/agent-command";
 import { resolveAgentCommand } from "../../src/lib/resolve-agent-command";
 import { isHomePath } from "../../src/lib/home-path";
 import { createTab } from "../../src/lib/layout/ids";
@@ -236,12 +235,17 @@ const AGENT_ORIGIN: LayoutOrigin = { kind: "route", id: "agents" };
  * structural command.
  *
  * Everything ADR-176 asked for still holds, and holds more simply: the target
- * is explicit (`workspacePath`, never "whatever is active"), the prompt is
- * flattened before it is quoted, and the answer names the pane that was
+ * is explicit (`workspacePath`, never "whatever is active"), and the answer
+ * names the pane that was
  * actually created, so a caller can retry a launch that did not happen. What
  * is deliberately *not* reproduced is the renderer's sidebar selection: which
  * workspace a window is looking at is that window's viewport (D3), and a route
  * does not move it.
+ *
+ * The prompt is not baked into the line: it is queued beside the bare
+ * harness command, raw, and `pty.create` delivers it through a file on the
+ * pane's host (ADR-209) — a long prompt typed inline is cut at the tty's
+ * canonical line limit. A blank prompt is no prompt.
  */
 export async function startAgentInWorkspace(
   deps: HostDeps,
@@ -268,11 +272,8 @@ export async function startAgentInWorkspace(
   // Queued before the tab exists, for the ordering `pendingCommands` spells
   // out: the apply broadcasts, a renderer mounts the pane, and its
   // `pty.create` is what types this.
-  store.pendingCommands.set(
-    paneId,
-    agentCommandWithPrompt(base, options.prompt),
-    "agent-startup",
-  );
+  const prompt = options.prompt?.trim() ? options.prompt : undefined;
+  store.pendingCommands.set(paneId, base, "agent-startup", { prompt });
 
   const result = await store.apply(
     key,

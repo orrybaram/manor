@@ -36,6 +36,13 @@ export interface PendingCommand {
    */
   submit: boolean;
   /**
+   * An agent's first prompt, raw and unflattened, kept apart from `text`
+   * (the bare harness command) (ADR-209). `pty.create` writes it to a file
+   * on the pane's host and types a short line that reads it, because a long
+   * line typed into a fresh shell is cut at the tty's canonical line limit.
+   */
+  prompt?: string;
+  /**
    * Taken once already and never delivered: its remote host dropped before
    * the shell was ready (ADR-178 §6). The next `pty.create` for the pane
    * types it even on a reattach, since the session it was meant for may have
@@ -47,6 +54,8 @@ export interface PendingCommand {
 export interface PendingCommandOptions {
   /** Defaults to true: run the command. */
   submit?: boolean;
+  /** An agent launch's prompt, delivered through a file (ADR-209). */
+  prompt?: string;
 }
 
 export class PendingCommands {
@@ -65,7 +74,9 @@ export class PendingCommands {
     kind: PendingCommandKind = "shell",
     opts?: PendingCommandOptions,
   ): void {
-    this.byPane.set(paneId, { text, kind, submit: opts?.submit ?? true });
+    const entry: PendingCommand = { text, kind, submit: opts?.submit ?? true };
+    if (opts?.prompt !== undefined) entry.prompt = opts.prompt;
+    this.byPane.set(paneId, entry);
   }
 
   /** Hand the pane's command over — once. */

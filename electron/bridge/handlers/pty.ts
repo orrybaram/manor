@@ -9,6 +9,7 @@
  * `pty-attachments.ts`).
  */
 
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { assertString, assertPositiveInt } from "../../ipc-validate";
@@ -26,6 +27,10 @@ import { HostUnavailableError } from "../../backend/host-view";
 import { LOCAL_HOST_ID, type HostId } from "../../backend/types";
 import { errorMessage } from "../../lib/errors";
 import { isHomePath } from "../../../src/lib/home-path";
+import {
+  agentCommandWithPrompt,
+  agentCommandWithPromptFile,
+} from "../../../src/lib/agent-command";
 import type { HostDeps } from "../../ipc/types";
 import type {
   PtyCreateOptions,
@@ -207,6 +212,13 @@ function isFreshSession(
  * create, as long as the pane is still in a layout and nothing newer was
  * queued for it meanwhile — the server's form of the renderer requeue
  * (`shouldRequeuePaneCommand`) this queue replaced.
+ *
+ * An agent launch queued with a `prompt` (ADR-209) has it written to a file
+ * on the pane's host first, and the typed line only names that file
+ * (`promptLaunchLine`). `writeAfterReady` fires on the shell's first output,
+ * which is not "line editor ready": a prompt theme can draw before `.zshrc`
+ * loads, while the tty is still canonical, and the kernel drops whatever of
+ * a typed line runs past `MAX_CANON` — 1024 bytes on macOS.
  */
 async function deliverPendingCommand(
   deps: HostDeps,
@@ -217,9 +229,13 @@ async function deliverPendingCommand(
   const pending = layoutStore?.pendingCommands.take(paneId);
   if (!layoutStore || !pending) return;
   try {
+    const line =
+      pending.prompt !== undefined
+        ? await promptLaunchLine(deps, paneId, hostId, pending.text, pending.prompt)
+        : pending.text;
     await deps.backend.pty.writeAfterReady(
       paneId,
-      pending.submit ? pending.text + "\r" : pending.text,
+      pending.submit ? line + "\r" : line,
     );
   } catch (err) {
     if (
@@ -233,6 +249,55 @@ async function deliverPendingCommand(
       `[pty] failed to send the ${pending.kind} command queued for ${paneId}:`,
       err,
     );
+  }
+}
+
+/**
+ * The launch line for an agent whose first prompt goes through a file
+ * (ADR-209): the prompt is written to `~/.manor/prompts/` on the host the
+ * session runs on, and the line is `<harness> "$(cat '<file>'; rm -f
+ * '<file>')"` — short whatever the prompt's length, and the shell deletes the
+ * file as it reads it.
+ *
+ * `backendRegistry.get(hostId)`, not `RoutedBackend.shell`, for ADR-187's
+ * paste-image reason (`electron/ipc/paste-image.ts`): the session's host owns
+ * the home directory and the write, and `RoutedBackend` would pick a host by
+ * path instead.
+ *
+ * A failed write on the local host falls back to the inline line — a short
+ * prompt still launches, and a long one is no worse off than before. On a
+ * remote host it throws, so `deliverPendingCommand` requeues the command,
+ * prompt and all, for when the host is back.
+ */
+async function promptLaunchLine(
+  deps: HostDeps,
+  paneId: string,
+  hostId: HostId,
+  base: string,
+  prompt: string,
+): Promise<string> {
+  try {
+    const host = deps.backendRegistry.get(hostId);
+    const home = await host.shell.homeDir();
+    const dir = `${home}/.manor/prompts`;
+    const file = path.posix.join(
+      dir,
+      `${paneId}-${crypto.randomBytes(4).toString("hex")}.txt`,
+    );
+    await host.shell.writeFile(file, Buffer.from(prompt, "utf-8"));
+    // Fire and forget: sweep files whose launch line never ran (the pane
+    // closed before its shell did). A failure here does not undo the write.
+    host.shell
+      .exec("find", [dir, "-type", "f", "-mtime", "+7", "-delete"])
+      .catch(() => {});
+    return agentCommandWithPromptFile(base, file);
+  } catch (err) {
+    if (hostId !== LOCAL_HOST_ID) throw err;
+    console.warn(
+      `[pty] could not write the prompt file for ${paneId}; typing it inline:`,
+      err,
+    );
+    return agentCommandWithPrompt(base, prompt);
   }
 }
 

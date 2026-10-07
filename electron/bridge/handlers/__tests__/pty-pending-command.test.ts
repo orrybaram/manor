@@ -29,6 +29,11 @@ describe("ptyCreate and pending commands", () => {
   /** Panes some layout still holds. */
   let laidOut: Set<string>;
   let deps: HostDeps;
+  /** Files written through a host's shell, by host (ADR-209). */
+  let hostWrites: Array<{ hostId: string; path: string; data: string }>;
+  let hostExecs: Array<{ hostId: string; cmd: string; args: string[] }>;
+  /** Make every host's `writeFile` reject. */
+  let failHostWrites: boolean;
 
   beforeEach(() => {
     pendingCommands = new PendingCommands();
@@ -38,7 +43,25 @@ describe("ptyCreate and pending commands", () => {
     adopted = new Set();
     sessionHost = "local";
     laidOut = new Set([PANE]);
+    hostWrites = [];
+    hostExecs = [];
+    failHostWrites = false;
     deps = {
+      backendRegistry: {
+        get: (hostId: string) => ({
+          shell: {
+            homeDir: async () => (hostId === "local" ? "/Users/me" : "/home/remote"),
+            writeFile: async (path: string, data: Buffer) => {
+              if (failHostWrites) throw new Error("write failed");
+              hostWrites.push({ hostId, path, data: data.toString("utf-8") });
+            },
+            exec: async (cmd: string, args: string[]) => {
+              hostExecs.push({ hostId, cmd, args });
+              return { stdout: "", stderr: "", exitCode: 0 };
+            },
+          },
+        }),
+      },
       backend: {
         pty: {
           createOrAttachWith: async () => ({
@@ -228,6 +251,85 @@ describe("ptyCreate and pending commands", () => {
       await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
 
       expect(pendingCommands.size).toBe(0);
+    });
+  });
+
+  describe("an agent launch with a prompt (ADR-209)", () => {
+    const PROMPT = "Work on issue #1\n\n" + "x".repeat(3000) + ' "$HOME" `id`';
+
+    it("writes the prompt to a file on the session's host and types a short line", async () => {
+      pendingCommands.set(PANE, "claude", "agent-startup", { prompt: PROMPT });
+
+      await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
+
+      expect(hostWrites).toHaveLength(1);
+      const { hostId, path, data } = hostWrites[0];
+      expect(hostId).toBe("local");
+      expect(path).toMatch(
+        new RegExp(`^/Users/me/\\.manor/prompts/${PANE}-[0-9a-f]{8}\\.txt$`),
+      );
+      // Unflattened: `"$(cat …)"` passes newlines through intact.
+      expect(data).toBe(PROMPT);
+      expect(afterReady).toEqual([
+        [PANE, `claude "$(cat '${path}'; rm -f '${path}')"\r`],
+      ]);
+    });
+
+    it("writes to the host the session runs on, not one picked by path", async () => {
+      sessionHost = "studio";
+      pendingCommands.set(PANE, "claude", "agent-startup", { prompt: PROMPT });
+
+      await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
+
+      expect(hostWrites.map((w) => w.hostId)).toEqual(["studio"]);
+      expect(hostWrites[0].path.startsWith("/home/remote/.manor/prompts/")).toBe(true);
+    });
+
+    it("sweeps week-old prompt files whose launch never ran", async () => {
+      pendingCommands.set(PANE, "claude", "agent-startup", { prompt: PROMPT });
+
+      await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
+
+      expect(hostExecs).toEqual([
+        {
+          hostId: "local",
+          cmd: "find",
+          args: ["/Users/me/.manor/prompts", "-type", "f", "-mtime", "+7", "-delete"],
+        },
+      ]);
+    });
+
+    it("falls back to the inline line when a local write fails", async () => {
+      failHostWrites = true;
+      pendingCommands.set(PANE, "claude", "agent-startup", { prompt: "fix\nit" });
+
+      await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
+
+      expect(afterReady).toEqual([[PANE, 'claude "fix it"\r']]);
+    });
+
+    it("requeues with the prompt intact when a remote write fails", async () => {
+      sessionHost = "studio";
+      failHostWrites = true;
+      pendingCommands.set(PANE, "claude", "agent-startup", { prompt: PROMPT });
+
+      await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
+
+      expect(afterReady).toEqual([]);
+      const requeued = pendingCommands.take(PANE);
+      expect(requeued?.text).toBe("claude");
+      expect(requeued?.prompt).toBe(PROMPT);
+      expect(requeued?.requeued).toBe(true);
+    });
+
+    it("leaves a command without a prompt alone", async () => {
+      pendingCommands.set(PANE, "claude", "agent-startup");
+
+      await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
+
+      expect(hostWrites).toEqual([]);
+      expect(hostExecs).toEqual([]);
+      expect(afterReady).toEqual([[PANE, "claude\r"]]);
     });
   });
 });

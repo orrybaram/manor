@@ -407,10 +407,16 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
    * A reconnecting backend whose loop has no wait to cut short is
    * mid-attempt already: that is left alone. A second `connect()` alongside
    * the loop's own attempt would race it for the same host.
+   *
+   * A woken loop attempts at once, so its countdown is moved to now: the
+   * UI reads a reconnecting host whose attempt is due as one mid-attempt,
+   * and the click shows. The loop's next `hostRetrying` resets it.
    */
   override retryNow(): void {
     if (this.status === "reconnecting") {
-      this.backend.retryNow();
+      if (this.backend.retryNow()) {
+        this.setState({ ...this.state, retryInMs: 0, retryAt: Date.now() });
+      }
       return;
     }
     super.retryNow();

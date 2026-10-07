@@ -131,15 +131,17 @@ export function describeHost(
     case "reconnecting": {
       const seconds = secondsUntilRetry(host, now);
       const when = seconds !== null && seconds > 0 ? ` in ${seconds}s` : "…";
+      // The countdown ran out (or Retry cut it short): an attempt is running.
+      const attempting = seconds === 0;
       return {
         target,
         offline: true,
-        busy: false,
+        busy: attempting,
         tone: "warn",
         status: `Reconnecting${when}`,
         banner: `Lost connection to ${target}. Reconnecting${when}`,
         summary: `Lost the connection. Reconnecting${when}`,
-        canRetry: true,
+        canRetry: !attempting,
       };
     }
     case "error": {

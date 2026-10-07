@@ -907,6 +907,10 @@ describe("BackendRegistry — away and back (ADR-178 §6)", () => {
     registry.retryNow("box");
     expect(retryNow).toHaveBeenCalledTimes(1);
     expect(remote.raw.connect).toHaveBeenCalledTimes(1);
+    // The woken loop is attempting now: the countdown says so at once.
+    const info = registry.list().find((h) => h.hostId === "box")!;
+    expect(info.status).toBe("reconnecting");
+    expect(info.retryAt).toBeLessThanOrEqual(Date.now());
 
     // Mid-attempt the loop has no wait to cut short; the attempt it is
     // making is left alone rather than raced by a second connect.

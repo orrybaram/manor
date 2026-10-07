@@ -66,6 +66,15 @@ describe("describeHost", () => {
     expect(describeHost(host({ status: "reconnecting" }), 0)?.status).toBe("Reconnecting…");
   });
 
+  it("reads a reconnecting host whose attempt is due as mid-attempt, not retryable", () => {
+    const h = host({ status: "reconnecting", retryInMs: 0, retryAt: 5_000 });
+    expect(describeHost(h, 5_000)).toMatchObject({
+      status: "Reconnecting…",
+      busy: true,
+      canRetry: false,
+    });
+  });
+
   it("distinguishes an auth failure, with the ssh-add hint intact", () => {
     const d = describeHost(
       host({

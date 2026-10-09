@@ -118,6 +118,19 @@ body,
   flex-shrink: 0;
 }
 
+/* A drag region swallows mouse-downs before the DOM sees them, so clicking the
+   title bar could never dismiss an open popover or menu. While one is open,
+   every drag region stands down. Tooltips are poppers too but carry neither
+   role, so hovering one leaves the window draggable. */
+html:has(
+    [data-radix-popper-content-wrapper] [role="dialog"],
+    [data-radix-popper-content-wrapper] [role="menu"],
+    [data-radix-popper-content-wrapper] [role="listbox"]
+  )
+  * {
+  -webkit-app-region: no-drag !important;
+}
+
 /* Positioned so the WindowLead can sit in its top-left corner. */
 .app-body {
   position: relative;

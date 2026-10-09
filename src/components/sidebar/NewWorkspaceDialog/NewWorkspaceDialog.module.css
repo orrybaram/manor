@@ -86,6 +86,12 @@
   gap: 8px;
 }
 
+.suggested {
+  align-self: center;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
 .selects:empty {
   display: none;
 }

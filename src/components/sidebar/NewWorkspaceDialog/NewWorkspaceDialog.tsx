@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import X from "lucide-react/dist/esm/icons/x";
 import Loader2 from "lucide-react/dist/esm/icons/loader-2";
@@ -18,6 +18,7 @@ import { Collapse } from "../../ui/Collapse/Collapse";
 import { Button } from "../../ui/Button/Button";
 import { SearchableSelect } from "../../ui/SearchableSelect";
 import { ToggleGroup } from "../../ui/ToggleGroup";
+import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import styles from "./NewWorkspaceDialog.module.css";
 import { Row, Stack } from "../../ui/Layout/Layout";
 import { sanitizeBranchName } from "../../../utils/branch-name";
@@ -40,6 +41,11 @@ import {
   reseedBaseBranch,
 } from "../../../lib/new-workspace";
 import { HostPicker } from "./HostPicker";
+import {
+  applySuggestionResult,
+  shouldSuggest,
+  type FolderSuggestion,
+} from "./folder-suggestion";
 import { CloneToHostDialog } from "../../hosts/CloneToHostDialog";
 
 type Mode = "new" | "existing";
@@ -106,6 +112,10 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   const [existingBranch, setExistingBranch] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [folderId, setFolderId] = useState<string | null>(null);
+  // Set by any hand pick; stops Jev suggesting over the user's choice.
+  const [folderTouched, setFolderTouched] = useState(false);
+  const [suggestion, setSuggestion] = useState<FolderSuggestion | null>(null);
+  const [jevConnected, setJevConnected] = useState(false);
   const [agentPrompt, setAgentPrompt] = useState("");
   const [agentOpen, setAgentOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -124,6 +134,11 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
+  const suggestRequestRef = useRef(0);
+  const pickRef = useRef<{ folderId: string | null; suggestion: FolderSuggestion | null }>({
+    folderId: null,
+    suggestion: null,
+  });
 
   const handleOpenChange = useCallback(
     (isOpen: boolean) => {
@@ -269,6 +284,45 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   const activeFolderId =
     folderId && folders.some((f) => f.id === folderId) ? folderId : null;
 
+  useEffect(() => {
+    pickRef.current = { folderId: activeFolderId, suggestion };
+  }, [activeFolderId, suggestion]);
+
+  // Ask Jev for a folder once the draft settles, unless the user has chosen.
+  const suggestPrompt = agentOpen ? agentPrompt : "";
+  const canSuggest = shouldSuggest({
+    jevConnected,
+    folderTouched,
+    initialFolderId,
+    activeProjectId,
+    folderCount: folders.length,
+    name,
+  });
+  useEffect(() => {
+    if (!canSuggest) return;
+    const timer = setTimeout(() => {
+      const request = ++suggestRequestRef.current;
+      window.electronAPI.typesafe
+        .suggestFolder(activeProjectId, {
+          name,
+          branchName,
+          agentPrompt: suggestPrompt || undefined,
+        })
+        .then((result) => {
+          if (request !== suggestRequestRef.current) return;
+          const next = applySuggestionResult(pickRef.current, result);
+          setFolderId(next.folderId);
+          setSuggestion(next.suggestion);
+        })
+        .catch(() => {});
+    }, 400);
+    return () => {
+      clearTimeout(timer);
+      // Drops a reply still in flight for the draft this run was started for.
+      suggestRequestRef.current++;
+    };
+  }, [canSuggest, activeProjectId, name, branchName, suggestPrompt]);
+
   const createWorkspaceFolder = useProjectStore((s) => s.createWorkspaceFolder);
   // Typing a name the folder list doesn't have makes that folder, then picks it.
   const createFolder = useCallback(
@@ -276,7 +330,10 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       if (!activeProjectId) return;
       try {
         const folder = await createWorkspaceFolder(activeProjectId, folderName);
-        if (folder) setFolderId(folder.id);
+        if (folder) {
+          setFolderId(folder.id);
+          setFolderTouched(true);
+        }
       } catch (err) {
         setError(
           `Couldn't create folder: ${err instanceof Error ? err.message : String(err)}`,
@@ -303,6 +360,13 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       setExistingBranch("");
       setSelectedProjectId(defaultProjectId);
       setFolderId(initialFolderId);
+      setFolderTouched(false);
+      setSuggestion(null);
+      setJevConnected(false);
+      window.electronAPI.typesafe
+        ?.isConnected()
+        .then(setJevConnected)
+        .catch(() => setJevConnected(false));
       setAgentPrompt(initialAgentPrompt);
       setAgentOpen(!!initialAgentPrompt);
       setError(null);
@@ -578,6 +642,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                           if (!target) return;
                           chooseProject(startingMemberId(target, projects, hosts));
                           setFolderId(null);
+                          setSuggestion(null);
                         }}
                         options={projectOptions}
                         icon={<Box size={12} />}
@@ -589,7 +654,10 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                     {activeProject && (
                       <SearchableSelect
                         value={activeFolderId ?? ""}
-                        onChange={(id) => setFolderId(id || null)}
+                        onChange={(id) => {
+                          setFolderId(id || null);
+                          setFolderTouched(true);
+                        }}
                         onCreate={(folderName) => void createFolder(folderName)}
                         createLabel={(q) => `New folder "${q}"`}
                         options={folderOptions}
@@ -600,6 +668,20 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                         data-testid="new-workspace-folder-select"
                       />
                     )}
+                    {suggestion &&
+                      suggestion.folderId === activeFolderId &&
+                      !folderTouched && (
+                        <Tooltip
+                          label={`Picked by Jev · ${Math.round(suggestion.confidence * 100)}% confident`}
+                        >
+                          <span
+                            className={styles.suggested}
+                            data-testid="new-workspace-folder-suggested"
+                          >
+                            Suggested
+                          </span>
+                        </Tooltip>
+                      )}
                     {mode === "new" && (
                       <SearchableSelect
                         value={baseBranch}

@@ -950,20 +950,25 @@ function App() {
               initialBranch={initialBranch}
               initialAgentPrompt={agentPrompt ?? undefined}
               onSubmit={async (projectId, name, branch, baseBranch, useExistingBranch, folderId, prompt) => {
+                // From the Tasks view, stay there: the workspace is made behind it.
+                const background = useAppStore.getState().activeSurface === "tasks";
                 const result = await createWorktree(projectId, name, {
                   branch,
                   agentPrompt: prompt,
                   linkedIssue: pendingLinkedIssueRef.current ?? undefined,
                   baseBranch,
                   useExistingBranch,
+                  background,
                 });
                 if (result) {
                   if (folderId) {
                     await placeNewWorkspaceInFolder(projectId, result, folderId);
                   }
                   // Ensure the project is selected so the new workspace is visible
-                  const projIdx = useProjectStore.getState().projects.findIndex((p) => p.id === projectId);
-                  if (projIdx >= 0) selectProject(projIdx);
+                  if (!background) {
+                    const projIdx = useProjectStore.getState().projects.findIndex((p) => p.id === projectId);
+                    if (projIdx >= 0) selectProject(projIdx);
+                  }
                   setNewWorkspaceOpen(false);
                 }
                 return !!result;

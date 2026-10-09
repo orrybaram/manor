@@ -503,6 +503,11 @@ export interface CreateWorktreeOptions {
   baseBranch?: string;
   /** Check out `branch` as it is instead of creating it. */
   useExistingBranch?: boolean;
+  /**
+   * Create it without switching to it: the user stays where they are (the
+   * Tasks view) and the agent tab opens in the new workspace behind them.
+   */
+  background?: boolean;
 }
 
 export type SetupStep =
@@ -998,8 +1003,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     name: string,
     opts: CreateWorktreeOptions = {},
   ) => {
-    const { branch, agentPrompt, linkedIssue, baseBranch, useExistingBranch } =
-      opts;
+    const {
+      branch,
+      agentPrompt,
+      linkedIssue,
+      baseBranch,
+      useExistingBranch,
+      background,
+    } = opts;
     const project = get().projects.find((p) => p.id === projectId);
     // The prompt is not baked into the line: it rides beside the bare command
     // and the server delivers it through a file on the pane's host (ADR-209).
@@ -1098,9 +1109,22 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         .getState()
         .updateWorktreeSetupStep(wsPath, "switch", "in-progress");
 
-      // Select the new workspace and switch to it
-      const newIdx = updated.workspaces.findIndex((ws) => ws.path === wsPath);
-      if (newIdx >= 0) get().selectWorkspace(projectId, newIdx);
+      // Select the new workspace and switch to it, unless it's made in the background
+      if (!background) {
+        const newIdx = updated.workspaces.findIndex((ws) => ws.path === wsPath);
+        if (newIdx >= 0) get().selectWorkspace(projectId, newIdx);
+      }
+      const key = workspaceKey(updated.hostId, wsPath);
+      const addAgentTab = (command: string) =>
+        background
+          ? useAppStore.getState().addTerminalTabIn(key, command, {
+              kind: "agent-startup",
+              prompt: launchPrompt,
+            })
+          : useAppStore.getState().addTerminalTab(command, {
+              kind: "agent-startup",
+              prompt: launchPrompt,
+            });
 
       // Mark switch as done
       useAppStore.getState().updateWorktreeSetupStep(wsPath, "switch", "done");
@@ -1110,18 +1134,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         // WorkspaceSetupView — the view renders an `attach`-mode MiniTerminal
         // to observe the same session without owning its lifecycle.
         startSetupScript(wsPath, startScript, project?.hostId);
-        if (agentCommand) {
+        if (agentCommand) addAgentTab(agentCommand);
+        if (agentCommand || background) {
           // The agent doesn't wait for the script: both run in parallel. Its
-          // tab replaces the setup view, so progress moves to the background
+          // tab replaces the setup view (and a background workspace's setup
+          // view isn't on screen), so progress moves to the background
           // toast that `startSetupScript`'s exit handler removes.
           // The launch line waits on the server for the new tab's pane
           // (ADR-179 ticket 11).
-          useAppStore
-            .getState()
-            .addTerminalTab(agentCommand, {
-              kind: "agent-startup",
-              prompt: launchPrompt,
-            });
           useToastStore.getState().addToast({
             id: `worktree-setup-${wsPath}`,
             message: `Setting up "${name}"…`,
@@ -1132,10 +1152,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       } else if (agentCommand) {
         // No start script — open the agent tab and let the server type the
         // launch line into it (ADR-179 ticket 11).
-        useAppStore.getState().addTerminalTab(agentCommand, {
-          kind: "agent-startup",
-          prompt: launchPrompt,
-        });
+        addAgentTab(agentCommand);
         useAppStore.getState().clearWorktreeSetup(wsPath);
       } else {
         // No commands at all — clear setup state

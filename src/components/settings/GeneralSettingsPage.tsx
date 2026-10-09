@@ -7,6 +7,7 @@ import { Button } from "../ui/Button/Button";
 import { ResetStatsDialog } from "../command-palette/ResetStatsDialog";
 import { Stack } from "../ui/Layout/Layout";
 import { SectionTitle } from "./SectionTitle";
+import { SettingField, SettingRow } from "./SettingRow";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 export function GeneralSettingsPage() {
@@ -22,84 +23,75 @@ export function GeneralSettingsPage() {
     <Stack className={styles.pageContent}>
       <Stack gap="xs">
         <SectionTitle id="general-editor">Code Editor</SectionTitle>
-        <div className={styles.fieldLabel}>Default editor command</div>
-        <Input
-          type="text"
-          placeholder="e.g. code, cursor, zed, nvim"
-          value={preferences.defaultEditor}
-          onChange={(e) => handleEditorChange(e.target.value)}
-        />
-        <div className={styles.fieldHint}>
-          CLI command used to open workspaces. Leave empty to use the system
-          default.
-        </div>
-        <label className={styles.notifRow}>
-          <span>Open in terminal</span>
+        <SettingField
+          label="Default editor command"
+          hint="CLI command used to open workspaces. Leave empty to use the system default."
+        >
+          <Input
+            type="text"
+            placeholder="e.g. code, cursor, zed, nvim"
+            value={preferences.defaultEditor}
+            onChange={(e) => handleEditorChange(e.target.value)}
+          />
+        </SettingField>
+        <SettingRow
+          label="Open in terminal"
+          hint="Enable for terminal-based editors like vim, nvim, or emacs. Opens a new terminal tab instead of launching an external window."
+        >
           <Switch
             checked={preferences.editorIsTerminal}
             onCheckedChange={(checked) => set("editorIsTerminal", checked)}
           />
-        </label>
-        <div className={styles.fieldHint}>
-          Enable for terminal-based editors like vim, nvim, or emacs. Opens a
-          new terminal tab instead of launching an external window.
-        </div>
+        </SettingRow>
       </Stack>
       <Stack gap="xs">
         <SectionTitle id="general-diff">Diff</SectionTitle>
-        <label className={styles.notifRow}>
-          <span>Open diff in new panel</span>
+        <SettingRow
+          label="Open diff in new panel"
+          hint="When enabled, the diff view opens in a new side-by-side panel instead of a tab in the current panel."
+        >
           <Switch
             checked={preferences.diffOpensInNewPanel}
             onCheckedChange={(checked) => set("diffOpensInNewPanel", checked)}
           />
-        </label>
-        <div className={styles.fieldHint}>
-          When enabled, the diff view opens in a new side-by-side panel instead
-          of a tab in the current panel.
-        </div>
+        </SettingRow>
       </Stack>
       <Stack gap="xs">
         <SectionTitle id="general-stats">Usage Stats</SectionTitle>
-        <label className={styles.notifRow}>
-          <span>Collect usage stats</span>
+        <SettingRow
+          label="Collect usage stats"
+          hint="Counts prompts, tool calls, worktrees and agents killed. Never stores text. Stays on this device."
+          action={
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setResetStatsOpen(true)}
+            >
+              Reset stats
+            </Button>
+          }
+        >
           <Switch
             checked={preferences.statsEnabled}
             onCheckedChange={(checked) => set("statsEnabled", checked)}
           />
-        </label>
-        <div className={styles.fieldHint}>
-          Counts prompts, tool calls, worktrees and agents killed. Never stores
-          text. Stays on this device.
-        </div>
-        <div className={styles.fieldAction}>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setResetStatsOpen(true)}
-          >
-            Reset stats
-          </Button>
-        </div>
+        </SettingRow>
       </Stack>
       <Stack gap="xs">
         <SectionTitle id="general-folder-suggestions">
           Folder Suggestions
         </SectionTitle>
-        <label className={styles.notifRow}>
-          <span>Suggest folders for new workspaces</span>
+        <SettingRow
+          label="Suggest folders for new workspaces"
+          hint="Uses Jev, provided by Manor. Sends the workspace name, branch, agent prompt and your folder and workspace names to relay.manor.sh and TypeSafe. Nothing is stored."
+        >
           <Switch
             checked={preferences.folderSuggestionsEnabled}
             onCheckedChange={(checked) =>
               set("folderSuggestionsEnabled", checked)
             }
           />
-        </label>
-        <div className={styles.fieldHint}>
-          Uses Jev, provided by Manor. Sends the workspace name, branch, agent
-          prompt and your folder and workspace names to relay.manor.sh and
-          TypeSafe. Nothing is stored.
-        </div>
+        </SettingRow>
       </Stack>
       <ResetStatsDialog
         open={resetStatsOpen}

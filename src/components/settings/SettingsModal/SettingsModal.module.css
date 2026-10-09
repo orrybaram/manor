@@ -239,8 +239,9 @@
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-dim);
+  letter-spacing: 0.06em;
+  /* A step brighter than hints, so a section reads as a heading. */
+  color: color-mix(in srgb, var(--text-selected) 60%, transparent);
   margin-bottom: 10px;
 }
 
@@ -329,6 +330,56 @@
 
 .notifSubRow[data-disabled="true"]:hover {
   color: var(--text-dim);
+}
+
+/*
+ * A setting with a hint (SettingRow / SettingField): label and hint stack
+ * together, and one divider closes both, so a hint never reads as belonging
+ * to the setting below it.
+ */
+.settingRow {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--surface);
+}
+
+.settingRow:last-child {
+  border-bottom: none;
+}
+
+.settingMain {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  cursor: pointer;
+}
+
+.settingText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settingLabel {
+  font-size: 13px;
+  color: var(--text-selected);
+}
+
+.settingHint {
+  font-size: 12px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--text-selected) 50%, transparent);
+}
+
+.settingAction {
+  margin-top: 10px;
+}
+
+.settingField {
+  gap: 6px;
 }
 
 /* ── Form fields ── */

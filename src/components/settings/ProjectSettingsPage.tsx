@@ -33,6 +33,7 @@ import { Switch } from "../ui/Switch/Switch";
 import { Button } from "../ui/Button/Button";
 import { Stack, Row } from "../ui/Layout/Layout";
 import { SectionTitle } from "./SectionTitle";
+import { SettingRow } from "./SettingRow";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 const worktreeScriptFields: Array<{
@@ -266,7 +267,12 @@ function previewHostname(
   }
   const host = portlessHostFor(project.hostId, hostSegments(remoteIds));
   return portlessHostname(
-    { path: project.path, projectName: project.name, branch: null, isMain: true },
+    {
+      path: project.path,
+      projectName: project.name,
+      branch: null,
+      isMain: true,
+    },
     host.kind === "unknown" ? { kind: "local" } : host,
   );
 }
@@ -381,21 +387,24 @@ function PortsSection(props: ProjectFieldProps) {
   return (
     <Stack gap="xs">
       <SectionTitle id="project-ports">Ports</SectionTitle>
-      <label className={styles.notifRow}>
-        <span>Named preview URLs</span>
+      <SettingRow
+        label="Named preview URLs"
+        hint={
+          <>
+            Route this project's dev servers through the portless proxy so each
+            workspace gets a stable hostname like{" "}
+            <code>{previewHostname(project, hosts)}</code>. When off, ports open
+            as <code>localhost:&lt;port&gt;</code>.
+          </>
+        }
+      >
         <Switch
           checked={project.portlessEnabled !== false}
           onCheckedChange={(checked) =>
             updateProject(project.id, { portlessEnabled: checked })
           }
         />
-      </label>
-      <div className={styles.fieldHint}>
-        Route this project's dev servers through the portless proxy so each
-        workspace gets a stable hostname like{" "}
-        <code>{previewHostname(project, hosts)}</code>. When off, ports open as{" "}
-        <code>localhost:&lt;port&gt;</code>.
-      </div>
+      </SettingRow>
     </Stack>
   );
 }

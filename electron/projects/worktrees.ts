@@ -105,6 +105,7 @@ export async function createWorktree(
     linkedIssue,
     baseBranch,
     useExistingBranch,
+    folderId,
     origin = null,
   } = opts;
   const progress = (step: SetupStep, status: StepStatus, message?: string) =>
@@ -220,6 +221,14 @@ export async function createWorktree(
     if (!existing.some((i) => i.id === linkedIssue.id)) {
       project.workspaceIssues[worktreePath] = [...existing, linkedIssue];
     }
+  }
+
+  // Filed here, in the same save as the worktree, so the projects-changed
+  // reload this create triggers already carries it (a separate follow-up
+  // move raced that reload and lost).
+  if (folderId && project.workspaceFolders?.some((f) => f.id === folderId)) {
+    if (!project.workspaceFolderIds) project.workspaceFolderIds = {};
+    project.workspaceFolderIds[worktreePath] = folderId;
   }
 
   progress("persist", "in-progress");

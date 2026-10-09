@@ -503,6 +503,8 @@ export interface CreateWorktreeOptions {
   baseBranch?: string;
   /** Check out `branch` as it is instead of creating it. */
   useExistingBranch?: boolean;
+  /** Sidebar folder to file it under; loose when omitted. */
+  folderId?: string | null;
   /**
    * Create it without switching to it: the user stays where they are (the
    * Tasks view) and the agent tab opens in the new workspace behind them.
@@ -1009,6 +1011,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       linkedIssue,
       baseBranch,
       useExistingBranch,
+      folderId,
       background,
     } = opts;
     const project = get().projects.find((p) => p.id === projectId);
@@ -1048,7 +1051,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       updated = await window.electronAPI.projects.createWorktree(
         projectId,
         name,
-        { branch, linkedIssue, baseBranch, useExistingBranch },
+        { branch, linkedIssue, baseBranch, useExistingBranch, folderId },
       );
     } catch (err) {
       unsubProgress();

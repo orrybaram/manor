@@ -925,6 +925,48 @@ describe("ProjectManager", () => {
         { createBranch: true, startPoint: "origin/develop" },
       );
     });
+
+    describe("folderId", () => {
+      // List whatever worktree was just added, so the returned info has it.
+      const listAdded = () => {
+        vi.mocked(gitMock.worktreeList).mockImplementation(async () => [
+          { path: "/tmp/proj", branch: "main", isMain: true },
+          ...vi.mocked(gitMock.worktreeAdd).mock.calls.map(([, path, branch]) => ({
+            path,
+            branch,
+            isMain: false,
+          })),
+        ]);
+      };
+
+      it("files the new worktree under the folder in the same create", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const folder = manager.createWorkspaceFolder(project.id, "Bugs");
+        listAdded();
+
+        const updated = await manager.createWorktree(project.id, "my-workspace", {
+          branch: "new-feature",
+          folderId: folder!.id,
+        });
+
+        const created = updated?.workspaces.find((ws) => !ws.isMain);
+        expect(created?.folderId).toBe(folder!.id);
+      });
+
+      it("leaves the worktree loose when the folder is gone", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        listAdded();
+
+        const updated = await manager.createWorktree(project.id, "my-workspace", {
+          branch: "new-feature",
+          folderId: "missing",
+        });
+
+        const created = updated?.workspaces.find((ws) => !ws.isMain);
+        expect(created).toBeDefined();
+        expect(created?.folderId ?? null).toBeNull();
+      });
+    });
   });
 
   describe("createWorkspacesFromIssues", () => {

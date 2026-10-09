@@ -254,6 +254,7 @@ export async function projectsCreateWorktree(
       linkedIssue: opts.linkedIssue,
       baseBranch: opts.baseBranch,
       useExistingBranch: opts.useExistingBranch,
+      folderId: opts.folderId,
       origin: ctx.caller.id,
     },
     { runSetupScript: false },

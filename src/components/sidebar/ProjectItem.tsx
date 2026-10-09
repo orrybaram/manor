@@ -76,7 +76,6 @@ import { MergeWorktreeDialog } from "./MergeWorktreeDialog";
 import { ConvertToWorkspaceDialog } from "./ConvertToWorkspaceDialog";
 import { NewFolderDialog } from "./NewFolderDialog";
 import { FolderItem } from "./FolderItem";
-import { placeNewWorkspaceInFolder } from "../../lib/place-new-workspace";
 import { openInEditor } from "../../lib/editor";
 import { openExternal } from "../../lib/open-external";
 import { isWebApp } from "../../lib/platform";
@@ -357,7 +356,10 @@ type ProjectItemProps = {
     projectId: string,
     name: string,
     branch: string,
-    options: Pick<CreateWorktreeOptions, "baseBranch" | "useExistingBranch" | "agentPrompt">,
+    options: Pick<
+      CreateWorktreeOptions,
+      "baseBranch" | "useExistingBranch" | "agentPrompt" | "folderId"
+    >,
   ) => Promise<string | null>;
   onOpenSettings?: () => void;
   onDragStart?: (e: ReactPointerEvent) => void;
@@ -1396,13 +1398,11 @@ export function ProjectItem(props: ProjectItemProps) {
             baseBranch,
             useExistingBranch,
             agentPrompt,
+            folderId,
           });
           if (result) {
             setNewWorkspaceOpen(false);
             setNewWorkspaceFolderId(null);
-            if (folderId) {
-              await placeNewWorkspaceInFolder(createInId, result, folderId);
-            }
           }
           return !!result;
         }}

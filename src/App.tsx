@@ -63,7 +63,6 @@ import {
   runForwardedCommand,
   startNewAgent,
 } from "./lib/keybinding-commands";
-import { placeNewWorkspaceInFolder } from "./lib/place-new-workspace";
 import { sidebarColumnWidth, windowLeadInset } from "./lib/window-lead";
 import {
   createMenuHandlers,
@@ -958,12 +957,10 @@ function App() {
                   linkedIssue: pendingLinkedIssueRef.current ?? undefined,
                   baseBranch,
                   useExistingBranch,
+                  folderId,
                   background,
                 });
                 if (result) {
-                  if (folderId) {
-                    await placeNewWorkspaceInFolder(projectId, result, folderId);
-                  }
                   // Ensure the project is selected so the new workspace is visible
                   if (!background) {
                     const projIdx = useProjectStore.getState().projects.findIndex((p) => p.id === projectId);

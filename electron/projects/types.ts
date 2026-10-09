@@ -54,6 +54,8 @@ export interface CreateWorktreeOptions {
   baseBranch?: string;
   /** Check `branch` out as it is rather than creating it. */
   useExistingBranch?: boolean;
+  /** Sidebar folder to file it under; an unknown id leaves it loose. */
+  folderId?: string | null;
   /**
    * The bridge connection that asked, so its own window gets the setup
    * progress (ADR-180 D5). Null — the default, and what the CLI, MCP and the

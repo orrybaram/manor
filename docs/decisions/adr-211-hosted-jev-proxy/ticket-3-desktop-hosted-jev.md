@@ -1,6 +1,6 @@
 ---
 title: Desktop calls hosted Jev; remove user key; preference toggle
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]

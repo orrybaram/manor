@@ -1,6 +1,6 @@
 ---
 title: Shared Jev request signing in relay-crypto
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

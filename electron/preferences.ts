@@ -38,6 +38,10 @@ export interface AppPreferences {
   statsEnabled: boolean;
   /** ADR-211: whether the New Workspace dialog asks Jev (through the relay) for a folder. */
   folderSuggestionsEnabled: boolean;
+  /** ADR-212: the earned title shown in the trophy room; null means the latest earned. */
+  achievementTitle: string | null;
+  /** ADR-212: secret badge ids the user chose to reveal. */
+  revealedBadges: string[];
 }
 
 const DEFAULTS: AppPreferences = {
@@ -58,6 +62,8 @@ const DEFAULTS: AppPreferences = {
   agentPruneNoticeShown: false,
   statsEnabled: true,
   folderSuggestionsEnabled: true,
+  achievementTitle: null,
+  revealedBadges: [],
 };
 
 /**

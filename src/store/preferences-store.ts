@@ -28,6 +28,8 @@ const defaultPreferences: AppPreferences = {
   agentPruneNoticeShown: false,
   statsEnabled: true,
   folderSuggestionsEnabled: true,
+  achievementTitle: null,
+  revealedBadges: [],
 };
 
 export const usePreferencesStore = create<PreferencesState>((set) => {

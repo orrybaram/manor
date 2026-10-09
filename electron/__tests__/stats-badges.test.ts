@@ -25,6 +25,12 @@ function days(count: number): StatsSummary["dailyPrompts"] {
   }));
 }
 
+/** Every badge id but platinum, awarded — what platinum reads. */
+const OTHER_IDS = BADGES.map((b) => b.id).filter((id) => id !== "platinum");
+const ALL_OTHERS_AWARDED = Object.fromEntries(
+  OTHER_IDS.map((id) => [id, "2026-01-01T00:00:00.000Z"]),
+);
+
 /** Table of `[badgeId, thresholdSummary]` — the smallest summary that flips it on. */
 const THRESHOLDS: Record<string, StatsSummary> = {
   "first-blood": summary({ allTime: { agentsKilled: 1 } }),
@@ -66,6 +72,7 @@ const THRESHOLDS: Record<string, StatsSummary> = {
   "seal-of-approval": summary({ allTime: { prApproved: 10 } }),
   "red-ink": summary({ allTime: { prChangesRequested: 10 } }),
   "works-on-my-machine": summary({ allTime: { prChecksFailed: 25 } }),
+  platinum: summary({ badges: ALL_OTHERS_AWARDED }),
 };
 
 /** One below each badge's threshold — the predicate must still read false. */
@@ -109,6 +116,11 @@ const BELOW_THRESHOLDS: Record<string, StatsSummary> = {
   "seal-of-approval": summary({ allTime: { prApproved: 9 } }),
   "red-ink": summary({ allTime: { prChangesRequested: 9 } }),
   "works-on-my-machine": summary({ allTime: { prChecksFailed: 24 } }),
+  platinum: summary({
+    badges: Object.fromEntries(
+      Object.entries(ALL_OTHERS_AWARDED).slice(1),
+    ),
+  }),
 };
 
 describe("BADGES", () => {
@@ -153,6 +165,7 @@ describe("BADGES", () => {
       "seal-of-approval",
       "red-ink",
       "works-on-my-machine",
+      "platinum",
     ]);
   });
 
@@ -222,14 +235,20 @@ const allEarned = summary({
 describe("evaluateBadges", () => {
   it("returns every earned badge when none are awarded yet", () => {
     const result = evaluateBadges(allEarned, {});
-    expect(result.map((b) => b.id)).toEqual(BADGES.map((b) => b.id));
+    expect(result.map((b) => b.id)).toEqual(OTHER_IDS);
+  });
+
+  it("awards platinum on the evaluation after the last other badge", () => {
+    const awarded = ALL_OTHERS_AWARDED;
+    const result = evaluateBadges({ ...allEarned, badges: awarded }, awarded);
+    expect(result.map((b) => b.id)).toEqual(["platinum"]);
   });
 
   it("skips already-awarded ids and preserves BADGES order", () => {
     const awarded = { massacre: "2026-01-01T00:00:00.000Z", shipper: "2026-01-01T00:00:00.000Z" };
     const result = evaluateBadges(allEarned, awarded);
     expect(result.map((b) => b.id)).toEqual(
-      BADGES.map((b) => b.id).filter((id) => id !== "massacre" && id !== "shipper"),
+      OTHER_IDS.filter((id) => id !== "massacre" && id !== "shipper"),
     );
   });
 

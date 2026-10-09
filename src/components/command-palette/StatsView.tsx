@@ -355,7 +355,7 @@ function AchievementSection(props: AchievementSectionProps) {
   return (
     <div className={styles.achievementSection}>
       <div className={styles.achievementSectionHeader}>
-        <span className={styles.achievementSectionTitle}>{section.title}</span>
+        <span className={styles.achievementSectionTitle}>{section.name}</span>
         <span className={styles.achievementSectionBlurb}>{section.blurb}</span>
         <span
           className={`${styles.achievementSectionCount} ${complete ? styles.achievementSectionComplete : ""}`}

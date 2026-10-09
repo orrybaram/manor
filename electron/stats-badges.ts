@@ -253,6 +253,14 @@ export const BADGES: readonly BadgeDef[] = [
     description: "Had CI fail on 25 PRs.",
     earned: (s) => (s.allTime.prChecksFailed ?? 0) >= 25,
   },
+  // Reads `s.badges`, so it lands on the commit after the last other badge.
+  {
+    id: "platinum",
+    title: "Platinum",
+    description: "Earned every other badge.",
+    earned: (s) =>
+      BADGES.every((b) => b.id === "platinum" || s.badges[b.id] !== undefined),
+  },
 ];
 
 /**

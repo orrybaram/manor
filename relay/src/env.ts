@@ -35,10 +35,4 @@ export interface Env {
   TYPESAFE_API_KEY?: string;
   /** Test seam: the TypeSafe API origin. Defaults to `https://api.typesafe.ai`. */
   JEV_UPSTREAM_URL?: string;
-  /**
-   * Analytics Engine dataset `manor_jev`: one content-free data point per
-   * `/jev/folder` request (column layout in `record`, `jev.ts`). Optional so
-   * tests and dev work without it.
-   */
-  JEV_EVENTS?: AnalyticsEngineDataset;
 }

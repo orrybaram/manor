@@ -161,51 +161,28 @@ function confidenceBand(c: number): string {
 }
 
 /**
- * Observability: one `console.log` line (Workers Logs) and one Analytics
- * Engine data point per request. Only the fields below, never request or
- * response content (names, prompts, folder ids or descriptions, the pub key,
- * IPs).
- *
- * Analytics Engine layout (dataset `manor_jev`, binding `JEV_EVENTS`):
- *   index1 = outcome
- *   blob1 = outcome, blob2 = confidence band (served only, else "")
- *   double1 = status, double2 = ms, double3 = options (0 if unparsed),
- *   double4 = confidence (-1 if none), double5 = upstream_ms (0 if none)
+ * Observability: one `console.log` line per request, for Workers Logs and its
+ * Query Builder (traces add the subrequest timings). Only the fields below,
+ * never request or response content (names, prompts, folder ids or
+ * descriptions, the pub key, IPs).
  */
-function record(env: Env, t: Telemetry, ms: number): void {
-  const status = t.response.status;
-  const band =
-    t.outcome === "served" && t.confidence !== undefined
-      ? confidenceBand(t.confidence)
-      : undefined;
+function record(t: Telemetry, ms: number): void {
   console.log(
     JSON.stringify({
       event: "jev",
       outcome: t.outcome,
-      status,
+      status: t.response.status,
       ms,
       options: t.options,
-      band,
+      band:
+        t.outcome === "served" && t.confidence !== undefined
+          ? confidenceBand(t.confidence)
+          : undefined,
       upstream_ms: t.upstreamMs,
       upstream_status: t.upstreamStatus,
       error: t.error,
     }),
   );
-  try {
-    env.JEV_EVENTS?.writeDataPoint({
-      indexes: [t.outcome],
-      blobs: [t.outcome, band ?? ""],
-      doubles: [
-        status,
-        ms,
-        t.options ?? 0,
-        t.confidence ?? -1,
-        t.upstreamMs ?? 0,
-      ],
-    });
-  } catch {
-    // Telemetry never breaks a request.
-  }
 }
 
 export async function handleJevFolder(
@@ -214,7 +191,7 @@ export async function handleJevFolder(
 ): Promise<Response> {
   const start = Date.now();
   const t = await runJevFolder(request, env);
-  record(env, t, Date.now() - start);
+  record(t, Date.now() - start);
   return t.response;
 }
 

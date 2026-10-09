@@ -61,40 +61,29 @@ workspace names and agent prompts in cleartext, and passes them to TypeSafe.
 
 #### Observability
 
-Each request emits exactly one content-free log line and one Analytics Engine
-data point; never names, prompts, folder ids or descriptions, the pub key or
-IPs.
+Workers Observability is on in `wrangler.toml`, with logs and traces at full
+sampling. Find it under Workers & Pages → manor-relay → Observability.
 
-- Logs: Workers Logs in the dashboard, or `npx wrangler tail`; filter
-  `event = "jev"`. Fields: `outcome`, `status`, `ms`, and when known
-  `options`, `band` (served only), `upstream_ms`, `upstream_status`, `error`
-  (an error name only).
-- Outcomes: `served`, `method`, `too_large`, `ip_limited`, `bad_request`,
+- **Logs.** Each request writes one content-free JSON line with
+  `event = "jev"`; it never contains names, prompts, folder ids or
+  descriptions, the pub key or IPs. Fields: `outcome`, `status`, `ms`, and
+  when known `options`, `band` (confidence band, served only), `upstream_ms`,
+  `upstream_status` and `error` (an error name only). Watch live with
+  `npx wrangler tail`.
+- **Outcomes:** `served`, `method`, `too_large`, `ip_limited`, `bad_request`,
   `stale`, `bad_signature`, `id_limited`, `not_configured`, `over_budget`,
   `upstream_error`, `bad_answer`.
-- Analytics Engine dataset `manor_jev` (binding `JEV_EVENTS`). Columns:
-  `index1`/`blob1` = outcome, `blob2` = confidence band (`<0.4`, `0.4-0.6`,
-  `0.6-0.8`, `>=0.8`; served only), `double1` = status, `double2` = ms,
-  `double3` = options, `double4` = confidence (-1 if none), `double5` =
-  upstream_ms (0 if none). Analytics Engine must be enabled on the account.
+- **Query Builder** (Investigate tab). Useful saved queries, all filtered on
+  `event = "jev"`:
+  - count, grouped by `outcome`: what share is served, limited or refused;
+  - P50 / P95 of `ms` where `outcome = served`: end-to-end latency;
+  - P95 of `upstream_ms`: how much of that is TypeSafe;
+  - count where `outcome = served`, by day: daily use against the 5,000 cap.
+- **Traces** show each request's subrequests as timed spans: the TypeSafe
+  call, the `JevBudget` Durable Object and the rate-limit bindings.
 
-Example queries (Analytics Engine SQL API):
-
-```sql
--- outcomes in the last day
-SELECT blob1 AS outcome, SUM(_sample_interval) AS n
-FROM manor_jev WHERE timestamp > NOW() - INTERVAL '1' DAY GROUP BY outcome
-
--- served latency, p50 / p95
-SELECT quantileWeighted(0.5)(double2, _sample_interval) AS p50,
-       quantileWeighted(0.95)(double2, _sample_interval) AS p95
-FROM manor_jev WHERE blob1 = 'served' AND timestamp > NOW() - INTERVAL '1' DAY
-
--- served per day against the 5000 cap
-SELECT toStartOfInterval(timestamp, INTERVAL '1' DAY) AS day,
-       SUM(_sample_interval) AS served
-FROM manor_jev WHERE blob1 = 'served' GROUP BY day ORDER BY day
-```
+Logs are kept for about 7 days, so there is no long-term trend here; TypeSafe's
+dashboard covers usage over time.
 
 ## Close codes
 

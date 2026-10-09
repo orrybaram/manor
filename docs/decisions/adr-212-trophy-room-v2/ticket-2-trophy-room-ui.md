@@ -1,6 +1,6 @@
 ---
 title: Trophy Room v2 screen
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [1]
@@ -35,3 +35,8 @@ New folder `src/components/command-palette/trophy-room/`:
 - `src/components/command-palette/trophy-room/*` (new)
 - `src/components/command-palette/CommandPalette.module.css`
 - `src/store/stats-store.ts` (optional `focusTrack`)
+
+## Notes from ticket 1
+- `BadgeSectionMeta.name` is the track's display name; `BadgeSectionMeta.title` is the reward title.
+- Gild: massacre, extinction (carnage); hive-mind, legion (command); novelist, marathon (voice); devoted, year-round (devotion); forester, scorched-earth (groundskeeping); armada (shipping). Secret: cold-blooded, red-ink, works-on-my-machine.
+- New `meta` section holds only `platinum`.

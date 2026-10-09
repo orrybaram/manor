@@ -13,7 +13,17 @@
  * log a status only.
  */
 import {
+  JEV_MAX_BODY_BYTES,
+  JEV_MAX_OPTION_CHARS,
+  JEV_MAX_OPTIONS,
+  JEV_MIN_OPTIONS,
+  JEV_OPTION_KEY_PATTERN,
+  JEV_STATE_MAX_CHARS,
+  type JevPayload,
+} from "../../src/lib/jev-protocol";
+import {
   base64urlDecode,
+  isPlainObject,
   roomIdFor,
   verifyJevRequest,
 } from "../../src/lib/relay-crypto";
@@ -24,25 +34,11 @@ export const JEV_MODEL = "jev-1.13.0";
 export const INSTRUCTIONS =
   "Which sidebar folder should this new workspace be filed under? Folders group related workspaces; judge by what the folder's existing workspaces are about.";
 
-const MAX_BODY_BYTES = 16 * 1024;
 const MAX_CLOCK_SKEW_MS = 5 * 60_000;
 const DEFAULT_DAILY_CALLS = 5000;
 const DEFAULT_UPSTREAM_URL = "https://api.typesafe.ai";
 const UPSTREAM_TIMEOUT_MS = 4000;
 const RETRY_DELAY_MS = 300;
-
-const MIN_OPTIONS = 2;
-const MAX_OPTIONS = 64;
-const OPTION_KEY_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
-const MAX_OPTION_CHARS = 400;
-/** Allowed `state` fields: [max length, required]. */
-const STATE_FIELDS: Record<string, [number, boolean]> = {
-  workspaceName: [200, true],
-  branchName: [200, false],
-  agentPrompt: [2000, false],
-};
-
-type Strings = Record<string, string>;
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -55,12 +51,6 @@ function json(status: number, body: unknown): Response {
 }
 
 const fail = (status: number, error: string) => json(status, { error });
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
-  const proto = Object.getPrototypeOf(v);
-  return proto === Object.prototype || proto === null;
-}
 
 function isString(v: unknown, min: number, max: number): v is string {
   return typeof v === "string" && v.length >= min && v.length <= max;
@@ -76,24 +66,27 @@ function decodeBytes(v: unknown, length: number): Uint8Array | null {
   }
 }
 
-function validOptions(v: unknown): v is Strings {
+function validOptions(v: unknown): v is JevPayload["options"] {
   if (!isPlainObject(v)) return false;
   const entries = Object.entries(v);
-  if (entries.length < MIN_OPTIONS || entries.length > MAX_OPTIONS) {
+  if (entries.length < JEV_MIN_OPTIONS || entries.length > JEV_MAX_OPTIONS) {
     return false;
   }
   return entries.every(
-    ([k, d]) => OPTION_KEY_PATTERN.test(k) && isString(d, 1, MAX_OPTION_CHARS),
+    ([k, d]) =>
+      JEV_OPTION_KEY_PATTERN.test(k) && isString(d, 1, JEV_MAX_OPTION_CHARS),
   );
 }
 
-function validState(v: unknown): v is Strings {
+/** Only known fields, each within its limit; `workspaceName` must be non-empty. */
+function validState(v: unknown): v is JevPayload["state"] {
   if (!isPlainObject(v)) return false;
   for (const [k, value] of Object.entries(v)) {
-    if (!Object.hasOwn(STATE_FIELDS, k)) return false;
-    if (!isString(value, 0, STATE_FIELDS[k][0])) return false;
+    if (!Object.hasOwn(JEV_STATE_MAX_CHARS, k)) return false;
+    const max = JEV_STATE_MAX_CHARS[k as keyof typeof JEV_STATE_MAX_CHARS];
+    if (!isString(value, 0, max)) return false;
   }
-  return isString(v.workspaceName, 1, STATE_FIELDS.workspaceName[0]);
+  return isString(v.workspaceName, 1, JEV_STATE_MAX_CHARS.workspaceName);
 }
 
 function dailyCalls(env: Env): number {
@@ -129,9 +122,9 @@ export async function handleJevFolder(
 ): Promise<Response> {
   if (request.method !== "POST") return fail(405, "method not allowed");
   const declared = Number(request.headers.get("Content-Length"));
-  if (declared > MAX_BODY_BYTES) return fail(413, "body too large");
+  if (declared > JEV_MAX_BODY_BYTES) return fail(413, "body too large");
   const text = await request.text();
-  if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) {
+  if (new TextEncoder().encode(text).byteLength > JEV_MAX_BODY_BYTES) {
     return fail(413, "body too large");
   }
 

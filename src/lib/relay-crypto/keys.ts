@@ -89,6 +89,25 @@ export function verifyHostChallenge(
 const JEV_REQUEST_CONTEXT = utf8("manor-jev-v1");
 
 /**
+ * What a Jev request signs. Loosely typed on purpose: the verifier checks a
+ * signature over whatever arrived, before it trusts the shape.
+ */
+export interface JevSignedPayload {
+  state: unknown;
+  options: unknown;
+}
+
+/** A `{}` literal or `Object.create(null)`: not an array, class instance or `Date`. */
+export function isPlainObject(
+  value: unknown,
+): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+/**
  * JSON with object keys sorted recursively and no whitespace, so signer and
  * verifier hash identical bytes. Only plain objects, arrays, strings, finite
  * numbers, booleans and null are allowed; anything else throws.
@@ -106,10 +125,9 @@ export function canonicalJson(value: unknown): string {
     case "object": {
       if (Array.isArray(value))
         return `[${value.map(canonicalJson).join(",")}]`;
-      const proto = Object.getPrototypeOf(value);
-      if (proto !== Object.prototype && proto !== null)
+      if (!isPlainObject(value))
         throw new RelayCryptoError("canonicalJson: not a plain object");
-      const obj = value as Record<string, unknown>;
+      const obj = value;
       const entries = Object.keys(obj)
         .sort()
         .map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`);
@@ -120,10 +138,7 @@ export function canonicalJson(value: unknown): string {
   }
 }
 
-function jevRequestMessage(
-  ts: number,
-  payload: { state: unknown; options: unknown },
-): Uint8Array {
+function jevRequestMessage(ts: number, payload: JevSignedPayload): Uint8Array {
   if (!Number.isSafeInteger(ts) || ts < 0)
     throw new RelayCryptoError("invalid timestamp");
   // The "\n" separates the variable-length ts from the fixed-length hash.
@@ -139,7 +154,7 @@ function jevRequestMessage(
 export function signJevRequest(
   ed25519Priv: Uint8Array,
   ts: number,
-  payload: { state: unknown; options: unknown },
+  payload: JevSignedPayload,
 ): Uint8Array {
   return ed25519.sign(jevRequestMessage(ts, payload), ed25519Priv);
 }
@@ -148,7 +163,7 @@ export function signJevRequest(
 export function verifyJevRequest(
   ed25519Pub: Uint8Array,
   ts: number,
-  payload: { state: unknown; options: unknown },
+  payload: JevSignedPayload,
   sig: Uint8Array,
 ): boolean {
   try {

@@ -20,12 +20,8 @@ import {
 import type { BridgeConnection } from "../../../bridge/types";
 import { AuthRateLimiter } from "../../rate-limit";
 import { RelayGate, type AuthenticatedDevice } from "../../relay-gate";
-import {
-  RelayConnector,
-  parseRelayUrl,
-  resolveRelayUrl,
-  type RelayStatus,
-} from "../connector";
+import { RelayConnector, type RelayStatus } from "../connector";
+import { parseRelayUrl, resolveRelayUrl } from "../url";
 import { FakeRelay, FakeViewer } from "./fake-relay";
 
 const FULL_TOKEN = "full-token";

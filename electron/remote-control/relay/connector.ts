@@ -73,12 +73,6 @@ import { RelayChannel } from "./channel";
 import { wipe } from "./identity";
 import { parseRelayUrl, resolveRelayUrl, type RelayEndpoint } from "./url";
 
-export {
-  parseRelayUrl,
-  resolveRelayUrl,
-  type RelayEndpoint,
-} from "./url";
-
 type RelayState = "stopped" | "starting" | "running" | "failed";
 
 /** `url` (the relay origin) is set only in `running`. */

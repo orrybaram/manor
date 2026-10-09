@@ -7,6 +7,7 @@
  * hands back only the pick, so it crosses like any other read.
  */
 
+import type { FolderPick } from "../../../src/lib/jev-protocol";
 import { assertString } from "../../ipc-validate";
 import {
   buildFolderQuestion,
@@ -16,26 +17,27 @@ import {
 import { method, type HandlerCtx } from "../method";
 
 /**
- * The folder Jev would file a new workspace under. A suggestion is a
- * nicety, so this never throws: turned off, nothing to choose between, or
- * any failure along the way is `null`, and a failure is logged.
+ * The folder Jev would file a new workspace under. A malformed call is
+ * rejected like any other; past validation a suggestion is a nicety, so
+ * turned off, nothing to choose between, or any failure is `null`, and a
+ * failure is logged.
  */
 export async function jevSuggestFolder(
   ctx: HandlerCtx,
   projectId: string,
   draft: FolderDraft,
-): Promise<{ folderId: string; confidence: number } | null> {
-  try {
-    assertString(projectId, "projectId");
-    const d: unknown = draft;
-    if (!d || typeof d !== "object") throw new Error("draft: expected object");
-    const { name, branchName, agentPrompt } = d as Record<string, unknown>;
-    assertString(name, "draft.name");
-    if (branchName !== undefined) assertString(branchName, "draft.branchName");
-    if (agentPrompt !== undefined) {
-      assertString(agentPrompt, "draft.agentPrompt");
-    }
+): Promise<FolderPick | null> {
+  assertString(projectId, "projectId");
+  const value: unknown = draft;
+  if (!value || typeof value !== "object") {
+    throw new Error("draft: expected object");
+  }
+  const { name, branchName, agentPrompt } = value as Record<string, unknown>;
+  assertString(name, "draft.name");
+  if (branchName !== undefined) assertString(branchName, "draft.branchName");
+  if (agentPrompt !== undefined) assertString(agentPrompt, "draft.agentPrompt");
 
+  try {
     const { jevClient, preferencesManager, projectManager } = ctx.deps;
     if (preferencesManager.get("folderSuggestionsEnabled") === false) {
       return null;

@@ -1,3 +1,12 @@
+import {
+  JEV_MAX_BODY_BYTES,
+  JEV_MAX_OPTION_CHARS,
+  JEV_MAX_OPTIONS,
+  JEV_OPTION_KEY_PATTERN,
+  JEV_STATE_MAX_CHARS,
+  type FolderPick,
+  type JevPayload,
+} from "../src/lib/jev-protocol";
 import type { ProjectInfo, WorkspaceFolder } from "./projects/types";
 
 /** The reserved option for "none of the folders fit". */
@@ -6,29 +15,15 @@ export const NO_FOLDER = "__none__";
 export const MIN_CONFIDENCE = 0.6;
 
 const MAX_MEMBER_NAMES = 10;
-// The relay worker's limits (`relay/src/jev.ts`); past them it answers 400.
-/** Folder options; `NO_FOLDER` is the 64th. */
-export const MAX_FOLDER_OPTIONS = 63;
-const MAX_OPTION_KEY_CHARS = 64;
-const MAX_DESCRIPTION_CHARS = 400;
-const MAX_NAME_CHARS = 200;
-const MAX_PROMPT_CHARS = 2000;
-/**
- * The worker refuses a body over 16 KiB; this leaves room for the envelope
- * (`v`, `pub`, `ts`, `sig`) around `{ state, options }`.
- */
-const MAX_PAYLOAD_BYTES = 15 * 1024;
+/** Folder options; `NO_FOLDER` takes the last of the worker's slots. */
+export const MAX_FOLDER_OPTIONS = JEV_MAX_OPTIONS - 1;
+/** Leaves room for the envelope (`v`, `pub`, `ts`, `sig`) around `{ state, options }`. */
+const MAX_PAYLOAD_BYTES = JEV_MAX_BODY_BYTES - 1024;
 
 export interface FolderDraft {
   name: string;
   branchName?: string;
   agentPrompt?: string;
-}
-
-/** The data of a Jev question; the instructions text lives in `relay/src/jev.ts`. */
-export interface FolderQuestion {
-  state: Record<string, string>;
-  options: Record<string, string>;
 }
 
 /** "Parent / Child" for a folder, root first. A cycle stops the walk. */
@@ -56,13 +51,13 @@ function folderPathLabel(
 export function buildFolderQuestion(
   project: ProjectInfo,
   draft: FolderDraft,
-): FolderQuestion | null {
+): JevPayload | null {
   const name = draft.name.trim();
   if (project.folders.length === 0 || !name) return null;
 
   const byId = new Map(project.folders.map((f) => [f.id, f]));
   const folders = project.folders
-    .filter((f) => f.id.length <= MAX_OPTION_KEY_CHARS)
+    .filter((f) => JEV_OPTION_KEY_PATTERN.test(f.id))
     .slice(0, MAX_FOLDER_OPTIONS)
     .map((folder) => ({
       id: folder.id,
@@ -73,13 +68,16 @@ export function buildFolderQuestion(
         .map((ws) => ws.name || ws.branch),
     }));
 
-  const state: Record<string, string> = {
-    workspaceName: name.slice(0, MAX_NAME_CHARS),
+  // The instructions text lives in `relay/src/jev.ts`; only data goes from here.
+  const state: JevPayload["state"] = {
+    workspaceName: name.slice(0, JEV_STATE_MAX_CHARS.workspaceName),
   };
   const branchName = draft.branchName?.trim();
-  if (branchName) state.branchName = branchName.slice(0, MAX_NAME_CHARS);
+  if (branchName)
+    state.branchName = branchName.slice(0, JEV_STATE_MAX_CHARS.branchName);
   const agentPrompt = draft.agentPrompt?.trim();
-  if (agentPrompt) state.agentPrompt = agentPrompt.slice(0, MAX_PROMPT_CHARS);
+  if (agentPrompt)
+    state.agentPrompt = agentPrompt.slice(0, JEV_STATE_MAX_CHARS.agentPrompt);
 
   // Within the worker's body limit: member lists go first, then the
   // trailing folders.
@@ -107,14 +105,14 @@ export function buildFolderQuestion(
  * description limit: member names that don't fit are dropped.
  */
 function describeFolder(label: string, members: string[]): string {
-  let description = `Folder "${label}".`.slice(0, MAX_DESCRIPTION_CHARS);
+  let description = `Folder "${label}".`.slice(0, JEV_MAX_OPTION_CHARS);
   const prefix = " Contains workspaces: ";
   const fitting: string[] = [];
   for (const member of members) {
     const next = [...fitting, member].join(", ");
     if (
       description.length + prefix.length + next.length >
-      MAX_DESCRIPTION_CHARS
+      JEV_MAX_OPTION_CHARS
     ) {
       break;
     }
@@ -128,7 +126,7 @@ function describeFolder(label: string, members: string[]): string {
 export function interpretFolderAnswer(
   answer: { choice: string; confidence: number },
   project: ProjectInfo,
-): { folderId: string; confidence: number } | null {
+): FolderPick | null {
   if (answer.choice === NO_FOLDER) return null;
   if (!(answer.confidence >= MIN_CONFIDENCE)) return null;
   if (!project.folders.some((f) => f.id === answer.choice)) return null;

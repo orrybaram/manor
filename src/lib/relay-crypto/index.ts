@@ -30,11 +30,13 @@ export {
   ROOM_ID_LENGTH,
   canonicalJson,
   generateRelayIdentity,
+  isPlainObject,
   roomIdFor,
   signHostChallenge,
   signJevRequest,
   verifyHostChallenge,
   verifyJevRequest,
+  type JevSignedPayload,
   type KeyPair,
   type RelayIdentity,
 } from "./keys";

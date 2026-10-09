@@ -11,23 +11,13 @@
  * a suggestion that is late is worth nothing.
  */
 
+import type { JevAnswer, JevPayload } from "../src/lib/jev-protocol";
 import { base64urlEncode, signJevRequest } from "../src/lib/relay-crypto";
 import { EncryptionUnavailableError } from "./remote-control/devices";
 import { RelayIdentityStore, wipe } from "./remote-control/relay/identity";
 import { parseRelayUrl, resolveRelayUrl } from "./remote-control/relay/url";
 
 const REQUEST_TIMEOUT_MS = 5000;
-
-export interface JevQuestion {
-  /** Absent fields must be omitted, not `undefined`: the signature covers it. */
-  state: Record<string, string>;
-  options: Record<string, string>;
-}
-
-export interface JevAnswer {
-  choice: string;
-  confidence: number;
-}
 
 export interface JevClientDeps {
   identityStore?: () => RelayIdentityStore;
@@ -57,7 +47,7 @@ export class JevClient {
    * be had (refused, rate-limited, over budget, or a malformed reply).
    * Network and other unexpected errors throw; the bridge handler logs them.
    */
-  async suggest({ state, options }: JevQuestion): Promise<JevAnswer | null> {
+  async suggest({ state, options }: JevPayload): Promise<JevAnswer | null> {
     if (this.disabled) return null;
 
     let pub: string;

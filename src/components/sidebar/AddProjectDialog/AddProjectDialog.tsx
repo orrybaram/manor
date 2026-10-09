@@ -12,7 +12,7 @@ import { SearchableSelect } from "../../ui/SearchableSelect";
 import { ToggleGroup } from "../../ui/ToggleGroup";
 import { Row, Stack } from "../../ui/Layout/Layout";
 import { useHostCloneFlow } from "../../hosts/useHostCloneFlow";
-import { CloneDirField, HostCloneSteps, RepoUrlField } from "../../hosts/HostCloneSteps";
+import { CloneDirField, CloneError, HostCloneSteps, RepoUrlField } from "../../hosts/HostCloneSteps";
 import styles from "../../hosts/HostCloneSteps.module.css";
 import { isWebApp } from "../../../lib/platform";
 import { pickDirectory } from "../../../lib/pick-directory";
@@ -367,7 +367,7 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
                         Log in on the box — Manor doesn't copy your keys.
                       </div>
                     )}
-                    {flow.error && <div className={styles.error}>{flow.error}</div>}
+                    {flow.error && <CloneError message={flow.error} />}
                     <Row gap="sm" justify="flex-end">
                       <Button variant="secondary" onClick={handleDone}>
                         Cancel

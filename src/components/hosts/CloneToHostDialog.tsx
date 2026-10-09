@@ -12,7 +12,7 @@ import { Row, Stack } from "../ui/Layout/Layout";
 import { ToggleGroup } from "../ui/ToggleGroup";
 import { HostIndicator } from "./HostIndicator";
 import { useHostCloneFlow } from "./useHostCloneFlow";
-import { HostCloneSteps, RepoUrlAndRemoteDirFields } from "./HostCloneSteps";
+import { CloneError, HostCloneSteps, RepoUrlAndRemoteDirFields } from "./HostCloneSteps";
 import styles from "./HostCloneSteps.module.css";
 
 /**
@@ -185,7 +185,7 @@ export function CloneToHostDialog(props: CloneToHostDialogProps) {
                   doesn't copy your keys; log in on the box first.
                 </div>
                 {hostUnavailable && <div className={styles.error}>{hostUnavailable}</div>}
-                {flow.error && <div className={styles.error}>{flow.error}</div>}
+                {flow.error && <CloneError message={flow.error} />}
                 <Row gap="sm" justify="flex-end">
                   <Button variant="secondary" onClick={onClose}>
                     Cancel

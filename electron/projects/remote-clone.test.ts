@@ -4,7 +4,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
 import { ProjectManager } from "./project-manager";
-import { normalizeOriginUrl, resolveCloneDir, validateRemoteDir, validateRepoUrl } from "./remote-clone";
+import { describeCloneFailure, normalizeOriginUrl, resolveCloneDir, validateRemoteDir, validateRepoUrl } from "./remote-clone";
 import type { GitBackend, ShellBackend } from "../backend/types";
 import { hostsOf } from "./test-fakes";
 
@@ -86,6 +86,45 @@ describe("normalizeOriginUrl (ADR-178 ticket 5 review)", () => {
     expect(normalizeOriginUrl("git@github.com:org/repo-a.git")).not.toBe(
       normalizeOriginUrl("git@github.com:org/repo-b.git"),
     );
+  });
+});
+
+describe("describeCloneFailure", () => {
+  const https = "https://github.com/org/repo.git";
+
+  it.each([
+    "Cloning into '/x'...\nfatal: could not read Username for 'https://github.com': terminal prompts disabled\n",
+    // GitHub's answer for a private repo it couldn't authenticate.
+    "remote: Repository not found.\nfatal: Authentication failed for 'https://github.com/org/repo.git/'\n",
+  ])("explains an access failure with the GitHub fix: %j", (stderr) => {
+    expect(describeCloneFailure(https, stderr, 128)).toBe(
+      "Can't access this repository.\nRun `gh auth setup-git` in a terminal, then try again.",
+    );
+  });
+
+  it("leaves out the GitHub hint for other hosts", () => {
+    const msg = describeCloneFailure("https://gitlab.com/org/repo.git", "fatal: Authentication failed\n", 128);
+    expect(msg).toContain("gitlab.com");
+    expect(msg).not.toContain("gh auth");
+  });
+
+  it("names the host for an SSH key rejection", () => {
+    expect(
+      describeCloneFailure("git@github.com:org/repo.git", "git@github.com: Permission denied (publickey).\n", 128),
+    ).toMatch(/^github\.com rejected your SSH key/);
+  });
+
+  it("reports an unreachable host as a network problem", () => {
+    expect(
+      describeCloneFailure(https, "fatal: unable to access '...': Could not resolve host: github.com\n", 128),
+    ).toBe("Can't reach github.com.\nCheck your network connection.");
+  });
+
+  it("falls back to git's own output without the 'Cloning into' line", () => {
+    expect(
+      describeCloneFailure(https, "Cloning into '/x'...\nfatal: could not create work tree dir '/x'\n", 128),
+    ).toBe("fatal: could not create work tree dir '/x'");
+    expect(describeCloneFailure(https, "", 1)).toBe("git clone exited with code 1");
   });
 });
 

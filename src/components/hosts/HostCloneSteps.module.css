@@ -62,6 +62,47 @@
   color: var(--danger);
 }
 
+/* A failed clone (`CloneError`): headline plus the fix, tinted not shouted. */
+.errorBox {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.errorIcon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--danger);
+}
+
+.errorTitle {
+  color: var(--text-selected);
+  font-weight: 500;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.errorDetail {
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.errorBox code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--bg-deep);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-selected);
+}
+
 /* An input sharing its row with a button (Location + Browse…, ADR-194). */
 .fieldGrow {
   flex: 1;

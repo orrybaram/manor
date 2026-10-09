@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import CircleAlert from "lucide-react/dist/esm/icons/circle-alert";
 import type { HealthCheckResult } from "../../lib/hosts";
 import { Button } from "../ui/Button/Button";
 import { Input } from "../ui/Input";
@@ -134,5 +135,28 @@ export function RepoUrlAndRemoteDirFields(props: RepoUrlAndRemoteDirFieldsProps)
         onChange={onRemoteDirChange}
       />
     </>
+  );
+}
+
+/** `text` with each `backtick span` rendered as inline code. */
+function withInlineCode(text: string): ReactNode[] {
+  return text.split("`").map((part, i) => (i % 2 === 1 ? <code key={i}>{part}</code> : part));
+}
+
+/**
+ * A failed clone: the first line of `message` as the headline, the rest
+ * (the fix, from `describeCloneFailure`) dimmed beneath it.
+ */
+export function CloneError({ message }: { message: string }) {
+  const [title, ...rest] = message.split("\n");
+  const detail = rest.join("\n").trim();
+  return (
+    <div className={styles.errorBox} role="alert">
+      <CircleAlert size={14} className={styles.errorIcon} />
+      <Stack gap="xs">
+        <div className={styles.errorTitle}>{withInlineCode(title)}</div>
+        {detail && <div className={styles.errorDetail}>{withInlineCode(detail)}</div>}
+      </Stack>
+    </div>
   );
 }

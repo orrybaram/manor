@@ -201,6 +201,56 @@ export async function remoteDirIsCloneOf(
   }
 }
 
+/** The host part of an https://, ssh:// or scp-style remote, or the URL itself. */
+function remoteHost(repoUrl: string): string {
+  const m = /^(?:https:\/\/|ssh:\/\/)?(?:[^@/]+@)?([^/:]+)/.exec(repoUrl);
+  return m?.[1] ?? repoUrl;
+}
+
+/**
+ * What to tell the user when `git clone` of `repoUrl` fails with `stderr`:
+ * a headline, then a newline and the fix. Clones run with prompts
+ * disabled, so a missing credential surfaces as a cryptic "terminal
+ * prompts disabled" — name the cause and the fix instead. Anything
+ * unrecognised is git's own output, minus the "Cloning into" line.
+ */
+export function describeCloneFailure(
+  repoUrl: string,
+  stderr: string,
+  exitCode: number | null,
+): string {
+  const host = remoteHost(repoUrl);
+
+  // GitHub answers "not found" for a private repo it can't authenticate.
+  if (
+    /Repository not found|repository '.*' not found|could not read (Username|Password)|terminal prompts disabled|Authentication failed|Invalid username or (password|token)/i.test(
+      stderr,
+    )
+  ) {
+    const fix =
+      host === "github.com"
+        ? "Run `gh auth setup-git` in a terminal, then try again."
+        : `Save git credentials for ${host} in a terminal, then try again.`;
+    return `Can't access this repository.\n${fix}`;
+  }
+  if (/Host key verification failed/i.test(stderr)) {
+    return `${host} isn't a trusted SSH host yet.\nRun \`ssh -T git@${host}\` once to accept it.`;
+  }
+  if (/Permission denied \(publickey/i.test(stderr)) {
+    return `${host} rejected your SSH key.\nCheck it with \`ssh -T git@${host}\`.`;
+  }
+  if (/Could not resolve host|Connection timed out|Network is unreachable|Failed to connect|Connection refused/i.test(stderr)) {
+    return `Can't reach ${host}.\nCheck your network connection.`;
+  }
+
+  const detail = stderr
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== "" && !line.startsWith("Cloning into"))
+    .join("\n")
+    .trim();
+  return detail || `git clone exited with code ${exitCode}`;
+}
+
 /**
  * `git clone --progress` through `git.cloneStream`, forwarding every
  * progress line to `emit` and enforcing `CLONE_TIMEOUT_MS` — a stalled
@@ -236,7 +286,7 @@ export function cloneWithProgress(
         if (exitCode === 0) {
           resolve();
         } else {
-          reject(new Error(stderr.trim() || `git clone exited with code ${exitCode}`));
+          reject(new Error(describeCloneFailure(repoUrl, stderr, exitCode)));
         }
       },
     });

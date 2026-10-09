@@ -85,3 +85,77 @@ export function verifyHostChallenge(
     return false;
   }
 }
+
+const JEV_REQUEST_CONTEXT = utf8("manor-jev-v1");
+
+/**
+ * JSON with object keys sorted recursively and no whitespace, so signer and
+ * verifier hash identical bytes. Only plain objects, arrays, strings, finite
+ * numbers, booleans and null are allowed; anything else throws.
+ */
+export function canonicalJson(value: unknown): string {
+  if (value === null) return "null";
+  switch (typeof value) {
+    case "string":
+    case "boolean":
+      return JSON.stringify(value);
+    case "number":
+      if (!Number.isFinite(value))
+        throw new RelayCryptoError("canonicalJson: non-finite number");
+      return JSON.stringify(value);
+    case "object": {
+      if (Array.isArray(value))
+        return `[${value.map(canonicalJson).join(",")}]`;
+      const proto = Object.getPrototypeOf(value);
+      if (proto !== Object.prototype && proto !== null)
+        throw new RelayCryptoError("canonicalJson: not a plain object");
+      const obj = value as Record<string, unknown>;
+      const entries = Object.keys(obj)
+        .sort()
+        .map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`);
+      return `{${entries.join(",")}}`;
+    }
+    default:
+      throw new RelayCryptoError(`canonicalJson: unsupported ${typeof value}`);
+  }
+}
+
+function jevRequestMessage(
+  ts: number,
+  payload: { state: unknown; options: unknown },
+): Uint8Array {
+  if (!Number.isSafeInteger(ts) || ts < 0)
+    throw new RelayCryptoError("invalid timestamp");
+  // The "\n" separates the variable-length ts from the fixed-length hash.
+  return concatBytes(
+    JEV_REQUEST_CONTEXT,
+    utf8(String(ts)),
+    utf8("\n"),
+    sha256(utf8(canonicalJson(payload))),
+  );
+}
+
+/** Sign `"manor-jev-v1" ‖ ts ‖ "\n" ‖ sha256(canonicalJson(payload))`. */
+export function signJevRequest(
+  ed25519Priv: Uint8Array,
+  ts: number,
+  payload: { state: unknown; options: unknown },
+): Uint8Array {
+  return ed25519.sign(jevRequestMessage(ts, payload), ed25519Priv);
+}
+
+/** Verify a Jev request signature. Never throws on bad input; returns false. */
+export function verifyJevRequest(
+  ed25519Pub: Uint8Array,
+  ts: number,
+  payload: { state: unknown; options: unknown },
+  sig: Uint8Array,
+): boolean {
+  try {
+    return ed25519.verify(sig, jevRequestMessage(ts, payload), ed25519Pub, {
+      zip215: false,
+    });
+  } catch {
+    return false;
+  }
+}

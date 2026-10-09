@@ -28,10 +28,13 @@ export {
 } from "./channel";
 export {
   ROOM_ID_LENGTH,
+  canonicalJson,
   generateRelayIdentity,
   roomIdFor,
   signHostChallenge,
+  signJevRequest,
   verifyHostChallenge,
+  verifyJevRequest,
   type KeyPair,
   type RelayIdentity,
 } from "./keys";

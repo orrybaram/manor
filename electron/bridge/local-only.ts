@@ -33,6 +33,8 @@ export const LOCAL_ONLY_METHODS = [
   "remoteControl.stopRelay",
   "remoteControl.resetRelayAddress",
   "linear.connect",
+  "typesafe.connect",
+  "typesafe.disconnect",
 ] as const;
 
 export type LocalOnlyMethod = (typeof LOCAL_ONLY_METHODS)[number];

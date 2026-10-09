@@ -294,6 +294,9 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
         // an argument. Everything else Linear does hands back the result of
         // using the stored key and crosses like any other read.
         "linear.connect",
+        // TypeSafe is the same shape: connect takes the key, disconnect drops it.
+        "typesafe.connect",
+        "typesafe.disconnect",
       ].sort(),
     );
   });
@@ -322,7 +325,7 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
    * device may do.
    */
   it("never audits a method whose first argument is a credential", () => {
-    expect([...SECRET_FIRST_ARG]).toEqual(["linear.connect"]);
+    expect([...SECRET_FIRST_ARG]).toEqual(["linear.connect", "typesafe.connect"]);
     for (const method of SECRET_FIRST_ARG) {
       expect(MUTATING.has(method)).toBe(false);
     }

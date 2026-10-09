@@ -71,6 +71,10 @@ export function linearTokenFile(): string {
   return path.join(manorDataDir(), "linear-token.enc");
 }
 
+export function typesafeKeyFile(): string {
+  return path.join(manorDataDir(), "typesafe-key.enc");
+}
+
 export function remoteDevicesFile(): string {
   return path.join(manorDataDir(), "remote-devices.enc");
 }

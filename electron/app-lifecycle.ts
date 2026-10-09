@@ -13,6 +13,7 @@ import { BranchWatcher } from "./branch-watcher";
 import { DiffWatcher } from "./diff-watcher";
 import { GitHubManager, ghRepoFromRemoteUrl } from "./github";
 import { LinearManager } from "./linear";
+import { TypeSafeManager } from "./typesafe";
 import { AgentHookServer } from "./agent-hooks";
 import { NotificationCoalescer, type HookCursor } from "./backend/hook-feed";
 import { bootstrapHost } from "./terminal-host/bootstrap-host";
@@ -447,6 +448,7 @@ export function initApp(devTitle: string | null): void {
     return repo;
   });
   const linearManager = new LinearManager();
+  const typesafeManager = new TypeSafeManager();
 
   const prewarmManager = new PrewarmManager(client, process.env.HOME || "/");
   const agentHookServer = new AgentHookServer();
@@ -771,6 +773,7 @@ export function initApp(devTitle: string | null): void {
     diffWatcher,
     githubManager,
     linearManager,
+    typesafeManager,
     agentHookServer,
     agentManager,
     agentStatus: agentStatusDriver,

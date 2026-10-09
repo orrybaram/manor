@@ -9,8 +9,8 @@
  * holds) per identity, then the global daily budget in `JevBudget`.
  *
  * Unlike the rooms, this route sees cleartext: folder and workspace names and
- * agent prompts. It never logs or stores a request or response body; errors
- * log a status only.
+ * agent prompts. It never logs or stores a request or response body; see
+ * `record` for the only fields that are ever logged or recorded.
  */
 import {
   JEV_MAX_BODY_BYTES,
@@ -116,63 +116,169 @@ async function callUpstream(env: Env, key: string, body: string) {
   }
 }
 
+export type JevOutcome =
+  | "served"
+  | "method"
+  | "too_large"
+  | "ip_limited"
+  | "bad_request"
+  | "stale"
+  | "bad_signature"
+  | "id_limited"
+  | "not_configured"
+  | "over_budget"
+  | "upstream_error"
+  | "bad_answer";
+
+/** Coarse, content-free facts about one request: all that is ever logged. */
+interface Telemetry {
+  outcome: JevOutcome;
+  response: Response;
+  options?: number;
+  confidence?: number;
+  upstreamMs?: number;
+  upstreamStatus?: number;
+  /** An error name only, never a message. */
+  error?: string;
+}
+
+type Extra = Partial<Omit<Telemetry, "outcome" | "response">>;
+
+function result(
+  outcome: JevOutcome,
+  status: number,
+  error: string,
+  extra: Extra = {},
+): Telemetry {
+  return { outcome, response: fail(status, error), ...extra };
+}
+
+function confidenceBand(c: number): string {
+  if (c < 0.4) return "<0.4";
+  if (c < 0.6) return "0.4-0.6";
+  if (c < 0.8) return "0.6-0.8";
+  return ">=0.8";
+}
+
+/**
+ * Observability: one `console.log` line (Workers Logs) and one Analytics
+ * Engine data point per request. Only the fields below, never request or
+ * response content (names, prompts, folder ids or descriptions, the pub key,
+ * IPs).
+ *
+ * Analytics Engine layout (dataset `manor_jev`, binding `JEV_EVENTS`):
+ *   index1 = outcome
+ *   blob1 = outcome, blob2 = confidence band (served only, else "")
+ *   double1 = status, double2 = ms, double3 = options (0 if unparsed),
+ *   double4 = confidence (-1 if none), double5 = upstream_ms (0 if none)
+ */
+function record(env: Env, t: Telemetry, ms: number): void {
+  const status = t.response.status;
+  const band =
+    t.outcome === "served" && t.confidence !== undefined
+      ? confidenceBand(t.confidence)
+      : undefined;
+  console.log(
+    JSON.stringify({
+      event: "jev",
+      outcome: t.outcome,
+      status,
+      ms,
+      options: t.options,
+      band,
+      upstream_ms: t.upstreamMs,
+      upstream_status: t.upstreamStatus,
+      error: t.error,
+    }),
+  );
+  try {
+    env.JEV_EVENTS?.writeDataPoint({
+      indexes: [t.outcome],
+      blobs: [t.outcome, band ?? ""],
+      doubles: [
+        status,
+        ms,
+        t.options ?? 0,
+        t.confidence ?? -1,
+        t.upstreamMs ?? 0,
+      ],
+    });
+  } catch {
+    // Telemetry never breaks a request.
+  }
+}
+
 export async function handleJevFolder(
   request: Request,
   env: Env,
 ): Promise<Response> {
-  if (request.method !== "POST") return fail(405, "method not allowed");
+  const start = Date.now();
+  const t = await runJevFolder(request, env);
+  record(env, t, Date.now() - start);
+  return t.response;
+}
+
+async function runJevFolder(request: Request, env: Env): Promise<Telemetry> {
+  if (request.method !== "POST")
+    return result("method", 405, "method not allowed");
   const declared = Number(request.headers.get("Content-Length"));
-  if (declared > JEV_MAX_BODY_BYTES) return fail(413, "body too large");
+  if (declared > JEV_MAX_BODY_BYTES) {
+    return result("too_large", 413, "body too large");
+  }
   const text = await request.text();
   if (new TextEncoder().encode(text).byteLength > JEV_MAX_BODY_BYTES) {
-    return fail(413, "body too large");
+    return result("too_large", 413, "body too large");
   }
 
   const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
   if (!(await env.JEV_LIMITER.limit({ key: `jevip:${ip}` })).success) {
-    return fail(429, "too many requests");
+    return result("ip_limited", 429, "too many requests");
   }
 
+  const bad = (error: string, extra?: Extra) =>
+    result("bad_request", 400, error, extra);
   let body: unknown;
   try {
     body = JSON.parse(text);
   } catch {
-    return fail(400, "malformed JSON");
+    return bad("malformed JSON");
   }
-  if (!isPlainObject(body)) return fail(400, "expected an object");
-  if (body.v !== 1) return fail(400, "unsupported version");
+  if (!isPlainObject(body)) return bad("expected an object");
+  if (body.v !== 1) return bad("unsupported version");
   const pub = decodeBytes(body.pub, 32);
-  if (!pub) return fail(400, "bad pub");
+  if (!pub) return bad("bad pub");
   const ts = body.ts;
-  if (typeof ts !== "number" || !Number.isSafeInteger(ts)) {
-    return fail(400, "bad ts");
-  }
+  if (typeof ts !== "number" || !Number.isSafeInteger(ts)) return bad("bad ts");
   const sig = decodeBytes(body.sig, 64);
-  if (!sig) return fail(400, "bad sig");
+  if (!sig) return bad("bad sig");
   const { options, state } = body;
-  if (!validOptions(options)) return fail(400, "bad options");
-  if (!validState(state)) return fail(400, "bad state");
+  if (!validOptions(options)) return bad("bad options");
+  if (!validState(state)) return bad("bad state");
+  const n = Object.keys(options).length;
 
   if (Math.abs(Date.now() - ts) > MAX_CLOCK_SKEW_MS) {
-    return fail(401, "stale timestamp");
+    return result("stale", 401, "stale timestamp", { options: n });
   }
   if (!verifyJevRequest(pub, ts, { state, options }, sig)) {
-    return fail(401, "bad signature");
+    return result("bad_signature", 401, "bad signature", { options: n });
   }
 
   const id = roomIdFor(pub);
   if (!(await env.JEV_ID_LIMITER.limit({ key: `jevid:${id}` })).success) {
-    return fail(429, "too many requests");
+    return result("id_limited", 429, "too many requests", { options: n });
   }
 
   const key = env.TYPESAFE_API_KEY;
-  if (!key) return fail(503, "jev not configured");
+  if (!key)
+    return result("not_configured", 503, "jev not configured", { options: n });
 
   const budget = env.JEV_BUDGET.get(env.JEV_BUDGET.idFromName("global"));
   if (!(await budget.take(dailyCalls(env)))) {
-    return fail(503, "daily budget spent");
+    return result("over_budget", 503, "daily budget spent", { options: n });
   }
 
+  const upstreamStart = Date.now();
+  const upstreamMs = () => Date.now() - upstreamStart;
   let answer: { choice?: unknown; confidence?: unknown } | undefined;
   try {
     const res = await callUpstream(
@@ -192,28 +298,42 @@ export async function handleJevFolder(
     );
     if (!res.ok) {
       await res.body?.cancel();
-      console.error(`jev: upstream status ${res.status}`);
-      return fail(502, "upstream error");
+      return result("upstream_error", 502, "upstream error", {
+        options: n,
+        upstreamMs: upstreamMs(),
+        upstreamStatus: res.status,
+      });
     }
     const parsed = (await res.json()) as {
       answers?: { pick?: typeof answer };
     } | null;
     answer = parsed?.answers?.pick;
   } catch (e) {
-    // The error name only: a message could echo part of a body.
-    console.error(`jev: upstream failed (${(e as Error)?.name ?? "error"})`);
-    return fail(502, "upstream error");
+    return result("upstream_error", 502, "upstream error", {
+      options: n,
+      upstreamMs: upstreamMs(),
+      error: (e as Error)?.name ?? "error",
+    });
   }
 
+  const ms = upstreamMs();
   const choice = answer?.choice;
   const confidence = Number(answer?.confidence);
-  if (typeof choice !== "string" || !Object.hasOwn(options, choice)) {
-    console.error("jev: upstream answered an unknown choice");
-    return fail(502, "upstream error");
+  if (
+    typeof choice !== "string" ||
+    !Object.hasOwn(options, choice) ||
+    !Number.isFinite(confidence)
+  ) {
+    return result("bad_answer", 502, "upstream error", {
+      options: n,
+      upstreamMs: ms,
+    });
   }
-  if (!Number.isFinite(confidence)) {
-    console.error("jev: upstream answered no confidence");
-    return fail(502, "upstream error");
-  }
-  return json(200, { choice, confidence });
+  return {
+    outcome: "served",
+    response: json(200, { choice, confidence }),
+    options: n,
+    confidence,
+    upstreamMs: ms,
+  };
 }

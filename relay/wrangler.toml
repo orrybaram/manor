@@ -59,6 +59,19 @@ name = "JEV_ID_LIMITER"
 namespace_id = "2063"
 simple = { limit = 20, period = 60 }
 
+# Workers Logs: persists console output for the whole Worker. The Jev route
+# logs only content-free lines (outcome, status, timings; never bodies).
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+# One content-free data point per /jev/folder request (ADR-211). Columns:
+# blob1=outcome, blob2=band, double1=status, double2=ms, double3=options,
+# double4=confidence, double5=upstream_ms. See relay/README.md.
+[[analytics_engine_datasets]]
+binding = "JEV_EVENTS"
+dataset = "manor_jev"
+
 # Per-version web app builds (ADR-206 D4), uploaded by the release workflow.
 [[r2_buckets]]
 binding = "WEB"

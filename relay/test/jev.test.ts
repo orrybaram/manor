@@ -271,4 +271,116 @@ describe("POST /jev/folder", () => {
     expect(statuses.slice(0, 20).every((s) => s === 200)).toBe(true);
     expect(statuses).toContain(429);
   });
+
+  describe("observability", () => {
+    async function run(body: unknown, extraEnv: Partial<typeof env> = {}) {
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const points: unknown[] = [];
+      const e = {
+        ...env,
+        ...extraEnv,
+        JEV_EVENTS: { writeDataPoint: (p: unknown) => points.push(p) },
+      };
+      const res = await handleJevFolder(jevRequest(body), e);
+      await res.arrayBuffer();
+      const lines = log.mock.calls.map((c) => String(c[0]));
+      return { res, lines, points };
+    }
+
+    function expectContentFree(line: string) {
+      for (const secret of [
+        STATE.workspaceName,
+        STATE.branchName,
+        OPTIONS.f1,
+        OPTIONS.f2,
+        "Auth",
+      ]) {
+        expect(line).not.toContain(secret);
+      }
+    }
+
+    it("logs one content-free line and a data point when served", async () => {
+      const { identity } = newIdentity();
+      const { lines, points } = await run(signedBody(identity));
+      expect(lines).toHaveLength(1);
+      expectContentFree(lines[0]);
+      const entry = JSON.parse(lines[0]);
+      expect(entry).toMatchObject({
+        event: "jev",
+        outcome: "served",
+        status: 200,
+        options: 3,
+        band: ">=0.8",
+      });
+      expect(points).toHaveLength(1);
+      expect(points[0]).toMatchObject({
+        indexes: ["served"],
+        blobs: ["served", ">=0.8"],
+      });
+      expect((points[0] as { doubles: number[] }).doubles.slice(0, 4)).toEqual([
+        200,
+        entry.ms,
+        3,
+        0.83,
+      ]);
+    });
+
+    it("logs bad_signature", async () => {
+      const { identity } = newIdentity();
+      const body = signedBody(identity);
+      body.state = { workspaceName: "something else" };
+      const { lines, points } = await run(body);
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0])).toMatchObject({
+        outcome: "bad_signature",
+        status: 401,
+      });
+      expect(JSON.parse(lines[0]).band).toBeUndefined();
+      expectContentFree(lines[0]);
+      expect(points[0]).toMatchObject({ indexes: ["bad_signature"] });
+    });
+
+    it("logs over_budget", async () => {
+      const stub = env.JEV_BUDGET.get(env.JEV_BUDGET.idFromName("global"));
+      await runInDurableObject(stub, (_o, state) => state.storage.deleteAll());
+      const { identity } = newIdentity();
+      const { lines } = await run(signedBody(identity), {
+        JEV_DAILY_CALLS: "0",
+      });
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0])).toMatchObject({
+        outcome: "over_budget",
+        status: 503,
+      });
+      expectContentFree(lines[0]);
+    });
+
+    it("logs upstream_error with the upstream status", async () => {
+      upstreamReply = () => new Response("nope", { status: 500 });
+      const { identity } = newIdentity();
+      const { lines, points } = await run(signedBody(identity));
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0])).toMatchObject({
+        outcome: "upstream_error",
+        status: 502,
+        upstream_status: 500,
+      });
+      expectContentFree(lines[0]);
+      expect(points[0]).toMatchObject({ indexes: ["upstream_error"] });
+    });
+
+    it("survives a throwing data-point writer", async () => {
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const res = await handleJevFolder(jevRequest("{"), {
+        ...env,
+        JEV_EVENTS: {
+          writeDataPoint: () => {
+            throw new Error("boom");
+          },
+        },
+      });
+      expect(res.status).toBe(400);
+      await res.arrayBuffer();
+    });
+  });
 });

@@ -16,62 +16,48 @@ type TrackPaneProps = {
 };
 
 /**
- * One track: the seal card (what sealing it earns and how close you are),
- * the seal ladder, then the gild set behind its divider.
+ * One track: the track card (the title completing it earns and how close you
+ * are), then its badges.
  */
 export function TrackPane(props: TrackPaneProps) {
   const { section, summary, revealed, onReveal } = props;
 
   const state = trackState(section, summary);
-  const { base, gild } = trackEntries(section, summary);
-  const { sealProgress, gildProgress } = state;
-  const gildCount = `${gildProgress.current} / ${gildProgress.target}`;
+  const entries = trackEntries(section, summary);
 
   return (
     <section className={styles.pane} aria-label={section.name}>
-      <div className={styles.sealCard}>
-        <div className={styles.sealCopy}>
+      <div className={styles.trackCard}>
+        <div className={styles.trackCopy}>
           <span className={styles.eyebrow}>
             {`${section.name} · ${section.blurb}`}
           </span>
-          <span className={styles.sealHeadline}>
-            {state.sealed ? "Sealed · " : "Seal it to earn the title "}
-            <span
-              className={styles.sealTitle}
-              data-gilded={state.gilded || undefined}
-            >
-              {section.title}
-            </span>
+          <span className={styles.trackHeadline}>
+            {state.complete
+              ? "Complete · title "
+              : "Complete it to earn the title "}
+            <span className={styles.trackTitle}>{section.title}</span>
           </span>
         </div>
 
-        <div className={styles.sealMeter}>
+        <div className={styles.trackMeter}>
           <div className={styles.meterRow}>
-            <span>Seal</span>
-            <span>{`${sealProgress.current} / ${sealProgress.target}`}</span>
+            <span>Progress</span>
+            <span>{`${state.earned} / ${state.total}`}</span>
           </div>
           <ProgressBar
-            ratio={progressRatio(sealProgress)}
-            label={`${section.name} seal progress`}
-            tone="seal"
+            ratio={progressRatio({
+              current: state.earned,
+              target: state.total,
+            })}
+            label={`${section.name} progress`}
+            tone="track"
           />
-          {gildProgress.target > 0 && (
-            <div className={styles.meterRow}>
-              <span>Gild</span>
-              <span data-gilded={state.gilded || undefined}>
-                {state.gilded
-                  ? `gilded · ${gildCount}`
-                  : state.sealed
-                    ? gildCount
-                    : `after seal · ${gildCount}`}
-              </span>
-            </div>
-          )}
         </div>
       </div>
 
       <div className={styles.rows}>
-        {base.map((entry) => (
+        {entries.map((entry) => (
           <BadgeRow
             key={entry.badge.id}
             entry={entry}
@@ -79,23 +65,6 @@ export function TrackPane(props: TrackPaneProps) {
             onReveal={onReveal}
           />
         ))}
-
-        {gild.length > 0 && (
-          <>
-            <div className={styles.gildDivider}>
-              Gilding · unlocks after the seal
-            </div>
-            {gild.map((entry) => (
-              <BadgeRow
-                key={entry.badge.id}
-                entry={entry}
-                hidden={isHiddenSecret(entry, revealed)}
-                padlocked={!state.sealed}
-                onReveal={onReveal}
-              />
-            ))}
-          </>
-        )}
       </div>
     </section>
   );

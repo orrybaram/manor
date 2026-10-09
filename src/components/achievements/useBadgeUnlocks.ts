@@ -1,23 +1,28 @@
 import { create } from "zustand";
 import type { StatsSummary } from "../../electron.d";
-import { BADGE_SECTIONS, trackState, type BadgeSection } from "../../lib/badges";
+import {
+  BADGE_SECTIONS,
+  trackState,
+  type BadgeSection,
+} from "../../lib/badges";
 import { useStatsStore } from "../../store/stats-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
 
-/** One thing to celebrate: a badge, or a track turning sealed or gilded. */
+/** One thing to celebrate: a badge, or a track turning complete. */
 export type UnlockItem =
   | { kind: "badge"; id: string }
-  | { kind: "seal"; section: BadgeSection }
-  | { kind: "gild"; section: BadgeSection };
+  | { kind: "complete"; section: BadgeSection };
 
 /** Stable key for an item, used to remount the toast between items. */
 export function unlockKey(item: UnlockItem): string {
-  return item.kind === "badge" ? `badge:${item.id}` : `${item.kind}:${item.section}`;
+  return item.kind === "badge"
+    ? `badge:${item.id}`
+    : `${item.kind}:${item.section}`;
 }
 
 /**
  * What is new in `next` compared to `prev`: badge ids first (in the order
- * `next.badges` lists them), then tracks that just became sealed, then gilded.
+ * `next.badges` lists them), then tracks that just became complete.
  */
 export function diffUnlocks(
   prev: StatsSummary,
@@ -28,13 +33,11 @@ export function diffUnlocks(
     if (prev.badges[id] === undefined) items.push({ kind: "badge", id });
   }
   for (const section of BADGE_SECTIONS) {
-    const before = trackState(section, prev);
-    const after = trackState(section, next);
-    if (!before.sealed && after.sealed) {
-      items.push({ kind: "seal", section: section.id });
-    }
-    if (!before.gilded && after.gilded) {
-      items.push({ kind: "gild", section: section.id });
+    if (
+      !trackState(section, prev).complete &&
+      trackState(section, next).complete
+    ) {
+      items.push({ kind: "complete", section: section.id });
     }
   }
   return items;

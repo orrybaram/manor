@@ -41,13 +41,12 @@ function describe(item: UnlockItem): ToastView | null {
   }
   const section = BADGE_SECTIONS.find((s) => s.id === item.section);
   if (!section) return null;
-  const gilded = item.kind === "gild";
   return {
-    eyebrow: gilded ? "TRACK GILDED" : "TRACK SEALED",
+    eyebrow: "TRACK COMPLETE",
     name: section.title,
-    icon: gilded ? "\u{1F451}" : "\u{1F396}️",
-    tier: gilded ? "gold" : "silver",
-    tierLabel: gilded ? "GILDED" : "SEALED",
+    icon: "\u{1F396}️",
+    tier: "gold",
+    tierLabel: "TITLE",
     section: item.section,
   };
 }
@@ -74,7 +73,10 @@ function Toast({ item, view }: { item: UnlockItem; view: ToastView }) {
         onClick={open}
         onAnimationEnd={(e) => {
           if (e.target !== e.currentTarget) return;
-          if (e.animationName === styles.leave || e.animationName === styles.hold) {
+          if (
+            e.animationName === styles.leave ||
+            e.animationName === styles.hold
+          ) {
             dismiss();
           }
         }}
@@ -93,7 +95,7 @@ function Toast({ item, view }: { item: UnlockItem; view: ToastView }) {
   );
 }
 
-/** Bottom-center pill announcing badge, seal and gild unlocks, one at a time. */
+/** Bottom-center pill announcing badge and track-complete unlocks, one at a time. */
 export function UnlockToast() {
   useBadgeUnlocks();
   const head = useUnlockQueue((s) => s.queue[0]);

@@ -38,7 +38,7 @@ export interface BadgeSectionMeta {
   name: string;
   /** One-line flavour under the section heading. */
   blurb: string;
-  /** Reward name earned by sealing the track (ADR-212). */
+  /** Reward name earned by completing the track (ADR-212). */
   title: string;
 }
 
@@ -116,11 +116,6 @@ export interface BadgeMeta {
   color: string;
   tier: BadgeTier;
   section: BadgeSection;
-  /**
-   * One of the track's hardest badges. Counts toward gilding, not the seal
-   * (ADR-212).
-   */
-  gild?: boolean;
   /** Hidden on screen (`???`) until earned or revealed (ADR-212). */
   secret?: boolean;
   /**
@@ -180,7 +175,6 @@ export const BADGE_META: readonly BadgeMeta[] = [
     color: "198 84 168",
     tier: "gold",
     section: "carnage",
-    gild: true,
     progress: counter("allTime", "agentsKilled", 100),
   },
   {
@@ -292,7 +286,6 @@ export const BADGE_META: readonly BadgeMeta[] = [
     color: "214 72 72",
     tier: "gold",
     section: "carnage",
-    gild: true,
     progress: counter("allTime", "agentsKilled", 500),
   },
   {
@@ -313,7 +306,6 @@ export const BADGE_META: readonly BadgeMeta[] = [
     color: "184 132 92",
     tier: "gold",
     section: "voice",
-    gild: true,
     progress: counter("allTime", "prompts", 10_000),
   },
   {
@@ -324,7 +316,6 @@ export const BADGE_META: readonly BadgeMeta[] = [
     color: "232 120 96",
     tier: "gold",
     section: "voice",
-    gild: true,
     progress: counter("today", "prompts", 250),
   },
   {
@@ -348,7 +339,6 @@ export const BADGE_META: readonly BadgeMeta[] = [
     color: "236 196 120",
     tier: "gold",
     section: "devotion",
-    gild: true,
     progress: (summary) => ({
       current: summary.dailyPrompts.length,
       target: 300,
@@ -372,7 +362,6 @@ export const BADGE_META: readonly BadgeMeta[] = [
     color: "88 168 200",
     tier: "gold",
     section: "devotion",
-    gild: true,
     progress: (summary) => ({ current: summary.streakWeeks, target: 52 }),
   },
   {
@@ -413,7 +402,6 @@ export const BADGE_META: readonly BadgeMeta[] = [
     color: "200 140 60",
     tier: "gold",
     section: "command",
-    gild: true,
     progress: counter("allTime", "maxConcurrentAgents", 10),
   },
   {
@@ -444,7 +432,6 @@ export const BADGE_META: readonly BadgeMeta[] = [
     color: "100 124 200",
     tier: "gold",
     section: "command",
-    gild: true,
     progress: counter("today", "subagents", 100),
   },
   {
@@ -485,7 +472,6 @@ export const BADGE_META: readonly BadgeMeta[] = [
     color: "64 160 96",
     tier: "gold",
     section: "groundskeeping",
-    gild: true,
     progress: counter("allTime", "worktreesCreated", 250),
   },
   {
@@ -496,7 +482,6 @@ export const BADGE_META: readonly BadgeMeta[] = [
     color: "220 100 48",
     tier: "gold",
     section: "groundskeeping",
-    gild: true,
     progress: counter("allTime", "worktreesRemoved", 250),
   },
   {
@@ -517,7 +502,6 @@ export const BADGE_META: readonly BadgeMeta[] = [
     color: "64 128 200",
     tier: "gold",
     section: "shipping",
-    gild: true,
     progress: (summary) => ({ current: shipped(summary), target: 200 }),
   },
   {
@@ -571,8 +555,9 @@ export const BADGE_META: readonly BadgeMeta[] = [
     tier: "platinum",
     section: "meta",
     progress: (summary) => ({
-      current: BADGE_META_BASE_IDS.filter((id) => summary.badges[id] !== undefined)
-        .length,
+      current: BADGE_META_BASE_IDS.filter(
+        (id) => summary.badges[id] !== undefined,
+      ).length,
       target: BADGE_META_BASE_IDS.length,
     }),
   },
@@ -604,16 +589,12 @@ export function progressRatio(p: BadgeProgress): number {
   return Math.min(1, Math.max(0, p.current / p.target));
 }
 
-/** Where a track stands: earned counts, seal and gild status, and the goals. */
+/** Where a track stands: earned against total, and whether it is complete. */
 export interface TrackState {
   earned: number;
   total: number;
-  sealed: boolean;
-  gilded: boolean;
-  /** Non-gild badges earned against all non-gild badges. */
-  sealProgress: BadgeProgress;
-  /** Gild badges earned against all gild badges. */
-  gildProgress: BadgeProgress;
+  /** Every badge in the track is earned; completing a track earns its title. */
+  complete: boolean;
 }
 
 function isEarned(summary: StatsSummary, id: string): boolean {
@@ -621,57 +602,36 @@ function isEarned(summary: StatsSummary, id: string): boolean {
 }
 
 /**
- * Seal and gild status for one track, derived from `summary.badges`. Sealed
- * when every non-gild badge is earned; gilded when sealed and every gild badge
- * is too. A gild badge earned before the seal still counts toward `earned`
- * and `gildProgress`. The `meta` track has no seal ladder: it is sealed and
- * gilded together once platinum is earned.
+ * Completion status for one track, derived from `summary.badges`. Complete
+ * when every badge in the track is earned. The `meta` track holds only
+ * platinum, so it completes once platinum is earned.
  */
 export function trackState(
   section: BadgeSectionMeta,
   summary: StatsSummary,
 ): TrackState {
   const badges = BADGE_META.filter((b) => b.section === section.id);
-  const base = badges.filter((b) => !b.gild);
-  const gild = badges.filter((b) => b.gild);
-  const baseEarned = base.filter((b) => isEarned(summary, b.id)).length;
-  const gildEarned = gild.filter((b) => isEarned(summary, b.id)).length;
-  const sealed = baseEarned === base.length;
-  const gilded = sealed && gildEarned === gild.length;
-  return {
-    earned: baseEarned + gildEarned,
-    total: badges.length,
-    sealed,
-    gilded,
-    sealProgress: { current: baseEarned, target: base.length },
-    gildProgress: { current: gildEarned, target: gild.length },
-  };
+  const earned = badges.filter((b) => isEarned(summary, b.id)).length;
+  return { earned, total: badges.length, complete: earned === badges.length };
 }
 
 export interface EarnedTitle {
   section: BadgeSection;
   title: string;
-  gilded: boolean;
-  /** When the track was sealed: the latest award among its non-gild badges. */
+  /** When the track was completed: the latest award among its badges. */
   at: string;
 }
 
-/** Titles for every sealed track, oldest seal first. */
+/** Titles for every complete track, earliest completion first. */
 export function earnedTitles(summary: StatsSummary): EarnedTitle[] {
   const result: EarnedTitle[] = [];
   for (const section of BADGE_SECTIONS) {
-    const state = trackState(section, summary);
-    if (!state.sealed) continue;
-    const times = BADGE_META.filter(
-      (b) => b.section === section.id && !b.gild,
-    ).map((b) => summary.badges[b.id]);
+    if (!trackState(section, summary).complete) continue;
+    const times = BADGE_META.filter((b) => b.section === section.id).map(
+      (b) => summary.badges[b.id],
+    );
     const at = times.reduce((a, b) => (a > b ? a : b));
-    result.push({
-      section: section.id,
-      title: section.title,
-      gilded: state.gilded,
-      at,
-    });
+    result.push({ section: section.id, title: section.title, at });
   }
   return result.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
 }

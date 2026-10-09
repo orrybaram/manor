@@ -11,7 +11,7 @@ type SummaryPaneProps = {
 };
 
 /**
- * The Badges tab's landing pane: the closest badge in each unsealed track,
+ * The Badges tab's landing pane: the closest badge in each incomplete track,
  * then what you unlocked most recently. A Next up card opens its track.
  */
 export function SummaryPane(props: SummaryPaneProps) {
@@ -24,7 +24,7 @@ export function SummaryPane(props: SummaryPaneProps) {
     <section className={styles.pane} aria-label="Summary">
       <h3 className={styles.heading}>Next up</h3>
       {next.length === 0 ? (
-        <p className={styles.emptyNote}>Every track is sealed.</p>
+        <p className={styles.emptyNote}>Every track is complete.</p>
       ) : (
         <div className={styles.nextGrid}>
           {next.map((entry) => {

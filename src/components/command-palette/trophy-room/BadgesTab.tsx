@@ -13,7 +13,7 @@ type SidebarItem = {
   id: TrackSelection;
   name: string;
   count: string;
-  status?: "sealed" | "gilded";
+  status?: "complete";
 };
 
 type TrackSidebarProps = {
@@ -23,8 +23,8 @@ type TrackSidebarProps = {
 };
 
 /**
- * Summary, then every track with its `n/m` — or "sealed" / "gilded" once it
- * is. Up / Down move between items.
+ * Summary, then every track with its `n/m` — or "complete" once it is.
+ * Up / Down move between items.
  */
 function TrackSidebar(props: TrackSidebarProps) {
   const { summary, selected, onSelect } = props;
@@ -34,11 +34,9 @@ function TrackSidebar(props: TrackSidebarProps) {
     { id: "summary", name: "Summary", count: `${earned}/${BADGE_META.length}` },
     ...BADGE_SECTIONS.map((section) => {
       const state = trackState(section, summary);
-      const status: SidebarItem["status"] = state.gilded
-        ? "gilded"
-        : state.sealed
-          ? "sealed"
-          : undefined;
+      const status: SidebarItem["status"] = state.complete
+        ? "complete"
+        : undefined;
       return {
         id: section.id,
         name: section.name,

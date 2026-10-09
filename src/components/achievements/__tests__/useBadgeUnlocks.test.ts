@@ -21,11 +21,22 @@ function summary(badges: Record<string, string> = {}): StatsSummary {
 }
 
 const AT = "2026-01-01T00:00:00.000Z";
-const SEALED = { "first-blood": AT, executioner: AT, "cold-blooded": AT };
+const CARNAGE_COMPLETE = {
+  "first-blood": AT,
+  executioner: AT,
+  massacre: AT,
+  "cold-blooded": AT,
+  extinction: AT,
+};
 
 describe("diffUnlocks", () => {
   it("returns nothing when nothing changed", () => {
-    expect(diffUnlocks(summary({ "first-blood": AT }), summary({ "first-blood": AT }))).toEqual([]);
+    expect(
+      diffUnlocks(
+        summary({ "first-blood": AT }),
+        summary({ "first-blood": AT }),
+      ),
+    ).toEqual([]);
   });
 
   it("lists new badges in order", () => {
@@ -39,14 +50,19 @@ describe("diffUnlocks", () => {
     ]);
   });
 
-  it("detects a seal after the badge toasts", () => {
+  it("detects a track completing after the badge toasts", () => {
     const items = diffUnlocks(
-      summary({ "first-blood": AT, executioner: AT }),
-      summary(SEALED),
+      summary({
+        "first-blood": AT,
+        executioner: AT,
+        massacre: AT,
+        extinction: AT,
+      }),
+      summary(CARNAGE_COMPLETE),
     );
     expect(items).toEqual([
       { kind: "badge", id: "cold-blooded" },
-      { kind: "seal", section: "carnage" },
+      { kind: "complete", section: "carnage" },
     ]);
   });
 });
@@ -67,18 +83,20 @@ describe("watchBadgeUnlocks", () => {
   it("queues several unlocks in order and does not replay them", () => {
     useStatsStore.setState({ summary: summary({ "first-blood": AT }) });
     const stop = watchBadgeUnlocks();
-    useStatsStore.setState({ summary: summary(SEALED) });
+    useStatsStore.setState({ summary: summary(CARNAGE_COMPLETE) });
     expect(useUnlockQueue.getState().queue).toEqual([
       { kind: "badge", id: "executioner" },
+      { kind: "badge", id: "massacre" },
       { kind: "badge", id: "cold-blooded" },
-      { kind: "seal", section: "carnage" },
+      { kind: "badge", id: "extinction" },
+      { kind: "complete", section: "carnage" },
     ]);
-    useStatsStore.setState({ summary: summary(SEALED) });
-    expect(useUnlockQueue.getState().queue).toHaveLength(3);
+    useStatsStore.setState({ summary: summary(CARNAGE_COMPLETE) });
+    expect(useUnlockQueue.getState().queue).toHaveLength(5);
     useUnlockQueue.getState().dismiss();
     expect(useUnlockQueue.getState().queue[0]).toEqual({
       kind: "badge",
-      id: "cold-blooded",
+      id: "massacre",
     });
     stop();
   });

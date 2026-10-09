@@ -1,5 +1,4 @@
 import * as Popover from "@radix-ui/react-popover";
-import BadgeIcon from "lucide-react/dist/esm/icons/badge";
 import Check from "lucide-react/dist/esm/icons/check";
 import Pencil from "lucide-react/dist/esm/icons/pencil";
 import type { StatsSummary } from "../../../electron.d";
@@ -42,19 +41,14 @@ export function TrophyHeader(props: TrophyHeaderProps) {
   const tally = tierTally(summary);
   const total = BADGE_META.length;
   const earned = TIERS.reduce((n, tier) => n + tally[tier].got, 0);
-  const gildedCount = titles.filter((t) => t.gilded).length;
 
   return (
     <header className={styles.header}>
       <div className={styles.titleBlock}>
         <span className={styles.eyebrow}>Title</span>
         {shown ? (
-          <span
-            className={styles.title}
-            data-gilded={shown.gilded || undefined}
-          >
-            {shown.gilded && <BadgeIcon size={14} aria-hidden="true" />}
-            {shown.gilded ? `${shown.title} · gilded` : shown.title}
+          <span className={styles.title}>
+            {shown.title}
             <Popover.Root>
               <Tooltip label="Change title" side="top">
                 <Popover.Trigger asChild>
@@ -94,11 +88,8 @@ export function TrophyHeader(props: TrophyHeaderProps) {
                               setPreference("achievementTitle", t.title)
                             }
                           >
-                            <span
-                              className={styles.titleMenuLabel}
-                              data-gilded={t.gilded || undefined}
-                            >
-                              {t.gilded ? `${t.title} · gilded` : t.title}
+                            <span className={styles.titleMenuLabel}>
+                              {t.title}
                             </span>
                             {active && <Check size={13} />}
                           </Button>
@@ -112,7 +103,7 @@ export function TrophyHeader(props: TrophyHeaderProps) {
           </span>
         ) : (
           <span className={`${styles.title} ${styles.titleEmpty}`}>
-            No title yet · seal a track
+            No title yet · complete a track
           </span>
         )}
       </div>
@@ -122,7 +113,7 @@ export function TrophyHeader(props: TrophyHeaderProps) {
           <span className={styles.scoreEarned}>{earned}</span>
           <span className={styles.scoreTotal}>{`/ ${total}`}</span>
           <span className={styles.scoreTitles}>
-            {`${titles.length} ${titles.length === 1 ? "title" : "titles"} · ${gildedCount} gilded`}
+            {`${titles.length} ${titles.length === 1 ? "title" : "titles"}`}
           </span>
         </div>
         <div

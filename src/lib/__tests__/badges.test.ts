@@ -198,16 +198,6 @@ describe("BADGE_META", () => {
     });
   });
 
-  it("flags at most two gild badges, all gold, only in tracks of four or more", () => {
-    for (const section of BADGE_SECTIONS) {
-      const badges = BADGE_META.filter((b) => b.section === section.id);
-      const gild = badges.filter((b) => b.gild);
-      expect(gild.length).toBeLessThanOrEqual(2);
-      if (badges.length < 4) expect(gild).toHaveLength(0);
-      for (const b of gild) expect(b.tier).toBe("gold");
-    }
-  });
-
   it("gives every section a reward title", () => {
     for (const section of BADGE_SECTIONS) {
       expect(section.title.length).toBeGreaterThan(0);
@@ -243,17 +233,15 @@ describe("progressRatio", () => {
 
 const AT = (n: number) => `2026-01-0${n}T00:00:00.000Z`;
 
-/** Awards every non-gild badge in a section, one day apart starting at `start`. */
+/** Awards every badge in a section, one day apart starting at `start`. */
 function award(
   sectionId: string,
-  { gild = false, start = 1 }: { gild?: boolean; start?: number } = {},
+  { start = 1 }: { start?: number } = {},
 ): Record<string, string> {
   const out: Record<string, string> = {};
-  BADGE_META.filter((b) => b.section === sectionId && !!b.gild === gild).forEach(
-    (b, i) => {
-      out[b.id] = AT(start + i);
-    },
-  );
+  BADGE_META.filter((b) => b.section === sectionId).forEach((b, i) => {
+    out[b.id] = AT(start + i);
+  });
   return out;
 }
 
@@ -262,83 +250,59 @@ const voice = BADGE_SECTIONS.find((s) => s.id === "voice")!;
 const meta = BADGE_SECTIONS.find((s) => s.id === "meta")!;
 
 describe("trackState", () => {
-  it("starts empty and unsealed", () => {
-    const state = trackState(carnage, summary());
-    expect(state.earned).toBe(0);
-    expect(state.sealed).toBe(false);
-    expect(state.gilded).toBe(false);
-    expect(state.sealProgress).toEqual({ current: 0, target: 3 });
-    expect(state.gildProgress).toEqual({ current: 0, target: 2 });
+  it("starts empty and incomplete", () => {
+    expect(trackState(carnage, summary())).toEqual({
+      earned: 0,
+      total: 5,
+      complete: false,
+    });
   });
 
-  it("seals when every non-gild badge is earned, and gilds with the rest", () => {
-    const base = award("carnage");
-    const sealed = trackState(carnage, summary({ badges: base }));
-    expect(sealed.sealed).toBe(true);
-    expect(sealed.gilded).toBe(false);
-    expect(sealed.earned).toBe(3);
-    expect(sealed.total).toBe(5);
-
-    const gilded = trackState(
-      carnage,
-      summary({ badges: { ...base, ...award("carnage", { gild: true }) } }),
-    );
-    expect(gilded.sealed).toBe(true);
-    expect(gilded.gilded).toBe(true);
-    expect(gilded.earned).toBe(5);
+  it("is incomplete while any badge is missing", () => {
+    const badges = award("carnage");
+    delete badges.extinction;
+    const state = trackState(carnage, summary({ badges }));
+    expect(state.earned).toBe(4);
+    expect(state.complete).toBe(false);
   });
 
-  it("counts a gild badge earned before the seal without sealing", () => {
-    const state = trackState(
-      carnage,
-      summary({ badges: award("carnage", { gild: true }) }),
-    );
-    expect(state.sealed).toBe(false);
-    expect(state.gilded).toBe(false);
-    expect(state.earned).toBe(2);
-    expect(state.gildProgress).toEqual({ current: 2, target: 2 });
+  it("completes when every badge is earned", () => {
+    const state = trackState(carnage, summary({ badges: award("carnage") }));
+    expect(state).toEqual({ earned: 5, total: 5, complete: true });
   });
 
-  it("gilds a track without gild badges as soon as it is sealed", () => {
-    const machinery = BADGE_SECTIONS.find((s) => s.id === "machinery")!;
-    const state = trackState(machinery, summary({ badges: award("machinery") }));
-    expect(state.sealed).toBe(true);
-    expect(state.gilded).toBe(true);
-    expect(state.gildProgress).toEqual({ current: 0, target: 0 });
-  });
-
-  it("seals the meta track when platinum is earned", () => {
-    expect(trackState(meta, summary()).sealed).toBe(false);
-    expect(trackState(meta, summary({ badges: { platinum: AT(1) } })).sealed).toBe(
-      true,
-    );
+  it("completes the meta track when platinum is earned", () => {
+    expect(trackState(meta, summary()).complete).toBe(false);
+    expect(
+      trackState(meta, summary({ badges: { platinum: AT(1) } })).complete,
+    ).toBe(true);
   });
 });
 
 describe("earnedTitles", () => {
-  it("is empty until a track is sealed", () => {
+  it("is empty until a track is complete", () => {
     expect(earnedTitles(summary())).toEqual([]);
   });
 
-  it("orders titles by seal time, using the latest non-gild award", () => {
+  it("orders titles by completion time, using the latest award", () => {
     const badges = {
-      ...award("voice", { start: 5 }), // sealed at the 5th + n
+      ...award("voice", { start: 3 }), // complete at the 6th
       ...award("carnage", { start: 1 }),
-      // a gild badge earned late must not move the carnage seal time
-      ...Object.fromEntries(
-        Object.keys(award("carnage", { gild: true })).map((id) => [id, AT(9)]),
-      ),
+      // one late carnage badge pushes its completion past voice
+      extinction: AT(9),
     };
     const titles = earnedTitles(summary({ badges }));
-    expect(titles.map((t) => t.section)).toEqual(["carnage", "voice"]);
+    expect(titles.map((t) => t.section)).toEqual(["voice", "carnage"]);
     expect(titles[0]).toEqual({
+      section: "voice",
+      title: voice.title,
+      at: AT(6),
+    });
+    expect(titles[1]).toEqual({
       section: "carnage",
       title: "Exterminator",
-      gilded: true,
-      at: AT(3),
+      at: AT(9),
     });
-    expect(titles[1].gilded).toBe(false);
-    expect(voice.title).toBe(titles[1].title);
   });
 });
 
@@ -363,7 +327,9 @@ describe("platinum", () => {
     const plat = BADGE_META.find((b) => b.id === "platinum")!;
     expect(plat.progress(summary())).toEqual({ current: 0, target: 39 });
     expect(
-      plat.progress(summary({ badges: { "first-blood": AT(1), platinum: AT(2) } })),
+      plat.progress(
+        summary({ badges: { "first-blood": AT(1), platinum: AT(2) } }),
+      ),
     ).toEqual({ current: 1, target: 39 });
   });
 });

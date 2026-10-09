@@ -1,12 +1,11 @@
 import type { CSSProperties } from "react";
-import Lock from "lucide-react/dist/esm/icons/lock";
 import { Button } from "../../ui/Button/Button";
 import { TIER_LABEL, type BadgeMeta } from "../../../lib/badges";
 import { formatAwarded, type BadgeEntry } from "./trophy-data";
 import styles from "./TrophyRoom.module.css";
 
 /** What the medal face shows. */
-type MedalState = "earned" | "locked" | "secret" | "padlocked";
+type MedalState = "earned" | "locked" | "secret";
 
 type MedalProps = {
   badge: BadgeMeta;
@@ -15,8 +14,8 @@ type MedalProps = {
 
 /**
  * A badge's medal: its emoji with the `--badge-color` glow once earned, a
- * dashed ring around a dimmed emoji while locked, `?` for an unrevealed
- * secret, and a padlock for a gild badge still behind the seal.
+ * dashed ring around a dimmed emoji while locked, and `?` for an unrevealed
+ * secret.
  */
 export function Medal(props: MedalProps) {
   const { badge, state } = props;
@@ -30,8 +29,6 @@ export function Medal(props: MedalProps) {
     >
       {state === "secret" ? (
         "?"
-      ) : state === "padlocked" ? (
-        <Lock size={13} />
       ) : (
         <span className={styles.medalIcon}>{badge.icon}</span>
       )}
@@ -43,8 +40,8 @@ type ProgressBarProps = {
   /** 0–1. */
   ratio: number;
   label: string;
-  /** Seal (purple) or gild (gold) fill; otherwise `tier` picks the tint. */
-  tone?: "seal" | "gild";
+  /** Track (magenta) fill; otherwise `tier` picks the tint. */
+  tone?: "track";
   tier?: BadgeMeta["tier"];
 };
 
@@ -79,24 +76,16 @@ type BadgeRowProps = {
   entry: BadgeEntry;
   /** An unrevealed secret: `???`, a `?` medal, no tier or progress. */
   hidden?: boolean;
-  /** A gild badge before its track is sealed: dimmed, padlock medal. */
-  padlocked?: boolean;
   onReveal?: (id: string) => void;
 };
 
 /** One badge in a track's list. */
 export function BadgeRow(props: BadgeRowProps) {
-  const { entry, hidden = false, padlocked = false, onReveal } = props;
+  const { entry, hidden = false, onReveal } = props;
 
   const { badge, awardedAt } = entry;
   const earned = awardedAt !== null;
-  const state: MedalState = earned
-    ? "earned"
-    : hidden
-      ? "secret"
-      : padlocked
-        ? "padlocked"
-        : "locked";
+  const state: MedalState = earned ? "earned" : hidden ? "secret" : "locked";
   const showBar = state === "locked" && entry.current > 0;
 
   return (

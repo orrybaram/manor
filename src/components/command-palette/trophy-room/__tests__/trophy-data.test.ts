@@ -28,35 +28,38 @@ const AT = (day: number) =>
 
 const carnage = BADGE_SECTIONS.find((s) => s.id === "carnage")!;
 
-/** Seals carnage: every non-gild badge earned. */
-const CARNAGE_SEAL = {
+/** Completes carnage: every badge in the track earned. */
+const CARNAGE_COMPLETE = {
   "first-blood": AT(1),
   executioner: AT(3),
+  massacre: AT(4),
   "cold-blooded": AT(2),
+  extinction: AT(5),
 };
 
 describe("trackEntries", () => {
-  it("splits the gild set out and orders earned by date, then locked by progress", () => {
-    const { base, gild } = trackEntries(
+  it("orders earned by date, then locked by progress", () => {
+    const entries = trackEntries(
       carnage,
       summary({
         allTime: { agentsKilled: 20, agentsKilledMidThought: 2 },
         badges: { "first-blood": AT(5) },
       }),
     );
-    expect(base.map((e) => e.badge.id)).toEqual([
+    expect(entries.map((e) => e.badge.id)).toEqual([
       "first-blood",
       "executioner",
+      "massacre",
       "cold-blooded",
+      "extinction",
     ]);
-    expect(gild.map((e) => e.badge.id)).toEqual(["massacre", "extinction"]);
-    expect(base[0].ratio).toBe(1);
+    expect(entries[0].ratio).toBe(1);
   });
 });
 
 describe("isHiddenSecret", () => {
   it("hides a locked secret until it is revealed or earned", () => {
-    const locked = trackEntries(carnage, summary()).base.find(
+    const locked = trackEntries(carnage, summary()).find(
       (e) => e.badge.id === "cold-blooded",
     )!;
     expect(isHiddenSecret(locked, new Set())).toBe(true);
@@ -65,21 +68,21 @@ describe("isHiddenSecret", () => {
     const earned = trackEntries(
       carnage,
       summary({ badges: { "cold-blooded": AT(1) } }),
-    ).base.find((e) => e.badge.id === "cold-blooded")!;
+    ).find((e) => e.badge.id === "cold-blooded")!;
     expect(isHiddenSecret(earned, new Set())).toBe(false);
   });
 });
 
 describe("displayedTitle", () => {
-  it("is null with nothing sealed", () => {
+  it("is null with no track complete", () => {
     expect(displayedTitle(summary(), null)).toBeNull();
   });
 
   it("uses the chosen title while it is earned, else the latest", () => {
     const s = summary({
       badges: {
-        ...CARNAGE_SEAL,
-        // Meta seals on platinum alone, later than carnage.
+        ...CARNAGE_COMPLETE,
+        // Meta completes on platinum alone, later than carnage.
         platinum: AT(9),
       },
     });
@@ -90,14 +93,14 @@ describe("displayedTitle", () => {
 });
 
 describe("nextUp", () => {
-  it("skips sealed tracks, secrets and gild badges, closest first", () => {
+  it("skips complete tracks and secrets, closest first", () => {
     const s = summary({
-      allTime: { agentsKilled: 99, agentsKilledMidThought: 24, prompts: 900 },
-      badges: CARNAGE_SEAL,
+      allTime: { agentsKilled: 500, prompts: 900, prChangesRequested: 9 },
+      badges: CARNAGE_COMPLETE,
     });
     const ids = nextUp(s).map((e) => e.badge.id);
-    expect(ids).not.toContain("massacre");
-    expect(ids).not.toContain("cold-blooded");
+    expect(ids).not.toContain("extinction");
+    expect(ids).not.toContain("red-ink");
     expect(ids[0]).toBe("chatterbox");
     expect(ids).toHaveLength(3);
   });

@@ -53,18 +53,14 @@ function byRackOrder(a: BadgeEntry, b: BadgeEntry): number {
   return b.ratio - a.ratio;
 }
 
-/** A track's badges split into its seal ladder and its gild set, each sorted. */
+/** A track's badges in rack order. */
 export function trackEntries(
   section: BadgeSectionMeta,
   summary: StatsSummary,
-): { base: BadgeEntry[]; gild: BadgeEntry[] } {
-  const entries = BADGE_META.filter((b) => b.section === section.id)
+): BadgeEntry[] {
+  return BADGE_META.filter((b) => b.section === section.id)
     .map((b) => entryFor(b, summary))
     .sort(byRackOrder);
-  return {
-    base: entries.filter((e) => !e.badge.gild),
-    gild: entries.filter((e) => e.badge.gild),
-  };
 }
 
 /** A secret stays `???` until it is earned or you choose to reveal it. */
@@ -81,7 +77,7 @@ export function isHiddenSecret(
 
 /**
  * The title the header shows: the chosen one while it is still earned,
- * otherwise the most recently sealed. `null` when no track is sealed.
+ * otherwise the most recently completed. `null` when no track is complete.
  */
 export function displayedTitle(
   summary: StatsSummary,
@@ -94,15 +90,14 @@ export function displayedTitle(
 }
 
 /**
- * "Next up" on the Summary pane: the closest locked badge in each unsealed
- * track, then the closest `limit` of those. Secret badges never appear, and
- * gild badges don't either — they sit behind the seal.
+ * "Next up" on the Summary pane: the closest locked badge in each incomplete
+ * track, then the closest `limit` of those. Secret badges never appear.
  */
 export function nextUp(summary: StatsSummary, limit = 3): BadgeEntry[] {
   const picks: BadgeEntry[] = [];
   for (const section of BADGE_SECTIONS) {
-    if (trackState(section, summary).sealed) continue;
-    const closest = trackEntries(section, summary).base.find(
+    if (trackState(section, summary).complete) continue;
+    const closest = trackEntries(section, summary).find(
       (e) => e.awardedAt === null && !e.badge.secret,
     );
     if (closest) picks.push(closest);

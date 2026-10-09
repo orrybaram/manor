@@ -35,11 +35,11 @@ The design canvas "Manor Achievements — Presentation Ideas" (https://claude.ai
 
 ### Model (`src/lib/badges.ts`, `electron/stats-badges.ts`)
 
-- **Seal and gild.** Each track gets a `gild` set: its hardest badges (the highest-target gold badges, at most 2, and only in tracks with 4 or more badges), flagged `gild: true` on `BadgeMeta`. A track is **sealed** when every non-gild badge is earned and **gilded** when the gild badges are earned too. A gild badge earned before the seal still counts. The screen just lists gild badges under a "Gilding · unlocks after the seal" divider, and locked ones show a padlock until the seal.
-- **Titles.** `BadgeSectionMeta` gains `title` (the reward name, e.g. Carnage → "Exterminator"). Sealing a track earns its title. Gilding it adds a "· gilded" suffix and a gold tint. All of this is derived from `summary.badges`, so nothing new is stored.
+- **Track completion.** A track is **complete** when every badge in it is earned. (An earlier cut of this ADR split each track into "seal" and "gild" tiers; that was dropped as too confusing — see the revision note below.)
+- **Titles.** `BadgeSectionMeta` gains `title` (the reward name, e.g. Carnage → "Exterminator"). Completing a track earns its title. All of this is derived from `summary.badges`, so nothing new is stored.
 - **Secret badges.** `BadgeMeta` gains `secret?: boolean` for a few joke or surprise badges. While locked, a secret badge shows `???`, a `?` medal, and no tier or progress. A **Reveal** button shows it to you, and that choice is saved.
-- **Platinum.** A fourth tier, `platinum`, with one badge (`platinum`, "Earned every other badge") added to both copies. `earned` in main reads `summary.badges`, so it is awarded on the next commit after the last other badge. Total goes 40 → 41.
-- Pure helpers in `src/lib/badges.ts`: `trackState(section, summary)` → `{ earned, total, sealed, gilded, sealProgress, gildProgress }`, `earnedTitles(summary)`, `tierTally(summary)`. These get unit tests.
+- **Platinum.** A fourth tier, `platinum`, with one badge (`platinum`, "Earned every other badge") added to both copies. `earned` in main reads `summary.badges`, so it is awarded on the next commit after the last other badge. The rack goes from 39 to 40 badges.
+- Pure helpers in `src/lib/badges.ts`: `trackState(section, summary)` → `{ earned, total, complete }`, `earnedTitles(summary)`, `tierTally(summary)`. These get unit tests.
 
 ### Persistence
 
@@ -47,13 +47,12 @@ Two new `AppPreferences` keys, going through the existing preferences store and 
 
 ### Trophy Room v2 (`StatsView.tsx` split into `src/components/command-palette/trophy-room/`)
 
-- **Header:** your selected title, with a gold seal icon if gilded and a pencil button that opens a menu of earned titles. On the right: earned / total, a tier-segmented bar, and the tally (bronze, silver, gold, platinum).
+- **Header:** your selected title, with a pencil button that opens a menu of earned titles. On the right: earned / total, a tier-segmented bar, and the tally (bronze, silver, gold, platinum).
 - **Tabs:** Badges and Stats, in the same pattern as the other tab rows in the palette.
-- **Badges tab:** a track sidebar on the left (Summary, then each track with `n/m`, "sealed" or "gilded"), and the selected track on the right:
-  - a seal card ("Seal it to earn the title X", seal bar, gild line);
+- **Badges tab:** a track sidebar on the left (Summary, then each track with `n/m` or "complete"), and the selected track on the right:
+  - a track card ("Complete it to earn the title X", one progress bar);
   - a row list: medal, name, tier, description, a progress bar for the next locked badge, and the unlock date;
-  - the gilding divider and its rows.
-  - **Summary** shows "Next up" (the closest locked badge in each unsealed track) and recent unlocks.
+  - **Summary** shows "Next up" (the closest locked badge in each incomplete track) and recent unlocks.
 - **Stats tab:** today's stat tiles, contribution graph and stat table, moved over unchanged.
 - **Medals:** keep the existing emoji icons and the `--badge-color` treatment. Locked medals use a dashed ring.
 - Styles go in a new `TrophyRoom.module.css`, and the old `.achievement*` rules are removed from `CommandPalette.module.css`. Use `ui/` components (`Button`, `Tooltip`) per the project rules.
@@ -61,8 +60,8 @@ Two new `AppPreferences` keys, going through the existing preferences store and 
 ### Unlock toast (`src/components/achievements/UnlockToast.tsx`)
 
 - A renderer hook subscribes to `useStatsStore` and diffs `summary.badges` keys against the previous snapshot. The first snapshot after load is only a baseline, so the backlog never replays.
-- Each new id is queued, and so is each track that just became sealed or gilded.
-- Rendered bottom-center as a pill: a medal ringed in the tier color, "ACHIEVEMENT UNLOCKED" (or "TRACK SEALED"), the name (or title), and the tier label. Timing follows board 6b: medal pops at 0 ms, the pill unrolls by 250 ms, text fades in by 450 ms, and it collapses at 5 s.
+- Each new id is queued, and so is each track that just became complete.
+- Rendered bottom-center as a pill: a medal ringed in the tier color, "ACHIEVEMENT UNLOCKED" (or "TRACK COMPLETE"), the name (or title), and the tier label. Timing follows board 6b: medal pops at 0 ms, the pill unrolls by 250 ms, text fades in by 450 ms, and it collapses at 5 s.
 - One toast at a time; the queue plays in order. Clicking opens the trophy room on that badge's track. Reduced motion drops the animation and keeps the 5 s hold.
 - No sound in this ADR. Notification rows stay as they are.
 
@@ -74,12 +73,15 @@ Two new `AppPreferences` keys, going through the existing preferences store and 
 
 ## Consequences
 
-- Finishing a track now earns a title and opens a gild goal, so completed tracks keep giving something to chase.
+- Finishing a track now earns a title, not just a "Complete" label.
 - Secret badges hide only on screen. The definition still ships in the bundle, so anyone reading the code can find them, which is fine for a local toy.
-- Adding platinum and gild flags means touching both badge copies again; the existing sync tests catch drift.
-- Flagging gild badges changes what "complete" means: a track that used to show "Complete" may now read "sealed · gild 1/2". No earned badge is ever lost.
+- Adding platinum and secret flags means touching both badge copies again; the existing sync tests catch drift.
 - The palette's stats view gets a two-pane layout. At narrow palette widths the sidebar has to wrap above the list, so the CSS must handle that.
 - Moving the stats tiles behind a tab hides them from people who opened the view for numbers. The Stats tab is one click away.
+
+## Revision (2026-10-09)
+
+The first build shipped seal (all non-gild badges) and gild (the hardest 1–2 gold badges, after the seal) as two completion layers. Review found two overlapping progress systems with jargon names too confusing, so it was replaced by a single rule: complete every badge in a track to earn its title. Commit: `refactor(adr-212): replace seal and gild with track completion`.
 
 ## Tickets
 

@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.19.6] - 2026-10-09
+
+### Features
+
+- Create workspaces directly from the Tasks view without leaving it
+
+### Improvements
+
+- The folder picker now shimmers while Jev is choosing a folder, and the "Suggested" label is gone
+
+### Fixes
+
+- Each settings hint now stays inside its own setting's row
+
 ## [0.19.5] - 2026-10-09
 
 ### Features

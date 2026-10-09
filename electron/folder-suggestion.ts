@@ -13,6 +13,11 @@ const MAX_OPTION_KEY_CHARS = 64;
 const MAX_DESCRIPTION_CHARS = 400;
 const MAX_NAME_CHARS = 200;
 const MAX_PROMPT_CHARS = 2000;
+/**
+ * The worker refuses a body over 16 KiB; this leaves room for the envelope
+ * (`v`, `pub`, `ts`, `sig`) around `{ state, options }`.
+ */
+const MAX_PAYLOAD_BYTES = 15 * 1024;
 
 export interface FolderDraft {
   name: string;
@@ -56,18 +61,17 @@ export function buildFolderQuestion(
   if (project.folders.length === 0 || !name) return null;
 
   const byId = new Map(project.folders.map((f) => [f.id, f]));
-  const options: Record<string, string> = {};
   const folders = project.folders
     .filter((f) => f.id.length <= MAX_OPTION_KEY_CHARS)
-    .slice(0, MAX_FOLDER_OPTIONS);
-  for (const folder of folders) {
-    const members = project.workspaces
-      .filter((ws) => ws.folderId === folder.id)
-      .slice(0, MAX_MEMBER_NAMES)
-      .map((ws) => ws.name || ws.branch);
-    options[folder.id] = describeFolder(folderPathLabel(folder, byId), members);
-  }
-  options[NO_FOLDER] = "Fits none of these folders";
+    .slice(0, MAX_FOLDER_OPTIONS)
+    .map((folder) => ({
+      id: folder.id,
+      label: folderPathLabel(folder, byId),
+      members: project.workspaces
+        .filter((ws) => ws.folderId === folder.id)
+        .slice(0, MAX_MEMBER_NAMES)
+        .map((ws) => ws.name || ws.branch),
+    }));
 
   const state: Record<string, string> = {
     workspaceName: name.slice(0, MAX_NAME_CHARS),
@@ -76,6 +80,24 @@ export function buildFolderQuestion(
   if (branchName) state.branchName = branchName.slice(0, MAX_NAME_CHARS);
   const agentPrompt = draft.agentPrompt?.trim();
   if (agentPrompt) state.agentPrompt = agentPrompt.slice(0, MAX_PROMPT_CHARS);
+
+  // Within the worker's body limit: member lists go first, then the
+  // trailing folders.
+  const optionsFor = (withMembers: boolean, count: number) => {
+    const options: Record<string, string> = {};
+    for (const f of folders.slice(0, count)) {
+      options[f.id] = describeFolder(f.label, withMembers ? f.members : []);
+    }
+    options[NO_FOLDER] = "Fits none of these folders";
+    return options;
+  };
+  const fits = (options: Record<string, string>) =>
+    Buffer.byteLength(JSON.stringify({ state, options })) <= MAX_PAYLOAD_BYTES;
+  let options = optionsFor(true, folders.length);
+  if (!fits(options)) options = optionsFor(false, folders.length);
+  for (let count = folders.length - 1; !fits(options) && count > 0; count--) {
+    options = optionsFor(false, count);
+  }
 
   return { state, options };
 }

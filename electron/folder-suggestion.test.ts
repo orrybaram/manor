@@ -74,6 +74,52 @@ describe("buildFolderQuestion", () => {
     expect(q.options.f1).not.toContain("9".repeat(60));
   });
 
+  it("keeps the payload under the worker's 16 KiB body limit", () => {
+    const folders = Array.from({ length: 63 }, (_, i) => ({
+      id: crypto.randomUUID(),
+      name: `${i}-`.repeat(60),
+      parentId: null,
+    }));
+    const workspaces = folders.flatMap((f, i) =>
+      Array.from({ length: 10 }, (_, j) => ({
+        path: `/w${i}-${j}`,
+        branch: `w${i}-${j}`,
+        isMain: false,
+        name: "n".repeat(30),
+        folderId: f.id,
+      })),
+    );
+    const q = buildFolderQuestion(project({ folders, workspaces }), {
+      name: "x".repeat(200),
+      agentPrompt: "p".repeat(2000),
+    })!;
+    expect(Buffer.byteLength(JSON.stringify(q))).toBeLessThanOrEqual(15 * 1024);
+    expect(q.options[folders[0].id]).toBeDefined();
+    expect(q.options[NO_FOLDER]).toBeDefined();
+  });
+
+  it("drops member lists before folders when the payload is too big", () => {
+    const folders = Array.from({ length: 50 }, (_, i) => ({
+      id: `f${i}`,
+      name: `F${i}`,
+      parentId: null,
+    }));
+    const workspaces = folders.flatMap((f, i) =>
+      Array.from({ length: 10 }, (_, j) => ({
+        path: `/w${i}-${j}`,
+        branch: `w${i}-${j}`,
+        isMain: false,
+        name: "n".repeat(35),
+        folderId: f.id,
+      })),
+    );
+    const q = buildFolderQuestion(project({ folders, workspaces }), {
+      name: "x",
+    })!;
+    expect(Object.keys(q.options)).toHaveLength(51);
+    expect(q.options.f0).toBe('Folder "F0".');
+  });
+
   it("does not send instructions", () => {
     const q = buildFolderQuestion(project(), { name: "x" })!;
     expect(q).not.toHaveProperty("instructions");

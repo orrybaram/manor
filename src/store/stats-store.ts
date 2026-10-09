@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { DayBucket, StatCounter, StatsSummary } from "../electron.d";
+import type { BadgeSection } from "../lib/badges";
 
 /**
  * Renderer cache of main's usage-stats summary (ADR-168 §5).
@@ -12,7 +13,20 @@ interface StatsState {
   /** `null` until the first summary arrives (broadcast or initial fetch). */
   summary: StatsSummary | null;
   loaded: boolean;
+  /**
+   * Track the trophy room should open on (ADR-212), or `null` for Summary.
+   * Consumed — cleared — once the room mounts on it.
+   */
+  focusSection: BadgeSection | null;
+  /**
+   * Bumped on every `focusTrack` call. The trophy room is keyed on it, so a
+   * request while the room is already open remounts it on the new track.
+   */
+  focusSeq: number;
   reset: () => Promise<void>;
+  /** Open the trophy room on `section` the next time (or right now) it shows. */
+  focusTrack: (section: BadgeSection) => void;
+  clearFocusTrack: () => void;
 }
 
 export const useStatsStore = create<StatsState>((set) => {
@@ -36,9 +50,19 @@ export const useStatsStore = create<StatsState>((set) => {
   return {
     summary: null,
     loaded: false,
+    focusSection: null,
+    focusSeq: 0,
 
     reset: async () => {
       await window.electronAPI?.stats.reset();
+    },
+
+    focusTrack: (section) => {
+      set((s) => ({ focusSection: section, focusSeq: s.focusSeq + 1 }));
+    },
+
+    clearFocusTrack: () => {
+      set({ focusSection: null });
     },
   };
 });

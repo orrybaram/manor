@@ -1,0 +1,624 @@
+/*
+ * The trophy room (ADR-212): the palette's stats view. Sealed reads in the
+ * theme's magenta, gilded in its yellow. The tier colours are fixed, as the
+ * old rack's tier chips were — bronze is bronze whatever the theme.
+ */
+
+.room {
+  --tier-bronze: 196 138 92;
+  --tier-silver: 178 186 198;
+  --tier-gold: 224 186 88;
+  --tier-platinum: 190 214 232;
+
+  padding: 16px 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.room [data-tier="bronze"] {
+  --tier: var(--tier-bronze);
+}
+
+.room [data-tier="silver"] {
+  --tier: var(--tier-silver);
+}
+
+.room [data-tier="gold"] {
+  --tier: var(--tier-gold);
+}
+
+.room [data-tier="platinum"] {
+  --tier: var(--tier-platinum);
+}
+
+.eyebrow {
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-dim);
+}
+
+/* ── Header ── */
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px 24px;
+}
+
+.titleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono, monospace);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-selected);
+}
+
+.title[data-gilded] {
+  color: var(--yellow);
+}
+
+.titleEmpty {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.titleEdit {
+  width: 24px;
+  height: 24px;
+  margin: -6px 0;
+  padding: 0;
+}
+
+.titleMenu {
+  background: var(--dim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 200px;
+  max-height: min(320px, calc(100vh - 32px));
+  overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  animation: menuFadeIn 150ms ease-out;
+}
+
+.titleMenuList {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.titleMenuItem {
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.titleMenuItem:focus-visible {
+  outline-offset: -2px;
+}
+
+.titleMenuItem svg {
+  color: var(--accent);
+}
+
+.titleMenuLabel {
+  flex: 1;
+  text-align: left;
+}
+
+.titleMenuLabel[data-gilded] {
+  color: var(--yellow);
+}
+
+.score {
+  margin-left: auto;
+  flex: 0 1 340px;
+  min-width: min(100%, 260px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.scoreLine {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+}
+
+.scoreEarned {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-selected);
+}
+
+.scoreTotal {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.scoreTitles {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.tierBar {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.tierSegment {
+  height: 100%;
+  background: rgb(var(--tier));
+}
+
+.tally {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.tallyItem {
+  white-space: nowrap;
+}
+
+.tallyDot {
+  margin-right: 4px;
+  color: rgb(var(--tier));
+}
+
+/* ── Tabs ── */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--surface);
+}
+
+/* Doubled so the ghost Button's own padding, radius and hover lose. */
+.tab.tab {
+  height: 32px;
+  padding: 0 14px;
+  margin-bottom: -1px;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.tab.tab:hover {
+  background: transparent;
+  color: var(--text-selected);
+}
+
+.tab.tab[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--text-selected);
+}
+
+.tab:focus-visible {
+  outline-offset: -2px;
+}
+
+/* ── Badges tab ── */
+
+/* Two panes that wrap: below 590px (150 + 20 + 420) the sidebar stacks
+   above the track, and the container query lays its items out in a row. */
+.badgesTab {
+  container-type: inline-size;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.sidebar {
+  flex: 1 1 150px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+@container (max-width: 589px) {
+  .sidebar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .sidebar .sidebarItem.sidebarItem {
+    width: auto;
+  }
+}
+
+.sidebarItem.sidebarItem {
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.sidebarItem.sidebarItem[aria-current="true"] {
+  background: var(--surface);
+  color: var(--text-selected);
+}
+
+.sidebarItem:focus-visible {
+  outline-offset: -2px;
+}
+
+.sidebarName {
+  flex: 1;
+  text-align: left;
+}
+
+.sidebarCount {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebarCount[data-status="sealed"] {
+  color: var(--magenta);
+}
+
+.sidebarCount[data-status="gilded"] {
+  color: var(--yellow);
+}
+
+.pane {
+  flex: 999 1 420px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ── Seal card ── */
+
+.sealCard {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--dim);
+  border: 1px solid var(--border);
+}
+
+.sealCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sealHeadline {
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-selected);
+}
+
+.sealTitle {
+  color: var(--magenta);
+}
+
+.sealTitle[data-gilded] {
+  color: var(--yellow);
+}
+
+.sealMeter {
+  margin-left: auto;
+  flex: 0 1 200px;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.meterRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.meterRow [data-gilded] {
+  color: var(--yellow);
+}
+
+/* ── Progress bars ── */
+
+.bar {
+  display: block;
+  flex: 1;
+  height: 4px;
+  min-width: 0;
+  border-radius: 2px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.barFill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: rgb(var(--tier, var(--tier-silver)));
+}
+
+.barFill[data-tone="seal"] {
+  background: var(--magenta);
+}
+
+.barFill[data-tone="gild"] {
+  background: var(--yellow);
+}
+
+/* ── Badge rows ── */
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.rows > .row:first-child {
+  border-top: none;
+}
+
+.row[data-state="padlocked"] {
+  opacity: 0.6;
+}
+
+.gildDivider {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--dim);
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-dim);
+}
+
+.rows > .gildDivider:first-child {
+  border-top: none;
+}
+
+/* `--badge-color` is set inline per badge (see `BADGE_META`) as an `r g b`
+   triple, so one rule tints every earned medal. */
+.medal {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-family: var(--font-mono, monospace);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-dim);
+  border: 2px dashed var(--border);
+}
+
+.medal[data-state="earned"] {
+  border: 1px solid rgb(var(--badge-color) / 0.6);
+  background: rgb(var(--badge-color) / 0.16);
+  box-shadow: 0 0 10px rgb(var(--badge-color) / 0.3);
+}
+
+.medal[data-state="locked"] .medalIcon {
+  opacity: 0.35;
+  filter: grayscale(1);
+}
+
+.medal[data-state="secret"] {
+  font-size: 13px;
+}
+
+.rowBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rowHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.rowName {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-selected);
+}
+
+.row[data-state="secret"] .rowName,
+.row[data-state="padlocked"] .rowName {
+  color: var(--text-dim);
+}
+
+.tier {
+  font-family: var(--font-mono, monospace);
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: rgb(var(--tier, var(--tier-silver)) / 0.85);
+}
+
+.row[data-state="secret"] .tier {
+  color: var(--text-dim);
+}
+
+.rowDesc {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.row[data-state="earned"] .rowDesc {
+  color: var(--text-primary);
+}
+
+.rowProgress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 320px;
+}
+
+.count {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.rowWhen {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.reveal {
+  flex: none;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+}
+
+/* ── Summary pane ── */
+
+.heading {
+  margin: 4px 0 0;
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-dim);
+}
+
+.emptyNote {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.nextGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+/* Doubled so the ghost Button's centring and nowrap lose. */
+.nextCard.nextCard {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--dim);
+  white-space: normal;
+  text-align: left;
+}
+
+.nextCard.nextCard:hover {
+  background: var(--hover);
+}
+
+.nextHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.nextText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+@keyframes menuFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .titleMenu {
+    animation: none;
+  }
+}

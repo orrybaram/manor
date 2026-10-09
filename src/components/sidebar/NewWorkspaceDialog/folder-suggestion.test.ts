@@ -5,7 +5,7 @@ const gate = {
   suggestionsEnabled: true,
   folderTouched: false,
   initialFolderId: null,
-  activeProjectId: "p1",
+  projectId: "p1",
   folderCount: 2,
   name: "Fix login",
 };
@@ -19,7 +19,7 @@ describe("shouldSuggest", () => {
     { suggestionsEnabled: false },
     { folderTouched: true },
     { initialFolderId: "f1" },
-    { activeProjectId: "" },
+    { projectId: "" },
     { folderCount: 0 },
     { name: "   " },
   ])("blocks on %o", (override) => {
@@ -31,21 +31,27 @@ describe("applySuggestionResult", () => {
   const hit = { folderId: "f2", confidence: 0.9 };
 
   it("applies a hit", () => {
-    expect(applySuggestionResult({ folderId: null, suggestion: null }, hit)).toEqual({
+    expect(
+      applySuggestionResult({ folderId: null, suggestion: null }, hit),
+    ).toEqual({
       folderId: "f2",
       suggestion: hit,
     });
   });
 
   it("reverts a previously suggested folder on a miss", () => {
-    expect(applySuggestionResult({ folderId: "f2", suggestion: hit }, null)).toEqual({
+    expect(
+      applySuggestionResult({ folderId: "f2", suggestion: hit }, null),
+    ).toEqual({
       folderId: null,
       suggestion: null,
     });
   });
 
   it("leaves another pick alone on a miss", () => {
-    expect(applySuggestionResult({ folderId: "f1", suggestion: null }, null)).toEqual({
+    expect(
+      applySuggestionResult({ folderId: "f1", suggestion: null }, null),
+    ).toEqual({
       folderId: "f1",
       suggestion: null,
     });

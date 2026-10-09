@@ -105,11 +105,13 @@ does this only while all of these hold:
 - the active project has folders
 - `typesafe.isConnected()` was true when the dialog opened
 
-A response for a stale draft or project is dropped. A suggested pick shows a
-small "Suggested" marker next to the combobox, with a `<Tooltip>` showing the
-confidence. Picking anything by hand, including "No folder", clears the
-marker and stops further suggestions for that dialog session. Submitting
-never waits on an in-flight suggestion.
+A response for a stale draft or project is dropped. While a request is in
+flight, an accent shimmer sweeps across the folder combobox; its label is left
+alone, and the picked folder simply replaces it. (This replaced an earlier
+"Suggested" marker, which was dropped after the feature shipped.) Picking
+anything by hand, including "No folder", stops the shimmer and further
+suggestions for that dialog session. Submitting never waits on an in-flight
+suggestion.
 
 ## Consequences
 

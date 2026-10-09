@@ -19,7 +19,6 @@ import { Collapse } from "../../ui/Collapse/Collapse";
 import { Button } from "../../ui/Button/Button";
 import { SearchableSelect } from "../../ui/SearchableSelect";
 import { ToggleGroup } from "../../ui/ToggleGroup";
-import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import styles from "./NewWorkspaceDialog.module.css";
 import { Row, Stack } from "../../ui/Layout/Layout";
 import { sanitizeBranchName } from "../../../utils/branch-name";
@@ -118,6 +117,8 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   // Set by any hand pick; stops Jev suggesting over the user's choice.
   const [folderTouched, setFolderTouched] = useState(false);
   const [suggestion, setSuggestion] = useState<FolderPick | null>(null);
+  // A request is in flight: the folder picker shimmers until it answers.
+  const [suggesting, setSuggesting] = useState(false);
   const suggestionsEnabled = usePreferencesStore(
     (s) => s.preferences.folderSuggestionsEnabled,
   );
@@ -149,6 +150,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   const cancelSuggestion = useCallback(() => {
     clearTimeout(suggestTimerRef.current);
     suggestRequestRef.current++;
+    setSuggesting(false);
   }, []);
   useMountEffect(() => () => clearTimeout(suggestTimerRef.current));
 
@@ -345,6 +347,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     }
     const request = suggestRequestRef.current;
     suggestTimerRef.current = setTimeout(() => {
+      setSuggesting(true);
       window.electronAPI.jev
         .suggestFolder(snapshot.projectId, {
           name: snapshot.name,
@@ -358,7 +361,10 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
           setSuggestion(next.suggestion);
         })
         // A suggestion is a nicety; a failed one leaves the choice alone.
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => {
+          if (request === suggestRequestRef.current) setSuggesting(false);
+        });
     }, 400);
   };
 
@@ -733,23 +739,12 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                         maxWidth={140}
                         placeholder="No folder"
                         aria-label="Folder"
+                        className={
+                          suggesting ? styles.folderSuggesting : undefined
+                        }
                         data-testid="new-workspace-folder-select"
                       />
                     )}
-                    {suggestion &&
-                      suggestion.folderId === activeFolderId &&
-                      !folderTouched && (
-                        <Tooltip
-                          label={`Picked by Jev · ${Math.round(suggestion.confidence * 100)}% confident`}
-                        >
-                          <span
-                            className={styles.suggested}
-                            data-testid="new-workspace-folder-suggested"
-                          >
-                            Suggested
-                          </span>
-                        </Tooltip>
-                      )}
                     {mode === "new" && (
                       <SearchableSelect
                         value={baseBranch}

@@ -416,7 +416,7 @@ describe("RemoteBackend", () => {
         cmd: "git",
         args: ["push", "--set-upstream", "origin", "feature"],
         cwd: "/srv/repo",
-        env: { GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "/bin/true" },
+        env: { GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "true" },
       });
 
       const execId = cmd.execId as string;

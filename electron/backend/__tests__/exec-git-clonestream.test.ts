@@ -93,7 +93,7 @@ describe("ExecGitBackend.cloneStream", () => {
     });
     expect(fake.opts()?.env).toEqual({
       GIT_TERMINAL_PROMPT: "0",
-      GIT_ASKPASS: "/bin/true",
+      GIT_ASKPASS: "true",
     });
   });
 

@@ -156,10 +156,11 @@ export class ExecGitBackend implements GitBackend {
         ...(cwd !== undefined ? { cwd } : {}),
         // Overrides only — the Exec merges them onto its own base env. A
         // missing credential must fail fast rather than hang waiting for a
-        // prompt Manor cannot answer (ADR-178 §4).
+        // prompt Manor cannot answer (ADR-178 §4). `true` resolves on PATH:
+        // macOS has no /bin/true.
         env: {
           GIT_TERMINAL_PROMPT: "0",
-          GIT_ASKPASS: "/bin/true",
+          GIT_ASKPASS: "true",
         },
       },
       {

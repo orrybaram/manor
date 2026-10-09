@@ -123,7 +123,7 @@ describe("ExecGitBackend.pushStream", () => {
   });
 
   describe("environment", () => {
-    it("sets GIT_TERMINAL_PROMPT=0 and GIT_ASKPASS=/bin/true", () => {
+    it("sets GIT_TERMINAL_PROMPT=0 and GIT_ASKPASS=true", () => {
       backend.pushStream(
         "/repo",
         { branch: "main" },
@@ -139,7 +139,7 @@ describe("ExecGitBackend.pushStream", () => {
       // caller must not ship its whole process.env (wrong for a remote Exec).
       expect(opts.env).toEqual({
         GIT_TERMINAL_PROMPT: "0",
-        GIT_ASKPASS: "/bin/true",
+        GIT_ASKPASS: "true",
       });
     });
   });

@@ -1,6 +1,6 @@
 ---
 title: Pill unlock toast
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [1, 2]
@@ -32,3 +32,7 @@ Build the unlock toast from ADR-212, following board 6b `V2Toasts`.
 - `src/components/achievements/UnlockToast.module.css` (new)
 - `src/components/achievements/__tests__/useBadgeUnlocks.test.ts` (new)
 - `src/App.tsx`
+
+## Notes from ticket 2
+- Focus a track: `useStatsStore.getState().focusTrack(section)` then `requestPaletteView("stats")` — works whether the palette is closed or open.
+- Tier color triples (`r g b`) live as `--tier-bronze|silver|gold|platinum` inside `trophy-room/TrophyRoom.module.css` only; lift them to a shared spot (or duplicate) for the toast.

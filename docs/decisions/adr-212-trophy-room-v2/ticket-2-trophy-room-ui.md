@@ -1,6 +1,6 @@
 ---
 title: Trophy Room v2 screen
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]

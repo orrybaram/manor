@@ -27,6 +27,7 @@ import { Onboarding } from "./components/onboarding/Onboarding";
 import { ManorLogo } from "./components/ui/ManorLogo";
 import { CloseAgentPaneDialog } from "./components/CloseAgentPaneDialog";
 import { ToastContainer } from "./components/ui/Toast/Toast";
+import { UnlockToast } from "./components/achievements/UnlockToast";
 import { TooltipProvider } from "./components/ui/Tooltip/Tooltip";
 import {
   SIDEBAR_MODE_TRANSITION_MS,
@@ -1005,6 +1006,7 @@ function App() {
         }}
       />
       <ToastContainer />
+      <UnlockToast />
       {!OWN_CLAIM && showGhosts && <GhostsOverlay />}
     </div>
     </TooltipProvider>

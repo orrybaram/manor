@@ -1,0 +1,212 @@
+/*
+ * Unlock pill (ADR-212, board 6b). Timeline: medal pops at 0ms, the pill
+ * unrolls by 250ms, text fades up by 450ms, holds to 5s, then rolls back and
+ * fades. Hover pauses every animation, which pauses the 5s hold with them.
+ */
+
+.toast {
+  --tier-bronze: 196 138 92;
+  --tier-silver: 178 186 198;
+  --tier-gold: 224 186 88;
+  --tier-platinum: 190 214 232;
+  --tier: var(--tier-silver);
+
+  position: fixed;
+  left: 50%;
+  bottom: 40px;
+  transform: translateX(-50%);
+  z-index: 10000;
+  width: 560px;
+  max-width: calc(100vw - 32px);
+  height: 88px;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.toast[data-tier="bronze"] {
+  --tier: var(--tier-bronze);
+}
+
+.toast[data-tier="silver"] {
+  --tier: var(--tier-silver);
+}
+
+.toast[data-tier="gold"] {
+  --tier: var(--tier-gold);
+}
+
+.toast[data-tier="platinum"] {
+  --tier: var(--tier-platinum);
+}
+
+.toast .pill {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 18px;
+  flex: none;
+  box-sizing: border-box;
+  width: 100%;
+  height: 88px;
+  padding: 0 28px 0 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+  color: var(--text-selected);
+  font-family: var(--font-mono);
+  text-align: left;
+  cursor: pointer;
+  animation:
+    unroll 300ms cubic-bezier(0.2, 0.8, 0.2, 1) both,
+    leave 450ms ease-in 5000ms forwards;
+}
+
+.toast .pill:hover,
+.toast .pill:hover * {
+  animation-play-state: paused;
+}
+
+.medal {
+  position: relative;
+  flex: none;
+  width: 64px;
+  height: 64px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 3px solid rgb(var(--tier));
+  background: var(--surface);
+  box-shadow: 0 0 0 6px rgb(255 255 255 / 0.04);
+  display: grid;
+  place-items: center;
+  animation: pop 400ms cubic-bezier(0.3, 1.5, 0.5, 1) both;
+}
+
+.medal::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 3px solid rgb(var(--tier));
+  opacity: 0;
+  animation: pulse 700ms ease-out both;
+}
+
+.emoji {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  white-space: nowrap;
+  animation: textIn 250ms ease-out 200ms both;
+}
+
+.eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--text-dim);
+}
+
+.name {
+  font-size: 19px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tier {
+  flex: none;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: rgb(var(--tier));
+  animation: textIn 250ms ease-out 200ms both;
+}
+
+@keyframes pop {
+  0% {
+    transform: scale(0.3);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+
+@keyframes unroll {
+  0% {
+    width: 88px;
+  }
+  100% {
+    width: 100%;
+  }
+}
+
+@keyframes textIn {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes leave {
+  0% {
+    width: 100%;
+    opacity: 1;
+  }
+  70% {
+    width: 88px;
+    opacity: 1;
+  }
+  100% {
+    width: 88px;
+    opacity: 0;
+  }
+}
+
+/* Reduced motion: appear and disappear, keeping the 5s hold. */
+@keyframes hold {
+  0%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast .pill {
+    animation: hold 5000ms linear both;
+  }
+
+  .medal,
+  .text,
+  .tier {
+    animation: none;
+  }
+
+  .medal::after {
+    display: none;
+  }
+}

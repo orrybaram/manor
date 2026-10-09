@@ -33,7 +33,7 @@ import { agentActivity } from "./handlers/agent-activity";
 import { appCommands } from "./handlers/app-commands";
 import { branches, diffs, git, gitPush } from "./handlers/branches-diffs";
 import { github, linear } from "./handlers/integrations";
-import { typesafe } from "./handlers/typesafe";
+import { jev } from "./handlers/jev";
 import { hosts } from "./handlers/hosts";
 import { layout } from "./handlers/layout";
 import { notifications } from "./handlers/notifications";
@@ -71,7 +71,7 @@ const METHODS = flatten({
   "git.push": gitPush,
   github,
   linear,
-  typesafe,
+  jev,
   appCommands,
 });
 

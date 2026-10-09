@@ -27,6 +27,7 @@ const defaultPreferences: AppPreferences = {
   agentRetentionDays: 90,
   agentPruneNoticeShown: false,
   statsEnabled: true,
+  folderSuggestionsEnabled: true,
 };
 
 export const usePreferencesStore = create<PreferencesState>((set) => {

@@ -82,6 +82,25 @@ export function GeneralSettingsPage() {
           </Button>
         </div>
       </Stack>
+      <Stack gap="xs">
+        <SectionTitle id="general-folder-suggestions">
+          Folder Suggestions
+        </SectionTitle>
+        <label className={styles.notifRow}>
+          <span>Suggest folders for new workspaces</span>
+          <Switch
+            checked={preferences.folderSuggestionsEnabled}
+            onCheckedChange={(checked) =>
+              set("folderSuggestionsEnabled", checked)
+            }
+          />
+        </label>
+        <div className={styles.fieldHint}>
+          Uses Jev, provided by Manor. Sends the workspace name, branch, agent
+          prompt and your folder and workspace names to relay.manor.sh and
+          TypeSafe. Nothing is stored.
+        </div>
+      </Stack>
       <ResetStatsDialog
         open={resetStatsOpen}
         onOpenChange={setResetStatsOpen}

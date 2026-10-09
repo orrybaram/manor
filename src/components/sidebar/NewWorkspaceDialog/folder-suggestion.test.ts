@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { applySuggestionResult, shouldSuggest } from "./folder-suggestion";
 
 const gate = {
-  jevConnected: true,
+  suggestionsEnabled: true,
   folderTouched: false,
   initialFolderId: null,
   activeProjectId: "p1",
@@ -16,7 +16,7 @@ describe("shouldSuggest", () => {
   });
 
   it.each([
-    { jevConnected: false },
+    { suggestionsEnabled: false },
     { folderTouched: true },
     { initialFolderId: "f1" },
     { activeProjectId: "" },

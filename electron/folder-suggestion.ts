@@ -6,6 +6,12 @@ export const NO_FOLDER = "__none__";
 export const MIN_CONFIDENCE = 0.6;
 
 const MAX_MEMBER_NAMES = 10;
+// The relay worker's limits (`relay/src/jev.ts`); past them it answers 400.
+/** Folder options; `NO_FOLDER` is the 64th. */
+export const MAX_FOLDER_OPTIONS = 63;
+const MAX_OPTION_KEY_CHARS = 64;
+const MAX_DESCRIPTION_CHARS = 400;
+const MAX_NAME_CHARS = 200;
 const MAX_PROMPT_CHARS = 2000;
 
 export interface FolderDraft {
@@ -14,9 +20,9 @@ export interface FolderDraft {
   agentPrompt?: string;
 }
 
+/** The data of a Jev question; the instructions text lives in `relay/src/jev.ts`. */
 export interface FolderQuestion {
   state: Record<string, string>;
-  instructions: string;
   options: Record<string, string>;
 }
 
@@ -51,31 +57,49 @@ export function buildFolderQuestion(
 
   const byId = new Map(project.folders.map((f) => [f.id, f]));
   const options: Record<string, string> = {};
-  for (const folder of project.folders) {
+  const folders = project.folders
+    .filter((f) => f.id.length <= MAX_OPTION_KEY_CHARS)
+    .slice(0, MAX_FOLDER_OPTIONS);
+  for (const folder of folders) {
     const members = project.workspaces
       .filter((ws) => ws.folderId === folder.id)
       .slice(0, MAX_MEMBER_NAMES)
       .map((ws) => ws.name || ws.branch);
-    let description = `Folder "${folderPathLabel(folder, byId)}".`;
-    if (members.length > 0) {
-      description += ` Contains workspaces: ${members.join(", ")}`;
-    }
-    options[folder.id] = description;
+    options[folder.id] = describeFolder(folderPathLabel(folder, byId), members);
   }
   options[NO_FOLDER] = "Fits none of these folders";
 
-  const state: Record<string, string> = { workspaceName: name };
+  const state: Record<string, string> = {
+    workspaceName: name.slice(0, MAX_NAME_CHARS),
+  };
   const branchName = draft.branchName?.trim();
-  if (branchName) state.branchName = branchName;
+  if (branchName) state.branchName = branchName.slice(0, MAX_NAME_CHARS);
   const agentPrompt = draft.agentPrompt?.trim();
   if (agentPrompt) state.agentPrompt = agentPrompt.slice(0, MAX_PROMPT_CHARS);
 
-  return {
-    state,
-    instructions:
-      "Which sidebar folder should this new workspace be filed under? Folders group related workspaces; judge by what the folder's existing workspaces are about.",
-    options,
-  };
+  return { state, options };
+}
+
+/**
+ * `Folder "<label>". Contains workspaces: a, b`, within the worker's
+ * description limit: member names that don't fit are dropped.
+ */
+function describeFolder(label: string, members: string[]): string {
+  let description = `Folder "${label}".`.slice(0, MAX_DESCRIPTION_CHARS);
+  const prefix = " Contains workspaces: ";
+  const fitting: string[] = [];
+  for (const member of members) {
+    const next = [...fitting, member].join(", ");
+    if (
+      description.length + prefix.length + next.length >
+      MAX_DESCRIPTION_CHARS
+    ) {
+      break;
+    }
+    fitting.push(member);
+  }
+  if (fitting.length > 0) description += prefix + fitting.join(", ");
+  return description;
 }
 
 /** The folder worth filing under, or null when the answer says not to. */

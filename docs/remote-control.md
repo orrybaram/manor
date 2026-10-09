@@ -128,6 +128,17 @@ backup, a new keychain), Manor makes a new one — a new address — and says so
 the card; every device paired to the old address is revoked, since its link can
 no longer find this machine.
 
+**Folder suggestions also go through the relay.** Besides rooms, the relay
+serves `POST /jev/folder` ([ADR-211](decisions/adr-211-hosted-jev-proxy/index.md)):
+the New Workspace dialog asks it which sidebar folder a new workspace belongs
+in, and it asks TypeSafe's Jev with Manor's key. Unlike everything else here,
+that route is not blind: it sees your folder and workspace names, the new
+workspace's name and branch, and the agent prompt in cleartext, forwards them to
+TypeSafe, and doesn't log or store them. Requests are signed with the same relay
+key, which is created on first use if remote control never was; that opens no
+room. Turn it off with **Suggest folders for new workspaces** in Settings →
+General.
+
 **Old devices are dropped.** Devices paired over Tailscale, or at the Watch or
 Reply tier, cannot work any more. They are deleted from the devices file the
 first time it loads, and must be paired again through the relay.

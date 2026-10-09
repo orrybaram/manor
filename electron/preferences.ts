@@ -36,6 +36,8 @@ export interface AppPreferences {
   agentPruneNoticeShown: boolean;
   /** ADR-168's usage-stats collection kill switch. `record`/`recordMax` are no-ops when false. */
   statsEnabled: boolean;
+  /** ADR-211: whether the New Workspace dialog asks Jev (through the relay) for a folder. */
+  folderSuggestionsEnabled: boolean;
 }
 
 const DEFAULTS: AppPreferences = {
@@ -55,6 +57,7 @@ const DEFAULTS: AppPreferences = {
   agentRetentionDays: 90,
   agentPruneNoticeShown: false,
   statsEnabled: true,
+  folderSuggestionsEnabled: true,
 };
 
 /**

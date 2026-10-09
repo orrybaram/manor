@@ -187,6 +187,4 @@ export type HostRefusedMethod = LocalOnly<
   | "remoteControl.stopRelay"
   | "remoteControl.resetRelayAddress"
   | "linear.connect"
-  | "typesafe.connect"
-  | "typesafe.disconnect"
 >;

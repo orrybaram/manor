@@ -20,7 +20,7 @@ import type { BranchWatcher } from "../branch-watcher";
 import type { DiffWatcher } from "../diff-watcher";
 import type { GitHubManager } from "../github";
 import type { LinearManager } from "../linear";
-import type { TypeSafeManager } from "../typesafe";
+import type { JevClient } from "../jev";
 import type { AgentHookServer } from "../agent-hooks";
 import type { AgentManager, PaneHostLookup } from "../agent-persistence";
 import type { AgentStatusDriver } from "../agent-status/driver";
@@ -89,7 +89,7 @@ export interface HostDeps {
   diffWatcher: DiffWatcher;
   githubManager: GitHubManager;
   linearManager: LinearManager;
-  typesafeManager: TypeSafeManager;
+  jevClient: JevClient;
   agentHookServer: AgentHookServer;
   agentManager: AgentManager;
   /**

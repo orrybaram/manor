@@ -63,6 +63,11 @@ const PAGE_SECTIONS: {
         label: "Usage Stats",
         keywords: ["stats", "usage", "telemetry", "reset", "privacy"],
       },
+      {
+        id: "general-folder-suggestions",
+        label: "Folder Suggestions",
+        keywords: ["folder", "suggest", "jev", "typesafe", "workspace", "privacy"],
+      },
     ],
   },
   {

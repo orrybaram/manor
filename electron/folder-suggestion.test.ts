@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildFolderQuestion,
   interpretFolderAnswer,
+  MAX_FOLDER_OPTIONS,
   NO_FOLDER,
 } from "./folder-suggestion";
 import type { ProjectInfo } from "./projects/types";
@@ -44,6 +45,47 @@ describe("buildFolderQuestion", () => {
     }));
     const q = buildFolderQuestion(project({ workspaces }), { name: "x" })!;
     expect(q.options.f1.split(": ")[1].split(", ")).toHaveLength(10);
+  });
+
+  it("caps folders at MAX_FOLDER_OPTIONS plus NO_FOLDER", () => {
+    const folders = Array.from({ length: 80 }, (_, i) => ({
+      id: `f${i}`,
+      name: `F${i}`,
+      parentId: null,
+    }));
+    const q = buildFolderQuestion(project({ folders }), { name: "x" })!;
+    expect(Object.keys(q.options)).toHaveLength(MAX_FOLDER_OPTIONS + 1);
+    expect(q.options).toHaveProperty("f62");
+    expect(q.options).not.toHaveProperty("f63");
+    expect(q.options[NO_FOLDER]).toBeDefined();
+  });
+
+  it("keeps descriptions within 400 chars by dropping members", () => {
+    const workspaces = Array.from({ length: 10 }, (_, i) => ({
+      path: `/w${i}`,
+      branch: `w${i}`,
+      isMain: false,
+      name: `${i}`.repeat(60),
+      folderId: "f1",
+    }));
+    const q = buildFolderQuestion(project({ workspaces }), { name: "x" })!;
+    expect(q.options.f1.length).toBeLessThanOrEqual(400);
+    expect(q.options.f1).toContain("0".repeat(60));
+    expect(q.options.f1).not.toContain("9".repeat(60));
+  });
+
+  it("does not send instructions", () => {
+    const q = buildFolderQuestion(project(), { name: "x" })!;
+    expect(q).not.toHaveProperty("instructions");
+  });
+
+  it("caps the workspace and branch names at 200 chars", () => {
+    const q = buildFolderQuestion(project(), {
+      name: "n".repeat(300),
+      branchName: "b".repeat(300),
+    })!;
+    expect(q.state.workspaceName).toHaveLength(200);
+    expect(q.state.branchName).toHaveLength(200);
   });
 
   it("builds trimmed state and omits blanks", () => {

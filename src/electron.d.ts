@@ -26,6 +26,8 @@ export interface AppPreferences {
   agentPruneNoticeShown: boolean;
   /** ADR-168's usage-stats collection kill switch. */
   statsEnabled: boolean;
+  /** ADR-211: whether the New Workspace dialog asks Jev for a folder. */
+  folderSuggestionsEnabled: boolean;
 }
 
 export type AgentLifecycleStatus =

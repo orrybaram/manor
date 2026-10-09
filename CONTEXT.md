@@ -62,8 +62,12 @@ A phone or browser that holds a per-device token issued by the desktop app.
 _Avoid_: remote, client device, session
 
 **Relay**:
-The hosted blind pipe (`relay/`, a Cloudflare Worker) that a desktop and a phone both dial out to, so a device can reach the machine with nothing installed. It forwards Noise ciphertext between a **Room**'s host and its **Channels** and cannot read any of it; it also serves the web app, one build per version.
+The hosted blind pipe (`relay/`, a Cloudflare Worker) that a desktop and a phone both dial out to, so a device can reach the machine with nothing installed. It forwards Noise ciphertext between a **Room**'s host and its **Channels** and cannot read any of it; it also serves the web app, one build per version. One route is not blind: `POST /jev/folder` sees a **Folder suggestion**'s question in cleartext (ADR-211).
 _Avoid_: server, proxy, tunnel, listener (nothing on the machine listens for remote control; the desktop dials out to the relay, which feeds the bridge directly)
+
+**Folder suggestion**:
+Jev's pick of a sidebar folder for a new workspace, asked through the **Relay** (which holds the TypeSafe key) and signed with the desktop's relay key; off in Settings → General.
+_Avoid_: auto-folder, TypeSafe integration (there is no user key any more)
 
 **Room**:
 One desktop's place on the **Relay**, addressed by the hash of its relay public key and held by whoever holds the key. At most one host and a few **Channels**.

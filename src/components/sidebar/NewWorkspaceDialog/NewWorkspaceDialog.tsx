@@ -12,6 +12,7 @@ import {
   useProjectStore,
   type ProjectInfo,
 } from "../../../store/project-store";
+import { usePreferencesStore } from "../../../store/preferences-store";
 import { Input } from "../../ui/Input";
 import { EmojiInput, EmojiTextarea } from "../../ui/EmojiAutocomplete";
 import { Collapse } from "../../ui/Collapse/Collapse";
@@ -115,7 +116,9 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   // Set by any hand pick; stops Jev suggesting over the user's choice.
   const [folderTouched, setFolderTouched] = useState(false);
   const [suggestion, setSuggestion] = useState<FolderSuggestion | null>(null);
-  const [jevConnected, setJevConnected] = useState(false);
+  const suggestionsEnabled = usePreferencesStore(
+    (s) => s.preferences.folderSuggestionsEnabled,
+  );
   const [agentPrompt, setAgentPrompt] = useState("");
   const [agentOpen, setAgentOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -291,7 +294,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   // Ask Jev for a folder once the draft settles, unless the user has chosen.
   const suggestPrompt = agentOpen ? agentPrompt : "";
   const canSuggest = shouldSuggest({
-    jevConnected,
+    suggestionsEnabled,
     folderTouched,
     initialFolderId,
     activeProjectId,
@@ -302,7 +305,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     if (!canSuggest) return;
     const timer = setTimeout(() => {
       const request = ++suggestRequestRef.current;
-      window.electronAPI.typesafe
+      window.electronAPI.jev
         .suggestFolder(activeProjectId, {
           name,
           branchName,
@@ -362,11 +365,6 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       setFolderId(initialFolderId);
       setFolderTouched(false);
       setSuggestion(null);
-      setJevConnected(false);
-      window.electronAPI.typesafe
-        ?.isConnected()
-        .then(setJevConnected)
-        .catch(() => setJevConnected(false));
       setAgentPrompt(initialAgentPrompt);
       setAgentOpen(!!initialAgentPrompt);
       setError(null);

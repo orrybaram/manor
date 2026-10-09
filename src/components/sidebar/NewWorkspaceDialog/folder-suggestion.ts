@@ -1,7 +1,7 @@
 export type FolderSuggestion = { folderId: string; confidence: number };
 
 type SuggestGate = {
-  jevConnected: boolean;
+  suggestionsEnabled: boolean;
   folderTouched: boolean;
   initialFolderId: string | null;
   activeProjectId: string;
@@ -12,7 +12,7 @@ type SuggestGate = {
 /** Whether the dialog should ask Jev for a folder right now. */
 export function shouldSuggest(gate: SuggestGate): boolean {
   return (
-    gate.jevConnected &&
+    gate.suggestionsEnabled &&
     !gate.folderTouched &&
     gate.initialFolderId == null &&
     !!gate.activeProjectId &&

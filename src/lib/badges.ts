@@ -17,6 +17,55 @@ import type { StatsSummary } from "../electron.d";
  */
 export type BadgeTier = "bronze" | "silver" | "gold";
 
+/**
+ * Progression track a badge belongs to. The rack groups by track so each one
+ * reads as a ladder, easiest rung first.
+ */
+export type BadgeSection =
+  | "carnage"
+  | "command"
+  | "voice"
+  | "devotion"
+  | "machinery"
+  | "reflexes"
+  | "groundskeeping"
+  | "shipping";
+
+export interface BadgeSectionMeta {
+  id: BadgeSection;
+  title: string;
+  /** One-line flavour under the section heading. */
+  blurb: string;
+}
+
+/** Sections in rack order. */
+export const BADGE_SECTIONS: readonly BadgeSectionMeta[] = [
+  { id: "carnage", title: "Carnage", blurb: "Agents you put down." },
+  { id: "command", title: "Command", blurb: "How many agents you run." },
+  { id: "voice", title: "Voice", blurb: "Prompts you send." },
+  { id: "devotion", title: "Devotion", blurb: "Showing up, week after week." },
+  {
+    id: "machinery",
+    title: "Machinery",
+    blurb: "Tool calls your agents make.",
+  },
+  {
+    id: "reflexes",
+    title: "Reflexes",
+    blurb: "Answering agents that wait on you.",
+  },
+  {
+    id: "groundskeeping",
+    title: "Groundskeeping",
+    blurb: "Worktrees you create and remove.",
+  },
+  {
+    id: "shipping",
+    title: "Shipping",
+    blurb: "Work that lands, and the PR reviews and CI runs along the way.",
+  },
+];
+
 /** Where a locked badge stands against its unlock threshold. */
 export interface BadgeProgress {
   current: number;
@@ -32,6 +81,7 @@ export interface BadgeMeta {
   /** Accent colour for the earned medal, as an `r g b` triple for `rgb()`. */
   color: string;
   tier: BadgeTier;
+  section: BadgeSection;
   /**
    * Progress toward the unlock, mirroring the predicate in
    * `electron/stats-badges.ts`. `current` is uncapped — clamp at the call site.
@@ -63,6 +113,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🩸",
     color: "232 93 117",
     tier: "bronze",
+    section: "carnage",
     progress: counter("allTime", "agentsKilled", 1),
   },
   {
@@ -72,6 +123,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "⚔️",
     color: "224 108 88",
     tier: "silver",
+    section: "carnage",
     progress: counter("allTime", "agentsKilled", 25),
   },
   {
@@ -81,6 +133,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "💀",
     color: "198 84 168",
     tier: "gold",
+    section: "carnage",
     progress: counter("allTime", "agentsKilled", 100),
   },
   {
@@ -90,6 +143,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🧮",
     color: "116 148 240",
     tier: "silver",
+    section: "command",
     progress: counter("today", "subagents", 10),
   },
   {
@@ -99,6 +153,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🐝",
     color: "232 176 68",
     tier: "bronze",
+    section: "command",
     progress: counter("allTime", "maxConcurrentAgents", 5),
   },
   {
@@ -108,6 +163,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "⚡",
     color: "240 200 64",
     tier: "silver",
+    section: "reflexes",
     progress: counter("allTime", "fastUnblocks", 25),
   },
   {
@@ -117,6 +173,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🌱",
     color: "96 190 120",
     tier: "silver",
+    section: "groundskeeping",
     progress: counter("allTime", "worktreesCreated", 50),
   },
   {
@@ -126,6 +183,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🍂",
     color: "180 148 96",
     tier: "silver",
+    section: "groundskeeping",
     progress: counter("allTime", "worktreesRemoved", 50),
   },
   {
@@ -135,6 +193,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🚀",
     color: "88 176 224",
     tier: "bronze",
+    section: "shipping",
     progress: (summary) => ({ current: shipped(summary), target: 10 }),
   },
   {
@@ -144,6 +203,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🏛️",
     color: "204 168 100",
     tier: "gold",
+    section: "voice",
     progress: counter("today", "prompts", 100),
   },
   {
@@ -153,6 +213,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🔥",
     color: "236 140 72",
     tier: "silver",
+    section: "devotion",
     progress: (summary) => ({ current: summary.streakWeeks, target: 4 }),
   },
   {
@@ -162,6 +223,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🌟",
     color: "160 132 236",
     tier: "gold",
+    section: "devotion",
     progress: (summary) => ({ current: summary.streakWeeks, target: 12 }),
   },
   {
@@ -171,6 +233,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🧊",
     color: "120 196 232",
     tier: "silver",
+    section: "carnage",
     progress: counter("allTime", "agentsKilledMidThought", 25),
   },
   {
@@ -180,6 +243,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "☄️",
     color: "214 72 72",
     tier: "gold",
+    section: "carnage",
     progress: counter("allTime", "agentsKilled", 500),
   },
   {
@@ -189,6 +253,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "💬",
     color: "150 180 210",
     tier: "bronze",
+    section: "voice",
     progress: counter("allTime", "prompts", 1000),
   },
   {
@@ -198,6 +263,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "📚",
     color: "184 132 92",
     tier: "gold",
+    section: "voice",
     progress: counter("allTime", "prompts", 10_000),
   },
   {
@@ -207,6 +273,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🏃",
     color: "232 120 96",
     tier: "gold",
+    section: "voice",
     progress: counter("today", "prompts", 250),
   },
   {
@@ -216,6 +283,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "☕",
     color: "168 120 88",
     tier: "silver",
+    section: "devotion",
     progress: (summary) => ({
       current: summary.dailyPrompts.length,
       target: 100,
@@ -228,6 +296,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🕯️",
     color: "236 196 120",
     tier: "gold",
+    section: "devotion",
     progress: (summary) => ({
       current: summary.dailyPrompts.length,
       target: 300,
@@ -240,6 +309,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🌗",
     color: "176 168 220",
     tier: "gold",
+    section: "devotion",
     progress: (summary) => ({ current: summary.streakWeeks, target: 26 }),
   },
   {
@@ -249,6 +319,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🌍",
     color: "88 168 200",
     tier: "gold",
+    section: "devotion",
     progress: (summary) => ({ current: summary.streakWeeks, target: 52 }),
   },
   {
@@ -258,6 +329,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🔧",
     color: "140 156 176",
     tier: "bronze",
+    section: "machinery",
     progress: counter("allTime", "toolCalls", 10_000),
   },
   {
@@ -267,6 +339,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🏭",
     color: "120 132 148",
     tier: "gold",
+    section: "machinery",
     progress: counter("allTime", "toolCalls", 100_000),
   },
   {
@@ -276,6 +349,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🌡️",
     color: "236 96 80",
     tier: "silver",
+    section: "machinery",
     progress: counter("today", "toolCalls", 1000),
   },
   {
@@ -285,6 +359,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🐜",
     color: "200 140 60",
     tier: "gold",
+    section: "command",
     progress: counter("allTime", "maxConcurrentAgents", 10),
   },
   {
@@ -294,6 +369,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🔮",
     color: "168 112 220",
     tier: "silver",
+    section: "command",
     progress: counter("allTime", "agentSessions", 500),
   },
   {
@@ -303,6 +379,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🪖",
     color: "132 156 100",
     tier: "silver",
+    section: "command",
     progress: counter("allTime", "subagents", 1000),
   },
   {
@@ -312,6 +389,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🛡️",
     color: "100 124 200",
     tier: "gold",
+    section: "command",
     progress: counter("today", "subagents", 100),
   },
   {
@@ -321,6 +399,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "👂",
     color: "212 168 140",
     tier: "bronze",
+    section: "command",
     progress: counter("allTime", "agentsResponded", 1000),
   },
   {
@@ -330,6 +409,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🚪",
     color: "176 140 100",
     tier: "silver",
+    section: "reflexes",
     progress: counter("allTime", "unblocks", 500),
   },
   {
@@ -339,6 +419,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🌩️",
     color: "252 220 96",
     tier: "gold",
+    section: "reflexes",
     progress: counter("allTime", "fastUnblocks", 250),
   },
   {
@@ -348,6 +429,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🌲",
     color: "64 160 96",
     tier: "gold",
+    section: "groundskeeping",
     progress: counter("allTime", "worktreesCreated", 250),
   },
   {
@@ -357,6 +439,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🔥",
     color: "220 100 48",
     tier: "gold",
+    section: "groundskeeping",
     progress: counter("allTime", "worktreesRemoved", 250),
   },
   {
@@ -366,6 +449,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "⛵",
     color: "96 160 220",
     tier: "silver",
+    section: "shipping",
     progress: (summary) => ({ current: shipped(summary), target: 50 }),
   },
   {
@@ -375,6 +459,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🚢",
     color: "64 128 200",
     tier: "gold",
+    section: "shipping",
     progress: (summary) => ({ current: shipped(summary), target: 200 }),
   },
   {
@@ -384,6 +469,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🎯",
     color: "236 84 96",
     tier: "silver",
+    section: "shipping",
     progress: counter("today", "prsMerged", 5),
   },
   {
@@ -393,6 +479,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "✅",
     color: "96 196 128",
     tier: "bronze",
+    section: "shipping",
     progress: counter("allTime", "prApproved", 10),
   },
   {
@@ -402,6 +489,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🖍️",
     color: "220 80 80",
     tier: "bronze",
+    section: "shipping",
     progress: counter("allTime", "prChangesRequested", 10),
   },
   {
@@ -411,6 +499,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     icon: "🤷",
     color: "180 180 120",
     tier: "bronze",
+    section: "shipping",
     progress: counter("allTime", "prChecksFailed", 25),
   },
 ];

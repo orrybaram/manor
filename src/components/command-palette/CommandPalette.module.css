@@ -1036,6 +1036,51 @@ button.processKill:hover:not(:disabled) {
   font-variant-numeric: tabular-nums;
 }
 
+/* One progression track: heading row, then its ladder of cards. */
+.achievementSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.achievementSectionHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-family: var(--font-mono, monospace);
+}
+
+.achievementSectionTitle {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-primary);
+}
+
+.achievementSectionBlurb {
+  font-size: 10px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.achievementSectionCount {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.achievementSectionComplete {
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 .achievementsGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));

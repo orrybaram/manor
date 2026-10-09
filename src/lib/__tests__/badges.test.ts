@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { BADGE_META, progressRatio, TIER_LABEL } from "../badges";
+import {
+  BADGE_META,
+  BADGE_SECTIONS,
+  progressRatio,
+  TIER_LABEL,
+} from "../badges";
 import type { StatsSummary } from "../../electron.d";
 
 /**
@@ -141,6 +146,16 @@ describe("BADGE_META", () => {
   it("gives every badge a known tier", () => {
     for (const badge of BADGE_META) {
       expect(TIER_LABEL[badge.tier]).toBeTruthy();
+    }
+  });
+
+  it("puts every badge in a known section, and leaves no section empty", () => {
+    const sections = new Set(BADGE_SECTIONS.map((s) => s.id));
+    for (const badge of BADGE_META) {
+      expect(sections.has(badge.section)).toBe(true);
+    }
+    for (const section of BADGE_SECTIONS) {
+      expect(BADGE_META.some((b) => b.section === section.id)).toBe(true);
     }
   });
 

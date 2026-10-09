@@ -15,9 +15,12 @@ import {
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import {
   BADGE_META,
+  BADGE_SECTIONS,
   TIER_LABEL,
+  TIER_ORDER,
   progressRatio,
   type BadgeMeta,
+  type BadgeSectionMeta,
 } from "../../lib/badges";
 import {
   buildContributionGrid,
@@ -326,6 +329,49 @@ function AchievementCard(props: AchievementCardProps) {
   );
 }
 
+interface AchievementSectionProps {
+  section: BadgeSectionMeta;
+  /** The whole rack; the section picks out its own badges. */
+  entries: AchievementEntry[];
+}
+
+/**
+ * One progression track. Its badges sit easiest first (tier, then threshold)
+ * so the row reads as a ladder whatever has been unlocked.
+ */
+function AchievementSection(props: AchievementSectionProps) {
+  const { section, entries } = props;
+  const ladder = entries
+    .filter((e) => e.badge.section === section.id)
+    .sort(
+      (a, b) =>
+        TIER_ORDER[a.badge.tier] - TIER_ORDER[b.badge.tier] ||
+        a.target - b.target,
+    );
+  if (ladder.length === 0) return null;
+  const earned = ladder.filter((e) => e.awardedAt !== null).length;
+  const complete = earned === ladder.length;
+
+  return (
+    <div className={styles.achievementSection}>
+      <div className={styles.achievementSectionHeader}>
+        <span className={styles.achievementSectionTitle}>{section.title}</span>
+        <span className={styles.achievementSectionBlurb}>{section.blurb}</span>
+        <span
+          className={`${styles.achievementSectionCount} ${complete ? styles.achievementSectionComplete : ""}`}
+        >
+          {complete ? "Complete" : `${earned} / ${ladder.length}`}
+        </span>
+      </div>
+      <div className={styles.achievementsGrid}>
+        {ladder.map((entry) => (
+          <AchievementCard key={entry.badge.id} entry={entry} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 interface AchievementsProps {
   summary: StatsSummary;
 }
@@ -373,11 +419,13 @@ function Achievements(props: AchievementsProps) {
         </div>
       )}
 
-      <div className={styles.achievementsGrid}>
-        {entries.map((entry) => (
-          <AchievementCard key={entry.badge.id} entry={entry} />
-        ))}
-      </div>
+      {BADGE_SECTIONS.map((section) => (
+        <AchievementSection
+          key={section.id}
+          section={section}
+          entries={entries}
+        />
+      ))}
     </section>
   );
 }

@@ -1,6 +1,6 @@
 ---
 title: Pill unlock toast
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [1, 2]

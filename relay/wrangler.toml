@@ -16,6 +16,11 @@ routes = [
 [vars]
 # Per-room byte budget per UTC day, both directions (2 GiB).
 RELAY_DAILY_BYTES = "2147483648"
+# Hosted Jev calls per UTC day, all users together (ADR-211 D3).
+JEV_DAILY_CALLS = "5000"
+
+# Manor's TypeSafe key is a secret, set once with
+# `wrangler secret put TYPESAFE_API_KEY`. It never goes in this file.
 
 [[durable_objects.bindings]]
 name = "ROOM"
@@ -25,6 +30,15 @@ class_name = "Room"
 tag = "v1"
 new_sqlite_classes = ["Room"]
 
+# The global daily Jev budget (ADR-211 D3), a singleton.
+[[durable_objects.bindings]]
+name = "JEV_BUDGET"
+class_name = "JevBudget"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["JevBudget"]
+
 # Socket dials per client IP, counted separately for /join and /host (keys
 # `join:<ip>`, `host:<ip>`). Not a security boundary; it bounds abuse of an
 # anonymous relay. namespace_id is an account-unique integer.
@@ -32,6 +46,18 @@ new_sqlite_classes = ["Room"]
 name = "JOIN_LIMITER"
 namespace_id = "2061"
 simple = { limit = 30, period = 60 }
+
+# /jev/folder per client IP (key `jevip:<ip>`) and per relay identity (key
+# `jevid:<roomId>`). One limit per binding, hence two (ADR-211 D3).
+[[ratelimits]]
+name = "JEV_LIMITER"
+namespace_id = "2062"
+simple = { limit = 60, period = 60 }
+
+[[ratelimits]]
+name = "JEV_ID_LIMITER"
+namespace_id = "2063"
+simple = { limit = 20, period = 60 }
 
 # Per-version web app builds (ADR-206 D4), uploaded by the release workflow.
 [[r2_buckets]]

@@ -8,6 +8,7 @@
  * Both socket routes are rate-limited per client IP before the upgrade (one
  * limiter, keyed `join:<ip>` / `host:<ip>` so they count separately).
  *   GET /app/<version>/*  the per-version web app, from R2 (ADR-206 D4)
+ *   POST /jev/folder      hosted Jev's folder pick (ADR-211), in `jev.ts`
  */
 import {
   WEB_CSP,
@@ -15,7 +16,9 @@ import {
   webContentType,
 } from "../../src/lib/web-headers";
 import type { Env } from "./env";
+import { handleJevFolder } from "./jev";
 
+export { JevBudget } from "./jev-budget";
 export { Room } from "./room";
 
 /** 22 base64url characters: `roomIdFor` in `src/lib/relay-crypto/keys.ts`. */
@@ -122,6 +125,8 @@ export default {
     if (url.pathname === "/app" || url.pathname.startsWith("/app/")) {
       return serveWebApp(request, env, url.pathname);
     }
+
+    if (url.pathname === "/jev/folder") return handleJevFolder(request, env);
 
     const route = ROUTE_PATTERN.exec(url.pathname);
     if (!route || request.method !== "GET") return plain(404, "Not found");

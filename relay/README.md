@@ -11,6 +11,7 @@ version. It cannot read what it forwards. For what it can and cannot see, see
 GET /host/<roomId>      desktop; challenge-response with its Ed25519 key
 GET /join/<roomId>      viewer; 4404 if no host is connected
 GET /app/<version>/*    the web app build for that Manor version, from R2
+POST /jev/folder        hosted Jev's sidebar-folder pick (ADR-211), signed
 ```
 
 `roomId` is `base64url(sha256(ed25519PublicKey))[0..22]`.
@@ -39,6 +40,25 @@ All enforced in the room (`src/room.ts`) except the rate limit:
   binding (30 per 60 s each, keyed `join:<ip>` / `host:<ip>`). Its
   `namespace_id` must be unique in the Cloudflare account.
 
+### Jev
+
+`POST /jev/folder` ([ADR-211](../docs/decisions/adr-211-hosted-jev-proxy/index.md),
+`src/jev.ts`) asks TypeSafe's Jev which sidebar folder a new workspace belongs
+in, with Manor's key. The worker fixes the model, question and instructions;
+the desktop sends only the data, at most 16 KiB, signed with its relay
+identity and within 5 minutes of the worker's clock. Three limits, cheapest
+first:
+
+- 60 per 60 s per client IP (`JEV_LIMITER`, keyed `jevip:<ip>`), 429.
+- 20 per 60 s per relay identity (`JEV_ID_LIMITER`, keyed `jevid:<roomId>`),
+  checked after the signature, 429.
+- A global cap per UTC day, all users together: `JEV_DAILY_CALLS` in
+  `wrangler.toml`, default 5000, counted by the singleton `JevBudget` Durable
+  Object. When spent, 503 until the day rolls.
+
+It never logs bodies, but unlike the rooms it is not blind: it sees folder and
+workspace names and agent prompts in cleartext, and passes them to TypeSafe.
+
 ## Close codes
 
 Relay codes: 4401 host auth failed, 4404 viewer with no host, 4408 host auth
@@ -65,8 +85,11 @@ Once, by hand, in the Cloudflare account:
 
 - Create the R2 buckets `manor-relay-web` (production) and
   `manor-relay-web-dev` (what `wrangler dev` binds locally).
-- Make sure the rate limiter `namespace_id` in `wrangler.toml` is unused in the
-  account.
+- Make sure the rate limiter `namespace_id`s in `wrangler.toml` are unused in
+  the account.
+- Set Manor's TypeSafe key: `cd relay && npx wrangler secret put
+  TYPESAFE_API_KEY`. It never goes in `wrangler.toml`; until it is set,
+  `/jev/folder` answers 503.
 - Have the `manor.sh` zone in the same Cloudflare account. The Worker is
   served at `relay.manor.sh` as a custom domain (`routes` in `wrangler.toml`),
   so `wrangler deploy` creates the DNS record and certificate; there is no

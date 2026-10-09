@@ -1,6 +1,6 @@
 ---
 title: Jev client, folder-suggestion logic and typesafe bridge namespace
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

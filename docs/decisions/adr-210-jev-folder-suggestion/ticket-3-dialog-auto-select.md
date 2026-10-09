@@ -1,6 +1,6 @@
 ---
 title: New Workspace dialog auto-selects a suggested folder
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

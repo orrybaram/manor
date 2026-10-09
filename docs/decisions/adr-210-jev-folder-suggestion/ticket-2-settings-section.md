@@ -1,6 +1,6 @@
 ---
 title: TypeSafe (Jev) key section in Integrations settings
-status: todo
+status: done
 priority: medium
 assignee: haiku
 blocked_by: [1]

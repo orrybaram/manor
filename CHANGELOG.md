@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.19.5] - 2026-10-09
+
+### Features
+- The New Workspace dialog now suggests a folder and selects it for you
+- Folder suggestions run as a hosted service, so you no longer need your own API key
+- Added a setting to turn folder suggestions on or off
+
+### Fixes
+- Clicking the title bar now closes open popovers and menus
+- Fixed Git authentication prompts failing on macOS
+- Fixed folder suggestions failing on large requests
+
+### Improvements
+- When cloning a repository fails, Manor now explains what went wrong and how to fix it
+
 ## [0.19.4] - 2026-10-07
 
 ### Features

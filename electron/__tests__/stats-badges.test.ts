@@ -17,6 +17,14 @@ function summary(overrides: Partial<StatsSummary> = {}): StatsSummary {
   };
 }
 
+/** `count` distinct days with one prompt each, for the active-days badges. */
+function days(count: number): StatsSummary["dailyPrompts"] {
+  return Array.from({ length: count }, (_, i) => ({
+    day: `day-${i}`,
+    count: 1,
+  }));
+}
+
 /** Table of `[badgeId, thresholdSummary]` — the smallest summary that flips it on. */
 const THRESHOLDS: Record<string, StatsSummary> = {
   "first-blood": summary({ allTime: { agentsKilled: 1 } }),
@@ -31,6 +39,33 @@ const THRESHOLDS: Record<string, StatsSummary> = {
   centurion: summary({ today: { prompts: 100 } }),
   "week-streak": summary({ streakWeeks: 4 }),
   "month-streak": summary({ streakWeeks: 12 }),
+  "cold-blooded": summary({ allTime: { agentsKilledMidThought: 25 } }),
+  extinction: summary({ allTime: { agentsKilled: 500 } }),
+  chatterbox: summary({ allTime: { prompts: 1000 } }),
+  novelist: summary({ allTime: { prompts: 10_000 } }),
+  marathon: summary({ today: { prompts: 250 } }),
+  regular: summary({ dailyPrompts: days(100) }),
+  devoted: summary({ dailyPrompts: days(300) }),
+  "half-year": summary({ streakWeeks: 26 }),
+  "year-round": summary({ streakWeeks: 52 }),
+  "busy-hands": summary({ allTime: { toolCalls: 10_000 } }),
+  industrious: summary({ allTime: { toolCalls: 100_000 } }),
+  overclocked: summary({ today: { toolCalls: 1000 } }),
+  "hive-mind": summary({ allTime: { maxConcurrentAgents: 10 } }),
+  summoner: summary({ allTime: { agentSessions: 500 } }),
+  recruiter: summary({ allTime: { subagents: 1000 } }),
+  legion: summary({ today: { subagents: 100 } }),
+  "good-listener": summary({ allTime: { agentsResponded: 1000 } }),
+  gatekeeper: summary({ allTime: { unblocks: 500 } }),
+  lightning: summary({ allTime: { fastUnblocks: 250 } }),
+  forester: summary({ allTime: { worktreesCreated: 250 } }),
+  "scorched-earth": summary({ allTime: { worktreesRemoved: 250 } }),
+  fleet: summary({ allTime: { worktreesMerged: 50 } }),
+  armada: summary({ allTime: { worktreesMerged: 200 } }),
+  "hot-streak": summary({ today: { prsMerged: 5 } }),
+  "seal-of-approval": summary({ allTime: { prApproved: 10 } }),
+  "red-ink": summary({ allTime: { prChangesRequested: 10 } }),
+  "works-on-my-machine": summary({ allTime: { prChecksFailed: 25 } }),
 };
 
 /** One below each badge's threshold — the predicate must still read false. */
@@ -47,10 +82,37 @@ const BELOW_THRESHOLDS: Record<string, StatsSummary> = {
   centurion: summary({ today: { prompts: 99 } }),
   "week-streak": summary({ streakWeeks: 3 }),
   "month-streak": summary({ streakWeeks: 11 }),
+  "cold-blooded": summary({ allTime: { agentsKilledMidThought: 24 } }),
+  extinction: summary({ allTime: { agentsKilled: 499 } }),
+  chatterbox: summary({ allTime: { prompts: 999 } }),
+  novelist: summary({ allTime: { prompts: 9999 } }),
+  marathon: summary({ today: { prompts: 249 } }),
+  regular: summary({ dailyPrompts: days(99) }),
+  devoted: summary({ dailyPrompts: days(299) }),
+  "half-year": summary({ streakWeeks: 25 }),
+  "year-round": summary({ streakWeeks: 51 }),
+  "busy-hands": summary({ allTime: { toolCalls: 9999 } }),
+  industrious: summary({ allTime: { toolCalls: 99_999 } }),
+  overclocked: summary({ today: { toolCalls: 999 } }),
+  "hive-mind": summary({ allTime: { maxConcurrentAgents: 9 } }),
+  summoner: summary({ allTime: { agentSessions: 499 } }),
+  recruiter: summary({ allTime: { subagents: 999 } }),
+  legion: summary({ today: { subagents: 99 } }),
+  "good-listener": summary({ allTime: { agentsResponded: 999 } }),
+  gatekeeper: summary({ allTime: { unblocks: 499 } }),
+  lightning: summary({ allTime: { fastUnblocks: 249 } }),
+  forester: summary({ allTime: { worktreesCreated: 249 } }),
+  "scorched-earth": summary({ allTime: { worktreesRemoved: 249 } }),
+  fleet: summary({ allTime: { worktreesMerged: 49 } }),
+  armada: summary({ allTime: { worktreesMerged: 199 } }),
+  "hot-streak": summary({ today: { prsMerged: 4 } }),
+  "seal-of-approval": summary({ allTime: { prApproved: 9 } }),
+  "red-ink": summary({ allTime: { prChangesRequested: 9 } }),
+  "works-on-my-machine": summary({ allTime: { prChecksFailed: 24 } }),
 };
 
 describe("BADGES", () => {
-  it("has exactly the twelve v1 badges in ADR order", () => {
+  it("has every badge in catalogue order", () => {
     expect(BADGES.map((b) => b.id)).toEqual([
       "first-blood",
       "executioner",
@@ -64,6 +126,33 @@ describe("BADGES", () => {
       "centurion",
       "week-streak",
       "month-streak",
+      "cold-blooded",
+      "extinction",
+      "chatterbox",
+      "novelist",
+      "marathon",
+      "regular",
+      "devoted",
+      "half-year",
+      "year-round",
+      "busy-hands",
+      "industrious",
+      "overclocked",
+      "hive-mind",
+      "summoner",
+      "recruiter",
+      "legion",
+      "good-listener",
+      "gatekeeper",
+      "lightning",
+      "forester",
+      "scorched-earth",
+      "fleet",
+      "armada",
+      "hot-streak",
+      "seal-of-approval",
+      "red-ink",
+      "works-on-my-machine",
     ]);
   });
 
@@ -105,37 +194,38 @@ describe("BADGES", () => {
   });
 });
 
+/** Clears every badge's threshold at once. */
+const allEarned = summary({
+  today: { subagents: 100, prompts: 250, toolCalls: 1_000, prsMerged: 5 },
+  allTime: {
+    agentsKilled: 500,
+    agentsKilledMidThought: 25,
+    prompts: 10_000,
+    toolCalls: 100_000,
+    agentSessions: 500,
+    subagents: 1_000,
+    agentsResponded: 1_000,
+    maxConcurrentAgents: 10,
+    unblocks: 500,
+    fastUnblocks: 250,
+    worktreesCreated: 250,
+    worktreesRemoved: 250,
+    worktreesMerged: 200,
+    prApproved: 10,
+    prChangesRequested: 10,
+    prChecksFailed: 25,
+  },
+  dailyPrompts: days(300),
+  streakWeeks: 52,
+});
+
 describe("evaluateBadges", () => {
   it("returns every earned badge when none are awarded yet", () => {
-    const allEarned = summary({
-      today: { subagents: 10, prompts: 100 },
-      allTime: {
-        agentsKilled: 100,
-        maxConcurrentAgents: 5,
-        fastUnblocks: 25,
-        worktreesCreated: 50,
-        worktreesRemoved: 50,
-        worktreesMerged: 10,
-      },
-      streakWeeks: 12,
-    });
     const result = evaluateBadges(allEarned, {});
     expect(result.map((b) => b.id)).toEqual(BADGES.map((b) => b.id));
   });
 
   it("skips already-awarded ids and preserves BADGES order", () => {
-    const allEarned = summary({
-      today: { subagents: 10, prompts: 100 },
-      allTime: {
-        agentsKilled: 100,
-        maxConcurrentAgents: 5,
-        fastUnblocks: 25,
-        worktreesCreated: 50,
-        worktreesRemoved: 50,
-        worktreesMerged: 10,
-      },
-      streakWeeks: 12,
-    });
     const awarded = { massacre: "2026-01-01T00:00:00.000Z", shipper: "2026-01-01T00:00:00.000Z" };
     const result = evaluateBadges(allEarned, awarded);
     expect(result.map((b) => b.id)).toEqual(

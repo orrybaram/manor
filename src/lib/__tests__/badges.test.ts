@@ -20,6 +20,33 @@ const ELECTRON_BADGE_IDS = [
   "centurion",
   "week-streak",
   "month-streak",
+  "cold-blooded",
+  "extinction",
+  "chatterbox",
+  "novelist",
+  "marathon",
+  "regular",
+  "devoted",
+  "half-year",
+  "year-round",
+  "busy-hands",
+  "industrious",
+  "overclocked",
+  "hive-mind",
+  "summoner",
+  "recruiter",
+  "legion",
+  "good-listener",
+  "gatekeeper",
+  "lightning",
+  "forester",
+  "scorched-earth",
+  "fleet",
+  "armada",
+  "hot-streak",
+  "seal-of-approval",
+  "red-ink",
+  "works-on-my-machine",
 ];
 
 /**
@@ -40,6 +67,33 @@ const ELECTRON_BADGE_TARGETS: Record<string, number> = {
   centurion: 100,
   "week-streak": 4,
   "month-streak": 12,
+  "cold-blooded": 25,
+  extinction: 500,
+  chatterbox: 1000,
+  novelist: 10_000,
+  marathon: 250,
+  regular: 100,
+  devoted: 300,
+  "half-year": 26,
+  "year-round": 52,
+  "busy-hands": 10_000,
+  industrious: 100_000,
+  overclocked: 1000,
+  "hive-mind": 10,
+  summoner: 500,
+  recruiter: 1000,
+  legion: 100,
+  "good-listener": 1000,
+  gatekeeper: 500,
+  lightning: 250,
+  forester: 250,
+  "scorched-earth": 250,
+  fleet: 50,
+  armada: 200,
+  "hot-streak": 5,
+  "seal-of-approval": 10,
+  "red-ink": 10,
+  "works-on-my-machine": 25,
 };
 
 function summary(overrides: Partial<StatsSummary> = {}): StatsSummary {
@@ -57,8 +111,8 @@ function summary(overrides: Partial<StatsSummary> = {}): StatsSummary {
 }
 
 describe("BADGE_META", () => {
-  it("has twelve badges", () => {
-    expect(BADGE_META).toHaveLength(12);
+  it("has thirty-nine badges", () => {
+    expect(BADGE_META).toHaveLength(39);
   });
 
   it("has unique ids", () => {

@@ -161,6 +161,46 @@ export interface LinkSuggestion {
   hostLabel: string;
 }
 
+/** Whether a transfer clones a new linked project or re-points this one (ADR-213). */
+export type TransferMode = "copy" | "move";
+
+/**
+ * Why a transfer can't go ahead without the user (ADR-213): the project
+ * has no usable `origin`, the target directory holds something else or
+ * belongs to another project, or the group already has a member there.
+ */
+export type TransferInputReason = "no-origin" | "dir-taken" | "host-taken";
+
+/**
+ * Where a transfer onto a host would go, worked out without changing
+ * anything (ADR-213). `targetDir` is either absolute or `~/…`, expanded
+ * against the target host's home when the transfer runs.
+ */
+export type TransferPlan =
+  | {
+      kind: "ready";
+      repoUrl: string;
+      targetDir: string;
+      via: "remembered" | "adopt" | "mirror" | "default";
+    }
+  | {
+      kind: "needsInput";
+      reason: TransferInputReason;
+      repoUrl: string | null;
+      targetDir: string;
+    };
+
+/** What `transferProject` hands back: the project on the target, or what to ask. */
+export type TransferResult =
+  | { ok: true; project: ProjectInfo }
+  | {
+      ok: false;
+      needsInput: Extract<TransferPlan, { kind: "needsInput" }> & {
+        mode: TransferMode;
+        hostId: string;
+      };
+    };
+
 export type ProjectUpdatableFields = Partial<
   Pick<
     ProjectInfo,

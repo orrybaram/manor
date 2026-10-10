@@ -240,8 +240,11 @@ export class OriginLinks {
     return null;
   }
 
-  /** `project`'s `origin` key, from its host's git; null when that fails. */
-  private async keyOf(project: PersistedProject): Promise<string | null> {
+  /**
+   * `project`'s `origin` key, from its host's git; null when that fails.
+   * Also how a transfer finds a checkout to adopt (ADR-213).
+   */
+  async keyOf(project: PersistedProject): Promise<string | null> {
     // By checkout rather than project id: a project moved to another host
     // is a different clone, which is asked afresh.
     const checkout = `${project.hostId}\0${project.path}`;

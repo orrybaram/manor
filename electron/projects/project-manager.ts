@@ -17,6 +17,7 @@ import type { ProjectContext, WorkspaceLayoutOwner } from "./context";
 import { HostRecords } from "./host-records";
 import { OriginLinks, forgetLinkDismissals } from "./origin-links";
 import { moveProjectToHost, planClone, runClone, switchProjectHost } from "./host-move";
+import { planTransfer, transferProject, type TransferDeps } from "./host-transfer";
 import { PathRouter } from "./path-router";
 import { workspaceKey, type WorkspaceKeyOwner } from "../../src/lib/workspace-key";
 import * as groups from "./project-groups";
@@ -40,6 +41,9 @@ import type {
   ProjectHostResolver,
   ProjectInfo,
   ProjectUpdatableFields,
+  TransferMode,
+  TransferPlan,
+  TransferResult,
   WorkspaceFolder,
   WorkspaceFromIssue,
 } from "./types";
@@ -354,6 +358,40 @@ export class ProjectManager {
   ): Promise<ProjectInfo> {
     this.lastKnownWorkspaces.forget(projectId);
     return switchProjectHost(this.ctx, projectId, hostId, explicitPath);
+  }
+
+  /** What `host-transfer.ts` composes: this manager's own operations. */
+  private transferDeps(): TransferDeps {
+    return {
+      originKeyOf: (project) => this.origins.keyOf(project),
+      originUrl: (projectId) => this.getOriginUrl(projectId),
+      cloneProject: (opts) => this.cloneProject(opts),
+      linkProjects: (projectId, otherId) => this.linkProjects(projectId, otherId),
+      removeProject: (projectId) => this.removeProject(projectId),
+      moveProjectToHost: (projectId, opts) => this.moveProjectToHost(projectId, opts),
+      switchProjectHost: (projectId, hostId, path) =>
+        this.switchProjectHost(projectId, hostId, path),
+    };
+  }
+
+  /** See `host-transfer.ts` (ADR-213). Changes nothing. */
+  planTransfer(projectId: string, hostId: string): Promise<TransferPlan> {
+    return planTransfer(this.ctx, this.transferDeps(), projectId, hostId);
+  }
+
+  /**
+   * Copy or move a project onto a host in one call (ADR-213); see
+   * `host-transfer.ts`. A move forgets the project's last workspace
+   * listing through `moveProjectToHost`/`switchProjectHost`. The caller
+   * connects a remote host first.
+   */
+  transferProject(
+    projectId: string,
+    hostId: string,
+    mode: TransferMode,
+    overrides?: { repoUrl: string; targetDir: string },
+  ): Promise<TransferResult> {
+    return transferProject(this.ctx, this.transferDeps(), projectId, hostId, mode, overrides);
   }
 
   /**

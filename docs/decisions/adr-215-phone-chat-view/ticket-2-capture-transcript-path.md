@@ -1,6 +1,6 @@
 ---
 title: Capture transcript_path from hooks onto AgentInfo
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

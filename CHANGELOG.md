@@ -3,9 +3,8 @@
 ## [0.19.7] - 2026-10-09
 
 ### Features
-- Added 27 new achievements built on your existing activity, grouped into progression sections
 - Redesigned the Trophy Room, with badge tracks, titles, secret badges and track completion
-- Added four Manor tracks, plus a hidden "Lord of the Manor" achievement
+- Achievements are regrouped into four Manor tracks (Staff, Orders, Grounds, Tenure), plus a new hidden "Lord of the Manor" achievement
 - Added a title picker so you can choose the title shown next to your GitHub name
 - New unlock toast: it appears as a medal, pulses, then expands with a "View details" button
 - Clicking a badge notification opens the Badges tab on that badge's track

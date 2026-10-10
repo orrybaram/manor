@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.20.0] - 2026-10-10
+
+### Features
+- Phone chat view for Claude Code agents: read the conversation and answer pickers with tappable option cards from your phone
+- Send multi-line chat messages from the phone as a single prompt
+- Phone chat now works for agents running on remote hosts
+- Phone sidebar adds an overflow menu, search, and notifications
+
+### Fixes
+- Option cards are easier to see, and the Chat/Terminal toggle shows clearly which one is selected
+- Answered questions in the phone chat show only the answers you picked
+- Search in the phone drawer and in the menu now open the same scoped palette
+- Task bodies render as markdown, and images from private GitHub repos now load
+
 ## [0.19.8] - 2026-10-09
 
 ### Fixes

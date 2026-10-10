@@ -1,6 +1,6 @@
 ---
 title: Transcript mirror service and chat bridge namespace
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [1, 2, 3]

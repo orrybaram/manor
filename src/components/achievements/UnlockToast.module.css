@@ -1,7 +1,8 @@
 /*
- * Unlock toast (ADR-212). Centred in the window. Timeline: the medal pops in
- * alone (0–450ms) and pulses twice (450–1650ms); the card then expands out
- * of it (1500–2000ms) and the text and CTA fade in; it holds to 7s, then
+ * Unlock toast (ADR-212). Centred horizontally, anchored near the bottom of
+ * the window. Timeline: the medal pops in alone (0–450ms) and pulses twice
+ * (450–2250ms); the card then expands out of it (1700–2200ms) and the
+ * text and CTA fade in; it holds to 7s, then
  * folds back into the medal and fades. Hover pauses every animation, which
  * pauses the hold with them.
  */
@@ -17,8 +18,8 @@
 
   position: fixed;
   left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  bottom: 56px;
+  transform: translateX(-50%);
   z-index: 10000;
   width: 600px;
   max-width: calc(100vw - 32px);
@@ -65,7 +66,7 @@
   font-family: var(--font-mono);
   pointer-events: auto;
   animation:
-    expand 500ms cubic-bezier(0.2, 0.8, 0.2, 1) 1500ms both,
+    expand 500ms cubic-bezier(0.2, 0.8, 0.2, 1) 1700ms both,
     leave 450ms ease-in 7000ms forwards;
 }
 
@@ -96,7 +97,7 @@
   border-radius: 50%;
   border: 3px solid rgb(var(--tier));
   opacity: 0;
-  animation: pulse 600ms ease-out 450ms 2 both;
+  animation: pulse 900ms cubic-bezier(0.16, 1, 0.3, 1) 450ms 2 both;
 }
 
 .emoji {
@@ -111,7 +112,7 @@
   flex-direction: column;
   gap: 2px;
   white-space: nowrap;
-  animation: textIn 260ms ease-out 1850ms both;
+  animation: textIn 260ms ease-out 2050ms both;
 }
 
 .eyebrow {
@@ -143,7 +144,7 @@
 .toast .cta {
   flex: none;
   margin-right: 10px;
-  animation: textIn 260ms ease-out 1950ms both;
+  animation: textIn 260ms ease-out 2150ms both;
 }
 
 /* Before it expands the card is only a ring of chrome around the medal. */
@@ -174,13 +175,17 @@
   }
 }
 
+/* Expands fast and fades slowly, so the ring lingers as it dies away. */
 @keyframes pulse {
   0% {
     transform: scale(1);
     opacity: 0.8;
   }
+  40% {
+    opacity: 0.45;
+  }
   100% {
-    transform: scale(1.9);
+    transform: scale(2);
     opacity: 0;
   }
 }

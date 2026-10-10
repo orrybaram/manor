@@ -26,11 +26,12 @@ export class ExecShellBackend implements ShellBackend {
   async exec(
     cmd: string,
     args: string[],
-    opts?: { cwd?: string; timeout?: number },
+    opts?: { cwd?: string; timeout?: number; maxBuffer?: number },
   ): Promise<string> {
     const { stdout } = await this.execImpl.file(cmd, args, {
       cwd: opts?.cwd,
       timeout: opts?.timeout,
+      maxBuffer: opts?.maxBuffer,
     });
     return stdout;
   }

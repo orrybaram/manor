@@ -2,7 +2,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LocalTranscriptSource } from "../transcript-source";
+import {
+  LocalTranscriptSource,
+  type TranscriptRead,
+  type TranscriptSource,
+} from "../transcript-source";
 import { ChatMirror, pickPaneAgent, type PaneAgent } from "../mirror";
 import type { ChatEntry } from "../transcript";
 
@@ -74,6 +78,7 @@ describe("ChatMirror", () => {
   let published: { paneId: string; entry: ChatEntry }[];
   let writes: { paneId: string; data: string }[];
   let mirror: ChatMirror;
+  let source: TranscriptSource;
 
   function file(name: string, content = ""): string {
     const p = path.join(dir, name);
@@ -86,7 +91,7 @@ describe("ChatMirror", () => {
       agentForPane: (paneId) => (paneId === PANE ? agent : null),
       write: (paneId, data) => writes.push({ paneId, data }),
       publish: (paneId, entry) => published.push({ paneId, entry }),
-      sourceFor: () => new LocalTranscriptSource(),
+      sourceFor: () => source,
       pollIntervalMs: 10,
     });
   }
@@ -96,6 +101,7 @@ describe("ChatMirror", () => {
     agent = null;
     published = [];
     writes = [];
+    source = new LocalTranscriptSource();
     mirror = makeMirror();
   });
 
@@ -207,6 +213,66 @@ describe("ChatMirror", () => {
       fs.appendFileSync(b, user("u10", "fresh"));
       await vi.waitFor(() => expect(published.map((x) => x.entry.id)).toContain("u10"));
       expect(published.map((x) => x.entry.id)).not.toContain("u2");
+    });
+  });
+
+  describe("unreadable transcript", () => {
+    /** The local file, until `offline` is set. */
+    let offline: boolean;
+    beforeEach(() => {
+      offline = false;
+      const local = new LocalTranscriptSource();
+      source = {
+        read: (p, offset): Promise<TranscriptRead> =>
+          offline
+            ? Promise.resolve({ ok: false, error: "host offline" })
+            : local.read(p, offset),
+      };
+    });
+
+    it("answers host-offline for history, then recovers on the next read", async () => {
+      const p = file("t.jsonl", user("u1", "hi"));
+      agent = { hostId: "local", transcriptPath: p };
+      offline = true;
+      expect(await mirror.getHistory(PANE)).toEqual({ ok: false, reason: "host-offline" });
+
+      offline = false;
+      expect(await mirror.getHistory(PANE)).toEqual({
+        ok: true,
+        entries: [{ kind: "user", id: "u1", ts: T, text: "hi" }],
+      });
+    });
+
+    it("keeps a subscriber's entries while offline and publishes what follows once back", async () => {
+      const p = file("t.jsonl", user("u1", "hi"));
+      agent = { hostId: "local", transcriptPath: p };
+      mirror.setWatched(PANE, true);
+      await mirror.getHistory(PANE);
+
+      offline = true;
+      fs.appendFileSync(p, user("u2", "while offline"));
+      await new Promise((r) => setTimeout(r, 50));
+      expect(published).toEqual([]);
+      expect(await mirror.getHistory(PANE)).toEqual({ ok: false, reason: "host-offline" });
+
+      offline = false;
+      await vi.waitFor(() => expect(published).toHaveLength(1));
+      expect(published[0].entry).toMatchObject({ id: "u2", text: "while offline" });
+      expect(await mirror.getHistory(PANE)).toMatchObject({
+        ok: true,
+        entries: [{ id: "u1" }, { id: "u2" }],
+      });
+    });
+
+    it("refuses an answer it cannot check, and types nothing", async () => {
+      agent = { hostId: "local", transcriptPath: file("t.jsonl", plan("a1", "p1")) };
+      await mirror.getHistory(PANE);
+      offline = true;
+      expect(await mirror.answer(PANE, "p1", { kind: "plan-approve" })).toEqual({
+        ok: false,
+        reason: "host-offline",
+      });
+      expect(writes).toEqual([]);
     });
   });
 

@@ -14,6 +14,7 @@ const UNAVAILABLE_NOTE: Record<Unavailable, string> = {
   "no-agent": "This pane has no Claude session to show as a chat.",
   "no-transcript": "Claude hasn't written a transcript for this session yet.",
   remote: "Chat isn't available for agents on a remote host yet.",
+  "host-offline": "This host is offline. The chat will catch up when it reconnects.",
   error: "Couldn't load this chat.",
 };
 

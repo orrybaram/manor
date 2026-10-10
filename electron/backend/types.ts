@@ -166,7 +166,11 @@ export interface ShellBackend {
   which(bin: string): Promise<string | null>;
 
   /** Execute a command and return stdout. */
-  exec(cmd: string, args: string[], opts?: { cwd?: string; timeout?: number }): Promise<string>;
+  exec(
+    cmd: string,
+    args: string[],
+    opts?: { cwd?: string; timeout?: number; maxBuffer?: number },
+  ): Promise<string>;
 
   /**
    * The home directory on the machine this backend runs commands on (ADR-178

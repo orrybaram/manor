@@ -21,7 +21,14 @@
  * the renderer re-fetches `getHistory` when the agent's `transcriptPath`
  * changes rather than being sent the whole new transcript as events.
  *
- * **v1 is local only.** An agent on a remote host is `unavailable: "remote"`.
+ * The transcript is read through a `TranscriptSource` chosen per agent
+ * (ADR-216 D1): the local filesystem, or a remote host's `Exec`. A read that
+ * fails (the host is offline, the exec failed) changes nothing: the next
+ * trigger tries again, and `getHistory` answers `unavailable: "host-offline"`
+ * meanwhile. Subscribers keep the entries they already have.
+ *
+ * **Still local only.** An agent on a remote host is `unavailable: "remote"`
+ * until ADR-216 ticket 3 lifts that gate.
  */
 
 import { LOCAL_HOST_ID } from "../backend/types";
@@ -30,11 +37,22 @@ import {
   encodePlanApproval,
   type PickerAnswer,
 } from "./picker-keys";
+import {
+  RemoteTranscriptSource,
+  type TranscriptExec,
+} from "./remote-transcript-source";
 import { TranscriptParser, type ChatEntry } from "./transcript";
 import type { TranscriptSource } from "./transcript-source";
 
-/** Why a pane has no chat. */
-export type ChatUnavailableReason = "no-agent" | "no-transcript" | "remote";
+/**
+ * Why a pane has no chat. `host-offline`: the transcript could not be read
+ * just now, most likely because the agent's host is unreachable.
+ */
+export type ChatUnavailableReason =
+  | "no-agent"
+  | "no-transcript"
+  | "remote"
+  | "host-offline";
 
 /** What `chat.getHistory` answers. */
 export type ChatHistory =
@@ -100,6 +118,29 @@ export function pickPaneAgent<
   return newest;
 }
 
+/**
+ * `ChatMirrorDeps.sourceFor` over every host: `local` for this machine, and
+ * for a remote host one `RemoteTranscriptSource` (kept per host) reading
+ * through whatever `execFor(hostId)` answers at the time of each read, so a
+ * host that reconnects with a new backend is picked up.
+ */
+export function transcriptSources(
+  local: TranscriptSource,
+  execFor: (hostId: string) => TranscriptExec | null,
+): (agent: PaneAgent) => TranscriptSource {
+  const remote = new Map<string, RemoteTranscriptSource>();
+  return (agent) => {
+    if (agent.hostId === LOCAL_HOST_ID) return local;
+    let source = remote.get(agent.hostId);
+    if (!source) {
+      const { hostId } = agent;
+      source = new RemoteTranscriptSource(() => execFor(hostId));
+      remote.set(hostId, source);
+    }
+    return source;
+  };
+}
+
 class PaneMirror {
   path: string | null = null;
   parser = new TranscriptParser();
@@ -119,6 +160,8 @@ class PaneMirror {
   needsTerminal = new Set<string>();
   /** Reads run one at a time, in order. */
   queue: Promise<void> = Promise.resolve();
+  /** Why the last read failed; null once one succeeds. */
+  readError: string | null = null;
 }
 
 function isOpenPicker(entry: ChatEntry): boolean {
@@ -145,6 +188,7 @@ export class ChatMirror {
     m.source = resolved.source;
     this.usePath(paneId, m, resolved.path);
     await this.read(paneId, m);
+    if (m.readError !== null) return { ok: false, reason: "host-offline" };
     return { ok: true, entries: this.entries(m) };
   }
 
@@ -208,6 +252,8 @@ export class ChatMirror {
     m.source = resolved.source;
     this.usePath(paneId, m, resolved.path);
     await this.read(paneId, m);
+    // The picker cannot be checked against a transcript that cannot be read.
+    if (m.readError !== null) return { ok: false, reason: "host-offline" };
 
     // Synchronous from here to the write: a second call waiting on the same
     // read sees this one's `awaiting` entry.
@@ -303,6 +349,7 @@ export class ChatMirror {
     m.parser = new TranscriptParser();
     m.offset = 0;
     m.primed = false;
+    m.readError = null;
   }
 
   private startWatching(paneId: string, m: PaneMirror): void {
@@ -340,17 +387,26 @@ export class ChatMirror {
     const generation = m.generation;
     const result = await source.read(path, m.offset);
     if (generation !== m.generation) return;
-    if (!result.ok) return; // The next read will try again.
+    // Keep what was read so far; the next trigger tries again.
+    if (!result.ok) {
+      m.readError = result.error;
+      return;
+    }
     // Rewritten from scratch: start over, quietly. The data read was from
     // the wrong offset, so read again from the start.
     if (result.size < m.offset) {
       this.reset(m, path);
       const again = await source.read(path, 0);
-      if (m.generation !== generation + 1 || !again.ok) return;
+      if (m.generation !== generation + 1) return;
+      if (!again.ok) {
+        m.readError = again.error;
+        return;
+      }
       this.consume(paneId, m, again.data, false);
       m.primed = true;
       return;
     }
+    m.readError = null;
     this.consume(paneId, m, result.data, m.primed);
     m.primed = true;
   }

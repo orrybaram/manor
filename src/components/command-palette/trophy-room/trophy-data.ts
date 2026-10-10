@@ -76,6 +76,20 @@ export function isHiddenSecret(
 }
 
 /**
+ * A track whose every badge is a secret you have neither earned nor revealed
+ * (Lord of the Manor) hides its name and title too.
+ */
+export function isHiddenTrack(
+  section: BadgeSectionMeta,
+  summary: StatsSummary,
+  revealed: ReadonlySet<string>,
+): boolean {
+  return trackEntries(section, summary).every((e) =>
+    isHiddenSecret(e, revealed),
+  );
+}
+
+/**
  * The title the header shows: the chosen one while it is still earned or is
  * a starter title, otherwise the most recently completed track's, otherwise
  * the first starter title.

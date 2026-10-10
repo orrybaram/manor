@@ -5,7 +5,7 @@ import {
   type BadgeSectionMeta,
 } from "../../../lib/badges";
 import { BadgeRow, ProgressBar } from "./BadgeRow";
-import { isHiddenSecret, trackEntries } from "./trophy-data";
+import { isHiddenSecret, isHiddenTrack, trackEntries } from "./trophy-data";
 import styles from "./TrophyRoom.module.css";
 
 type TrackPaneProps = {
@@ -24,14 +24,18 @@ export function TrackPane(props: TrackPaneProps) {
 
   const state = trackState(section, summary);
   const entries = trackEntries(section, summary);
+  const hidden = isHiddenTrack(section, summary, revealed);
+  const name = hidden ? "???" : section.name;
 
   return (
-    <section className={styles.pane} aria-label={section.name}>
+    <section className={styles.pane} aria-label={name}>
       <div className={styles.trackCard}>
         <div className={styles.trackTop}>
           <div className={styles.trackCopy}>
-            <span className={styles.trackName}>{section.name}</span>
-            <span className={styles.trackBlurb}>{section.blurb}</span>
+            <span className={styles.trackName}>{name}</span>
+            <span className={styles.trackBlurb}>
+              {hidden ? "A hidden track." : section.blurb}
+            </span>
           </div>
           <span className={styles.trackCount}>
             {state.earned}
@@ -45,14 +49,16 @@ export function TrackPane(props: TrackPaneProps) {
             current: state.earned,
             target: state.total,
           })}
-          label={`${section.name} progress`}
+          label={`${name} progress`}
           tone="track"
         />
         <span className={styles.trackReward}>
           {state.complete
             ? "Earned the title "
             : "Complete it to earn the title "}
-          <span className={styles.trackTitle}>{section.title}</span>
+          <span className={styles.trackTitle}>
+            {hidden ? "???" : section.title}
+          </span>
         </span>
       </div>
 

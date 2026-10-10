@@ -6,7 +6,7 @@ import { Button } from "../../ui/Button/Button";
 import { onMenuListKeyDown } from "../../tasks/task-menus";
 import { SummaryPane } from "./SummaryPane";
 import { TrackPane } from "./TrackPane";
-import type { TrackSelection } from "./trophy-data";
+import { isHiddenTrack, type TrackSelection } from "./trophy-data";
 import styles from "./TrophyRoom.module.css";
 
 type SidebarItem = {
@@ -22,6 +22,7 @@ type TrackSidebarProps = {
   summary: StatsSummary;
   selected: TrackSelection;
   onSelect: (track: TrackSelection) => void;
+  revealed: ReadonlySet<string>;
 };
 
 /**
@@ -29,7 +30,7 @@ type TrackSidebarProps = {
  * Lord of the Manor below a divider. Up / Down move between items.
  */
 function TrackSidebar(props: TrackSidebarProps) {
-  const { summary, selected, onSelect } = props;
+  const { summary, selected, onSelect, revealed } = props;
 
   const earned = BADGE_META.filter((b) => summary.badges[b.id]).length;
   const items: SidebarItem[] = [
@@ -41,7 +42,7 @@ function TrackSidebar(props: TrackSidebarProps) {
         : undefined;
       return {
         id: section.id,
-        name: section.name,
+        name: isHiddenTrack(section, summary, revealed) ? "???" : section.name,
         count: status ?? `${state.earned}/${state.total}`,
         status,
         apart: section.id === "manor",
@@ -104,7 +105,12 @@ export function BadgesTab(props: BadgesTabProps) {
 
   return (
     <div className={styles.badgesTab}>
-      <TrackSidebar summary={summary} selected={selected} onSelect={onSelect} />
+      <TrackSidebar
+        summary={summary}
+        selected={selected}
+        onSelect={onSelect}
+        revealed={revealed}
+      />
       {section ? (
         // Keyed so a new track opens scrolled to its top.
         <TrackPane

@@ -522,6 +522,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     color: "190 214 232",
     tier: "platinum",
     section: "manor",
+    secret: true,
     progress: (summary) => ({
       current: BADGE_META_BASE_IDS.filter(
         (id) => summary.badges[id] !== undefined,

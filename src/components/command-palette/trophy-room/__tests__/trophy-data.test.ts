@@ -8,6 +8,7 @@ import {
 import {
   displayedTitle,
   isHiddenSecret,
+  isHiddenTrack,
   nextUp,
   recentUnlocks,
   trackEntries,
@@ -32,6 +33,7 @@ const AT = (day: number) =>
 
 const staff = BADGE_SECTIONS.find((s) => s.id === "staff")!;
 const tenure = BADGE_SECTIONS.find((s) => s.id === "tenure")!;
+const manor = BADGE_SECTIONS.find((s) => s.id === "manor")!;
 
 /** Completes tenure: every badge in the track earned. */
 const TENURE_COMPLETE = {
@@ -74,6 +76,17 @@ describe("isHiddenSecret", () => {
       summary({ badges: { "cold-blooded": AT(1) } }),
     ).find((e) => e.badge.id === "cold-blooded")!;
     expect(isHiddenSecret(earned, new Set())).toBe(false);
+  });
+});
+
+describe("isHiddenTrack", () => {
+  it("hides Lord of the Manor until it is revealed or earned", () => {
+    expect(isHiddenTrack(manor, summary(), new Set())).toBe(true);
+    expect(isHiddenTrack(manor, summary(), new Set(["platinum"]))).toBe(false);
+    expect(
+      isHiddenTrack(manor, summary({ badges: { platinum: AT(1) } }), new Set()),
+    ).toBe(false);
+    expect(isHiddenTrack(staff, summary(), new Set())).toBe(false);
   });
 });
 

@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.19.7] - 2026-10-09
+
+### Features
+- Added 27 new achievements built on your existing activity, grouped into progression sections
+- Redesigned the Trophy Room, with badge tracks, titles, secret badges and track completion
+- Added four Manor tracks, plus a hidden "Lord of the Manor" achievement
+- Added a title picker so you can choose the title shown next to your GitHub name
+- New unlock toast: it appears as a medal, pulses, then expands with a "View details" button
+- Clicking a badge notification opens the Badges tab on that badge's track
+- Copy or move a project to another host in one click, using the new "Copy to" / "Move to" sidebar menus
+- A fallback dialog for project transfers, with local targets, prefilled fields and a copy mode
+- Set up a project on another host, or remove it from one, from the sidebar
+- Projects from the same origin are joined automatically, with a toast to tell you
+- New Set-up dialog, a host picker in New Workspace, and host options in Project Settings
+
+### Fixes
+- New workspaces now go into their folder when they're created
+- Health check shows a single Agent CLI check, which passes with any known agent
+- Failed host checks now say which check failed, and `gh` and `codex` are run from their resolved paths
+- Moving a project onto its own host now re-clones it
+- Badges in a track are sorted by tier, then by target
+- Fixed several problems in the project set-up flows
+
+### Improvements
+- The Trophy Room opens on Stats and keeps the same height when you switch tabs
+- Tidier track cards and a smoother fade at the scroll edge
+- A tooltip no longer appears after you pick a menu item
+- The edit-title pencil only shows on hover
+- The unlock toast is now anchored to the bottom, with thinner overlapping pulse rings, and stays up for 8 seconds
+
 ## [0.19.6] - 2026-10-09
 
 ### Features

@@ -93,6 +93,7 @@ describe("ChatMirror", () => {
       publish: (paneId, entry) => published.push({ paneId, entry }),
       sourceFor: () => source,
       pollIntervalMs: 10,
+      unwatchedPollIntervalMs: 10,
     });
   }
 
@@ -116,8 +117,14 @@ describe("ChatMirror", () => {
       expect(await mirror.getHistory("other")).toEqual({ ok: false, reason: "no-agent" });
       agent = { hostId: "local", transcriptPath: null };
       expect(await mirror.getHistory(PANE)).toEqual({ ok: false, reason: "no-transcript" });
-      agent = { hostId: "devbox", transcriptPath: file("t.jsonl") };
-      expect(await mirror.getHistory(PANE)).toEqual({ ok: false, reason: "remote" });
+    });
+
+    it("reads an agent on a remote host through its source (ADR-216 D4)", async () => {
+      agent = { hostId: "devbox", transcriptPath: file("t.jsonl", user("u1", "hi")) };
+      expect(await mirror.getHistory(PANE)).toEqual({
+        ok: true,
+        entries: [{ kind: "user", id: "u1", ts: T, text: "hi" }],
+      });
     });
 
     it("treats a transcript that is not written yet as empty", async () => {
@@ -328,10 +335,10 @@ describe("ChatMirror", () => {
       expect(writes).toEqual([]);
     });
 
-    it("refuses a remote pane", async () => {
+    it("answers a pane on a remote host", async () => {
       agent = { hostId: "devbox", transcriptPath: file("t.jsonl", plan("a1", "p1")) };
-      expect(await mirror.answer(PANE, "p1", { kind: "plan-approve" })).toEqual({ ok: false, reason: "remote" });
-      expect(writes).toEqual([]);
+      expect(await mirror.answer(PANE, "p1", { kind: "plan-approve" })).toEqual({ ok: true });
+      expect(writes).toEqual([{ paneId: PANE, data: "\r" }]);
     });
   });
 
@@ -376,6 +383,174 @@ describe("ChatMirror", () => {
         { kind: "plan", id: "p1", ts: T, plan: "Do it", outcome: "approved" },
       ]);
     });
+  });
+});
+
+describe("ChatMirror — poke and poll (ADR-216 D3)", () => {
+  /** A source with no `watch`, whose reads finish when the test says. */
+  let reads: { offset: number; finish: (r: TranscriptRead) => void }[];
+  let agent: PaneAgent | null;
+  let published: ChatEntry[];
+  let mirror: ChatMirror;
+  let content: string;
+
+  const source: TranscriptSource = {
+    read: (_path, offset) =>
+      new Promise<TranscriptRead>((resolve) => {
+        reads.push({ offset, finish: resolve });
+      }),
+  };
+
+  /** Finish the oldest unfinished read with the file as it is now. */
+  function finishRead(): void {
+    const read = reads.find((r) => r.finish !== noop);
+    if (!read) throw new Error("no read in flight");
+    const bytes = Buffer.from(content);
+    read.finish({
+      ok: true,
+      size: bytes.length,
+      data: bytes.subarray(read.offset).toString("utf8"),
+    });
+    read.finish = noop;
+  }
+  const noop = () => {};
+  const flush = () => new Promise((r) => setImmediate(r));
+
+  function make(pollMs: number): ChatMirror {
+    return new ChatMirror({
+      agentForPane: (paneId) => (paneId === PANE ? agent : null),
+      write: () => {},
+      publish: (_paneId, entry) => published.push(entry),
+      sourceFor: () => source,
+      unwatchedPollIntervalMs: pollMs,
+    });
+  }
+
+  beforeEach(() => {
+    reads = [];
+    published = [];
+    content = user("u1", "hi");
+    agent = { hostId: "devbox", transcriptPath: "/remote/t.jsonl" };
+    mirror = make(60_000);
+  });
+
+  afterEach(() => {
+    mirror.dispose();
+    vi.useRealTimers();
+  });
+
+  /** Subscribe, and let the first read finish. */
+  async function watch(): Promise<void> {
+    mirror.setWatched(PANE, true);
+    await until(() => reads.length === 1);
+    finishRead();
+    await flush();
+  }
+
+  it("does nothing for a pane nobody is subscribed to", async () => {
+    mirror.poke(PANE);
+    mirror.poke("other");
+    await flush();
+    expect(reads).toEqual([]);
+  });
+
+  it("reads on a poke and publishes what is new", async () => {
+    await watch();
+    content += user("u2", "more");
+    mirror.poke(PANE);
+    await until(() => reads.length === 2);
+    expect(reads[1].offset).toBe(Buffer.byteLength(user("u1", "hi")));
+    finishRead();
+    await until(() => published.length === 1);
+    expect(published[0]).toMatchObject({ id: "u2", text: "more" });
+  });
+
+  it("never overlaps reads: pokes during one coalesce into a single read again", async () => {
+    await watch();
+    mirror.poke(PANE);
+    await until(() => reads.length === 2);
+    // Read 2 is in flight; these all join one more.
+    mirror.poke(PANE);
+    mirror.poke(PANE);
+    mirror.poke(PANE);
+    await flush();
+    expect(reads).toHaveLength(2);
+    finishRead();
+    await until(() => reads.length === 3);
+    finishRead();
+    await flush();
+    expect(reads).toHaveLength(3);
+  });
+
+  it("polls a source without watch only from the first subscriber to the last", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    mirror.dispose();
+    mirror = make(2_000);
+
+    vi.advanceTimersByTime(10_000);
+    expect(reads).toHaveLength(0);
+
+    await watch();
+    vi.advanceTimersByTime(2_000);
+    await until(() => reads.length === 2);
+    finishRead();
+    await flush();
+    vi.advanceTimersByTime(2_000);
+    await until(() => reads.length === 3);
+    finishRead();
+    await flush();
+
+    mirror.setWatched(PANE, false);
+    vi.advanceTimersByTime(10_000);
+    mirror.poke(PANE);
+    await flush();
+    expect(reads).toHaveLength(3);
+  });
+
+  it("is host-offline while reads fail, and catches up on the next poke", async () => {
+    await watch();
+    content += user("u2", "while away");
+    mirror.poke(PANE);
+    await until(() => reads.length === 2);
+    reads[1].finish({ ok: false, error: "host offline" });
+    reads[1].finish = noop;
+    await flush();
+
+    const history = mirror.getHistory(PANE);
+    await until(() => reads.length === 3);
+    reads[2].finish({ ok: false, error: "host offline" });
+    reads[2].finish = noop;
+    expect(await history).toEqual({ ok: false, reason: "host-offline" });
+    expect(published).toEqual([]);
+
+    mirror.poke(PANE);
+    await until(() => reads.length === 4);
+    finishRead();
+    await until(() => published.length === 1);
+    expect(published[0]).toMatchObject({ id: "u2" });
+  });
+
+  it("steps over a line the source says to skip, and reads on after it", async () => {
+    const big = user("big", "x".repeat(100));
+    content = user("u1", "hi") + big + user("u2", "after");
+    mirror.setWatched(PANE, true);
+    await until(() => reads.length === 1);
+    // The first read stops before the long line, as a capped read would.
+    reads[0].finish({ ok: true, size: Buffer.byteLength(content), data: user("u1", "hi") + "{" });
+    reads[0].finish = noop;
+    await flush();
+
+    mirror.poke(PANE);
+    await until(() => reads.length === 2);
+    const at = Buffer.byteLength(user("u1", "hi"));
+    expect(reads[1].offset).toBe(at);
+    reads[1].finish({ ok: true, size: Buffer.byteLength(content), data: "", skip: Buffer.byteLength(big) });
+    reads[1].finish = noop;
+    await until(() => reads.length === 3);
+    expect(reads[2].offset).toBe(at + Buffer.byteLength(big));
+    finishRead();
+    await until(() => published.length === 1);
+    expect(published.map((e) => e.id)).toEqual(["u2"]);
   });
 });
 

@@ -19,6 +19,7 @@ import { ChatPane } from "../ChatPane";
 import { setPaneChatView, usePaneChatView, usePaneChatViewStore } from "../usePaneChatView";
 import { readChatView } from "../chat-view";
 import { useAppStore } from "../../../../store/app-store";
+import { useHostStore, type HostStatusInfo } from "../../../../store/host-store";
 
 const PANE = "pane-1";
 
@@ -356,5 +357,70 @@ describe("pane view store", () => {
     });
     expect(readChatView(PANE)).toBe("chat");
     spy.mockRestore();
+  });
+});
+
+describe("ChatPane — host offline (ADR-216 D4)", () => {
+  const OFFLINE: ChatHistory = { ok: false, reason: "host-offline" };
+  const BACK: ChatHistory = {
+    ok: true,
+    entries: [{ kind: "user", id: "u1", ts: "", text: "from before" }],
+  };
+
+  afterEach(() => {
+    vi.useRealTimers();
+    useHostStore.setState({ hosts: [] });
+  });
+
+  it("says the host is offline, with a way to the terminal", async () => {
+    installChat(OFFLINE);
+    await renderChat();
+    expect(all("chat-unavailable")[0].textContent).toContain(
+      "This host is offline. The chat will catch up when it reconnects.",
+    );
+    expect(all("chat-unavailable")[0].querySelector("button")?.textContent).toBe("Show terminal");
+  });
+
+  it("refetches and shows the chat again when the next entry arrives", async () => {
+    installChat(OFFLINE);
+    await renderChat();
+    chat.getHistory.mockImplementation(() => Promise.resolve(BACK));
+    await act(async () => listener?.(PANE, { kind: "user", id: "u2", ts: "", text: "new" }));
+    expect(chat.getHistory).toHaveBeenCalledTimes(2);
+    expect(all("chat-unavailable")).toHaveLength(0);
+    expect(all("chat-user").map((e) => e.textContent)).toEqual(["from before", "new"]);
+  });
+
+  it("refetches when a host's status changes, and stays put while still offline", async () => {
+    installChat(OFFLINE);
+    await renderChat();
+    const host = { hostId: "devbox", status: "reconnecting" } as HostStatusInfo;
+    await act(async () => useHostStore.setState({ hosts: [host] }));
+    expect(chat.getHistory).toHaveBeenCalledTimes(2);
+    expect(all("chat-unavailable")).toHaveLength(1);
+
+    chat.getHistory.mockImplementation(() => Promise.resolve(BACK));
+    await act(async () => useHostStore.setState({ hosts: [{ ...host, status: "connected" }] }));
+    expect(chat.getHistory).toHaveBeenCalledTimes(3);
+    expect(all("chat-unavailable")).toHaveLength(0);
+    expect(all("chat-user")[0].textContent).toBe("from before");
+
+    // Back: host changes no longer refetch.
+    await act(async () => useHostStore.setState({ hosts: [] }));
+    expect(chat.getHistory).toHaveBeenCalledTimes(3);
+  });
+
+  it("retries on its own while offline, and stops once back", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    installChat(OFFLINE);
+    await renderChat();
+    await act(async () => vi.advanceTimersByTime(5_000));
+    expect(chat.getHistory).toHaveBeenCalledTimes(2);
+
+    chat.getHistory.mockImplementation(() => Promise.resolve(BACK));
+    await act(async () => vi.advanceTimersByTime(5_000));
+    expect(all("chat-unavailable")).toHaveLength(0);
+    await act(async () => vi.advanceTimersByTime(20_000));
+    expect(chat.getHistory).toHaveBeenCalledTimes(3);
   });
 });

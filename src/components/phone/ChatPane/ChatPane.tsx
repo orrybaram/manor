@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import type { ChatEntry, ChatHistory } from "../../../electron.d";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { useAppStore } from "../../../store/app-store";
+import { useHostStore } from "../../../store/host-store";
 import { Button } from "../../ui/Button/Button";
 import { answerablePickerId, mergeHistory, upsertEntry } from "./chat-entries";
 import { ChatComposer } from "./ChatComposer";
@@ -17,6 +18,13 @@ const UNAVAILABLE_NOTE: Record<Unavailable, string> = {
   "host-offline": "This host is offline. The chat will catch up when it reconnects.",
   error: "Couldn't load this chat.",
 };
+
+/**
+ * While the host is offline, history is fetched again this often, besides
+ * on a host status change and on the next entry: the host can come back a
+ * moment before its transcript can be read.
+ */
+const OFFLINE_RETRY_MS = 5_000;
 
 /** Within this many px of the bottom counts as "at the bottom". */
 const STICK_SLOP_PX = 48;
@@ -37,6 +45,11 @@ type ChatPaneProps = {
  * Mounted once per transcript: `LeafPane` keys it by the agent's
  * `transcriptPath`, so `/clear` or a resume starts a fresh list rather than
  * merging two sessions.
+ *
+ * A remote agent's transcript can't be read while its host is away
+ * (`host-offline`, ADR-216 D4). The note shows until history can be fetched
+ * again: on any host status change, on the next live entry, or on a slow
+ * retry, whichever comes first.
  */
 export function ChatPane(props: ChatPaneProps) {
   const { paneId, hidden, onShowTerminal } = props;
@@ -49,27 +62,62 @@ export function ChatPane(props: ChatPaneProps) {
   useMountEffect(() => {
     const chat = window.electronAPI.chat;
     let alive = true;
+    /** The last fetch answered `host-offline`: fetch again on a sign of life. */
+    let offline = false;
+    let fetching = false;
+    let retry: ReturnType<typeof setInterval> | null = null;
+
+    const setOffline = (next: boolean) => {
+      offline = next;
+      if (next && retry === null) retry = setInterval(fetchHistory, OFFLINE_RETRY_MS);
+      if (!next && retry !== null) {
+        clearInterval(retry);
+        retry = null;
+      }
+    };
+
+    function fetchHistory(): void {
+      if (fetching) return;
+      fetching = true;
+      chat.getHistory(paneId).then(
+        (history) => {
+          fetching = false;
+          if (!alive) return;
+          if (history.ok) {
+            setEntries((prev) => mergeHistory(history.entries, prev));
+            setUnavailable(null);
+          } else {
+            setUnavailable(history.reason);
+          }
+          setOffline(!history.ok && history.reason === "host-offline");
+          setLoaded(true);
+        },
+        () => {
+          fetching = false;
+          if (!alive) return;
+          setUnavailable("error");
+          setOffline(false);
+          setLoaded(true);
+        },
+      );
+    }
+
     // Subscribe first: the mirror only watches the transcript while someone
     // is subscribed, and nothing published during the fetch is lost.
     const unsubscribe = chat.onEntry(paneId, (_paneId, entry) => {
       setEntries((prev) => upsertEntry(prev, entry));
+      // The transcript is readable again: catch up on what was missed.
+      if (offline) fetchHistory();
     });
-    chat.getHistory(paneId).then(
-      (history) => {
-        if (!alive) return;
-        if (history.ok) setEntries((prev) => mergeHistory(history.entries, prev));
-        else setUnavailable(history.reason);
-        setLoaded(true);
-      },
-      () => {
-        if (!alive) return;
-        setUnavailable("error");
-        setLoaded(true);
-      },
-    );
+    const unsubscribeHosts = useHostStore.subscribe((state, prev) => {
+      if (offline && state.hosts !== prev.hosts) fetchHistory();
+    });
+    fetchHistory();
     return () => {
       alive = false;
+      setOffline(false);
       unsubscribe();
+      unsubscribeHosts();
     };
   });
 

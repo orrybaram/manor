@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { localExec } from "../../backend/exec";
 import { ChatMirror, transcriptSources, type PaneAgent } from "../mirror";
 import {
+  LINE_LENGTH_SCRIPT,
   MAX_READ_BYTES,
   READ_SCRIPT,
   RemoteTranscriptSource,
@@ -105,6 +106,69 @@ describe.each(shells())("READ_SCRIPT under $name", ({ cmd, flags }) => {
     const p = file(`it's "a" $(echo x) file.jsonl`, LINE1);
     expect(await source.read(p, 0)).toEqual({ ok: true, size: bytes(LINE1), data: LINE1 });
   });
+
+  describe("a line longer than the cap", () => {
+    const CAP = 64;
+    const capped = new RemoteTranscriptSource(() => exec, { maxReadBytes: CAP });
+    const LONG = "日本".repeat(40) + "\n";
+
+    it("is measured on the remote and skipped once complete", async () => {
+      expect(bytes(LONG)).toBeGreaterThan(CAP);
+      const p = file("t.jsonl", LINE1 + LONG + LINE3);
+      expect(await capped.read(p, bytes(LINE1))).toEqual({
+        ok: true,
+        size: bytes(LINE1 + LONG + LINE3),
+        data: "",
+        skip: bytes(LONG),
+      });
+    });
+
+    it("is left alone while it is still being written", async () => {
+      const p = file("t.jsonl", LINE1 + LONG.slice(0, -1));
+      const result = await capped.read(p, bytes(LINE1));
+      expect(result).toMatchObject({ ok: true, size: bytes(LINE1 + LONG) - 1 });
+      expect(result).not.toHaveProperty("skip");
+    });
+
+    it("is not skipped when the capped read holds a newline", async () => {
+      const p = file("t.jsonl", LINE1 + LONG);
+      const result = await capped.read(p, 0);
+      expect(result).toMatchObject({ ok: true });
+      expect(result.ok && result.data.startsWith(LINE1)).toBe(true);
+      expect(result).not.toHaveProperty("skip");
+    });
+  });
+});
+
+describe("LINE_LENGTH_SCRIPT", () => {
+  it("is passed the path and offset as arguments, after a capped read with no newline", async () => {
+    const calls: string[][] = [];
+    const exec: TranscriptExec = {
+      file: async (cmd, args) => {
+        calls.push([cmd, ...args]);
+        return calls.length === 1
+          ? { stdout: "1000\nxxxxxxxxxx", stderr: "" }
+          : { stdout: "       1     900\n", stderr: "" };
+      },
+    };
+    const source = new RemoteTranscriptSource(() => exec, { maxReadBytes: 10 });
+    expect(await source.read("/x/$HOME/t.jsonl", 42)).toEqual({
+      ok: true,
+      size: 1000,
+      data: "",
+      skip: 900,
+    });
+    expect(calls[1]).toEqual(["sh", "-c", LINE_LENGTH_SCRIPT, "sh", "/x/$HOME/t.jsonl", "42"]);
+  });
+
+  it("is an error when the counts can't be read", async () => {
+    let n = 0;
+    const exec: TranscriptExec = {
+      file: async () => ({ stdout: n++ === 0 ? "1000\nxxxxxxxxxx" : "nope", stderr: "" }),
+    };
+    const source = new RemoteTranscriptSource(() => exec, { maxReadBytes: 10 });
+    expect(await source.read("/t", 0)).toMatchObject({ ok: false });
+  });
 });
 
 describe("READ_SCRIPT", () => {
@@ -192,8 +256,7 @@ describe("ChatMirror over RemoteTranscriptSource", () => {
     };
     const remote = new RemoteTranscriptSource(() => exec);
     mirror = new ChatMirror({
-      // `resolve()` still refuses remote agents (ticket 3), so the agent is
-      // "local" and the source is forced remote.
+      // The source is forced remote whatever the agent's host says.
       agentForPane: (paneId) => (paneId === PANE ? agent : null),
       write: () => {},
       publish: () => {},
@@ -244,5 +307,36 @@ describe("ChatMirror over RemoteTranscriptSource", () => {
       entries: [{ id: "u1" }, { id: "u2", text: "😀 after the cap" }],
     });
     expect(offsets).toEqual([0, bytes(first)]);
+  });
+
+  it("steps over a line longer than the cap, with no entry, and reads on", async () => {
+    const CAP = 256;
+    const exec: TranscriptExec = { file: (cmd, args, opts) => localExec.file(cmd, args, opts) };
+    const capped = new RemoteTranscriptSource(() => exec, { maxReadBytes: CAP });
+    const m = new ChatMirror({
+      agentForPane: () => agent,
+      write: () => {},
+      publish: () => {},
+      sourceFor: () => capped,
+    });
+    try {
+      const huge = user("big", "😀".repeat(CAP));
+      expect(bytes(huge)).toBeGreaterThan(CAP);
+      const p = file("t.jsonl", user("u1", "hi") + huge + user("u2", "after"));
+      agent = { hostId: "devbox", transcriptPath: p };
+
+      expect(await m.getHistory(PANE)).toMatchObject({ ok: true, entries: [{ id: "u1" }] });
+      expect(await m.getHistory(PANE)).toMatchObject({
+        ok: true,
+        entries: [{ id: "u1" }, { id: "u2", text: "after" }],
+      });
+      fs.appendFileSync(p, user("u3", "later"));
+      expect(await m.getHistory(PANE)).toMatchObject({
+        ok: true,
+        entries: [{ id: "u1" }, { id: "u2" }, { id: "u3" }],
+      });
+    } finally {
+      m.dispose();
+    }
   });
 });

@@ -1018,8 +1018,12 @@ export function initApp(devTitle: string | null): void {
     // Every hook — local HTTP and remote hook-feed replay alike, through
     // `ingestHookPayload` — is a Status signal for the reconciler (ADR-184).
     // The daemon's AgentDetector no longer hears about hooks.
+    // Each hook also pokes the pane's chat mirror, after the driver has
+    // captured any new transcript path: the hooks are when a transcript
+    // grows, and a remote one has no file watch (ADR-216 D3).
     agentHookServer.setRelay((event) => {
       agentStatusDriver.hook(event);
+      chatMirror.poke(event.paneId);
     });
 
     // One tick, on the old sweep cadence, carries every time-based rule.

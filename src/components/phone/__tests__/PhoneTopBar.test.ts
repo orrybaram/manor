@@ -243,6 +243,12 @@ describe("PhoneTopBar — overflow menu's view item", () => {
     seedAgent({});
     openMenu();
     expect(byTestId("phone-overflow-view")?.textContent).toBe("Show terminal");
+    click("phone-overflow-button");
+
+    // On a remote host: the chat too (ADR-216 D4).
+    seedAgent({ hostId: "devbox" } as Partial<AgentInfo>);
+    openMenu();
+    expect(byTestId("phone-overflow-view")?.textContent).toBe("Show terminal");
   });
 
   it("is not offered for a diff or browser pane", () => {

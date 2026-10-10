@@ -9,7 +9,6 @@
  */
 
 import type { AgentInfo } from "../../../electron.d";
-import { isRemoteHost } from "../../../lib/hosts";
 
 export type ChatView = "chat" | "terminal";
 
@@ -52,11 +51,10 @@ export function pickPaneAgent(
 
 /**
  * The transcript a pane's chat would show, or null when the pane gets no
- * chat: no agent, not Claude, no transcript yet, or on a remote host (v1
- * reads local transcripts only, D4).
+ * chat: no agent, not Claude, or no transcript yet. An agent on a remote host
+ * gets the chat too; its transcript is read on that host (ADR-216 D4).
  */
 export function chatTranscriptPath(agent: AgentInfo | null): string | null {
   if (!agent || agent.agentKind !== "claude") return null;
-  if (isRemoteHost(agent.hostId)) return null;
   return agent.transcriptPath || null;
 }

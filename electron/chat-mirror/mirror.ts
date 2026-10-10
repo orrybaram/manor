@@ -9,11 +9,13 @@
  * follows it, once its newline arrives — Claude appends a line in more than
  * one write, and a UTF-8 character can straddle two reads.
  *
- * It watches (the source's change signal plus a poll, because a watch on a file misses
- * renames and is unreliable on some filesystems) only while the bridge says
- * somebody is subscribed to the pane's `chat.entry`. Parsed state outlives the
- * watch, so the next subscriber catches up from the offset rather than from
- * the start.
+ * It watches only while the bridge says somebody is subscribed to the pane's
+ * `chat.entry`: the source's change signal plus a 1s poll (a watch on a file
+ * misses renames and is unreliable on some filesystems), or, for a source
+ * with no change signal (a remote host, ADR-216 D3), a 2s poll and a `poke`
+ * on each of the agent's hooks. Parsed state outlives the watch, so the next
+ * subscriber catches up from the offset rather than from the start. Reads
+ * never overlap, and triggers that land while one is waiting coalesce into it.
  *
  * The path is re-checked on every agent update, every history read and every
  * answer: `/clear` and resume move a pane to a new transcript, and the latest
@@ -25,10 +27,8 @@
  * (ADR-216 D1): the local filesystem, or a remote host's `Exec`. A read that
  * fails (the host is offline, the exec failed) changes nothing: the next
  * trigger tries again, and `getHistory` answers `unavailable: "host-offline"`
- * meanwhile. Subscribers keep the entries they already have.
- *
- * **Still local only.** An agent on a remote host is `unavailable: "remote"`
- * until ADR-216 ticket 3 lifts that gate.
+ * meanwhile. Subscribers keep the entries they already have. A line too long
+ * for one read is stepped over without an entry (`TranscriptRead.skip`).
  */
 
 import { LOCAL_HOST_ID } from "../backend/types";
@@ -46,7 +46,8 @@ import type { TranscriptSource } from "./transcript-source";
 
 /**
  * Why a pane has no chat. `host-offline`: the transcript could not be read
- * just now, most likely because the agent's host is unreachable.
+ * just now, most likely because the agent's host is unreachable. `remote` is
+ * no longer produced (ADR-216 D4) but stays for renderers that know it.
  */
 export type ChatUnavailableReason =
   | "no-agent"
@@ -94,12 +95,15 @@ export interface ChatMirrorDeps {
   sourceFor(agent: PaneAgent): TranscriptSource;
   /** How long an answer waits for its `tool_result`. Default 8s. */
   answerTimeoutMs?: number;
-  /** The poll fallback's interval. Default 1s. */
+  /** The poll fallback's interval for a source with `watch`. Default 1s. */
   pollIntervalMs?: number;
+  /** The poll's interval for a source without `watch` (a remote host). Default 2s. */
+  unwatchedPollIntervalMs?: number;
 }
 
 const DEFAULT_ANSWER_TIMEOUT_MS = 8_000;
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
+const DEFAULT_UNWATCHED_POLL_INTERVAL_MS = 2_000;
 
 /**
  * The agent a pane's chat is about: its active agent, or failing that the
@@ -160,6 +164,12 @@ class PaneMirror {
   needsTerminal = new Set<string>();
   /** Reads run one at a time, in order. */
   queue: Promise<void> = Promise.resolve();
+  /**
+   * A read queued behind the running one and not started yet. Every trigger
+   * until it starts joins it — the "read again" flag — so a burst of hooks
+   * during a slow remote read costs one more read, not one each.
+   */
+  pending: Promise<void> | null = null;
   /** Why the last read failed; null once one succeeds. */
   readError: string | null = null;
 }
@@ -174,10 +184,13 @@ export class ChatMirror {
   private readonly mirrors = new Map<string, PaneMirror>();
   private readonly answerTimeoutMs: number;
   private readonly pollIntervalMs: number;
+  private readonly unwatchedPollIntervalMs: number;
 
   constructor(private readonly deps: ChatMirrorDeps) {
     this.answerTimeoutMs = deps.answerTimeoutMs ?? DEFAULT_ANSWER_TIMEOUT_MS;
     this.pollIntervalMs = deps.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+    this.unwatchedPollIntervalMs =
+      deps.unwatchedPollIntervalMs ?? DEFAULT_UNWATCHED_POLL_INTERVAL_MS;
   }
 
   /** The pane's entries so far, after catching up with the file. */
@@ -208,6 +221,16 @@ export class ChatMirror {
     m.watched = true;
     this.sync(paneId, m);
     this.startWatching(paneId, m);
+  }
+
+  /**
+   * A hook arrived for the pane's agent: its transcript has likely grown
+   * (ADR-216 D3). Reads now if somebody is subscribed, else does nothing.
+   */
+  poke(paneId: string): void {
+    const m = this.mirrors.get(paneId);
+    if (!m?.watched || !m.path) return;
+    void this.read(paneId, m);
   }
 
   /** The pane's agent changed: re-check its transcript path. */
@@ -306,7 +329,6 @@ export class ChatMirror {
   ): { ok: true; path: string; source: TranscriptSource } | { ok: false; reason: ChatUnavailableReason } {
     const agent = this.deps.agentForPane(paneId);
     if (!agent) return { ok: false, reason: "no-agent" };
-    if (agent.hostId !== LOCAL_HOST_ID) return { ok: false, reason: "remote" };
     if (!agent.transcriptPath) return { ok: false, reason: "no-transcript" };
     return {
       ok: true,
@@ -357,8 +379,12 @@ export class ChatMirror {
     const onChange = () => {
       void this.read(paneId, m);
     };
+    const watchable = typeof m.source?.watch === "function";
     m.unwatch = m.source?.watch?.(m.path, onChange) ?? null;
-    m.poll = setInterval(onChange, this.pollIntervalMs);
+    m.poll = setInterval(
+      onChange,
+      watchable ? this.pollIntervalMs : this.unwatchedPollIntervalMs,
+    );
     m.poll.unref?.();
     onChange();
   }
@@ -370,45 +396,56 @@ export class ChatMirror {
     m.poll = null;
   }
 
-  /** Read whatever was appended since the last read, in turn. */
+  /**
+   * Read whatever was appended since the last read, in turn. The promise
+   * settles after a read that started after this call. A call while a read
+   * is already waiting to start joins that one instead of queueing another.
+   */
   private read(paneId: string, m: PaneMirror): Promise<void> {
-    const run = () =>
-      this.readNow(paneId, m).catch((err: unknown) => {
+    if (m.pending) return m.pending;
+    const run = () => {
+      m.pending = null;
+      return this.readNow(paneId, m).catch((err: unknown) => {
         console.error(`[chat-mirror] read failed for ${paneId}:`, err);
       });
-    m.queue = m.queue.then(run, run);
-    return m.queue;
+    };
+    const next = m.queue.then(run, run);
+    m.pending = next;
+    m.queue = next;
+    return next;
   }
 
   private async readNow(paneId: string, m: PaneMirror): Promise<void> {
     const path = m.path;
     const source = m.source;
     if (!path || !source) return;
-    const generation = m.generation;
-    const result = await source.read(path, m.offset);
-    if (generation !== m.generation) return;
-    // Keep what was read so far; the next trigger tries again.
-    if (!result.ok) {
-      m.readError = result.error;
-      return;
-    }
-    // Rewritten from scratch: start over, quietly. The data read was from
-    // the wrong offset, so read again from the start.
-    if (result.size < m.offset) {
-      this.reset(m, path);
-      const again = await source.read(path, 0);
-      if (m.generation !== generation + 1) return;
-      if (!again.ok) {
-        m.readError = again.error;
+    let generation = m.generation;
+    for (;;) {
+      const result = await source.read(path, m.offset);
+      if (generation !== m.generation) return;
+      // Keep what was read so far; the next trigger tries again.
+      if (!result.ok) {
+        m.readError = result.error;
         return;
       }
-      this.consume(paneId, m, again.data, false);
+      // Rewritten from scratch: start over, quietly (`reset` unprimes, so
+      // the re-read publishes nothing). The data read was from the wrong
+      // offset, so read again from the start.
+      if (result.size < m.offset) {
+        this.reset(m, path);
+        generation = m.generation;
+        continue;
+      }
+      m.readError = null;
+      // A line too long to read: step over it, and read on from after it.
+      if (result.skip !== undefined && result.skip > 0) {
+        m.offset += result.skip;
+        continue;
+      }
+      this.consume(paneId, m, result.data, m.primed);
       m.primed = true;
       return;
     }
-    m.readError = null;
-    this.consume(paneId, m, result.data, m.primed);
-    m.primed = true;
   }
 
   /**

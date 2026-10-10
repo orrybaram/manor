@@ -8,7 +8,17 @@
 import fs from "node:fs";
 
 export type TranscriptRead =
-  | { ok: true; size: number; data: string }
+  | {
+      ok: true;
+      size: number;
+      data: string;
+      /**
+       * The line at the offset is too long to read, and is complete: it is
+       * this many bytes, newline included. `data` is empty; the mirror steps
+       * over the line without an entry and reads on (ADR-216 ticket 3).
+       */
+      skip?: number;
+    }
   | { ok: false; error: string };
 
 export interface TranscriptSource {

@@ -3,7 +3,7 @@
 ## [0.19.8] - 2026-10-09
 
 ### Fixes
-- Achievements you had already earned are now awarded quietly when Manor loads, so you no longer get repeat badge notifications for them.
+- Badges added in an update that you already qualify for are now awarded quietly on launch, instead of all unlocking at once.
 
 ## [0.19.7] - 2026-10-09
 

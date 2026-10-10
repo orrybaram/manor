@@ -1,6 +1,6 @@
 ---
 title: Copy to / Move to submenus in the sidebar
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [3]

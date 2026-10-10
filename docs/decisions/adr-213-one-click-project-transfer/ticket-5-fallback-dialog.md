@@ -1,6 +1,6 @@
 ---
 title: Fallback dialog — local targets, prefill, copy mode
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [3, 4]

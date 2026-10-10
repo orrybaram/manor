@@ -1,6 +1,6 @@
 ---
 title: E2E spec for the phone chat view
-status: todo
+status: done
 priority: medium
 assignee: opus
 blocked_by: [5]

@@ -416,6 +416,34 @@ describe("ProjectManager.planTransfer / transferProject (ADR-213)", () => {
       expect(readState().projects.find((p) => p.id === "p1")?.path).toBe(SRC);
     });
 
+    it("re-clones a missing checkout onto the project's own host", async () => {
+      seed([project("p1", { path: "/home/u/Code/app", hostId: "box" })]);
+      const { git, cloneCalls } = fakeGit({ "/home/u/Code/app": REPO });
+      const mgr = new ProjectManager(hosts(git, fakeShell()), tmpDir);
+
+      const result = await mgr.transferProject("p1", "box", "move");
+
+      expect(cloneCalls).toEqual([[REPO, "/home/u/Code/app"]]);
+      if (!result.ok) throw new Error("expected ok");
+      expect(result.project.id).toBe("p1");
+      expect(result.project.path).toBe("/home/u/Code/app");
+    });
+
+    it("re-clones onto the project's own host with overrides", async () => {
+      // A missing checkout has no origin to read, so the dialog supplies one.
+      seed([project("p1", { path: "/home/u/Code/app", hostId: "box" })]);
+      const { git, cloneCalls } = fakeGit();
+      const mgr = new ProjectManager(hosts(git, fakeShell()), tmpDir);
+
+      const result = await mgr.transferProject("p1", "box", "move", {
+        repoUrl: REPO,
+        targetDir: "/home/u/Code/app",
+      });
+
+      expect(cloneCalls).toEqual([[REPO, "/home/u/Code/app"]]);
+      expect(result.ok).toBe(true);
+    });
+
     it("moves to the overrides' directory", async () => {
       const { mgr, cloneCalls } = localSource({});
 

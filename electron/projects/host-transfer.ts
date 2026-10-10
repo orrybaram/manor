@@ -105,12 +105,22 @@ async function mirrorDir(
  * member on `hostId`. The project's own host counts: there is nothing to
  * transfer onto it.
  */
-function hostTaken(ctx: ProjectContext, project: PersistedProject, hostId: string): boolean {
+function hostTaken(
+  ctx: ProjectContext,
+  project: PersistedProject,
+  hostId: string,
+  mode: TransferMode,
+): boolean {
   const group = groupOf(ctx.store.state, project.id);
-  return (
-    memberOnHost(group?.memberIds ?? [project.id], hostId, (id) => ctx.find(id)?.hostId) !==
-    undefined
+  const member = memberOnHost(
+    group?.memberIds ?? [project.id],
+    hostId,
+    (id) => ctx.find(id)?.hostId,
   );
+  // A move onto the project's own host re-clones its checkout there (the
+  // "Repository not found" repair in Project Settings), so it doesn't
+  // count as taken by itself.
+  return member !== undefined && !(mode === "move" && member === project.id);
 }
 
 /** Whether `url` is a remote `git clone` accepts from Manor. */
@@ -144,6 +154,7 @@ export async function planTransfer(
   deps: Pick<TransferDeps, "originKeyOf" | "originUrl">,
   projectId: string,
   hostId: string,
+  mode: TransferMode = "copy",
 ): Promise<TransferPlan> {
   ctx.hosts.assertKnown(hostId);
   const project = ctx.find(projectId);
@@ -152,7 +163,7 @@ export async function planTransfer(
   const mirrored = await mirrorDir(ctx, project);
   const fallbackDir = mirrored ?? defaultDir(ctx, project);
   const url = await deps.originUrl(projectId);
-  if (hostTaken(ctx, project, hostId)) return needsInput("host-taken", url, fallbackDir);
+  if (hostTaken(ctx, project, hostId, mode)) return needsInput("host-taken", url, fallbackDir);
   if (!url || !isCloneableUrl(url)) return needsInput("no-origin", url, fallbackDir);
   const repoUrl = url;
   const host = ctx.host(hostId);
@@ -192,7 +203,7 @@ export async function planTransfer(
       // host, whose paths are stricter) falls back to the default.
       continue;
     }
-    if (plan.owner) return needsInput("dir-taken", repoUrl, dir);
+    if (plan.owner && plan.owner.id !== projectId) return needsInput("dir-taken", repoUrl, dir);
     const dirState = await remoteDirState(plan.host, plan.targetDir);
     if (dirState === "nonempty" && !(await remoteDirIsCloneOf(plan.host, plan.targetDir, repoUrl))) {
       return needsInput("dir-taken", repoUrl, dir);
@@ -237,7 +248,7 @@ export async function transferProject(
   let via: Extract<TransferPlan, { kind: "ready" }>["via"] | null = null;
   if (overrides) {
     ({ repoUrl, targetDir } = overrides);
-    if (hostTaken(ctx, project, hostId)) {
+    if (hostTaken(ctx, project, hostId, mode)) {
       return ask(needsInput("host-taken", repoUrl, targetDir));
     }
     const plan = await planClone(ctx, hostId, { repoUrl, targetDir });
@@ -251,7 +262,7 @@ export async function transferProject(
       return ask(needsInput("dir-taken", repoUrl, targetDir));
     }
   } else {
-    const plan = await planTransfer(ctx, deps, projectId, hostId);
+    const plan = await planTransfer(ctx, deps, projectId, hostId, mode);
     if (plan.kind === "needsInput") return ask(plan);
     if (mode === "move" && plan.via === "adopt") {
       return ask(needsInput("dir-taken", plan.repoUrl, plan.targetDir));

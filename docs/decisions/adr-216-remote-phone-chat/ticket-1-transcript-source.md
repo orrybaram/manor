@@ -1,6 +1,6 @@
 ---
 title: Extract a TranscriptSource from the chat mirror
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

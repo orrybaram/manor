@@ -1,10 +1,10 @@
 /*
  * Unlock toast (ADR-212). Centred horizontally, anchored near the bottom of
- * the window. Timeline: the medal pops in alone (0–450ms) and pulses twice
- * (450–2250ms); the card then expands out of it (1700–2200ms) and the
- * text and CTA fade in; it holds to 7s, then
- * folds back into the medal and fades. Hover pauses every animation, which
- * pauses the hold with them.
+ * the window. Timeline: the medal pops in alone (0–450ms) and sends out two
+ * overlapping rings (450–2250ms); the card expands out of it (1700–2200ms)
+ * and the text and CTA fade in; it holds to 7s, then folds back into the
+ * medal and fades. Hover pauses every animation, which pauses the hold with
+ * them.
  */
 
 .toast {
@@ -72,6 +72,7 @@
 }
 
 .toast:hover *,
+.toast:hover *::before,
 .toast:hover *::after {
   animation-play-state: paused;
 }
@@ -91,14 +92,22 @@
   animation: pop 450ms cubic-bezier(0.3, 1.5, 0.5, 1) both;
 }
 
+/* Two thin rings, the second chasing the first. They grow by inset rather
+   than scale so the stroke stays hairline as they spread. */
+.medal::before,
 .medal::after {
   content: "";
   position: absolute;
   inset: -3px;
   border-radius: 50%;
-  border: 3px solid rgb(var(--tier));
+  border: 1.5px solid rgb(var(--tier));
   opacity: 0;
-  animation: pulse 900ms cubic-bezier(0.16, 1, 0.3, 1) 450ms 2 both;
+  pointer-events: none;
+  animation: pulse 1500ms cubic-bezier(0.22, 1, 0.36, 1) 450ms both;
+}
+
+.medal::after {
+  animation-delay: 750ms;
 }
 
 .emoji {
@@ -189,14 +198,11 @@
 /* Expands fast and fades slowly, so the ring lingers as it dies away. */
 @keyframes pulse {
   0% {
-    transform: scale(1);
-    opacity: 0.8;
-  }
-  40% {
-    opacity: 0.45;
+    inset: -3px;
+    opacity: 0.9;
   }
   100% {
-    transform: scale(2);
+    inset: -40px;
     opacity: 0;
   }
 }
@@ -246,6 +252,7 @@
     animation: none;
   }
 
+  .medal::before,
   .medal::after {
     display: none;
   }

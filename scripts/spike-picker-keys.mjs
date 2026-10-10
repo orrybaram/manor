@@ -130,6 +130,8 @@ const CASES = [
     name: "multiline",
     send: true,
     candidates: [
+      // One write, as chat.send does today.
+      [(n) => `alpha-${n}\nbeta-${n}\r`],
       [(n) => `alpha-${n}\nbeta-${n}`, "\r"],
       [(n) => `\x1b[200~alpha-${n}\nbeta-${n}\x1b[201~`, "\r"],
       [(n) => `alpha-${n}\\\rbeta-${n}`, "\r"],

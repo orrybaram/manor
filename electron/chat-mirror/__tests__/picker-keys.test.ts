@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { encodePickerAnswer, encodePlanApproval, type PickerQuestion } from "../picker-keys";
+import { encodeChatMessage, encodePickerAnswer, encodePlanApproval, type PickerQuestion } from "../picker-keys";
 
 const DOWN = "\x1b[B";
 const ENTER = "\r";
@@ -67,5 +67,20 @@ describe("encodePickerAnswer", () => {
 describe("encodePlanApproval", () => {
   it("is Enter on option 1", () => {
     expect(encodePlanApproval()).toBe(ENTER);
+  });
+});
+
+describe("encodeChatMessage", () => {
+  it("is the text then Enter, with LF newlines kept (one prompt)", () => {
+    expect(encodeChatMessage("hi")).toBe("hi" + ENTER);
+    expect(encodeChatMessage("one\ntwo")).toBe("one\ntwo" + ENTER);
+  });
+
+  it("turns CR line endings into LF so they can't submit early", () => {
+    expect(encodeChatMessage("one\r\ntwo\rthree")).toBe("one\ntwo\nthree" + ENTER);
+  });
+
+  it("drops Esc and other control bytes but keeps Tab", () => {
+    expect(encodeChatMessage("a\x1b[Ab\tc\x07")).toBe("a[Ab\tc" + ENTER);
   });
 });

@@ -18,7 +18,7 @@ import type {
   ChatAnswerResult,
   ChatHistory,
 } from "../../chat-mirror/mirror";
-import type { PickerAnswer } from "../../chat-mirror/picker-keys";
+import { encodeChatMessage, type PickerAnswer } from "../../chat-mirror/picker-keys";
 import { method, type HandlerCtx } from "../method";
 
 const ESC = "\x1b";
@@ -31,12 +31,12 @@ export function chatGetHistory(
   return ctx.deps.chatMirror.getHistory(paneId);
 }
 
-/** Type a prompt and submit it. `\r` is Enter, as `pty.ts` explains. */
+/** Type a prompt and submit it, as one prompt even across lines (`encodeChatMessage`). */
 export function chatSend(ctx: HandlerCtx, paneId: string, text: string): void {
   assertString(paneId, "paneId");
   assertString(text, "text");
   if (text.trim().length === 0) throw new Error("text: expected a message");
-  ctx.deps.backend.pty.write(paneId, text + "\r");
+  ctx.deps.backend.pty.write(paneId, encodeChatMessage(text));
 }
 
 /** Esc: what stops Claude mid-turn in its own TUI. */

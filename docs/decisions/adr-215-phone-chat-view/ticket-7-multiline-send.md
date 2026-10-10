@@ -1,6 +1,6 @@
 ---
 title: Send multi-line chat messages as one prompt
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [5]

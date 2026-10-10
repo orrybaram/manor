@@ -97,3 +97,15 @@ export function encodePickerAnswer(questions: PickerQuestion[], answers: PickerA
 export function encodePlanApproval(): string {
   return ENTER;
 }
+
+/**
+ * The bytes that type a chat message into Claude's prompt and submit it.
+ * The spike's `multiline` case (Claude Code 2.1.296) showed one write of
+ * text with LF newlines then CR arrives as a single prompt. A CR inside the
+ * text would submit early, and Esc would interrupt, so line endings become LF
+ * and other control bytes (bar Tab) are dropped.
+ */
+export function encodeChatMessage(text: string): string {
+  const body = text.replace(/\r\n?/g, "\n").replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
+  return body + ENTER;
+}

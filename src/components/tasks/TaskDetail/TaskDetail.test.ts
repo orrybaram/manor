@@ -108,8 +108,12 @@ describe("TaskDetail", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders a task's detail with Start and Open", () => {
+  it("renders a task's detail with Start and Open", async () => {
     render(fullDetail, { row });
+    await vi.waitFor(() => {
+      expect(root.container.querySelector("strong")?.textContent).toBe("build");
+      expect(root.container.querySelector("img")).not.toBeNull();
+    });
     const text = root.container.textContent ?? "";
 
     expect(text).toContain("#12");
@@ -119,12 +123,13 @@ describe("TaskDetail", () => {
     expect(text).toContain("bug");
     expect(text).toContain("v1.0");
     expect(text).toContain("Project One");
-    // Markdown is flattened and the image markdown dropped.
+    // Markdown is rendered, the image in place — the raw URL once the proxy
+    // declines (no bridge in tests).
     expect(text).toContain("The build fails on CI.");
     expect(text).not.toContain("![shot]");
-    expect(root.container.querySelector("img")?.getAttribute("src")).toBe(
-      "https://example.com/a.png",
-    );
+    const img = root.container.querySelector("img");
+    expect(img?.getAttribute("src")).toBe("https://example.com/a.png");
+    expect(img?.getAttribute("alt")).toBe("shot");
 
     expect(buttons().some((b) => b.startsWith("Start in new workspace"))).toBe(true);
     expect(buttons().some((b) => b.startsWith("New agent here"))).toBe(false);

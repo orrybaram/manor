@@ -814,6 +814,59 @@ export class GitHubManager {
       return { installed: false, authenticated: false };
     }
   }
+
+  /**
+   * Fetch an image embedded in an issue body with `gh`'s token and hand back
+   * a data URL — a private repo's images 404 (or bounce to a login page)
+   * without it. Only GitHub's own hosts get the token; anything else throws
+   * and the renderer loads it directly.
+   */
+  async proxyImage(url: string): Promise<string> {
+    const target = githubImageFetchUrl(url);
+    if (!target) throw new Error("Not a GitHub-hosted image");
+
+    const { stdout } = await execFileAsync(
+      "gh",
+      ["auth", "token", "--hostname", "github.com"],
+      { encoding: "utf-8", timeout: 5000 },
+    );
+    // A cross-origin redirect (user-attachments → its signed S3 URL) drops
+    // the Authorization header, so the token never leaves GitHub.
+    const res = await fetch(target, {
+      headers: { Authorization: `token ${stdout.trim()}` },
+    });
+    if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
+
+    const contentType = res.headers.get("content-type") ?? "";
+    if (!contentType.startsWith("image/")) {
+      throw new Error(`Not an image: ${contentType || "unknown type"}`);
+    }
+    const buffer = Buffer.from(await res.arrayBuffer());
+    return `data:${contentType};base64,${buffer.toString("base64")}`;
+  }
+}
+
+/**
+ * Where to fetch a GitHub-hosted image from with a token, or null when the
+ * URL isn't GitHub's. A `github.com/<owner>/<repo>/blob|raw/<ref>/<path>`
+ * link only serves a private file to a browser session, so it is rewritten
+ * to `raw.githubusercontent.com`, which takes the token.
+ */
+export function githubImageFetchUrl(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:") return null;
+  if (parsed.hostname === "raw.githubusercontent.com") return parsed.href;
+  if (parsed.hostname !== "github.com") return null;
+  const file = /^\/([^/]+)\/([^/]+)\/(?:blob|raw)\/(.+)$/.exec(parsed.pathname);
+  if (file) {
+    return `https://raw.githubusercontent.com/${file[1]}/${file[2]}/${file[3]}`;
+  }
+  return parsed.href;
 }
 
 interface PrConversationState {

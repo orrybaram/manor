@@ -10,23 +10,31 @@ type ProxiedImageProps = {
 };
 
 /**
- * An image embedded in a task body. Linear's uploads need the auth'd main
- * process to fetch them (`linear.proxyImage`, falling back to the raw URL);
- * GitHub's render directly. Hidden if it fails to load. Key by `url`.
+ * An image embedded in a task body, fetched by the main process with the
+ * tracker's credential (`linear.proxyImage` / `github.proxyImage`) so a
+ * private upload renders; falls back to the raw URL when the proxy declines
+ * (a non-tracker host) or fails. Hidden if it fails to load. Key by `url`.
  */
 export function ProxiedImage(props: ProxiedImageProps) {
   const { provider, url, alt } = props;
 
   const [failed, setFailed] = useState(false);
   const proxied = useQuery({
-    queryKey: ["task-image", url],
-    queryFn: () =>
-      window.electronAPI.linear.proxyImage(url).catch(() => url),
-    enabled: provider === "linear",
+    queryKey: ["task-image", provider, url],
+    queryFn: async () => {
+      try {
+        const api = window.electronAPI;
+        return provider === "linear"
+          ? await api.linear.proxyImage(url)
+          : await api.github.proxyImage(url);
+      } catch {
+        return url;
+      }
+    },
     staleTime: Infinity,
   });
 
-  const src = provider === "linear" ? proxied.data : url;
+  const src = proxied.data;
   if (!src || failed) return null;
 
   return (

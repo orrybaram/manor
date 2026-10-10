@@ -1,11 +1,17 @@
-import { useRef, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { projectColorStyle } from "../../../hooks/useProjectHeaderRow";
 import { openExternal } from "../../../lib/open-external";
 import type { NewWorkspaceHandler } from "../../../lib/start-issue-work";
-import { stripMarkdown } from "../../../lib/task-images";
 import {
   initialOf,
   relativeTime,
@@ -20,10 +26,11 @@ import { Link } from "../../ui/Link/Link";
 import { PriorityIcon } from "../PriorityIcon";
 import { TrackerRowIcon } from "../tracker-icons";
 import { useStartTask } from "../useStartTask";
-import { ProxiedImage } from "./ProxiedImage";
 import { TaskBodySkeleton, TaskMetaSkeleton } from "./TaskDetailSkeleton";
 import tasksStyles from "../TasksView.module.css";
 import styles from "./TaskDetail.module.css";
+
+const TaskMarkdown = lazy(() => import("./TaskMarkdown"));
 
 type TaskDetailProps = {
   taskRef: TaskRef;
@@ -413,23 +420,16 @@ type TaskBodyProps = {
 function TaskBody(props: TaskBodyProps) {
   const { provider, detail } = props;
 
-  const description = detail.body ? stripMarkdown(detail.body) : "";
+  if (!detail.body?.trim()) {
+    return <div className={styles.empty}>No description.</div>;
+  }
 
   return (
-    <>
-      {description ? (
-        <div className={styles.description}>{description}</div>
-      ) : (
-        <div className={styles.empty}>No description.</div>
-      )}
-      {detail.images.length > 0 && (
-        <div className={styles.screenshots}>
-          {detail.images.map((url) => (
-            <ProxiedImage key={url} provider={provider} url={url} />
-          ))}
-        </div>
-      )}
-    </>
+    <div className={styles.markdown}>
+      <Suspense fallback={<p className={styles.description}>{detail.body}</p>}>
+        <TaskMarkdown provider={provider} source={detail.body} />
+      </Suspense>
+    </div>
   );
 }
 

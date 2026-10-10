@@ -14,7 +14,8 @@
  * key as an argument rather than producing one, and it is `localOnly` for
  * that reason alone — a table entry a device is refused, not a hole in the
  * table. GitHub needs no such care: it shells out to `gh`, which holds its
- * own credential, and `checkStatus` reports a username.
+ * own credential, `checkStatus` reports a username, and `proxyImage` uses
+ * `gh`'s token to hand back image bytes, never the token.
  */
 
 import {
@@ -272,6 +273,19 @@ export function linearUnlinkIssueFromWorkspace(
 }
 
 /**
+ * Fetch an issue-body image with `gh`'s token and hand back a data URL, so
+ * a private repo's screenshots render. Bytes, never the token — see
+ * `linearProxyImage`.
+ */
+export function githubProxyImage(
+  ctx: HandlerCtx,
+  url: string,
+): Promise<string> {
+  assertString(url, "url");
+  return ctx.deps.githubManager.proxyImage(url);
+}
+
+/**
  * Fetch a Linear-hosted image with the stored token and hand back a data URL.
  *
  * The one place the token is *used* on behalf of the renderer rather than by
@@ -325,6 +339,7 @@ export const github = {
   getMyIssues: method(githubGetMyIssues),
   getAllIssues: method(githubGetAllIssues),
   getIssueDetail: method(githubGetIssueDetail),
+  proxyImage: method(githubProxyImage),
   assignIssue: method(githubAssignIssue, { mutating: true }),
   closeIssue: method(githubCloseIssue, { mutating: true }),
   createIssue: method(githubCreateIssue, { mutating: true }),

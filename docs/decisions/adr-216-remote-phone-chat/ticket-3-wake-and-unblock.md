@@ -1,6 +1,6 @@
 ---
 title: Hook-triggered reads, a poll, and the chat for remote agents
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2]

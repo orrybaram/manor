@@ -34,6 +34,19 @@ title="${3:-fake chat agent}"
 session="e2e-chat-$$"
 
 hook() {
+  # On a remote host (tests/e2e/remote-host.spec.ts) the pane has no
+  # MANOR_HOOK_PORT: the daemon's listener is found through a port file with a
+  # token. Do what a real agent does there and run the payload through Manor's
+  # own hook script, which resolves that target (resolveHookTarget).
+  if [ -z "${MANOR_HOOK_PORT:-}" ] && [ -n "${MANOR_HOOK_PORT_FILE:-}" ]; then
+    notify="$HOME/.manor/hooks/notify.sh"
+    [ -x "$notify" ] || return 0
+    printf '{"hook_event_name":"%s","session_id":"%s","transcript_path":"%s"%s}' \
+      "$1" "$session" "$(json_escape "$transcript")" \
+      "${2:+,\"notification\":{\"type\":\"$2\"}}" \
+      | "$notify" >/dev/null 2>&1 || true
+    return 0
+  fi
   [ -n "${MANOR_HOOK_PORT:-}" ] || return 0
   [ -n "${MANOR_PANE_ID:-}" ] || return 0
   # -G with --data-urlencode: a GET whose query is built and escaped by curl,

@@ -3,7 +3,16 @@ import path from "path";
 import type { APIRequestContext, Page } from "@playwright/test";
 
 import { expect, openTerminalTab, test } from "./fixtures";
+import {
+  FAKE_AGENT_TRANSCRIPT,
+  FAKE_CHAT_OPTIONS,
+  FAKE_CHAT_PROMPT,
+  FAKE_CHAT_QUESTION,
+  FAKE_CHAT_REPLY,
+} from "./helpers/fake-agent";
 import { readSession } from "./helpers/local-api";
+import { openWebApp } from "./helpers/phone";
+import { relayTest } from "./helpers/relay-fixture";
 import type { AgentSummary } from "./helpers/local-api";
 import {
   APP_TARGET,
@@ -18,7 +27,7 @@ import {
   seedRemoteRepo,
   setAppTargetReachable,
 } from "./helpers/remote-host";
-import { setAgentCommand } from "./helpers/settings";
+import { closeSettings, pairBrowser, setAgentCommand } from "./helpers/settings";
 import { activePaneId, runInTerminal } from "./helpers/terminal";
 
 /**
@@ -370,4 +379,101 @@ test.describe("remote host", () => {
     expect(res.ok()).toBe(true);
     expect(await res.text()).toBe(body);
   });
+
+  // ADR-216: the phone chat for an agent on a remote host. The agent runs on
+  // the box and writes its transcript there; main reads it back over the
+  // host's Exec, and the answer travels the other way through the pane's PTY.
+  // The phone half is the same paired Playwright page `phone-chat.spec.ts` uses.
+  relayTest(
+    "phone chat: a remote agent's transcript reads as a chat and its picker answers on the box",
+    async ({ window, request, tempHome }) => {
+      const chatDir = "$HOME/.manor-e2e/chat";
+      const remoteAgent = "$HOME/.manor-e2e/bin/fake-agent-transcript.sh";
+      const transcriptFile = `${chatDir}/transcript.jsonl`;
+      const inputLogFile = `${chatDir}/input.log`;
+      const DOWN = "\x1b[B";
+      const ENTER = "\r";
+      const OPTION_3_KEYS = DOWN + DOWN + ENTER;
+      const inputLog = () =>
+        onRemote(`cat "${inputLogFile}" 2>/dev/null; true`).stdout.replace(
+          /\n/g,
+          ENTER,
+        );
+
+      // The fake agent lives on the box, where its transcript is written.
+      onRemote(`mkdir -p "$HOME/.manor-e2e/bin" "${chatDir}"`);
+      onRemote(`cat > "${remoteAgent}" && chmod 755 "${remoteAgent}"`, {
+        stdin: fs.readFileSync(FAKE_AGENT_TRANSCRIPT),
+      });
+
+      const { paneId } = await openRemoteProject(window, request, tempHome);
+      await runInTerminal(
+        window,
+        `"${remoteAgent}" "${transcriptFile}" "${inputLogFile}" e2e-remote-chat-agent`,
+      );
+      await pollFor(
+        "the remote transcript",
+        () =>
+          onRemote(
+            `test -s "${transcriptFile}" && echo ok; true`,
+          ).stdout.includes("ok")
+            ? true
+            : null,
+        STEP,
+      );
+
+      const device = await pairBrowser(window, { label: "remote chat phone" });
+      await closeSettings(window);
+      const client = await openWebApp(device.link, {
+        viewport: { width: 390, height: 844 },
+        context: { isMobile: true, hasTouch: true },
+      });
+
+      try {
+        const page = client.page;
+        await expect(page.getByTestId("phone-top-bar")).toBeVisible({
+          timeout: 30_000,
+        });
+        await expect
+          .poll(() => activePaneId(page), { timeout: 15_000 })
+          .toBe(paneId);
+        const pane = page.locator(
+          `[data-testid="workspace-pane"][data-pane-id="${paneId}"]`,
+        );
+
+        // The chat, not the terminal, and the transcript read off the box.
+        const chat = pane.getByTestId("chat-pane");
+        await expect(chat).toBeVisible({ timeout: STEP });
+        await expect(
+          chat.getByTestId("chat-user").filter({ hasText: FAKE_CHAT_PROMPT }),
+        ).toBeVisible({ timeout: STEP });
+        await expect(
+          chat
+            .getByTestId("chat-assistant")
+            .filter({ hasText: FAKE_CHAT_REPLY }),
+        ).toBeVisible();
+        const card = chat.getByTestId("chat-question");
+        await expect(card).toBeVisible();
+        await expect(card).toContainText(FAKE_CHAT_QUESTION);
+        const options = card.getByTestId("chat-question-option");
+        await expect(options).toHaveCount(FAKE_CHAT_OPTIONS.length);
+
+        // Option 3: Down, Down, Enter reach the agent on the box, and the
+        // tool_result it writes there collapses the card.
+        await options.nth(2).tap();
+        await pollFor(
+          "Down, Down, Enter in the remote input log",
+          () => (inputLog().includes(OPTION_3_KEYS) ? true : null),
+          15_000,
+        );
+        const answered = chat.getByTestId("chat-question-answered");
+        await expect(answered).toBeVisible({ timeout: STEP });
+        await expect(answered).toContainText(FAKE_CHAT_OPTIONS[2]);
+        await expect(chat.getByTestId("chat-question")).toHaveCount(0);
+        expect(inputLog().split(OPTION_3_KEYS)).toHaveLength(2);
+      } finally {
+        await client.close();
+      }
+    },
+  );
 });

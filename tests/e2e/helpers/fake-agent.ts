@@ -47,3 +47,23 @@ export const FAKE_AGENT_RULER = "ruler";
 /** Exactly what each row `FAKE_AGENT_RULER` draws, so a test can assert on
  *  the row itself rather than duplicating the script's width here. */
 export const FAKE_AGENT_RULER_ROW = "#".repeat(120);
+
+/**
+ * `fake-agent-transcript.sh`: the fake agent for the phone chat view
+ * (ADR-215). It also writes a Claude-shaped JSONL transcript and reports it
+ * as `transcriptPath`, which is what flips a phone pane to chat — so it is a
+ * separate script, opt-in, rather than a mode every fake agent gets.
+ *
+ * Arguments: `<transcript.jsonl> <input.log> [title]`. The input log is every
+ * byte the agent read, raw — the only record of what `chat.answer` and
+ * `chat.send` typed, since `chat.*` calls are not audited.
+ */
+export const FAKE_AGENT_TRANSCRIPT = path.join(__dirname, "fake-agent-transcript.sh");
+
+/** What the transcript agent writes before it asks its question. */
+export const FAKE_CHAT_PROMPT = "Help me pick an option";
+export const FAKE_CHAT_REPLY = "Here are three ways to go.";
+
+/** The AskUserQuestion it leaves open: one single-select question, three options. */
+export const FAKE_CHAT_QUESTION = "Which option should the fake agent take?";
+export const FAKE_CHAT_OPTIONS = ["Option 1", "Option 2", "Option 3"] as const;

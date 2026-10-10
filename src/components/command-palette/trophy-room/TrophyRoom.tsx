@@ -13,8 +13,8 @@ import styles from "./TrophyRoom.module.css";
 type Tab = "badges" | "stats";
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: "badges", label: "Badges" },
   { id: "stats", label: "Stats" },
+  { id: "badges", label: "Badges" },
 ];
 
 /**
@@ -37,11 +37,12 @@ type TrophyRoomProps = {
   initialTrack: BadgeSection | null;
 };
 
-/** The stats view as a trophy room (ADR-212): header, then Badges | Stats. */
+/** The stats view as a trophy room (ADR-212): header, then Stats | Badges. */
 export function TrophyRoom(props: TrophyRoomProps) {
   const { summary, initialTrack } = props;
 
-  const [tab, setTab] = useState<Tab>("badges");
+  // Opens on Stats, unless a toast asked for a particular track.
+  const [tab, setTab] = useState<Tab>(initialTrack ? "badges" : "stats");
   const [track, setTrack] = useState<TrackSelection>(initialTrack ?? "summary");
   const tabRefs = useRef(new Map<Tab, HTMLButtonElement>());
   const idPrefix = useId();

@@ -41,6 +41,24 @@
   overflow-y: auto;
 }
 
+/* Content scrolling out of the bottom fades instead of being cut off on a
+   hard line; the padding lets the last row clear the fade at the end. */
+.panel[data-tab="stats"],
+.pane,
+.badgesTab.badgesTab {
+  --fade: 28px;
+}
+
+.panel[data-tab="stats"],
+.pane {
+  padding-bottom: var(--fade);
+  mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - var(--fade)),
+    transparent
+  );
+}
+
 .room [data-tier="bronze"] {
   --tier: var(--tier-bronze);
 }
@@ -225,12 +243,6 @@
   color: var(--text-dim);
 }
 
-.scoreTitles {
-  margin-left: auto;
-  font-size: 10px;
-  color: var(--text-dim);
-}
-
 .tierBar {
   display: flex;
   height: 6px;
@@ -344,9 +356,21 @@
     border-left: 1px solid var(--border);
   }
 
+  /* Stacked, the tab itself scrolls, so it carries the fade. */
+  .badgesTab {
+    padding-bottom: var(--fade);
+    mask-image: linear-gradient(
+      to bottom,
+      #000 calc(100% - var(--fade)),
+      transparent
+    );
+  }
+
   .badgesTab > .pane {
     flex: none;
     overflow: visible;
+    padding-bottom: 2px;
+    mask-image: none;
   }
 }
 
@@ -402,7 +426,7 @@
   overflow-y: auto;
   /* Room for focus rings at the scroll edges, without moving the content. */
   margin: -2px;
-  padding: 2px;
+  padding: 2px 2px var(--fade);
 }
 
 /* `.rows` clips its corners, which would otherwise let it shrink to fit the
@@ -413,52 +437,70 @@
 
 /* ── Track card ── */
 
+/* Name and count on top, a full-width bar, then the title it earns. */
 .trackCard {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px 20px;
-  padding: 12px 14px;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
   border-radius: 8px;
   background: var(--dim);
   border: 1px solid var(--border);
 }
 
+.trackCard > .bar {
+  flex: none;
+}
+
+.trackTop {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+}
+
 .trackCopy {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
 }
 
-.trackHeadline {
+.trackName {
   font-family: var(--font-mono, monospace);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--text-selected);
 }
 
-.trackTitle {
-  color: var(--magenta);
-}
-
-.trackMeter {
-  margin-left: auto;
-  flex: 0 1 200px;
-  min-width: 160px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.meterRow {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  font-family: var(--font-mono, monospace);
-  font-size: 10px;
+.trackBlurb {
+  font-size: 12px;
   color: var(--text-dim);
+}
+
+.trackCount {
+  flex: none;
+  font-family: var(--font-mono, monospace);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-selected);
   font-variant-numeric: tabular-nums;
+}
+
+.trackCountTotal {
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.trackReward {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.trackTitle {
+  font-weight: 700;
+  color: var(--magenta);
 }
 
 /* ── Progress bars ── */

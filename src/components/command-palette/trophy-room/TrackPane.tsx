@@ -28,32 +28,32 @@ export function TrackPane(props: TrackPaneProps) {
   return (
     <section className={styles.pane} aria-label={section.name}>
       <div className={styles.trackCard}>
-        <div className={styles.trackCopy}>
-          <span className={styles.eyebrow}>
-            {`${section.name} · ${section.blurb}`}
-          </span>
-          <span className={styles.trackHeadline}>
-            {state.complete
-              ? "Complete · title "
-              : "Complete it to earn the title "}
-            <span className={styles.trackTitle}>{section.title}</span>
-          </span>
-        </div>
-
-        <div className={styles.trackMeter}>
-          <div className={styles.meterRow}>
-            <span>Progress</span>
-            <span>{`${state.earned} / ${state.total}`}</span>
+        <div className={styles.trackTop}>
+          <div className={styles.trackCopy}>
+            <span className={styles.trackName}>{section.name}</span>
+            <span className={styles.trackBlurb}>{section.blurb}</span>
           </div>
-          <ProgressBar
-            ratio={progressRatio({
-              current: state.earned,
-              target: state.total,
-            })}
-            label={`${section.name} progress`}
-            tone="track"
-          />
+          <span className={styles.trackCount}>
+            {state.earned}
+            <span
+              className={styles.trackCountTotal}
+            >{` / ${state.total}`}</span>
+          </span>
         </div>
+        <ProgressBar
+          ratio={progressRatio({
+            current: state.earned,
+            target: state.total,
+          })}
+          label={`${section.name} progress`}
+          tone="track"
+        />
+        <span className={styles.trackReward}>
+          {state.complete
+            ? "Earned the title "
+            : "Complete it to earn the title "}
+          <span className={styles.trackTitle}>{section.title}</span>
+        </span>
       </div>
 
       <div className={styles.rows}>

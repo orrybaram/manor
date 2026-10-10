@@ -144,9 +144,6 @@ export function TrophyHeader(props: TrophyHeaderProps) {
         <div className={styles.scoreLine}>
           <span className={styles.scoreEarned}>{earned}</span>
           <span className={styles.scoreTotal}>{`/ ${total}`}</span>
-          <span className={styles.scoreTitles}>
-            {`${titles.length} ${titles.length === 1 ? "title" : "titles"} earned`}
-          </span>
         </div>
         <div
           className={styles.tierBar}

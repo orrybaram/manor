@@ -114,8 +114,8 @@ export type ResultFrame =
 /**
  * Start hearing `ns.event`, optionally for one `key` only.
  *
- * A `pty.*` subscription names a `paneId`; everything else subscribes without
- * one. Membership is the whole filter — see `BridgeServer.subscribe`.
+ * A `pty.*` or `chat.*` subscription names a `paneId`; everything else
+ * subscribes without one. Membership is the whole filter — see `BridgeServer.subscribe`.
  */
 export interface SubscribeFrame {
   kind: "subscribe";

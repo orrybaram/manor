@@ -30,9 +30,10 @@
  * - A listener → a `subscribe` frame and a local listener, returning the
  *   unsubscribe. Which members are listeners, and which event each one
  *   hears, is `SUBSCRIPTIONS` (`electron/bridge/events.ts`) — read here, not
- *   restated. For `pty.*` the leading argument is the `paneId`, and it rides
- *   along as the frame's `key` — the host filters on it, and so does the
- *   delivery side, because one connection carries every pane's output.
+ *   restated. For `pty.*` and `chat.*` the leading argument is the
+ *   `paneId`, and it rides along as the frame's `key` — the host filters on
+ *   it, and so does the delivery side, because one connection carries every
+ *   pane's output.
  *
  * A listener subscribes only if it was *also* handed a function as its last
  * argument; called any other way it is an ordinary invoke, and the host

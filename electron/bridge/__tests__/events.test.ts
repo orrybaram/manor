@@ -80,6 +80,41 @@ describe("bridge events", () => {
     expect(server.hasDeviceSubscriber("diffs", "changed")).toBe(false);
   });
 
+  it("reports keyed subscribers coming and going, and publishes to that key", () => {
+    const desk = makeConnection("desk");
+    const phone = makeConnection("phone", "device");
+    server.accept(desk.connection);
+    server.accept(phone.connection);
+    const changes: string[] = [];
+    server.onSubscriptionChange((name, key) => {
+      changes.push(`${name}@${key}:${server.hasSubscriber("chat", "entry", key)}`);
+    });
+
+    server.subscribe(desk.connection, "chat", "entry", "pane-a");
+    server.subscribe(phone.connection, "chat", "entry", "pane-a");
+    server.subscribe(phone.connection, "chat", "entry", "pane-b");
+    server.unsubscribe(desk.connection, "chat", "entry", "pane-a");
+    // Unsubscribing from something never subscribed to changes nothing.
+    server.unsubscribe(desk.connection, "chat", "entry", "pane-z");
+
+    const entry = { kind: "user", id: "u1", ts: "t", text: "hi" } as const;
+    server.publishKeyed("chat", "entry", ["pane-b", entry], "pane-b");
+    expect(desk.frames).toEqual([]);
+    expect(phone.frames).toEqual([
+      { kind: "event", ns: "chat", event: "entry", args: ["pane-b", entry], key: "pane-b" },
+    ]);
+
+    server.drop("phone");
+    expect(changes).toEqual([
+      "chat.entry@pane-a:true",
+      "chat.entry@pane-a:true",
+      "chat.entry@pane-b:true",
+      "chat.entry@pane-a:true",
+      "chat.entry@pane-a:false",
+      "chat.entry@pane-b:false",
+    ]);
+  });
+
   it("delivers a broadcast to every connection that subscribed", () => {
     const a = makeConnection("a");
     const b = makeConnection("b");

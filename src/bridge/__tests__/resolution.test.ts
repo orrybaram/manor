@@ -169,9 +169,9 @@ describe("SUBSCRIPTIONS resolve to the events they claim", () => {
     (method, wire) => {
       const transport = new FakeTransport();
       const listen = member(createBridge(transport), method);
-      // A `pty.*` subscription names the pane it is about; every other event
-      // is about the machine and carries no key.
-      const perPane = method.startsWith("pty.");
+      // A `pty.*` or `chat.*` subscription names the pane it is about; every
+      // other event is about the machine and carries no key.
+      const perPane = method.startsWith("pty.") || method.startsWith("chat.");
       listen(...((perPane ? ["pane-1", () => {}] : [() => {}]) as never[]));
 
       expect(transport.subscriptions).toEqual([

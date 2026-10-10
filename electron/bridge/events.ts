@@ -46,13 +46,14 @@ import type {
 import type { SetupProgressEvent } from "../../src/store/project-store";
 import type { Theme } from "../../src/store/theme-store";
 import type { AppCommand } from "../renderer-bridge";
+import type { ChatEntry } from "../chat-mirror/transcript";
 import type { PushProgressEvent } from "./handlers/branches-diffs";
 
 /**
  * `ns` → `event` → the arguments the event is published with, which are the
  * arguments its listener's callback is called with.
  *
- * `pty.*` are keyed by the `paneId` the stream event is about; every other
+ * `pty.*` and `chat.*` are keyed by the `paneId` the event is about; every other
  * event is about the machine and goes to every subscriber (or, addressed, to
  * exactly one connection). `updater.*` and `menu.command` are heard only by
  * the preload's native namespaces, so they have no row in `SUBSCRIPTIONS`.
@@ -71,6 +72,13 @@ export interface BridgeEvents {
      * disconnected and it inherited the grid.
      */
     winsizeOwner: [payload: WinsizeOwnerEvent];
+  };
+  /**
+   * A pane's chat entry, new or updated (ADR-215 D4). Keyed by `paneId` like
+   * `pty.*`; an updated entry keeps its id, so a listener upserts by it.
+   */
+  chat: {
+    entry: [paneId: string, entry: ChatEntry];
   };
   layout: {
     changed: [payload: LayoutBroadcast];
@@ -191,8 +199,8 @@ export type WireEventArgs<W extends EventName> = {
  * subscribe frame, and `src/bridge/__tests__/resolution.test.ts` asserts it
  * does for every row.
  *
- * `pty.*` are the five the daemon's stream carries plus `winsizeOwner`, and
- * are the only ones with a key (the `paneId`). Native subscriptions are *not*
+ * `pty.*` are the five the daemon's stream carries plus `winsizeOwner`.
+ * They and `chat.onEntry` are the only ones with a key (the `paneId`). Native subscriptions are *not*
  * here: `webview.*`, `updater.*` and `menu.onMenuCommand` are members of a
  * native namespace and are written in the preload.
  */
@@ -203,6 +211,7 @@ export const SUBSCRIPTIONS = {
   "pty.onResized": "pty.resized",
   "pty.onError": "pty.error",
   "pty.onWinsizeOwner": "pty.winsizeOwner",
+  "chat.onEntry": "chat.entry",
   "layout.onChanged": "layout.changed",
   "layout.onPaneTitle": "layout.paneTitle",
   "projects.onChanged": "projects.changed",

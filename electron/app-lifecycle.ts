@@ -20,7 +20,8 @@ import { bootstrapHost } from "./terminal-host/bootstrap-host";
 import { createAgentStatusDriver, type AgentStatusDriver } from "./agent-status/driver";
 import type { PaneStatusUpdate } from "./agent-status/effects";
 import { ensureManorCli } from "./manor-cli-install";
-import { AgentManager, type AgentInfo } from "./agent-persistence";
+import { AgentManager, agentHostId, type AgentInfo } from "./agent-persistence";
+import { ChatMirror, pickPaneAgent } from "./chat-mirror/mirror";
 import { NotificationStore } from "./notification-store";
 import { StatsStore } from "./stats-store";
 import { createWorkspaceOps } from "./workspace-ops";
@@ -76,6 +77,7 @@ import {
 import { wireRemoteControlStatus } from "./bridge/handlers/remote-control";
 import { wireHostBroadcasts } from "./bridge/handlers/hosts";
 import { wireAgentActivityBroadcast } from "./bridge/handlers/agent-activity";
+import { wireChatMirror } from "./bridge/handlers/chat";
 import { installPortEnricher } from "./bridge/handlers/ports";
 import * as webviewIpc from "./ipc/webview";
 import * as nativeIpc from "./ipc/native";
@@ -726,6 +728,23 @@ export function initApp(devTitle: string | null): void {
     }
   });
 
+  // ADR-215: each pane's Claude transcript, for the phone's chat view. It
+  // publishes through the bridge, which is built below; nothing is published
+  // before somebody subscribes, and nobody can before the bridge exists.
+  const chatMirror = new ChatMirror({
+    agentForPane: (paneId) => {
+      const agent = pickPaneAgent(agentManager.getAllAgents(), paneId);
+      if (!agent) return null;
+      return {
+        hostId: agentHostId(agent, getPaneHostId),
+        transcriptPath: agent.transcriptPath,
+      };
+    },
+    write: (paneId, data) => backend.pty.write(paneId, data),
+    publish: (paneId, entry) =>
+      bridgeServer?.publishKeyed("chat", "entry", [paneId, entry], paneId),
+  });
+
   backendRegistry.onEvent((hostId: string, event: StreamEvent) => {
     // A remote pane whose session a daemon restart took is not closed like
     // one whose shell exited: the renderer recovers it when the host's
@@ -734,6 +753,8 @@ export function initApp(devTitle: string | null): void {
     // `paneSessions` is server-derived (ADR-179 D3): cwd and title reach the
     // layout file from the stream, not from a renderer reporting what it saw.
     layoutStore.onPtyEvent(event);
+    // A pane's shell is gone: its transcript watcher goes with it (ADR-215).
+    if (event.type === "exit") chatMirror.closePane(event.sessionId);
     // Every host's stream events arrive here and only here, so this is where
     // the bridge is fed (ADR-180 D5) — the only consumer that forwards, to a
     // renderer window and a paired device alike.
@@ -777,6 +798,7 @@ export function initApp(devTitle: string | null): void {
     agentHookServer,
     agentManager,
     agentStatus: agentStatusDriver,
+    chatMirror,
     notificationStore,
     statsStore,
     workspaceOps,
@@ -848,6 +870,7 @@ export function initApp(devTitle: string | null): void {
   // dressing.
   wireStatsBroadcast(ipcDeps);
   wireAgentActivityBroadcast(ipcDeps);
+  wireChatMirror(ipcDeps, bridgeServer);
   wirePreferencesBroadcast(ipcDeps);
   wireKeybindingsBroadcast(ipcDeps);
   wireRemoteControlStatus(ipcDeps);
@@ -1021,6 +1044,7 @@ export function initApp(devTitle: string | null): void {
     wsBridge?.dispose();
     ipcBridge?.dispose();
     bridgeServer?.dispose();
+    chatMirror.dispose();
     portlessManager.stop();
     prewarmManager.dispose().catch(() => {});
     // Takes down the ssh children; remote sessions keep running on their hosts.

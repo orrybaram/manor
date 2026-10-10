@@ -57,11 +57,11 @@ export type ClientOf<T> = Merge<
 type Callback<W extends EventName> = (...args: WireEventArgs<W>) => void;
 
 /**
- * One listener. The PTY stream's events are per pane, so their listeners
- * name the pane first; every other event is about the machine. Either way
+ * One listener. The PTY stream's and the chat's events are per pane, so their
+ * listeners name the pane first; every other event is about the machine. Either way
  * the answer is the unsubscribe.
  */
-type Listener<W extends EventName> = W extends `pty.${string}`
+type Listener<W extends EventName> = W extends `pty.${string}` | `chat.${string}`
   ? (paneId: string, callback: Callback<W>) => () => void
   : (callback: Callback<W>) => () => void;
 

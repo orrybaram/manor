@@ -82,6 +82,9 @@ export class BridgeServer {
   private readonly unsubscribeBroadcasts: () => void;
   private readonly unsubscribeAttachments: () => void;
   private readonly disconnectSinks = new Set<(connectionId: string) => void>();
+  private readonly subscriptionSinks = new Set<
+    (name: string, key: string) => void
+  >();
 
   constructor(
     private readonly deps: HostDeps,
@@ -130,9 +133,13 @@ export class BridgeServer {
    * anything, so there is nothing to release and nobody to tell.
    */
   drop(connectionId: string): void {
-    if (!this.connections.delete(connectionId)) return;
+    const registered = this.connections.get(connectionId);
+    if (!registered || !this.connections.delete(connectionId)) return;
     releaseViewer(connectionId);
     for (const cb of this.disconnectSinks) cb(connectionId);
+    for (const [name, keys] of registered.subscriptions) {
+      for (const key of keys) this.subscriptionChanged(name, key);
+    }
   }
 
   /**
@@ -301,6 +308,45 @@ export class BridgeServer {
     const keys = registered.subscriptions.get(name);
     if (keys) keys.add(key ?? ALL_KEYS);
     else registered.subscriptions.set(name, new Set([key ?? ALL_KEYS]));
+    this.subscriptionChanged(name, key ?? ALL_KEYS);
+  }
+
+  /**
+   * Told whenever a connection subscribes to, unsubscribes from, or drops
+   * with a subscription to `name` (`ns.event`) at `key` (`ALL_KEYS` for a
+   * keyless one). Not a count: ask `hasSubscriber`. The chat mirror
+   * (ADR-215 D4) watches a pane's transcript only while this says somebody
+   * is listening.
+   */
+  onSubscriptionChange(cb: (name: string, key: string) => void): () => void {
+    this.subscriptionSinks.add(cb);
+    return () => {
+      this.subscriptionSinks.delete(cb);
+    };
+  }
+
+  /** Whether any connection is subscribed to `ns.event` at exactly `key`. */
+  hasSubscriber(ns: string, event: string, key: string): boolean {
+    const name = `${ns}.${event}`;
+    for (const { subscriptions } of this.connections.values()) {
+      if (subscriptions.get(name)?.has(key)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * A keyed event from main, to the connections that asked for that key —
+   * `pty.*` comes from the stream (`handleStreamEvent`), and `chat.entry`
+   * from the chat mirror (ADR-215 D4). `renderer-broadcast.ts` has no key,
+   * so a per-pane push that is not a stream event comes through here.
+   */
+  publishKeyed<N extends EventNs, E extends EventOf<N>>(
+    ns: N,
+    event: E,
+    args: EventArgs<N, E>,
+    key: string,
+  ): void {
+    this.publish(ns, event, args, key);
   }
 
   /**
@@ -331,8 +377,9 @@ export class BridgeServer {
     const name = `${ns}.${event}`;
     const keys = registered.subscriptions.get(name);
     if (!keys) return;
-    keys.delete(key ?? ALL_KEYS);
+    if (!keys.delete(key ?? ALL_KEYS)) return;
     if (keys.size === 0) registered.subscriptions.delete(name);
+    this.subscriptionChanged(name, key ?? ALL_KEYS);
   }
 
   /**
@@ -507,6 +554,16 @@ export class BridgeServer {
     if (!keys) return false;
     if (frame.key === undefined) return true;
     return keys.has(frame.key) || keys.has(ALL_KEYS);
+  }
+
+  private subscriptionChanged(name: string, key: string): void {
+    for (const cb of this.subscriptionSinks) {
+      try {
+        cb(name, key);
+      } catch (err) {
+        console.error("[bridge] subscription sink threw:", err);
+      }
+    }
   }
 
   private auditInvoke(

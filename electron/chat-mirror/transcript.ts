@@ -26,6 +26,11 @@ export type ChatEntry =
       ts: string;
       questions: PickerQuestion[];
       answer: string | null;
+      /**
+       * Set by the mirror (`mirror.ts`), never by the parser: the chat sent an
+       * answer and no `tool_result` followed in time (ADR-215 D5).
+       */
+      needsTerminal?: boolean;
     }
   | {
       kind: "plan";
@@ -33,6 +38,8 @@ export type ChatEntry =
       ts: string;
       plan: string;
       outcome: string | null;
+      /** As on `question`. */
+      needsTerminal?: boolean;
     };
 
 const MAX_DETAIL = 4000;

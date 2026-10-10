@@ -32,6 +32,7 @@ import { agents } from "./handlers/agents";
 import { agentActivity } from "./handlers/agent-activity";
 import { appCommands } from "./handlers/app-commands";
 import { branches, diffs, git, gitPush } from "./handlers/branches-diffs";
+import { chat } from "./handlers/chat";
 import { github, linear } from "./handlers/integrations";
 import { jev } from "./handlers/jev";
 import { hosts } from "./handlers/hosts";
@@ -51,6 +52,7 @@ export type { BridgeHandler } from "./method";
 
 const METHODS = flatten({
   pty,
+  chat,
   layout,
   viewport,
   projects,

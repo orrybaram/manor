@@ -38,6 +38,7 @@ import type { PortlessWorkspace } from "../../src/lib/portless-hostname";
 import type { SessionOwners } from "../backend/session-owners";
 import type { HostStatus } from "../backend/host-connection";
 import type { WebviewPaneAccess } from "../routes/types";
+import type { ChatMirror } from "../chat-mirror/mirror";
 
 /** A workspace as the renderer describes it for portless hostnames. */
 export interface WorkspaceMeta extends PortlessWorkspace {
@@ -100,6 +101,11 @@ export interface HostDeps {
     AgentStatusDriver,
     "signal" | "getPaneState" | "getAllPaneStatuses" | "isPaneLossExpected"
   >;
+  /**
+   * ADR-215. Each pane's Claude transcript, mirrored for the phone's chat
+   * view; the `chat` namespace reads and answers through it.
+   */
+  chatMirror: ChatMirror;
   /** ADR-162's durable notification log. */
   notificationStore: NotificationStore;
   /** ADR-168 usage stats. */

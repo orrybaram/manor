@@ -127,12 +127,22 @@
   gap: 8px;
 }
 
+/* Hidden until you hover the title, but kept in the layout so the line does
+   not shift; it also shows for keyboard focus and while its menu is open. */
 .titleEdit {
   width: 22px;
   height: 22px;
   margin: -6px 0;
   padding: 0;
   color: inherit;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.title:hover .titleEdit,
+.titleEdit:focus-visible,
+.titleEdit[data-state="open"] {
+  opacity: 1;
 }
 
 .titleMenu {

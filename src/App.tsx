@@ -175,6 +175,12 @@ function App() {
     setPaletteOrigin("search");
     setPaletteOpen(true);
   }, []);
+  // The phone's command surface (ADR-181 D5): the drawer's Search row and the
+  // top bar's menu open the same palette, scoped like the keyboard shortcut.
+  const openPhonePalette = useCallback(() => {
+    setPaletteOrigin("shortcut");
+    setPaletteOpen(true);
+  }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsProjectId, setSettingsProjectId] = useState<string | null>(
     null,
@@ -836,13 +842,8 @@ function App() {
                     onShowAgents={() => setAgentsOpen(true)}
                     onOpenProjectSettings={handleOpenProjectSettings}
                     onAddProject={handleAddProject}
-                    onOpenPalette={() => {
-                      // The phone's command surface (ADR-181 D5), so it opens
-                      // scoped like the keyboard shortcut, not the search box.
-                      setPaletteOrigin("shortcut");
-                      setPaletteOpen(true);
-                    }}
-                    onOpenSearch={openPalette}
+                    onOpenPalette={openPhonePalette}
+                    onOpenSearch={openPhonePalette}
                   />
                 )}
                 {/* Every workspace renders through the same PanelLayout in a single

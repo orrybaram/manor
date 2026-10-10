@@ -7,6 +7,7 @@ import type { ChatEntry, PickerQuestion } from "../../../../electron.d";
 import {
   EMPTY_SELECTION,
   answerFor,
+  answerSummary,
   answersOnTap,
   buildAnswers,
   chooseOther,
@@ -107,5 +108,18 @@ describe("chat entries", () => {
     expect(answerablePickerId([ask("q1", null), user("u"), plan("p1", null), user("v")])).toBe("p1");
     expect(answerablePickerId([ask("q1", null), plan("p1", "approved")])).toBeNull();
     expect(answerablePickerId([user("u")])).toBeNull();
+  });
+});
+
+describe("answerSummary", () => {
+  it("pulls the answers out of Claude's result text", () => {
+    expect(
+      answerSummary('User has answered your questions: "Which?"="Option 3". You can now continue.'),
+    ).toBe("Option 3");
+    expect(answerSummary('Answered: "Fruit?"="Banana", "Colour?"="Red". Go on.')).toBe("Banana · Red");
+  });
+
+  it("falls back to the whole text when the wording changes", () => {
+    expect(answerSummary("Picked the third one")).toBe("Picked the third one");
   });
 });

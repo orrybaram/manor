@@ -3,6 +3,7 @@ import type { ChatEntry, PickerAnswer } from "../../../electron.d";
 import { Button } from "../../ui/Button/Button";
 import { EmojiInput } from "../../ui/EmojiAutocomplete";
 import {
+  answerSummary,
   EMPTY_SELECTION,
   answersOnTap,
   buildAnswers,
@@ -150,7 +151,7 @@ export function AnsweredQuestion(props: AnsweredQuestionProps) {
   return (
     <div className={styles.answered} data-testid="chat-question-answered">
       <span className={styles.answeredTitle}>{title || "Question"}</span>
-      <span className={styles.answeredValue}>{entry.answer}</span>
+      <span className={styles.answeredValue}>{answerSummary(entry.answer ?? "")}</span>
     </div>
   );
 }

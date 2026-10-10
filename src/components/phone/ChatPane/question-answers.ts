@@ -74,3 +74,13 @@ export function buildAnswers(
 export function answersOnTap(questions: readonly PickerQuestion[]): boolean {
   return questions.length === 1 && !questions[0].multiSelect;
 }
+
+/**
+ * The chosen answers out of Claude's tool_result text, which reads
+ * `… "question"="answer", "question"="answer". …`. Falls back to the whole
+ * text when it doesn't match, since the wording is Claude Code's, not ours.
+ */
+export function answerSummary(result: string): string {
+  const answers = [...result.matchAll(/"(?:[^"\\]|\\.)*"="((?:[^"\\]|\\.)*)"/g)].map((m) => m[1]);
+  return answers.length > 0 ? answers.join(" · ") : result;
+}

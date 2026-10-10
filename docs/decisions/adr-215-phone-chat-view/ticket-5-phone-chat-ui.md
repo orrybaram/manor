@@ -25,12 +25,12 @@ ADR-215 D6, D7. Read ADR-181 (the phone layout), `.claude/rules/ui-components.md
   - `user`: right-aligned bubble
   - `assistant`: left-aligned, rendered as markdown. Use whatever markdown renderer the app already uses; check `package.json`. If none exists, use pre-wrapped text and don't add a dependency.
   - `tool`: a compact one-line card with name, summary and a status dot. Tap to expand `detail`.
-  - `question` with no answer: a card per question showing header and question, with one full-width `<Button>` per option (label plus description). For `multiSelect`, the buttons toggle and a Submit button appears. Each question also gets an "Other…" choice that reveals a text field.
+  - `question` with no answer: a card per question showing header and question, with one full-width `<Button>` per option (label plus description). For `multiSelect`, the buttons toggle and a Submit button appears. Each single-select question also gets an "Other…" choice that reveals a text field. Multi-select questions get no Other in the chat, because the encoder refuses it.
     - For more than one question, collect all answers and then send one `chat.answer`.
     - Disable the card while sending.
-    - On `stale` or `needsTerminal`, show "Answer in terminal" with a button that switches to the Terminal view.
+    - On `stale`, `unsupported` or `needsTerminal`, show "Answer in terminal" with a button that switches to the Terminal view.
   - Answered question: a compact summary.
-  - `plan`: the plan text (collapsed beyond about 12 lines) with Approve and Keep planning buttons, wired through `chat.answer` with the plan choices from ticket 1's encoder.
+  - `plan`: the plan text (collapsed beyond about 12 lines) with an Approve button (`chat.answer` with `{ kind: "plan-approve" }`) and a "Change plan in terminal" button that switches to the Terminal view. Rejecting from the chat is deliberately unsupported (see the ADR's spike findings).
 - Needs-you banner: when the agent's status is `requires_input` and there is no unanswered question or plan entry, show "Claude needs you" with an "Open terminal" button.
 
 ## Composer

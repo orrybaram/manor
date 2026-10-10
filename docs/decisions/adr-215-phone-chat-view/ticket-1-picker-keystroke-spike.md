@@ -1,6 +1,6 @@
 ---
 title: Spike and encode Claude Code picker keystrokes
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: []

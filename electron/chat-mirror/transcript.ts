@@ -6,12 +6,7 @@
  * skipped silently. A format change must make the chat lossy, not broken.
  */
 
-export interface PickerQuestion {
-  question: string;
-  header: string;
-  options: { label: string; description: string }[];
-  multiSelect: boolean;
-}
+import type { PickerQuestion } from "./picker-keys";
 
 export type ChatEntry =
   | { kind: "user"; id: string; ts: string; text: string }

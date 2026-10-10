@@ -128,6 +128,23 @@ the bytes Claude Code's picker expects:
 The exact sequences are **established empirically against a real `claude` by
 ticket 1**, not guessed. They are pinned by unit tests on the encoder.
 
+**Spike findings (ticket 1, Claude Code 2.1.296).** Every AskUserQuestion
+shape was confirmed by reading the `tool_result` back from the transcript:
+
+- single choice: Down×i, Enter
+- Other: Down to "Type something.", the text, Enter
+- multi-select: Enter toggles each choice, Tab to the Submit tab, Enter
+- several questions: answer each (Enter advances), then Enter on Submit
+
+ExitPlanMode is different. Its dialog has two shapes: "Ready to code?" with
+three options when there is a plan, and "Exit plan mode?" (Yes / No) without
+one. The options also depend on the permission mode. Option 1 always
+approves, so **the chat can approve a plan, and anything else ("keep
+planning", "tell Claude what to change") goes to the terminal**. Pressing a
+fixed index to reject could land on "Yes, manually approve edits". Free text
+on a multi-select question is also unverified, so the encoder refuses it and
+the card sends it to the terminal.
+
 `chat.answer` refuses (`stale`) unless that `toolUseId` is still the newest
 unanswered picker for the pane. A double tap, or an answer the desktop already
 gave, must never type into whatever screen comes next. After sending, if no

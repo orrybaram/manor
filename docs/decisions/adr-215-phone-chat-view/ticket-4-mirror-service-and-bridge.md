@@ -8,6 +8,8 @@ blocked_by: [1, 2, 3]
 
 # Transcript mirror service and chat bridge namespace
 
+Ticket 1 is done. `PickerQuestion`/`PickerAnswer` live in `electron/chat-mirror/picker-keys.ts`, and `transcript.ts` already imports them from there.
+
 ADR-215 D4, D5. Read ADR-178's bridge sections, `electron/bridge/types.ts`, `electron/bridge/events.ts` and an existing namespace such as `electron/bridge/handlers/agents.ts` before starting.
 
 ## Service
@@ -32,7 +34,8 @@ Follow the existing handler and registration patterns exactly, including the aud
 - `interrupt(paneId)` → write `\x1b`.
 - `answer(paneId, toolUseId, answer)`:
   - Look up the entry. It must be the newest `question`/`plan` with no answer, otherwise return `{ ok: false, reason: "stale" }`.
-  - Encode with ticket 1's encoder and write.
+  - Encode with ticket 1's encoder (`electron/chat-mirror/picker-keys.ts`) and write. For a `plan` entry the only answer is approval (`encodePlanApproval`). If the encoder throws, return `{ ok: false, reason: "unsupported" }` and send nothing.
+  - The `answer` parameter is `{ kind: "question", answers: PickerAnswer[] } | { kind: "plan-approve" }`.
   - Start a timeout of about 8 seconds. If no `tool_result` for that id arrives, emit the entry updated with `needsTerminal: true`. Add that optional flag to the question/plan entry types.
 - Expose the methods on the renderer `window.electronAPI` type and preload, matching how other namespaces appear on both desktop and web.
 

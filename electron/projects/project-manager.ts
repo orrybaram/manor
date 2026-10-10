@@ -422,17 +422,19 @@ export class ProjectManager {
   }
 
   /**
-   * The project's `origin` URL, as its current host's git reports it, or
-   * null on any failure. Pre-fills the repo URL when moving it to a host.
+   * The project's stored `origin` URL on its current host, or null on any
+   * failure. Pre-fills the repo URL when setting it up on another host. Not
+   * `remote get-url`: that applies this host's `insteadOf` rewrites, which
+   * another host may not share and which `remoteDirIsCloneOf` won't match.
    */
   async getOriginUrl(projectId: string): Promise<string | null> {
     const project = this.findProject(projectId);
     if (!project) return null;
     try {
       const out = await this.hostFor(project.hostId).git.exec(project.path, [
-        "remote",
-        "get-url",
-        "origin",
+        "config",
+        "--get",
+        "remote.origin.url",
       ]);
       const url = out.trim();
       return url === "" ? null : url;

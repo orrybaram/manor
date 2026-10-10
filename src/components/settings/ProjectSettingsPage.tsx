@@ -591,7 +591,7 @@ export function GroupSettingsPage(props: GroupSettingsPageProps) {
       <Stack gap="xs">
         <SectionTitle id="project-general">Shared</SectionTitle>
         <div className={styles.sectionDescription}>
-          Shared by every host in this group. What differs per machine (path,
+          Shared by every host this project is set up on. What differs per machine (path,
           host, worktrees, ports) is on each host's page.
         </div>
         <NameField key={group.name} project={lead} />

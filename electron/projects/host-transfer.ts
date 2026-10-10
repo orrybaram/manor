@@ -178,7 +178,7 @@ export async function planTransfer(
     return { kind: "ready", repoUrl, targetDir: remembered, via: "remembered" };
   }
 
-  // One `git remote get-url` per project on the host, cached by checkout.
+  // One origin lookup per project on the host, cached by checkout.
   const key = originKey(repoUrl);
   if (key) {
     const state = ctx.store.state;

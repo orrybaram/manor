@@ -261,14 +261,15 @@ export class OriginLinks {
    */
   async keyOf(project: PersistedProject): Promise<string | null> {
     // By checkout rather than project id: a project moved to another host
-    // is a different clone, which is asked afresh.
+    // is a different clone, which is asked afresh. The stored URL, as in
+    // `getOriginUrl`, so both sides of a comparison skip `insteadOf`.
     const checkout = `${project.hostId}\0${project.path}`;
     const cached = this.keys.get(checkout);
     if (cached) return cached;
     try {
       const out = await this.ctx
         .host(project.hostId)
-        .git.exec(project.path, ["remote", "get-url", "origin"]);
+        .git.exec(project.path, ["config", "--get", "remote.origin.url"]);
       const key = originKey(out);
       if (key) this.keys.set(checkout, key);
       return key;

@@ -1044,8 +1044,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           ? `${source.name} is set up on ${hostName}`
           : `${source.name} is on ${hostName}`,
       status: "success",
-      // A move is a set up, then this (ADR-214).
+      // A move is a set up, then this (ADR-214). Long enough to reach the
+      // action; the default 3s dismiss hid it before it could be clicked.
       ...(mode === "copy" && {
+        duration: 15_000,
         action: {
           label: `Remove from ${memberHostName(source.hostId, useHostStore.getState().hosts)}`,
           onClick: () => {

@@ -65,7 +65,7 @@ describe("ProjectManager.autoJoin / keepSeparate (ADR-214)", () => {
       ({
         exec: vi.fn(async (cwd: string, args: string[]) => {
           const origin = origins[`${hostId}:${cwd}`];
-          if (args.join(" ") === "remote get-url origin" && origin) return `${origin}\n`;
+          if (args.join(" ") === "config --get remote.origin.url" && origin) return `${origin}\n`;
           throw new Error("error: No such remote 'origin'");
         }),
         worktreeList: vi.fn(async () => []),

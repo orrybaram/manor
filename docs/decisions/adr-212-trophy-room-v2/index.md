@@ -36,9 +36,9 @@ The design canvas "Manor Achievements — Presentation Ideas" (https://claude.ai
 ### Model (`src/lib/badges.ts`, `electron/stats-badges.ts`)
 
 - **Track completion.** A track is **complete** when every badge in it is earned. (An earlier cut of this ADR split each track into "seal" and "gild" tiers; that was dropped as too confusing — see the revision note below.)
-- **Titles.** `BadgeSectionMeta` gains `title` (the reward name, e.g. Carnage → "Exterminator"). Completing a track earns its title. All of this is derived from `summary.badges`, so nothing new is stored.
+- **Titles.** `BadgeSectionMeta` gains `title` (the reward name, e.g. Staff → "Master of the House"). Completing a track earns its title. All of this is derived from `summary.badges`, so nothing new is stored.
 - **Secret badges.** `BadgeMeta` gains `secret?: boolean` for a few joke or surprise badges. While locked, a secret badge shows `???`, a `?` medal, and no tier or progress. A **Reveal** button shows it to you, and that choice is saved.
-- **Platinum.** A fourth tier, `platinum`, with one badge (`platinum`, "Earned every other badge") added to both copies. `earned` in main reads `summary.badges`, so it is awarded on the next commit after the last other badge. The rack goes from 39 to 40 badges.
+- **Platinum.** A fourth tier, `platinum`, with one badge (`platinum`, titled "Lord of the Manor", "Earned every other badge") added to both copies. `earned` in main reads `summary.badges`, so it is awarded on the next commit after the last other badge. The rack goes from 39 to 40 badges.
 - Pure helpers in `src/lib/badges.ts`: `trackState(section, summary)` → `{ earned, total, complete }`, `earnedTitles(summary)`, `tierTally(summary)`. These get unit tests.
 
 ### Persistence
@@ -82,6 +82,10 @@ Two new `AppPreferences` keys, going through the existing preferences store and 
 ## Revision (2026-10-09)
 
 The first build shipped seal (all non-gild badges) and gild (the hardest 1–2 gold badges, after the seal) as two completion layers. Review found two overlapping progress systems with jargon names too confusing, so it was replaced by a single rule: complete every badge in a track to earn its title. Commit: `refactor(adr-212): replace seal and gild with track completion`.
+
+### Revision 2 (2026-10-09)
+
+Nine tracks was too many, and their names (Carnage, Voice, Machinery, …) read as filler. They were folded into four manor-themed tracks with no badge ids or earning rules changed: **Staff** (Command + Carnage, title "Master of the House"), **Orders** (Voice + Reflexes + Machinery, "The Voice"), **Grounds** (Groundskeeping + Shipping, "Groundskeeper") and **Tenure** (Devotion, "Old Guard"). The platinum badge and its track are now **Lord of the Manor**. Starter titles (Greenhorn, Tinkerer, Wrangler, Night Shift) are always available. The header leads with the GitHub login from `gh auth status` and shows the title small underneath. Commits: `787163fa`, `d8c07e7f`.
 
 ## Tickets
 

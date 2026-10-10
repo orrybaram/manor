@@ -86,22 +86,25 @@ function Toast({ item, view }: { item: UnlockItem; view: ToastView }) {
         <span className={styles.medal} aria-hidden="true">
           <span className={styles.emoji}>{view.icon}</span>
         </span>
-        <span className={styles.text}>
-          <span className={styles.eyebrow}>
-            <span className={styles.tier}>{view.tierLabel}</span>
-            {` · ${view.eyebrow}`}
+        {/* Clips the copy while the card is still a ring round the medal. */}
+        <span className={styles.body}>
+          <span className={styles.text}>
+            <span className={styles.eyebrow}>
+              <span className={styles.tier}>{view.tierLabel}</span>
+              {` · ${view.eyebrow}`}
+            </span>
+            <span className={styles.name}>{view.name}</span>
+            <span className={styles.detail}>{view.detail}</span>
           </span>
-          <span className={styles.name}>{view.name}</span>
-          <span className={styles.detail}>{view.detail}</span>
+          <Button
+            variant="secondary"
+            size="sm"
+            className={styles.cta}
+            onClick={open}
+          >
+            View details
+          </Button>
         </span>
-        <Button
-          variant="secondary"
-          size="sm"
-          className={styles.cta}
-          onClick={open}
-        >
-          View details
-        </Button>
       </div>
     </div>
   );

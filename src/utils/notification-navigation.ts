@@ -4,6 +4,8 @@ import { useAgentStore } from "../store/agent-store";
 import { navigateToAgent } from "./agent-navigation";
 import { requestPaletteView } from "./palette-request";
 import { openExternal } from "../lib/open-external";
+import { BADGE_META } from "../lib/badges";
+import { useStatsStore } from "../store/stats-store";
 
 /**
  * Resolve a notification to wherever it points. The single destination for
@@ -20,7 +22,15 @@ export async function navigateToNotification(
 
   const target = record.target;
   // Records written before badges pointed anywhere carry a null target.
-  if (target?.type === "stats" || (!target && record.kind === "badge-unlocked")) {
+  if (
+    target?.type === "stats" ||
+    (!target && record.kind === "badge-unlocked")
+  ) {
+    // A badge opens the Badges tab on its track; a record from before
+    // targets named their badge opens it on Summary.
+    const badgeId = target?.type === "stats" ? target.badgeId : undefined;
+    const section = BADGE_META.find((b) => b.id === badgeId)?.section;
+    useStatsStore.getState().focusTrack(section ?? "summary");
     requestPaletteView("stats");
     return;
   }

@@ -486,7 +486,7 @@ export function initApp(devTitle: string | null): void {
         kind: "badge-unlocked",
         title: `Badge unlocked: ${badge.title}`,
         body: badge.description,
-        target: { type: "stats" },
+        target: { type: "stats", badgeId: badge.id },
       });
       sendNotificationsUpdate();
     },

@@ -26,7 +26,8 @@ export type NotificationKind =
 export type NotificationTarget =
   | { type: "agent"; agentId: string }
   | { type: "url"; url: string }
-  | { type: "stats" };
+  /** The trophy room; `badgeId` opens the Badges tab on that badge's track. */
+  | { type: "stats"; badgeId?: string };
 
 export interface NotificationRecord {
   id: string;

@@ -14,18 +14,19 @@ interface StatsState {
   summary: StatsSummary | null;
   loaded: boolean;
   /**
-   * Track the trophy room should open on (ADR-212), or `null` for Summary.
-   * Consumed — cleared — once the room mounts on it.
+   * Where the Badges tab should open (ADR-212): a track, or its Summary.
+   * `null` opens the room on its default Stats tab. Consumed — cleared —
+   * once the room mounts on it.
    */
-  focusSection: BadgeSection | null;
+  focusSection: BadgeSection | "summary" | null;
   /**
    * Bumped on every `focusTrack` call. The trophy room is keyed on it, so a
    * request while the room is already open remounts it on the new track.
    */
   focusSeq: number;
   reset: () => Promise<void>;
-  /** Open the trophy room on `section` the next time (or right now) it shows. */
-  focusTrack: (section: BadgeSection) => void;
+  /** Open the Badges tab on `section` the next time (or right now) it shows. */
+  focusTrack: (section: BadgeSection | "summary") => void;
   clearFocusTrack: () => void;
 }
 

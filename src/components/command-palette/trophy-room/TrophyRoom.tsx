@@ -34,7 +34,7 @@ type TrophyRoomProps = {
    * Track to open on, from `useStatsStore().focusTrack` (ADR-212). Read once
    * at mount; key the room on `focusSeq` to re-open it on a new track.
    */
-  initialTrack: BadgeSection | null;
+  initialTrack: BadgeSection | "summary" | null;
 };
 
 /** The stats view as a trophy room (ADR-212): header, then Stats | Badges. */

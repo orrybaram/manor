@@ -26,6 +26,7 @@ import type {
 } from "../../persistence";
 import { LOCAL_HOST_ID } from "../../backend/types";
 import { workspaceKey } from "../../../src/lib/workspace-key";
+import type { TransferMode, TransferResult } from "../../projects/types";
 import type { HostDeps } from "../../ipc/types";
 import { method, type HandlerCtx } from "../method";
 
@@ -133,13 +134,55 @@ export async function projectsMoveToHost(
   assertString(opts?.repoUrl, "repoUrl");
   assertString(opts?.remoteDir, "remoteDir");
   const { projectManager } = deps;
-  projectManager.assertRemoteHost(opts.hostId);
-  await deps.backendRegistry.ensureConnected(opts.hostId);
+  projectManager.assertKnownHost(opts.hostId);
+  if (opts.hostId !== LOCAL_HOST_ID) {
+    await deps.backendRegistry.ensureConnected(opts.hostId);
+  }
   const oldHostId = projectManager.getProjectHostId(projectId);
   return moveLayouts(
     deps,
     oldHostId,
     await projectManager.moveProjectToHost(projectId, opts),
+  );
+}
+
+/**
+ * ADR-213: copy a project to a host (a new linked project) or move it
+ * (re-point this one), either way. Either completes, or answers
+ * `{ ok: false, needsInput }` with what to ask; the dialog calls again with
+ * `repoUrl` / `targetDir` filled in.
+ */
+export async function projectsTransfer(
+  ctx: HandlerCtx,
+  opts: {
+    projectId: string;
+    hostId: string;
+    mode: TransferMode;
+    repoUrl?: string;
+    targetDir?: string;
+  },
+): Promise<TransferResult> {
+  const { deps } = ctx;
+  assertString(opts?.projectId, "projectId");
+  assertString(opts?.hostId, "hostId");
+  if (opts.mode !== "copy" && opts.mode !== "move") {
+    throw new Error("mode must be 'copy' or 'move'");
+  }
+  if (opts.repoUrl !== undefined) assertString(opts.repoUrl, "repoUrl");
+  if (opts.targetDir !== undefined) assertString(opts.targetDir, "targetDir");
+  deps.projectManager.assertKnownHost(opts.hostId);
+  if (opts.hostId !== LOCAL_HOST_ID) {
+    await deps.backendRegistry.ensureConnected(opts.hostId);
+  }
+  const overrides =
+    opts.repoUrl !== undefined && opts.targetDir !== undefined
+      ? { repoUrl: opts.repoUrl, targetDir: opts.targetDir }
+      : undefined;
+  return deps.projectManager.transferProject(
+    opts.projectId,
+    opts.hostId,
+    opts.mode,
+    overrides,
   );
 }
 
@@ -492,6 +535,7 @@ export const projects = {
   // a project, a group, or what the sidebar shows.
   clone: method(projectsClone, { mutating: true }),
   moveToHost: method(projectsMoveToHost, { mutating: true }),
+  transfer: method(projectsTransfer, { mutating: true }),
   getOriginUrl: method(projectsGetOriginUrl),
   pathExists: method(projectsPathExists),
   switchHost: method(projectsSwitchHost, { mutating: true }),

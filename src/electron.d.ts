@@ -447,6 +447,14 @@ export type {
   PersistedViewportFile,
 } from "./lib/layout/protocol";
 
+/** The one-click project transfer's wire types (ADR-213). */
+export type {
+  TransferInputReason,
+  TransferMode,
+  TransferPlan,
+  TransferResult,
+} from "../electron/projects/types";
+
 /** A detached window's hold on a tab (ADR-179 D4). */
 export type LayoutClaim = import("./lib/layout/visible-tabs").LayoutClaim;
 

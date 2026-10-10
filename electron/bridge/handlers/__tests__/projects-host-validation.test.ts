@@ -4,6 +4,7 @@ import { localCtx } from "../../method";
 
 import {
   projectsMoveToHost,
+  projectsTransfer,
   projectsSwitchHost,
   projectsUpdate,
 } from "../projects";
@@ -27,6 +28,7 @@ const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown
   ["projects:update", call(projectsUpdate)],
   ["projects:switchHost", call(projectsSwitchHost)],
   ["projects:moveToHost", call(projectsMoveToHost)],
+  ["projects:transfer", call(projectsTransfer)],
 ]);
 import { LOCAL_HOST_ID } from "../../../backend/types";
 import { HostRecords } from "../../../projects/host-records";
@@ -49,7 +51,7 @@ function makeDeps(opts: { currentHostId?: string; pathExists?: boolean } = {}) {
   const projectManager = {
     updateProject: vi.fn().mockResolvedValue(null),
     assertKnownHost: (hostId: string) => hosts.assertKnown(hostId),
-    assertRemoteHost: (hostId: string) => hosts.assertRemote(hostId),
+    transferProject: vi.fn().mockResolvedValue({ ok: true, project: moved("box") }),
     getProjectHostId: vi.fn().mockReturnValue(opts.currentHostId ?? LOCAL_HOST_ID),
     switchProjectHost: opts.pathExists === false
       ? vi.fn().mockRejectedValue(new Error("does not exist"))
@@ -108,17 +110,17 @@ describe("projects:moveToHost (ADR-179)", () => {
     expect(deps.projectManager.moveProjectToHost).toHaveBeenCalledWith("p1", opts);
   });
 
-  it("rejects the local host and unknown hosts", async () => {
-    const deps = makeDeps();
+  it("accepts the local host without connecting, and rejects unknown hosts", async () => {
+    const deps = makeDeps({ currentHostId: "box" });
     register(deps as never);
     const handler = handlers.get("projects:moveToHost")!;
-    await expect(
-      handler(null, "p1", { ...opts, hostId: LOCAL_HOST_ID }) as Promise<unknown>,
-    ).rejects.toThrow(/remote host is required/);
+    await handler(null, "p1", { ...opts, hostId: LOCAL_HOST_ID });
+    expect(deps.projectManager.moveProjectToHost).toHaveBeenCalledTimes(1);
+    expect(deps.backendRegistry.ensureConnected).not.toHaveBeenCalled();
     await expect(
       handler(null, "p1", { ...opts, hostId: "nope" }) as Promise<unknown>,
     ).rejects.toThrow(/Unknown host/);
-    expect(deps.projectManager.moveProjectToHost).not.toHaveBeenCalled();
+    expect(deps.projectManager.moveProjectToHost).toHaveBeenCalledTimes(1);
   });
 
   // ADR-191: the workspaces it keeps keep their saved layouts, under their
@@ -130,6 +132,53 @@ describe("projects:moveToHost (ADR-179)", () => {
     expect(deps.layoutStore.moveWorkspaces).toHaveBeenCalledWith([
       ["/srv/app", "box:/srv/app"],
     ]);
+  });
+});
+
+describe("projects:transfer (ADR-213)", () => {
+  const opts = { projectId: "p1", hostId: "box", mode: "copy" as const };
+
+  it("connects to a remote host, then transfers", async () => {
+    const deps = makeDeps();
+    register(deps as never);
+    const res = await handlers.get("projects:transfer")!(null, opts);
+    expect(deps.backendRegistry.ensureConnected).toHaveBeenCalledWith("box");
+    expect(deps.projectManager.transferProject).toHaveBeenCalledWith("p1", "box", "copy", undefined);
+    expect(res).toMatchObject({ ok: true });
+  });
+
+  it("passes overrides through", async () => {
+    const deps = makeDeps();
+    register(deps as never);
+    await handlers.get("projects:transfer")!(null, {
+      ...opts,
+      mode: "move",
+      repoUrl: "u",
+      targetDir: "~/d",
+    });
+    expect(deps.projectManager.transferProject).toHaveBeenCalledWith("p1", "box", "move", {
+      repoUrl: "u",
+      targetDir: "~/d",
+    });
+  });
+
+  it("does not connect for the local host", async () => {
+    const deps = makeDeps();
+    register(deps as never);
+    await handlers.get("projects:transfer")!(null, { ...opts, hostId: LOCAL_HOST_ID });
+    expect(deps.backendRegistry.ensureConnected).not.toHaveBeenCalled();
+    expect(deps.projectManager.transferProject).toHaveBeenCalled();
+  });
+
+  it("validates its input", async () => {
+    const deps = makeDeps();
+    register(deps as never);
+    const handler = handlers.get("projects:transfer")!;
+    await expect(handler(null, { ...opts, projectId: 1 }) as Promise<unknown>).rejects.toThrow();
+    await expect(handler(null, { ...opts, mode: "swap" }) as Promise<unknown>).rejects.toThrow(/mode/);
+    await expect(handler(null, { ...opts, repoUrl: 5 }) as Promise<unknown>).rejects.toThrow();
+    await expect(handler(null, { ...opts, hostId: "nope" }) as Promise<unknown>).rejects.toThrow(/Unknown host/);
+    expect(deps.projectManager.transferProject).not.toHaveBeenCalled();
   });
 });
 

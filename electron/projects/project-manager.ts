@@ -147,11 +147,6 @@ export class ProjectManager {
     this.hosts.assertKnown(hostId);
   }
 
-  /** Throws unless `hostId` is a registered remote host (ADR-183). */
-  assertRemoteHost(hostId: string): void {
-    this.hosts.assertRemote(hostId);
-  }
-
   getHostHookCursor(hostId: string): { seq: number; epoch: string | null } | null {
     return this.hosts.hookCursor(hostId);
   }

@@ -1,6 +1,6 @@
 ---
 title: Main-side planTransfer and transferProject
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: []

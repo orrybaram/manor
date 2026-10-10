@@ -18,6 +18,7 @@ import {
 import styles from "./UnlockToast.module.css";
 
 interface ToastView {
+  /** Read to screen readers; shown on screen only for a completed track. */
   eyebrow: string;
   name: string;
   detail: string;
@@ -91,7 +92,7 @@ function Toast({ item, view }: { item: UnlockItem; view: ToastView }) {
           <span className={styles.text}>
             <span className={styles.eyebrow}>
               <span className={styles.tier}>{view.tierLabel}</span>
-              {` · ${view.eyebrow}`}
+              {item.kind === "complete" && ` · ${view.eyebrow}`}
             </span>
             <span className={styles.name}>{view.name}</span>
             <span className={styles.detail}>{view.detail}</span>

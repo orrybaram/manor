@@ -1,6 +1,6 @@
 ---
 title: Remote-host E2E for the phone chat
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [3]

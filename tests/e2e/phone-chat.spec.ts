@@ -127,6 +127,7 @@ test.describe("phone chat view (ADR-215)", () => {
       await overflowButton.tap();
       await expect(viewItem).toBeVisible({ timeout: 20_000 });
       await expect(viewItem).toHaveText("Show terminal");
+      await film.shot(page, "00-overflow-menu");
       // Escape closes the menu without switching.
       await page.keyboard.press("Escape");
       await expect(viewItem).toBeHidden();

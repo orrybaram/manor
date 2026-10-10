@@ -331,6 +331,7 @@ test.describe("phone layout (ADR-181)", () => {
       const sheet = client.page.getByTestId("notifications-sheet");
       await expect(sheet).toBeVisible();
       await expect(sheet).toContainText("Notifications");
+      await film.shot(client.page, "05b-notifications-sheet");
       await client.page.getByTestId("notifications-sheet-close").click();
       await expect(sheet).not.toBeVisible();
 

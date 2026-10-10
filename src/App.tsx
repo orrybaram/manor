@@ -28,8 +28,6 @@ import { ManorLogo } from "./components/ui/ManorLogo";
 import { CloseAgentPaneDialog } from "./components/CloseAgentPaneDialog";
 import { ToastContainer } from "./components/ui/Toast/Toast";
 import { UnlockToast } from "./components/achievements/UnlockToast";
-// TEMPORARY (ADR-212 toast testing): remove with ToastTester.tsx.
-import { ToastTester } from "./components/achievements/ToastTester";
 import { TooltipProvider } from "./components/ui/Tooltip/Tooltip";
 import {
   SIDEBAR_MODE_TRANSITION_MS,
@@ -1013,7 +1011,6 @@ function App() {
       />
       <ToastContainer />
       <UnlockToast />
-      <ToastTester />
       {!OWN_CLAIM && showGhosts && <GhostsOverlay />}
     </div>
     </TooltipProvider>

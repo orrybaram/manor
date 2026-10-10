@@ -1,6 +1,6 @@
 ---
 title: transferTargets helper and transferProject store action
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [2]

@@ -1,6 +1,6 @@
 ---
 title: Bridge projects.transfer and local-capable moveToHost
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

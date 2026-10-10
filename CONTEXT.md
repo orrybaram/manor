@@ -95,6 +95,18 @@ _Avoid_: terminal host, pty server
 A place sessions run — the local machine, or a cloud box — always a Manor server and a daemon together; the renderer attaches to exactly one at a time, and local stays a first-class choice.
 _Avoid_: backend, cloud, remote (see ADR-160, which introduced the term)
 
+**Project**:
+A repo, set up on one or more **Hosts**, with at most one checkout per host. In code a lone project is a group of one (ADR-192, ADR-214).
+_Avoid_ in UI copy: group, member, linked project
+
+**Set up on**:
+Putting a project's repo on another host, by cloning it or by adopting an existing checkout of the same origin. It is the only way a project gains a host (ADR-214).
+_Avoid_: copy to, move to, link, clone onto
+
+**Remove from host**:
+Dropping one host's checkout from a project in Manor, without deleting its files. A "move" is set up on the new host, then remove from the old one.
+_Avoid_: unlink, move
+
 **Bridge**:
 The one interface the renderer uses to reach a host: one host surface, reached over two transports — Electron IPC inside the desktop, a WebSocket from a browser — never two implementations converging on one (ADR-180).
 _Avoid_: preload, window.electron, API client
@@ -168,6 +180,7 @@ _Avoid_: mirror, read-only viewer (a follower may still type)
   the renderer displays what it publishes and does not re-derive it.
 
 - A session has exactly one **Winsize owner** and any number of **Followers**; a web-app viewer is a **Follower** whenever the desktop has the pane mounted.
+- A **Project** is set up on one or more **Hosts**; each **Workspace** lives on exactly one of them.
 - A **Host** is one **Manor server** plus one **Daemon**; the **Manor server** owns the layout, every **Renderer** holds a replica and sends commands.
 - Layout _structure_ (panels, tabs, pane trees) is shared across all renderers of a host; _viewport_ (which panel, tab and pane each one is looking at) is per renderer.
 

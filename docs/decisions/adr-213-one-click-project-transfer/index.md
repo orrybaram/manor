@@ -19,6 +19,8 @@ database:
 
 # ADR-213: One-click Copy to / Move to host for projects
 
+Amended by ADR-214: Copy to / Move to became Set up on / Remove from host.
+
 ## Context
 
 A project can live on this machine or on a remote host (ADR-160, ADR-178). It

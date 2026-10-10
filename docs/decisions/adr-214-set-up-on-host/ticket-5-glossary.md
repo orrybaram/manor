@@ -1,6 +1,6 @@
 ---
 title: Glossary and ADR cross-references
-status: todo
+status: done
 priority: low
 assignee: haiku
 blocked_by: [4]

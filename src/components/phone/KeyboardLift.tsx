@@ -13,10 +13,20 @@ import { selectFocusedPaneOfActiveTab, useAppStore } from "../../store/app-store
  * for a terminal, this lifts the whole shell by a `translate`, which changes
  * no layout and so no row count, just far enough that the cursor's row clears
  * the keyboard.
+ *
+ * The chat view's composer (ADR-215 D7) is lifted the same way: an element
+ * inside `[data-keyboard-lift]` with focus lifts the shell until that
+ * container's bottom clears the keyboard.
  */
 
-function terminalHasFocus(): boolean {
-  return document.activeElement?.classList.contains("xterm-helper-textarea") ?? false;
+type FocusTarget = "terminal" | "lift" | null;
+
+function focusTarget(): FocusTarget {
+  const el = document.activeElement;
+  if (!el) return null;
+  if (el.classList.contains("xterm-helper-textarea")) return "terminal";
+  if (el.closest("[data-keyboard-lift]")) return "lift";
+  return null;
 }
 
 /** Less than this between the layout and visual viewports is not a keyboard
@@ -34,11 +44,11 @@ const SHIFT_VAR = "--phone-keyboard-shift";
 
 export function KeyboardLift() {
   const paneId = useAppStore(selectFocusedPaneOfActiveTab);
-  const [focused, setFocused] = useState(terminalHasFocus);
+  const [target, setTarget] = useState(focusTarget);
   const [bottom, setBottom] = useState(visibleBottom);
 
   useMountEffect(() => {
-    const onFocus = () => setFocused(terminalHasFocus());
+    const onFocus = () => setTarget(focusTarget());
     document.addEventListener("focusin", onFocus);
     document.addEventListener("focusout", onFocus);
     return () => {
@@ -46,6 +56,8 @@ export function KeyboardLift() {
       document.removeEventListener("focusout", onFocus);
     };
   });
+
+  const focused = target !== null;
 
   useEffect(() => {
     const vv = window.visualViewport;
@@ -63,8 +75,21 @@ export function KeyboardLift() {
   const keyboardUp = focused && window.innerHeight - bottom >= KEYBOARD_MIN_PX;
 
   useEffect(() => {
+    if (!keyboardUp || target !== "lift") return;
     const root = document.documentElement;
-    const term = keyboardUp && paneId ? terminalFor(paneId) : undefined;
+    const box = document.activeElement?.closest("[data-keyboard-lift]");
+    if (!box) return;
+    // Measured with no lift applied: the previous run's cleanup removed it.
+    const shift = Math.max(0, Math.ceil(box.getBoundingClientRect().bottom - bottom));
+    if (shift > 0) root.style.setProperty(SHIFT_VAR, `${shift}px`);
+    return () => {
+      root.style.removeProperty(SHIFT_VAR);
+    };
+  }, [keyboardUp, target, bottom]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const term = keyboardUp && target === "terminal" && paneId ? terminalFor(paneId) : undefined;
     if (!term) return;
     let shift = 0;
     const place = () => {
@@ -88,7 +113,7 @@ export function KeyboardLift() {
       for (const sub of subs) sub.dispose();
       root.style.removeProperty(SHIFT_VAR);
     };
-  }, [keyboardUp, paneId, bottom]);
+  }, [keyboardUp, target, paneId, bottom]);
 
   return null;
 }

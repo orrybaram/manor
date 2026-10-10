@@ -1,0 +1,28 @@
+/*
+ * ADR-215 D7: the Chat | Terminal strip, and the rule that hides a pane's
+ * terminal under its chat. Loaded with `LeafPane` (unlike `ChatPane`, which is
+ * lazy), since both are used by the pane itself.
+ */
+
+.strip {
+  display: flex;
+  justify-content: center;
+  padding: 4px 8px;
+  flex-shrink: 0;
+  background: var(--dim);
+  border-bottom: 1px solid var(--border);
+}
+
+.strip > [role="radiogroup"] {
+  align-self: center;
+}
+
+/*
+ * The terminal under a shown chat. `visibility` rather than `display`: it
+ * keeps its box, so the terminal neither unmounts nor changes geometry (ADR-181
+ * D1), and a hidden element can't hold focus, so the soft keyboard is the
+ * composer's alone.
+ */
+.terminalHidden > :not([data-chat-pane]) {
+  visibility: hidden;
+}

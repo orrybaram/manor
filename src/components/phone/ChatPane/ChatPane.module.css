@@ -1,0 +1,382 @@
+/*
+ * ADR-215 D7: the phone's chat view of a Claude pane. It sits over the
+ * pane's terminal (which stays mounted and keeps its box), so it is absolutely
+ * placed and opaque. Only ever rendered in phone mode, so these rules need no
+ * `data-layout` scoping of their own.
+ */
+
+.chatPane {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg);
+  color: var(--text-primary);
+}
+
+/* Shown terminal: the chat keeps its layout (and its scroll position). */
+.hidden {
+  visibility: hidden;
+}
+
+.scroller {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.entries {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.empty,
+.unavailable p {
+  margin: 0;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.unavailable {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex: 1;
+  padding: 24px;
+}
+
+/* ── User and assistant ── */
+
+.userRow {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.userBubble {
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: 14px 14px 4px 14px;
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+  color: var(--text-selected);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.assistant {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown p,
+.markdown ul,
+.markdown ol {
+  margin: 0 0 8px;
+}
+
+.markdown ul,
+.markdown ol {
+  padding-left: 20px;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  margin: 12px 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-selected);
+}
+
+.markdown code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.markdown pre {
+  margin: 0 0 8px;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  overflow-x: auto;
+}
+
+.markdown pre code {
+  padding: 0;
+  background: none;
+}
+
+.markdown table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.markdown th,
+.markdown td {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+}
+
+.markdown blockquote {
+  margin: 0 0 8px;
+  padding-left: 10px;
+  border-left: 3px solid var(--border);
+  color: var(--text-dim);
+}
+
+/* ── Tool calls ── */
+
+.tool {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--dim);
+}
+
+button.toolLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  justify-content: flex-start;
+  text-align: left;
+  font-size: 13px;
+}
+
+button.toolLine:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+
+.statusDot[data-status="ok"] {
+  background: var(--green);
+}
+
+.statusDot[data-status="error"] {
+  background: var(--red);
+}
+
+.statusDot[data-status="pending"] {
+  background: var(--yellow);
+}
+
+.toolName {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--text-selected);
+}
+
+.toolSummary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+
+.toolDetail {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 320px;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+}
+
+/* ── Question and plan cards ── */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.question {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cardHeader {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+.questionText {
+  color: var(--text-selected);
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+button.option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  text-align: left;
+  white-space: normal;
+}
+
+.optionLabel {
+  font-weight: 600;
+}
+
+.optionDescription {
+  font-size: 13px;
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+.otherInput {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 16px;
+}
+
+button.submit {
+  align-self: stretch;
+}
+
+.cardNote {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.cardFallback,
+.needsYou {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.cardFallback {
+  color: var(--text-dim);
+}
+
+.planActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.planActions > button {
+  flex: 1 1 auto;
+}
+
+button.more {
+  align-self: flex-start;
+}
+
+.answered {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.answeredTitle {
+  font-weight: 600;
+}
+
+.answeredValue {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* ── Banner and composer ── */
+
+.needsYou {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--yellow) 18%, var(--surface));
+  color: var(--text-selected);
+}
+
+.composer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: var(--dim);
+}
+
+.composerRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+/* 16px or iOS zooms the page on focus (also enforced in Phone.module.css). */
+.composerInput {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  max-height: 140px;
+  resize: none;
+  font-size: 16px;
+  field-sizing: content;
+}
+
+.composerError {
+  font-size: 12px;
+  color: var(--red);
+}

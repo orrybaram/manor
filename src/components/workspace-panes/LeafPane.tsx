@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, memo } from "react";
+import { useRef, useState, useCallback, memo, lazy, Suspense } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
 import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
@@ -57,9 +57,20 @@ import { PaneHeaderTitle } from "./PaneHeaderTitle";
 import { useRemotePaneStore } from "../../store/remote-pane-store";
 import { useWorkspaceProjectId } from "../../hooks/useWorkspaceProjectId";
 import { isWebApp } from "../../lib/platform";
+import { useLayoutMode } from "../../hooks/useLayoutMode";
+import { useAgentStore } from "../../store/agent-store";
+import { chatTranscriptPath, pickPaneAgent } from "../phone/ChatPane/chat-view";
+import { ChatViewToggle } from "../phone/ChatPane/ChatViewToggle";
+import { usePaneChatView } from "../phone/ChatPane/usePaneChatView";
+import chatViewStyles from "../phone/ChatPane/ChatViewToggle.module.css";
 
 import styles from "./PaneLayout/PaneLayout.module.css";
 import browserStyles from "./BrowserPane/BrowserPane.module.css";
+
+// Phone only (ADR-215), so it stays out of the desk's bundle path.
+const ChatPane = lazy(() =>
+  import("../phone/ChatPane/ChatPane").then((m) => ({ default: m.ChatPane })),
+);
 
 function stripUrlForDisplay(url: string): string {
   return url.replace(/^https?:\/\//, "").replace(/^www\./, "");
@@ -93,6 +104,19 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   // Bumped when this pane's remote host comes back, to remount its terminal
   // and create/attach its session again (ADR-178 §6). 0 for every local pane.
   const reattachEpoch = useRemotePaneStore((s) => s.panes[paneId]?.reattachEpoch ?? 0);
+
+  // ADR-215 D7: on a phone, a Claude pane with a transcript can be read as a
+  // chat. The desk never offers it. Keyed off the transcript, so `/clear` or a
+  // resume remounts the chat with the new session's history.
+  const phone = useLayoutMode() === "phone";
+  const chatTranscript = useAgentStore((s) =>
+    phone && contentType !== "diff" && contentType !== "browser"
+      ? chatTranscriptPath(pickPaneAgent(s.agents, paneId))
+      : null,
+  );
+  const [paneView, setPaneView] = usePaneChatView(paneId);
+  const showChat = chatTranscript !== null && paneView === "chat";
+  const showTerminal = useCallback(() => setPaneView("terminal"), [setPaneView]);
 
   const focusPane = useAppStore((s) => s.focusPane);
   const splitPane = useAppStore((s) => s.splitPane);
@@ -556,6 +580,9 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
         </ContextMenu.Content>
       </ContextMenu.Portal>
       </ContextMenu.Root>
+      {chatTranscript !== null && (
+        <ChatViewToggle value={paneView} onChange={setPaneView} />
+      )}
       {contentType === "browser" && navState?.findBarOpen && (
         <div className={browserStyles.findBar}>
           <Search size={12} className={browserStyles.findBarIcon} />
@@ -623,7 +650,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
           ))}
         </div>
       )}
-      <div className={`${styles.leafTerminal} ${contentType !== "diff" && contentType !== "browser" ? styles.leafTerminalInset : ""} ${navState?.webviewFocused ? browserStyles.webviewFocused : ""}`}>
+      <div className={`${styles.leafTerminal} ${contentType !== "diff" && contentType !== "browser" ? styles.leafTerminalInset : ""} ${navState?.webviewFocused ? browserStyles.webviewFocused : ""} ${showChat ? chatViewStyles.terminalHidden : ""}`}>
         {contentType === "diff" ? (
           <PaneContextMenu paneId={paneId} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
             <DiffPane
@@ -660,6 +687,18 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
             cwd={paneCwd || workspacePath}
             workspaceKey={workspaceKey}
           />
+        )}
+        {/* After the terminal, and always in this slot, so it showing or not
+            never remounts the terminal (ADR-181 D1). */}
+        {chatTranscript !== null && (
+          <Suspense fallback={null}>
+            <ChatPane
+              key={chatTranscript}
+              paneId={paneId}
+              hidden={!showChat}
+              onShowTerminal={showTerminal}
+            />
+          </Suspense>
         )}
       </div>
       {showDropZone && <PaneDropZone paneId={paneId} />}

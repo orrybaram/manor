@@ -1,0 +1,43 @@
+/* TEMPORARY: see ToastTester.tsx. */
+
+.trigger {
+  position: fixed;
+  right: 12px;
+  bottom: 40px;
+  z-index: 300;
+}
+
+.panel {
+  z-index: 300;
+  width: min(560px, calc(100vw - 16px));
+  max-height: min(560px, 70vh);
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-radius: 8px;
+  background: var(--dim);
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.4);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.heading {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}

@@ -20,6 +20,7 @@ import styles from "./UnlockToast.module.css";
 interface ToastView {
   eyebrow: string;
   name: string;
+  detail: string;
   icon: string;
   tier: BadgeTier;
   tierLabel: string;
@@ -31,22 +32,24 @@ function describe(item: UnlockItem): ToastView | null {
     const badge = BADGE_META.find((b) => b.id === item.id);
     if (!badge) return null;
     return {
-      eyebrow: "ACHIEVEMENT UNLOCKED",
+      eyebrow: "Achievement unlocked",
       name: badge.title,
+      detail: badge.description,
       icon: badge.icon,
       tier: badge.tier,
-      tierLabel: TIER_LABEL[badge.tier].toUpperCase(),
+      tierLabel: TIER_LABEL[badge.tier],
       section: badge.section,
     };
   }
   const section = BADGE_SECTIONS.find((s) => s.id === item.section);
   if (!section) return null;
   return {
-    eyebrow: "TRACK COMPLETE",
+    eyebrow: "Track complete",
     name: section.title,
+    detail: `Every ${section.name} badge earned. The title is yours.`,
     icon: "\u{1F396}️",
     tier: "gold",
-    tierLabel: "TITLE",
+    tierLabel: "Title",
     section: item.section,
   };
 }
@@ -64,13 +67,12 @@ function Toast({ item, view }: { item: UnlockItem; view: ToastView }) {
     <div
       className={styles.toast}
       role="status"
+      aria-label={`${view.eyebrow}: ${view.name}`}
       data-tier={view.tier}
       data-kind={item.kind}
     >
-      <Button
-        variant="ghost"
-        className={styles.pill}
-        onClick={open}
+      <div
+        className={styles.card}
         onAnimationEnd={(e) => {
           if (e.target !== e.currentTarget) return;
           if (
@@ -80,22 +82,35 @@ function Toast({ item, view }: { item: UnlockItem; view: ToastView }) {
             dismiss();
           }
         }}
-        aria-label={`${view.eyebrow}: ${view.name}`}
       >
         <span className={styles.medal} aria-hidden="true">
           <span className={styles.emoji}>{view.icon}</span>
         </span>
         <span className={styles.text}>
-          <span className={styles.eyebrow}>{view.eyebrow}</span>
+          <span className={styles.eyebrow}>
+            <span className={styles.tier}>{view.tierLabel}</span>
+            {` · ${view.eyebrow}`}
+          </span>
           <span className={styles.name}>{view.name}</span>
+          <span className={styles.detail}>{view.detail}</span>
         </span>
-        <span className={styles.tier}>{view.tierLabel}</span>
-      </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          className={styles.cta}
+          onClick={open}
+        >
+          View details
+        </Button>
+      </div>
     </div>
   );
 }
 
-/** Bottom-center pill announcing badge and track-complete unlocks, one at a time. */
+/**
+ * Badge and track-complete unlocks, one at a time: the medal pops in at the
+ * centre of the window and pulses, then the card expands out of it.
+ */
 export function UnlockToast() {
   useBadgeUnlocks();
   const head = useUnlockQueue((s) => s.queue[0]);

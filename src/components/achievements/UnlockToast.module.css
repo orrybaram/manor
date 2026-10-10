@@ -1,7 +1,9 @@
 /*
- * Unlock pill (ADR-212, board 6b). Timeline: medal pops at 0ms, the pill
- * unrolls by 250ms, text fades up by 450ms, holds to 5s, then rolls back and
- * fades. Hover pauses every animation, which pauses the 5s hold with them.
+ * Unlock toast (ADR-212). Centred in the window. Timeline: the medal pops in
+ * alone (0–450ms) and pulses twice (450–1650ms); the card then expands out
+ * of it (1500–2000ms) and the text and CTA fade in; it holds to 7s, then
+ * folds back into the medal and fades. Hover pauses every animation, which
+ * pauses the hold with them.
  */
 
 .toast {
@@ -10,17 +12,20 @@
   --tier-gold: 224 186 88;
   --tier-platinum: 190 214 232;
   --tier: var(--tier-silver);
+  --medal: 64px;
+  --closed: 88px;
 
   position: fixed;
   left: 50%;
-  bottom: 40px;
-  transform: translateX(-50%);
+  top: 50%;
+  transform: translate(-50%, -50%);
   z-index: 10000;
-  width: 560px;
+  width: 600px;
   max-width: calc(100vw - 32px);
-  height: 88px;
+  height: var(--closed);
   display: flex;
-  justify-content: flex-start;
+  justify-content: center;
+  pointer-events: none;
 }
 
 .toast[data-tier="bronze"] {
@@ -39,49 +44,49 @@
   --tier: var(--tier-platinum);
 }
 
-.toast .pill {
+/* Grows symmetrically from the medal's width, so the medal starts dead centre
+   and slides to the card's left edge as it opens. */
+.card {
   position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 18px;
   flex: none;
   box-sizing: border-box;
   width: 100%;
-  height: 88px;
-  padding: 0 28px 0 12px;
+  height: var(--closed);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 14px 0 12px;
   overflow: hidden;
   border-radius: 999px;
   background: var(--surface);
   border: 1px solid var(--border);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 18px 40px rgb(0 0 0 / 0.5);
   color: var(--text-selected);
   font-family: var(--font-mono);
-  text-align: left;
-  cursor: pointer;
+  pointer-events: auto;
   animation:
-    unroll 300ms cubic-bezier(0.2, 0.8, 0.2, 1) both,
-    leave 450ms ease-in 5000ms forwards;
+    expand 500ms cubic-bezier(0.2, 0.8, 0.2, 1) 1500ms both,
+    leave 450ms ease-in 7000ms forwards;
 }
 
-.toast .pill:hover,
-.toast .pill:hover * {
+.toast:hover *,
+.toast:hover *::after {
   animation-play-state: paused;
 }
 
 .medal {
   position: relative;
   flex: none;
-  width: 64px;
-  height: 64px;
+  width: var(--medal);
+  height: var(--medal);
   box-sizing: border-box;
   border-radius: 50%;
   border: 3px solid rgb(var(--tier));
   background: var(--surface);
-  box-shadow: 0 0 0 6px rgb(255 255 255 / 0.04);
+  box-shadow: 0 0 24px rgb(var(--tier) / 0.35);
   display: grid;
   place-items: center;
-  animation: pop 400ms cubic-bezier(0.3, 1.5, 0.5, 1) both;
+  animation: pop 450ms cubic-bezier(0.3, 1.5, 0.5, 1) both;
 }
 
 .medal::after {
@@ -91,7 +96,7 @@
   border-radius: 50%;
   border: 3px solid rgb(var(--tier));
   opacity: 0;
-  animation: pulse 700ms ease-out both;
+  animation: pulse 600ms ease-out 450ms 2 both;
 }
 
 .emoji {
@@ -106,34 +111,62 @@
   flex-direction: column;
   gap: 2px;
   white-space: nowrap;
-  animation: textIn 250ms ease-out 200ms both;
+  animation: textIn 260ms ease-out 1850ms both;
 }
 
 .eyebrow {
-  font-size: 11px;
-  letter-spacing: 0.16em;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   color: var(--text-dim);
 }
 
+.tier {
+  color: rgb(var(--tier));
+}
+
 .name {
-  font-size: 19px;
+  font-size: 17px;
   font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.tier {
+.detail {
+  font-family: var(--font-sans, system-ui);
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toast .cta {
   flex: none;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  color: rgb(var(--tier));
-  animation: textIn 250ms ease-out 200ms both;
+  margin-right: 10px;
+  animation: textIn 260ms ease-out 1950ms both;
+}
+
+/* Before it expands the card is only a ring of chrome around the medal. */
+@keyframes expand {
+  0% {
+    width: var(--closed);
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+  }
+  100% {
+    width: 100%;
+  }
 }
 
 @keyframes pop {
   0% {
     transform: scale(0.3);
     opacity: 0;
+  }
+  65% {
+    transform: scale(1.2);
+    opacity: 1;
   }
   100% {
     transform: scale(1);
@@ -144,20 +177,11 @@
 @keyframes pulse {
   0% {
     transform: scale(1);
-    opacity: 0.7;
+    opacity: 0.8;
   }
   100% {
-    transform: scale(1.7);
+    transform: scale(1.9);
     opacity: 0;
-  }
-}
-
-@keyframes unroll {
-  0% {
-    width: 88px;
-  }
-  100% {
-    width: 100%;
   }
 }
 
@@ -178,16 +202,16 @@
     opacity: 1;
   }
   70% {
-    width: 88px;
+    width: var(--closed);
     opacity: 1;
   }
   100% {
-    width: 88px;
+    width: var(--closed);
     opacity: 0;
   }
 }
 
-/* Reduced motion: appear and disappear, keeping the 5s hold. */
+/* Reduced motion: the open card appears and disappears, keeping the hold. */
 @keyframes hold {
   0%,
   100% {
@@ -196,13 +220,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .toast .pill {
-    animation: hold 5000ms linear both;
+  .card {
+    animation: hold 7000ms linear both;
   }
 
   .medal,
   .text,
-  .tier {
+  .toast .cta {
     animation: none;
   }
 

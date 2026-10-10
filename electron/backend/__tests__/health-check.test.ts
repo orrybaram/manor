@@ -46,10 +46,10 @@ function fakeShell(opts: {
           return opts.originExec?.(args) ?? "";
         }
       }
-      if (cmd === "gh" && args[0] === "auth") {
+      if ((cmd === "gh" || cmd.endsWith("/gh")) && args[0] === "auth") {
         return opts.ghExec?.(args) ?? "";
       }
-      if (cmd === "codex" && args[0] === "--version") {
+      if ((cmd === "codex" || cmd.endsWith("/codex")) && args[0] === "--version") {
         return opts.codexExec?.(args) ?? "";
       }
       throw new Error(`fakeShell: unexpected exec ${cmd} ${args.join(" ")}`);
@@ -73,6 +73,17 @@ function fakeGit(overrides: {
 }
 
 describe("runHealthChecks", () => {
+  it("runs gh and codex by the path the login shell resolved", async () => {
+    const shell = fakeShell({
+      bins: { gh: "/opt/homebrew/bin/gh", codex: "/home/user/.local/bin/codex" },
+    });
+    const results = await runHealthChecks(shell, fakeGit(), "/repo");
+    expect(results.find((r) => r.id === "gh")?.status).toBe("ok");
+    expect(results.find((r) => r.id === "codex")?.status).toBe("ok");
+    expect(shell.exec).toHaveBeenCalledWith("/opt/homebrew/bin/gh", ["auth", "status"], expect.anything());
+    expect(shell.exec).toHaveBeenCalledWith("/home/user/.local/bin/codex", ["--version"], expect.anything());
+  });
+
   it("reports origin reachable", async () => {
     const git = fakeGit({ originUrl: "https://github.com/org/repo.git" });
     const shell = fakeShell();

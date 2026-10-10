@@ -241,7 +241,10 @@ async function checkCodex(shell: ShellBackend): Promise<HealthCheckResult> {
     );
   }
   try {
-    await shell.exec("codex", ["--version"], { timeout: PROBE_TIMEOUT_MS });
+    // The resolved path, not the bare name: `exec` doesn't run under the
+    // login shell `findCliOnHost` found it through, so its PATH may not
+    // have the CLI's directory.
+    await shell.exec(bin, ["--version"], { timeout: PROBE_TIMEOUT_MS });
     return result("codex", label, "ok", "Installed.", null);
   } catch (err) {
     return result(
@@ -267,7 +270,8 @@ async function checkGh(shell: ShellBackend): Promise<HealthCheckResult> {
     );
   }
   try {
-    await shell.exec("gh", ["auth", "status"], { timeout: PROBE_TIMEOUT_MS });
+    // The resolved path, for the same reason as `checkCodex`.
+    await shell.exec(bin, ["auth", "status"], { timeout: PROBE_TIMEOUT_MS });
     return result("gh", label, "ok", "Logged in.", null);
   } catch {
     return result(

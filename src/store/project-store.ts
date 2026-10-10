@@ -1048,10 +1048,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       void window.electronAPI.hosts
         .healthCheck(hostId, transferred.path)
         .then((checks) => {
-          if (checks.every((c) => c.status !== "fail")) return;
+          // Only the agent CLI this project launches counts: a host without
+          // Codex is fine for a Claude project, and the other way round.
+          const agent = /\bcodex\b/.test(transferred.agentCommand ?? "") ? "codex" : "claude";
+          const failed = checks.filter(
+            (c) => c.status === "fail" && (c.id === agent || (c.id !== "claude" && c.id !== "codex")),
+          );
+          if (failed.length === 0) return;
           useToastStore.getState().addToast({
             id: `transfer-health-${transferred.id}`,
-            message: `${hostName} is missing something ${source.name} needs`,
+            message: `${source.name} on ${hostName}: ${failed.map((c) => c.label).join(", ")} failed`,
+            detail: failed
+              .map((c) => (c.fixCommand ? `${c.detail} Fix: ${c.fixCommand}` : c.detail))
+              .join("\n"),
+            persistent: true,
             status: "error",
             action: {
               label: "Open settings",

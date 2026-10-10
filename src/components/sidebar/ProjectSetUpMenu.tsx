@@ -6,29 +6,24 @@ import {
   transferTargets,
   type TransferTarget,
 } from "../../lib/transfer-targets";
-import type { TransferMode } from "../../electron";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import styles from "./ProjectItem.module.css";
 
-type ProjectTransferMenuProps = {
+type ProjectSetUpMenuProps = {
   project: ProjectInfo;
-  mode: TransferMode;
-  /** Required for `move`: from `useMoveConfirm`, rendered outside the menu. */
-  requestMove?: (target: TransferTarget) => void;
 };
 
-/** The "Copy to" / "Move to" submenu of a project's context menu. */
-export function ProjectTransferMenu(props: ProjectTransferMenuProps) {
-  const { project, mode, requestMove } = props;
+/** The "Set up on" submenu of a project's context menu (ADR-214). */
+export function ProjectSetUpMenu(props: ProjectSetUpMenuProps) {
+  const { project } = props;
   const hosts = useHostStore((s) => s.hosts);
   const projects = useProjectStore((s) => s.projects);
-  const transferProject = useProjectStore((s) => s.transferProject);
+  const setUpOnHost = useProjectStore((s) => s.setUpOnHost);
   const openTransferDialog = useProjectStore((s) => s.openTransferDialog);
-  const targets = transferTargets(project, projects, hosts, mode);
+  const targets = transferTargets(project, projects, hosts, "copy");
 
   const choose = (target: TransferTarget) => {
-    if (mode === "move" && requestMove) requestMove(target);
-    else void transferProject(project.id, target.hostId, mode);
+    void setUpOnHost(project.id, target.hostId);
   };
 
   const firstEnabled =
@@ -41,7 +36,7 @@ export function ProjectTransferMenu(props: ProjectTransferMenuProps) {
         style={{ display: "flex", alignItems: "center" }}
         disabled={targets.length === 0}
       >
-        {mode === "copy" ? "Copy to" : "Move to"}
+        Set up on
         <ChevronRight size={14} style={{ marginLeft: "auto" }} />
       </ContextMenu.SubTrigger>
       <ContextMenu.Portal>
@@ -83,7 +78,7 @@ export function ProjectTransferMenu(props: ProjectTransferMenuProps) {
                   openTransferDialog({
                     projectId: project.id,
                     hostId: firstEnabled.hostId,
-                    mode,
+                    mode: "copy",
                     reason: "manual",
                     repoUrl: null,
                     targetDir: "",

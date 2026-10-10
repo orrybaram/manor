@@ -7,10 +7,9 @@ import { useToastStore } from "../toast-store";
 // lifecycle, `needsInput` handing off to the fallback dialog's state, and a
 // thrown transfer becoming an error toast that can open the same dialog.
 
-vi.mock("../link-suggestions", () => ({
-  clearLinkSuggestionsFor: vi.fn(),
-  offerLinkSuggestions: vi.fn(async () => {}),
-  startLinkSuggestions: vi.fn(async () => {}),
+vi.mock("../auto-join", () => ({
+  runAutoJoin: vi.fn(async () => {}),
+  startAutoJoin: vi.fn(async () => {}),
 }));
 
 let progress: ((e: { status: string; message?: string }) => void) | null = null;
@@ -20,6 +19,8 @@ const api = {
   getAll: vi.fn(),
   getSelectedIndex: vi.fn(async () => 0),
   transfer: vi.fn(),
+  remove: vi.fn(async () => {}),
+  keepSeparate: vi.fn(async () => {}),
   select: vi.fn(),
   selectWorkspace: vi.fn(),
   onCloneProgress: vi.fn((cb: typeof progress) => {
@@ -93,9 +94,48 @@ describe("transferProject", () => {
 
     expect(api.transfer).toHaveBeenCalledWith({ projectId: "app", hostId: "box", mode: "copy" });
     expect(unsubscribe).toHaveBeenCalled();
-    expect(toasts()).toMatchObject([{ message: "app is on me@box", status: "success" }]);
+    expect(toasts()).toMatchObject([
+      { message: "app is set up on me@box", status: "success", action: { label: "Remove from This machine" } },
+    ]);
     expect(useProjectStore.getState().projects.map((p) => p.id)).toEqual(["app", "app-box"]);
     expect(hostsApi.healthCheck).toHaveBeenCalledWith("box", "/code/app-box");
+  });
+
+  it("setUpOnHost is a copy, and its toast action opens the remove-from-host confirm", async () => {
+    api.transfer.mockResolvedValue({ ok: true, project: project("app-box", "box") });
+
+    await useProjectStore.getState().setUpOnHost("app", "box");
+
+    expect(api.transfer).toHaveBeenCalledWith({ projectId: "app", hostId: "box", mode: "copy" });
+    expect(useProjectStore.getState().removeFromHostDialog).toBeNull();
+    toasts()[0].action!.onClick();
+    expect(useProjectStore.getState().removeFromHostDialog).toEqual({ projectId: "app" });
+    expect(toasts()).toEqual([]);
+    useProjectStore.getState().closeRemoveFromHost();
+    expect(useProjectStore.getState().removeFromHostDialog).toBeNull();
+  });
+
+  it("a move's success toast has no remove action", async () => {
+    api.transfer.mockResolvedValue({ ok: true, project: project("app", "box") });
+    await useProjectStore.getState().transferProject("app", "box", "move");
+    expect(toasts()[0]).toMatchObject({ message: "app is on me@box" });
+    expect(toasts()[0].action).toBeUndefined();
+  });
+
+  it("removeFromHost removes the member and says where from", async () => {
+    useProjectStore.setState({ projects: [project("app-box", "box")] });
+    api.getAll.mockResolvedValue([]);
+
+    await useProjectStore.getState().removeFromHost("app-box");
+
+    expect(api.remove).toHaveBeenCalledWith("app-box");
+    expect(toasts()).toMatchObject([{ message: "Removed app-box from me@box", status: "success" }]);
+  });
+
+  it("keepSeparate calls main and reloads", async () => {
+    await useProjectStore.getState().keepSeparate("app");
+    expect(api.keepSeparate).toHaveBeenCalledWith("app");
+    expect(api.getAll).toHaveBeenCalled();
   });
 
   it("says Moving for a move, and skips the health check for this machine", async () => {

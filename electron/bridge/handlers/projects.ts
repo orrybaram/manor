@@ -508,6 +508,20 @@ export function projectsKeepSeparate(ctx: HandlerCtx, projectId: string): void {
   ctx.deps.projectManager.keepSeparate(projectId);
 }
 
+/**
+ * ADR-214: undo one `autoJoin` pair for good: unlink the newcomer, give
+ * back its own settings, and dismiss the pair.
+ */
+export function projectsUndoAutoJoin(
+  ctx: HandlerCtx,
+  joinedId: string,
+  intoId: string,
+): void {
+  assertString(joinedId, "joinedId");
+  assertString(intoId, "intoId");
+  ctx.deps.projectManager.undoAutoJoin(joinedId, intoId);
+}
+
 export function projectsUpdate(
   ctx: HandlerCtx,
   projectId: string,
@@ -574,4 +588,5 @@ export const projects = {
   // ADR-214: same-origin projects join on their own; "Keep separate…".
   autoJoin: method(projectsAutoJoin, { mutating: true }),
   keepSeparate: method(projectsKeepSeparate, { mutating: true }),
+  undoAutoJoin: method(projectsUndoAutoJoin, { mutating: true }),
 };

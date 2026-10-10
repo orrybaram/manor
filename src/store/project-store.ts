@@ -2,11 +2,7 @@ import { create } from "zustand";
 import { selectActiveWorkspaceKey, useAppStore } from "./app-store";
 import { workspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import { useToastStore } from "./toast-store";
-import {
-  clearLinkSuggestionsFor,
-  offerLinkSuggestions,
-  startLinkSuggestions,
-} from "./link-suggestions";
+import { runAutoJoin, startAutoJoin, type AutoJoinDeps } from "./auto-join";
 import { branchesEqual } from "../utils/branch-name";
 import { ipcErrorMessage } from "../lib/ipc-error";
 import { splitShared } from "../lib/project-groups";
@@ -661,6 +657,34 @@ interface ProjectState {
     path?: string,
   ) => Promise<ProjectInfo>;
   removeProject: (projectId: string) => Promise<void>;
+  /**
+   * ADR-214: the "Remove from <host>" confirm, for the member `projectId`.
+   * Opened by the set-up success toast's action; the dialog itself is
+   * rendered elsewhere. Named apart from the `removeFromHost` action.
+   */
+  removeFromHostDialog: { projectId: string } | null;
+  openRemoveFromHost: (projectId: string) => void;
+  closeRemoveFromHost: () => void;
+  /**
+   * ADR-214: set `projectId` up on `hostId` (a copy transfer: clone or adopt
+   * there, then join). The success toast offers "Remove from <this host>".
+   */
+  setUpOnHost: (
+    projectId: string,
+    hostId: string,
+    overrides?: { repoUrl: string; targetDir: string },
+  ) => Promise<void>;
+  /**
+   * ADR-214: remove the member `memberId` from its host, leaving the rest
+   * of its group (`removeProject` on the member), with a "Removed <name>
+   * from <host>" toast. Files on the host are not deleted.
+   */
+  removeFromHost: (memberId: string) => Promise<void>;
+  /**
+   * ADR-214 "Keep separate…": split `projectId`'s group and remember the
+   * pairs, so they are not joined again.
+   */
+  keepSeparate: (projectId: string) => Promise<void>;
   selectProject: (index: number) => void;
   selectWorkspace: (projectId: string, workspaceIndex: number) => void;
   createWorktree: (
@@ -862,6 +886,14 @@ function forgetDissolvedGroup(groupId: string | undefined): void {
   });
 }
 
+/** What auto-join (ADR-214) needs of this store. */
+function autoJoinDeps(): AutoJoinDeps {
+  return {
+    getProjects: () => useProjectStore.getState().projects,
+    reload: () => useProjectStore.getState().loadProjects(),
+  };
+}
+
 const initialSidebarMode = loadSidebarMode();
 
 /** The least time between two `refreshRemoteProjects` runs. */
@@ -917,10 +949,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         loading: false,
         initialLoadDone: true,
       }));
-      // ADR-192 ticket 5: offer links between existing duplicates, now and
-      // as each remote host first connects.
-      if (firstLoad)
-        void startLinkSuggestions(() => get().projects, get().linkProjects);
+      // ADR-214: join existing same-origin duplicates, now and as each
+      // remote host first connects.
+      if (firstLoad) void startAutoJoin(autoJoinDeps());
     } catch {
       set({ loading: false, initialLoadDone: true });
     }
@@ -937,7 +968,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projects: [...s.projects, project],
       selectedProjectIndex: s.projects.length,
     }));
-    void offerLinkSuggestions(project.id, get().linkProjects);
+    void runAutoJoin(autoJoinDeps());
     return project;
   },
 
@@ -955,7 +986,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projects: [...s.projects, project],
       selectedProjectIndex: s.projects.length,
     }));
-    void offerLinkSuggestions(project.id, get().linkProjects);
+    void runAutoJoin(autoJoinDeps());
     return project;
   },
 
@@ -1033,10 +1064,22 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const transferred: ProjectInfo = result.project;
     useToastStore.getState().addToast({
       id: toastId,
-      message: `${source.name} is on ${hostName}`,
+      message:
+        mode === "copy"
+          ? `${source.name} is set up on ${hostName}`
+          : `${source.name} is on ${hostName}`,
       status: "success",
+      // A move is a set up, then this (ADR-214).
+      ...(mode === "copy" && {
+        action: {
+          label: `Remove from ${memberHostName(source.hostId, useHostStore.getState().hosts)}`,
+          onClick: () => {
+            useToastStore.getState().removeToast(toastId);
+            get().openRemoveFromHost(projectId);
+          },
+        },
+      }),
     });
-    if (mode === "copy") clearLinkSuggestionsFor([transferred.id, projectId]);
     await get().loadProjects();
     if (mode === "move") {
       closeWorkspacesLeftBehind(source, transferred, get().selectWorkspace);
@@ -1073,6 +1116,46 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           // The check itself failed to run; the host section shows its state.
         });
     }
+  },
+
+  setUpOnHost: (projectId, hostId, overrides) =>
+    get().transferProject(projectId, hostId, "copy", overrides),
+
+  removeFromHostDialog: null,
+  openRemoveFromHost: (projectId) => set({ removeFromHostDialog: { projectId } }),
+  closeRemoveFromHost: () => set({ removeFromHostDialog: null }),
+
+  removeFromHost: async (memberId) => {
+    const member = get().projects.find((p) => p.id === memberId);
+    if (!member) return;
+    const hostName = memberHostName(member.hostId, useHostStore.getState().hosts);
+    try {
+      await get().removeProject(memberId);
+    } catch (err) {
+      groupErrorToast(
+        `remove-from-host-${memberId}`,
+        `Couldn't remove ${member.name} from ${hostName}`,
+        err,
+      );
+      return;
+    }
+    useToastStore.getState().addToast({
+      id: `remove-from-host-${memberId}`,
+      message: `Removed ${member.name} from ${hostName}`,
+      status: "success",
+    });
+  },
+
+  keepSeparate: async (projectId) => {
+    const groupId = get().projects.find((p) => p.id === projectId)?.group?.id;
+    try {
+      await window.electronAPI.projects.keepSeparate(projectId);
+    } catch (err) {
+      groupErrorToast(`keep-separate-${projectId}`, "Couldn't keep projects separate", err);
+      return;
+    }
+    await get().loadProjects();
+    forgetDissolvedGroup(groupId);
   },
 
   moveProjectToHost: async (projectId, opts) => {
@@ -1424,7 +1507,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       );
       return;
     }
-    clearLinkSuggestionsFor([projectId, otherId]);
     await get().loadProjects();
   },
 
@@ -1441,7 +1523,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     // Both overrides were given, so main never asks for input.
     if (!result.ok) throw new Error("The clone needs a different location.");
     const cloned: ProjectInfo = result.project;
-    clearLinkSuggestionsFor([cloned.id, memberId]);
     await get().loadProjects();
     return get().projects.find((p) => p.id === cloned.id) ?? cloned;
   },

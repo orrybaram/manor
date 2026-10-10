@@ -79,6 +79,7 @@ describe("ProjectManager.autoJoin / keepSeparate (ADR-214)", () => {
   }
 
   function readState(): {
+    projects: Array<Record<string, unknown> & { id: string }>;
     groups?: Array<Record<string, unknown> & { memberIds: string[] }>;
     dismissedLinkSuggestions?: unknown;
   } {
@@ -220,6 +221,25 @@ describe("ProjectManager.autoJoin / keepSeparate (ADR-214)", () => {
 
     expect(await mgr.autoJoin()).toEqual([]);
     expect(readState().groups).toBeUndefined();
+  });
+
+  it("undoAutoJoin gives the newcomer back its own name and color", async () => {
+    seed([
+      project("local-app", APP, { name: "Local App", color: "red" }),
+      project("box-app", APP, { name: "Box App", color: "blue" }),
+    ]);
+    const mgr = manager();
+    const [{ joinedId, intoId }] = await mgr.autoJoin();
+
+    mgr.undoAutoJoin(joinedId, intoId);
+
+    const state = readState();
+    expect(state.groups).toBeUndefined();
+    const byId = (id: string) => state.projects.find((p) => p.id === id)!;
+    expect(byId("box-app")).toMatchObject({ name: "Box App", color: "blue" });
+    expect(byId("local-app")).toMatchObject({ name: "Local App", color: "red" });
+    expect(state.dismissedLinkSuggestions).toEqual([["box-app", "local-app"]]);
+    expect(await mgr.autoJoin()).toEqual([]);
   });
 
   it("keepSeparate splits the group and stops a re-join", async () => {

@@ -6,6 +6,7 @@ import {
   projectsAutoJoin,
   projectsKeepSeparate,
   projectsMoveToHost,
+  projectsUndoAutoJoin,
   projectsTransfer,
   projectsSwitchHost,
   projectsUpdate,
@@ -33,6 +34,7 @@ const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown
   ["projects:transfer", call(projectsTransfer)],
   ["projects:autoJoin", call(projectsAutoJoin)],
   ["projects:keepSeparate", call(projectsKeepSeparate)],
+  ["projects:undoAutoJoin", call(projectsUndoAutoJoin)],
 ]);
 import { LOCAL_HOST_ID } from "../../../backend/types";
 import { HostRecords } from "../../../projects/host-records";
@@ -63,6 +65,7 @@ function makeDeps(opts: { currentHostId?: string; pathExists?: boolean } = {}) {
     moveProjectToHost: vi.fn().mockImplementation(async () => moved("box")),
     autoJoin: vi.fn().mockResolvedValue([{ joinedId: "p2", intoId: "p1" }]),
     keepSeparate: vi.fn(),
+    undoAutoJoin: vi.fn(),
   };
   const backendRegistry = { ensureConnected: vi.fn().mockResolvedValue(undefined) };
   // The layouts are the server's to move (ADR-179 D1), and it broadcasts the
@@ -217,5 +220,18 @@ describe("projects:autoJoin / keepSeparate (ADR-214)", () => {
     expect(deps.projectManager.keepSeparate).toHaveBeenCalledWith("p1");
     expect(() => handler(null, 7)).toThrow(/projectId/);
     expect(deps.projectManager.keepSeparate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("projects:undoAutoJoin (ADR-214)", () => {
+  it("passes the pair through, and rejects a non-string", () => {
+    const deps = makeDeps();
+    register(deps as never);
+    const handler = handlers.get("projects:undoAutoJoin")!;
+    handler(null, "p2", "p1");
+    expect(deps.projectManager.undoAutoJoin).toHaveBeenCalledWith("p2", "p1");
+    expect(() => handler(null, 7, "p1")).toThrow(/joinedId/);
+    expect(() => handler(null, "p2", null)).toThrow(/intoId/);
+    expect(deps.projectManager.undoAutoJoin).toHaveBeenCalledTimes(1);
   });
 });

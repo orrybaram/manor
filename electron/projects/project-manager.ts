@@ -53,12 +53,39 @@ import type {
   WorkspaceFromIssue,
 } from "./types";
 
+/** The settings a group shares, as one project had them on its own. */
+type SharedSettings = Pick<
+  PersistedProject,
+  "name" | "color" | "agentCommand" | "themeName" | "commands" | "linearAssociations"
+>;
+
+function snapshotShared(p: PersistedProject): SharedSettings {
+  return {
+    name: p.name,
+    color: p.color,
+    agentCommand: p.agentCommand,
+    themeName: p.themeName,
+    commands: p.commands ? [...p.commands] : undefined,
+    linearAssociations: p.linearAssociations ? [...p.linearAssociations] : undefined,
+  };
+}
+
+function restoreShared(p: PersistedProject, own: SharedSettings): void {
+  p.name = own.name;
+  for (const key of ["color", "agentCommand", "themeName", "commands", "linearAssociations"] as const) {
+    if (own[key] === undefined) delete p[key];
+    else (p as unknown as Record<string, unknown>)[key] = own[key];
+  }
+}
+
 export class ProjectManager {
   private readonly store: StateStore;
   private readonly hosts: HostRecords;
   private readonly paths: PathRouter;
   private readonly ctx: ProjectContext;
   private readonly origins: OriginLinks;
+  /** A project's own shared settings from just before `autoJoin` joined it, for `undoAutoJoin`. */
+  private readonly joinedOwn = new Map<string, SharedSettings>();
   private readonly hostFor: ProjectHostResolver;
   private resyncDone = false;
   /** Remote projects' last workspace listings, for while a host is away. */
@@ -628,6 +655,28 @@ export class ProjectManager {
   }
 
   /**
+   * Undo one `autoJoin` pair for good (ADR-214): take `joinedId` out of its
+   * group, give it back the settings it had before it joined (unlinking
+   * alone leaves it the group's), and dismiss the pair so it is never
+   * joined again. Saves once. The settings are remembered in memory only,
+   * so after a restart the newcomer keeps the group's, as `unlinkProject`
+   * leaves them.
+   */
+  undoAutoJoin(joinedId: string, intoId: string): void {
+    const project = this.findProject(joinedId);
+    const groupId = groups.groupOf(this.store.state, joinedId)?.id;
+    if (project && groupId) {
+      // `unlinkProject` saves; the restore and the dismissal save again below.
+      this.unlinkProject(joinedId);
+    }
+    const own = this.joinedOwn.get(joinedId);
+    if (project && own) restoreShared(project, own);
+    this.joinedOwn.delete(joinedId);
+    rememberDismissal(this.ctx, joinedId, intoId);
+    this.store.save();
+  }
+
+  /**
    * Join `a` and `b` without saving, for `autoJoin`; null when they can't
    * be joined now. The newcomer is the side not in a group, or, when
    * neither is, the one added later (later in the project list), so the
@@ -656,12 +705,14 @@ export class ProjectManager {
     // `intoId` is in now may hold a project the newcomer was kept apart from.
     const target = groups.groupOf(state, intoId)?.memberIds ?? [intoId];
     if (target.some((id) => isDismissed(state, joinedId, id))) return null;
+    const own = snapshotShared(this.findProject(joinedId)!);
     try {
       groups.joinProjects(this.ctx, joinedId, intoId);
     } catch {
       // A host this batch already filled for the group.
       return null;
     }
+    this.joinedOwn.set(joinedId, own);
     return { joinedId, intoId };
   }
 

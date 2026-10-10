@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useHostStore, type HostStatusInfo } from "../host-store";
 import { useProjectStore, type ProjectGroupInfo, type ProjectInfo } from "../project-store";
 import { useToastStore } from "../toast-store";
-import { clearLinkSuggestionsFor, offerLinkSuggestions } from "../link-suggestions";
 import {
   hostsToCloneOnto,
   memberAfterClone,
@@ -15,10 +14,9 @@ import {
 // group as it was. Each decision is read off the store the way the dialog
 // reads it.
 
-vi.mock("../link-suggestions", () => ({
-  clearLinkSuggestionsFor: vi.fn(),
-  offerLinkSuggestions: vi.fn(async () => {}),
-  startLinkSuggestions: vi.fn(async () => {}),
+vi.mock("../auto-join", () => ({
+  runAutoJoin: vi.fn(async () => {}),
+  startAutoJoin: vi.fn(async () => {}),
 }));
 
 const api = {
@@ -170,9 +168,6 @@ describe("Clone onto another host", () => {
       repoUrl: OPTS.repoUrl,
       targetDir: OPTS.remoteDir,
     });
-    // Any open suggestion naming either side is stale now.
-    expect(clearLinkSuggestionsFor).toHaveBeenCalledWith(["cloud-app", "local-app"]);
-    expect(offerLinkSuggestions).not.toHaveBeenCalled();
     expect(result.group?.memberIds).toEqual(["local-app", "box-app", "cloud-app"]);
     const selected = memberAfterClone(result, "g1");
     expect(selected).toBe("cloud-app");
@@ -193,7 +188,6 @@ describe("Clone onto another host", () => {
       useProjectStore.getState().cloneIntoGroup("local-app", OPTS),
     ).rejects.toThrow("git clone exited with code 128");
 
-    expect(offerLinkSuggestions).not.toHaveBeenCalled();
     expect(useProjectStore.getState().projects).toEqual(before);
     expect(cloneTargets("local-app")).toEqual(["cloud", "spare"]);
   });

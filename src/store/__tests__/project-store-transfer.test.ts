@@ -180,7 +180,7 @@ describe("transferProject", () => {
     expect(useProjectStore.getState().transferDialog).toEqual({
       projectId: "app",
       hostId: "box",
-      mode: "copy",
+      mode: "setUp",
       reason: "dir-taken",
       repoUrl: "git@github.com:me/app.git",
       targetDir: "~/code/app",

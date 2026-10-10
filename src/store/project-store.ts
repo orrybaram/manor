@@ -48,7 +48,8 @@ export type {
 export interface TransferDialogState {
   projectId: string;
   hostId: string;
-  mode: TransferMode;
+  /** `setUp` is ADR-214's "Set up on"; `move` is only the repair re-clone. */
+  mode: "setUp" | "move";
   reason: TransferInputReason | "failed" | "manual";
   repoUrl: string | null;
   targetDir: string;
@@ -744,34 +745,6 @@ interface ProjectState {
   ) => Promise<string | null>;
   reorderProjects: (orderedIds: string[]) => Promise<void>;
   /**
-   * ADR-192: link two projects on different hosts into one group. Errors
-   * (a second member for one host, say) are shown as a toast.
-   */
-  linkProjects: (projectId: string, otherId: string) => Promise<void>;
-  /**
-   * ADR-192 ticket 4: clone `memberId`'s repo onto another host and link the
-   * new project into its group, then reload. Resolves with the new project
-   * as reloaded: its `group` is set once it joined. A failed clone rejects
-   * and leaves the group unchanged. A failed link is shown as a toast, and
-   * the new project stays, unlinked, with link suggestions offered for it.
-   */
-  cloneIntoGroup: (
-    memberId: string,
-    opts: { hostId: string; repoUrl: string; remoteDir: string },
-  ) => Promise<ProjectInfo>;
-  /**
-   * ADR-193 ticket 4: let a remote project pick a local checkout to link
-   * with, via a folder dialog rather than "Add project" first. Links an
-   * existing local project at the chosen path, or adds one there and links
-   * that. Cancelling the dialog is a no-op; errors (not a git repo, say) are
-   * shown as a toast.
-   */
-  linkLocalFolder: (projectId: string) => Promise<void>;
-  /** ADR-192: take a project out of its group. Errors are shown as a toast. */
-  unlinkProject: (projectId: string) => Promise<void>;
-  /** ADR-192: dissolve a whole group. Errors are shown as a toast. */
-  unlinkGroup: (groupId: string) => Promise<void>;
-  /**
    * ADR-192 ticket 2: set a group's shared settings, shown on every member
    * at once. Errors roll the change back and are shown as a toast.
    */
@@ -999,6 +972,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (!source) return;
     const toasts = useToastStore.getState();
     const toastId = `transfer-${projectId}`;
+    // Main's "copy" is the dialog's "setUp".
+    const dialogMode = mode === "copy" ? "setUp" : "move";
     const hostName = memberHostName(hostId, useHostStore.getState().hosts);
     toasts.addToast({
       id: toastId,
@@ -1033,7 +1008,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             get().openTransferDialog({
               projectId,
               hostId,
-              mode,
+              mode: dialogMode,
               reason: "failed",
               repoUrl: overrides?.repoUrl ?? null,
               targetDir: overrides?.targetDir ?? "",
@@ -1053,7 +1028,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       get().openTransferDialog({
         projectId,
         hostId,
-        mode,
+        mode: dialogMode,
         reason: needsInput.reason,
         repoUrl: needsInput.repoUrl,
         targetDir: needsInput.targetDir,
@@ -1494,107 +1469,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         : s.selectedProjectIndex;
       return { projects: reordered, selectedProjectIndex: newSelectedIndex };
     });
-  },
-
-  linkProjects: async (projectId: string, otherId: string) => {
-    try {
-      await window.electronAPI.projects.link(projectId, otherId);
-    } catch (err) {
-      groupErrorToast(
-        `link-projects-${projectId}`,
-        "Couldn't link projects",
-        err,
-      );
-      return;
-    }
-    await get().loadProjects();
-  },
-
-  cloneIntoGroup: async (memberId, opts) => {
-    const member = get().projects.find((p) => p.id === memberId);
-    if (!member?.group) throw new Error("This project isn't linked to a group.");
-    const result = await window.electronAPI.projects.transfer({
-      projectId: memberId,
-      hostId: opts.hostId,
-      mode: "copy",
-      repoUrl: opts.repoUrl,
-      targetDir: opts.remoteDir,
-    });
-    // Both overrides were given, so main never asks for input.
-    if (!result.ok) throw new Error("The clone needs a different location.");
-    const cloned: ProjectInfo = result.project;
-    await get().loadProjects();
-    return get().projects.find((p) => p.id === cloned.id) ?? cloned;
-  },
-
-  linkLocalFolder: async (projectId: string) => {
-    const remote = get().projects.find((p) => p.id === projectId);
-    if (!remote) return;
-    const selected = await pickDirectory();
-    if (!selected) return;
-
-    // Already a Manor project at that path — link it as is.
-    const existingLocal = get().projects.find(
-      (p) => !isRemoteHost(p.hostId) && p.path === selected,
-    );
-
-    let localId: string;
-    if (existingLocal) {
-      localId = existingLocal.id;
-    } else {
-      const name = remote.group?.name ?? remote.name;
-      let created;
-      try {
-        created = await window.electronAPI.projects.add(name, selected);
-      } catch (err) {
-        groupErrorToast(
-          `link-local-folder-${projectId}`,
-          "Couldn't add local folder",
-          err,
-        );
-        return;
-      }
-      // Append like `addProject` does, but without offering link suggestions
-      // for it (it is about to be linked here) or moving the selection off
-      // the remote project the user is looking at.
-      set((s) => ({ projects: [...s.projects, created] }));
-      localId = created.id;
-    }
-
-    // `otherId` wins the group's name/settings when neither side is grouped
-    // yet, so the remote project — the one the user started from — does.
-    await get().linkProjects(localId, projectId);
-  },
-
-  unlinkProject: async (projectId: string) => {
-    const groupId = get().projects.find((p) => p.id === projectId)?.group?.id;
-    try {
-      await window.electronAPI.projects.unlink(projectId);
-    } catch (err) {
-      groupErrorToast(
-        `unlink-project-${projectId}`,
-        "Couldn't unlink project",
-        err,
-      );
-      return;
-    }
-    await get().loadProjects();
-    forgetDissolvedGroup(groupId);
-  },
-
-  unlinkGroup: async (groupId: string) => {
-    try {
-      await window.electronAPI.projects.unlinkGroup(groupId);
-    } catch (err) {
-      groupErrorToast(
-        `unlink-group-${groupId}`,
-        "Couldn't unlink projects",
-        err,
-      );
-      return;
-    }
-    await get().loadProjects();
-    forgetDissolvedGroup(groupId);
   },
 
   updateGroup: async (groupId: string, updates: GroupUpdatableFields) => {

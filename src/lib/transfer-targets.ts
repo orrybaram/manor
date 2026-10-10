@@ -1,7 +1,6 @@
 /**
- * The hosts a project can be copied or moved to (ADR-213). DOM-free, built
- * from the same parts as `hostsToCloneOnto`, but for any project: an
- * unlinked one gets targets too.
+ * The hosts a project can be set up on or moved to (ADR-213/214). DOM-free,
+ * and for any project: an unlinked one gets targets too.
  */
 
 import type { HostStatusInfo } from "../store/host-store";

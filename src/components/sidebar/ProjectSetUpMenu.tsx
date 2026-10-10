@@ -78,7 +78,7 @@ export function ProjectSetUpMenu(props: ProjectSetUpMenuProps) {
                   openTransferDialog({
                     projectId: project.id,
                     hostId: firstEnabled.hostId,
-                    mode: "copy",
+                    mode: "setUp",
                     reason: "manual",
                     repoUrl: null,
                     targetDir: "",

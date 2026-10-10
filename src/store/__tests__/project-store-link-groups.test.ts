@@ -76,38 +76,6 @@ describe("linked-project groups in the project store", () => {
     expect(useProjectStore.getState().collapsedProjectIds.size).toBe(0);
   });
 
-  it("drops a dissolved group's collapsed key after Unlink All", async () => {
-    api.getAll.mockResolvedValue(unlinked());
-
-    await useProjectStore.getState().unlinkGroup("g1");
-
-    expect(api.unlinkGroup).toHaveBeenCalledWith("g1");
-    expect([...useProjectStore.getState().collapsedProjectIds]).toEqual(["box-app"]);
-  });
-
-  it("keeps the collapsed key of a group that survives an unlink", async () => {
-    api.getAll.mockResolvedValue(linked());
-
-    await useProjectStore.getState().unlinkProject("local-app");
-
-    expect(useProjectStore.getState().collapsedProjectIds.has("g1")).toBe(true);
-  });
-
-  it("shows an error toast when unlinking fails", async () => {
-    api.unlink.mockRejectedValueOnce(new Error("nope"));
-    api.unlinkGroup.mockRejectedValueOnce(new Error("nope"));
-
-    await useProjectStore.getState().unlinkProject("local-app");
-    await useProjectStore.getState().unlinkGroup("g1");
-
-    const toasts = useToastStore.getState().toasts;
-    expect(toasts.map((t) => [t.status, t.message, t.detail])).toEqual([
-      ["error", "Couldn't unlink project", "nope"],
-      ["error", "Couldn't unlink projects", "nope"],
-    ]);
-    expect(api.getAll).not.toHaveBeenCalled();
-  });
-
   describe("shared settings (ticket 2)", () => {
     const byId = (id: string) => useProjectStore.getState().projects.find((p) => p.id === id)!;
 

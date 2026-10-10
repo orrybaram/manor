@@ -35,7 +35,7 @@ export function TransferDialogHost() {
       open
       mode={dialog.mode}
       project={project}
-      hostChoices={transferTargets(project, projects, hosts, dialog.mode)}
+      hostChoices={transferTargets(project, projects, hosts, dialog.mode === "setUp" ? "copy" : "move")}
       initialHostId={dialog.hostId}
       initialRepoUrl={dialog.repoUrl}
       initialDir={dialog.targetDir}

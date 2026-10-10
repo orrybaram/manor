@@ -1,27 +1,19 @@
 import { useRef, useCallback, useEffect, useMemo, useState } from "react";
 import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
-import { useAppStore } from "../../../store/app-store";
 import { useHostStore, selectHost } from "../../../store/host-store";
 import { HostCard, HostCardRow } from "../../hosts/HostCard";
-import { LOCAL_HOST_ID, isRemoteHost, remoteHostOptions } from "../../../lib/hosts";
-import { projectHasOpenPanes } from "../../../lib/project-panes";
+import { isRemoteHost } from "../../../lib/hosts";
+import { transferTargets } from "../../../lib/transfer-targets";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
 import { Input } from "../../ui/Input";
 import { Button } from "../../ui/Button/Button";
 import { SearchableSelect } from "../../ui/SearchableSelect/SearchableSelect";
-import { ConfirmDialog } from "../../ui/ConfirmDialog/ConfirmDialog";
 import { Stack, Row } from "../../ui/Layout/Layout";
 import { SectionTitle } from "../SectionTitle";
 import styles from "../SettingsModal/SettingsModal.module.css";
 import { pickDirectory } from "../../../lib/pick-directory";
 
 const ADD_HOST_VALUE = "__add_host__";
-const CHOOSE_LOCAL_VALUE = "__choose_local__";
-
-/** A host change waiting on the "this project has open panes" confirm. */
-type PendingHostChange =
-  | { kind: "switch"; hostId: string }
-  | { kind: "add"; target: string };
 
 type ProjectHostSectionProps = {
   project: ProjectInfo;
@@ -46,21 +38,16 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
 
   const switchProjectHost = useProjectStore((s) => s.switchProjectHost);
   const transferProject = useProjectStore((s) => s.transferProject);
+  const setUpOnHost = useProjectStore((s) => s.setUpOnHost);
+  const projects = useProjectStore((s) => s.projects);
   const hosts = useHostStore((s) => s.hosts);
   const addHost = useHostStore((s) => s.addHost);
   const hostBusy = useHostStore((s) => s.busy);
-  const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
 
   const [adding, setAdding] = useState(false);
   const [targetInput, setTargetInput] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
-  const [switchError, setSwitchError] = useState<string | null>(null);
-  const [switchFailedHostId, setSwitchFailedHostId] = useState<string | null>(
-    null,
-  );
-  const [pendingChange, setPendingChange] = useState<PendingHostChange | null>(
-    null,
-  );
+  const [repairError, setRepairError] = useState<string | null>(null);
   const [pathMissing, setPathMissing] = useState(false);
   const targetInputRef = useRef<HTMLInputElement>(null);
 
@@ -89,80 +76,32 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
     };
   }, [project.id, project.path, hostConnected]);
 
-  const options = useMemo(() => {
-    return [
-      { value: LOCAL_HOST_ID, label: "This machine" },
-      ...remoteHostOptions(hosts),
-      ...(isRemoteHost(currentHostId)
-        ? [{ value: CHOOSE_LOCAL_VALUE, label: "Choose local folder…" }]
-        : []),
+  // Every host the project can be set up on (ADR-214), plus a way to add one.
+  const options = useMemo(
+    () => [
+      ...transferTargets(project, projects, hosts, "copy")
+        .filter((t) => !t.disabledReason)
+        .map((t) => ({ value: t.hostId, label: t.label })),
       { value: ADD_HOST_VALUE, label: "Add new host…" },
-    ];
-  }, [hosts, currentHostId]);
-
-  // Main moves the project's path along with its host — to `path`, or the
-  // path it last had there — and refuses when that path is missing there.
-  const switchHost = useCallback(
-    (hostId: string, path?: string) => {
-      setSwitchError(null);
-      setSwitchFailedHostId(null);
-      switchProjectHost(project.id, hostId, path).catch((err: unknown) => {
-        setSwitchError(ipcErrorMessage(err));
-        setSwitchFailedHostId(hostId);
-      });
-    },
-    [project.id, switchProjectHost],
+    ],
+    [project, projects, hosts],
   );
 
-  // No remembered local path (e.g. a project moved to a host before paths
-  // were remembered): let the user point it at a checkout on this Mac.
-  const chooseLocalFolder = useCallback(async () => {
+  // Repair for a missing repo: re-clone it in place, or point at a folder.
+  const cloneAgain = useCallback(
+    () => void transferProject(project.id, currentHostId, "move"),
+    [transferProject, project.id, currentHostId],
+  );
+  const pointAtAnotherFolder = useCallback(async () => {
     const selected = await pickDirectory();
-    if (selected) switchHost(LOCAL_HOST_ID, selected);
-  }, [switchHost]);
-
-  const addAndOpenCloneDialog = useCallback(
-    (target: string) => {
-      setAddError(null);
-      addHost(target)
-        .then(({ hostId }) => {
-          setAdding(false);
-          setTargetInput("");
-          void transferProject(project.id, hostId, "move");
-        })
-        .catch((err: unknown) => {
-          setAddError(ipcErrorMessage(err));
-        });
-    },
-    [addHost, transferProject, project.id],
-  );
-
-  const performHostChange = useCallback(
-    (change: PendingHostChange) => {
-      if (change.kind === "switch") {
-        // ADR-213: every host, local included, goes through the one-click
-        // transfer, so a missing checkout is cloned instead of failing. It
-        // opens the fallback dialog only when it needs input.
-        void transferProject(project.id, change.hostId, "move");
-      } else {
-        addAndOpenCloneDialog(change.target);
-      }
-    },
-    [transferProject, project.id, addAndOpenCloneDialog],
-  );
-
-  // Confirm BEFORE anything happens — in particular before `addHost`, so
-  // cancelling never leaves a registered host reconnecting in the background.
-  const requestHostChange = useCallback(
-    (change: PendingHostChange) => {
-      if (projectHasOpenPanes(project, workspaceLayouts)) {
-        setPendingChange(change);
-        return;
-      }
-      performHostChange(change);
-    },
-    [performHostChange, project, workspaceLayouts],
-  );
+    if (!selected) return;
+    setRepairError(null);
+    try {
+      await switchProjectHost(project.id, currentHostId, selected);
+    } catch (err) {
+      setRepairError(ipcErrorMessage(err));
+    }
+  }, [switchProjectHost, project.id, currentHostId]);
 
   const handleSelect = useCallback(
     (value: string) => {
@@ -172,21 +111,25 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
         requestAnimationFrame(() => targetInputRef.current?.focus());
         return;
       }
-      if (value === CHOOSE_LOCAL_VALUE) {
-        void chooseLocalFolder();
-        return;
-      }
-      if (value === currentHostId) return;
-      requestHostChange({ kind: "switch", hostId: value });
+      void setUpOnHost(project.id, value);
     },
-    [currentHostId, requestHostChange, chooseLocalFolder],
+    [setUpOnHost, project.id],
   );
 
   const handleAddHost = useCallback(() => {
     const target = targetInput.trim();
     if (!target) return;
-    requestHostChange({ kind: "add", target });
-  }, [requestHostChange, targetInput]);
+    setAddError(null);
+    addHost(target)
+      .then(({ hostId }) => {
+        setAdding(false);
+        setTargetInput("");
+        void setUpOnHost(project.id, hostId);
+      })
+      .catch((err: unknown) => {
+        setAddError(ipcErrorMessage(err));
+      });
+  }, [addHost, setUpOnHost, project.id, targetInput]);
 
   return (
     <Stack gap="xs">
@@ -197,11 +140,9 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
       <HostCard
         hostId={currentHostId}
         actions={
-          // Switching is rare and closes the project's tabs, so the picker
-          // sits behind a "Change host…" trigger rather than leading the card.
           <SearchableSelect
             value=""
-            placeholder="Change host…"
+            placeholder="Set up on…"
             onChange={handleSelect}
             options={options}
             maxWidth={200}
@@ -212,23 +153,17 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
         {pathMissing && hostConnected && (
           <HostCardRow tone="warn">
             <span>Repository not found on this host</span>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => void transferProject(project.id, currentHostId, "move")}
-            >
-              Clone onto host…
+            <Button variant="secondary" size="sm" onClick={cloneAgain}>
+              Clone it again
+            </Button>
+            <Button variant="secondary" size="sm" onClick={pointAtAnotherFolder}>
+              Point at another folder…
             </Button>
           </HostCardRow>
         )}
-        {switchError && (
+        {repairError && (
           <HostCardRow tone="error">
-            <span>Couldn't switch host: {switchError}</span>
-            {switchFailedHostId === LOCAL_HOST_ID && (
-              <Button variant="secondary" size="sm" onClick={chooseLocalFolder}>
-                Choose local folder…
-              </Button>
-            )}
+            <span>Couldn't use that folder: {repairError}</span>
           </HostCardRow>
         )}
       </HostCard>
@@ -265,29 +200,6 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
           )}
         </Stack>
       )}
-      <div className={styles.fieldHint}>
-        Changing host doesn't move existing worktrees. Their tabs close.
-      </div>
-      <ConfirmDialog
-        open={pendingChange !== null}
-        title="Switch this project's host?"
-        description={
-          "This project has open tabs. Switching its host closes them and " +
-          "stops their terminals, including any running agents. New tabs " +
-          "open on the new host."
-        }
-        confirmLabel={
-          pendingChange?.kind === "switch" && pendingChange.hostId === LOCAL_HOST_ID
-            ? "Switch host"
-            : "Continue"
-        }
-        onConfirm={() => {
-          const change = pendingChange;
-          setPendingChange(null);
-          if (change) performHostChange(change);
-        }}
-        onCancel={() => setPendingChange(null)}
-      />
     </Stack>
   );
 }

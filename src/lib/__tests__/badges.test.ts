@@ -4,6 +4,7 @@ import {
   BADGE_SECTIONS,
   earnedTitles,
   progressRatio,
+  STARTER_TITLES,
   TIER_LABEL,
   tierTally,
   trackState,
@@ -303,6 +304,16 @@ describe("earnedTitles", () => {
       title: "Exterminator",
       at: AT(9),
     });
+  });
+});
+
+describe("STARTER_TITLES", () => {
+  it("are unique and never collide with a track title", () => {
+    expect(new Set(STARTER_TITLES).size).toBe(STARTER_TITLES.length);
+    const trackTitles = new Set(BADGE_SECTIONS.map((s) => s.title));
+    for (const title of STARTER_TITLES) {
+      expect(trackTitles.has(title)).toBe(false);
+    }
   });
 });
 

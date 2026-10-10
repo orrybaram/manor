@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import type { StatsSummary } from "../../../../electron.d";
-import { BADGE_SECTIONS } from "../../../../lib/badges";
+import {
+  BADGE_SECTIONS,
+  STARTER_TITLES,
+  earnedTitles,
+} from "../../../../lib/badges";
 import {
   displayedTitle,
   isHiddenSecret,
@@ -74,21 +78,33 @@ describe("isHiddenSecret", () => {
 });
 
 describe("displayedTitle", () => {
-  it("is null with no track complete", () => {
-    expect(displayedTitle(summary(), null)).toBeNull();
+  it("falls back to the first starter title with no track complete", () => {
+    const none = earnedTitles(summary());
+    expect(displayedTitle(none, null)).toBe(STARTER_TITLES[0]);
+    expect(displayedTitle(none, "Exterminator")).toBe(STARTER_TITLES[0]);
+    expect(displayedTitle(none, "Unknown")).toBe(STARTER_TITLES[0]);
+  });
+
+  it("uses a chosen starter title", () => {
+    expect(displayedTitle(earnedTitles(summary()), STARTER_TITLES[2])).toBe(
+      STARTER_TITLES[2],
+    );
   });
 
   it("uses the chosen title while it is earned, else the latest", () => {
-    const s = summary({
-      badges: {
-        ...CARNAGE_COMPLETE,
-        // Meta completes on platinum alone, later than carnage.
-        platinum: AT(9),
-      },
-    });
-    expect(displayedTitle(s, null)?.title).toBe("Platinum");
-    expect(displayedTitle(s, "Exterminator")?.title).toBe("Exterminator");
-    expect(displayedTitle(s, "Warlord")?.title).toBe("Platinum");
+    const titles = earnedTitles(
+      summary({
+        badges: {
+          ...CARNAGE_COMPLETE,
+          // Meta completes on platinum alone, later than carnage.
+          platinum: AT(9),
+        },
+      }),
+    );
+    expect(displayedTitle(titles, null)).toBe("Platinum");
+    expect(displayedTitle(titles, "Exterminator")).toBe("Exterminator");
+    expect(displayedTitle(titles, "Warlord")).toBe("Platinum");
+    expect(displayedTitle(titles, STARTER_TITLES[1])).toBe(STARTER_TITLES[1]);
   });
 });
 

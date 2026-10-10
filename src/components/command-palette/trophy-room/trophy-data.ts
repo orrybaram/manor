@@ -2,7 +2,7 @@ import type { StatsSummary } from "../../../electron.d";
 import {
   BADGE_META,
   BADGE_SECTIONS,
-  earnedTitles,
+  STARTER_TITLES,
   progressRatio,
   trackState,
   type BadgeMeta,
@@ -76,17 +76,19 @@ export function isHiddenSecret(
 }
 
 /**
- * The title the header shows: the chosen one while it is still earned,
- * otherwise the most recently completed. `null` when no track is complete.
+ * The title the header shows: the chosen one while it is still earned or is
+ * a starter title, otherwise the most recently completed track's, otherwise
+ * the first starter title.
  */
 export function displayedTitle(
-  summary: StatsSummary,
+  earned: readonly EarnedTitle[],
   chosen: string | null,
-): EarnedTitle | null {
-  const titles = earnedTitles(summary);
-  return (
-    titles.find((t) => t.title === chosen) ?? titles[titles.length - 1] ?? null
-  );
+): string {
+  if (chosen !== null) {
+    if (earned.some((t) => t.title === chosen)) return chosen;
+    if (STARTER_TITLES.includes(chosen)) return chosen;
+  }
+  return earned[earned.length - 1]?.title ?? STARTER_TITLES[0];
 }
 
 /**

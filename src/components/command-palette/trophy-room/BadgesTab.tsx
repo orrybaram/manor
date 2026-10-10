@@ -101,7 +101,9 @@ export function BadgesTab(props: BadgesTabProps) {
     <div className={styles.badgesTab}>
       <TrackSidebar summary={summary} selected={selected} onSelect={onSelect} />
       {section ? (
+        // Keyed so a new track opens scrolled to its top.
         <TrackPane
+          key={section.id}
           section={section}
           summary={summary}
           revealed={revealed}

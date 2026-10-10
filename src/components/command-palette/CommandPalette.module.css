@@ -440,14 +440,33 @@
 
 /* The stats readout carries four tiles, seventeen rows and a badge rack, so it
    gets more room than any other view — capped against the viewport so a short
-   window still scrolls rather than overflowing. */
+   window still scrolls rather than overflowing. It is a fixed height, not a
+   cap (ADR-212): the trophy room holds still whichever track or tab is open.
+   The flex chain down to the room (cmdk's list, then its sizer) lets the
+   room pin its header and tabs and scroll only its content pane. */
 .paletteStats {
   width: min(860px, 92vw);
+  height: min(680px, 85vh);
   max-height: min(680px, 85vh);
+}
+
+.paletteStats .command {
+  flex: 1;
+  min-height: 0;
 }
 
 .paletteStats .list {
   max-height: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.paletteStats .list [cmdk-list-sizer] {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── Detail footer (keyboard hints) ── */

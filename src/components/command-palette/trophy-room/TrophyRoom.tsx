@@ -94,6 +94,8 @@ export function TrophyRoom(props: TrophyRoomProps) {
       </div>
 
       <div
+        className={styles.panel}
+        data-tab={tab}
         role="tabpanel"
         id={`${idPrefix}-panel-${tab}`}
         aria-labelledby={`${idPrefix}-tab-${tab}`}

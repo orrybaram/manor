@@ -636,6 +636,18 @@ export function earnedTitles(summary: StatsSummary): EarnedTitle[] {
   return result.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
 }
 
+/**
+ * Titles everyone holds from the start, so the header always has one to
+ * show. The first is the default until you pick another or complete a track.
+ * Kept distinct from every track title.
+ */
+export const STARTER_TITLES: readonly string[] = [
+  "Greenhorn",
+  "Tinkerer",
+  "Wrangler",
+  "Night Shift",
+];
+
 /** Earned and total badge counts per tier. */
 export function tierTally(
   summary: StatsSummary,

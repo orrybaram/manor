@@ -15,6 +15,30 @@
   flex-direction: column;
   gap: 16px;
   min-width: 0;
+  /* Fills the palette's fixed-height stats view (see `.paletteStats`); the
+     header and tabs stay put and the panel below scrolls. On a window too
+     short for even that, the whole room scrolls instead. */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.room > .header,
+.room > .tabs {
+  flex: none;
+}
+
+/* The container the Badges tab's narrow layout queries (below). */
+.panel {
+  container-type: inline-size;
+  flex: 1;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel[data-tab="stats"] {
+  overflow-y: auto;
 }
 
 .room [data-tier="bronze"] {
@@ -68,10 +92,12 @@
   color: var(--text-selected);
 }
 
-.titleEmpty {
+/* Your GitHub login, when `gh` is signed in. */
+.login {
+  margin-bottom: 4px;
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
-  font-weight: 400;
-  color: var(--text-dim);
+  color: var(--text-primary);
 }
 
 .titleEdit {
@@ -97,7 +123,37 @@
 .titleMenuList {
   display: flex;
   flex-direction: column;
+  gap: 4px;
+}
+
+.titleMenuGroup {
+  display: flex;
+  flex-direction: column;
   gap: 1px;
+}
+
+.titleMenuGroup + .titleMenuGroup {
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.titleMenuHeading,
+.titleMenuHint {
+  padding: 4px 8px 2px;
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-dim);
+}
+
+.titleMenuHint {
+  margin: 0;
+  padding: 6px 8px 4px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .titleMenuItem {
@@ -229,18 +285,18 @@
 
 /* ── Badges tab ── */
 
-/* Two panes that wrap: below 590px (150 + 20 + 420) the sidebar stacks
-   above the track, and the container query lays its items out in a row. */
+/* Two panes side by side, the sidebar fixed and the track scrolling. Below
+   590px (150 + 20 + 420) the sidebar stacks above the track, the container
+   query lays its items out in a row, and the two scroll together. */
 .badgesTab {
-  container-type: inline-size;
+  flex: 1;
+  min-height: 0;
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
   gap: 20px;
 }
 
 .sidebar {
-  flex: 1 1 150px;
+  flex: 0 0 150px;
   max-width: 100%;
   display: flex;
   flex-direction: column;
@@ -248,7 +304,13 @@
 }
 
 @container (max-width: 589px) {
+  .badgesTab {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
   .sidebar {
+    flex: none;
     flex-direction: row;
     flex-wrap: wrap;
     gap: 4px;
@@ -256,6 +318,11 @@
 
   .sidebar .sidebarItem.sidebarItem {
     width: auto;
+  }
+
+  .badgesTab > .pane {
+    flex: none;
+    overflow: visible;
   }
 }
 
@@ -295,11 +362,21 @@
 }
 
 .pane {
-  flex: 999 1 420px;
+  flex: 1 1 420px;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow-y: auto;
+  /* Room for focus rings at the scroll edges, without moving the content. */
+  margin: -2px;
+  padding: 2px;
+}
+
+/* `.rows` clips its corners, which would otherwise let it shrink to fit the
+   pane rather than scroll it. */
+.pane > * {
+  flex-shrink: 0;
 }
 
 /* ── Track card ── */

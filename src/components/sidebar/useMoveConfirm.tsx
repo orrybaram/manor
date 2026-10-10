@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { useAppStore } from "../../store/app-store";
 import { useProjectStore, type ProjectInfo } from "../../store/project-store";
-import { LOCAL_HOST_ID } from "../../lib/hosts";
+import { useHostStore } from "../../store/host-store";
+import { hostLabel } from "../../lib/hosts";
 import { projectHasOpenPanes } from "../../lib/project-panes";
 import type { TransferTarget } from "../../lib/transfer-targets";
 import { ConfirmDialog } from "../ui/ConfirmDialog/ConfirmDialog";
@@ -29,8 +30,8 @@ export function useMoveConfirm(project: ProjectInfo): {
     }
   };
 
-  const oldHost =
-    project.hostId === LOCAL_HOST_ID ? "this machine" : project.hostId;
+  const hosts = useHostStore((s) => s.hosts);
+  const oldHost = hostLabel(project.hostId, hosts);
   const dialog = (
     <ConfirmDialog
       open={pending !== null}

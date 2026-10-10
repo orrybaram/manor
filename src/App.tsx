@@ -38,6 +38,7 @@ const SettingsModal = lazy(() => import("./components/settings/SettingsModal/Set
 type SettingsPageId = import("./components/settings/SettingsModal/SettingsModal").SettingsPageId;
 const NewWorkspaceDialog = lazy(() => import("./components/sidebar/NewWorkspaceDialog/NewWorkspaceDialog").then(m => ({ default: m.NewWorkspaceDialog })));
 const AddProjectDialog = lazy(() => import("./components/sidebar/AddProjectDialog/AddProjectDialog").then(m => ({ default: m.AddProjectDialog })));
+const TransferDialogHost = lazy(() => import("./components/hosts/TransferDialogHost").then(m => ({ default: m.TransferDialogHost })));
 const ProjectSetupWizard = lazy(() => import("./components/sidebar/ProjectSetupWizard/ProjectSetupWizard").then(m => ({ default: m.ProjectSetupWizard })));
 const AgentsModal = lazy(() => import("./components/sidebar/AgentsView/AgentsView").then(m => ({ default: m.AgentsModal })));
 const FeedbackModal = lazy(() => import("./components/statusbar/FeedbackModal/FeedbackModal").then(m => ({ default: m.FeedbackModal })));
@@ -939,6 +940,7 @@ function App() {
               onLocalProjectCloned={handleLocalProjectCloned}
               onRemoteProjectAdded={handleRemoteProjectAdded}
             />
+            <TransferDialogHost />
             <NewWorkspaceDialog
               open={newWorkspaceOpen}
               onClose={closeNewWorkspace}

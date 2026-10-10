@@ -3,7 +3,8 @@ import * as Dialog from "@radix-ui/react-dialog";
 import X from "lucide-react/dist/esm/icons/x";
 import { useProjectStore, type ProjectInfo } from "../../store/project-store";
 import { useHostStore } from "../../store/host-store";
-import { hostLabel } from "../../lib/hosts";
+import { hostLabel, isRemoteHost } from "../../lib/hosts";
+import type { TransferInputReason } from "../../electron";
 import type { CloneHostChoice } from "../../lib/workspace-host-choices";
 import { toDirSlug } from "../../utils/branch-name";
 import { useMountEffect } from "../../hooks/useMountEffect";
@@ -16,24 +17,50 @@ import { CloneError, HostCloneSteps, RepoUrlAndRemoteDirFields } from "./HostClo
 import styles from "./HostCloneSteps.module.css";
 
 /**
- * What each mode does with the clone: which store action runs it, the
- * dialog's title, and how the hint ends.
- * - `move`: the project itself moves onto the host (ADR-179).
+ * What each mode does with the clone: the dialog's title, and how the hint
+ * ends.
+ * - `move` / `copy`: submit hands off to the store's `transferProject`
+ *   (ADR-213) and closes. That action never throws and reports through a
+ *   progress toast, whose "Choose location…" action (or a `needsInput`
+ *   result) reopens this dialog, so there is no in-dialog progress to keep.
  * - `addToGroup`: the clone is a new project, linked into the project's
- *   group (ADR-192 ticket 4).
+ *   group (ADR-192 ticket 4). `NewWorkspaceDialog` continues on the result,
+ *   so this one keeps the in-dialog progress flow, via `cloneIntoGroup`.
  */
 const MODES = {
   move: {
-    action: "moveProjectToHost",
-    title: "Clone onto host",
+    title: "Move to host",
     outcome: (name: string) => `"${name}" will then run from it`,
   },
+  copy: {
+    title: "Copy to host",
+    outcome: (name: string) => `it will be linked to "${name}" as another host`,
+  },
   addToGroup: {
-    action: "cloneIntoGroup",
     title: "Clone onto another host",
     outcome: (name: string) => `it will be linked to "${name}" as another host`,
   },
 } as const;
+
+/** The banner for why the dialog opened, or null when it needs none. */
+export function reasonBanner(reason: CloneToHostReason | undefined, error?: string): string | null {
+  switch (reason) {
+    case "no-origin":
+      return "This project has no origin remote — enter the repo URL.";
+    case "dir-taken":
+      return "That folder is already used — pick another.";
+    case "host-taken":
+      return "This project is already on that host — pick another.";
+    case "failed":
+      return error
+        ? `The clone failed — check the location and try again. ${error}`
+        : "The clone failed — check the location and try again.";
+    default:
+      return null;
+  }
+}
+
+export type CloneToHostReason = TransferInputReason | "failed" | "manual";
 
 type CloneToHostDialogProps = {
   open: boolean;
@@ -41,11 +68,19 @@ type CloneToHostDialogProps = {
   mode?: keyof typeof MODES;
   /**
    * The hosts to clone onto, at least one. With one the host is fixed;
-   * with more the user chooses, starting on the first available.
+   * with more the user chooses, starting on `initialHostId` or the first
+   * available.
    */
   hostChoices: CloneHostChoice[];
+  initialHostId?: string;
+  initialRepoUrl?: string | null;
+  initialDir?: string;
+  /** Why the dialog opened; shows a banner. */
+  reason?: CloneToHostReason;
+  /** The thrown message for `reason: "failed"`. */
+  error?: string;
   onClose: () => void;
-  /** Called with the resulting project once the clone succeeded. */
+  /** Called with the resulting project once the clone succeeded (`addToGroup`). */
   onCloned?: (project: ProjectInfo) => void;
   /** Where focus goes once the dialog has closed; Radix's default when omitted. */
   onCloseAutoFocus?: (e: Event) => void;
@@ -62,29 +97,57 @@ type CloneToHostDialogProps = {
  * let the exit animation play.
  */
 export function CloneToHostDialog(props: CloneToHostDialogProps) {
-  const { open, project, mode = "move", hostChoices, onClose, onCloned, onCloseAutoFocus } =
-    props;
+  const {
+    open,
+    project,
+    mode = "move",
+    hostChoices,
+    initialHostId,
+    initialRepoUrl,
+    initialDir,
+    reason,
+    error: failure,
+    onClose,
+    onCloned,
+    onCloseAutoFocus,
+  } = props;
 
-  const { action, title, outcome } = MODES[mode];
-  const run = useProjectStore((s) => s[action]);
+  const { title, outcome } = MODES[mode];
+  const cloneIntoGroup = useProjectStore((s) => s.cloneIntoGroup);
+  const transferProject = useProjectStore((s) => s.transferProject);
   const hosts = useHostStore((s) => s.hosts);
   const hostChoiceLabelId = useId();
 
   const [hostId, setHostId] = useState(
-    () => (hostChoices.find((c) => !c.disabledReason) ?? hostChoices[0])?.hostId ?? "",
+    () =>
+      hostChoices.find((c) => c.hostId === initialHostId)?.hostId ??
+      (hostChoices.find((c) => !c.disabledReason) ?? hostChoices[0])?.hostId ??
+      "",
   );
-  const [repoUrl, setRepoUrl] = useState("");
-  const [remoteDir, setRemoteDir] = useState(() => `~/code/${toDirSlug(project.name)}`);
+  const [repoUrl, setRepoUrl] = useState(initialRepoUrl ?? "");
+  const [remoteDir, setRemoteDir] = useState(
+    () => initialDir || `~/code/${toDirSlug(project.name)}`,
+  );
+  const isLocal = !isRemoteHost(hostId);
+  const banner = reasonBanner(reason, failure);
   const hostName = hostLabel(hostId, hosts);
   const hostUnavailable = hostChoices.find((c) => c.hostId === hostId)?.disabledReason ?? null;
 
   const flow = useHostCloneFlow({
     hostId,
-    run: () => run(project.id, { hostId, repoUrl: repoUrl.trim(), remoteDir: remoteDir.trim() }),
+    skipHealthChecks: isLocal,
+    run: () =>
+      cloneIntoGroup(project.id, {
+        hostId,
+        repoUrl: repoUrl.trim(),
+        remoteDir: remoteDir.trim(),
+      }),
   });
 
-  // Pre-fill the repo URL from the project's current `origin`.
+  // Pre-fill the repo URL from the project's current `origin`, unless the
+  // opener already planned one.
   useMountEffect(() => {
+    if (initialRepoUrl) return;
     let cancelled = false;
     window.electronAPI.projects
       .getOriginUrl(project.id)
@@ -110,9 +173,28 @@ export function CloneToHostDialog(props: CloneToHostDialogProps) {
 
   const handleClone = useCallback(async () => {
     if (!repoUrl.trim() || !remoteDir.trim() || hostUnavailable) return;
+    if (mode !== "addToGroup") {
+      onClose();
+      void transferProject(project.id, hostId, mode, {
+        repoUrl: repoUrl.trim(),
+        targetDir: remoteDir.trim(),
+      });
+      return;
+    }
     const cloned = await flow.start();
     if (cloned) onCloned?.(cloned);
-  }, [repoUrl, remoteDir, hostUnavailable, flow, onCloned]);
+  }, [
+    repoUrl,
+    remoteDir,
+    hostUnavailable,
+    mode,
+    onClose,
+    transferProject,
+    project.id,
+    hostId,
+    flow,
+    onCloned,
+  ]);
 
   const handleFixInTerminal = useCallback(
     (check: Parameters<typeof flow.fix>[0]) => {
@@ -148,6 +230,11 @@ export function CloneToHostDialog(props: CloneToHostDialogProps) {
           <Stack className={styles.body}>
             {flow.step === "form" && (
               <Stack gap="sm">
+                {banner && (
+                  <div className={styles.fieldHint} data-testid="clone-to-host-banner">
+                    {banner}
+                  </div>
+                )}
                 {hostChoices.length > 1 ? (
                   <Stack>
                     <span className={styles.fieldLabel} id={hostChoiceLabelId}>
@@ -178,11 +265,12 @@ export function CloneToHostDialog(props: CloneToHostDialogProps) {
                   onRepoUrlChange={setRepoUrl}
                   remoteDir={remoteDir}
                   onRemoteDirChange={setRemoteDir}
+                  local={isLocal}
                 />
                 <div className={styles.fieldHint}>
                   The repo will be cloned on {hostName} — or an existing clone
-                  there will be adopted — and {outcome(project.name)}. Manor
-                  doesn't copy your keys; log in on the box first.
+                  there will be adopted — and {outcome(project.name)}.
+                  {!isLocal && " Manor doesn't copy your keys; log in on the box first."}
                 </div>
                 {hostUnavailable && <div className={styles.error}>{hostUnavailable}</div>}
                 {flow.error && <CloneError message={flow.error} />}
@@ -195,7 +283,7 @@ export function CloneToHostDialog(props: CloneToHostDialogProps) {
                     disabled={!repoUrl.trim() || !remoteDir.trim() || !!hostUnavailable}
                     onClick={handleClone}
                   >
-                    Clone
+                    {mode === "addToGroup" ? "Clone" : mode === "copy" ? "Copy" : "Move"}
                   </Button>
                 </Row>
               </Stack>

@@ -6,7 +6,6 @@ import { HostCard, HostCardRow } from "../../hosts/HostCard";
 import { LOCAL_HOST_ID, isRemoteHost, remoteHostOptions } from "../../../lib/hosts";
 import { projectHasOpenPanes } from "../../../lib/project-panes";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
-import { CloneToHostDialog } from "../../hosts/CloneToHostDialog";
 import { Input } from "../../ui/Input";
 import { Button } from "../../ui/Button/Button";
 import { SearchableSelect } from "../../ui/SearchableSelect/SearchableSelect";
@@ -17,6 +16,7 @@ import styles from "../SettingsModal/SettingsModal.module.css";
 import { pickDirectory } from "../../../lib/pick-directory";
 
 const ADD_HOST_VALUE = "__add_host__";
+const CHOOSE_LOCAL_VALUE = "__choose_local__";
 
 /** A host change waiting on the "this project has open panes" confirm. */
 type PendingHostChange =
@@ -45,6 +45,7 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
   const { project, sectionId = "project-host" } = props;
 
   const switchProjectHost = useProjectStore((s) => s.switchProjectHost);
+  const transferProject = useProjectStore((s) => s.transferProject);
   const hosts = useHostStore((s) => s.hosts);
   const addHost = useHostStore((s) => s.addHost);
   const hostBusy = useHostStore((s) => s.busy);
@@ -58,10 +59,6 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
     null,
   );
   const [pendingChange, setPendingChange] = useState<PendingHostChange | null>(
-    null,
-  );
-  /** The host id `CloneToHostDialog` is open for, or null when it is closed. */
-  const [cloneDialogHostId, setCloneDialogHostId] = useState<string | null>(
     null,
   );
   const [pathMissing, setPathMissing] = useState(false);
@@ -96,9 +93,12 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
     return [
       { value: LOCAL_HOST_ID, label: "This machine" },
       ...remoteHostOptions(hosts),
+      ...(isRemoteHost(currentHostId)
+        ? [{ value: CHOOSE_LOCAL_VALUE, label: "Choose local folder…" }]
+        : []),
       { value: ADD_HOST_VALUE, label: "Add new host…" },
     ];
-  }, [hosts]);
+  }, [hosts, currentHostId]);
 
   // Main moves the project's path along with its host — to `path`, or the
   // path it last had there — and refuses when that path is missing there.
@@ -128,28 +128,27 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
         .then(({ hostId }) => {
           setAdding(false);
           setTargetInput("");
-          setCloneDialogHostId(hostId);
+          void transferProject(project.id, hostId, "move");
         })
         .catch((err: unknown) => {
           setAddError(ipcErrorMessage(err));
         });
     },
-    [addHost],
+    [addHost, transferProject, project.id],
   );
 
   const performHostChange = useCallback(
     (change: PendingHostChange) => {
       if (change.kind === "switch") {
-        // Local stays a plain host switch, which goes through the ADR-179
-        // guard; a remote host opens the clone dialog instead of switching
-        // straight away, so the project's path is always valid there first.
-        if (change.hostId === LOCAL_HOST_ID) switchHost(change.hostId);
-        else setCloneDialogHostId(change.hostId);
+        // ADR-213: every host, local included, goes through the one-click
+        // transfer, so a missing checkout is cloned instead of failing. It
+        // opens the fallback dialog only when it needs input.
+        void transferProject(project.id, change.hostId, "move");
       } else {
         addAndOpenCloneDialog(change.target);
       }
     },
-    [switchHost, addAndOpenCloneDialog],
+    [transferProject, project.id, addAndOpenCloneDialog],
   );
 
   // Confirm BEFORE anything happens — in particular before `addHost`, so
@@ -173,10 +172,14 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
         requestAnimationFrame(() => targetInputRef.current?.focus());
         return;
       }
+      if (value === CHOOSE_LOCAL_VALUE) {
+        void chooseLocalFolder();
+        return;
+      }
       if (value === currentHostId) return;
       requestHostChange({ kind: "switch", hostId: value });
     },
-    [currentHostId, requestHostChange],
+    [currentHostId, requestHostChange, chooseLocalFolder],
   );
 
   const handleAddHost = useCallback(() => {
@@ -212,7 +215,7 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => setCloneDialogHostId(currentHostId)}
+              onClick={() => void transferProject(project.id, currentHostId, "move")}
             >
               Clone onto host…
             </Button>
@@ -285,14 +288,6 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
         }}
         onCancel={() => setPendingChange(null)}
       />
-      {cloneDialogHostId && (
-        <CloneToHostDialog
-          open
-          project={project}
-          hostChoices={[{ hostId: cloneDialogHostId, disabledReason: null }]}
-          onClose={() => setCloneDialogHostId(null)}
-        />
-      )}
     </Stack>
   );
 }

@@ -1,6 +1,6 @@
 ---
 title: Set-up dialog, New Workspace picker and Project Settings
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [3]

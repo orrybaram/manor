@@ -842,6 +842,7 @@ function App() {
                       setPaletteOrigin("shortcut");
                       setPaletteOpen(true);
                     }}
+                    onOpenSearch={openPalette}
                   />
                 )}
                 {/* Every workspace renders through the same PanelLayout in a single

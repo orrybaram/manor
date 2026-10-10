@@ -321,6 +321,11 @@
 
 
 /* Dimmed tracker icons on the right of the Tasks row (ADR-198). */
+.rowTrailingBadge {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .rowTrailingIcons {
   margin-left: auto;
   display: flex;

@@ -145,6 +145,7 @@ button.notifyDismiss {
 :global(:root[data-layout="phone"])
   :is([role="dialog"], [role="alertdialog"]):not(
     [data-testid="sidebar-drawer"],
+    [data-testid="notifications-sheet"],
     [data-testid="pane-switcher"],
     [data-testid="command-palette"],
     [data-testid="settings-modal"]
@@ -164,4 +165,40 @@ button.notifyDismiss {
  */
 :global(:root[data-layout="phone"]) body {
   --text-dim: color-mix(in srgb, var(--fg) 68%, transparent);
+}
+
+/*
+ * The top bar's overflow menu (`PhoneOverflowMenu`). Portaled under `<body>`,
+ * hence `:root[data-layout="phone"]` rather than `.app` (ADR-181 D5). Items
+ * are full-width rows a thumb can hit.
+ */
+:global(:root[data-layout="phone"]) .overflowMenu {
+  min-width: 200px;
+  max-width: calc(100vw - 16px);
+  padding: 4px;
+  background: var(--dim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+}
+
+.overflowList {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+:global(:root[data-layout="phone"]) button.overflowItem {
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+:global(:root[data-layout="phone"]) button.overflowItem:focus-visible {
+  outline-offset: -2px;
 }

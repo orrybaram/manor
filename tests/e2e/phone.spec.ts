@@ -274,7 +274,8 @@ test.describe("phone layout (ADR-181)", () => {
       const metaABefore = await readSessionMeta(request, tempHome, paneA);
       const metaBBefore = await readSessionMeta(request, tempHome, paneB!);
 
-      await client.page.getByTestId("phone-palette-button").click();
+      await client.page.getByTestId("phone-overflow-button").click();
+      await client.page.getByTestId("phone-overflow-palette").click();
       await runOpenPaletteCommand(client.page, "Next Pane");
       await assertVisiblePaneCount(client.page, 1);
       await expect
@@ -303,6 +304,9 @@ test.describe("phone layout (ADR-181)", () => {
       await client.page.getByTestId("phone-drawer-toggle").click();
       const drawer = client.page.getByTestId("sidebar-drawer");
       await expect(drawer).toBeVisible();
+      // Search and Notifications live in the drawer's nav on a phone.
+      await expect(drawer.getByTestId("search-row")).toBeVisible();
+      await expect(drawer.getByTestId("notifications-row")).toBeVisible();
       await film.shot(client.page, "04-drawer-open");
 
       await client.page
@@ -318,14 +322,27 @@ test.describe("phone layout (ADR-181)", () => {
       );
       await film.shot(client.page, "05-drawer-switched-workspace");
 
-      // 4. The palette opens full screen from the top-bar button, and a
+      // The drawer's Notifications row swaps the drawer for the
+      // notifications sheet, and its close button dismisses it.
+      await client.page.getByTestId("phone-drawer-toggle").click();
+      await expect(drawer).toBeVisible();
+      await drawer.getByTestId("notifications-row").click();
+      await expect(drawer).not.toBeVisible();
+      const sheet = client.page.getByTestId("notifications-sheet");
+      await expect(sheet).toBeVisible();
+      await expect(sheet).toContainText("Notifications");
+      await client.page.getByTestId("notifications-sheet-close").click();
+      await expect(sheet).not.toBeVisible();
+
+      // 4. The palette opens full screen from the top bar's overflow menu, and a
       // pane action run from it lands on the desk's layout too. The desk
       // follows the browser onto workspace 2 first, so the split it is
       // about to run is one the desk itself can be seen picking up.
       await window.getByTestId("workspace-item").filter({ hasText: WORKSPACE_2 }).click();
       await assertVisiblePaneCount(window, 1);
 
-      await client.page.getByTestId("phone-palette-button").click();
+      await client.page.getByTestId("phone-overflow-button").click();
+      await client.page.getByTestId("phone-overflow-palette").click();
       const palette = client.page.getByTestId("command-palette");
       await expect(palette).toBeVisible();
       const paletteBox = await palette.boundingBox();

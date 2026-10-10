@@ -95,8 +95,11 @@ test.describe("phone chat view (ADR-215)", () => {
     expect(fs.existsSync(transcriptFile)).toBe(true);
     await film.shot(window, "desk-agent-running");
 
-    // The desk never offers the chat (ADR-215 D7).
-    await expect(window.getByTestId("chat-view-toggle")).toHaveCount(0);
+    // The desk never offers the chat (ADR-215 D7): it has no phone top bar,
+    // so no overflow menu to switch views from, and no chat in the pane.
+    await expect(window.getByTestId("phone-top-bar")).toHaveCount(0);
+    await expect(window.getByTestId("phone-overflow-view")).toHaveCount(0);
+    await expect(window.getByTestId("chat-pane")).toHaveCount(0);
 
     // ── Pair, open the phone ────────────────────────────────────────────
     const device = await pairBrowser(window, { label: "chat phone" });
@@ -113,18 +116,21 @@ test.describe("phone chat view (ADR-215)", () => {
       await expect.poll(() => activePaneId(page), { timeout: 15_000 }).toBe(paneId);
       const pane = paneLocator(page, paneId);
 
-      // 1. The pane has a transcript, so it gets the toggle, with Chat chosen
-      // by default.
-      const toggle = pane.getByTestId("chat-view-toggle");
-      await expect(toggle).toBeVisible({ timeout: 20_000 });
-      const chatRadio = toggle.getByRole("radio", { name: "Chat" });
-      const terminalRadio = toggle.getByRole("radio", { name: "Terminal" });
-      await expect(chatRadio).toHaveAttribute("aria-checked", "true");
-      await expect(terminalRadio).toHaveAttribute("aria-checked", "false");
-
+      // 1. The pane has a transcript, so it shows as a chat by default, and
+      // the top bar's overflow menu offers the terminal instead.
       const chat = pane.getByTestId("chat-pane");
       await expect(chat).toBeVisible({ timeout: 20_000 });
       await expect(pane.locator('[data-testid="terminal-pane"]')).not.toBeVisible();
+
+      const overflowButton = page.getByTestId("phone-overflow-button");
+      const viewItem = page.getByTestId("phone-overflow-view");
+      await overflowButton.tap();
+      await expect(viewItem).toBeVisible({ timeout: 20_000 });
+      await expect(viewItem).toHaveText("Show terminal");
+      // Escape closes the menu without switching.
+      await page.keyboard.press("Escape");
+      await expect(viewItem).toBeHidden();
+      await expect(chat).toBeVisible();
 
       // 2. The transcript renders: the prompt, the reply, and the open
       // question as a card with one button per option.
@@ -166,8 +172,9 @@ test.describe("phone chat view (ADR-215)", () => {
 
       // 5. Terminal: xterm shows, the chat hides, and the PTY it shows is
       // the same one the chat typed into.
-      await terminalRadio.tap();
-      await expect(terminalRadio).toHaveAttribute("aria-checked", "true");
+      await overflowButton.tap();
+      await viewItem.tap();
+      await expect(viewItem).toBeHidden();
       await expect(pane.locator('[data-testid="terminal-pane"]')).toBeVisible();
       await expect(chat).not.toBeVisible();
       await expect
@@ -176,8 +183,10 @@ test.describe("phone chat view (ADR-215)", () => {
       await film.shot(page, "04-terminal");
 
       // 6. Back to Chat: nothing was remounted, so the history is all there.
-      await chatRadio.tap();
-      await expect(chatRadio).toHaveAttribute("aria-checked", "true");
+      await overflowButton.tap();
+      await expect(viewItem).toHaveText("Show chat");
+      await viewItem.tap();
+      await expect(viewItem).toBeHidden();
       await expect(chat).toBeVisible();
       await expect(pane.locator('[data-testid="terminal-pane"]')).not.toBeVisible();
       await expect(chat.getByTestId("chat-user").filter({ hasText: FAKE_CHAT_PROMPT })).toBeVisible();

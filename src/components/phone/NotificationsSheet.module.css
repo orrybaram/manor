@@ -1,0 +1,85 @@
+/*
+ * The phone's notifications sheet (`NotificationsSheet`): the whole screen,
+ * on the same overlay and backdrop as the sidebar drawer
+ * (`SidebarDrawer.module.css`). `NotificationsPanel` fills it as a column, so
+ * its header stays put and only the list scrolls.
+ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 100;
+}
+
+.overlay[data-state="open"] {
+  animation: fadeIn 150ms ease-out;
+}
+
+.overlay[data-state="closed"] {
+  animation: fadeOut 100ms ease-in;
+}
+
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 101;
+  display: flex;
+  flex-direction: column;
+  height: 100svh;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--dim);
+  outline: none;
+  overflow: hidden;
+}
+
+.sheet[data-state="open"] {
+  animation: slideUp 180ms ease-out;
+}
+
+.sheet[data-state="closed"] {
+  animation: slideDown 140ms ease-in;
+}
+
+/* As the top bar's icon buttons: a 44px touch target. */
+button.close {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}

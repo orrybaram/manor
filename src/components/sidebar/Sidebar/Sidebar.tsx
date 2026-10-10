@@ -9,10 +9,13 @@ import Folders from "lucide-react/dist/esm/icons/folders";
 import LayoutDashboard from "lucide-react/dist/esm/icons/layout-dashboard";
 import ListTodo from "lucide-react/dist/esm/icons/list-todo";
 import Search from "lucide-react/dist/esm/icons/search";
+import Bell from "lucide-react/dist/esm/icons/bell";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Button } from "../../ui/Button/Button";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
+import { CountBadge } from "../../ui/CountBadge/CountBadge";
+import { useNotificationStore } from "../../../store/notification-store";
 import { useProjectStore } from "../../../store/project-store";
 import { useAppStore } from "../../../store/app-store";
 import { HOME_PATH, isHomePath } from "../../../lib/home";
@@ -46,6 +49,9 @@ interface SidebarProps {
   onOpenProjectSettings?: (projectId: string) => void;
   onAddProject?: () => void;
   onOpenSearch?: () => void;
+  /** Adds a Notifications row after Search. Only the phone drawer passes it:
+   *  the desk has its bell in the window lead and the rail. */
+  onOpenNotifications?: () => void;
   /** ADR-181 D3: fires after a workspace (or Home, or Tasks) is chosen — the
    *  phone drawer closes on this rather than duplicating the selection
    *  logic below. No-op inline in desk mode, where nothing passes it. */
@@ -58,6 +64,7 @@ export function Sidebar(props: SidebarProps) {
     onOpenProjectSettings,
     onAddProject,
     onOpenSearch,
+    onOpenNotifications,
     onNavigate,
   } = props;
 
@@ -312,6 +319,9 @@ export function Sidebar(props: SidebarProps) {
                 <span className={styles.homeLabel}>Search</span>
               </div>
             )}
+            {onOpenNotifications && (
+              <NotificationsRow onOpen={onOpenNotifications} />
+            )}
           </nav>
           <div className={styles.navDivider} role="separator" />
           <div className={styles.projectsSection}>
@@ -427,3 +437,38 @@ export function Sidebar(props: SidebarProps) {
 }
 
 const EMPTY_STYLE: React.CSSProperties = {};
+
+type NotificationsRowProps = {
+  onOpen: () => void;
+};
+
+/** The nav group's Notifications row, with the unread count when there is one. */
+function NotificationsRow(props: NotificationsRowProps) {
+  const { onOpen } = props;
+
+  const unreadCount = useNotificationStore((s) => s.unreadCount);
+
+  return (
+    <div
+      className={styles.homeRow}
+      data-testid="notifications-row"
+      data-sidebar-row=""
+      tabIndex={-1}
+      onClick={onOpen}
+      onKeyDown={(e) => handleSidebarRowKeyDown(e, { activate: onOpen })}
+    >
+      <span className={styles.homeIcon}>
+        <Bell size={14} />
+      </span>
+      <span className={styles.homeLabel}>Notifications</span>
+      {unreadCount > 0 && (
+        <CountBadge
+          count={unreadCount}
+          className={styles.rowTrailingBadge}
+          data-testid="notifications-row-badge"
+          aria-label={`${unreadCount} unread`}
+        />
+      )}
+    </div>
+  );
+}

@@ -60,9 +60,8 @@ import { isWebApp } from "../../lib/platform";
 import { useLayoutMode } from "../../hooks/useLayoutMode";
 import { useAgentStore } from "../../store/agent-store";
 import { chatTranscriptPath, pickPaneAgent } from "../phone/ChatPane/chat-view";
-import { ChatViewToggle } from "../phone/ChatPane/ChatViewToggle";
 import { usePaneChatView } from "../phone/ChatPane/usePaneChatView";
-import chatViewStyles from "../phone/ChatPane/ChatViewToggle.module.css";
+import chatViewStyles from "../phone/ChatPane/PaneView.module.css";
 
 import styles from "./PaneLayout/PaneLayout.module.css";
 import browserStyles from "./BrowserPane/BrowserPane.module.css";
@@ -580,9 +579,6 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
         </ContextMenu.Content>
       </ContextMenu.Portal>
       </ContextMenu.Root>
-      {chatTranscript !== null && (
-        <ChatViewToggle value={paneView} onChange={setPaneView} />
-      )}
       {contentType === "browser" && navState?.findBarOpen && (
         <div className={browserStyles.findBar}>
           <Search size={12} className={browserStyles.findBarIcon} />

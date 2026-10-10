@@ -3,7 +3,7 @@
  * ADR-215 D7: the phone chat view. Entries render by kind; question cards
  * send the `PickerAnswer`s the user chose in one `chat.answer`; a refused
  * answer falls back to the terminal; and the Chat | Terminal choice defaults
- * to chat and is remembered per pane.
+ * to chat, is remembered per pane, and is shared by everything reading it.
  */
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -16,8 +16,7 @@ vi.hoisted(() => {
 
 import type { ChatAnswerResult, ChatEntry, ChatHistory } from "../../../../electron.d";
 import { ChatPane } from "../ChatPane";
-import { ChatViewToggle } from "../ChatViewToggle";
-import { usePaneChatView } from "../usePaneChatView";
+import { setPaneChatView, usePaneChatView, usePaneChatViewStore } from "../usePaneChatView";
 import { readChatView } from "../chat-view";
 import { useAppStore } from "../../../../store/app-store";
 
@@ -299,26 +298,38 @@ describe("ChatPane — question cards", () => {
   });
 });
 
-describe("Chat | Terminal toggle", () => {
+describe("pane view store", () => {
+  beforeEach(() => {
+    usePaneChatViewStore.setState({ views: {} });
+  });
+
+  /** Two readers of one pane, as `LeafPane` and the top bar's menu are. */
   function Harness() {
-    const [view, setView] = usePaneChatView(PANE);
-    return createElement(ChatViewToggle, { value: view, onChange: setView });
+    const [a] = usePaneChatView(PANE);
+    const [b, setB] = usePaneChatView(PANE);
+    return createElement(
+      "button",
+      { "data-testid": "flip", "data-a": a, "data-b": b, onClick: () => setB(b === "chat" ? "terminal" : "chat") },
+    );
   }
 
-  function chosen(): string | null | undefined {
-    return container.querySelector('[role="radio"][aria-checked="true"]')?.getAttribute("data-value");
+  function views(): [string | null, string | null] {
+    const el = container.querySelector('[data-testid="flip"]');
+    return [el?.getAttribute("data-a") ?? null, el?.getAttribute("data-b") ?? null];
   }
 
-  it("defaults to chat and remembers the choice per pane", async () => {
+  it("defaults to chat, is shared by every reader, and remembers the choice per pane", async () => {
     await act(async () => {
       root.render(createElement(Harness));
     });
-    expect(chosen()).toBe("chat");
-    await click(container.querySelector('[data-value="terminal"]')!);
-    expect(chosen()).toBe("terminal");
+    expect(views()).toEqual(["chat", "chat"]);
+    await click(container.querySelector('[data-testid="flip"]')!);
+    expect(views()).toEqual(["terminal", "terminal"]);
     expect(readChatView(PANE)).toBe("terminal");
     expect(readChatView("another-pane")).toBe("chat");
 
+    // A fresh store (a reload) reads the choice back from storage.
+    usePaneChatViewStore.setState({ views: {} });
     act(() => {
       root.unmount();
     });
@@ -326,7 +337,17 @@ describe("Chat | Terminal toggle", () => {
     await act(async () => {
       root.render(createElement(Harness));
     });
-    expect(chosen()).toBe("terminal");
+    expect(views()).toEqual(["terminal", "terminal"]);
+  });
+
+  it("re-renders a reader when the view is set from outside it", async () => {
+    await act(async () => {
+      root.render(createElement(Harness));
+    });
+    await act(async () => {
+      setPaneChatView(PANE, "terminal");
+    });
+    expect(views()).toEqual(["terminal", "terminal"]);
   });
 
   it("falls back to chat when storage throws", () => {

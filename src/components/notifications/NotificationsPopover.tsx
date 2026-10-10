@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import * as Popover from "@radix-ui/react-popover";
 import Award from "lucide-react/dist/esm/icons/award";
 import Bell from "lucide-react/dist/esm/icons/bell";
@@ -260,22 +267,43 @@ function CommentPreview(props: {
   );
 }
 
-/**
- * The notification history (ADR-162 §6). Click-triggered rather than
- * hover-triggered like `PrPopover`: this is something you deliberately open,
- * not a badge you brush past.
- */
-type NotificationsPopoverProps = {
-  /** Replaces the bell's default 24px lead styling, e.g. with a rail tile's. */
-  triggerClassName?: string;
-  /** Where the list opens: under the bell in the lead, beside it in the rail. */
-  side?: "bottom" | "right";
+type NotificationsPanelProps = {
+  /** Called after a row click has started navigating to its record — the
+   *  container closes itself here. */
+  onNavigate: () => void;
+  /**
+   * A touch screen: no hover-only comment previews (a tap is already "go
+   * there", and nothing hovers), and thumb-sized header buttons.
+   */
+  touch?: boolean;
+  /** Wraps the header's title, e.g. in a dialog's `Dialog.Title`. */
+  wrapTitle?: (title: ReactElement) => ReactNode;
+  /** After the header's own actions, e.g. a sheet's close button. */
+  headerEnd?: ReactNode;
+  /** The filter, when the container wants it to outlive the panel. */
+  filter?: KindFilter;
+  onFilterChange?: (filter: KindFilter) => void;
 };
 
-export function NotificationsPopover(props: NotificationsPopoverProps) {
-  const { triggerClassName, side = "bottom" } = props;
-  const [open, setOpen] = useState(false);
-  const [filter, setFilter] = useState<KindFilter>("all");
+/**
+ * The notification list itself (ADR-162 §6): a header with mark-all-read and
+ * clear, the kind filter, and the records grouped by day. Fills whatever
+ * column it is put in; only the list scrolls. Shared by the desk's popover and
+ * the phone's sheet.
+ */
+export function NotificationsPanel(props: NotificationsPanelProps) {
+  const {
+    onNavigate,
+    touch = false,
+    wrapTitle,
+    headerEnd,
+    filter: controlledFilter,
+    onFilterChange,
+  } = props;
+
+  const [ownFilter, setOwnFilter] = useState<KindFilter>("all");
+  const filter = controlledFilter ?? ownFilter;
+  const setFilter = onFilterChange ?? setOwnFilter;
   const notifications = useNotificationStore((s) => s.notifications);
   const unreadCount = useNotificationStore((s) => s.unreadCount);
   const markAllRead = useNotificationStore((s) => s.markAllRead);
@@ -294,7 +322,7 @@ export function NotificationsPopover(props: NotificationsPopoverProps) {
   }
 
   const handleRowClick = (record: NotificationRecord) => {
-    setOpen(false);
+    onNavigate();
     void navigateToNotification(record);
   };
 
@@ -315,6 +343,109 @@ export function NotificationsPopover(props: NotificationsPopoverProps) {
         : Math.max(currentIndex - 1, 0);
     rows[nextIndex]?.focus();
   }, []);
+
+  const title = <span className={styles.headerTitle}>Notifications</span>;
+
+  return (
+    <div className={`${styles.panel} ${touch ? styles.panelTouch : ""}`}>
+      <div className={styles.header}>
+        {wrapTitle ? wrapTitle(title) : title}
+        <Tooltip label="Mark all read">
+          <Button
+            variant="ghost"
+            size="sm"
+            className={styles.headerAction}
+            aria-label="Mark all read"
+            disabled={unreadCount === 0}
+            onClick={() => void markAllRead()}
+          >
+            <CheckCheck size={touch ? 16 : 13} />
+          </Button>
+        </Tooltip>
+        <Tooltip label="Clear">
+          <Button
+            variant="ghost"
+            size="sm"
+            className={styles.headerAction}
+            aria-label="Clear"
+            disabled={notifications.length === 0}
+            onClick={() => void clear()}
+          >
+            <Trash2 size={touch ? 16 : 13} />
+          </Button>
+        </Tooltip>
+        {headerEnd}
+      </div>
+
+      <div className={styles.filterBar} data-testid="notifications-filter">
+        <ToggleGroup
+          size="sm"
+          value={filter}
+          onChange={setFilter}
+          options={FILTER_OPTIONS}
+          aria-label="Filter notifications"
+        />
+      </div>
+
+      <div className={styles.scrollArea} onKeyDown={handleListKeyDown}>
+        {visible.length === 0 && (
+          <div className={styles.empty} data-testid="notifications-empty">
+            {notifications.length === 0
+              ? "Nothing here yet."
+              : "Nothing of this kind."}
+          </div>
+        )}
+
+        {BUCKET_ORDER.map((bucket) => {
+          const records = grouped.get(bucket);
+          if (!records) return null;
+
+          return (
+            <div key={bucket} className={styles.dateGroup}>
+              <div className={styles.dateGroupHeader}>{bucket}</div>
+              {records.map((record) => {
+                const row = (
+                  <NotificationRow
+                    key={record.id}
+                    record={record}
+                    onClick={handleRowClick}
+                  />
+                );
+                if (!touch && record.kind === "pr-comment" && record.comment) {
+                  return (
+                    <CommentPreview key={record.id} comment={record.comment}>
+                      {row}
+                    </CommentPreview>
+                  );
+                }
+                return row;
+              })}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The notification history (ADR-162 §6). Click-triggered rather than
+ * hover-triggered like `PrPopover`: this is something you deliberately open,
+ * not a badge you brush past.
+ */
+type NotificationsPopoverProps = {
+  /** Replaces the bell's default 24px lead styling, e.g. with a rail tile's. */
+  triggerClassName?: string;
+  /** Where the list opens: under the bell in the lead, beside it in the rail. */
+  side?: "bottom" | "right";
+};
+
+export function NotificationsPopover(props: NotificationsPopoverProps) {
+  const { triggerClassName, side = "bottom" } = props;
+  const [open, setOpen] = useState(false);
+  // Held here, not in the panel, so the choice survives closing the list.
+  const [filter, setFilter] = useState<KindFilter>("all");
+  const unreadCount = useNotificationStore((s) => s.unreadCount);
 
   useEffect(() => {
     return onUiRequest((request) => {
@@ -353,81 +484,11 @@ export function NotificationsPopover(props: NotificationsPopoverProps) {
           // the bell would open its tooltip over whatever just opened.
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
-          <div className={styles.header}>
-            <span className={styles.headerTitle}>Notifications</span>
-            <Tooltip label="Mark all read">
-              <Button
-                variant="ghost"
-                size="sm"
-                className={styles.headerAction}
-                aria-label="Mark all read"
-                disabled={unreadCount === 0}
-                onClick={() => void markAllRead()}
-              >
-                <CheckCheck size={13} />
-              </Button>
-            </Tooltip>
-            <Tooltip label="Clear">
-              <Button
-                variant="ghost"
-                size="sm"
-                className={styles.headerAction}
-                aria-label="Clear"
-                disabled={notifications.length === 0}
-                onClick={() => void clear()}
-              >
-                <Trash2 size={13} />
-              </Button>
-            </Tooltip>
-          </div>
-
-          <div className={styles.filterBar} data-testid="notifications-filter">
-            <ToggleGroup
-              size="sm"
-              value={filter}
-              onChange={setFilter}
-              options={FILTER_OPTIONS}
-              aria-label="Filter notifications"
-            />
-          </div>
-
-          <div className={styles.scrollArea} onKeyDown={handleListKeyDown}>
-            {visible.length === 0 && (
-              <div className={styles.empty} data-testid="notifications-empty">
-                {notifications.length === 0
-                  ? "Nothing here yet."
-                  : "Nothing of this kind."}
-              </div>
-            )}
-
-            {BUCKET_ORDER.map((bucket) => {
-              const records = grouped.get(bucket);
-              if (!records) return null;
-
-              return (
-                <div key={bucket} className={styles.dateGroup}>
-                  <div className={styles.dateGroupHeader}>{bucket}</div>
-                  {records.map((record) => {
-                    const row = (
-                      <NotificationRow
-                        key={record.id}
-                        record={record}
-                        onClick={handleRowClick}
-                      />
-                    );
-                    if (record.kind === "pr-comment" && record.comment) {
-                      return (
-                        <CommentPreview key={record.id} comment={record.comment}>
-                          {row}
-                        </CommentPreview>
-                      );
-                    }
-                    return row;
-                  })}
-                </div>
-              );
-            })}
-          </div>
+          <NotificationsPanel
+            onNavigate={() => setOpen(false)}
+            filter={filter}
+            onFilterChange={setFilter}
+          />
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

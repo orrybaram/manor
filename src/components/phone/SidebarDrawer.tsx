@@ -9,6 +9,10 @@ type SidebarDrawerProps = {
   onShowAgents?: () => void;
   onOpenProjectSettings?: (projectId: string) => void;
   onAddProject?: () => void;
+  /** The nav group's Search row. */
+  onOpenSearch?: () => void;
+  /** The nav group's Notifications row (phone only). */
+  onOpenNotifications?: () => void;
 };
 
 /**
@@ -95,8 +99,15 @@ function useSwipeToClose(onClose: () => void) {
 }
 
 export function SidebarDrawer(props: SidebarDrawerProps) {
-  const { open, onOpenChange, onShowAgents, onOpenProjectSettings, onAddProject } =
-    props;
+  const {
+    open,
+    onOpenChange,
+    onShowAgents,
+    onOpenProjectSettings,
+    onAddProject,
+    onOpenSearch,
+    onOpenNotifications,
+  } = props;
   const swipe = useSwipeToClose(() => onOpenChange(false));
 
   return (
@@ -123,6 +134,8 @@ export function SidebarDrawer(props: SidebarDrawerProps) {
             onShowAgents={onShowAgents}
             onOpenProjectSettings={onOpenProjectSettings}
             onAddProject={onAddProject}
+            onOpenSearch={onOpenSearch}
+            onOpenNotifications={onOpenNotifications}
             onNavigate={() => onOpenChange(false)}
           />
         </Dialog.Content>

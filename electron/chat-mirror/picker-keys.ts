@@ -44,7 +44,6 @@ const TAB = "\t";
 
 /** Free text as the picker's text field should receive it: one line, no control bytes. */
 function sanitizeText(text: string): string {
-  // eslint-disable-next-line no-control-regex
   return text.replace(/[\r\n]+/g, " ").replace(/[\x00-\x1f\x7f]/g, "").trim();
 }
 

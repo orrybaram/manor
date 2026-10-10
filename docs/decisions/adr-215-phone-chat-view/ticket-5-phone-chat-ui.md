@@ -1,6 +1,6 @@
 ---
 title: Phone chat view with picker cards and composer
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [4]

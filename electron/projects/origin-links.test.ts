@@ -115,7 +115,7 @@ describe("ProjectManager link suggestions by origin (ADR-192 ticket 5)", () => {
         exec: vi.fn(async (cwd: string, args: string[]) => {
           if (offline.has(hostId)) throw new Error(`${hostId} is unavailable`);
           const origin = origins[`${hostId}:${cwd}`];
-          if (args.join(" ") === "remote get-url origin" && origin) return `${origin}\n`;
+          if (args.join(" ") === "config --get remote.origin.url" && origin) return `${origin}\n`;
           throw new Error("error: No such remote 'origin'");
         }),
         worktreeList: vi.fn(async () => []),

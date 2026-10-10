@@ -13,20 +13,20 @@ type HostPickerProps = {
   value: string;
   onChange: (projectId: string) => void;
   /**
-   * Opens "Clone onto another host…" (ADR-192 ticket 4). Omitted when every
+   * Opens "Set up on another host…" (ADR-192 ticket 4). Omitted when every
    * registered host already has a member, which hides the action.
    */
-  onCloneOntoAnotherHost?: () => void;
+  onSetUpOnAnotherHost?: () => void;
 };
 
 /**
- * Where a linked project's new workspace runs (ADR-192). It shows one
- * option per member host, labeled with that host's badge. A host that
+ * Where a project's new workspace runs (ADR-192). It shows one
+ * option per host the project is set up on, labeled with that host's badge. A host that
  * isn't connected stays visible but can't be picked, and says why. Beside
- * it, "Clone onto another host…" adds a member on a host the group lacks.
+ * it, "Set up on another host…" sets the project up on a host it lacks.
  */
 export function HostPicker(props: HostPickerProps) {
-  const { choices, value, onChange, onCloneOntoAnotherHost } = props;
+  const { choices, value, onChange, onSetUpOnAnotherHost } = props;
 
   const labelId = useId();
 
@@ -52,15 +52,15 @@ export function HostPicker(props: HostPickerProps) {
             ...(choice.disabledReason ? { disabledReason: choice.disabledReason } : {}),
           }))}
         />
-        {onCloneOntoAnotherHost && (
+        {onSetUpOnAnotherHost && (
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            onClick={onCloneOntoAnotherHost}
-            data-testid="new-workspace-clone-onto-host"
+            onClick={onSetUpOnAnotherHost}
+            data-testid="new-workspace-set-up-on-host"
           >
-            Clone onto another host…
+            Set up on another host…
           </Button>
         )}
       </Row>

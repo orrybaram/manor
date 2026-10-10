@@ -12,13 +12,13 @@ export { ownerOf as projectForWorkspaceKey } from "./workspace-directory";
 
 /** Mirrors `HealthCheckResult` in `electron/backend/health-check.ts`. */
 export interface HealthCheckResult {
-  id: "origin" | "claude" | "codex" | "gh";
+  id: "origin" | "agent" | "gh";
   label: string;
   /** Derived from `status`: `true` only for `"ok"`. */
   ok: boolean;
   /**
-   * `"unknown"` is a neutral, unverified state (e.g. Claude login, which has
-   * no reliable non-interactive probe) — render it distinctly from `"fail"`,
+   * `"unknown"` is a neutral, unverified state (e.g. a login with no reliable
+   * non-interactive probe) — render it distinctly from `"fail"`,
    * not as a red failure.
    */
   status: "ok" | "fail" | "unknown";

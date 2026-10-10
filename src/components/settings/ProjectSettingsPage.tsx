@@ -24,13 +24,12 @@ import { useThemeStore, type Theme } from "../../store/theme-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { LinearProjectSection } from "./LinearProjectSection";
 import { ProjectHostSection } from "./ProjectHostSection/ProjectHostSection";
-import { ProjectLinksSection } from "./ProjectLinksSection";
+import { ProjectSetUpOnSection } from "./ProjectSetUpOnSection";
 import { DEFAULT_AGENT_COMMAND } from "../../agent-defaults";
 import { PROJECT_COLORS } from "../../project-colors";
 import { Input, Textarea } from "../ui/Input";
 import { EmojiInput } from "../ui/EmojiAutocomplete";
 import { Switch } from "../ui/Switch/Switch";
-import { Button } from "../ui/Button/Button";
 import { Stack, Row } from "../ui/Layout/Layout";
 import { SectionTitle } from "./SectionTitle";
 import { SettingRow } from "./SettingRow";
@@ -592,7 +591,7 @@ export function GroupSettingsPage(props: GroupSettingsPageProps) {
       <Stack gap="xs">
         <SectionTitle id="project-general">Shared</SectionTitle>
         <div className={styles.sectionDescription}>
-          Shared by every host in this group. What differs per machine (path,
+          Shared by every host this project is set up on. What differs per machine (path,
           host, worktrees, ports) is on each host's page.
         </div>
         <NameField key={group.name} project={lead} />
@@ -602,7 +601,7 @@ export function GroupSettingsPage(props: GroupSettingsPageProps) {
       <LinearProjectSection project={lead} />
       <AgentSection project={lead} />
       <CommandsSection project={lead} />
-      <ProjectLinksSection project={lead} members={members} />
+      <ProjectSetUpOnSection project={lead} members={members} />
     </Stack>
   );
 }
@@ -619,7 +618,6 @@ type MemberSettingsPageProps = ProjectFieldProps & {
 function MemberSettingsPage(props: MemberSettingsPageProps) {
   const { project, group } = props;
 
-  const unlinkProject = useProjectStore((s) => s.unlinkProject);
   const hosts = useHostStore((s) => s.hosts);
   const HostIcon = isRemoteHost(project.hostId) ? Cloud : Laptop;
 
@@ -636,15 +634,6 @@ function MemberSettingsPage(props: MemberSettingsPageProps) {
       <Stack gap="xs">
         <SectionTitle id="project-location">Location</SectionTitle>
         <PathFields project={project} />
-        <div className={styles.fieldAction}>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => void unlinkProject(project.id)}
-          >
-            Unlink
-          </Button>
-        </div>
       </Stack>
       <ProjectHostSection project={project} />
       <WorktreesSection project={project} />
@@ -680,7 +669,7 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
       <PortsSection project={project} />
       <CommandsSection project={project} />
       <WorktreesSection project={project} />
-      <ProjectLinksSection project={project} members={[]} />
+      <ProjectSetUpOnSection project={project} members={[]} />
     </Stack>
   );
 }

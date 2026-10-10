@@ -67,8 +67,9 @@ export function runClone(plan: ClonePlan): Promise<void> {
 }
 
 /**
- * Move an existing project onto a remote host by cloning (or adopting) its
- * repo there, keeping the same project record (ADR-179): id, name, colour,
+ * Move an existing project onto another host — remote or, since ADR-213,
+ * this machine — by cloning (or adopting) its repo there, keeping the same
+ * project record (ADR-179): id, name, colour,
  * commands, agent settings and Linear associations all survive. The main
  * workspace's per-path settings follow it to the new path; an absolute
  * worktree root from the old machine is dropped.
@@ -79,7 +80,7 @@ export async function moveProjectToHost(
   opts: { hostId: string; repoUrl: string; remoteDir: string },
 ): Promise<ProjectInfo> {
   const { hostId } = opts;
-  ctx.hosts.assertRemote(hostId);
+  ctx.hosts.assertKnown(hostId);
   const project = ctx.find(projectId);
   if (!project) throw new Error(`Unknown project "${projectId}".`);
   assertGroupHostFree(ctx, projectId, hostId);

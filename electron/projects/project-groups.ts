@@ -200,6 +200,20 @@ export function linkProjects(
   projectId: string,
   otherId: string,
 ): ProjectGroupInfo {
+  const group = joinProjects(ctx, projectId, otherId);
+  ctx.store.save();
+  return group;
+}
+
+/**
+ * `linkProjects` without the save, for a caller that links several pairs
+ * and writes once (ADR-214's `autoJoin`).
+ */
+export function joinProjects(
+  ctx: ProjectContext,
+  projectId: string,
+  otherId: string,
+): ProjectGroupInfo {
   const state = ctx.store.state;
   if (projectId === otherId) throw new Error("A project can't be linked with itself.");
   const project = ctx.find(projectId);
@@ -242,7 +256,6 @@ export function linkProjects(
       },
     ];
   }
-  ctx.store.save();
   return groupInfoFor(state, projectId)!;
 }
 

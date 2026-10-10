@@ -17,8 +17,6 @@ import type {
   WorkspaceFolder,
   WorkspaceInfo,
 } from "../store/project-store";
-import { groupHostIds } from "../lib/project-groups";
-import { isRemoteHost, LOCAL_HOST_ID } from "../lib/hosts";
 
 export type SidebarItem =
   | { kind: "workspace"; ws: WorkspaceInfo }
@@ -935,91 +933,4 @@ export function expandTopLevelOrder(
   }
   for (const entry of entries) emit(entry);
   return ids;
-}
-
-/**
- * Projects `project` can be linked with (ADR-192): on another host, and
- * either unlinked or in a group with no member on this project's host. A
- * project already in a group only offers unlinked projects on hosts the
- * group lacks.
- */
-export function linkCandidates<P extends Pick<ProjectInfo, "id" | "hostId" | "group">>(
-  project: P,
-  projects: readonly P[],
-): P[] {
-  const hostOf = new Map(projects.map((p) => [p.id, p.hostId]));
-  const groupHosts = (group: ProjectGroupInfo) =>
-    groupHostIds(group.memberIds, (id) => hostOf.get(id));
-  const own = project.group ?? null;
-  return projects.filter((other) => {
-    if (other.id === project.id) return false;
-    const theirs = other.group ?? null;
-    if (own && theirs) return false;
-    if (own) return !groupHosts(own).has(other.hostId);
-    if (theirs) return !groupHosts(theirs).has(project.hostId);
-    return other.hostId !== project.hostId;
-  });
-}
-
-/**
- * One "Link with…" menu row: a lone project, or a whole group — linking to
- * any member of a group joins that group, so it is offered once.
- */
-export type LinkChoice = {
-  key: string;
-  label: string;
-  /** The project id to pass to `linkProjects`. */
-  targetId: string;
-  /** The hosts the row stands for, for its host badges. */
-  hostIds: string[];
-};
-
-/** `linkCandidates`, with each eligible group folded into one row. */
-export function linkChoices<
-  P extends Pick<ProjectInfo, "id" | "name" | "hostId" | "group">,
->(project: P, projects: readonly P[]): LinkChoice[] {
-  const choices: LinkChoice[] = [];
-  const byGroup = new Map<string, LinkChoice>();
-  for (const other of linkCandidates(project, projects)) {
-    const group = other.group ?? null;
-    if (!group) {
-      choices.push({
-        key: other.id,
-        label: other.name,
-        targetId: other.id,
-        hostIds: [other.hostId],
-      });
-      continue;
-    }
-    const existing = byGroup.get(group.id);
-    if (existing) {
-      existing.hostIds.push(other.hostId);
-      continue;
-    }
-    const choice = {
-      key: group.id,
-      label: group.name,
-      targetId: other.id,
-      hostIds: [other.hostId],
-    };
-    byGroup.set(group.id, choice);
-    choices.push(choice);
-  }
-  return choices;
-}
-
-/**
- * Whether "Link with…" should offer "Choose local folder…" for `project`
- * (ADR-193 ticket 4): it is on a remote host, and its group — if it has one
- * — has no local member yet. A local project is never eligible; it is what
- * "Choose local folder…" would create or find.
- */
-export function canLinkLocalFolder<
-  P extends Pick<ProjectInfo, "id" | "hostId" | "group">,
->(project: P, projects: readonly P[]): boolean {
-  if (!isRemoteHost(project.hostId)) return false;
-  const group = project.group;
-  if (!group) return true;
-  const hostOf = new Map(projects.map((p) => [p.id, p.hostId]));
-  return !groupHostIds(group.memberIds, (id) => hostOf.get(id)).has(LOCAL_HOST_ID);
 }

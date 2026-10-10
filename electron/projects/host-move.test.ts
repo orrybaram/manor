@@ -249,14 +249,33 @@ describe("ProjectManager.moveProjectToHost (ADR-179)", () => {
     expect(readPersisted().path).toBe(OLD_PATH);
   });
 
-  it("rejects the local host", async () => {
+  it("moves onto this machine by cloning there (ADR-213)", async () => {
+    seed([], { path: "/srv/app", hostId: "box", workspaceNames: {} });
+    const { git, cloneCalls } = fakeGit();
+    const mgr = new ProjectManager(hostsOf(git, fakeShell("/home/u")), tmpDir);
+    const target = path.join(tmpDir, "local-clone");
+
+    const info = await mgr.moveProjectToHost("p1", {
+      hostId: "local",
+      repoUrl: REPO,
+      remoteDir: target,
+    });
+
+    expect(cloneCalls).toEqual([[REPO, target]]);
+    expect(info.id).toBe("p1");
+    expect(info.hostId).toBe("local");
+    expect(info.path).toBe(target);
+    expect(readPersisted().hostPaths).toEqual({ box: "/srv/app" });
+  });
+
+  it("rejects an unknown host", async () => {
     seed();
     const { git, cloneStream } = fakeGit();
     const mgr = new ProjectManager(hostsOf(git, fakeShell("/home/u")), tmpDir);
 
     await expect(
-      mgr.moveProjectToHost("p1", { hostId: "local", repoUrl: REPO, remoteDir: "/srv/app" }),
-    ).rejects.toThrow(/remote host/);
+      mgr.moveProjectToHost("p1", { hostId: "nope", repoUrl: REPO, remoteDir: "/srv/app" }),
+    ).rejects.toThrow(/Unknown host/);
     expect(cloneStream).not.toHaveBeenCalled();
   });
 

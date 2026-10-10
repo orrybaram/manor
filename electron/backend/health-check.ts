@@ -1,12 +1,12 @@
 /**
  * Host health checks for a freshly-onboarded remote project (ADR-178 §4,
- * ticket 5). Runs the four checks from the ADR's table through a host's own
+ * ticket 5). Runs its checks through a host's own
  * `ShellBackend`/`GitBackend` — never through local `fs`/`exec` — so the
  * result reflects the box the project lives on, not this machine.
  *
  * Every check is best-effort: a check that cannot run (missing CLI, network
  * failure) is reported as a failed result, never thrown, so one bad check
- * never hides the other three. All four run concurrently — one slow or
+ * never hides the others. All of them run concurrently — one slow or
  * hanging check must not delay the others.
  */
 
@@ -14,7 +14,7 @@ import { errorMessage } from "../lib/errors";
 import { shellQuote } from "../terminal-host/ssh-config";
 import type { GitBackend, ShellBackend } from "./types";
 
-export type HealthCheckId = "origin" | "claude" | "codex" | "gh";
+export type HealthCheckId = "origin" | "agent" | "gh";
 
 export type HealthCheckStatus = "ok" | "fail" | "unknown";
 
@@ -25,8 +25,8 @@ export interface HealthCheckResult {
   ok: boolean;
   /**
    * `"unknown"` is a neutral, unverified state — Manor could not confirm
-   * *or* rule out the thing this check looks for (e.g. Claude login, which
-   * has no reliable non-interactive probe). It is not a red failure: `ok` is
+   * *or* rule out the thing this check looks for (e.g. a login with
+   * no reliable non-interactive probe). It is not a red failure: `ok` is
    * `false` for it (nothing to show as a green check), but callers that
    * render tone should treat `"unknown"` as neutral, not `"fail"`.
    */
@@ -171,87 +171,28 @@ async function checkOrigin(
 }
 
 /**
- * `claude`'s cheapest non-interactive login signals, checked in order:
- * a credentials file under `$CLAUDE_CONFIG_DIR` (or `~/.claude` by
- * default), `ANTHROPIC_API_KEY`/`CLAUDE_CODE_OAUTH_TOKEN` in the login
- * shell's env, or (on a Darwin host) a Keychain entry from `claude login`.
- * There is no documented `claude auth status`, so a host that shows none of
- * these is reported as "unknown", not "not logged in" — `claude setup-token`
- * (the old suggested fix) does not write the credentials file this used to
- * check alone, so treating its absence as a hard failure produced false
- * negatives (ADR-178 ticket 5 review).
+ * The agent CLIs Manor can launch (`AgentKind` in `terminal-host/types.ts`).
+ * A host needs one of them, not all: a project runs whichever its agent
+ * command names.
  */
-async function claudeLooksLoggedIn(shell: ShellBackend): Promise<boolean> {
-  const script = [
-    'home_cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"',
-    'if [ -f "$home_cfg/.credentials.json" ]; then echo yes; exit 0; fi',
-    'if [ -n "$ANTHROPIC_API_KEY" ] || [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then echo yes; exit 0; fi',
-    'if command -v security >/dev/null 2>&1 && security find-generic-password -s "Claude Code-credentials" >/dev/null 2>&1; then echo yes; exit 0; fi',
-    "echo no",
-  ].join("; ");
-  try {
-    const out = await shell.exec(
-      "sh",
-      ["-c", loginShellCommand(script)],
-      { timeout: PROBE_TIMEOUT_MS },
-    );
-    return out.trim() === "yes";
-  } catch {
-    return false;
-  }
-}
+const AGENT_CLIS = ["claude", "codex", "opencode", "pi"] as const;
 
-async function checkClaude(shell: ShellBackend): Promise<HealthCheckResult> {
-  const label = "Claude CLI";
-  const bin = await findCliOnHost(shell, "claude");
-  if (!bin) {
-    return result(
-      "claude",
-      label,
-      "fail",
-      "The Claude CLI is not installed on this host.",
-      "curl -fsSL https://claude.ai/install.sh | bash",
-    );
-  }
-  const loggedIn = await claudeLooksLoggedIn(shell);
-  if (loggedIn) {
-    return result("claude", label, "ok", "Installed and logged in.", null);
+async function checkAgent(shell: ShellBackend): Promise<HealthCheckResult> {
+  const label = "Agent CLI";
+  const found = await Promise.all(
+    AGENT_CLIS.map(async (cli) => ((await findCliOnHost(shell, cli)) ? cli : null)),
+  );
+  const installed = found.filter((cli): cli is (typeof AGENT_CLIS)[number] => cli !== null);
+  if (installed.length > 0) {
+    return result("agent", label, "ok", `Installed: ${installed.join(", ")}.`, null);
   }
   return result(
-    "claude",
+    "agent",
     label,
-    "unknown",
-    "Installed, but Manor could not confirm it is logged in (checked the " +
-      "credentials file, ANTHROPIC_API_KEY/CLAUDE_CODE_OAUTH_TOKEN, and the " +
-      "Keychain). Run `claude` on the host to check.",
-    "claude",
+    "fail",
+    `No agent CLI is installed on this host (looked for ${AGENT_CLIS.join(", ")}).`,
+    "curl -fsSL https://claude.ai/install.sh | bash",
   );
-}
-
-async function checkCodex(shell: ShellBackend): Promise<HealthCheckResult> {
-  const label = "Codex CLI";
-  const bin = await findCliOnHost(shell, "codex");
-  if (!bin) {
-    return result(
-      "codex",
-      label,
-      "fail",
-      "The Codex CLI is not installed on this host.",
-      "codex login",
-    );
-  }
-  try {
-    await shell.exec("codex", ["--version"], { timeout: PROBE_TIMEOUT_MS });
-    return result("codex", label, "ok", "Installed.", null);
-  } catch (err) {
-    return result(
-      "codex",
-      label,
-      "fail",
-      `\`codex --version\` failed: ${errorMessage(err)}`,
-      "codex login",
-    );
-  }
 }
 
 async function checkGh(shell: ShellBackend): Promise<HealthCheckResult> {
@@ -267,7 +208,10 @@ async function checkGh(shell: ShellBackend): Promise<HealthCheckResult> {
     );
   }
   try {
-    await shell.exec("gh", ["auth", "status"], { timeout: PROBE_TIMEOUT_MS });
+    // The resolved path, not the bare name: `exec` doesn't run under the
+    // login shell `findCliOnHost` found it through, so its PATH may not
+    // have the CLI's directory.
+    await shell.exec(bin, ["auth", "status"], { timeout: PROBE_TIMEOUT_MS });
     return result("gh", label, "ok", "Logged in.", null);
   } catch {
     return result(
@@ -283,7 +227,7 @@ async function checkGh(shell: ShellBackend): Promise<HealthCheckResult> {
 /**
  * Run `check`, catching anything it doesn't already handle itself (e.g. a
  * `which`/`exec` call that rejects for a reason other than "not found" or
- * "not logged in") so one misbehaving check never takes the other three
+ * "not logged in") so one misbehaving check never takes the others
  * down with it.
  */
 async function safely(
@@ -306,8 +250,7 @@ export async function runHealthChecks(
 ): Promise<HealthCheckResult[]> {
   return Promise.all([
     safely("origin", "Reach origin", () => checkOrigin(shell, git, projectPath)),
-    safely("claude", "Claude CLI", () => checkClaude(shell)),
-    safely("codex", "Codex CLI", () => checkCodex(shell)),
+    safely("agent", "Agent CLI", () => checkAgent(shell)),
     safely("gh", "GitHub CLI", () => checkGh(shell)),
   ]);
 }

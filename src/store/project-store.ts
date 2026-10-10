@@ -2,15 +2,14 @@ import { create } from "zustand";
 import { selectActiveWorkspaceKey, useAppStore } from "./app-store";
 import { workspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import { useToastStore } from "./toast-store";
-import {
-  clearLinkSuggestionsFor,
-  offerLinkSuggestions,
-  startLinkSuggestions,
-} from "./link-suggestions";
+import { runAutoJoin, startAutoJoin, type AutoJoinDeps } from "./auto-join";
 import { branchesEqual } from "../utils/branch-name";
 import { ipcErrorMessage } from "../lib/ipc-error";
 import { splitShared } from "../lib/project-groups";
-import { isRemoteHost, type HostId } from "../lib/hosts";
+import { isRemoteHost, memberHostName, type HostId } from "../lib/hosts";
+import { requestUi } from "../utils/ui-request";
+import { useHostStore } from "./host-store";
+import type { TransferInputReason, TransferMode } from "../electron";
 import { hostForPath, patch, reconcile } from "../lib/workspace-directory";
 import { sharedRefresh } from "../lib/shared-refresh";
 import { pickDirectory } from "../lib/pick-directory";
@@ -39,6 +38,24 @@ export type {
   PrInfo,
   PrReviewer,
 } from "../lib/pr-info";
+
+/**
+ * The fallback dialog's state for a transfer that needs input or failed
+ * (ADR-213). `"failed"` is renderer-only: the transfer threw, so the dialog
+ * opens on the planned (or empty) values with `error` explaining why. `"manual"` is the sidebar's
+ * "Choose location…": no banner, the dialog fills its own defaults.
+ */
+export interface TransferDialogState {
+  projectId: string;
+  hostId: string;
+  /** `setUp` is ADR-214's "Set up on"; `move` is only the repair re-clone. */
+  mode: "setUp" | "move";
+  reason: TransferInputReason | "failed" | "manual";
+  repoUrl: string | null;
+  targetDir: string;
+  /** The thrown message, for `reason: "failed"`. */
+  error?: string;
+}
 
 const COLLAPSED_KEY = "manor:collapsedProjectIds";
 const COLLAPSED_FOLDER_KEYS_KEY = "manor:collapsedWorkspaceFolderKeys";
@@ -614,6 +631,23 @@ interface ProjectState {
     projectId: string,
     opts: { hostId: string; repoUrl: string; remoteDir: string },
   ) => Promise<ProjectInfo>;
+  /** ADR-213: the transfer fallback dialog's state; null while closed. */
+  transferDialog: TransferDialogState | null;
+  openTransferDialog: (state: TransferDialogState) => void;
+  closeTransferDialog: () => void;
+  /**
+   * ADR-213: copy (a new project linked to this one) or move (re-point this
+   * one) `projectId` to `hostId` in one go, with a progress toast. Main picks
+   * the target directory; `overrides` (both fields) replace its plan. When
+   * main needs input, or the transfer throws, `transferDialog` is set
+   * instead and the toast says why.
+   */
+  transferProject: (
+    projectId: string,
+    hostId: string,
+    mode: TransferMode,
+    overrides?: { repoUrl: string; targetDir: string },
+  ) => Promise<void>;
   /**
    * ADR-179: switch a project to a host without cloning — to `path`, or the
    * path it last had there.
@@ -624,6 +658,34 @@ interface ProjectState {
     path?: string,
   ) => Promise<ProjectInfo>;
   removeProject: (projectId: string) => Promise<void>;
+  /**
+   * ADR-214: the "Remove from <host>" confirm, for the member `projectId`.
+   * Opened by the set-up success toast's action; the dialog itself is
+   * rendered elsewhere. Named apart from the `removeFromHost` action.
+   */
+  removeFromHostDialog: { projectId: string } | null;
+  openRemoveFromHost: (projectId: string) => void;
+  closeRemoveFromHost: () => void;
+  /**
+   * ADR-214: set `projectId` up on `hostId` (a copy transfer: clone or adopt
+   * there, then join). The success toast offers "Remove from <this host>".
+   */
+  setUpOnHost: (
+    projectId: string,
+    hostId: string,
+    overrides?: { repoUrl: string; targetDir: string },
+  ) => Promise<void>;
+  /**
+   * ADR-214: remove the member `memberId` from its host, leaving the rest
+   * of its group (`removeProject` on the member), with a "Removed <name>
+   * from <host>" toast. Files on the host are not deleted.
+   */
+  removeFromHost: (memberId: string) => Promise<void>;
+  /**
+   * ADR-214 "Keep separate…": split `projectId`'s group and remember the
+   * pairs, so they are not joined again.
+   */
+  keepSeparate: (projectId: string) => Promise<void>;
   selectProject: (index: number) => void;
   selectWorkspace: (projectId: string, workspaceIndex: number) => void;
   createWorktree: (
@@ -682,34 +744,6 @@ interface ProjectState {
     branch: string,
   ) => Promise<string | null>;
   reorderProjects: (orderedIds: string[]) => Promise<void>;
-  /**
-   * ADR-192: link two projects on different hosts into one group. Errors
-   * (a second member for one host, say) are shown as a toast.
-   */
-  linkProjects: (projectId: string, otherId: string) => Promise<void>;
-  /**
-   * ADR-192 ticket 4: clone `memberId`'s repo onto another host and link the
-   * new project into its group, then reload. Resolves with the new project
-   * as reloaded: its `group` is set once it joined. A failed clone rejects
-   * and leaves the group unchanged. A failed link is shown as a toast, and
-   * the new project stays, unlinked, with link suggestions offered for it.
-   */
-  cloneIntoGroup: (
-    memberId: string,
-    opts: { hostId: string; repoUrl: string; remoteDir: string },
-  ) => Promise<ProjectInfo>;
-  /**
-   * ADR-193 ticket 4: let a remote project pick a local checkout to link
-   * with, via a folder dialog rather than "Add project" first. Links an
-   * existing local project at the chosen path, or adds one there and links
-   * that. Cancelling the dialog is a no-op; errors (not a git repo, say) are
-   * shown as a toast.
-   */
-  linkLocalFolder: (projectId: string) => Promise<void>;
-  /** ADR-192: take a project out of its group. Errors are shown as a toast. */
-  unlinkProject: (projectId: string) => Promise<void>;
-  /** ADR-192: dissolve a whole group. Errors are shown as a toast. */
-  unlinkGroup: (groupId: string) => Promise<void>;
   /**
    * ADR-192 ticket 2: set a group's shared settings, shown on every member
    * at once. Errors roll the change back and are shown as a toast.
@@ -825,6 +859,14 @@ function forgetDissolvedGroup(groupId: string | undefined): void {
   });
 }
 
+/** What auto-join (ADR-214) needs of this store. */
+function autoJoinDeps(): AutoJoinDeps {
+  return {
+    getProjects: () => useProjectStore.getState().projects,
+    reload: () => useProjectStore.getState().loadProjects(),
+  };
+}
+
 const initialSidebarMode = loadSidebarMode();
 
 /** The least time between two `refreshRemoteProjects` runs. */
@@ -880,10 +922,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         loading: false,
         initialLoadDone: true,
       }));
-      // ADR-192 ticket 5: offer links between existing duplicates, now and
-      // as each remote host first connects.
-      if (firstLoad)
-        void startLinkSuggestions(() => get().projects, get().linkProjects);
+      // ADR-214: join existing same-origin duplicates, now and as each
+      // remote host first connects.
+      if (firstLoad) void startAutoJoin(autoJoinDeps());
     } catch {
       set({ loading: false, initialLoadDone: true });
     }
@@ -900,7 +941,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projects: [...s.projects, project],
       selectedProjectIndex: s.projects.length,
     }));
-    void offerLinkSuggestions(project.id, get().linkProjects);
+    void runAutoJoin(autoJoinDeps());
     return project;
   },
 
@@ -918,8 +959,180 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projects: [...s.projects, project],
       selectedProjectIndex: s.projects.length,
     }));
-    void offerLinkSuggestions(project.id, get().linkProjects);
+    void runAutoJoin(autoJoinDeps());
     return project;
+  },
+
+  transferDialog: null,
+  openTransferDialog: (state) => set({ transferDialog: state }),
+  closeTransferDialog: () => set({ transferDialog: null }),
+
+  transferProject: async (projectId, hostId, mode, overrides) => {
+    const source = get().projects.find((p) => p.id === projectId);
+    if (!source) return;
+    const toasts = useToastStore.getState();
+    const toastId = `transfer-${projectId}`;
+    // Main's "copy" is the dialog's "setUp".
+    const dialogMode = mode === "copy" ? "setUp" : "move";
+    const hostName = memberHostName(hostId, useHostStore.getState().hosts);
+    toasts.addToast({
+      id: toastId,
+      message: `${mode === "copy" ? "Copying" : "Moving"} ${source.name} to ${hostName}…`,
+      status: "loading",
+      persistent: true,
+    });
+    const unsubscribe = window.electronAPI.projects.onCloneProgress((event) => {
+      if (event.status !== "error" && event.message) {
+        useToastStore.getState().updateToast(toastId, { detail: event.message });
+      }
+    });
+    let result;
+    try {
+      result = await window.electronAPI.projects.transfer({
+        projectId,
+        hostId,
+        mode,
+        ...overrides,
+      });
+    } catch (err) {
+      const error = ipcErrorMessage(err);
+      useToastStore.getState().addToast({
+        id: toastId,
+        message: `Couldn't ${mode === "copy" ? "copy" : "move"} ${source.name} to ${hostName}`,
+        status: "error",
+        detail: error,
+        action: {
+          label: "Choose location…",
+          onClick: () => {
+            useToastStore.getState().removeToast(toastId);
+            get().openTransferDialog({
+              projectId,
+              hostId,
+              mode: dialogMode,
+              reason: "failed",
+              repoUrl: overrides?.repoUrl ?? null,
+              targetDir: overrides?.targetDir ?? "",
+              error,
+            });
+          },
+        },
+      });
+      return;
+    } finally {
+      unsubscribe();
+    }
+
+    if (!result.ok) {
+      const { needsInput } = result;
+      useToastStore.getState().removeToast(toastId);
+      get().openTransferDialog({
+        projectId,
+        hostId,
+        mode: dialogMode,
+        reason: needsInput.reason,
+        repoUrl: needsInput.repoUrl,
+        targetDir: needsInput.targetDir,
+      });
+      return;
+    }
+
+    const transferred: ProjectInfo = result.project;
+    useToastStore.getState().addToast({
+      id: toastId,
+      message:
+        mode === "copy"
+          ? `${source.name} is set up on ${hostName}`
+          : `${source.name} is on ${hostName}`,
+      status: "success",
+      // A move is a set up, then this (ADR-214). Long enough to reach the
+      // action; the default 3s dismiss hid it before it could be clicked.
+      ...(mode === "copy" && {
+        duration: 15_000,
+        action: {
+          label: `Remove from ${memberHostName(source.hostId, useHostStore.getState().hosts)}`,
+          onClick: () => {
+            useToastStore.getState().removeToast(toastId);
+            get().openRemoveFromHost(projectId);
+          },
+        },
+      }),
+    });
+    await get().loadProjects();
+    if (mode === "move") {
+      closeWorkspacesLeftBehind(source, transferred, get().selectWorkspace);
+    }
+
+    if (isRemoteHost(hostId)) {
+      // In the background: the transfer is done, this only flags a host
+      // that can't run the project's tools yet.
+      void window.electronAPI.hosts
+        .healthCheck(hostId, transferred.path)
+        .then((checks) => {
+          const failed = checks.filter((c) => c.status === "fail");
+          if (failed.length === 0) return;
+          useToastStore.getState().addToast({
+            id: `transfer-health-${transferred.id}`,
+            message: `${source.name} on ${hostName}: ${failed.map((c) => c.label).join(", ")} failed`,
+            detail: failed
+              .map((c) => (c.fixCommand ? `${c.detail} Fix: ${c.fixCommand}` : c.detail))
+              .join("\n"),
+            persistent: true,
+            status: "error",
+            action: {
+              label: "Open settings",
+              onClick: () =>
+                requestUi({
+                  type: "open-project-settings",
+                  projectId: transferred.id,
+                  section: "project-host",
+                }),
+            },
+          });
+        })
+        .catch(() => {
+          // The check itself failed to run; the host section shows its state.
+        });
+    }
+  },
+
+  setUpOnHost: (projectId, hostId, overrides) =>
+    get().transferProject(projectId, hostId, "copy", overrides),
+
+  removeFromHostDialog: null,
+  openRemoveFromHost: (projectId) => set({ removeFromHostDialog: { projectId } }),
+  closeRemoveFromHost: () => set({ removeFromHostDialog: null }),
+
+  removeFromHost: async (memberId) => {
+    const member = get().projects.find((p) => p.id === memberId);
+    if (!member) return;
+    const hostName = memberHostName(member.hostId, useHostStore.getState().hosts);
+    try {
+      await get().removeProject(memberId);
+    } catch (err) {
+      groupErrorToast(
+        `remove-from-host-${memberId}`,
+        `Couldn't remove ${member.name} from ${hostName}`,
+        err,
+      );
+      return;
+    }
+    useToastStore.getState().addToast({
+      id: `remove-from-host-${memberId}`,
+      message: `Removed ${member.name} from ${hostName}`,
+      status: "success",
+    });
+  },
+
+  keepSeparate: async (projectId) => {
+    const groupId = get().projects.find((p) => p.id === projectId)?.group?.id;
+    try {
+      await window.electronAPI.projects.keepSeparate(projectId);
+    } catch (err) {
+      groupErrorToast(`keep-separate-${projectId}`, "Couldn't keep projects separate", err);
+      return;
+    }
+    await get().loadProjects();
+    forgetDissolvedGroup(groupId);
   },
 
   moveProjectToHost: async (projectId, opts) => {
@@ -1258,116 +1471,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         : s.selectedProjectIndex;
       return { projects: reordered, selectedProjectIndex: newSelectedIndex };
     });
-  },
-
-  linkProjects: async (projectId: string, otherId: string) => {
-    try {
-      await window.electronAPI.projects.link(projectId, otherId);
-    } catch (err) {
-      groupErrorToast(
-        `link-projects-${projectId}`,
-        "Couldn't link projects",
-        err,
-      );
-      return;
-    }
-    clearLinkSuggestionsFor([projectId, otherId]);
-    await get().loadProjects();
-  },
-
-  cloneIntoGroup: async (memberId, opts) => {
-    const member = get().projects.find((p) => p.id === memberId);
-    if (!member?.group) throw new Error("This project isn't linked to a group.");
-    const cloned = await window.electronAPI.projects.clone({
-      hostId: opts.hostId,
-      repoUrl: opts.repoUrl,
-      targetDir: opts.remoteDir,
-      name: member.name,
-    });
-    try {
-      await window.electronAPI.projects.link(cloned.id, memberId);
-      clearLinkSuggestionsFor([cloned.id, memberId]);
-    } catch (err) {
-      groupErrorToast(
-        `link-projects-${cloned.id}`,
-        "Cloned, but couldn't link the projects",
-        err,
-      );
-      // It stands alone now, like any other clone: offer what it could join.
-      void offerLinkSuggestions(cloned.id, get().linkProjects);
-    }
-    await get().loadProjects();
-    return get().projects.find((p) => p.id === cloned.id) ?? cloned;
-  },
-
-  linkLocalFolder: async (projectId: string) => {
-    const remote = get().projects.find((p) => p.id === projectId);
-    if (!remote) return;
-    const selected = await pickDirectory();
-    if (!selected) return;
-
-    // Already a Manor project at that path — link it as is.
-    const existingLocal = get().projects.find(
-      (p) => !isRemoteHost(p.hostId) && p.path === selected,
-    );
-
-    let localId: string;
-    if (existingLocal) {
-      localId = existingLocal.id;
-    } else {
-      const name = remote.group?.name ?? remote.name;
-      let created;
-      try {
-        created = await window.electronAPI.projects.add(name, selected);
-      } catch (err) {
-        groupErrorToast(
-          `link-local-folder-${projectId}`,
-          "Couldn't add local folder",
-          err,
-        );
-        return;
-      }
-      // Append like `addProject` does, but without offering link suggestions
-      // for it (it is about to be linked here) or moving the selection off
-      // the remote project the user is looking at.
-      set((s) => ({ projects: [...s.projects, created] }));
-      localId = created.id;
-    }
-
-    // `otherId` wins the group's name/settings when neither side is grouped
-    // yet, so the remote project — the one the user started from — does.
-    await get().linkProjects(localId, projectId);
-  },
-
-  unlinkProject: async (projectId: string) => {
-    const groupId = get().projects.find((p) => p.id === projectId)?.group?.id;
-    try {
-      await window.electronAPI.projects.unlink(projectId);
-    } catch (err) {
-      groupErrorToast(
-        `unlink-project-${projectId}`,
-        "Couldn't unlink project",
-        err,
-      );
-      return;
-    }
-    await get().loadProjects();
-    forgetDissolvedGroup(groupId);
-  },
-
-  unlinkGroup: async (groupId: string) => {
-    try {
-      await window.electronAPI.projects.unlinkGroup(groupId);
-    } catch (err) {
-      groupErrorToast(
-        `unlink-group-${groupId}`,
-        "Couldn't unlink projects",
-        err,
-      );
-      return;
-    }
-    await get().loadProjects();
-    forgetDissolvedGroup(groupId);
   },
 
   updateGroup: async (groupId: string, updates: GroupUpdatableFields) => {

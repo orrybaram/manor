@@ -119,18 +119,20 @@ type RepoUrlAndRemoteDirFieldsProps = {
   onRepoUrlChange: (value: string) => void;
   remoteDir: string;
   onRemoteDirChange: (value: string) => void;
+  /** The clone lands on this machine, so the directory isn't "Remote". */
+  local?: boolean;
 };
 
 /** The "Repo URL" / "Remote directory" field pair `CloneToHostDialog` uses. */
 export function RepoUrlAndRemoteDirFields(props: RepoUrlAndRemoteDirFieldsProps) {
-  const { idPrefix, repoUrl, onRepoUrlChange, remoteDir, onRemoteDirChange } = props;
+  const { idPrefix, repoUrl, onRepoUrlChange, remoteDir, onRemoteDirChange, local } = props;
 
   return (
     <>
       <RepoUrlField id={`${idPrefix}-repo-url`} value={repoUrl} onChange={onRepoUrlChange} />
       <CloneDirField
         id={`${idPrefix}-remote-dir`}
-        label="Remote directory"
+        label={local ? "Directory" : "Remote directory"}
         value={remoteDir}
         onChange={onRemoteDirChange}
       />

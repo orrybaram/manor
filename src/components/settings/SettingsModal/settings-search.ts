@@ -190,8 +190,8 @@ const PROJECT_SECTIONS: SettingsSection[] = [
   },
   {
     id: "project-links",
-    label: "Linked projects",
-    keywords: ["link", "unlink", "group", "host", "remote"],
+    label: "Hosts",
+    keywords: ["host", "remote", "set up", "remove", "separate"],
   },
 ];
 
@@ -226,7 +226,7 @@ const MEMBER_SECTIONS: SettingsSection[] = [
   {
     id: "project-location",
     label: "Location",
-    keywords: ["path", "folder", "directory", "branch", "unlink"],
+    keywords: ["path", "folder", "directory", "branch"],
   },
   ...["project-host", "project-worktrees", "project-ports"].map(projectSection),
 ];

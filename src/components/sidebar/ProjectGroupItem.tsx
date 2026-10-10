@@ -10,18 +10,16 @@ import {
   type WorkspaceInfo,
 } from "../../store/project-store";
 import {
-  canLinkLocalFolder,
-  linkChoices as buildLinkChoices,
   type GroupSection,
   type SelectionScope,
   type TopLevelEntry,
 } from "../../utils/sidebar-items";
-import { isRemoteHost, memberHostName } from "../../lib/hosts";
+import { LOCAL_HOST_ID, memberHostName } from "../../lib/hosts";
 import { startingMemberId, type WorkspaceHostChoice } from "../../lib/workspace-host-choices";
-import { HostIndicator } from "../hosts/HostIndicator";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { NewFolderDialog } from "./NewFolderDialog";
+import { ProjectSetUpMenu } from "./ProjectSetUpMenu";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { useGroupAgentStatus } from "../../hooks/useProjectAgentStatus";
 import { useHostStore } from "../../store/host-store";
@@ -94,8 +92,6 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const createWorkspaceFolder = useProjectStore((s) => s.createWorkspaceFolder);
-  const linkProjects = useProjectStore((s) => s.linkProjects);
-  const linkLocalFolder = useProjectStore((s) => s.linkLocalFolder);
   const allProjects = useProjectStore((s) => s.projects);
   const collapsedFolderKeys = useProjectStore((s) => s.collapsedFolderKeys);
   const collapsedProjectIds = useProjectStore((s) => s.collapsedProjectIds);
@@ -122,15 +118,9 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
   const hosts = useHostStore((s) => s.hosts);
   const hostState = groupHostState(members.map((m) => m.hostId), hosts);
   const indicator = toWorkspaceIndicator(status, pulse);
-  // Linking any member links the group, so the first stands in for it.
   const lead = members[0];
-  const linkChoices = useMemo(
-    () => (lead ? buildLinkChoices(lead, allProjects) : []),
-    [lead, allProjects],
-  );
-  // "Choose local folder…" links through a remote member, while the group
-  // has no local one.
-  const localFolderMember = members.find((m) => canLinkLocalFolder(m, allProjects));
+  // Copy sources from the local member when the group has one.
+  const transferSource = members.find((m) => m.hostId === LOCAL_HOST_ID) ?? lead;
   // A folder is only sidebar grouping, so any host can take one — even an
   // away host's section.
   const folderHostChoices = useMemo<WorkspaceHostChoice[]>(
@@ -217,6 +207,7 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
             <ContextMenu.Item className={styles.contextMenuItem} onSelect={onOpenSettings}>
               Project Settings
             </ContextMenu.Item>
+            {transferSource && <ProjectSetUpMenu project={transferSource} />}
             {hiddenWorkspaces.length > 0 && (
               <ContextMenu.Sub>
                 <ContextMenu.SubTrigger
@@ -253,49 +244,6 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
               </ContextMenu.Sub>
             )}
             <ContextMenu.Separator className={styles.contextMenuSeparator} />
-            <ContextMenu.Sub>
-              <ContextMenu.SubTrigger
-                className={styles.contextMenuItem}
-                style={{ display: "flex", alignItems: "center" }}
-                disabled={linkChoices.length === 0 && !localFolderMember}
-              >
-                Link with…
-                <ChevronRight size={14} style={{ marginLeft: "auto" }} />
-              </ContextMenu.SubTrigger>
-              <ContextMenu.Portal>
-                <ContextMenu.SubContent
-                  className={styles.contextMenu}
-                  style={{ maxWidth: 260 }}
-                >
-                  {linkChoices.map((choice) => (
-                    <ContextMenu.Item
-                      key={choice.key}
-                      className={styles.contextMenuItem}
-                      style={{ display: "flex", alignItems: "center", gap: 6 }}
-                      onSelect={() => lead && void linkProjects(lead.id, choice.targetId)}
-                    >
-                      {choice.label}
-                      {choice.hostIds.filter(isRemoteHost).map((hostId) => (
-                        <HostIndicator key={hostId} hostId={hostId} variant="icon" />
-                      ))}
-                    </ContextMenu.Item>
-                  ))}
-                  {localFolderMember && (
-                    <>
-                      {linkChoices.length > 0 && (
-                        <ContextMenu.Separator className={styles.contextMenuSeparator} />
-                      )}
-                      <ContextMenu.Item
-                        className={styles.contextMenuItem}
-                        onSelect={() => void linkLocalFolder(localFolderMember.id)}
-                      >
-                        Choose local folder…
-                      </ContextMenu.Item>
-                    </>
-                  )}
-                </ContextMenu.SubContent>
-              </ContextMenu.Portal>
-            </ContextMenu.Sub>
             <ContextMenu.Separator className={styles.contextMenuSeparator} />
             <ContextMenu.Item
               className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}

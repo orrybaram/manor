@@ -9,7 +9,7 @@ import {
   projectSelectOptions,
   reseedBaseBranch,
 } from "../../lib/new-workspace";
-import { startingMemberId, workspaceHostChoices } from "../../lib/workspace-host-choices";
+import { memberAfterClone, startingMemberId, workspaceHostChoices } from "../../lib/workspace-host-choices";
 
 // The New Workspace dialog for a linked group (ADR-192 ticket 3): which
 // member a workspace is created in, the remembered last-used host, a
@@ -269,5 +269,16 @@ describe("New Workspace host picker", () => {
 
     expect(branchGate("box-app", "new", "master", empty).state).toBe("ok");
     expect(branchGate("box-app", "new", "origin/feat", empty).state).toBe("missing");
+  });
+});
+
+describe("memberAfterClone", () => {
+  it("picks the new project once it has joined the group", () => {
+    expect(memberAfterClone({ id: "box-app", group: { id: "g1" } }, "g1")).toBe("box-app");
+  });
+
+  it("picks nothing when it didn't join", () => {
+    expect(memberAfterClone({ id: "box-app", group: null }, "g1")).toBeNull();
+    expect(memberAfterClone({ id: "box-app", group: { id: "g1" } }, undefined)).toBeNull();
   });
 });

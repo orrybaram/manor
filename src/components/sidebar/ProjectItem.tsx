@@ -25,8 +25,6 @@ import {
   applyGroupDrop,
   buildSidebarItems,
   descendantWorkspaces,
-  canLinkLocalFolder,
-  linkChoices as buildLinkChoices,
   placeAfterFolder,
   placeInFolder,
   placeManyAfterFolders,
@@ -59,7 +57,7 @@ import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import { HostIndicator } from "../hosts/HostIndicator";
-import { isRemoteHost } from "../../lib/hosts";
+import { isRemoteHost, memberHostName } from "../../lib/hosts";
 import {
   remoteTargetForProject,
   workspaceDisplayName,
@@ -68,6 +66,7 @@ import { normalizeHostId, workspaceKey } from "../../lib/workspace-key";
 import { useHostStore } from "../../store/host-store";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
+import { ProjectSetUpMenu } from "./ProjectSetUpMenu";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { DeleteWorktreeDialog } from "./DeleteWorktreeDialog";
 import { BulkDeleteWorktreesDialog } from "./BulkDeleteWorktreesDialog";
@@ -471,17 +470,9 @@ export function ProjectItem(props: ProjectItemProps) {
     const members = allProjects.filter((p) => memberIds.includes(p.id));
     return members.some((p) => p.id === project.id) ? members : [project];
   }, [project, allProjects]);
-  const linkProjects = useProjectStore((s) => s.linkProjects);
-  const linkLocalFolder = useProjectStore((s) => s.linkLocalFolder);
-  const unlinkProject = useProjectStore((s) => s.unlinkProject);
-  const linkChoices = useMemo(
-    () => buildLinkChoices(project, allProjects),
-    [project, allProjects],
-  );
-  const localFolderEligible = useMemo(
-    () => canLinkLocalFolder(project, allProjects),
-    [project, allProjects],
-  );
+  const openRemoveFromHost = useProjectStore((s) => s.openRemoveFromHost);
+  const allHosts = useHostStore((s) => s.hosts);
+  const hostName = memberHostName(project.hostId, allHosts);
 
   const { status: projectStatus, pulse: projectPulse } = useProjectAgentStatus(project);
   const projectIndicator = toWorkspaceIndicator(projectStatus, projectPulse);
@@ -677,7 +668,10 @@ export function ProjectItem(props: ProjectItemProps) {
   const handleUiRequestRef = useRef<(request: UiRequest) => void>(() => {});
   handleUiRequestRef.current = (request: UiRequest) => {
     if (request.type === "remove-project") {
-      if (request.projectId === projectId) setConfirmRemove(true);
+      if (request.projectId === projectId) {
+        if (isSection) openRemoveFromHost(projectId);
+        else setConfirmRemove(true);
+      }
       return;
     }
     if (
@@ -1254,6 +1248,7 @@ export function ProjectItem(props: ProjectItemProps) {
             >
               Project Settings
             </ContextMenu.Item>
+            {!isSection && <ProjectSetUpMenu project={project} />}
             {hiddenWorkspaces.length > 0 && (
               <ContextMenu.Sub>
                 <ContextMenu.SubTrigger
@@ -1289,70 +1284,22 @@ export function ProjectItem(props: ProjectItemProps) {
                 </ContextMenu.Portal>
               </ContextMenu.Sub>
             )}
-            {/* A host section's menu covers only that host's workspaces;
-                linking and removal live on the group header. */}
-            {!isSection && (
-              <>
-                <ContextMenu.Separator className={styles.contextMenuSeparator} />
-                <ContextMenu.Sub>
-                  <ContextMenu.SubTrigger
-                    className={styles.contextMenuItem}
-                    style={{ display: "flex", alignItems: "center" }}
-                    disabled={linkChoices.length === 0 && !localFolderEligible}
-                  >
-                    Link with…
-                    <ChevronRight size={14} style={{ marginLeft: "auto" }} />
-                  </ContextMenu.SubTrigger>
-                  <ContextMenu.Portal>
-                    <ContextMenu.SubContent
-                      className={styles.contextMenu}
-                      style={{ maxWidth: 260 }}
-                    >
-                      {linkChoices.map((choice) => (
-                        <ContextMenu.Item
-                          key={choice.key}
-                          className={styles.contextMenuItem}
-                          style={{ display: "flex", alignItems: "center", gap: 6 }}
-                          onSelect={() => void linkProjects(project.id, choice.targetId)}
-                        >
-                          {choice.label}
-                          {choice.hostIds.filter(isRemoteHost).map((hostId) => (
-                            <HostIndicator key={hostId} hostId={hostId} variant="icon" />
-                          ))}
-                        </ContextMenu.Item>
-                      ))}
-                      {localFolderEligible && (
-                        <>
-                          {linkChoices.length > 0 && (
-                            <ContextMenu.Separator className={styles.contextMenuSeparator} />
-                          )}
-                          <ContextMenu.Item
-                            className={styles.contextMenuItem}
-                            onSelect={() => void linkLocalFolder(project.id)}
-                          >
-                            Choose local folder…
-                          </ContextMenu.Item>
-                        </>
-                      )}
-                    </ContextMenu.SubContent>
-                  </ContextMenu.Portal>
-                </ContextMenu.Sub>
-                {project.group && (
-                  <ContextMenu.Item
-                    className={styles.contextMenuItem}
-                    onSelect={() => void unlinkProject(project.id)}
-                  >
-                    Unlink
-                  </ContextMenu.Item>
-                )}
-                <ContextMenu.Separator className={styles.contextMenuSeparator} />
-                <ContextMenu.Item
-                  className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
-                  onSelect={() => setConfirmRemove(true)}
-                >
-                  Remove Project
-                </ContextMenu.Item>
-              </>
+            <ContextMenu.Separator className={styles.contextMenuSeparator} />
+            {isSection ? (
+              /* A host section's menu covers only that host's workspaces. */
+              <ContextMenu.Item
+                className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+                onSelect={() => openRemoveFromHost(project.id)}
+              >
+                Remove from {hostName}
+              </ContextMenu.Item>
+            ) : (
+              <ContextMenu.Item
+                className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+                onSelect={() => setConfirmRemove(true)}
+              >
+                Remove Project
+              </ContextMenu.Item>
             )}
           </ContextMenu.Content>
         </ContextMenu.Portal>

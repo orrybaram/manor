@@ -1,6 +1,6 @@
 ---
 title: Store — auto-join toasts, set up / remove-from-host actions
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [1]

@@ -124,6 +124,17 @@ const CASES = [
     ],
     ok: (r) => !/approved/i.test(r),
   },
+  // Not a picker: how a multi-line chat message must be typed so it arrives
+  // as ONE prompt. Candidates are chunks written with a pause between them.
+  {
+    name: "multiline",
+    send: true,
+    candidates: [
+      [(n) => `alpha-${n}\nbeta-${n}`, "\r"],
+      [(n) => `\x1b[200~alpha-${n}\nbeta-${n}\x1b[201~`, "\r"],
+      [(n) => `alpha-${n}\\\rbeta-${n}`, "\r"],
+    ],
+  },
 ];
 
 function cleanEnv() {
@@ -139,6 +150,7 @@ function cleanEnv() {
 }
 
 function promptFor(c, nonce) {
+  if (c.send) return `Spike ${nonce}. Reply with only "ok" to this and every later message.`;
   if (c.tool === "ExitPlanMode") {
     return `Spike ${nonce}. Do not read or search any files. Immediately call ExitPlanMode with the plan "Create hello.txt containing hi". Nothing else.`;
   }
@@ -173,6 +185,34 @@ function findTranscript(nonce, since) {
     }
   }
   return null;
+}
+
+/** The text of every user prompt in the transcript (tool results excluded). */
+function readUserTexts(file) {
+  const out = [];
+  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+    let d;
+    try {
+      d = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (d.type !== "user" || d.isMeta) continue;
+    const c = d.message?.content;
+    if (typeof c === "string") out.push(c);
+    else if (Array.isArray(c)) {
+      const text = c.filter((b) => b.type === "text").map((b) => b.text).join("");
+      if (text) out.push(text);
+    }
+  }
+  return out;
+}
+
+function countAssistant(file) {
+  return fs
+    .readFileSync(file, "utf8")
+    .split("\n")
+    .filter((l) => l.includes('"type":"assistant"')).length;
 }
 
 /** { useId, result } for the first `tool` call in the transcript. */
@@ -217,6 +257,49 @@ async function sendKeys(proc, seq) {
   }
 }
 
+/** The new-folder trust dialog defaults to "No, exit": move to "Yes" first. True if it was on screen. */
+function handleTrust(proc, screen) {
+  if (!/Yes, I trust this folder/.test(screen)) return false;
+  proc.write(/❯\s*Yes, I trust this folder/.test(screen) ? KEY.enter : KEY.down);
+  return true;
+}
+
+async function attemptSend(c, chunks, { proc, term, nonce, since, deadline, rec }) {
+  // 1. Wait for Claude to answer the opening prompt, so the input is idle.
+  let file = null;
+  while (Date.now() < deadline) {
+    await delay(1000);
+    if (handleTrust(proc, screenText(term))) continue;
+    file ??= findTranscript(nonce, since);
+    if (file && countAssistant(file) > 0) break;
+  }
+  if (!file || countAssistant(file) === 0) {
+    rec.error = "no reply appeared";
+    rec.screenBefore = screenText(term);
+    return rec;
+  }
+  await delay(2000);
+  rec.screenBefore = screenText(term);
+
+  // 2. Type the message, then give a split second prompt time to show up.
+  for (const chunk of chunks) {
+    proc.write(typeof chunk === "function" ? chunk(nonce) : chunk);
+    await delay(400);
+  }
+  const until = Date.now() + 20_000;
+  while (Date.now() < until) {
+    await delay(500);
+    if (readUserTexts(file).some((t) => t.includes(`beta-${nonce}`))) break;
+  }
+  await delay(5000);
+  rec.screenAfter = screenText(term);
+  const hits = readUserTexts(file).filter((t) => t.includes(`alpha-${nonce}`) || t.includes(`beta-${nonce}`));
+  rec.result = JSON.stringify(hits);
+  rec.ok = hits.length === 1 && /alpha-\S+\s*\n\s*beta-/.test(hits[0]);
+  if (hits.length === 0) rec.error = "message never arrived";
+  return rec;
+}
+
 async function attempt(c, seq) {
   const nonce = `n${crypto.randomBytes(4).toString("hex")}`;
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "manor-picker-spike-"));
@@ -235,17 +318,14 @@ async function attempt(c, seq) {
     let file = null;
     let state = { useId: null, result: null };
 
+    if (c.send) return await attemptSend(c, seq, { proc, term, nonce, since, deadline, rec });
+
     // 1. Wait for the picker's tool_use to land in the transcript and draw.
     while (Date.now() < deadline) {
       await delay(1000);
       const screen = screenText(term);
-      // The new-folder trust dialog defaults to "No, exit": move to "Yes"
-      // before confirming, and re-check each tick rather than assuming the
-      // first key landed (keys sent before the TUI is listening are lost).
-      if (/Yes, I trust this folder/.test(screen)) {
-        proc.write(/❯\s*Yes, I trust this folder/.test(screen) ? KEY.enter : KEY.down);
-        continue;
-      }
+      // Re-checked each tick: keys sent before the TUI listens are lost.
+      if (handleTrust(proc, screen)) continue;
       file ??= findTranscript(nonce, since);
       if (file) state = readToolState(file, c.tool);
       if (state.useId && screen.toLowerCase().includes(c.waitFor.toLowerCase())) break;
@@ -293,11 +373,11 @@ async function main() {
   for (const c of cases) {
     let winner = null;
     for (const seq of c.candidates) {
-      process.stdout.write(`${c.name.padEnd(14)} ${JSON.stringify(seq)} … `);
+      process.stdout.write(`${c.name.padEnd(14)} ${JSON.stringify(seq.map((k) => (typeof k === "function" ? k("N") : k)))} … `);
       const rec = await attempt(c, seq);
       report.attempts.push(rec);
       console.log(rec.ok ? "OK" : `no (${rec.error ?? `result: ${String(rec.result).slice(0, 80)}`})`);
-      if (rec.error?.startsWith("no ") && rec.error.endsWith("appeared")) {
+      if (rec.error?.endsWith("appeared")) {
         // Setup failed, not the keys: every other attempt would fail the same way.
         console.log(`\nClaude never reached the picker. Its screen was:\n${"-".repeat(60)}\n${rec.screenBefore}\n${"-".repeat(60)}`);
         process.exit(1);
@@ -314,7 +394,7 @@ async function main() {
   report.summary = summary;
   fs.writeFileSync(out, JSON.stringify(report, null, 2));
   console.log("\nSummary:");
-  for (const s of summary) console.log(`  ${s.case.padEnd(14)} ${s.keys ? JSON.stringify(s.keys) : "NOT FOUND"}`);
+  for (const s of summary) console.log(`  ${s.case.padEnd(14)} ${s.keys ? JSON.stringify(s.keys.map((k) => (typeof k === "function" ? k("N") : k))) : "NOT FOUND"}`);
   console.log(`\nReport (with screens): ${out}`);
 }
 

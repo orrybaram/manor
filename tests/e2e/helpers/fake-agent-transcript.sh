@@ -112,7 +112,9 @@ buf=""
 down=$'\033[B'
 while IFS= read -r -n 1 -d '' char; do
   printf '%s' "$char" >> "$input_log"
-  if [ "$char" != $'\r' ]; then
+  # bash's `read -n` applies its own tty mode, which can map CR back to LF
+  # despite the stty above, so either byte is Enter.
+  if [ "$char" != $'\r' ] && [ "$char" != $'\n' ]; then
     buf="$buf$char"
     continue
   fi

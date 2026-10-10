@@ -58,9 +58,13 @@ function paneText(page: Page, paneId: string): Promise<string> {
   }, paneId);
 }
 
-/** Everything the fake agent has read from its PTY so far, raw. */
+/**
+ * Everything the fake agent has read from its PTY so far. The agent's tty can
+ * hand it a sent CR as LF (bash's `read -n` sets its own mode), so LF reads
+ * back as the CR that was written.
+ */
 function inputLog(file: string): string {
-  return fs.existsSync(file) ? fs.readFileSync(file, "utf-8") : "";
+  return fs.existsSync(file) ? fs.readFileSync(file, "utf-8").replace(/\n/g, ENTER) : "";
 }
 
 test.describe("phone chat view (ADR-215)", () => {

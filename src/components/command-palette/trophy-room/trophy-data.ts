@@ -3,6 +3,7 @@ import {
   BADGE_META,
   BADGE_SECTIONS,
   STARTER_TITLES,
+  TIER_ORDER,
   progressRatio,
   trackState,
   type BadgeMeta,
@@ -43,17 +44,16 @@ function entryFor(badge: BadgeMeta, summary: StatsSummary): BadgeEntry {
 }
 
 /**
- * Earned first, oldest unlock first so the list reads as a history; then
- * locked, closest first, so whatever you are about to unlock leads the run.
+ * By tier, bronze up to platinum, then by target within a tier, so a track
+ * reads as a ladder and a badge keeps its place whether earned or not.
  */
 function byRackOrder(a: BadgeEntry, b: BadgeEntry): number {
-  if (a.awardedAt && b.awardedAt) return a.awardedAt.localeCompare(b.awardedAt);
-  if (a.awardedAt) return -1;
-  if (b.awardedAt) return 1;
-  return b.ratio - a.ratio;
+  return (
+    TIER_ORDER[a.badge.tier] - TIER_ORDER[b.badge.tier] || a.target - b.target
+  );
 }
 
-/** A track's badges in rack order. */
+/** A track's badges in rack order: by tier, then by target. */
 export function trackEntries(
   section: BadgeSectionMeta,
   summary: StatsSummary,

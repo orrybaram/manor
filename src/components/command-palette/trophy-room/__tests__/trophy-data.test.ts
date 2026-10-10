@@ -44,17 +44,17 @@ const TENURE_COMPLETE = {
 };
 
 describe("trackEntries", () => {
-  it("orders earned by date, then locked by progress", () => {
+  it("orders by tier, then by target, earned or not", () => {
     const entries = trackEntries(
       tenure,
       summary({ streakWeeks: 10, badges: { "week-streak": AT(5) } }),
     );
     expect(entries.map((e) => e.badge.id)).toEqual([
       "week-streak",
+      "regular",
       "month-streak",
       "half-year",
       "year-round",
-      "regular",
       "devoted",
     ]);
     expect(entries[0].ratio).toBe(1);

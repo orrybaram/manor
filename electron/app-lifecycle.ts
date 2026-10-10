@@ -22,6 +22,7 @@ import type { PaneStatusUpdate } from "./agent-status/effects";
 import { ensureManorCli } from "./manor-cli-install";
 import { AgentManager, agentHostId, type AgentInfo } from "./agent-persistence";
 import { ChatMirror, pickPaneAgent } from "./chat-mirror/mirror";
+import { LocalTranscriptSource } from "./chat-mirror/transcript-source";
 import { NotificationStore } from "./notification-store";
 import { StatsStore } from "./stats-store";
 import { createWorkspaceOps } from "./workspace-ops";
@@ -731,6 +732,7 @@ export function initApp(devTitle: string | null): void {
   // ADR-215: each pane's Claude transcript, for the phone's chat view. It
   // publishes through the bridge, which is built below; nothing is published
   // before somebody subscribes, and nobody can before the bridge exists.
+  const localTranscriptSource = new LocalTranscriptSource();
   const chatMirror = new ChatMirror({
     agentForPane: (paneId) => {
       const agent = pickPaneAgent(agentManager.getAllAgents(), paneId);
@@ -740,6 +742,7 @@ export function initApp(devTitle: string | null): void {
         transcriptPath: agent.transcriptPath,
       };
     },
+    sourceFor: () => localTranscriptSource,
     write: (paneId, data) => backend.pty.write(paneId, data),
     publish: (paneId, entry) =>
       bridgeServer?.publishKeyed("chat", "entry", [paneId, entry], paneId),

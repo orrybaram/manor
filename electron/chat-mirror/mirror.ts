@@ -4,11 +4,12 @@
  *
  * One mirror per pane: it resolves the pane's agent and its `transcriptPath`,
  * reads the JSONL from the start through `TranscriptParser`, then tails it by
- * byte offset. A partial trailing line is held, as bytes, until its newline
- * arrives — Claude appends a line in more than one write, and a UTF-8
- * character can straddle two reads.
+ * byte offset. The offset only ever advances by the byte length of complete
+ * lines; a partial trailing line is left unconsumed and re-read, with what
+ * follows it, once its newline arrives — Claude appends a line in more than
+ * one write, and a UTF-8 character can straddle two reads.
  *
- * It watches (`fs.watch` plus a poll, because a watch on a file misses
+ * It watches (the source's change signal plus a poll, because a watch on a file misses
  * renames and is unreliable on some filesystems) only while the bridge says
  * somebody is subscribed to the pane's `chat.entry`. Parsed state outlives the
  * watch, so the next subscriber catches up from the offset rather than from
@@ -23,7 +24,6 @@
  * **v1 is local only.** An agent on a remote host is `unavailable: "remote"`.
  */
 
-import fs from "node:fs";
 import { LOCAL_HOST_ID } from "../backend/types";
 import {
   encodePickerAnswer,
@@ -31,6 +31,7 @@ import {
   type PickerAnswer,
 } from "./picker-keys";
 import { TranscriptParser, type ChatEntry } from "./transcript";
+import type { TranscriptSource } from "./transcript-source";
 
 /** Why a pane has no chat. */
 export type ChatUnavailableReason = "no-agent" | "no-transcript" | "remote";
@@ -71,6 +72,8 @@ export interface ChatMirrorDeps {
   write(paneId: string, data: string): void;
   /** Push a new or updated entry to the pane's `chat.entry` subscribers. */
   publish(paneId: string, entry: ChatEntry): void;
+  /** Where the agent's transcript is read from (ADR-216 D1). */
+  sourceFor(agent: PaneAgent): TranscriptSource;
   /** How long an answer waits for its `tool_result`. Default 8s. */
   answerTimeoutMs?: number;
   /** The poll fallback's interval. Default 1s. */
@@ -79,9 +82,6 @@ export interface ChatMirrorDeps {
 
 const DEFAULT_ANSWER_TIMEOUT_MS = 8_000;
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
-/** Reads are chunked so a long transcript never needs one huge buffer. */
-const READ_CHUNK_BYTES = 1 << 20;
-const NEWLINE = 0x0a;
 
 /**
  * The agent a pane's chat is about: its active agent, or failing that the
@@ -103,14 +103,15 @@ export function pickPaneAgent<
 class PaneMirror {
   path: string | null = null;
   parser = new TranscriptParser();
+  /** Bytes of the file consumed: the end of the last complete line. */
   offset = 0;
-  partial: Buffer = Buffer.alloc(0);
+  source: TranscriptSource | null = null;
   /** The first read of this path is done; later reads publish what they find. */
   primed = false;
   /** Bumped on every reset, so a read or timer from before it is discarded. */
   generation = 0;
   watched = false;
-  watcher: fs.FSWatcher | null = null;
+  unwatch: (() => void) | null = null;
   poll: ReturnType<typeof setInterval> | null = null;
   /** Answers sent and waiting for their `tool_result`, by tool_use id. */
   awaiting = new Map<string, ReturnType<typeof setTimeout>>();
@@ -141,6 +142,7 @@ export class ChatMirror {
     const resolved = this.resolve(paneId);
     if (!resolved.ok) return resolved;
     const m = this.ensure(paneId);
+    m.source = resolved.source;
     this.usePath(paneId, m, resolved.path);
     await this.read(paneId, m);
     return { ok: true, entries: this.entries(m) };
@@ -203,6 +205,7 @@ export class ChatMirror {
     const resolved = this.resolve(paneId);
     if (!resolved.ok) return resolved;
     const m = this.ensure(paneId);
+    m.source = resolved.source;
     this.usePath(paneId, m, resolved.path);
     await this.read(paneId, m);
 
@@ -254,12 +257,16 @@ export class ChatMirror {
 
   private resolve(
     paneId: string,
-  ): { ok: true; path: string } | { ok: false; reason: ChatUnavailableReason } {
+  ): { ok: true; path: string; source: TranscriptSource } | { ok: false; reason: ChatUnavailableReason } {
     const agent = this.deps.agentForPane(paneId);
     if (!agent) return { ok: false, reason: "no-agent" };
     if (agent.hostId !== LOCAL_HOST_ID) return { ok: false, reason: "remote" };
     if (!agent.transcriptPath) return { ok: false, reason: "no-transcript" };
-    return { ok: true, path: agent.transcriptPath };
+    return {
+      ok: true,
+      path: agent.transcriptPath,
+      source: this.deps.sourceFor(agent),
+    };
   }
 
   private ensure(paneId: string): PaneMirror {
@@ -274,12 +281,13 @@ export class ChatMirror {
   /** Point the mirror at whatever the pane's agent says now. */
   private sync(paneId: string, m: PaneMirror): void {
     const resolved = this.resolve(paneId);
+    if (resolved.ok) m.source = resolved.source;
     this.usePath(paneId, m, resolved.ok ? resolved.path : null);
   }
 
   private usePath(paneId: string, m: PaneMirror, path: string | null): void {
     if (m.path === path) return;
-    const watching = m.watcher !== null || m.poll !== null;
+    const watching = m.unwatch !== null || m.poll !== null;
     this.stopWatching(m);
     this.reset(m, path);
     if (watching || m.watched) this.startWatching(paneId, m);
@@ -294,7 +302,6 @@ export class ChatMirror {
     m.path = path;
     m.parser = new TranscriptParser();
     m.offset = 0;
-    m.partial = Buffer.alloc(0);
     m.primed = false;
   }
 
@@ -303,24 +310,15 @@ export class ChatMirror {
     const onChange = () => {
       void this.read(paneId, m);
     };
-    try {
-      m.watcher = fs.watch(m.path, { persistent: false }, onChange);
-      m.watcher.on("error", () => {
-        m.watcher?.close();
-        m.watcher = null;
-      });
-    } catch {
-      // Not there yet, or not watchable: the poll covers it.
-      m.watcher = null;
-    }
+    m.unwatch = m.source?.watch?.(m.path, onChange) ?? null;
     m.poll = setInterval(onChange, this.pollIntervalMs);
     m.poll.unref?.();
     onChange();
   }
 
   private stopWatching(m: PaneMirror): void {
-    m.watcher?.close();
-    m.watcher = null;
+    m.unwatch?.();
+    m.unwatch = null;
     if (m.poll !== null) clearInterval(m.poll);
     m.poll = null;
   }
@@ -337,53 +335,42 @@ export class ChatMirror {
 
   private async readNow(paneId: string, m: PaneMirror): Promise<void> {
     const path = m.path;
-    if (!path) return;
+    const source = m.source;
+    if (!path || !source) return;
     const generation = m.generation;
-    let handle: fs.promises.FileHandle;
-    try {
-      handle = await fs.promises.open(path, "r");
-    } catch {
-      return; // Not written yet. The next read will find it.
-    }
-    try {
-      const { size } = await handle.stat();
-      if (generation !== m.generation) return;
-      // Rewritten from scratch: start over, quietly.
-      if (size < m.offset) this.reset(m, path);
-      const current = m.generation;
-      const publish = m.primed;
-      while (m.offset < size) {
-        const length = Math.min(size - m.offset, READ_CHUNK_BYTES);
-        const chunk = Buffer.alloc(length);
-        const { bytesRead } = await handle.read(chunk, 0, length, m.offset);
-        if (current !== m.generation) return;
-        if (bytesRead === 0) break;
-        m.offset += bytesRead;
-        this.consume(paneId, m, chunk.subarray(0, bytesRead), publish);
-      }
+    const result = await source.read(path, m.offset);
+    if (generation !== m.generation) return;
+    if (!result.ok) return; // The next read will try again.
+    // Rewritten from scratch: start over, quietly. The data read was from
+    // the wrong offset, so read again from the start.
+    if (result.size < m.offset) {
+      this.reset(m, path);
+      const again = await source.read(path, 0);
+      if (m.generation !== generation + 1 || !again.ok) return;
+      this.consume(paneId, m, again.data, false);
       m.primed = true;
-    } finally {
-      await handle.close();
+      return;
     }
+    this.consume(paneId, m, result.data, m.primed);
+    m.primed = true;
   }
 
-  /** Parse every complete line in `bytes`, holding back a partial last one. */
+  /**
+   * Parse every complete line in `data`, which starts at `m.offset`. The
+   * offset advances by the byte length of those lines (newlines included);
+   * a partial last line is left for the next read to return whole.
+   */
   private consume(
     paneId: string,
     m: PaneMirror,
-    bytes: Buffer,
+    data: string,
     publish: boolean,
   ): void {
-    const data =
-      m.partial.length > 0 ? Buffer.concat([m.partial, bytes]) : bytes;
-    const end = data.lastIndexOf(NEWLINE);
-    if (end === -1) {
-      m.partial = Buffer.from(data);
-      return;
-    }
-    m.partial = Buffer.from(data.subarray(end + 1));
-    const lines = data.subarray(0, end).toString("utf8").split("\n");
-    for (const line of lines) {
+    const end = data.lastIndexOf("\n");
+    if (end === -1) return;
+    const complete = data.slice(0, end + 1);
+    m.offset += Buffer.byteLength(complete, "utf8");
+    for (const line of complete.slice(0, -1).split("\n")) {
       for (const entry of m.parser.push(line)) {
         if (!isOpenPicker(entry)) this.settle(m, entry.id);
         if (publish) this.deps.publish(paneId, this.decorate(m, entry));

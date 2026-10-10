@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { LocalTranscriptSource } from "../transcript-source";
 import { ChatMirror, pickPaneAgent, type PaneAgent } from "../mirror";
 import type { ChatEntry } from "../transcript";
 
@@ -85,6 +86,7 @@ describe("ChatMirror", () => {
       agentForPane: (paneId) => (paneId === PANE ? agent : null),
       write: (paneId, data) => writes.push({ paneId, data }),
       publish: (paneId, entry) => published.push({ paneId, entry }),
+      sourceFor: () => new LocalTranscriptSource(),
       pollIntervalMs: 10,
     });
   }

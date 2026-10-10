@@ -718,6 +718,20 @@ describe("StatsStore", () => {
       expect(store.getBadges()).toEqual({});
     });
 
+    it("silently awards badges already satisfied on load", () => {
+      const day = "2026-09-05";
+      fs.writeFileSync(
+        statsPath,
+        JSON.stringify({ version: 1, days: { [day]: { agentsKilled: 3 } }, badges: {} }),
+      );
+      const onBadge = vi.fn();
+      const store = new StatsStore(tmpDir, { now: () => localMs(2026, 9, 5), onBadge });
+
+      expect(store.getBadges()["first-blood"]).toBeTruthy();
+      store.record("prompts");
+      expect(onBadge).not.toHaveBeenCalled();
+    });
+
     it("a throwing onBadge does not break record", () => {
       const store = new StatsStore(tmpDir, {
         now: () => localMs(2026, 9, 5),

@@ -167,6 +167,20 @@ export class StatsStore {
     this.badges = state.badges;
     this.once = state.once;
     this.prune();
+    this.grandfatherBadges();
+  }
+
+  /**
+   * Silently awards badges the loaded history already satisfies — ones added
+   * in a release after their thresholds were passed. Runs before any window
+   * exists, so the renderer's first summary includes them as its baseline and
+   * no unlock toast or notification replays the backlog.
+   */
+  private grandfatherBadges(): void {
+    if (!this.isEnabled()) return;
+    for (const badge of evaluateBadges(this.getSummary(), this.badges)) {
+      this.awardBadge(badge.id);
+    }
   }
 
   private statsFilePath(): string {

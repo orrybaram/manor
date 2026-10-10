@@ -1,6 +1,6 @@
 ---
 title: RemoteTranscriptSource over the host's Exec
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]

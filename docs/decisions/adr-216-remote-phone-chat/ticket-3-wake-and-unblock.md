@@ -25,3 +25,13 @@ ADR-216 D3, D4.
 ## Files to touch
 - `electron/chat-mirror/mirror.ts`, `electron/agent-status/driver.ts` or `electron/app-lifecycle.ts`
 - `src/components/phone/ChatPane/chat-view.ts`, `ChatPane.tsx`, tests
+
+## Added after ticket 2: lines too long to read in one go
+
+`RemoteTranscriptSource` caps a read at 4 MiB. A single line longer than that never completes a line within one read, so the offset never advances and the pane's chat stalls for good. A large tool result or a base64 image could do this.
+
+Fix it in the source or the mirror:
+- When a read's `data` holds no `\n` and the read was capped, ask the remote for that line's byte length with a second positional-arg script: `tail -c +$(( $2 + 1 )) "$1" | head -n 1 | wc -c`. It streams, so nothing large is buffered.
+- Skip the line: advance the offset by that length.
+- Emit no entry for it, or a placeholder `tool`/`assistant` entry saying "(entry too large to show)". Pick whichever fits the parser's skip-unknown rule; a silent skip is fine.
+- Pin it with a unit test that runs the real script through `localExec` on a file with a line larger than the cap. Make the cap injectable for the test.

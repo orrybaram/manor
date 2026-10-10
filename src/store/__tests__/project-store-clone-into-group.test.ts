@@ -24,8 +24,7 @@ vi.mock("../link-suggestions", () => ({
 const api = {
   getAll: vi.fn(),
   getSelectedIndex: vi.fn(async () => 0),
-  clone: vi.fn(),
-  link: vi.fn(),
+  transfer: vi.fn(),
   select: vi.fn(),
   selectWorkspace: vi.fn(),
 };
@@ -155,8 +154,7 @@ describe("Clone onto another host", () => {
   it("links a successful clone into the group, and the dialog moves to it", async () => {
     const before = seed();
     const cloned = project("cloud-app", "cloud", null);
-    api.clone.mockResolvedValue(cloned);
-    api.link.mockResolvedValue(THREE);
+    api.transfer.mockResolvedValue({ ok: true, project: cloned });
     api.getAll.mockResolvedValue([
       ...before.map((p) => ({ ...p, group: THREE })),
       { ...cloned, group: THREE },
@@ -164,13 +162,14 @@ describe("Clone onto another host", () => {
 
     const result = await useProjectStore.getState().cloneIntoGroup("local-app", OPTS);
 
-    expect(api.clone).toHaveBeenCalledWith({
+    // Main clones and links in one call.
+    expect(api.transfer).toHaveBeenCalledWith({
+      projectId: "local-app",
       hostId: OPTS.hostId,
+      mode: "copy",
       repoUrl: OPTS.repoUrl,
       targetDir: OPTS.remoteDir,
-      name: "local-app",
     });
-    expect(api.link).toHaveBeenCalledWith("cloud-app", "local-app");
     // Any open suggestion naming either side is stale now.
     expect(clearLinkSuggestionsFor).toHaveBeenCalledWith(["cloud-app", "local-app"]);
     expect(offerLinkSuggestions).not.toHaveBeenCalled();
@@ -188,46 +187,21 @@ describe("Clone onto another host", () => {
 
   it("leaves the group unchanged when the clone fails", async () => {
     const before = seed();
-    api.clone.mockRejectedValue(new Error("git clone exited with code 128"));
+    api.transfer.mockRejectedValue(new Error("git clone exited with code 128"));
 
     await expect(
       useProjectStore.getState().cloneIntoGroup("local-app", OPTS),
     ).rejects.toThrow("git clone exited with code 128");
 
-    expect(api.link).not.toHaveBeenCalled();
     expect(offerLinkSuggestions).not.toHaveBeenCalled();
     expect(useProjectStore.getState().projects).toEqual(before);
     expect(cloneTargets("local-app")).toEqual(["cloud", "spare"]);
-  });
-
-  it("keeps a clone that couldn't be linked, unlinked, and says so", async () => {
-    const before = seed();
-    const cloned = project("cloud-app", "cloud", null);
-    api.clone.mockResolvedValue(cloned);
-    api.link.mockRejectedValue(new Error("already linked"));
-    api.getAll.mockResolvedValue([...before, cloned]);
-
-    const result = await useProjectStore.getState().cloneIntoGroup("local-app", OPTS);
-
-    expect(result.group).toBeNull();
-    expect(memberAfterClone(result, "g1")).toBeNull();
-    expect(member("local-app").group).toEqual(TWO);
-    expect(useToastStore.getState().toasts.map((t) => t.message)).toEqual([
-      "Cloned, but couldn't link the projects",
-    ]);
-    // Standing alone, it gets the suggestions any new clone would.
-    expect(offerLinkSuggestions).toHaveBeenCalledWith("cloud-app", expect.any(Function));
-    expect(clearLinkSuggestionsFor).not.toHaveBeenCalled();
   });
 
   it("refuses to clone for a project that isn't linked", async () => {
     seed(false);
 
     await expect(useProjectStore.getState().cloneIntoGroup("local-app", OPTS)).rejects.toThrow();
-    expect(api.clone).not.toHaveBeenCalled();
+    expect(api.transfer).not.toHaveBeenCalled();
   });
 });
-
-function member(id: string): ProjectInfo {
-  return useProjectStore.getState().projects.find((p) => p.id === id)!;
-}

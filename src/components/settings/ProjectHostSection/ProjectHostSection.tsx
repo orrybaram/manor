@@ -4,7 +4,7 @@ import { useAppStore } from "../../../store/app-store";
 import { useHostStore, selectHost } from "../../../store/host-store";
 import { HostCard, HostCardRow } from "../../hosts/HostCard";
 import { LOCAL_HOST_ID, isRemoteHost, remoteHostOptions } from "../../../lib/hosts";
-import { workspaceKey } from "../../../lib/workspace-key";
+import { projectHasOpenPanes } from "../../../lib/project-panes";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
 import { CloneToHostDialog } from "../../hosts/CloneToHostDialog";
 import { Input } from "../../ui/Input";
@@ -17,18 +17,6 @@ import styles from "../SettingsModal/SettingsModal.module.css";
 import { pickDirectory } from "../../../lib/pick-directory";
 
 const ADD_HOST_VALUE = "__add_host__";
-
-/** Whether any workspace of `project` has an open tab in this window. */
-function projectHasOpenPanes(
-  project: ProjectInfo,
-  workspaceLayouts: Record<string, { panels: Record<string, { tabs: unknown[] }> }>,
-): boolean {
-  return project.workspaces.some((ws) => {
-    const layout = workspaceLayouts[workspaceKey(project.hostId, ws.path)];
-    if (!layout) return false;
-    return Object.values(layout.panels).some((panel) => panel.tabs.length > 0);
-  });
-}
 
 /** A host change waiting on the "this project has open panes" confirm. */
 type PendingHostChange =

@@ -10,7 +10,10 @@ import {
 import { branchesEqual } from "../utils/branch-name";
 import { ipcErrorMessage } from "../lib/ipc-error";
 import { splitShared } from "../lib/project-groups";
-import { isRemoteHost, type HostId } from "../lib/hosts";
+import { isRemoteHost, memberHostName, type HostId } from "../lib/hosts";
+import { requestUi } from "../utils/ui-request";
+import { useHostStore } from "./host-store";
+import type { TransferInputReason, TransferMode } from "../electron";
 import { hostForPath, patch, reconcile } from "../lib/workspace-directory";
 import { sharedRefresh } from "../lib/shared-refresh";
 import { pickDirectory } from "../lib/pick-directory";
@@ -39,6 +42,22 @@ export type {
   PrInfo,
   PrReviewer,
 } from "../lib/pr-info";
+
+/**
+ * The fallback dialog's state for a transfer that needs input or failed
+ * (ADR-213). `"failed"` is renderer-only: the transfer threw, so the dialog
+ * opens on the planned (or empty) values with `error` explaining why.
+ */
+export interface TransferDialogState {
+  projectId: string;
+  hostId: string;
+  mode: TransferMode;
+  reason: TransferInputReason | "failed";
+  repoUrl: string | null;
+  targetDir: string;
+  /** The thrown message, for `reason: "failed"`. */
+  error?: string;
+}
 
 const COLLAPSED_KEY = "manor:collapsedProjectIds";
 const COLLAPSED_FOLDER_KEYS_KEY = "manor:collapsedWorkspaceFolderKeys";
@@ -614,6 +633,23 @@ interface ProjectState {
     projectId: string,
     opts: { hostId: string; repoUrl: string; remoteDir: string },
   ) => Promise<ProjectInfo>;
+  /** ADR-213: the transfer fallback dialog's state; null while closed. */
+  transferDialog: TransferDialogState | null;
+  openTransferDialog: (state: TransferDialogState) => void;
+  closeTransferDialog: () => void;
+  /**
+   * ADR-213: copy (a new project linked to this one) or move (re-point this
+   * one) `projectId` to `hostId` in one go, with a progress toast. Main picks
+   * the target directory; `overrides` (both fields) replace its plan. When
+   * main needs input, or the transfer throws, `transferDialog` is set
+   * instead and the toast says why.
+   */
+  transferProject: (
+    projectId: string,
+    hostId: string,
+    mode: TransferMode,
+    overrides?: { repoUrl: string; targetDir: string },
+  ) => Promise<void>;
   /**
    * ADR-179: switch a project to a host without cloning — to `path`, or the
    * path it last had there.
@@ -920,6 +956,117 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }));
     void offerLinkSuggestions(project.id, get().linkProjects);
     return project;
+  },
+
+  transferDialog: null,
+  openTransferDialog: (state) => set({ transferDialog: state }),
+  closeTransferDialog: () => set({ transferDialog: null }),
+
+  transferProject: async (projectId, hostId, mode, overrides) => {
+    const source = get().projects.find((p) => p.id === projectId);
+    if (!source) return;
+    const toasts = useToastStore.getState();
+    const toastId = `transfer-${projectId}`;
+    const hostName = memberHostName(hostId, useHostStore.getState().hosts);
+    toasts.addToast({
+      id: toastId,
+      message: `${mode === "copy" ? "Copying" : "Moving"} ${source.name} to ${hostName}…`,
+      status: "loading",
+      persistent: true,
+    });
+    const unsubscribe = window.electronAPI.projects.onCloneProgress((event) => {
+      if (event.status !== "error" && event.message) {
+        useToastStore.getState().updateToast(toastId, { detail: event.message });
+      }
+    });
+    let result;
+    try {
+      result = await window.electronAPI.projects.transfer({
+        projectId,
+        hostId,
+        mode,
+        ...overrides,
+      });
+    } catch (err) {
+      const error = ipcErrorMessage(err);
+      useToastStore.getState().addToast({
+        id: toastId,
+        message: `Couldn't ${mode === "copy" ? "copy" : "move"} ${source.name} to ${hostName}`,
+        status: "error",
+        detail: error,
+        action: {
+          label: "Choose location…",
+          onClick: () => {
+            useToastStore.getState().removeToast(toastId);
+            get().openTransferDialog({
+              projectId,
+              hostId,
+              mode,
+              reason: "failed",
+              repoUrl: overrides?.repoUrl ?? null,
+              targetDir: overrides?.targetDir ?? "",
+              error,
+            });
+          },
+        },
+      });
+      return;
+    } finally {
+      unsubscribe();
+    }
+
+    if (!result.ok) {
+      const { needsInput } = result;
+      useToastStore.getState().removeToast(toastId);
+      get().openTransferDialog({
+        projectId,
+        hostId,
+        mode,
+        reason: needsInput.reason,
+        repoUrl: needsInput.repoUrl,
+        targetDir: needsInput.targetDir,
+      });
+      return;
+    }
+
+    const transferred: ProjectInfo = result.project;
+    useToastStore.getState().addToast({
+      id: toastId,
+      message: `${source.name} is on ${hostName}`,
+      status: "success",
+    });
+    if (mode === "copy") clearLinkSuggestionsFor([transferred.id, projectId]);
+    await get().loadProjects();
+    if (mode === "move") {
+      closeWorkspacesLeftBehind(source, transferred, get().selectWorkspace);
+    }
+
+    if (isRemoteHost(hostId)) {
+      // In the background: the transfer is done, this only flags a host
+      // that can't run the project's tools yet.
+      void window.electronAPI.hosts
+        .healthCheck(hostId, transferred.path)
+        .then((checks) => {
+          if (checks.every((c) => c.status !== "fail")) return;
+          useToastStore.getState().addToast({
+            id: `transfer-health-${transferred.id}`,
+            message: `${hostName} is missing something ${source.name} needs`,
+            status: "error",
+            action: {
+              label: "Open settings",
+              onClick: () =>
+                requestUi({
+                  type: "open-project-settings",
+                  projectId: transferred.id,
+                  section: "project-host",
+                }),
+            },
+          });
+        })
+        .catch(() => {
+          // The check itself failed to run; the host section shows its state.
+        });
+    }
   },
 
   moveProjectToHost: async (projectId, opts) => {
@@ -1278,24 +1425,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   cloneIntoGroup: async (memberId, opts) => {
     const member = get().projects.find((p) => p.id === memberId);
     if (!member?.group) throw new Error("This project isn't linked to a group.");
-    const cloned = await window.electronAPI.projects.clone({
+    const result = await window.electronAPI.projects.transfer({
+      projectId: memberId,
       hostId: opts.hostId,
+      mode: "copy",
       repoUrl: opts.repoUrl,
       targetDir: opts.remoteDir,
-      name: member.name,
     });
-    try {
-      await window.electronAPI.projects.link(cloned.id, memberId);
-      clearLinkSuggestionsFor([cloned.id, memberId]);
-    } catch (err) {
-      groupErrorToast(
-        `link-projects-${cloned.id}`,
-        "Cloned, but couldn't link the projects",
-        err,
-      );
-      // It stands alone now, like any other clone: offer what it could join.
-      void offerLinkSuggestions(cloned.id, get().linkProjects);
-    }
+    // Both overrides were given, so main never asks for input.
+    if (!result.ok) throw new Error("The clone needs a different location.");
+    const cloned: ProjectInfo = result.project;
+    clearLinkSuggestionsFor([cloned.id, memberId]);
     await get().loadProjects();
     return get().projects.find((p) => p.id === cloned.id) ?? cloned;
   },

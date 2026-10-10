@@ -68,6 +68,8 @@ import { normalizeHostId, workspaceKey } from "../../lib/workspace-key";
 import { useHostStore } from "../../store/host-store";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
+import { ProjectTransferMenu } from "./ProjectTransferMenu";
+import { useMoveConfirm } from "./useMoveConfirm";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { DeleteWorktreeDialog } from "./DeleteWorktreeDialog";
 import { BulkDeleteWorktreesDialog } from "./BulkDeleteWorktreesDialog";
@@ -405,6 +407,7 @@ export function ProjectItem(props: ProjectItemProps) {
   } = props;
 
   const isSection = variant === "section";
+  const moveConfirm = useMoveConfirm(project);
 
   const expanded = !collapsed;
   // A remote project's main workspace is named for its box, not "local".
@@ -1254,6 +1257,8 @@ export function ProjectItem(props: ProjectItemProps) {
             >
               Project Settings
             </ContextMenu.Item>
+            {!isSection && <ProjectTransferMenu project={project} mode="copy" />}
+            <ProjectTransferMenu project={project} mode="move" requestMove={moveConfirm.requestMove} />
             {hiddenWorkspaces.length > 0 && (
               <ContextMenu.Sub>
                 <ContextMenu.SubTrigger
@@ -1440,6 +1445,8 @@ export function ProjectItem(props: ProjectItemProps) {
           }
         }}
       />
+
+      {moveConfirm.dialog}
 
       <RemoveProjectDialog
         open={confirmRemove}

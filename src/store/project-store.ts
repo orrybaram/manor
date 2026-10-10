@@ -46,13 +46,14 @@ export type {
 /**
  * The fallback dialog's state for a transfer that needs input or failed
  * (ADR-213). `"failed"` is renderer-only: the transfer threw, so the dialog
- * opens on the planned (or empty) values with `error` explaining why.
+ * opens on the planned (or empty) values with `error` explaining why. `"manual"` is the sidebar's
+ * "Choose location…": no banner, the dialog fills its own defaults.
  */
 export interface TransferDialogState {
   projectId: string;
   hostId: string;
   mode: TransferMode;
-  reason: TransferInputReason | "failed";
+  reason: TransferInputReason | "failed" | "manual";
   repoUrl: string | null;
   targetDir: string;
   /** The thrown message, for `reason: "failed"`. */

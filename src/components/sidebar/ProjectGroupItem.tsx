@@ -16,12 +16,13 @@ import {
   type SelectionScope,
   type TopLevelEntry,
 } from "../../utils/sidebar-items";
-import { isRemoteHost, memberHostName } from "../../lib/hosts";
+import { LOCAL_HOST_ID, isRemoteHost, memberHostName } from "../../lib/hosts";
 import { startingMemberId, type WorkspaceHostChoice } from "../../lib/workspace-host-choices";
 import { HostIndicator } from "../hosts/HostIndicator";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { NewFolderDialog } from "./NewFolderDialog";
+import { ProjectTransferMenu } from "./ProjectTransferMenu";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { useGroupAgentStatus } from "../../hooks/useProjectAgentStatus";
 import { useHostStore } from "../../store/host-store";
@@ -124,6 +125,8 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
   const indicator = toWorkspaceIndicator(status, pulse);
   // Linking any member links the group, so the first stands in for it.
   const lead = members[0];
+  // Copy sources from the local member when the group has one.
+  const transferSource = members.find((m) => m.hostId === LOCAL_HOST_ID) ?? lead;
   const linkChoices = useMemo(
     () => (lead ? buildLinkChoices(lead, allProjects) : []),
     [lead, allProjects],
@@ -217,6 +220,7 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
             <ContextMenu.Item className={styles.contextMenuItem} onSelect={onOpenSettings}>
               Project Settings
             </ContextMenu.Item>
+            {transferSource && <ProjectTransferMenu project={transferSource} mode="copy" />}
             {hiddenWorkspaces.length > 0 && (
               <ContextMenu.Sub>
                 <ContextMenu.SubTrigger

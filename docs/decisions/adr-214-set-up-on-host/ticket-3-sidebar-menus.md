@@ -1,6 +1,6 @@
 ---
 title: Sidebar — Set up on ▸ and Remove from <host>
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [2]

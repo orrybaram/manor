@@ -3,6 +3,8 @@ import { localCtx } from "../../method";
 
 
 import {
+  projectsAutoJoin,
+  projectsKeepSeparate,
   projectsMoveToHost,
   projectsTransfer,
   projectsSwitchHost,
@@ -29,6 +31,8 @@ const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown
   ["projects:switchHost", call(projectsSwitchHost)],
   ["projects:moveToHost", call(projectsMoveToHost)],
   ["projects:transfer", call(projectsTransfer)],
+  ["projects:autoJoin", call(projectsAutoJoin)],
+  ["projects:keepSeparate", call(projectsKeepSeparate)],
 ]);
 import { LOCAL_HOST_ID } from "../../../backend/types";
 import { HostRecords } from "../../../projects/host-records";
@@ -57,6 +61,8 @@ function makeDeps(opts: { currentHostId?: string; pathExists?: boolean } = {}) {
       ? vi.fn().mockRejectedValue(new Error("does not exist"))
       : vi.fn().mockImplementation(async (_id: string, hostId: string) => moved(hostId)),
     moveProjectToHost: vi.fn().mockImplementation(async () => moved("box")),
+    autoJoin: vi.fn().mockResolvedValue([{ joinedId: "p2", intoId: "p1" }]),
+    keepSeparate: vi.fn(),
   };
   const backendRegistry = { ensureConnected: vi.fn().mockResolvedValue(undefined) };
   // The layouts are the server's to move (ADR-179 D1), and it broadcasts the
@@ -190,5 +196,26 @@ describe("projects:switchHost layouts (ADR-191)", () => {
     expect(deps.layoutStore.moveWorkspaces).toHaveBeenCalledWith([
       ["box:/srv/app", "/srv/app"],
     ]);
+  });
+});
+
+describe("projects:autoJoin / keepSeparate (ADR-214)", () => {
+  it("returns the pairs autoJoin joined", async () => {
+    const deps = makeDeps();
+    register(deps as never);
+    expect(await handlers.get("projects:autoJoin")!(null)).toEqual([
+      { joinedId: "p2", intoId: "p1" },
+    ]);
+    expect(deps.projectManager.autoJoin).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes keepSeparate's project through, and rejects a non-string", () => {
+    const deps = makeDeps();
+    register(deps as never);
+    const handler = handlers.get("projects:keepSeparate")!;
+    handler(null, "p1");
+    expect(deps.projectManager.keepSeparate).toHaveBeenCalledWith("p1");
+    expect(() => handler(null, 7)).toThrow(/projectId/);
+    expect(deps.projectManager.keepSeparate).toHaveBeenCalledTimes(1);
   });
 });

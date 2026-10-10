@@ -57,7 +57,8 @@ function pairOf(a: string, b: string): [string, string] {
   return a < b ? [a, b] : [b, a];
 }
 
-function isDismissed(state: PersistedState, a: string, b: string): boolean {
+/** Whether `a` and `b` are a dismissed pair, either way round. */
+export function isDismissed(state: PersistedState, a: string, b: string): boolean {
   const [x, y] = pairOf(a, b);
   return state.dismissedLinkSuggestions?.some(([p, q]) => p === x && q === y) ?? false;
 }
@@ -96,6 +97,28 @@ export function forgetLinkDismissals(state: PersistedState, projectId: string): 
   if (kept.length === pairs.length) return false;
   if (kept.length > 0) state.dismissedLinkSuggestions = kept;
   else delete state.dismissedLinkSuggestions;
+  return true;
+}
+
+/**
+ * Remember `projectId` and `otherId` as a dismissed pair, without saving;
+ * true when it is new. Two known, distinct projects only. Used by
+ * `OriginLinks.dismiss` and by ADR-214's "Keep separate", which dismisses
+ * every pair of a group it splits and then saves once.
+ */
+export function rememberDismissal(
+  ctx: ProjectContext,
+  projectId: string,
+  otherId: string,
+): boolean {
+  if (projectId === otherId) return false;
+  if (!ctx.find(projectId) || !ctx.find(otherId)) return false;
+  const state = ctx.store.state;
+  if (isDismissed(state, projectId, otherId)) return false;
+  state.dismissedLinkSuggestions = [
+    ...(state.dismissedLinkSuggestions ?? []),
+    pairOf(projectId, otherId),
+  ];
   return true;
 }
 
@@ -192,15 +215,7 @@ export class OriginLinks {
    * `otherId`'s group, which is offered under its members' ids.
    */
   dismiss(projectId: string, otherId: string): void {
-    if (projectId === otherId) return;
-    if (!this.ctx.find(projectId) || !this.ctx.find(otherId)) return;
-    const state = this.ctx.store.state;
-    if (isDismissed(state, projectId, otherId)) return;
-    state.dismissedLinkSuggestions = [
-      ...(state.dismissedLinkSuggestions ?? []),
-      pairOf(projectId, otherId),
-    ];
-    this.ctx.store.save();
+    if (rememberDismissal(this.ctx, projectId, otherId)) this.ctx.store.save();
   }
 
   /**

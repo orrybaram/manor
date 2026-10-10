@@ -220,7 +220,8 @@ export async function planTransfer(
  *
  * - copy: clone (or adopt), then link the new project to the source, so the
  *   group starts from the source's settings. A failed link removes a
- *   project the copy just added rather than leave it unlinked.
+ *   project the copy just added rather than leave it unlinked. The source's
+ *   main workspace name and issues come along (`carryMainMetadata`).
  * - move: a `remembered` path switches without cloning; otherwise the
  *   repo is cloned (or adopted) there. An `adopt` plan is `dir-taken`: two
  *   records would claim one checkout, which linking is for.
@@ -292,5 +293,31 @@ export async function transferProject(
     throw err;
   }
   const linked = ctx.find(cloned.id);
+  if (linked && carryMainMetadata(project, linked)) ctx.store.save();
   return { ok: true, project: linked ? await ctx.info(linked) : cloned };
+}
+
+/**
+ * Give `target`'s main workspace the name and linked issues `source`'s main
+ * workspace has (ADR-214), so a set up looks the same on the new host. Only
+ * where `target` has no entry of its own: an adopted checkout keeps its
+ * values. Folders are not carried; they belong to each project. True when
+ * anything was copied; the caller saves.
+ */
+function carryMainMetadata(source: PersistedProject, target: PersistedProject): boolean {
+  let changed = false;
+  const name = source.workspaceNames?.[source.path];
+  if (name !== undefined && target.workspaceNames?.[target.path] === undefined) {
+    target.workspaceNames = { ...target.workspaceNames, [target.path]: name };
+    changed = true;
+  }
+  const issues = source.workspaceIssues?.[source.path];
+  if (issues !== undefined && target.workspaceIssues?.[target.path] === undefined) {
+    target.workspaceIssues = {
+      ...target.workspaceIssues,
+      [target.path]: issues.map((issue) => ({ ...issue })),
+    };
+    changed = true;
+  }
+  return changed;
 }

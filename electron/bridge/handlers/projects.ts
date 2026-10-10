@@ -488,6 +488,26 @@ export function projectsDismissLinkSuggestion(
   ctx.deps.projectManager.dismissLinkSuggestion(projectId, otherId);
 }
 
+/**
+ * ADR-214: join every same-origin pair of projects on different hosts, as
+ * `suggestLinks` would offer them, without asking. Returns the pairs
+ * joined, for the renderer's Undo toast.
+ */
+export function projectsAutoJoin(
+  ctx: HandlerCtx,
+): ReturnType<HostDeps["projectManager"]["autoJoin"]> {
+  return ctx.deps.projectManager.autoJoin();
+}
+
+/**
+ * ADR-214 "Keep separate…": split the project's group and remember every
+ * pair it split, so `autoJoin` leaves them apart.
+ */
+export function projectsKeepSeparate(ctx: HandlerCtx, projectId: string): void {
+  assertString(projectId, "projectId");
+  ctx.deps.projectManager.keepSeparate(projectId);
+}
+
 export function projectsUpdate(
   ctx: HandlerCtx,
   projectId: string,
@@ -551,4 +571,7 @@ export const projects = {
   dismissLinkSuggestion: method(projectsDismissLinkSuggestion, {
     mutating: true,
   }),
+  // ADR-214: same-origin projects join on their own; "Keep separate…".
+  autoJoin: method(projectsAutoJoin, { mutating: true }),
+  keepSeparate: method(projectsKeepSeparate, { mutating: true }),
 };

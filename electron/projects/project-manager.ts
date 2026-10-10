@@ -15,7 +15,12 @@ import type { HostPath } from "../per-host-poller";
 import { detectDefaultBranch, listLocalBranches, listRemoteBranches, resyncDefaultBranches } from "./branches";
 import type { ProjectContext, WorkspaceLayoutOwner } from "./context";
 import { HostRecords } from "./host-records";
-import { OriginLinks, forgetLinkDismissals } from "./origin-links";
+import {
+  OriginLinks,
+  forgetLinkDismissals,
+  isDismissed,
+  rememberDismissal,
+} from "./origin-links";
 import { moveProjectToHost, planClone, runClone, switchProjectHost } from "./host-move";
 import { planTransfer, transferProject, type TransferDeps } from "./host-transfer";
 import { PathRouter } from "./path-router";
@@ -551,6 +556,22 @@ export class ProjectManager {
     groups.unlinkGroup(this.ctx, groupId);
   }
 
+  /**
+   * "Keep separate…" (ADR-214): dissolve `projectId`'s group as
+   * `unlinkGroup` does, and dismiss every pair of its former members, so
+   * `autoJoin` never joins them again. An ungrouped project is a no-op.
+   */
+  keepSeparate(projectId: string): void {
+    const group = groups.groupOf(this.store.state, projectId);
+    if (!group) return;
+    const ids = [...group.memberIds];
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) rememberDismissal(this.ctx, ids[i], ids[j]);
+    }
+    // Saves the dismissals too.
+    groups.unlinkGroup(this.ctx, group.id);
+  }
+
   /** Remember the host a group last made a workspace on (New Workspace picker). */
   setGroupLastUsedHost(groupId: string, hostId: string): void {
     groups.setGroupLastUsedHost(this.ctx, groupId, hostId);
@@ -569,6 +590,79 @@ export class ProjectManager {
   /** Stop suggesting `projectId` be linked with `otherId` (or its group). */
   dismissLinkSuggestion(projectId: string, otherId: string): void {
     this.origins.dismiss(projectId, otherId);
+  }
+
+  /**
+   * Join every pair `suggestLinks` finds among projects not yet in a group
+   * (ADR-214): same-origin projects on different hosts become one project
+   * set up on both, without asking. Returns the pairs joined, each as the
+   * project that joined and the one it joined; undoing one is
+   * `unlinkProject(joinedId)` and then `dismissLinkSuggestion(joinedId,
+   * intoId)`. Saves once, when anything was joined.
+   *
+   * The existing side keeps its settings: a group's stay the group's, and a
+   * new group takes the earlier-added project's (see `joinPair`). Each
+   * project's suggestions are asked afresh, after the joins before it, and
+   * a pair an earlier join made impossible (host taken, two groups) is
+   * skipped.
+   */
+  async autoJoin(): Promise<Array<{ joinedId: string; intoId: string }>> {
+    const state = this.store.state;
+    const lone = state.projects.filter((p) => !groups.groupOf(state, p.id)).map((p) => p.id);
+    const joined: Array<{ joinedId: string; intoId: string }> = [];
+    for (const projectId of lone) {
+      // Removed while an earlier project's hosts were asked.
+      if (!this.findProject(projectId)) continue;
+      for (const suggestion of await this.origins.suggest(projectId)) {
+        const pair = this.joinPair(projectId, suggestion.projectId);
+        if (pair) joined.push(pair);
+      }
+    }
+    if (joined.length === 0) return joined;
+    this.store.save();
+    const groupIds = new Set(
+      joined.flatMap(({ intoId }) => groups.groupOf(state, intoId)?.id ?? []),
+    );
+    for (const groupId of groupIds) void this.origins.rememberGroupOrigin(groupId);
+    return joined;
+  }
+
+  /**
+   * Join `a` and `b` without saving, for `autoJoin`; null when they can't
+   * be joined now. The newcomer is the side not in a group, or, when
+   * neither is, the one added later (later in the project list), so the
+   * project that was there first names the group and gives it its settings.
+   * Two members of one group, or of two groups, are left as they are, and
+   * so is a newcomer dismissed with any member of what it would join.
+   */
+  private joinPair(a: string, b: string): { joinedId: string; intoId: string } | null {
+    const state = this.store.state;
+    const projectA = this.findProject(a);
+    const projectB = this.findProject(b);
+    if (!projectA || !projectB) return null;
+    const groupA = groups.groupOf(state, a);
+    const groupB = groups.groupOf(state, b);
+    if (groupA && groupB) return null;
+    let joinedId: string;
+    let intoId: string;
+    if (groupA) [joinedId, intoId] = [b, a];
+    else if (groupB) [joinedId, intoId] = [a, b];
+    else if (state.projects.indexOf(projectA) > state.projects.indexOf(projectB)) {
+      [joinedId, intoId] = [a, b];
+    } else {
+      [joinedId, intoId] = [b, a];
+    }
+    // Suggestions were asked before this batch's earlier joins, so a group
+    // `intoId` is in now may hold a project the newcomer was kept apart from.
+    const target = groups.groupOf(state, intoId)?.memberIds ?? [intoId];
+    if (target.some((id) => isDismissed(state, joinedId, id))) return null;
+    try {
+      groups.joinProjects(this.ctx, joinedId, intoId);
+    } catch {
+      // A host this batch already filled for the group.
+      return null;
+    }
+    return { joinedId, intoId };
   }
 
   // ── Workspaces and folders (see `workspace-folders.ts`) ──

@@ -352,6 +352,48 @@ describe("ProjectManager.planTransfer / transferProject (ADR-213)", () => {
       expect(result).toMatchObject({ ok: false, needsInput: { reason: "host-taken" } });
       expect(cloneCalls).toEqual([]);
     });
+
+    const ISSUE = { id: "i1", identifier: "ENG-1", title: "Fix it", url: "https://linear.app/i1" };
+
+    it("carries the main workspace's name and issues onto the new path (ADR-214)", async () => {
+      const { mgr } = localSource({ [SRC]: REPO }, {}, [], {
+        workspaceNames: { [SRC]: "Trunk", "/Users/me/wt/feature": "Feature" },
+        workspaceIssues: { [SRC]: [ISSUE] },
+        workspaceFolderIds: { [SRC]: "f1" },
+      });
+
+      const result = await mgr.transferProject("p1", "box", "copy");
+
+      if (!result.ok) throw new Error("expected ok");
+      const copy = readState().projects.find((p) => p.id === result.project.id)!;
+      // Only the main workspace's entries, under the new path; no folders.
+      expect(copy.workspaceNames).toEqual({ "/home/u/Code/app": "Trunk" });
+      expect(copy.workspaceIssues).toEqual({ "/home/u/Code/app": [ISSUE] });
+      expect(copy).not.toHaveProperty("workspaceFolderIds");
+    });
+
+    it("keeps an adopted project's own name and issues", async () => {
+      const OWN = { ...ISSUE, id: "i2", identifier: "ENG-2" };
+      const { mgr } = localSource(
+        { [SRC]: REPO, "/srv/app": REPO },
+        { "/srv/app": [".git"] },
+        [
+          project("p2", {
+            path: "/srv/app",
+            hostId: "box",
+            workspaceNames: { "/srv/app": "Mine" },
+            workspaceIssues: { "/srv/app": [OWN] },
+          }),
+        ],
+        { workspaceNames: { [SRC]: "Trunk" }, workspaceIssues: { [SRC]: [ISSUE] } },
+      );
+
+      await mgr.transferProject("p1", "box", "copy");
+
+      const adopted = readState().projects.find((p) => p.id === "p2")!;
+      expect(adopted.workspaceNames).toEqual({ "/srv/app": "Mine" });
+      expect(adopted.workspaceIssues).toEqual({ "/srv/app": [OWN] });
+    });
   });
 
   describe("transferProject: move", () => {

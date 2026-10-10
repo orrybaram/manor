@@ -1,6 +1,6 @@
 ---
 title: Main — auto-join same-origin projects and carry main workspace metadata
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: []

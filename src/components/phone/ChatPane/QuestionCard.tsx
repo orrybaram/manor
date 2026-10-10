@@ -68,6 +68,7 @@ export function QuestionCard(props: QuestionCardProps) {
                     key={oi}
                     variant={chosen ? "primary" : "secondary"}
                     className={styles.option}
+                    data-chosen={chosen}
                     disabled={disabled}
                     aria-pressed={onTap ? undefined : chosen}
                     data-testid="chat-question-option"
@@ -88,6 +89,7 @@ export function QuestionCard(props: QuestionCardProps) {
                 <Button
                   variant={selection.other !== null ? "primary" : "secondary"}
                   className={styles.option}
+                  data-chosen={selection.other !== null}
                   disabled={disabled}
                   aria-pressed={selection.other !== null}
                   data-testid="chat-question-other"

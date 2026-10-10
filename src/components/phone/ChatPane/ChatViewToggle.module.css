@@ -18,6 +18,28 @@
 }
 
 /*
+ * The shared ToggleGroup's selected state is a faint surface lift, which is
+ * hard to read at a glance on a phone. Here the chosen view is unmistakable,
+ * and nothing else lights up (a tap leaves a sticky hover/focus on touch).
+ */
+.strip [role="radio"] {
+  min-width: 88px;
+  font-size: 13px;
+}
+
+.strip [role="radio"][aria-checked="true"] {
+  background: color-mix(in srgb, var(--accent) 28%, var(--surface));
+  color: var(--text-selected);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.strip [role="radio"][aria-checked="false"] {
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+/*
  * The terminal under a shown chat. `visibility` rather than `display`: it
  * keeps its box, so the terminal neither unmounts nor changes geometry (ADR-181
  * D1), and a hidden element can't hold focus, so the soft keyboard is the

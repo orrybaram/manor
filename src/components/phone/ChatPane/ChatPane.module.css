@@ -269,6 +269,20 @@ button.option {
   white-space: normal;
 }
 
+/*
+ * The card is `--surface`, which is also the secondary Button's border, so an
+ * unchosen option had no visible edge. Give it one, and a faint fill, so it
+ * reads as tappable.
+ */
+button.option[data-chosen="false"] {
+  border-color: color-mix(in srgb, var(--text-dim) 45%, var(--border));
+  background: color-mix(in srgb, var(--text-dim) 6%, transparent);
+}
+
+button.option:active:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 20%, var(--surface));
+}
+
 .optionLabel {
   font-weight: 600;
 }

@@ -64,8 +64,9 @@ type TrophyHeaderProps = {
 };
 
 /**
- * Who you are and your title on the left (with a picker over every title you
- * have earned, plus the starter titles), the overall score on the right:
+ * Who you are on the left — your GitHub login large, your title small under
+ * it with a picker over every title you have earned plus the starter titles —
+ * and the overall score on the right:
  * earned / total, a bar split by tier, and the per-tier tally.
  */
 export function TrophyHeader(props: TrophyHeaderProps) {
@@ -82,59 +83,61 @@ export function TrophyHeader(props: TrophyHeaderProps) {
   const total = BADGE_META.length;
   const earned = TIERS.reduce((n, tier) => n + tally[tier].got, 0);
 
+  const titleLine = (
+    <span className={login ? styles.title : `${styles.name} ${styles.title}`}>
+      {shown}
+      <Popover.Root>
+        <Tooltip label="Change title" side="top">
+          <Popover.Trigger asChild>
+            <Button
+              variant="ghost"
+              className={styles.titleEdit}
+              aria-label="Change title"
+            >
+              <Pencil size={login ? 11 : 12} />
+            </Button>
+          </Popover.Trigger>
+        </Tooltip>
+        <Popover.Portal>
+          <Popover.Content
+            className={styles.titleMenu}
+            side="bottom"
+            align="start"
+            sideOffset={6}
+            collisionPadding={8}
+          >
+            <div className={styles.titleMenuList} onKeyDown={onMenuListKeyDown}>
+              {titles.length > 0 && (
+                <TitleGroup
+                  label="Earned"
+                  titles={titles.map((t) => t.title)}
+                  shown={shown}
+                  onPick={pick}
+                />
+              )}
+              <TitleGroup
+                label="Starter"
+                titles={STARTER_TITLES}
+                shown={shown}
+                onPick={pick}
+              />
+              <p className={styles.titleMenuHint}>
+                Complete a track to earn its title.
+              </p>
+            </div>
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
+    </span>
+  );
+
   return (
     <header className={styles.header}>
+      {/* Your login leads with the title under it; with no login the title
+          leads alone rather than under an empty line. */}
       <div className={styles.titleBlock}>
-        {login && <span className={styles.login}>{`@${login}`}</span>}
-        <span className={styles.eyebrow}>Title</span>
-        <span className={styles.title}>
-          {shown}
-          <Popover.Root>
-            <Tooltip label="Change title" side="top">
-              <Popover.Trigger asChild>
-                <Button
-                  variant="ghost"
-                  className={styles.titleEdit}
-                  aria-label="Change title"
-                >
-                  <Pencil size={12} />
-                </Button>
-              </Popover.Trigger>
-            </Tooltip>
-            <Popover.Portal>
-              <Popover.Content
-                className={styles.titleMenu}
-                side="bottom"
-                align="start"
-                sideOffset={6}
-                collisionPadding={8}
-              >
-                <div
-                  className={styles.titleMenuList}
-                  onKeyDown={onMenuListKeyDown}
-                >
-                  {titles.length > 0 && (
-                    <TitleGroup
-                      label="Earned"
-                      titles={titles.map((t) => t.title)}
-                      shown={shown}
-                      onPick={pick}
-                    />
-                  )}
-                  <TitleGroup
-                    label="Starter"
-                    titles={STARTER_TITLES}
-                    shown={shown}
-                    onPick={pick}
-                  />
-                  <p className={styles.titleMenuHint}>
-                    Complete a track to earn its title.
-                  </p>
-                </div>
-              </Popover.Content>
-            </Popover.Portal>
-          </Popover.Root>
-        </span>
+        {login && <span className={styles.name}>{`@${login}`}</span>}
+        {titleLine}
       </div>
 
       <div className={styles.score}>

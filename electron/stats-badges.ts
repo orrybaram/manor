@@ -256,7 +256,7 @@ export const BADGES: readonly BadgeDef[] = [
   // Reads `s.badges`, so it lands on the commit after the last other badge.
   {
     id: "platinum",
-    title: "Platinum",
+    title: "Lord of the Manor",
     description: "Earned every other badge.",
     earned: (s) =>
       BADGES.every((b) => b.id === "platinum" || s.badges[b.id] !== undefined),

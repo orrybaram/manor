@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
 import type { StatsSummary } from "../../../electron.d";
 import { BADGE_META, BADGE_SECTIONS, trackState } from "../../../lib/badges";
 import { usePreferencesStore } from "../../../store/preferences-store";
@@ -14,6 +14,8 @@ type SidebarItem = {
   name: string;
   count: string;
   status?: "complete";
+  /** Drawn below a divider, apart from the tracks above (Lord of the Manor). */
+  apart?: boolean;
 };
 
 type TrackSidebarProps = {
@@ -23,8 +25,8 @@ type TrackSidebarProps = {
 };
 
 /**
- * Summary, then every track with its `n/m` — or "complete" once it is.
- * Up / Down move between items.
+ * Summary, then every track with its `n/m` — or "complete" once it is — and
+ * Lord of the Manor below a divider. Up / Down move between items.
  */
 function TrackSidebar(props: TrackSidebarProps) {
   const { summary, selected, onSelect } = props;
@@ -42,6 +44,7 @@ function TrackSidebar(props: TrackSidebarProps) {
         name: section.name,
         count: status ?? `${state.earned}/${state.total}`,
         status,
+        apart: section.id === "manor",
       };
     }),
   ];
@@ -53,19 +56,21 @@ function TrackSidebar(props: TrackSidebarProps) {
       onKeyDown={onMenuListKeyDown}
     >
       {items.map((item) => (
-        <Button
-          key={item.id}
-          variant="ghost"
-          className={styles.sidebarItem}
-          aria-current={item.id === selected ? "true" : undefined}
-          data-menu-item
-          onClick={() => onSelect(item.id)}
-        >
-          <span className={styles.sidebarName}>{item.name}</span>
-          <span className={styles.sidebarCount} data-status={item.status}>
-            {item.count}
-          </span>
-        </Button>
+        <Fragment key={item.id}>
+          {item.apart && <hr className={styles.sidebarDivider} />}
+          <Button
+            variant="ghost"
+            className={styles.sidebarItem}
+            aria-current={item.id === selected ? "true" : undefined}
+            data-menu-item
+            onClick={() => onSelect(item.id)}
+          >
+            <span className={styles.sidebarName}>{item.name}</span>
+            <span className={styles.sidebarCount} data-status={item.status}>
+              {item.count}
+            </span>
+          </Button>
+        </Fragment>
       ))}
     </nav>
   );

@@ -77,34 +77,47 @@
 .titleBlock {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
 }
 
+/* The primary line: your GitHub login when `gh` is signed in, else the title. */
+.name {
+  font-family: var(--font-mono, monospace);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  color: var(--text-selected);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The title, small and dim under the login, with the picker beside it. */
 .title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-family: var(--font-mono, monospace);
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 11px;
   letter-spacing: 0.04em;
-  color: var(--text-selected);
+  color: var(--text-dim);
 }
 
-/* Your GitHub login, when `gh` is signed in. */
-.login {
-  margin-bottom: 4px;
-  font-family: var(--font-mono, monospace);
-  font-size: 12px;
-  color: var(--text-primary);
+/* With no login the title is the primary line, and the pencil sits beside it. */
+.name.title {
+  font-size: 20px;
+  color: var(--text-selected);
+  gap: 8px;
 }
 
 .titleEdit {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   margin: -6px 0;
   padding: 0;
+  color: inherit;
 }
 
 .titleMenu {
@@ -116,7 +129,10 @@
   max-height: min(320px, calc(100vh - 32px));
   overflow-y: auto;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  z-index: 100;
+  /* Portalled to <body>, so it stacks against the palette itself (z-index
+     101), not inside it; anything lower opens hidden behind the palette.
+     Radix copies this onto its positioning wrapper. Under the tooltip (200). */
+  z-index: 150;
   animation: menuFadeIn 150ms ease-out;
 }
 
@@ -320,10 +336,26 @@
     width: auto;
   }
 
+  /* In a row the divider stands upright between the tracks and the manor. */
+  .sidebarDivider {
+    align-self: stretch;
+    margin: 4px 2px;
+    border-top: none;
+    border-left: 1px solid var(--border);
+  }
+
   .badgesTab > .pane {
     flex: none;
     overflow: visible;
   }
+}
+
+/* Sets Lord of the Manor apart from the four tracks above it. */
+.sidebarDivider {
+  flex: none;
+  margin: 6px 8px;
+  border: none;
+  border-top: 1px solid var(--border);
 }
 
 .sidebarItem.sidebarItem {

@@ -232,7 +232,7 @@ describe("progressRatio", () => {
   });
 });
 
-const AT = (n: number) => `2026-01-0${n}T00:00:00.000Z`;
+const AT = (n: number) => `2026-01-${String(n).padStart(2, "0")}T00:00:00.000Z`;
 
 /** Awards every badge in a section, one day apart starting at `start`. */
 function award(
@@ -246,36 +246,54 @@ function award(
   return out;
 }
 
-const carnage = BADGE_SECTIONS.find((s) => s.id === "carnage")!;
-const voice = BADGE_SECTIONS.find((s) => s.id === "voice")!;
-const meta = BADGE_SECTIONS.find((s) => s.id === "meta")!;
+const staff = BADGE_SECTIONS.find((s) => s.id === "staff")!;
+const tenure = BADGE_SECTIONS.find((s) => s.id === "tenure")!;
+const manor = BADGE_SECTIONS.find((s) => s.id === "manor")!;
+
+describe("BADGE_SECTIONS", () => {
+  it("runs the four tracks, then Lord of the Manor", () => {
+    expect(BADGE_SECTIONS.map((s) => s.id)).toEqual([
+      "staff",
+      "orders",
+      "grounds",
+      "tenure",
+      "manor",
+    ]);
+  });
+
+  it("puts only the platinum badge in the manor track", () => {
+    expect(
+      BADGE_META.filter((b) => b.section === "manor").map((b) => b.id),
+    ).toEqual(["platinum"]);
+  });
+});
 
 describe("trackState", () => {
   it("starts empty and incomplete", () => {
-    expect(trackState(carnage, summary())).toEqual({
+    expect(trackState(tenure, summary())).toEqual({
       earned: 0,
-      total: 5,
+      total: 6,
       complete: false,
     });
   });
 
   it("is incomplete while any badge is missing", () => {
-    const badges = award("carnage");
-    delete badges.extinction;
-    const state = trackState(carnage, summary({ badges }));
-    expect(state.earned).toBe(4);
+    const badges = award("tenure");
+    delete badges["year-round"];
+    const state = trackState(tenure, summary({ badges }));
+    expect(state.earned).toBe(5);
     expect(state.complete).toBe(false);
   });
 
   it("completes when every badge is earned", () => {
-    const state = trackState(carnage, summary({ badges: award("carnage") }));
-    expect(state).toEqual({ earned: 5, total: 5, complete: true });
+    const state = trackState(tenure, summary({ badges: award("tenure") }));
+    expect(state).toEqual({ earned: 6, total: 6, complete: true });
   });
 
-  it("completes the meta track when platinum is earned", () => {
-    expect(trackState(meta, summary()).complete).toBe(false);
+  it("completes the manor track when platinum is earned", () => {
+    expect(trackState(manor, summary()).complete).toBe(false);
     expect(
-      trackState(meta, summary({ badges: { platinum: AT(1) } })).complete,
+      trackState(manor, summary({ badges: { platinum: AT(1) } })).complete,
     ).toBe(true);
   });
 });
@@ -287,22 +305,22 @@ describe("earnedTitles", () => {
 
   it("orders titles by completion time, using the latest award", () => {
     const badges = {
-      ...award("voice", { start: 3 }), // complete at the 6th
-      ...award("carnage", { start: 1 }),
-      // one late carnage badge pushes its completion past voice
-      extinction: AT(9),
+      ...award("tenure", { start: 10 }), // complete at the 15th
+      ...award("staff", { start: 1 }), // would complete at the 12th
+      // one late staff badge pushes its completion past tenure
+      extinction: AT(20),
     };
     const titles = earnedTitles(summary({ badges }));
-    expect(titles.map((t) => t.section)).toEqual(["voice", "carnage"]);
+    expect(titles.map((t) => t.section)).toEqual(["tenure", "staff"]);
     expect(titles[0]).toEqual({
-      section: "voice",
-      title: voice.title,
-      at: AT(6),
+      section: "tenure",
+      title: tenure.title,
+      at: AT(15),
     });
     expect(titles[1]).toEqual({
-      section: "carnage",
-      title: "Exterminator",
-      at: AT(9),
+      section: "staff",
+      title: staff.title,
+      at: AT(20),
     });
   });
 });

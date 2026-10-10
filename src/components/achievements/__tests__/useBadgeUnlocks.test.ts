@@ -21,12 +21,13 @@ function summary(badges: Record<string, string> = {}): StatsSummary {
 }
 
 const AT = "2026-01-01T00:00:00.000Z";
-const CARNAGE_COMPLETE = {
-  "first-blood": AT,
-  executioner: AT,
-  massacre: AT,
-  "cold-blooded": AT,
-  extinction: AT,
+const TENURE_COMPLETE = {
+  "week-streak": AT,
+  "month-streak": AT,
+  regular: AT,
+  devoted: AT,
+  "half-year": AT,
+  "year-round": AT,
 };
 
 describe("diffUnlocks", () => {
@@ -53,16 +54,17 @@ describe("diffUnlocks", () => {
   it("detects a track completing after the badge toasts", () => {
     const items = diffUnlocks(
       summary({
-        "first-blood": AT,
-        executioner: AT,
-        massacre: AT,
-        extinction: AT,
+        "week-streak": AT,
+        "month-streak": AT,
+        regular: AT,
+        "half-year": AT,
+        "year-round": AT,
       }),
-      summary(CARNAGE_COMPLETE),
+      summary(TENURE_COMPLETE),
     );
     expect(items).toEqual([
-      { kind: "badge", id: "cold-blooded" },
-      { kind: "complete", section: "carnage" },
+      { kind: "badge", id: "devoted" },
+      { kind: "complete", section: "tenure" },
     ]);
   });
 });
@@ -81,22 +83,23 @@ describe("watchBadgeUnlocks", () => {
   });
 
   it("queues several unlocks in order and does not replay them", () => {
-    useStatsStore.setState({ summary: summary({ "first-blood": AT }) });
+    useStatsStore.setState({ summary: summary({ "week-streak": AT }) });
     const stop = watchBadgeUnlocks();
-    useStatsStore.setState({ summary: summary(CARNAGE_COMPLETE) });
+    useStatsStore.setState({ summary: summary(TENURE_COMPLETE) });
     expect(useUnlockQueue.getState().queue).toEqual([
-      { kind: "badge", id: "executioner" },
-      { kind: "badge", id: "massacre" },
-      { kind: "badge", id: "cold-blooded" },
-      { kind: "badge", id: "extinction" },
-      { kind: "complete", section: "carnage" },
+      { kind: "badge", id: "month-streak" },
+      { kind: "badge", id: "regular" },
+      { kind: "badge", id: "devoted" },
+      { kind: "badge", id: "half-year" },
+      { kind: "badge", id: "year-round" },
+      { kind: "complete", section: "tenure" },
     ]);
-    useStatsStore.setState({ summary: summary(CARNAGE_COMPLETE) });
-    expect(useUnlockQueue.getState().queue).toHaveLength(5);
+    useStatsStore.setState({ summary: summary(TENURE_COMPLETE) });
+    expect(useUnlockQueue.getState().queue).toHaveLength(6);
     useUnlockQueue.getState().dismiss();
     expect(useUnlockQueue.getState().queue[0]).toEqual({
       kind: "badge",
-      id: "massacre",
+      id: "regular",
     });
     stop();
   });

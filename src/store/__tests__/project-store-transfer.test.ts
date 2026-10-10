@@ -113,7 +113,7 @@ describe("transferProject", () => {
 
   it("offers an Open settings action when the background health check fails", async () => {
     api.transfer.mockResolvedValue({ ok: true, project: project("app-box", "box") });
-    hostsApi.healthCheck.mockResolvedValue([{ id: "claude", status: "fail" }]);
+    hostsApi.healthCheck.mockResolvedValue([{ id: "agent", status: "fail" }]);
 
     await useProjectStore.getState().transferProject("app", "box", "copy");
     await vi.waitFor(() =>

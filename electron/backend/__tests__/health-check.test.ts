@@ -3,20 +3,17 @@ import { runHealthChecks } from "../health-check";
 import type { GitBackend, ShellBackend } from "../types";
 
 /**
- * A fake `ShellBackend.exec` that answers the two script shapes
+ * A fake `ShellBackend.exec` that answers the script shapes
  * `health-check.ts` sends through `sh -c`: a login-shell `command -v <cli>`
- * probe (`findCliOnHost`), and the Claude login-signal script
- * (`claudeLooksLoggedIn`). `bins` maps a cli name to its resolved path (or
- * `undefined` for "not found"); `claudeLoggedIn` controls the login script's
- * answer.
+ * probe (`findCliOnHost`), its `~/.local/bin` fallback, and `ls-remote`.
+ * `bins` maps a cli name to its resolved path (or `undefined` for "not
+ * found").
  */
 function fakeShell(opts: {
   bins?: Record<string, string | undefined>;
-  claudeLoggedIn?: boolean;
   localBinBins?: Record<string, string | undefined>;
   originExec?: (args: string[]) => Promise<string>;
   ghExec?: (args: string[]) => Promise<string>;
-  codexExec?: (args: string[]) => Promise<string>;
 } = {}): ShellBackend {
   const bins = opts.bins ?? {};
   const localBinBins = opts.localBinBins ?? {};
@@ -26,12 +23,6 @@ function fakeShell(opts: {
     exec: vi.fn(async (cmd: string, args: string[]) => {
       if (cmd === "sh" && args[0] === "-c") {
         const script = args[1] ?? "";
-        // Check the Claude login script before the generic `command -v`
-        // probe match below — the login script itself runs `command -v
-        // security` as one of its three checks.
-        if (script.includes("Claude Code-credentials")) {
-          return opts.claudeLoggedIn ? "yes" : "no";
-        }
         const cliMatch = /-lc '?command -v ([^'\s]+)'?$/.exec(script);
         if (cliMatch) {
           const cli = cliMatch[1];
@@ -48,9 +39,6 @@ function fakeShell(opts: {
       }
       if ((cmd === "gh" || cmd.endsWith("/gh")) && args[0] === "auth") {
         return opts.ghExec?.(args) ?? "";
-      }
-      if ((cmd === "codex" || cmd.endsWith("/codex")) && args[0] === "--version") {
-        return opts.codexExec?.(args) ?? "";
       }
       throw new Error(`fakeShell: unexpected exec ${cmd} ${args.join(" ")}`);
     }),
@@ -73,15 +61,11 @@ function fakeGit(overrides: {
 }
 
 describe("runHealthChecks", () => {
-  it("runs gh and codex by the path the login shell resolved", async () => {
-    const shell = fakeShell({
-      bins: { gh: "/opt/homebrew/bin/gh", codex: "/home/user/.local/bin/codex" },
-    });
+  it("runs gh by the path the login shell resolved", async () => {
+    const shell = fakeShell({ bins: { gh: "/opt/homebrew/bin/gh" } });
     const results = await runHealthChecks(shell, fakeGit(), "/repo");
     expect(results.find((r) => r.id === "gh")?.status).toBe("ok");
-    expect(results.find((r) => r.id === "codex")?.status).toBe("ok");
     expect(shell.exec).toHaveBeenCalledWith("/opt/homebrew/bin/gh", ["auth", "status"], expect.anything());
-    expect(shell.exec).toHaveBeenCalledWith("/home/user/.local/bin/codex", ["--version"], expect.anything());
   });
 
   it("reports origin reachable", async () => {
@@ -128,56 +112,35 @@ describe("runHealthChecks", () => {
     expect(origin2.fixCommand).toContain("ssh -T git@example.com");
   });
 
-  it("reports claude not-installed when the login-shell probe finds nothing", async () => {
-    const git = fakeGit();
+  it("fails the agent check when no agent CLI is installed", async () => {
     const shell = fakeShell({ bins: {} });
-    const [, claude] = await runHealthChecks(shell, git, "/repo");
-    expect(claude.ok).toBe(false);
-    expect(claude.status).toBe("fail");
-    expect(claude.detail).toContain("not installed");
+    const [, agent] = await runHealthChecks(shell, fakeGit(), "/repo");
+    expect(agent.id).toBe("agent");
+    expect(agent.status).toBe("fail");
+    expect(agent.detail).toContain("claude, codex, opencode, pi");
   });
 
-  it("finds a cli installed under ~/.local/bin when the login-shell probe fails", async () => {
-    const git = fakeGit();
-    const shell = fakeShell({
-      bins: {}, // login-shell `command -v` finds nothing
-      localBinBins: { claude: "/home/user/.local/bin/claude" },
-      claudeLoggedIn: true,
-    });
-    const [, claude] = await runHealthChecks(shell, git, "/repo");
-    expect(claude.ok).toBe(true);
-    expect(claude.detail).toContain("logged in");
-  });
-
-  it("reports claude logged in when a credentials/env/keychain signal is found", async () => {
-    const git = fakeGit();
-    const shell = fakeShell({ bins: { claude: "/usr/bin/claude" }, claudeLoggedIn: true });
-    const [, claude] = await runHealthChecks(shell, git, "/repo");
-    expect(claude).toEqual({
-      id: "claude",
-      label: "Claude CLI",
+  it("passes the agent check with any one agent CLI installed", async () => {
+    const shell = fakeShell({ bins: { opencode: "/usr/bin/opencode" } });
+    const [, agent] = await runHealthChecks(shell, fakeGit(), "/repo");
+    expect(agent).toEqual({
+      id: "agent",
+      label: "Agent CLI",
       ok: true,
       status: "ok",
-      detail: "Installed and logged in.",
+      detail: "Installed: opencode.",
       fixCommand: null,
     });
   });
 
-  it("reports claude login as unknown (not a failure) when installed but no signal is found", async () => {
-    const git = fakeGit();
-    const shell = fakeShell({ bins: { claude: "/usr/bin/claude" }, claudeLoggedIn: false });
-    const [, claude] = await runHealthChecks(shell, git, "/repo");
-    expect(claude.ok).toBe(false);
-    expect(claude.status).toBe("unknown");
-    expect(claude.fixCommand).toBe("claude");
-  });
-
-  it("reports codex not-installed", async () => {
-    const git = fakeGit();
-    const shell = fakeShell({ bins: {} });
-    const [, , codex] = await runHealthChecks(shell, git, "/repo");
-    expect(codex.ok).toBe(false);
-    expect(codex.detail).toContain("Codex CLI is not installed");
+  it("finds an agent CLI under ~/.local/bin when the login-shell probe fails", async () => {
+    const shell = fakeShell({
+      bins: {},
+      localBinBins: { claude: "/home/user/.local/bin/claude" },
+    });
+    const [, agent] = await runHealthChecks(shell, fakeGit(), "/repo");
+    expect(agent.ok).toBe(true);
+    expect(agent.detail).toBe("Installed: claude.");
   });
 
   it("reports gh not logged in when auth status fails", async () => {
@@ -188,7 +151,7 @@ describe("runHealthChecks", () => {
         throw new Error("not logged in");
       },
     });
-    const [, , , gh] = await runHealthChecks(shell, git, "/repo");
+    const [, , gh] = await runHealthChecks(shell, git, "/repo");
     expect(gh.ok).toBe(false);
     expect(gh.fixCommand).toBe("gh auth login");
   });
@@ -205,16 +168,15 @@ describe("runHealthChecks", () => {
       }),
     } as unknown as ShellBackend;
     const results = await runHealthChecks(shell, git, "/repo");
-    expect(results).toHaveLength(4);
+    expect(results).toHaveLength(3);
     expect(results.every((r) => r.ok === false)).toBe(true);
   });
 
-  it("runs all four checks concurrently, not one after another", async () => {
+  it("runs every check concurrently, not one after another", async () => {
     const order: string[] = [];
     const git = fakeGit({ originUrl: "https://github.com/org/repo.git" });
     const shell = fakeShell({
-      bins: { claude: "/usr/bin/claude", codex: "/usr/bin/codex", gh: "/usr/bin/gh" },
-      claudeLoggedIn: true,
+      bins: { claude: "/usr/bin/claude", gh: "/usr/bin/gh" },
     });
     // Wrap the fake's implementation, not the mock itself: the mock calls
     // whatever implementation it currently has, so calling it from inside

@@ -37,6 +37,7 @@ describe("AgentManager", () => {
       paneId: `pane-${crypto.randomUUID()}`,
       lastAgentStatus: null,
       resumedAt: null,
+      transcriptPath: null,
       ...overrides,
     });
   }
@@ -228,6 +229,15 @@ describe("AgentManager", () => {
       expect(onDisk.agents[0].agentSessionId).toBe(sessionId);
     });
 
+    it("defaults transcriptPath to null on a record saved without one (ADR-215)", () => {
+      const sessionId = `session-${crypto.randomUUID()}`;
+      fs.writeFileSync(
+        path.join(tmpDir, "agents.json"),
+        JSON.stringify({ agents: [{ ...legacyRecord(sessionId), hostId: "local" }] }),
+      );
+      expect(new AgentManager(tmpDir).getAgentBySessionId(sessionId)!.transcriptPath).toBeNull();
+    });
+
     it("prefers agents.json when both files exist", () => {
       const keep = `session-${crypto.randomUUID()}`;
       const stale = `session-${crypto.randomUUID()}`;
@@ -279,6 +289,7 @@ describe("AgentManager", () => {
           paneId: null,
           lastAgentStatus: null,
           resumedAt: null,
+          transcriptPath: null,
         },
       ]);
 
@@ -320,6 +331,7 @@ describe("AgentManager", () => {
           paneId: null,
           lastAgentStatus: null,
           resumedAt: null,
+          transcriptPath: null,
         },
       ]);
 
@@ -421,6 +433,7 @@ describe("AgentManager", () => {
         paneId: null,
         lastAgentStatus: null,
         resumedAt: null,
+        transcriptPath: null,
         ...overrides,
       };
     }

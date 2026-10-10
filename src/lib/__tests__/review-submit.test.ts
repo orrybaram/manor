@@ -64,6 +64,7 @@ function makeAgent(overrides: Partial<AgentInfo> = {}): AgentInfo {
     paneId: "pane-1",
     lastAgentStatus: "working",
     resumedAt: null,
+    transcriptPath: null,
     ...overrides,
   };
 }

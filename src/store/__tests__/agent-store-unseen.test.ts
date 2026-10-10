@@ -72,6 +72,7 @@ function makeAgent(
     paneId,
     lastAgentStatus,
     resumedAt: null,
+    transcriptPath: null,
   };
 }
 

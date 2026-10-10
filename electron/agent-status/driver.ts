@@ -295,6 +295,20 @@ export function createAgentStatusDriver(deps: AgentStatusDriverDeps): AgentStatu
     return false;
   }
 
+  /**
+   * ADR-215 D2: a hook that names the session's transcript sets it on the
+   * session's Agent. The latest value wins (`/clear` and resume switch
+   * transcripts). Runs after the reconciler so a SessionStart that created
+   * the Agent is covered. Subagent hooks are ignored.
+   */
+  function captureTranscriptPath(event: AgentHookEvent): void {
+    if (!event.transcriptPath || !event.sessionId || event.agentId !== null) return;
+    const agent = agentManager.getAgentBySessionId(event.sessionId);
+    if (!agent || agent.transcriptPath === event.transcriptPath) return;
+    const updated = agentManager.updateAgent(agent.id, { transcriptPath: event.transcriptPath });
+    if (updated) deps.broadcastAgent(updated);
+  }
+
   function signal(paneId: string, sig: StatusSignal): ReconcileResult {
     const nowMs = sig.type === "tick" ? sig.nowMs : monoClock();
     // The pane's new session has started: its window is over, and the new
@@ -310,6 +324,7 @@ export function createAgentStatusDriver(deps: AgentStatusDriverDeps): AgentStatu
       ctx.existingAgentAgeMs = agentMonotonicAgeMs(existingAgent);
     }
     const result = run(paneId, state, sig, ctx);
+    if (sig.type === "hook") captureTranscriptPath(sig.event);
 
     if (sig.type === "hook" && onHookEvent) {
       // Observers run last and cannot change what the reconciler did. A broken

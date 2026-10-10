@@ -59,6 +59,12 @@ export interface AgentInfo {
   /** ISO timestamp set when auto-resume fires for this agent, to prevent double-launch */
   resumedAt: string | null;
   /**
+   * Path of the agent session's JSONL transcript (ADR-215), from the latest
+   * hook that supplied one. Null until a hook does, and for records saved
+   * before it existed.
+   */
+  transcriptPath: string | null;
+  /**
    * True when the user renamed this agent by hand. A pinned `name` must not be
    * overwritten by the live-title sync in app-lifecycle.
    */
@@ -182,6 +188,8 @@ export class AgentManager {
           migrated.hostId = this.hostOfProject(migrated.projectId);
           this.migrationPerformed = true;
         }
+        // ADR-215: a record saved before transcript capture has none yet.
+        if (migrated.transcriptPath === undefined) migrated.transcriptPath = null;
         map.set(migrated.agentSessionId, migrated);
         idIndex.set(migrated.id, migrated.agentSessionId);
       }

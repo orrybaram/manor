@@ -185,6 +185,8 @@ function buildUrl(port, params) {
   url.searchParams.set("eventType", params.eventType);
   url.searchParams.set("kind", params.kind || "claude");
   if (params.sessionId) url.searchParams.set("sessionId", params.sessionId);
+  if (params.transcriptPath)
+    url.searchParams.set("transcriptPath", params.transcriptPath);
   if (params.toolUseId) url.searchParams.set("toolUseId", params.toolUseId);
   if (params.agentId) url.searchParams.set("agentId", params.agentId);
   if (params.notificationKind)
@@ -253,6 +255,10 @@ async function main(opts) {
 
     const sessionId =
       typeof payload.session_id === "string" ? payload.session_id : null;
+    const transcriptPath =
+      typeof payload.transcript_path === "string" && payload.transcript_path
+        ? payload.transcript_path
+        : null;
     const toolUseId =
       typeof payload.tool_use_id === "string" ? payload.tool_use_id : null;
     const agentId =
@@ -268,6 +274,7 @@ async function main(opts) {
       eventType,
       kind,
       sessionId,
+      transcriptPath,
       toolUseId,
       agentId,
       notificationKind,

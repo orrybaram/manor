@@ -55,6 +55,7 @@ function makeAgent(id: string, createdAt: string, status: AgentInfo["status"] = 
     paneId: null,
     lastAgentStatus: null,
     resumedAt: null,
+    transcriptPath: null,
   };
 }
 

@@ -45,6 +45,15 @@ describe("parseAgentHookEvent — eventType → status mapping", () => {
     return r.event.status;
   }
 
+  it("carries transcriptPath on the event, null when absent", () => {
+    const withPath = build("Stop", { transcriptPath: "/t/s.jsonl" });
+    if (!withPath.ok) throw new Error("expected ok");
+    expect(withPath.event.transcriptPath).toBe("/t/s.jsonl");
+    const without = build("Stop");
+    if (!without.ok) throw new Error("expected ok");
+    expect(without.event.transcriptPath).toBeNull();
+  });
+
   it("maps UserPromptSubmit to thinking", () => {
     expect(statusFor("UserPromptSubmit")).toBe("thinking");
   });
@@ -242,6 +251,7 @@ describe("AgentHookServer", () => {
         status: "responded",
         paneId: "abc",
         sessionId: null,
+        transcriptPath: null,
         agentKind: "claude",
         agentId: null,
       });
@@ -272,6 +282,7 @@ describe("AgentHookServer", () => {
         status: "responded",
         paneId: "abc",
         sessionId: null,
+        transcriptPath: null,
         agentKind: "codex",
         agentId: null,
       });
@@ -293,6 +304,7 @@ describe("AgentHookServer", () => {
         status: "responded",
         paneId: "pane-1",
         sessionId: null,
+        transcriptPath: null,
         agentKind: "claude",
         agentId: null,
       });
@@ -301,6 +313,7 @@ describe("AgentHookServer", () => {
         status: "thinking",
         paneId: "pane-2",
         sessionId: null,
+        transcriptPath: null,
         agentKind: "claude",
         agentId: null,
       });
@@ -339,6 +352,7 @@ describe("AgentHookServer", () => {
         status: "working",
         paneId: "p1",
         sessionId: null,
+        transcriptPath: null,
         agentKind: "claude",
         agentId: null,
         toolUseId: "abc123",
@@ -400,6 +414,7 @@ describe("AgentHookServer", () => {
         status: "requires_input",
         paneId: "p1",
         sessionId: null,
+        transcriptPath: null,
         agentKind: "claude",
         agentId: null,
       });
@@ -434,6 +449,7 @@ describe("AgentHookServer", () => {
         status: "requires_input",
         paneId: "p1",
         sessionId: null,
+        transcriptPath: null,
         agentKind: "claude",
         agentId: null,
       });
@@ -452,6 +468,7 @@ describe("AgentHookServer", () => {
         status: "responded",
         paneId: "p1",
         sessionId: null,
+        transcriptPath: null,
         agentKind: "claude",
         agentId: null,
       });

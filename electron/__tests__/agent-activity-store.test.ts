@@ -38,6 +38,7 @@ function agent(id: string, overrides: Partial<AgentInfo> = {}): AgentInfo {
     paneId: `pane-${id}`,
     lastAgentStatus: null,
     resumedAt: null,
+    transcriptPath: null,
     ...overrides,
   };
 }

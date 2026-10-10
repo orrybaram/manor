@@ -65,6 +65,7 @@ describe("dispatchStreamEvent", () => {
       paneId: `pane-${crypto.randomUUID()}`,
       lastAgentStatus: null,
       resumedAt: null,
+      transcriptPath: null,
       ...overrides,
     });
   }
@@ -328,6 +329,7 @@ describe("dispatchStreamEvent", () => {
         sessionId: agent.agentSessionId,
         agentKind: "claude",
         agentId: null,
+        transcriptPath: null,
       });
       published.length = 0;
       broadcastAgent.mockClear();

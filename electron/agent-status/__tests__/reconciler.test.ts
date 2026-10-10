@@ -78,6 +78,7 @@ const agent = (overrides: Partial<AgentInfo> = {}): AgentInfo => ({
   paneId: PANE,
   lastAgentStatus: "thinking",
   resumedAt: null,
+  transcriptPath: null,
   ...overrides,
 });
 
@@ -116,6 +117,7 @@ function ev(
     sessionId,
     agentKind,
     agentId: null,
+    transcriptPath: null,
     type,
     status: STATUS_OF[type],
   } as AgentHookEvent;
@@ -129,6 +131,7 @@ const subagentStart = (
   sessionId,
   agentKind: "claude",
   agentId: null,
+  transcriptPath: null,
   type: "SubagentStart",
   status: "working",
   toolUseId,
@@ -142,6 +145,7 @@ const subagentStop = (
   sessionId,
   agentKind: "claude",
   agentId: null,
+  transcriptPath: null,
   type: "SubagentStop",
   status: "thinking",
   toolUseId,

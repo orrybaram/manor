@@ -27,6 +27,7 @@ const agentHook = require("../scripts/agent-hook.js") as {
       eventType: string | null;
       kind?: string;
       sessionId?: string | null;
+      transcriptPath?: string | null;
       toolUseId?: string | null;
       agentId?: string | null;
       notificationKind?: string | null;
@@ -215,6 +216,29 @@ describe("agent-hook.js — main()", () => {
     expect(url.searchParams.get("kind")).toBe("claude");
     expect(url.searchParams.has("sessionId")).toBe(false);
     expect(url.searchParams.has("toolUseId")).toBe(false);
+  });
+
+  it("forwards payload.transcript_path as transcriptPath", async () => {
+    fs.mkdirSync(path.join(tmpDir, ".manor"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, ".manor", "hook-port"), "12000");
+    const { fn: fetchFn, calls } = makeFetch();
+
+    await agentHook.main({
+      argv: ["node", "agent-hook.js"],
+      stdin: makeStdin(
+        JSON.stringify({
+          hook_event_name: "Stop",
+          session_id: "s",
+          transcript_path: "/t/s.jsonl",
+        }),
+      ),
+      env: { MANOR_PANE_ID: "pane-2" },
+      homeDir: tmpDir,
+      fetch: fetchFn,
+      stderr: makeStderr(),
+    });
+
+    expect(new URL(calls[0]!.url).searchParams.get("transcriptPath")).toBe("/t/s.jsonl");
   });
 
   it("uses MANOR_AGENT_KIND from env when provided", async () => {
@@ -523,6 +547,23 @@ describe("agent-hook.js — buildUrl()", () => {
     const parsed = new URL(url!);
     expect(parsed.searchParams.get("paneId")).toBe("p&id=evil");
     expect(parsed.searchParams.get("sessionId")).toBe("x y/z");
+  });
+
+  it("includes transcriptPath only when non-null", () => {
+    const withPath = agentHook.buildUrl(1234, {
+      paneId: "p",
+      eventType: "Stop",
+      transcriptPath: "/home/u/.claude/projects/x/s.jsonl",
+    });
+    expect(new URL(withPath!).searchParams.get("transcriptPath")).toBe(
+      "/home/u/.claude/projects/x/s.jsonl",
+    );
+    const without = agentHook.buildUrl(1234, {
+      paneId: "p",
+      eventType: "Stop",
+      transcriptPath: null,
+    });
+    expect(new URL(without!).searchParams.has("transcriptPath")).toBe(false);
   });
 
   it("includes agentId in URL when provided", () => {

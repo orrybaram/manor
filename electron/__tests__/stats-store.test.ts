@@ -560,6 +560,7 @@ describe("StatsStore", () => {
       sessionId: "sess-1",
       agentKind: "claude",
       agentId: null,
+      transcriptPath: null,
       type: "UserPromptSubmit",
       status: "thinking",
     };
@@ -568,6 +569,7 @@ describe("StatsStore", () => {
       sessionId: "sess-1",
       agentKind: "claude",
       agentId: null,
+      transcriptPath: null,
       type: "PermissionRequest",
       status: "requires_input",
     };
@@ -576,6 +578,7 @@ describe("StatsStore", () => {
       sessionId: "sess-1",
       agentKind: "claude",
       agentId: null,
+      transcriptPath: null,
       type: "SessionStart",
       status: "thinking",
     };
@@ -649,6 +652,7 @@ describe("StatsStore", () => {
         sessionId: "sess-1",
         agentKind: "claude",
         agentId: null,
+        transcriptPath: null,
         type: "PreToolUse",
         status: "working",
       };

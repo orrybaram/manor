@@ -61,6 +61,8 @@ export interface AgentInfo {
   lastAgentStatus: string | null;
   /** ISO timestamp set when auto-resume fires for this agent, to prevent double-launch */
   resumedAt: string | null;
+  /** Path of the session's JSONL transcript (ADR-215); null when unknown. */
+  transcriptPath: string | null;
   /**
    * True when the user renamed this agent by hand. A pinned `name` wins over
    * the live terminal title and is never overwritten by the title sync.

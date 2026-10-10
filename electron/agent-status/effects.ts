@@ -188,6 +188,7 @@ function applyCreateAgent(
     paneId: effect.paneId,
     lastAgentStatus: effect.status,
     resumedAt: null,
+    transcriptPath: null,
   });
   agent = deps.agentManager.updateAgent(agent.id, { activatedAt: new Date().toISOString() });
   if (agent) {

@@ -112,6 +112,7 @@ function makeAgent(overrides?: Partial<AgentInfo>): AgentInfo {
     paneId: PANE_ID,
     lastAgentStatus: "requires_input",
     resumedAt: null,
+    transcriptPath: null,
     ...overrides,
   };
 }

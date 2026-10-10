@@ -79,6 +79,7 @@ const baseAgent = (overrides: Partial<AgentInfo> = {}): AgentInfo => ({
   paneId: "pane1",
   lastAgentStatus: null,
   resumedAt: null,
+  transcriptPath: null,
   ...overrides,
 });
 

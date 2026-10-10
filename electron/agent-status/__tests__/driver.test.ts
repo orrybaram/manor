@@ -88,6 +88,7 @@ function makeFakeAgentManager(calls: string[]) {
         paneId: null,
         lastAgentStatus: null,
         resumedAt: null,
+        transcriptPath: null,
         ...agent,
       };
       agents.set(full.agentSessionId, full);
@@ -177,6 +178,7 @@ const base = (i: BaseInput) => ({
   sessionId: i.sessionId,
   agentKind: i.agentKind ?? ("claude" as AgentKind),
   agentId: null,
+  transcriptPath: null,
 });
 
 const sessionStart = (i: BaseInput): AgentHookEvent => ({ ...base(i), type: "SessionStart", status: "thinking" });
@@ -308,6 +310,15 @@ describe("driver — ticks replace the sweeps (ported)", () => {
     t.agentManager.seed({ agentSessionId: "s1", paneId: "pane-1", resumedAt: "2026-10-05T10:00:00Z" });
     t.driver.hook(userPromptSubmit({ sessionId: "s1" }));
     expect(t.agentManager.getAgentBySessionId("s1")!.resumedAt).toBeNull();
+  });
+
+  it("a hook's transcriptPath lands on its Agent, the latest winning (ADR-215 D2)", () => {
+    t.driver.hook({ ...userPromptSubmit({ sessionId: "s1" }), transcriptPath: "/t/one.jsonl" });
+    expect(t.agentManager.getAgentBySessionId("s1")!.transcriptPath).toBe("/t/one.jsonl");
+    t.driver.hook(postToolUse({ sessionId: "s1" }));
+    expect(t.agentManager.getAgentBySessionId("s1")!.transcriptPath).toBe("/t/one.jsonl");
+    t.driver.hook({ ...postToolUse({ sessionId: "s1" }), transcriptPath: "/t/two.jsonl" });
+    expect(t.agentManager.getAgentBySessionId("s1")!.transcriptPath).toBe("/t/two.jsonl");
   });
 
   it("stuck-working: its inferred responded neither flags the Agent unseen nor notifies", () => {
@@ -604,7 +615,7 @@ describe("paneContextBackfill", () => {
     id: "a", agentSessionId: "s", name: null, status: "active", createdAt: "", updatedAt: "", completedAt: null,
     activatedAt: null, projectId: null, projectName: null, hostId: "local", workspacePath: null,
     cwd: "", agentKind: "claude", agentCommand: null, paneId: "pane-1", lastAgentStatus: null,
-    resumedAt: null, ...over,
+    resumedAt: null, transcriptPath: null, ...over,
   });
 
   it("fills every empty field of an Agent created without a context", () => {

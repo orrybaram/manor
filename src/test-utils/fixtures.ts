@@ -22,6 +22,7 @@ export function makeAgent(overrides: Partial<AgentInfo> = {}): AgentInfo {
     paneId: null,
     lastAgentStatus: null,
     resumedAt: null,
+    transcriptPath: null,
     ...overrides,
   };
 }

@@ -17,6 +17,8 @@ import { getAllAgentKinds } from "./agent-connectors";
 interface EventBase {
   paneId: string;
   sessionId: string | null;
+  /** Path of the session's JSONL transcript (ADR-215), null when not supplied. */
+  transcriptPath: string | null;
   agentKind: AgentKind;
   /**
    * The subagent's id, present on every hook a subagent sends (including
@@ -77,6 +79,7 @@ export function parseAgentHookEvent(
   const rawType = params.get("eventType");
   const sessionId = params.get("sessionId");
   const rawKind = params.get("kind");
+  const transcriptPath = params.get("transcriptPath") || null;
   const toolUseId = params.get("toolUseId");
   const agentId = params.get("agentId");
   const notificationKind = params.get("notificationKind");
@@ -113,7 +116,13 @@ export function parseAgentHookEvent(
     };
   }
 
-  const base: EventBase = { paneId, sessionId, agentKind, agentId };
+  const base: EventBase = {
+    paneId,
+    sessionId,
+    transcriptPath,
+    agentKind,
+    agentId,
+  };
 
   switch (rawType) {
     case "SessionStart":

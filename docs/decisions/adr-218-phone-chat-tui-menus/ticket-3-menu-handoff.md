@@ -1,6 +1,6 @@
 ---
 title: Terminal handoff with a key bar and auto-return
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [1, 2]

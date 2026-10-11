@@ -133,6 +133,13 @@ export function ChatComposer(props: ChatComposerProps) {
     sendText(`/${choiceFor.name}`);
   };
 
+  /** Esc or a tap outside: close the sheet, and keep the `/` menu shut
+   *  until the text changes. */
+  const dismissChoice = () => {
+    setChoiceFor(null);
+    slash.close();
+  };
+
   /** Enter on the sheet: the selected choice, "Other…" or the terminal row. */
   const chooseSelected = () => {
     const choices = choiceFor?.choices ?? [];
@@ -159,7 +166,7 @@ export function ChatComposer(props: ChatComposerProps) {
           onChoose={chooseValue}
           onOther={chooseOther}
           onOpenInTerminal={chooseTerminal}
-          onDismiss={() => setChoiceFor(null)}
+          onDismiss={dismissChoice}
         />
       )}
       {slash.open && !choiceFor && (
@@ -214,7 +221,7 @@ export function ChatComposer(props: ChatComposerProps) {
                   chooseSelected();
                   break;
                 case "Escape":
-                  setChoiceFor(null);
+                  dismissChoice();
                   break;
                 default:
                   handled = false;

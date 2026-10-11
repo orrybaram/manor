@@ -1,6 +1,6 @@
 ---
 title: chat.key bridge method for navigation keys
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

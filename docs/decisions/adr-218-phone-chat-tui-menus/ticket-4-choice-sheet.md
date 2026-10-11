@@ -1,6 +1,6 @@
 ---
 title: Choice sheet for commands with fixed arguments
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [1, 3]

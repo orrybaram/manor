@@ -1,6 +1,6 @@
 ---
 title: Command metadata says when a menu opens
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

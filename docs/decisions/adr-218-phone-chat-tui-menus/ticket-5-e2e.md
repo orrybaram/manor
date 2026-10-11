@@ -1,6 +1,6 @@
 ---
 title: E2E for the choice sheet and the menu handoff
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [3, 4]

@@ -1,6 +1,6 @@
 ---
 title: Built-in command list and chat.getCommands bridge method
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

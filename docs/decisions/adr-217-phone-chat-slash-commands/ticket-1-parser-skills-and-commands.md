@@ -1,6 +1,6 @@
 ---
 title: Parse skill listings and slash-command entries from the transcript
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

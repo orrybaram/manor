@@ -1,0 +1,322 @@
+/*
+ * ADR-219 §2: the phone drawer's agents-first panel (board "1a · Slim top
+ * bar"). The top bar and bottom area stay put; only the middle scrolls.
+ */
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  user-select: none;
+}
+
+/* ── Top bar ── */
+
+.topBar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: calc(8px + env(safe-area-inset-top)) 10px 8px 12px;
+}
+
+.newAgent {
+  min-height: 44px;
+  padding: 0 16px 0 12px;
+  border-radius: 999px;
+  border-color: var(--border);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.iconButton {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 10px;
+}
+
+/* ── Scrollable middle ── */
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 8px 12px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+}
+
+.sectionLabel {
+  padding: 6px 6px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.needsYouLabel {
+  color: var(--yellow);
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* A ghost Button reshaped into a three-line card, tinted from `--yellow`. */
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--yellow) 30%, transparent);
+  background: color-mix(in srgb, var(--yellow) 8%, transparent);
+  color: var(--text-primary);
+  text-align: left;
+  white-space: normal;
+}
+
+.card:hover:not(:disabled),
+.card:active {
+  background: color-mix(in srgb, var(--yellow) 14%, transparent);
+  color: var(--text-primary);
+}
+
+.cardLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cardTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-selected);
+}
+
+.cardMessage {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: 22px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.cardWhere {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding-left: 22px;
+}
+
+.cardWhereText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.divider {
+  height: 1px;
+  margin: 12px 6px 4px;
+  background: var(--border);
+}
+
+/* ── Project groups ── */
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 6px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.groupName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projectSquare {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--project-color, var(--text-dim));
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 8px;
+  border-radius: 8px;
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.row:hover:not(:disabled),
+.row:active {
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
+/* A fixed column, so titles line up whether or not a dot shows. */
+.dotCell {
+  flex-shrink: 0;
+  width: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.idleDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  opacity: 0.5;
+}
+
+.rowTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.time {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.errorLabel {
+  color: var(--red);
+}
+
+/* ── Empty state ── */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 16px;
+  text-align: center;
+}
+
+.emptyText {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.emptyAction {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 999px;
+}
+
+/* ── Bottom area ── */
+
+.bottom {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
+}
+
+.projectsRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 8px;
+  border-radius: 8px;
+  color: var(--text-dim);
+}
+
+.projectsRow:hover:not(:disabled),
+.projectsRow:active {
+  background: var(--surface);
+}
+
+.projectsLabel {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.projectsCount {
+  flex: 1;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.iconNav {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding-top: 2px;
+}
+
+.navButton {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 10px;
+}
+
+.unreadDot {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 0 2px var(--bg-deep);
+}

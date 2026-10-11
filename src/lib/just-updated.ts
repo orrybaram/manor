@@ -27,3 +27,12 @@ export function hasJustUpdated(): boolean {
   justUpdated = previous !== null && previous !== __APP_VERSION__;
   return justUpdated;
 }
+
+/**
+ * The changelog has been put in front of the user. Later asks in this renderer
+ * answer false, so a surface that remounts (the status bar leaves and returns
+ * when the window crosses the phone breakpoint) doesn't pop it open again.
+ */
+export function acknowledgeJustUpdated(): void {
+  justUpdated = false;
+}

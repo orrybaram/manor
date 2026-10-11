@@ -54,3 +54,22 @@ describe("hasJustUpdated", () => {
     expect(hasJustUpdated()).toBe(true);
   });
 });
+
+describe("acknowledgeJustUpdated", () => {
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", fakeStorage());
+    vi.stubGlobal("__APP_VERSION__", "0.3.0");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("quiets later asks once the changelog has been shown", async () => {
+    localStorage.setItem(KEY, "0.2.1");
+    const { hasJustUpdated, acknowledgeJustUpdated } = await load();
+    expect(hasJustUpdated()).toBe(true);
+    acknowledgeJustUpdated();
+    expect(hasJustUpdated()).toBe(false);
+  });
+});

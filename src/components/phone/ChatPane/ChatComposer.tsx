@@ -108,7 +108,7 @@ export function ChatComposer(props: ChatComposerProps) {
           className={styles.composerInput}
           value={text}
           rows={1}
-          placeholder="Message Claude"
+          placeholder="Type / for commands"
           aria-label="Message Claude"
           data-testid="chat-composer-input"
           aria-expanded={slash.open}

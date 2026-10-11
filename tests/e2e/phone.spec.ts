@@ -274,8 +274,8 @@ test.describe("phone layout (ADR-181)", () => {
       const metaABefore = await readSessionMeta(request, tempHome, paneA);
       const metaBBefore = await readSessionMeta(request, tempHome, paneB!);
 
-      await client.page.getByTestId("phone-overflow-button").click();
-      await client.page.getByTestId("phone-overflow-palette").click();
+      await client.page.getByTestId("phone-drawer-toggle").click();
+      await client.page.getByTestId("sidebar-drawer").getByTestId("search-row").click();
       await runOpenPaletteCommand(client.page, "Next Pane");
       await assertVisiblePaneCount(client.page, 1);
       await expect
@@ -342,8 +342,8 @@ test.describe("phone layout (ADR-181)", () => {
       await window.getByTestId("workspace-item").filter({ hasText: WORKSPACE_2 }).click();
       await assertVisiblePaneCount(window, 1);
 
-      await client.page.getByTestId("phone-overflow-button").click();
-      await client.page.getByTestId("phone-overflow-palette").click();
+      await client.page.getByTestId("phone-drawer-toggle").click();
+      await client.page.getByTestId("sidebar-drawer").getByTestId("search-row").click();
       const palette = client.page.getByTestId("command-palette");
       await expect(palette).toBeVisible();
       const paletteBox = await palette.boundingBox();

@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import Bot from "lucide-react/dist/esm/icons/bot";
+import SquareTerminal from "lucide-react/dist/esm/icons/square-terminal";
 import * as Popover from "@radix-ui/react-popover";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
@@ -23,6 +24,7 @@ import { detachTabToNewWindow, hasOwnClaim } from "../../../lib/detach";
 import { beginPointerTracking, hasPointerLeftDocument } from "../../../lib/detach-drag";
 import { paneTitle } from "../../../lib/pane-title";
 import { useAgentStore } from "../../../store/agent-store";
+import { useLayoutMode } from "../../../hooks/useLayoutMode";
 import { TabButton } from "../TabButton";
 import styles from "./TabBar.module.css";
 
@@ -88,6 +90,9 @@ export function TabBar(props: TabBarProps) {
   const addBrowserTab = useAppStore((s) => s.addBrowserTab);
   const requestCloseTab = useAppStore((s) => s.requestCloseTab);
   const togglePinTab = useAppStore((s) => s.togglePinTab);
+  // A phone opens an agent far more often than a bare shell, so + starts
+  // one there; its menu holds the terminal instead.
+  const phone = useLayoutMode() === "phone";
   const pinnedTabIds = useMemo(
     () => panel?.pinnedTabIds ?? [],
     [panel?.pinnedTabIds],
@@ -597,12 +602,16 @@ export function TabBar(props: TabBarProps) {
               />
             )}
             <Popover.Root open={addMenuOpen} onOpenChange={setAddMenuOpen}>
-              <Tooltip label={addMenuOpen ? "" : "New Tab"}>
+              <Tooltip label={addMenuOpen ? "" : phone ? "New Agent" : "New Tab"}>
                 <Popover.Anchor asChild>
                   <button
                     className={styles.addButton}
-                    aria-label="New tab"
-                    onClick={() => { ensureFocused(); addTab(); }}
+                    aria-label={phone ? "New agent" : "New tab"}
+                    onClick={() => {
+                      ensureFocused();
+                      if (phone) onNewAgent();
+                      else addTab();
+                    }}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       setAddMenuOpen(true);
@@ -640,17 +649,31 @@ export function TabBar(props: TabBarProps) {
                     <Globe size={14} />
                     Browser
                   </button>
-                  <button
-                    className={styles.contextMenuItem}
-                    onClick={() => {
-                      ensureFocused();
-                      onNewAgent();
-                      setAddMenuOpen(false);
-                    }}
-                  >
-                    <Bot size={14} />
-                    Agent
-                  </button>
+                  {phone ? (
+                    <button
+                      className={styles.contextMenuItem}
+                      onClick={() => {
+                        ensureFocused();
+                        addTab();
+                        setAddMenuOpen(false);
+                      }}
+                    >
+                      <SquareTerminal size={14} />
+                      Terminal
+                    </button>
+                  ) : (
+                    <button
+                      className={styles.contextMenuItem}
+                      onClick={() => {
+                        ensureFocused();
+                        onNewAgent();
+                        setAddMenuOpen(false);
+                      }}
+                    >
+                      <Bot size={14} />
+                      Agent
+                    </button>
+                  )}
                 </Popover.Content>
               </Popover.Portal>
             </Popover.Root>

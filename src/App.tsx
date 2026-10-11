@@ -842,7 +842,6 @@ function App() {
                     onShowAgents={() => setAgentsOpen(true)}
                     onOpenProjectSettings={handleOpenProjectSettings}
                     onAddProject={handleAddProject}
-                    onOpenPalette={openPhonePalette}
                     onOpenSearch={openPhonePalette}
                   />
                 )}

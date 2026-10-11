@@ -64,7 +64,6 @@ function seedProjects(workspace: { name?: string; branch?: string }): void {
 
 const CALLBACKS = {
   onToggleDrawer: () => {},
-  onOpenPalette: () => {},
 };
 
 let container: HTMLDivElement;
@@ -114,35 +113,17 @@ describe("PhoneTopBar", () => {
       container.querySelector('[data-testid="phone-drawer-toggle"]'),
     ).not.toBeNull();
     expect(container.querySelector('[data-testid="phone-overflow-button"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="phone-palette-button"]')).toBeNull();
     expect(container.textContent).toContain("my-workspace");
   });
 
-  it("fires only the callback its own button was clicked for", () => {
+  it("toggles the drawer", () => {
     const onToggleDrawer = vi.fn();
-    const onOpenPalette = vi.fn();
 
     act(() => {
-      root.render(
-        createElement(PhoneTopBar, {
-          onToggleDrawer,
-          onOpenPalette,
-        }),
-      );
+      root.render(createElement(PhoneTopBar, { onToggleDrawer }));
     });
 
     click("phone-drawer-toggle");
-    expect(onToggleDrawer).toHaveBeenCalledTimes(1);
-    expect(onOpenPalette).not.toHaveBeenCalled();
-
-    openMenu();
-    expect(byTestId("phone-overflow-menu")).not.toBeNull();
-    expect(onOpenPalette).not.toHaveBeenCalled();
-    click("phone-overflow-palette");
-    expect(onOpenPalette).toHaveBeenCalledTimes(1);
-    // An item closes the menu.
-    expect(byTestId("phone-overflow-menu")).toBeNull();
-
     expect(onToggleDrawer).toHaveBeenCalledTimes(1);
   });
 });
@@ -183,7 +164,8 @@ describe("PhoneTopBar — overflow menu's view item", () => {
   }
 
   function seedAgent(agent: Partial<AgentInfo> | null): void {
-    useAgentStore.setState({
+    // In `act`: a mounted bar re-renders, so the overflow button can appear.
+    act(() => useAgentStore.setState({
       agents: agent
         ? [
             {
@@ -197,7 +179,7 @@ describe("PhoneTopBar — overflow menu's view item", () => {
             } as unknown as AgentInfo,
           ]
         : [],
-    });
+    }));
   }
 
   function renderBar(): void {
@@ -224,7 +206,6 @@ describe("PhoneTopBar — overflow menu's view item", () => {
     seedAgent(null);
     renderBar();
     openMenu();
-    expect(byTestId("phone-overflow-palette")).not.toBeNull();
     expect(byTestId("phone-overflow-view")).toBeNull();
     click("phone-overflow-button");
 
@@ -256,9 +237,10 @@ describe("PhoneTopBar — overflow menu's view item", () => {
     for (const kind of ["diff", "browser"] as const) {
       seedPane(kind);
       renderBar();
-      openMenu();
+      // A diff pane may leave nothing else to offer, and so no menu at all.
+      if (byTestId("phone-overflow-button")) openMenu();
       expect(byTestId("phone-overflow-view")).toBeNull();
-      click("phone-overflow-button");
+      if (byTestId("phone-overflow-menu")) click("phone-overflow-button");
     }
   });
 
@@ -286,6 +268,145 @@ describe("PhoneTopBar — overflow menu's view item", () => {
     renderBar();
     openMenu();
     expect(byTestId("phone-overflow-view")?.textContent).toBe("Show chat");
+  });
+});
+
+describe("PhoneTopBar — overflow menu's diff and rename items", () => {
+  const PANE = "pane-1";
+
+  function seedLayout(contentType?: "diff"): void {
+    useAppStore.setState({
+      activeWorkspacePath: WS,
+      activeWorkspaceHostId: "local",
+      activeSurface: "workspace",
+      viewports: {},
+      workspaceLayouts: {
+        [WS]: {
+          panelTree: { type: "leaf", panelId: "panel-1" },
+          panels: {
+            "panel-1": {
+              id: "panel-1",
+              pinnedTabIds: [],
+              tabs: [
+                {
+                  id: "tab-1",
+                  title: "Terminal",
+                  rootNode: { type: "leaf", paneId: PANE, ...(contentType && { contentType }) },
+                },
+              ],
+            },
+          },
+        },
+      },
+    } as never);
+  }
+
+  function renderBar(): void {
+    act(() => {
+      root.render(createElement(PhoneTopBar, CALLBACKS));
+    });
+  }
+
+  afterEach(() => {
+    act(() => {
+      root.render(createElement("div"));
+    });
+    useAgentStore.setState({ agents: [] });
+  });
+
+  it("opens the workspace's diff and closes the menu", () => {
+    const openOrFocusDiff = vi.fn(() => null);
+    seedProjects({ name: "ws" });
+    seedLayout();
+    useAppStore.setState({ openOrFocusDiff });
+    renderBar();
+
+    openMenu();
+    click("phone-overflow-diff");
+    expect(openOrFocusDiff).toHaveBeenCalledTimes(1);
+    expect(byTestId("phone-overflow-menu")).toBeNull();
+  });
+
+  it("does not offer the diff while the diff is what the phone shows", () => {
+    seedProjects({ name: "ws" });
+    seedLayout("diff");
+    renderBar();
+    openMenu();
+    expect(byTestId("phone-overflow-diff")).toBeNull();
+  });
+
+  it("renames the workspace from a dialog", () => {
+    const renameWorkspace = vi.fn(async () => {});
+    seedProjects({ name: "old-name" });
+    seedLayout();
+    useProjectStore.setState({ renameWorkspace });
+    renderBar();
+
+    openMenu();
+    click("phone-overflow-rename-workspace");
+    const input = byTestId("phone-rename-input") as HTMLInputElement;
+    expect(input.value).toBe("old-name");
+    act(() => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      set.call(input, "  new-name ");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    click("phone-rename-save");
+    expect(renameWorkspace).toHaveBeenCalledWith("p1", WS, "new-name");
+    expect(byTestId("phone-rename-dialog")).toBeNull();
+  });
+
+  it("does not offer renaming a project's main checkout", () => {
+    useProjectStore.setState({
+      projects: [
+        { id: "p1", workspaces: [{ path: WS, isMain: true }] } as unknown as ProjectInfo,
+      ],
+    });
+    seedLayout();
+    renderBar();
+    openMenu();
+    expect(byTestId("phone-overflow-rename-workspace")).toBeNull();
+  });
+
+  it("renames the focused pane's agent, only when it has one", () => {
+    const renameAgent = vi.fn(async () => {});
+    seedProjects({ name: "ws" });
+    seedLayout();
+    renderBar();
+    openMenu();
+    expect(byTestId("phone-overflow-rename-agent")).toBeNull();
+    click("phone-overflow-button");
+
+    act(() =>
+      useAgentStore.setState({
+        renameAgent,
+        agents: [
+          {
+            id: "agent-1",
+            paneId: PANE,
+            status: "active",
+            agentKind: "codex",
+            name: "fix bug",
+            createdAt: 1,
+          } as unknown as AgentInfo,
+        ],
+      }),
+    );
+    openMenu();
+    click("phone-overflow-rename-agent");
+    expect((byTestId("phone-rename-input") as HTMLInputElement).value).toBe("fix bug");
+    click("phone-rename-save");
+    expect(renameAgent).toHaveBeenCalledWith("agent-1", "fix bug");
+  });
+
+  it("is not rendered on Home, where nothing applies", () => {
+    useAppStore.setState({
+      activeWorkspacePath: HOME_PATH,
+      activeWorkspaceHostId: "local",
+      activeSurface: "workspace",
+    } as never);
+    renderBar();
+    expect(byTestId("phone-overflow-button")).toBeNull();
   });
 });
 

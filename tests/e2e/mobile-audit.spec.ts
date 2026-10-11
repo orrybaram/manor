@@ -550,10 +550,10 @@ test("phone audit: every phone surface over the relay, throttled", async ({
     await drawer.getByTestId("workspace-item").filter({ hasText: W1 }).tap();
     await expect(drawer).toBeHidden();
 
-    // ── Next pane, from the palette ──────────────────────────────────
+    // ── Next pane, from the palette (via the drawer's Search row) ──────────────────────────────────
     const paneBefore = await activePaneId(page);
-    await page.getByTestId("phone-overflow-button").tap();
-    await page.getByTestId("phone-overflow-palette").tap();
+    await page.getByTestId("phone-drawer-toggle").tap();
+    await page.getByTestId("sidebar-drawer").getByTestId("search-row").tap();
     const paletteInput = page.getByTestId("command-palette").locator("[cmdk-input]");
     await paletteInput.fill("Next Pane");
     report.time(
@@ -589,13 +589,14 @@ test("phone audit: every phone surface over the relay, throttled", async ({
 
     // ── Palette ──────────────────────────────────────────────────────
     const palette = page.getByTestId("command-palette");
-    // The palette lives in the top bar's overflow menu; the timed tap is the
-    // menu's item, so the measure is still one tap until the palette shows.
-    await page.getByTestId("phone-overflow-button").tap();
-    await expect(page.getByTestId("phone-overflow-palette")).toBeVisible();
+    // The palette opens from the drawer's Search row; the timed tap is the
+    // row, so the measure is still one tap until the palette shows.
+    await page.getByTestId("phone-drawer-toggle").tap();
+    const searchRow = page.getByTestId("sidebar-drawer").getByTestId("search-row");
+    await expect(searchRow).toBeVisible();
     report.time(
       "tap → palette open",
-      await timed(page, () => page.getByTestId("phone-overflow-palette").tap(), () => !!document.querySelector('[data-testid="command-palette"] [cmdk-item]')),
+      await timed(page, () => searchRow.tap(), () => !!document.querySelector('[data-testid="command-palette"] [cmdk-item]')),
     );
     await page.waitForTimeout(400);
     await setCpuThrottle(cdp, false);
@@ -643,8 +644,8 @@ test("phone audit: every phone surface over the relay, throttled", async ({
       await expect(drawer).toBeHidden();
     };
     const fromPalette = async (label: string) => {
-      await page.getByTestId("phone-overflow-button").tap();
-      await page.getByTestId("phone-overflow-palette").tap();
+      await page.getByTestId("phone-drawer-toggle").tap();
+      await page.getByTestId("sidebar-drawer").getByTestId("search-row").tap();
       await expect(palette).toBeVisible();
       await palette.locator("[cmdk-input]").fill(label);
       await palette.locator("[cmdk-item]", { hasText: label }).first().tap();
@@ -670,8 +671,8 @@ test("phone audit: every phone surface over the relay, throttled", async ({
     await page.keyboard.press("Escape");
 
     // Full screen, with no overlay to tap: the X button is the way out.
-    await page.getByTestId("phone-overflow-button").tap();
-    await page.getByTestId("phone-overflow-palette").tap();
+    await page.getByTestId("phone-drawer-toggle").tap();
+    await page.getByTestId("sidebar-drawer").getByTestId("search-row").tap();
     await expect(palette).toBeVisible();
     await palette.getByTestId("command-palette-close").tap();
     await expect(palette).toBeHidden();

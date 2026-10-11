@@ -26,23 +26,19 @@ function isElectronMacOS(): boolean {
 type PhoneTopBarProps = {
   /** Opens/closes the sidebar drawer. */
   onToggleDrawer: () => void;
-  /** Opens the command palette — the same `CommandPalette` the desk layout
-   *  has, full screen at phone width. Reached from the overflow menu. */
-  onOpenPalette: () => void;
 };
 
 /**
  * ADR-181 D3: the phone shell's top bar — a drawer toggle, the active
- * workspace's name, and an overflow menu: the focused pane's Chat | Terminal
- * switch (ADR-215) and the command palette, which a phone reaches everything
- * else through (another pane is its Next Pane / Focus Next Panel). Search
- * lives in the drawer. Rendered once, by
+ * workspace's name, and an overflow menu holding the focused pane's
+ * Chat | Terminal switch (ADR-215). The command palette, which a phone
+ * reaches everything else through, opens from Search in the drawer. Rendered once, by
  * `PhoneChrome`, around the workspace stack — never inside a split
  * component, so it cannot affect a terminal's geometry, and switching panes
  * remounts nothing here either.
  */
 export function PhoneTopBar(props: PhoneTopBarProps) {
-  const { onToggleDrawer, onOpenPalette } = props;
+  const { onToggleDrawer } = props;
 
   const activeWorkspaceKey = useAppStore(selectActiveWorkspaceKey);
   // Truncation is CSS's job, not this component's, so a long name degrades
@@ -71,7 +67,7 @@ export function PhoneTopBar(props: PhoneTopBarProps) {
       </Button>
       <div className={styles.workspaceName}>{onTasks ? "Tasks" : workspaceName}</div>
       <div className={styles.actions}>
-        <PhoneOverflowMenu onOpenPalette={onOpenPalette} />
+        <PhoneOverflowMenu />
       </div>
     </div>
   );

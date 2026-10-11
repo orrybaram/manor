@@ -11,10 +11,8 @@ type PhoneChromeProps = {
   onShowAgents: () => void;
   onOpenProjectSettings: (projectId: string) => void;
   onAddProject: () => void;
-  /** Opens the command palette. The phone has no palette of its own: this
-   *  is the same `CommandPalette` the desk layout opens. */
-  onOpenPalette: () => void;
-  /** Opens the same palette as the desk sidebar's Search row does, unscoped. */
+  /** Opens the command palette, unscoped — the same `CommandPalette` the desk
+   *  sidebar's Search row opens. The phone has no palette of its own. */
   onOpenSearch: () => void;
 };
 
@@ -31,8 +29,7 @@ type PhoneChromeProps = {
  * through the palette (Next Pane, Focus Next Panel).
  */
 export function PhoneChrome(props: PhoneChromeProps) {
-  const { onShowAgents, onOpenProjectSettings, onAddProject, onOpenPalette, onOpenSearch } =
-    props;
+  const { onShowAgents, onOpenProjectSettings, onAddProject, onOpenSearch } = props;
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -52,7 +49,6 @@ export function PhoneChrome(props: PhoneChromeProps) {
     <>
       <PhoneTopBar
         onToggleDrawer={() => setDrawerOpen((v) => !v)}
-        onOpenPalette={onOpenPalette}
       />
       <EnableNotifications />
       <SidebarDrawer

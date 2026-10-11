@@ -13,12 +13,19 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { createBridge } from "../client";
 import {
+  CLOSE_RELAY_UNREACHABLE,
   HANDSHAKE_TIMEOUT_MS,
   KEY_MISMATCH_THRESHOLD,
   relayJoinUrl,
   relayPipe,
 } from "../transports/relay-pipe";
-import { createWsTransport, type WsTransportOptions } from "../transports/ws";
+import {
+  createWsTransport,
+  PROBE_TIMEOUT_MS,
+  type PipeConnection,
+  type WsBridgeTransport,
+  type WsTransportOptions,
+} from "../transports/ws";
 import type { ElectronAPI } from "../../electron";
 import {
   CLOSE_IDLE,
@@ -41,6 +48,7 @@ describe("the relay pipe", () => {
   function bridge(extra: Partial<WsTransportOptions> = {}): {
     api: ElectronAPI;
     retryNow: () => void;
+    transport: WsBridgeTransport;
   } {
     const transport = createWsTransport({
       token: "full-token",
@@ -54,15 +62,20 @@ describe("the relay pipe", () => {
     return {
       api: createBridge(transport),
       retryNow: () => transport.retryNow(),
+      transport,
     };
   }
 
-  function connected(): { api: ElectronAPI; socket: FakeRelaySocket } {
-    const { api } = bridge();
+  function connected(): {
+    api: ElectronAPI;
+    socket: FakeRelaySocket;
+    transport: WsBridgeTransport;
+  } {
+    const { api, transport } = bridge();
     void api.projects.getAll().catch(() => {});
     const socket = FakeRelaySocket.last;
     socket.handshake();
-    return { api, socket };
+    return { api, socket, transport };
   }
 
   beforeEach(() => {
@@ -359,6 +372,106 @@ describe("the relay pipe", () => {
       expect(options.onStatus).toHaveBeenLastCalledWith("unreachable");
       vi.advanceTimersByTime(1_000);
       expect(FakeRelaySocket.instances).toHaveLength(2);
+    });
+  });
+
+  describe("probe", () => {
+    /** One relay connection driven directly, without the transport. */
+    function rawConnection(): {
+      connection: PipeConnection;
+      socket: FakeRelaySocket;
+      onClose: ReturnType<typeof vi.fn>;
+    } {
+      const onClose = vi.fn();
+      const connection = relayPipe({
+        url: "wss://relay.test/join/room",
+        serverKey: FakeRelaySocket.key.pub,
+      }).connect({ onOpen: () => {}, onMessage: () => {}, onClose });
+      const socket = FakeRelaySocket.last;
+      socket.accept();
+      socket.respond();
+      return { connection, socket, onClose };
+    }
+
+    it("pings, and resolves true on a pong", async () => {
+      const { connection, socket } = rawConnection();
+      const alive = connection.probe!(PROBE_TIMEOUT_MS);
+      expect(socket.pings).toBe(1);
+      socket.pong();
+      await expect(alive).resolves.toBe(true);
+    });
+
+    it("resolves true on any inbound data", async () => {
+      const { connection, socket } = rawConnection();
+      const alive = connection.probe!(PROBE_TIMEOUT_MS);
+      socket.deliver({ kind: "event", ns: "x", event: "y", args: [] });
+      await expect(alive).resolves.toBe(true);
+    });
+
+    it("resolves false when nothing comes back in time", async () => {
+      const { connection, onClose } = rawConnection();
+      const alive = connection.probe!(PROBE_TIMEOUT_MS);
+      vi.advanceTimersByTime(PROBE_TIMEOUT_MS);
+      await expect(alive).resolves.toBe(false);
+      // A verdict, not an action: closing is the transport's call.
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("resolves false at once on a connection that is not open", async () => {
+      const { connection, socket } = rawConnection();
+      socket.drop(1006);
+      const before = socket.pings;
+      await expect(connection.probe!(PROBE_TIMEOUT_MS)).resolves.toBe(false);
+      expect(socket.pings).toBe(before);
+    });
+
+    it("resolves false when the connection closes mid-probe", async () => {
+      const { connection, socket } = rawConnection();
+      const alive = connection.probe!(PROBE_TIMEOUT_MS);
+      socket.drop(1006);
+      await expect(alive).resolves.toBe(false);
+    });
+
+    it("does not disturb the heartbeat", () => {
+      const { connection, socket } = rawConnection();
+      void connection.probe!(PROBE_TIMEOUT_MS);
+      socket.pong();
+      vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
+      socket.pong();
+      vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
+      expect(socket.closedWith).toBeNull();
+    });
+
+    it("close reports unreachable, once", () => {
+      const { connection, socket, onClose } = rawConnection();
+      connection.close!();
+      connection.close!();
+      socket.drop(1000);
+      expect(onClose).toHaveBeenCalledExactlyOnceWith(CLOSE_RELAY_UNREACHABLE);
+      expect(socket.closedWith).not.toBeNull();
+    });
+
+    it("lets checkNow find a silently dead socket and redial at once", async () => {
+      const { socket, transport } = connected();
+      transport.checkNow();
+      await vi.advanceTimersByTimeAsync(PROBE_TIMEOUT_MS);
+      expect(socket.closedWith).not.toBeNull();
+      expect(options.onStatus).toHaveBeenLastCalledWith("unreachable");
+      // A zero delay, which fake timers stretch to 1ms when it is set mid-tick.
+      await vi.advanceTimersByTimeAsync(1);
+      expect(FakeRelaySocket.instances).toHaveLength(2);
+      FakeRelaySocket.last.handshake();
+      expect(options.onStatus).toHaveBeenLastCalledWith("connected");
+    });
+
+    it("lets checkNow leave an answering socket alone", async () => {
+      const { socket, transport } = connected();
+      const outcome = transport.probeNow();
+      socket.pong();
+      await expect(outcome).resolves.toBe("alive");
+      await vi.advanceTimersByTimeAsync(PROBE_TIMEOUT_MS);
+      expect(socket.closedWith).toBeNull();
+      expect(FakeRelaySocket.instances).toHaveLength(1);
     });
   });
 

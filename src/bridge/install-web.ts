@@ -30,6 +30,7 @@
  */
 
 import { createBridge } from "./client";
+import { emitBridgeResync } from "./resync";
 import { relayJoinUrl, relayPipe } from "./transports/relay-pipe";
 import { createWsTransport, type Pipe } from "./transports/ws";
 import {
@@ -115,6 +116,13 @@ function setReachability(next: Reachability): void {
   for (const cb of [...reachabilityListeners]) cb();
 }
 
+/**
+ * Accepted hellos so far. The first is the cold start the stores' boot
+ * fetches already cover; every later one is a reconnect after which pushes
+ * may have been missed, so the stores re-fetch (ADR-220 D1).
+ */
+let helloCount = 0;
+
 const transport = createWsTransport({
   token: webToken,
   pipe: pipe ?? UNPAIRED_PIPE,
@@ -133,7 +141,13 @@ const transport = createWsTransport({
   onStatus: setReachability,
   onHello: ({ appVersion }) => {
     const target = versionRedirectTarget(__APP_VERSION__, appVersion);
-    if (target) location.replace(target);
+    if (target) {
+      // This page is going away; nothing here needs to re-fetch.
+      location.replace(target);
+      return;
+    }
+    helloCount += 1;
+    if (helloCount > 1) emitBridgeResync();
   },
 });
 
@@ -142,13 +156,25 @@ export function retryBridgeNow(): void {
   transport.retryNow();
 }
 
-// A phone that comes back — unlocked, switched back to, or back on a
-// network — dials now rather than sitting out a backoff that grew to 30s
-// while it was away. A no-op when no redial is pending.
-window.addEventListener("online", retryBridgeNow);
+/**
+ * The manual refresh (ADR-220 D5): probe the line, and re-fetch everything
+ * over it if it is alive. If it is not, the transport is redialling, and the
+ * hello that ends that emits the resync itself.
+ */
+export async function refreshBridge(): Promise<void> {
+  if ((await transport.probeNow()) === "alive") emitBridgeResync();
+}
+
+// A phone that comes back — unlocked, switched back to, restored from the
+// back-forward cache, or back on a network — dials now rather than sitting
+// out a backoff that grew to 30s while it was away, and probes a socket that
+// still looks open: iOS often kills a backgrounded one without a close event.
+const checkBridgeNow = (): void => transport.checkNow();
+window.addEventListener("online", checkBridgeNow);
+window.addEventListener("pageshow", checkBridgeNow);
 if (typeof document !== "undefined") {
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") retryBridgeNow();
+    if (document.visibilityState === "visible") checkBridgeNow();
   });
 }
 

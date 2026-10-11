@@ -24,6 +24,7 @@ import { createBridge } from "../client";
 import {
   createWsTransport,
   type Pipe,
+  type WsBridgeTransport,
   type WsTransportOptions,
 } from "../transports/ws";
 import type { ElectronAPI } from "../../electron";
@@ -85,9 +86,16 @@ class FakeSocket {
   }
 }
 
-/** A pipe whose every connection is a new `FakeSocket`. */
-function fakePipe(): Pipe {
+/** The code a `fakePipe` connection's `close()` reports. */
+const FAKE_UNREACHABLE = 4504;
+
+/**
+ * A pipe whose every connection is a new `FakeSocket`. With `probe`, each
+ * connection can be probed (the answer is up to the test) and closed.
+ */
+function fakePipe(probe?: (socket: FakeSocket) => Promise<boolean>): Pipe {
   return {
+    unreachableCodes: new Set([FAKE_UNREACHABLE]),
     connect(handlers) {
       const socket = new FakeSocket("relay");
       socket.onopen = () => handlers.onOpen();
@@ -98,6 +106,10 @@ function fakePipe(): Pipe {
           return socket.readyState === 1;
         },
         send: (text) => socket.send(text),
+        ...(probe && {
+          probe: () => probe(socket),
+          close: () => socket.drop(FAKE_UNREACHABLE),
+        }),
       };
     },
   };
@@ -510,6 +522,102 @@ describe("the socket transport", () => {
       socket.drop(4401);
       expect(onUnauthorized).toHaveBeenCalledOnce();
       vi.advanceTimersByTime(60_000);
+      expect(FakeSocket.instances).toHaveLength(1);
+    });
+  });
+
+  describe("checking the line when the page comes back", () => {
+    function transport(
+      probe?: (socket: FakeSocket) => Promise<boolean>,
+      options: Partial<WsTransportOptions> = {},
+    ): WsBridgeTransport {
+      const t = createWsTransport({
+        token: "full-token",
+        pipe: fakePipe(probe),
+        ...options,
+      });
+      void t.invoke("projects", "getAll", []).catch(() => {});
+      FakeSocket.last.handshake();
+      return t;
+    }
+
+    it("dials at once, and starts the backoff over, when a redial is pending", () => {
+      const t = transport();
+      // Grow the backoff: 1s, then 2s pending.
+      FakeSocket.last.drop();
+      vi.advanceTimersByTime(1_000);
+      FakeSocket.last.drop();
+      const opened = FakeSocket.instances.length;
+
+      t.checkNow();
+      expect(FakeSocket.instances).toHaveLength(opened + 1);
+
+      // The next failure waits the first step again, not 4s.
+      FakeSocket.last.drop();
+      vi.advanceTimersByTime(1_000);
+      expect(FakeSocket.instances).toHaveLength(opened + 2);
+    });
+
+    it("leaves an answering socket alone", async () => {
+      const probe = vi.fn(() => Promise.resolve(true));
+      const t = transport(probe);
+      const socket = FakeSocket.last;
+      await expect(t.probeNow()).resolves.toBe("alive");
+      expect(probe).toHaveBeenCalledOnce();
+      expect(socket.readyState).toBe(1);
+      expect(FakeSocket.instances).toHaveLength(1);
+    });
+
+    it("closes a socket that does not answer and redials with no delay", async () => {
+      const onStatus = vi.fn();
+      const t = transport(() => Promise.resolve(false), { onStatus });
+      const socket = FakeSocket.last;
+      await expect(t.probeNow()).resolves.toBe("redialing");
+      expect(socket.readyState).toBe(3);
+      expect(onStatus).toHaveBeenLastCalledWith("unreachable");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(FakeSocket.instances).toHaveLength(2);
+
+      // And the backoff starts over from there.
+      FakeSocket.last.drop();
+      vi.advanceTimersByTime(1_000);
+      expect(FakeSocket.instances).toHaveLength(3);
+    });
+
+    it("sends one probe for a burst of checks", async () => {
+      let answer: (alive: boolean) => void = () => {};
+      const probe = vi.fn(
+        () => new Promise<boolean>((resolve) => (answer = resolve)),
+      );
+      const t = transport(probe);
+      t.checkNow();
+      t.checkNow();
+      const outcome = t.probeNow();
+      expect(probe).toHaveBeenCalledOnce();
+      answer(true);
+      await expect(outcome).resolves.toBe("alive");
+    });
+
+    it("does not close a socket that was replaced while the probe ran", async () => {
+      let answer: (alive: boolean) => void = () => {};
+      const t = transport(
+        () => new Promise<boolean>((resolve) => (answer = resolve)),
+      );
+      const outcome = t.probeNow();
+      FakeSocket.last.drop();
+      vi.advanceTimersByTime(1_000);
+      FakeSocket.last.handshake();
+      answer(false);
+      await expect(outcome).resolves.toBe("redialing");
+      expect(FakeSocket.last.readyState).toBe(1);
+      expect(FakeSocket.instances).toHaveLength(2);
+    });
+
+    it("dials when there is no socket yet, and never without a token", () => {
+      const t = createWsTransport({ token: "full-token", pipe: fakePipe() });
+      t.checkNow();
+      expect(FakeSocket.instances).toHaveLength(1);
+      createWsTransport({ token: null, pipe: fakePipe() }).checkNow();
       expect(FakeSocket.instances).toHaveLength(1);
     });
   });

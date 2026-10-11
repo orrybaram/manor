@@ -158,6 +158,57 @@ describe("install-web on a relay-served page", () => {
     expect(local.has(WEB_RELAY_KEY)).toBe(true);
   });
 
+  it("emits a resync on every hello but the first", async () => {
+    const { api } = await install(relayHash());
+    // Same module registry as the install above, so the same listener set.
+    const { onBridgeResync } = await import("../resync");
+    const resync = vi.fn();
+    onBridgeResync(resync);
+    void api.projects.getAll().catch(() => {});
+    FakeRelaySocket.last.handshake();
+    expect(resync).not.toHaveBeenCalled();
+
+    FakeRelaySocket.last.drop(1006);
+    vi.advanceTimersByTime(1_000);
+    FakeRelaySocket.last.handshake();
+    expect(resync).toHaveBeenCalledOnce();
+  });
+
+  it("refreshBridge re-fetches over a live line", async () => {
+    const { mod, api } = await install(relayHash());
+    const { onBridgeResync } = await import("../resync");
+    const resync = vi.fn();
+    onBridgeResync(resync);
+    void api.projects.getAll().catch(() => {});
+    const socket = FakeRelaySocket.last;
+    socket.handshake();
+
+    const refreshed = mod.refreshBridge();
+    socket.pong();
+    await refreshed;
+    expect(resync).toHaveBeenCalledOnce();
+    expect(FakeRelaySocket.instances).toHaveLength(1);
+  });
+
+  it("refreshBridge redials a dead line and leaves the resync to its hello", async () => {
+    const { mod, api } = await install(relayHash());
+    const { onBridgeResync } = await import("../resync");
+    const resync = vi.fn();
+    onBridgeResync(resync);
+    void api.projects.getAll().catch(() => {});
+    FakeRelaySocket.last.handshake();
+
+    const refreshed = mod.refreshBridge();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await refreshed;
+    expect(resync).not.toHaveBeenCalled();
+    // A zero delay, which fake timers stretch to 1ms when it is set mid-tick.
+    await vi.advanceTimersByTimeAsync(1);
+    expect(FakeRelaySocket.instances).toHaveLength(2);
+    FakeRelaySocket.last.handshake();
+    expect(resync).toHaveBeenCalledOnce();
+  });
+
   it("keeps the pairing on a message 2 that does not authenticate", async () => {
     const { mod, api } = await install(relayHash());
     const outcome = vi.fn();

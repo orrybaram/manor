@@ -33,7 +33,9 @@
  * `HEARTBEAT_PING`, which the room answers itself. It keeps this viewer from
  * being reaped as a ghost, and an interval with nothing at all coming back
  * (no pong, no data) is a dead line — reported as unreachable rather than
- * left to look connected.
+ * left to look connected. A foreground check does not wait for that: `probe`
+ * sends one ping out of turn and gives the line `timeoutMs` to say anything,
+ * and `close` gives up on it as unreachable (ADR-220 D4).
  *
  * **Failures.** A message 2 that does not authenticate is *not* treated as
  * proof of a key mismatch. A genuine mismatch fails on the desktop, at
@@ -113,6 +115,18 @@ export function relayPipe(options: RelayPipeOptions): Pipe {
       let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
       /** True from a heartbeat until anything at all arrives. */
       let awaitingPong = false;
+      /**
+       * Probes waiting for a sign of life (ADR-220 D4). Each resolves itself
+       * at most once: true on the next inbound message, false on its timeout
+       * or on close. Separate from `awaitingPong`, which it never touches.
+       */
+      const probes = new Set<(alive: boolean) => void>();
+      const settleProbes = (alive: boolean): void => {
+        for (const done of [...probes]) done(alive);
+      };
+
+      const isOpen = (): boolean =>
+        !closed && channel !== null && socket.readyState === 1;
 
       const clearTimers = (): void => {
         if (handshakeTimer !== null) clearTimeout(handshakeTimer);
@@ -128,6 +142,7 @@ export function relayPipe(options: RelayPipeOptions): Pipe {
         clearTimers();
         initiator = null;
         channel = null;
+        settleProbes(false);
         handlers.onClose(code);
       };
 
@@ -216,6 +231,7 @@ export function relayPipe(options: RelayPipeOptions): Pipe {
       socket.onmessage = (event: MessageEvent) => {
         if (closed) return;
         awaitingPong = false;
+        settleProbes(true);
         if (event.data === HEARTBEAT_PONG) return;
         if (!(event.data instanceof ArrayBuffer)) {
           // The relay only ever forwards binary; other text is not ours.
@@ -234,7 +250,29 @@ export function relayPipe(options: RelayPipeOptions): Pipe {
 
       return {
         get open() {
-          return !closed && channel !== null && socket.readyState === 1;
+          return isOpen();
+        },
+        probe(timeoutMs) {
+          if (!isOpen()) return Promise.resolve(false);
+          return new Promise<boolean>((resolve) => {
+            const done = (alive: boolean): void => {
+              if (!probes.delete(done)) return;
+              clearTimeout(timer);
+              resolve(alive);
+            };
+            probes.add(done);
+            const timer = setTimeout(() => done(false), timeoutMs);
+            // The room answers a ping itself, so this tests the line to the
+            // relay; any other inbound traffic first counts just the same.
+            try {
+              socket.send(HEARTBEAT_PING);
+            } catch {
+              done(false);
+            }
+          });
+        },
+        close() {
+          fail(CLOSE_RELAY_UNREACHABLE);
         },
         send(text) {
           const live = channel;

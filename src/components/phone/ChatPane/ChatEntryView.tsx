@@ -35,6 +35,8 @@ export function ChatEntryView(props: ChatEntryViewProps) {
       );
     case "tool":
       return <ToolEntry entry={entry} />;
+    case "command":
+      return <CommandEntry entry={entry} />;
     case "question":
       return entry.answer === null ? (
         <QuestionCard
@@ -93,6 +95,43 @@ function ToolEntry(props: ToolEntryProps) {
         <span className={styles.toolSummary}>{entry.summary}</span>
       </Button>
       {open && entry.detail && <pre className={styles.toolDetail}>{entry.detail}</pre>}
+    </div>
+  );
+}
+
+type CommandEntryProps = {
+  entry: Extract<ChatEntry, { kind: "command" }>;
+};
+
+/** A slash command as a small chip; expands to its output when it has any. */
+function CommandEntry(props: CommandEntryProps) {
+  const { entry } = props;
+
+  const [open, setOpen] = useState(false);
+
+  const label = (
+    <>
+      <span className={styles.commandName}>/{entry.name}</span>
+      {entry.args && <span className={styles.commandArgs}>{entry.args}</span>}
+    </>
+  );
+
+  return (
+    <div className={styles.commandRow} data-testid="chat-command">
+      {entry.output ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          className={styles.commandChip}
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+        >
+          {label}
+        </Button>
+      ) : (
+        <div className={styles.commandChip}>{label}</div>
+      )}
+      {open && entry.output && <pre className={styles.commandOutput}>{entry.output}</pre>}
     </div>
   );
 }

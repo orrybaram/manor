@@ -73,4 +73,45 @@ describe("layout resync", () => {
     await settled();
     expect(useAppStore.getState().layoutLoaded).toBe(false);
   });
+
+  it("drops a workspace the server no longer lists", async () => {
+    answerWith({});
+    emitBridgeResync();
+    await settled();
+    const state = useAppStore.getState();
+    expect(state.workspaceLayouts[WS_PATH]).toBeUndefined();
+    expect(state.layoutVersions[WS_PATH]).toBeUndefined();
+  });
+
+  it("applies pane status from the server's paneSessions", async () => {
+    answerWith({
+      [WS_PATH]: {
+        ...serverEntry(6, incoming),
+        paneSessions: {
+          "p-new": { lastCwd: "/tmp/x", lastTitle: "vim" },
+        },
+      },
+    } as never);
+    emitBridgeResync();
+    await settled();
+    const state = useAppStore.getState();
+    expect(state.paneCwd["p-new"]).toBe("/tmp/x");
+    expect(state.paneTitle["p-new"]).toBe("vim");
+  });
+
+  it("keeps a workspace whose creation landed while the read was in flight", async () => {
+    const OTHER = "/test/other";
+    vi.spyOn(window.electronAPI.layout, "getAll").mockImplementation(
+      async () => {
+        useAppStore.setState((state) => ({
+          workspaceLayouts: { ...state.workspaceLayouts, [OTHER]: held },
+          layoutVersions: { ...state.layoutVersions, [OTHER]: 1 },
+        }));
+        return { [WS_PATH]: serverEntry(5, held) } as never;
+      },
+    );
+    emitBridgeResync();
+    await settled();
+    expect(useAppStore.getState().workspaceLayouts[OTHER]).toBe(held);
+  });
 });

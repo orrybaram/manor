@@ -1278,6 +1278,31 @@ function sessionSideMaps(sessions: Record<string, PersistedPaneSession>): {
 }
 
 /**
+ * The side-map patch that seeds a set of workspaces' pane sessions into
+ * `state`: cwds and titles from the server win, an agent status already held
+ * is newer than the file and stays. Shared by the boot load and a resync.
+ */
+function seedFromSessions(
+  state: AppState,
+  sessionsByWorkspace: Record<string, PersistedPaneSession>[],
+): Pick<AppState, "paneCwd" | "paneTitle" | "paneAgentStatus"> {
+  const cwds: Record<string, string> = {};
+  const titles: Record<string, string> = {};
+  const agents: Record<string, PaneAgentStatus> = {};
+  for (const sessions of sessionsByWorkspace) {
+    const maps = sessionSideMaps(sessions);
+    Object.assign(cwds, maps.cwds);
+    Object.assign(titles, maps.titles);
+    Object.assign(agents, maps.agents);
+  }
+  return {
+    paneCwd: { ...state.paneCwd, ...cwds },
+    paneTitle: { ...state.paneTitle, ...titles },
+    paneAgentStatus: { ...agents, ...state.paneAgentStatus },
+  };
+}
+
+/**
  * The per-pane side maps without `paneIds`: what this renderer heard about
  * panes that have left every tree. Their sessions are the server's to end.
  */
@@ -1627,11 +1652,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Every workspace lands now, but none is rendered until it is first
       // opened (`setActiveWorkspace`): rendering them all here would mount
       // every pane of every workspace at boot, and each mount creates a PTY.
-      const cwds: Record<string, string> = {};
-      const titles: Record<string, string> = {};
-      const agents: Record<string, PaneAgentStatus> = {};
-
       set((state) => {
+        const sessions: Record<string, PersistedPaneSession>[] = [];
         const workspaceLayouts = { ...state.workspaceLayouts };
         const layoutVersions = { ...state.layoutVersions };
         // This renderer's own selection where it has one; the host's default
@@ -1660,10 +1682,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           );
           // What the server derived from the PTY events it forwards (D3): the
           // cwd a restored pane reopens in, the title its tab shows.
-          const sessions = sessionSideMaps(entry.paneSessions);
-          Object.assign(cwds, sessions.cwds);
-          Object.assign(titles, sessions.titles);
-          Object.assign(agents, sessions.agents);
+          sessions.push(entry.paneSessions);
         }
         return {
           layoutLoaded: true,
@@ -1671,10 +1690,8 @@ export const useAppStore = create<AppState>((set, get) => ({
           layoutVersions,
           claims: { ...claims, ...state.claims },
           viewports: { ...viewports, ...state.viewports },
-          paneCwd: { ...state.paneCwd, ...cwds },
-          paneTitle: { ...state.paneTitle, ...titles },
           // A status already published this session is newer than the file.
-          paneAgentStatus: { ...agents, ...state.paneAgentStatus },
+          ...seedFromSessions(state, sessions),
         };
       });
     } catch (err) {
@@ -2576,16 +2593,41 @@ window.electronAPI?.layout?.onChanged?.(applyLayoutChanged);
 // and the local viewport is repaired, never replaced. `loadPersistedLayout`
 // is deliberately not re-run — it picks the active workspace and reconciles
 // stale agents, which are one-time boot effects.
+//
+// A workspace the server no longer lists is dropped as if its `removed`
+// broadcast had arrived — unless it appeared or moved while the read was in
+// flight (a creation's broadcast landing mid-read), which the read cannot
+// speak for. The store only ever writes layouts from broadcasts, so there is
+// no local-only workspace to protect beyond that window.
 export async function resyncLayout(): Promise<void> {
   try {
+    const before = useAppStore.getState().layoutVersions;
     const entries = await window.electronAPI?.layout?.getAll?.();
     if (!entries) return;
+    const seeded: Record<string, PersistedPaneSession>[] = [];
     for (const [workspacePath, entry] of Object.entries(entries)) {
+      const held = useAppStore.getState().layoutVersions[workspacePath] ?? -1;
+      if (held <= entry.version) seeded.push(entry.paneSessions);
       applyLayoutChanged({
         workspacePath,
         version: entry.version,
         layout: entry.layout,
         claims: entry.claims,
+        origin: { kind: "route", id: "resync" },
+      });
+    }
+    useAppStore.setState((state) => seedFromSessions(state, seeded));
+    const after = useAppStore.getState().layoutVersions;
+    for (const workspacePath of Object.keys(after)) {
+      if (workspacePath in entries) continue;
+      if (before[workspacePath] === undefined) continue;
+      if (before[workspacePath] !== after[workspacePath]) continue;
+      applyLayoutChanged({
+        workspacePath,
+        version: after[workspacePath],
+        layout: useAppStore.getState().workspaceLayouts[workspacePath],
+        claims: [],
+        removed: true,
         origin: { kind: "route", id: "resync" },
       });
     }

@@ -535,4 +535,119 @@ test.describe("phone layout (ADR-181)", () => {
       await client.close();
     }
   });
+
+  /**
+   * ADR-220: a phone that lost the line and missed a push shows the desk's
+   * current state once the line is back, with no reload; the overflow menu's
+   * Refresh re-fetches in place and Reload app starts the page over.
+   *
+   * The line is dropped the way a backgrounded phone loses it: the page goes
+   * offline (so a redial cannot succeed) and every WebSocket the page opened
+   * is closed. A tracker installed before the app's scripts run is the only
+   * handle on those sockets. Pull-to-refresh is not driven here: Playwright's
+   * touch emulation has no reliable way to synthesize the overscroll gesture,
+   * and the overflow Refresh takes the same `refreshState()` path.
+   */
+  relayTest("a phone resyncs after a dropped line, refreshes in place from the overflow menu, and reloads the app", async ({
+    app,
+    window,
+    tempHome,
+  }) => {
+    const before = "phone-resync";
+    const after = "phone-resynced";
+    await bootWorkspaceWithTerminal(app, window, tempHome, before);
+
+    const device = await pairBrowser(window, { label: "resync phone" });
+    await closeSettings(window);
+
+    const client = await openWebApp(device.link, {
+      viewport: { width: 390, height: 844 },
+      context: { isMobile: true, hasTouch: true },
+    });
+    const page = client.page;
+    try {
+      // Track every WebSocket from the first script on, then start over so
+      // the app's own socket is one of them. The pairing survives a reload.
+      await page.context().addInitScript(() => {
+        const w = window as unknown as { __sockets: WebSocket[] };
+        w.__sockets = [];
+        const Native = window.WebSocket;
+        window.WebSocket = new Proxy(Native, {
+          construct(target, args) {
+            const ws = new target(...(args as [string, (string | string[])?]));
+            w.__sockets.push(ws);
+            return ws;
+          },
+        });
+      });
+      await page.reload();
+      const topBar = page.getByTestId("phone-top-bar");
+      await expect(topBar).toBeVisible({ timeout: 30_000 });
+      await expect(topBar).toContainText(before);
+
+      // 1. Drop the line, rename on the desk meanwhile, bring it back.
+      await page.context().setOffline(true);
+      const closed = await page.evaluate(() => {
+        const sockets = (window as unknown as { __sockets: WebSocket[] }).__sockets;
+        for (const ws of sockets) ws.close();
+        return sockets.length;
+      });
+      expect(closed).toBeGreaterThan(0);
+
+      const item = window.locator(
+        '[data-testid="workspace-item"]',
+        { hasText: before },
+      ).first();
+      const wsPath = await item.getAttribute("data-workspace-path");
+      const row = window.locator(
+        `[data-testid="workspace-item"][data-workspace-path="${wsPath}"]`,
+      );
+      await row.press("F2");
+      const input = row.getByTestId("workspace-name-input");
+      await expect(input).toBeVisible({ timeout: 5_000 });
+      await input.fill(after);
+      await input.press("Enter");
+      await expect(row.getByTestId("workspace-name")).toHaveText(after, {
+        timeout: 15_000,
+      });
+
+      // Still the old name: the line is down, nothing was pushed.
+      await expect(topBar).toContainText(before);
+
+      await page.context().setOffline(false);
+      await page.evaluate(() => {
+        window.dispatchEvent(new Event("online"));
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await expect(topBar).toContainText(after, { timeout: 30_000 });
+
+      // 2. Overflow Refresh: in place, no reload.
+      await page.evaluate(() => {
+        (window as unknown as { __marker: string }).__marker = "alive";
+      });
+      await page.getByTestId("phone-overflow-button").click();
+      await expect(page.getByTestId("overflow-refresh")).toBeVisible();
+      await expect(page.getByTestId("overflow-reload")).toBeVisible();
+      await page.getByTestId("overflow-refresh").tap();
+      await expect(page.getByTestId("phone-overflow-menu")).toHaveCount(0);
+      await expect(topBar).toContainText(after);
+      expect(
+        await page.evaluate(() => (window as unknown as { __marker?: string }).__marker),
+      ).toBe("alive");
+
+      // 3. Reload app: the page starts over and is still paired and connected.
+      await page.getByTestId("phone-overflow-button").click();
+      await Promise.all([
+        page.waitForEvent("load"),
+        page.getByTestId("overflow-reload").tap(),
+      ]);
+      await expect(topBar).toBeVisible({ timeout: 30_000 });
+      await expect(topBar).toContainText(after);
+      expect(
+        await page.evaluate(() => (window as unknown as { __marker?: string }).__marker),
+      ).toBeUndefined();
+    } finally {
+      await client.close();
+    }
+  });
 });

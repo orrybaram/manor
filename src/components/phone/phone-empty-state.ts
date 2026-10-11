@@ -1,16 +1,9 @@
 import type { AgentInfo } from "../../electron.d";
 import type { HostId } from "../../lib/hosts";
+import { byUpdatedDesc } from "../../utils/relative-time";
 
 /** How many past agents the empty workspace offers to jump back into. */
 export const RECENT_AGENT_LIMIT = 8;
-
-/** "Good morning" / "Good afternoon" / "Good evening" for the hour `date` is in. */
-export function greetingFor(date: Date): string {
-  const hour = date.getHours();
-  if (hour >= 5 && hour < 12) return "Good morning";
-  if (hour >= 12 && hour < 18) return "Good afternoon";
-  return "Good evening";
-}
 
 /**
  * The agents that ran in the workspace at `workspacePath` on `hostId`, most
@@ -24,7 +17,7 @@ export function recentWorkspaceAgents(
   if (!workspacePath) return [];
   return agents
     .filter((a) => a.workspacePath === workspacePath && a.hostId === hostId)
-    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+    .sort(byUpdatedDesc)
     .slice(0, RECENT_AGENT_LIMIT);
 }
 
@@ -39,6 +32,9 @@ export function recentStatus(agent: AgentInfo): { label: string; tone: RecentTon
       return { label: "Errored", tone: "error" };
     case "abandoned":
       return { label: "Interrupted", tone: "neutral" };
+    case "active":
+      // The timeline's `working` wording (STATUS_LABEL), not "Paused".
+      return { label: "Working", tone: "neutral" };
     default:
       return { label: "Paused", tone: "neutral" };
   }

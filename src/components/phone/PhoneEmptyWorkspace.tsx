@@ -5,6 +5,7 @@ import type { AgentInfo } from "../../electron.d";
 import { useAgentDisplay } from "../../hooks/useAgentDisplay";
 import { launchAgentInWorkspace } from "../../lib/agent-prompt-launch";
 import { resumeAgent } from "../../lib/agent-resume";
+import { greeting } from "../../lib/greeting";
 import { resolveWorkspaceCommand } from "../../lib/keybinding-commands";
 import { find } from "../../lib/workspace-directory";
 import { workspaceDisplayName } from "../../lib/workspace-display-name";
@@ -17,7 +18,7 @@ import { EmojiTextarea } from "../ui/EmojiAutocomplete";
 import { ManorLogo } from "../ui/ManorLogo";
 import chatStyles from "./ChatPane/ChatPane.module.css";
 import { markChatStarting } from "./ChatPane/usePaneChatView";
-import { greetingFor, recentStatus, recentWorkspaceAgents } from "./phone-empty-state";
+import { recentStatus, recentWorkspaceAgents } from "./phone-empty-state";
 import styles from "./PhoneEmptyWorkspace.module.css";
 import { useViewerFirstName } from "./useViewerFirstName";
 
@@ -102,13 +103,13 @@ function Greeting() {
   const branch = useProjectStore((s) => (key ? find(s.projects, key)?.workspace.branch : undefined));
   // Read once per mount: the screen is short-lived, and a greeting that
   // flips mid-read is worse than one an hour stale.
-  const [greeting] = useState(() => greetingFor(new Date()));
+  const [hello] = useState(() => greeting(Date.now()));
   const firstName = useViewerFirstName();
 
   return (
     <div className={styles.greeting}>
       <h1 className={styles.headline}>
-        {firstName ? `${greeting}, ${firstName}` : greeting}
+        {firstName ? `${hello}, ${firstName}` : hello}
       </h1>
       <p className={styles.subline}>
         Claude is ready in <span className={styles.workspaceName}>{name}</span>

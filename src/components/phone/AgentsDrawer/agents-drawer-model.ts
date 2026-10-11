@@ -31,8 +31,6 @@ export interface AgentsDrawerGroup {
 export interface AgentsDrawerModel {
   needsYou: AgentsDrawerNeedsYou[];
   groups: AgentsDrawerGroup[];
-  /** "2 · 5 workspaces", for the Projects row. */
-  projectsSummary: string;
 }
 
 interface AgentsDrawerInput {
@@ -139,11 +137,5 @@ export function buildAgentsDrawerModel({
   );
   for (const [key, bucket] of unknown) groups.push(toGroup(key, bucket, null));
 
-  const workspaceCount = projects.reduce((n, p) => n + p.workspaces.length, 0);
-
-  return {
-    needsYou,
-    groups,
-    projectsSummary: `${projects.length} · ${workspaceCount} workspaces`,
-  };
+  return { needsYou, groups };
 }

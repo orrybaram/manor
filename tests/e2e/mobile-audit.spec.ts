@@ -532,13 +532,20 @@ test("phone audit: every phone surface over the relay, throttled", async ({
     await expect(drawer).toBeVisible();
 
     // ── Workspace switch from the drawer ─────────────────────────────
-    // The drawer opens on the agents view; workspaces sit behind Projects.
-    await drawer.getByTestId("drawer-projects-row").tap();
+    // The drawer has no workspace list; its Search row opens the palette,
+    // which lists every workspace.
+    const switchTo = async (name: string) => {
+      await page.getByTestId("sidebar-drawer").getByTestId("search-row").tap();
+      const switcher = page.getByTestId("command-palette");
+      await switcher.locator("[cmdk-input]").fill(name);
+      await switcher.locator("[cmdk-item]", { hasText: name }).first().tap();
+      await expect(switcher).toBeHidden();
+    };
     report.time(
       "tap → workspace switched",
       await timed(
         page,
-        () => drawer.getByTestId("workspace-item").filter({ hasText: W2 }).tap(),
+        () => switchTo(W2),
         (name: string) =>
           (document.querySelector('[data-testid="phone-top-bar"]')?.textContent ?? "").includes(name),
         W2.slice(0, 10),
@@ -549,8 +556,7 @@ test("phone audit: every phone surface over the relay, throttled", async ({
     await report.screen(page, "long-workspace-name");
     await setCpuThrottle(cdp, true);
     await page.getByTestId("phone-drawer-toggle").tap();
-    await drawer.getByTestId("drawer-projects-row").tap();
-    await drawer.getByTestId("workspace-item").filter({ hasText: W1 }).tap();
+    await switchTo(W1);
     await expect(drawer).toBeHidden();
 
     // ── Next pane, from the palette (via the drawer's Search row) ──────────────────────────────────
@@ -687,8 +693,7 @@ test("phone audit: every phone surface over the relay, throttled", async ({
     await expect(page.getByTestId("new-workspace-dialog")).toBeHidden();
 
     await page.getByTestId("phone-drawer-toggle").tap();
-    await drawer.getByTestId("drawer-projects-row").tap();
-    await drawer.getByTestId("workspace-item").filter({ hasText: W1 }).tap();
+    await switchTo(W1);
     await expect(drawer).toBeHidden();
 
     // ── Sizes and orientation (layout only) ─────────────────────────

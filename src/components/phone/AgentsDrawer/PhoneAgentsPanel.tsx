@@ -1,7 +1,6 @@
 import { useCallback, useMemo } from "react";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import Settings from "lucide-react/dist/esm/icons/settings";
-import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import LayoutDashboard from "lucide-react/dist/esm/icons/layout-dashboard";
 import ListTodo from "lucide-react/dist/esm/icons/list-todo";
 import Search from "lucide-react/dist/esm/icons/search";
@@ -34,8 +33,6 @@ import styles from "./PhoneAgentsPanel.module.css";
 type PhoneAgentsPanelProps = {
   onNewAgent: () => void;
   onOpenSettings: () => void;
-  /** Switches the drawer to its projects view. */
-  onOpenProjects: () => void;
   onOpenSearch?: () => void;
   onOpenNotifications?: () => void;
   /** Closes the drawer after any navigation. */
@@ -47,13 +44,12 @@ const NEEDS_YOU_FALLBACK = "Waiting for your input";
 /**
  * ADR-219 §2: the phone drawer's agents-first content. Agents waiting on the
  * user are pinned at the top as cards, the rest are grouped by project, and
- * the bottom holds the Projects row and an icon nav.
+ * the bottom holds an icon nav.
  */
 export function PhoneAgentsPanel(props: PhoneAgentsPanelProps) {
   const {
     onNewAgent,
     onOpenSettings,
-    onOpenProjects,
     onOpenSearch,
     onOpenNotifications,
     onNavigate,
@@ -165,18 +161,6 @@ export function PhoneAgentsPanel(props: PhoneAgentsPanelProps) {
       </div>
 
       <div className={styles.bottom}>
-        <Button
-          variant="ghost"
-          className={styles.projectsRow}
-          data-testid="drawer-projects-row"
-          onClick={onOpenProjects}
-        >
-          <span className={styles.projectsLabel}>Projects</span>
-          <span className={styles.projectsCount}>
-            {model.projectsSummary}
-          </span>
-          <ChevronRight size={16} />
-        </Button>
         <nav className={styles.iconNav} aria-label="Main">
           <NavIcon label="Dashboard" testId="home-row" onClick={selectHome}>
             <LayoutDashboard size={18} />

@@ -154,8 +154,4 @@ describe("buildAgentsDrawerModel", () => {
     expect(m.needsYou).toEqual([]);
     expect(ids(m.groups[0].rows)).toEqual(["a"]);
   });
-
-  it("summarises projects and workspaces", () => {
-    expect(build([]).projectsSummary).toBe("2 · 2 workspaces");
-  });
 });

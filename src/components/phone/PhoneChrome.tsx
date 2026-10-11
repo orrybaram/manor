@@ -11,9 +11,6 @@ import { onUiRequest } from "../../utils/ui-request";
 type PhoneChromeProps = {
   onNewAgent: () => void;
   onOpenSettings: () => void;
-  onShowAgents: () => void;
-  onOpenProjectSettings: (projectId: string) => void;
-  onAddProject: () => void;
   /** Opens the command palette, unscoped — the same `CommandPalette` the desk
    *  sidebar's Search row opens. The phone has no palette of its own. */
   onOpenSearch: () => void;
@@ -31,7 +28,7 @@ type PhoneChromeProps = {
  * nothing about the split components' element tree changes and a pane
  * switch still remounts nothing.
  *
- * Swiping in from the left edge opens the drawer too.
+ * Swiping right from the left half of the screen opens the drawer too.
  *
  * A phone moves between panes with the tab strip, and to another panel
  * through the palette (Next Pane, Focus Next Panel).
@@ -40,9 +37,6 @@ export function PhoneChrome(props: PhoneChromeProps) {
   const {
     onNewAgent,
     onOpenSettings,
-    onShowAgents,
-    onOpenProjectSettings,
-    onAddProject,
     onOpenSearch,
     modalOpen,
   } = props;
@@ -82,9 +76,6 @@ export function PhoneChrome(props: PhoneChromeProps) {
         onOpenChange={setDrawerOpen}
         onNewAgent={closeThen(onNewAgent)}
         onOpenSettings={closeThen(onOpenSettings)}
-        onShowAgents={closeThen(onShowAgents)}
-        onOpenProjectSettings={closeThen(onOpenProjectSettings)}
-        onAddProject={closeThen(onAddProject)}
         onOpenSearch={closeThen(onOpenSearch)}
         onOpenNotifications={closeThen(() => setNotificationsOpen(true))}
       />

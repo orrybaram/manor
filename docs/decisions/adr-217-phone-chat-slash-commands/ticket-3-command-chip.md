@@ -1,6 +1,6 @@
 ---
 title: Show slash commands as chips in the phone chat history
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [1]

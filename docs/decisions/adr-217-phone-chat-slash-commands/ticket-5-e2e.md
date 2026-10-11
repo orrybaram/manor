@@ -1,6 +1,6 @@
 ---
 title: E2E for the slash-command menu and command chips
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [3, 4]

@@ -1,6 +1,6 @@
 ---
 title: Slash-command menu in the phone chat composer
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [2]

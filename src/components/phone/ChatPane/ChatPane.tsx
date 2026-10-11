@@ -4,9 +4,10 @@ import { useMountEffect } from "../../../hooks/useMountEffect";
 import { useAppStore } from "../../../store/app-store";
 import { useHostStore } from "../../../store/host-store";
 import { Button } from "../../ui/Button/Button";
-import { answerablePickerId, mergeHistory, upsertEntry } from "./chat-entries";
+import { answerablePickerId, groupEntries, mergeHistory, upsertEntry } from "./chat-entries";
 import { ChatComposer } from "./ChatComposer";
 import { ChatEntryView } from "./ChatEntryView";
+import { ChatThinking } from "./ChatThinking";
 import styles from "./ChatPane.module.css";
 
 type Unavailable = Extract<ChatHistory, { ok: false }>["reason"] | "error";
@@ -141,6 +142,12 @@ export function ChatPane(props: ChatPaneProps) {
 
   const answerableId = answerablePickerId(entries);
   const busy = status === "thinking" || status === "working";
+  const items = groupEntries(entries);
+  const newest = items[items.length - 1];
+  // A running tool call already has its own live line.
+  const toolRunning =
+    newest?.kind === "tool-group" && newest.tools.some((t) => t.status === "pending");
+  const thinking = busy && answerableId === null && !toolRunning;
   const needsYou = status === "requires_input" && answerableId === null;
 
   return (
@@ -162,7 +169,7 @@ export function ChatPane(props: ChatPaneProps) {
               {loaded && entries.length === 0 && (
                 <p className={styles.empty}>Nothing in this conversation yet.</p>
               )}
-              {entries.map((entry) => (
+              {items.map((entry) => (
                 <ChatEntryView
                   key={entry.id}
                   paneId={paneId}
@@ -171,6 +178,7 @@ export function ChatPane(props: ChatPaneProps) {
                   onShowTerminal={onShowTerminal}
                 />
               ))}
+              {thinking && <ChatThinking key={entries[entries.length - 1]?.id ?? ""} />}
             </div>
           </div>
           {needsYou && (

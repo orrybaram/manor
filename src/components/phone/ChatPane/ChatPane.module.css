@@ -149,12 +149,74 @@
 
 /* ── Tool calls ── */
 
+/* A run of calls: one dim line, like a sentence in the conversation. */
+.toolGroup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+button.toolGroupLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 4px 0;
+  justify-content: flex-start;
+  text-align: left;
+  font-size: 14px;
+  color: color-mix(in srgb, var(--text-dim) 65%, var(--bg));
+  background: transparent;
+}
+
+button.toolGroupLine:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: transparent;
+}
+
+.toolGroupSummary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolGroupFailed {
+  color: var(--red);
+}
+
+.toolElapsed {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.toolGroupChevron {
+  flex-shrink: 0;
+  transition: transform 150ms ease;
+}
+
+button.toolGroupLine[aria-expanded="true"] .toolGroupChevron {
+  transform: rotate(90deg);
+}
+
+.toolRows {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  gap: 2px;
+  margin-left: 4px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+
+/* One call inside an open group. */
 .tool {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--dim);
+  min-width: 0;
 }
 
 button.toolLine {
@@ -162,11 +224,16 @@ button.toolLine {
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 36px;
-  padding: 6px 10px;
+  min-height: 32px;
+  padding: 4px 0;
   justify-content: flex-start;
   text-align: left;
   font-size: 13px;
+  background: transparent;
+}
+
+button.toolLine:hover:not(:disabled) {
+  background: transparent;
 }
 
 button.toolLine:disabled {
@@ -192,6 +259,19 @@ button.toolLine:disabled {
 
 .statusDot[data-status="pending"] {
   background: var(--yellow);
+  animation: toolPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes toolPulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .statusDot[data-status="pending"] {
+    animation: none;
+  }
 }
 
 .toolName {
@@ -209,16 +289,63 @@ button.toolLine:disabled {
 }
 
 .toolDetail {
-  margin: 0;
+  margin: 0 0 6px;
   padding: 8px 10px;
   max-height: 320px;
   overflow: auto;
-  border-top: 1px solid var(--border);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--dim);
   font-family: var(--font-mono);
   font-size: 12px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--text-primary);
+}
+
+/* Claude is working with nothing to show yet: a light sweeps the label. */
+.thinking {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  font-size: 14px;
+  color: color-mix(in srgb, var(--text-dim) 65%, var(--bg));
+}
+
+.thinkingLabel {
+  /* Not currentColor: the label's own color is transparent. */
+  background: linear-gradient(
+    90deg,
+    var(--text-dim) 0%,
+    var(--text-dim) 35%,
+    var(--text-selected) 50%,
+    var(--text-dim) 65%,
+    var(--text-dim) 100%
+  );
+  /* At 200%, 100% → 0% carries the highlight exactly across the word. */
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: thinkingSweep 1.6s linear infinite;
+}
+
+@keyframes thinkingSweep {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinkingLabel {
+    animation: none;
+    background: none;
+    color: inherit;
+  }
 }
 
 /* ── Question and plan cards ── */

@@ -151,6 +151,10 @@ describe("ChatPane — entries", () => {
     );
     expect(all("chat-user")[0].textContent).toBe("hello there");
     expect(all("chat-assistant")[0].querySelector("strong")?.textContent).toBe("bold");
+    const group = all("chat-tool-group")[0];
+    expect(group.textContent).toBe("Ran a command");
+    expect(all("chat-tool")).toHaveLength(0);
+    await click(group.querySelector("button")!);
     const tool = all("chat-tool")[0];
     expect(tool.textContent).toContain("Bash");
     expect(tool.textContent).toContain("List files");
@@ -166,9 +170,62 @@ describe("ChatPane — entries", () => {
     const pending: ChatEntry = { kind: "tool", id: "t1", ts: "", name: "Read", summary: "x", status: "pending" };
     await act(async () => listener?.(PANE, pending));
     await act(async () => listener?.(PANE, { ...pending, status: "error" }));
-    const tools = all("chat-tool");
-    expect(tools).toHaveLength(1);
-    expect(tools[0].dataset.status).toBe("error");
+    const groups = all("chat-tool-group");
+    expect(groups).toHaveLength(1);
+    expect(groups[0].dataset.status).toBe("error");
+    expect(groups[0].textContent).toBe("Read a file (1 failed)");
+  });
+
+  it("folds back-to-back tool calls into one line, showing the running call", async () => {
+    installChat({ ok: true, entries: [] });
+    await renderChat();
+    const tool = (id: string, name: string, status: "pending" | "ok"): ChatEntry => ({
+      kind: "tool",
+      id,
+      ts: new Date().toISOString(),
+      name,
+      summary: `${name} ${id}`,
+      status,
+    });
+    await act(async () => listener?.(PANE, tool("t1", "Bash", "ok")));
+    await act(async () => listener?.(PANE, tool("t2", "Read", "pending")));
+    let groups = all("chat-tool-group");
+    expect(groups).toHaveLength(1);
+    expect(groups[0].dataset.status).toBe("pending");
+    expect(groups[0].textContent).toContain("Read t2");
+
+    await act(async () => listener?.(PANE, tool("t2", "Read", "ok")));
+    await act(async () => listener?.(PANE, { kind: "assistant", id: "a1", ts: "", text: "Done." }));
+    await act(async () => listener?.(PANE, tool("t3", "Bash", "ok")));
+    groups = all("chat-tool-group");
+    expect(groups.map((g) => g.textContent)).toEqual(["Ran a command, read a file", "Ran a command"]);
+  });
+
+  it("shows Thinking while Claude works with nothing to show", async () => {
+    vi.useFakeTimers();
+    try {
+      installChat({ ok: true, entries: [] });
+      useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "thinking", reason: "", kind: "claude" } } });
+      await renderChat();
+      expect(all("chat-thinking")).toHaveLength(0);
+      await act(async () => vi.advanceTimersByTime(800));
+      expect(all("chat-thinking")[0].textContent).toBe("Thinking0s");
+
+      const pending: ChatEntry = { kind: "tool", id: "t1", ts: "", name: "Bash", summary: "ls", status: "pending" };
+      await act(async () => listener?.(PANE, pending));
+      await act(async () => vi.advanceTimersByTime(800));
+      expect(all("chat-thinking")).toHaveLength(0);
+
+      await act(async () => listener?.(PANE, { ...pending, status: "ok" }));
+      await act(async () => vi.advanceTimersByTime(2200));
+      expect(all("chat-thinking")[0].textContent).toBe("Thinking2s");
+
+      useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "idle", reason: "", kind: "claude" } } });
+      await act(async () => {});
+      expect(all("chat-thinking")).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows a note and a way to the terminal when there is no chat", async () => {

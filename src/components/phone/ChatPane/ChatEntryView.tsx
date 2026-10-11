@@ -1,6 +1,9 @@
 import { useState } from "react";
+import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import type { ChatEntry } from "../../../electron.d";
+import { useMountEffect } from "../../../hooks/useMountEffect";
 import { Button } from "../../ui/Button/Button";
+import { summarizeTools, type ChatItem, type ToolGroup } from "./chat-entries";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { PlanCard } from "./PlanCard";
 import { AnsweredQuestion, QuestionCard } from "./QuestionCard";
@@ -8,13 +11,13 @@ import styles from "./ChatPane.module.css";
 
 type ChatEntryViewProps = {
   paneId: string;
-  entry: ChatEntry;
+  entry: ChatItem;
   /** The id of the one picker the chat may answer, if any. */
   answerableId: string | null;
   onShowTerminal: () => void;
 };
 
-/** One transcript entry, drawn for its kind (ADR-215 D3, D7). */
+/** One transcript entry, or a run of tool calls, drawn for its kind (ADR-215 D3, D7). */
 export function ChatEntryView(props: ChatEntryViewProps) {
   const { paneId, entry, answerableId, onShowTerminal } = props;
 
@@ -33,8 +36,8 @@ export function ChatEntryView(props: ChatEntryViewProps) {
           <ChatMarkdown source={entry.text} />
         </div>
       );
-    case "tool":
-      return <ToolEntry entry={entry} />;
+    case "tool-group":
+      return <ToolGroupView group={entry} />;
     case "command":
       return <CommandEntry entry={entry} />;
     case "question":
@@ -62,13 +65,94 @@ export function ChatEntryView(props: ChatEntryViewProps) {
   }
 }
 
+type ToolGroupViewProps = {
+  group: ToolGroup;
+};
+
+/**
+ * A run of tool calls as one quiet line: a sentence summing them up once
+ * they're done ("Ran 2 commands (1 failed), read a file"), or the call in
+ * progress while one is running. Tapping it lists the calls.
+ */
+function ToolGroupView(props: ToolGroupViewProps) {
+  const { group } = props;
+
+  const [open, setOpen] = useState(false);
+  const running = [...group.tools].reverse().find((t) => t.status === "pending");
+  const status = running
+    ? "pending"
+    : group.tools.some((t) => t.status === "error")
+      ? "error"
+      : "ok";
+
+  return (
+    <div className={styles.toolGroup} data-testid="chat-tool-group" data-status={status}>
+      <Button
+        variant="ghost"
+        size="sm"
+        className={styles.toolGroupLine}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {running ? (
+          <RunningTool key={running.id} tool={running} />
+        ) : (
+          <span className={styles.toolGroupSummary}>
+            {summarizeTools(group.tools).map((part, i) => (
+              <span key={part.text}>
+                {i > 0 && ", "}
+                {part.text}
+                {part.failed > 0 && (
+                  <span className={styles.toolGroupFailed}> ({part.failed} failed)</span>
+                )}
+              </span>
+            ))}
+          </span>
+        )}
+        <ChevronRight className={styles.toolGroupChevron} size={14} aria-hidden />
+      </Button>
+      {open && (
+        <div className={styles.toolRows}>
+          {group.tools.map((tool) => (
+            <ToolEntry key={tool.id} entry={tool} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type RunningToolProps = {
+  tool: Extract<ChatEntry, { kind: "tool" }>;
+};
+
+/** The call in progress, with how long it has been running. */
+function RunningTool(props: RunningToolProps) {
+  const { tool } = props;
+
+  const [now, setNow] = useState(() => Date.now());
+  useMountEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  });
+  const elapsed = Math.floor((now - Date.parse(tool.ts)) / 1000);
+
+  return (
+    <>
+      <span className={styles.statusDot} data-status="pending" role="img" aria-label="running" />
+      <span className={styles.toolGroupSummary}>{tool.summary}</span>
+      {elapsed >= 0 && <span className={styles.toolElapsed}>{elapsed}s</span>}
+    </>
+  );
+}
+
 type ToolEntryProps = {
   entry: Extract<ChatEntry, { kind: "tool" }>;
 };
 
 const STATUS_LABEL = { pending: "running", ok: "done", error: "failed" } as const;
 
-/** A tool call as one line, expanding to its detail on tap. */
+/** One call inside an open group, expanding to its detail on tap. */
 function ToolEntry(props: ToolEntryProps) {
   const { entry } = props;
 

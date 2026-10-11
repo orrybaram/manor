@@ -73,9 +73,18 @@ export function useTerminalConnection(paneId: string, workspaceKey?: WorkspaceKe
    * and is outranked only by a window that attached after it (ADR-180 D6), so
    * the common case — one viewer, or the one that just opened the pane — is
    * the owner asking, and nothing is refused.
+   *
+   * `attachOnly` is a resync's re-attach (ADR-220): no spawn, no size asked
+   * for, and `reason: "gone"` when the session ended meanwhile.
    */
   const create = useCallback(
-    (cwd: string | null, cols: number, rows: number, agentKind?: string | null) => {
+    (
+      cwd: string | null,
+      cols: number,
+      rows: number,
+      agentKind?: string | null,
+      { attachOnly = false }: { attachOnly?: boolean } = {},
+    ) => {
       const paneId = paneIdRef.current;
       // Name the host outright: a path alone can't tell a local and a remote
       // workspace with the same path apart (main's guess picks local).
@@ -88,7 +97,11 @@ export function useTerminalConnection(paneId: string, workspaceKey?: WorkspaceKe
         panes.setPaneHost(paneId, hostId);
       }
       return window.electronAPI.pty
-        .create(paneId, cwd, cols, rows, { agentKind, hostId })
+        .create(paneId, cwd, cols, rows, {
+          agentKind,
+          hostId,
+          ...(attachOnly ? { attachOnly } : {}),
+        })
         .then((result: PtyCreateResult) => {
           // Badge the tab from where the session really runs (ADR-160).
           if (result.ok) useRemotePaneStore.getState().setPaneHost(paneId, result.hostId);

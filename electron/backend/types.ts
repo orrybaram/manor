@@ -48,6 +48,13 @@ export interface PtyBackend {
     env?: Record<string, string>,
   ): Promise<{ session: SessionInfo; snapshot: TerminalSnapshot | null }>;
 
+  /**
+   * Attach to a session whose shell is still running, and snapshot it. Never
+   * spawns and never resizes; null when there is no such live session
+   * (ADR-220).
+   */
+  attachExisting(sessionId: string): Promise<TerminalSnapshot | null>;
+
   write(sessionId: string, data: string): void;
 
   /**

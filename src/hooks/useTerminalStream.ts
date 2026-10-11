@@ -103,6 +103,17 @@ export function useTerminalStream(
     queuedRef.current = [];
   }, []);
 
+  /**
+   * The pane's session ended: close the pane — unless it is being reset, whose
+   * old session's exit is expected. Also what a resync does when it finds the
+   * session gone, having missed this exit while its connection was down
+   * (ADR-220).
+   */
+  const handleExit = useCallback(() => {
+    if (resettingRef?.current) return;
+    useAppStore.getState().closePaneById(paneId);
+  }, [paneId, resettingRef]);
+
   useMountEffect(() => {
     const unsubOutput = window.electronAPI.pty.onOutput(
       paneId,
@@ -128,10 +139,7 @@ export function useTerminalStream(
       },
     );
 
-    const unsubExit = window.electronAPI.pty.onExit(paneId, () => {
-      if (resettingRef?.current) return;
-      useAppStore.getState().closePaneById(paneId);
-    });
+    const unsubExit = window.electronAPI.pty.onExit(paneId, handleExit);
 
     const unsubCwd = window.electronAPI.pty.onCwd(paneId, (cwdPath: string) => {
       useAppStore.getState().setPaneCwd(paneId, cwdPath);
@@ -153,5 +161,5 @@ export function useTerminalStream(
     };
   });
 
-  return { openRestored, closeOutput };
+  return { openRestored, closeOutput, handleExit };
 }

@@ -19,6 +19,7 @@ import {
   claim,
   ownerOf,
   reclaimOnInput,
+  rejoin,
   release,
   wouldOwn,
   type Viewer,
@@ -316,9 +317,68 @@ export function ptyCreate(
   rows: number,
   opts?: PtyCreateOptions | null,
 ): Promise<PtyCreateResult> {
+  if (opts?.attachOnly === true) return reattach(ctx, paneId, cols, rows);
   return createShaped(ctx, paneId, cols, rows, (c, r) =>
     createSession(ctx.deps, paneId, cwd, c, r, opts ?? undefined),
   );
+}
+
+/**
+ * `pty.create` with `attachOnly` (ADR-220): re-attach a viewer that is
+ * resyncing after its connection dropped.
+ *
+ * Unlike a plain create it never spawns — a session whose shell exited while
+ * the viewer was away answers `gone`, and the viewer does what it would have
+ * done with the `exit` it missed — and it makes no bid for the winsize. The
+ * session is not resized, and the viewer `rejoin`s rather than `attach`es, so
+ * whoever attached meanwhile keeps the grid. The answer carries the session's
+ * own grid, which is the owner's.
+ *
+ * `cols×rows` are validated and otherwise unused: a re-attach asks for no
+ * size.
+ */
+async function reattach(
+  ctx: HandlerCtx,
+  paneId: string,
+  cols: number,
+  rows: number,
+): Promise<PtyCreateResult> {
+  assertString(paneId, "paneId");
+  assertPositiveInt(cols, "cols");
+  assertPositiveInt(rows, "rows");
+  const { deps } = ctx;
+  // Where `RoutedBackend` sends an existing session's calls.
+  const hostId = deps.backendRegistry?.sessions.ownerOf(paneId) ?? LOCAL_HOST_ID;
+  try {
+    const snapshot = await deps.backend.pty.attachExisting(paneId);
+    if (!snapshot) {
+      // A remote session a daemon restart took keeps its owner — its pane is
+      // recovered, not closed (ADR-178 §6, `isRemoteSessionLoss`). One whose
+      // shell exited, or that was killed, has none left.
+      return hostId === LOCAL_HOST_ID
+        ? { ok: false, reason: "gone" }
+        : { ok: false, reason: "gone", lost: true };
+    }
+    const viewer = asViewer(ctx.caller);
+    rejoin(paneId, viewer);
+    return {
+      ok: true,
+      snapshot: snapshot.screenAnsi || null,
+      snapshotSeq: snapshot.seq,
+      prewarmed: true,
+      hostId,
+      winsizeOwner: ownerOf(paneId)?.connectionId === viewer.connectionId,
+      cols: snapshot.cols,
+      rows: snapshot.rows,
+    };
+  } catch (err) {
+    const error = errorMessage(err);
+    if (err instanceof HostUnavailableError && err.status !== "unknown") {
+      return { ok: false, reason: "host-unavailable", hostId: err.hostId, error };
+    }
+    console.error(`Failed to re-attach PTY for ${paneId}:`, err);
+    return { ok: false, reason: "error", error };
+  }
 }
 
 async function createSession(

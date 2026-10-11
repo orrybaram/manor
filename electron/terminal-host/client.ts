@@ -494,6 +494,32 @@ export class TerminalHostClient {
     return { session, snapshot: null };
   }
 
+  /**
+   * Attach to a session the daemon has and whose shell is still running —
+   * never spawning one, and never resizing it (ADR-220). Null when there is
+   * no such live session: its shell exited, it was killed, or it never was.
+   *
+   * What a viewer re-attaching after a dropped connection asks for. It may
+   * have missed the session's `exit` while it was away, and `createOrAttach`
+   * would answer that with a fresh shell — or, for a dead session the daemon
+   * still holds, a snapshot of a screen nothing will ever write to again.
+   *
+   * Liveness comes from `listSessions` — `getSnapshot` answers for a dead
+   * session too — and the rest is `doCreateOrAttach`'s order, minus its
+   * resize: subscribe, then snapshot.
+   */
+  async attachExisting(sessionId: string): Promise<TerminalSnapshot | null> {
+    await this.ensureConnected();
+    const { sessions } = await this.rpc.call({ type: "listSessions" });
+    if (!sessions.some((s) => s.sessionId === sessionId && s.alive)) return null;
+    this.subscriptions.want(sessionId);
+    const snapshot = await this.rpc.call({ type: "getSnapshot", sessionId });
+    if (snapshot.type === "snapshot") return snapshot.snapshot;
+    // Gone between the two calls.
+    this.subscriptions.forget(sessionId);
+    return null;
+  }
+
   /** Create a session without subscribing to its stream (boots silently) */
   async createNoSubscribe(
     sessionId: string,

@@ -128,7 +128,7 @@ export function useTerminalLifecycle(
 
   // Subscribe to stream events.
   // Output stays queued until openRestored() — see the create() call below.
-  const { openRestored, closeOutput } = useTerminalStream(
+  const { openRestored, closeOutput, handleExit } = useTerminalStream(
     paneId,
     term,
     setPtyError,
@@ -510,11 +510,11 @@ export function useTerminalLifecycle(
 
       // The bridge came back from a drop, or the user asked for a refresh
       // (ADR-220 D3): whatever was printed while the socket was down never
-      // arrived, so attach again in place. The same create/attach as above,
-      // against the xterm already on screen: queue output again, ask for a
-      // fresh snapshot, then reset the buffer and write the snapshot plus the
-      // chunks it does not cover. Only an attach, so none of the first
-      // attach's one-time work (pane context, agent resume) runs again.
+      // arrived, so attach again in place, against the xterm already on
+      // screen: queue output again, ask for a fresh snapshot, then reset the
+      // buffer and write the snapshot plus the chunks it does not cover. Only
+      // an attach, so none of the first attach's one-time work (pane context,
+      // agent resume) runs again.
       function resync(): void {
         if (disposed) return;
         if (attaching) {
@@ -523,9 +523,30 @@ export function useTerminalLifecycle(
         }
         attaching = true;
         closeOutput();
-        create(spawnCwd, t.cols, t.rows, agentKindForCreate).then(
+        reattach(true).finally(settleAttach);
+      }
+
+      // `attachOnly` (ADR-220 ticket 7): the session's `exit` may have been
+      // lost with the socket, and a plain create would answer it with a fresh
+      // shell. It also asks for no size, so coming back does not take the
+      // winsize off whoever attached meanwhile.
+      function reattach(attachOnly: boolean): Promise<void> {
+        return create(spawnCwd, t.cols, t.rows, agentKindForCreate, {
+          attachOnly,
+        }).then(
           (result) => {
             if (disposed) return;
+            if (!result.ok && result.reason === "gone") {
+              // A remote session a daemon restart took is recreated on its
+              // host, as the desk's recovery does (ADR-178 §6).
+              if (result.lost) return reattach(false);
+              // Its shell exited while the socket was down: what the exit
+              // event would have done. A pane being reset stays open, so let
+              // its output through.
+              openRestored(t);
+              handleExit();
+              return;
+            }
             applyWinsize(result);
             if (!result.ok) {
               if (result.reason === "error") {
@@ -550,7 +571,7 @@ export function useTerminalLifecycle(
             // resyncs once more. Meanwhile, keep output flowing.
             if (!disposed) openRestored(t);
           },
-        ).finally(settleAttach);
+        );
       }
       const resyncUnsub = onBridgeResync(resync);
 

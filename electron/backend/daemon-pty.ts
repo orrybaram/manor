@@ -32,6 +32,10 @@ export class DaemonPtyBackend implements HookJournalPtyBackend {
     return this.client.createOrAttach(sessionId, cwd, cols, rows, shellArgs, env);
   }
 
+  async attachExisting(sessionId: string): Promise<TerminalSnapshot | null> {
+    return this.client.attachExisting(sessionId);
+  }
+
   write(sessionId: string, data: string): void {
     this.client.writeNoAck(sessionId, data);
   }

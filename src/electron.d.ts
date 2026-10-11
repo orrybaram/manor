@@ -360,6 +360,13 @@ export interface PtyCreateOptions {
    * both hosts have). An existing session stays where it runs.
    */
   hostId?: HostId;
+  /**
+   * Re-attach only (ADR-220): answer with the snapshot of a session whose
+   * shell is still running, or `reason: "gone"` — never spawn one, and never
+   * resize it or bid for its winsize. What a viewer resyncing after a dropped
+   * connection asks for; `agentKind` and `hostId` play no part.
+   */
+  attachOnly?: boolean;
 }
 
 /** Options for `pty.reset`: the host its fresh session runs on (see `PtyCreateOptions`). */
@@ -411,6 +418,17 @@ export type PtyCreateResult = PtyWinsize & (
       error: string;
     }
   | { ok: false; reason: "error"; error: string }
+  | {
+      /**
+       * An `attachOnly` create found no live session (ADR-220): its shell
+       * exited, or it was killed, and the viewer missed the `exit`. `lost`
+       * marks a remote session a daemon restart took instead, which is
+       * recovered rather than closed (ADR-178 §6).
+       */
+      ok: false;
+      reason: "gone";
+      lost?: true;
+    }
 );
 
 export type { PushProgressEvent } from "../electron/bridge/handlers/branches-diffs";

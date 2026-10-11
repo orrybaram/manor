@@ -189,6 +189,29 @@ export function attach(paneId: string, viewer: Viewer): void {
 }
 
 /**
+ * A viewer that had this pane mounted is back — its connection dropped and
+ * it re-attached (ADR-220) — and makes no bid for the winsize.
+ *
+ * It goes in as the *oldest* viewer rather than the newest, and a standing
+ * claim stays standing: whoever attached while it was away keeps the grid
+ * they have been fitting to, rather than having it reflowed under them by a
+ * viewer that merely came back. Rule 1 still holds, so a desk window coming
+ * back outranks a device, as it would have before it left. A viewer alone
+ * on the pane owns it, as any viewer alone does.
+ */
+export function rejoin(paneId: string, viewer: Viewer): void {
+  const before = ownerFingerprint(ownerOf(paneId));
+  const viewers = holders.get(paneId);
+  if (!viewers) {
+    holders.set(paneId, [viewer]);
+  } else if (!viewers.some((existing) => sameViewer(existing, viewer))) {
+    viewers.unshift(viewer);
+  }
+  const after = ownerFingerprint(ownerOf(paneId));
+  if (before !== after) notifyChanged([paneId]);
+}
+
+/**
  * A viewer let this pane go. A caller is only ever done with its own view;
  * a caller that vanished is `releaseViewer`.
  */

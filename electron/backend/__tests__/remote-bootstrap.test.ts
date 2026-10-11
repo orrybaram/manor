@@ -260,6 +260,40 @@ describe("buildInstallCommands", () => {
     }
   });
 
+  it("commit refreshes an existing agent hook from the new package, and creates none", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "bootstrap-home-"));
+    try {
+      const run = (cmd: string, input?: Buffer) =>
+        execFileSync("sh", ["-c", cmd], { env: { ...process.env, HOME: home }, input });
+      const src = fs.mkdtempSync(path.join(os.tmpdir(), "bootstrap-pkg-"));
+      fs.mkdirSync(path.join(src, "package"));
+      fs.writeFileSync(path.join(src, "package", "agent-hook.js"), "// new hook");
+      const tgz = execFileSync("tar", ["-czf", "-", "-C", src, "package"]);
+      fs.rmSync(src, { recursive: true, force: true });
+      const install = (id: string) => {
+        const c = buildInstallCommands("1.2.3", process.execPath, id);
+        run(c.prepare);
+        run(c.stream, tgz);
+        run(c.commit);
+      };
+
+      // No daemon has bootstrapped this host yet: leave that to it.
+      const hookJs = path.join(home, ".manor", "hooks", "notify.js");
+      install("t4");
+      expect(fs.existsSync(hookJs)).toBe(false);
+
+      // A running daemon wrote the old hook; the update replaces it.
+      fs.mkdirSync(path.dirname(hookJs), { recursive: true });
+      fs.writeFileSync(hookJs, "// old hook");
+      install("t5");
+      expect(fs.readFileSync(hookJs, "utf-8")).toBe("// new hook");
+      expect(fs.statSync(hookJs).mode & 0o777).toBe(0o755);
+      expect(fs.readdirSync(path.dirname(hookJs))).toEqual(["notify.js"]);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it("commit breaks a stale install lock", () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "bootstrap-home-"));
     try {

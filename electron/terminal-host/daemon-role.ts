@@ -30,7 +30,7 @@ import {
   remoteHookPortFile,
   type DaemonNamespace,
 } from "../paths";
-import { bootstrapHost, type BootstrapHostResult } from "./bootstrap-host";
+import { bootstrapHost, ensureHookScript, type BootstrapHostResult } from "./bootstrap-host";
 import { HookJournal } from "./hook-journal";
 import { HookListener } from "./hook-listener";
 import { ControlRelayListener, type ControlRelay } from "./control-relay-listener";
@@ -217,6 +217,14 @@ export function remoteRole(log: Log): DaemonRole {
     async bootstrap() {
       const { agents, warnings } = runBootstrap();
       const report = { agents, warnings: [...warnings] };
+      // This daemon outlives app updates that keep its protocol (ADR-185),
+      // while the package beside it is replaced: rewrite the hook scripts from
+      // it on every connect, so agents run the updated hook.
+      try {
+        ensureHookScript();
+      } catch (err) {
+        report.warnings.push(`agent hook scripts could not be refreshed: ${errorMessage(err)}`);
+      }
       try {
         await startListener();
       } catch (err) {

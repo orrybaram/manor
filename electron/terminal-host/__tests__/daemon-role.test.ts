@@ -102,13 +102,14 @@ describe("remoteRole", () => {
     expect(fs.existsSync(path.join(hooksDir(), "notify.sh"))).toBe(true);
     expect(role.hookJournal).not.toBeNull();
 
-    // Not run again: what it wrote is left alone.
-    fs.rmSync(hooksDir(), { recursive: true, force: true });
+    // Not run again: what it wrote is left alone, except the hook scripts
+    // (below).
+    fs.rmSync(ShellManager.zdotdirPath(), { recursive: true, force: true });
     const first = await role.bootstrap();
     const second = await role.bootstrap();
     expect(first.agents).toEqual(expect.arrayContaining(["claude", "codex"]));
     expect(second).toEqual(first);
-    expect(fs.existsSync(hooksDir())).toBe(false);
+    expect(fs.existsSync(ShellManager.zdotdirPath())).toBe(false);
 
     // The hook listener is up once `bootstrap` answers.
     expect(Number(process.env.MANOR_HOOK_PORT)).toBeGreaterThan(0);
@@ -117,5 +118,21 @@ describe("remoteRole", () => {
     expect(process.env.MANOR_CONTROL_PORT_FILE).toBe(remoteControlPortFile());
     const [port] = fs.readFileSync(remoteControlPortFile(), "utf-8").split("\n");
     expect(Number(port)).toBeGreaterThan(0);
+  });
+
+  it("rewrites the hook scripts on every `bootstrap`, for a daemon that outlived an update", async () => {
+    role = remoteRole(() => {});
+    role.onStartup(startupContext);
+    const hookJs = path.join(hooksDir(), "notify.js");
+    const current = fs.readFileSync(hookJs, "utf-8");
+
+    fs.writeFileSync(hookJs, "// the hook from before the update");
+    await role.bootstrap();
+    expect(fs.readFileSync(hookJs, "utf-8")).toBe(current);
+
+    fs.rmSync(hooksDir(), { recursive: true, force: true });
+    await role.bootstrap();
+    expect(fs.existsSync(path.join(hooksDir(), "notify.sh"))).toBe(true);
+    expect(fs.readFileSync(hookJs, "utf-8")).toBe(current);
   });
 });

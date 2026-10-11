@@ -16,6 +16,8 @@
  * Remote layout (all under the remote `$HOME/.manor/`):
  *   host/                       the unpacked package + node_modules
  *   .host-staging-<id>/         an install in progress; renamed to host/
+ *   hooks/notify.js             the agent hook; written by the daemon, and
+ *                               refreshed from host/agent-hook.js on commit
  *   bin/manor-host              launcher shim: pins MANOR_VERSION and the
  *                               absolute node path, then execs the daemon entry
  *   bin/manor                   CLI shim: pins the absolute node path, then
@@ -207,6 +209,8 @@ const HOST_DIR = '"$HOME/.manor/host"';
 const BIN_DIR = '"$HOME/.manor/bin"';
 const HOST_BIN = '"$HOME/.manor/bin/manor-host"';
 const CLI_BIN = '"$HOME/.manor/bin/manor"';
+/** The hook script agents call (`hookScriptJsPath()` on the remote). */
+const HOOK_JS = '"$HOME/.manor/hooks/notify.js"';
 
 export const DETECT_COMMAND = "uname -sm";
 
@@ -381,6 +385,13 @@ export function buildInstallCommands(
       // them only once it has landed.
       ...writeShimCommands(HOST_BIN, shimBody),
       ...writeShimCommands(CLI_BIN, cliShimBody),
+      // Agents run the hook copy in hooks/, which a running daemon writes
+      // only at startup — and an update with no protocol change keeps the
+      // daemon (ADR-185). Refresh an existing copy from the new package so
+      // the update's hook takes effect now. Best-effort: the daemon rewrites
+      // it on the next `bootstrap` request too.
+      `if [ -f ${HOOK_JS} ] && [ -f ${HOST_DIR}/agent-hook.js ]; then` +
+        ` { cp ${HOST_DIR}/agent-hook.js ${HOOK_JS}.tmp.$$ && chmod 0755 ${HOOK_JS}.tmp.$$ && mv -f ${HOOK_JS}.tmp.$$ ${HOOK_JS}; } || rm -f ${HOOK_JS}.tmp.$$; fi`,
       `rm -rf ${MANOR}/host.old`,
     ].join("; "),
 

@@ -143,6 +143,9 @@ UI on the phone:
   - **Refresh** calls `refreshBridge`.
   - **Reload app** calls `location.reload()`. The pairing is kept in storage.
 
+  *Amended 2026-10-11:* Reload app was dropped. Two refresh-like items read
+  as redundant, and Refresh plus pull-to-refresh cover the stale-state case.
+
 ## Consequences
 
 - **Better:** A reconnect now fixes stale state without closing the app.

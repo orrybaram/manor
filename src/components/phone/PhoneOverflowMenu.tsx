@@ -7,7 +7,6 @@ import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
 import Pencil from "lucide-react/dist/esm/icons/pencil";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
-import RotateCw from "lucide-react/dist/esm/icons/rotate-cw";
 import { refreshState } from "../../bridge/resync";
 import { Button } from "../ui/Button/Button";
 import { useLayoutMode } from "../../hooks/useLayoutMode";
@@ -164,7 +163,7 @@ type Renaming = "workspace" | "agent" | null;
 /**
  * The phone top bar's overflow menu: the focused pane's Chat | Terminal
  * switch, the workspace's diff, and renaming the workspace or the focused
- * pane's agent — each only when it applies — and always Refresh and Reload app.
+ * pane's agent — each only when it applies — and always Refresh.
  * Radix `Popover` closes it on Escape and an outside tap; every item closes
  * it too.
  */
@@ -286,19 +285,6 @@ export function PhoneOverflowMenu() {
               >
                 <RefreshCw size={16} />
                 Refresh
-              </Button>
-              <Button
-                variant="ghost"
-                role="menuitem"
-                className={styles.overflowItem}
-                data-testid="overflow-reload"
-                onClick={() => {
-                  close();
-                  location.reload();
-                }}
-              >
-                <RotateCw size={16} />
-                Reload app
               </Button>
             </div>
           </Popover.Content>

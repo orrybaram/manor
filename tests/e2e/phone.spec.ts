@@ -538,7 +538,7 @@ test.describe("phone layout (ADR-181)", () => {
   /**
    * ADR-220: a phone that lost the line and missed a push shows the desk's
    * current state once the line is back, with no reload; the overflow menu's
-   * Refresh re-fetches in place and Reload app starts the page over.
+   * Refresh re-fetches in place.
    *
    * The line is dropped the way a backgrounded phone loses it: the page goes
    * offline (so a redial cannot succeed) and every WebSocket the page opened
@@ -547,7 +547,7 @@ test.describe("phone layout (ADR-181)", () => {
    * touch emulation has no reliable way to synthesize the overscroll gesture,
    * and the overflow Refresh takes the same `refreshState()` path.
    */
-  relayTest("a phone resyncs after a dropped line, refreshes in place from the overflow menu, and reloads the app", async ({
+  relayTest("a phone resyncs after a dropped line, and refreshes in place from the overflow menu", async ({
     app,
     window,
     tempHome,
@@ -644,25 +644,12 @@ test.describe("phone layout (ADR-181)", () => {
       // 2. Overflow Refresh: in place, no reload.
       await page.getByTestId("phone-overflow-button").click();
       await expect(page.getByTestId("overflow-refresh")).toBeVisible();
-      await expect(page.getByTestId("overflow-reload")).toBeVisible();
       await page.getByTestId("overflow-refresh").tap();
       await expect(page.getByTestId("phone-overflow-menu")).toHaveCount(0);
       await expect(topBar).toContainText(after);
       expect(
         await page.evaluate(() => (window as unknown as { __marker?: string }).__marker),
       ).toBe("alive");
-
-      // 3. Reload app: the page starts over and is still paired and connected.
-      await page.getByTestId("phone-overflow-button").click();
-      await Promise.all([
-        page.waitForEvent("load"),
-        page.getByTestId("overflow-reload").tap(),
-      ]);
-      await expect(topBar).toBeVisible({ timeout: 30_000 });
-      await expect(topBar).toContainText(after);
-      expect(
-        await page.evaluate(() => (window as unknown as { __marker?: string }).__marker),
-      ).toBeUndefined();
     } finally {
       await client.close();
     }

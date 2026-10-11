@@ -416,7 +416,7 @@ describe("PhoneTopBar — overflow menu's diff and rename items", () => {
     expect(renameAgent).toHaveBeenCalledWith("agent-1", "fix bug");
   });
 
-  it("still renders on Home, for Refresh and Reload app", () => {
+  it("still renders on Home, for Refresh", () => {
     useAppStore.setState({
       activeWorkspacePath: HOME_PATH,
       activeWorkspaceHostId: "local",

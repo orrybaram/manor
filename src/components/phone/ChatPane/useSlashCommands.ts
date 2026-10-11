@@ -3,6 +3,8 @@ import {
   opensMenu as commandOpensMenu,
   type ChatCommand,
 } from "../../../../electron/chat-mirror/builtin-commands";
+import { onBridgeResync } from "../../../bridge/resync";
+import { useMountEffect } from "../../../hooks/useMountEffect";
 import { applyCommand, findSlashQuery, matchCommands } from "./slash-commands";
 
 /** A cached list older than this is refetched the next time the menu opens. */
@@ -18,8 +20,10 @@ type CommandCache = { commands: ChatCommand[]; skillsKnown: boolean; at: number 
  * older than 30s. A failed or `ok: false` fetch leaves the menu closed; typing
  * is never blocked on it.
  *
- * There is no effect: the composer calls `sync(text, caret)` from its change
- * and select handlers, which is where a fetch is started.
+ * The composer calls `sync(text, caret)` from its change and select handlers,
+ * which is where a fetch is started. The one effect is the bridge resync
+ * (ADR-220 D3): a list already fetched is fetched again, since skills may
+ * have changed while the socket was down. One never fetched stays lazy.
  */
 export function useSlashCommands(paneId: string, text: string, caret: number) {
   const [cache, setCache] = useState<CommandCache | null>(null);
@@ -54,6 +58,17 @@ export function useSlashCommands(paneId: string, text: string, caret: number) {
       },
     );
   };
+
+  // Read by the resync listener, which lives as long as the mount.
+  const fetchRef = useRef(fetchCommands);
+  fetchRef.current = fetchCommands;
+  const cachedRef = useRef(false);
+  cachedRef.current = cache !== null;
+  useMountEffect(() =>
+    onBridgeResync(() => {
+      if (cachedRef.current) fetchRef.current();
+    }),
+  );
 
   /** Call with the field's text and caret after every change or selection. */
   const sync = (nextText: string, nextCaret: number) => {

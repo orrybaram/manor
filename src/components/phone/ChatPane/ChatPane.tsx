@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import { onBridgeResync } from "../../../bridge/resync";
 import type { ChatEntry, ChatHistory } from "../../../electron.d";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { useAppStore } from "../../../store/app-store";
@@ -81,6 +82,8 @@ export function ChatPane(props: ChatPaneProps) {
     /** The last fetch answered `host-offline`: fetch again on a sign of life. */
     let offline = false;
     let fetching = false;
+    /** The chat is showing a history: the last fetch that answered had one. */
+    let shown = false;
     let retry: ReturnType<typeof setInterval> | null = null;
 
     // Read from the store, not a hook: these callbacks live as long as the mount.
@@ -108,11 +111,13 @@ export function ChatPane(props: ChatPaneProps) {
           fetching = false;
           if (!alive) return;
           if (history.ok) {
+            shown = true;
             checkHandoff(history.entries);
             setEntries((prev) => mergeHistory(history.entries, prev));
             setSettledIds((prev) => prev ?? new Set(history.entries.map((e) => e.id)));
             setUnavailable(null);
           } else {
+            shown = false;
             setUnavailable(history.reason);
           }
           setOffline(!history.ok && history.reason === "host-offline");
@@ -120,7 +125,9 @@ export function ChatPane(props: ChatPaneProps) {
         },
         () => {
           fetching = false;
-          if (!alive) return;
+          // A refetch that failed (a resync on a line that dropped again)
+          // keeps the chat it already has rather than blanking it.
+          if (!alive || shown) return;
           setUnavailable("error");
           setOffline(false);
           setLoaded(true);
@@ -139,12 +146,18 @@ export function ChatPane(props: ChatPaneProps) {
     const unsubscribeHosts = useHostStore.subscribe((state, prev) => {
       if (offline && state.hosts !== prev.hosts) fetchHistory();
     });
+    // The bridge came back from a drop, or the user asked for a refresh
+    // (ADR-220 D3): catch up on entries pushed while the socket was down.
+    // Entries upsert by id, so this merges, and an unchanged newest entry
+    // leaves scroll-follow where the user put it.
+    const unsubscribeResync = onBridgeResync(fetchHistory);
     fetchHistory();
     return () => {
       alive = false;
       setOffline(false);
       unsubscribe();
       unsubscribeHosts();
+      unsubscribeResync();
     };
   });
 

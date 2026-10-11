@@ -63,11 +63,20 @@ export function useTerminalStream(
    * Takes the terminal explicitly so the caller doesn't have to assume React
    * has re-rendered with it by the time the create/attach round trip lands. A
    * cold session passes no snapshot, which writes the queue as-is.
+   *
+   * `replace` is for a re-attach into a terminal that already shows the
+   * session (a bridge resync, ADR-220 D3): the buffer is reset first, so the
+   * snapshot replaces the old screen rather than repeating it below.
    */
   const openRestored = useCallback(
-    (target: Terminal, snapshot?: TerminalRestore | null) => {
+    (
+      target: Terminal,
+      snapshot?: TerminalRestore | null,
+      { replace = false }: { replace?: boolean } = {},
+    ) => {
       const items = queuedRef.current ?? [];
       queuedRef.current = null;
+      if (replace) target.reset();
       if (snapshot?.ansi) target.write(snapshot.ansi);
       // The snapshot was serialized at the session's current size, so anything
       // it covers is already at that size; only the chunks after it, and the
@@ -86,7 +95,10 @@ export function useTerminalStream(
     [],
   );
 
-  /** Queue output again, so a re-attach gets the same ordering guarantee. */
+  /**
+   * Queue output again, so a re-attach gets the same ordering guarantee — on
+   * a remount, and on a resync that re-attaches in place.
+   */
   const closeOutput = useCallback(() => {
     queuedRef.current = [];
   }, []);

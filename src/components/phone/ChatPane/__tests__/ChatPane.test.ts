@@ -27,6 +27,7 @@ import {
 import { readChatView } from "../chat-view";
 import { useAppStore } from "../../../../store/app-store";
 import { useHostStore, type HostStatusInfo } from "../../../../store/host-store";
+import { emitBridgeResync } from "../../../../bridge/resync";
 
 const PANE = "pane-1";
 
@@ -668,5 +669,60 @@ describe("ChatPane — host offline (ADR-216 D4)", () => {
     expect(all("chat-unavailable")).toHaveLength(0);
     await act(async () => vi.advanceTimersByTime(20_000));
     expect(chat.getHistory).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("ChatPane — bridge resync (ADR-220 D3)", () => {
+  it("fetches history again and merges what was missed", async () => {
+    installChat({ ok: true, entries: [{ kind: "user", id: "u1", ts: "", text: "before" }] });
+    await renderChat();
+    await act(async () => listener?.(PANE, { kind: "assistant", id: "a1", ts: "", text: "live" }));
+
+    chat.getHistory.mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        entries: [
+          { kind: "user", id: "u1", ts: "", text: "before" },
+          { kind: "assistant", id: "a1", ts: "", text: "live" },
+          { kind: "user", id: "u2", ts: "", text: "missed" },
+        ],
+      }),
+    );
+    await act(async () => emitBridgeResync());
+    expect(chat.getHistory).toHaveBeenCalledTimes(2);
+    expect(all("chat-user").map((e) => e.textContent)).toEqual(["before", "missed"]);
+    expect(all("chat-assistant")).toHaveLength(1);
+  });
+
+  it("keeps the chat when the refetch fails, and stops listening once unmounted", async () => {
+    installChat({ ok: true, entries: [{ kind: "user", id: "u1", ts: "", text: "before" }] });
+    await renderChat();
+    chat.getHistory.mockImplementation(() => Promise.reject(new Error("dropped")));
+    await act(async () => emitBridgeResync());
+    expect(all("chat-unavailable")).toHaveLength(0);
+    expect(all("chat-user")[0].textContent).toBe("before");
+
+    act(() => {
+      root.unmount();
+    });
+    root = createRoot(container);
+    emitBridgeResync();
+    expect(chat.getHistory).toHaveBeenCalledTimes(2);
+  });
+
+  it("refetches slash commands it already has, and not ones it never fetched", async () => {
+    installChat({ ok: true, entries: [] });
+    const getCommands = vi.fn(() =>
+      Promise.resolve({ ok: true, skillsKnown: true, commands: BUILTIN_COMMANDS }),
+    );
+    Object.assign(chat, { getCommands });
+    await renderChat();
+    await act(async () => emitBridgeResync());
+    expect(getCommands).not.toHaveBeenCalled();
+
+    await typeInto(all("chat-composer-input")[0] as HTMLTextAreaElement, "/mo");
+    expect(getCommands).toHaveBeenCalledTimes(1);
+    await act(async () => emitBridgeResync());
+    expect(getCommands).toHaveBeenCalledTimes(2);
   });
 });

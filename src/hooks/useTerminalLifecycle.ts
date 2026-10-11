@@ -31,6 +31,7 @@ import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
 import { useOwnerFit, useFollowerFit } from "./useTerminalResize";
 import { useMountEffect } from "./useMountEffect";
+import { onBridgeResync } from "../bridge/resync";
 import {
   registerTerminal,
   unregisterTerminal,
@@ -414,6 +415,18 @@ export function useTerminalLifecycle(
       // casing here — pass it through like any workspace path.
       const spawnCwd = cwd ?? null;
 
+      // A create is in flight — the first one, or a resync's (below). A
+      // resync that lands meanwhile waits for it and then runs once.
+      let attaching = true;
+      let resyncPending = false;
+      const settleAttach = () => {
+        attaching = false;
+        if (resyncPending && !disposed) {
+          resyncPending = false;
+          resync();
+        }
+      };
+
       create(spawnCwd, cols, rows, agentKindForCreate).then(
         (result) => {
           if (disposed) return;
@@ -493,7 +506,53 @@ export function useTerminalLifecycle(
             );
           }
         },
-      );
+      ).finally(settleAttach);
+
+      // The bridge came back from a drop, or the user asked for a refresh
+      // (ADR-220 D3): whatever was printed while the socket was down never
+      // arrived, so attach again in place. The same create/attach as above,
+      // against the xterm already on screen: queue output again, ask for a
+      // fresh snapshot, then reset the buffer and write the snapshot plus the
+      // chunks it does not cover. Only an attach, so none of the first
+      // attach's one-time work (pane context, agent resume) runs again.
+      function resync(): void {
+        if (disposed) return;
+        if (attaching) {
+          resyncPending = true;
+          return;
+        }
+        attaching = true;
+        closeOutput();
+        create(spawnCwd, t.cols, t.rows, agentKindForCreate).then(
+          (result) => {
+            if (disposed) return;
+            applyWinsize(result);
+            if (!result.ok) {
+              if (result.reason === "error") {
+                setPtyError(result.error || "Failed to create terminal session");
+              }
+              // Let output flow again onto the screen as it was.
+              openRestored(t);
+              return;
+            }
+            // A first attach lost to the drop may have left its error up.
+            setPtyError(null);
+            openRestored(
+              t,
+              result.snapshot
+                ? { ansi: result.snapshot, seq: result.snapshotSeq }
+                : null,
+              { replace: true },
+            );
+          },
+          () => {
+            // Most likely the socket dropped again, and its next hello
+            // resyncs once more. Meanwhile, keep output flowing.
+            if (!disposed) openRestored(t);
+          },
+        ).finally(settleAttach);
+      }
+      const resyncUnsub = onBridgeResync(resync);
 
       // Terminal title changes (OSC sequences) → local side map only. The
       // server hears the same title from the daemon and records it itself.
@@ -511,6 +570,7 @@ export function useTerminalLifecycle(
       return () => {
         disposed = true;
         container.removeEventListener("paste", onDomPaste, true);
+        resyncUnsub();
         // Queue output again for whoever attaches next: the ordering guarantee
         // belongs to each attach, not to the first one of this component's life.
         closeOutput();

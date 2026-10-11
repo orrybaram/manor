@@ -1,13 +1,11 @@
 import { useCallback, useRef, useState } from "react";
-import { refreshState } from "../../../bridge/resync";
-import { onBridgeResync } from "../../../bridge/resync";
+import { onBridgeResync, refreshState } from "../../../bridge/resync";
 import type { ChatEntry, ChatHistory } from "../../../electron.d";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { useAppStore } from "../../../store/app-store";
 import { useHostStore } from "../../../store/host-store";
 import { Button } from "../../ui/Button/Button";
-import { PullIndicator } from "../PullIndicator";
-import { usePullToRefresh } from "../usePullToRefresh";
+import { PullToRefresh } from "../PullToRefresh";
 import {
   answerablePickerId,
   groupEntries,
@@ -97,10 +95,10 @@ export function ChatPane(props: ChatPaneProps) {
       }
     };
 
-    function fetchHistory(): void {
-      if (fetching) return;
+    function fetchHistory(): Promise<void> {
+      if (fetching) return Promise.resolve();
       fetching = true;
-      chat.getHistory(paneId).then(
+      return chat.getHistory(paneId).then(
         (history) => {
           fetching = false;
           if (!alive) return;
@@ -135,17 +133,17 @@ export function ChatPane(props: ChatPaneProps) {
       setEntries((prev) => upsertEntry(prev, entry));
       noteChatEntries(paneId, transcript, [entry]);
       // The transcript is readable again: catch up on what was missed.
-      if (offline) fetchHistory();
+      if (offline) void fetchHistory();
     });
     const unsubscribeHosts = useHostStore.subscribe((state, prev) => {
-      if (offline && state.hosts !== prev.hosts) fetchHistory();
+      if (offline && state.hosts !== prev.hosts) void fetchHistory();
     });
     // The bridge came back from a drop, or the user asked for a refresh
     // (ADR-220 D3): catch up on entries pushed while the socket was down.
     // Entries upsert by id, so this merges, and an unchanged newest entry
     // leaves scroll-follow where the user put it.
     const unsubscribeResync = onBridgeResync(fetchHistory);
-    fetchHistory();
+    void fetchHistory();
     return () => {
       alive = false;
       setOffline(false);
@@ -188,11 +186,6 @@ export function ChatPane(props: ChatPaneProps) {
     lastScrollTop.current = el.scrollTop;
   };
 
-  // Pulling down at the top refreshes the bridge. It moves an overlay and
-  // never scrolls, so it can't change what bottom-follow sees.
-  const scrollerRef = useRef<HTMLDivElement>(null);
-  const { pull, refreshing } = usePullToRefresh(scrollerRef, refreshState, !unavailable);
-
   const answerableId = answerablePickerId(entries);
   const busy = status === "thinking" || status === "working";
   const items = groupEntries(entries);
@@ -218,8 +211,14 @@ export function ChatPane(props: ChatPaneProps) {
         </div>
       ) : (
         <>
-          <PullIndicator pull={pull} refreshing={refreshing} />
-          <div ref={scrollerRef} className={styles.scroller} onScroll={onScroll}>
+          {/* Pulling down at the top refreshes the bridge. It moves an
+              overlay and never scrolls, so it can't change what
+              bottom-follow sees. */}
+          <PullToRefresh
+            onRefresh={refreshState}
+            className={styles.scroller}
+            onScroll={onScroll}
+          >
             <div ref={followBottom} className={styles.entries}>
               {loaded && entries.length === 0 && (
                 <p className={styles.empty}>Nothing in this conversation yet.</p>
@@ -240,7 +239,7 @@ export function ChatPane(props: ChatPaneProps) {
               })}
               {thinking && <ChatThinking key={entries[entries.length - 1]?.id ?? ""} />}
             </div>
-          </div>
+          </PullToRefresh>
           {needsYou && (
             <div className={styles.needsYou} data-testid="chat-needs-you">
               <span>Claude needs you</span>

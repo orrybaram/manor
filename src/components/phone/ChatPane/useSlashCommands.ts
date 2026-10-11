@@ -63,8 +63,9 @@ function wrap(index: number, n: number): number {
  *
  * The composer calls `sync(text, caret)` from its change and select handlers,
  * which is where a fetch is started. The one effect is the bridge resync
- * (ADR-220 D3): a list already fetched is fetched again, since skills may
- * have changed while the socket was down. One never fetched stays lazy.
+ * (ADR-220 D3): a list already fetched is marked stale, since skills may
+ * have changed while the socket was down, so the next open refetches it.
+ * One never fetched stays lazy.
  */
 export function useSlashCommands(
   paneId: string,
@@ -109,15 +110,8 @@ export function useSlashCommands(
     );
   };
 
-  // Read by the resync listener, which lives as long as the mount.
-  const fetchRef = useRef(fetchCommands);
-  fetchRef.current = fetchCommands;
-  const cachedRef = useRef(false);
-  cachedRef.current = cache !== null;
   useMountEffect(() =>
-    onBridgeResync(() => {
-      if (cachedRef.current) fetchRef.current();
-    }),
+    onBridgeResync(() => setCache((c) => c && { ...c, at: 0 })),
   );
 
   /** Call with the field's text and caret after every change or selection. */

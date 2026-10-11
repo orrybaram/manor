@@ -798,7 +798,7 @@ describe("ChatPane — bridge resync (ADR-220 D3)", () => {
     expect(chat.getHistory).toHaveBeenCalledTimes(2);
   });
 
-  it("refetches slash commands it already has, and not ones it never fetched", async () => {
+  it("refetches slash commands it already has on the next open, and not ones it never fetched", async () => {
     installChat({ ok: true, entries: [] });
     const getCommands = vi.fn(() =>
       Promise.resolve({ ok: true, skillsKnown: true, commands: BUILTIN_COMMANDS }),
@@ -808,9 +808,19 @@ describe("ChatPane — bridge resync (ADR-220 D3)", () => {
     await act(async () => emitBridgeResync());
     expect(getCommands).not.toHaveBeenCalled();
 
-    await typeInto(all("chat-composer-input")[0] as HTMLTextAreaElement, "/mo");
+    const input = all("chat-composer-input")[0] as HTMLTextAreaElement;
+    await typeInto(input, "/mo");
     expect(getCommands).toHaveBeenCalledTimes(1);
+    // A fresh list is not refetched on reopening.
+    await typeInto(input, "");
+    await typeInto(input, "/mo");
+    expect(getCommands).toHaveBeenCalledTimes(1);
+
+    // The resync marks it stale; the next open refetches it.
     await act(async () => emitBridgeResync());
+    expect(getCommands).toHaveBeenCalledTimes(1);
+    await typeInto(input, "");
+    await typeInto(input, "/mo");
     expect(getCommands).toHaveBeenCalledTimes(2);
   });
 });

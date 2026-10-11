@@ -1,5 +1,6 @@
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
 import styles from "./PullIndicator.module.css";
+import { HOLD_PX } from "./usePullToRefresh";
 
 type PullIndicatorProps = {
   /** How far the pull has travelled, in px (`usePullToRefresh`). */
@@ -17,7 +18,7 @@ export function PullIndicator(props: PullIndicatorProps) {
       className={styles.indicator}
       data-testid="pull-indicator"
       data-refreshing={refreshing || undefined}
-      style={{ transform: `translateY(${pull}px)`, opacity: Math.min(pull / 48, 1) }}
+      style={{ transform: `translateY(${pull}px)`, opacity: Math.min(pull / HOLD_PX, 1) }}
       aria-hidden
     >
       <RefreshCw

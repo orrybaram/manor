@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo } from "react";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import Settings from "lucide-react/dist/esm/icons/settings";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
@@ -23,8 +23,7 @@ import { UnreadBadge } from "../../notifications/UnreadBadge";
 import { AgentDot } from "../../ui/AgentDot/AgentDot";
 import { Button } from "../../ui/Button/Button";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
-import { PullIndicator } from "../PullIndicator";
-import { usePullToRefresh } from "../usePullToRefresh";
+import { PullToRefresh } from "../PullToRefresh";
 import {
   buildAgentsDrawerModel,
   type AgentsDrawerNeedsYou,
@@ -64,8 +63,6 @@ export function PhoneAgentsPanel(props: PhoneAgentsPanelProps) {
   const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
   const projects = useProjectStore((s) => s.projects);
   const shouldPulse = useAgentPulse();
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const { pull, refreshing } = usePullToRefresh(scrollRef, refreshState);
 
   const model = useMemo(
     () => buildAgentsDrawerModel({ agents, paneAgentStatus, projects }),
@@ -108,8 +105,7 @@ export function PhoneAgentsPanel(props: PhoneAgentsPanelProps) {
       </div>
 
       <div className={styles.scrollArea}>
-      <PullIndicator pull={pull} refreshing={refreshing} />
-      <div ref={scrollRef} className={styles.scroll}>
+      <PullToRefresh onRefresh={refreshState} className={styles.scroll}>
         {agents.length === 0 ? (
           <div className={styles.empty} data-testid="drawer-agents-empty">
             <p className={styles.emptyText}>No agents running</p>
@@ -165,7 +161,7 @@ export function PhoneAgentsPanel(props: PhoneAgentsPanelProps) {
             ))}
           </>
         )}
-      </div>
+      </PullToRefresh>
       </div>
 
       <div className={styles.bottom}>

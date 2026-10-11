@@ -90,10 +90,12 @@ class FakeSocket {
 const FAKE_UNREACHABLE = 4504;
 
 /**
- * A pipe whose every connection is a new `FakeSocket`. With `probe`, each
- * connection can be probed (the answer is up to the test) and closed.
+ * A pipe whose every connection is a new `FakeSocket`. Each connection can be
+ * probed (the answer is up to the test; by default it answers) and closed.
  */
-function fakePipe(probe?: (socket: FakeSocket) => Promise<boolean>): Pipe {
+function fakePipe(
+  probe: (socket: FakeSocket) => Promise<boolean> = () => Promise.resolve(true),
+): Pipe {
   return {
     unreachableCodes: new Set([FAKE_UNREACHABLE]),
     connect(handlers) {
@@ -106,10 +108,8 @@ function fakePipe(probe?: (socket: FakeSocket) => Promise<boolean>): Pipe {
           return socket.readyState === 1;
         },
         send: (text) => socket.send(text),
-        ...(probe && {
-          probe: () => probe(socket),
-          close: () => socket.drop(FAKE_UNREACHABLE),
-        }),
+        probe: () => probe(socket),
+        close: () => socket.drop(FAKE_UNREACHABLE),
       };
     },
   };
@@ -549,7 +549,7 @@ describe("the socket transport", () => {
       FakeSocket.last.drop();
       const opened = FakeSocket.instances.length;
 
-      t.checkNow();
+      void t.probeNow();
       expect(FakeSocket.instances).toHaveLength(opened + 1);
 
       // The next failure waits the first step again, not 4s.
@@ -575,7 +575,6 @@ describe("the socket transport", () => {
       await expect(t.probeNow()).resolves.toBe("redialing");
       expect(socket.readyState).toBe(3);
       expect(onStatus).toHaveBeenLastCalledWith("unreachable");
-      await vi.advanceTimersByTimeAsync(0);
       expect(FakeSocket.instances).toHaveLength(2);
 
       // And the backoff starts over from there.
@@ -590,8 +589,8 @@ describe("the socket transport", () => {
         () => new Promise<boolean>((resolve) => (answer = resolve)),
       );
       const t = transport(probe);
-      t.checkNow();
-      t.checkNow();
+      void t.probeNow();
+      void t.probeNow();
       const outcome = t.probeNow();
       expect(probe).toHaveBeenCalledOnce();
       answer(true);
@@ -613,12 +612,58 @@ describe("the socket transport", () => {
       expect(FakeSocket.instances).toHaveLength(2);
     });
 
-    it("dials when there is no socket yet, and never without a token", () => {
+    it("rejects what was in flight on a dead socket, and ignores its late close", async () => {
+      const t = transport(() => Promise.resolve(false));
+      const socket = FakeSocket.last;
+      const call = t.invoke("projects", "getAll", []);
+      await expect(t.probeNow()).resolves.toBe("redialing");
+      await expect(call).rejects.toBeInstanceOf(BridgeDisconnectedError);
+      // The dead socket reports its close after the redial: no second dial.
+      socket.drop(1006);
+      vi.advanceTimersByTime(60_000);
+      expect(FakeSocket.instances).toHaveLength(2);
+    });
+
+    it("dials when there is no socket yet, and never without a token", async () => {
       const t = createWsTransport({ token: "full-token", pipe: fakePipe() });
-      t.checkNow();
+      await expect(t.probeNow()).resolves.toBe("redialing");
       expect(FakeSocket.instances).toHaveLength(1);
-      createWsTransport({ token: null, pipe: fakePipe() }).checkNow();
+      await expect(
+        createWsTransport({ token: null, pipe: fakePipe() }).probeNow(),
+      ).resolves.toBe("stopped");
       expect(FakeSocket.instances).toHaveLength(1);
+    });
+
+    it("reports stopped once the host refused the token", async () => {
+      const t = transport();
+      FakeSocket.last.drop(4401);
+      await expect(t.probeNow()).resolves.toBe("stopped");
+      expect(FakeSocket.instances).toHaveLength(1);
+    });
+
+    it("tells the hello handler whether it resumed a connection", () => {
+      const onHello = vi.fn();
+      const t = createWsTransport({
+        token: "full-token",
+        pipe: fakePipe(),
+        onHello,
+      });
+      void t.invoke("projects", "getAll", []).catch(() => {});
+      const hello = { type: "hello", ok: true, v: 1, rendererId: "r-1" };
+      FakeSocket.last.accept();
+      FakeSocket.last.deliver(hello);
+      expect(onHello).toHaveBeenLastCalledWith(
+        expect.objectContaining({ resumed: false }),
+      );
+
+      FakeSocket.last.drop();
+      vi.advanceTimersByTime(1_000);
+      FakeSocket.last.accept();
+      expect(last(FakeSocket.last.frames)).toMatchObject({ previousId: "r-1" });
+      FakeSocket.last.deliver(hello);
+      expect(onHello).toHaveBeenLastCalledWith(
+        expect.objectContaining({ resumed: true }),
+      );
     });
   });
 

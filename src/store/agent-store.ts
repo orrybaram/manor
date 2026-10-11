@@ -4,7 +4,7 @@ import { useToastStore } from "./toast-store";
 import { useAppStore, selectVisiblePaneIds } from "./app-store";
 import { navigateToAgent } from "../utils/agent-navigation";
 import { cleanAgentTitle } from "../utils/agent-title";
-import { onBridgeResync } from "../bridge/resync";
+import { bootAndResync } from "../bridge/resync";
 
 /** Page size used for the initial agent load and for `loadMoreAgents`. */
 const TASK_PAGE_SIZE = 100;
@@ -147,12 +147,13 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
     }
   };
 
-  const init = async (): Promise<void> => {
-    await refetch();
+  bootAndResync(refetch);
+
+  // Boot only: a resync re-fetches state but must not repeat the prune notice.
+  const consumePruneNotice = async (): Promise<void> => {
     if (!window.electronAPI?.agents) return;
     // One-time prune notice. Surfaces only when the most recent boot
-    // actually deleted agents AND the user has not been notified yet. Boot
-    // only: a resync re-fetches state but must not repeat this.
+    // actually deleted agents AND the user has not been notified yet.
     try {
       const prunedCount = await window.electronAPI.agents.consumePruneNotice();
       if (prunedCount > 0) {
@@ -168,8 +169,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       // Older preload — feature absent. Safe to ignore.
     }
   };
-  init();
-  onBridgeResync(() => void refetch());
+  void consumePruneNotice();
 
   return {
     agents: [],

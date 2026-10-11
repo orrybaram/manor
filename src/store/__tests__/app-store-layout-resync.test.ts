@@ -1,7 +1,8 @@
 /**
- * A bridge resync re-reads every workspace and lets the version guard decide
- * (ADR-220 D2): newer local state is kept, older local state is replaced, and
- * this window's own viewport survives either way.
+ * A bridge resync re-reads every workspace and merges it the way the boot
+ * read does (ADR-220 D2, ADR-221 ticket 7): newer local state is kept, older
+ * local state is replaced, a workspace the server dropped goes, and this
+ * window's own viewport survives either way.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { useAppStore } from "../app-store";
@@ -99,7 +100,98 @@ describe("layout resync", () => {
     expect(state.paneTitle["p-new"]).toBe("vim");
   });
 
+  it("primes agent status from paneSessions without overriding a live one", async () => {
+    useAppStore.setState({
+      paneAgentStatus: { "p-live": { status: "working", kind: "claude" } },
+    } as never);
+    answerWith({
+      [WS_PATH]: {
+        ...serverEntry(6, incoming),
+        paneSessions: {
+          "p-new": { lastAgentStatus: { status: "idle", kind: "claude" } },
+          "p-live": { lastAgentStatus: { status: "idle", kind: "claude" } },
+        },
+      },
+    } as never);
+    emitBridgeResync();
+    await settled();
+    const { paneAgentStatus } = useAppStore.getState();
+    expect(paneAgentStatus["p-new"]?.status).toBe("idle");
+    expect(paneAgentStatus["p-live"]?.status).toBe("working");
+  });
+
+  it("drops a removed workspace's mount, viewport and pane side maps", async () => {
+    useAppStore.setState({
+      mountedWorkspaces: { [WS_PATH]: true },
+      viewports: {
+        [WS_PATH]: {
+          activePanelId: "panel-1",
+          selectedTabIds: { "panel-1": "t-held" },
+          focusedPaneIds: {},
+        },
+      },
+      paneCwd: { "p-held": "/tmp/held" },
+    });
+    answerWith({});
+    emitBridgeResync();
+    await settled();
+    const state = useAppStore.getState();
+    expect(state.mountedWorkspaces[WS_PATH]).toBeUndefined();
+    expect(state.viewports[WS_PATH]).toBeUndefined();
+    expect(state.paneCwd["p-held"]).toBeUndefined();
+  });
+
+  it("repairs this window's viewport instead of taking the server's default", async () => {
+    const twoTabs: WorkspaceLayout = {
+      panelTree: { type: "leaf", panelId: "panel-1" },
+      panels: {
+        "panel-1": {
+          id: "panel-1",
+          tabs: [
+            { id: "t-a", title: "A", rootNode: { type: "leaf", paneId: "p-a" } },
+            { id: "t-b", title: "B", rootNode: { type: "leaf", paneId: "p-b" } },
+          ],
+          pinnedTabIds: [],
+        },
+      },
+    };
+    useAppStore.setState({
+      mountedWorkspaces: { [WS_PATH]: true },
+      viewports: {
+        [WS_PATH]: {
+          activePanelId: "panel-1",
+          selectedTabIds: { "panel-1": "t-b" },
+          focusedPaneIds: {},
+        },
+      },
+    });
+    answerWith({
+      [WS_PATH]: {
+        ...serverEntry(6, twoTabs),
+        defaultViewport: {
+          activePanelId: "panel-1",
+          selectedTabIds: { "panel-1": "t-a" },
+          focusedPaneIds: {},
+        },
+      },
+    } as never);
+    emitBridgeResync();
+    await settled();
+    const state = useAppStore.getState();
+    expect(state.workspaceLayouts[WS_PATH]).toBe(twoTabs);
+    expect(state.viewports[WS_PATH].selectedTabIds).toEqual({ "panel-1": "t-b" });
+  });
+
+  it("does not seed a viewport for a workspace this window has not opened", async () => {
+    answerWith({ [WS_PATH]: serverEntry(6, incoming) });
+    emitBridgeResync();
+    await settled();
+    expect(useAppStore.getState().viewports[WS_PATH]).toBeUndefined();
+  });
+
   it("keeps a workspace whose creation landed while the read was in flight", async () => {
+    // The only workspace the server can be missing from its read: the store
+    // holds no layout for a workspace until the server's broadcast creates it.
     const OTHER = "/test/other";
     vi.spyOn(window.electronAPI.layout, "getAll").mockImplementation(
       async () => {

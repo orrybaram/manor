@@ -158,7 +158,7 @@ describe("install-web on a relay-served page", () => {
     expect(local.has(WEB_RELAY_KEY)).toBe(true);
   });
 
-  it("emits a resync on every hello but the first", async () => {
+  it("emits a resync on a resumed hello, not the first", async () => {
     const { api } = await install(relayHash());
     // Same module registry as the install above, so the same listener set.
     const { onBridgeResync } = await import("../resync");
@@ -202,8 +202,6 @@ describe("install-web on a relay-served page", () => {
     await vi.advanceTimersByTimeAsync(2_000);
     await refreshed;
     expect(resync).not.toHaveBeenCalled();
-    // A zero delay, which fake timers stretch to 1ms when it is set mid-tick.
-    await vi.advanceTimersByTimeAsync(1);
     expect(FakeRelaySocket.instances).toHaveLength(2);
     FakeRelaySocket.last.handshake();
     expect(resync).toHaveBeenCalledOnce();

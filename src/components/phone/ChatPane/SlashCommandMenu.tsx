@@ -1,15 +1,12 @@
-import type { ChatCommand } from "../../../../electron/chat-mirror/builtin-commands";
 import { Button } from "../../ui/Button/Button";
 import styles from "./ChatPane.module.css";
 import { slashOptionId } from "./slash-commands";
+import type { ListboxLevel } from "./useSlashCommands";
 
 type SlashCommandMenuProps = {
-  listboxId: string;
-  items: ChatCommand[];
-  selectedIndex: number;
+  level: Extract<ListboxLevel, { kind: "commands" }>;
   /** False until the session's skill list is known: say why none show. */
   skillsKnown: boolean;
-  onPick: (index: number) => void;
 };
 
 function scrollIntoViewNearest(node: HTMLElement | null) {
@@ -25,37 +22,40 @@ function scrollIntoViewNearest(node: HTMLElement | null) {
  * cancelled and the pick happens on click, which keeps the soft keyboard up.
  */
 export function SlashCommandMenu(props: SlashCommandMenuProps) {
-  const { listboxId, items, selectedIndex, skillsKnown, onPick } = props;
+  const { level, skillsKnown } = props;
 
   return (
     <div className={styles.slashMenu} data-testid="slash-command-menu">
-      <div className={styles.slashMenuList} role="listbox" id={listboxId} aria-label="Commands">
-        {items.map((item, index) => {
-          const selected = index === selectedIndex;
+      <div
+        className={styles.slashMenuList}
+        role="listbox"
+        id={level.listboxId}
+        aria-label="Commands"
+      >
+        {level.rows.map((row, index) => {
+          const selected = index === level.selectedIndex;
           return (
             <Button
-              key={item.name}
+              key={row.key}
               ref={selected ? scrollIntoViewNearest : undefined}
               variant="ghost"
-              id={slashOptionId(listboxId, index)}
+              id={slashOptionId(level.listboxId, index)}
               role="option"
               aria-selected={selected}
               tabIndex={-1}
               className={`${styles.slashItem} ${selected ? styles.slashItemSelected : ""}`}
-              data-testid="slash-command-item"
-              data-command={item.name}
+              data-testid={row.testId}
+              data-command={row.command}
               onPointerDown={(e) => e.preventDefault()}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onPick(index)}
+              onClick={row.activate}
             >
               <span className={styles.slashItemHead}>
-                <span className={styles.slashItemName}>/{item.name}</span>
-                {item.menu && !item.choices && (
-                  <span className={styles.slashItemTag}>Opens in terminal</span>
-                )}
+                <span className={styles.slashItemName}>{row.label}</span>
+                {row.tag && <span className={styles.slashItemTag}>{row.tag}</span>}
               </span>
-              {item.description && (
-                <span className={styles.slashItemDescription}>{item.description}</span>
+              {row.description && (
+                <span className={styles.slashItemDescription}>{row.description}</span>
               )}
             </Button>
           );

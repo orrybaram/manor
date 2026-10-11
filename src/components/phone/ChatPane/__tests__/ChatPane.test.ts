@@ -635,6 +635,64 @@ describe("ChatPane — choice sheet (ADR-218 D2)", () => {
     expect(chat.send).not.toHaveBeenCalled();
     expect(input.value).toBe("/model");
   });
+
+  const keyOn = (input: HTMLElement, k: string) =>
+    act(async () => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+    });
+
+  it("dismissing the sheet keeps the / menu shut, and any edit reopens it", async () => {
+    const input = await openSheet();
+    await keyOn(input, "Escape");
+    expect(all("command-choice-sheet")).toHaveLength(0);
+    expect(all("slash-command-menu")).toHaveLength(0);
+
+    await typeInto(input, "/mode");
+    expect(all("slash-command-menu")).toHaveLength(1);
+  });
+
+  it("a tap outside the sheet dismisses it the same way", async () => {
+    await openSheet();
+    await act(async () => {
+      // The backdrop, drawn just before the sheet.
+      all("command-choice-sheet")[0]
+        .previousElementSibling?.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    });
+    expect(all("command-choice-sheet")).toHaveLength(0);
+    expect(all("slash-command-menu")).toHaveLength(0);
+  });
+
+  it("the textarea's aria follows whichever listbox is showing", async () => {
+    const input = await openSheet();
+    const sheetList = all("command-choice-sheet")[0].querySelector('[role="listbox"]');
+    expect(input.getAttribute("aria-expanded")).toBe("true");
+    expect(input.getAttribute("aria-controls")).toBe(sheetList?.id);
+    expect(input.getAttribute("aria-activedescendant")).toBe(
+      all("command-choice-default")[0].id,
+    );
+    await keyOn(input, "ArrowUp");
+    expect(input.getAttribute("aria-activedescendant")).toBe(
+      all("command-choice-terminal")[0].id,
+    );
+
+    await keyOn(input, "Escape");
+    expect(input.getAttribute("aria-expanded")).toBe("false");
+    expect(input.getAttribute("aria-controls")).toBeNull();
+    expect(input.getAttribute("aria-activedescendant")).toBeNull();
+  });
+
+  it("Tab completes a command, and does nothing on the sheet", async () => {
+    const input = await openSheet();
+    await keyOn(input, "Tab");
+    expect(all("command-choice-sheet")).toHaveLength(1);
+    expect(chat.send).not.toHaveBeenCalled();
+
+    await typeInto(input, "/clea");
+    expect(all("command-choice-sheet")).toHaveLength(0);
+    await keyOn(input, "Tab");
+    expect(input.value).toBe("/clear ");
+    expect(all("slash-command-menu")).toHaveLength(0);
+  });
 });
 
 describe("ChatPane — host offline (ADR-216 D4)", () => {

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import {
   findBuiltin,
   type ChatCommand,
@@ -12,8 +12,49 @@ const STALE_MS = 30_000;
 
 type CommandCache = { commands: ChatCommand[]; skillsKnown: boolean; at: number };
 
+/** One option in a listbox level. `activate` is what tapping it or Enter on
+ *  it does. */
+export type ListboxRow = {
+  key: string;
+  label: string;
+  description?: string;
+  testId: string;
+  activate: () => void;
+  /** Command rows: the name, as `data-command`, and a tag beside it. */
+  command?: string;
+  tag?: string;
+};
+
 /**
- * The composer's `/` menu state (ADR-217 D5).
+ * The listbox the composer drives from its textarea: the `/` menu, or the
+ * choice sheet that one of its commands opens (ADR-218 D2). Only one is
+ * active at a time.
+ */
+export type ListboxLevel = {
+  listboxId: string;
+  rows: ListboxRow[];
+  selectedIndex: number;
+  move: (delta: number) => void;
+  activateSelected: () => void;
+  /** Esc or a tap outside: close, and keep the `/` menu shut until the text
+   *  changes. */
+  dismiss: () => void;
+} & ({ kind: "commands" } | { kind: "choices"; command: ChatCommand });
+
+/** What the composer does for a row: put text in the field, or send it. */
+type SlashActions = {
+  fill: (text: string, caret: number) => void;
+  send: (text: string) => void;
+};
+
+function wrap(index: number, n: number): number {
+  return ((index % n) + n) % n;
+}
+
+/**
+ * The composer's `/` menu state (ADR-217 D5), and the choice sheet a command
+ * with `choices` opens in its place (ADR-218 D2). `level` is whichever is
+ * showing, as one listbox; picking a row calls back into `actions`.
  *
  * The command list is fetched lazily with `chat.getCommands` the first time a
  * `/` query appears, kept here, and refetched when the menu opens on a list
@@ -25,7 +66,13 @@ type CommandCache = { commands: ChatCommand[]; skillsKnown: boolean; at: number 
  * (ADR-220 D3): a list already fetched is fetched again, since skills may
  * have changed while the socket was down. One never fetched stays lazy.
  */
-export function useSlashCommands(paneId: string, text: string, caret: number) {
+export function useSlashCommands(
+  paneId: string,
+  text: string,
+  caret: number,
+  actions: SlashActions,
+) {
+  const listboxId = `${useId()}-slash-listbox`;
   const [cache, setCache] = useState<CommandCache | null>(null);
   const [selection, setSelection] = useState<{ query: string; index: number }>({
     query: "",
@@ -33,6 +80,9 @@ export function useSlashCommands(paneId: string, text: string, caret: number) {
   });
   // Esc closes the menu until the text changes.
   const [dismissedText, setDismissedText] = useState<string | null>(null);
+  // The command whose choice sheet is open, and its selected row.
+  const [choiceFor, setChoiceFor] = useState<ChatCommand | null>(null);
+  const [choiceIndex, setChoiceIndex] = useState(0);
   const inFlightRef = useRef(false);
   // Whether the last `sync` saw a query, so a fetch happens on each open.
   const hadQueryRef = useRef(false);
@@ -74,6 +124,8 @@ export function useSlashCommands(paneId: string, text: string, caret: number) {
   const sync = (nextText: string, nextCaret: number) => {
     // Any edit lifts an Esc, even one that later retypes the same text.
     if (dismissedText !== null && nextText !== dismissedText) setDismissedText(null);
+    // Typing past the choice sheet drops it.
+    if (nextText !== text) setChoiceFor(null);
     const hasQuery = findSlashQuery(nextText, nextCaret) !== null;
     const opening = hasQuery && !hadQueryRef.current;
     hadQueryRef.current = hasQuery;
@@ -81,25 +133,88 @@ export function useSlashCommands(paneId: string, text: string, caret: number) {
     if (!cache || Date.now() - cache.at > STALE_MS) fetchCommands();
   };
 
-  const move = (delta: number) => {
-    if (!open || !slash) return;
-    const n = items.length;
-    setSelection({ query: slash.query, index: (((selectedIndex + delta) % n) + n) % n });
-  };
-
-  /** What picking row `index` does, or null if closed: fill in `/name `, or
-   *  for a command with `choices` hand it over for the choice sheet (ADR-218
-   *  D2), leaving the text alone. */
-  const pick = (
-    index: number,
-  ): ({ kind: "text"; text: string; caret: number } | { kind: "choices"; command: ChatCommand }) | null => {
-    const item = items[index];
-    if (!open || !item) return null;
-    if (item.choices?.length) return { kind: "choices", command: item };
-    return { kind: "text", ...applyCommand(text, caret, item.name) };
-  };
-
   const close = () => setDismissedText(text);
+
+  const commandRow = (item: ChatCommand): ListboxRow => ({
+    key: item.name,
+    label: `/${item.name}`,
+    description: item.description || undefined,
+    testId: "slash-command-item",
+    command: item.name,
+    tag: item.menu && !item.choices ? "Opens in terminal" : undefined,
+    activate: () => {
+      // A command with fixed arguments opens its choice sheet, leaving the
+      // text alone; any other fills in `/name `.
+      if (item.choices?.length) {
+        setChoiceFor(item);
+        setChoiceIndex(0);
+        return;
+      }
+      const next = applyCommand(text, caret, item.name);
+      actions.fill(next.text, next.caret);
+    },
+  });
+
+  const choiceRows = (command: ChatCommand): ListboxRow[] => {
+    const head = `/${command.name}`;
+    const closeThen = (act: () => void) => () => {
+      setChoiceFor(null);
+      act();
+    };
+    return [
+      ...(command.choices ?? []).map((choice) => ({
+        key: choice.value,
+        label: choice.label,
+        description: choice.description,
+        testId: `command-choice-${choice.value}`,
+        activate: closeThen(() => actions.send(`${head} ${choice.value}`)),
+      })),
+      {
+        key: "other",
+        label: "Other…",
+        testId: "command-choice-other",
+        activate: closeThen(() => actions.fill(`${head} `, head.length + 1)),
+      },
+      {
+        key: "terminal",
+        label: "Open menu in terminal",
+        testId: "command-choice-terminal",
+        activate: closeThen(() => actions.send(head)),
+      },
+    ];
+  };
+
+  const level = ((): ListboxLevel | null => {
+    if (choiceFor) {
+      const rows = choiceRows(choiceFor);
+      const selected = Math.min(choiceIndex, rows.length - 1);
+      return {
+        kind: "choices",
+        command: choiceFor,
+        listboxId: `${listboxId}-choices`,
+        rows,
+        selectedIndex: selected,
+        move: (delta) => setChoiceIndex(wrap(selected + delta, rows.length)),
+        activateSelected: () => rows[selected].activate(),
+        dismiss: () => {
+          setChoiceFor(null);
+          close();
+        },
+      };
+    }
+    if (!open || !slash) return null;
+    const rows = items.map(commandRow);
+    return {
+      kind: "commands",
+      listboxId,
+      rows,
+      selectedIndex,
+      move: (delta) =>
+        setSelection({ query: slash.query, index: wrap(selectedIndex + delta, rows.length) }),
+      activateSelected: () => rows[selectedIndex].activate(),
+      dismiss: close,
+    };
+  })();
 
   /** The entry for `/name`: the fetched one, else the built-in (a skill of the
    *  same name replaces a built-in). */
@@ -107,14 +222,9 @@ export function useSlashCommands(paneId: string, text: string, caret: number) {
     cache?.commands.find((c) => c.name === name) ?? findBuiltin(name);
 
   return {
-    open,
-    items,
-    selectedIndex,
+    level,
     skillsKnown: cache?.skillsKnown ?? true,
     sync,
-    move,
-    pick,
-    close,
     lookup,
   };
 }

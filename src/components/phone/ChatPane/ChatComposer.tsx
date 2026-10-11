@@ -1,9 +1,11 @@
 import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import Square from "lucide-react/dist/esm/icons/square";
 import { useId, useRef, useState } from "react";
+import type { ChatCommand } from "../../../../electron/chat-mirror/builtin-commands";
 import { Button } from "../../ui/Button/Button";
 import { EmojiTextarea } from "../../ui/EmojiAutocomplete";
 import styles from "./ChatPane.module.css";
+import { CommandChoiceSheet } from "./CommandChoiceSheet";
 import { slashOptionId, splitCommand } from "./slash-commands";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { markChatStarting, startMenuHandoff } from "./usePaneChatView";
@@ -48,6 +50,11 @@ export function ChatComposer(props: ChatComposerProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const listboxId = `${useId()}-slash-listbox`;
 
+  // The command whose choice sheet is open (ADR-218 D2), and its selected row.
+  const [choiceFor, setChoiceFor] = useState<ChatCommand | null>(null);
+  const [choiceIndex, setChoiceIndex] = useState(0);
+  const choiceListboxId = `${listboxId}-choices`;
+
   const slash = useSlashCommands(paneId, text, caret);
 
   const canSend = text.trim().length > 0 && !sending;
@@ -58,23 +65,30 @@ export function ChatComposer(props: ChatComposerProps) {
     slash.sync(nextText, nextCaret);
   };
 
-  const pick = (index: number) => {
-    const next = slash.pick(index);
-    if (!next) return;
-    update(next.text, next.caret);
+  const focusAt = (position: number) => {
     requestAnimationFrame(() => {
       const el = inputRef.current;
       if (!el) return;
       el.focus();
-      el.setSelectionRange(next.caret, next.caret);
+      el.setSelectionRange(position, position);
     });
   };
 
-  const send = () => {
-    if (!canSend) return;
+  const pick = (index: number) => {
+    const next = slash.pick(index);
+    if (!next) return;
+    if (next.kind === "choices") {
+      setChoiceFor(next.command);
+      setChoiceIndex(0);
+      return;
+    }
+    update(next.text, next.caret);
+    focusAt(next.caret);
+  };
+
+  const sendText = (sent: string) => {
     setSending(true);
     setError(null);
-    const sent = text.trimEnd();
     window.electronAPI.chat.send(paneId, sent).then(
       () => {
         update("", 0);
@@ -94,6 +108,39 @@ export function ChatComposer(props: ChatComposerProps) {
     );
   };
 
+  const send = () => {
+    if (!canSend) return;
+    sendText(text.trimEnd());
+  };
+
+  const chooseValue = (value: string) => {
+    if (!choiceFor) return;
+    setChoiceFor(null);
+    sendText(`/${choiceFor.name} ${value}`);
+  };
+
+  const chooseOther = () => {
+    if (!choiceFor) return;
+    const head = `/${choiceFor.name} `;
+    setChoiceFor(null);
+    update(head, head.length);
+    focusAt(head.length);
+  };
+
+  const chooseTerminal = () => {
+    if (!choiceFor) return;
+    setChoiceFor(null);
+    sendText(`/${choiceFor.name}`);
+  };
+
+  /** Enter on the sheet: the selected choice, "Other…" or the terminal row. */
+  const chooseSelected = () => {
+    const choices = choiceFor?.choices ?? [];
+    if (choiceIndex < choices.length) chooseValue(choices[choiceIndex].value);
+    else if (choiceIndex === choices.length) chooseOther();
+    else chooseTerminal();
+  };
+
   const stop = () => {
     void window.electronAPI.chat.interrupt(paneId).catch(() => {
       setError("Couldn't stop Claude. Try the terminal.");
@@ -104,7 +151,18 @@ export function ChatComposer(props: ChatComposerProps) {
 
   return (
     <div className={styles.composer} data-keyboard-lift data-testid="chat-composer">
-      {slash.open && (
+      {choiceFor && (
+        <CommandChoiceSheet
+          command={choiceFor}
+          selectedIndex={choiceIndex}
+          listboxId={choiceListboxId}
+          onChoose={chooseValue}
+          onOther={chooseOther}
+          onOpenInTerminal={chooseTerminal}
+          onDismiss={() => setChoiceFor(null)}
+        />
+      )}
+      {slash.open && !choiceFor && (
         <SlashCommandMenu
           listboxId={listboxId}
           items={slash.items}
@@ -123,17 +181,50 @@ export function ChatComposer(props: ChatComposerProps) {
           placeholder="Type / for commands"
           aria-label="Message Claude"
           data-testid="chat-composer-input"
-          aria-expanded={slash.open}
-          aria-controls={slash.open ? listboxId : undefined}
+          aria-expanded={slash.open || choiceFor !== null}
+          aria-controls={choiceFor ? choiceListboxId : slash.open ? listboxId : undefined}
           aria-activedescendant={
-            slash.open ? slashOptionId(listboxId, slash.selectedIndex) : undefined
+            choiceFor
+              ? slashOptionId(choiceListboxId, choiceIndex)
+              : slash.open
+                ? slashOptionId(listboxId, slash.selectedIndex)
+                : undefined
           }
-          onChange={(e) => update(e.target.value, e.target.selectionStart ?? e.target.value.length)}
+          onChange={(e) => {
+            // Typing past the sheet drops it.
+            setChoiceFor(null);
+            update(e.target.value, e.target.selectionStart ?? e.target.value.length);
+          }}
           onSelect={(e) => {
             const el = e.currentTarget;
             if (el.selectionStart !== caret) update(el.value, el.selectionStart);
           }}
           onKeyDown={(e) => {
+            if (choiceFor && !e.nativeEvent.isComposing && !e.metaKey && !e.ctrlKey && !e.altKey) {
+              const rows = (choiceFor.choices?.length ?? 0) + 2;
+              let handled = true;
+              switch (e.key) {
+                case "ArrowDown":
+                  setChoiceIndex((choiceIndex + 1) % rows);
+                  break;
+                case "ArrowUp":
+                  setChoiceIndex((choiceIndex + rows - 1) % rows);
+                  break;
+                case "Enter":
+                  chooseSelected();
+                  break;
+                case "Escape":
+                  setChoiceFor(null);
+                  break;
+                default:
+                  handled = false;
+              }
+              if (handled) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+              }
+            }
             if (slash.open && !e.nativeEvent.isComposing && !e.metaKey && !e.ctrlKey && !e.altKey) {
               let handled = true;
               switch (e.key) {

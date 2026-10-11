@@ -653,6 +653,27 @@ button.more {
   color: var(--text-dim);
 }
 
+.choiceHeader {
+  flex-shrink: 0;
+  padding: 8px 14px 4px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-selected);
+}
+
+.choiceLabel {
+  font-size: 14px;
+  color: var(--text-selected);
+}
+
+/* Catches a tap outside the choice sheet; the sheet sits above it. */
+.choiceBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+}
+
 .slashMenuFooter {
   flex-shrink: 0;
   padding: 6px 12px;

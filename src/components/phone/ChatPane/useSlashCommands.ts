@@ -70,11 +70,16 @@ export function useSlashCommands(paneId: string, text: string, caret: number) {
     setSelection({ query: slash.query, index: (((selectedIndex + delta) % n) + n) % n });
   };
 
-  /** The text and caret after picking row `index`, or null if closed. */
-  const pick = (index: number): { text: string; caret: number } | null => {
+  /** What picking row `index` does, or null if closed: fill in `/name `, or
+   *  for a command with `choices` hand it over for the choice sheet (ADR-218
+   *  D2), leaving the text alone. */
+  const pick = (
+    index: number,
+  ): ({ kind: "text"; text: string; caret: number } | { kind: "choices"; command: ChatCommand }) | null => {
     const item = items[index];
     if (!open || !item) return null;
-    return applyCommand(text, caret, item.name);
+    if (item.choices?.length) return { kind: "choices", command: item };
+    return { kind: "text", ...applyCommand(text, caret, item.name) };
   };
 
   const close = () => setDismissedText(text);

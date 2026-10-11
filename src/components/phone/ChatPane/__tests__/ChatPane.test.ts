@@ -15,6 +15,7 @@ vi.hoisted(() => {
 });
 
 import type { ChatAnswerResult, ChatEntry, ChatHistory } from "../../../../electron.d";
+import { BUILTIN_COMMANDS } from "../../../../../electron/chat-mirror/builtin-commands";
 import { ChatPane } from "../ChatPane";
 import {
   endMenuHandoff,
@@ -531,6 +532,77 @@ describe("menu handoff (ADR-218 D3)", () => {
     await click(all("chat-send")[0]);
     expect(chat.send).toHaveBeenCalledWith(PANE, "/model sonnet");
     expect(handoffs()).toEqual({});
+  });
+});
+
+describe("ChatPane — choice sheet (ADR-218 D2)", () => {
+  const view = () => usePaneChatViewStore.getState().views[PANE] ?? "chat";
+
+  beforeEach(() => {
+    // jsdom has no layout, so no scrollIntoView.
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  async function openSheet(): Promise<HTMLTextAreaElement> {
+    installChat({ ok: true, entries: [] });
+    Object.assign(chat, {
+      getCommands: vi.fn(() =>
+        Promise.resolve({ ok: true, skillsKnown: true, commands: BUILTIN_COMMANDS }),
+      ),
+    });
+    await renderChat();
+    const input = all("chat-composer-input")[0] as HTMLTextAreaElement;
+    await typeInto(input, "/model");
+    await click(container.querySelector('[data-command="model"]') ?? undefined);
+    return input;
+  }
+
+  it("picking /model opens the sheet, and a choice sends it without leaving the chat", async () => {
+    const input = await openSheet();
+    expect(all("command-choice-sheet")).toHaveLength(1);
+    expect(all("slash-command-menu")).toHaveLength(0);
+    expect(input.value).toBe("/model");
+
+    await click(all("command-choice-sonnet")[0]);
+    expect(chat.send).toHaveBeenCalledWith(PANE, "/model sonnet");
+    expect(all("command-choice-sheet")).toHaveLength(0);
+    expect(input.value).toBe("");
+    expect(view()).toBe("chat");
+  });
+
+  it("Other prefills the command", async () => {
+    const input = await openSheet();
+    await click(all("command-choice-other")[0]);
+    expect(all("command-choice-sheet")).toHaveLength(0);
+    expect(input.value).toBe("/model ");
+    expect(chat.send).not.toHaveBeenCalled();
+  });
+
+  it("Open menu in terminal sends the bare command and hands off", async () => {
+    await openSheet();
+    await click(all("command-choice-terminal")[0]);
+    expect(chat.send).toHaveBeenCalledWith(PANE, "/model");
+    expect(usePaneChatViewStore.getState().handoffs[PANE]?.name).toBe("model");
+    expect(view()).toBe("terminal");
+  });
+
+  it("arrows and Enter pick, and Esc closes without sending", async () => {
+    const input = await openSheet();
+    const key = (k: string) =>
+      act(async () => {
+        input.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+      });
+    await key("ArrowDown");
+    await key("Enter");
+    expect(chat.send).toHaveBeenCalledWith(PANE, "/model fable");
+
+    chat.send.mockClear();
+    await typeInto(input, "/model");
+    await click(container.querySelector('[data-command="model"]') ?? undefined);
+    await key("Escape");
+    expect(all("command-choice-sheet")).toHaveLength(0);
+    expect(chat.send).not.toHaveBeenCalled();
+    expect(input.value).toBe("/model");
   });
 });
 

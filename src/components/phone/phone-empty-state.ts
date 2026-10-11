@@ -1,5 +1,6 @@
 import type { AgentInfo } from "../../electron.d";
 import type { HostId } from "../../lib/hosts";
+import { byUpdatedDesc } from "../../utils/relative-time";
 
 /** How many past agents the empty workspace offers to jump back into. */
 export const RECENT_AGENT_LIMIT = 8;
@@ -24,7 +25,7 @@ export function recentWorkspaceAgents(
   if (!workspacePath) return [];
   return agents
     .filter((a) => a.workspacePath === workspacePath && a.hostId === hostId)
-    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+    .sort(byUpdatedDesc)
     .slice(0, RECENT_AGENT_LIMIT);
 }
 

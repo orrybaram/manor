@@ -36,3 +36,14 @@ function split(ms: number): { minutes: number; hours: number; days: number } {
     days: Math.floor(elapsed / 86_400_000),
   };
 }
+
+/** `relativeShort` of an ISO timestamp; empty when it doesn't parse. */
+export function relativeShortIso(iso: string): string {
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? "" : relativeShort(ms);
+}
+
+/** Sort comparator: most recently updated first. */
+export function byUpdatedDesc(a: { updatedAt: string }, b: { updatedAt: string }): number {
+  return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
+}

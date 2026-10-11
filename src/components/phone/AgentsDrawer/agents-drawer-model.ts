@@ -1,97 +1,149 @@
-import type { AgentInfo, AgentStatus } from "../../../electron.d";
-import type { ProjectInfo } from "../../../store/project-store";
+import type { AgentInfo, AgentStatus, PaneAgentStatus } from "../../../electron.d";
+import { isHomePath } from "../../../lib/home";
+import { needsYouItems } from "../../../lib/home-dashboard";
+import type { ProjectInfo, WorkspaceInfo } from "../../../store/project-store";
+import { byUpdatedDesc, relativeShortIso } from "../../../utils/relative-time";
 
-export interface AgentsDrawerGroup {
-  projectId: string;
+/** One "Needs you" card: the agent and where it runs. */
+export interface AgentsDrawerNeedsYou {
+  agent: AgentInfo;
   projectName: string;
   color: string | null;
-  agents: AgentInfo[];
+  workspaceLabel: string;
+}
+
+/** One agent in a project group, with the label shown at its trailing edge. */
+export interface AgentsDrawerRow {
+  agent: AgentInfo;
+  /** The live status while it's working, thinking or errored, else the age. */
+  trailing: string;
+  error: boolean;
+}
+
+export interface AgentsDrawerGroup {
+  /** The project id, or its name when the agent carries no id. */
+  key: string;
+  projectName: string;
+  color: string | null;
+  rows: AgentsDrawerRow[];
 }
 
 export interface AgentsDrawerModel {
-  needsYou: AgentInfo[];
+  needsYou: AgentsDrawerNeedsYou[];
   groups: AgentsDrawerGroup[];
+  /** "2 · 5 workspaces", for the Projects row. */
+  projectsSummary: string;
 }
 
 interface AgentsDrawerInput {
-  agents: (AgentInfo & { projectName: string })[];
-  statusByPane: Record<string, AgentStatus | undefined>;
-  projects: Pick<ProjectInfo, "id" | "name" | "color">[];
+  agents: readonly (AgentInfo & { projectName: string })[];
+  paneAgentStatus: Readonly<Record<string, PaneAgentStatus>>;
+  projects: readonly ProjectInfo[];
 }
 
-function rank(status: AgentStatus | undefined): number {
-  if (status === "thinking" || status === "working") return 0;
-  if (status === "error") return 1;
-  return 2;
-}
+type Bucket = { projectName: string; agents: AgentInfo[] };
 
-const byUpdatedDesc = (a: AgentInfo, b: AgentInfo) =>
-  b.updatedAt.localeCompare(a.updatedAt);
+const NO_UNSEEN: ReadonlySet<string> = new Set();
 
 /**
- * Splits agents into a "needs you" list and per-project groups for the phone
- * drawer (ADR-219). Statuses are read as given, never re-derived.
+ * Where a grouped row sorts and what it says: live work first, then errors,
+ * then the rest. A null `label` means the row shows its age instead.
+ */
+export function rowState(status: AgentStatus | undefined): {
+  rank: number;
+  label: string | null;
+} {
+  if (status === "thinking" || status === "working") return { rank: 0, label: status };
+  if (status === "error") return { rank: 1, label: status };
+  return { rank: 2, label: null };
+}
+
+/** The agent's workspace name, else the last segment of its path. */
+function workspaceLabel(agent: AgentInfo, workspace: WorkspaceInfo | undefined): string {
+  if (agent.workspacePath && isHomePath(agent.workspacePath)) return "Dashboard";
+  const path = agent.workspacePath ?? agent.cwd;
+  const basename = path.split("/").filter(Boolean).pop() ?? "";
+  return workspace?.name || workspace?.branch || basename;
+}
+
+/**
+ * Splits agents into a "Needs you" list and per-project groups for the phone
+ * drawer (ADR-219). "Needs you" is the dashboard's `input` tier
+ * (`needsYouItems`), so the label means the same agents on both surfaces.
+ * Statuses are read as given, never re-derived.
  */
 export function buildAgentsDrawerModel({
   agents,
-  statusByPane,
+  paneAgentStatus,
   projects,
 }: AgentsDrawerInput): AgentsDrawerModel {
   const statusOf = (a: AgentInfo) =>
-    a.paneId ? statusByPane[a.paneId] : undefined;
+    a.paneId ? paneAgentStatus[a.paneId]?.status : undefined;
 
-  const needsYou: AgentInfo[] = [];
-  const buckets = new Map<
-    string,
-    { projectId: string | null; projectName: string; agents: AgentInfo[] }
-  >();
+  const needsYou: AgentsDrawerNeedsYou[] = [];
+  const pinned = new Set<string>();
+  const items = needsYouItems({
+    projects,
+    agents,
+    paneAgentStatus,
+    unseenRespondedAgentIds: NO_UNSEEN,
+  });
+  for (const item of items) {
+    if (item.kind !== "agent" || item.tier !== "input") continue;
+    pinned.add(item.agent.id);
+    needsYou.push({
+      agent: item.agent,
+      projectName: item.project.name,
+      color: item.project.color,
+      workspaceLabel: workspaceLabel(item.agent, item.workspace),
+    });
+  }
+  needsYou.sort((a, b) => byUpdatedDesc(a.agent, b.agent));
 
+  const buckets = new Map<string, Bucket>();
   for (const agent of agents) {
-    if (statusOf(agent) === "requires_input") {
-      needsYou.push(agent);
-      continue;
-    }
+    if (pinned.has(agent.id)) continue;
     const key = agent.projectId ?? agent.projectName;
     let bucket = buckets.get(key);
     if (!bucket) {
-      bucket = {
-        projectId: agent.projectId,
-        projectName: agent.projectName,
-        agents: [],
-      };
+      bucket = { projectName: agent.projectName, agents: [] };
       buckets.set(key, bucket);
     }
     bucket.agents.push(agent);
   }
 
-  needsYou.sort(byUpdatedDesc);
+  const toGroup = (key: string, bucket: Bucket, color: string | null): AgentsDrawerGroup => ({
+    key,
+    projectName: bucket.projectName,
+    color,
+    rows: bucket.agents
+      .map((agent) => ({ agent, state: rowState(statusOf(agent)) }))
+      .sort((x, y) => x.state.rank - y.state.rank || byUpdatedDesc(x.agent, y.agent))
+      .map(({ agent, state }) => ({
+        agent,
+        trailing: state.label ?? relativeShortIso(agent.updatedAt),
+        error: state.label === "error",
+      })),
+  });
 
-  const projectIndex = new Map(projects.map((p, i) => [p.id, i]));
-  const colorById = new Map(projects.map((p) => [p.id, p.color]));
+  // Known projects in store order, then the rest by name.
+  const groups: AgentsDrawerGroup[] = [];
+  for (const project of projects) {
+    const bucket = buckets.get(project.id);
+    if (!bucket) continue;
+    buckets.delete(project.id);
+    groups.push(toGroup(project.id, bucket, project.color));
+  }
+  const unknown = [...buckets.entries()].sort(([, a], [, b]) =>
+    a.projectName.localeCompare(b.projectName),
+  );
+  for (const [key, bucket] of unknown) groups.push(toGroup(key, bucket, null));
 
-  const groups = [...buckets.entries()]
-    .map(([key, b]) => ({
-      key,
-      index: b.projectId ? (projectIndex.get(b.projectId) ?? -1) : -1,
-      group: {
-        projectId: key,
-        projectName: b.projectName,
-        color: (b.projectId ? colorById.get(b.projectId) : null) ?? null,
-        agents: b.agents.sort(
-          (x, y) =>
-            rank(statusOf(x)) - rank(statusOf(y)) || byUpdatedDesc(x, y),
-        ),
-      },
-    }))
-    .sort((a, b) => {
-      if (a.index === -1 && b.index === -1) {
-        return a.group.projectName.localeCompare(b.group.projectName);
-      }
-      if (a.index === -1) return 1;
-      if (b.index === -1) return -1;
-      return a.index - b.index;
-    })
-    .map((g) => g.group);
+  const workspaceCount = projects.reduce((n, p) => n + p.workspaces.length, 0);
 
-  return { needsYou, groups };
+  return {
+    needsYou,
+    groups,
+    projectsSummary: `${projects.length} · ${workspaceCount} workspaces`,
+  };
 }

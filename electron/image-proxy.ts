@@ -16,7 +16,7 @@ export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export interface ProxyImageOptions {
   url: string;
   authorization: string;
-  /** Whether a hop may carry `authorization`; only https URLs are asked. */
+  /** Whether a hop may carry `authorization`; only https URLs are asked. The initial URL must pass it. */
   isTrusted: (url: URL) => boolean;
   fetchImpl?: typeof fetch;
 }
@@ -31,6 +31,9 @@ export async function fetchImageDataUrl(
   const signal = AbortSignal.timeout(TIMEOUT_MS);
 
   let target = new URL(options.url);
+  if (target.protocol !== "https:" || !isTrusted(target)) {
+    throw new Error("Not a trusted image host");
+  }
   for (let hop = 0; ; hop++) {
     const trusted = target.protocol === "https:" && isTrusted(target);
     const res = await fetchImpl(target.href, {

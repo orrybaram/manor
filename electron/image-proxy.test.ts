@@ -43,6 +43,17 @@ describe("fetchImageDataUrl", () => {
     expect(fetchImpl.mock.calls[1][1].headers).toEqual({});
   });
 
+  it("throws without fetching when the initial URL is untrusted", async () => {
+    const fetchImpl = vi.fn();
+    await expect(
+      fetchImageDataUrl({ url: "https://evil.example/a.png", authorization: "t", isTrusted: trusted, fetchImpl }),
+    ).rejects.toThrow(/trusted/);
+    await expect(
+      fetchImageDataUrl({ url: "http://trusted.example/a.png", authorization: "t", isTrusted: trusted, fetchImpl }),
+    ).rejects.toThrow(/trusted/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("refuses a redirect off https", async () => {
     const fetchImpl = vi.fn(async () => response(302, { location: "http://trusted.example/a.png" }));
     await expect(

@@ -1016,8 +1016,13 @@ function App() {
           }
         }}
       />
-      <ToastContainer />
-      <UnlockToast />
+      {/* No toasts in phone mode. */}
+      {layoutMode !== "phone" && (
+        <>
+          <ToastContainer />
+          <UnlockToast />
+        </>
+      )}
       {!OWN_CLAIM && showGhosts && <GhostsOverlay />}
     </div>
     </TooltipProvider>

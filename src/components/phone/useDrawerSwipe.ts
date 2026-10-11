@@ -6,8 +6,11 @@ const AXIS_SLOP_PX = 8;
 /** Dragged further left than this, the drawer closes; short of it, it
  *  springs back. */
 const CLOSE_DISTANCE_PX = 60;
-/** A swipe that opens the drawer has to start this close to the left edge. */
-const EDGE_ZONE_PX = 32;
+/** A swipe that opens the drawer has to start in this left fraction of the
+ *  screen. Not a thin edge strip: on Android with gesture navigation the
+ *  system back gesture owns the outermost ~20–30px, and a swipe that starts
+ *  there is the OS's, never the page's. */
+const OPEN_ZONE_FRACTION = 0.5;
 /** Dragged further right than this from the edge, the drawer opens. */
 const OPEN_DISTANCE_PX = 40;
 
@@ -23,10 +26,30 @@ function lockAxis(dx: number, dy: number): Axis | null {
 }
 
 /**
- * Swipe in from the left edge to open the drawer. Listens on the document in
- * the capture phase, so a terminal or the chat transcript under the finger
- * can't swallow the gesture first; a gesture that starts out vertical is that
- * view's scroll and is left alone. While `enabled` is false (another modal or
+ * Whether something under the finger would scroll if dragged rightward —
+ * a wide terminal follower or a code block panned away from its start. That
+ * drag is the scroller's; one already at its left edge has nothing to give.
+ */
+function canScrollLeftUnder(target: EventTarget | null): boolean {
+  for (
+    let el = target instanceof Element ? target : null;
+    el;
+    el = el.parentElement
+  ) {
+    if (el.scrollLeft > 0) {
+      const { overflowX } = getComputedStyle(el);
+      if (overflowX === "auto" || overflowX === "scroll") return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Swipe right from the left half of the screen to open the drawer. Listens on
+ * the document in the capture phase, so a terminal or the chat transcript
+ * under the finger can't swallow the gesture first; a gesture that starts out
+ * vertical is that view's scroll and is left alone, and so is one that starts
+ * on something that can still scroll left (`canScrollLeftUnder`). While `enabled` is false (another modal or
  * sheet is open) the gesture does nothing.
  */
 export function useEdgeSwipeToOpen(onOpen: () => void, enabled: boolean) {
@@ -41,7 +64,10 @@ export function useEdgeSwipeToOpen(onOpen: () => void, enabled: boolean) {
     const onStart = (e: globalThis.TouchEvent) => {
       const t = e.touches[0];
       gesture =
-        enabledRef.current && e.touches.length === 1 && t.clientX <= EDGE_ZONE_PX
+        enabledRef.current &&
+        e.touches.length === 1 &&
+        t.clientX <= window.innerWidth * OPEN_ZONE_FRACTION &&
+        !canScrollLeftUnder(e.target)
           ? { x: t.clientX, y: t.clientY, axis: null }
           : null;
     };

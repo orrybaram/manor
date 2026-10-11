@@ -36,6 +36,12 @@ import { HostIndicator } from "../hosts/HostIndicator";
 import { tabBadgeHostId } from "./tab-host-badge";
 import { TabAgentDot } from "./TabAgentDot";
 import { isWebApp } from "../../lib/platform";
+import { useLayoutMode } from "../../hooks/useLayoutMode";
+import {
+  PhoneRenameDialog,
+  PhoneTabMenuContent,
+  type PhoneRenameTarget,
+} from "../phone/PhoneTabMenu";
 import styles from "./TabBar/TabBar.module.css";
 
 /** The tab bar's own tabs, in DOM order, within the tab holding `from`. */
@@ -223,6 +229,16 @@ export function TabButton(props: TabButtonProps) {
   // keeps Radix's own default (don't steal focus after a click).
   const openedByKeyboard = useRef(false);
   const tabElRef = useRef<HTMLDivElement | null>(null);
+  // A phone long-presses a tab for its own, shorter menu.
+  const phone = useLayoutMode() === "phone";
+  const [renaming, setRenaming] = useState<PhoneRenameTarget | null>(null);
+  const closeAutoFocus = (e: Event) => {
+    if (openedByKeyboard.current) {
+      e.preventDefault();
+      tabElRef.current?.focus();
+    }
+    openedByKeyboard.current = false;
+  };
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
@@ -317,15 +333,18 @@ export function TabButton(props: TabButtonProps) {
         </div>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
+        {phone ? (
+          <PhoneTabMenuContent
+            paneId={focusedPaneId}
+            canClose={canClose}
+            onClose={onClose}
+            onRename={setRenaming}
+            onCloseAutoFocus={closeAutoFocus}
+          />
+        ) : (
         <ContextMenu.Content
           className={styles.contextMenu}
-          onCloseAutoFocus={(e) => {
-            if (openedByKeyboard.current) {
-              e.preventDefault();
-              tabElRef.current?.focus();
-            }
-            openedByKeyboard.current = false;
-          }}
+          onCloseAutoFocus={closeAutoFocus}
         >
           <ContextMenu.Item
             className={styles.contextMenuItem}
@@ -425,7 +444,12 @@ export function TabButton(props: TabButtonProps) {
             </>
           )}
         </ContextMenu.Content>
+        )}
       </ContextMenu.Portal>
+      {/* Outside the menu, which unmounts as the item closes it. */}
+      {renaming && (
+        <PhoneRenameDialog target={renaming} onDone={() => setRenaming(null)} />
+      )}
     </ContextMenu.Root>
   );
 }

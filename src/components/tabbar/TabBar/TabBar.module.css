@@ -21,6 +21,8 @@
   background: transparent;
   -webkit-app-region: drag;
   user-select: none;
+  /* A long-press opens the tab's menu, not iOS's callout. */
+  -webkit-touch-callout: none;
 }
 
 /* The top-left panel's tabs start past the WindowLead. App.tsx sets the

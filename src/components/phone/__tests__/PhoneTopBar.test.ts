@@ -288,7 +288,7 @@ describe("PhoneTopBar — overflow menu's view item", () => {
   });
 });
 
-describe("PhoneTopBar — overflow menu's diff and rename items", () => {
+describe("PhoneTopBar — overflow menu's diff item", () => {
   const PANE = "pane-1";
 
   function seedLayout(contentType?: "diff"): void {
@@ -350,70 +350,6 @@ describe("PhoneTopBar — overflow menu's diff and rename items", () => {
     renderBar();
     openMenu();
     expect(byTestId("phone-overflow-diff")).toBeNull();
-  });
-
-  it("renames the workspace from a dialog", () => {
-    const renameWorkspace = vi.fn(async () => {});
-    seedProjects({ name: "old-name" });
-    seedLayout();
-    useProjectStore.setState({ renameWorkspace });
-    renderBar();
-
-    openMenu();
-    click("phone-overflow-rename-workspace");
-    const input = byTestId("phone-rename-input") as HTMLInputElement;
-    expect(input.value).toBe("old-name");
-    act(() => {
-      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-      set.call(input, "  new-name ");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    click("phone-rename-save");
-    expect(renameWorkspace).toHaveBeenCalledWith("p1", WS, "new-name");
-    expect(byTestId("phone-rename-dialog")).toBeNull();
-  });
-
-  it("does not offer renaming a project's main checkout", () => {
-    useProjectStore.setState({
-      projects: [
-        { id: "p1", workspaces: [{ path: WS, isMain: true }] } as unknown as ProjectInfo,
-      ],
-    });
-    seedLayout();
-    renderBar();
-    openMenu();
-    expect(byTestId("phone-overflow-rename-workspace")).toBeNull();
-  });
-
-  it("renames the focused pane's agent, only when it has one", () => {
-    const renameAgent = vi.fn(async () => {});
-    seedProjects({ name: "ws" });
-    seedLayout();
-    renderBar();
-    openMenu();
-    expect(byTestId("phone-overflow-rename-agent")).toBeNull();
-    click("phone-overflow-button");
-
-    act(() =>
-      useAgentStore.setState({
-        renameAgent,
-        agents: [
-          {
-            id: "agent-1",
-            paneId: PANE,
-            status: "active",
-            agentKind: "codex",
-            name: "fix bug",
-            createdAt: 1,
-          } as unknown as AgentInfo,
-        ],
-      }),
-    );
-    openMenu();
-    click("phone-overflow-rename-agent");
-    expect((byTestId("phone-rename-input") as HTMLInputElement).value).toBe("fix bug");
-    click("phone-rename-save");
-    expect(renameAgent).toHaveBeenCalledWith("agent-1", "fix bug");
   });
 
   it("still renders on Home, for Refresh", () => {

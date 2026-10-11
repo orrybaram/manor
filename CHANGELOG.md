@@ -15,7 +15,7 @@
 - Terminal resync no longer brings back dead sessions or changes the terminal's window size
 - Agent status and the slash-command list now refresh correctly after a resync
 - Pull-to-refresh now waits for the data to finish reloading before it completes
-- One pane's status failing to load no longer blocks status updates for other panes
+- A busy agent's status update during a resync no longer discards the refreshed statuses of other panes
 - Closing the choice sheet keeps the `/` menu closed, and any edit reopens it
 - Phone drawer now closes after tapping an agent, Settings or Add project
 - Phone chat now sends Enter separately, so messages always submit

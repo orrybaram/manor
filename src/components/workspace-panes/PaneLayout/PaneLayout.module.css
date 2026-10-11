@@ -17,8 +17,10 @@
 }
 
 .leafTerminalInset {
-  margin-left: 8px;
-  margin-top: 8px;
+  /* Padding, not margin: the terminal sits inset, but an absolutely placed
+     overlay (the phone chat, ADR-215 D7) still covers the pane edge to edge. */
+  padding-left: 8px;
+  padding-top: 8px;
 }
 
 .leafFocused {

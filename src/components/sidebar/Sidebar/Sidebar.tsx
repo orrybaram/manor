@@ -423,7 +423,16 @@ export function Sidebar(props: SidebarProps) {
               </div>
             </>
           </div>
-          <AgentsList onShowAll={onShowAgents} />
+          <AgentsList
+            onShowAll={
+              onShowAgents &&
+              (() => {
+                onShowAgents();
+                onNavigate?.();
+              })
+            }
+            onAgentSelect={onNavigate}
+          />
         </div>
         {/* Ports are for the desk; the phone's drawer leaves them out. */}
         {!isPhone && <PortsList />}

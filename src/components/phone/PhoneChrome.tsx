@@ -61,8 +61,14 @@ export function PhoneChrome(props: PhoneChromeProps) {
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
         onShowAgents={onShowAgents}
-        onOpenProjectSettings={onOpenProjectSettings}
-        onAddProject={onAddProject}
+        onOpenProjectSettings={(projectId) => {
+          setDrawerOpen(false);
+          onOpenProjectSettings(projectId);
+        }}
+        onAddProject={() => {
+          setDrawerOpen(false);
+          onAddProject();
+        }}
         onOpenSearch={() => {
           setDrawerOpen(false);
           onOpenSearch();

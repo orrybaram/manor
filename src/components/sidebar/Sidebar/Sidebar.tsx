@@ -424,13 +424,7 @@ export function Sidebar(props: SidebarProps) {
             </>
           </div>
           <AgentsList
-            onShowAll={
-              onShowAgents &&
-              (() => {
-                onShowAgents();
-                onNavigate?.();
-              })
-            }
+            onShowAll={onShowAgents}
             onAgentSelect={onNavigate}
           />
         </div>

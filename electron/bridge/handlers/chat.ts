@@ -19,7 +19,13 @@ import type {
   ChatCommands,
   ChatHistory,
 } from "../../chat-mirror/mirror";
-import { CHAT_SUBMIT, encodeChatMessage, type PickerAnswer } from "../../chat-mirror/picker-keys";
+import {
+  CHAT_KEYS,
+  CHAT_SUBMIT,
+  encodeChatMessage,
+  type ChatKey,
+  type PickerAnswer,
+} from "../../chat-mirror/picker-keys";
 import { method, type HandlerCtx } from "../method";
 
 const ESC = "\x1b";
@@ -58,6 +64,16 @@ export async function chatSend(ctx: HandlerCtx, paneId: string, text: string): P
 export function chatInterrupt(ctx: HandlerCtx, paneId: string): void {
   assertString(paneId, "paneId");
   ctx.deps.backend.pty.write(paneId, ESC);
+}
+
+/** One navigation key into the pane, for driving a TUI menu from the phone (ADR-218 D3). */
+export function chatKey(ctx: HandlerCtx, paneId: string, key: ChatKey): void {
+  assertString(paneId, "paneId");
+  assertString(key, "key");
+  if (!Object.prototype.hasOwnProperty.call(CHAT_KEYS, key)) {
+    throw new Error(`key: expected one of ${Object.keys(CHAT_KEYS).join(", ")}`);
+  }
+  ctx.deps.backend.pty.write(paneId, CHAT_KEYS[key]);
 }
 
 export function chatAnswer(
@@ -151,5 +167,6 @@ export const chat = {
   // keylogger (ADR-161), so none of these is audited.
   send: method(chatSend),
   interrupt: method(chatInterrupt),
+  key: method(chatKey),
   answer: method(chatAnswer),
 };

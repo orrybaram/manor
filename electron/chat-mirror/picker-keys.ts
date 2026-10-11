@@ -115,3 +115,17 @@ export function encodeChatMessage(text: string): string {
 
 /** The keystroke that submits Claude's prompt. */
 export const CHAT_SUBMIT = ENTER;
+
+/** The navigation keys the phone can press in a TUI menu (ADR-218 D3), as bytes. */
+export const CHAT_KEYS = {
+  up: "\x1b[A",
+  down: DOWN,
+  left: "\x1b[D",
+  right: "\x1b[C",
+  enter: ENTER,
+  esc: "\x1b",
+  tab: TAB,
+  space: " ",
+} as const;
+
+export type ChatKey = keyof typeof CHAT_KEYS;

@@ -408,13 +408,138 @@ test.describe("phone chat slash commands (ADR-217)", () => {
     }
   });
 
-  test("sending an interactive command switches the pane to the terminal", async ({
+  test("sending a menu command bare hands the pane to the terminal with a key bar, and returns on its transcript line", async ({
     app,
     window,
     tempHome,
     request,
   }) => {
-    const { client, pane, chat, inputLogFile } = await openChatPhone(
+    const { client, page, pane, chat, transcriptFile, inputLogFile } = await openChatPhone(
+      { app, window, tempHome, request },
+      "phone-chat-handoff",
+      () => {},
+    );
+    try {
+      const terminal = pane.locator('[data-testid="terminal-pane"]');
+      await chat.getByTestId("chat-composer-input").fill("/config");
+      await chat.getByTestId("chat-send").tap();
+      await expect
+        .poll(() => inputLog(inputLogFile), { timeout: 15_000 })
+        .toContain(`/config${ENTER}`);
+      await expect(terminal).toBeVisible({ timeout: 15_000 });
+      await expect(chat).not.toBeVisible();
+
+      const bar = page.getByTestId("menu-key-bar");
+      await expect(bar).toBeVisible({ timeout: 15_000 });
+      // The bar sits fully inside the phone's viewport, not under its edge.
+      const box = await bar.boundingBox();
+      const viewport = page.viewportSize();
+      expect(box).not.toBeNull();
+      expect(viewport).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.y).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width);
+      expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height);
+
+      await page.getByTestId("menu-key-down").tap();
+      await expect.poll(() => inputLog(inputLogFile), { timeout: 15_000 }).toContain(DOWN);
+
+      // The menu closes in the TUI: Claude Code writes the command and its
+      // output to the transcript, and the pane goes back to the chat.
+      appendTranscript(
+        transcriptFile,
+        userLine(
+          "<command-name>/config</command-name>\n<command-message>config</command-message>\n<command-args></command-args>",
+        ),
+        userLine("<local-command-stdout>Config dialog dismissed</local-command-stdout>"),
+      );
+      await expect(chat).toBeVisible({ timeout: 20_000 });
+      await expect(terminal).not.toBeVisible();
+      await expect(page.getByTestId("menu-key-bar")).toHaveCount(0);
+    } finally {
+      await client.close();
+    }
+  });
+
+  test("Back to chat leaves a handed-off menu without a transcript line", async ({
+    app,
+    window,
+    tempHome,
+    request,
+  }) => {
+    const { client, page, pane, chat, inputLogFile } = await openChatPhone(
+      { app, window, tempHome, request },
+      "phone-chat-back",
+      () => {},
+    );
+    try {
+      await chat.getByTestId("chat-composer-input").fill("/config");
+      await chat.getByTestId("chat-send").tap();
+      await expect
+        .poll(() => inputLog(inputLogFile), { timeout: 15_000 })
+        .toContain(`/config${ENTER}`);
+      await expect(page.getByTestId("menu-key-bar")).toBeVisible({ timeout: 15_000 });
+
+      await page.getByTestId("menu-key-back").tap();
+      await expect(chat).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId("menu-key-bar")).toHaveCount(0);
+      await expect(pane.locator('[data-testid="terminal-pane"]')).not.toBeVisible();
+      await expect(chat.getByTestId("chat-command")).toHaveCount(0);
+    } finally {
+      await client.close();
+    }
+  });
+
+  test("a command with fixed arguments opens a choice sheet that sends the pick", async ({
+    app,
+    window,
+    tempHome,
+    request,
+  }) => {
+    const { client, page, pane, chat, inputLogFile } = await openChatPhone(
+      { app, window, tempHome, request },
+      "phone-chat-choice",
+      () => {},
+    );
+    try {
+      const input = chat.getByTestId("chat-composer-input");
+      const sheet = page.getByTestId("command-choice-sheet");
+      const openSheet = async () => {
+        await input.fill("/");
+        await input.pressSequentially("mod");
+        const row = chat.getByTestId("slash-command-menu").locator('[data-command="model"]');
+        await expect(row).toBeVisible({ timeout: 15_000 });
+        await row.tap();
+        await expect(sheet).toBeVisible({ timeout: 15_000 });
+      };
+
+      // A tap outside the sheet, on the transcript area, closes it.
+      await openSheet();
+      await page.touchscreen.tap(195, 150);
+      await expect(sheet).toHaveCount(0);
+
+      // A choice sends the command with that argument, and stays on the chat.
+      await input.fill("");
+      await openSheet();
+      await page.getByTestId("command-choice-sonnet").tap();
+      await expect
+        .poll(() => inputLog(inputLogFile), { timeout: 15_000 })
+        .toContain(`/model sonnet${ENTER}`);
+      await expect(chat).toBeVisible();
+      await expect(pane.locator('[data-testid="terminal-pane"]')).not.toBeVisible();
+      await expect(sheet).toHaveCount(0);
+    } finally {
+      await client.close();
+    }
+  });
+
+  test("Open menu in terminal on the choice sheet hands off to the terminal", async ({
+    app,
+    window,
+    tempHome,
+    request,
+  }) => {
+    const { client, page, pane, chat, inputLogFile } = await openChatPhone(
       { app, window, tempHome, request },
       "phone-chat-interactive",
       () => {},
@@ -426,13 +551,13 @@ test.describe("phone chat slash commands (ADR-217)", () => {
       const row = chat.getByTestId("slash-command-menu").locator('[data-command="model"]');
       await expect(row).toBeVisible({ timeout: 15_000 });
       await row.tap();
-      await expect(input).toHaveValue("/model ");
-      await chat.getByTestId("chat-send").tap();
+      await page.getByTestId("command-choice-terminal").tap();
       await expect
         .poll(() => inputLog(inputLogFile), { timeout: 15_000 })
         .toContain(`/model${ENTER}`);
       await expect(pane.locator('[data-testid="terminal-pane"]')).toBeVisible({ timeout: 15_000 });
       await expect(chat).not.toBeVisible();
+      await expect(page.getByTestId("menu-key-bar")).toBeVisible();
     } finally {
       await client.close();
     }

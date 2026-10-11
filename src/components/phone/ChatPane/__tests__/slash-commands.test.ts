@@ -8,8 +8,8 @@ import {
 } from "../../../../../electron/chat-mirror/builtin-commands";
 import {
   applyCommand,
+  commandEffect,
   findSlashQuery,
-  firstWordCommand,
   matchCommands,
   splitCommand,
 } from "../slash-commands";
@@ -128,22 +128,6 @@ describe("applyCommand", () => {
   });
 });
 
-describe("firstWordCommand", () => {
-  it("returns the name of a leading command", () => {
-    expect(firstWordCommand("/model")).toBe("model");
-    expect(firstWordCommand("/model sonnet")).toBe("model");
-    expect(firstWordCommand("/model\nmore")).toBe("model");
-    expect(firstWordCommand("/anthropic-skills:pdf x")).toBe("anthropic-skills:pdf");
-  });
-
-  it("is null otherwise", () => {
-    expect(firstWordCommand("model")).toBeNull();
-    expect(firstWordCommand("/")).toBeNull();
-    expect(firstWordCommand("/ model")).toBeNull();
-    expect(firstWordCommand(" /model")).toBeNull();
-  });
-});
-
 describe("splitCommand", () => {
   it("splits the name from the trimmed args", () => {
     expect(splitCommand("/model sonnet")).toEqual({ name: "model", args: "sonnet" });
@@ -163,34 +147,48 @@ describe("splitCommand", () => {
 });
 
 describe("opensMenu", () => {
-  const model = cmd("model", "", { source: "builtin", interactive: true, argSkipsMenu: true });
-  const theme = cmd("theme", "", { source: "builtin", interactive: true });
+  const model = cmd("model", "", { source: "builtin", menu: "bare-only" });
+  const theme = cmd("theme", "", { source: "builtin", menu: "always" });
 
   it("opens when sent bare", () => {
-    expect(opensMenu(model, "model", "")).toBe(true);
-    expect(opensMenu(model, "model", "  ")).toBe(true);
+    expect(opensMenu(model, "")).toBe(true);
+    expect(opensMenu(model, "  ")).toBe(true);
   });
 
   it("doesn't open when an argument skips the menu", () => {
-    expect(opensMenu(model, "model", "sonnet")).toBe(false);
+    expect(opensMenu(model, "sonnet")).toBe(false);
   });
 
-  it("still opens with args when the command lacks argSkipsMenu", () => {
-    expect(opensMenu(theme, "theme", "dark")).toBe(true);
+  it("still opens with args for an always-menu command", () => {
+    expect(opensMenu(theme, "dark")).toBe(true);
   });
 
-  it("falls back to the built-in entry for an unknown name", () => {
-    expect(opensMenu(undefined, "model", "")).toBe(true);
-    expect(opensMenu(undefined, "model", "opus")).toBe(false);
-    expect(opensMenu(undefined, "theme", "dark")).toBe(true);
-    expect(opensMenu(undefined, "nonsense", "")).toBe(false);
+  it("doesn't open for a command without a menu or an unknown one", () => {
+    expect(opensMenu(cmd("review"), "")).toBe(false);
+    expect(opensMenu(undefined, "")).toBe(false);
+  });
+});
+
+describe("commandEffect", () => {
+  const lookup = (name: string) =>
+    ({ model: cmd("model", "", { menu: "bare-only" }), clear: cmd("clear") })[name];
+
+  it("is menu for a bare menu command", () => {
+    expect(commandEffect(splitCommand("/model"), lookup)).toBe("menu");
   });
 
-  it("follows a skill that overrides a non-interactive built-in", () => {
-    expect(opensMenu(cmd("review"), "review", "")).toBe(false);
+  it("is null when an argument skips the menu", () => {
+    expect(commandEffect(splitCommand("/model sonnet"), lookup)).toBeNull();
   });
 
-  it("follows a skill that overrides an interactive built-in", () => {
-    expect(opensMenu(cmd("model"), "model", "")).toBe(false);
+  it("is clear for /clear and its aliases", () => {
+    expect(commandEffect(splitCommand("/clear"), lookup)).toBe("clear");
+    expect(commandEffect(splitCommand("/reset"), lookup)).toBe("clear");
+    expect(commandEffect(splitCommand("/new"), lookup)).toBe("clear");
+  });
+
+  it("is null for plain text and unknown commands", () => {
+    expect(commandEffect(splitCommand("hello"), lookup)).toBeNull();
+    expect(commandEffect(splitCommand("/nonsense"), lookup)).toBeNull();
   });
 });

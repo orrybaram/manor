@@ -6,13 +6,10 @@ import { Button } from "../../ui/Button/Button";
 import { EmojiTextarea } from "../../ui/EmojiAutocomplete";
 import styles from "./ChatPane.module.css";
 import { CommandChoiceSheet } from "./CommandChoiceSheet";
-import { slashOptionId, splitCommand } from "./slash-commands";
+import { commandEffect, slashOptionId, splitCommand } from "./slash-commands";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { markChatStarting, startMenuHandoff } from "./usePaneChatView";
 import { useSlashCommands } from "./useSlashCommands";
-
-/** Claude Code's `/clear` and its aliases: each starts a new session. */
-const CLEAR_COMMANDS = new Set(["clear", "reset", "new"]);
 
 type ChatComposerProps = {
   paneId: string;
@@ -32,7 +29,7 @@ type ChatComposerProps = {
  * with a smaller Stop beside it.
  *
  * Typing `/` at the start opens the command menu (ADR-217 D5). Sending a
- * command that opens a TUI menu (`opensMenu`) hands the pane to the
+ * command that opens a TUI menu (`commandEffect`) hands the pane to the
  * terminal, where that menu is, until it closes (ADR-218 D3). Sending `/clear` leaves the old
  * conversation behind for a fresh chat.
  *
@@ -94,10 +91,10 @@ export function ChatComposer(props: ChatComposerProps) {
         update("", 0);
         setSending(false);
         const command = splitCommand(sent);
-        if (command && slash.opensMenu(command.name, command.args)) {
+        const effect = commandEffect(command, slash.lookup);
+        if (effect === "menu" && command) {
           startMenuHandoff(paneId, command.name, transcript ?? null);
-        }
-        if (transcript && command && CLEAR_COMMANDS.has(command.name)) {
+        } else if (effect === "clear" && transcript) {
           markChatStarting(paneId, transcript);
         }
       },

@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import {
-  opensMenu as commandOpensMenu,
+  findBuiltin,
   type ChatCommand,
 } from "../../../../electron/chat-mirror/builtin-commands";
 import { onBridgeResync } from "../../../bridge/resync";
@@ -101,10 +101,10 @@ export function useSlashCommands(paneId: string, text: string, caret: number) {
 
   const close = () => setDismissedText(text);
 
-  /** Whether sending `/name args` opens a TUI menu: the fetched entry's flags,
-   *  else the built-in's (a skill of the same name replaces a built-in). */
-  const opensMenu = (name: string, args: string): boolean =>
-    commandOpensMenu(cache?.commands.find((c) => c.name === name), name, args);
+  /** The entry for `/name`: the fetched one, else the built-in (a skill of the
+   *  same name replaces a built-in). */
+  const lookup = (name: string): ChatCommand | undefined =>
+    cache?.commands.find((c) => c.name === name) ?? findBuiltin(name);
 
   return {
     open,
@@ -115,6 +115,6 @@ export function useSlashCommands(paneId: string, text: string, caret: number) {
     move,
     pick,
     close,
-    opensMenu,
+    lookup,
   };
 }

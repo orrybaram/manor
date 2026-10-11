@@ -56,7 +56,7 @@ export function ChatEntryView(props: ChatEntryViewProps) {
             role="img"
             aria-label={STATUS_LABEL[entry.status]}
           />
-          <span className={styles.toolGroupSummary}>{entry.text}</span>
+          <span className={styles.noticeText}>{entry.text}</span>
         </div>
       );
     case "question":

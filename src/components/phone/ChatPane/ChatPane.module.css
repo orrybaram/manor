@@ -188,7 +188,8 @@ button.toolGroupLine:hover:not(:disabled) {
   color: color-mix(in srgb, var(--text-dim) 65%, var(--bg));
 }
 
-.toolGroupSummary {
+.toolGroupSummary,
+.noticeText {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

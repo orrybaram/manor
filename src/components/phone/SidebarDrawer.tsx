@@ -1,12 +1,19 @@
-import { useRef, type TouchEvent } from "react";
+import { useRef, useState, type TouchEvent } from "react";
+import ChevronLeft from "lucide-react/dist/esm/icons/chevron-left";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { Sidebar } from "../sidebar/Sidebar/Sidebar";
+import { Button } from "../ui/Button/Button";
+import { PhoneAgentsPanel } from "./AgentsDrawer/PhoneAgentsPanel";
 import styles from "./SidebarDrawer.module.css";
 
 type SidebarDrawerProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** The agents view's "New agent" button. */
+  onNewAgent: () => void;
+  /** The agents view's settings button. */
+  onOpenSettings: () => void;
   onShowAgents?: () => void;
   onOpenProjectSettings?: (projectId: string) => void;
   onAddProject?: () => void;
@@ -30,6 +37,10 @@ type SidebarDrawerProps = {
  * no terminals. `onNavigate` is `Sidebar`'s existing workspace-select path —
  * choosing Home or a workspace closes the drawer because the user asked to
  * go somewhere, not because this duplicates that selection logic.
+ *
+ * ADR-219: the drawer opens on an agents-first view (`PhoneAgentsPanel`);
+ * the projects/workspaces `Sidebar` is one tap away behind a back header.
+ * The view resets to agents every time the drawer opens.
  */
 /** A finger has to travel this far before the swipe picks an axis. */
 const AXIS_SLOP_PX = 8;
@@ -160,6 +171,8 @@ export function SidebarDrawer(props: SidebarDrawerProps) {
   const {
     open,
     onOpenChange,
+    onNewAgent,
+    onOpenSettings,
     onShowAgents,
     onOpenProjectSettings,
     onAddProject,
@@ -167,6 +180,16 @@ export function SidebarDrawer(props: SidebarDrawerProps) {
     onOpenNotifications,
   } = props;
   const swipe = useSwipeToClose(() => onOpenChange(false));
+
+  // Reset on open rather than on close: the sheet stays mounted through its
+  // exit animation, and swapping views then would flash. Setting state during
+  // render covers closes driven by the parent as well as by `onOpenChange`.
+  const [view, setView] = useState<"agents" | "projects">("agents");
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setView("agents");
+  }
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -188,14 +211,38 @@ export function SidebarDrawer(props: SidebarDrawerProps) {
           {/* Radix requires an accessible title; the sidebar's own content
               already carries the visual heading, so this one is hidden. */}
           <Dialog.Title className="sr-only">Sidebar</Dialog.Title>
-          <Sidebar
-            onShowAgents={onShowAgents}
-            onOpenProjectSettings={onOpenProjectSettings}
-            onAddProject={onAddProject}
-            onOpenSearch={onOpenSearch}
-            onOpenNotifications={onOpenNotifications}
-            onNavigate={() => onOpenChange(false)}
-          />
+          {view === "agents" ? (
+            <PhoneAgentsPanel
+              onNewAgent={onNewAgent}
+              onOpenSettings={onOpenSettings}
+              onOpenProjects={() => setView("projects")}
+              onOpenSearch={onOpenSearch}
+              onOpenNotifications={onOpenNotifications}
+              onNavigate={() => onOpenChange(false)}
+            />
+          ) : (
+            <div className={styles.projectsView}>
+              <div className={styles.backHeader}>
+                <Button
+                  variant="ghost"
+                  className={styles.backButton}
+                  data-testid="drawer-back-to-agents"
+                  onClick={() => setView("agents")}
+                >
+                  <ChevronLeft size={18} />
+                  Agents
+                </Button>
+              </div>
+              <Sidebar
+                onShowAgents={onShowAgents}
+                onOpenProjectSettings={onOpenProjectSettings}
+                onAddProject={onAddProject}
+                onOpenSearch={onOpenSearch}
+                onOpenNotifications={onOpenNotifications}
+                onNavigate={() => onOpenChange(false)}
+              />
+            </div>
+          )}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

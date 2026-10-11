@@ -783,6 +783,8 @@ function App() {
                     switcher — sits around the workspace stack, not inside it. */}
                 {layoutMode === "phone" && (
                   <PhoneChrome
+                    onNewAgent={handleNewAgent}
+                    onOpenSettings={() => handleOpenSettings()}
                     onShowAgents={() => setAgentsOpen(true)}
                     onOpenProjectSettings={handleOpenProjectSettings}
                     onAddProject={handleAddProject}

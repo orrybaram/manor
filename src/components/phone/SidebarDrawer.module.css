@@ -68,6 +68,31 @@
   background: var(--bg-deep);
 }
 
+/* The projects view: a back header over the unchanged `Sidebar`. */
+.projectsView {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.projectsView > :not(.backHeader) {
+  flex: 1;
+  min-height: 0;
+}
+
+.backHeader {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: env(safe-area-inset-top) 8px 0;
+}
+
+.backButton {
+  min-height: 44px;
+  gap: 4px;
+  padding: 0 12px 0 6px;
+}
+
 .sheet [data-focus-region="sidebar"] {
   width: 100% !important;
 }

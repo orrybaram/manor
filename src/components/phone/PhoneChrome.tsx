@@ -8,6 +8,8 @@ import { useMountEffect } from "../../hooks/useMountEffect";
 import { onUiRequest } from "../../utils/ui-request";
 
 type PhoneChromeProps = {
+  onNewAgent: () => void;
+  onOpenSettings: () => void;
   onShowAgents: () => void;
   onOpenProjectSettings: (projectId: string) => void;
   onAddProject: () => void;
@@ -31,7 +33,14 @@ type PhoneChromeProps = {
  * through the palette (Next Pane, Focus Next Panel).
  */
 export function PhoneChrome(props: PhoneChromeProps) {
-  const { onShowAgents, onOpenProjectSettings, onAddProject, onOpenSearch } = props;
+  const {
+    onNewAgent,
+    onOpenSettings,
+    onShowAgents,
+    onOpenProjectSettings,
+    onAddProject,
+    onOpenSearch,
+  } = props;
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -60,6 +69,14 @@ export function PhoneChrome(props: PhoneChromeProps) {
       <SidebarDrawer
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
+        onNewAgent={() => {
+          setDrawerOpen(false);
+          onNewAgent();
+        }}
+        onOpenSettings={() => {
+          setDrawerOpen(false);
+          onOpenSettings();
+        }}
         onShowAgents={onShowAgents}
         onOpenProjectSettings={(projectId) => {
           setDrawerOpen(false);

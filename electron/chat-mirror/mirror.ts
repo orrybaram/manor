@@ -32,6 +32,7 @@
  */
 
 import { LOCAL_HOST_ID } from "../backend/types";
+import { BUILTIN_COMMANDS, type ChatCommand } from "./builtin-commands";
 import {
   encodePickerAnswer,
   encodePlanApproval,
@@ -41,7 +42,7 @@ import {
   RemoteTranscriptSource,
   type TranscriptExec,
 } from "./remote-transcript-source";
-import { TranscriptParser, type ChatEntry } from "./transcript";
+import { TranscriptParser, type ChatEntry, type ChatSkill } from "./transcript";
 import type { TranscriptSource } from "./transcript-source";
 
 /**
@@ -58,6 +59,13 @@ export type ChatUnavailableReason =
 /** What `chat.getHistory` answers. */
 export type ChatHistory =
   | { ok: true; entries: ChatEntry[] }
+  | { ok: false; reason: ChatUnavailableReason };
+
+export type { ChatCommand } from "./builtin-commands";
+
+/** What `chat.getCommands` answers (ADR-217 D3). */
+export type ChatCommands =
+  | { ok: true; commands: ChatCommand[]; skillsKnown: boolean }
   | { ok: false; reason: ChatUnavailableReason };
 
 /** What the chat can answer a picker with. A plan can only be approved. */
@@ -148,6 +156,11 @@ export function transcriptSources(
 class PaneMirror {
   path: string | null = null;
   parser = new TranscriptParser();
+  /**
+   * The most recent non-empty skill list. Survives `reset`: `/clear` and
+   * resume start a transcript with no listing until its first prompt.
+   */
+  lastSkills: ChatSkill[] = [];
   /** Bytes of the file consumed: the end of the last complete line. */
   offset = 0;
   source: TranscriptSource | null = null;
@@ -203,6 +216,33 @@ export class ChatMirror {
     await this.read(paneId, m);
     if (m.readError !== null) return { ok: false, reason: "host-offline" };
     return { ok: true, entries: this.entries(m) };
+  }
+
+  /** Built-in commands plus the session's skills (ADR-217 D3). */
+  async getCommands(paneId: string): Promise<ChatCommands> {
+    const resolved = this.resolve(paneId);
+    if (!resolved.ok) return resolved;
+    const m = this.ensure(paneId);
+    m.source = resolved.source;
+    this.usePath(paneId, m, resolved.path);
+    await this.read(paneId, m);
+    if (m.readError !== null) return { ok: false, reason: "host-offline" };
+
+    const listed = m.parser.hasSkillListing();
+    const skills = listed ? m.parser.skills() : m.lastSkills;
+    const byName = new Map<string, ChatCommand>();
+    for (const c of BUILTIN_COMMANDS) byName.set(c.name, c);
+    for (const s of skills) {
+      byName.set(s.name, {
+        name: s.name,
+        description: s.description,
+        source: "skill",
+      });
+    }
+    const commands = [...byName.values()].sort((a, b) =>
+      a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+    );
+    return { ok: true, commands, skillsKnown: listed || m.lastSkills.length > 0 };
   }
 
   /**
@@ -468,6 +508,10 @@ export class ChatMirror {
         if (!isOpenPicker(entry)) this.settle(m, entry.id);
         if (publish) this.deps.publish(paneId, this.decorate(m, entry));
       }
+    }
+    if (m.parser.hasSkillListing()) {
+      const skills = m.parser.skills();
+      if (skills.length > 0) m.lastSkills = skills;
     }
   }
 

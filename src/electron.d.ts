@@ -467,6 +467,8 @@ export type {
 export type {
   ChatAnswer,
   ChatAnswerResult,
+  ChatCommand,
+  ChatCommands,
   ChatHistory,
 } from "../electron/chat-mirror/mirror";
 

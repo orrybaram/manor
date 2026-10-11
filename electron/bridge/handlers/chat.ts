@@ -16,6 +16,7 @@ import { addRendererBroadcastSink } from "../../renderer-broadcast";
 import type {
   ChatAnswer,
   ChatAnswerResult,
+  ChatCommands,
   ChatHistory,
 } from "../../chat-mirror/mirror";
 import { encodeChatMessage, type PickerAnswer } from "../../chat-mirror/picker-keys";
@@ -29,6 +30,14 @@ export function chatGetHistory(
 ): Promise<ChatHistory> {
   assertString(paneId, "paneId");
   return ctx.deps.chatMirror.getHistory(paneId);
+}
+
+export function chatGetCommands(
+  ctx: HandlerCtx,
+  paneId: string,
+): Promise<ChatCommands> {
+  assertString(paneId, "paneId");
+  return ctx.deps.chatMirror.getCommands(paneId);
 }
 
 /** Type a prompt and submit it, as one prompt even across lines (`encodeChatMessage`). */
@@ -131,6 +140,7 @@ export function wireChatMirror(
 export const chat = {
   // A read; its pushes are `chat.entry`.
   getHistory: method(chatGetHistory),
+  getCommands: method(chatGetCommands),
   // The keyboard, like `pty.write`: a line per message or keystroke is a
   // keylogger (ADR-161), so none of these is audited.
   send: method(chatSend),

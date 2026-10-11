@@ -143,6 +143,78 @@ describe("ChatMirror", () => {
     });
   });
 
+  describe("commands (ADR-217 D3)", () => {
+    function listing(names: Record<string, string>, isInitial = true): string {
+      return line({
+        type: "attachment",
+        attachment: {
+          type: "skill_listing",
+          isInitial,
+          names: Object.keys(names),
+          content: Object.entries(names)
+            .map(([n, d]) => `- ${n}: ${d}`)
+            .join("\n"),
+        },
+      });
+    }
+
+    async function commands() {
+      const result = await mirror.getCommands(PANE);
+      if (!result.ok) throw new Error(result.reason);
+      return result;
+    }
+
+    it("merges built-ins with the transcript's skills, sorted by name", async () => {
+      agent = {
+        hostId: "local",
+        transcriptPath: file("t.jsonl", listing({ zeta: "Last", alpha: "First" }) + user("u1", "hi")),
+      };
+      const result = await commands();
+      expect(result.skillsKnown).toBe(true);
+      expect(result.commands.filter((c) => c.source === "skill")).toEqual([
+        { name: "alpha", description: "First", source: "skill" },
+        { name: "zeta", description: "Last", source: "skill" },
+      ]);
+      expect(result.commands.some((c) => c.name === "clear" && c.source === "builtin")).toBe(true);
+      const names = result.commands.map((c) => c.name);
+      expect(names).toEqual([...names].sort());
+    });
+
+    it("has built-ins only, and skillsKnown false, before any listing", async () => {
+      agent = { hostId: "local", transcriptPath: file("t.jsonl", "") };
+      const result = await commands();
+      expect(result.skillsKnown).toBe(false);
+      expect(result.commands.every((c) => c.source === "builtin")).toBe(true);
+      expect(result.commands.length).toBeGreaterThan(0);
+    });
+
+    it("keeps the previous skills when the transcript changes to one with no listing", async () => {
+      agent = { hostId: "local", transcriptPath: file("a.jsonl", listing({ alpha: "First" })) };
+      await commands();
+      agent = { hostId: "local", transcriptPath: file("b.jsonl", user("u1", "hi")) };
+      const result = await commands();
+      expect(result.skillsKnown).toBe(true);
+      expect(result.commands.filter((c) => c.source === "skill")).toEqual([
+        { name: "alpha", description: "First", source: "skill" },
+      ]);
+    });
+
+    it("lets a skill replace the built-in of the same name", async () => {
+      agent = { hostId: "local", transcriptPath: file("t.jsonl", listing({ review: "My review" })) };
+      const result = await commands();
+      expect(result.commands.filter((c) => c.name === "review")).toEqual([
+        { name: "review", description: "My review", source: "skill" },
+      ]);
+    });
+
+    it("says why a pane has no commands, and host-offline on a failed read", async () => {
+      expect(await mirror.getCommands("other")).toEqual({ ok: false, reason: "no-agent" });
+      source = { read: () => Promise.resolve({ ok: false, error: "host offline" }) };
+      agent = { hostId: "local", transcriptPath: file("t.jsonl", "") };
+      expect(await mirror.getCommands(PANE)).toEqual({ ok: false, reason: "host-offline" });
+    });
+  });
+
   describe("tailing", () => {
     it("publishes appended lines to the pane while watched", async () => {
       const p = file("t.jsonl", user("u1", "hi"));

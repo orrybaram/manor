@@ -69,3 +69,27 @@ export function branchesEqual(
   if (a == null || b == null) return false;
   return a.toLowerCase() === b.toLowerCase();
 }
+
+const PROMPT_NAME_WORDS = 6;
+const PROMPT_NAME_MAX = 40;
+
+/**
+ * A worktree name for a new agent, from its prompt: the first few words as a
+ * dir slug, cut at a dash boundary to fit, `agent` when nothing is left, and
+ * suffixed `-2`, `-3`… until it isn't in `taken`.
+ */
+export function worktreeNameFromPrompt(prompt: string, taken: ReadonlySet<string>): string {
+  const words = prompt.trim().split(/\s+/).slice(0, PROMPT_NAME_WORDS).join(" ");
+  let slug = toDirSlug(words);
+  if (slug.length > PROMPT_NAME_MAX) {
+    const cut = slug.slice(0, PROMPT_NAME_MAX + 1);
+    const dash = cut.lastIndexOf("-");
+    slug = (dash > 0 ? cut.slice(0, dash) : cut.slice(0, PROMPT_NAME_MAX)).replace(/-+$/, "");
+  }
+  const base = slug || "agent";
+  if (!taken.has(base)) return base;
+  for (let n = 2; ; n++) {
+    const candidate = `${base}-${n}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}

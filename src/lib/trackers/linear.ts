@@ -7,7 +7,7 @@
 import type { LinearIssue } from "../../electron.d";
 import { startLinearIssueWork } from "../start-issue-work";
 import type { TaskContext, TaskRow, TaskStatusTone } from "../tasks";
-import { cssHex, imagesOf, sameUrl, unlinkTask } from "./shared";
+import { cssHex, sameUrl, unlinkTask } from "./shared";
 import type { TaskTracker } from "./types";
 
 const STALE_MS = 60_000;
@@ -163,7 +163,6 @@ export const linearTracker: TaskTracker = {
         assignees: linearAssignees(issue),
         labels: linearLabels(issue),
         priority: linearPriority(issue),
-        images: imagesOf(body),
       };
     },
     staleTime: STALE_MS,

@@ -233,7 +233,6 @@ describe("githubTracker.detailQuery", () => {
       assignees: ["alice"],
       labels: [{ name: "bug", color: "#d73a4a" }],
       milestone: "v1",
-      images: ["https://example.com/a.png", "https://example.com/b.png"],
     });
     expect(getIssueDetail).toHaveBeenCalledWith(
       { path: "/code/manor", hostId: "local" },
@@ -253,7 +252,6 @@ describe("githubTracker.detailQuery", () => {
     expect(detail).toMatchObject({
       body: null,
       status: { label: "Closed (not planned)", tone: "canceled" },
-      images: [],
     });
     expect(detail.milestone).toBeUndefined();
     expect(detail.priority).toBeUndefined();

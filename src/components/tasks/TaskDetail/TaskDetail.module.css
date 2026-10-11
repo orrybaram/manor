@@ -159,6 +159,8 @@
 .screenshot {
   display: block;
   max-width: 100%;
+  /* Keeps a `width`-sized image in proportion when max-width shrinks it. */
+  height: auto;
   border-radius: 6px;
   border: 1px solid var(--surface);
 }

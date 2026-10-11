@@ -216,7 +216,7 @@ export function TaskDetail(props: TaskDetailProps) {
   const body = isLoading ? (
     <TaskBodySkeleton />
   ) : detail ? (
-    <TaskBody provider={taskRef.provider} detail={detail} />
+    <TaskBody taskRef={taskRef} detail={detail} />
   ) : (
     <TaskDetailError
       taskRef={taskRef}
@@ -413,12 +413,12 @@ function TaskMeta(props: TaskMetaProps) {
 }
 
 type TaskBodyProps = {
-  provider: TaskRef["provider"];
+  taskRef: TaskRef;
   detail: TaskDetailData;
 };
 
 function TaskBody(props: TaskBodyProps) {
-  const { provider, detail } = props;
+  const { taskRef, detail } = props;
 
   if (!detail.body?.trim()) {
     return <div className={styles.empty}>No description.</div>;
@@ -427,7 +427,11 @@ function TaskBody(props: TaskBodyProps) {
   return (
     <div className={styles.markdown}>
       <Suspense fallback={<p className={styles.description}>{detail.body}</p>}>
-        <TaskMarkdown provider={provider} source={detail.body} />
+        <TaskMarkdown
+          provider={taskRef.provider}
+          source={detail.body}
+          baseUrl={taskRef.url}
+        />
       </Suspense>
     </div>
   );

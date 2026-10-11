@@ -237,7 +237,6 @@ describe("linearTracker.detailQuery", () => {
       assignees: ["alice"],
       labels: [{ name: "Feature", color: "#5e6ad2" }],
       priority: { value: 1, label: "Urgent" },
-      images: ["https://uploads.linear.app/a.png"],
     });
     expect(getIssueDetail).toHaveBeenCalledWith("lin-1");
   });
@@ -254,7 +253,6 @@ describe("linearTracker.detailQuery", () => {
       status: { label: "Done", tone: "closed" },
       assignees: [],
       labels: [],
-      images: [],
     });
   });
 });

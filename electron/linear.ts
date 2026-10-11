@@ -3,6 +3,8 @@ import path from "node:path";
 import { safeStorage } from "electron";
 
 import { linearTokenFile } from "./paths";
+import { isLinearImageUrl } from "../src/lib/task-images";
+import { fetchImageDataUrl } from "./image-proxy";
 
 export interface LinearTeam {
   id: string;
@@ -394,20 +396,21 @@ export class LinearManager {
     return result;
   }
 
+  /**
+   * Fetch a Linear upload with the stored token and hand back a data URL.
+   * Only `uploads.linear.app` gets the token, on every redirect hop; any
+   * other host throws and the renderer loads it directly.
+   */
   async proxyImage(url: string): Promise<string> {
+    if (!isLinearImageUrl(url)) throw new Error("Not a Linear-hosted image");
     const token = this.getToken();
     if (!token) throw new Error("Not connected to Linear");
 
-    const res = await fetch(url, {
-      headers: { Authorization: token },
+    return fetchImageDataUrl({
+      url,
+      authorization: token,
+      isTrusted: (hop) => isLinearImageUrl(hop.href),
     });
-    if (!res.ok) {
-      throw new Error(`Failed to fetch image: ${res.status}`);
-    }
-
-    const contentType = res.headers.get("content-type") ?? "image/png";
-    const buffer = Buffer.from(await res.arrayBuffer());
-    return `data:${contentType};base64,${buffer.toString("base64")}`;
   }
 
   private async graphql<T>(

@@ -1,7 +1,6 @@
 /** ADR-202 §2: small helpers the tracker adapters share. */
 
 import { useProjectStore } from "../../store/project-store";
-import { extractImages } from "../task-images";
 import type { TaskRef } from "../tasks";
 
 /** A hex colour from `gh` (no `#`) or Linear (with `#`) as CSS; undefined if unusable. */
@@ -18,11 +17,6 @@ function normalizeUrl(url: string): string {
 /** Same task URL, ignoring trailing slashes and case; never true for a blank URL. */
 export function sameUrl(a: string, b: string): boolean {
   return a !== "" && b !== "" && normalizeUrl(a) === normalizeUrl(b);
-}
-
-/** The URLs of the images embedded in a task body. */
-export function imagesOf(body: string | null): string[] {
-  return body ? extractImages(body).map((img) => img.url) : [];
 }
 
 /** Unlink `ref` from a workspace and reload projects; throws on failure. Links of both trackers live on the Linear API. */

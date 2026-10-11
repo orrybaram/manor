@@ -8,7 +8,7 @@ import type { GitHubIssue } from "../../electron.d";
 import { ghRepoOf } from "../gh-repo";
 import { startGitHubIssueWork } from "../start-issue-work";
 import type { TaskContext, TaskRef, TaskRow } from "../tasks";
-import { cssHex, imagesOf, sameUrl, unlinkTask } from "./shared";
+import { cssHex, sameUrl, unlinkTask } from "./shared";
 import type { TaskTracker } from "./types";
 
 const STALE_MS = 60_000;
@@ -158,7 +158,6 @@ export const githubTracker: TaskTracker = {
           assignees: (issue.assignees ?? []).map((a) => a.login),
           labels: githubLabels(issue),
           milestone: issue.milestone?.title || undefined,
-          images: imagesOf(body),
         };
       },
       staleTime: STALE_MS,

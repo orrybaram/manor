@@ -1,0 +1,5 @@
+/* An in-page jump (a footnote reference or back-link) sits inline in prose. */
+.anchor {
+  font: inherit;
+  vertical-align: baseline;
+}

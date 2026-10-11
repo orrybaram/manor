@@ -51,7 +51,6 @@ export function memoryTracker(
         status: { label: "Open", tone: "open" },
         assignees: [],
         labels: [],
-        images: [],
       }),
       staleTime: Infinity,
     }),

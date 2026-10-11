@@ -14,6 +14,8 @@ import type {
 import { LOCAL_HOST_ID } from "./backend/types";
 import { normalizeHostId, workspaceKey, type WorkspaceKey } from "../src/lib/workspace-key";
 import type { GhRepo } from "../src/lib/gh-repo";
+import { githubImageFetchUrl } from "../src/lib/task-images";
+import { fetchImageDataUrl, ImageAuthError } from "./image-proxy";
 import {
   conversationsQueryArgs,
   graphqlTarget,
@@ -168,6 +170,9 @@ export class GitHubManager {
 
   /** Set once `gh` refuses `projectItems` for want of `read:project`. */
   private projectScopeMissing = false;
+
+  /** `gh`'s token for image fetches; dropped when gh or GitHub refuses it. */
+  private imageTokenPromise: Promise<string> | null = null;
 
   /** Without a resolver every checkout is local. */
   constructor(private readonly resolveRemoteRepo?: RemoteRepoResolver) {}
@@ -818,56 +823,46 @@ export class GitHubManager {
   /**
    * Fetch an image embedded in an issue body with `gh`'s token and hand back
    * a data URL — a private repo's images 404 (or bounce to a login page)
-   * without it. Only GitHub's own hosts get the token; anything else throws
-   * and the renderer loads it directly.
+   * without it. Only GitHub's own hosts get the token, on every redirect hop;
+   * anything else throws and the renderer loads it directly.
    */
   async proxyImage(url: string): Promise<string> {
     const target = githubImageFetchUrl(url);
     if (!target) throw new Error("Not a GitHub-hosted image");
 
-    const { stdout } = await execFileAsync(
-      "gh",
-      ["auth", "token", "--hostname", "github.com"],
-      { encoding: "utf-8", timeout: 5000 },
-    );
-    // A cross-origin redirect (user-attachments → its signed S3 URL) drops
-    // the Authorization header, so the token never leaves GitHub.
-    const res = await fetch(target, {
-      headers: { Authorization: `token ${stdout.trim()}` },
-    });
-    if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
-
-    const contentType = res.headers.get("content-type") ?? "";
-    if (!contentType.startsWith("image/")) {
-      throw new Error(`Not an image: ${contentType || "unknown type"}`);
+    const token = await this.imageToken();
+    try {
+      return await fetchImageDataUrl({
+        url: target,
+        authorization: `token ${token}`,
+        isTrusted: (hop) => githubImageFetchUrl(hop.href) !== null,
+      });
+    } catch (err) {
+      // A token revoked or switched since it was cached; the next image asks gh again.
+      if (err instanceof ImageAuthError) this.imageTokenPromise = null;
+      throw err;
     }
-    const buffer = Buffer.from(await res.arrayBuffer());
-    return `data:${contentType};base64,${buffer.toString("base64")}`;
+  }
+
+  /** `gh auth token`, run once and shared by every image rather than once per image. */
+  private imageToken(): Promise<string> {
+    if (!this.imageTokenPromise) {
+      this.imageTokenPromise = execFileAsync(
+        "gh",
+        ["auth", "token", "--hostname", "github.com"],
+        { encoding: "utf-8", timeout: 5000 },
+      ).then(
+        ({ stdout }) => stdout.trim(),
+        (err: unknown) => {
+          this.imageTokenPromise = null;
+          throw err;
+        },
+      );
+    }
+    return this.imageTokenPromise;
   }
 }
 
-/**
- * Where to fetch a GitHub-hosted image from with a token, or null when the
- * URL isn't GitHub's. A `github.com/<owner>/<repo>/blob|raw/<ref>/<path>`
- * link only serves a private file to a browser session, so it is rewritten
- * to `raw.githubusercontent.com`, which takes the token.
- */
-export function githubImageFetchUrl(url: string): string | null {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return null;
-  }
-  if (parsed.protocol !== "https:") return null;
-  if (parsed.hostname === "raw.githubusercontent.com") return parsed.href;
-  if (parsed.hostname !== "github.com") return null;
-  const file = /^\/([^/]+)\/([^/]+)\/(?:blob|raw)\/(.+)$/.exec(parsed.pathname);
-  if (file) {
-    return `https://raw.githubusercontent.com/${file[1]}/${file[2]}/${file[3]}`;
-  }
-  return parsed.href;
-}
 
 interface PrConversationState {
   unresolvedThreads?: number;

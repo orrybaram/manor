@@ -112,8 +112,6 @@ export interface TaskDetail {
   priority?: { value: number; label: string };
   /** GitHub only. */
   milestone?: string;
-  /** Image URLs embedded in the body, in order. */
-  images: string[];
 }
 
 /**

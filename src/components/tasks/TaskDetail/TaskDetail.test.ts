@@ -28,7 +28,6 @@ const fullDetail: TaskDetailData = {
   assignees: ["alice"],
   labels: [{ name: "bug", color: "#d73a4a" }],
   milestone: "v1.0",
-  images: ["https://example.com/a.png"],
 };
 
 const bareDetail: TaskDetailData = {
@@ -36,7 +35,6 @@ const bareDetail: TaskDetailData = {
   status: { label: "Open", tone: "open" },
   assignees: [],
   labels: [],
-  images: [],
 };
 
 const row = {

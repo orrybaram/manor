@@ -50,7 +50,7 @@ export function SlashCommandMenu(props: SlashCommandMenuProps) {
             >
               <span className={styles.slashItemHead}>
                 <span className={styles.slashItemName}>/{item.name}</span>
-                {item.interactive && (
+                {item.interactive && !item.choices && (
                   <span className={styles.slashItemTag}>Opens in terminal</span>
                 )}
               </span>

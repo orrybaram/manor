@@ -80,10 +80,16 @@ export function applyCommand(
   return { text: head + rest, caret: head.length };
 }
 
+/** The command name and the trimmed text after it, when `text` starts with
+ *  `/name` + whitespace or the end. */
+export function splitCommand(text: string): { name: string; args: string } | null {
+  const match = /^\/(\S+)(?:\s([\s\S]*))?$/.exec(text);
+  return match ? { name: match[1], args: (match[2] ?? "").trim() } : null;
+}
+
 /** The command name when `text` starts with `/name` + whitespace or the end. */
 export function firstWordCommand(text: string): string | null {
-  const match = /^\/(\S+)(?:\s|$)/.exec(text);
-  return match ? match[1] : null;
+  return splitCommand(text)?.name ?? null;
 }
 
 /** The DOM id of row `index` in the menu, for `aria-activedescendant`. */

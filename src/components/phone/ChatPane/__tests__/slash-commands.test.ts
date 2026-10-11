@@ -2,12 +2,16 @@
  * ADR-217 D5: the phone composer's `/` menu, as pure functions.
  */
 import { describe, expect, it } from "vitest";
-import type { ChatCommand } from "../../../../../electron/chat-mirror/builtin-commands";
+import {
+  opensMenu,
+  type ChatCommand,
+} from "../../../../../electron/chat-mirror/builtin-commands";
 import {
   applyCommand,
   findSlashQuery,
   firstWordCommand,
   matchCommands,
+  splitCommand,
 } from "../slash-commands";
 
 function cmd(name: string, description = "", over: Partial<ChatCommand> = {}): ChatCommand {
@@ -137,5 +141,56 @@ describe("firstWordCommand", () => {
     expect(firstWordCommand("/")).toBeNull();
     expect(firstWordCommand("/ model")).toBeNull();
     expect(firstWordCommand(" /model")).toBeNull();
+  });
+});
+
+describe("splitCommand", () => {
+  it("splits the name from the trimmed args", () => {
+    expect(splitCommand("/model sonnet")).toEqual({ name: "model", args: "sonnet" });
+    expect(splitCommand("/config  a=b  c ")).toEqual({ name: "config", args: "a=b  c" });
+    expect(splitCommand("/review\nthe diff")).toEqual({ name: "review", args: "the diff" });
+  });
+
+  it("has empty args for a bare command", () => {
+    expect(splitCommand("/model")).toEqual({ name: "model", args: "" });
+    expect(splitCommand("/model ")).toEqual({ name: "model", args: "" });
+  });
+
+  it("is null for plain text", () => {
+    expect(splitCommand("hello /model")).toBeNull();
+    expect(splitCommand("/")).toBeNull();
+  });
+});
+
+describe("opensMenu", () => {
+  const model = cmd("model", "", { source: "builtin", interactive: true, argSkipsMenu: true });
+  const theme = cmd("theme", "", { source: "builtin", interactive: true });
+
+  it("opens when sent bare", () => {
+    expect(opensMenu(model, "model", "")).toBe(true);
+    expect(opensMenu(model, "model", "  ")).toBe(true);
+  });
+
+  it("doesn't open when an argument skips the menu", () => {
+    expect(opensMenu(model, "model", "sonnet")).toBe(false);
+  });
+
+  it("still opens with args when the command lacks argSkipsMenu", () => {
+    expect(opensMenu(theme, "theme", "dark")).toBe(true);
+  });
+
+  it("falls back to the built-in entry for an unknown name", () => {
+    expect(opensMenu(undefined, "model", "")).toBe(true);
+    expect(opensMenu(undefined, "model", "opus")).toBe(false);
+    expect(opensMenu(undefined, "theme", "dark")).toBe(true);
+    expect(opensMenu(undefined, "nonsense", "")).toBe(false);
+  });
+
+  it("follows a skill that overrides a non-interactive built-in", () => {
+    expect(opensMenu(cmd("review"), "review", "")).toBe(false);
+  });
+
+  it("follows a skill that overrides an interactive built-in", () => {
+    expect(opensMenu(cmd("model"), "model", "")).toBe(false);
   });
 });

@@ -4,7 +4,7 @@ import { useId, useRef, useState } from "react";
 import { Button } from "../../ui/Button/Button";
 import { EmojiTextarea } from "../../ui/EmojiAutocomplete";
 import styles from "./ChatPane.module.css";
-import { firstWordCommand, slashOptionId } from "./slash-commands";
+import { slashOptionId, splitCommand } from "./slash-commands";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { markChatStarting, setPaneChatView } from "./usePaneChatView";
 import { useSlashCommands } from "./useSlashCommands";
@@ -30,7 +30,7 @@ type ChatComposerProps = {
  * with a smaller Stop beside it.
  *
  * Typing `/` at the start opens the command menu (ADR-217 D5). Sending a
- * command that opens a TUI menu (`interactive`) switches the pane to the
+ * command that opens a TUI menu (`opensMenu`) switches the pane to the
  * terminal, where that menu is. Sending `/clear` leaves the old
  * conversation behind for a fresh chat.
  *
@@ -79,9 +79,11 @@ export function ChatComposer(props: ChatComposerProps) {
       () => {
         update("", 0);
         setSending(false);
-        const command = firstWordCommand(sent);
-        if (command && slash.isInteractive(command)) setPaneChatView(paneId, "terminal");
-        if (transcript && command && CLEAR_COMMANDS.has(command)) {
+        const command = splitCommand(sent);
+        if (command && slash.opensMenu(command.name, command.args)) {
+          setPaneChatView(paneId, "terminal");
+        }
+        if (transcript && command && CLEAR_COMMANDS.has(command.name)) {
           markChatStarting(paneId, transcript);
         }
       },

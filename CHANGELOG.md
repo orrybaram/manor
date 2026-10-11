@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.21.0] - 2026-10-11
+
+### Features
+- Phone app now resyncs automatically when it returns to the foreground or reconnects, so terminals, chat panes, agent status and layout stay current
+- Pull-to-refresh on the phone, plus **Refresh** and **Reload app** options in the overflow menu
+- Phone drawer now shows agents first, with quick access to **New agent** and **Settings**
+- Use TUI menus from phone chat: commands with fixed arguments open a choice sheet, and other menus switch to the terminal with a key bar and return to chat when done
+- Empty phone workspace now shows a greeting and a list of recent agents
+- Swipe in from the left edge of the phone screen to open the drawer
+
+### Fixes
+- Phone resync now removes workspaces that were deleted and refreshes pane sessions
+- Terminal resync no longer brings back dead sessions or changes the terminal's window size
+- Agent status and the slash-command list now refresh correctly after a resync
+- Pull-to-refresh now waits for the data to finish reloading before it completes
+- One pane's status failing to load no longer blocks status updates for other panes
+- Closing the choice sheet keeps the `/` menu closed, and any edit reopens it
+- Phone drawer now closes after tapping an agent, Settings or Add project
+- Phone chat now sends Enter separately, so messages always submit
+- Task notifications on the phone now show as a dimmed notice instead of a user message bubble
+- The changelog no longer reopens when the status bar reloads
+- Task tracker tokens are now only sent to their own hosts when loading images through the proxy
+
+### Improvements
+- Chat input sent to the same pane now goes through in order, so separate inputs no longer get mixed together
+- The Electron image proxy now checks more carefully which sources it trusts
+
 ## [0.20.1] - 2026-10-11
 
 ### Features

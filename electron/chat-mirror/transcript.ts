@@ -50,6 +50,14 @@ export type ChatEntry =
       args: string;
       /** The command's local stdout, attached when it follows the command. */
       output?: string;
+    }
+  | {
+      /** A background task finishing, e.g. `Agent "Map mobile state sync" finished`. */
+      kind: "notice";
+      id: string;
+      ts: string;
+      text: string;
+      status: "ok" | "error";
     };
 
 /** A skill from Claude Code's `skill_listing` attachment (ADR-217 D1). */
@@ -344,6 +352,19 @@ export class TranscriptParser {
       const next: ChatEntry = { ...existing, output: out.slice(0, MAX_DETAIL) };
       this.byId.set(existing.id, next);
       return next;
+    }
+    // A background task finishing lands as a user turn the user never typed.
+    if (text.trimStart().startsWith("<task-notification>")) {
+      const summary = tagText(text, "summary")?.trim();
+      if (!summary) return null;
+      const status = tagText(text, "status")?.trim();
+      return this.add({
+        kind: "notice",
+        id: uuid,
+        ts,
+        text: summary,
+        status: status === "failed" || status === "killed" ? "error" : "ok",
+      });
     }
     if (isMetaText(text)) return null;
     return this.add({ kind: "user", id: uuid, ts, text });

@@ -131,6 +131,18 @@ describe("TranscriptParser", () => {
     expect(p.entries()).toEqual([]);
   });
 
+  it("turns a task notification into a notice carrying its summary", () => {
+    const p = new TranscriptParser();
+    const xml = (status: string) =>
+      `<task-notification>\n<task-id>a1</task-id>\n<status>${status}</status>\n<summary>Agent "Map sync" finished</summary>\n</task-notification>`;
+    expect(p.push(userBlocks("n1", xml("completed")))).toEqual([
+      { kind: "notice", id: "n1", ts: expect.any(String), text: 'Agent "Map sync" finished', status: "ok" },
+    ]);
+    expect(p.push(userBlocks("n2", xml("failed")))[0]).toMatchObject({ kind: "notice", status: "error" });
+    expect(p.push(userBlocks("n3", "<task-notification><task-id>a1</task-id></task-notification>"))).toEqual([]);
+    expect(p.entries().some((e) => e.kind === "user")).toBe(false);
+  });
+
   it("skips malformed JSON, unknown line types and unknown blocks without throwing", () => {
     const p = new TranscriptParser();
     expect(p.push("{not json")).toEqual([]);

@@ -176,6 +176,18 @@ button.toolGroupLine:hover:not(:disabled) {
   background: transparent;
 }
 
+/* A background task finishing: a quiet, inert line like a tool group's. */
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 4px 0;
+  font-size: 14px;
+  color: color-mix(in srgb, var(--text-dim) 65%, var(--bg));
+}
+
 .toolGroupSummary {
   min-width: 0;
   overflow: hidden;

@@ -6,7 +6,7 @@ import { EmojiTextarea } from "../../ui/EmojiAutocomplete";
 import styles from "./ChatPane.module.css";
 import { slashOptionId, splitCommand } from "./slash-commands";
 import { SlashCommandMenu } from "./SlashCommandMenu";
-import { markChatStarting, setPaneChatView } from "./usePaneChatView";
+import { markChatStarting, startMenuHandoff } from "./usePaneChatView";
 import { useSlashCommands } from "./useSlashCommands";
 
 /** Claude Code's `/clear` and its aliases: each starts a new session. */
@@ -30,8 +30,8 @@ type ChatComposerProps = {
  * with a smaller Stop beside it.
  *
  * Typing `/` at the start opens the command menu (ADR-217 D5). Sending a
- * command that opens a TUI menu (`opensMenu`) switches the pane to the
- * terminal, where that menu is. Sending `/clear` leaves the old
+ * command that opens a TUI menu (`opensMenu`) hands the pane to the
+ * terminal, where that menu is, until it closes (ADR-218 D3). Sending `/clear` leaves the old
  * conversation behind for a fresh chat.
  *
  * `data-keyboard-lift` is what `KeyboardLift` looks for: while this has
@@ -81,7 +81,7 @@ export function ChatComposer(props: ChatComposerProps) {
         setSending(false);
         const command = splitCommand(sent);
         if (command && slash.opensMenu(command.name, command.args)) {
-          setPaneChatView(paneId, "terminal");
+          startMenuHandoff(paneId, command.name);
         }
         if (transcript && command && CLEAR_COMMANDS.has(command.name)) {
           markChatStarting(paneId, transcript);

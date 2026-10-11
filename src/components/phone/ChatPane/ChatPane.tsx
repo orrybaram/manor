@@ -4,11 +4,18 @@ import { useMountEffect } from "../../../hooks/useMountEffect";
 import { useAppStore } from "../../../store/app-store";
 import { useHostStore } from "../../../store/host-store";
 import { Button } from "../../ui/Button/Button";
-import { answerablePickerId, groupEntries, mergeHistory, upsertEntry } from "./chat-entries";
+import {
+  answerablePickerId,
+  endsMenuHandoff,
+  groupEntries,
+  mergeHistory,
+  upsertEntry,
+} from "./chat-entries";
 import { ChatComposer } from "./ChatComposer";
 import { ChatEntryView } from "./ChatEntryView";
 import { ChatThinking } from "./ChatThinking";
 import styles from "./ChatPane.module.css";
+import { endMenuHandoff, usePaneChatViewStore } from "./usePaneChatView";
 
 type Unavailable = Extract<ChatHistory, { ok: false }>["reason"] | "error";
 
@@ -53,6 +60,10 @@ type ChatPaneProps = {
  * (`host-offline`, ADR-216 D4). The note shows until history can be fetched
  * again: on any host status change, on the next live entry, or on a slow
  * retry, whichever comes first.
+ *
+ * Stays subscribed while the terminal shows a TUI menu the chat sent: the
+ * menu's command landing in the transcript means it closed, and the pane
+ * comes back to the chat (ADR-218 D3).
  */
 export function ChatPane(props: ChatPaneProps) {
   const { paneId, transcript, hidden, onShowTerminal } = props;
@@ -72,6 +83,14 @@ export function ChatPane(props: ChatPaneProps) {
     let fetching = false;
     let retry: ReturnType<typeof setInterval> | null = null;
 
+    // Read from the store, not a hook: these callbacks live as long as the mount.
+    const checkHandoff = (landed: readonly ChatEntry[]) => {
+      const handoff = usePaneChatViewStore.getState().handoffs[paneId];
+      if (handoff && landed.some((e) => endsMenuHandoff(handoff, e))) {
+        endMenuHandoff(paneId, { returnToChat: true });
+      }
+    };
+
     const setOffline = (next: boolean) => {
       offline = next;
       if (next && retry === null) retry = setInterval(fetchHistory, OFFLINE_RETRY_MS);
@@ -89,6 +108,7 @@ export function ChatPane(props: ChatPaneProps) {
           fetching = false;
           if (!alive) return;
           if (history.ok) {
+            checkHandoff(history.entries);
             setEntries((prev) => mergeHistory(history.entries, prev));
             setSettledIds((prev) => prev ?? new Set(history.entries.map((e) => e.id)));
             setUnavailable(null);
@@ -112,6 +132,7 @@ export function ChatPane(props: ChatPaneProps) {
     // is subscribed, and nothing published during the fetch is lost.
     const unsubscribe = chat.onEntry(paneId, (_paneId, entry) => {
       setEntries((prev) => upsertEntry(prev, entry));
+      checkHandoff([entry]);
       // The transcript is readable again: catch up on what was missed.
       if (offline) fetchHistory();
     });

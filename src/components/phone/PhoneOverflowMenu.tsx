@@ -20,7 +20,7 @@ import {
 import { useAgentStore } from "../../store/agent-store";
 import { useProjectStore } from "../../store/project-store";
 import { chatTranscriptPath, pickPaneAgent } from "./ChatPane/chat-view";
-import { usePaneChatView, usePaneChatViewStore } from "./ChatPane/usePaneChatView";
+import { endMenuHandoff, usePaneChatView, usePaneChatViewStore } from "./ChatPane/usePaneChatView";
 import { RenameDialog } from "./RenameDialog";
 import styles from "./Phone.module.css";
 
@@ -135,6 +135,8 @@ function ViewItem(props: ViewItemProps) {
       data-testid="phone-overflow-view"
       onClick={() => {
         setView(showingChat ? "terminal" : "chat");
+        // A flip by hand ends a menu handoff (ADR-218 D3), leaving this view.
+        endMenuHandoff(paneId);
         onDone();
       }}
     >

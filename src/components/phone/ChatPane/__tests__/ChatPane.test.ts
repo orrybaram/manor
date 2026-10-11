@@ -16,7 +16,13 @@ vi.hoisted(() => {
 
 import type { ChatAnswerResult, ChatEntry, ChatHistory } from "../../../../electron.d";
 import { ChatPane } from "../ChatPane";
-import { setPaneChatView, usePaneChatView, usePaneChatViewStore } from "../usePaneChatView";
+import {
+  endMenuHandoff,
+  setPaneChatView,
+  startMenuHandoff,
+  usePaneChatView,
+  usePaneChatViewStore,
+} from "../usePaneChatView";
 import { readChatView } from "../chat-view";
 import { useAppStore } from "../../../../store/app-store";
 import { useHostStore, type HostStatusInfo } from "../../../../store/host-store";
@@ -444,6 +450,87 @@ describe("pane view store", () => {
     });
     expect(readChatView(PANE)).toBe("chat");
     spy.mockRestore();
+  });
+});
+
+describe("menu handoff (ADR-218 D3)", () => {
+  beforeEach(() => {
+    usePaneChatViewStore.setState({ views: {}, handoffs: {} });
+  });
+
+  const view = () => usePaneChatViewStore.getState().views[PANE];
+  const handoffs = () => usePaneChatViewStore.getState().handoffs;
+
+  it("start records the command and shows the terminal", () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_000);
+    startMenuHandoff(PANE, "config");
+    vi.mocked(Date.now).mockRestore();
+    expect(handoffs()).toEqual({ [PANE]: { name: "config", startedAt: 1_000 } });
+    expect(view()).toBe("terminal");
+  });
+
+  it("end returns to the chat only when asked", () => {
+    startMenuHandoff(PANE, "config");
+    endMenuHandoff(PANE);
+    expect(handoffs()).toEqual({});
+    expect(view()).toBe("terminal");
+
+    startMenuHandoff(PANE, "config");
+    endMenuHandoff(PANE, { returnToChat: true });
+    expect(handoffs()).toEqual({});
+    expect(view()).toBe("chat");
+  });
+
+  it("end without a handoff leaves the view alone", () => {
+    setPaneChatView(PANE, "terminal");
+    endMenuHandoff(PANE, { returnToChat: true });
+    expect(view()).toBe("terminal");
+  });
+
+  async function sendBareConfig(): Promise<void> {
+    Object.assign(chat, {
+      getCommands: vi.fn(() => Promise.resolve({ ok: false, reason: "no-agent" })),
+    });
+    await renderChat();
+    await typeInto(all("chat-composer-input")[0] as HTMLTextAreaElement, "/config");
+    await click(all("chat-send")[0]);
+  }
+
+  it("a bare menu command hands off, and its transcript line brings the chat back", async () => {
+    installChat({ ok: true, entries: [] });
+    await sendBareConfig();
+    expect(chat.send).toHaveBeenCalledWith(PANE, "/config");
+    expect(handoffs()[PANE]?.name).toBe("config");
+    expect(view()).toBe("terminal");
+
+    // Another command, or the menu's own command from before, keeps it.
+    const now = Date.now();
+    const at = (ms: number) => new Date(ms).toISOString();
+    await act(async () =>
+      listener?.(PANE, { kind: "command", id: "c0", ts: at(now), name: "model", args: "" }),
+    );
+    await act(async () =>
+      listener?.(PANE, { kind: "command", id: "c1", ts: at(now - 60_000), name: "config", args: "" }),
+    );
+    expect(view()).toBe("terminal");
+
+    await act(async () =>
+      listener?.(PANE, { kind: "command", id: "c2", ts: at(now + 5_000), name: "config", args: "" }),
+    );
+    expect(handoffs()).toEqual({});
+    expect(view()).toBe("chat");
+  });
+
+  it("a command with an argument that skips the menu stays on the chat", async () => {
+    installChat({ ok: true, entries: [] });
+    Object.assign(chat, {
+      getCommands: vi.fn(() => Promise.resolve({ ok: false, reason: "no-agent" })),
+    });
+    await renderChat();
+    await typeInto(all("chat-composer-input")[0] as HTMLTextAreaElement, "/model sonnet");
+    await click(all("chat-send")[0]);
+    expect(chat.send).toHaveBeenCalledWith(PANE, "/model sonnet");
+    expect(handoffs()).toEqual({});
   });
 });
 

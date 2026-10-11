@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, memo, lazy, Suspense } from "react";
+import { useRef, useState, useCallback, useEffect, memo, lazy, Suspense } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
 import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
@@ -60,7 +60,13 @@ import { isWebApp } from "../../lib/platform";
 import { useLayoutMode } from "../../hooks/useLayoutMode";
 import { useAgentStore } from "../../store/agent-store";
 import { chatTranscriptPath, pickPaneAgent } from "../phone/ChatPane/chat-view";
-import { usePaneChatStarting, usePaneChatView } from "../phone/ChatPane/usePaneChatView";
+import {
+  endMenuHandoff,
+  usePaneChatStarting,
+  usePaneChatView,
+  usePaneMenuHandoff,
+} from "../phone/ChatPane/usePaneChatView";
+import { MenuKeyBar } from "../phone/ChatPane/MenuKeyBar";
 import { ChatStarting } from "../phone/ChatPane/ChatStarting";
 import chatViewStyles from "../phone/ChatPane/PaneView.module.css";
 
@@ -121,6 +127,20 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   const [paneView, setPaneView] = usePaneChatView(paneId);
   const showChat = (chatTranscript !== null || chatStarting) && paneView === "chat";
   const showTerminal = useCallback(() => setPaneView("terminal"), [setPaneView]);
+
+  // ADR-218 D3: while the chat has handed the terminal a TUI menu, a key bar
+  // drives it. A new transcript under a handoff (`/resume` picked a session)
+  // ends it on the resumed session's chat. An effect, as the transcript comes
+  // from the agent store and the handoff lives in another.
+  const handoff = usePaneMenuHandoff(paneId);
+  const showKeyBar = phone && handoff !== null && !showChat;
+  const backToChat = useCallback(() => endMenuHandoff(paneId, { returnToChat: true }), [paneId]);
+  const seenTranscript = useRef(chatTranscript);
+  useEffect(() => {
+    if (seenTranscript.current === chatTranscript) return;
+    seenTranscript.current = chatTranscript;
+    endMenuHandoff(paneId, { returnToChat: true });
+  }, [paneId, chatTranscript]);
 
   const focusPane = useAppStore((s) => s.focusPane);
   const splitPane = useAppStore((s) => s.splitPane);
@@ -651,7 +671,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
           ))}
         </div>
       )}
-      <div className={`${styles.leafTerminal} ${contentType !== "diff" && contentType !== "browser" ? styles.leafTerminalInset : ""} ${navState?.webviewFocused ? browserStyles.webviewFocused : ""} ${showChat ? chatViewStyles.terminalHidden : ""}`}>
+      <div className={`${styles.leafTerminal} ${contentType !== "diff" && contentType !== "browser" ? styles.leafTerminalInset : ""} ${navState?.webviewFocused ? browserStyles.webviewFocused : ""} ${showChat ? chatViewStyles.terminalHidden : ""} ${showKeyBar ? chatViewStyles.withKeyBar : ""}`}>
         {contentType === "diff" ? (
           <PaneContextMenu paneId={paneId} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
             <DiffPane
@@ -703,6 +723,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
           </Suspense>
         )}
         {chatStarting && <ChatStarting paneId={paneId} hidden={!showChat} />}
+        {showKeyBar && <MenuKeyBar paneId={paneId} onBackToChat={backToChat} />}
       </div>
       {showDropZone && <PaneDropZone paneId={paneId} />}
     </div>

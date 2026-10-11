@@ -13,3 +13,42 @@
 .terminalHidden > :not([data-chat-pane]) {
   visibility: hidden;
 }
+
+/*
+ * ADR-218 D3: the key bar over the bottom of a terminal the chat handed a TUI
+ * menu to. A fixed height, so the terminal's padding below matches it and
+ * the grid fits once when the bar shows and once when it goes.
+ */
+.withKeyBar {
+  --menu-key-bar-height: calc(56px + env(safe-area-inset-bottom));
+  padding-bottom: var(--menu-key-bar-height);
+}
+
+.keyBar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  box-sizing: border-box;
+  height: var(--menu-key-bar-height);
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px env(safe-area-inset-bottom);
+  border-top: 1px solid var(--border);
+  background: var(--dim);
+}
+
+.keyBar .key {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 44px;
+  padding: 0 6px;
+  font-size: 14px;
+  touch-action: manipulation;
+}
+
+.keyBar .keyBack {
+  flex: 2 1 auto;
+}

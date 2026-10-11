@@ -1,6 +1,6 @@
 ---
 title: Pull-to-refresh and overflow-menu Refresh / Reload app
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

@@ -1,6 +1,6 @@
 ---
 title: Phone E2E for resync and manual refresh
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [2, 3, 4]

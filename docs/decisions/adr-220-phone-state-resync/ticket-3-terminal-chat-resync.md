@@ -1,6 +1,6 @@
 ---
 title: Terminal and chat panes resync
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]

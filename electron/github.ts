@@ -14,8 +14,6 @@ import type {
 import { LOCAL_HOST_ID } from "./backend/types";
 import { normalizeHostId, workspaceKey, type WorkspaceKey } from "../src/lib/workspace-key";
 import type { GhRepo } from "../src/lib/gh-repo";
-import { githubImageFetchUrl } from "../src/lib/task-images";
-import { fetchImageDataUrl, ImageAuthError } from "./image-proxy";
 import {
   conversationsQueryArgs,
   graphqlTarget,
@@ -171,9 +169,6 @@ export class GitHubManager {
   /** Set once `gh` refuses `projectItems` for want of `read:project`. */
   private projectScopeMissing = false;
 
-  /** `gh`'s token for image fetches; dropped when gh or GitHub refuses it. */
-  private imageTokenPromise: Promise<string> | null = null;
-
   /** Without a resolver every checkout is local. */
   constructor(private readonly resolveRemoteRepo?: RemoteRepoResolver) {}
 
@@ -198,7 +193,6 @@ export class GitHubManager {
   private readyPromise: Promise<boolean> | null = null;
 
   private reposCache: { at: number; repos: GitHubRepo[] } | null = null;
-  private viewerFirstName: string | null = null;
 
   /** See `setPrMergedListener`. */
   private onPrMerged: ((prUrl: string) => void) | undefined;
@@ -822,73 +816,22 @@ export class GitHubManager {
   }
 
   /**
-   * The signed-in user's first name, from their GitHub profile's display
-   * name, for the phone's greeting. `null` when `gh` is missing or signed
-   * out, or the profile has no name. A hit is kept for the process.
+   * The signed-in user's GitHub profile display name, as-is, for the phone's
+   * greeting. `null` when `gh` is missing or signed out, or the profile has
+   * no name.
    */
-  async getViewerFirstName(): Promise<string | null> {
-    if (this.viewerFirstName) return this.viewerFirstName;
+  async getViewerName(): Promise<string | null> {
     try {
       const { stdout } = await execFileAsync(
         "gh",
         ["api", "user", "--hostname", "github.com", "--jq", ".name // \"\""],
         { encoding: "utf-8", timeout: 5000 },
       );
-      const first = firstNameOf(stdout);
-      if (first) this.viewerFirstName = first;
-      return first;
+      return stdout.trim() || null;
     } catch {
       return null;
     }
   }
-
-  /**
-   * Fetch an image embedded in an issue body with `gh`'s token and hand back
-   * a data URL — a private repo's images 404 (or bounce to a login page)
-   * without it. Only GitHub's own hosts get the token, on every redirect hop;
-   * anything else throws and the renderer loads it directly.
-   */
-  async proxyImage(url: string): Promise<string> {
-    const target = githubImageFetchUrl(url);
-    if (!target) throw new Error("Not a GitHub-hosted image");
-
-    const token = await this.imageToken();
-    try {
-      return await fetchImageDataUrl({
-        url: target,
-        authorization: `token ${token}`,
-        isTrusted: (hop) => githubImageFetchUrl(hop.href) !== null,
-      });
-    } catch (err) {
-      // A token revoked or switched since it was cached; the next image asks gh again.
-      if (err instanceof ImageAuthError) this.imageTokenPromise = null;
-      throw err;
-    }
-  }
-
-  /** `gh auth token`, run once and shared by every image rather than once per image. */
-  private imageToken(): Promise<string> {
-    if (!this.imageTokenPromise) {
-      this.imageTokenPromise = execFileAsync(
-        "gh",
-        ["auth", "token", "--hostname", "github.com"],
-        { encoding: "utf-8", timeout: 5000 },
-      ).then(
-        ({ stdout }) => stdout.trim(),
-        (err: unknown) => {
-          this.imageTokenPromise = null;
-          throw err;
-        },
-      );
-    }
-    return this.imageTokenPromise;
-  }
-}
-
-/** The first word of a profile display name: "Ada Lovelace" -> "Ada". */
-export function firstNameOf(displayName: string): string | null {
-  const first = displayName.trim().split(/\s+/)[0];
-  return first ? first : null;
 }
 
 interface PrConversationState {

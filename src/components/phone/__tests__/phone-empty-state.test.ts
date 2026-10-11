@@ -3,7 +3,6 @@ import type { AgentInfo } from "../../../electron.d";
 import type { HostId } from "../../../lib/hosts";
 import {
   RECENT_AGENT_LIMIT,
-  greetingFor,
   recentStatus,
   recentWorkspaceAgents,
 } from "../phone-empty-state";
@@ -36,15 +35,6 @@ function agent(over: Partial<AgentInfo>): AgentInfo {
   } as AgentInfo;
 }
 
-describe("greetingFor", () => {
-  it("follows the hour", () => {
-    expect(greetingFor(new Date(2026, 0, 1, 8))).toBe("Good morning");
-    expect(greetingFor(new Date(2026, 0, 1, 13))).toBe("Good afternoon");
-    expect(greetingFor(new Date(2026, 0, 1, 21))).toBe("Good evening");
-    expect(greetingFor(new Date(2026, 0, 1, 2))).toBe("Good evening");
-  });
-});
-
 describe("recentWorkspaceAgents", () => {
   it("keeps this workspace's agents on this host, newest first", () => {
     const agents = [
@@ -68,6 +58,6 @@ describe("recentStatus", () => {
     expect(recentStatus(agent({ status: "completed" }))).toEqual({ label: "Finished", tone: "done" });
     expect(recentStatus(agent({ status: "error" }))).toEqual({ label: "Errored", tone: "error" });
     expect(recentStatus(agent({ status: "abandoned" }))).toEqual({ label: "Interrupted", tone: "neutral" });
-    expect(recentStatus(agent({ status: "active" }))).toEqual({ label: "Paused", tone: "neutral" });
+    expect(recentStatus(agent({ status: "active" }))).toEqual({ label: "Working", tone: "neutral" });
   });
 });

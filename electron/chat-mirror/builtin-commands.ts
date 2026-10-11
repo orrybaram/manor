@@ -19,10 +19,9 @@ export type ChatCommand = {
   name: string;
   description: string;
   source: "builtin" | "skill";
-  /** Sent bare, opens a menu in the TUI that the chat can't show. */
-  interactive?: boolean;
-  /** With an argument it acts at once, no menu (`/model sonnet`). */
-  argSkipsMenu?: boolean;
+  /** Opens a menu in the TUI that the chat can't show: "always", or
+   *  "bare-only" when an argument acts at once instead (`/model sonnet`). */
+  menu?: "always" | "bare-only";
   /** Fixed arguments the phone can offer as a native picker (ADR-218 D2). */
   choices?: { value: string; label: string; description?: string }[];
 };
@@ -42,8 +41,7 @@ export const BUILTIN_COMMANDS: readonly ChatCommand[] = [
     name: "model",
     description: "Choose the model",
     source: "builtin",
-    interactive: true,
-    argSkipsMenu: true,
+    menu: "bare-only",
     choices: [
       { value: "default", label: "Default", description: "The recommended model for your plan" },
       { value: "fable", label: "Fable", description: "Latest Fable model" },
@@ -56,8 +54,7 @@ export const BUILTIN_COMMANDS: readonly ChatCommand[] = [
     name: "effort",
     description: "Set the effort level",
     source: "builtin",
-    interactive: true,
-    argSkipsMenu: true,
+    menu: "bare-only",
     choices: [
       { value: "low", label: "Low", description: "Quickest, least thinking" },
       { value: "medium", label: "Medium", description: "Balanced" },
@@ -70,50 +67,43 @@ export const BUILTIN_COMMANDS: readonly ChatCommand[] = [
     name: "fast",
     description: "Toggle fast mode",
     source: "builtin",
-    interactive: true,
-    argSkipsMenu: true,
+    menu: "bare-only",
     choices: [
       { value: "on", label: "On", description: "Faster output" },
       { value: "off", label: "Off", description: "Standard speed" },
     ],
   },
-  { name: "config", description: "Open the settings", source: "builtin", interactive: true, argSkipsMenu: true },
-  { name: "resume", description: "Resume a previous conversation", source: "builtin", interactive: true, argSkipsMenu: true },
-  { name: "mcp", description: "Manage MCP servers", source: "builtin", interactive: true, argSkipsMenu: true },
-  { name: "permissions", description: "Manage tool permissions", source: "builtin", interactive: true },
-  { name: "hooks", description: "Manage hooks", source: "builtin", interactive: true },
-  { name: "memory", description: "Edit memory files", source: "builtin", interactive: true },
-  { name: "login", description: "Sign in to your account", source: "builtin", interactive: true },
-  { name: "logout", description: "Sign out of your account", source: "builtin", interactive: true },
-  { name: "doctor", description: "Check the health of the installation", source: "builtin", interactive: true },
-  { name: "status", description: "Show version, model and account status", source: "builtin", interactive: true },
-  { name: "plugin", description: "Manage plugins", source: "builtin", interactive: true },
-  { name: "theme", description: "Change the color theme", source: "builtin", interactive: true },
-  { name: "help", description: "Show help and the available commands", source: "builtin", interactive: true },
-  { name: "add-dir", description: "Add a working directory", source: "builtin", interactive: true, argSkipsMenu: true },
-  { name: "ide", description: "Manage the IDE integration", source: "builtin", interactive: true },
-  { name: "bashes", description: "Manage background shell tasks", source: "builtin", interactive: true },
+  { name: "config", description: "Open the settings", source: "builtin", menu: "bare-only" },
+  { name: "resume", description: "Resume a previous conversation", source: "builtin", menu: "bare-only" },
+  { name: "mcp", description: "Manage MCP servers", source: "builtin", menu: "bare-only" },
+  { name: "permissions", description: "Manage tool permissions", source: "builtin", menu: "always" },
+  { name: "hooks", description: "Manage hooks", source: "builtin", menu: "always" },
+  { name: "memory", description: "Edit memory files", source: "builtin", menu: "always" },
+  { name: "login", description: "Sign in to your account", source: "builtin", menu: "always" },
+  { name: "logout", description: "Sign out of your account", source: "builtin", menu: "always" },
+  { name: "doctor", description: "Check the health of the installation", source: "builtin", menu: "always" },
+  { name: "status", description: "Show version, model and account status", source: "builtin", menu: "always" },
+  { name: "plugin", description: "Manage plugins", source: "builtin", menu: "always" },
+  { name: "theme", description: "Change the color theme", source: "builtin", menu: "always" },
+  { name: "help", description: "Show help and the available commands", source: "builtin", menu: "always" },
+  { name: "add-dir", description: "Add a working directory", source: "builtin", menu: "bare-only" },
+  { name: "ide", description: "Manage the IDE integration", source: "builtin", menu: "always" },
+  { name: "bashes", description: "Manage background shell tasks", source: "builtin", menu: "always" },
 ];
 
 const BY_NAME = new Map(BUILTIN_COMMANDS.map((c) => [c.name, c]));
 
-/** Whether `/name` opens a menu that only the terminal can show. */
-export function isInteractiveCommand(name: string): boolean {
-  return BY_NAME.get(name)?.interactive === true;
+/** The built-in entry for `/name`, if any. */
+export function findBuiltin(name: string): ChatCommand | undefined {
+  return BY_NAME.get(name);
 }
 
 /**
- * Whether sending `/name args` opens a TUI menu (ADR-218 D1). `command` is the
- * fetched entry (a skill of the same name replaces a built-in); when it's
- * undefined the built-in entry stands in. With an argument, a command that has
- * `argSkipsMenu` acts at once instead.
+ * Whether sending `entry` with `args` opens a TUI menu (ADR-218 D1). The caller
+ * passes the fetched entry (a skill of the same name replaces a built-in), else
+ * the built-in. With an argument, a "bare-only" command acts at once instead.
  */
-export function opensMenu(
-  command: ChatCommand | undefined,
-  name: string,
-  args: string,
-): boolean {
-  const entry = command ?? BY_NAME.get(name);
-  if (entry?.interactive !== true) return false;
-  return args.trim() === "" || entry.argSkipsMenu !== true;
+export function opensMenu(entry: ChatCommand | undefined, args: string): boolean {
+  if (!entry) return false;
+  return entry.menu === "always" || (entry.menu === "bare-only" && args.trim() === "");
 }

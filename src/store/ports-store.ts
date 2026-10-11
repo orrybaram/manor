@@ -79,28 +79,27 @@ function startScanner(): () => void {
   });
 
   const unsubChange = window.electronAPI.ports.onChange((newPorts) => {
-    setPorts(newPorts as ActivePort[]);
+    setPorts(newPorts);
+  });
+
+  // The scanner's pushes stop reaching a dropped socket; ask for a fresh scan.
+  const unsubResync = onBridgeResync(() => {
+    window.electronAPI.ports
+      .scanNow()
+      .then(setPorts)
+      .catch(() => {});
   });
 
   return () => {
     unsubProjects();
     unsubChange();
+    unsubResync();
     window.electronAPI.ports.stopScanner();
   };
 }
 
 let holders = 0;
 let stop: (() => void) | null = null;
-
-// The scanner's pushes stop reaching a dropped socket; ask for a fresh scan.
-onBridgeResync(() => {
-  if (holders > 0) {
-    window.electronAPI.ports
-      .scanNow()
-      .then((ports) => usePortsStore.getState().setPorts(ports as ActivePort[]))
-      .catch(() => {});
-  }
-});
 
 /**
  * Hold a reference to the shared scanner: the first holder starts it, the

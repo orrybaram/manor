@@ -10,7 +10,6 @@ import { PullIndicator } from "../PullIndicator";
 import { usePullToRefresh } from "../usePullToRefresh";
 import {
   answerablePickerId,
-  endsMenuHandoff,
   groupEntries,
   mergeHistory,
   upsertEntry,
@@ -19,7 +18,7 @@ import { ChatComposer } from "./ChatComposer";
 import { ChatEntryView } from "./ChatEntryView";
 import { ChatThinking } from "./ChatThinking";
 import styles from "./ChatPane.module.css";
-import { endMenuHandoff, usePaneChatViewStore } from "./usePaneChatView";
+import { noteChatEntries } from "./usePaneChatView";
 
 type Unavailable = Extract<ChatHistory, { ok: false }>["reason"] | "error";
 
@@ -89,14 +88,6 @@ export function ChatPane(props: ChatPaneProps) {
     let shown = false;
     let retry: ReturnType<typeof setInterval> | null = null;
 
-    // Read from the store, not a hook: these callbacks live as long as the mount.
-    const checkHandoff = (landed: readonly ChatEntry[]) => {
-      const handoff = usePaneChatViewStore.getState().handoffs[paneId];
-      if (handoff && landed.some((e) => endsMenuHandoff(handoff, e))) {
-        endMenuHandoff(paneId, { returnToChat: true });
-      }
-    };
-
     const setOffline = (next: boolean) => {
       offline = next;
       if (next && retry === null) retry = setInterval(fetchHistory, OFFLINE_RETRY_MS);
@@ -115,7 +106,7 @@ export function ChatPane(props: ChatPaneProps) {
           if (!alive) return;
           if (history.ok) {
             shown = true;
-            checkHandoff(history.entries);
+            noteChatEntries(paneId, transcript, history.entries);
             setEntries((prev) => mergeHistory(history.entries, prev));
             setSettledIds((prev) => prev ?? new Set(history.entries.map((e) => e.id)));
             setUnavailable(null);
@@ -142,7 +133,7 @@ export function ChatPane(props: ChatPaneProps) {
     // is subscribed, and nothing published during the fetch is lost.
     const unsubscribe = chat.onEntry(paneId, (_paneId, entry) => {
       setEntries((prev) => upsertEntry(prev, entry));
-      checkHandoff([entry]);
+      noteChatEntries(paneId, transcript, [entry]);
       // The transcript is readable again: catch up on what was missed.
       if (offline) fetchHistory();
     });

@@ -7,24 +7,29 @@ import ListTodo from "lucide-react/dist/esm/icons/list-todo";
 import Search from "lucide-react/dist/esm/icons/search";
 import Bell from "lucide-react/dist/esm/icons/bell";
 import { refreshState } from "../../../bridge/refresh";
-import type { AgentInfo, AgentStatus } from "../../../electron.d";
+import type { AgentInfo } from "../../../electron.d";
 import { useVisibleAgents } from "../../../hooks/useVisibleAgents";
 import { useAgentDisplay } from "../../../hooks/useAgentDisplay";
 import { useAgentPulse } from "../../../hooks/useAgentPulse";
 import { projectColorStyle } from "../../../hooks/useProjectHeaderRow";
+import { useSidebarNav } from "../../../hooks/useSidebarNav";
 import { useAppStore } from "../../../store/app-store";
 import { useNotificationStore } from "../../../store/notification-store";
-import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
-import { HOME_PATH } from "../../../lib/home";
-import { workspaceDisplayName } from "../../../lib/workspace-display-name";
-import { agentWorkspaceKey, navigateToAgent } from "../../../utils/agent-navigation";
-import { relativeShort } from "../../../utils/relative-time";
+import { useProjectStore } from "../../../store/project-store";
+import { navigateToAgent } from "../../../utils/agent-navigation";
+import { relativeShortIso } from "../../../utils/relative-time";
+import { useUnreadNotificationCount } from "../../../hooks/useUnreadNotificationCount";
+import { UnreadBadge } from "../../notifications/UnreadBadge";
 import { AgentDot } from "../../ui/AgentDot/AgentDot";
 import { Button } from "../../ui/Button/Button";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { PullIndicator } from "../PullIndicator";
 import { usePullToRefresh } from "../usePullToRefresh";
-import { buildAgentsDrawerModel } from "./agents-drawer-model";
+import {
+  buildAgentsDrawerModel,
+  type AgentsDrawerNeedsYou,
+  type AgentsDrawerRow,
+} from "./agents-drawer-model";
 import styles from "./PhoneAgentsPanel.module.css";
 
 type PhoneAgentsPanelProps = {
@@ -39,33 +44,6 @@ type PhoneAgentsPanelProps = {
 };
 
 const NEEDS_YOU_FALLBACK = "Waiting for your input";
-
-/** "5m ago" for an ISO timestamp; empty when it doesn't parse. */
-function ago(iso: string): string {
-  const ms = Date.parse(iso);
-  return Number.isNaN(ms) ? "" : relativeShort(ms);
-}
-
-/** The agent's workspace name, else the last segment of its path. */
-function workspaceLabel(agent: AgentInfo, projects: readonly ProjectInfo[]): string {
-  const path = agent.workspacePath ?? agent.cwd;
-  const basename = path.split("/").filter(Boolean).pop() ?? "";
-  try {
-    const key = agentWorkspaceKey(agent, projects);
-    return (key && workspaceDisplayName(key, projects)) || basename;
-  } catch {
-    // `workspaceKey` throws for a remote path it can't encode.
-    return basename;
-  }
-}
-
-/** The trailing label of a grouped row: the live status, else the age. */
-function trailingLabel(status: AgentStatus | undefined, agent: AgentInfo): string {
-  if (status === "working" || status === "thinking" || status === "error") {
-    return status;
-  }
-  return ago(agent.updatedAt);
-}
 
 /**
  * ADR-219 §2: the phone drawer's agents-first content. Agents waiting on the
@@ -89,27 +67,9 @@ export function PhoneAgentsPanel(props: PhoneAgentsPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const { pull, refreshing } = usePullToRefresh(scrollRef, refreshState);
 
-  const statusByPane = useMemo(() => {
-    const map: Record<string, AgentStatus | undefined> = {};
-    for (const [paneId, entry] of Object.entries(paneAgentStatus)) {
-      map[paneId] = entry?.status;
-    }
-    return map;
-  }, [paneAgentStatus]);
-
   const model = useMemo(
-    () => buildAgentsDrawerModel({ agents, statusByPane, projects }),
-    [agents, statusByPane, projects],
-  );
-
-  const projectById = useMemo(
-    () => new Map(projects.map((p) => [p.id, p])),
-    [projects],
-  );
-
-  const totalWorkspaces = useMemo(
-    () => projects.reduce((n, p) => n + p.workspaces.length, 0),
-    [projects],
+    () => buildAgentsDrawerModel({ agents, paneAgentStatus, projects }),
+    [agents, paneAgentStatus, projects],
   );
 
   const openAgent = useCallback(
@@ -120,15 +80,7 @@ export function PhoneAgentsPanel(props: PhoneAgentsPanelProps) {
     [onNavigate],
   );
 
-  const handleSelectHome = useCallback(() => {
-    useAppStore.getState().setActiveWorkspace(HOME_PATH);
-    onNavigate();
-  }, [onNavigate]);
-
-  const handleShowTasks = useCallback(() => {
-    useAppStore.getState().showTasksView();
-    onNavigate();
-  }, [onNavigate]);
+  const { selectHome, showTasks } = useSidebarNav(onNavigate);
 
   return (
     <div className={styles.panel} data-testid="phone-agents-panel">
@@ -174,22 +126,14 @@ export function PhoneAgentsPanel(props: PhoneAgentsPanelProps) {
                   Needs you · {model.needsYou.length}
                 </div>
                 <div className={styles.cards}>
-                  {model.needsYou.map((agent) => {
-                    const project = agent.projectId
-                      ? projectById.get(agent.projectId)
-                      : undefined;
-                    return (
-                      <NeedsYouCard
-                        key={agent.id}
-                        agent={agent}
-                        projectName={project?.name ?? agent.projectName ?? ""}
-                        projectColor={project?.color ?? null}
-                        workspace={workspaceLabel(agent, projects)}
-                        pulse={shouldPulse(agent)}
-                        onOpen={openAgent}
-                      />
-                    );
-                  })}
+                  {model.needsYou.map((item) => (
+                    <NeedsYouCard
+                      key={item.agent.id}
+                      item={item}
+                      pulse={shouldPulse(item.agent)}
+                      onOpen={openAgent}
+                    />
+                  ))}
                 </div>
               </section>
             )}
@@ -198,7 +142,7 @@ export function PhoneAgentsPanel(props: PhoneAgentsPanelProps) {
             )}
             {model.groups.map((group) => (
               <section
-                key={group.projectId}
+                key={group.key}
                 className={styles.section}
                 aria-label={group.projectName}
               >
@@ -209,11 +153,11 @@ export function PhoneAgentsPanel(props: PhoneAgentsPanelProps) {
                   />
                   <span className={styles.groupName}>{group.projectName}</span>
                 </div>
-                {group.agents.map((agent) => (
+                {group.rows.map((row) => (
                   <AgentRow
-                    key={agent.id}
-                    agent={agent}
-                    pulse={shouldPulse(agent)}
+                    key={row.agent.id}
+                    row={row}
+                    pulse={shouldPulse(row.agent)}
                     onOpen={openAgent}
                   />
                 ))}
@@ -233,15 +177,15 @@ export function PhoneAgentsPanel(props: PhoneAgentsPanelProps) {
         >
           <span className={styles.projectsLabel}>Projects</span>
           <span className={styles.projectsCount}>
-            {`${projects.length} · ${totalWorkspaces} workspaces`}
+            {model.projectsSummary}
           </span>
           <ChevronRight size={16} />
         </Button>
         <nav className={styles.iconNav} aria-label="Main">
-          <NavIcon label="Dashboard" testId="home-row" onClick={handleSelectHome}>
+          <NavIcon label="Dashboard" testId="home-row" onClick={selectHome}>
             <LayoutDashboard size={18} />
           </NavIcon>
-          <NavIcon label="Tasks" testId="tasks-row" onClick={handleShowTasks}>
+          <NavIcon label="Tasks" testId="tasks-row" onClick={showTasks}>
             <ListTodo size={18} />
           </NavIcon>
           {onOpenSearch && (
@@ -257,17 +201,15 @@ export function PhoneAgentsPanel(props: PhoneAgentsPanelProps) {
 }
 
 type NeedsYouCardProps = {
-  agent: AgentInfo;
-  projectName: string;
-  projectColor: string | null;
-  workspace: string;
+  item: AgentsDrawerNeedsYou;
   pulse: boolean;
   onOpen: (agent: AgentInfo) => void;
 };
 
 /** One "Needs you" card: title and age, the agent's ask, and where it runs. */
 function NeedsYouCard(props: NeedsYouCardProps) {
-  const { agent, projectName, projectColor, workspace, pulse, onOpen } = props;
+  const { item, pulse, onOpen } = props;
+  const { agent, projectName, color, workspaceLabel } = item;
 
   const { title, status, reason } = useAgentDisplay(agent);
   // Newest first, so the first match is the latest. Selecting the body alone
@@ -293,13 +235,13 @@ function NeedsYouCard(props: NeedsYouCardProps) {
           <AgentDot status={status} size="sidebar" pulse={pulse} reason={reason} />
         </span>
         <span className={styles.cardTitle}>{title}</span>
-        <span className={styles.time}>{ago(agent.updatedAt)}</span>
+        <span className={styles.time}>{relativeShortIso(agent.updatedAt)}</span>
       </span>
       <span className={styles.cardMessage}>{message || NEEDS_YOU_FALLBACK}</span>
       <span className={styles.cardWhere}>
-        <span className={styles.projectSquare} style={projectColorStyle(projectColor)} />
+        <span className={styles.projectSquare} style={projectColorStyle(color)} />
         <span className={styles.cardWhereText}>
-          {projectName} / {workspace}
+          {projectName} / {workspaceLabel}
         </span>
       </span>
     </Button>
@@ -307,17 +249,17 @@ function NeedsYouCard(props: NeedsYouCardProps) {
 }
 
 type AgentRowProps = {
-  agent: AgentInfo;
+  row: AgentsDrawerRow;
   pulse: boolean;
   onOpen: (agent: AgentInfo) => void;
 };
 
 /** One agent in a project group: dot, title and a trailing status or age. */
 function AgentRow(props: AgentRowProps) {
-  const { agent, pulse, onOpen } = props;
+  const { row, pulse, onOpen } = props;
+  const { agent, trailing, error } = row;
 
   const { title, status, reason } = useAgentDisplay(agent);
-  const trailing = trailingLabel(status, agent);
 
   return (
     <Button
@@ -336,7 +278,7 @@ function AgentRow(props: AgentRowProps) {
       </span>
       <span className={styles.rowTitle}>{title}</span>
       <span
-        className={`${styles.time} ${status === "error" ? styles.errorLabel : ""}`}
+        className={`${styles.time} ${error ? styles.errorLabel : ""}`}
       >
         {trailing}
       </span>
@@ -377,7 +319,7 @@ type NotificationsIconProps = {
 function NotificationsIcon(props: NotificationsIconProps) {
   const { onOpen } = props;
 
-  const unreadCount = useNotificationStore((s) => s.unreadCount);
+  const unreadCount = useUnreadNotificationCount();
   const label =
     unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications";
 
@@ -391,9 +333,7 @@ function NotificationsIcon(props: NotificationsIconProps) {
         onClick={onOpen}
       >
         <Bell size={18} />
-        {unreadCount > 0 && (
-          <span className={styles.unreadDot} data-testid="notifications-row-badge" />
-        )}
+        <UnreadBadge variant="dot" className={styles.unreadDot} />
       </Button>
     </Tooltip>
   );

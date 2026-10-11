@@ -24,6 +24,7 @@
 import type { HostProvider, PortForward } from "./backend/providers/types";
 import type { HostStatus, HostStatusInfo } from "./backend/registry";
 import { LOCAL_HOST_ID, type ActivePort } from "./backend/types";
+import { parseHttpUrl } from "../src/lib/http-url";
 
 /** The slice of `BackendRegistry` forwards need. */
 export interface ForwardHosts {
@@ -302,16 +303,6 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 function urlPort(parsed: URL): number {
   if (parsed.port) return Number(parsed.port);
   return parsed.protocol === "https:" ? 443 : 80;
-}
-
-function parseHttpUrl(url: string): URL | null {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return null;
-  }
-  return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed : null;
 }
 
 /**

@@ -37,6 +37,7 @@ import type {
   LinkedIssue,
 } from "../../linear";
 import type { PrInfo } from "../../../src/lib/pr-info";
+import { proxyGitHubImage } from "../../github-images";
 import { method, type HandlerCtx } from "../method";
 
 type IssueState = "open" | "closed" | "all";
@@ -72,8 +73,9 @@ export function githubListRepos(ctx: HandlerCtx): Promise<GitHubRepo[]> {
   return ctx.deps.githubManager.listRepos();
 }
 
-export function githubGetViewerFirstName(ctx: HandlerCtx): Promise<string | null> {
-  return ctx.deps.githubManager.getViewerFirstName();
+/** The profile's display name, raw; the phone layer picks the first name. */
+export function githubGetViewerName(ctx: HandlerCtx): Promise<string | null> {
+  return ctx.deps.githubManager.getViewerName();
 }
 
 export function githubCheckStatus(ctx: HandlerCtx): Promise<{
@@ -282,11 +284,11 @@ export function linearUnlinkIssueFromWorkspace(
  * `linearProxyImage`.
  */
 export function githubProxyImage(
-  ctx: HandlerCtx,
+  _ctx: HandlerCtx,
   url: string,
 ): Promise<string> {
   assertString(url, "url");
-  return ctx.deps.githubManager.proxyImage(url);
+  return proxyGitHubImage(url);
 }
 
 /**
@@ -341,7 +343,7 @@ export const github = {
   listRepos: method(githubListRepos),
   checkStatus: method(githubCheckStatus),
   // The phone greeting's name, from the signed-in profile: no writes.
-  getViewerFirstName: method(githubGetViewerFirstName),
+  getViewerName: method(githubGetViewerName),
   getMyIssues: method(githubGetMyIssues),
   getAllIssues: method(githubGetAllIssues),
   getIssueDetail: method(githubGetIssueDetail),

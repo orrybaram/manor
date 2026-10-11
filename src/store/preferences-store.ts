@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { AppPreferences } from "../electron.d";
-import { onBridgeResync } from "../bridge/resync";
+import { bootAndResync } from "../bridge/resync";
 
 interface PreferencesState {
   preferences: AppPreferences;
@@ -43,9 +43,7 @@ export const usePreferencesStore = create<PreferencesState>((set) => {
       .catch(() => {});
   };
 
-  // Load initial preferences on store creation
-  load();
-  onBridgeResync(load);
+  bootAndResync(load);
 
   // Subscribe to live preference updates
   window.electronAPI?.preferences.onChange((preferences) => {

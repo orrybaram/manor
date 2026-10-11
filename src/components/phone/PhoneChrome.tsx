@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { PhoneTopBar } from "./PhoneTopBar";
-import { SidebarDrawer, useEdgeSwipeToOpen } from "./SidebarDrawer";
+import { SidebarDrawer } from "./SidebarDrawer";
+import { useEdgeSwipeToOpen } from "./useDrawerSwipe";
 import { NotificationsSheet } from "./NotificationsSheet";
 import { EnableNotifications } from "./EnableNotifications";
 import { KeyboardLift } from "./KeyboardLift";
@@ -16,6 +17,9 @@ type PhoneChromeProps = {
   /** Opens the command palette, unscoped — the same `CommandPalette` the desk
    *  sidebar's Search row opens. The phone has no palette of its own. */
   onOpenSearch: () => void;
+  /** Settings, the palette or another app-level dialog is open; the edge swipe
+   *  stays out of its way. */
+  modalOpen: boolean;
 };
 
 /**
@@ -40,14 +44,21 @@ export function PhoneChrome(props: PhoneChromeProps) {
     onOpenProjectSettings,
     onAddProject,
     onOpenSearch,
+    modalOpen,
   } = props;
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
-  useEdgeSwipeToOpen(() => {
-    if (!notificationsOpen) setDrawerOpen(true);
-  });
+  useEdgeSwipeToOpen(() => setDrawerOpen(true), !notificationsOpen && !modalOpen);
+
+  /** Every action the drawer hands out closes it first. */
+  const closeThen =
+    <A extends unknown[]>(fn: (...args: A) => void) =>
+    (...args: A) => {
+      setDrawerOpen(false);
+      fn(...args);
+    };
 
   // A pushed notification asks for the history (ADR-162). On a phone neither
   // the window lead nor the rail — the desk's popover owners — is mounted, so
@@ -69,31 +80,13 @@ export function PhoneChrome(props: PhoneChromeProps) {
       <SidebarDrawer
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
-        onNewAgent={() => {
-          setDrawerOpen(false);
-          onNewAgent();
-        }}
-        onOpenSettings={() => {
-          setDrawerOpen(false);
-          onOpenSettings();
-        }}
-        onShowAgents={onShowAgents}
-        onOpenProjectSettings={(projectId) => {
-          setDrawerOpen(false);
-          onOpenProjectSettings(projectId);
-        }}
-        onAddProject={() => {
-          setDrawerOpen(false);
-          onAddProject();
-        }}
-        onOpenSearch={() => {
-          setDrawerOpen(false);
-          onOpenSearch();
-        }}
-        onOpenNotifications={() => {
-          setDrawerOpen(false);
-          setNotificationsOpen(true);
-        }}
+        onNewAgent={closeThen(onNewAgent)}
+        onOpenSettings={closeThen(onOpenSettings)}
+        onShowAgents={closeThen(onShowAgents)}
+        onOpenProjectSettings={closeThen(onOpenProjectSettings)}
+        onAddProject={closeThen(onAddProject)}
+        onOpenSearch={closeThen(onOpenSearch)}
+        onOpenNotifications={closeThen(() => setNotificationsOpen(true))}
       />
       <NotificationsSheet open={notificationsOpen} onOpenChange={setNotificationsOpen} />
       <KeyboardLift />

@@ -54,6 +54,7 @@ export function memoryTracker(
       }),
       staleTime: Infinity,
     }),
+    imageQuery: () => null,
     startWork: () => {},
     ownsLink: (link) => link.id.startsWith("gh-") === (provider === "github"),
     matchesLink: (link, row) =>

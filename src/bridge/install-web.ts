@@ -117,13 +117,6 @@ function setReachability(next: Reachability): void {
   for (const cb of [...reachabilityListeners]) cb();
 }
 
-/**
- * Accepted hellos so far. The first is the cold start the stores' boot
- * fetches already cover; every later one is a reconnect after which pushes
- * may have been missed, so the stores re-fetch (ADR-220 D1).
- */
-let helloCount = 0;
-
 const transport = createWsTransport({
   token: webToken,
   pipe: pipe ?? UNPAIRED_PIPE,
@@ -140,21 +133,26 @@ const transport = createWsTransport({
   // stopped, so the screen offers a reload rather than a redial.
   onKeyMismatch: () => settle("key-mismatch"),
   onStatus: setReachability,
-  onHello: ({ appVersion }) => {
+  onHello: ({ appVersion, resumed }) => {
     const target = versionRedirectTarget(__APP_VERSION__, appVersion);
     if (target) {
       // This page is going away; nothing here needs to re-fetch.
       location.replace(target);
       return;
     }
-    helloCount += 1;
-    if (helloCount > 1) emitBridgeResync();
+    // The first hello is the cold start the stores' boot fetches already
+    // cover; a resumed one is a reconnect after which pushes may have been
+    // missed, so the stores re-fetch (ADR-220 D1).
+    if (resumed) emitBridgeResync();
   },
 });
 
-/** "Try again now" on the not-reachable overlay: skip the backoff wait. */
+/**
+ * "Try again now" on the not-reachable overlay: skip the backoff wait, or
+ * dial or probe now, as a foreground event would.
+ */
 export function retryBridgeNow(): void {
-  transport.retryNow();
+  void transport.probeNow();
 }
 
 /**
@@ -171,7 +169,7 @@ registerRefresh(refreshBridge);
 // back-forward cache, or back on a network — dials now rather than sitting
 // out a backoff that grew to 30s while it was away, and probes a socket that
 // still looks open: iOS often kills a backgrounded one without a close event.
-const checkBridgeNow = (): void => transport.checkNow();
+const checkBridgeNow = (): void => void transport.probeNow();
 window.addEventListener("online", checkBridgeNow);
 window.addEventListener("pageshow", checkBridgeNow);
 if (typeof document !== "undefined") {

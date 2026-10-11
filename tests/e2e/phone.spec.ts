@@ -350,9 +350,8 @@ test.describe("phone layout (ADR-181)", () => {
       await client.page.keyboard.press("Escape");
       await expect(phoneSettings).not.toBeVisible();
 
-      if (!(await drawer.isVisible())) {
-        await client.page.getByTestId("phone-drawer-toggle").click();
-      }
+      await expect(drawer).toBeHidden();
+      await client.page.getByTestId("phone-drawer-toggle").click();
       await drawer.getByTestId("drawer-projects-row").click();
       await expect(drawer.getByTestId("workspace-item").first()).toBeVisible();
       await drawer.getByTestId("drawer-back-to-agents").click();

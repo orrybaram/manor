@@ -77,6 +77,19 @@ function claimChunkReload(): boolean {
   }
 }
 window.addEventListener("vite:preloadError", (event) => {
+  // Offline, a reload lands on the browser's own error page — a worse dead
+  // end than the one it escapes. Wait for the network, then reload.
+  if (!navigator.onLine) {
+    event.preventDefault();
+    window.addEventListener(
+      "online",
+      () => {
+        if (claimChunkReload()) location.reload();
+      },
+      { once: true },
+    );
+    return;
+  }
   if (!claimChunkReload()) return;
   event.preventDefault();
   location.reload();

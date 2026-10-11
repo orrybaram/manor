@@ -567,13 +567,24 @@ test.describe("phone layout (ADR-181)", () => {
     try {
       // Track every WebSocket from the first script on, then start over so
       // the app's own socket is one of them. The pairing survives a reload.
+      // While `__blockSockets` is set, a redial goes to a port nothing
+      // listens on: the line stays down without taking the whole network
+      // (and so the page's lazy chunks) down with it.
       await page.context().addInitScript(() => {
-        const w = window as unknown as { __sockets: WebSocket[] };
+        const w = window as unknown as {
+          __sockets: WebSocket[];
+          __blockSockets: boolean;
+        };
         w.__sockets = [];
+        w.__blockSockets = false;
         const Native = window.WebSocket;
         window.WebSocket = new Proxy(Native, {
           construct(target, args) {
-            const ws = new target(...(args as [string, (string | string[])?]));
+            const [url, protocols] = args as [string, (string | string[])?];
+            const ws = new target(
+              w.__blockSockets ? "ws://127.0.0.1:9/blocked" : url,
+              protocols,
+            );
             w.__sockets.push(ws);
             return ws;
           },
@@ -585,11 +596,17 @@ test.describe("phone layout (ADR-181)", () => {
       await expect(topBar).toContainText(before);
 
       // 1. Drop the line, rename on the desk meanwhile, bring it back.
-      await page.context().setOffline(true);
+      // The marker proves the catch-up below is a resync, not a reload.
       const closed = await page.evaluate(() => {
-        const sockets = (window as unknown as { __sockets: WebSocket[] }).__sockets;
-        for (const ws of sockets) ws.close();
-        return sockets.length;
+        const w = window as unknown as {
+          __sockets: WebSocket[];
+          __blockSockets: boolean;
+          __marker: string;
+        };
+        w.__marker = "alive";
+        w.__blockSockets = true;
+        for (const ws of w.__sockets) ws.close();
+        return w.__sockets.length;
       });
       expect(closed).toBeGreaterThan(0);
 
@@ -613,17 +630,18 @@ test.describe("phone layout (ADR-181)", () => {
       // Still the old name: the line is down, nothing was pushed.
       await expect(topBar).toContainText(before);
 
-      await page.context().setOffline(false);
       await page.evaluate(() => {
+        (window as unknown as { __blockSockets: boolean }).__blockSockets =
+          false;
         window.dispatchEvent(new Event("online"));
         document.dispatchEvent(new Event("visibilitychange"));
       });
       await expect(topBar).toContainText(after, { timeout: 30_000 });
+      expect(
+        await page.evaluate(() => (window as unknown as { __marker?: string }).__marker),
+      ).toBe("alive");
 
       // 2. Overflow Refresh: in place, no reload.
-      await page.evaluate(() => {
-        (window as unknown as { __marker: string }).__marker = "alive";
-      });
       await page.getByTestId("phone-overflow-button").click();
       await expect(page.getByTestId("overflow-refresh")).toBeVisible();
       await expect(page.getByTestId("overflow-reload")).toBeVisible();

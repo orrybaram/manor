@@ -19,10 +19,14 @@ import type {
   ChatCommands,
   ChatHistory,
 } from "../../chat-mirror/mirror";
-import { encodeChatMessage, type PickerAnswer } from "../../chat-mirror/picker-keys";
+import { CHAT_SUBMIT, encodeChatMessage, type PickerAnswer } from "../../chat-mirror/picker-keys";
 import { method, type HandlerCtx } from "../method";
 
 const ESC = "\x1b";
+
+/** The pause between a prompt's text and its Enter. Long enough that Claude
+ *  Code reads the Enter as its own keypress, not the tail of a paste. */
+const SUBMIT_DELAY_MS = 120;
 
 export function chatGetHistory(
   ctx: HandlerCtx,
@@ -41,11 +45,13 @@ export function chatGetCommands(
 }
 
 /** Type a prompt and submit it, as one prompt even across lines (`encodeChatMessage`). */
-export function chatSend(ctx: HandlerCtx, paneId: string, text: string): void {
+export async function chatSend(ctx: HandlerCtx, paneId: string, text: string): Promise<void> {
   assertString(paneId, "paneId");
   assertString(text, "text");
   if (text.trim().length === 0) throw new Error("text: expected a message");
   ctx.deps.backend.pty.write(paneId, encodeChatMessage(text));
+  await new Promise((resolve) => setTimeout(resolve, SUBMIT_DELAY_MS));
+  ctx.deps.backend.pty.write(paneId, CHAT_SUBMIT);
 }
 
 /** Esc: what stops Claude mid-turn in its own TUI. */

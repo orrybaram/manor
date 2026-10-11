@@ -193,7 +193,11 @@ describe("GitHubManager", () => {
               additions: 10,
               deletions: 2,
               reviewDecision: "APPROVED",
-              ...rollup({ conclusion: "SUCCESS" }, { conclusion: "SUCCESS" }, { conclusion: "FAILURE" }),
+              ...rollup(
+                { name: "build", conclusion: "SUCCESS" },
+                { name: "lint", conclusion: "SUCCESS" },
+                { name: "test", conclusion: "FAILURE" },
+              ),
             }),
           ),
         ),
@@ -289,12 +293,12 @@ describe("GitHubManager", () => {
         success(
           prsAnswer(
             pr(1, rollup(
-              { conclusion: "SUCCESS" },
-              { conclusion: "FAILURE" },
-              { conclusion: "CANCELLED" },
-              { conclusion: "TIMED_OUT" },
-              { conclusion: null }, // pending
-              { conclusion: "IN_PROGRESS" }, // pending
+              { name: "a", conclusion: "SUCCESS" },
+              { name: "b", conclusion: "FAILURE" },
+              { name: "c", conclusion: "CANCELLED" },
+              { name: "d", conclusion: "TIMED_OUT" },
+              { name: "e", conclusion: null }, // pending
+              { name: "f", conclusion: "IN_PROGRESS" }, // pending
             )),
           ),
         ),

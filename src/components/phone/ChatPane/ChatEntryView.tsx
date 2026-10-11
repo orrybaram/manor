@@ -5,6 +5,7 @@ import { useMountEffect } from "../../../hooks/useMountEffect";
 import { Button } from "../../ui/Button/Button";
 import { summarizeTools, type ChatItem, type ToolGroup } from "./chat-entries";
 import { ChatMarkdown } from "./ChatMarkdown";
+import { ChatTypewriter } from "./ChatTypewriter";
 import { PlanCard } from "./PlanCard";
 import { AnsweredQuestion, QuestionCard } from "./QuestionCard";
 import styles from "./ChatPane.module.css";
@@ -14,12 +15,14 @@ type ChatEntryViewProps = {
   entry: ChatItem;
   /** The id of the one picker the chat may answer, if any. */
   answerableId: string | null;
+  /** Arrived while the chat was open, rather than with its history. */
+  live: boolean;
   onShowTerminal: () => void;
 };
 
 /** One transcript entry, or a run of tool calls, drawn for its kind (ADR-215 D3, D7). */
 export function ChatEntryView(props: ChatEntryViewProps) {
-  const { paneId, entry, answerableId, onShowTerminal } = props;
+  const { paneId, entry, answerableId, live, onShowTerminal } = props;
 
   switch (entry.kind) {
     case "user":
@@ -33,7 +36,7 @@ export function ChatEntryView(props: ChatEntryViewProps) {
     case "assistant":
       return (
         <div className={styles.assistant} data-testid="chat-assistant">
-          <ChatMarkdown source={entry.text} />
+          {live ? <ChatTypewriter source={entry.text} /> : <ChatMarkdown source={entry.text} />}
         </div>
       );
     case "tool-group":

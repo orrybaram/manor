@@ -58,6 +58,8 @@ export function ChatPane(props: ChatPaneProps) {
   const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [unavailable, setUnavailable] = useState<Unavailable | null>(null);
+  /** Ids the first history load drew: only entries after it animate in. */
+  const [settledIds, setSettledIds] = useState<Set<string> | null>(null);
   const status = useAppStore((s) => s.paneAgentStatus[paneId]?.status ?? null);
 
   useMountEffect(() => {
@@ -86,6 +88,7 @@ export function ChatPane(props: ChatPaneProps) {
           if (!alive) return;
           if (history.ok) {
             setEntries((prev) => mergeHistory(history.entries, prev));
+            setSettledIds((prev) => prev ?? new Set(history.entries.map((e) => e.id)));
             setUnavailable(null);
           } else {
             setUnavailable(history.reason);
@@ -122,28 +125,44 @@ export function ChatPane(props: ChatPaneProps) {
     };
   });
 
-  // Follow the bottom as entries arrive or grow, unless the user has
-  // scrolled up to read.
+  // A new entry always brings the chat to the bottom. An entry growing in
+  // place is followed only while the user hasn't scrolled up to read.
   const stuck = useRef(true);
+  const newestId = useRef<string | undefined>(undefined);
+  const followedId = useRef<string | undefined>(undefined);
   const followBottom = useCallback((content: HTMLDivElement | null) => {
     const scroller = content?.parentElement;
     if (!content || !scroller || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      if (stuck.current) scroller.scrollTop = scroller.scrollHeight;
+      // The history the chat opens on lands at the bottom at once.
+      const opening = followedId.current === undefined;
+      if (newestId.current !== followedId.current) {
+        followedId.current = newestId.current;
+        stuck.current = true;
+      }
+      if (!stuck.current) return;
+      const smooth = !opening && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      scroller.scrollTo({ top: scroller.scrollHeight, behavior: smooth ? "smooth" : "auto" });
     });
     observer.observe(content);
     return () => observer.disconnect();
   }, []);
 
+  // A smooth scroll down passes through spots far from the bottom, so only
+  // moving up counts as the user leaving it.
+  const lastScrollTop = useRef(0);
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
-    stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_SLOP_PX;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_SLOP_PX) stuck.current = true;
+    else if (el.scrollTop < lastScrollTop.current) stuck.current = false;
+    lastScrollTop.current = el.scrollTop;
   };
 
   const answerableId = answerablePickerId(entries);
   const busy = status === "thinking" || status === "working";
   const items = groupEntries(entries);
   const newest = items[items.length - 1];
+  newestId.current = newest?.id;
   // A running tool call already has its own live line.
   const toolRunning =
     newest?.kind === "tool-group" && newest.tools.some((t) => t.status === "pending");
@@ -169,15 +188,20 @@ export function ChatPane(props: ChatPaneProps) {
               {loaded && entries.length === 0 && (
                 <p className={styles.empty}>Nothing in this conversation yet.</p>
               )}
-              {items.map((entry) => (
-                <ChatEntryView
-                  key={entry.id}
-                  paneId={paneId}
-                  entry={entry}
-                  answerableId={answerableId}
-                  onShowTerminal={onShowTerminal}
-                />
-              ))}
+              {items.map((entry) => {
+                const live = settledIds !== null && !settledIds.has(entry.id);
+                return (
+                  <div key={entry.id} className={styles.entry} data-enter={live || undefined}>
+                    <ChatEntryView
+                      paneId={paneId}
+                      entry={entry}
+                      answerableId={answerableId}
+                      live={live}
+                      onShowTerminal={onShowTerminal}
+                    />
+                  </div>
+                );
+              })}
               {thinking && <ChatThinking key={entries[entries.length - 1]?.id ?? ""} />}
             </div>
           </div>

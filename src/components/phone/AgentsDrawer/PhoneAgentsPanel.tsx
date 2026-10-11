@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import Settings from "lucide-react/dist/esm/icons/settings";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
@@ -6,6 +6,7 @@ import LayoutDashboard from "lucide-react/dist/esm/icons/layout-dashboard";
 import ListTodo from "lucide-react/dist/esm/icons/list-todo";
 import Search from "lucide-react/dist/esm/icons/search";
 import Bell from "lucide-react/dist/esm/icons/bell";
+import { refreshState } from "../../../bridge/refresh";
 import type { AgentInfo, AgentStatus } from "../../../electron.d";
 import { useVisibleAgents } from "../../../hooks/useVisibleAgents";
 import { useAgentDisplay } from "../../../hooks/useAgentDisplay";
@@ -21,6 +22,8 @@ import { relativeShort } from "../../../utils/relative-time";
 import { AgentDot } from "../../ui/AgentDot/AgentDot";
 import { Button } from "../../ui/Button/Button";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
+import { PullIndicator } from "../PullIndicator";
+import { usePullToRefresh } from "../usePullToRefresh";
 import { buildAgentsDrawerModel } from "./agents-drawer-model";
 import styles from "./PhoneAgentsPanel.module.css";
 
@@ -83,6 +86,8 @@ export function PhoneAgentsPanel(props: PhoneAgentsPanelProps) {
   const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
   const projects = useProjectStore((s) => s.projects);
   const shouldPulse = useAgentPulse();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const { pull, refreshing } = usePullToRefresh(scrollRef, refreshState);
 
   const statusByPane = useMemo(() => {
     const map: Record<string, AgentStatus | undefined> = {};
@@ -150,7 +155,9 @@ export function PhoneAgentsPanel(props: PhoneAgentsPanelProps) {
         </Tooltip>
       </div>
 
-      <div className={styles.scroll}>
+      <div className={styles.scrollArea}>
+      <PullIndicator pull={pull} refreshing={refreshing} />
+      <div ref={scrollRef} className={styles.scroll}>
         {agents.length === 0 ? (
           <div className={styles.empty} data-testid="drawer-agents-empty">
             <p className={styles.emptyText}>No agents running</p>
@@ -214,6 +221,7 @@ export function PhoneAgentsPanel(props: PhoneAgentsPanelProps) {
             ))}
           </>
         )}
+      </div>
       </div>
 
       <div className={styles.bottom}>

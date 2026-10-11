@@ -1,10 +1,13 @@
 import { useCallback, useRef, useState } from "react";
+import { refreshState } from "../../../bridge/refresh";
 import { onBridgeResync } from "../../../bridge/resync";
 import type { ChatEntry, ChatHistory } from "../../../electron.d";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { useAppStore } from "../../../store/app-store";
 import { useHostStore } from "../../../store/host-store";
 import { Button } from "../../ui/Button/Button";
+import { PullIndicator } from "../PullIndicator";
+import { usePullToRefresh } from "../usePullToRefresh";
 import {
   answerablePickerId,
   endsMenuHandoff,
@@ -194,6 +197,11 @@ export function ChatPane(props: ChatPaneProps) {
     lastScrollTop.current = el.scrollTop;
   };
 
+  // Pulling down at the top refreshes the bridge. It moves an overlay and
+  // never scrolls, so it can't change what bottom-follow sees.
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const { pull, refreshing } = usePullToRefresh(scrollerRef, refreshState, !unavailable);
+
   const answerableId = answerablePickerId(entries);
   const busy = status === "thinking" || status === "working";
   const items = groupEntries(entries);
@@ -219,7 +227,8 @@ export function ChatPane(props: ChatPaneProps) {
         </div>
       ) : (
         <>
-          <div className={styles.scroller} onScroll={onScroll}>
+          <PullIndicator pull={pull} refreshing={refreshing} />
+          <div ref={scrollerRef} className={styles.scroller} onScroll={onScroll}>
             <div ref={followBottom} className={styles.entries}>
               {loaded && entries.length === 0 && (
                 <p className={styles.empty}>Nothing in this conversation yet.</p>

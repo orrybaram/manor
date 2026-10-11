@@ -399,14 +399,14 @@ describe("PhoneTopBar — overflow menu's diff and rename items", () => {
     expect(renameAgent).toHaveBeenCalledWith("agent-1", "fix bug");
   });
 
-  it("is not rendered on Home, where nothing applies", () => {
+  it("still renders on Home, for Refresh and Reload app", () => {
     useAppStore.setState({
       activeWorkspacePath: HOME_PATH,
       activeWorkspaceHostId: "local",
       activeSurface: "workspace",
     } as never);
     renderBar();
-    expect(byTestId("phone-overflow-button")).toBeNull();
+    expect(byTestId("phone-overflow-button")).not.toBeNull();
   });
 });
 

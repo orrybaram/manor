@@ -6,6 +6,9 @@ import SquareTerminal from "lucide-react/dist/esm/icons/square-terminal";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
 import Pencil from "lucide-react/dist/esm/icons/pencil";
 import Bot from "lucide-react/dist/esm/icons/bot";
+import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
+import RotateCw from "lucide-react/dist/esm/icons/rotate-cw";
+import { refreshState } from "../../bridge/refresh";
 import { Button } from "../ui/Button/Button";
 import { useLayoutMode } from "../../hooks/useLayoutMode";
 import { isHomePath } from "../../lib/home-path";
@@ -151,7 +154,7 @@ type Renaming = "workspace" | "agent" | null;
 /**
  * The phone top bar's overflow menu: the focused pane's Chat | Terminal
  * switch, the workspace's diff, and renaming the workspace or the focused
- * pane's agent — each only when it applies. Not rendered when none does.
+ * pane's agent — each only when it applies — and always Refresh and Reload app.
  * Radix `Popover` closes it on Escape and an outside tap; every item closes
  * it too.
  */
@@ -181,93 +184,114 @@ export function PhoneOverflowMenu() {
   const agentName = (): string =>
     useAgentStore.getState().agents.find((a) => a.id === agentId)?.name ?? "";
 
-  const hasItems =
-    chatPaneId !== null || agentId !== null || canOpenDiff || renameWorkspace !== null;
-
   return (
     <>
-      {hasItems && (
-        <Popover.Root open={open} onOpenChange={setOpen}>
-          <Popover.Trigger asChild>
-            <Button
-              variant="ghost"
-              className={styles.iconButton}
-              aria-label="More"
-              aria-haspopup="menu"
-              data-testid="phone-overflow-button"
-            >
-              <EllipsisVertical size={18} />
-            </Button>
-          </Popover.Trigger>
-          <Popover.Portal>
-            <Popover.Content
-              className={styles.overflowMenu}
-              data-testid="phone-overflow-menu"
-              side="bottom"
-              align="end"
-              sideOffset={4}
-              collisionPadding={8}
-              // A tap opened it; a focus ring on the first item is noise.
-              onOpenAutoFocus={(e) => {
-                e.preventDefault();
-                chose.current = false;
-              }}
-              onCloseAutoFocus={(e) => {
-                if (chose.current) e.preventDefault();
-              }}
-            >
-              <div role="menu" aria-label="More" className={styles.overflowList} onKeyDown={onMenuKeyDown}>
-                {chatPaneId !== null && <ViewItem paneId={chatPaneId} onDone={close} />}
-                {canOpenDiff && (
-                  <Button
-                    variant="ghost"
-                    role="menuitem"
-                    className={styles.overflowItem}
-                    data-testid="phone-overflow-diff"
-                    onClick={() => {
-                      close();
-                      useAppStore.getState().openOrFocusDiff();
-                    }}
-                  >
-                    <GitCompareArrows size={16} />
-                    Diff
-                  </Button>
-                )}
-                {renameWorkspace !== null && (
-                  <Button
-                    variant="ghost"
-                    role="menuitem"
-                    className={styles.overflowItem}
-                    data-testid="phone-overflow-rename-workspace"
-                    onClick={() => {
-                      close();
-                      setRenaming("workspace");
-                    }}
-                  >
-                    <Pencil size={16} />
-                    Rename workspace
-                  </Button>
-                )}
-                {agentId !== null && (
-                  <Button
-                    variant="ghost"
-                    role="menuitem"
-                    className={styles.overflowItem}
-                    data-testid="phone-overflow-rename-agent"
-                    onClick={() => {
-                      close();
-                      setRenaming("agent");
-                    }}
-                  >
-                    <Bot size={16} />
-                    Rename agent
-                  </Button>
-                )}
-              </div>
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
-      )}
+      <Popover.Root open={open} onOpenChange={setOpen}>
+        <Popover.Trigger asChild>
+          <Button
+            variant="ghost"
+            className={styles.iconButton}
+            aria-label="More"
+            aria-haspopup="menu"
+            data-testid="phone-overflow-button"
+          >
+            <EllipsisVertical size={18} />
+          </Button>
+        </Popover.Trigger>
+        <Popover.Portal>
+          <Popover.Content
+            className={styles.overflowMenu}
+            data-testid="phone-overflow-menu"
+            side="bottom"
+            align="end"
+            sideOffset={4}
+            collisionPadding={8}
+            // A tap opened it; a focus ring on the first item is noise.
+            onOpenAutoFocus={(e) => {
+              e.preventDefault();
+              chose.current = false;
+            }}
+            onCloseAutoFocus={(e) => {
+              if (chose.current) e.preventDefault();
+            }}
+          >
+            <div role="menu" aria-label="More" className={styles.overflowList} onKeyDown={onMenuKeyDown}>
+              {chatPaneId !== null && <ViewItem paneId={chatPaneId} onDone={close} />}
+              {canOpenDiff && (
+                <Button
+                  variant="ghost"
+                  role="menuitem"
+                  className={styles.overflowItem}
+                  data-testid="phone-overflow-diff"
+                  onClick={() => {
+                    close();
+                    useAppStore.getState().openOrFocusDiff();
+                  }}
+                >
+                  <GitCompareArrows size={16} />
+                  Diff
+                </Button>
+              )}
+              {renameWorkspace !== null && (
+                <Button
+                  variant="ghost"
+                  role="menuitem"
+                  className={styles.overflowItem}
+                  data-testid="phone-overflow-rename-workspace"
+                  onClick={() => {
+                    close();
+                    setRenaming("workspace");
+                  }}
+                >
+                  <Pencil size={16} />
+                  Rename workspace
+                </Button>
+              )}
+              {agentId !== null && (
+                <Button
+                  variant="ghost"
+                  role="menuitem"
+                  className={styles.overflowItem}
+                  data-testid="phone-overflow-rename-agent"
+                  onClick={() => {
+                    close();
+                    setRenaming("agent");
+                  }}
+                >
+                  <Bot size={16} />
+                  Rename agent
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                role="menuitem"
+                className={styles.overflowItem}
+                data-testid="overflow-refresh"
+                onClick={() => {
+                  close();
+                  void refreshState();
+                }}
+              >
+                <RefreshCw size={16} />
+                Refresh
+              </Button>
+              <Button
+                variant="ghost"
+                role="menuitem"
+                className={styles.overflowItem}
+                data-testid="overflow-reload"
+                onClick={() => {
+                  close();
+                  location.reload();
+                }}
+              >
+                <RotateCw size={16} />
+                Reload app
+              </Button>
+            </div>
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
       <RenameDialog
         open={renaming === "workspace" && renameWorkspace !== null}
         title="Rename Workspace"

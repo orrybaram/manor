@@ -42,6 +42,15 @@
 
 /* ── Scrollable middle ── */
 
+/* Holds the pull-to-refresh indicator over the list without scrolling with it. */
+.scrollArea {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .scroll {
   flex: 1;
   min-height: 0;

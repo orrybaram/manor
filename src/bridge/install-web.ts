@@ -30,6 +30,7 @@
  */
 
 import { createBridge } from "./client";
+import { registerRefresh } from "./refresh";
 import { emitBridgeResync } from "./resync";
 import { relayJoinUrl, relayPipe } from "./transports/relay-pipe";
 import { createWsTransport, type Pipe } from "./transports/ws";
@@ -164,6 +165,7 @@ export function retryBridgeNow(): void {
 export async function refreshBridge(): Promise<void> {
   if ((await transport.probeNow()) === "alive") emitBridgeResync();
 }
+registerRefresh(refreshBridge);
 
 // A phone that comes back — unlocked, switched back to, restored from the
 // back-forward cache, or back on a network — dials now rather than sitting

@@ -60,7 +60,8 @@ import { isWebApp } from "../../lib/platform";
 import { useLayoutMode } from "../../hooks/useLayoutMode";
 import { useAgentStore } from "../../store/agent-store";
 import { chatTranscriptPath, pickPaneAgent } from "../phone/ChatPane/chat-view";
-import { usePaneChatView } from "../phone/ChatPane/usePaneChatView";
+import { usePaneChatStarting, usePaneChatView } from "../phone/ChatPane/usePaneChatView";
+import { ChatStarting } from "../phone/ChatPane/ChatStarting";
 import chatViewStyles from "../phone/ChatPane/PaneView.module.css";
 
 import styles from "./PaneLayout/PaneLayout.module.css";
@@ -113,8 +114,10 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
       ? chatTranscriptPath(pickPaneAgent(s.agents, paneId))
       : null,
   );
+  // A Claude agent the phone just started opens on the chat while it boots.
+  const chatStarting = usePaneChatStarting(paneId) && phone && chatTranscript === null;
   const [paneView, setPaneView] = usePaneChatView(paneId);
-  const showChat = chatTranscript !== null && paneView === "chat";
+  const showChat = (chatTranscript !== null || chatStarting) && paneView === "chat";
   const showTerminal = useCallback(() => setPaneView("terminal"), [setPaneView]);
 
   const focusPane = useAppStore((s) => s.focusPane);
@@ -696,6 +699,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
             />
           </Suspense>
         )}
+        {chatStarting && <ChatStarting hidden={!showChat} onShowTerminal={showTerminal} />}
       </div>
       {showDropZone && <PaneDropZone paneId={paneId} />}
     </div>

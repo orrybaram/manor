@@ -17,7 +17,7 @@ import { useKeybindingsStore } from "../store/keybindings-store";
 import { useToastStore } from "../store/toast-store";
 import { getBrowserPaneRef } from "./browser-pane-registry";
 import type { BrowserPaneRef } from "../components/workspace-panes/BrowserPane/BrowserPane";
-import { DEFAULT_AGENT_COMMAND } from "../agent-defaults";
+import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "../agent-defaults";
 import { isHomePath } from "./home";
 import { find, ownerOf } from "./workspace-directory";
 import type { WorkspaceKey } from "./workspace-key";
@@ -95,10 +95,13 @@ export function resolveWorkspaceCommand(key: WorkspaceKey | null): string {
  * Only the primary window may do that: the prewarmed session's cwd tracks the
  * PRIMARY window's active workspace, so a popout sitting on a different
  * workspace would inherit the wrong directory. Popouts pay the cold start.
+ *
+ * Resolves to the new agent's pane and kind, or null when there was no
+ * surface to open it in.
  */
 export async function startNewAgent(
   { prewarm }: { prewarm: boolean } = { prewarm: false },
-): Promise<void> {
+): Promise<{ paneId: string; agentKind: string } | null> {
   const { activeWorkspacePath, activeWorkspaceHostId: hostId } =
     useAppStore.getState();
   const command = resolveWorkspaceCommand(
@@ -107,9 +110,10 @@ export async function startNewAgent(
   const prewarmed = prewarm
     ? await window.electronAPI.pty.consumePrewarmed(activeWorkspacePath, hostId)
     : null;
+  const agentKind = getAgentKindForCommand(command);
   if (!prewarmed) {
-    useAppStore.getState().addTerminalTab(command, { kind: "agent-startup" });
-    return;
+    const opened = useAppStore.getState().addTerminalTab(command, { kind: "agent-startup" });
+    return opened ? { paneId: opened.paneId, agentKind } : null;
   }
   // The prewarmed session already exists, so its pane id is known before the
   // tab is: queue the launch line against it directly, and only when the
@@ -121,7 +125,8 @@ export async function startNewAgent(
       "agent-startup",
     );
   }
-  useAppStore.getState().addTab(prewarmed.paneId);
+  const opened = useAppStore.getState().addTab(prewarmed.paneId);
+  return opened ? { paneId: opened.paneId, agentKind } : null;
 }
 
 /**

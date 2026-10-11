@@ -11,10 +11,14 @@ import { readChatView, writeChatView, type ChatView } from "./chat-view";
  */
 type PaneChatViewState = {
   views: Record<string, ChatView>;
+  /** Panes whose Claude agent a phone just started: they open on the chat
+   *  while Claude boots, before its transcript is known. In memory only. */
+  starting: Record<string, true>;
 };
 
 export const usePaneChatViewStore = create<PaneChatViewState>(() => ({
   views: {},
+  starting: {},
 }));
 
 /** The pane's view: the stored choice, or what this browser remembers. */
@@ -27,6 +31,17 @@ export function setPaneChatView(paneId: string, view: ChatView): void {
     s.views[paneId] === view ? s : { views: { ...s.views, [paneId]: view } },
   );
   writeChatView(paneId, view);
+}
+
+/** Open `paneId` on its chat while its new agent starts up. */
+export function markChatStarting(paneId: string): void {
+  usePaneChatViewStore.setState((s) =>
+    s.starting[paneId] ? s : { starting: { ...s.starting, [paneId]: true } },
+  );
+}
+
+export function usePaneChatStarting(paneId: string): boolean {
+  return usePaneChatViewStore((s) => s.starting[paneId] === true);
 }
 
 export function usePaneChatView(paneId: string): [ChatView, (view: ChatView) => void] {

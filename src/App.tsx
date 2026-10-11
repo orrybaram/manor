@@ -98,6 +98,7 @@ import { isHomePath, HOME_PATH } from "./lib/home";
 import { isWebApp } from "./lib/platform";
 import { useLayoutMode } from "./hooks/useLayoutMode";
 import { PhoneChrome } from "./components/phone/PhoneChrome";
+import { markChatStarting } from "./components/phone/ChatPane/usePaneChatView";
 import "./App.css";
 
 function App() {
@@ -745,8 +746,13 @@ function App() {
     // session when one is ready. On a cold start (no prewarm, or the command
     // hadn't been injected yet) seed the surface's launch command; the pty
     // boundary resolves the cwd, so Home needs no special casing here.
-    await startNewAgent({ prewarm: true });
-  }, []);
+    const started = await startNewAgent({ prewarm: true });
+    // A phone reads a new Claude agent as a chat from the start, not only
+    // once its transcript is known (ADR-215 D7).
+    if (started && layoutMode === "phone" && started.agentKind === "claude") {
+      markChatStarting(started.paneId);
+    }
+  }, [layoutMode]);
 
   // A detached window's one panel: the one holding the tab it claims, in this
   // window's replica of the shared layout (ADR-179 D4). A string, so the

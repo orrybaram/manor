@@ -1,6 +1,6 @@
 ---
 title: Command menu metadata enum and dead code
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [2, 3]

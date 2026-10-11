@@ -1,6 +1,6 @@
 ---
 title: WS transport liveness contract and single probeNow
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: []

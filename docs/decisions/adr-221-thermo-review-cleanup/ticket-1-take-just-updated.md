@@ -1,6 +1,6 @@
 ---
 title: Replace just-updated pair with takeJustUpdated
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: []

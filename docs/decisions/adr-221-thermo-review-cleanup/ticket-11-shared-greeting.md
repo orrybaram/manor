@@ -1,6 +1,6 @@
 ---
 title: One greeting helper for dashboard and phone
-status: todo
+status: done
 priority: low
 assignee: haiku
 blocked_by: [10]

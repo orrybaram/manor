@@ -1,6 +1,6 @@
 ---
 title: Menu handoff as an overlay on the stored view
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: []

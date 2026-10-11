@@ -1,6 +1,6 @@
 ---
 title: Serialize per-pane chat PTY writes
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

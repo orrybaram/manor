@@ -1,6 +1,6 @@
 ---
 title: Lifecycle-scoped resync registration in stores
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [6, 7]

@@ -1,6 +1,6 @@
 ---
 title: Agents drawer model owns its derivations
-status: todo
+status: done
 priority: medium
 assignee: opus
 blocked_by: [9]

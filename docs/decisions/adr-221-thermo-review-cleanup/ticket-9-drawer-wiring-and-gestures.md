@@ -1,6 +1,6 @@
 ---
 title: Centralize drawer close wiring and extract swipe hooks
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2]

@@ -1,6 +1,6 @@
 ---
 title: applyLayoutSnapshot shared by boot and resync
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: []

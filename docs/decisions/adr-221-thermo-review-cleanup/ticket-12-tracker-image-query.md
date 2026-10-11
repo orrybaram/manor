@@ -1,6 +1,6 @@
 ---
 title: TaskTracker imageQuery and one URL parser
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: []

@@ -1,6 +1,6 @@
 ---
 title: Electron image proxy trust and viewer name boundary
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [12]

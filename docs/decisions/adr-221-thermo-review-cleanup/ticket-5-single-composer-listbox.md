@@ -1,6 +1,6 @@
 ---
 title: One listbox model for slash menu and choice sheet
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [4]

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { PhoneTopBar } from "./PhoneTopBar";
-import { SidebarDrawer } from "./SidebarDrawer";
+import { SidebarDrawer, useEdgeSwipeToOpen } from "./SidebarDrawer";
 import { NotificationsSheet } from "./NotificationsSheet";
 import { EnableNotifications } from "./EnableNotifications";
 import { KeyboardLift } from "./KeyboardLift";
@@ -25,6 +25,8 @@ type PhoneChromeProps = {
  * nothing about the split components' element tree changes and a pane
  * switch still remounts nothing.
  *
+ * Swiping in from the left edge opens the drawer too.
+ *
  * A phone moves between panes with the tab strip, and to another panel
  * through the palette (Next Pane, Focus Next Panel).
  */
@@ -33,6 +35,10 @@ export function PhoneChrome(props: PhoneChromeProps) {
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+
+  useEdgeSwipeToOpen(() => {
+    if (!notificationsOpen) setDrawerOpen(true);
+  });
 
   // A pushed notification asks for the history (ADR-162). On a phone neither
   // the window lead nor the rail — the desk's popover owners — is mounted, so

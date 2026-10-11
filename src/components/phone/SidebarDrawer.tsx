@@ -1,5 +1,6 @@
 import { useRef, type TouchEvent } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import { useMountEffect } from "../../hooks/useMountEffect";
 import { Sidebar } from "../sidebar/Sidebar/Sidebar";
 import styles from "./SidebarDrawer.module.css";
 
@@ -35,6 +36,63 @@ const AXIS_SLOP_PX = 8;
 /** Dragged further left than this, the drawer closes; short of it, it
  *  springs back. */
 const CLOSE_DISTANCE_PX = 60;
+/** A swipe that opens the drawer has to start this close to the left edge. */
+const EDGE_ZONE_PX = 32;
+/** Dragged further right than this from the edge, the drawer opens. */
+const OPEN_DISTANCE_PX = 40;
+
+/**
+ * Swipe in from the left edge to open the drawer. Listens on the document in
+ * the capture phase, so a terminal or the chat transcript under the finger
+ * can't swallow the gesture first; a gesture that starts out vertical is that
+ * view's scroll and is left alone.
+ */
+export function useEdgeSwipeToOpen(onOpen: () => void) {
+  const openRef = useRef(onOpen);
+  openRef.current = onOpen;
+
+  useMountEffect(() => {
+    let gesture: { x: number; y: number } | null = null;
+
+    const onStart = (e: globalThis.TouchEvent) => {
+      const t = e.touches[0];
+      gesture =
+        e.touches.length === 1 && t.clientX <= EDGE_ZONE_PX
+          ? { x: t.clientX, y: t.clientY }
+          : null;
+    };
+    const onMove = (e: globalThis.TouchEvent) => {
+      const g = gesture;
+      if (!g) return;
+      const t = e.touches[0];
+      const dx = t.clientX - g.x;
+      const dy = t.clientY - g.y;
+      if (Math.abs(dy) > AXIS_SLOP_PX && Math.abs(dy) > dx) {
+        gesture = null;
+        return;
+      }
+      if (dx > OPEN_DISTANCE_PX) {
+        gesture = null;
+        openRef.current();
+      }
+    };
+    const onEnd = () => {
+      gesture = null;
+    };
+
+    const opts = { capture: true, passive: true };
+    document.addEventListener("touchstart", onStart, opts);
+    document.addEventListener("touchmove", onMove, opts);
+    document.addEventListener("touchend", onEnd, opts);
+    document.addEventListener("touchcancel", onEnd, opts);
+    return () => {
+      document.removeEventListener("touchstart", onStart, opts);
+      document.removeEventListener("touchmove", onMove, opts);
+      document.removeEventListener("touchend", onEnd, opts);
+      document.removeEventListener("touchcancel", onEnd, opts);
+    };
+  });
+}
 
 /**
  * Swipe the drawer away: it follows a leftward drag and closes past

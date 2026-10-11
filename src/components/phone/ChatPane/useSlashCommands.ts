@@ -57,6 +57,8 @@ export function useSlashCommands(paneId: string, text: string, caret: number) {
 
   /** Call with the field's text and caret after every change or selection. */
   const sync = (nextText: string, nextCaret: number) => {
+    // Any edit lifts an Esc, even one that later retypes the same text.
+    if (dismissedText !== null && nextText !== dismissedText) setDismissedText(null);
     const hasQuery = findSlashQuery(nextText, nextCaret) !== null;
     const opening = hasQuery && !hadQueryRef.current;
     hadQueryRef.current = hasQuery;

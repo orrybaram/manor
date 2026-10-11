@@ -40,7 +40,20 @@ export type ChatEntry =
       outcome: string | null;
       /** As on `question`. */
       needsTerminal?: boolean;
+    }
+  | {
+      kind: "command";
+      id: string;
+      ts: string;
+      /** Slash command name, without the leading `/`. */
+      name: string;
+      args: string;
+      /** The command's local stdout, attached when it follows the command. */
+      output?: string;
     };
+
+/** A skill from Claude Code's `skill_listing` attachment (ADR-217 D1). */
+export type ChatSkill = { name: string; description: string };
 
 const MAX_DETAIL = 4000;
 const META_PREFIXES = ["<command-", "<local-command", "<system-reminder>"];
@@ -62,6 +75,29 @@ function firstLine(s: string): string {
 function isMetaText(text: string): boolean {
   const t = text.trimStart();
   return META_PREFIXES.some((p) => t.startsWith(p));
+}
+
+/**
+ * Parse `- <name>: <description>` lines. Names may carry a plugin prefix
+ * (`anthropic-skills:pdf`), so split on the first ": ", not the first ":".
+ */
+export function parseSkillLines(content: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const raw of content.split("\n")) {
+    const l = raw.trim();
+    if (!l.startsWith("- ")) continue;
+    const rest = l.slice(2);
+    const i = rest.indexOf(": ");
+    const name = (i === -1 ? rest : rest.slice(0, i)).trim();
+    if (!name) continue;
+    out.set(name, i === -1 ? "" : rest.slice(i + 2).trim());
+  }
+  return out;
+}
+
+function tagText(text: string, tag: string): string | undefined {
+  const m = text.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`));
+  return m ? m[1] : undefined;
 }
 
 function summarizeTool(name: string, input: Json): string {
@@ -123,6 +159,21 @@ function resultText(content: unknown): string {
 export class TranscriptParser {
   private order: string[] = [];
   private byId = new Map<string, ChatEntry>();
+  private skillMap = new Map<string, string>();
+  private sawSkillListing = false;
+  private lastCommandId: string | null = null;
+
+  /** Skills from the transcript's skill listings, sorted by name. */
+  skills(): ChatSkill[] {
+    return [...this.skillMap.entries()]
+      .map(([name, description]) => ({ name, description }))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  }
+
+  /** True once any `skill_listing` attachment has been seen. */
+  hasSkillListing(): boolean {
+    return this.sawSkillListing;
+  }
 
   /** All entries seen so far, in transcript order. */
   entries(): ChatEntry[] {
@@ -161,6 +212,10 @@ export class TranscriptParser {
     if (!isObject(parsed)) return [];
     if (parsed.isSidechain === true) return [];
     const type = parsed.type;
+    if (type === "attachment") {
+      this.skillListing(parsed.attachment);
+      return [];
+    }
     if (type !== "user" && type !== "assistant") return [];
     const message = parsed.message;
     if (!isObject(message)) return [];
@@ -249,8 +304,48 @@ export class TranscriptParser {
     return out;
   }
 
+  private skillListing(attachment: unknown): void {
+    if (!isObject(attachment) || attachment.type !== "skill_listing") return;
+    const listed = parseSkillLines(str(attachment.content) ?? "");
+    const next = new Map<string, string>();
+    if (Array.isArray(attachment.names)) {
+      for (const n of attachment.names) {
+        if (typeof n === "string" && n) next.set(n, listed.get(n) ?? "");
+      }
+    } else {
+      for (const [n, d] of listed) next.set(n, d);
+    }
+    this.sawSkillListing = true;
+    if (attachment.isInitial === true) this.skillMap.clear();
+    for (const [n, d] of next) this.skillMap.set(n, d);
+  }
+
   private userText(uuid: string, ts: string, text: string): ChatEntry | null {
-    if (!text.trim() || isMetaText(text)) return null;
+    if (!text.trim()) return null;
+    const cmd = tagText(text, "command-name")?.trim();
+    if (cmd && cmd.startsWith("/") && cmd.length > 1) {
+      const args = tagText(text, "command-args")?.trim() ?? "";
+      const e = this.add({
+        kind: "command",
+        id: uuid,
+        ts,
+        name: cmd.slice(1),
+        args,
+      });
+      if (e) this.lastCommandId = uuid;
+      return e;
+    }
+    if (text.trimStart().startsWith("<local-command-stdout>")) {
+      const out = (tagText(text, "local-command-stdout") ?? "").trim();
+      const existing = this.lastCommandId
+        ? this.byId.get(this.lastCommandId)
+        : undefined;
+      if (!out || !existing || existing.kind !== "command") return null;
+      const next: ChatEntry = { ...existing, output: out.slice(0, MAX_DETAIL) };
+      this.byId.set(existing.id, next);
+      return next;
+    }
+    if (isMetaText(text)) return null;
     return this.add({ kind: "user", id: uuid, ts, text });
   }
 

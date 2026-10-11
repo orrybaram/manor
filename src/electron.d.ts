@@ -459,7 +459,7 @@ export type {
 } from "../electron/projects/types";
 
 /** The phone chat view's wire types (ADR-215). */
-export type { ChatEntry } from "../electron/chat-mirror/transcript";
+export type { ChatEntry, ChatSkill } from "../electron/chat-mirror/transcript";
 export type {
   PickerAnswer,
   PickerQuestion,

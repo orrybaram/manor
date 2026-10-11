@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { TranscriptParser } from "../transcript";
+import { TranscriptParser, parseSkillLines } from "../transcript";
 
 const T = "2026-01-01T00:00:00.000Z";
 
@@ -123,10 +123,9 @@ describe("TranscriptParser", () => {
     expect(p.entries()).toEqual([]);
   });
 
-  it("skips meta, command and system-reminder lines", () => {
+  it("skips meta and system-reminder lines", () => {
     const p = new TranscriptParser();
     expect(p.push(userBlocks("u1", "caveat", { isMeta: true }))).toEqual([]);
-    expect(p.push(userBlocks("u2", "<command-name>/clear</command-name>"))).toEqual([]);
     expect(p.push(userBlocks("u3", "<local-command-stdout>ok</local-command-stdout>"))).toEqual([]);
     expect(p.push(userBlocks("u4", [{ type: "text", text: "<system-reminder>x</system-reminder>" }]))).toEqual([]);
     expect(p.entries()).toEqual([]);
@@ -162,5 +161,137 @@ describe("TranscriptParser", () => {
     p.push(l);
     expect(p.push(l)).toEqual([]);
     expect(p.entries()).toHaveLength(1);
+  });
+
+  describe("skill listings", () => {
+    const listing = (attachment: unknown, extra = {}) =>
+      line({ type: "attachment", uuid: "s", attachment, ...extra });
+    const initial = listing({
+      type: "skill_listing",
+      isInitial: true,
+      names: ["commit", "anthropic-skills:pdf"],
+      content: "- commit: Make a commit\n- anthropic-skills:pdf: Work with PDFs",
+    });
+
+    it("parses an initial listing including plugin-prefixed names", () => {
+      const p = new TranscriptParser();
+      expect(p.hasSkillListing()).toBe(false);
+      expect(p.push(initial)).toEqual([]);
+      expect(p.hasSkillListing()).toBe(true);
+      expect(p.skills()).toEqual([
+        { name: "anthropic-skills:pdf", description: "Work with PDFs" },
+        { name: "commit", description: "Make a commit" },
+      ]);
+    });
+
+    it("adds delta listings and replaces on a second initial", () => {
+      const p = new TranscriptParser();
+      p.push(initial);
+      p.push(
+        listing({
+          type: "skill_listing",
+          isInitial: false,
+          names: ["review"],
+          content: "- review: Review code",
+        }),
+      );
+      expect(p.skills().map((s) => s.name)).toEqual([
+        "anthropic-skills:pdf",
+        "commit",
+        "review",
+      ]);
+      p.push(
+        listing({
+          type: "skill_listing",
+          isInitial: true,
+          content: "- only: One",
+        }),
+      );
+      expect(p.skills()).toEqual([{ name: "only", description: "One" }]);
+    });
+
+    it("uses an empty description for names missing from content", () => {
+      const p = new TranscriptParser();
+      p.push(listing({ type: "skill_listing", isInitial: true, names: ["x"] }));
+      expect(p.skills()).toEqual([{ name: "x", description: "" }]);
+    });
+
+    it("ignores malformed attachments", () => {
+      const p = new TranscriptParser();
+      expect(p.push(listing({ type: "skill_listing" }))).toEqual([]);
+      expect(p.push(listing({ type: "skill_listing", names: "no", content: 5 }))).toEqual([]);
+      expect(p.push(listing("garbage"))).toEqual([]);
+      expect(p.push(listing({ type: "other", content: "- a: b" }))).toEqual([]);
+      expect(p.skills()).toEqual([]);
+    });
+
+    it("ignores sidechain listings", () => {
+      const p = new TranscriptParser();
+      p.push(
+        listing(
+          { type: "skill_listing", isInitial: true, content: "- a: b" },
+          { isSidechain: true },
+        ),
+      );
+      expect(p.skills()).toEqual([]);
+      expect(p.hasSkillListing()).toBe(false);
+    });
+
+    it("splits on the first ': ' only", () => {
+      expect(parseSkillLines("- a:b: desc: more\nnot a skill").get("a:b")).toBe(
+        "desc: more",
+      );
+    });
+  });
+
+  describe("slash commands", () => {
+    it("parses command lines in both tag orders, with and without args", () => {
+      const p = new TranscriptParser();
+      const a = p.push(
+        userBlocks(
+          "c1",
+          "<command-name>/review</command-name>\n<command-message>review</command-message>\n<command-args>  pr 12 </command-args>",
+        ),
+      );
+      expect(a).toEqual([
+        { kind: "command", id: "c1", ts: T, name: "review", args: "pr 12" },
+      ]);
+      const b = p.push(
+        userBlocks(
+          "c2",
+          "<command-message>clear</command-message>\n<command-name>/clear</command-name>",
+        ),
+      );
+      expect(b).toEqual([
+        { kind: "command", id: "c2", ts: T, name: "clear", args: "" },
+      ]);
+    });
+
+    it("attaches stdout to the last command as an update", () => {
+      const p = new TranscriptParser();
+      p.push(userBlocks("c1", "<command-name>/cost</command-name>"));
+      const r = p.push(
+        userBlocks("o1", "<local-command-stdout> $1.23 </local-command-stdout>"),
+      );
+      expect(r).toEqual([
+        { kind: "command", id: "c1", ts: T, name: "cost", args: "", output: "$1.23" },
+      ]);
+      expect(p.entries()).toHaveLength(1);
+    });
+
+    it("drops empty stdout, orphan stdout and caveats", () => {
+      const p = new TranscriptParser();
+      expect(
+        p.push(userBlocks("o0", "<local-command-stdout>hi</local-command-stdout>")),
+      ).toEqual([]);
+      p.push(userBlocks("c1", "<command-name>/cost</command-name>"));
+      expect(
+        p.push(userBlocks("o1", "<local-command-stdout>  </local-command-stdout>")),
+      ).toEqual([]);
+      expect(
+        p.push(userBlocks("k1", "<local-command-caveat>Caveat</local-command-caveat>")),
+      ).toEqual([]);
+      expect(p.entries()).toHaveLength(1);
+    });
   });
 });

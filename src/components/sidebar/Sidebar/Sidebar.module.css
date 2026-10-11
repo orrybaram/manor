@@ -346,6 +346,39 @@
   padding-top: 12px;
 }
 
+/* The menu at thumb size: 44px rows, 16px labels and 18px icons, level
+   with the project rows below it (ProjectItem.module.css). */
+:global(:root[data-layout="phone"]) .nav {
+  gap: 2px;
+  padding-block: 4px;
+}
+
+:global(:root[data-layout="phone"]) .homeRow {
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 16px;
+}
+
+:global(:root[data-layout="phone"]) .homeIcon {
+  height: 18px;
+}
+
+:global(:root[data-layout="phone"]) .homeIcon svg {
+  width: 18px;
+  height: 18px;
+}
+
+:global(:root[data-layout="phone"]) .rowTrailingIcons svg {
+  width: 14px;
+  height: 14px;
+}
+
+:global(:root[data-layout="phone"]) .navDivider {
+  margin-block: 10px;
+}
+
 :global(:root[data-layout="phone"]) .projectsAdd.projectsAdd {
   width: 40px;
   height: 40px;

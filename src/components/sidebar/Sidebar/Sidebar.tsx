@@ -425,7 +425,8 @@ export function Sidebar(props: SidebarProps) {
           </div>
           <AgentsList onShowAll={onShowAgents} />
         </div>
-        <PortsList />
+        {/* Ports are for the desk; the phone's drawer leaves them out. */}
+        {!isPhone && <PortsList />}
       </div>
       {/* ADR-181 D5: `SidebarDrawer` forces its own fixed width on the phone
           sheet this renders inside (`.sheet [data-focus-region="sidebar"]`,

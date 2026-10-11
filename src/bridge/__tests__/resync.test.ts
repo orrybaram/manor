@@ -2,7 +2,7 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 
-import { emitBridgeResync, onBridgeResync } from "../resync";
+import { bootAndResync, emitBridgeResync, onBridgeResync } from "../resync";
 
 describe("the bridge resync signal", () => {
   const offs: (() => void)[] = [];
@@ -50,5 +50,26 @@ describe("the bridge resync signal", () => {
     offs.push(onBridgeResync(second));
     emitBridgeResync();
     expect(second).toHaveBeenCalledOnce();
+  });
+
+  describe("bootAndResync", () => {
+    it("loads now, again on every resync, and not after unsubscribing", () => {
+      const load = vi.fn();
+      const off = bootAndResync(load);
+      expect(load).toHaveBeenCalledTimes(1);
+      emitBridgeResync();
+      expect(load).toHaveBeenCalledTimes(2);
+      off();
+      emitBridgeResync();
+      expect(load).toHaveBeenCalledTimes(2);
+    });
+
+    it("swallows a rejected load", async () => {
+      const load = vi.fn().mockRejectedValue(new Error("offline"));
+      offs.push(bootAndResync(load));
+      emitBridgeResync();
+      await Promise.resolve();
+      expect(load).toHaveBeenCalledTimes(2);
+    });
   });
 });

@@ -97,18 +97,21 @@ export const useThemeStore = create<ThemeState>((set, get) => {
   // round trip back to `get`, the same as `setTheme` itself; skipped while a
   // project override is showing, so a workspace's own theme is not yanked
   // out from under it by an unrelated preference change elsewhere.
-  window.electronAPI?.theme.onChanged(({ name, theme }) => {
+  const applyServerTheme = ({ name, theme }: { name: string; theme: Theme }): void => {
     const overridden = get().projectThemeOverride !== null;
     set({ theme: overridden ? get().theme : theme, selectedThemeName: name });
     if (!overridden) applyCssVars(theme);
-  });
+  };
+  window.electronAPI?.theme.onChanged(applyServerTheme);
 
-  // A reconnected browser may have missed a theme change. Skipped while a
-  // project override is showing, for the same reason as `onChanged` above.
+  // A reconnected browser may have missed a theme change; the same rule
+  // applies, so an override survives it.
   onBridgeResync(() => {
-    if (get().projectThemeOverride !== null) return;
-    get()
-      .loadTheme()
+    Promise.all([
+      window.electronAPI.theme.get(),
+      window.electronAPI.theme.getSelectedName(),
+    ])
+      .then(([theme, name]) => applyServerTheme({ name, theme }))
       .catch(() => {});
   });
 

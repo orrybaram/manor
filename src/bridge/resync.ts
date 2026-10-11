@@ -34,3 +34,20 @@ export function emitBridgeResync(): void {
     }
   }
 }
+
+/**
+ * Load now and again on every resync: the "read once, then live on pushes"
+ * boot every store shares. A rejected async `load` is swallowed, so a failed
+ * refetch keeps the held state. Returns the unsubscribe.
+ */
+export function bootAndResync(load: () => void | Promise<unknown>): () => void {
+  const run = (): void => {
+    try {
+      void Promise.resolve(load()).catch(() => {});
+    } catch {
+      // a sync throw keeps the held state, like a rejection
+    }
+  };
+  run();
+  return onBridgeResync(run);
+}

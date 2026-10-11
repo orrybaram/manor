@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { bootAndResync } from "../bridge/resync";
+import { liveValue } from "../bridge/resync";
 import type { RemoteControlStatus, RemotePairResult } from "../electron.d";
 
 /**
@@ -46,15 +46,13 @@ const emptyStatus: RemoteControlStatus = {
 };
 
 export const useRemoteControlStore = create<RemoteControlState>((set, get) => {
-  const load = (): void => {
-    window.electronAPI?.remoteControl
-      ?.getStatus()
-      .then((status) => set({ status, loaded: true }))
-      .catch(() => {});
-  };
-  bootAndResync(load);
-
-  window.electronAPI?.remoteControl?.onStatus((status) => set({ status }));
+  if (window.electronAPI?.remoteControl) {
+    liveValue(
+      () => window.electronAPI.remoteControl.getStatus(),
+      (cb) => window.electronAPI.remoteControl.onStatus(cb),
+      (status) => set({ status, loaded: true }),
+    );
+  }
 
   /** Every mutating call sets busy, clears any previous error, and drops busy again. */
   const run = async <T>(action: () => Promise<T>): Promise<T | null> => {

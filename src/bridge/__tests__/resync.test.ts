@@ -2,7 +2,12 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 
-import { bootAndResync, emitBridgeResync, onBridgeResync } from "../resync";
+import {
+  bootAndResync,
+  emitBridgeResync,
+  liveValue,
+  onBridgeResync,
+} from "../resync";
 
 describe("the bridge resync signal", () => {
   const offs: (() => void)[] = [];
@@ -52,6 +57,22 @@ describe("the bridge resync signal", () => {
     expect(second).toHaveBeenCalledOnce();
   });
 
+  it("resolves the emit once every listener's promise has settled", async () => {
+    let finish: () => void = () => {};
+    offs.push(
+      onBridgeResync(() => new Promise<void>((r) => (finish = r))),
+      onBridgeResync(() => Promise.reject(new Error("offline"))),
+    );
+    let done = false;
+    const emitted = emitBridgeResync().then(() => (done = true));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(done).toBe(false);
+    finish();
+    await emitted;
+    expect(done).toBe(true);
+  });
+
   describe("bootAndResync", () => {
     it("loads now, again on every resync, and not after unsubscribing", () => {
       const load = vi.fn();
@@ -70,6 +91,71 @@ describe("the bridge resync signal", () => {
       emitBridgeResync();
       await Promise.resolve();
       expect(load).toHaveBeenCalledTimes(2);
+    });
+
+    it("hands the emit its load's promise", async () => {
+      let finish: () => void = () => {};
+      offs.push(bootAndResync(() => new Promise<void>((r) => (finish = r))));
+      let done = false;
+      const emitted = emitBridgeResync().then(() => (done = true));
+      await Promise.resolve();
+      expect(done).toBe(false);
+      finish();
+      await emitted;
+    });
+  });
+
+  describe("liveValue", () => {
+    /** A push source the test drives, and a fetch it answers by hand. */
+    function source() {
+      let push: (value: number) => void = () => {};
+      const answers: ((value: number) => void)[] = [];
+      return {
+        fetch: vi.fn(
+          () => new Promise<number>((resolve) => answers.push(resolve)),
+        ),
+        onPush: (cb: (value: number) => void) => {
+          push = cb;
+          return () => (push = () => {});
+        },
+        push: (value: number) => push(value),
+        answer: (value: number) => answers.shift()!(value),
+      };
+    }
+
+    it("applies the boot fetch, pushes, and a resync's fetch", async () => {
+      const src = source();
+      const apply = vi.fn();
+      offs.push(liveValue(src.fetch, src.onPush, apply));
+      src.answer(1);
+      await Promise.resolve();
+      src.push(2);
+      const resynced = emitBridgeResync();
+      src.answer(3);
+      await resynced;
+      expect(apply.mock.calls.map(([v]) => v)).toEqual([1, 2, 3]);
+    });
+
+    it("drops a fetch that a push overtook", async () => {
+      const src = source();
+      const apply = vi.fn();
+      offs.push(liveValue(src.fetch, src.onPush, apply));
+      src.push(2);
+      src.answer(1);
+      await Promise.resolve();
+      expect(apply.mock.calls.map(([v]) => v)).toEqual([2]);
+    });
+
+    it("applies nothing after it stops", async () => {
+      const src = source();
+      const apply = vi.fn();
+      const stop = liveValue(src.fetch, src.onPush, apply);
+      stop();
+      src.answer(1);
+      src.push(2);
+      await emitBridgeResync();
+      expect(apply).not.toHaveBeenCalled();
+      expect(src.fetch).toHaveBeenCalledOnce();
     });
   });
 });

@@ -29,13 +29,14 @@
  * desktop never answered message 1, or the relay stopped answering the
  * heartbeat.
  *
- * **Heartbeat.** Every `HEARTBEAT_INTERVAL_MS` the page sends the text
- * `HEARTBEAT_PING`, which the room answers itself. It keeps this viewer from
- * being reaped as a ghost, and an interval with nothing at all coming back
- * (no pong, no data) is a dead line — reported as unreachable rather than
- * left to look connected. A foreground check does not wait for that: `probe`
- * sends one ping out of turn and gives the line `timeoutMs` to say anything,
- * and `close` gives up on it as unreachable (ADR-220 D4).
+ * **Heartbeat.** Every `HEARTBEAT_INTERVAL_MS` the page pings: it sends the
+ * text `HEARTBEAT_PING`, which the room answers itself, and gives the line
+ * until the next interval to say anything. It keeps this viewer from being
+ * reaped as a ghost, and an interval with nothing at all coming back (no pong,
+ * no data) is a dead line — reported as unreachable rather than left to look
+ * connected. A foreground check does not wait for that: `probe` is the same
+ * ping out of turn with a shorter wait, and `close` gives up on the line as
+ * unreachable (ADR-220 D4).
  *
  * **Failures.** A message 2 that does not authenticate is *not* treated as
  * proof of a key mismatch. A genuine mismatch fails on the desktop, at
@@ -113,16 +114,36 @@ export function relayPipe(options: RelayPipeOptions): Pipe {
       let closed = false;
       let handshakeTimer: ReturnType<typeof setTimeout> | null = null;
       let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-      /** True from a heartbeat until anything at all arrives. */
-      let awaitingPong = false;
       /**
-       * Probes waiting for a sign of life (ADR-220 D4). Each resolves itself
-       * at most once: true on the next inbound message, false on its timeout
-       * or on close. Separate from `awaitingPong`, which it never touches.
+       * Pings waiting for a sign of life (ADR-220 D4), the heartbeat's and
+       * `probe`'s alike. Each settles at most once: true on the next inbound
+       * message, false on its timeout or on close.
        */
       const probes = new Set<(alive: boolean) => void>();
       const settleProbes = (alive: boolean): void => {
         for (const done of [...probes]) done(alive);
+      };
+
+      /**
+       * Send `HEARTBEAT_PING` and call `answer` once: true if anything at all
+       * arrives within `timeoutMs`, false otherwise. Synchronous on a timeout
+       * or a close, so the heartbeat fails the line inside its own timer.
+       */
+      const ping = (timeoutMs: number, answer: (alive: boolean) => void): void => {
+        const done = (alive: boolean): void => {
+          if (!probes.delete(done)) return;
+          clearTimeout(timer);
+          answer(alive);
+        };
+        probes.add(done);
+        const timer = setTimeout(() => done(false), timeoutMs);
+        // The room answers a ping itself, so this tests the line to the
+        // relay; any other inbound traffic first counts just the same.
+        try {
+          socket.send(HEARTBEAT_PING);
+        } catch {
+          done(false);
+        }
       };
 
       const isOpen = (): boolean =>
@@ -209,16 +230,9 @@ export function relayPipe(options: RelayPipeOptions): Pipe {
           HANDSHAKE_TIMEOUT_MS,
         );
         heartbeatTimer = setInterval(() => {
-          if (awaitingPong) {
-            fail(CLOSE_RELAY_UNREACHABLE);
-            return;
-          }
-          awaitingPong = true;
-          try {
-            socket.send(HEARTBEAT_PING);
-          } catch {
-            // Closing; `onclose` reports it.
-          }
+          ping(HEARTBEAT_INTERVAL_MS, (alive) => {
+            if (!alive && !closed) fail(CLOSE_RELAY_UNREACHABLE);
+          });
         }, HEARTBEAT_INTERVAL_MS);
         try {
           initiator = createInitiator(options.serverKey);
@@ -230,7 +244,6 @@ export function relayPipe(options: RelayPipeOptions): Pipe {
 
       socket.onmessage = (event: MessageEvent) => {
         if (closed) return;
-        awaitingPong = false;
         settleProbes(true);
         if (event.data === HEARTBEAT_PONG) return;
         if (!(event.data instanceof ArrayBuffer)) {
@@ -252,24 +265,13 @@ export function relayPipe(options: RelayPipeOptions): Pipe {
         get open() {
           return isOpen();
         },
+        /**
+         * A ping out of turn. The room answers it, so a true proves only the
+         * leg to the relay, not that the desktop is there.
+         */
         probe(timeoutMs) {
           if (!isOpen()) return Promise.resolve(false);
-          return new Promise<boolean>((resolve) => {
-            const done = (alive: boolean): void => {
-              if (!probes.delete(done)) return;
-              clearTimeout(timer);
-              resolve(alive);
-            };
-            probes.add(done);
-            const timer = setTimeout(() => done(false), timeoutMs);
-            // The room answers a ping itself, so this tests the line to the
-            // relay; any other inbound traffic first counts just the same.
-            try {
-              socket.send(HEARTBEAT_PING);
-            } catch {
-              done(false);
-            }
-          });
+          return new Promise<boolean>((resolve) => ping(timeoutMs, resolve));
         },
         close() {
           fail(CLOSE_RELAY_UNREACHABLE);

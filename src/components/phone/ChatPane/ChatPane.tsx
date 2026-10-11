@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { refreshState } from "../../../bridge/refresh";
+import { refreshState } from "../../../bridge/resync";
 import { onBridgeResync } from "../../../bridge/resync";
 import type { ChatEntry, ChatHistory } from "../../../electron.d";
 import { useMountEffect } from "../../../hooks/useMountEffect";

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { onBridgeResync } from "../bridge/resync";
+import { liveValue } from "../bridge/resync";
 
 export interface Theme {
   background: string;
@@ -90,63 +90,74 @@ export function applyCssVars(theme: Theme) {
   }
 }
 
-export const useThemeStore = create<ThemeState>((set, get) => {
-  // The selected theme changed somewhere other than this window's own
-  // `setTheme` — another desktop window, or a browser on the bridge
-  // (ADR-179 ticket 7). Applied straight from the payload rather than a
-  // round trip back to `get`, the same as `setTheme` itself; skipped while a
-  // project override is showing, so a workspace's own theme is not yanked
-  // out from under it by an unrelated preference change elsewhere.
-  const applyServerTheme = ({ name, theme }: { name: string; theme: Theme }): void => {
-    const overridden = get().projectThemeOverride !== null;
-    set({ theme: overridden ? get().theme : theme, selectedThemeName: name });
-    if (!overridden) applyCssVars(theme);
-  };
-  window.electronAPI?.theme.onChanged(applyServerTheme);
+/** The selected theme as main holds it: what it answers and what it pushes. */
+interface ServerTheme {
+  name: string;
+  theme: Theme;
+}
 
-  // A reconnected browser may have missed a theme change; the same rule
-  // applies, so an override survives it.
-  onBridgeResync(() => {
-    Promise.all([
-      window.electronAPI.theme.get(),
-      window.electronAPI.theme.getSelectedName(),
-    ])
-      .then(([theme, name]) => applyServerTheme({ name, theme }))
-      .catch(() => {});
+async function fetchServerTheme(): Promise<ServerTheme> {
+  const [theme, name] = await Promise.all([
+    window.electronAPI.theme.get(),
+    window.electronAPI.theme.getSelectedName(),
+  ]);
+  return { name, theme };
+}
+
+/**
+ * Show main's selected theme: at boot, on a resync, and when it changed
+ * somewhere other than this window's own `setTheme` — another desktop
+ * window, or a browser on the bridge (ADR-179 ticket 7). Skipped while a
+ * project override is showing, so a workspace's own theme is not yanked out
+ * from under it by an unrelated preference change elsewhere; at boot there
+ * is no override yet.
+ */
+function applyServerTheme({ name, theme }: ServerTheme): void {
+  const { projectThemeOverride, theme: shown } = useThemeStore.getState();
+  const overridden = projectThemeOverride !== null;
+  useThemeStore.setState({
+    theme: overridden ? shown : theme,
+    selectedThemeName: name,
   });
+  if (!overridden) applyCssVars(theme);
+}
 
-  return {
-    theme: null,
-    selectedThemeName: "__ghostty__",
-    projectThemeOverride: null,
+/**
+ * Load the selected theme, again on every bridge resync, and follow main's
+ * pushes between. `App.tsx` runs it on mount; returns the stop.
+ */
+export function startThemeSync(): () => void {
+  return liveValue(
+    fetchServerTheme,
+    (cb) => window.electronAPI.theme.onChanged(cb),
+    applyServerTheme,
+  );
+}
 
-    loadTheme: async () => {
-      const [theme, selectedThemeName] = await Promise.all([
-        window.electronAPI.theme.get(),
-        window.electronAPI.theme.getSelectedName(),
-      ]);
-      set({ theme, selectedThemeName });
+export const useThemeStore = create<ThemeState>((set, get) => ({
+  theme: null,
+  selectedThemeName: "__ghostty__",
+  projectThemeOverride: null,
+
+  loadTheme: async () => applyServerTheme(await fetchServerTheme()),
+
+  setTheme: async (name: string) => {
+    const theme = await window.electronAPI.theme.setSelected(name);
+    set({ theme, selectedThemeName: name });
+    applyCssVars(theme);
+  },
+
+  applyProjectTheme: async (themeName: string | null) => {
+    if (themeName !== null) {
+      const theme = await window.electronAPI.theme.preview(themeName);
+      set({ theme, projectThemeOverride: themeName });
       applyCssVars(theme);
-    },
-
-    setTheme: async (name: string) => {
-      const theme = await window.electronAPI.theme.setSelected(name);
-      set({ theme, selectedThemeName: name });
-      applyCssVars(theme);
-    },
-
-    applyProjectTheme: async (themeName: string | null) => {
-      if (themeName !== null) {
-        const theme = await window.electronAPI.theme.preview(themeName);
-        set({ theme, projectThemeOverride: themeName });
-        applyCssVars(theme);
-      } else {
-        set({ projectThemeOverride: null });
-        await get().loadTheme();
-      }
-    },
-  };
-});
+    } else {
+      set({ projectThemeOverride: null });
+      await get().loadTheme();
+    }
+  },
+}));
 
 function hexToHsl(hex: string): [number, number, number] {
   const r = parseInt(hex.slice(1, 3), 16) / 255;

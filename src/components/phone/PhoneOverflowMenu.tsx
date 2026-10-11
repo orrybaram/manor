@@ -8,7 +8,7 @@ import Pencil from "lucide-react/dist/esm/icons/pencil";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
 import RotateCw from "lucide-react/dist/esm/icons/rotate-cw";
-import { refreshState } from "../../bridge/refresh";
+import { refreshState } from "../../bridge/resync";
 import { Button } from "../ui/Button/Button";
 import { useLayoutMode } from "../../hooks/useLayoutMode";
 import { isHomePath } from "../../lib/home-path";

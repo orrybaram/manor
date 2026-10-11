@@ -50,6 +50,7 @@ import {
   selectActiveWorkspaceKey,
   getPersistedActiveWorkspacePath,
   OWN_CLAIM,
+  resyncLayout,
 } from "./store/app-store";
 import {
   useProjectStore,
@@ -75,13 +76,15 @@ import {
 import { MAIN_WINDOW_KEYBINDINGS } from "./lib/menu-commands";
 import { findPanelWithTab } from "./lib/layout/workspace-layout";
 import { PanelLayout } from "./components/panels/PanelLayout";
-import { useThemeStore } from "./store/theme-store";
+import { useThemeStore, startThemeSync } from "./store/theme-store";
+import { onBridgeResync } from "./bridge/resync";
 import { useAgentStore } from "./store/agent-store";
 import { useMountEffect } from "./hooks/useMountEffect";
 import { startAgentActivitySync } from "./store/agent-activity-store";
 import { useMenuContextSync } from "./hooks/useMenuContextSync";
 import { useUpdaterToasts } from "./hooks/useUpdaterToasts";
 import { useRemoteRecovery } from "./hooks/useRemoteRecovery";
+import { useTerminalResync } from "./hooks/useTerminalResync";
 import { useAgentContextRepair } from "./hooks/useAgentContextRepair";
 import {
   useNavigationHistory,
@@ -98,7 +101,6 @@ import { markChatStarting } from "./components/phone/ChatPane/usePaneChatView";
 import "./App.css";
 
 function App() {
-  const loadTheme = useThemeStore((s) => s.loadTheme);
   const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
   const loadProjects = useProjectStore((s) => s.loadProjects);
   const loadPersistedLayout = useAppStore((s) => s.loadPersistedLayout);
@@ -113,8 +115,17 @@ function App() {
   // Mirror main's persisted agent activity for Home's timeline and sparklines (ADR-199).
   useMountEffect(() => startAgentActivitySync());
 
+  // The selected theme, kept live, and re-read on a bridge resync.
+  useMountEffect(() => startThemeSync());
+
+  // A reconnected browser missed whatever was pushed while it was gone
+  // (ADR-220 D2): re-read the projects and every workspace. The layout's
+  // resync is not its boot read — see `resyncLayout`.
+  useMountEffect(() =>
+    onBridgeResync(() => Promise.all([loadProjects(), resyncLayout()])),
+  );
+
   useMountEffect(() => {
-    loadTheme();
     // `layout.getAll()` is a read of the Manor server's layout, and the
     // subscription that keeps it current is installed when `app-store.ts` is
     // imported — well before this runs, so a change that lands in the gap is
@@ -159,6 +170,7 @@ function App() {
   useUpdaterToasts();
   useNavigationHistory();
   useRemoteRecovery();
+  useTerminalResync();
   useAgentContextRepair();
 
   const [paletteOpen, setPaletteOpen] = useState(false);

@@ -9,7 +9,6 @@ import { splitShared } from "../lib/project-groups";
 import { isRemoteHost, memberHostName, type HostId } from "../lib/hosts";
 import { requestUi } from "../utils/ui-request";
 import { useHostStore } from "./host-store";
-import { onBridgeResync } from "../bridge/resync";
 import type { TransferInputReason, TransferMode } from "../electron";
 import { hostForPath, patch, reconcile } from "../lib/workspace-directory";
 import { sharedRefresh } from "../lib/shared-refresh";
@@ -2025,7 +2024,3 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return { collapsedFolderKeys: next };
     }),
 }));
-
-// A reconnected browser missed project pushes while its socket was down
-// (ADR-220 D2); loadProjects re-reads the whole list.
-onBridgeResync(() => void useProjectStore.getState().loadProjects());

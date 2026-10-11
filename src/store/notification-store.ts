@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { NotificationRecord } from "../electron.d";
 import { navigateToNotification } from "../utils/notification-navigation";
-import { bootAndResync } from "../bridge/resync";
+import { liveValue } from "../bridge/resync";
 
 /**
  * Renderer cache of main's notification log (ADR-162 §5).
@@ -30,14 +30,23 @@ function countUnread(notifications: NotificationRecord[]): number {
 export const useNotificationStore = create<NotificationState>((set, get) => {
   const api = window.electronAPI?.notifications;
 
-  api?.onChanged((list) => {
-    set({
-      notifications: list,
-      unreadCount: countUnread(list),
-      loaded: true,
-      loading: false,
-    });
-  });
+  if (api) {
+    liveValue(
+      () =>
+        api.getAll().catch((err: unknown) => {
+          set({ loading: false });
+          throw err;
+        }),
+      (cb) => api.onChanged(cb),
+      (list) =>
+        set({
+          notifications: list,
+          unreadCount: countUnread(list),
+          loaded: true,
+          loading: false,
+        }),
+    );
+  }
 
   // A native banner was clicked. Same destination resolution as an in-app row
   // — one click path for both (ADR-162 §4).
@@ -51,22 +60,6 @@ export const useNotificationStore = create<NotificationState>((set, get) => {
     }
     if (record) void navigateToNotification(record);
   });
-
-  const init = async (): Promise<void> => {
-    if (!api) return;
-    try {
-      const list = await api.getAll();
-      set({
-        notifications: list,
-        unreadCount: countUnread(list),
-        loading: false,
-        loaded: true,
-      });
-    } catch {
-      set({ loading: false });
-    }
-  };
-  bootAndResync(init);
 
   return {
     notifications: [],

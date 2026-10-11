@@ -4,10 +4,19 @@
  * local state is replaced, a workspace the server dropped goes, and this
  * window's own viewport survives either way.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { useAppStore } from "../app-store";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  afterEach,
+  vi,
+} from "vitest";
+import { resyncLayout, useAppStore } from "../app-store";
 import type { Tab, WorkspaceLayout } from "../app-store";
-import { emitBridgeResync } from "../../bridge/resync";
+import { emitBridgeResync, onBridgeResync } from "../../bridge/resync";
 import { resetFakeLayoutServer, settled } from "./fake-layout-server";
 
 const WS_PATH = "/test/workspace";
@@ -33,6 +42,13 @@ function answerWith(entries: Record<string, ReturnType<typeof serverEntry>>) {
 describe("layout resync", () => {
   const held = layoutOf("t-held", "p-held");
   const incoming = layoutOf("t-new", "p-new");
+
+  // `App.tsx` registers this on mount; no App here.
+  let unsubscribe: () => void = () => {};
+  beforeAll(() => {
+    unsubscribe = onBridgeResync(resyncLayout);
+  });
+  afterAll(() => unsubscribe());
 
   beforeEach(() => {
     resetFakeLayoutServer();
@@ -100,7 +116,8 @@ describe("layout resync", () => {
     expect(state.paneTitle["p-new"]).toBe("vim");
   });
 
-  it("primes agent status from paneSessions without overriding a live one", async () => {
+  it("leaves agent status to getPaneStatuses, not the file", async () => {
+    // `pane-status-resync.test.ts` covers the read that does decide it.
     useAppStore.setState({
       paneAgentStatus: { "p-live": { status: "working", kind: "claude" } },
     } as never);
@@ -116,7 +133,7 @@ describe("layout resync", () => {
     emitBridgeResync();
     await settled();
     const { paneAgentStatus } = useAppStore.getState();
-    expect(paneAgentStatus["p-new"]?.status).toBe("idle");
+    expect(paneAgentStatus["p-new"]).toBeUndefined();
     expect(paneAgentStatus["p-live"]?.status).toBe("working");
   });
 

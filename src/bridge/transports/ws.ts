@@ -65,7 +65,7 @@ export interface PipeConnection {
   probe(timeoutMs: number): Promise<boolean>;
   /**
    * Give up on this connection: report it through `onClose` exactly once,
-   * with one of the pipe's `unreachableCodes`.
+   * before returning, with one of the pipe's `unreachableCodes`.
    */
   close(): void;
 }
@@ -230,11 +230,7 @@ class WsTransport implements WsBridgeTransport {
       return Promise.resolve("stopped");
     }
     if (this.reconnectTimer) {
-      // Whatever the backoff grew to while the page was away, it is back now.
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-      this.attempt = 0;
-      this.open();
+      this.redialNow();
       return Promise.resolve("redialing");
     }
     if (!this.socket) {
@@ -249,9 +245,7 @@ class WsTransport implements WsBridgeTransport {
 
   /**
    * Probe the current socket. A socket that does not answer, and is still
-   * the current one, is dropped and redialled at once: the page is in front
-   * of someone right now, so no backoff wait, and the backoff starts over
-   * should that dial fail too.
+   * the current one, is closed and redialled at once.
    */
   private async probe(socket: PipeConnection): Promise<ProbeOutcome> {
     const generation = this.generation;
@@ -266,19 +260,27 @@ class WsTransport implements WsBridgeTransport {
       }
       if (!current()) return "redialing";
       if (alive) return "alive";
-      // Detach first, so the close this reports is a stale one and ignored.
-      this.generation += 1;
+      // Reported through `onClose` like any drop — teardown, and an
+      // unreachable code the page shows until the redial's hello — whose
+      // backoff timer the redial then skips.
       socket.close();
-      this.teardown();
-      // A line that stopped answering is the host not being reachable, until
-      // the redial's hello says otherwise.
-      this.options.onStatus?.("unreachable");
-      this.attempt = 0;
-      this.open();
+      this.redialNow();
       return "redialing";
     } finally {
       this.probing = null;
     }
+  }
+
+  /**
+   * Dial now instead of waiting out the backoff: the page is in front of
+   * someone right now. The backoff starts over should this dial fail too.
+   */
+  private redialNow(): void {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    if (this.stopped) return;
+    this.attempt = 0;
+    this.open();
   }
 
   /** Dial, if there is a token and nothing is dialling already. */

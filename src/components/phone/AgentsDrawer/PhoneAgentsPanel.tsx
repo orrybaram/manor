@@ -6,7 +6,7 @@ import LayoutDashboard from "lucide-react/dist/esm/icons/layout-dashboard";
 import ListTodo from "lucide-react/dist/esm/icons/list-todo";
 import Search from "lucide-react/dist/esm/icons/search";
 import Bell from "lucide-react/dist/esm/icons/bell";
-import { refreshState } from "../../../bridge/refresh";
+import { refreshState } from "../../../bridge/resync";
 import type { AgentInfo } from "../../../electron.d";
 import { useVisibleAgents } from "../../../hooks/useVisibleAgents";
 import { useAgentDisplay } from "../../../hooks/useAgentDisplay";

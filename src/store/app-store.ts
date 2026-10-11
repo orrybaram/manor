@@ -67,7 +67,7 @@ import {
   type WorkspaceKey,
 } from "../lib/workspace-key";
 import { useProjectStore } from "./project-store";
-import { onBridgeResync } from "../bridge/resync";
+import { liveValue } from "../bridge/resync";
 import { useRemotePaneStore } from "./remote-pane-store";
 import {
   type SnapshotResult,
@@ -2452,7 +2452,8 @@ window.electronAPI?.layout?.onChanged?.(applyLayoutChanged);
 // read does, minus the boot's own effects — `layoutLoaded`, and the viewport
 // file's selections (a resync repairs the local viewport, never replaces
 // it). Picking the active workspace and reconciling stale agents are
-// `App.tsx`'s, after the boot read, and are not re-run either.
+// `App.tsx`'s, after the boot read, and are not re-run either; `App.tsx`
+// registers this for the resync, beside the boot read.
 export async function resyncLayout(): Promise<void> {
   try {
     await loadLayoutSnapshot(async () => {
@@ -2463,7 +2464,6 @@ export async function resyncLayout(): Promise<void> {
     console.error("[layout] failed to resync the layout:", err);
   }
 }
-onBridgeResync(() => void resyncLayout());
 
 // A pane's title, off the command channel (ADR-182 D1) — a route, an MCP
 // call, or another renderer's own edit, fed into the same sink an OSC title
@@ -2499,32 +2499,21 @@ useAppStore.subscribe((state, previous) => {
 // the renderer only displays what it publishes. `onStatus` keeps every
 // window's cache live; `getPaneStatuses` primes a window that starts (or a
 // detached/popout window that opens, or a reload) after some panes' statuses
-// were already published, with nothing to replay otherwise. Deferred a
-// microtask for the same reason as `layout.onChanged` above.
+// were already published, with nothing to replay otherwise, and re-reads them
+// on a bridge resync — the held statuses are the stale ones then. A status
+// published while that read is in flight is newer than it, and drops it.
+// Deferred a microtask for the same reason as `layout.onChanged` above.
 queueMicrotask(() => {
-  window.electronAPI?.agents?.onStatus?.((update) => {
-    useAppStore.getState().setPaneAgentStatus(update);
-  });
-
-  void window.electronAPI?.agents
-    ?.getPaneStatuses?.()
-    ?.then((updates) => {
-      const primed: Record<string, PaneAgentStatus> = {};
+  const agents = window.electronAPI?.agents;
+  if (!agents?.onStatus) return;
+  liveValue(
+    // An older preload has no read; the live stream alone keeps the cache.
+    () => agents.getPaneStatuses?.() ?? Promise.resolve([]),
+    (cb) => agents.onStatus((update) => cb([update])),
+    (updates) => {
       for (const update of updates) {
-        primed[update.paneId] = {
-          status: update.status,
-          reason: update.reason,
-          kind: update.kind,
-        };
+        useAppStore.getState().setPaneAgentStatus(update);
       }
-      // A status published between store creation and this resolving is
-      // newer than the snapshot the fetch carried, and must win.
-      useAppStore.setState((s) => ({
-        paneAgentStatus: { ...primed, ...s.paneAgentStatus },
-      }));
-    })
-    ?.catch(() => {
-      // Older preload, or main not reachable yet — the live `onStatus`
-      // stream still keeps the cache correct from here on.
-    });
+    },
+  );
 });

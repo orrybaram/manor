@@ -39,10 +39,9 @@ export type VisibilityOf = (
  * What the server derived about a set of panes, as this store's side maps.
  *
  * The same shape arrives by two roads — a snapshot's `paneSessions`, and a
- * reopen's `restored` — so both seed through here. The agent status is a
- * prime only: a fresh `agents:getPaneStatuses` fetch on startup (ADR-184
- * ticket 5) and the live `agents.onStatus` stream override it, it just
- * avoids a blank dot until then.
+ * reopen's `restored` — so both seed through here. Only a reopen seeds the
+ * agent status, and as a prime only: `agents:getPaneStatuses` (at boot and on
+ * a resync) and the live `agents.onStatus` stream are what decide it.
  */
 export function sessionSideMaps(
   sessions: Record<string, PersistedPaneSession>,
@@ -241,8 +240,8 @@ export interface SnapshotResult {
  * Each entry is adopted like a broadcast, except one a broadcast already
  * brought to the same version while the read was in flight: that broadcast
  * is at least as new as the read. The panes of every entry not older than the
- * replica seed the side maps — cwds and titles from the server win, an agent
- * status already held is newer than the file and stays.
+ * replica seed the cwd and title side maps, the server's winning. Agent
+ * statuses are not the file's to say: `getPaneStatuses` re-reads them.
  *
  * A workspace the server no longer lists is dropped the way its `removed`
  * broadcast would drop it — unless it appeared or moved while the read was
@@ -260,7 +259,6 @@ export function applyLayoutSnapshot(
   const gone: string[] = [];
   const cwds: Record<string, string> = {};
   const titles: Record<string, string> = {};
-  const agents: Record<string, PaneAgentStatus> = {};
 
   for (const [workspacePath, entry] of Object.entries(entries)) {
     const held = next.layoutVersions[workspacePath];
@@ -268,7 +266,6 @@ export function applyLayoutSnapshot(
     const maps = sessionSideMaps(entry.paneSessions);
     Object.assign(cwds, maps.cwds);
     Object.assign(titles, maps.titles);
-    Object.assign(agents, maps.agents);
     // A broadcast at this very version that landed mid-read is the newer
     // word on the claims; the read only ever loses that tie.
     const tie = held === entry.version && held !== opts.before[workspacePath];
@@ -315,7 +312,6 @@ export function applyLayoutSnapshot(
     ...next,
     paneCwd: { ...next.paneCwd, ...cwds },
     paneTitle: { ...next.paneTitle, ...titles },
-    paneAgentStatus: { ...agents, ...next.paneAgentStatus },
   };
 
   const removed: string[] = [];

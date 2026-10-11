@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.20.1] - 2026-10-11
+
+### Features
+
+- Use slash commands in the phone chat: type `/` to open a command menu, and sent commands appear as chips in the chat history
+- Phone chat lists your built-in commands and skills
+- The phone chat composer's placeholder hints that slash commands are available
+- Running `/clear` from the phone chat starts a fresh conversation
+- Phone chat has smoother motion, follows new messages as they arrive, and types out replies
+- Phone chat collapses runs of tool calls and shows "Thinking" while the agent is busy
+- On the phone, an empty workspace opens as a composer, and your first message starts the agent
+- On the phone, a new agent opens on its chat while Claude starts up
+- The send/stop button is now a round button inside the phone chat composer
+- Phone drawer navigation has larger, thumb-sized rows, and the ports list is gone
+- The phone overflow menu now has diff and rename, and the + button starts an agent
+- Toasts are hidden in the phone layout
+
+### Fixes
+
+- A new agent's starting chat now shows up on the phone and accepts a prompt
+- The phone chat pane now fills the whole pane edge to edge
+- Trailing whitespace is trimmed from messages sent in the phone chat
+- The remote agent hook now refreshes after a host update
+
 ## [0.20.0] - 2026-10-10
 
 ### Features

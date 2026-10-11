@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { NotificationRecord } from "../electron.d";
 import { navigateToNotification } from "../utils/notification-navigation";
+import { onBridgeResync } from "../bridge/resync";
 
 /**
  * Renderer cache of main's notification log (ADR-162 §5).
@@ -66,6 +67,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => {
     }
   };
   void init();
+  onBridgeResync(() => void init());
 
   return {
     notifications: [],

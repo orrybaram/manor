@@ -70,6 +70,7 @@ import {
   type WorkspaceKey,
 } from "../lib/workspace-key";
 import { useProjectStore } from "./project-store";
+import { onBridgeResync } from "../bridge/resync";
 import { useRemotePaneStore } from "./remote-pane-store";
 
 export type { Panel, Tab, WorkspaceLayout };
@@ -2568,6 +2569,31 @@ export const useAppStore = create<AppState>((set, get) => ({
 // `queueMicrotask` to paper over the web side of that not being true yet;
 // ticket 14 made it true, so the wrapper is dead weight now.)
 window.electronAPI?.layout?.onChanged?.(applyLayoutChanged);
+
+// A reconnected browser missed whatever was broadcast while its socket was
+// down (ADR-220 D2). Re-read every workspace and feed each entry through
+// `applyLayoutChanged` as a broadcast: its version check decides what wins,
+// and the local viewport is repaired, never replaced. `loadPersistedLayout`
+// is deliberately not re-run — it picks the active workspace and reconciles
+// stale agents, which are one-time boot effects.
+export async function resyncLayout(): Promise<void> {
+  try {
+    const entries = await window.electronAPI?.layout?.getAll?.();
+    if (!entries) return;
+    for (const [workspacePath, entry] of Object.entries(entries)) {
+      applyLayoutChanged({
+        workspacePath,
+        version: entry.version,
+        layout: entry.layout,
+        claims: entry.claims,
+        origin: { kind: "route", id: "resync" },
+      });
+    }
+  } catch (err) {
+    console.error("[layout] failed to resync the layout:", err);
+  }
+}
+onBridgeResync(() => void resyncLayout());
 
 // A pane's title, off the command channel (ADR-182 D1) — a route, an MCP
 // call, or another renderer's own edit, fed into the same sink an OSC title

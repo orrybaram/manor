@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { ActivePort } from "../electron.d.ts";
 import { useProjectStore } from "./project-store";
+import { onBridgeResync } from "../bridge/resync";
 
 /**
  * The listening-ports list, fed by ONE scanner (ADR-198 §7). The sidebar's
@@ -90,6 +91,16 @@ function startScanner(): () => void {
 
 let holders = 0;
 let stop: (() => void) | null = null;
+
+// The scanner's pushes stop reaching a dropped socket; ask for a fresh scan.
+onBridgeResync(() => {
+  if (holders > 0) {
+    window.electronAPI.ports
+      .scanNow()
+      .then((ports) => usePortsStore.getState().setPorts(ports as ActivePort[]))
+      .catch(() => {});
+  }
+});
 
 /**
  * Hold a reference to the shared scanner: the first holder starts it, the

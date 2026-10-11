@@ -4,6 +4,7 @@ import { useToastStore } from "./toast-store";
 import { useAppStore, selectVisiblePaneIds } from "./app-store";
 import { navigateToAgent } from "../utils/agent-navigation";
 import { cleanAgentTitle } from "../utils/agent-title";
+import { onBridgeResync } from "../bridge/resync";
 
 /** Page size used for the initial agent load and for `loadMoreAgents`. */
 const TASK_PAGE_SIZE = 100;
@@ -107,7 +108,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
   // the first page of all agents (used by the history modal) + main's
   // unseen-flag snapshot (ADR-136 §"Change 3"). The three are merged so
   // the store stays a single source of truth.
-  const init = async (): Promise<void> => {
+  const refetch = async (): Promise<void> => {
     if (!window.electronAPI?.agents) return;
     try {
       const [active, recentPage, unseen] = await Promise.all([
@@ -141,28 +142,34 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       // read. If it isn't yet, the app-store subscription above catches it as
       // soon as it lands.
       get().markVisibleAgentsSeen();
-
-      // One-time prune notice. Surfaces only when the most recent boot
-      // actually deleted agents AND the user has not been notified yet.
-      try {
-        const prunedCount = await window.electronAPI.agents.consumePruneNotice();
-        if (prunedCount > 0) {
-          useToastStore.getState().addToast({
-            id: "agent-prune-notice",
-            message: `Pruned ${prunedCount} old agent${prunedCount === 1 ? "" : "s"}`,
-            detail: "Configure retention in Preferences",
-            status: "success",
-            duration: 8_000,
-          });
-        }
-      } catch {
-        // Older preload — feature absent. Safe to ignore.
-      }
     } catch {
       set({ loading: false });
     }
   };
+
+  const init = async (): Promise<void> => {
+    await refetch();
+    if (!window.electronAPI?.agents) return;
+    // One-time prune notice. Surfaces only when the most recent boot
+    // actually deleted agents AND the user has not been notified yet. Boot
+    // only: a resync re-fetches state but must not repeat this.
+    try {
+      const prunedCount = await window.electronAPI.agents.consumePruneNotice();
+      if (prunedCount > 0) {
+        useToastStore.getState().addToast({
+          id: "agent-prune-notice",
+          message: `Pruned ${prunedCount} old agent${prunedCount === 1 ? "" : "s"}`,
+          detail: "Configure retention in Preferences",
+          status: "success",
+          duration: 8_000,
+        });
+      }
+    } catch {
+      // Older preload — feature absent. Safe to ignore.
+    }
+  };
   init();
+  onBridgeResync(() => void refetch());
 
   return {
     agents: [],

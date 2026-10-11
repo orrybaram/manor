@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { onBridgeResync } from "../bridge/resync";
 
 /** Mirrors `HostSpec` in `electron/backend/types.ts`. */
 export type HostSpec = { kind: "ssh"; target: string };
@@ -47,10 +48,14 @@ interface HostState {
 }
 
 export const useHostStore = create<HostState>((set) => {
-  window.electronAPI?.hosts
-    ?.list()
-    .then((hosts) => set({ hosts }))
-    .catch(() => {});
+  const load = (): void => {
+    window.electronAPI?.hosts
+      ?.list()
+      .then((hosts) => set({ hosts }))
+      .catch(() => {});
+  };
+  load();
+  onBridgeResync(load);
 
   window.electronAPI?.hosts?.onStatusChanged((hosts) => set({ hosts }));
 

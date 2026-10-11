@@ -6,6 +6,7 @@ import type {
   AgentActivityTransition,
   AgentStatus,
 } from "../electron.d";
+import { onBridgeResync } from "../bridge/resync";
 
 /** History window shown by the Home timeline and stat sparklines. */
 export const ACTIVITY_WINDOW_MS = 3 * 60 * 60 * 1000;
@@ -26,6 +27,24 @@ export const useAgentActivityStore = create<AgentActivityState>(() => ({
 }));
 
 let stopActive: (() => void) | null = null;
+
+/**
+ * Fetch the snapshot again after a bridge resync. Unlike the first fetch it
+ * replaces whatever is there: broadcasts missed while the socket was down
+ * make the held snapshot the stale one. A no-op unless sync is running.
+ */
+export async function refetchAgentActivity(): Promise<void> {
+  const api = window.electronAPI?.agentActivity;
+  if (!api || !stopActive) return;
+  try {
+    const snapshot = await api.get();
+    useAgentActivityStore.setState({ snapshot });
+  } catch {
+    // keep the held snapshot; the next broadcast recovers
+  }
+}
+
+onBridgeResync(() => void refetchAgentActivity());
 
 /**
  * Load the activity snapshot and keep it fresh. Idempotent — a second call

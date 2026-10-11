@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { onBridgeResync } from "../bridge/resync";
 
 export interface Theme {
   background: string;
@@ -100,6 +101,15 @@ export const useThemeStore = create<ThemeState>((set, get) => {
     const overridden = get().projectThemeOverride !== null;
     set({ theme: overridden ? get().theme : theme, selectedThemeName: name });
     if (!overridden) applyCssVars(theme);
+  });
+
+  // A reconnected browser may have missed a theme change. Skipped while a
+  // project override is showing, for the same reason as `onChanged` above.
+  onBridgeResync(() => {
+    if (get().projectThemeOverride !== null) return;
+    get()
+      .loadTheme()
+      .catch(() => {});
   });
 
   return {

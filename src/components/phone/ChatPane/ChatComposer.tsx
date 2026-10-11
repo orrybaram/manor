@@ -95,7 +95,7 @@ export function ChatComposer(props: ChatComposerProps) {
         setSending(false);
         const command = splitCommand(sent);
         if (command && slash.opensMenu(command.name, command.args)) {
-          startMenuHandoff(paneId, command.name);
+          startMenuHandoff(paneId, command.name, transcript ?? null);
         }
         if (transcript && command && CLEAR_COMMANDS.has(command.name)) {
           markChatStarting(paneId, transcript);

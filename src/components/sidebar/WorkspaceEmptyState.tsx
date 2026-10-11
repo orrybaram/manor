@@ -12,6 +12,8 @@ import { EmptyStateShell, type ActionItem } from "./EmptyStateShell";
 import { useIssuesShortcut } from "./useIssuesShortcut";
 import { WorkspaceSetupView } from "./WorkspaceSetupView";
 import { GitHubNudge } from "./GitHubNudge";
+import { useLayoutMode } from "../../hooks/useLayoutMode";
+import { PhoneEmptyWorkspace } from "../phone/PhoneEmptyWorkspace";
 import styles from "../EmptyState.module.css";
 
 type WorkspaceEmptyStateProps = {
@@ -28,6 +30,7 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
   const worktreeSetupState = useAppStore((s) => s.worktreeSetupState);
   const clearWorktreeSetup = useAppStore((s) => s.clearWorktreeSetup);
   const projects = useProjectStore((s) => s.projects);
+  const phone = useLayoutMode() === "phone";
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
 
   const project = projects[selectedProjectIndex];
@@ -141,13 +144,21 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
     );
   }
 
+  // A phone has no use for a list of shortcuts: its empty workspace is a
+  // chat waiting for the first message.
+  const content = phone ? (
+    <PhoneEmptyWorkspace />
+  ) : (
+    <EmptyStateShell actions={actions} banner={banner} />
+  );
+
   return (
     <div
       className={phase === "transitioning" ? styles.fadeIn : undefined}
       onAnimationEnd={handleFadeInEnd}
       style={{ height: "100%" }}
     >
-      <EmptyStateShell actions={actions} banner={banner} />
+      {content}
     </div>
   );
 }

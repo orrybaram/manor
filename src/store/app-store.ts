@@ -1,3 +1,4 @@
+import type { NewAgentTarget } from "../components/phone/NewAgent/new-agent-target";
 import { useMemo } from "react";
 import { create } from "zustand";
 import {
@@ -79,8 +80,14 @@ import {
 
 export type { Panel, Tab, WorkspaceLayout };
 
-/** App-level surfaces that can fill the main area (ADR-194). */
-export type AppSurface = "workspace" | "tasks";
+/**
+ * App-level surfaces that can fill the main area (ADR-194). `composer` is the
+ * phone new-agent composer (ADR-222); desk never enters it.
+ */
+export type AppSurface = "workspace" | "tasks" | "composer";
+
+/** Unsent new-agent composer state, kept so a round trip loses nothing (ADR-222). */
+type ComposerDraft = { text: string; target: NewAgentTarget | null };
 
 /**
  * What to open the Tasks view on (ADR-208 §5). `project` is a sidebar entry
@@ -97,7 +104,8 @@ type TasksIntent = {
 
 /**
  * Spread into a `set()` patch by actions that activate a workspace or put a
- * tab/pane in front of the user: they leave the Tasks view.
+ * tab/pane in front of the user: they leave the Tasks view (and the phone
+ * composer, ADR-222).
  */
 const WORKSPACE_SURFACE = { activeSurface: "workspace" } as const;
 
@@ -206,6 +214,14 @@ export interface AppState {
    * `intent` presets its search / project (ADR-208 §5).
    */
   showTasksView: (intent?: TasksIntent) => void;
+  /** Show the phone new-agent composer (ADR-222); the workspace stays active. */
+  showComposer: () => void;
+  /** Leave the composer back to the workspace surface (ADR-222). */
+  closeComposer: () => void;
+  /** Unsent composer text + chosen target; in-memory only (ADR-222). */
+  composerDraft: ComposerDraft;
+  setComposerDraft: (patch: Partial<ComposerDraft>) => void;
+  clearComposerDraft: () => void;
   /** Return the pending `tasksIntent` and clear it. */
   consumeTasksIntent: () => TasksIntent | null;
 
@@ -1522,6 +1538,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeWorkspacePath: null,
   activeWorkspaceHostId: LOCAL_HOST_ID,
   activeSurface: "workspace",
+  composerDraft: { text: "", target: null },
   tasksIntent: null,
   paneCwd: {},
   paneTitle: {},
@@ -1582,6 +1599,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         ? state
         : { activeSurface: "tasks" };
     }),
+
+  showComposer: () => set({ activeSurface: "composer" }),
+  closeComposer: () => set({ activeSurface: "workspace" }),
+  setComposerDraft: (patch) =>
+    set((state) => ({ composerDraft: { ...state.composerDraft, ...patch } })),
+  clearComposerDraft: () => set({ composerDraft: { text: "", target: null } }),
 
   consumeTasksIntent: () => {
     const intent = get().tasksIntent;

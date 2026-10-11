@@ -96,6 +96,7 @@ import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults"
 import { isHomePath, HOME_PATH } from "./lib/home";
 import { isWebApp } from "./lib/platform";
 import { useLayoutMode } from "./hooks/useLayoutMode";
+import { PhoneEmptyWorkspace } from "./components/phone/PhoneEmptyWorkspace";
 import { PhoneChrome } from "./components/phone/PhoneChrome";
 import { markChatStarting } from "./components/phone/ChatPane/usePaneChatView";
 import "./App.css";
@@ -206,7 +207,9 @@ function App() {
     // they inherit the global theme (null).
     const appState = useAppStore.getState();
     const activeTheme =
-      isHomePath(appState.activeWorkspacePath) || appState.activeSurface === "tasks"
+      isHomePath(appState.activeWorkspacePath) ||
+      appState.activeSurface === "tasks" ||
+      appState.activeSurface === "composer"
       ? null
       : useProjectStore.getState().projects[
           useProjectStore.getState().selectedProjectIndex
@@ -427,6 +430,9 @@ function App() {
   const wizardStillValid = wizardOpen && wizardProjectId && projects.some((p) => p.id === wizardProjectId);
 
   const tasksViewShown = useAppStore((s) => s.activeSurface === "tasks");
+  // ADR-222: the phone new-agent composer covers the workspace; desk ignores it.
+  const composerShown =
+    useAppStore((s) => s.activeSurface === "composer") && layoutMode === "phone";
 
   // Reactively apply the active surface's theme. Projects carry an optional
   // theme override; Home and the Tasks view have no owning project, so they
@@ -797,9 +803,6 @@ function App() {
                   <PhoneChrome
                     onNewAgent={handleNewAgent}
                     onOpenSettings={() => handleOpenSettings()}
-                    onShowAgents={() => setAgentsOpen(true)}
-                    onOpenProjectSettings={handleOpenProjectSettings}
-                    onAddProject={handleAddProject}
                     onOpenSearch={openPhonePalette}
                     modalOpen={
                       paletteOpen || settingsOpen || feedbackOpen || agentsOpen
@@ -817,11 +820,13 @@ function App() {
                   {/* `workspaceLayouts` is keyed by `WorkspaceKey` (ADR-191). */}
                   <WorkspaceStack
                     visibleKey={
-                      hasTabs && !showOnboarding && !showTasksView ? activeWorkspaceKey : null
+                      hasTabs && !showOnboarding && !showTasksView && !composerShown
+                        ? activeWorkspaceKey
+                        : null
                     }
                     onNewAgent={handleNewAgent}
                   />
-                  {(showOnboarding || showTasksView || !(activeWorkspacePath && hasTabs)) && (
+                  {(showOnboarding || showTasksView || composerShown || !(activeWorkspacePath && hasTabs)) && (
                     <div className="empty-surface">
                       <div className="surface-header">
                         <span className="surface-title">
@@ -831,6 +836,8 @@ function App() {
                             ? "Welcome"
                             : showTasksView
                             ? "Tasks"
+                            : composerShown
+                            ? "New agent"
                             : workspaceDisplayName(activeWorkspaceKey, projects)}
                         </span>
                       </div>
@@ -841,6 +848,8 @@ function App() {
                           ? <Onboarding onAddLocal={handleAddLocalProject} onClone={handleCloneRepository} />
                           : showTasksView
                           ? <TasksView onNewWorkspace={handleNewWorkspace} />
+                          : composerShown
+                          ? <PhoneEmptyWorkspace />
                           : !hasTabs &&
                             (isHomePath(activeWorkspacePath)
                               ? (
@@ -917,7 +926,8 @@ function App() {
               initialAgentPrompt={agentPrompt ?? undefined}
               onSubmit={async (projectId, name, branch, baseBranch, useExistingBranch, folderId, prompt) => {
                 // From the Tasks view, stay there: the workspace is made behind it.
-                const background = useAppStore.getState().activeSurface === "tasks";
+                const surface = useAppStore.getState().activeSurface;
+                const background = surface === "tasks" || surface === "composer";
                 const result = await createWorktree(projectId, name, {
                   branch,
                   agentPrompt: prompt,

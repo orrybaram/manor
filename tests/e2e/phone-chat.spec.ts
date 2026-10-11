@@ -373,8 +373,11 @@ test.describe("phone chat slash commands (ADR-217)", () => {
       await expect(chip).toBeVisible({ timeout: 20_000 });
       await expect(chip).toContainText("/clear");
       await expect(chat.getByText("done", { exact: true })).toHaveCount(0);
-      await chip.tap();
-      await expect(chip).toHaveAttribute("aria-expanded", "true");
+      // The chip only becomes a toggle once the stdout line has been folded in.
+      const toggle = chip.getByRole("button");
+      await expect(toggle).toHaveAttribute("aria-expanded", "false", { timeout: 20_000 });
+      await toggle.tap();
+      await expect(toggle).toHaveAttribute("aria-expanded", "true");
       await expect(chat.getByText("done", { exact: true })).toBeVisible();
     } finally {
       await client.close();

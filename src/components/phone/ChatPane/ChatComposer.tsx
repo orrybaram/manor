@@ -67,7 +67,7 @@ export function ChatComposer(props: ChatComposerProps) {
     if (!canSend) return;
     setSending(true);
     setError(null);
-    const sent = text;
+    const sent = text.trimEnd();
     window.electronAPI.chat.send(paneId, sent).then(
       () => {
         update("", 0);

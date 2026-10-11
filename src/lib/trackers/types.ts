@@ -44,6 +44,12 @@ export interface TaskTracker {
    * key nothing else caches a different shape under (ADR-208 §1).
    */
   detailQuery(ref: TaskRef): TrackerQuery<TaskDetail>;
+  /**
+   * Fetch an image embedded in a task body with this tracker's credential,
+   * resolving to a loadable URL; null when `url` isn't on the tracker's own
+   * host and should load straight from its URL.
+   */
+  imageQuery(url: string): TrackerQuery<string> | null;
   /** Open the New Workspace dialog prefilled, or reuse a workspace on the branch. */
   startWork(
     row: TaskRow,

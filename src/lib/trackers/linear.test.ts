@@ -256,3 +256,26 @@ describe("linearTracker.detailQuery", () => {
     });
   });
 });
+
+describe("linearTracker.imageQuery", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("proxies Linear uploads with the token", async () => {
+    const url = "https://uploads.linear.app/a.png";
+    const proxyImage = vi.fn(async () => "data:image/png;base64,AA");
+    vi.stubGlobal("window", { electronAPI: { linear: { proxyImage } } });
+    const query = linearTracker.imageQuery(url);
+    expect(query?.queryKey).toEqual(["task-image", "linear", url]);
+    expect(await query?.queryFn()).toBe("data:image/png;base64,AA");
+    expect(proxyImage).toHaveBeenCalledWith(url);
+  });
+
+  it("loads any other host directly", () => {
+    expect(
+      linearTracker.imageQuery("https://github.com/user-attachments/assets/x"),
+    ).toBeNull();
+    expect(linearTracker.imageQuery("https://i.imgur.com/a.png")).toBeNull();
+  });
+});

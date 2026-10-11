@@ -6,6 +6,7 @@
 
 import type { LinearIssue } from "../../electron.d";
 import { startLinearIssueWork } from "../start-issue-work";
+import { isLinearImageUrl } from "../task-images";
 import type { TaskContext, TaskRow, TaskStatusTone } from "../tasks";
 import { cssHex, sameUrl, unlinkTask } from "./shared";
 import type { TaskTracker } from "./types";
@@ -167,6 +168,15 @@ export const linearTracker: TaskTracker = {
     },
     staleTime: STALE_MS,
   }),
+
+  imageQuery: (url) =>
+    isLinearImageUrl(url)
+      ? {
+          queryKey: ["task-image", "linear", url],
+          queryFn: () => window.electronAPI.linear.proxyImage(url),
+          staleTime: Infinity,
+        }
+      : null,
 
   startWork: (row, body, onNewWorkspace) => {
     startLinearIssueWork({

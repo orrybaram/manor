@@ -1,11 +1,9 @@
-import type { MouseEvent, ReactNode } from "react";
+import type { ReactNode } from "react";
 import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import rehypeRaw from "rehype-raw";
-import rehypeSanitize from "rehype-sanitize";
 import { httpUrl } from "../../../lib/http-url";
 import { Button } from "../Button/Button";
 import { Link } from "../Link/Link";
+import { gfmPipeline } from "./gfm-pipeline";
 import styles from "./GfmMarkdown.module.css";
 
 /** An image in the source, its `src` already resolved against `baseUrl`. */
@@ -20,9 +18,8 @@ type GfmMarkdownProps = {
   source: string;
   /** Where the source lives, so relative links (`../blob/main/SPEC.md`) resolve. */
   baseUrl?: string;
-  /** How to render an image; dropped when absent. */
-  renderImage?: (image: GfmImage) => ReactNode;
-  onLinkClick?: (e: MouseEvent<HTMLAnchorElement>) => void;
+  /** How to render an image. */
+  renderImage: (image: GfmImage) => ReactNode;
 };
 
 /**
@@ -33,15 +30,15 @@ type GfmMarkdownProps = {
  *
  * http(s) links open in the browser, relative ones first resolved against
  * `baseUrl`; `#` links (footnotes) scroll within this block; anything else is
- * plain text, since the window-open handler ignores it.
+ * plain text, since the window-open handler ignores it. Link clicks never
+ * reach an enclosing clickable (a card, a row).
  */
 export function GfmMarkdown(props: GfmMarkdownProps) {
-  const { source, baseUrl, renderImage, onLinkClick } = props;
+  const { source, baseUrl, renderImage } = props;
 
   return (
     <Markdown
-      remarkPlugins={[remarkGfm]}
-      rehypePlugins={[rehypeRaw, rehypeSanitize]}
+      {...gfmPipeline}
       components={{
         a: ({ href, children }) => {
           if (href?.startsWith("#") && href.length > 1) {
@@ -60,7 +57,9 @@ export function GfmMarkdown(props: GfmMarkdownProps) {
           }
           const url = href ? httpUrl(href, baseUrl) : null;
           return url ? (
-            <Link variant="inline" href={url} title={url} onClick={onLinkClick}>
+            <Link variant="inline" href={url} title={url}
+              onClick={(e) => e.stopPropagation()}
+            >
               {children}
             </Link>
           ) : (
@@ -68,7 +67,7 @@ export function GfmMarkdown(props: GfmMarkdownProps) {
           );
         },
         img: ({ src, alt, width, height }) => {
-          if (!renderImage || typeof src !== "string" || !src) return null;
+          if (typeof src !== "string" || !src) return null;
           const url = httpUrl(src, baseUrl);
           if (!url) return null;
           return renderImage({
@@ -87,15 +86,13 @@ export function GfmMarkdown(props: GfmMarkdownProps) {
 
 /**
  * Scroll to the element `hash` names, nearest to `from` first so two bodies
- * on screen with the same footnote ids each jump within themselves. The
- * sanitiser prefixes every id with `user-content-`, footnote ids included,
- * though their hrefs already carry the prefix once.
+ * on screen with the same footnote ids each jump within themselves. `hash`
+ * is an unprefixed href (see `gfmPipeline`); the target carries the
+ * sanitiser's `user-content-` prefix.
  */
 function jumpTo(from: HTMLElement, hash: string) {
   const id = decodeURIComponent(hash.slice(1));
-  const selector = [`user-content-${id}`, id]
-    .map((candidate) => `[id="${CSS.escape(candidate)}"]`)
-    .join(", ");
+  const selector = `[id="${CSS.escape(`user-content-${id}`)}"]`;
   for (let node = from.parentElement; node; node = node.parentElement) {
     const target = node.querySelector(selector);
     if (target) {

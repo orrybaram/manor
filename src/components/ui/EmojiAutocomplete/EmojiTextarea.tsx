@@ -24,11 +24,23 @@ export const EmojiTextarea = React.forwardRef<
     [forwardedRef],
   );
 
+  // While the emoji list is closed, the caller's own combobox ARIA (e.g. the
+  // phone composer's `/` menu) wins over the hook's empty values.
+  const emojiOpen = fieldProps["aria-expanded"] === true;
+  const callerAria = emojiOpen
+    ? {}
+    : {
+        "aria-expanded": rest["aria-expanded"] ?? fieldProps["aria-expanded"],
+        "aria-controls": rest["aria-controls"],
+        "aria-activedescendant": rest["aria-activedescendant"],
+      };
+
   return (
     <>
       <Textarea
         {...rest}
         {...fieldProps}
+        {...callerAria}
         ref={ref}
         onKeyDown={(e) => {
           if (handleKeyDown(e)) return;

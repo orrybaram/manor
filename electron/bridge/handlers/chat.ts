@@ -22,17 +22,36 @@ import type {
 import {
   CHAT_KEYS,
   CHAT_SUBMIT,
-  encodeChatMessage,
   type ChatKey,
+} from "../../chat-mirror/chat-keys";
+import {
+  encodeChatMessage,
   type PickerAnswer,
 } from "../../chat-mirror/picker-keys";
 import { method, type HandlerCtx } from "../method";
 
-const ESC = "\x1b";
-
 /** The pause between a prompt's text and its Enter. Long enough that Claude
  *  Code reads the Enter as its own keypress, not the tail of a paste. */
 const SUBMIT_DELAY_MS = 120;
+
+/**
+ * Per-pane serial queue for PTY writes. A prompt is text, a pause, then
+ * Enter; a second send, key or interrupt landing in that gap would
+ * interleave with it. Each pane's tail promise is dropped once it drains.
+ */
+const writeQueues = new Map<string, Promise<void>>();
+
+function enqueueWrite(paneId: string, job: () => Promise<void> | void): Promise<void> {
+  const prev = writeQueues.get(paneId) ?? Promise.resolve();
+  const run = prev.then(job);
+  // The tail never rejects, so one failed write doesn't poison the queue.
+  const tail = run.catch(() => {});
+  writeQueues.set(paneId, tail);
+  void tail.then(() => {
+    if (writeQueues.get(paneId) === tail) writeQueues.delete(paneId);
+  });
+  return run;
+}
 
 export function chatGetHistory(
   ctx: HandlerCtx,
@@ -55,25 +74,27 @@ export async function chatSend(ctx: HandlerCtx, paneId: string, text: string): P
   assertString(paneId, "paneId");
   assertString(text, "text");
   if (text.trim().length === 0) throw new Error("text: expected a message");
-  ctx.deps.backend.pty.write(paneId, encodeChatMessage(text));
-  await new Promise((resolve) => setTimeout(resolve, SUBMIT_DELAY_MS));
-  ctx.deps.backend.pty.write(paneId, CHAT_SUBMIT);
+  return enqueueWrite(paneId, async () => {
+    ctx.deps.backend.pty.write(paneId, encodeChatMessage(text));
+    await new Promise((resolve) => setTimeout(resolve, SUBMIT_DELAY_MS));
+    ctx.deps.backend.pty.write(paneId, CHAT_SUBMIT);
+  });
 }
 
 /** Esc: what stops Claude mid-turn in its own TUI. */
-export function chatInterrupt(ctx: HandlerCtx, paneId: string): void {
+export function chatInterrupt(ctx: HandlerCtx, paneId: string): Promise<void> {
   assertString(paneId, "paneId");
-  ctx.deps.backend.pty.write(paneId, ESC);
+  return enqueueWrite(paneId, () => ctx.deps.backend.pty.write(paneId, CHAT_KEYS.esc));
 }
 
 /** One navigation key into the pane, for driving a TUI menu from the phone (ADR-218 D3). */
-export function chatKey(ctx: HandlerCtx, paneId: string, key: ChatKey): void {
+export function chatKey(ctx: HandlerCtx, paneId: string, key: ChatKey): Promise<void> {
   assertString(paneId, "paneId");
   assertString(key, "key");
   if (!Object.prototype.hasOwnProperty.call(CHAT_KEYS, key)) {
     throw new Error(`key: expected one of ${Object.keys(CHAT_KEYS).join(", ")}`);
   }
-  ctx.deps.backend.pty.write(paneId, CHAT_KEYS[key]);
+  return enqueueWrite(paneId, () => ctx.deps.backend.pty.write(paneId, CHAT_KEYS[key]));
 }
 
 export function chatAnswer(

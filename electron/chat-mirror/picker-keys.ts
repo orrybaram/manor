@@ -105,27 +105,10 @@ export function encodePlanApproval(): string {
  * early, and Esc would interrupt, so line endings become LF and other control
  * bytes (bar Tab) are dropped.
  *
- * Submit with a separate `CHAT_SUBMIT` write: in the same write as the text,
+ * Submit with a separate `CHAT_SUBMIT` write (`chat-keys.ts`): in the same write as the text,
  * Claude Code sometimes reads the whole burst as a paste and the CR becomes a
  * new line instead of submitting.
  */
 export function encodeChatMessage(text: string): string {
   return text.replace(/\r\n?/g, "\n").replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
 }
-
-/** The keystroke that submits Claude's prompt. */
-export const CHAT_SUBMIT = ENTER;
-
-/** The navigation keys the phone can press in a TUI menu (ADR-218 D3), as bytes. */
-export const CHAT_KEYS = {
-  up: "\x1b[A",
-  down: DOWN,
-  left: "\x1b[D",
-  right: "\x1b[C",
-  enter: ENTER,
-  esc: "\x1b",
-  tab: TAB,
-  space: " ",
-} as const;
-
-export type ChatKey = keyof typeof CHAT_KEYS;

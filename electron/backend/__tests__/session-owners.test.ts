@@ -32,4 +32,15 @@ describe("SessionOwners", () => {
     expect(owners.ownerOf("pane-c")).toBeUndefined();
     expect(isRemoteSessionLoss("local", { type: "exit", sessionId: "p", exitCode: -1, lost: true })).toBe(false);
   });
+
+  it("counts only a remote session still claimed as a recoverable loss", () => {
+    const owners = new SessionOwners();
+    owners.accept("box", { type: "exit", sessionId: "pane-a", exitCode: -1, lost: true });
+    owners.accept("box", { type: "exit", sessionId: "pane-b", exitCode: 0 });
+    owners.claim("pane-c", "local");
+    expect(owners.isRecoverableLoss("pane-a")).toBe(true);
+    expect(owners.isRecoverableLoss("pane-b")).toBe(false);
+    expect(owners.isRecoverableLoss("pane-c")).toBe(false);
+    expect(owners.isRecoverableLoss("pane-never")).toBe(false);
+  });
 });

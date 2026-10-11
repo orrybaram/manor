@@ -866,6 +866,20 @@ describe("TerminalHostClient", () => {
       client.disconnect();
     });
 
+    it("attachExisting rejects when a live session's snapshot fails, as createOrAttach does", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+      await client.createOrAttach("pane-1", "/tmp", 80, 24);
+      daemon.seen.length = 0;
+      daemon.failNextSnapshot = true;
+
+      // Not "gone": the session is alive, and a viewer told otherwise would
+      // close its pane.
+      await expect(client.attachExisting("pane-1")).rejects.toThrow(/socket exploded/);
+      expect(daemon.seen).not.toContain("control:create");
+      client.disconnect();
+    });
+
     it("concurrent createOrAttach calls don't corrupt FIFO queue", async () => {
       const client = createTestClient(daemon);
       await client.connect();

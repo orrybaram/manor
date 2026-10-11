@@ -165,50 +165,53 @@ export function wouldOwn(paneId: string, viewer: Viewer): boolean {
 }
 
 /**
+ * Run `fn`, which changes who holds or claims this pane, and tell the sinks
+ * if that gave it a different owner.
+ */
+function changingOwner(paneId: string, fn: () => void): void {
+  const before = ownerFingerprint(ownerOf(paneId));
+  fn();
+  const after = ownerFingerprint(ownerOf(paneId));
+  if (before !== after) notifyChanged([paneId]);
+}
+
+/**
  * A viewer has this pane mounted.
  *
  * A viewer already holding the pane stays where it is in the order rather
  * than moving to the end: a renderer that re-creates a pane it never let go
  * of (a remount, a StrictMode double-mount) is not a new viewer arriving, and
  * taking the winsize back off whoever holds it would make a remount a resize.
- */
-export function attach(paneId: string, viewer: Viewer): void {
-  const before = ownerFingerprint(ownerOf(paneId));
-  const viewers = holders.get(paneId);
-  if (viewers) {
-    if (!viewers.some((existing) => sameViewer(existing, viewer))) {
-      viewers.push(viewer);
-      // A new arrival is decided by the default rules, as `wouldOwn` told it.
-      claims.delete(paneId);
-    }
-  } else {
-    holders.set(paneId, [viewer]);
-  }
-  const after = ownerFingerprint(ownerOf(paneId));
-  if (before !== after) notifyChanged([paneId]);
-}
-
-/**
- * A viewer that had this pane mounted is back — its connection dropped and
- * it re-attached (ADR-220) — and makes no bid for the winsize.
  *
- * It goes in as the *oldest* viewer rather than the newest, and a standing
- * claim stays standing: whoever attached while it was away keeps the grid
- * they have been fitting to, rather than having it reflowed under them by a
- * viewer that merely came back. Rule 1 still holds, so a desk window coming
- * back outranks a device, as it would have before it left. A viewer alone
- * on the pane owns it, as any viewer alone does.
+ * `as: "returning"` is a viewer that had this pane mounted coming back — its
+ * connection dropped and it re-attached (`pty.attach`, ADR-220) — and making
+ * no bid for the winsize. It goes in as the *oldest* viewer rather than the
+ * newest, and a standing claim stays standing: whoever attached while it was
+ * away keeps the grid they have been fitting to, rather than having it
+ * reflowed under them by a viewer that merely came back. Rule 1 still holds,
+ * so a desk window coming back outranks a device, as it would have before it
+ * left. A viewer alone on the pane owns it, as any viewer alone does.
  */
-export function rejoin(paneId: string, viewer: Viewer): void {
-  const before = ownerFingerprint(ownerOf(paneId));
-  const viewers = holders.get(paneId);
-  if (!viewers) {
-    holders.set(paneId, [viewer]);
-  } else if (!viewers.some((existing) => sameViewer(existing, viewer))) {
-    viewers.unshift(viewer);
-  }
-  const after = ownerFingerprint(ownerOf(paneId));
-  if (before !== after) notifyChanged([paneId]);
+export function attach(
+  paneId: string,
+  viewer: Viewer,
+  { as = "newest" }: { as?: "newest" | "returning" } = {},
+): void {
+  changingOwner(paneId, () => {
+    const viewers = holders.get(paneId);
+    if (!viewers) {
+      holders.set(paneId, [viewer]);
+      return;
+    }
+    if (viewers.some((existing) => sameViewer(existing, viewer))) return;
+    if (as === "returning") {
+      viewers.unshift(viewer);
+      return;
+    }
+    viewers.push(viewer);
+    // A new arrival is decided by the default rules, as `wouldOwn` told it.
+    claims.delete(paneId);
+  });
 }
 
 /**
@@ -216,16 +219,15 @@ export function rejoin(paneId: string, viewer: Viewer): void {
  * a caller that vanished is `releaseViewer`.
  */
 export function release(paneId: string, viewer: Viewer): void {
-  const before = ownerFingerprint(ownerOf(paneId));
-  const viewers = holders.get(paneId);
-  if (!viewers) return;
-  const idx = viewers.findIndex((existing) => sameViewer(existing, viewer));
-  if (idx === -1) return;
-  viewers.splice(idx, 1);
-  if (viewers.length === 0) holders.delete(paneId);
-  if (claims.get(paneId) === viewer.connectionId) claims.delete(paneId);
-  const after = ownerFingerprint(ownerOf(paneId));
-  if (before !== after) notifyChanged([paneId]);
+  changingOwner(paneId, () => {
+    const viewers = holders.get(paneId);
+    if (!viewers) return;
+    const idx = viewers.findIndex((existing) => sameViewer(existing, viewer));
+    if (idx === -1) return;
+    viewers.splice(idx, 1);
+    if (viewers.length === 0) holders.delete(paneId);
+    if (claims.get(paneId) === viewer.connectionId) claims.delete(paneId);
+  });
 }
 
 /**
@@ -235,10 +237,9 @@ export function release(paneId: string, viewer: Viewer): void {
 export function claim(paneId: string, viewer: Viewer): boolean {
   const viewers = holders.get(paneId);
   if (!viewers?.some((v) => sameViewer(v, viewer))) return false;
-  const before = ownerFingerprint(ownerOf(paneId));
-  claims.set(paneId, viewer.connectionId);
-  const after = ownerFingerprint(ownerOf(paneId));
-  if (before !== after) notifyChanged([paneId]);
+  changingOwner(paneId, () => {
+    claims.set(paneId, viewer.connectionId);
+  });
   return true;
 }
 
@@ -251,10 +252,9 @@ export function reclaimOnInput(paneId: string, viewer: Viewer): void {
   if (viewer.callerClass !== "local") return;
   const claimant = claims.get(paneId);
   if (!claimant || claimant === viewer.connectionId) return;
-  const before = ownerFingerprint(ownerOf(paneId));
-  claims.delete(paneId);
-  const after = ownerFingerprint(ownerOf(paneId));
-  if (before !== after) notifyChanged([paneId]);
+  changingOwner(paneId, () => {
+    claims.delete(paneId);
+  });
 }
 
 /**

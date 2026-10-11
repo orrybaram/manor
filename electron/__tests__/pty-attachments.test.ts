@@ -364,4 +364,45 @@ describe("pty attachments", () => {
       expect(ownerOf("pane-a")).toEqual(deviceB);
     });
   });
+
+  /** A viewer coming back after its connection dropped (ADR-220). */
+  describe("attaching as a returning viewer", () => {
+    const returning = { as: "returning" } as const;
+
+    it("does not take the winsize off a viewer that attached meanwhile", () => {
+      attach("pane-a", deviceA);
+      attach("pane-a", deviceB);
+      releaseViewer(deviceA.connectionId);
+      expect(changedBy(() => attach("pane-a", deviceA, returning))).toEqual([]);
+      expect(ownerOf("pane-a")).toEqual(deviceB);
+    });
+
+    it("leaves a standing claim standing", () => {
+      attach("pane-a", deviceA);
+      attach("pane-a", deviceB);
+      claim("pane-a", deviceA);
+      attach("pane-a", windowA, returning);
+      expect(ownerOf("pane-a")).toEqual(deviceA);
+    });
+
+    it("still lets a window outrank a device", () => {
+      attach("pane-a", deviceA);
+      attach("pane-a", windowA, returning);
+      expect(ownerOf("pane-a")).toEqual(windowA);
+    });
+
+    it("owns a pane nobody else has", () => {
+      expect(changedBy(() => attach("pane-a", deviceA, returning))).toEqual(["pane-a"]);
+      expect(ownerOf("pane-a")).toEqual(deviceA);
+    });
+
+    it("leaves a viewer that never let go where it was", () => {
+      attach("pane-a", deviceA);
+      attach("pane-a", deviceB);
+      attach("pane-a", deviceA, returning);
+      expect(ownerOf("pane-a")).toEqual(deviceB);
+      release("pane-a", deviceB);
+      expect(ownerOf("pane-a")).toEqual(deviceA);
+    });
+  });
 });

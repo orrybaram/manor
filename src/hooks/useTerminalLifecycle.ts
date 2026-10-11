@@ -26,12 +26,11 @@ import { installKittyKeyboard } from "../lib/kitty-keyboard";
 import { paneCreateHostId, useTerminalConnection } from "./useTerminalConnection";
 import { useRemotePaneStore } from "../store/remote-pane-store";
 import { isRemotePane, pasteClipboardImage } from "../lib/remote-image-paste";
-import type { PtyWinsize } from "../electron.d";
+import type { PtyAttachResult, PtyCreateResult, PtyWinsize } from "../electron.d";
 import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
 import { useOwnerFit, useFollowerFit } from "./useTerminalResize";
 import { useMountEffect } from "./useMountEffect";
-import { onBridgeResync } from "../bridge/resync";
 import {
   registerTerminal,
   unregisterTerminal,
@@ -122,13 +121,13 @@ export function useTerminalLifecycle(
 
   const resettingRef = useRef(false);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { write, resize, create, detach } =
+  const { write, resize, create, attach, detach } =
     useTerminalConnection(paneId, workspaceKey);
   const { attachHandler } = useTerminalHotkeys(onOpenSearch);
 
   // Subscribe to stream events.
   // Output stays queued until openRestored() — see the create() call below.
-  const { openRestored, closeOutput, handleExit } = useTerminalStream(
+  const { openRestored, closeOutput, sessionEnded } = useTerminalStream(
     paneId,
     term,
     setPtyError,
@@ -199,9 +198,13 @@ export function useTerminalLifecycle(
     // The terminal is created once its fonts and render add-ons are in hand
     // (see `terminal/addons`); a pane unmounted before then never makes one.
     const openTerminal = (addons: RenderAddons): (() => void) => {
-      // Remounted because its remote host came back (ADR-178 §6), not opened
-      // by the user: it must not take focus from wherever the user is now.
+      // Remounted because its remote host came back (ADR-178 §6) or its
+      // bridge did (ADR-220), not opened by the user: it must not take focus
+      // from wherever the user is now.
       const reattached = useRemotePaneStore.getState().consumeReattach(paneId);
+      // A resync's remount: the session is running and this pane was set up
+      // when it first attached, so this mount only attaches again.
+      const resyncing = reattached === "resync";
 
       // The theme as of now, not as of mount: it may have changed while the
       // pane waited, and the render-time sync above had no terminal to apply
@@ -415,23 +418,31 @@ export function useTerminalLifecycle(
       // casing here — pass it through like any workspace path.
       const spawnCwd = cwd ?? null;
 
-      // A create is in flight — the first one, or a resync's (below). A
-      // resync that lands meanwhile waits for it and then runs once.
-      let attaching = true;
-      let resyncPending = false;
-      const settleAttach = () => {
-        attaching = false;
-        if (resyncPending && !disposed) {
-          resyncPending = false;
-          resync();
-        }
-      };
-
-      create(spawnCwd, cols, rows, agentKindForCreate).then(
+      // The one way in. A resync only attaches (`pty.attach`, ADR-220): the
+      // session's `exit` may have been lost with the socket, and a create
+      // would answer that with a fresh shell; and coming back must not take
+      // the winsize off whoever attached meanwhile. Anything else creates,
+      // which attaches a running session too.
+      const opened: Promise<PtyCreateResult | PtyAttachResult> = resyncing
+        ? attach()
+        : create(spawnCwd, cols, rows, agentKindForCreate);
+      opened.then(
         (result) => {
           if (disposed) return;
           applyWinsize(result);
           if (!result.ok) {
+            // Its shell exited while the socket was down: what the missed
+            // `exit` would have done.
+            if (result.reason === "exited") {
+              sessionEnded(t);
+              return;
+            }
+            // A remote session a daemon restart took is recreated on its
+            // host, as the desk's recovery does (ADR-178 §6).
+            if (result.reason === "lost") {
+              useRemotePaneStore.getState().reattach([paneId], "host-recovered");
+              return;
+            }
             // "host-unavailable" is not a failure: the pane's remote host is
             // away, its banner says so, and the pane is created once the host
             // is back (useRemoteRecovery) — not the "terminal failed to start"
@@ -450,6 +461,11 @@ export function useTerminalLifecycle(
               ? { ansi: result.snapshot, seq: result.snapshotSeq }
               : null,
           );
+
+          // The pane context is set and any agent resumed already, by the
+          // mount that first attached. Resuming from here would type the
+          // agent's command into the agent itself.
+          if (resyncing) return;
 
           // Set pane context for agent association
           if (cwd) {
@@ -506,74 +522,7 @@ export function useTerminalLifecycle(
             );
           }
         },
-      ).finally(settleAttach);
-
-      // The bridge came back from a drop, or the user asked for a refresh
-      // (ADR-220 D3): whatever was printed while the socket was down never
-      // arrived, so attach again in place, against the xterm already on
-      // screen: queue output again, ask for a fresh snapshot, then reset the
-      // buffer and write the snapshot plus the chunks it does not cover. Only
-      // an attach, so none of the first attach's one-time work (pane context,
-      // agent resume) runs again.
-      function resync(): void {
-        if (disposed) return;
-        if (attaching) {
-          resyncPending = true;
-          return;
-        }
-        attaching = true;
-        closeOutput();
-        reattach(true).finally(settleAttach);
-      }
-
-      // `attachOnly` (ADR-220 ticket 7): the session's `exit` may have been
-      // lost with the socket, and a plain create would answer it with a fresh
-      // shell. It also asks for no size, so coming back does not take the
-      // winsize off whoever attached meanwhile.
-      function reattach(attachOnly: boolean): Promise<void> {
-        return create(spawnCwd, t.cols, t.rows, agentKindForCreate, {
-          attachOnly,
-        }).then(
-          (result) => {
-            if (disposed) return;
-            if (!result.ok && result.reason === "gone") {
-              // A remote session a daemon restart took is recreated on its
-              // host, as the desk's recovery does (ADR-178 §6).
-              if (result.lost) return reattach(false);
-              // Its shell exited while the socket was down: what the exit
-              // event would have done. A pane being reset stays open, so let
-              // its output through.
-              openRestored(t);
-              handleExit();
-              return;
-            }
-            applyWinsize(result);
-            if (!result.ok) {
-              if (result.reason === "error") {
-                setPtyError(result.error || "Failed to create terminal session");
-              }
-              // Let output flow again onto the screen as it was.
-              openRestored(t);
-              return;
-            }
-            // A first attach lost to the drop may have left its error up.
-            setPtyError(null);
-            openRestored(
-              t,
-              result.snapshot
-                ? { ansi: result.snapshot, seq: result.snapshotSeq }
-                : null,
-              { replace: true },
-            );
-          },
-          () => {
-            // Most likely the socket dropped again, and its next hello
-            // resyncs once more. Meanwhile, keep output flowing.
-            if (!disposed) openRestored(t);
-          },
-        );
-      }
-      const resyncUnsub = onBridgeResync(resync);
+      );
 
       // Terminal title changes (OSC sequences) → local side map only. The
       // server hears the same title from the daemon and records it itself.
@@ -591,7 +540,6 @@ export function useTerminalLifecycle(
       return () => {
         disposed = true;
         container.removeEventListener("paste", onDomPaste, true);
-        resyncUnsub();
         // Queue output again for whoever attaches next: the ordering guarantee
         // belongs to each attach, not to the first one of this component's life.
         closeOutput();
@@ -605,13 +553,20 @@ export function useTerminalLifecycle(
         setFitAddon(null);
         termRef.current = null;
         unregisterTerminal(paneId);
-        // Detach, always: the session stays alive in the daemon and this pane
+        // Detach, never kill: the session stays alive in the daemon and this pane
         // may be about to mount again somewhere else. Ending a session is the
         // Manor server's job — it kills the panes a `close-pane` orphaned
         // (ADR-179 D2 `effects.killPanes`) — so a pane that unmounts *because*
         // it was closed has already lost its session by the time we get here,
         // and detaching from a session that is gone is quiet by design.
-        detach();
+        //
+        // Not when the pane is unmounting for a resync's remount (ADR-220),
+        // whose next mount attaches again straight away: letting go in
+        // between would hand the winsize to another viewer, and drop a claim,
+        // that this viewer never meant to give up.
+        if (useRemotePaneStore.getState().panes[paneId]?.reattachReason !== "resync") {
+          detach();
+        }
         t.dispose();
       };
     };

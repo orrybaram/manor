@@ -472,17 +472,11 @@ export class TerminalHostClient {
     // sessions, and `attach` would add the *control* socket to the session's
     // broadcast list and corrupt the control protocol.
     await this.rpc.call({ type: "resize", sessionId, cols, rows });
-    this.subscriptions.want(sessionId);
-
-    // Only a definite `notFound` means spawn a fresh shell. Treating any
-    // failure that way would hand a live session to a terminal that thinks
-    // it is new — which drops the snapshot, and with it the dedupe that keeps
-    // a reattach from repeating output. So an `error` reply throws here.
-    const snapshot = await this.rpc.call({ type: "getSnapshot", sessionId });
-    if (snapshot.type === "snapshot") {
+    const snapshot = await this.subscribeAndSnapshot(sessionId);
+    if (snapshot) {
       return {
         session: { sessionId, cwd, cols, rows, alive: true },
-        snapshot: snapshot.snapshot,
+        snapshot,
       };
     }
 
@@ -492,6 +486,25 @@ export class TerminalHostClient {
     // Subscribe for stream events immediately (no control socket attach needed)
     this.subscriptions.want(sessionId);
     return { session, snapshot: null };
+  }
+
+  /**
+   * Steps 2 and 3 of a warm restore (see `doCreateOrAttach`): subscribe to
+   * the session's stream, then snapshot it. Null when the daemon does not
+   * have the session — the subscription is left wanted for the caller to
+   * create it or forget it.
+   *
+   * Only a definite `notFound` answers null. Treating any failure that way
+   * would hand a live session to a terminal that thinks it is new — which
+   * drops the snapshot, and with it the dedupe that keeps a reattach from
+   * repeating output. So an `error` reply throws here.
+   */
+  private async subscribeAndSnapshot(
+    sessionId: string,
+  ): Promise<TerminalSnapshot | null> {
+    this.subscriptions.want(sessionId);
+    const reply = await this.rpc.call({ type: "getSnapshot", sessionId });
+    return reply.type === "snapshot" ? reply.snapshot : null;
   }
 
   /**
@@ -506,18 +519,16 @@ export class TerminalHostClient {
    *
    * Liveness comes from `listSessions` — `getSnapshot` answers for a dead
    * session too — and the rest is `doCreateOrAttach`'s order, minus its
-   * resize: subscribe, then snapshot.
+   * resize: `subscribeAndSnapshot`.
    */
   async attachExisting(sessionId: string): Promise<TerminalSnapshot | null> {
     await this.ensureConnected();
     const { sessions } = await this.rpc.call({ type: "listSessions" });
     if (!sessions.some((s) => s.sessionId === sessionId && s.alive)) return null;
-    this.subscriptions.want(sessionId);
-    const snapshot = await this.rpc.call({ type: "getSnapshot", sessionId });
-    if (snapshot.type === "snapshot") return snapshot.snapshot;
+    const snapshot = await this.subscribeAndSnapshot(sessionId);
     // Gone between the two calls.
-    this.subscriptions.forget(sessionId);
-    return null;
+    if (!snapshot) this.subscriptions.forget(sessionId);
+    return snapshot;
   }
 
   /** Create a session without subscribing to its stream (boots silently) */

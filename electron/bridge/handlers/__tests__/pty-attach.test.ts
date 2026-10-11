@@ -1,14 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ptyCreate } from "../pty";
+import { ptyAttach } from "../pty";
 import { attach, ownerOf, releaseViewer, resetAttachments } from "../../../pty-attachments";
 import { HostUnavailableError } from "../../../backend/host-view";
 import type { HandlerCtx } from "../../method";
 
 /**
- * `pty.create` with `attachOnly` (ADR-220 ticket 7): what a viewer resyncing
- * after a dropped connection sends. It must never spawn a shell — the session
- * may have exited while the viewer was away — and never take the winsize off
- * whoever attached meanwhile.
+ * `pty.attach` (ADR-220): what a viewer resyncing after a dropped connection
+ * sends. It must never spawn a shell — the session may have exited while the
+ * viewer was away — and never take the winsize off whoever attached meanwhile.
  */
 
 const SNAPSHOT = {
@@ -24,6 +23,7 @@ const SNAPSHOT = {
 function setup({
   snapshot = SNAPSHOT as typeof SNAPSHOT | null,
   owner = undefined as string | undefined,
+  recoverable = false,
 } = {}) {
   const pty = {
     attachExisting: vi.fn(async () => snapshot),
@@ -33,21 +33,24 @@ function setup({
   };
   const deps = {
     backend: { pty },
-    backendRegistry: { sessions: { ownerOf: vi.fn(() => owner) } },
+    backendRegistry: {
+      sessions: {
+        ownerOf: vi.fn(() => owner),
+        isRecoverableLoss: vi.fn(() => recoverable),
+      },
+    },
   };
   const ctx = (id: string, callerClass: "local" | "device" = "device") =>
     ({ deps, caller: { id, callerClass } }) as unknown as HandlerCtx;
   return { pty, ctx };
 }
 
-describe("pty.create with attachOnly (ADR-220)", () => {
+describe("pty.attach (ADR-220)", () => {
   beforeEach(() => resetAttachments());
 
   it("answers a live session with its snapshot, and spawns nothing", async () => {
     const { pty, ctx } = setup();
-    const result = await ptyCreate(ctx("phone"), "pane-a", "/tmp", 80, 24, {
-      attachOnly: true,
-    });
+    const result = await ptyAttach(ctx("phone"), "pane-a");
     expect(result).toMatchObject({
       ok: true,
       snapshot: "$ ls\r\n",
@@ -59,29 +62,23 @@ describe("pty.create with attachOnly (ADR-220)", () => {
     expect(pty.resize).not.toHaveBeenCalled();
   });
 
-  it("answers a dead session with gone, spawns nothing and attaches no one", async () => {
+  it("answers a session that ended with exited, spawns nothing and attaches no one", async () => {
     const { pty, ctx } = setup({ snapshot: null });
-    const result = await ptyCreate(ctx("phone"), "pane-a", "/tmp", 80, 24, {
-      attachOnly: true,
-    });
-    expect(result).toEqual({ ok: false, reason: "gone" });
+    const result = await ptyAttach(ctx("phone"), "pane-a");
+    expect(result).toEqual({ ok: false, reason: "exited" });
     expect(pty.createOrAttachWith).not.toHaveBeenCalled();
     expect(ownerOf("pane-a")).toBeNull();
   });
 
-  it("marks a remote session a daemon restart took as lost (ADR-178 §6)", async () => {
-    const { ctx } = setup({ snapshot: null, owner: "box" });
-    const result = await ptyCreate(ctx("phone"), "pane-a", "/x", 80, 24, {
-      attachOnly: true,
-    });
-    expect(result).toEqual({ ok: false, reason: "gone", lost: true });
+  it("answers a remote session a daemon restart took with lost (ADR-178 §6)", async () => {
+    const { ctx } = setup({ snapshot: null, owner: "box", recoverable: true });
+    const result = await ptyAttach(ctx("phone"), "pane-a");
+    expect(result).toEqual({ ok: false, reason: "lost" });
   });
 
   it("reports the host the session runs on", async () => {
     const { ctx } = setup({ owner: "box" });
-    const result = await ptyCreate(ctx("phone"), "pane-a", "/x", 80, 24, {
-      attachOnly: true,
-    });
+    const result = await ptyAttach(ctx("phone"), "pane-a");
     expect(result).toMatchObject({ ok: true, hostId: "box" });
   });
 
@@ -93,20 +90,16 @@ describe("pty.create with attachOnly (ADR-220)", () => {
     attach("pane-a", { connectionId: "phone-b", callerClass: "device" });
     releaseViewer("phone-a");
 
-    const result = await ptyCreate(ctx("phone-a"), "pane-a", "/tmp", 80, 24, {
-      attachOnly: true,
-    });
+    const result = await ptyAttach(ctx("phone-a"), "pane-a");
 
     expect(ownerOf("pane-a")?.connectionId).toBe("phone-b");
-    // A follows, at the session's grid — not the 80×24 it measured.
+    // A follows, at the session's grid.
     expect(result).toMatchObject({ ok: true, winsizeOwner: false, cols: 120, rows: 40 });
   });
 
   it("owns the winsize when it is the only viewer", async () => {
     const { ctx } = setup();
-    const result = await ptyCreate(ctx("phone"), "pane-a", "/tmp", 80, 24, {
-      attachOnly: true,
-    });
+    const result = await ptyAttach(ctx("phone"), "pane-a");
     expect(ownerOf("pane-a")?.connectionId).toBe("phone");
     expect(result).toMatchObject({ ok: true, winsizeOwner: true });
   });
@@ -115,21 +108,25 @@ describe("pty.create with attachOnly (ADR-220)", () => {
     const { ctx } = setup();
     // A refresh without a drop: the phone still holds the pane, and owns it.
     attach("pane-a", { connectionId: "phone", callerClass: "device" });
-    const result = await ptyCreate(ctx("phone"), "pane-a", "/tmp", 80, 24, {
-      attachOnly: true,
-    });
+    const result = await ptyAttach(ctx("phone"), "pane-a");
     expect(ownerOf("pane-a")?.connectionId).toBe("phone");
     expect(result).toMatchObject({ ok: true, winsizeOwner: true });
   });
 
-  it("reports a host that is away, as a plain create does", async () => {
+  it("reports a host that is away, as pty.create does", async () => {
     const { pty, ctx } = setup();
     pty.attachExisting.mockRejectedValueOnce(
       new HostUnavailableError("box", "reconnecting"),
     );
-    const result = await ptyCreate(ctx("phone"), "pane-a", "/x", 80, 24, {
-      attachOnly: true,
-    });
+    const result = await ptyAttach(ctx("phone"), "pane-a");
     expect(result).toMatchObject({ ok: false, reason: "host-unavailable", hostId: "box" });
+  });
+
+  it("reports any other failure as an error", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { pty, ctx } = setup();
+    pty.attachExisting.mockRejectedValueOnce(new Error("daemon said no"));
+    const result = await ptyAttach(ctx("phone"), "pane-a");
+    expect(result).toEqual({ ok: false, reason: "error", error: "daemon said no" });
   });
 });

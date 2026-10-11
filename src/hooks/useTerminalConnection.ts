@@ -8,7 +8,7 @@ import { isRemoteHost, type HostId } from "../lib/hosts";
 import { parseWorkspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import { useHostStore } from "../store/host-store";
 import { isHostOffline } from "../lib/host-status";
-import type { PtyCreateResult } from "../electron.d";
+import type { PtyAttachResult, PtyCreateResult } from "../electron.d";
 
 /**
  * The host a pane's new session runs on, for create and reset alike. A pane
@@ -29,6 +29,21 @@ export function paneCreateHostId(
     paneRemoteHost(remotePanes, paneId) ??
     (workspaceKey ? parseWorkspaceKey(workspaceKey).hostId : undefined)
   );
+}
+
+/**
+ * Note where a create or attach found the pane's session: badge the tab from
+ * where it really runs (ADR-160), or wait for its remote host while it is
+ * away (ADR-178 §6) — not an error.
+ */
+function recordPaneHost<R extends PtyCreateResult | PtyAttachResult>(
+  paneId: string,
+  result: R,
+): R {
+  const panes = useRemotePaneStore.getState();
+  if (result.ok) panes.setPaneHost(paneId, result.hostId);
+  else if (result.reason === "host-unavailable") panes.awaitHost(paneId, result.hostId);
+  return result;
 }
 
 /**
@@ -73,18 +88,9 @@ export function useTerminalConnection(paneId: string, workspaceKey?: WorkspaceKe
    * and is outranked only by a window that attached after it (ADR-180 D6), so
    * the common case — one viewer, or the one that just opened the pane — is
    * the owner asking, and nothing is refused.
-   *
-   * `attachOnly` is a resync's re-attach (ADR-220): no spawn, no size asked
-   * for, and `reason: "gone"` when the session ended meanwhile.
    */
   const create = useCallback(
-    (
-      cwd: string | null,
-      cols: number,
-      rows: number,
-      agentKind?: string | null,
-      { attachOnly = false }: { attachOnly?: boolean } = {},
-    ) => {
+    (cwd: string | null, cols: number, rows: number, agentKind?: string | null) => {
       const paneId = paneIdRef.current;
       // Name the host outright: a path alone can't tell a local and a remote
       // workspace with the same path apart (main's guess picks local).
@@ -97,28 +103,28 @@ export function useTerminalConnection(paneId: string, workspaceKey?: WorkspaceKe
         panes.setPaneHost(paneId, hostId);
       }
       return window.electronAPI.pty
-        .create(paneId, cwd, cols, rows, {
-          agentKind,
-          hostId,
-          ...(attachOnly ? { attachOnly } : {}),
-        })
-        .then((result: PtyCreateResult) => {
-          // Badge the tab from where the session really runs (ADR-160).
-          if (result.ok) useRemotePaneStore.getState().setPaneHost(paneId, result.hostId);
-          // Its remote host is away (ADR-178 §6): wait for it, not an error.
-          else if (result.reason === "host-unavailable") {
-            useRemotePaneStore.getState().awaitHost(paneId, result.hostId);
-          }
-          return result;
-        });
+        .create(paneId, cwd, cols, rows, { agentKind, hostId })
+        .then((result: PtyCreateResult) => recordPaneHost(paneId, result));
     },
     [],
   );
+
+  /**
+   * Attach to the pane's running session, and nothing more (ADR-220): a
+   * resync's way back in. No shell is spawned and no size asked for, and the
+   * answer says `exited` or `lost` when the session ended meanwhile.
+   */
+  const attach = useCallback(() => {
+    const paneId = paneIdRef.current;
+    return window.electronAPI.pty
+      .attach(paneId)
+      .then((result: PtyAttachResult) => recordPaneHost(paneId, result));
+  }, []);
 
   /** Detach from the PTY session without killing it (effect cleanup / app quit) */
   const detach = useCallback(() => {
     window.electronAPI.pty.detach(paneIdRef.current);
   }, []);
 
-  return { write, resize, create, detach };
+  return { write, resize, create, attach, detach };
 }

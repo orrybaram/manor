@@ -63,20 +63,11 @@ export function useTerminalStream(
    * Takes the terminal explicitly so the caller doesn't have to assume React
    * has re-rendered with it by the time the create/attach round trip lands. A
    * cold session passes no snapshot, which writes the queue as-is.
-   *
-   * `replace` is for a re-attach into a terminal that already shows the
-   * session (a bridge resync, ADR-220 D3): the buffer is reset first, so the
-   * snapshot replaces the old screen rather than repeating it below.
    */
   const openRestored = useCallback(
-    (
-      target: Terminal,
-      snapshot?: TerminalRestore | null,
-      { replace = false }: { replace?: boolean } = {},
-    ) => {
+    (target: Terminal, snapshot?: TerminalRestore | null) => {
       const items = queuedRef.current ?? [];
       queuedRef.current = null;
-      if (replace) target.reset();
       if (snapshot?.ansi) target.write(snapshot.ansi);
       // The snapshot was serialized at the session's current size, so anything
       // it covers is already at that size; only the chunks after it, and the
@@ -95,24 +86,26 @@ export function useTerminalStream(
     [],
   );
 
-  /**
-   * Queue output again, so a re-attach gets the same ordering guarantee — on
-   * a remount, and on a resync that re-attaches in place.
-   */
+  /** Queue output again, so the next mount's attach gets the same ordering guarantee. */
   const closeOutput = useCallback(() => {
     queuedRef.current = [];
   }, []);
 
   /**
-   * The pane's session ended: close the pane — unless it is being reset, whose
-   * old session's exit is expected. Also what a resync does when it finds the
-   * session gone, having missed this exit while its connection was down
-   * (ADR-220).
+   * The pane's session ended: let whatever output it queued through, and
+   * close the pane — unless it is being reset, whose old session's exit is
+   * expected and whose terminal stays. Also what a resync's attach does when
+   * it finds the session gone, having missed this exit while its connection
+   * was down (ADR-220).
    */
-  const handleExit = useCallback(() => {
-    if (resettingRef?.current) return;
-    useAppStore.getState().closePaneById(paneId);
-  }, [paneId, resettingRef]);
+  const sessionEnded = useCallback(
+    (target: Terminal | null = termRef.current) => {
+      if (target) openRestored(target);
+      if (resettingRef?.current) return;
+      useAppStore.getState().closePaneById(paneId);
+    },
+    [paneId, resettingRef, openRestored],
+  );
 
   useMountEffect(() => {
     const unsubOutput = window.electronAPI.pty.onOutput(
@@ -139,7 +132,7 @@ export function useTerminalStream(
       },
     );
 
-    const unsubExit = window.electronAPI.pty.onExit(paneId, handleExit);
+    const unsubExit = window.electronAPI.pty.onExit(paneId, () => sessionEnded());
 
     const unsubCwd = window.electronAPI.pty.onCwd(paneId, (cwdPath: string) => {
       useAppStore.getState().setPaneCwd(paneId, cwdPath);
@@ -161,5 +154,5 @@ export function useTerminalStream(
     };
   });
 
-  return { openRestored, closeOutput, handleExit };
+  return { openRestored, closeOutput, sessionEnded };
 }

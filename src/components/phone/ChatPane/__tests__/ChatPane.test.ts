@@ -98,8 +98,12 @@ function optionNamed(label: string, card: Element = container): HTMLElement | un
 }
 
 /** React tracks input values itself; set it the way a keystroke does. */
-async function typeInto(input: HTMLInputElement, value: string): Promise<void> {
-  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+async function typeInto(
+  input: HTMLInputElement | HTMLTextAreaElement,
+  value: string,
+): Promise<void> {
+  const proto = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement : HTMLInputElement;
+  const setter = Object.getOwnPropertyDescriptor(proto.prototype, "value")?.set;
   await act(async () => {
     setter?.call(input, value);
     input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -188,6 +192,19 @@ describe("ChatPane — entries", () => {
     installChat({ ok: true, entries: [] });
     useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "working", reason: "", kind: "claude" } } });
     await renderChat();
+    expect(all("chat-send")).toHaveLength(0);
+    await click(all("chat-stop")[0]);
+    expect(chat.interrupt).toHaveBeenCalledWith(PANE);
+  });
+
+  it("typing mid-turn turns Stop back into Send, with Stop beside it", async () => {
+    installChat({ ok: true, entries: [] });
+    useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "working", reason: "", kind: "claude" } } });
+    await renderChat();
+    await typeInto(all("chat-composer-input")[0] as HTMLTextAreaElement, "and then this");
+    expect(all("chat-send")).toHaveLength(1);
+    expect((all("chat-send")[0] as HTMLButtonElement).disabled).toBe(false);
+    expect(all("chat-stop")).toHaveLength(1);
     await click(all("chat-stop")[0]);
     expect(chat.interrupt).toHaveBeenCalledWith(PANE);
   });

@@ -373,21 +373,76 @@ button.more {
   background: var(--dim);
 }
 
-.composerRow {
+/* The field: the textarea and its round buttons, inside one border. */
+.composerField {
   display: flex;
   align-items: flex-end;
   gap: 6px;
+  padding: 3px;
+  padding-left: 0;
+  border: 1px solid var(--surface);
+  border-radius: 22px;
+  background: var(--bg);
+}
+
+.composerField:focus-within {
+  border-color: var(--accent);
 }
 
 /* 16px or iOS zooms the page on focus (also enforced in Phone.module.css). */
-.composerInput {
+.composerField .composerInput {
   flex: 1;
   min-width: 0;
-  min-height: 40px;
+  min-height: 36px;
   max-height: 140px;
+  padding: 7px 0 7px 12px;
+  border: none;
+  background: transparent;
   resize: none;
   font-size: 16px;
   field-sizing: content;
+}
+
+/* `:root[data-layout="phone"]` matches Button's phone tap-target floor
+   (min-height 40px), which would otherwise stretch the circle. */
+:global(:root[data-layout="phone"]) .composerButton.composerButton,
+.composerButton.composerButton {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+}
+
+.composerButton.composerButton:disabled {
+  background: var(--surface);
+  color: var(--text-dim);
+  opacity: 1;
+}
+
+.composerButtonStop.composerButtonStop {
+  background: var(--text-selected);
+  color: var(--bg);
+}
+
+/* Stop beside a queued Send. */
+:global(:root[data-layout="phone"]) .composerStopSmall.composerStopSmall,
+.composerStopSmall.composerStopSmall {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--text-selected);
 }
 
 .composerError {

@@ -81,7 +81,6 @@ import { useMountEffect } from "./hooks/useMountEffect";
 import { startAgentActivitySync } from "./store/agent-activity-store";
 import { useMenuContextSync } from "./hooks/useMenuContextSync";
 import { useUpdaterToasts } from "./hooks/useUpdaterToasts";
-import { useToastStore } from "./store/toast-store";
 import { useRemoteRecovery } from "./hooks/useRemoteRecovery";
 import { useAgentContextRepair } from "./hooks/useAgentContextRepair";
 import {
@@ -89,10 +88,7 @@ import {
   navigateBack,
   navigateForward,
 } from "./hooks/useNavigationHistory";
-import type { AgentInfo } from "./electron.d";
-import { agentWorkspaceKey, navigateToAgent } from "./utils/agent-navigation";
-import { paneHasNoAgent, resumeAgentInPane } from "./lib/agent-resume-in-pane";
-import { hasPaneId } from "./lib/layout/pane-tree";
+import { resumeAgent } from "./lib/agent-resume";
 import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults";
 import { isHomePath, HOME_PATH } from "./lib/home";
 import { isWebApp } from "./lib/platform";
@@ -405,7 +401,6 @@ function App() {
     (s) => (selectActiveWorkspace(s)?.tabs.length ?? 0) > 0,
   );
 
-  const addTab = useAppStore((s) => s.addTab);
   const closeTab = useAppStore((s) => s.closeTab);
   const pendingCloseConfirmPaneId = useAppStore((s) => s.pendingCloseConfirmPaneId);
   const setPendingCloseConfirmPaneId = useAppStore((s) => s.setPendingCloseConfirmPaneId);
@@ -609,7 +604,7 @@ function App() {
         const agent = useAgentStore
           .getState()
           .agents.find((a) => a.id === agentId);
-        if (agent) void handleResumeAgent(agent);
+        if (agent) resumeAgent(agent);
       },
       showGhosts: triggerGhosts,
     },
@@ -683,63 +678,6 @@ function App() {
     window.addEventListener("mouseup", handleMouseUp);
     return () => window.removeEventListener("mouseup", handleMouseUp);
   });
-
-  const handleResumeAgent = useCallback(
-    async (agent: AgentInfo) => {
-      // The agent's workspace, on its host (ADR-191).
-      const agentKey = agentWorkspaceKey(agent, projects);
-      // If the agent is active and has a pane, switch to it instead of opening a new tab
-      if (agent.status === "active" && agent.paneId && agentKey) {
-        const wsLayout = useAppStore.getState().workspaceLayouts[agentKey];
-        if (wsLayout) {
-          const paneExists = Object.values(wsLayout.panels).some((panel) =>
-            panel.tabs.some((tab) => hasPaneId(tab.rootNode, agent.paneId!)),
-          );
-          if (paneExists) {
-            navigateToAgent(agent);
-            // Its pane came back as a bare shell (the terminal session was
-            // lost): bring the agent back there rather than show it empty.
-            const paneStatus = useAppStore.getState().paneAgentStatus[agent.paneId];
-            if (paneHasNoAgent(paneStatus)) void resumeAgentInPane(agent);
-            return;
-          }
-        }
-      }
-
-      const wsPath = agent.workspacePath;
-      // The Dashboard hosts no panes (ADR-197 §2), so a Home agent has
-      // nowhere to resume into.
-      if (isHomePath(wsPath)) {
-        useToastStore.getState().addToast({
-          id: `resume-home-agent-${agent.id}`,
-          message: "Dashboard agents can't be resumed",
-          status: "info",
-        });
-        return;
-      }
-      if (wsPath && agentKey) {
-        setActiveWorkspace(wsPath, parseWorkspaceKey(agentKey).hostId);
-      }
-      const activePath = wsPath ?? useAppStore.getState().activeWorkspacePath;
-      if (activePath) {
-        const agentProject = ownerOf(projects, agentKey);
-        const agentCommand =
-          agent.agentCommand ??
-          agentProject?.agentCommand ??
-          DEFAULT_AGENT_COMMAND;
-        // Don't consume prewarmed — resume needs a specific --resume command.
-        // The line is queued on the server (ADR-179 ticket 11).
-        useAppStore
-          .getState()
-          .addTerminalTab(`${agentCommand} --resume ${agent.agentSessionId}`, {
-            kind: "agent-startup",
-          });
-      } else {
-        addTab();
-      }
-    },
-    [setActiveWorkspace, addTab, projects],
-  );
 
   const handleNewAgent = useCallback(async () => {
     // Every surface — Home and project workspaces alike — consumes a prewarmed
@@ -923,7 +861,7 @@ function App() {
               onOpenSettings={handleOpenSettings}
               onNewWorkspace={handleNewWorkspace}
               initialView={paletteInitialView}
-              onResumeAgent={handleResumeAgent}
+              onResumeAgent={resumeAgent}
               onViewAllAgents={() => setAgentsOpen(true)}
               onNewAgent={handleNewAgent}
               onRunCommand={runCommand}
@@ -939,7 +877,7 @@ function App() {
             <AgentsModal
               open={agentsOpen}
               onClose={closeAgents}
-              onResumeAgent={handleResumeAgent}
+              onResumeAgent={resumeAgent}
             />
             <AddProjectDialog
               open={addProjectDialogOpen}

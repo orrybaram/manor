@@ -72,6 +72,10 @@ export function githubListRepos(ctx: HandlerCtx): Promise<GitHubRepo[]> {
   return ctx.deps.githubManager.listRepos();
 }
 
+export function githubGetViewerFirstName(ctx: HandlerCtx): Promise<string | null> {
+  return ctx.deps.githubManager.getViewerFirstName();
+}
+
 export function githubCheckStatus(ctx: HandlerCtx): Promise<{
   installed: boolean;
   authenticated: boolean;
@@ -336,6 +340,8 @@ export const github = {
   // The clone dialog's repo list (ADR-194): what `gh` can see, no writes.
   listRepos: method(githubListRepos),
   checkStatus: method(githubCheckStatus),
+  // The phone greeting's name, from the signed-in profile: no writes.
+  getViewerFirstName: method(githubGetViewerFirstName),
   getMyIssues: method(githubGetMyIssues),
   getAllIssues: method(githubGetAllIssues),
   getIssueDetail: method(githubGetIssueDetail),

@@ -86,7 +86,7 @@ vi.mock("node:fs/promises", () => ({
 }));
 
 // Import AFTER mocks
-import { GitHubManager, ghRepoFromRemoteUrl } from "./github";
+import { GitHubManager, firstNameOf, ghRepoFromRemoteUrl } from "./github";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -975,5 +975,17 @@ describe("GitHubManager.listRepos", () => {
     await mgr.listRepos();
     await mgr.listRepos();
     expect(mockState.calls).toHaveLength(2);
+  });
+});
+
+describe("firstNameOf", () => {
+  it("takes the first word of a display name", () => {
+    expect(firstNameOf("Ada Lovelace\n")).toBe("Ada");
+    expect(firstNameOf("  Grace  ")).toBe("Grace");
+  });
+
+  it("is null for an empty profile name", () => {
+    expect(firstNameOf("")).toBeNull();
+    expect(firstNameOf("\n")).toBeNull();
   });
 });

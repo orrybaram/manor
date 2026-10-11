@@ -198,6 +198,7 @@ export class GitHubManager {
   private readyPromise: Promise<boolean> | null = null;
 
   private reposCache: { at: number; repos: GitHubRepo[] } | null = null;
+  private viewerFirstName: string | null = null;
 
   /** See `setPrMergedListener`. */
   private onPrMerged: ((prUrl: string) => void) | undefined;
@@ -821,6 +822,27 @@ export class GitHubManager {
   }
 
   /**
+   * The signed-in user's first name, from their GitHub profile's display
+   * name, for the phone's greeting. `null` when `gh` is missing or signed
+   * out, or the profile has no name. A hit is kept for the process.
+   */
+  async getViewerFirstName(): Promise<string | null> {
+    if (this.viewerFirstName) return this.viewerFirstName;
+    try {
+      const { stdout } = await execFileAsync(
+        "gh",
+        ["api", "user", "--hostname", "github.com", "--jq", ".name // \"\""],
+        { encoding: "utf-8", timeout: 5000 },
+      );
+      const first = firstNameOf(stdout);
+      if (first) this.viewerFirstName = first;
+      return first;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Fetch an image embedded in an issue body with `gh`'s token and hand back
    * a data URL — a private repo's images 404 (or bounce to a login page)
    * without it. Only GitHub's own hosts get the token, on every redirect hop;
@@ -863,6 +885,11 @@ export class GitHubManager {
   }
 }
 
+/** The first word of a profile display name: "Ada Lovelace" -> "Ada". */
+export function firstNameOf(displayName: string): string | null {
+  const first = displayName.trim().split(/\s+/)[0];
+  return first ? first : null;
+}
 
 interface PrConversationState {
   unresolvedThreads?: number;

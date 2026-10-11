@@ -309,7 +309,9 @@ test.describe("phone layout (ADR-181)", () => {
       await expect(drawer.getByTestId("notifications-row")).toBeVisible();
       await film.shot(client.page, "04-drawer-open");
 
-      await client.page
+      // The drawer opens on the agents view; workspaces sit behind Projects.
+      await drawer.getByTestId("drawer-projects-row").click();
+      await drawer
         .getByTestId("workspace-item")
         .filter({ hasText: WORKSPACE_2 })
         .click();
@@ -334,6 +336,36 @@ test.describe("phone layout (ADR-181)", () => {
       await film.shot(client.page, "05b-notifications-sheet");
       await client.page.getByTestId("notifications-sheet-close").click();
       await expect(sheet).not.toBeVisible();
+
+      // ADR-219: the drawer is agents-first. Settings opens the modal, Projects
+      // reveals the workspace list, Back returns, and every open starts on agents.
+      await client.page.getByTestId("phone-drawer-toggle").click();
+      await expect(drawer.getByTestId("phone-agents-panel")).toBeVisible();
+      await expect(drawer.getByTestId("drawer-new-agent")).toBeVisible();
+      await expect(drawer.getByTestId("drawer-settings")).toBeVisible();
+      await expect(drawer.getByTestId("drawer-projects-row")).toBeVisible();
+      await drawer.getByTestId("drawer-settings").click();
+      const phoneSettings = client.page.getByTestId("settings-modal");
+      await expect(phoneSettings).toBeVisible();
+      await client.page.keyboard.press("Escape");
+      await expect(phoneSettings).not.toBeVisible();
+
+      if (!(await drawer.isVisible())) {
+        await client.page.getByTestId("phone-drawer-toggle").click();
+      }
+      await drawer.getByTestId("drawer-projects-row").click();
+      await expect(drawer.getByTestId("workspace-item").first()).toBeVisible();
+      await drawer.getByTestId("drawer-back-to-agents").click();
+      await expect(drawer.getByTestId("phone-agents-panel")).toBeVisible();
+
+      // Close and reopen: back on the agents view even after visiting Projects.
+      await drawer.getByTestId("drawer-projects-row").click();
+      await client.page.keyboard.press("Escape");
+      await expect(drawer).not.toBeVisible();
+      await client.page.getByTestId("phone-drawer-toggle").click();
+      await expect(drawer.getByTestId("phone-agents-panel")).toBeVisible();
+      await client.page.keyboard.press("Escape");
+      await expect(drawer).not.toBeVisible();
 
       // 4. The palette opens full screen from the top bar's overflow menu, and a
       // pane action run from it lands on the desk's layout too. The desk

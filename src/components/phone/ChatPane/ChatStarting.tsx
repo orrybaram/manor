@@ -1,30 +1,33 @@
-import { Button } from "../../ui/Button/Button";
+import { ChatComposer } from "./ChatComposer";
 import styles from "./ChatPane.module.css";
 
 type ChatStartingProps = {
+  paneId: string;
   /** The terminal is showing instead. */
   hidden: boolean;
-  onShowTerminal: () => void;
 };
 
 /**
- * Holds a new Claude pane's chat on a phone until its transcript is known:
- * the session's first hook names it a moment after Claude boots, and the
- * real `ChatPane` takes over from there. Until then the pane opens here
- * rather than on the terminal Claude is booting in.
+ * Holds a new Claude pane's chat on a phone until its transcript is known.
+ * The session's Agent, and with it the transcript, only exists once the
+ * first prompt is sent, so this offers the composer: that prompt goes to the
+ * pty like any other, and the real `ChatPane` takes over from there.
  */
 export function ChatStarting(props: ChatStartingProps) {
-  const { hidden, onShowTerminal } = props;
+  const { paneId, hidden } = props;
   return (
     <div
       className={`${styles.chatPane} ${hidden ? styles.hidden : ""}`}
+      data-chat-pane
       data-testid="chat-starting"
       aria-hidden={hidden || undefined}
     >
-      <div className={styles.unavailable}>
-        <p>Starting Claude…</p>
-        <Button onClick={onShowTerminal}>Show terminal</Button>
+      <div className={styles.scroller}>
+        <div className={styles.entries}>
+          <p className={styles.empty}>New conversation. Send a message to start.</p>
+        </div>
       </div>
+      <ChatComposer paneId={paneId} busy={false} />
     </div>
   );
 }

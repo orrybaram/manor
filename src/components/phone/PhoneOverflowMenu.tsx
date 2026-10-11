@@ -20,7 +20,7 @@ import {
 import { useAgentStore } from "../../store/agent-store";
 import { useProjectStore } from "../../store/project-store";
 import { chatTranscriptPath, pickPaneAgent } from "./ChatPane/chat-view";
-import { usePaneChatView } from "./ChatPane/usePaneChatView";
+import { usePaneChatView, usePaneChatViewStore } from "./ChatPane/usePaneChatView";
 import { RenameDialog } from "./RenameDialog";
 import styles from "./Phone.module.css";
 
@@ -70,6 +70,12 @@ function useMenuTargets(): MenuTargets {
       ? chatTranscriptPath(s.agents.find((a) => a.id === agentId) ?? null) !== null
       : false,
   );
+  // A Claude agent the phone just started has the chat before its transcript.
+  const chatStarting = usePaneChatViewStore((s) =>
+    paneId !== null && contentType !== "diff" && contentType !== "browser"
+      ? s.starting[paneId] === true
+      : false,
+  );
   // Strings, so the selectors are stable across unrelated store changes.
   const renameProjectId = useProjectStore((s) => {
     if (!workspaceKey) return null;
@@ -80,7 +86,7 @@ function useMenuTargets(): MenuTargets {
   if (!workspaceKey) return NO_TARGETS;
   const { path } = parseWorkspaceKey(workspaceKey);
   return {
-    chatPaneId: hasChat ? paneId : null,
+    chatPaneId: hasChat || chatStarting ? paneId : null,
     agentId,
     canOpenDiff: !isHomePath(path) && contentType !== "diff",
     renameWorkspace: renameProjectId ? { projectId: renameProjectId, path } : null,

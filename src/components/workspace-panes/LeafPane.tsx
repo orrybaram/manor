@@ -699,7 +699,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
             />
           </Suspense>
         )}
-        {chatStarting && <ChatStarting hidden={!showChat} onShowTerminal={showTerminal} />}
+        {chatStarting && <ChatStarting paneId={paneId} hidden={!showChat} />}
       </div>
       {showDropZone && <PaneDropZone paneId={paneId} />}
     </div>

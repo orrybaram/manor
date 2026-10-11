@@ -19,6 +19,8 @@ import { BUILTIN_COMMANDS } from "../../../../../electron/chat-mirror/builtin-co
 import { ChatPane } from "../ChatPane";
 import {
   endMenuHandoff,
+  noteChatEntries,
+  selectPaneChatView,
   setPaneChatView,
   startMenuHandoff,
   usePaneChatView,
@@ -30,6 +32,7 @@ import { useHostStore, type HostStatusInfo } from "../../../../store/host-store"
 import { emitBridgeResync } from "../../../../bridge/resync";
 
 const PANE = "pane-1";
+const TRANSCRIPT = "/t/a.jsonl";
 
 type EntryListener = (paneId: string, entry: ChatEntry) => void;
 
@@ -83,7 +86,7 @@ const question = (
 
 async function renderChat(onShowTerminal = vi.fn()): Promise<typeof onShowTerminal> {
   await act(async () => {
-    root.render(createElement(ChatPane, { paneId: PANE, transcript: "/t/a.jsonl", hidden: false, onShowTerminal }));
+    root.render(createElement(ChatPane, { paneId: PANE, transcript: TRANSCRIPT, hidden: false, onShowTerminal }));
   });
   return onShowTerminal;
 }
@@ -401,8 +404,8 @@ describe("pane view store", () => {
 
   /** Two readers of one pane, as `LeafPane` and the top bar's menu are. */
   function Harness() {
-    const [a] = usePaneChatView(PANE);
-    const [b, setB] = usePaneChatView(PANE);
+    const [a] = usePaneChatView(PANE, TRANSCRIPT);
+    const [b, setB] = usePaneChatView(PANE, TRANSCRIPT);
     return createElement(
       "button",
       { "data-testid": "flip", "data-a": a, "data-b": b, onClick: () => setB(b === "chat" ? "terminal" : "chat") },
@@ -457,35 +460,61 @@ describe("pane view store", () => {
 
 describe("menu handoff (ADR-218 D3)", () => {
   beforeEach(() => {
-    usePaneChatViewStore.setState({ views: {}, handoffs: {} });
+    usePaneChatViewStore.setState({ views: {}, starting: {}, handoffs: {} });
   });
 
-  const view = () => usePaneChatViewStore.getState().views[PANE];
+  /** What `LeafPane` shows for the pane, while on `transcript`. */
+  const view = (transcript: string | null = TRANSCRIPT) =>
+    selectPaneChatView(usePaneChatViewStore.getState(), PANE, transcript);
   const handoffs = () => usePaneChatViewStore.getState().handoffs;
 
-  it("start records the command and shows the terminal", () => {
+  it("start records the command and its transcript, and covers the view with the terminal", () => {
     vi.spyOn(Date, "now").mockReturnValue(1_000);
-    startMenuHandoff(PANE, "config");
+    startMenuHandoff(PANE, "config", TRANSCRIPT);
     vi.mocked(Date.now).mockRestore();
-    expect(handoffs()).toEqual({ [PANE]: { name: "config", startedAt: 1_000 } });
+    expect(handoffs()).toEqual({
+      [PANE]: { name: "config", startedAt: 1_000, transcript: TRANSCRIPT },
+    });
     expect(view()).toBe("terminal");
   });
 
-  it("end returns to the chat only when asked", () => {
-    startMenuHandoff(PANE, "config");
-    endMenuHandoff(PANE);
-    expect(handoffs()).toEqual({});
-    expect(view()).toBe("terminal");
+  it("never touches the stored view, so a reload mid-handoff comes back on the chat", () => {
+    startMenuHandoff(PANE, "config", TRANSCRIPT);
+    expect(usePaneChatViewStore.getState().views[PANE]).toBeUndefined();
+    expect(readChatView(PANE)).toBe("chat");
 
-    startMenuHandoff(PANE, "config");
-    endMenuHandoff(PANE, { returnToChat: true });
+    // A reload: a fresh store, with no handoff in memory.
+    usePaneChatViewStore.setState({ views: {}, starting: {}, handoffs: {} });
+    expect(view()).toBe("chat");
+  });
+
+  it("end reveals the stored view underneath", () => {
+    startMenuHandoff(PANE, "config", TRANSCRIPT);
+    endMenuHandoff(PANE);
     expect(handoffs()).toEqual({});
     expect(view()).toBe("chat");
   });
 
-  it("end without a handoff leaves the view alone", () => {
+  it("end without a handoff leaves a chosen terminal alone", () => {
     setPaneChatView(PANE, "terminal");
-    endMenuHandoff(PANE, { returnToChat: true });
+    endMenuHandoff(PANE);
+    expect(view()).toBe("terminal");
+  });
+
+  it("a new transcript ends it", () => {
+    startMenuHandoff(PANE, "resume", TRANSCRIPT);
+    expect(view("/t/b.jsonl")).toBe("chat");
+
+    // The new transcript's chat drops it from the store as well.
+    noteChatEntries(PANE, "/t/b.jsonl", []);
+    expect(handoffs()).toEqual({});
+    expect(view()).toBe("chat");
+  });
+
+  it("from a fresh chat, it is on the transcript the pane is leaving", () => {
+    usePaneChatViewStore.setState({ starting: { [PANE]: TRANSCRIPT } });
+    startMenuHandoff(PANE, "config", null);
+    expect(handoffs()[PANE]?.transcript).toBe(TRANSCRIPT);
     expect(view()).toBe("terminal");
   });
 
@@ -502,7 +531,7 @@ describe("menu handoff (ADR-218 D3)", () => {
     installChat({ ok: true, entries: [] });
     await sendBareConfig();
     expect(chat.send).toHaveBeenCalledWith(PANE, "/config");
-    expect(handoffs()[PANE]?.name).toBe("config");
+    expect(handoffs()[PANE]).toMatchObject({ name: "config", transcript: TRANSCRIPT });
     expect(view()).toBe("terminal");
 
     // Another command, or the menu's own command from before, keeps it.
@@ -537,9 +566,10 @@ describe("menu handoff (ADR-218 D3)", () => {
 });
 
 describe("ChatPane — choice sheet (ADR-218 D2)", () => {
-  const view = () => usePaneChatViewStore.getState().views[PANE] ?? "chat";
+  const view = () => selectPaneChatView(usePaneChatViewStore.getState(), PANE, TRANSCRIPT);
 
   beforeEach(() => {
+    usePaneChatViewStore.setState({ views: {}, handoffs: {} });
     // jsdom has no layout, so no scrollIntoView.
     Element.prototype.scrollIntoView = vi.fn();
   });
@@ -604,6 +634,64 @@ describe("ChatPane — choice sheet (ADR-218 D2)", () => {
     expect(all("command-choice-sheet")).toHaveLength(0);
     expect(chat.send).not.toHaveBeenCalled();
     expect(input.value).toBe("/model");
+  });
+
+  const keyOn = (input: HTMLElement, k: string) =>
+    act(async () => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+    });
+
+  it("dismissing the sheet keeps the / menu shut, and any edit reopens it", async () => {
+    const input = await openSheet();
+    await keyOn(input, "Escape");
+    expect(all("command-choice-sheet")).toHaveLength(0);
+    expect(all("slash-command-menu")).toHaveLength(0);
+
+    await typeInto(input, "/mode");
+    expect(all("slash-command-menu")).toHaveLength(1);
+  });
+
+  it("a tap outside the sheet dismisses it the same way", async () => {
+    await openSheet();
+    await act(async () => {
+      // The backdrop, drawn just before the sheet.
+      all("command-choice-sheet")[0]
+        .previousElementSibling?.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    });
+    expect(all("command-choice-sheet")).toHaveLength(0);
+    expect(all("slash-command-menu")).toHaveLength(0);
+  });
+
+  it("the textarea's aria follows whichever listbox is showing", async () => {
+    const input = await openSheet();
+    const sheetList = all("command-choice-sheet")[0].querySelector('[role="listbox"]');
+    expect(input.getAttribute("aria-expanded")).toBe("true");
+    expect(input.getAttribute("aria-controls")).toBe(sheetList?.id);
+    expect(input.getAttribute("aria-activedescendant")).toBe(
+      all("command-choice-default")[0].id,
+    );
+    await keyOn(input, "ArrowUp");
+    expect(input.getAttribute("aria-activedescendant")).toBe(
+      all("command-choice-terminal")[0].id,
+    );
+
+    await keyOn(input, "Escape");
+    expect(input.getAttribute("aria-expanded")).toBe("false");
+    expect(input.getAttribute("aria-controls")).toBeNull();
+    expect(input.getAttribute("aria-activedescendant")).toBeNull();
+  });
+
+  it("Tab completes a command, and does nothing on the sheet", async () => {
+    const input = await openSheet();
+    await keyOn(input, "Tab");
+    expect(all("command-choice-sheet")).toHaveLength(1);
+    expect(chat.send).not.toHaveBeenCalled();
+
+    await typeInto(input, "/clea");
+    expect(all("command-choice-sheet")).toHaveLength(0);
+    await keyOn(input, "Tab");
+    expect(input.value).toBe("/clear ");
+    expect(all("slash-command-menu")).toHaveLength(0);
   });
 });
 

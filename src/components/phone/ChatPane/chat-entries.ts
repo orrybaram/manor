@@ -5,7 +5,6 @@
  */
 
 import type { ChatEntry } from "../../../electron.d";
-import type { MenuHandoff } from "./usePaneChatView";
 
 /** Add `entry`, or replace the one with its id in place. Updates keep their position. */
 export function upsertEntry(
@@ -53,21 +52,6 @@ export function answerablePickerId(entries: readonly ChatEntry[]): string | null
     return isOpenPicker(entry) ? entry.id : null;
   }
   return null;
-}
-
-/** Clock slack between this device's send and the transcript's timestamp. */
-const HANDOFF_SLACK_MS = 2_000;
-
-/**
- * Whether `entry` means the TUI menu `handoff` waits on has closed (ADR-218
- * D3): the handoff's command, logged at or after it was sent. A menu
- * command's transcript line is written when the menu completes, not when it
- * opens. A `ts` that doesn't parse never ends it.
- */
-export function endsMenuHandoff(handoff: MenuHandoff, entry: ChatEntry): boolean {
-  if (entry.kind !== "command" || entry.name !== handoff.name) return false;
-  const ts = Date.parse(entry.ts);
-  return !Number.isNaN(ts) && ts >= handoff.startedAt - HANDOFF_SLACK_MS;
 }
 
 type ToolEntry = Extract<ChatEntry, { kind: "tool" }>;

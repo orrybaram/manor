@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect, memo, lazy, Suspense } from "react";
+import { useRef, useState, useCallback, memo, lazy, Suspense } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
 import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
@@ -124,23 +124,16 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   // and a `/clear` sent from the chat shows a fresh one until the new
   // session's transcript is known (its Agent only exists after a prompt).
   const chatStarting = usePaneChatStarting(paneId, chatTranscript) && phone;
-  const [paneView, setPaneView] = usePaneChatView(paneId);
+  const [paneView, setPaneView] = usePaneChatView(paneId, chatTranscript);
   const showChat = (chatTranscript !== null || chatStarting) && paneView === "chat";
   const showTerminal = useCallback(() => setPaneView("terminal"), [setPaneView]);
 
   // ADR-218 D3: while the chat has handed the terminal a TUI menu, a key bar
-  // drives it. A new transcript under a handoff (`/resume` picked a session)
-  // ends it on the resumed session's chat. An effect, as the transcript comes
-  // from the agent store and the handoff lives in another.
-  const handoff = usePaneMenuHandoff(paneId);
-  const showKeyBar = phone && handoff !== null && !showChat;
-  const backToChat = useCallback(() => endMenuHandoff(paneId, { returnToChat: true }), [paneId]);
-  const seenTranscript = useRef(chatTranscript);
-  useEffect(() => {
-    if (seenTranscript.current === chatTranscript) return;
-    seenTranscript.current = chatTranscript;
-    endMenuHandoff(paneId, { returnToChat: true });
-  }, [paneId, chatTranscript]);
+  // drives it. The handoff covers the pane's view until it ends; a new
+  // transcript (`/resume` picked a session) ends it on that session's chat.
+  const handoff = usePaneMenuHandoff(paneId, chatTranscript);
+  const showKeyBar = phone && handoff !== null;
+  const backToChat = useCallback(() => endMenuHandoff(paneId), [paneId]);
 
   const focusPane = useAppStore((s) => s.focusPane);
   const splitPane = useAppStore((s) => s.splitPane);

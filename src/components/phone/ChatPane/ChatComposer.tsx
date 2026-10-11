@@ -1,18 +1,14 @@
 import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import Square from "lucide-react/dist/esm/icons/square";
-import { useId, useRef, useState } from "react";
-import type { ChatCommand } from "../../../../electron/chat-mirror/builtin-commands";
+import { useRef, useState } from "react";
 import { Button } from "../../ui/Button/Button";
 import { EmojiTextarea } from "../../ui/EmojiAutocomplete";
 import styles from "./ChatPane.module.css";
 import { CommandChoiceSheet } from "./CommandChoiceSheet";
-import { slashOptionId, splitCommand } from "./slash-commands";
+import { commandEffect, slashOptionId, splitCommand } from "./slash-commands";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { markChatStarting, startMenuHandoff } from "./usePaneChatView";
 import { useSlashCommands } from "./useSlashCommands";
-
-/** Claude Code's `/clear` and its aliases: each starts a new session. */
-const CLEAR_COMMANDS = new Set(["clear", "reset", "new"]);
 
 type ChatComposerProps = {
   paneId: string;
@@ -32,7 +28,7 @@ type ChatComposerProps = {
  * with a smaller Stop beside it.
  *
  * Typing `/` at the start opens the command menu (ADR-217 D5). Sending a
- * command that opens a TUI menu (`opensMenu`) hands the pane to the
+ * command that opens a TUI menu (`commandEffect`) hands the pane to the
  * terminal, where that menu is, until it closes (ADR-218 D3). Sending `/clear` leaves the old
  * conversation behind for a fresh chat.
  *
@@ -48,14 +44,13 @@ export function ChatComposer(props: ChatComposerProps) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const listboxId = `${useId()}-slash-listbox`;
 
-  // The command whose choice sheet is open (ADR-218 D2), and its selected row.
-  const [choiceFor, setChoiceFor] = useState<ChatCommand | null>(null);
-  const [choiceIndex, setChoiceIndex] = useState(0);
-  const choiceListboxId = `${listboxId}-choices`;
-
-  const slash = useSlashCommands(paneId, text, caret);
+  // Called back from a row of the `/` menu or choice sheet, after this render.
+  const slash = useSlashCommands(paneId, text, caret, {
+    fill: (nextText, nextCaret) => fill(nextText, nextCaret),
+    send: (sent) => sendText(sent),
+  });
+  const level = slash.level;
 
   const canSend = text.trim().length > 0 && !sending;
 
@@ -74,16 +69,9 @@ export function ChatComposer(props: ChatComposerProps) {
     });
   };
 
-  const pick = (index: number) => {
-    const next = slash.pick(index);
-    if (!next) return;
-    if (next.kind === "choices") {
-      setChoiceFor(next.command);
-      setChoiceIndex(0);
-      return;
-    }
-    update(next.text, next.caret);
-    focusAt(next.caret);
+  const fill = (nextText: string, nextCaret: number) => {
+    update(nextText, nextCaret);
+    focusAt(nextCaret);
   };
 
   const sendText = (sent: string) => {
@@ -94,10 +82,10 @@ export function ChatComposer(props: ChatComposerProps) {
         update("", 0);
         setSending(false);
         const command = splitCommand(sent);
-        if (command && slash.opensMenu(command.name, command.args)) {
-          startMenuHandoff(paneId, command.name);
-        }
-        if (transcript && command && CLEAR_COMMANDS.has(command.name)) {
+        const effect = commandEffect(command, slash.lookup);
+        if (effect === "menu" && command) {
+          startMenuHandoff(paneId, command.name, transcript ?? null);
+        } else if (effect === "clear" && transcript) {
           markChatStarting(paneId, transcript);
         }
       },
@@ -113,41 +101,6 @@ export function ChatComposer(props: ChatComposerProps) {
     sendText(text.trimEnd());
   };
 
-  const chooseValue = (value: string) => {
-    if (!choiceFor) return;
-    setChoiceFor(null);
-    sendText(`/${choiceFor.name} ${value}`);
-  };
-
-  const chooseOther = () => {
-    if (!choiceFor) return;
-    const head = `/${choiceFor.name} `;
-    setChoiceFor(null);
-    update(head, head.length);
-    focusAt(head.length);
-  };
-
-  const chooseTerminal = () => {
-    if (!choiceFor) return;
-    setChoiceFor(null);
-    sendText(`/${choiceFor.name}`);
-  };
-
-  /** Esc or a tap outside: close the sheet, and keep the `/` menu shut
-   *  until the text changes. */
-  const dismissChoice = () => {
-    setChoiceFor(null);
-    slash.close();
-  };
-
-  /** Enter on the sheet: the selected choice, "Other…" or the terminal row. */
-  const chooseSelected = () => {
-    const choices = choiceFor?.choices ?? [];
-    if (choiceIndex < choices.length) chooseValue(choices[choiceIndex].value);
-    else if (choiceIndex === choices.length) chooseOther();
-    else chooseTerminal();
-  };
-
   const stop = () => {
     void window.electronAPI.chat.interrupt(paneId).catch(() => {
       setError("Couldn't stop Claude. Try the terminal.");
@@ -158,25 +111,9 @@ export function ChatComposer(props: ChatComposerProps) {
 
   return (
     <div className={styles.composer} data-keyboard-lift data-testid="chat-composer">
-      {choiceFor && (
-        <CommandChoiceSheet
-          command={choiceFor}
-          selectedIndex={choiceIndex}
-          listboxId={choiceListboxId}
-          onChoose={chooseValue}
-          onOther={chooseOther}
-          onOpenInTerminal={chooseTerminal}
-          onDismiss={dismissChoice}
-        />
-      )}
-      {slash.open && !choiceFor && (
-        <SlashCommandMenu
-          listboxId={listboxId}
-          items={slash.items}
-          selectedIndex={slash.selectedIndex}
-          skillsKnown={slash.skillsKnown}
-          onPick={pick}
-        />
+      {level?.kind === "choices" && <CommandChoiceSheet level={level} />}
+      {level?.kind === "commands" && (
+        <SlashCommandMenu level={level} skillsKnown={slash.skillsKnown} />
       )}
       {error && <div className={styles.composerError}>{error}</div>}
       <div className={styles.composerField}>
@@ -188,18 +125,12 @@ export function ChatComposer(props: ChatComposerProps) {
           placeholder="Type / for commands"
           aria-label="Message Claude"
           data-testid="chat-composer-input"
-          aria-expanded={slash.open || choiceFor !== null}
-          aria-controls={choiceFor ? choiceListboxId : slash.open ? listboxId : undefined}
+          aria-expanded={level !== null}
+          aria-controls={level?.listboxId}
           aria-activedescendant={
-            choiceFor
-              ? slashOptionId(choiceListboxId, choiceIndex)
-              : slash.open
-                ? slashOptionId(listboxId, slash.selectedIndex)
-                : undefined
+            level ? slashOptionId(level.listboxId, level.selectedIndex) : undefined
           }
           onChange={(e) => {
-            // Typing past the sheet drops it.
-            setChoiceFor(null);
             update(e.target.value, e.target.selectionStart ?? e.target.value.length);
           }}
           onSelect={(e) => {
@@ -207,46 +138,24 @@ export function ChatComposer(props: ChatComposerProps) {
             if (el.selectionStart !== caret) update(el.value, el.selectionStart);
           }}
           onKeyDown={(e) => {
-            if (choiceFor && !e.nativeEvent.isComposing && !e.metaKey && !e.ctrlKey && !e.altKey) {
-              const rows = (choiceFor.choices?.length ?? 0) + 2;
+            if (level && !e.nativeEvent.isComposing && !e.metaKey && !e.ctrlKey && !e.altKey) {
               let handled = true;
               switch (e.key) {
                 case "ArrowDown":
-                  setChoiceIndex((choiceIndex + 1) % rows);
+                  level.move(1);
                   break;
                 case "ArrowUp":
-                  setChoiceIndex((choiceIndex + rows - 1) % rows);
+                  level.move(-1);
                   break;
-                case "Enter":
-                  chooseSelected();
-                  break;
-                case "Escape":
-                  dismissChoice();
-                  break;
-                default:
-                  handled = false;
-              }
-              if (handled) {
-                e.preventDefault();
-                e.stopPropagation();
-                return;
-              }
-            }
-            if (slash.open && !e.nativeEvent.isComposing && !e.metaKey && !e.ctrlKey && !e.altKey) {
-              let handled = true;
-              switch (e.key) {
-                case "ArrowDown":
-                  slash.move(1);
-                  break;
-                case "ArrowUp":
-                  slash.move(-1);
-                  break;
-                case "Enter":
                 case "Tab":
-                  pick(slash.selectedIndex);
+                  // Tab completes a command; on the sheet it only keeps focus.
+                  if (level.kind === "commands") level.activateSelected();
+                  break;
+                case "Enter":
+                  level.activateSelected();
                   break;
                 case "Escape":
-                  slash.close();
+                  level.dismiss();
                   break;
                 default:
                   handled = false;

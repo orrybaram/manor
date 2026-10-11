@@ -23,7 +23,12 @@ import {
 import { useAgentStore } from "../../store/agent-store";
 import { useProjectStore } from "../../store/project-store";
 import { chatTranscriptPath, pickPaneAgent } from "./ChatPane/chat-view";
-import { endMenuHandoff, usePaneChatView, usePaneChatViewStore } from "./ChatPane/usePaneChatView";
+import {
+  endMenuHandoff,
+  usePaneChatView,
+  usePaneChatViewStore,
+  usePaneMenuHandoff,
+} from "./ChatPane/usePaneChatView";
 import { RenameDialog } from "./RenameDialog";
 import styles from "./Phone.module.css";
 
@@ -32,6 +37,8 @@ type MenuTargets = {
    *  `LeafPane` uses to offer one (ADR-215 D7): a Claude agent with a local
    *  transcript, and not a diff or browser pane. */
   chatPaneId: string | null;
+  /** That pane's transcript, null while its chat is still starting. */
+  chatTranscript: string | null;
   /** The focused pane's agent, to rename. */
   agentId: string | null;
   /** The active workspace's diff can be opened: a project workspace (not
@@ -44,6 +51,7 @@ type MenuTargets = {
 
 const NO_TARGETS: MenuTargets = {
   chatPaneId: null,
+  chatTranscript: null,
   agentId: null,
   canOpenDiff: false,
   renameWorkspace: null,
@@ -68,10 +76,8 @@ function useMenuTargets(): MenuTargets {
       ? (pickPaneAgent(s.agents, paneId)?.id ?? null)
       : null,
   );
-  const hasChat = useAgentStore((s) =>
-    agentId !== null
-      ? chatTranscriptPath(s.agents.find((a) => a.id === agentId) ?? null) !== null
-      : false,
+  const chatTranscript = useAgentStore((s) =>
+    agentId !== null ? chatTranscriptPath(s.agents.find((a) => a.id === agentId) ?? null) : null,
   );
   // A Claude agent the phone just started has the chat before its transcript.
   const chatStarting = usePaneChatViewStore((s) =>
@@ -89,7 +95,8 @@ function useMenuTargets(): MenuTargets {
   if (!workspaceKey) return NO_TARGETS;
   const { path } = parseWorkspaceKey(workspaceKey);
   return {
-    chatPaneId: hasChat || chatStarting ? paneId : null,
+    chatPaneId: chatTranscript !== null || chatStarting ? paneId : null,
+    chatTranscript,
     agentId,
     canOpenDiff: !isHomePath(path) && contentType !== "diff",
     renameWorkspace: renameProjectId ? { projectId: renameProjectId, path } : null,
@@ -119,15 +126,17 @@ function onMenuKeyDown(e: KeyboardEvent<HTMLElement>): void {
 
 type ViewItemProps = {
   paneId: string;
+  transcript: string | null;
   onDone: () => void;
 };
 
 /** "Show terminal" / "Show chat" for one pane; its own component so the
  *  pane's view is only subscribed to while there is a pane to flip. */
 function ViewItem(props: ViewItemProps) {
-  const { paneId, onDone } = props;
+  const { paneId, transcript, onDone } = props;
 
-  const [view, setView] = usePaneChatView(paneId);
+  const [view, setView] = usePaneChatView(paneId, transcript);
+  const handoff = usePaneMenuHandoff(paneId, transcript);
   const showingChat = view === "chat";
 
   return (
@@ -137,9 +146,10 @@ function ViewItem(props: ViewItemProps) {
       className={styles.overflowItem}
       data-testid="phone-overflow-view"
       onClick={() => {
-        setView(showingChat ? "terminal" : "chat");
-        // A flip by hand ends a menu handoff (ADR-218 D3), leaving this view.
-        endMenuHandoff(paneId);
+        // Under a menu handoff (ADR-218 D3) the terminal is borrowed: ending
+        // it is the flip back to the chat, and the stored choice stays.
+        if (handoff) endMenuHandoff(paneId);
+        else setView(showingChat ? "terminal" : "chat");
         onDone();
       }}
     >
@@ -161,7 +171,7 @@ type Renaming = "workspace" | "agent" | null;
 export function PhoneOverflowMenu() {
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState<Renaming>(null);
-  const { chatPaneId, agentId, canOpenDiff, renameWorkspace } = useMenuTargets();
+  const { chatPaneId, chatTranscript, agentId, canOpenDiff, renameWorkspace } = useMenuTargets();
   // An item hands focus to whatever it opens (the rename field); focus
   // going back to the trigger would take it away again. Escape and an
   // outside tap still return it.
@@ -216,7 +226,9 @@ export function PhoneOverflowMenu() {
             }}
           >
             <div role="menu" aria-label="More" className={styles.overflowList} onKeyDown={onMenuKeyDown}>
-              {chatPaneId !== null && <ViewItem paneId={chatPaneId} onDone={close} />}
+              {chatPaneId !== null && (
+                <ViewItem paneId={chatPaneId} transcript={chatTranscript} onDone={close} />
+              )}
               {canOpenDiff && (
                 <Button
                   variant="ghost"

@@ -46,7 +46,7 @@ import {
   readChatView,
   writeChatView,
 } from "../ChatPane/chat-view";
-import { usePaneChatViewStore } from "../ChatPane/usePaneChatView";
+import { startMenuHandoff, usePaneChatViewStore } from "../ChatPane/usePaneChatView";
 import type { AgentInfo } from "../../../electron.d";
 
 const WS = "/repo/worktrees/my-workspace";
@@ -190,7 +190,7 @@ describe("PhoneTopBar — overflow menu's view item", () => {
 
   beforeEach(() => {
     localStorage.clear();
-    usePaneChatViewStore.setState({ views: {} });
+    usePaneChatViewStore.setState({ views: {}, handoffs: {} });
   });
 
   afterEach(() => {
@@ -259,6 +259,23 @@ describe("PhoneTopBar — overflow menu's view item", () => {
     expect(byTestId("phone-overflow-view")?.textContent).toBe("Show chat");
     click("phone-overflow-view");
     expect(usePaneChatViewStore.getState().views[PANE]).toBe("chat");
+  });
+
+  it("under a menu handoff, Show chat ends it and leaves the stored view alone", () => {
+    seedPane();
+    seedAgent({});
+    act(() => startMenuHandoff(PANE, "config", "/tmp/t.jsonl"));
+    renderBar();
+
+    openMenu();
+    expect(byTestId("phone-overflow-view")?.textContent).toBe("Show chat");
+    click("phone-overflow-view");
+    expect(usePaneChatViewStore.getState().handoffs).toEqual({});
+    expect(usePaneChatViewStore.getState().views[PANE]).toBeUndefined();
+    expect(readChatView(PANE)).toBe("chat");
+
+    openMenu();
+    expect(byTestId("phone-overflow-view")?.textContent).toBe("Show terminal");
   });
 
   it("starts from the view this browser remembers", () => {

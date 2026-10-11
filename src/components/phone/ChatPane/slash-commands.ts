@@ -1,4 +1,4 @@
-import type { ChatCommand } from "../../../../electron/chat-mirror/builtin-commands";
+import { opensMenu, type ChatCommand } from "../../../../electron/chat-mirror/builtin-commands";
 
 /**
  * Pure helpers for the phone composer's `/` menu (ADR-217 D5).
@@ -87,9 +87,22 @@ export function splitCommand(text: string): { name: string; args: string } | nul
   return match ? { name: match[1], args: (match[2] ?? "").trim() } : null;
 }
 
-/** The command name when `text` starts with `/name` + whitespace or the end. */
-export function firstWordCommand(text: string): string | null {
-  return splitCommand(text)?.name ?? null;
+/** Claude Code's `/clear` and its aliases: each starts a new session. */
+const CLEAR_COMMANDS = new Set(["clear", "reset", "new"]);
+
+/**
+ * What a sent command does to the chat: "menu" hands the pane to the terminal
+ * (ADR-218 D3), "clear" leaves the conversation behind for a fresh one, null
+ * is nothing. `lookup` finds the entry for a name (fetched list, then built-ins).
+ */
+export function commandEffect(
+  command: { name: string; args: string } | null,
+  lookup: (name: string) => ChatCommand | undefined,
+): "menu" | "clear" | null {
+  if (!command) return null;
+  if (opensMenu(lookup(command.name), command.args)) return "menu";
+  if (CLEAR_COMMANDS.has(command.name)) return "clear";
+  return null;
 }
 
 /** The DOM id of row `index` in the menu, for `aria-activedescendant`. */

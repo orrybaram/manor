@@ -75,7 +75,7 @@ const question = (
 
 async function renderChat(onShowTerminal = vi.fn()): Promise<typeof onShowTerminal> {
   await act(async () => {
-    root.render(createElement(ChatPane, { paneId: PANE, hidden: false, onShowTerminal }));
+    root.render(createElement(ChatPane, { paneId: PANE, transcript: "/t/a.jsonl", hidden: false, onShowTerminal }));
   });
   return onShowTerminal;
 }
@@ -264,6 +264,19 @@ describe("ChatPane — entries", () => {
     expect(all("chat-stop")).toHaveLength(1);
     await click(all("chat-stop")[0]);
     expect(chat.interrupt).toHaveBeenCalledWith(PANE);
+  });
+
+  it("sending /clear leaves this transcript behind for a fresh chat", async () => {
+    usePaneChatViewStore.setState({ starting: {} });
+    installChat({ ok: true, entries: [] });
+    Object.assign(chat, {
+      getCommands: vi.fn(() => Promise.resolve({ ok: false, reason: "no-agent" })),
+    });
+    await renderChat();
+    await typeInto(all("chat-composer-input")[0] as HTMLTextAreaElement, "/clear");
+    await click(all("chat-send")[0]);
+    expect(chat.send).toHaveBeenCalledWith(PANE, "/clear");
+    expect(usePaneChatViewStore.getState().starting).toEqual({ [PANE]: "/t/a.jsonl" });
   });
 });
 

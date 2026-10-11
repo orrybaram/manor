@@ -11,9 +11,11 @@ import { readChatView, writeChatView, type ChatView } from "./chat-view";
  */
 type PaneChatViewState = {
   views: Record<string, ChatView>;
-  /** Panes whose Claude agent a phone just started: they open on the chat
-   *  while Claude boots, before its transcript is known. In memory only. */
-  starting: Record<string, true>;
+  /** Panes waiting on a new transcript, mapped to the one they leave behind
+   *  (null for an agent the phone just started, the old one after `/clear`).
+   *  They show a fresh chat until a different transcript lands. In memory
+   *  only. */
+  starting: Record<string, string | null>;
 };
 
 export const usePaneChatViewStore = create<PaneChatViewState>(() => ({
@@ -33,15 +35,22 @@ export function setPaneChatView(paneId: string, view: ChatView): void {
   writeChatView(paneId, view);
 }
 
-/** Open `paneId` on its chat while its new agent starts up. */
-export function markChatStarting(paneId: string): void {
+/**
+ * Open `paneId` on a fresh chat until its transcript is something other than
+ * `leaving`: a new agent starting up (null), or a session `/clear` replaced.
+ */
+export function markChatStarting(paneId: string, leaving: string | null = null): void {
   usePaneChatViewStore.setState((s) =>
-    s.starting[paneId] ? s : { starting: { ...s.starting, [paneId]: true } },
+    s.starting[paneId] === leaving ? s : { starting: { ...s.starting, [paneId]: leaving } },
   );
 }
 
-export function usePaneChatStarting(paneId: string): boolean {
-  return usePaneChatViewStore((s) => s.starting[paneId] === true);
+/** Whether `paneId`, now on `transcript`, still waits on a new one. */
+export function usePaneChatStarting(paneId: string, transcript: string | null): boolean {
+  return usePaneChatViewStore((s) => {
+    if (!(paneId in s.starting)) return false;
+    return transcript === null || transcript === s.starting[paneId];
+  });
 }
 
 export function usePaneChatView(paneId: string): [ChatView, (view: ChatView) => void] {

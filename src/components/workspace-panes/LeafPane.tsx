@@ -114,8 +114,10 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
       ? chatTranscriptPath(pickPaneAgent(s.agents, paneId))
       : null,
   );
-  // A Claude agent the phone just started opens on the chat while it boots.
-  const chatStarting = usePaneChatStarting(paneId) && phone && chatTranscript === null;
+  // A Claude agent the phone just started opens on the chat while it boots,
+  // and a `/clear` sent from the chat shows a fresh one until the new
+  // session's transcript is known (its Agent only exists after a prompt).
+  const chatStarting = usePaneChatStarting(paneId, chatTranscript) && phone;
   const [paneView, setPaneView] = usePaneChatView(paneId);
   const showChat = (chatTranscript !== null || chatStarting) && paneView === "chat";
   const showTerminal = useCallback(() => setPaneView("terminal"), [setPaneView]);
@@ -689,11 +691,12 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
         )}
         {/* After the terminal, and always in this slot, so it showing or not
             never remounts the terminal (ADR-181 D1). */}
-        {chatTranscript !== null && (
+        {chatTranscript !== null && !chatStarting && (
           <Suspense fallback={null}>
             <ChatPane
               key={chatTranscript}
               paneId={paneId}
+              transcript={chatTranscript}
               hidden={!showChat}
               onShowTerminal={showTerminal}
             />

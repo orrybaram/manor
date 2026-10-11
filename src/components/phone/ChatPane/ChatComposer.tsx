@@ -6,13 +6,19 @@ import { EmojiTextarea } from "../../ui/EmojiAutocomplete";
 import styles from "./ChatPane.module.css";
 import { firstWordCommand, slashOptionId } from "./slash-commands";
 import { SlashCommandMenu } from "./SlashCommandMenu";
-import { setPaneChatView } from "./usePaneChatView";
+import { markChatStarting, setPaneChatView } from "./usePaneChatView";
 import { useSlashCommands } from "./useSlashCommands";
+
+/** Claude Code's `/clear` and its aliases: each starts a new session. */
+const CLEAR_COMMANDS = new Set(["clear", "reset", "new"]);
 
 type ChatComposerProps = {
   paneId: string;
   /** Claude is mid-turn: offer Stop. */
   busy: boolean;
+  /** The transcript the chat shows, which a `/clear` leaves behind. Absent
+   *  while the chat is already fresh. */
+  transcript?: string;
 };
 
 /**
@@ -25,14 +31,15 @@ type ChatComposerProps = {
  *
  * Typing `/` at the start opens the command menu (ADR-217 D5). Sending a
  * command that opens a TUI menu (`interactive`) switches the pane to the
- * terminal, where that menu is.
+ * terminal, where that menu is. Sending `/clear` leaves the old
+ * conversation behind for a fresh chat.
  *
  * `data-keyboard-lift` is what `KeyboardLift` looks for: while this has
  * focus, the phone shell is lifted until the composer clears the soft
  * keyboard.
  */
 export function ChatComposer(props: ChatComposerProps) {
-  const { paneId, busy } = props;
+  const { paneId, busy, transcript } = props;
 
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
@@ -74,6 +81,9 @@ export function ChatComposer(props: ChatComposerProps) {
         setSending(false);
         const command = firstWordCommand(sent);
         if (command && slash.isInteractive(command)) setPaneChatView(paneId, "terminal");
+        if (transcript && command && CLEAR_COMMANDS.has(command)) {
+          markChatStarting(paneId, transcript);
+        }
       },
       () => {
         setError("Couldn't send. Try again, or use the terminal.");

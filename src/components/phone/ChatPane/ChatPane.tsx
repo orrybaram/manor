@@ -32,6 +32,8 @@ const STICK_SLOP_PX = 48;
 
 type ChatPaneProps = {
   paneId: string;
+  /** The transcript this chat reads (it is keyed by it). */
+  transcript: string;
   /** The terminal is showing instead. The chat stays mounted and subscribed. */
   hidden: boolean;
   onShowTerminal: () => void;
@@ -53,7 +55,7 @@ type ChatPaneProps = {
  * retry, whichever comes first.
  */
 export function ChatPane(props: ChatPaneProps) {
-  const { paneId, hidden, onShowTerminal } = props;
+  const { paneId, transcript, hidden, onShowTerminal } = props;
 
   const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -213,7 +215,7 @@ export function ChatPane(props: ChatPaneProps) {
               </Button>
             </div>
           )}
-          <ChatComposer paneId={paneId} busy={busy} />
+          <ChatComposer paneId={paneId} busy={busy} transcript={transcript} />
         </>
       )}
     </div>

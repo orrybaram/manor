@@ -73,7 +73,7 @@ function useMenuTargets(): MenuTargets {
   // A Claude agent the phone just started has the chat before its transcript.
   const chatStarting = usePaneChatViewStore((s) =>
     paneId !== null && contentType !== "diff" && contentType !== "browser"
-      ? s.starting[paneId] === true
+      ? paneId in s.starting
       : false,
   );
   // Strings, so the selectors are stable across unrelated store changes.

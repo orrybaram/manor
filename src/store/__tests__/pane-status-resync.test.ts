@@ -65,4 +65,27 @@ describe("agent status resync", () => {
     await resynced;
     expect(useAppStore.getState().paneAgentStatus.p1?.status).toBe("idle");
   });
+
+  it("a push for one pane does not drop the read for the others", async () => {
+    useAppStore.setState({
+      paneAgentStatus: {
+        p1: { status: "working", kind: "claude" },
+        p2: { status: "working", kind: "claude" },
+      },
+    } as never);
+    let answer: (updates: PaneAgentStatusUpdate[]) => void = () => {};
+    getPaneStatuses.mockReturnValueOnce(
+      new Promise((resolve) => (answer = resolve)),
+    );
+    const resynced = emitBridgeResync();
+    push({ paneId: "p1", status: "idle", kind: "claude", reason: "hook" });
+    answer([
+      { paneId: "p1", status: "requires_input", kind: "claude", reason: "hook" },
+      { paneId: "p2", status: "requires_input", kind: "claude", reason: "hook" },
+    ]);
+    await resynced;
+    const held = useAppStore.getState().paneAgentStatus;
+    expect(held.p1?.status).toBe("idle");
+    expect(held.p2?.status).toBe("requires_input");
+  });
 });

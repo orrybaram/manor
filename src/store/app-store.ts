@@ -67,7 +67,7 @@ import {
   type WorkspaceKey,
 } from "../lib/workspace-key";
 import { useProjectStore } from "./project-store";
-import { liveValue } from "../bridge/resync";
+import { bootAndResync } from "../bridge/resync";
 import { useRemotePaneStore } from "./remote-pane-store";
 import {
   type SnapshotResult,
@@ -2501,19 +2501,32 @@ useAppStore.subscribe((state, previous) => {
 // detached/popout window that opens, or a reload) after some panes' statuses
 // were already published, with nothing to replay otherwise, and re-reads them
 // on a bridge resync — the held statuses are the stale ones then. A status
-// published while that read is in flight is newer than it, and drops it.
+// published while that read is in flight is newer than it for its pane.
 // Deferred a microtask for the same reason as `layout.onChanged` above.
 queueMicrotask(() => {
   const agents = window.electronAPI?.agents;
   if (!agents?.onStatus) return;
-  liveValue(
-    // An older preload has no read; the live stream alone keeps the cache.
-    () => agents.getPaneStatuses?.() ?? Promise.resolve([]),
-    (cb) => agents.onStatus((update) => cb([update])),
-    (updates) => {
+  const set = (update: PaneAgentStatusUpdate): void =>
+    useAppStore.getState().setPaneAgentStatus(update);
+  // A push is newer than an in-flight read for *its* pane only: the read
+  // still lands for every other pane, so one busy agent cannot starve the
+  // rest of their catch-up.
+  const reads = new Set<Set<string>>();
+  agents.onStatus((update) => {
+    for (const pushed of reads) pushed.add(update.paneId);
+    set(update);
+  });
+  bootAndResync(async () => {
+    const pushed = new Set<string>();
+    reads.add(pushed);
+    try {
+      // An older preload has no read; the live stream alone keeps the cache.
+      const updates = (await agents.getPaneStatuses?.()) ?? [];
       for (const update of updates) {
-        useAppStore.getState().setPaneAgentStatus(update);
+        if (!pushed.has(update.paneId)) set(update);
       }
-    },
-  );
+    } finally {
+      reads.delete(pushed);
+    }
+  });
 });

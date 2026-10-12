@@ -21,11 +21,10 @@
  */
 
 import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
-import { safeStorage } from "electron";
 
 import { remoteDevicesFile } from "../paths";
+import type { SecretBox } from "../platform/secret-box";
+import { readSealed, SealedWriter } from "../platform/sealed-file";
 
 export interface RemoteDevice {
   /** Random id. Safe to log — it is not a credential. */
@@ -105,9 +104,41 @@ export class RemoteDeviceStore {
   /** The live lookup. `revoke()` deletes from this map and nothing else. */
   private devices = new Map<string, RemoteDevice>();
   private loaded = false;
+  private readonly writer: SealedWriter;
 
-  constructor(filePath: string = remoteDevicesFile()) {
+  constructor(
+    private readonly secretBox: SecretBox,
+    filePath: string = remoteDevicesFile(),
+  ) {
     this.filePath = filePath;
+    this.writer = new SealedWriter(secretBox, filePath, "paired devices");
+  }
+
+  /**
+   * Decrypt the file into memory. Must complete before any other method: the
+   * secret box is async, so the rest of this API reads the cached state and
+   * stays synchronous (`verify()` is on the hello path).
+   */
+  async init(): Promise<void> {
+    if (this.loaded) return;
+    let decrypted: string;
+    try {
+      decrypted = await readSealed(this.secretBox, this.filePath);
+    } catch {
+      // No file yet, or a file this install can no longer decrypt (a restored
+      // backup, a new keychain). Either way there are no usable devices, and
+      // the user re-pairs — which is exactly the recovery story the per-device
+      // model is for.
+      this.loaded = true;
+      return;
+    }
+    this.loaded = true;
+    this.hydrate(decrypted);
+  }
+
+  /** Resolves once every queued write has reached disk. */
+  flush(): Promise<void> {
+    return this.writer.flush();
   }
 
   /**
@@ -124,7 +155,7 @@ export class RemoteDeviceStore {
     rawToken: string;
   } {
     this.load();
-    if (!safeStorage.isEncryptionAvailable()) {
+    if (!this.secretBox.available()) {
       throw new EncryptionUnavailableError();
     }
 
@@ -255,19 +286,12 @@ export class RemoteDeviceStore {
   }
 
   private load(): void {
-    if (this.loaded) return;
-    this.loaded = true;
-    let decrypted: string;
-    try {
-      const encrypted = fs.readFileSync(this.filePath);
-      decrypted = safeStorage.decryptString(encrypted);
-    } catch {
-      // No file yet, or a file this install can no longer decrypt (a restored
-      // backup, a new keychain). Either way there are no usable devices, and
-      // the user re-pairs — which is exactly the recovery story the per-device
-      // model is for.
-      return;
+    if (!this.loaded) {
+      throw new Error("RemoteDeviceStore.init() has not completed");
     }
+  }
+
+  private hydrate(decrypted: string): void {
     try {
       const parsed: unknown = JSON.parse(decrypted);
       if (!Array.isArray(parsed)) return;
@@ -301,7 +325,7 @@ export class RemoteDeviceStore {
   }
 
   private persist(): void {
-    if (!safeStorage.isEncryptionAvailable()) {
+    if (!this.secretBox.available()) {
       throw new EncryptionUnavailableError();
     }
     const payload = JSON.stringify(
@@ -310,12 +334,7 @@ export class RemoteDeviceStore {
         ...known,
       })),
     );
-    const encrypted = safeStorage.encryptString(payload);
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.writeFileSync(this.filePath, encrypted, { mode: 0o600 });
-    // `mode` only applies when the file is created, so an existing file keeps
-    // whatever it had. Restate it every write.
-    fs.chmodSync(this.filePath, 0o600);
+    this.writer.write(payload);
   }
 }
 

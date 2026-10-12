@@ -1,0 +1,227 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { execFileSync } from "node:child_process";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  libsecretSecretBox,
+  pickHostSecretBox,
+  plainFileSecretBox,
+  systemdCredsSecretBox,
+  type ExecFn,
+  type SecretBox,
+} from "../secret-box";
+
+const fakeBox = (name: "systemd-creds" | "libsecret"): SecretBox => ({
+  available: () => true,
+  backend: () => name,
+  encrypt: async (b) => b,
+  decrypt: async (b) => b,
+});
+
+/** A fake `systemd-creds` that "encrypts" by reversing the bytes. */
+function fakeSystemdCreds(version = "systemd 257 (257.1)"): ExecFn {
+  return async (cmd, args, input) => {
+    if (cmd !== "systemd-creds") return { code: null, stdout: Buffer.alloc(0) };
+    if (args[0] === "--version") {
+      return { code: 0, stdout: Buffer.from(`${version}\n+PAM`) };
+    }
+    // Secrets only ever travel on stdin/stdout.
+    expect(args.join(" ")).not.toContain("secret");
+    return { code: 0, stdout: Buffer.from(input!).reverse() };
+  };
+}
+
+/** An in-memory `secret-tool`. */
+function fakeSecretTool(): { exec: ExecFn; store: Map<string, Buffer> } {
+  const store = new Map<string, Buffer>();
+  const exec: ExecFn = async (cmd, args, input) => {
+    if (cmd !== "secret-tool") return { code: null, stdout: Buffer.alloc(0) };
+    const verb = args[0];
+    const attrs = args.filter((a) => !a.startsWith("--")).slice(1).join("|");
+    if (verb === "store") {
+      store.set(attrs, Buffer.from(input!));
+      return { code: 0, stdout: Buffer.alloc(0) };
+    }
+    if (verb === "lookup") {
+      const v = store.get(attrs);
+      return v ? { code: 0, stdout: v } : { code: 1, stdout: Buffer.alloc(0) };
+    }
+    store.delete(attrs);
+    return { code: 0, stdout: Buffer.alloc(0) };
+  };
+  return { exec, store };
+}
+
+describe("plainFileSecretBox", () => {
+  it("is the identity", async () => {
+    const data = Buffer.from("hello");
+    expect(await plainFileSecretBox.encrypt(data)).toEqual(data);
+    expect(await plainFileSecretBox.decrypt(data)).toEqual(data);
+    expect(plainFileSecretBox.available()).toBe(true);
+    expect(plainFileSecretBox.backend()).toBe("plaintext");
+  });
+});
+
+describe("systemdCredsSecretBox", () => {
+  it("round-trips through the helper", async () => {
+    const box = await systemdCredsSecretBox(fakeSystemdCreds());
+    expect(box?.backend()).toBe("systemd-creds");
+    const sealed = await box!.encrypt(Buffer.from("abc"));
+    expect(sealed.toString()).toBe("cba");
+    expect((await box!.decrypt(sealed)).toString()).toBe("abc");
+  });
+
+  it("is unavailable before v256", async () => {
+    expect(
+      await systemdCredsSecretBox(fakeSystemdCreds("systemd 255 (255.4)")),
+    ).toBeNull();
+  });
+
+  it("is unavailable without the binary", async () => {
+    expect(
+      await systemdCredsSecretBox(async () => ({
+        code: null,
+        stdout: Buffer.alloc(0),
+      })),
+    ).toBeNull();
+  });
+
+  it("is unavailable when the round trip does not match", async () => {
+    const exec: ExecFn = async (_cmd, args, input) =>
+      args[0] === "--version"
+        ? { code: 0, stdout: Buffer.from("systemd 257") }
+        : { code: 0, stdout: Buffer.from(input!) .subarray(1) };
+    expect(await systemdCredsSecretBox(exec)).toBeNull();
+  });
+});
+
+describe("libsecretSecretBox", () => {
+  const env = { DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/1/bus" };
+
+  it("needs a session bus", async () => {
+    expect(await libsecretSecretBox(fakeSecretTool().exec, {})).toBeNull();
+  });
+
+  it("seals with AES-GCM under a keyring-held data key, and reuses it", async () => {
+    const tool = fakeSecretTool();
+    const box = await libsecretSecretBox(tool.exec, env);
+    expect(box?.backend()).toBe("libsecret");
+    const sealed = await box!.encrypt(Buffer.from("top secret"));
+    expect(sealed.toString()).not.toContain("top secret");
+    expect((await box!.decrypt(sealed)).toString()).toBe("top secret");
+
+    const again = await libsecretSecretBox(tool.exec, env);
+    expect((await again!.decrypt(sealed)).toString()).toBe("top secret");
+
+    sealed[sealed.length - 1] ^= 1;
+    await expect(box!.decrypt(sealed)).rejects.toThrow();
+  });
+
+  it("is unavailable when the keyring does not store", async () => {
+    const exec: ExecFn = async () => ({ code: 1, stdout: Buffer.alloc(0) });
+    expect(await libsecretSecretBox(exec, env)).toBeNull();
+  });
+});
+
+describe("pickHostSecretBox", () => {
+  let dir: string;
+  let choiceFile: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-secret-box-"));
+    choiceFile = path.join(dir, "nested", "secret-backend.json");
+  });
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const choice = () =>
+    (JSON.parse(fs.readFileSync(choiceFile, "utf8")) as { backend: string })
+      .backend;
+
+  it("prefers systemd-creds", async () => {
+    const box = await pickHostSecretBox({
+      choiceFile,
+      probes: {
+        "systemd-creds": async () => fakeBox("systemd-creds"),
+        libsecret: async () => fakeBox("libsecret"),
+      },
+    });
+    expect(box.backend()).toBe("systemd-creds");
+    expect(choice()).toBe("systemd-creds");
+  });
+
+  it("falls back to libsecret, then plaintext", async () => {
+    const viaLibsecret = await pickHostSecretBox({
+      choiceFile,
+      probes: {
+        "systemd-creds": async () => null,
+        libsecret: async () => fakeBox("libsecret"),
+      },
+    });
+    expect(viaLibsecret.backend()).toBe("libsecret");
+
+    fs.rmSync(choiceFile);
+    const plain = await pickHostSecretBox({
+      choiceFile,
+      probes: { "systemd-creds": async () => null, libsecret: async () => null },
+    });
+    expect(plain.backend()).toBe("plaintext");
+    expect(choice()).toBe("plaintext");
+  });
+
+  it("keeps using the persisted choice", async () => {
+    const libsecret = vi.fn(async () => fakeBox("libsecret"));
+    await pickHostSecretBox({
+      choiceFile,
+      probes: { "systemd-creds": async () => null, libsecret },
+    });
+    // systemd-creds appearing later must not change where keys were sealed.
+    const systemd = vi.fn(async () => fakeBox("systemd-creds"));
+    const box = await pickHostSecretBox({
+      choiceFile,
+      probes: { "systemd-creds": systemd, libsecret },
+    });
+    expect(box.backend()).toBe("libsecret");
+    expect(systemd).not.toHaveBeenCalled();
+  });
+
+  it("errors, rather than writing plaintext, when the chosen backend is gone", async () => {
+    await pickHostSecretBox({
+      choiceFile,
+      probes: { "systemd-creds": async () => fakeBox("systemd-creds") },
+    });
+    await expect(
+      pickHostSecretBox({
+        choiceFile,
+        probes: { "systemd-creds": async () => null },
+      }),
+    ).rejects.toThrow(
+      "Pairing keys were encrypted with systemd-creds, which is no longer available",
+    );
+    expect(choice()).toBe("systemd-creds");
+  });
+
+  const realSystemdCreds = (() => {
+    const bin = "systemd-creds";
+    try {
+      execFileSync(bin, ["--version"], { stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+
+  it.skipIf(!realSystemdCreds)(
+    "probes the real systemd-creds without throwing",
+    async () => {
+      const box = await systemdCredsSecretBox();
+      if (box) {
+        const sealed = await box.encrypt(Buffer.from("x"));
+        expect((await box.decrypt(sealed)).toString()).toBe("x");
+      }
+    },
+  );
+});

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, nativeImage, powerMonitor, safeStorage } from "electron";
+import { app, BrowserWindow, nativeImage, powerMonitor } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
@@ -13,6 +13,8 @@ import { BranchWatcher } from "./branch-watcher";
 import { DiffWatcher } from "./diff-watcher";
 import { GitHubManager, ghRepoFromRemoteUrl } from "./github";
 import { LinearManager } from "./linear";
+import type { AppInfo } from "./platform/app-info";
+import { electronSecretBox } from "./platform/electron-secret-box";
 import { JevClient } from "./jev";
 import { AgentHookServer } from "./agent-hooks";
 import { NotificationCoalescer, type HookCursor } from "./backend/hook-feed";
@@ -46,6 +48,7 @@ import { RoutedBackend } from "./backend/routed-backend";
 import { PrewarmManager } from "./prewarm-manager";
 import { publishRendererBroadcast } from "./renderer-broadcast";
 import { RemoteDeviceStore } from "./remote-control/devices";
+import { RelayIdentityStore } from "./remote-control/relay/identity";
 import { BridgeServer } from "./bridge/server";
 import type { WsBridgeServer } from "./bridge/transports/ws";
 import { IpcBridgeTransport } from "./bridge/transports/ipc";
@@ -450,8 +453,24 @@ export function initApp(devTitle: string | null): void {
     if (!repo) throw new Error(`Not a GitHub remote: ${origin}`);
     return repo;
   });
-  const linearManager = new LinearManager();
-  const jevClient = new JevClient();
+  // The remote-control and relay modules take their platform from these ports
+  // rather than importing Electron, so the host server can reuse them (ADR-218 D6).
+  const secretBox = electronSecretBox;
+  const appInfo: AppInfo = {
+    version: app.getVersion(),
+    isPackaged: app.isPackaged,
+    logsDir: app.getPath("logs"),
+  };
+  const linearManager = new LinearManager(secretBox);
+  // One identity store for Jev and the relay: each caches the decrypted keys,
+  // so a second instance would go stale when the relay address is reset.
+  const relayIdentityStore = new RelayIdentityStore(secretBox);
+  const jevClient = new JevClient({
+    identityStore: async () => {
+      await relayIdentityStore.init();
+      return relayIdentityStore;
+    },
+  });
 
   const prewarmManager = new PrewarmManager(client, process.env.HOME || "/");
   const agentHookServer = new AgentHookServer();
@@ -519,8 +538,8 @@ export function initApp(devTitle: string | null): void {
   // separately start the relay (ADR-207: there is no listener). The gate and
   // relay modules are not even loaded until then (ADR-205 §3): `loadRuntime`
   // runs at most once, on the first enable.
-  const remoteDeviceStore = new RemoteDeviceStore();
-  const remotePush = new PushManager(remoteDeviceStore);
+  const remoteDeviceStore = new RemoteDeviceStore(secretBox);
+  const remotePush = new PushManager(remoteDeviceStore, secretBox);
   /**
    * The host surface and its two transports (ADR-180 D1/D2). The surface and
    * the desktop's IPC transport are built below, once `ipcDeps` exists: the
@@ -537,24 +556,20 @@ export function initApp(devTitle: string | null): void {
   let wsBridge: WsBridgeServer | null = null;
   let ipcBridge: IpcBridgeTransport | null = null;
   const loadRemoteControlRuntime = async (): Promise<RemoteControlRuntime> => {
-    const [
-      { RelayGate },
-      { WsBridgeServer },
-      { RelayConnector },
-      { RelayIdentityStore },
-    ] = await Promise.all([
-      import("./remote-control/relay-gate"),
-      import("./bridge/transports/ws"),
-      import("./remote-control/relay/connector"),
-      import("./remote-control/relay/identity"),
-    ]);
+    const [{ RelayGate }, { WsBridgeServer }, { RelayConnector }] =
+      await Promise.all([
+        import("./remote-control/relay-gate"),
+        import("./bridge/transports/ws"),
+        import("./remote-control/relay/connector"),
+      ]);
+    await relayIdentityStore.init();
     // The web app's transport (ADR-178 D8, ADR-180 D1). `bridgeServer` is
     // built synchronously during `initApp`, long before anything can enable
     // remote control. Its hello reply carries the app version, so a relay
     // page built for another version can move to the matching build
     // (ADR-206 D4).
     const ws = new WsBridgeServer(bridgeServer!, {
-      appVersion: app.getVersion(),
+      appVersion: appInfo.version,
     });
     wsBridge = ws;
     // The hello gate every relay channel passes (ADR-207 D3): device verify,
@@ -562,16 +577,15 @@ export function initApp(devTitle: string | null): void {
     const gate = new RelayGate(remoteDeviceStore, ws);
     // ADR-206's relay: the only way in. Constructed, never started here —
     // only an explicit user action (via the controller) dials it.
-    const relayIdentity = new RelayIdentityStore();
-    const relay = new RelayConnector({ identity: relayIdentity, gate });
-    return { gate, relay, relayIdentity };
+    const relay = new RelayConnector({ identity: relayIdentityStore, gate });
+    return { gate, relay, relayIdentity: relayIdentityStore };
   };
   const remoteControl = new RemoteControlController(
     loadRemoteControlRuntime,
     remoteDeviceStore,
-    () => safeStorage.isEncryptionAvailable(),
+    () => secretBox.available(),
     remotePush,
-    app.getVersion(),
+    appInfo.version,
   );
   const paneContextMap = new Map<
     string,
@@ -893,6 +907,13 @@ export function initApp(devTitle: string | null): void {
 
   // ── App lifecycle ──
   app.whenReady().then(async () => {
+    // Decrypt the secrets the stores keep in memory before any window can ask
+    // for them (the secret box is async; the stores' APIs are not).
+    await Promise.all([
+      remoteDeviceStore.init(),
+      relayIdentityStore.init(),
+      linearManager.init(),
+    ]);
     // Native application menu (ADR-170). Must run after `whenReady()` (Menu
     // isn't available before then) and before the primary window opens so the
     // menu is in place the instant the window can take focus.
@@ -1056,6 +1077,7 @@ export function initApp(devTitle: string | null): void {
     // Takes the relay down first, then the connections it carried. Nothing
     // reachable may outlive the app that opened it.
     void remoteControl.shutdown();
+    void Promise.all([remoteDeviceStore.flush(), relayIdentityStore.flush()]);
     // Bridge sockets close with remote control above; disposing the surface then
     // releases the renderer-broadcast and attachment sinks so nothing
     // publishes into a connection set that is gone.

@@ -1,8 +1,8 @@
 import fs from "node:fs";
-import path from "node:path";
-import { safeStorage } from "electron";
 
 import { linearTokenFile } from "./paths";
+import type { SecretBox } from "./platform/secret-box";
+import { readSealed, writeSealed } from "./platform/sealed-file";
 import { isLinearImageUrl } from "../src/lib/task-images";
 import { fetchImageDataUrl } from "./image-proxy";
 
@@ -64,27 +64,33 @@ export interface GetMyIssuesOptions {
 
 export class LinearManager {
   private tokenPath: string;
+  /** The decrypted key, loaded by `init()` so `getToken()` can stay synchronous. */
+  private token: string | null = null;
 
-  constructor() {
+  constructor(private readonly secretBox: SecretBox) {
     this.tokenPath = linearTokenFile();
   }
 
-  saveToken(apiKey: string): void {
-    const encrypted = safeStorage.encryptString(apiKey);
-    fs.mkdirSync(path.dirname(this.tokenPath), { recursive: true });
-    fs.writeFileSync(this.tokenPath, encrypted);
-  }
-
-  getToken(): string | null {
+  /** Decrypt the stored key into memory. Call once before using the manager. */
+  async init(): Promise<void> {
     try {
-      const encrypted = fs.readFileSync(this.tokenPath);
-      return safeStorage.decryptString(encrypted);
+      this.token = await readSealed(this.secretBox, this.tokenPath);
     } catch {
-      return null;
+      this.token = null;
     }
   }
 
+  async saveToken(apiKey: string): Promise<void> {
+    await writeSealed(this.secretBox, this.tokenPath, apiKey);
+    this.token = apiKey;
+  }
+
+  getToken(): string | null {
+    return this.token;
+  }
+
   clearToken(): void {
+    this.token = null;
     try {
       fs.unlinkSync(this.tokenPath);
     } catch {

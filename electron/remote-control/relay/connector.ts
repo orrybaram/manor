@@ -70,7 +70,7 @@ import {
 } from "../../../src/lib/relay-crypto/protocol";
 import type { FrameSocket } from "../../bridge/transports/frame-socket";
 import { RelayChannel } from "./channel";
-import { wipe } from "./identity";
+import { wipe } from "./wipe";
 import { parseRelayUrl, resolveRelayUrl, type RelayEndpoint } from "./url";
 
 type RelayState = "stopped" | "starting" | "running" | "failed";

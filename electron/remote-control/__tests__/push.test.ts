@@ -10,15 +10,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const keychain = vi.hoisted(() => ({ available: true }));
-
-vi.mock("electron", () => ({
-  safeStorage: {
-    isEncryptionAvailable: () => keychain.available,
-    encryptString: (s: string) => Buffer.from(`enc:${s}`, "utf8"),
-    decryptString: (b: Buffer) => b.toString("utf8").replace(/^enc:/, ""),
-  },
-}));
+import { switchableBox } from "../../platform/__tests__/switchable-box";
 
 // Stands in for the real module so the tests can see *whether* it is loaded:
 // the factory only runs on the first `import("web-push")`.
@@ -38,6 +30,8 @@ vi.mock("web-push", () => {
     generateVAPIDKeys: webPush.generateVAPIDKeys,
   };
 });
+
+const keychain = switchableBox();
 
 import { RemoteDeviceStore } from "../devices";
 import { PushManager, isPushable, pushPayloadFor } from "../push";
@@ -59,20 +53,26 @@ describe("PushManager", () => {
   let send: ReturnType<typeof vi.fn>;
   let push: PushManager;
 
-  beforeEach(() => {
-    keychain.available = true;
+  beforeEach(async () => {
+    keychain.setAvailable(true);
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-push-"));
-    devices = new RemoteDeviceStore(path.join(dir, "devices.enc"));
+    devices = new RemoteDeviceStore(
+      keychain,
+      path.join(dir, "devices.enc"),
+    );
+    await devices.init();
     send = vi.fn(async () => ({}));
     push = new PushManager(
       devices,
+      keychain,
       path.join(dir, "vapid.enc"),
       send as never,
       () => ({ publicKey: "pub-key", privateKey: "priv-key" }),
     );
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await devices.flush();
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
@@ -89,6 +89,7 @@ describe("PushManager", () => {
     }));
     const p = new PushManager(
       devices,
+      keychain,
       path.join(dir, "vapid.enc"),
       send as never,
       generate,
@@ -103,16 +104,17 @@ describe("PushManager", () => {
     expect(await push.publicKey()).toBe("pub-key");
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
 
-    const reopened = new PushManager(devices, file, send as never, () => {
+    const reopened = new PushManager(devices, keychain, file, send as never, () => {
       throw new Error("must not regenerate");
     });
     expect(await reopened.publicKey()).toBe("pub-key");
   });
 
   it("refuses to store a key it cannot encrypt", async () => {
-    keychain.available = false;
+    keychain.setAvailable(false);
     const p = new PushManager(
       devices,
+      keychain,
       path.join(dir, "vapid-2.enc"),
       send as never,
       () => ({ publicKey: "pub-key", privateKey: "priv-key" }),
@@ -172,9 +174,10 @@ describe("PushManager", () => {
 
   it("sends no push at all when the key cannot be stored", async () => {
     pairedWithPush();
-    keychain.available = false;
+    keychain.setAvailable(false);
     const p = new PushManager(
       devices,
+      keychain,
       path.join(dir, "vapid-3.enc"),
       send as never,
       () => ({ publicKey: "pub-key", privateKey: "priv-key" }),
@@ -209,20 +212,25 @@ describe("PushManager loading web-push lazily", () => {
   let dir: string;
   let devices: RemoteDeviceStore;
 
-  beforeEach(() => {
-    keychain.available = true;
+  beforeEach(async () => {
+    keychain.setAvailable(true);
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-push-lazy-"));
-    devices = new RemoteDeviceStore(path.join(dir, "devices.enc"));
+    devices = new RemoteDeviceStore(
+      keychain,
+      path.join(dir, "devices.enc"),
+    );
+    await devices.init();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await devices.flush();
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
   // One ordered test: the module cache is per-file, so "not yet imported" is
   // only observable before the first real use.
   it("imports web-push only once there is something to sign or send", async () => {
-    const push = new PushManager(devices, path.join(dir, "vapid.enc"));
+    const push = new PushManager(devices, keychain, path.join(dir, "vapid.enc"));
 
     // Nothing subscribed: no key, no module, and nothing written.
     expect(await push.notify(pushPayloadFor("requires_input", AGENT))).toBe(0);
@@ -247,6 +255,7 @@ describe("PushManager loading web-push lazily", () => {
     }));
     const push = new PushManager(
       devices,
+      keychain,
       path.join(dir, "vapid.enc"),
       vi.fn(async () => ({})) as never,
       generate,

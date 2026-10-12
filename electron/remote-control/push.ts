@@ -22,13 +22,12 @@
  * never loads it at all.
  */
 
-import fs from "node:fs";
-import path from "node:path";
-import { safeStorage } from "electron";
 import type * as WebPush from "web-push";
 
 import { cjsExports, lazy } from "../lib/lazy";
 import { remoteVapidFile } from "../paths";
+import type { SecretBox } from "../platform/secret-box";
+import { readSealed, writeSealed } from "../platform/sealed-file";
 import type { PushSubscriptionRecord, RemoteDeviceStore } from "./devices";
 
 export interface VapidKeys {
@@ -68,6 +67,7 @@ export class PushManager {
 
   constructor(
     private readonly devices: RemoteDeviceStore,
+    private readonly secretBox: SecretBox,
     private readonly filePath: string = remoteVapidFile(),
     /** Injected so tests do not talk to a real push service. */
     private readonly send: typeof WebPush.sendNotification = async (...args) =>
@@ -155,11 +155,11 @@ export class PushManager {
     if (this.keys) return this.keys;
     if (!this.loaded) {
       this.loaded = true;
-      this.keys = this.read();
+      this.keys = await this.read();
     }
     if (this.keys) return this.keys;
 
-    if (!safeStorage.isEncryptionAvailable()) {
+    if (!this.secretBox.available()) {
       throw new Error(
         "OS encryption is unavailable, so the push signing key cannot be " +
           "stored safely. Push stays off.",
@@ -175,19 +175,14 @@ export class PushManager {
 
   private async generateAndStore(): Promise<VapidKeys> {
     const keys = await this.generate();
-    const encrypted = safeStorage.encryptString(JSON.stringify(keys));
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.writeFileSync(this.filePath, encrypted, { mode: 0o600 });
-    fs.chmodSync(this.filePath, 0o600);
+    await writeSealed(this.secretBox, this.filePath, JSON.stringify(keys));
     this.keys = keys;
     return keys;
   }
 
-  private read(): VapidKeys | null {
+  private async read(): Promise<VapidKeys | null> {
     try {
-      const decrypted = safeStorage.decryptString(
-        fs.readFileSync(this.filePath),
-      );
+      const decrypted = await readSealed(this.secretBox, this.filePath);
       const parsed: unknown = JSON.parse(decrypted);
       if (
         typeof parsed === "object" &&

@@ -3,18 +3,17 @@
  * the relay this machine owns its room, and the X25519 key that is the Noise
  * NK static key a paired browser authenticates the desktop by.
  *
- * Stored the way `RemoteDeviceStore` stores tokens: `safeStorage`-encrypted
+ * Stored the way `RemoteDeviceStore` stores tokens: `SecretBox`-encrypted
  * into `manorDataDir()`, mode 0600, and never written in plaintext — when the
  * OS keychain cannot encrypt, this throws `EncryptionUnavailableError` and the
  * relay stays off.
  *
- * Only the public half is cached. `load()` decrypts the file and hands the
- * private keys to the caller (the connector, while it is running), which
- * drops — and zeroes — them when it stops.
+ * The secret box is async, so `init()` decrypts the file once into memory (or
+ * creates the identity) and the rest of the API stays synchronous. `load()`
+ * hands the caller (the connector, while it is running) a copy of the private
+ * keys, which it drops — and zeroes — when it stops. The store's own copy is
+ * never handed out.
  */
-import fs from "node:fs";
-import path from "node:path";
-import { safeStorage } from "electron";
 
 import {
   base64urlDecode,
@@ -24,7 +23,10 @@ import {
   type RelayIdentity,
 } from "../../../src/lib/relay-crypto";
 import { relayIdentityFile } from "../../paths";
+import type { SecretBox } from "../../platform/secret-box";
+import { readSealed, SealedWriter } from "../../platform/sealed-file";
 import { EncryptionUnavailableError } from "../devices";
+import { wipe } from "./wipe";
 
 /** What a pairing link needs, and nothing secret. */
 export interface RelayIdentityInfo {
@@ -44,8 +46,39 @@ const KEY_BYTES = 32;
 
 export class RelayIdentityStore {
   private info: RelayIdentityInfo | null = null;
+  /** The decrypted identity, once `init()` has run. Never leaves this class. */
+  private cached: RelayIdentity | null = null;
+  private inited = false;
+  private readonly writer: SealedWriter;
 
-  constructor(private readonly filePath: string = relayIdentityFile()) {}
+  constructor(
+    private readonly secretBox: SecretBox,
+    private readonly filePath: string = relayIdentityFile(),
+  ) {
+    this.writer = new SealedWriter(secretBox, filePath, "relay identity");
+  }
+
+  /**
+   * Read the identity from disk, or generate and persist one when there is
+   * none. A no-op while the secret box cannot encrypt: `load()` then throws
+   * `EncryptionUnavailableError` and the relay stays off.
+   *
+   * A file that cannot be decrypted or parsed (a restored backup, a new
+   * keychain) is unusable either way; it is replaced by a fresh identity,
+   * which is a new room — exactly what "Reset relay address" does on purpose.
+   */
+  async init(): Promise<void> {
+    if (this.inited || !this.secretBox.available()) return;
+    this.inited = true;
+    const existing = await this.read();
+    if (existing) this.adopt(existing);
+    else this.create();
+  }
+
+  /** Resolves once every queued write has reached disk. */
+  flush(): Promise<void> {
+    return this.writer.flush();
+  }
 
   /** The room this desktop owns. Creates the identity on first use. */
   get roomId(): string {
@@ -57,62 +90,64 @@ export class RelayIdentityStore {
     return this.describe().x25519Pub;
   }
 
-  /** Public half only. Creates and persists the identity if there is none. */
+  /** Public half only. */
   describe(): RelayIdentityInfo {
-    if (this.info) return { ...this.info };
-    const identity = this.load();
-    const info = infoOf(identity);
-    wipe(identity);
-    return info;
+    return { ...this.ready().info };
   }
 
   /**
-   * The full identity, private keys included: read from disk, or generated
-   * and persisted when there is none. The caller owns the returned copy and
-   * should `wipe` it when done.
-   *
-   * A file that cannot be decrypted or parsed (a restored backup, a new
-   * keychain) is unusable either way; it is replaced by a fresh identity,
-   * which is a new room — exactly what "Reset relay address" does on purpose.
+   * The full identity, private keys included. The caller owns the returned
+   * copy and should `wipe` it when done.
    */
   load(): RelayIdentity {
-    if (!safeStorage.isEncryptionAvailable()) {
-      throw new EncryptionUnavailableError();
-    }
-    const existing = this.read();
-    if (existing) {
-      this.remember(existing);
-      return existing;
-    }
-    return this.create();
+    const { identity } = this.ready();
+    return {
+      ed25519: {
+        pub: identity.ed25519.pub.slice(),
+        priv: identity.ed25519.priv.slice(),
+      },
+      x25519: {
+        pub: identity.x25519.pub.slice(),
+        priv: identity.x25519.priv.slice(),
+      },
+    };
   }
 
   /** Regenerate both keys: a new room, and every relay link dead at once. */
   reset(): RelayIdentityInfo {
-    if (!safeStorage.isEncryptionAvailable()) {
+    if (!this.secretBox.available()) {
       throw new EncryptionUnavailableError();
     }
-    const identity = this.create();
-    const info = infoOf(identity);
-    wipe(identity);
-    return info;
+    if (this.cached) wipe(this.cached);
+    this.create();
+    return { ...this.info! };
   }
 
-  private create(): RelayIdentity {
-    const identity = generateRelayIdentity();
-    this.persist(identity);
-    this.remember(identity);
-    return identity;
+  private ready(): { identity: RelayIdentity; info: RelayIdentityInfo } {
+    if (!this.secretBox.available()) {
+      throw new EncryptionUnavailableError();
+    }
+    if (!this.inited) {
+      throw new Error("RelayIdentityStore.init() has not completed");
+    }
+    if (!this.cached || !this.info) this.create();
+    return { identity: this.cached!, info: this.info! };
   }
 
-  private remember(identity: RelayIdentity): void {
+  private create(): void {
+    this.adopt(generateRelayIdentity());
+    this.persist(this.cached!);
+  }
+
+  private adopt(identity: RelayIdentity): void {
+    this.cached = identity;
     this.info = infoOf(identity);
   }
 
-  private read(): RelayIdentity | null {
+  private async read(): Promise<RelayIdentity | null> {
     let decrypted: string;
     try {
-      decrypted = safeStorage.decryptString(fs.readFileSync(this.filePath));
+      decrypted = await readSealed(this.secretBox, this.filePath);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
         console.warn(
@@ -142,9 +177,6 @@ export class RelayIdentityStore {
   }
 
   private persist(identity: RelayIdentity): void {
-    if (!safeStorage.isEncryptionAvailable()) {
-      throw new EncryptionUnavailableError();
-    }
     const stored: StoredIdentity = {
       v: 1,
       ed25519: {
@@ -156,18 +188,8 @@ export class RelayIdentityStore {
         priv: base64urlEncode(identity.x25519.priv),
       },
     };
-    const encrypted = safeStorage.encryptString(JSON.stringify(stored));
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.writeFileSync(this.filePath, encrypted, { mode: 0o600 });
-    // `mode` only applies on create; restate it for an existing file.
-    fs.chmodSync(this.filePath, 0o600);
+    this.writer.write(JSON.stringify(stored));
   }
-}
-
-/** Overwrite the private keys in place. The identity is unusable afterwards. */
-export function wipe(identity: RelayIdentity): void {
-  identity.ed25519.priv.fill(0);
-  identity.x25519.priv.fill(0);
 }
 
 function infoOf(identity: RelayIdentity): RelayIdentityInfo {

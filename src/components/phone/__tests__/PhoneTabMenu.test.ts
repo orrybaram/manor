@@ -2,19 +2,20 @@
 /**
  * A tab's long-press menu on a phone: renaming the tab's agent or the
  * workspace, copying the branch, and closing the tab — each only when it
- * applies.
+ * applies. Rendered as the app wires it: the real `TabButton` in phone mode,
+ * and `PhoneChrome`, which owns the rename prompt the menu asks for.
  */
-import { act, createElement, useState } from "react";
+import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import * as ContextMenu from "@radix-ui/react-context-menu";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// `app-store`/`project-store` read `window.electronAPI` at import time.
+// The stores read `window.electronAPI` at import time.
 vi.hoisted(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   (window as unknown as { electronAPI: unknown }).electronAPI = {
     claim: null,
     agents: { onUpdate: () => () => {} },
+    keybindings: { getAll: () => new Promise(() => {}), onChange: () => () => {} },
   };
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
@@ -31,11 +32,18 @@ vi.hoisted(() => {
   };
 });
 
-import {
-  PhoneRenameDialog,
-  PhoneTabMenuContent,
-  type PhoneRenameTarget,
-} from "../PhoneTabMenu";
+// `PhoneChrome`'s other parts reach for the bridge and the window; the
+// rename prompt is all this needs of it.
+vi.mock("../PhoneTopBar", () => ({ PhoneTopBar: () => null }));
+vi.mock("../SidebarDrawer", () => ({ SidebarDrawer: () => null }));
+vi.mock("../NotificationsSheet", () => ({ NotificationsSheet: () => null }));
+vi.mock("../EnableNotifications", () => ({ EnableNotifications: () => null }));
+vi.mock("../KeyboardLift", () => ({ KeyboardLift: () => null }));
+
+import { TabButton } from "../../tabbar/TabButton";
+import { PhoneChrome } from "../PhoneChrome";
+import { TooltipProvider } from "../../ui/Tooltip/Tooltip";
+import { requestUi } from "../../../utils/ui-request";
 import { useAppStore } from "../../../store/app-store";
 import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
 import { useAgentStore } from "../../../store/agent-store";
@@ -69,30 +77,32 @@ function seed(workspace: { name?: string; branch?: string; isMain?: boolean }): 
   } as never);
 }
 
-/** The tab's menu as `TabButton` wires it on a phone. */
+/** One phone tab, next to the phone shell. */
 function Harness(props: { onClose: () => void }) {
-  const [renaming, setRenaming] = useState<PhoneRenameTarget | null>(null);
   return createElement(
-    ContextMenu.Root,
+    TooltipProvider,
     null,
     createElement(
-      ContextMenu.Trigger,
-      { asChild: true },
-      createElement("div", { "data-testid": "tab" }, "tab"),
-    ),
-    createElement(
-      ContextMenu.Portal,
-      null,
-      createElement(PhoneTabMenuContent, {
-        paneId: PANE,
+      "div",
+      { role: "tablist" },
+      createElement(TabButton, {
+        tabId: "tab-1",
+        rootNode: { type: "leaf", paneId: PANE },
+        isActive: true,
+        isPinned: false,
         canClose: true,
+        isDragging: false,
+        onSelect: () => {},
         onClose: props.onClose,
-        onRename: setRenaming,
-        onCloseAutoFocus: () => {},
+        onTogglePin: () => {},
+        buttonRef: () => {},
       }),
     ),
-    renaming &&
-      createElement(PhoneRenameDialog, { target: renaming, onDone: () => setRenaming(null) }),
+    createElement(PhoneChrome, {
+      onNewAgent: () => {},
+      onOpenSettings: () => {},
+      onOpenSearch: () => {},
+    }),
   );
 }
 
@@ -207,5 +217,27 @@ describe("PhoneTabMenu", () => {
     openMenu();
     select("phone-tab-close");
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts no separator over Close Tab when nothing is above it", () => {
+    seed({ isMain: true });
+    render();
+    openMenu();
+    expect(byTestId("phone-tab-close")).not.toBeNull();
+    expect(document.querySelector('[role="separator"]')).toBeNull();
+  });
+
+  it("answers the palette's Rename Workspace, which the phone has no sidebar for", () => {
+    seed({ branch: "feat/x" });
+    render();
+    act(() => requestUi({ type: "rename-workspace", projectId: "p1", path: WS }));
+    expect((byTestId("phone-rename-input") as HTMLInputElement).value).toBe("feat/x");
+  });
+
+  it("ignores a rename of an agent that is gone", () => {
+    seed({ name: "ws" });
+    render();
+    act(() => requestUi({ type: "rename-agent", agentId: "nope" }));
+    expect(byTestId("phone-rename-dialog")).toBeNull();
   });
 });

@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.21.1] - 2026-10-11
+
+### Features
+- Phone: new-agent composer lets you choose the host, project and workspace before you send a prompt
+- Phone: new worktrees are named after the prompt you type
+- Phone: ⌘N opens the new-agent composer
+- Phone: the chat status line has a PR drawer and a chip showing local changes
+- Phone: a chip on the status line shows how many context tokens the chat has used
+- Phone: the workspace's open PR appears under the chat input
+- Phone: long-press a tab to rename it
+
+### Fixes
+- New worktrees created from main now start from the local default branch
+- Phone chat now follows only a Claude session that is running in the pane
+- Phone: you can open the drawer by swiping from anywhere in the left half of the screen
+- Phone: the drawer swipe no longer fires while a dialog, sheet or menu is open
+- Phone: Rename Workspace from the command palette now works
+
+### Improvements
+- Phone: removed the Projects view from the drawer
+- Phone: removed Reload app from the overflow menu
+
 ## [0.21.0] - 2026-10-11
 
 ### Features

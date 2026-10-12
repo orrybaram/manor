@@ -1,8 +1,7 @@
 /*
- * The phone's notifications sheet (`NotificationsSheet`): the whole screen,
- * on the same overlay and backdrop as the sidebar drawer
- * (`SidebarDrawer.module.css`). `NotificationsPanel` fills it as a column, so
- * its header stays put and only the list scrolls.
+ * A phone sheet (`PhoneSheet`), on the same overlay and backdrop as the
+ * sidebar drawer (`SidebarDrawer.module.css`). The sheet is a column its
+ * content fills, so a header can stay put while a body below it scrolls.
  */
 .overlay {
   position: fixed;
@@ -21,15 +20,28 @@
 
 .sheet {
   position: fixed;
-  inset: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 101;
   display: flex;
   flex-direction: column;
-  height: 100svh;
   padding-bottom: env(safe-area-inset-bottom);
   background: var(--dim);
   outline: none;
   overflow: hidden;
+}
+
+/* The whole screen. */
+.sheet[data-variant="full"] {
+  top: 0;
+  height: 100svh;
+}
+
+/* Up from the bottom edge, as tall as its content up to 80svh. */
+.sheet[data-variant="bottom"] {
+  max-height: 80svh;
+  border-radius: 14px 14px 0 0;
 }
 
 .sheet[data-state="open"] {

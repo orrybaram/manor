@@ -1,6 +1,6 @@
 ---
 title: Platform ports for secrets, notifications and app info
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

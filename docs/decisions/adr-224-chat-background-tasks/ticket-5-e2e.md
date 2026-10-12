@@ -1,6 +1,6 @@
 ---
 title: Phone E2E for background tasks
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [4]

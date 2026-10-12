@@ -69,6 +69,7 @@
 import { SUBSCRIPTIONS } from "../../electron/bridge/events";
 import {
   UNAVAILABLE_CODE,
+  isUnavailableCode,
   type ResultFrame,
 } from "../../electron/bridge/types";
 import type { ElectronAPI } from "../electron";
@@ -122,9 +123,14 @@ export interface BridgeTransport {
  * BridgeUnavailableError`, not a string match on a message.
  */
 export class BridgeUnavailableError extends Error {
-  readonly code = UNAVAILABLE_CODE;
-  constructor(message: string) {
+  /**
+   * `unavailable:web` from the desktop, `unavailable:host` from a host server
+   * (ADR-218 D6). The renderer treats every `unavailable:*` alike.
+   */
+  readonly code: string;
+  constructor(message: string, code: string = UNAVAILABLE_CODE) {
     super(message);
+    this.code = code;
     this.name = "BridgeUnavailableError";
   }
 }
@@ -156,8 +162,8 @@ export function settle(frame: ResultFrame): unknown {
   if (frame.ok === true) return frame.result;
   const message =
     typeof frame.error === "string" ? frame.error : "The host refused";
-  throw frame.code === UNAVAILABLE_CODE
-    ? new BridgeUnavailableError(message)
+  throw isUnavailableCode(frame.code)
+    ? new BridgeUnavailableError(message, frame.code)
     : new Error(message);
 }
 

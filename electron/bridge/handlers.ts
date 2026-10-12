@@ -27,7 +27,7 @@
  * against each other and against `./local-only.ts`.
  */
 
-import { flatten, type Method, type MethodRules } from "./method";
+import { flatten, ruleSet, type Method, type MethodRules } from "./method";
 import { agents } from "./handlers/agents";
 import { agentActivity } from "./handlers/agent-activity";
 import { appCommands } from "./handlers/app-commands";
@@ -97,11 +97,7 @@ type WithRule<Rule extends keyof MethodRules> = {
 }[HandlerMethod];
 
 function withRule(rule: keyof MethodRules): ReadonlySet<string> {
-  return new Set(
-    Object.entries(METHODS)
-      .filter(([, entry]) => (entry as Method).rules[rule])
-      .map(([key]) => key),
-  );
+  return ruleSet(METHODS as Record<string, Method>, rule);
 }
 
 /** Which invokes leave an audit line when a device makes them. */

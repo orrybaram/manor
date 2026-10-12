@@ -13,11 +13,19 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
-import { encodeFrame, MSG } from "./pty-subprocess-ipc";
+import { encodeFrame, MSG, PTY_SUBPROCESS_PROTOCOL } from "./pty-subprocess-ipc";
 import { TerminalHost } from "./terminal-host";
+import { HookJournal } from "./hook-journal";
 import type { Session } from "./session";
 import type { ScrollbackWriter } from "./scrollback";
-import type { ControlRequest, ControlResponse, StreamEvent } from "./types";
+import {
+  TERMINAL_HOST_PROTOCOL,
+  type ControlRequest,
+  type ControlResponse,
+  type HookJournalEntry,
+  type HookPayload,
+  type StreamEvent,
+} from "./types";
 
 /** A line sent on the stream socket by a client. */
 type StreamCommand = {
@@ -41,14 +49,25 @@ export function makeTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "manor-e2e-"));
 }
 
-/** In-process daemon on a temp socket with a real TerminalHost + real sessionsDir */
+/**
+ * In-process daemon on a temp socket with a real TerminalHost + real
+ * sessionsDir.
+ *
+ * Speaks enough of the real protocol for a `TerminalHostClient` too: replies
+ * echo the request's `requestId`, `handshake` reports this build's protocols,
+ * and — like the `remote` daemon role — it keeps a hook journal, answers
+ * `replayHooks` from it, and broadcasts each journaled hook as a `hookEvent`
+ * to every authenticated stream socket (`emitHook`).
+ */
 export class E2EDaemon {
   private server: net.Server;
   private host: TerminalHost;
   private token: string;
   private authenticatedSockets = new WeakSet<net.Socket>();
+  private streamSockets = new Set<net.Socket>();
   readonly socketPath: string;
   readonly sessionsDir: string;
+  readonly journal: HookJournal;
 
   constructor(tmpDir: string) {
     this.sessionsDir = path.join(tmpDir, "sessions");
@@ -56,7 +75,22 @@ export class E2EDaemon {
     this.socketPath = path.join(tmpDir, "terminal-host.sock");
     this.token = crypto.randomBytes(16).toString("hex");
     this.host = new TerminalHost(this.sessionsDir);
+    this.journal = new HookJournal(path.join(tmpDir, "hook-journal.ndjson"));
+    this.journal.open();
     this.server = net.createServer((s) => this.handleConnection(s));
+  }
+
+  /**
+   * Journal one agent hook and broadcast it, as the remote daemon's hook
+   * listener does for a hook script's request (ADR-178 §2).
+   */
+  emitHook(payload: HookPayload): HookJournalEntry {
+    const entry = this.journal.append(payload);
+    const event: StreamEvent = { type: "hookEvent", seq: entry.seq, payload };
+    for (const socket of this.streamSockets) {
+      if (!socket.destroyed) socket.write(JSON.stringify(event) + "\n");
+    }
+    return entry;
   }
 
   get authToken(): string {
@@ -112,8 +146,10 @@ export class E2EDaemon {
             const msg = JSON.parse(line);
             if (msg.connectionType === "stream") {
               type = "stream";
-              if (msg.token === this.token)
+              if (msg.token === this.token) {
                 this.authenticatedSockets.add(socket);
+                this.streamSockets.add(socket);
+              }
               continue;
             }
           } catch {
@@ -128,32 +164,42 @@ export class E2EDaemon {
         }
       }
     });
-    socket.on("close", () => this.host.detachAllFromSocket(socket));
+    // A client that goes away mid-write is a closed socket, not a test failure.
+    socket.on("error", () => socket.destroy());
+    socket.on("close", () => {
+      this.streamSockets.delete(socket);
+      this.host.detachAllFromSocket(socket);
+    });
   }
 
   private async handleControl(socket: net.Socket, line: string): Promise<void> {
-    let req: ControlRequest;
+    let req: ControlRequest & { requestId?: string };
     try {
       req = JSON.parse(line);
     } catch {
       this.send(socket, { type: "error", message: "Invalid JSON" });
       return;
     }
+    // Every reply carries the request's id, as the real daemon's do; a raw
+    // test client that sent none gets none back.
+    const requestId = req.requestId;
+    const send = (s: net.Socket, resp: ControlResponse): void =>
+      this.send(s, resp, requestId);
     if (req.type !== "auth" && !this.authenticatedSockets.has(socket)) {
-      this.send(socket, { type: "error", message: "Not authenticated" });
+      send(socket, { type: "error", message: "Not authenticated" });
       return;
     }
     switch (req.type) {
       case "auth":
         if (req.token === this.token) {
           this.authenticatedSockets.add(socket);
-          this.send(socket, { type: "authOk" });
+          send(socket, { type: "authOk" });
         } else {
-          this.send(socket, { type: "error", message: "Invalid token" });
+          send(socket, { type: "error", message: "Invalid token" });
         }
         break;
       case "create":
-        this.send(socket, {
+        send(socket, {
           type: "created",
           session: this.host.create(
             req.sessionId,
@@ -166,7 +212,7 @@ export class E2EDaemon {
         break;
       case "attach": {
         const snap = await this.host.attach(req.sessionId, socket);
-        this.send(
+        send(
           socket,
           snap
             ? { type: "attached", snapshot: snap }
@@ -176,19 +222,19 @@ export class E2EDaemon {
       }
       case "detach":
         this.host.detach(req.sessionId, socket);
-        this.send(socket, { type: "detached" });
+        send(socket, { type: "detached" });
         break;
       case "resize":
         this.host.resize(req.sessionId, req.cols, req.rows);
-        this.send(socket, { type: "resized" });
+        send(socket, { type: "resized" });
         break;
       case "kill":
         await this.host.kill(req.sessionId);
-        this.send(socket, { type: "killed" });
+        send(socket, { type: "killed" });
         break;
       case "getSnapshot": {
         const snap = await this.host.getSnapshot(req.sessionId);
-        this.send(
+        send(
           socket,
           snap
             ? { type: "snapshot", snapshot: snap }
@@ -197,14 +243,38 @@ export class E2EDaemon {
         break;
       }
       case "listSessions":
-        this.send(socket, {
+        send(socket, {
           type: "sessions",
           sessions: this.host.listSessions(),
         });
         break;
       case "ping":
-        this.send(socket, { type: "pong" });
+        send(socket, { type: "pong" });
         break;
+      case "handshake":
+        send(socket, {
+          type: "handshake",
+          daemonVersion: "e2e",
+          protocol: TERMINAL_HOST_PROTOCOL,
+          ptyProtocol: PTY_SUBPROCESS_PROTOCOL,
+        });
+        break;
+      case "updateEnv":
+        send(socket, { type: "envUpdated" });
+        break;
+      case "getPaneFacts":
+        send(socket, { type: "paneFacts", facts: this.host.getPaneFacts(req.sessionId) });
+        break;
+      case "replayHooks":
+        send(socket, {
+          type: "hookReplay",
+          entries: req.headOnly ? [] : this.journal.since(Number(req.sinceSeq) || 0),
+          lastSeq: this.journal.lastSeq,
+          epoch: this.journal.epoch,
+        });
+        break;
+      default:
+        send(socket, { type: "error", message: `unsupported in the harness: ${req.type}` });
     }
   }
 
@@ -222,8 +292,9 @@ export class E2EDaemon {
     else if (cmd.type === "unsubscribe") this.host.detach(sessionId, socket);
   }
 
-  private send(socket: net.Socket, resp: ControlResponse): void {
-    socket.write(JSON.stringify(resp) + "\n");
+  private send(socket: net.Socket, resp: ControlResponse, requestId?: string): void {
+    const envelope = requestId === undefined ? resp : { ...resp, requestId };
+    socket.write(JSON.stringify(envelope) + "\n");
   }
 }
 

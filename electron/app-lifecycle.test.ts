@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
-import { dispatchStreamEvent } from "./app-lifecycle";
+import { dispatchStreamEvent } from "./agent-stream-events";
 import { createAgentStatusDriver } from "./agent-status/driver";
 import type { PaneStatusUpdate } from "./agent-status/effects";
 import { AgentManager } from "./agent-persistence";

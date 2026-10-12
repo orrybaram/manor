@@ -26,7 +26,9 @@
  *
  * **Every device is the same device.** There are no tiers (ADR-207 D4): a
  * paired device reaches the whole handler table, terminal included, and
- * every connection this transport makes is `callerClass: "device"`.
+ * every connection the relay gate authenticates is `callerClass: "device"`.
+ * The one exception is the host server's own unix socket (ADR-218), whose
+ * authenticator answers `caller: "local"` for the owner token.
  *
  * Close codes are in the application range on purpose — 4401 reads as the
  * HTTP status it mirrors: "your token is wrong, re-pair". They are
@@ -37,7 +39,7 @@ import { randomUUID } from "node:crypto";
 
 import type { FrameSocket } from "./frame-socket";
 import type { AuthenticatedDevice } from "../../remote-control/relay-gate";
-import type { BridgeServer } from "../server";
+import type { BridgeHost } from "../server-core";
 import {
   BRIDGE_PROTOCOL_VERSION,
   CLOSE_UNAUTHORIZED,
@@ -48,9 +50,15 @@ import {
 /** How long an accepted socket may stay silent before it is closed. */
 const HELLO_TIMEOUT_MS = 5_000;
 
-/** What `remote-control/relay-gate.ts` answers when asked to check a hello. */
+/**
+ * What an authenticator answers when asked to check a hello: a paired device
+ * (`remote-control/relay-gate.ts`), or a caller at this machine — the host
+ * server's own socket, whose token is the 0600 owner token (ADR-218).
+ */
 export type BridgeAuthResult =
   | { ok: true; device: AuthenticatedDevice }
+  // TODO(ADR-218 ticket 4): `caller: "owner"`, which may call LOCAL_ONLY.
+  | { ok: true; caller: "local" }
   | { ok: false; code: number };
 
 /** The `verify + backoff` decision, which lives in `relay-gate.ts`. */
@@ -122,7 +130,7 @@ export class WsBridgeServer {
    *   reply so a relay-served page can load the matching build (ADR-206 D4).
    */
   constructor(
-    private readonly server: BridgeServer,
+    private readonly server: BridgeHost,
     private readonly options: { appVersion?: string } = {},
   ) {}
 
@@ -255,12 +263,12 @@ export class WsBridgeServer {
     if (previousId && !this.idIsHeld(previousId, entry)) {
       entry.id = previousId;
     }
-    const device = result.device;
+    const device = "device" in result ? result.device : null;
     entry.connection = {
       id: entry.id,
-      callerClass: "device",
-      deviceId: device.id,
-      deviceLabel: device.label,
+      callerClass: device ? "device" : "local",
+      deviceId: device?.id ?? null,
+      deviceLabel: device?.label ?? null,
       send: (outgoing) => this.send(entry, outgoing),
     };
     this.server.accept(entry.connection);

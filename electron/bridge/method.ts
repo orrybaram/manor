@@ -25,9 +25,16 @@ export interface Caller {
   deviceId?: string | null;
 }
 
-/** What every handler gets before its wire arguments. */
-export interface HandlerCtx {
-  deps: HostDeps;
+/**
+ * What every handler gets before its wire arguments.
+ *
+ * `D` is the deps the table runs over: the desktop's `HostDeps` by default,
+ * or the host server's narrower `HostServerDeps` (ADR-218 D6). A handler
+ * shared by both declares only the slice of deps it reads, so either can
+ * call it.
+ */
+export interface HandlerCtx<D = HostDeps> {
+  deps: D;
   caller: Caller;
 }
 
@@ -40,7 +47,17 @@ export interface HandlerCtx {
  * where the arguments really are whatever JSON arrived — which is why every
  * handler runs its own `assert*` validation.
  */
-export type BridgeHandler = (ctx: HandlerCtx, ...args: never[]) => unknown;
+export type BridgeHandler<D = HostDeps> = (
+  ctx: HandlerCtx<D>,
+  ...args: never[]
+) => unknown;
+
+/**
+ * A handler over any deps. `never` deps is the bottom of every `HandlerCtx`,
+ * so each handler, whatever slice of deps it declares, is one of these: what
+ * a table entry is constrained by, before a server says which deps it runs.
+ */
+type AnyBridgeHandler = BridgeHandler<never>;
 
 export interface MethodRules {
   /**
@@ -63,7 +80,7 @@ export interface MethodRules {
 }
 
 export interface Method<
-  F extends BridgeHandler = BridgeHandler,
+  F extends AnyBridgeHandler = AnyBridgeHandler,
   R extends MethodRules = MethodRules,
 > {
   fn: F;
@@ -72,7 +89,7 @@ export interface Method<
 
 /** A table entry. `const R` keeps the rules literal for the derived types. */
 export function method<
-  F extends BridgeHandler,
+  F extends AnyBridgeHandler,
   const R extends MethodRules = Record<never, never>,
 >(fn: F, rules?: R): Method<F, R> {
   return { fn, rules: rules ?? ({} as R) };
@@ -107,6 +124,18 @@ export function flatten<const T extends Record<string, Table>>(
     }
   }
   return flat as Flat<T>;
+}
+
+/** The keys of `methods` whose entry carries `rule`. */
+export function ruleSet(
+  methods: Record<string, Method>,
+  rule: keyof MethodRules,
+): ReadonlySet<string> {
+  return new Set(
+    Object.entries(methods)
+      .filter(([, entry]) => entry.rules[rule])
+      .map(([key]) => key),
+  );
 }
 
 /**

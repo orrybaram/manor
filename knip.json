@@ -10,6 +10,7 @@
         "electron/main.ts",
         "electron/preload.ts",
         "electron/terminal-host/index.ts",
+        "electron/host-server/index.ts",
         "electron/terminal-host/pty-subprocess.ts",
         "electron/mcp-webview-server.ts",
         "electron/manor-cli.ts",

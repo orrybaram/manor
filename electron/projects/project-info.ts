@@ -164,7 +164,7 @@ async function currentWorkspaces(
 export async function buildProjectInfo(
   p: PersistedProject,
   git: GitBackend,
-  paths: PathRouter,
+  paths: Pick<PathRouter, "setWorkspacePaths">,
   group?: PersistedProjectGroup,
   lastKnown?: LastKnownWorkspaces,
 ): Promise<ProjectInfo> {

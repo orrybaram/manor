@@ -35,6 +35,18 @@ export const BRIDGE_PROTOCOL_VERSION = 1;
 export const UNAVAILABLE_CODE = "unavailable:web";
 
 /**
+ * The same refusal from a host server (ADR-218 D6): the method exists on the
+ * desktop but is not on that host's allowlist — launching an agent, browsing
+ * issues. Every `unavailable:*` code is a stated empty state to the client.
+ */
+export const UNAVAILABLE_HOST_CODE = "unavailable:host";
+
+/** Whether a result frame's `code` is one of the `unavailable:*` refusals. */
+export function isUnavailableCode(code: unknown): boolean {
+  return typeof code === "string" && code.startsWith("unavailable:");
+}
+
+/**
  * The key a subscription that named none is filed under — by `BridgeServer`,
  * and by `SubscriptionRegistry` on the client side of either transport. Kept
  * off the wire: a subscribe frame with no `key` means exactly this, and

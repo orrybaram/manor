@@ -39,6 +39,16 @@ import type { SessionOwners } from "../backend/session-owners";
 import type { HostStatus } from "../backend/host-connection";
 import type { WebviewPaneAccess } from "../routes/types";
 import type { ChatMirror } from "../chat-mirror/mirror";
+import type { PtyBackend } from "../backend/types";
+
+/**
+ * The little of its deps the bridge server itself reads (ADR-218 D6): a
+ * session's grid, for the winsize-owner push. `HostDeps` has it; so does the
+ * host server's `HostServerDeps`, which carries no window or menu.
+ */
+export interface BridgeServerDeps {
+  backend: { pty: Pick<PtyBackend, "getSnapshot"> };
+}
 
 /** A workspace as the renderer describes it for portless hostnames. */
 export interface WorkspaceMeta extends PortlessWorkspace {

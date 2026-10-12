@@ -12,20 +12,31 @@
 import type { AgentInfo } from "../../agent-persistence";
 import { assertString } from "../../ipc-validate";
 import type { HostDeps } from "../../ipc/types";
+import type { PtyBackend } from "../../backend/types";
 import { addRendererBroadcastSink } from "../../renderer-broadcast";
 import type {
   ChatAnswer,
   ChatAnswerResult,
   ChatCommands,
   ChatHistory,
+  ChatMirror,
 } from "../../chat-mirror/mirror";
 import { encodeChatMessage, type PickerAnswer } from "../../chat-mirror/picker-keys";
 import { method, type HandlerCtx } from "../method";
 
 const ESC = "\x1b";
 
+/**
+ * What the `chat` namespace reads: the pane's transcript mirror and its PTY,
+ * nothing else — so the host server (ADR-218) serves the same handlers.
+ */
+export interface ChatDeps {
+  chatMirror: Pick<ChatMirror, "getHistory" | "getCommands" | "answer">;
+  backend: { pty: Pick<PtyBackend, "write"> };
+}
+
 export function chatGetHistory(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ChatDeps>,
   paneId: string,
 ): Promise<ChatHistory> {
   assertString(paneId, "paneId");
@@ -33,7 +44,7 @@ export function chatGetHistory(
 }
 
 export function chatGetCommands(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ChatDeps>,
   paneId: string,
 ): Promise<ChatCommands> {
   assertString(paneId, "paneId");
@@ -41,7 +52,7 @@ export function chatGetCommands(
 }
 
 /** Type a prompt and submit it, as one prompt even across lines (`encodeChatMessage`). */
-export function chatSend(ctx: HandlerCtx, paneId: string, text: string): void {
+export function chatSend(ctx: HandlerCtx<ChatDeps>, paneId: string, text: string): void {
   assertString(paneId, "paneId");
   assertString(text, "text");
   if (text.trim().length === 0) throw new Error("text: expected a message");
@@ -49,13 +60,13 @@ export function chatSend(ctx: HandlerCtx, paneId: string, text: string): void {
 }
 
 /** Esc: what stops Claude mid-turn in its own TUI. */
-export function chatInterrupt(ctx: HandlerCtx, paneId: string): void {
+export function chatInterrupt(ctx: HandlerCtx<ChatDeps>, paneId: string): void {
   assertString(paneId, "paneId");
   ctx.deps.backend.pty.write(paneId, ESC);
 }
 
 export function chatAnswer(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ChatDeps>,
   paneId: string,
   toolUseId: string,
   answer: ChatAnswer,

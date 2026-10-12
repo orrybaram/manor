@@ -17,6 +17,8 @@ const ENTRIES = [
   "electron/remote-control/push.ts",
   "electron/remote-control/relay/identity.ts",
   "electron/platform/secret-box.ts",
+  // The host server's process entry, and so everything it composes (ADR-218).
+  "electron/host-server/index.ts",
 ];
 
 describe("platform ports", () => {

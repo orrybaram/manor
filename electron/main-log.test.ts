@@ -3,15 +3,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-// `main-log.ts` imports `app` from "electron" at module scope for its default
-// `dir`, even though every test below passes `dir` explicitly — importing the
-// module still needs a mock, same approach as `electron/app-menu.test.ts`.
-vi.mock("electron", () => ({
-  app: {
-    getPath: vi.fn(() => "/should-not-be-used"),
-  },
-}));
-
 /** Poll until `predicate` holds, or fail the test on timeout. */
 async function waitFor(
   predicate: () => boolean,

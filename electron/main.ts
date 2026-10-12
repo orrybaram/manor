@@ -62,7 +62,7 @@ if (!app.isPackaged) {
 // (~/Library/Logs/<name>/main.log). Guarded so a logging failure can never
 // block startup — `installMainLog` also swallows its own fs errors.
 try {
-  installMainLog();
+  installMainLog({ dir: app.getPath("logs") });
 } catch (err) {
   console.error("[main] installMainLog failed:", err);
 }

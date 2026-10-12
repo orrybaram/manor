@@ -24,14 +24,14 @@ import {
   type Viewer,
 } from "../../pty-attachments";
 import { HostUnavailableError } from "../../backend/host-view";
-import { LOCAL_HOST_ID, type HostId } from "../../backend/types";
+import { LOCAL_HOST_ID, type HostId, type PtyBackend } from "../../backend/types";
 import { errorMessage } from "../../lib/errors";
 import { isHomePath } from "../../../src/lib/home-path";
 import {
   agentCommandWithPrompt,
   agentCommandWithPromptFile,
 } from "../../../src/lib/agent-command";
-import type { HostDeps } from "../../ipc/types";
+import type { BridgeServerDeps, HostDeps } from "../../ipc/types";
 import type {
   PtyCreateOptions,
   PtyCreateResult,
@@ -106,6 +106,17 @@ function requestedHost(
   return opts.hostId;
 }
 
+/**
+ * What a viewer's own calls on a session read — write, resize, detach — and
+ * nothing else (ADR-218 D6). `HostDeps` has it, and so does the host
+ * server's `HostServerDeps`, which reuses these handlers as they are.
+ */
+export interface PtyViewerDeps {
+  backend: {
+    pty: Pick<PtyBackend, "write" | "resize" | "detach" | "getSnapshot">;
+  };
+}
+
 /** The caller, as the viewer `pty-attachments.ts` holds a pane under. */
 function asViewer(caller: Caller): Viewer {
   return { connectionId: caller.id, callerClass: caller.callerClass };
@@ -123,7 +134,7 @@ type WinsizeDecoration = Required<PtyWinsize>;
  * daemon, shrug on failure" grid lookup outside of a create call.
  */
 export async function sessionGrid(
-  deps: HostDeps,
+  deps: BridgeServerDeps,
   paneId: string,
 ): Promise<{ cols: number; rows: number } | null> {
   try {
@@ -152,8 +163,8 @@ export async function sessionGrid(
  * a window on this machine is only when it already holds the pane and let
  * another viewer take it.
  */
-async function createShaped<T extends { ok: boolean }>(
-  ctx: HandlerCtx,
+export async function createShaped<T extends { ok: boolean }>(
+  ctx: HandlerCtx<BridgeServerDeps>,
   paneId: string,
   cols: number,
   rows: number,
@@ -385,7 +396,11 @@ async function createSession(
   }
 }
 
-export function ptyWrite(ctx: HandlerCtx, paneId: string, data: string): void {
+export function ptyWrite(
+  ctx: HandlerCtx<PtyViewerDeps>,
+  paneId: string,
+  data: string,
+): void {
   assertString(paneId, "paneId");
   assertString(data, "data");
   // Typing, not xterm answering a query: replies to DA/DSR/focus reports
@@ -400,7 +415,10 @@ export function ptyWrite(ctx: HandlerCtx, paneId: string, data: string): void {
  * ownership push tells this viewer it owns the grid now, and its own fit
  * sends the resize, through `ptyResize`, as any owner's does.
  */
-export function ptyClaimWinsize(ctx: HandlerCtx, paneId: string): boolean {
+export function ptyClaimWinsize(
+  ctx: HandlerCtx<unknown>,
+  paneId: string,
+): boolean {
   assertString(paneId, "paneId");
   return claim(paneId, asViewer(ctx.caller));
 }
@@ -416,7 +434,7 @@ export function ptyClaimWinsize(ctx: HandlerCtx, paneId: string): boolean {
  * resizes normally.
  */
 export async function ptyResize(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<PtyViewerDeps>,
   paneId: string,
   cols: number,
   rows: number,
@@ -460,7 +478,7 @@ export async function ptyClose(ctx: HandlerCtx, paneId: string): Promise<void> {
  * nothing, and the next `pty.create` reuses the live subscription.
  */
 export async function ptyDetach(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<PtyViewerDeps>,
   paneId: string,
 ): Promise<void> {
   release(paneId, asViewer(ctx.caller));

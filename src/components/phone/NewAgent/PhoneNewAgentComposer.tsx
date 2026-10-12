@@ -12,9 +12,11 @@ import { useHostDisplay } from "../../../hooks/useHostDisplay";
 import { resumeAgent } from "../../../lib/agent-resume";
 import { greeting } from "../../../lib/greeting";
 import { isRemoteHost, memberHostName } from "../../../lib/hosts";
+import { workspaceHostChoices } from "../../../lib/workspace-host-choices";
+import type { WorkspaceKey } from "../../../lib/workspace-key";
 import { useAgentStore } from "../../../store/agent-store";
 import { selectActiveWorkspaceKey, useAppStore } from "../../../store/app-store";
-import { useHostStore } from "../../../store/host-store";
+import { useHostStore, type HostStatusInfo } from "../../../store/host-store";
 import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
 import { relativeShortThenDate } from "../../../utils/relative-time";
 import { HostStateIcon } from "../../hosts/HostStateIcon";
@@ -26,20 +28,18 @@ import chatStyles from "../ChatPane/ChatPane.module.css";
 import { recentStatus, recentWorkspaceAgents } from "../phone-empty-state";
 import { useViewerFirstName } from "../useViewerFirstName";
 import {
-  hostChoices,
+  baseBranchOf,
   projectChoices,
   resolveTarget,
   seedTarget,
   selectHost,
   selectProject,
-  selectWorkspace,
-  toggleWorktree,
   workspaceChoices,
   type NewAgentTarget,
   type ResolvedTarget,
 } from "./new-agent-target";
 import styles from "./PhoneNewAgentComposer.module.css";
-import { useNewAgentSend } from "./useNewAgentSend";
+import { sendNewAgent } from "./send-new-agent";
 
 type PhoneNewAgentComposerProps = {
   /** Opened as the "New agent" surface: shows × to go back to the workspace. */
@@ -51,6 +51,23 @@ type ChoiceKind = "host" | "project" | "workspace";
 /** Chips and rows act on click; cancelling the press keeps focus (and the soft keyboard) in the textarea. */
 function keepFocus(e: SyntheticEvent) {
   e.preventDefault();
+}
+
+/**
+ * The target the composer shows, resolved: `picked` while it still resolves,
+ * else the active workspace (`seedTarget`). Null with no projects.
+ */
+function shownTarget(
+  picked: NewAgentTarget | null,
+  projects: readonly ProjectInfo[],
+  activeKey: WorkspaceKey | null,
+  hosts: readonly HostStatusInfo[],
+): { target: NewAgentTarget; resolved: ResolvedTarget<ProjectInfo> } | null {
+  for (const target of [picked, seedTarget(projects, activeKey, hosts)]) {
+    const resolved = target && resolveTarget(target, projects);
+    if (target && resolved) return { target, resolved };
+  }
+  return null;
 }
 
 /**
@@ -71,33 +88,30 @@ export function PhoneNewAgentComposer(props: PhoneNewAgentComposerProps) {
   const draft = useAppStore((s) => s.composerDraft);
   const setComposerDraft = useAppStore((s) => s.setComposerDraft);
   const closeComposer = useAppStore((s) => s.closeComposer);
-  const send = useNewAgentSend();
 
-  // Which target the composer shows. The draft holds a target only once the
-  // user picks one; until then the composer follows the active workspace
-  // (`seedTarget`), and a picked target that went stale falls back to it
-  // too. The "New agent" surface keeps a picked target across close and
-  // reopen. The empty-workspace screen belongs to one workspace (its wrapper
-  // remounts it per workspace), so it ignores a target picked elsewhere until
-  // the user picks one on it.
-  const [pickedHere, setPickedHere] = useState(false);
-  const drafted = closable || pickedHere ? draft.target : null;
-  const target =
-    drafted && resolveTarget(drafted, projects) ? drafted : seedTarget(projects, activeKey, hosts);
-  const resolved = target ? resolveTarget(target, projects) : null;
+  // Which target the composer shows: the one the user picked, until then (or
+  // once it went stale) the active workspace. The "New agent" surface keeps
+  // its pick in the draft, across close and reopen. The empty-workspace
+  // screen belongs to one workspace (its wrapper remounts it per workspace),
+  // so its pick is its own.
+  const [localPick, setLocalPick] = useState<NewAgentTarget | null>(null);
+  const picked = closable ? draft.target : localPick;
+  const setPicked = (next: NewAgentTarget) => {
+    if (closable) setComposerDraft({ target: next });
+    else setLocalPick(next);
+  };
+  const shown = shownTarget(picked, projects, activeKey, hosts);
 
   const [open, setOpen] = useState<ChoiceKind | null>(null);
 
   const pick = (next: NewAgentTarget) => {
-    setComposerDraft({ target: next });
-    setPickedHere(true);
+    setPicked(next);
     setOpen(null);
   };
 
-  const canSend = draft.text.trim().length > 0 && target !== null && resolved !== null;
+  const canSend = draft.text.trim().length > 0 && shown !== null;
   const submit = () => {
-    if (!canSend || !target) return;
-    send(draft.text, target);
+    if (canSend) sendNewAgent(draft.text, shown.target);
   };
 
   return (
@@ -121,9 +135,9 @@ export function PhoneNewAgentComposer(props: PhoneNewAgentComposerProps) {
             <ManorLogo />
           </div>
         </div>
-        <Greeting resolved={resolved} newWorktree={target?.newWorktree ?? false} />
+        <Greeting resolved={shown?.resolved ?? null} newWorktree={shown?.target.newWorktree ?? false} />
       </div>
-      {resolved && <RecentAgents workspacePath={resolved.workspace.path} hostId={resolved.hostId} />}
+      {shown && <RecentAgents workspacePath={shown.resolved.workspace.path} hostId={shown.resolved.hostId} />}
       <div
         className={chatStyles.composer}
         data-keyboard-lift
@@ -134,24 +148,21 @@ export function PhoneNewAgentComposer(props: PhoneNewAgentComposerProps) {
           }
         }}
       >
-        {target && resolved && open && (
+        {shown && open && (
           <TargetChoices
             kind={open}
-            target={target}
-            resolved={resolved}
+            target={shown.target}
+            resolved={shown.resolved}
             onPick={pick}
             onDismiss={() => setOpen(null)}
           />
         )}
-        {target && resolved && (
+        {shown && (
           <TargetChips
-            target={target}
-            resolved={resolved}
+            target={shown.target}
+            resolved={shown.resolved}
             onOpen={(kind) => setOpen((current) => (current === kind ? null : kind))}
-            onToggleWorktree={() => {
-              setComposerDraft({ target: toggleWorktree(target) });
-              setPickedHere(true);
-            }}
+            onToggleWorktree={() => setPicked({ ...shown.target, newWorktree: !shown.target.newWorktree })}
           />
         )}
         <div className={chatStyles.composerField}>
@@ -212,10 +223,11 @@ function TargetSentence(props: { resolved: ResolvedTarget<ProjectInfo>; newWorkt
   const { project, workspace } = resolved;
   const branch = workspace.branch;
   if (newWorktree) {
+    const base = baseBranchOf(resolved);
     return (
       <>
         Claude will start a new worktree off{" "}
-        {branch ? <span className={styles.branch}>{branch}</span> : "the default branch"}. What's on your mind?
+        {base ? <span className={styles.branch}>{base}</span> : "the default branch"}. What's on your mind?
       </>
     );
   }
@@ -256,8 +268,9 @@ function TargetChips(props: TargetChipsProps) {
 
   const projects = useProjectStore((s) => s.projects);
   const hosts = useHostStore((s) => s.hosts);
-  const showHost = hostChoices(target, projects, hosts) !== null;
   const { project, workspace } = resolved;
+  const showHost = workspaceHostChoices(project, projects, hosts) !== null;
+  const hostName = memberHostName(project.hostId, hosts);
   const projectName = project.group?.name ?? project.name;
 
   return (
@@ -269,11 +282,11 @@ function TargetChips(props: TargetChipsProps) {
           onPointerDown={keepFocus}
           onMouseDown={keepFocus}
           onClick={() => onOpen("host")}
-          aria-label={`Host: ${memberHostName(project.hostId, hosts)}`}
+          aria-label={`Host: ${hostName}`}
           data-testid="phone-target-host"
         >
           <HostGlyph hostId={project.hostId} />
-          <span className={styles.chipLabel}>{memberHostName(project.hostId, hosts)}</span>
+          <span className={styles.chipLabel}>{hostName}</span>
         </Button>
       )}
       <Button
@@ -344,6 +357,44 @@ function colorDotStyle(color: string | null): CSSProperties | undefined {
   return color ? { background: `var(--${color})` } : undefined;
 }
 
+/** The rows of `kind`'s choice list, each with the target picking it leads to. */
+function choiceRows(
+  kind: ChoiceKind,
+  target: NewAgentTarget,
+  resolved: ResolvedTarget<ProjectInfo>,
+  projects: readonly ProjectInfo[],
+  hosts: readonly HostStatusInfo[],
+): ChoiceRow[] {
+  if (kind === "host") {
+    return (workspaceHostChoices(resolved.project, projects, hosts) ?? []).map((choice) => ({
+      key: choice.projectId,
+      label: memberHostName(choice.hostId, hosts),
+      description: choice.disabledReason,
+      leading: <HostGlyph hostId={choice.hostId} />,
+      checked: choice.projectId === target.projectId,
+      disabled: choice.disabledReason !== null,
+      next: selectHost(target, choice.projectId, projects),
+    }));
+  }
+  if (kind === "project") {
+    const groupId = resolved.project.group?.id;
+    return projectChoices(projects).map((choice) => ({
+      key: choice.id,
+      label: choice.name,
+      leading: <span className={styles.dot} style={colorDotStyle(choice.color)} aria-hidden />,
+      checked: choice.isGroup ? choice.id === groupId : choice.id === target.projectId,
+      next: selectProject(target, choice.id, projects, hosts),
+    }));
+  }
+  return workspaceChoices(target, projects).map((choice) => ({
+    key: choice.path,
+    label: choice.label || choice.branch,
+    description: choice.label && choice.branch && choice.branch !== choice.label ? choice.branch : null,
+    checked: choice.path === target.workspacePath,
+    next: { ...target, workspacePath: choice.path },
+  }));
+}
+
 /**
  * A chip's choices, drawn above the composer like `CommandChoiceSheet`: focus
  * stays in the textarea, and a tap outside (or Escape) dismisses it.
@@ -354,36 +405,7 @@ function TargetChoices(props: TargetChoicesProps) {
   const projects = useProjectStore((s) => s.projects);
   const hosts = useHostStore((s) => s.hosts);
 
-  const rows = useMemo((): ChoiceRow[] => {
-    if (kind === "host") {
-      return (hostChoices(target, projects, hosts) ?? []).map((choice) => ({
-        key: choice.projectId,
-        label: memberHostName(choice.hostId, hosts),
-        description: choice.disabledReason,
-        leading: <HostGlyph hostId={choice.hostId} />,
-        checked: choice.projectId === target.projectId,
-        disabled: choice.disabledReason !== null,
-        next: selectHost(target, choice.projectId, projects),
-      }));
-    }
-    if (kind === "project") {
-      const groupId = resolved.project.group?.id;
-      return projectChoices(projects).map((choice) => ({
-        key: choice.id,
-        label: choice.name,
-        leading: <span className={styles.dot} style={colorDotStyle(choice.color)} aria-hidden />,
-        checked: choice.groupId ? choice.groupId === groupId : choice.id === target.projectId,
-        next: selectProject(target, choice.id, projects, hosts),
-      }));
-    }
-    return workspaceChoices(target, projects).map((choice) => ({
-      key: choice.path,
-      label: choice.label || choice.branch,
-      description: choice.label && choice.branch && choice.branch !== choice.label ? choice.branch : null,
-      checked: choice.path === target.workspacePath,
-      next: selectWorkspace(target, choice.path),
-    }));
-  }, [kind, target, resolved, projects, hosts]);
+  const rows = choiceRows(kind, target, resolved, projects, hosts);
 
   return (
     <>

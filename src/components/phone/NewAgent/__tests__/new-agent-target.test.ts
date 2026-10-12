@@ -3,14 +3,12 @@ import type { HostStatusInfo } from "../../../../store/host-store";
 import type { ProjectGroupInfo, ProjectInfo } from "../../../../store/project-store";
 import { workspaceKey } from "../../../../lib/workspace-key";
 import {
-  hostChoices,
+  baseBranchOf,
   projectChoices,
   resolveTarget,
   seedTarget,
   selectHost,
   selectProject,
-  selectWorkspace,
-  toggleWorktree,
   workspaceChoices,
 } from "../new-agent-target";
 
@@ -102,21 +100,9 @@ describe("seedTarget", () => {
 describe("projectChoices", () => {
   it("collapses a group to one entry", () => {
     expect(projectChoices([other, local, box])).toEqual([
-      { id: "other", name: "other", color: "#f00" },
-      { id: "g1", name: "App", color: "#f00", groupId: "g1" },
+      { id: "other", name: "other", color: "#f00", isGroup: false },
+      { id: "g1", name: "App", color: "#f00", isGroup: true },
     ]);
-  });
-});
-
-describe("hostChoices", () => {
-  it("is null for an unlinked project", () => {
-    const t = { projectId: "solo", workspacePath: "/code/solo", newWorktree: false };
-    expect(hostChoices(t, [solo, local, box], hosts)).toBeNull();
-  });
-
-  it("lists the members of a linked project", () => {
-    const t = { projectId: "local-app", workspacePath: "/code/local-app", newWorktree: false };
-    expect(hostChoices(t, [local, box], hosts)?.map((c) => c.projectId)).toEqual(["local-app", "box-app"]);
   });
 });
 
@@ -159,11 +145,6 @@ describe("selection", () => {
     const from = { projectId: "box-app", workspacePath: "/code/box-app", newWorktree: false };
     expect(selectHost(from, "local-app", [local, box]).workspacePath).toBe("/code/local-app");
   });
-
-  it("selectWorkspace and toggleWorktree", () => {
-    expect(selectWorkspace(t, "/wt/other").workspacePath).toBe("/wt/other");
-    expect(toggleWorktree(t).newWorktree).toBe(false);
-  });
 });
 
 describe("resolveTarget", () => {
@@ -177,5 +158,25 @@ describe("resolveTarget", () => {
   it("is null when the project or workspace is gone", () => {
     expect(resolveTarget({ projectId: "gone", workspacePath: "/x", newWorktree: false }, [solo])).toBeNull();
     expect(resolveTarget({ projectId: "solo", workspacePath: "/wt/gone", newWorktree: false }, [solo])).toBeNull();
+  });
+});
+
+describe("baseBranchOf", () => {
+  const detached = project("detached", "local", null, [{ path: "/wt/head", branch: "" }], "release");
+  const at = (workspacePath: string) =>
+    resolveTarget({ projectId: "detached", workspacePath, newWorktree: true }, [detached])!;
+
+  it("bases main off the default branch, not whatever main has checked out", () => {
+    expect(baseBranchOf(at("/code/detached"))).toBe("main");
+  });
+
+  it("bases another workspace off its own branch", () => {
+    expect(baseBranchOf(resolveTarget({ projectId: "solo", workspacePath: "/wt/feat", newWorktree: true }, [solo])!)).toBe(
+      "feat",
+    );
+  });
+
+  it("leaves a workspace with no branch to the default", () => {
+    expect(baseBranchOf(at("/wt/head"))).toBeUndefined();
   });
 });

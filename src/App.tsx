@@ -64,8 +64,8 @@ import { appCommandHandlers } from "./lib/app-commands";
 import { handleRecordingCommand } from "./lib/webview-recorder";
 import {
   dispatchKeybinding,
+  newAgent,
   runForwardedCommand,
-  startNewAgent,
 } from "./lib/keybinding-commands";
 import { sidebarColumnWidth, windowLeadInset } from "./lib/window-lead";
 import {
@@ -429,9 +429,15 @@ function App() {
   const wizardStillValid = wizardOpen && wizardProjectId && projects.some((p) => p.id === wizardProjectId);
 
   const tasksViewShown = useAppStore((s) => s.activeSurface === "tasks");
-  // ADR-222: the phone new-agent composer covers the workspace; desk ignores it.
-  const composerShown =
-    useAppStore((s) => s.activeSurface === "composer") && layoutMode === "phone";
+  // ADR-222: the phone new-agent composer covers the workspace. It is a
+  // phone surface: a renderer that widens out of phone layout goes back to
+  // the workspace, so every reader of the surface agrees.
+  const composerShown = useAppStore((s) => s.activeSurface === "composer");
+  useEffect(() => {
+    if (layoutMode !== "phone" && useAppStore.getState().activeSurface === "composer") {
+      useAppStore.getState().closeComposer();
+    }
+  }, [layoutMode]);
 
   // Reactively apply the active surface's theme. Projects carry an optional
   // theme override; Home and the Tasks view have no owning project, so they
@@ -696,19 +702,12 @@ function App() {
     return () => window.removeEventListener("mouseup", handleMouseUp);
   });
 
-  const handleNewAgent = useCallback(async () => {
-    // A phone opens the new-agent composer instead: the agent launches on
-    // its first message, wherever its chips point (ADR-222 D1).
-    if (layoutMode === "phone") {
-      useAppStore.getState().showComposer();
-      return;
-    }
-    // Every surface — Home and project workspaces alike — consumes a prewarmed
-    // session when one is ready. On a cold start (no prewarm, or the command
-    // hadn't been injected yet) seed the surface's launch command; the pty
-    // boundary resolves the cwd, so Home needs no special casing here.
-    await startNewAgent({ prewarm: true });
-  }, [layoutMode]);
+  // Every surface — Home and project workspaces alike — consumes a prewarmed
+  // session when one is ready. On a cold start (no prewarm, or the command
+  // hadn't been injected yet) seed the surface's launch command; the pty
+  // boundary resolves the cwd, so Home needs no special casing here. A phone
+  // opens the new-agent composer instead (`newAgent`).
+  const handleNewAgent = useCallback(() => newAgent({ prewarm: true }), []);
 
   // A detached window's one panel: the one holding the tab it claims, in this
   // window's replica of the shared layout (ADR-179 D4). A string, so the
@@ -926,8 +925,7 @@ function App() {
               initialAgentPrompt={agentPrompt ?? undefined}
               onSubmit={async (projectId, name, branch, baseBranch, useExistingBranch, folderId, prompt) => {
                 // From the Tasks view, stay there: the workspace is made behind it.
-                const surface = useAppStore.getState().activeSurface;
-                const background = surface === "tasks" || surface === "composer";
+                const background = useAppStore.getState().activeSurface === "tasks";
                 const result = await createWorktree(projectId, name, {
                   branch,
                   agentPrompt: prompt,

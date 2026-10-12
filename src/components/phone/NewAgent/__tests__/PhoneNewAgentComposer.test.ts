@@ -18,7 +18,7 @@ vi.hoisted(() => {
 });
 
 // The send path (launches, worktrees) is out of scope here.
-vi.mock("../useNewAgentSend", () => ({ useNewAgentSend: () => () => {} }));
+vi.mock("../send-new-agent", () => ({ sendNewAgent: () => {} }));
 
 import type { ProjectGroupInfo, ProjectInfo } from "../../../../store/project-store";
 import { useProjectStore } from "../../../../store/project-store";
@@ -171,6 +171,16 @@ describe("PhoneNewAgentComposer — chips", () => {
 
     expect(one("phone-target-project")?.textContent).toContain("solo");
     expect(one("phone-composer-close")).toBeNull();
+  });
+
+  it("the empty-workspace screen keeps its own pick out of the draft", async () => {
+    activate("/code/solo");
+    await render(false);
+
+    await click(one("phone-target-worktree"));
+
+    expect(one("phone-composer-subline")?.textContent).toContain("new worktree off main");
+    expect(useAppStore.getState().composerDraft.target).toBeNull();
   });
 });
 

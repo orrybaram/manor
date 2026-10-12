@@ -1335,7 +1335,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }
       const key = workspaceKey(updated.hostId, wsPath);
       const addAgentTab = (command: string) => {
-        const opened: { tabId: string; paneId: string } | null = background
+        const opened = background
           ? useAppStore.getState().addTerminalTabIn(key, command, {
               kind: "agent-startup",
               prompt: launchPrompt,

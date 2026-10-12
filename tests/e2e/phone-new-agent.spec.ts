@@ -143,10 +143,8 @@ test.describe("phone new agent target picker (ADR-222)", () => {
       await expect
         .poll(() => paneText(page, newPane), { timeout: 15_000 })
         .toContain(prompt);
-      // The desk followed: workspace B is the one selected there.
-      await expect(
-        window.getByTestId("workspace-item").filter({ hasText: WORKSPACE_B }),
-      ).toBeVisible();
+      // The phone moved to workspace B: it is the one its top bar names.
+      await expect(page.getByTestId("phone-top-bar")).toContainText(WORKSPACE_B);
     } finally {
       await client.close();
     }
@@ -165,8 +163,10 @@ test.describe("phone new agent target picker (ADR-222)", () => {
 
       await page.getByTestId("phone-target-worktree").tap();
       await expect(page.getByTestId("phone-target-worktree")).toBeChecked();
+      // Main's worktree bases off the project's default branch, the one the
+      // send passes to creation.
       await expect(page.getByTestId("phone-composer-subline")).toContainText(
-        "new worktree",
+        "new worktree off main",
       );
 
       await page.getByTestId("phone-empty-composer-input").fill(prompt);

@@ -2,7 +2,7 @@ import type { HostStatusInfo } from "../../../store/host-store";
 import type { ProjectInfo } from "../../../store/project-store";
 import { find } from "../../../lib/workspace-directory";
 import { normalizeHostId, type WorkspaceKey } from "../../../lib/workspace-key";
-import { startingMemberId, workspaceHostChoices, type WorkspaceHostChoice } from "../../../lib/workspace-host-choices";
+import { startingMemberId } from "../../../lib/workspace-host-choices";
 import { branchesEqual } from "../../../utils/branch-name";
 import { buildTopLevelEntries, type TopLevelEntry } from "../../../utils/sidebar-items";
 
@@ -31,7 +31,8 @@ export interface ProjectChoice {
   id: string;
   name: string;
   color: string | null;
-  groupId?: string;
+  /** A linked group: `id` is the group's, so it is checked by group, not project. */
+  isGroup: boolean;
 }
 
 /** One entry in the workspace chip. */
@@ -88,24 +89,9 @@ export function seedTarget(
 export function projectChoices(projects: readonly TargetProject[]): ProjectChoice[] {
   return buildTopLevelEntries(projects).map((entry) =>
     entry.kind === "project"
-      ? { id: entry.project.id, name: entry.project.name, color: entry.project.color }
-      : {
-          id: entry.group.id,
-          name: entry.group.name,
-          color: entry.sections[0].project.color,
-          groupId: entry.group.id,
-        },
+      ? { id: entry.project.id, name: entry.project.name, color: entry.project.color, isGroup: false }
+      : { id: entry.group.id, name: entry.group.name, color: entry.sections[0].project.color, isGroup: true },
   );
-}
-
-/** The target's host choices, or null when its project isn't linked (hide the chip). */
-export function hostChoices(
-  target: NewAgentTarget,
-  projects: readonly TargetProject[],
-  hosts: readonly HostStatusInfo[],
-): WorkspaceHostChoice[] | null {
-  const project = projects.find((p) => p.id === target.projectId);
-  return workspaceHostChoices(project, projects, hosts);
 }
 
 /** The main checkout's choice for `project`, whether or not it lists itself. */
@@ -156,14 +142,6 @@ export function selectHost(
   };
 }
 
-export function selectWorkspace(target: NewAgentTarget, path: string): NewAgentTarget {
-  return { ...target, workspacePath: path };
-}
-
-export function toggleWorktree(target: NewAgentTarget): NewAgentTarget {
-  return { ...target, newWorktree: !target.newWorktree };
-}
-
 /**
  * The target against the current project list, or null once it went stale (its
  * project or workspace was removed); the caller then re-seeds.
@@ -177,4 +155,17 @@ export function resolveTarget<P extends TargetProject>(
   const workspace = workspaceChoices(target, projects).find((w) => w.path === target.workspacePath);
   if (!workspace) return null;
   return { project, workspace, hostId: normalizeHostId(project.hostId) };
+}
+
+/**
+ * The branch a new worktree off `resolved` starts from: main bases off the
+ * project's default branch, as NewWorkspaceDialog does (left unset, main
+ * would try `origin/<default>`, which a repo with no remote doesn't have);
+ * another workspace off its own branch. Undefined for a workspace with no
+ * branch (a detached HEAD), so creation falls back to `origin/<default>`.
+ * The composer's sentence and the send both read it.
+ */
+export function baseBranchOf(resolved: Pick<ResolvedTarget, "project" | "workspace">): string | undefined {
+  const { project, workspace } = resolved;
+  return workspace.isMain ? project.defaultBranch || "main" : workspace.branch || undefined;
 }

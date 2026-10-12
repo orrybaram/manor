@@ -154,30 +154,33 @@ async function openPhone(link: string): Promise<Phone> {
   return { browser, page, cdp, log, frames };
 }
 
-/** Wait until a pane's grid shows `text`. */
-async function waitForText(page: Page, paneId: string, text: string) {
-  await expect
-    .poll(
-      () =>
-        page.evaluate(
-          async ({ id }) => {
-            const h = window.__manorTerminals?.get(id);
-            if (!h) return "";
-            // Logical lines: a row the terminal wrapped joins the one before.
-            const b = h.term.buffer.active;
-            let text = "";
-            for (let i = 0; i < b.length; i++) {
-              const line = b.getLine(i);
-              text += (i > 0 && !line?.isWrapped ? "\n" : "") + (line?.translateToString(true) ?? "");
-            }
-            return text;
-          },
-          { id: paneId },
-        ),
-      { timeout: 30_000 },
-    )
-    .toContain(text);
+/** Wait until a pane's grid shows `text` (or matches it, for a pattern). */
+async function waitForText(page: Page, paneId: string, text: string | RegExp) {
+  const grid = expect.poll(
+    () =>
+      page.evaluate(
+        async ({ id }) => {
+          const h = window.__manorTerminals?.get(id);
+          if (!h) return "";
+          // Logical lines: a row the terminal wrapped joins the one before.
+          const b = h.term.buffer.active;
+          let text = "";
+          for (let i = 0; i < b.length; i++) {
+            const line = b.getLine(i);
+            text += (i > 0 && !line?.isWrapped ? "\n" : "") + (line?.translateToString(true) ?? "");
+          }
+          return text;
+        },
+        { id: paneId },
+      ),
+    { timeout: 30_000 },
+  );
+  if (typeof text === "string") await grid.toContain(text);
+  else await grid.toMatch(text);
 }
+
+/** A shell prompt's last character, whatever the shell: bash `$`, zsh `%`. */
+const PROMPT = /[$%#>❯]\s*$/m;
 
 /**
  * Keystroke-to-echo through the whole road: xterm's input → bridge →
@@ -279,7 +282,7 @@ test("phone audit: every phone surface over the relay, throttled", async ({
     const pane = page.locator('[data-testid="terminal-pane"]:visible').first();
     await expect(pane.locator(".xterm-screen")).toBeVisible({ timeout: 60_000 });
     const paneId = await activePaneId(page);
-    await waitForText(page, paneId, "$");
+    await waitForText(page, paneId, PROMPT);
     {
       // Sequential round trips: an upstream frame sent only after a
       // downstream one arrived, i.e. a call that waited on an answer.
@@ -534,23 +537,30 @@ test("phone audit: every phone surface over the relay, throttled", async ({
     // ── Workspace switch from the drawer ─────────────────────────────
     // The drawer has no workspace list; its Search row opens the palette,
     // which lists every workspace.
-    const switchTo = async (name: string) => {
+    // Only the final tap is timed: opening the palette and typing are not
+    // the switch.
+    const switcher = page.getByTestId("command-palette");
+    const findWorkspace = async (name: string) => {
       await page.getByTestId("sidebar-drawer").getByTestId("search-row").tap();
-      const switcher = page.getByTestId("command-palette");
       await switcher.locator("[cmdk-input]").fill(name);
-      await switcher.locator("[cmdk-item]", { hasText: name }).first().tap();
+      return switcher.locator("[cmdk-item]", { hasText: name }).first();
+    };
+    const switchTo = async (name: string) => {
+      await (await findWorkspace(name)).tap();
       await expect(switcher).toBeHidden();
     };
+    const w2Item = await findWorkspace(W2);
     report.time(
       "tap → workspace switched",
       await timed(
         page,
-        () => switchTo(W2),
+        () => w2Item.tap(),
         (name: string) =>
           (document.querySelector('[data-testid="phone-top-bar"]')?.textContent ?? "").includes(name),
         W2.slice(0, 10),
       ),
     );
+    await expect(switcher).toBeHidden();
     await page.waitForTimeout(400);
     await setCpuThrottle(cdp, false);
     await report.screen(page, "long-workspace-name");

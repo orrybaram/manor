@@ -21,6 +21,7 @@
  * process in behind it.
  */
 
+import type { HostServerClientState } from "../backend/host-server-client";
 import type {
   ActivePort,
   AgentActivitySnapshot,
@@ -100,6 +101,8 @@ export interface BridgeEvents {
   hosts: {
     statusChanged: [hosts: HostStatusInfo[]];
     reconnected: [info: { hostId: string; sessionIds: string[] }];
+    /** A host server's owner channel changed state, or its pairing did (ADR-218 D3). */
+    serverChanged: [info: { hostId: string; state: HostServerClientState }];
   };
   /**
    * The selected theme changed somewhere other than this call (ADR-179 ticket
@@ -220,6 +223,7 @@ export const SUBSCRIPTIONS = {
   "projects.onCloneProgress": "projects.cloneProgress",
   "hosts.onStatusChanged": "hosts.statusChanged",
   "hosts.onReconnected": "hosts.reconnected",
+  "hosts.onServerChanged": "hosts.serverChanged",
   "theme.onChanged": "theme.changed",
   "ports.onChange": "ports.changed",
   "branches.onChange": "branches.changed",

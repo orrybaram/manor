@@ -29,6 +29,7 @@ import {
 } from "./host-connection";
 import {
   HostServerClient,
+  type HostServerClientState,
   type HostServerClientOptions,
 } from "./host-server-client";
 import { HostUnavailableError, unavailableBackend } from "./host-view";
@@ -144,6 +145,9 @@ export class BackendRegistry {
   private readonly serverClientHostStatus = new Map<string, HostStatus>();
   private readonly hostServerClientOptions: BackendRegistryOptions["hostServerClient"];
   private hostServerSync: HostServerSyncHook | null = null;
+  private readonly serverStateListeners = new Set<
+    (hostId: string, state: HostServerClientState) => void
+  >();
 
   constructor(opts: BackendRegistryOptions) {
     this.remoteVersion = opts.remoteVersion;
@@ -323,6 +327,14 @@ export class BackendRegistry {
     return Array.from(this.serverClients.values());
   }
 
+  /** Told whenever any host's owner channel changes state. Returns the unsubscribe. */
+  onHostServerStateChange(
+    listener: (hostId: string, state: HostServerClientState) => void,
+  ): () => void {
+    this.serverStateListeners.add(listener);
+    return () => this.serverStateListeners.delete(listener);
+  }
+
   /**
    * What runs after any host's owner channel (re)connects — the desktop's
    * manifest and layout re-send. Channels already up run it now.
@@ -338,15 +350,22 @@ export class BackendRegistry {
     this.serverClients.get(hostId)?.dispose();
     this.serverClientHostStatus.delete(hostId);
     const open = provider.openServerChannel?.bind(provider) ?? null;
-    this.serverClients.set(
+    const client = new HostServerClient({
       hostId,
-      new HostServerClient({
-        hostId,
-        open,
-        onConnected: (client) => this.runHostServerSync(client),
-        ...this.hostServerClientOptions,
-      }),
-    );
+      open,
+      onConnected: (c) => this.runHostServerSync(c),
+      ...this.hostServerClientOptions,
+    });
+    client.onStateChange((state) => {
+      for (const listener of [...this.serverStateListeners]) {
+        try {
+          listener(hostId, state);
+        } catch (err) {
+          console.warn(`${LOG} host server state listener threw:`, err);
+        }
+      }
+    });
+    this.serverClients.set(hostId, client);
   }
 
   private async runHostServerSync(client: HostServerClient): Promise<void> {

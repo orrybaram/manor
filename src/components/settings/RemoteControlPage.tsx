@@ -1,15 +1,12 @@
 import { useCallback, useState } from "react";
-import Smartphone from "lucide-react/dist/esm/icons/smartphone";
 import ShieldAlert from "lucide-react/dist/esm/icons/shield-alert";
-import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import Plus from "lucide-react/dist/esm/icons/plus";
 
+import { useHostStore } from "../../store/host-store";
 import { useRemoteControlStore } from "../../store/remote-control-store";
 import { Button } from "../ui/Button/Button";
 import { Stack, Row } from "../ui/Layout/Layout";
 import { Switch } from "../ui/Switch/Switch";
-import { Tooltip } from "../ui/Tooltip/Tooltip";
-import { relativeShort } from "../../utils/relative-time";
 import {
   AddDeviceDialog,
   CopyLinkButton,
@@ -20,9 +17,10 @@ import {
 } from "./RemoteControlDialogs";
 import type {
   RemoteControlStatus,
-  RemoteDeviceInfo,
   RemotePairResult,
 } from "../../electron.d";
+import { DeviceRow } from "./DeviceRow";
+import { HostPhoneAccess } from "./HostPhoneAccess";
 import { SectionTitle } from "./SectionTitle";
 import { isWebApp } from "../../lib/platform";
 import styles from "./SettingsModal/SettingsModal.module.css";
@@ -174,6 +172,8 @@ export function RemoteControlPage() {
         )}
       </Stack>
 
+      {!webApp && <HostPhoneAccessList />}
+
       <RelayConfirmDialog
         open={confirmOpen}
         onCancel={() => setConfirmOpen(false)}
@@ -207,6 +207,24 @@ export function RemoteControlPage() {
         relayUp={relayUp}
         onClose={() => setPairing(null)}
       />
+    </Stack>
+  );
+}
+
+/** One section per remote host, below this computer's own devices. */
+function HostPhoneAccessList() {
+  const hosts = useHostStore((s) => s.hosts);
+  const remote = hosts.filter((h) => h.spec !== null);
+  if (remote.length === 0) return null;
+  return (
+    <Stack gap="md">
+      {remote.map((host) => (
+        <HostPhoneAccess
+          key={host.hostId}
+          hostId={host.hostId}
+          hostName={host.spec?.target ?? host.hostId}
+        />
+      ))}
     </Stack>
   );
 }
@@ -360,44 +378,6 @@ function StatusCard(props: {
           </Stack>
         </div>
       )}
-    </div>
-  );
-}
-
-function DeviceRow(props: {
-  device: RemoteDeviceInfo;
-  busy: boolean;
-  onRevoke: () => void;
-}) {
-  const { device, busy, onRevoke } = props;
-  return (
-    <div data-testid="remote-device-row" className={styles.remoteDeviceRow}>
-      <Smartphone size={14} className={styles.remoteDeviceIcon} />
-      <div className={styles.remoteDeviceBody}>
-        <div className={styles.remoteDeviceLabel}>
-          <span>{device.label}</span>
-          {device.hasPush && (
-            <span className={styles.remoteSendBadge}>push</span>
-          )}
-        </div>
-        <div className={styles.fieldHint}>
-          Paired {relativeShort(device.createdAt)} ·{" "}
-          {device.lastSeenAt === null
-            ? "not connected yet"
-            : `last seen ${relativeShort(device.lastSeenAt)}`}
-        </div>
-      </div>
-      <Tooltip label="Revoke this device's token">
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label={`Revoke ${device.label}`}
-          disabled={busy}
-          onClick={onRevoke}
-        >
-          <Trash2 size={13} />
-        </Button>
-      </Tooltip>
     </div>
   );
 }

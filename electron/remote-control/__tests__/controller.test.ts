@@ -441,6 +441,37 @@ describe("RemoteControlController before the runtime loads", () => {
     expect(f.loadRuntime).not.toHaveBeenCalled();
   });
 
+  it("skips the endpoints a remote host's server already pushes to", () => {
+    const endpoints = new Set(["https://push.example/abc"]);
+    const lookup = vi.fn(() => endpoints);
+    f.controller.setHostPushEndpoints(lookup);
+    f.controller.onAgentStatus(
+      { ...AGENT, hostId: "box" },
+      "working",
+      "requires_input",
+      { notify: true },
+    );
+    expect(lookup).toHaveBeenCalledWith("box");
+    expect(f.push.notify).toHaveBeenLastCalledWith(expect.anything(), {
+      skipEndpoints: endpoints,
+    });
+  });
+
+  it("sends local agents to every subscription", () => {
+    const lookup = vi.fn(() => new Set(["https://push.example/abc"]));
+    f.controller.setHostPushEndpoints(lookup);
+    f.controller.onAgentStatus(
+      { ...AGENT, hostId: "local" },
+      "working",
+      "requires_input",
+      { notify: true },
+    );
+    expect(lookup).not.toHaveBeenCalled();
+    expect(f.push.notify).toHaveBeenLastCalledWith(expect.anything(), {
+      skipEndpoints: undefined,
+    });
+  });
+
   it("does not push a status that is not worth one", async () => {
     await f.controller.setEnabled(true);
     f.controller.onAgentStatus(AGENT, "working", "idle", { notify: true });

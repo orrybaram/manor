@@ -70,10 +70,12 @@ export function AddDeviceDialog(props: {
   busy: boolean;
   /** Why the last pairing failed, shown where the user is looking. */
   error: string | null;
+  /** Pairing with a remote host's server rather than this computer. */
+  hostName?: string;
   onCancel: () => void;
   onPair: (label: string) => void;
 }) {
-  const { open, enabled, busy, error, onCancel, onPair } = props;
+  const { open, enabled, busy, error, hostName, onCancel, onPair } = props;
   const [label, setLabel] = useState("");
   const trimmed = label.trim();
   const submit = () => {
@@ -98,8 +100,9 @@ export function AddDeviceDialog(props: {
             Add a device
           </Dialog.Title>
           <Dialog.Description className={dialogStyles.confirmDescription}>
-            The device gets full control of Manor, including your terminals
-            and workspaces.
+            {hostName
+              ? `This phone reaches only ${hostName}: its projects and terminals, not your other hosts. It keeps working while this computer sleeps.`
+              : "The device gets full control of Manor, including your terminals and workspaces."}
             {!enabled && " Pairing turns on remote control."}
           </Dialog.Description>
           <div className={styles.remotePairingBody}>

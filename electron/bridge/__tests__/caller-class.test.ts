@@ -310,6 +310,13 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
         // an argument. Everything else Linear does hands back the result of
         // using the stored key and crosses like any other read.
         "linear.connect",
+        // ADR-218 D3: pairing a phone with a host's server, and the keys
+        // that go with it — the same grant as `remoteControl.pair`.
+        "hosts.serverStatus",
+        "hosts.pairDevice",
+        "hosts.listDevices",
+        "hosts.revokeDevice",
+        "hosts.resetPairingKeys",
       ].sort(),
     );
   });

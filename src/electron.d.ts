@@ -458,6 +458,10 @@ export type {
   TransferResult,
 } from "../electron/projects/types";
 
+/** Phone access through a host's server (ADR-218 D3). */
+export type { HostServerView } from "../electron/bridge/handlers/hosts";
+export type { HostServerStatus } from "../electron/host-server/relay";
+
 /** The phone chat view's wire types (ADR-215). */
 export type { ChatEntry, ChatSkill } from "../electron/chat-mirror/transcript";
 export type {

@@ -59,6 +59,14 @@ const loadWebPush = lazy(async () =>
   cjsExports(await import("web-push"), "sendNotification"),
 );
 
+export interface PushNotifyOptions {
+  /**
+   * Subscriptions to leave out: the endpoints a host server already pushes to
+   * for its own agents, so a phone paired both ways hears once (ADR-218 D3).
+   */
+  skipEndpoints?: ReadonlySet<string>;
+}
+
 export class PushManager {
   private keys: VapidKeys | null = null;
   private loaded = false;
@@ -102,10 +110,16 @@ export class PushManager {
    * that is the normal end of a subscription's life, not an error worth
    * surfacing to anyone.
    */
-  async notify(payload: PushPayload): Promise<number> {
+  async notify(
+    payload: PushPayload,
+    opts: PushNotifyOptions = {},
+  ): Promise<number> {
     // Before anything else: with nothing subscribed there is nothing to sign,
     // so neither the key nor `web-push` is needed.
-    const targets = this.devices.pushTargets();
+    const skip = opts.skipEndpoints;
+    const targets = this.devices
+      .pushTargets()
+      .filter(({ subscription }) => !skip?.has(subscription.endpoint));
     if (targets.length === 0) return 0;
 
     let keys: VapidKeys;
@@ -226,9 +240,10 @@ export function pushAgentTransition(
   agent: { id: string; name: string | null; projectName: string | null },
   previousStatus: string | null | undefined,
   status: string,
+  opts?: PushNotifyOptions,
 ): void {
   if (!isPushable(status) || status === previousStatus) return;
-  void push.notify(pushPayloadFor(status, agent));
+  void push.notify(pushPayloadFor(status, agent), opts);
 }
 
 /**

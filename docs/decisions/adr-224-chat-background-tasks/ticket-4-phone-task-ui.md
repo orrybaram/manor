@@ -1,6 +1,6 @@
 ---
 title: Phone TaskCard, TaskSheet and running-tasks chip
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [3]

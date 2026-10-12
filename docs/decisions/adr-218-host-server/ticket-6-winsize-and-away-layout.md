@@ -1,6 +1,6 @@
 ---
 title: Daemon-decided winsize owner and the "Started while away" tab
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [4]

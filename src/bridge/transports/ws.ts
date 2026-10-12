@@ -126,6 +126,8 @@ export interface HelloReply {
   rendererId: string | null;
   /** The desktop's version (ADR-206 D4), or null from an older host. */
   appVersion: string | null;
+  /** A host server's own name for itself (ADR-218 D7), or null. */
+  hostName: string | null;
 }
 
 /** `BridgeTransport`, plus the one thing a "not reachable" screen needs. */
@@ -288,6 +290,10 @@ class WsTransport implements WsBridgeTransport {
           rendererId: this.rendererId,
           appVersion:
             typeof reply.appVersion === "string" ? reply.appVersion : null,
+          hostName:
+            typeof (frame as { hostName?: unknown }).hostName === "string"
+              ? (frame as { hostName: string }).hostName
+              : null,
         });
       }
       return;

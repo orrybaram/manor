@@ -120,6 +120,7 @@ describe("the relay pipe", () => {
       expect(options.onHello).toHaveBeenCalledWith({
         rendererId: "r-1",
         appVersion: null,
+        hostName: null,
       });
       const { api } = bridge();
       void api.projects.getAll().catch(() => {});
@@ -127,6 +128,7 @@ describe("the relay pipe", () => {
       expect(options.onHello).toHaveBeenLastCalledWith({
         rendererId: "r-1",
         appVersion: "9.9.9",
+        hostName: null,
       });
     });
 

@@ -30,6 +30,7 @@
  */
 
 import { createBridge } from "./client";
+import { renamePairing, setActiveRoom } from "./pairings";
 import { relayJoinUrl, relayPipe } from "./transports/relay-pipe";
 import { createWsTransport, type Pipe } from "./transports/ws";
 import {
@@ -66,6 +67,11 @@ const UNPAIRED_PIPE: Pipe = {
 
 /** The pairing token this tab is dialling with, or `null` for none found. */
 export const webToken: string | null = pipe && pairing ? pairing.token : null;
+
+/** The room this tab dials, or `null` when unpaired. */
+export const webRoomId: string | null = pipe && pairing ? pairing.roomId : null;
+
+setActiveRoom(webRoomId);
 
 /** What the socket has said about `webToken`, once it has said anything. */
 export type BridgeOutcome = "unauthorized" | "key-mismatch";
@@ -131,7 +137,10 @@ const transport = createWsTransport({
   // stopped, so the screen offers a reload rather than a redial.
   onKeyMismatch: () => settle("key-mismatch"),
   onStatus: setReachability,
-  onHello: ({ appVersion }) => {
+  onHello: ({ appVersion, hostName }) => {
+    // A host server names itself (ADR-218 D7); the switcher shows that
+    // instead of "Host N".
+    if (webRoomId && hostName) renamePairing(webRoomId, hostName);
     const target = versionRedirectTarget(__APP_VERSION__, appVersion);
     if (target) location.replace(target);
   },

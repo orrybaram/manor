@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { base64urlEncode } from "../../lib/relay-crypto";
 import type { ElectronAPI } from "../../electron";
-import { WEB_RELAY_KEY } from "../web-pairing";
+import { PAIRINGS_KEY } from "../pairings";
 import { desktopKey, FakeRelaySocket } from "./fake-relay";
 
 const ROOM = "AbCdEfGhIjKlMnOpQr_-01";
@@ -79,7 +79,7 @@ describe("install-web on a relay-served page", () => {
   it("dials the relay's /join with the token from the link", async () => {
     const { mod, api } = await install(relayHash());
     expect(mod.webToken).toBe("tok");
-    expect(local.has(WEB_RELAY_KEY)).toBe(true);
+    expect(local.has(PAIRINGS_KEY)).toBe(true);
 
     void api.projects.getAll().catch(() => {});
     const socket = FakeRelaySocket.last;
@@ -129,7 +129,7 @@ describe("install-web on a relay-served page", () => {
     vi.resetModules();
     const { mod } = await install("#details");
     expect(mod.webToken).toBe("tok");
-    expect(local.has(WEB_RELAY_KEY)).toBe(true);
+    expect(local.has(PAIRINGS_KEY)).toBe(true);
   });
 
   it("dials nothing with an old listener link and no relay pairing", async () => {
@@ -155,7 +155,7 @@ describe("install-web on a relay-served page", () => {
     FakeRelaySocket.last.handshake();
     expect(mod.getReachability()).toBe("connected");
     expect(seen).toEqual(["unreachable", "connected"]);
-    expect(local.has(WEB_RELAY_KEY)).toBe(true);
+    expect(local.has(PAIRINGS_KEY)).toBe(true);
   });
 
   it("keeps the pairing on a message 2 that does not authenticate", async () => {
@@ -169,7 +169,7 @@ describe("install-web on a relay-served page", () => {
     // pipe reconnects instead of forgetting (relay-pipe.ts, "Failures").
     socket.deliverRaw(new Uint8Array(48).fill(1));
     expect(outcome).not.toHaveBeenCalled();
-    expect(local.has(WEB_RELAY_KEY)).toBe(true);
+    expect(local.has(PAIRINGS_KEY)).toBe(true);
   });
 
   it("settles key-mismatch after repeated bad message 2s, keeping the pairing", async () => {
@@ -187,6 +187,6 @@ describe("install-web on a relay-served page", () => {
       }
     }
     expect(outcome).toHaveBeenCalledExactlyOnceWith("key-mismatch");
-    expect(local.has(WEB_RELAY_KEY)).toBe(true);
+    expect(local.has(PAIRINGS_KEY)).toBe(true);
   });
 });

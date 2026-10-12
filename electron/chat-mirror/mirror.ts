@@ -29,13 +29,16 @@
  * trigger tries again, and `getHistory` answers `unavailable: "host-offline"`
  * meanwhile. Subscribers keep the entries they already have. A line too long
  * for one read is stepped over without an entry (`TranscriptRead.skip`).
+ *
+ * The tailing itself (offset, reads, watch and poll) is a `TranscriptStream`
+ * (`stream.ts`, ADR-224 D3); a pane mirror owns one, plus the pane-only parts:
+ * pickers, skills and the context size.
  */
 
 import { LOCAL_HOST_ID } from "../backend/types";
 import type { AgentKind } from "../terminal-host/types";
 import { adapterFor } from "./adapters";
-import { claudeAdapter } from "./adapters/claude";
-import type { TranscriptAdapter, TranscriptLineParser } from "./adapters/types";
+import type { TranscriptAdapter } from "./adapters/types";
 import { BUILTIN_COMMANDS, type ChatCommand } from "./builtin-commands";
 import {
   encodePickerAnswer,
@@ -52,6 +55,7 @@ import {
   type ChatSkill,
 } from "./transcript";
 import type { TranscriptSource } from "./transcript-source";
+import { TranscriptStream } from "./stream";
 
 /**
  * Why a pane has no chat. `host-offline`: the transcript could not be read
@@ -150,14 +154,12 @@ export function transcriptSources(
   };
 }
 
+/**
+ * A pane's chat: its own transcript's stream, plus what only a pane has —
+ * pickers that can be answered (ADR-224 D3).
+ */
 class PaneMirror {
-  path: string | null = null;
-  /**
-   * The adapter the parser was built by; a change of agent resets. Starts as
-   * Claude's until the first `sync` or read says otherwise.
-   */
-  adapter: TranscriptAdapter = claudeAdapter;
-  parser: TranscriptLineParser = claudeAdapter.createParser();
+  readonly stream: TranscriptStream;
   /**
    * The most recent non-empty skill list. Survives `reset`: `/clear` and
    * resume start a transcript with no listing until its first prompt.
@@ -168,30 +170,38 @@ class PaneMirror {
    * carries (ADR-223 D4). A `usage` entry is published only on a change.
    */
   lastContextTokens: number | null = null;
-  /** Bytes of the file consumed: the end of the last complete line. */
-  offset = 0;
-  source: TranscriptSource | null = null;
-  /** The first read of this path is done; later reads publish what they find. */
-  primed = false;
-  /** Bumped on every reset, so a read or timer from before it is discarded. */
-  generation = 0;
   watched = false;
-  unwatch: (() => void) | null = null;
-  poll: ReturnType<typeof setInterval> | null = null;
   /** Answers sent and waiting for their `tool_result`, by tool_use id. */
   awaiting = new Map<string, ReturnType<typeof setTimeout>>();
   /** Answers that timed out (D5). */
   needsTerminal = new Set<string>();
-  /** Reads run one at a time, in order. */
-  queue: Promise<void> = Promise.resolve();
-  /**
-   * A read queued behind the running one and not started yet. Every trigger
-   * until it starts joins it — the "read again" flag — so a burst of hooks
-   * during a slow remote read costs one more read, not one each.
-   */
-  pending: Promise<void> | null = null;
-  /** Why the last read failed; null once one succeeds. */
-  readError: string | null = null;
+
+  constructor(
+    label: string,
+    intervals: { pollIntervalMs: number; unwatchedPollIntervalMs: number },
+    hooks: {
+      onEntry(m: PaneMirror, entry: ChatEntry, publish: boolean): void;
+      onConsumed(m: PaneMirror, publish: boolean): void;
+    },
+  ) {
+    this.stream = new TranscriptStream({
+      label,
+      ...intervals,
+      hooks: {
+        onEntry: (entry, publish) => hooks.onEntry(this, entry, publish),
+        onConsumed: (publish) => hooks.onConsumed(this, publish),
+        onReset: () => this.forget(),
+      },
+    });
+  }
+
+  /** The stream is starting over: nothing it read is in question any more. */
+  private forget(): void {
+    for (const timer of this.awaiting.values()) clearTimeout(timer);
+    this.awaiting.clear();
+    this.needsTerminal.clear();
+    this.lastContextTokens = null;
+  }
 }
 
 function isOpenPicker(entry: ChatEntry): boolean {
@@ -218,14 +228,14 @@ export class ChatMirror {
     const resolved = this.resolve(paneId);
     if (!resolved.ok) return resolved;
     const m = this.ensure(paneId);
-    m.source = resolved.source;
-    this.usePath(paneId, m, resolved.path, resolved.adapter);
-    await this.read(paneId, m);
-    if (m.readError !== null) return { ok: false, reason: "host-offline" };
+    m.stream.source = resolved.source;
+    this.usePath(m, resolved.path, resolved.adapter);
+    await m.stream.read();
+    if (m.stream.readError !== null) return { ok: false, reason: "host-offline" };
     return {
       ok: true,
       entries: this.entries(m),
-      contextTokens: m.parser.contextTokens(),
+      contextTokens: m.stream.parser.contextTokens(),
     };
   }
 
@@ -234,13 +244,14 @@ export class ChatMirror {
     const resolved = this.resolve(paneId);
     if (!resolved.ok) return resolved;
     const m = this.ensure(paneId);
-    m.source = resolved.source;
-    this.usePath(paneId, m, resolved.path, resolved.adapter);
-    await this.read(paneId, m);
-    if (m.readError !== null) return { ok: false, reason: "host-offline" };
+    m.stream.source = resolved.source;
+    this.usePath(m, resolved.path, resolved.adapter);
+    await m.stream.read();
+    if (m.stream.readError !== null) return { ok: false, reason: "host-offline" };
 
-    const listed = m.parser.hasSkillListing();
-    const skills = listed ? m.parser.skills() : m.lastSkills;
+    const parser = m.stream.parser;
+    const listed = parser.hasSkillListing();
+    const skills = listed ? parser.skills() : m.lastSkills;
     const byName = new Map<string, ChatCommand>();
     for (const c of BUILTIN_COMMANDS) byName.set(c.name, c);
     for (const s of skills) {
@@ -265,13 +276,13 @@ export class ChatMirror {
       const m = this.mirrors.get(paneId);
       if (!m) return;
       m.watched = false;
-      this.stopWatching(m);
+      m.stream.stopWatching();
       return;
     }
     const m = this.ensure(paneId);
     m.watched = true;
     this.sync(paneId, m);
-    this.startWatching(paneId, m);
+    m.stream.startWatching();
   }
 
   /**
@@ -280,8 +291,8 @@ export class ChatMirror {
    */
   poke(paneId: string): void {
     const m = this.mirrors.get(paneId);
-    if (!m?.watched || !m.path) return;
-    void this.read(paneId, m);
+    if (!m?.watched || !m.stream.path) return;
+    void m.stream.read();
   }
 
   /** The pane's agent changed: re-check its transcript path. */
@@ -289,7 +300,7 @@ export class ChatMirror {
     const m = this.mirrors.get(paneId);
     if (!m) return;
     this.sync(paneId, m);
-    if (m.watched) this.startWatching(paneId, m);
+    if (m.watched) m.stream.startWatching();
   }
 
   /**
@@ -300,8 +311,8 @@ export class ChatMirror {
   closePane(paneId: string): void {
     const m = this.mirrors.get(paneId);
     if (!m) return;
-    this.stopWatching(m);
-    this.reset(m, null);
+    m.stream.stopWatching();
+    m.stream.reset(null);
     if (!m.watched) this.mirrors.delete(paneId);
   }
 
@@ -323,11 +334,11 @@ export class ChatMirror {
     const resolved = this.resolve(paneId);
     if (!resolved.ok) return resolved;
     const m = this.ensure(paneId);
-    m.source = resolved.source;
-    this.usePath(paneId, m, resolved.path, resolved.adapter);
-    await this.read(paneId, m);
+    m.stream.source = resolved.source;
+    this.usePath(m, resolved.path, resolved.adapter);
+    await m.stream.read();
     // The picker cannot be checked against a transcript that cannot be read.
-    if (m.readError !== null) return { ok: false, reason: "host-offline" };
+    if (m.stream.readError !== null) return { ok: false, reason: "host-offline" };
 
     // Synchronous from here to the write: a second call waiting on the same
     // read sees this one's `awaiting` entry.
@@ -356,7 +367,7 @@ export class ChatMirror {
     }
 
     this.deps.write(paneId, bytes);
-    const generation = m.generation;
+    const generation = m.stream.generation;
     m.awaiting.set(
       toolUseId,
       setTimeout(() => {
@@ -369,8 +380,8 @@ export class ChatMirror {
   /** Release everything. The app is quitting. */
   dispose(): void {
     for (const m of this.mirrors.values()) {
-      this.stopWatching(m);
-      this.reset(m, null);
+      m.stream.stopWatching();
+      m.stream.reset(null);
     }
     this.mirrors.clear();
   }
@@ -396,7 +407,20 @@ export class ChatMirror {
   private ensure(paneId: string): PaneMirror {
     let m = this.mirrors.get(paneId);
     if (!m) {
-      m = new PaneMirror();
+      m = new PaneMirror(
+        paneId,
+        {
+          pollIntervalMs: this.pollIntervalMs,
+          unwatchedPollIntervalMs: this.unwatchedPollIntervalMs,
+        },
+        {
+          onEntry: (pane, entry, publish) => {
+            if (!isOpenPicker(entry)) this.settle(pane, entry.id);
+            if (publish) this.deps.publish(paneId, this.decorate(pane, entry));
+          },
+          onConsumed: (pane, publish) => this.consumed(paneId, pane, publish),
+        },
+      );
       this.mirrors.set(paneId, m);
     }
     return m;
@@ -405,140 +429,26 @@ export class ChatMirror {
   /** Point the mirror at whatever the pane's agent says now. */
   private sync(paneId: string, m: PaneMirror): void {
     const resolved = this.resolve(paneId);
-    if (resolved.ok) m.source = resolved.source;
+    if (resolved.ok) m.stream.source = resolved.source;
     this.usePath(
-      paneId,
       m,
       resolved.ok ? resolved.path : null,
-      resolved.ok ? resolved.adapter : m.adapter,
+      resolved.ok ? resolved.adapter : m.stream.adapter,
     );
   }
 
   private usePath(
-    paneId: string,
     m: PaneMirror,
     path: string | null,
     adapter: TranscriptAdapter,
   ): void {
-    // A different agent kind is a different format: start over like a new path.
-    if (m.path === path && m.adapter === adapter) return;
-    m.adapter = adapter;
-    const watching = m.unwatch !== null || m.poll !== null;
-    this.stopWatching(m);
-    this.reset(m, path);
-    if (watching || m.watched) this.startWatching(paneId, m);
+    m.stream.usePath(path, adapter, m.watched);
   }
 
-  /** Forget everything read, and start over at `path`. */
-  private reset(m: PaneMirror, path: string | null): void {
-    for (const timer of m.awaiting.values()) clearTimeout(timer);
-    m.awaiting.clear();
-    m.needsTerminal.clear();
-    m.generation++;
-    m.path = path;
-    m.parser = m.adapter.createParser();
-    m.lastContextTokens = null;
-    m.offset = 0;
-    m.primed = false;
-    m.readError = null;
-  }
-
-  private startWatching(paneId: string, m: PaneMirror): void {
-    if (!m.path || m.poll !== null) return;
-    const onChange = () => {
-      void this.read(paneId, m);
-    };
-    const watchable = typeof m.source?.watch === "function";
-    m.unwatch = m.source?.watch?.(m.path, onChange) ?? null;
-    m.poll = setInterval(
-      onChange,
-      watchable ? this.pollIntervalMs : this.unwatchedPollIntervalMs,
-    );
-    m.poll.unref?.();
-    onChange();
-  }
-
-  private stopWatching(m: PaneMirror): void {
-    m.unwatch?.();
-    m.unwatch = null;
-    if (m.poll !== null) clearInterval(m.poll);
-    m.poll = null;
-  }
-
-  /**
-   * Read whatever was appended since the last read, in turn. The promise
-   * settles after a read that started after this call. A call while a read
-   * is already waiting to start joins that one instead of queueing another.
-   */
-  private read(paneId: string, m: PaneMirror): Promise<void> {
-    if (m.pending) return m.pending;
-    const run = () => {
-      m.pending = null;
-      return this.readNow(paneId, m).catch((err: unknown) => {
-        console.error(`[chat-mirror] read failed for ${paneId}:`, err);
-      });
-    };
-    const next = m.queue.then(run, run);
-    m.pending = next;
-    m.queue = next;
-    return next;
-  }
-
-  private async readNow(paneId: string, m: PaneMirror): Promise<void> {
-    const path = m.path;
-    const source = m.source;
-    if (!path || !source) return;
-    let generation = m.generation;
-    for (;;) {
-      const result = await source.read(path, m.offset);
-      if (generation !== m.generation) return;
-      // Keep what was read so far; the next trigger tries again.
-      if (!result.ok) {
-        m.readError = result.error;
-        return;
-      }
-      // Rewritten from scratch: start over, quietly (`reset` unprimes, so
-      // the re-read publishes nothing). The data read was from the wrong
-      // offset, so read again from the start.
-      if (result.size < m.offset) {
-        this.reset(m, path);
-        generation = m.generation;
-        continue;
-      }
-      m.readError = null;
-      // A line too long to read: step over it, and read on from after it.
-      if (result.skip !== undefined && result.skip > 0) {
-        m.offset += result.skip;
-        continue;
-      }
-      this.consume(paneId, m, result.data, m.primed);
-      m.primed = true;
-      return;
-    }
-  }
-
-  /**
-   * Parse every complete line in `data`, which starts at `m.offset`. The
-   * offset advances by the byte length of those lines (newlines included);
-   * a partial last line is left for the next read to return whole.
-   */
-  private consume(
-    paneId: string,
-    m: PaneMirror,
-    data: string,
-    publish: boolean,
-  ): void {
-    const end = data.lastIndexOf("\n");
-    if (end === -1) return;
-    const complete = data.slice(0, end + 1);
-    m.offset += Buffer.byteLength(complete, "utf8");
-    for (const line of complete.slice(0, -1).split("\n")) {
-      for (const entry of m.parser.push(line)) {
-        if (!isOpenPicker(entry)) this.settle(m, entry.id);
-        if (publish) this.deps.publish(paneId, this.decorate(m, entry));
-      }
-    }
-    const tokens = m.parser.contextTokens();
+  /** After a batch of lines: the context size and the skill listing. */
+  private consumed(paneId: string, m: PaneMirror, publish: boolean): void {
+    const parser = m.stream.parser;
+    const tokens = parser.contextTokens();
     if (tokens !== m.lastContextTokens) {
       m.lastContextTokens = tokens;
       if (publish && tokens !== null) {
@@ -550,8 +460,8 @@ export class ChatMirror {
         });
       }
     }
-    if (m.parser.hasSkillListing()) {
-      const skills = m.parser.skills();
+    if (parser.hasSkillListing()) {
+      const skills = parser.skills();
       if (skills.length > 0) m.lastSkills = skills;
     }
   }
@@ -570,14 +480,14 @@ export class ChatMirror {
     id: string,
     generation: number,
   ): Promise<void> {
-    if (m.generation !== generation || !m.awaiting.has(id)) return;
+    if (m.stream.generation !== generation || !m.awaiting.has(id)) return;
     // The watcher may be off (nobody subscribed) or simply late: look first.
     // `awaiting` keeps the id until then, so a second answer stays refused.
-    await this.read(paneId, m);
+    await m.stream.read();
     // Settled by that read, or reset while it ran.
-    if (m.generation !== generation || !m.awaiting.has(id)) return;
+    if (m.stream.generation !== generation || !m.awaiting.has(id)) return;
     m.awaiting.delete(id);
-    const entry = m.parser.entries().find((e) => e.id === id);
+    const entry = m.stream.parser.entries().find((e) => e.id === id);
     if (!entry || !isOpenPicker(entry)) return;
     m.needsTerminal.add(id);
     this.deps.publish(paneId, this.decorate(m, entry));
@@ -585,7 +495,7 @@ export class ChatMirror {
 
   /** The newest question or plan, answered or not. */
   private newestPicker(m: PaneMirror): ChatEntry | null {
-    const entries = m.parser.entries();
+    const entries = m.stream.parser.entries();
     for (let i = entries.length - 1; i >= 0; i--) {
       const entry = entries[i];
       if (entry.kind === "question" || entry.kind === "plan") return entry;
@@ -594,7 +504,7 @@ export class ChatMirror {
   }
 
   private entries(m: PaneMirror): ChatEntry[] {
-    return m.parser.entries().map((e) => this.decorate(m, e));
+    return m.stream.parser.entries().map((e) => this.decorate(m, e));
   }
 
   private decorate(m: PaneMirror, entry: ChatEntry): ChatEntry {

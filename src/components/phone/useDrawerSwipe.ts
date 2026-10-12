@@ -45,18 +45,33 @@ function canScrollLeftUnder(target: EventTarget | null): boolean {
 }
 
 /**
+ * Any dialog, sheet or menu on screen: the drawer (open already), a sheet,
+ * the palette, a rename prompt, a long-press or overflow menu. Radix gives
+ * each of them one of these roles, and one leaving keeps it with
+ * `data-state="closed"` until its exit animation ends.
+ */
+const OVERLAY_SELECTOR = [
+  '[role="dialog"]:not([data-state="closed"])',
+  '[role="alertdialog"]:not([data-state="closed"])',
+  '[role="menu"]:not([data-state="closed"])',
+].join(", ");
+
+function overlayOpen(): boolean {
+  return document.querySelector(OVERLAY_SELECTOR) !== null;
+}
+
+/**
  * Swipe right from the left half of the screen to open the drawer. Listens on
  * the document in the capture phase, so a terminal or the chat transcript
  * under the finger can't swallow the gesture first; a gesture that starts out
  * vertical is that view's scroll and is left alone, and so is one that starts
- * on something that can still scroll left (`canScrollLeftUnder`). While `enabled` is false (another modal or
- * sheet is open) the gesture does nothing.
+ * on something that can still scroll left (`canScrollLeftUnder`). While any
+ * overlay is open (`overlayOpen`) the gesture is that overlay's, and does
+ * nothing.
  */
-export function useEdgeSwipeToOpen(onOpen: () => void, enabled: boolean) {
+export function useSwipeToOpenDrawer(onOpen: () => void) {
   const openRef = useRef(onOpen);
   openRef.current = onOpen;
-  const enabledRef = useRef(enabled);
-  enabledRef.current = enabled;
 
   useMountEffect(() => {
     let gesture: { x: number; y: number; axis: Axis | null } | null = null;
@@ -64,10 +79,10 @@ export function useEdgeSwipeToOpen(onOpen: () => void, enabled: boolean) {
     const onStart = (e: globalThis.TouchEvent) => {
       const t = e.touches[0];
       gesture =
-        enabledRef.current &&
         e.touches.length === 1 &&
         t.clientX <= window.innerWidth * OPEN_ZONE_FRACTION &&
-        !canScrollLeftUnder(e.target)
+        !canScrollLeftUnder(e.target) &&
+        !overlayOpen()
           ? { x: t.clientX, y: t.clientY, axis: null }
           : null;
     };
@@ -84,7 +99,7 @@ export function useEdgeSwipeToOpen(onOpen: () => void, enabled: boolean) {
       }
       if (g.axis === "x" && dx > OPEN_DISTANCE_PX) {
         gesture = null;
-        if (enabledRef.current) openRef.current();
+        if (!overlayOpen()) openRef.current();
       }
     };
     const onEnd = () => {
@@ -107,8 +122,8 @@ export function useEdgeSwipeToOpen(onOpen: () => void, enabled: boolean) {
 
 /**
  * Swipe the drawer away: it follows a leftward drag and closes past
- * `CLOSE_DISTANCE_PX`. A gesture that starts out vertical is the project
- * list's scroll and is left alone. Touch events rather than pointer events:
+ * `CLOSE_DISTANCE_PX`. A gesture that starts out vertical is the drawer's
+ * own scroll and is left alone. Touch events rather than pointer events:
  * the browser cancels a pointer the moment it starts scrolling.
  *
  * The offset is `--swipe-x` on the sheet, set straight on the element so a

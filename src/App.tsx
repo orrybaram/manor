@@ -803,9 +803,6 @@ function App() {
                     onNewAgent={handleNewAgent}
                     onOpenSettings={() => handleOpenSettings()}
                     onOpenSearch={openPhonePalette}
-                    modalOpen={
-                      paletteOpen || settingsOpen || feedbackOpen || agentsOpen
-                    }
                   />
                 )}
                 {/* Every workspace renders through the same PanelLayout in a single

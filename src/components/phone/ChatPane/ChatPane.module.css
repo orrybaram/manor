@@ -827,3 +827,74 @@ button.commandChip {
     animation: none;
   }
 }
+
+/* ── Status line under the composer: the workspace's open PR as chips ── */
+.statusLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  min-width: 0;
+}
+
+.statusChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  position: relative;
+}
+
+/* The chip is ~22px tall; pad the hit area out to a comfortable tap. */
+.statusChip::after {
+  content: "";
+  position: absolute;
+  inset: -8px -2px;
+}
+
+.statusChip:active {
+  background: var(--hover);
+}
+
+.statusPrIcon {
+  color: var(--green);
+}
+
+.statusPrIcon[data-draft] {
+  color: var(--text-dim);
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.statusChip[data-tone="pending"] .statusDot {
+  background: var(--yellow, #eab308);
+}
+
+.statusChip[data-tone="failing"] {
+  color: var(--red);
+}
+
+.statusChip[data-tone="failing"] .statusDot {
+  background: var(--red);
+}
+
+.statusAdditions {
+  color: var(--green);
+}
+
+.statusDeletions {
+  color: var(--red);
+}

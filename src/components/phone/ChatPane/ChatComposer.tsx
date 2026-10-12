@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { Button } from "../../ui/Button/Button";
 import { EmojiTextarea } from "../../ui/EmojiAutocomplete";
 import styles from "./ChatPane.module.css";
+import { ChatStatusLine } from "./ChatStatusLine";
 import { CommandChoiceSheet } from "./CommandChoiceSheet";
 import { commandEffect, slashOptionId, splitCommand } from "./slash-commands";
 import { SlashCommandMenu } from "./SlashCommandMenu";
@@ -208,6 +209,7 @@ export function ChatComposer(props: ChatComposerProps) {
           </Button>
         )}
       </div>
+      <ChatStatusLine />
     </div>
   );
 }

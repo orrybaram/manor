@@ -8,6 +8,7 @@
  */
 
 import type { HostDeps } from "../ipc/types";
+import type { CallerClass } from "./types";
 
 /**
  * Who is calling, as the transport saw it — never as the frame says.
@@ -19,8 +20,11 @@ import type { HostDeps } from "../ipc/types";
  */
 export interface Caller {
   id: string;
-  /** `local` = an Electron renderer window; `device` = a paired `full` device. */
-  callerClass: "local" | "device";
+  /**
+   * `local` = an Electron renderer window; `owner` = the desktop on a host
+   * server's owner channel (ADR-218 D4); `device` = a paired `full` device.
+   */
+  callerClass: CallerClass;
   /** The paired device behind a `device` caller; null/absent for `local`. */
   deviceId?: string | null;
 }

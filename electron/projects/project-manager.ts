@@ -51,6 +51,7 @@ import type {
   TransferResult,
   WorkspaceFolder,
   WorkspaceFromIssue,
+  WorkspaceInfo,
 } from "./types";
 
 /** The settings a group shares, as one project had them on its own. */
@@ -214,6 +215,40 @@ export class ProjectManager {
     return this.store.state.projects
       .filter((p) => p.hostId !== LOCAL_HOST_ID)
       .map((p) => ({ path: p.path, hostId: p.hostId }));
+  }
+
+  /**
+   * The projects on `hostId` as `projects.json` holds them, for that host's
+   * host server manifest (ADR-218 D4): copies, with a linked-project group's
+   * shared settings (ADR-192) already resolved into each one — the host
+   * server knows nothing of groups — and without `hostPaths`, which name
+   * other hosts.
+   */
+  manifestRecords(hostId: string): PersistedProject[] {
+    return this.store.state.projects
+      .filter((p) => p.hostId === hostId)
+      .map((p) => {
+        const { hostPaths: _hostPaths, ...record } = structuredClone(p);
+        const shared = groups.resolveShared(groups.groupOf(this.store.state, p.id), p);
+        return {
+          ...record,
+          name: shared.name,
+          color: shared.color,
+          agentCommand: shared.agentCommand,
+          themeName: shared.themeName,
+          commands: structuredClone(shared.commands),
+          linearAssociations: structuredClone(shared.linearAssociations),
+        };
+      });
+  }
+
+  /**
+   * A remote project's worktrees as last listed, without asking its host;
+   * empty for a local project or one not listed yet.
+   */
+  knownWorkspaces(projectId: string): WorkspaceInfo[] {
+    const p = this.findProject(projectId);
+    return (p && this.lastKnownWorkspaces.latest(p)) ?? [];
   }
 
   /** Run `listener` after every write of `projects.json` — any project mutation. */

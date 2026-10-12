@@ -208,6 +208,18 @@ export class GitHubManager {
    */
   private settledPrs = new Map<string, PrInfo>();
 
+  /**
+   * The last PR each branch of each checkout was seen with (null: none), and
+   * when — what the desktop already knows, for the host server manifest's
+   * integration snapshot (ADR-218 D8), which must not cost a call of its
+   * own. Only a lookup that reached GitHub writes here, so a rate-limited
+   * poll does not wipe what was known.
+   */
+  private lastSeenPrs = new Map<string, { pr: PrInfo | null; at: number }>();
+
+  /** Told the host of a checkout whose PR summary changed. */
+  private readonly prCacheListeners = new Set<(hostId: string) => void>();
+
   /** `getPrsForBranches` lookups still running, by repo and branches. */
   private prLookupsInFlight = new Map<string, Promise<Map<string, PrInfo | null>>>();
 
@@ -245,6 +257,41 @@ export class GitHubManager {
    */
   setPrMergedListener(listener: ((prUrl: string) => void) | undefined): void {
     this.onPrMerged = listener;
+  }
+
+  /**
+   * The PR `branch` of `repo` was last seen with, and when (epoch ms); null
+   * for "no PR", undefined when it has not been looked up. Never a call.
+   */
+  cachedPr(repo: GhRepo, branch: string): { pr: PrInfo | null; at: number } | undefined {
+    return this.lastSeenPrs.get(settledPrKey(repo, branch));
+  }
+
+  /**
+   * Told the host id whenever a looked-up PR's summary (number, state,
+   * title, draft, checks) differs from what was cached for its branch.
+   * Returns the unsubscribe.
+   */
+  onPrCacheChange(listener: (hostId: string) => void): () => void {
+    this.prCacheListeners.add(listener);
+    return () => {
+      this.prCacheListeners.delete(listener);
+    };
+  }
+
+  private rememberPr(repo: GhRepo, branch: string, pr: PrInfo | null): void {
+    const key = settledPrKey(repo, branch);
+    const before = this.lastSeenPrs.get(key);
+    this.lastSeenPrs.set(key, { pr, at: Date.now() });
+    if (before && prSummary(before.pr) === prSummary(pr)) return;
+    const hostId = normalizeHostId(repo.hostId);
+    for (const listener of [...this.prCacheListeners]) {
+      try {
+        listener(hostId);
+      } catch (err) {
+        console.error("[GitHubManager] PR cache listener threw:", err);
+      }
+    }
   }
 
   async getPrForBranch(
@@ -294,7 +341,7 @@ export class GitHubManager {
     }
     if (toAsk.length === 0) return result;
 
-    const raw = await this.fetchPrsFromGitHub(repo, toAsk);
+    const { prs: raw, reached } = await this.fetchPrsFromGitHub(repo, toAsk);
     const conversations = await this.conversationsFor(
       Array.from(raw.values()).filter((pr): pr is RawPr => pr !== null),
     );
@@ -305,6 +352,7 @@ export class GitHubManager {
       if (info && info.state !== "open") {
         this.settledPrs.set(settledPrKey(repo, branch), info);
       }
+      if (reached) this.rememberPr(repo, branch, info);
       result.set(branch, info);
     }
     return result;
@@ -318,7 +366,7 @@ export class GitHubManager {
   private async fetchPrsFromGitHub(
     repo: GhRepo,
     branches: string[],
-  ): Promise<Map<string, RawPr | null>> {
+  ): Promise<{ prs: Map<string, RawPr | null>; reached: boolean }> {
     const result = new Map<string, RawPr | null>(branches.map((b) => [b, null]));
     try {
       const { cwd, repoArgs } = await this.ghTarget(repo);
@@ -341,8 +389,9 @@ export class GitHubManager {
       });
     } catch {
       // Rate limit, network, no repo: no PRs this time round.
+      return { prs: result, reached: false };
     }
-    return result;
+    return { prs: result, reached: true };
   }
 
   private toPrInfo(pr: RawPr, conversation: PrConversationState): PrInfo {
@@ -889,6 +938,15 @@ interface RawReviewThread {
 
 /** How many conversation entries the popover keeps after interleaving. */
 const RECENT_COMMENT_LIMIT = 12;
+
+/**
+ * What of a PR the host server manifest carries (ADR-218 D8), as a string to
+ * compare: a change outside these is not worth a re-send.
+ */
+function prSummary(pr: PrInfo | null): string {
+  if (!pr) return "null";
+  return JSON.stringify([pr.number, pr.state, pr.title, pr.url, pr.isDraft ?? null, pr.checks ?? null]);
+}
 
 /** What `getPrsForBranches` caches by: one checkout on one host. */
 function repoCacheKey({ path, hostId }: GhRepo): string {

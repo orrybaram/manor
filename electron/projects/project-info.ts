@@ -113,6 +113,19 @@ export class LastKnownWorkspaces {
     return entry.workspaces.map((ws) => ({ ...ws }));
   }
 
+  /**
+   * `p`'s last listing whether or not its host is away — what the desktop
+   * already knows of its worktrees, without asking git (ADR-218 D8's
+   * manifest snapshot). Undefined for a local project or one never listed.
+   */
+  latest(p: PersistedProject): WorkspaceInfo[] | undefined {
+    const key = remoteKey(p);
+    if (!key) return undefined;
+    const entry = this.byProject.get(p.id);
+    if (!entry || entry.key !== key) return undefined;
+    return entry.workspaces.map((ws) => ({ ...ws }));
+  }
+
   forget(projectId: string): void {
     this.byProject.delete(projectId);
   }

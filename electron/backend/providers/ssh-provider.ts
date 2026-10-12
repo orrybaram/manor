@@ -8,6 +8,7 @@
 
 import { spawn as nodeSpawn } from "node:child_process";
 import * as net from "node:net";
+import type { Duplex } from "node:stream";
 import { buildControlArgs } from "../../terminal-host/ssh-config";
 import {
   SshTransport,
@@ -122,6 +123,11 @@ export class SshHostProvider implements HostProvider {
 
   transport(): SshTransport {
     return this.sshTransport;
+  }
+
+  /** `manor-host server-bridge` over the transport's ControlMaster. */
+  async openServerChannel(): Promise<Duplex> {
+    return this.sshTransport.openServerBridge();
   }
 
   async forwardPort(

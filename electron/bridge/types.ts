@@ -164,6 +164,19 @@ export interface EventFrame {
 }
 
 /**
+ * Who a caller is, as the transport decided it (never as a frame says).
+ *
+ * - `local` — an Electron renderer window on this machine (the desktop).
+ * - `owner` — the desktop reaching a host server over its owner channel
+ *   (ADR-218 D4): `manor-host server-bridge` over ssh, so ssh is the
+ *   authentication. Only a server built to admit owners (the host server)
+ *   lets one call `LOCAL_ONLY` methods; any other server treats an owner
+ *   exactly like a device.
+ * - `device` — a paired `full` device, through the relay.
+ */
+export type CallerClass = "local" | "owner" | "device";
+
+/**
  * What dispatch knows about a caller. A socket and a window are both this.
  *
  * Everything a transport is — a `WebSocket`, a `webContents`, a hello timer,
@@ -181,8 +194,8 @@ export interface BridgeConnection {
    * reconnect when the transport can manage it.
    */
   readonly id: string;
-  /** `local` = an Electron renderer window; `device` = a paired `full` device. */
-  readonly callerClass: "local" | "device";
+  /** See `CallerClass`. */
+  readonly callerClass: CallerClass;
   /** Audit identity, or null for a local caller (ADR-180 D4). */
   readonly deviceId: string | null;
   /** The audit line's human name for `deviceId`. Null for a local caller. */

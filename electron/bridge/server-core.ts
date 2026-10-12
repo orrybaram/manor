@@ -68,6 +68,13 @@ interface BridgeServerCoreOptions<D> {
    * host server (ADR-218 D6).
    */
   unavailableCode?: string;
+  /**
+   * Whether an `owner` caller (ADR-218 D4) may call `LOCAL_ONLY` methods.
+   * Only a host server sets this: the desktop's own server has no owner
+   * channel, so an owner reaching it — which no desktop transport makes — is
+   * held to a device's rules rather than trusted.
+   */
+  admitsOwner?: boolean;
 }
 
 /**
@@ -95,6 +102,7 @@ export class BridgeServerCore<D extends BridgeServerDeps> implements BridgeHost 
   private readonly audit: RemoteAuditLog;
   private readonly table: HandlerTable<D>;
   private readonly unavailableCode: string;
+  private readonly admitsOwner: boolean;
   private readonly unsubscribeBroadcasts: () => void;
   private readonly unsubscribeAttachments: () => void;
   private readonly disconnectSinks = new Set<(connectionId: string) => void>();
@@ -109,6 +117,7 @@ export class BridgeServerCore<D extends BridgeServerDeps> implements BridgeHost 
     this.audit = options.audit ?? new RemoteAuditLog();
     this.table = options.table;
     this.unavailableCode = options.unavailableCode ?? UNAVAILABLE_CODE;
+    this.admitsOwner = options.admitsOwner ?? false;
     this.unsubscribeBroadcasts = addRendererBroadcastSink((broadcast) =>
       this.onRendererBroadcast(broadcast),
     );
@@ -269,7 +278,7 @@ export class BridgeServerCore<D extends BridgeServerDeps> implements BridgeHost 
     // needs to see.
     const refusedLocalOnly =
       !!handler &&
-      connection.callerClass === "device" &&
+      !this.mayCallLocalOnly(connection) &&
       this.table.localOnly.has(key);
     if (refusedLocalOnly) {
       this.auditInvoke(connection, key, args, "rejected", 403);
@@ -314,6 +323,21 @@ export class BridgeServerCore<D extends BridgeServerDeps> implements BridgeHost 
         error: err instanceof Error ? err.message : String(err),
         code: "failed",
       };
+    }
+  }
+
+  /**
+   * Whether `connection` may call a `LOCAL_ONLY` method: a desktop window
+   * always, an owner only on a server that admits owners, a device never.
+   */
+  private mayCallLocalOnly(connection: BridgeConnection): boolean {
+    switch (connection.callerClass) {
+      case "local":
+        return true;
+      case "owner":
+        return this.admitsOwner;
+      case "device":
+        return false;
     }
   }
 
@@ -369,6 +393,21 @@ export class BridgeServerCore<D extends BridgeServerDeps> implements BridgeHost 
     key: string,
   ): void {
     this.publish(ns, event, args, key);
+  }
+
+  /**
+   * A keyless event from this server to every connection subscribed to it,
+   * without going through the process-wide `renderer-broadcast.ts` sinks. A
+   * host server says `projects.changed` and `layout.changed` this way when
+   * the owner syncs (ADR-218 D4): it is one server's news, and a second
+   * server in the same process (a test) must not hear it.
+   */
+  broadcast<N extends EventNs, E extends EventOf<N>>(
+    ns: N,
+    event: E,
+    args: EventArgs<N, E>,
+  ): void {
+    this.publish(ns, event, args, null);
   }
 
   /**

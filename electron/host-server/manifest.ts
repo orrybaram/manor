@@ -3,7 +3,7 @@
  * its host (ADR-218 D2, D4, D8).
  *
  * In slice 1 the desktop owns projects. It pushes this over the owner channel
- * on connect and on change (`hostServer.syncManifest`, ticket 4), and the
+ * on connect and on change (`hostServer.syncManifest`, `./owner.ts`), and the
  * host server caches it in `dataDir/manifest.json`, so a phone that connects
  * with the lid closed still sees the sidebar it would have seen.
  *

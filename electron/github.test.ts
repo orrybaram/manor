@@ -349,6 +349,34 @@ describe("GitHubManager", () => {
       expect(mockState.calls[1]).toEqual(expect.arrayContaining(["o0=owner", "n0=repo"]));
     });
 
+    it("remembers each branch's last PR for the host server manifest, without a call of its own", async () => {
+      const changed: string[] = [];
+      manager.onPrCacheChange((hostId) => changed.push(hostId));
+      expect(manager.cachedPr(REPO, "branch-a")).toBeUndefined();
+      setupExecFileCalls([
+        success(prsAnswer(pr(7), null)),
+        success(conversation({})),
+        // The same again: nothing new to tell.
+        success(prsAnswer(pr(7), null)),
+        // A failed poll keeps what was known.
+        failure("rate limited"),
+      ]);
+
+      await manager.getPrsForBranches(REPO, ["branch-a", "branch-b"]);
+      expect(manager.cachedPr(REPO, "branch-a")?.pr?.number).toBe(7);
+      expect(manager.cachedPr(REPO, "branch-b")).toEqual({ pr: null, at: expect.any(Number) });
+      expect(changed).toEqual(["local", "local"]);
+
+      await manager.getPrsForBranches(REPO, ["branch-a", "branch-b"]);
+      expect(changed).toHaveLength(2);
+
+      const calls = mockState.calls.length;
+      await manager.getPrsForBranches(REPO, ["branch-a", "branch-b"]);
+      expect(mockState.calls.length).toBe(calls + 1);
+      expect(manager.cachedPr(REPO, "branch-a")?.pr?.number).toBe(7);
+      expect(changed).toHaveLength(2);
+    });
+
     it("never queries a merged or closed PR's branch again", async () => {
       setupExecFileCalls([
         success(prsAnswer(pr(1, { state: "MERGED" }), pr(2, { state: "CLOSED" }), pr(3))),

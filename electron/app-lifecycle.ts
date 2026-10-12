@@ -44,6 +44,11 @@ import {
   isRemoteSessionLoss,
   type HostStatus,
 } from "./backend/registry";
+import {
+  HostServerSync,
+  buildHostManifest,
+  layoutSnapshotFor,
+} from "./backend/host-server-sync";
 import { RoutedBackend } from "./backend/routed-backend";
 import { PrewarmManager } from "./prewarm-manager";
 import { publishRendererBroadcast } from "./renderer-broadcast";
@@ -446,6 +451,27 @@ export function initApp(devTitle: string | null): void {
   githubManager.setPrMergedListener((prUrl) => {
     statsStore.recordOnce("prsMerged", prUrl);
   });
+
+  // ADR-218 D4/D5/D8: each remote host's host server holds the desktop's
+  // view of that host — its projects (with the issue and PR data already in
+  // memory here) and its part of the layout — so a phone sees them with the
+  // lid closed. Sent whole on every connect of the owner channel; after
+  // that the manifest on any project or PR change (debounced, and only when
+  // it differs), the layout on the store's own save debounce.
+  const hostServerSync = new HostServerSync({
+    registry: backendRegistry,
+    manifest: (hostId) =>
+      buildHostManifest(hostId, {
+        projects: (id) => projectManager.manifestRecords(id),
+        workspaces: (projectId) => projectManager.knownWorkspaces(projectId),
+        cachedPr: (repo, branch) => githubManager.cachedPr(repo, branch),
+      }),
+    layout: (hostId) => layoutSnapshotFor(hostId, layoutStore),
+  });
+  hostServerSync.start();
+  projectManager.onStateSaved(() => hostServerSync.manifestChanged());
+  githubManager.onPrCacheChange((hostId) => hostServerSync.manifestChanged(hostId));
+  layoutStore.onPersisted(() => hostServerSync.layoutPersisted());
 
   // ADR-161's remote control. Constructed here so the status sink and the
   // quit hook can see it; deliberately *not* started — remote control is off
@@ -989,6 +1015,7 @@ export function initApp(devTitle: string | null): void {
     // The layout debounce is 300ms; a quit inside that window must not be the
     // one that loses the user's arrangement.
     layoutStore.flush();
+    hostServerSync.dispose();
     // Takes the relay down first, then the connections it carried. Nothing
     // reachable may outlive the app that opened it.
     void remoteControl.shutdown();

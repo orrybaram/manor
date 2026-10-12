@@ -110,7 +110,7 @@ export async function runRemoteBridgeProcess(
  * `EPIPE` on either side is expected once the peer walks away and is
  * swallowed rather than logged.
  */
-function pump(
+export function pump(
   io: BridgeIO,
   socket: Duplex,
   log: (msg: string) => void,
@@ -150,7 +150,7 @@ const STDOUT_FLUSH_TIMEOUT_MS = 2_000;
  * process: a live `process.stdin` keeps the event loop — and so the ssh
  * session — alive after the daemon has gone.
  */
-async function teardown(io: BridgeIO, socket: Duplex): Promise<void> {
+export async function teardown(io: BridgeIO, socket: Duplex): Promise<void> {
   io.stdin.unpipe(socket);
   socket.unpipe(io.stdout);
   io.stdin.destroy();

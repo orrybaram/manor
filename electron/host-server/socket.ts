@@ -1,7 +1,7 @@
 /**
  * The host server's unix socket (ADR-218 D1, D4): `dataDir/server.sock`,
- * mode 0600, where `manor-host server-bridge` (ticket 4) pipes the desktop's
- * owner channel.
+ * mode 0600, where `manor-host server-bridge` (`terminal-host/server-bridge.ts`)
+ * pipes the desktop's owner channel.
  *
  * **Framing: newline-delimited JSON**, one bridge frame per line — the same
  * framing as the daemon's sockets and `remote-bridge`'s stdio, so the
@@ -16,7 +16,7 @@
  * 4401 still reads as "your token is wrong".
  *
  * **Authentication is the hello**, exactly as on the relay
- * (`transports/ws.ts`): `{"type":"hello","token":<owner-token>}` first,
+ * (`transports/ws.ts`): `{"type":"hello","token":<owner-token>,"role":"owner"}` first,
  * within the hello timeout, or the socket is closed. The token is the 0600
  * `dataDir/owner-token`; whoever can read it is this box's user, and that
  * user already reaches every terminal here.
@@ -85,20 +85,21 @@ function digest(value: string): Buffer {
 }
 
 /**
- * The hello check for the owner socket: the token must be the owner token,
- * compared in constant time.
- *
- * TODO(ADR-218 ticket 4): answer `caller: "owner"` (which may call
- * LOCAL_ONLY methods such as pairing) once that caller class exists. Until
- * then the owner is a `local` caller, like a desktop window.
+ * The hello check for the owner socket (ADR-218 D4): the token must be the
+ * owner token, compared in constant time, and a hello that names a `role`
+ * must name `owner` (what `manor-host server-bridge` sends). Answers
+ * `caller: "owner"`, which the host server lets call `LOCAL_ONLY` methods
+ * such as pairing and the manifest sync.
  */
 export function ownerTokenAuthenticator(token: string): BridgeAuthenticator {
   const expected = digest(token);
-  return (presented) => {
+  return (presented, hello) => {
     if (typeof presented !== "string")
       return { ok: false, code: CLOSE_UNAUTHORIZED };
+    if (hello?.role !== undefined && hello.role !== "owner")
+      return { ok: false, code: CLOSE_UNAUTHORIZED };
     return crypto.timingSafeEqual(digest(presented), expected)
-      ? { ok: true, caller: "local" }
+      ? { ok: true, caller: "owner" }
       : { ok: false, code: CLOSE_UNAUTHORIZED };
   };
 }

@@ -27,8 +27,8 @@
  * **Every device is the same device.** There are no tiers (ADR-207 D4): a
  * paired device reaches the whole handler table, terminal included, and
  * every connection the relay gate authenticates is `callerClass: "device"`.
- * The one exception is the host server's own unix socket (ADR-218), whose
- * authenticator answers `caller: "local"` for the owner token.
+ * The one exception is the host server's own unix socket (ADR-218 D4), whose
+ * authenticator answers `caller: "owner"` for the owner token.
  *
  * Close codes are in the application range on purpose — 4401 reads as the
  * HTTP status it mirrors: "your token is wrong, re-pair". They are
@@ -52,17 +52,23 @@ const HELLO_TIMEOUT_MS = 5_000;
 
 /**
  * What an authenticator answers when asked to check a hello: a paired device
- * (`remote-control/relay-gate.ts`), or a caller at this machine — the host
- * server's own socket, whose token is the 0600 owner token (ADR-218).
+ * (`remote-control/relay-gate.ts`), or the owner — the desktop on a host
+ * server's own socket, whose token is the 0600 owner token (ADR-218 D4).
  */
 export type BridgeAuthResult =
   | { ok: true; device: AuthenticatedDevice }
-  // TODO(ADR-218 ticket 4): `caller: "owner"`, which may call LOCAL_ONLY.
-  | { ok: true; caller: "local" }
+  | { ok: true; caller: "owner" }
   | { ok: false; code: number };
 
-/** The `verify + backoff` decision, which lives in `relay-gate.ts`. */
-export type BridgeAuthenticator = (token: unknown) => BridgeAuthResult;
+/**
+ * The `verify + backoff` decision, which lives in `relay-gate.ts`. Handed
+ * the hello's token, and the whole hello for an authenticator that reads
+ * more of it (the owner socket's `role`).
+ */
+export type BridgeAuthenticator = (
+  token: unknown,
+  hello?: Readonly<Record<string, unknown>>,
+) => BridgeAuthResult;
 
 /** A live socket, and the connection it became once it said hello. */
 interface Socket {
@@ -246,7 +252,7 @@ export class WsBridgeServer {
       this.close(entry, CLOSE_UNAUTHORIZED, "hello must come first");
       return;
     }
-    const result = authenticate(frame.token);
+    const result = authenticate(frame.token, frame);
     if (!result.ok) {
       this.close(entry, result.code, "hello rejected");
       return;
@@ -266,7 +272,7 @@ export class WsBridgeServer {
     const device = "device" in result ? result.device : null;
     entry.connection = {
       id: entry.id,
-      callerClass: device ? "device" : "local",
+      callerClass: device ? "device" : "owner",
       deviceId: device?.id ?? null,
       deviceLabel: device?.label ?? null,
       send: (outgoing) => this.send(entry, outgoing),

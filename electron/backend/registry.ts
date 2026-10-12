@@ -27,6 +27,10 @@ import {
   type HostStatusInfo,
   type RemoteHostContext,
 } from "./host-connection";
+import {
+  HostServerClient,
+  type HostServerClientOptions,
+} from "./host-server-client";
 import { HostUnavailableError, unavailableBackend } from "./host-view";
 import { createProvider } from "./providers";
 import type { HostProvider } from "./providers/types";
@@ -100,7 +104,18 @@ export interface BackendRegistryOptions {
   hookSeqStore?: HookSeqStore;
   /** Retry delay for a failed hook replay (see `HostHookFeed`). For tests. */
   hookReplayRetryDelayMs?: (attempt: number) => number;
+  /** Timeouts and retry delays for each host's `HostServerClient`. For tests. */
+  hostServerClient?: Pick<
+    HostServerClientOptions,
+    "helloTimeoutMs" | "requestTimeoutMs" | "retryDelayMs" | "log"
+  >;
 }
+
+/**
+ * What runs after a host's owner channel (re)connects: the desktop re-sends
+ * that host's manifest and layout (`host-server-sync.ts`).
+ */
+export type HostServerSyncHook = (hostId: string, client: HostServerClient) => Promise<void>;
 
 const LOG = "[backend-registry]";
 
@@ -123,11 +138,18 @@ export class BackendRegistry {
   private readonly ctx: RemoteHostContext;
   private hookSink: HookSink | null = null;
   private controlRelaySink: ControlRelaySink | null = null;
+  /** Each remote host's owner channel to its host server (ADR-218 D4). */
+  private readonly serverClients = new Map<string, HostServerClient>();
+  /** Each remote host's status as its server client last heard it. */
+  private readonly serverClientHostStatus = new Map<string, HostStatus>();
+  private readonly hostServerClientOptions: BackendRegistryOptions["hostServerClient"];
+  private hostServerSync: HostServerSyncHook | null = null;
 
   constructor(opts: BackendRegistryOptions) {
     this.remoteVersion = opts.remoteVersion;
     this.createRemote = opts.createRemote ?? createRemoteBackend;
     this.createProvider = opts.createProvider ?? defaultCreateProvider;
+    this.hostServerClientOptions = opts.hostServerClient;
     this.ctx = {
       sessions: this.sessions,
       streamEvents: this.streamEvents,
@@ -196,6 +218,7 @@ export class BackendRegistry {
       onDaemonReplacing: (sessionIds) => built.conn?.reportDaemonReplacing(sessionIds),
     });
     built.conn = new RemoteHostConnection(hostId, spec, provider, backend, this.ctx);
+    this.replaceServerClient(hostId, provider);
     this.add(built.conn);
     if (existing) void existing.dispose();
   }
@@ -208,6 +231,9 @@ export class BackendRegistry {
     const conn = this.hosts.get(hostId);
     if (!conn) return;
     this.hosts.delete(hostId);
+    this.serverClients.get(hostId)?.dispose();
+    this.serverClients.delete(hostId);
+    this.serverClientHostStatus.delete(hostId);
     this.emitStatus();
     await conn.dispose();
   }
@@ -274,9 +300,80 @@ export class BackendRegistry {
     await this.hosts.get(hostId)?.disconnect();
   }
 
-  /** Drop every remote connection (app quit). */
+  /** Drop every remote connection (app quit), owner channels included. */
   async disconnectAll(): Promise<void> {
+    for (const client of this.serverClients.values()) client.dispose();
     await Promise.allSettled(this.remoteHostIds().map((id) => this.disconnect(id)));
+  }
+
+  // ── Host servers (ADR-218 D4) ──
+
+  /**
+   * `hostId`'s owner channel to its host server: one per remote host, beside
+   * its backend. It connects whenever the host does and lets go when the
+   * host drops; `state` says whether the box has a host server at all.
+   * Undefined for the local host or an unknown one.
+   */
+  hostServer(hostId: string): HostServerClient | undefined {
+    return this.serverClients.get(hostId);
+  }
+
+  /** Every remote host's owner channel, in registration order. */
+  hostServers(): HostServerClient[] {
+    return Array.from(this.serverClients.values());
+  }
+
+  /**
+   * What runs after any host's owner channel (re)connects — the desktop's
+   * manifest and layout re-send. Channels already up run it now.
+   */
+  setHostServerSync(sync: HostServerSyncHook): void {
+    this.hostServerSync = sync;
+    for (const client of this.serverClients.values()) {
+      if (client.state === "connected") void this.runHostServerSync(client);
+    }
+  }
+
+  private replaceServerClient(hostId: string, provider: HostProvider): void {
+    this.serverClients.get(hostId)?.dispose();
+    this.serverClientHostStatus.delete(hostId);
+    const open = provider.openServerChannel?.bind(provider) ?? null;
+    this.serverClients.set(
+      hostId,
+      new HostServerClient({
+        hostId,
+        open,
+        onConnected: (client) => this.runHostServerSync(client),
+        ...this.hostServerClientOptions,
+      }),
+    );
+  }
+
+  private async runHostServerSync(client: HostServerClient): Promise<void> {
+    const sync = this.hostServerSync;
+    if (!sync) return;
+    try {
+      await sync(client.hostId, client);
+    } catch (err) {
+      console.warn(`${LOG} syncing ${client.hostId}'s host server failed:`, err);
+    }
+  }
+
+  /**
+   * Bring each owner channel in line with its host: dial when the host has
+   * just connected (first connect or a reconnect), let go when it stops
+   * being connected. Run on every status change.
+   */
+  private syncServerClients(): void {
+    for (const [hostId, client] of this.serverClients) {
+      const status = this.hosts.get(hostId)?.status;
+      const before = this.serverClientHostStatus.get(hostId);
+      if (status === before) continue;
+      if (status === undefined) this.serverClientHostStatus.delete(hostId);
+      else this.serverClientHostStatus.set(hostId, status);
+      if (status === "connected") client.hostConnected();
+      else if (before === "connected") client.hostLost();
+    }
   }
 
   // ── Events ──
@@ -354,6 +451,7 @@ export class BackendRegistry {
   }
 
   private emitStatus(): void {
+    this.syncServerClients();
     if (this.statusChanges.size === 0) return;
     this.statusChanges.emit(this.list());
   }

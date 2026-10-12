@@ -8,11 +8,20 @@
  * sessions are real daemon sessions, their shells are not.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { PassThrough, type Duplex } from "node:stream";
+import { execFile } from "node:child_process";
 
 import "../../terminal-host/xterm-env-polyfill";
 
@@ -46,6 +55,12 @@ import { hostServerPaths, type HostServerPaths } from "../../paths";
 import type { AgentInfo } from "../../agent-persistence";
 import type { PaneStatusUpdate } from "../../agent-status/effects";
 import { runServe, type RunningServer } from "../serve";
+import { hostLayoutSnapshot } from "../owner";
+import { ownerTokenAuthenticator } from "../socket";
+import type { HostManifest } from "../manifest";
+import type { HostLayoutSnapshot } from "../layout";
+import type { ProjectInfo } from "../../projects/types";
+import type { LayoutEntry } from "../../../src/lib/layout/protocol";
 import type { HostServerStatus } from "../relay";
 import type { PairResult } from "../../remote-control/controller";
 import type { RemoteDeviceInfo } from "../../remote-control/devices";
@@ -434,13 +449,18 @@ describe("host server", () => {
       ["pty", "reset"],
       ["github", "getIssues"],
       ["layout", "apply"],
+      // No integration calls in slice 1 (ADR-218 D8), issue images included.
+      ["github", "getPrsForBranches"],
+      ["github", "proxyImage"],
+      ["linear", "getAllIssues"],
+      ["linear", "proxyImage"],
     ]) {
       const frame = await client.call(ns, methodName);
       expect(frame).toEqual(
         expect.objectContaining({ ok: false, code: "unavailable:host" }),
       );
     }
-    // An empty manifest and layout until the desktop sends one (ticket 4).
+    // An empty manifest and layout until the desktop sends one.
     expect(await client.invoke("projects", "getAll")).toEqual([]);
     expect(await client.invoke("layout", "getAll")).toEqual({});
     expect(await client.invoke("hosts", "list")).toEqual([
@@ -547,7 +567,9 @@ describe("host server", () => {
         ["remoteControl", "revoke", paired.device.id],
         ["hostServer", "status"],
         ["hostServer", "resetIdentity"],
-      ]) {
+        ["hostServer", "syncManifest", { version: 1 }],
+        ["hostServer", "syncLayout", { version: 1 }],
+      ] as Array<[string, string, ...unknown[]]>) {
         expect(await p.call(ns, methodName, ...args)).toMatchObject({
           ok: false,
           code: "unavailable:host",
@@ -671,6 +693,218 @@ describe("host server", () => {
       running = null;
       const again = await serve();
       expect(again.server.relay.relayStatus().roomId).toBe(after.relay.roomId);
+    });
+  });
+  describe("the owner channel (ADR-218 D4)", () => {
+    function manifest(projectPath: string): HostManifest {
+      return {
+        version: 1,
+        sentAt: "2026-10-12T10:00:00.000Z",
+        projects: [
+          {
+            id: "proj-1",
+            name: "Manor",
+            path: projectPath,
+            hostId: "local",
+            selectedWorkspaceIndex: 0,
+            workspaces: [],
+            defaultBranch: "main",
+            defaultRunCommand: null,
+            worktreePath: null,
+            color: "#f00",
+            workspaceNames: { [projectPath]: "Main checkout" },
+            workspaceIssues: {
+              [projectPath]: [
+                { id: "i-1", identifier: "ENG-1", title: "Fix it", url: "https://linear.app/i-1" },
+              ],
+            },
+          },
+        ],
+        integrationSnapshot: {
+          [projectPath]: {
+            takenAt: "2026-10-12T09:59:00.000Z",
+            issue: { id: "i-1", title: "Fix it", url: "https://linear.app/i-1" },
+            pr: { number: 7, state: "open", title: "Fix it", url: "https://github.com/o/r/pull/7" },
+          },
+        },
+      };
+    }
+
+    function entry(version: number, paneId: string): LayoutEntry {
+      return {
+        version,
+        layout: { panelTree: { type: "leaf", panelId: "p" }, panels: {} } as never,
+        defaultViewport: {} as never,
+        paneSessions: { [paneId]: { sessionId: paneId } as never },
+        claims: [{ windowId: "w", tabId: "t" } as never],
+      };
+    }
+
+    it("authenticates the owner hello as an owner, and only with role owner", () => {
+      const auth = ownerTokenAuthenticator("tok");
+      expect(auth("tok", { type: "hello", token: "tok", role: "owner" })).toEqual({
+        ok: true,
+        caller: "owner",
+      });
+      expect(auth("tok", { type: "hello", token: "tok" })).toEqual({
+        ok: true,
+        caller: "owner",
+      });
+      expect(auth("tok", { type: "hello", token: "tok", role: "device" })).toMatchObject({
+        ok: false,
+        code: 4401,
+      });
+      expect(auth("nope", { type: "hello", token: "nope" })).toMatchObject({ ok: false });
+    });
+
+    it("persists a synced manifest, serves it, and tells a subscribed phone", async () => {
+      // There is no git in this test: every worktree listing fails at once,
+      // so a project shows its main checkout, as on a box without the repo.
+      vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+        const callback = args[args.length - 1] as (err: Error) => void;
+        setImmediate(() =>
+          callback(Object.assign(new Error("spawn git ENOENT"), { code: "ENOENT" })),
+        );
+        return {};
+      }) as never);
+      onTestFinished(() => {
+        vi.mocked(execFile).mockReset();
+      });
+      const server = await serve();
+      await relayUp(server);
+      const client = await owner();
+      const paired = await client.invoke<PairResult>("remoteControl", "pair", "phone");
+      const p = await phone(paired.pairingUrl);
+      p.viewer.send({ kind: "subscribe", ns: "projects", event: "changed" });
+      // The subscribe has no reply; a round trip makes sure it landed.
+      await p.call("agents", "getAll");
+
+      expect(await client.invoke("hostServer", "syncManifest", manifest(tmp))).toBe(true);
+
+      const onDisk = JSON.parse(fs.readFileSync(paths.manifest, "utf-8")) as HostManifest;
+      expect(onDisk).toEqual(manifest(tmp));
+      expect(fs.statSync(paths.manifest).mode & 0o777).toBe(0o600);
+      // No temp file left behind by the atomic write.
+      expect(fs.readdirSync(paths.dataDir).filter((f) => f.endsWith(".tmp"))).toEqual([]);
+
+      await p.viewer.next((f) => f.kind === "event" && f.ns === "projects" && f.event === "changed");
+
+      const projects = await p.call("projects", "getAll");
+      expect(projects).toMatchObject({ ok: true });
+      const list = projects.result as ProjectInfo[];
+      expect(list).toHaveLength(1);
+      expect(list[0]).toMatchObject({ id: "proj-1", name: "Manor", hostId: "local", color: "#f00" });
+      expect(list[0].workspaces[0]).toMatchObject({
+        path: tmp,
+        name: "Main checkout",
+        linkedIssues: [expect.objectContaining({ identifier: "ENG-1" })],
+      });
+    });
+
+    it("rewrites only this host's layout keys to bare paths, and serves the snapshot", async () => {
+      const snapshot = hostLayoutSnapshot(
+        {
+          "box:/home/me/a": entry(3, "pane-a"),
+          "box:/home/me/b": entry(1, "pane-b"),
+          "other:/home/me/a": entry(9, "pane-x"),
+          "/Users/me/local": entry(2, "pane-l"),
+        },
+        "box:/home/me/b",
+        "box",
+        "2026-10-12T10:00:00.000Z",
+      );
+      expect(Object.keys(snapshot.workspaces).sort()).toEqual(["/home/me/a", "/home/me/b"]);
+      expect(snapshot.workspaces["/home/me/a"].version).toBe(3);
+      expect(snapshot.workspaces["/home/me/a"].claims).toEqual([]);
+      expect(snapshot.lastActiveWorkspacePath).toBe("/home/me/b");
+      // Last active on another host is not this host's to show.
+      expect(
+        hostLayoutSnapshot({}, "other:/home/me/a", "box", "t").lastActiveWorkspacePath,
+      ).toBeNull();
+
+      const server = await serve();
+      await relayUp(server);
+      const client = await owner();
+      const paired = await client.invoke<PairResult>("remoteControl", "pair", "phone");
+      const p = await phone(paired.pairingUrl);
+      p.viewer.send({ kind: "subscribe", ns: "layout", event: "changed" });
+      await p.call("agents", "getAll");
+
+      expect(await client.invoke("hostServer", "syncLayout", snapshot)).toBe(true);
+      expect(
+        (JSON.parse(fs.readFileSync(paths.layout, "utf-8")) as HostLayoutSnapshot).workspaces,
+      ).toEqual(snapshot.workspaces);
+      expect(await p.call("layout", "getAll")).toMatchObject({
+        ok: true,
+        result: snapshot.workspaces,
+      });
+      expect(await p.call("layout", "getLastActive")).toMatchObject({
+        ok: true,
+        result: "/home/me/b",
+      });
+      const changed = await p.viewer.next(
+        (f) =>
+          f.kind === "event" &&
+          f.ns === "layout" &&
+          (f.args as Array<{ workspacePath: string }>)[0].workspacePath === "/home/me/a",
+      );
+      expect((changed.args as LayoutEntry[])[0]).toMatchObject({ version: 3, claims: [] });
+
+      // A workspace dropped from the next snapshot is announced removed.
+      const { ["/home/me/b"]: _dropped, ...rest } = snapshot.workspaces;
+      await client.invoke("hostServer", "syncLayout", {
+        ...snapshot,
+        workspaces: rest,
+        lastActiveWorkspacePath: null,
+      });
+      await p.viewer.next(
+        (f) =>
+          f.kind === "event" &&
+          f.ns === "layout" &&
+          (f.args as Array<{ workspacePath: string; removed?: boolean }>)[0].workspacePath ===
+            "/home/me/b" &&
+          (f.args as Array<{ removed?: boolean }>)[0].removed === true,
+      );
+    });
+
+    it("refuses a malformed manifest or layout and keeps what it had", async () => {
+      await serve();
+      const client = await owner();
+      await client.invoke("hostServer", "syncManifest", manifest(tmp));
+      const before = fs.readFileSync(paths.manifest, "utf-8");
+
+      const bad: unknown[] = [
+        null,
+        { ...manifest(tmp), version: 2 },
+        // Not rewritten to local.
+        { ...manifest(tmp), projects: [{ ...manifest(tmp).projects[0], hostId: "box" }] },
+        { ...manifest(tmp), projects: [{ ...manifest(tmp).projects[0], path: "relative" }] },
+        { ...manifest(tmp), integrationSnapshot: { [tmp]: { takenAt: 1, issue: null, pr: null } } },
+        { ...manifest(tmp), projects: [{ ...manifest(tmp).projects[0], workspaceNames: { a: 1 } }] },
+      ];
+      for (const payload of bad) {
+        expect(await client.call("hostServer", "syncManifest", payload)).toMatchObject({
+          ok: false,
+          code: "failed",
+        });
+      }
+      expect(fs.readFileSync(paths.manifest, "utf-8")).toBe(before);
+
+      const good = hostLayoutSnapshot({ "box:/a": entry(1, "p") }, null, "box", "t");
+      for (const payload of [
+        { ...good, version: 9 },
+        // A host-qualified key was not rewritten.
+        { ...good, workspaces: { "box:/a": good.workspaces["/a"] } },
+        { ...good, workspaces: { "/a": { version: 1 } } },
+        { ...good, lastActiveWorkspacePath: "box:/a" },
+      ]) {
+        expect(await client.call("hostServer", "syncLayout", payload)).toMatchObject({
+          ok: false,
+          code: "failed",
+        });
+      }
+      expect(fs.existsSync(paths.layout)).toBe(false);
+      expect(await client.invoke("layout", "getAll")).toEqual({});
     });
   });
 });

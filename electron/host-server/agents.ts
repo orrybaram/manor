@@ -45,7 +45,7 @@ export interface HostAgentsOptions {
   /**
    * The project a pane belongs to, for a new agent's record. The desktop
    * learns it from its renderer (`agents.setPaneContext`); the host server
-   * will from the manifest and layout (ticket 4). Until then, none.
+   * from the owner's manifest and layout (`./owner.ts`, `paneContextFrom`).
    */
   getPaneContext?: (paneId: string) => PaneContext | undefined;
   /** A status transition the desktop would notify about; replays coalesced. */

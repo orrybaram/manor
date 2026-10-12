@@ -2,7 +2,7 @@
  * The layout snapshot a host server serves (ADR-218 D5).
  *
  * In slice 1 the desktop owns layout. It pushes this host's part of it with
- * the manifest (`hostServer.syncLayout`, ticket 4): the layout v3 entries
+ * the manifest (`hostServer.syncLayout`, `./owner.ts`): the layout v3 entries
  * whose workspace key is `<hostId>:<path>` for this host, rekeyed to the bare
  * `<path>`, because to the host server its own host is local. The server
  * caches it in `dataDir/layout.json` and the phone walks it (ADR-181).

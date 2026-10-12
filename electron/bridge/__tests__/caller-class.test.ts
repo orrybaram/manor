@@ -42,7 +42,7 @@ import { UNAVAILABLE_CODE, type BridgeConnection } from "../types";
 
 function makeConnection(
   id: string,
-  callerClass: "local" | "device",
+  callerClass: "local" | "owner" | "device",
 ): BridgeConnection {
   return {
     id,
@@ -117,6 +117,22 @@ describe("LOCAL_ONLY, through dispatch", () => {
 
       expect(result).toMatchObject({ ok: true, result: "answered" });
       expect(called).toEqual([method]);
+    },
+  );
+
+  // The owner class is a host server's (ADR-218 D4). The desktop's server
+  // does not admit owners, so one that reached it would be held to a
+  // device's rules, never trusted with what a window may do.
+  it.each([...LOCAL_ONLY])(
+    "refuses an owner calling %s on the desktop's server",
+    async (method) => {
+      const owner = makeConnection("own-1", "owner");
+      server.accept(owner);
+
+      const result = await invoke(server, owner, method);
+
+      expect(result).toMatchObject({ ok: false, code: UNAVAILABLE_CODE });
+      expect(called).toEqual([]);
     },
   );
 

@@ -117,9 +117,16 @@ export interface PtyViewerDeps {
   };
 }
 
-/** The caller, as the viewer `pty-attachments.ts` holds a pane under. */
+/**
+ * The caller, as the viewer `pty-attachments.ts` holds a pane under. An
+ * owner (the desktop on a host server's owner channel, ADR-218 D4) is the
+ * user at their own desk, so it ranks as a local viewer.
+ */
 function asViewer(caller: Caller): Viewer {
-  return { connectionId: caller.id, callerClass: caller.callerClass };
+  return {
+    connectionId: caller.id,
+    callerClass: caller.callerClass === "device" ? "device" : "local",
+  };
 }
 
 /** What a create-shaped call tells the caller about the winsize (D5). */

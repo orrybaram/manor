@@ -113,6 +113,10 @@ export interface HostServerDeps
   hostServer: {
     status(): HostServerStatus;
     resetIdentity(): Promise<HostServerStatus>;
+    /** Validates, persists and announces (`./owner.ts`). */
+    syncManifest(manifest: unknown): true;
+    /** Validates, persists and announces (`./owner.ts`). */
+    syncLayout(snapshot: unknown): true;
   };
 }
 
@@ -302,6 +306,25 @@ function hostServerResetIdentity(ctx: Ctx): Promise<HostServerStatus> {
 }
 
 /**
+ * The desktop's projects on this host (ADR-218 D4, D8): persisted to
+ * `manifest.json` and served by `projects.getAll`; every phone hears
+ * `projects.changed`. The payload is checked whole before anything is
+ * written (`./owner.ts`).
+ */
+function hostServerSyncManifest(ctx: Ctx, manifest: unknown): true {
+  return ctx.deps.hostServer.syncManifest(manifest);
+}
+
+/**
+ * The desktop's layout for this host's workspaces, keys already bare paths
+ * (ADR-218 D5): persisted to `layout.json` and served by `layout.getAll`;
+ * every phone hears `layout.changed` for the workspaces that changed.
+ */
+function hostServerSyncLayout(ctx: Ctx, snapshot: unknown): true {
+  return ctx.deps.hostServer.syncLayout(snapshot);
+}
+
+/**
  * A host table entry: `method`, checked against `HostServerDeps`, so a
  * desktop handler that reads more than this server has fails to compile here
  * rather than at a phone's first call.
@@ -368,11 +391,14 @@ const METHODS = flatten({
     vapidPublicKey: hostMethod(remoteControlVapidPublicKey),
     subscribePush: hostMethod(remoteControlSubscribePush),
   },
-  // TODO(ADR-218 ticket 4): `localOnly` admits the `local` caller, which
-  // today is the owner socket's; the `owner` caller class replaces it.
+  // The owner's alone (ADR-218 D4): `localOnly` admits the `owner` caller
+  // this server's socket authenticates (`./socket.ts`), and refuses every
+  // device. A phone may read what the owner synced, never write it.
   hostServer: {
     status: hostMethod(hostServerStatus, { localOnly: true }),
     resetIdentity: hostMethod(hostServerResetIdentity, { localOnly: true }),
+    syncManifest: hostMethod(hostServerSyncManifest, { localOnly: true }),
+    syncLayout: hostMethod(hostServerSyncLayout, { localOnly: true }),
   },
 });
 

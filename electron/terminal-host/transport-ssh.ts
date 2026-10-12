@@ -30,6 +30,7 @@ import {
   parseControlPath,
   remoteBridgeCommand,
   remoteRestartCommand,
+  remoteServerBridgeCommand,
   removeManagedSshConfig,
   type ManagedSshConfig,
 } from "./ssh-config";
@@ -129,6 +130,8 @@ class SshChildDuplex extends Duplex {
     private readonly stdin: Writable,
     private readonly stdout: Readable,
     leftover: Buffer,
+    /** What the child's exit means: an error to destroy with, or null for a clean end. */
+    exitError?: (code: number | null) => Error | null,
   ) {
     super();
     if (leftover.length > 0) this.push(leftover);
@@ -139,9 +142,9 @@ class SshChildDuplex extends Duplex {
     stdin.on("error", () => {
       // EPIPE once ssh is gone; `close` below reports the loss.
     });
-    child.on("close", () => {
+    child.on("close", (code) => {
       this.childGone = true;
-      this.destroy();
+      this.destroy(exitError?.(code) ?? undefined);
     });
     // Stays paused until the consumer reads (`_read` resumes it).
   }
@@ -282,6 +285,38 @@ export class SshTransport implements HostTransport {
       CONTROL_EXIT_TIMEOUT_MS,
     ).catch(() => {});
     removeManagedSshConfig(config);
+  }
+
+  /**
+   * Open the owner channel to the box's host server (ADR-218 D4): one more
+   * child on the shared ControlMaster, running `manor-host server-bridge`.
+   *
+   * Resolves at once with the child's stdio as a `Duplex`; there is no
+   * preamble to wait for here, because the first line is the host server's
+   * own hello reply and reading it is the client's job
+   * (`backend/host-server-client.ts`). A child that exits non-zero — no
+   * server on the box, or a `manor-host` too old to know the command —
+   * destroys the stream with an error carrying its stderr.
+   */
+  openServerBridge(): Duplex {
+    const { configPath } = this.managedConfig();
+    const child = this.spawnFn(
+      "ssh",
+      buildSshArgs(configPath, this.target, remoteServerBridgeCommand()),
+    );
+    this.track(child);
+    const { stdin, stdout, stderr } = child;
+    if (!stdin || !stdout || !stderr) {
+      child.kill("SIGTERM");
+      throw new Error("ssh child is missing piped stdio");
+    }
+    let stderrText = "";
+    stderr.on("data", (chunk: Buffer) => {
+      stderrText = (stderrText + chunk.toString("utf-8")).slice(-MAX_STDERR_BYTES);
+    });
+    return new SshChildDuplex(child, stdin, stdout, Buffer.alloc(0), (code) =>
+      code === 0 || code === null ? null : this.exitError(code, stderrText),
+    );
   }
 
   // ── Internal ──

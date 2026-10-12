@@ -45,6 +45,11 @@ interface BridgeServerOptions {
 /**
  * The desktop's host surface: `BridgeServerCore` (`./server-core.ts`) over
  * `HostDeps` and the whole handler table (`./handlers.ts`).
+ *
+ * It does not admit owners (`admitsOwner` stays false). The `owner` caller
+ * class is the desktop on a *host server's* owner channel (ADR-218 D4); no
+ * desktop transport makes one, and if one ever did it would be held to a
+ * device's rules — `LOCAL_ONLY` refused — rather than trusted.
  */
 export class BridgeServer extends BridgeServerCore<HostDeps> {
   constructor(deps: HostDeps, options: BridgeServerOptions = {}) {

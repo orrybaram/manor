@@ -24,8 +24,8 @@
  * `agents.reconcileStale` does.
  *
  * **Projects and layout** are the desktop's in slice 1 and are only read
- * here, from the manifest and layout snapshot it pushes (`./manifest.ts`,
- * `./layout.ts`; the push itself is ticket 4).
+ * here, from the manifest and layout snapshot it pushes over the owner
+ * channel (`./manifest.ts`, `./layout.ts`, `./owner.ts`).
  *
  * **The daemon is never replaced** by this server. A daemon restart ends
  * every session (ADR-185), so it is the desktop's call, made through
@@ -65,6 +65,7 @@ import {
   type HostAgents,
 } from "./agents";
 import { HOST_TABLE, type HostServerDeps } from "./handlers";
+import { createOwnerSync, paneContextFrom } from "./owner";
 import { fileHookCursorStore } from "./hook-cursor";
 import { readLayoutSnapshot } from "./layout";
 import { manifestProjects, readManifest } from "./manifest";
@@ -166,6 +167,13 @@ export function createHostServer(opts: HostServerOptions): HostServer {
 
   const agents = createHostAgents({
     dataDir: paths.dataDir,
+    // A new agent's project, from the owner's last manifest and layout.
+    getPaneContext: (paneId) =>
+      paneContextFrom(
+        readManifest(paths.manifest),
+        readLayoutSnapshot(paths.layout),
+        paneId,
+      ),
     onAgentStatus: (agent, prevStatus, newStatus) => {
       relay?.onAgentStatus(agent, prevStatus, newStatus);
       opts.onAgentStatus?.(agent, prevStatus, newStatus);
@@ -223,6 +231,13 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     };
   };
 
+  // The owner's manifest and layout pushes (ADR-218 D4, D5), announced on
+  // this server's own bridge. Read at call time: the bridge is built below.
+  const ownerSync = createOwnerSync({
+    paths,
+    publish: (ns, event, args) => bridge?.broadcast(ns, event, args),
+  });
+
   const deps: HostServerDeps = {
     backend: { pty: daemon.pty },
     daemonStatus,
@@ -249,12 +264,16 @@ export function createHostServer(opts: HostServerOptions): HostServer {
         await hostRelay().resetIdentity();
         return hostStatus();
       },
+      syncManifest: (manifest) => ownerSync.syncManifest(manifest),
+      syncLayout: (snapshot) => ownerSync.syncLayout(snapshot),
     },
   };
 
   bridge = new BridgeServerCore(deps, {
     table: HOST_TABLE,
     unavailableCode: UNAVAILABLE_HOST_CODE,
+    // The desktop on the owner socket may pair, revoke and sync (D4).
+    admitsOwner: true,
     audit: new RemoteAuditLog(`${paths.dataDir}/remote-audit.jsonl`),
   });
   const frames = new WsBridgeServer(bridge, { appVersion: appInfo.version });

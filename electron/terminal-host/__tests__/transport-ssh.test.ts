@@ -17,6 +17,7 @@ import {
   isRemoteAuthError,
   parseControlPath,
   remoteBridgeCommand,
+  remoteServerBridgeCommand,
   remoteShellCommand,
   renderSshConfig,
   shellQuote,
@@ -435,6 +436,34 @@ describe("SshTransport", () => {
     const duplexB = await second;
     duplexB.destroy();
     expect(b.killed).toBe(true);
+  });
+
+  it("opens the owner channel with `manor-host server-bridge`, bytes untouched", async () => {
+    const { transport, children } = makeTransport();
+    const duplex = transport.openServerBridge();
+    const child = await nextChild(children, 0);
+    expect(child.args).toEqual(
+      buildSshArgs(transport.configPath!, "me@box", remoteServerBridgeCommand()),
+    );
+    expect(remoteServerBridgeCommand()).toBe('exec "$HOME/.manor/bin/manor-host" server-bridge');
+    const got: string[] = [];
+    duplex.on("data", (c: Buffer) => got.push(c.toString("utf-8")));
+    child.stdout.write('{"type":"hello","ok":true}\n');
+    duplex.write('{"kind":"invoke"}\n');
+    await vi.waitFor(() => expect(got.join("")).toBe('{"type":"hello","ok":true}\n'));
+    expect(child.written).toBe('{"kind":"invoke"}\n');
+  });
+
+  it("fails the owner channel with ssh's stderr when server-bridge exits non-zero", async () => {
+    const { transport, children } = makeTransport();
+    const duplex = transport.openServerBridge();
+    const errored = new Promise<Error>((resolve) => duplex.on("error", resolve));
+    duplex.resume();
+    const child = await nextChild(children, 0);
+    child.stderr.write("[server-bridge] the host server is not running on this box\n");
+    await new Promise((r) => setImmediate(r));
+    child.exit(3);
+    expect((await errored).message).toMatch(/code 3.*host server is not running/);
   });
 
   it("dispose closes the ControlMaster and removes the config dir", async () => {

@@ -7,3 +7,7 @@ AllowUsers manor
 # Port forwards (ADR-178 §5) ride the ControlMaster with `ssh -O forward -L`.
 AllowTcpForwarding yes
 UseDNS no
+# The box's host server (ADR-218) dials MANOR_RELAY_URL: never the production
+# relay from a test box. A closed local port; the container cannot reach a
+# relay on the test machine's loopback, so host-server.spec.ts skips here.
+SetEnv MANOR_RELAY_URL=http://127.0.0.1:9

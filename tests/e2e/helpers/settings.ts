@@ -187,6 +187,56 @@ export async function pairBrowser(
   return pairDevice(window, options);
 }
 
+/**
+ * Pair a device with a remote host's own Manor server (ADR-218 D3), from that
+ * host's section of Settings → Remote control: the pairing is minted on the
+ * box, and the desktop only shows it. Waits until the host server says its
+ * relay is connected, so the link works as soon as it is opened. Leaves
+ * Settings open.
+ */
+export async function pairHostPhone(
+  window: Page,
+  { hostName, label }: { hostName: string; label: string },
+): Promise<PairedDevice> {
+  await openRemoteControlSettings(window);
+  const section = window
+    .getByTestId("host-phone-access")
+    .filter({ hasText: hostName });
+  await expect(section.getByTestId("host-phone-summary")).toContainText(
+    "relay connected",
+    { timeout: 60_000 },
+  );
+  await expect(section.getByTestId("host-phone-summary")).not.toContainText(
+    "relay not connected",
+  );
+
+  await section.getByTestId("host-pair-phone").click();
+  const addDialog = window.getByTestId("remote-add-device-dialog");
+  await expect(addDialog).toBeVisible({ timeout: 5_000 });
+  await addDialog.getByTestId("remote-pair-label").fill(label);
+  await addDialog.getByTestId("remote-pair-submit").click();
+
+  const dialog = window.getByTestId("remote-pairing-dialog");
+  await expect(dialog).toBeVisible({ timeout: 10_000 });
+  const link =
+    (await window
+      .getByTestId("remote-pairing-link")
+      .getAttribute("data-link")) ?? "";
+  if (!link.includes("#relay=")) {
+    throw new Error(`Host pairing dialog showed no relay link (got "${link}")`);
+  }
+  const token = new URLSearchParams(new URL(link).hash.slice(1)).get("t") ?? "";
+  if (!token) throw new Error("Host pairing link carried no token");
+
+  await window.getByTestId("remote-pairing-done").click();
+  await expect(dialog).not.toBeVisible({ timeout: 5_000 });
+  await expect(
+    section.getByTestId("remote-device-row").filter({ hasText: label }),
+  ).toHaveCount(1, { timeout: 10_000 });
+
+  return { label, token, link };
+}
+
 /** Revoke a paired device by its label, from its row's trash button. */
 export async function revokeDevice(window: Page, label: string): Promise<void> {
   await openRemoteControlSettings(window);

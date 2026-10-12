@@ -48,6 +48,19 @@ export async function activePaneId(window: Page): Promise<string> {
   return id!;
 }
 
+/**
+ * A pane's whole grid, read off the terminal itself (xterm draws into a
+ * canvas) through `window.__manorTerminals` — on the desktop or in the web
+ * app, which runs the identical component.
+ */
+export async function paneText(page: Page, paneId: string): Promise<string> {
+  return page.evaluate((id) => {
+    const handle = window.__manorTerminals?.get(id);
+    if (!handle) throw new Error(`no terminal registered for ${id}`);
+    return handle.serialize({ scrollback: 20_000 });
+  }, paneId);
+}
+
 /** Type a command into the focused terminal and submit it. */
 export async function runInTerminal(
   window: Page,

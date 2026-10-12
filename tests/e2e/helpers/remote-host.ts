@@ -110,10 +110,38 @@ export function wipeRemote(): void {
   // Agent configs the bootstrap registered hooks in are only removed on the
   // harness's own throwaway homes, never on a box of your own.
   const agentConfigs = remoteKind() === "custom" ? "" : ' "$HOME/.claude" "$HOME/.codex"';
+  stopHostServer();
   onRemote(
     '[ -x "$HOME/.manor/bin/manor-host" ] && "$HOME/.manor/bin/manor-host" restart >/dev/null 2>&1; ' +
       `rm -rf "$HOME/.manor" "$HOME/.manor-e2e" "$HOME/code"${agentConfigs}; true`,
     { timeoutMs: 60_000 },
+  );
+}
+
+/**
+ * Stop the box's host server (ADR-218 D1). `manor-host restart` leaves it
+ * running on purpose — it outlives daemon restarts — so a clean slate that
+ * deletes `~/.manor/remote` stops it first, or it would linger with its
+ * files gone.
+ */
+export function stopHostServer(): void {
+  onRemote(
+    'pid=$(cat "$HOME/.manor/remote/server/server.pid" 2>/dev/null) || exit 0; ' +
+      'kill "$pid" 2>/dev/null || exit 0; ' +
+      'i=0; while kill -0 "$pid" 2>/dev/null && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done; ' +
+      'kill -9 "$pid" 2>/dev/null; true',
+    { timeoutMs: 30_000 },
+  );
+}
+
+/**
+ * Point the box's host server at `relayUrl` from its next start. The
+ * harness's ForceCommand wrapper sources `~/.manor-e2e/env` into every
+ * session, and `remote-bridge` starts the server with that environment.
+ */
+export function pointHostServerAtRelay(relayUrl: string): void {
+  onRemote(
+    `mkdir -p "$HOME/.manor-e2e" && printf "MANOR_RELAY_URL='%s'\\n" '${relayUrl}' > "$HOME/.manor-e2e/env"`,
   );
 }
 

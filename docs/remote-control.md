@@ -193,6 +193,52 @@ If the relay is down, no device can connect. There is no other road.
 The QR code is generated locally. No token is ever handed to a third-party
 image service.
 
+## Pairing a phone with a host
+
+A phone paired with the desktop reaches your agents only while the desktop is
+awake. For a project on a [remote host](remote-hosts.md), you can instead pair
+the phone with that host's own Manor server, the **host server**
+([ADR-218](decisions/adr-218-host-server/index.md)). That phone reaches only
+that host, and keeps working while your laptop sleeps.
+
+1. **Settings → Remote control.** Below this computer's devices there is a
+   section for each remote host. Its summary line shows the host server's
+   version, how many phones are paired and whether its relay is connected.
+2. **Pair a phone** in that host's section. Give it a name. The pairing is
+   created on the host server, over the desktop's ssh connection to the box,
+   and the desktop shows the QR code and link once, as for the desktop's own
+   devices.
+3. Scan it with the phone.
+
+This doesn't need remote control turned on for this computer. The host server
+has its own room on the relay, and it's always connected: there's no switch,
+because it exists to be reachable while nobody is at the desktop. Nothing can
+reach it without a device token, and until you pair a phone with it, no device
+has one.
+
+What a host-paired phone can do with the lid closed, and what it can't do yet
+(create workspaces, launch agents, rearrange the layout), is in
+[Your phone with the lid closed](remote-hosts.md#your-phone-with-the-lid-closed).
+
+If a host's section says *Pairing keys on \<host\> are stored unencrypted*,
+the box has no secret backend Manor can use. See
+[Encrypting pairing keys](remote-hosts.md#encrypting-pairing-keys).
+
+### Switching hosts
+
+A phone keeps one pairing per room: one for the desktop, and one for each host
+it was paired with. With more than one, the phone's top bar shows the current
+host's name with a menu of the others. Picking one reloads the page against
+that host. Each host is its own connection: the sidebar shows one host at a
+time.
+
+The menu's trash icon forgets a pairing on the phone (it asks first). That
+only removes it from the phone. To cut the device off, revoke it on the
+desktop.
+
+The host's name comes from the server itself: the desktop's name for the host
+(its ssh target) for a host server, and the computer's name for the desktop.
+
 ## The web app
 
 `/app` is the desktop app itself, served to a browser (ADR-178) — not a
@@ -277,6 +323,17 @@ request inside a tap.
 Push payloads carry the session name and project only. Scrollback never goes
 into a push — a notification reaches your lock screen and is retained by the OS.
 
+**With hosts.** A host server sends its own pushes, so a phone hears that an
+agent on the box needs input even while the laptop sleeps. A browser holds
+only one push subscription, tied to one signing key, so every server signs
+with the same key: the desktop's, which it sends each host server over its ssh
+connection. Turn notifications on once. Each server you then open the phone
+on gets the same subscription.
+
+You get one notification per event, not two. While the desktop is awake it
+sees the host's agents too, but it skips its own push for an agent on a host to
+any phone that the host server already notifies.
+
 ## If a token leaks
 
 Revoke that device: **Settings → Remote control → Paired devices → trash icon**.
@@ -291,6 +348,14 @@ re-pair; pairing takes a few seconds.
 
 If you suspect the machine itself was reached, stop the relay first,
 then revoke.
+
+**A phone paired with a host** is revoked from that host's section of
+Settings → Remote control, the same way. If you suspect the box itself was
+compromised, use **Reset pairing keys** in that section. It gives the host
+server a new relay identity, which moves it to a new room. Every phone paired
+with that host is disconnected and has to be paired again. Do it after you
+have dealt with whoever got in: the host server runs as you, and anyone with
+your account on the box can already read its keys.
 
 ## Deliberately not supported
 
@@ -321,6 +386,10 @@ checking — without introducing another party to the trust model.
 
 All four are in Manor's application data directory
 (`~/Library/Application Support/Manor` on macOS).
+
+A host server keeps its own copies of the same files on the box, in
+`~/.manor/remote/server/`. How they're encrypted there is in
+[Where secrets live](remote-hosts.md#where-secrets-live).
 
 ---
 

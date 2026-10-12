@@ -868,6 +868,15 @@ describe("host server", () => {
     });
 
     it("refuses a malformed manifest or layout and keeps what it had", async () => {
+      // `layout.getAll` lists worktrees to place the live session; no git here.
+      vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+        const callback = args[args.length - 1] as (err: Error) => void;
+        setImmediate(() => callback(new Error("spawn git ENOENT")));
+        return {};
+      }) as never);
+      onTestFinished(() => {
+        vi.mocked(execFile).mockReset();
+      });
       await serve();
       const client = await owner();
       await client.invoke("hostServer", "syncManifest", manifest(tmp));
@@ -904,7 +913,13 @@ describe("host server", () => {
         });
       }
       expect(fs.existsSync(paths.layout)).toBe(false);
-      expect(await client.invoke("layout", "getAll")).toEqual({});
+      // No snapshot was kept: all a phone sees is the live session, in a
+      // synthetic tab (ADR-218 D5).
+      const served = await client.invoke<Record<string, LayoutEntry>>("layout", "getAll");
+      expect(Object.keys(served)).toEqual([tmp]);
+      expect(Object.values(served[tmp].layout.panels)[0].tabs).toMatchObject([
+        { title: "Started while away" },
+      ]);
     });
   });
 });

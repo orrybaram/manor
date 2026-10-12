@@ -75,6 +75,13 @@ interface BridgeServerCoreOptions<D> {
    * held to a device's rules rather than trusted.
    */
   admitsOwner?: boolean;
+  /**
+   * Whether a pane is also held by a client this server's registry does not
+   * know (ADR-218 D5: another client of the daemon). Nobody here owns such a
+   * pane's winsize, so every connection is told `owner: false`. Only a host
+   * server sets this.
+   */
+  heldElsewhere?: (paneId: string) => boolean;
 }
 
 /**
@@ -103,6 +110,7 @@ export class BridgeServerCore<D extends BridgeServerDeps> implements BridgeHost 
   private readonly table: HandlerTable<D>;
   private readonly unavailableCode: string;
   private readonly admitsOwner: boolean;
+  private readonly heldElsewhere: (paneId: string) => boolean;
   private readonly unsubscribeBroadcasts: () => void;
   private readonly unsubscribeAttachments: () => void;
   private readonly disconnectSinks = new Set<(connectionId: string) => void>();
@@ -118,6 +126,7 @@ export class BridgeServerCore<D extends BridgeServerDeps> implements BridgeHost 
     this.table = options.table;
     this.unavailableCode = options.unavailableCode ?? UNAVAILABLE_CODE;
     this.admitsOwner = options.admitsOwner ?? false;
+    this.heldElsewhere = options.heldElsewhere ?? (() => false);
     this.unsubscribeBroadcasts = addRendererBroadcastSink((broadcast) =>
       this.onRendererBroadcast(broadcast),
     );
@@ -494,6 +503,15 @@ export class BridgeServerCore<D extends BridgeServerDeps> implements BridgeHost 
   }
 
   /**
+   * Tell the connections watching `paneId` who owns its winsize now, for a
+   * change this server's registry did not see (ADR-218 D5: the daemon's
+   * attach count moved).
+   */
+  refreshWinsizeOwner(paneId: string): Promise<void> {
+    return this.onOwnerChanged(paneId);
+  }
+
+  /**
    * A pane's winsize owner changed: tell every connection watching it whether
    * it is the owner now (D6).
    *
@@ -509,7 +527,7 @@ export class BridgeServerCore<D extends BridgeServerDeps> implements BridgeHost 
     if (this.connections.size === 0) return;
     const grid = await sessionGrid(this.deps, paneId);
     if (!grid) return;
-    const owner = ownerOf(paneId);
+    const owner = this.heldElsewhere(paneId) ? null : ownerOf(paneId);
     // One frame per connection, not one fanned out: `owner` is each
     // connection's own answer. Subscription is still honoured — a viewer
     // that never asked about this pane does not hear that it isn't the owner

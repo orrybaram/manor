@@ -118,14 +118,16 @@ export interface PtyViewerDeps {
 }
 
 /**
- * The caller, as the viewer `pty-attachments.ts` holds a pane under. An
- * owner (the desktop on a host server's owner channel, ADR-218 D4) is the
- * user at their own desk, so it ranks as a local viewer.
+ * The caller, as the viewer `pty-attachments.ts` holds a pane under. Only an
+ * Electron renderer window (`local`) outranks; a paired device and the owner
+ * channel (the desktop on a host server, ADR-218 D4) rank as `device`. The
+ * owner views no pane in slice 1, and a desktop process attached to a host
+ * server's pane is another client of the daemon, not the person at its desk.
  */
 function asViewer(caller: Caller): Viewer {
   return {
     connectionId: caller.id,
-    callerClass: caller.callerClass === "device" ? "device" : "local",
+    callerClass: caller.callerClass === "local" ? "local" : "device",
   };
 }
 
@@ -165,6 +167,10 @@ export async function sessionGrid(
  * through the one door marked "read". The answer carries the owner's grid,
  * which is what the follower renders.
  *
+ * `forceFollower` is for a host that knows something the registry does not: a
+ * host server's daemon-reported attach count (ADR-218 D5), where the other
+ * viewer is a client of the daemon, not a viewer held here.
+ *
  * Who outranks whom is `pty-attachments.ts`'s rule: a caller is a follower
  * exactly when attaching would *not* make it the owner (`wouldOwn`), which for
  * a window on this machine is only when it already holds the pane and let
@@ -176,9 +182,10 @@ export async function createShaped<T extends { ok: boolean }>(
   cols: number,
   rows: number,
   run: (cols: number, rows: number) => Promise<T>,
+  forceFollower = false,
 ): Promise<T | (T & WinsizeDecoration)> {
   const viewer = asViewer(ctx.caller);
-  const follower = !wouldOwn(paneId, viewer);
+  const follower = forceFollower || !wouldOwn(paneId, viewer);
   const owner = follower ? await sessionGrid(ctx.deps, paneId) : null;
   const grid = owner ?? { cols, rows };
   const result = await run(grid.cols, grid.rows);

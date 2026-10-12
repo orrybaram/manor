@@ -22,6 +22,7 @@ type Unavailable = Extract<ChatHistory, { ok: false }>["reason"] | "error";
 
 const UNAVAILABLE_NOTE: Record<Unavailable, string> = {
   "no-agent": "This pane has no Claude session to show as a chat.",
+  "unsupported-agent": "Chat isn't available for this agent yet.",
   "no-transcript": "Claude hasn't written a transcript for this session yet.",
   remote: "Chat isn't available for agents on a remote host yet.",
   "host-offline": "This host is offline. The chat will catch up when it reconnects.",

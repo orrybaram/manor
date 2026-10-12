@@ -751,6 +751,7 @@ export function initApp(devTitle: string | null): void {
       if (!agent) return null;
       return {
         hostId: agentHostId(agent, getPaneHostId),
+        agentKind: agent.agentKind,
         transcriptPath: agent.transcriptPath,
       };
     },

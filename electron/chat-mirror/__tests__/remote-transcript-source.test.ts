@@ -229,11 +229,11 @@ describe("transcriptSources", () => {
       asked.push(hostId);
       return null;
     });
-    expect(sourceFor({ hostId: "local", transcriptPath: "/t" })).toBe(local);
-    const devbox = sourceFor({ hostId: "devbox", transcriptPath: "/t" });
+    expect(sourceFor({ hostId: "local", agentKind: "claude", transcriptPath: "/t" })).toBe(local);
+    const devbox = sourceFor({ hostId: "devbox", agentKind: "claude", transcriptPath: "/t" });
     expect(devbox).toBeInstanceOf(RemoteTranscriptSource);
-    expect(sourceFor({ hostId: "devbox", transcriptPath: "/u" })).toBe(devbox);
-    expect(sourceFor({ hostId: "other", transcriptPath: "/t" })).not.toBe(devbox);
+    expect(sourceFor({ hostId: "devbox", agentKind: "claude", transcriptPath: "/u" })).toBe(devbox);
+    expect(sourceFor({ hostId: "other", agentKind: "claude", transcriptPath: "/t" })).not.toBe(devbox);
     expect(await devbox.read("/t", 0)).toMatchObject({ ok: false });
     expect(asked).toEqual(["devbox"]);
   });
@@ -271,7 +271,7 @@ describe("ChatMirror over RemoteTranscriptSource", () => {
     const second = user("u2", "日本 😀");
     const cut = Buffer.from(second).indexOf(Buffer.from("😀")) + 2;
     const p = file("t.jsonl", Buffer.concat([Buffer.from(first), Buffer.from(second).subarray(0, cut)]));
-    agent = { hostId: "local", transcriptPath: p };
+    agent = { hostId: "local", agentKind: "claude", transcriptPath: p };
 
     expect(await mirror.getHistory(PANE)).toEqual({
       ok: true,
@@ -301,7 +301,7 @@ describe("ChatMirror over RemoteTranscriptSource", () => {
     const first = user("u1", "a".repeat(MAX_READ_BYTES - base - emojiAt - 2));
     expect(bytes(first) + emojiAt + 2).toBe(MAX_READ_BYTES);
     const p = file("t.jsonl", first + tail);
-    agent = { hostId: "local", transcriptPath: p };
+    agent = { hostId: "local", agentKind: "claude", transcriptPath: p };
 
     expect(await mirror.getHistory(PANE)).toMatchObject({ ok: true, entries: [{ id: "u1" }] });
     expect(await mirror.getHistory(PANE)).toMatchObject({
@@ -325,7 +325,7 @@ describe("ChatMirror over RemoteTranscriptSource", () => {
       const huge = user("big", "😀".repeat(CAP));
       expect(bytes(huge)).toBeGreaterThan(CAP);
       const p = file("t.jsonl", user("u1", "hi") + huge + user("u2", "after"));
-      agent = { hostId: "devbox", transcriptPath: p };
+      agent = { hostId: "devbox", agentKind: "claude", transcriptPath: p };
 
       expect(await m.getHistory(PANE)).toMatchObject({ ok: true, entries: [{ id: "u1" }] });
       expect(await m.getHistory(PANE)).toMatchObject({

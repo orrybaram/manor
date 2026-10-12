@@ -32,6 +32,10 @@
  */
 
 import { LOCAL_HOST_ID } from "../backend/types";
+import type { AgentKind } from "../terminal-host/types";
+import { adapterFor } from "./adapters";
+import { claudeAdapter } from "./adapters/claude";
+import type { TranscriptAdapter, TranscriptLineParser } from "./adapters/types";
 import { BUILTIN_COMMANDS, type ChatCommand } from "./builtin-commands";
 import {
   encodePickerAnswer,
@@ -43,7 +47,6 @@ import {
   type TranscriptExec,
 } from "./remote-transcript-source";
 import {
-  TranscriptParser,
   type ChatEntry,
   type ChatPush,
   type ChatSkill,
@@ -54,9 +57,11 @@ import type { TranscriptSource } from "./transcript-source";
  * Why a pane has no chat. `host-offline`: the transcript could not be read
  * just now, most likely because the agent's host is unreachable. `remote` is
  * no longer produced (ADR-216 D4) but stays for renderers that know it.
+ * `unsupported-agent`: the agent has no transcript adapter yet (ADR-224 D1).
  */
 export type ChatUnavailableReason =
   | "no-agent"
+  | "unsupported-agent"
   | "no-transcript"
   | "remote"
   | "host-offline";
@@ -94,6 +99,7 @@ export type ChatAnswerResult =
 export interface PaneAgent {
   /** The host the agent's terminal runs on now (`agentHostId`). */
   hostId: string;
+  agentKind: AgentKind;
   transcriptPath: string | null;
 }
 
@@ -146,7 +152,12 @@ export function transcriptSources(
 
 class PaneMirror {
   path: string | null = null;
-  parser = new TranscriptParser();
+  /**
+   * The adapter the parser was built by; a change of agent resets. Starts as
+   * Claude's until the first `sync` or read says otherwise.
+   */
+  adapter: TranscriptAdapter = claudeAdapter;
+  parser: TranscriptLineParser = claudeAdapter.createParser();
   /**
    * The most recent non-empty skill list. Survives `reset`: `/clear` and
    * resume start a transcript with no listing until its first prompt.
@@ -208,7 +219,7 @@ export class ChatMirror {
     if (!resolved.ok) return resolved;
     const m = this.ensure(paneId);
     m.source = resolved.source;
-    this.usePath(paneId, m, resolved.path);
+    this.usePath(paneId, m, resolved.path, resolved.adapter);
     await this.read(paneId, m);
     if (m.readError !== null) return { ok: false, reason: "host-offline" };
     return {
@@ -224,7 +235,7 @@ export class ChatMirror {
     if (!resolved.ok) return resolved;
     const m = this.ensure(paneId);
     m.source = resolved.source;
-    this.usePath(paneId, m, resolved.path);
+    this.usePath(paneId, m, resolved.path, resolved.adapter);
     await this.read(paneId, m);
     if (m.readError !== null) return { ok: false, reason: "host-offline" };
 
@@ -313,7 +324,7 @@ export class ChatMirror {
     if (!resolved.ok) return resolved;
     const m = this.ensure(paneId);
     m.source = resolved.source;
-    this.usePath(paneId, m, resolved.path);
+    this.usePath(paneId, m, resolved.path, resolved.adapter);
     await this.read(paneId, m);
     // The picker cannot be checked against a transcript that cannot be read.
     if (m.readError !== null) return { ok: false, reason: "host-offline" };
@@ -366,14 +377,19 @@ export class ChatMirror {
 
   private resolve(
     paneId: string,
-  ): { ok: true; path: string; source: TranscriptSource } | { ok: false; reason: ChatUnavailableReason } {
+  ):
+    | { ok: true; path: string; source: TranscriptSource; adapter: TranscriptAdapter }
+    | { ok: false; reason: ChatUnavailableReason } {
     const agent = this.deps.agentForPane(paneId);
     if (!agent) return { ok: false, reason: "no-agent" };
+    const adapter = adapterFor(agent.agentKind);
+    if (!adapter) return { ok: false, reason: "unsupported-agent" };
     if (!agent.transcriptPath) return { ok: false, reason: "no-transcript" };
     return {
       ok: true,
       path: agent.transcriptPath,
       source: this.deps.sourceFor(agent),
+      adapter,
     };
   }
 
@@ -390,11 +406,23 @@ export class ChatMirror {
   private sync(paneId: string, m: PaneMirror): void {
     const resolved = this.resolve(paneId);
     if (resolved.ok) m.source = resolved.source;
-    this.usePath(paneId, m, resolved.ok ? resolved.path : null);
+    this.usePath(
+      paneId,
+      m,
+      resolved.ok ? resolved.path : null,
+      resolved.ok ? resolved.adapter : m.adapter,
+    );
   }
 
-  private usePath(paneId: string, m: PaneMirror, path: string | null): void {
-    if (m.path === path) return;
+  private usePath(
+    paneId: string,
+    m: PaneMirror,
+    path: string | null,
+    adapter: TranscriptAdapter,
+  ): void {
+    // A different agent kind is a different format: start over like a new path.
+    if (m.path === path && m.adapter === adapter) return;
+    m.adapter = adapter;
     const watching = m.unwatch !== null || m.poll !== null;
     this.stopWatching(m);
     this.reset(m, path);
@@ -408,7 +436,7 @@ export class ChatMirror {
     m.needsTerminal.clear();
     m.generation++;
     m.path = path;
-    m.parser = new TranscriptParser();
+    m.parser = m.adapter.createParser();
     m.lastContextTokens = null;
     m.offset = 0;
     m.primed = false;

@@ -115,12 +115,24 @@ describe("ChatMirror", () => {
   describe("history", () => {
     it("says why a pane has no chat", async () => {
       expect(await mirror.getHistory("other")).toEqual({ ok: false, reason: "no-agent" });
-      agent = { hostId: "local", transcriptPath: null };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: null };
       expect(await mirror.getHistory(PANE)).toEqual({ ok: false, reason: "no-transcript" });
     });
 
+    it("has no chat for an agent without an adapter (ADR-224 D1)", async () => {
+      agent = {
+        hostId: "local",
+        agentKind: "codex",
+        transcriptPath: file("t.jsonl", user("u1", "hi")),
+      };
+      expect(await mirror.getHistory(PANE)).toEqual({
+        ok: false,
+        reason: "unsupported-agent",
+      });
+    });
+
     it("reads an agent on a remote host through its source (ADR-216 D4)", async () => {
-      agent = { hostId: "devbox", transcriptPath: file("t.jsonl", user("u1", "hi")) };
+      agent = { hostId: "devbox", agentKind: "claude", transcriptPath: file("t.jsonl", user("u1", "hi")) };
       expect(await mirror.getHistory(PANE)).toEqual({
         ok: true,
         entries: [{ kind: "user", id: "u1", ts: T, text: "hi" }],
@@ -129,12 +141,12 @@ describe("ChatMirror", () => {
     });
 
     it("treats a transcript that is not written yet as empty", async () => {
-      agent = { hostId: "local", transcriptPath: path.join(dir, "missing.jsonl") };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: path.join(dir, "missing.jsonl") };
       expect(await mirror.getHistory(PANE)).toEqual({ ok: true, entries: [], contextTokens: null });
     });
 
     it("reads the transcript from the start without publishing it", async () => {
-      agent = { hostId: "local", transcriptPath: file("t.jsonl", user("u1", "hi")) };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: file("t.jsonl", user("u1", "hi")) };
       const history = await mirror.getHistory(PANE);
       expect(history).toEqual({
         ok: true,
@@ -169,6 +181,7 @@ describe("ChatMirror", () => {
     it("merges built-ins with the transcript's skills, sorted by name", async () => {
       agent = {
         hostId: "local",
+        agentKind: "claude",
         transcriptPath: file("t.jsonl", listing({ zeta: "Last", alpha: "First" }) + user("u1", "hi")),
       };
       const result = await commands();
@@ -183,7 +196,7 @@ describe("ChatMirror", () => {
     });
 
     it("has built-ins only, and skillsKnown false, before any listing", async () => {
-      agent = { hostId: "local", transcriptPath: file("t.jsonl", "") };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: file("t.jsonl", "") };
       const result = await commands();
       expect(result.skillsKnown).toBe(false);
       expect(result.commands.every((c) => c.source === "builtin")).toBe(true);
@@ -191,9 +204,9 @@ describe("ChatMirror", () => {
     });
 
     it("keeps the previous skills when the transcript changes to one with no listing", async () => {
-      agent = { hostId: "local", transcriptPath: file("a.jsonl", listing({ alpha: "First" })) };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: file("a.jsonl", listing({ alpha: "First" })) };
       await commands();
-      agent = { hostId: "local", transcriptPath: file("b.jsonl", user("u1", "hi")) };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: file("b.jsonl", user("u1", "hi")) };
       const result = await commands();
       expect(result.skillsKnown).toBe(true);
       expect(result.commands.filter((c) => c.source === "skill")).toEqual([
@@ -202,7 +215,7 @@ describe("ChatMirror", () => {
     });
 
     it("lets a skill replace the built-in of the same name", async () => {
-      agent = { hostId: "local", transcriptPath: file("t.jsonl", listing({ review: "My review" })) };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: file("t.jsonl", listing({ review: "My review" })) };
       const result = await commands();
       expect(result.commands.filter((c) => c.name === "review")).toEqual([
         { name: "review", description: "My review", source: "skill" },
@@ -212,7 +225,7 @@ describe("ChatMirror", () => {
     it("says why a pane has no commands, and host-offline on a failed read", async () => {
       expect(await mirror.getCommands("other")).toEqual({ ok: false, reason: "no-agent" });
       source = { read: () => Promise.resolve({ ok: false, error: "host offline" }) };
-      agent = { hostId: "local", transcriptPath: file("t.jsonl", "") };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: file("t.jsonl", "") };
       expect(await mirror.getCommands(PANE)).toEqual({ ok: false, reason: "host-offline" });
     });
   });
@@ -220,7 +233,7 @@ describe("ChatMirror", () => {
   describe("tailing", () => {
     it("publishes appended lines to the pane while watched", async () => {
       const p = file("t.jsonl", user("u1", "hi"));
-      agent = { hostId: "local", transcriptPath: p };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: p };
       mirror.setWatched(PANE, true);
       await mirror.getHistory(PANE);
 
@@ -253,7 +266,7 @@ describe("ChatMirror", () => {
           },
         });
       const p = file("t.jsonl", said("a1", "hi", 5));
-      agent = { hostId: "local", transcriptPath: p };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: p };
       mirror.setWatched(PANE, true);
       expect(await mirror.getHistory(PANE)).toMatchObject({ contextTokens: 1005 });
       expect(published).toEqual([]);
@@ -270,7 +283,7 @@ describe("ChatMirror", () => {
 
     it("stops publishing once nobody watches, and catches up on the next watch", async () => {
       const p = file("t.jsonl", user("u1", "hi"));
-      agent = { hostId: "local", transcriptPath: p };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: p };
       mirror.setWatched(PANE, true);
       await mirror.getHistory(PANE);
       mirror.setWatched(PANE, false);
@@ -286,7 +299,7 @@ describe("ChatMirror", () => {
 
     it("holds a partial trailing line until its newline arrives", async () => {
       const p = file("t.jsonl");
-      agent = { hostId: "local", transcriptPath: p };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: p };
       await mirror.getHistory(PANE);
 
       // Split inside the two bytes of "é", as two writes might.
@@ -307,11 +320,11 @@ describe("ChatMirror", () => {
     it("resets and re-reads when the pane's transcript path changes", async () => {
       const a = file("a.jsonl", user("u1", "old session"));
       const b = file("b.jsonl", user("u9", "new session"));
-      agent = { hostId: "local", transcriptPath: a };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: a };
       mirror.setWatched(PANE, true);
       expect(await mirror.getHistory(PANE)).toMatchObject({ entries: [{ id: "u1" }] });
 
-      agent = { hostId: "local", transcriptPath: b };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: b };
       mirror.agentChanged(PANE);
       expect(await mirror.getHistory(PANE)).toEqual({
         ok: true,
@@ -342,7 +355,7 @@ describe("ChatMirror", () => {
 
     it("answers host-offline for history, then recovers on the next read", async () => {
       const p = file("t.jsonl", user("u1", "hi"));
-      agent = { hostId: "local", transcriptPath: p };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: p };
       offline = true;
       expect(await mirror.getHistory(PANE)).toEqual({ ok: false, reason: "host-offline" });
 
@@ -356,7 +369,7 @@ describe("ChatMirror", () => {
 
     it("keeps a subscriber's entries while offline and publishes what follows once back", async () => {
       const p = file("t.jsonl", user("u1", "hi"));
-      agent = { hostId: "local", transcriptPath: p };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: p };
       mirror.setWatched(PANE, true);
       await mirror.getHistory(PANE);
 
@@ -376,7 +389,7 @@ describe("ChatMirror", () => {
     });
 
     it("refuses an answer it cannot check, and types nothing", async () => {
-      agent = { hostId: "local", transcriptPath: file("t.jsonl", plan("a1", "p1")) };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: file("t.jsonl", plan("a1", "p1")) };
       await mirror.getHistory(PANE);
       offline = true;
       expect(await mirror.answer(PANE, "p1", { kind: "plan-approve" })).toEqual({
@@ -389,7 +402,7 @@ describe("ChatMirror", () => {
 
   describe("answer", () => {
     it("types the encoded answer for the newest open question", async () => {
-      agent = { hostId: "local", transcriptPath: file("t.jsonl", ask("a1", "q1")) };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: file("t.jsonl", ask("a1", "q1")) };
       const result = await mirror.answer(PANE, "q1", {
         kind: "question",
         answers: [{ kind: "option", indexes: [1] }],
@@ -399,14 +412,14 @@ describe("ChatMirror", () => {
     });
 
     it("approves a plan with Enter", async () => {
-      agent = { hostId: "local", transcriptPath: file("t.jsonl", plan("a1", "p1")) };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: file("t.jsonl", plan("a1", "p1")) };
       expect(await mirror.answer(PANE, "p1", { kind: "plan-approve" })).toEqual({ ok: true });
       expect(writes).toEqual([{ paneId: PANE, data: "\r" }]);
     });
 
     it("refuses a stale answer and types nothing", async () => {
       const p = file("t.jsonl", ask("a1", "q1") + ask("a2", "q2"));
-      agent = { hostId: "local", transcriptPath: p };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: p };
       const pick = { kind: "question" as const, answers: [{ kind: "option" as const, indexes: [0] }] };
 
       // Not the newest picker.
@@ -428,7 +441,7 @@ describe("ChatMirror", () => {
     });
 
     it("refuses what the encoder can't express, or the wrong kind of answer", async () => {
-      agent = { hostId: "local", transcriptPath: file("t.jsonl", ask("a1", "q1", true)) };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: file("t.jsonl", ask("a1", "q1", true)) };
       expect(
         await mirror.answer(PANE, "q1", { kind: "question", answers: [{ kind: "other", text: "green" }] }),
       ).toEqual({ ok: false, reason: "unsupported" });
@@ -440,7 +453,7 @@ describe("ChatMirror", () => {
     });
 
     it("answers a pane on a remote host", async () => {
-      agent = { hostId: "devbox", transcriptPath: file("t.jsonl", plan("a1", "p1")) };
+      agent = { hostId: "devbox", agentKind: "claude", transcriptPath: file("t.jsonl", plan("a1", "p1")) };
       expect(await mirror.answer(PANE, "p1", { kind: "plan-approve" })).toEqual({ ok: true });
       expect(writes).toEqual([{ paneId: PANE, data: "\r" }]);
     });
@@ -455,7 +468,7 @@ describe("ChatMirror", () => {
     });
 
     it("marks the entry needsTerminal when no tool_result arrives in time", async () => {
-      agent = { hostId: "local", transcriptPath: file("t.jsonl", plan("a1", "p1")) };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: file("t.jsonl", plan("a1", "p1")) };
       expect(await mirror.answer(PANE, "p1", { kind: "plan-approve" })).toEqual({ ok: true });
 
       vi.advanceTimersByTime(7_999);
@@ -476,7 +489,7 @@ describe("ChatMirror", () => {
 
     it("does nothing when the tool_result arrives in time", async () => {
       const p = file("t.jsonl", plan("a1", "p1"));
-      agent = { hostId: "local", transcriptPath: p };
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: p };
       await mirror.answer(PANE, "p1", { kind: "plan-approve" });
       fs.appendFileSync(p, toolResult("u1", "p1", "approved"));
 
@@ -534,7 +547,7 @@ describe("ChatMirror — poke and poll (ADR-216 D3)", () => {
     reads = [];
     published = [];
     content = user("u1", "hi");
-    agent = { hostId: "devbox", transcriptPath: "/remote/t.jsonl" };
+    agent = { hostId: "devbox", agentKind: "claude", transcriptPath: "/remote/t.jsonl" };
     mirror = make(60_000);
   });
 

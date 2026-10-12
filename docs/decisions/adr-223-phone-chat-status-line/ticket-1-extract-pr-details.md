@@ -1,6 +1,6 @@
 ---
 title: Extract PrDetails from PrPopover
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

@@ -1,6 +1,6 @@
 ---
 title: PR drawer and local diff chip on the phone status line
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

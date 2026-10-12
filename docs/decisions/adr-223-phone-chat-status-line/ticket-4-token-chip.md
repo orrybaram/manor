@@ -1,6 +1,6 @@
 ---
 title: Token count chip on the status line
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [2, 3]

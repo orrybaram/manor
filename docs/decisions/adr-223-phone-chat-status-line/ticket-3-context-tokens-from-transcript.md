@@ -1,6 +1,6 @@
 ---
 title: Context token count from the chat transcript
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: []

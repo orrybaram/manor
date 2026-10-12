@@ -82,6 +82,24 @@ describe("PushManager", () => {
     return device;
   }
 
+  it("skips subscriptions the host server already pushes to", async () => {
+    pairedWithPush("phone");
+    const other = devices.pair("tablet", "room").device;
+    push.subscribe(other.id, {
+      ...SUBSCRIPTION,
+      endpoint: "https://push.example/other",
+    });
+    const sent = await push.notify(
+      { agentId: "a", title: "t", body: "b" },
+      { skipEndpoints: new Set([SUBSCRIPTION.endpoint]) },
+    );
+    expect(sent).toBe(1);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][0]).toMatchObject({
+      endpoint: "https://push.example/other",
+    });
+  });
+
   it("generates a key pair once and reuses it", async () => {
     const generate = vi.fn(() => ({
       publicKey: "pub-key",

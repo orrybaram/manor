@@ -7,7 +7,12 @@ const resumedListeners: Array<(hostId: string, sessionIds: string[]) => void> = 
 import {
   hostsAdd,
   hostsHealthCheck,
+  hostsListDevices,
+  hostsPairDevice,
+  hostsResetPairingKeys,
+  hostsRevokeDevice,
   hostsRetryConnect,
+  hostsServerStatus,
   wireHostBroadcasts,
 } from "../hosts";
 import {
@@ -58,6 +63,7 @@ function makeDeps() {
       resumedListeners.push(cb);
       return () => {};
     }),
+    onHostServerStateChange: vi.fn(() => () => {}),
     onStatusChange: vi.fn((cb: (hosts: unknown[]) => void) => {
       statusListeners.push(cb);
       return () => {};
@@ -179,5 +185,67 @@ describe("hosts:healthCheck", () => {
       handlers.get("hosts:healthCheck")!(null, "nope", "/srv/app") as Promise<unknown>,
     ).rejects.toThrow(/Unknown host/);
     expect(get).not.toHaveBeenCalled();
+  });
+});
+
+describe("hosts phone access", () => {
+  function withServer(state: string) {
+    const { deps, backendRegistry } = makeDeps();
+    const client = {
+      state,
+      status: vi.fn().mockResolvedValue({ pushEndpoints: ["https://p"], devices: 1 }),
+      pair: vi.fn().mockResolvedValue({ pairingUrl: "https://relay/app/1/#x" }),
+      listDevices: vi.fn().mockResolvedValue([]),
+      revoke: vi.fn().mockResolvedValue([]),
+      resetIdentity: vi.fn().mockResolvedValue({ devices: 0 }),
+    };
+    Object.assign(backendRegistry, {
+      hostServer: vi.fn((id: string) => (id === "box" ? client : undefined)),
+    });
+    const hostPushEndpoints = { refresh: vi.fn().mockResolvedValue(undefined), set: vi.fn() };
+    return { ctx: localCtx({ ...deps, hostPushEndpoints } as never), client, hostPushEndpoints };
+  }
+
+  it("reports an unknown host plainly", async () => {
+    const { ctx } = withServer("connected");
+    await expect(hostsServerStatus(ctx, "nope")).rejects.toThrow(/Unknown remote host/);
+    await expect(hostsPairDevice(ctx, "nope")).rejects.toThrow(/Unknown remote host/);
+  });
+
+  it("returns the state without a status while unsupported", async () => {
+    const { ctx, client } = withServer("unsupported");
+    await expect(hostsServerStatus(ctx, "box")).resolves.toEqual({
+      state: "unsupported",
+      status: null,
+    });
+    expect(client.status).not.toHaveBeenCalled();
+  });
+
+  it("refuses to pair, list, revoke or reset on an unsupported or dropped host", async () => {
+    for (const state of ["unsupported", "disconnected"]) {
+      const { ctx, client } = withServer(state);
+      await expect(hostsPairDevice(ctx, "box", "p")).rejects.toThrow(/Phone access/);
+      await expect(hostsListDevices(ctx, "box")).rejects.toThrow(/Phone access/);
+      await expect(hostsRevokeDevice(ctx, "box", "d")).rejects.toThrow(/Phone access/);
+      await expect(hostsResetPairingKeys(ctx, "box")).rejects.toThrow(/Phone access/);
+      expect(client.pair).not.toHaveBeenCalled();
+    }
+  });
+
+  it("caches the host's endpoints from a status read", async () => {
+    const { ctx, hostPushEndpoints } = withServer("connected");
+    const view = await hostsServerStatus(ctx, "box");
+    expect(view.status?.devices).toBe(1);
+    expect(hostPushEndpoints.set).toHaveBeenCalledWith("box", ["https://p"]);
+  });
+
+  it("refreshes the endpoint cache after pair, revoke and reset", async () => {
+    const { ctx, client, hostPushEndpoints } = withServer("connected");
+    await hostsPairDevice(ctx, "box", "  my phone ");
+    expect(client.pair).toHaveBeenCalledWith("my phone");
+    await hostsRevokeDevice(ctx, "box", "d1");
+    await hostsResetPairingKeys(ctx, "box");
+    expect(hostPushEndpoints.refresh).toHaveBeenCalledTimes(3);
+    expect(hostPushEndpoints.refresh).toHaveBeenCalledWith("box");
   });
 });

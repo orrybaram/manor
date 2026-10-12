@@ -120,6 +120,8 @@ export class RemoteControlController {
   private wantEnabled = false;
   /** Set by `shutdown()`. Nothing starts after this, whatever is in flight. */
   private closed = false;
+  private hostPushEndpoints: ((hostId: string) => ReadonlySet<string>) | null =
+    null;
 
   constructor(
     loadRuntime: () => Promise<RemoteControlRuntime>,
@@ -170,13 +172,34 @@ export class RemoteControlController {
    * subscriptions, and nothing here loads the runtime.
    */
   onAgentStatus(
-    agent: { id: string; name: string | null; projectName: string | null },
+    agent: {
+      id: string;
+      name: string | null;
+      projectName: string | null;
+      /** Absent or `local`: the desktop is the only one pushing for it. */
+      hostId?: string;
+    },
     previousStatus: string | null | undefined,
     status: string,
     { notify }: { notify: boolean },
   ): void {
     if (!this.push || !notify) return;
-    pushAgentTransition(this.push, agent, previousStatus, status);
+    // An agent on a remote host whose server already pushes to some of these
+    // phones is told about by that server, not twice (ADR-218 D3).
+    const skipEndpoints =
+      agent.hostId && agent.hostId !== "local"
+        ? this.hostPushEndpoints?.(agent.hostId)
+        : undefined;
+    pushAgentTransition(this.push, agent, previousStatus, status, {
+      skipEndpoints,
+    });
+  }
+
+  /** Where to find the push endpoints a host's server sends to (cached). */
+  setHostPushEndpoints(
+    lookup: ((hostId: string) => ReadonlySet<string>) | null,
+  ): void {
+    this.hostPushEndpoints = lookup;
   }
 
   onChange(listener: (status: RemoteControlStatus) => void): () => void {

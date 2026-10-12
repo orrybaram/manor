@@ -62,6 +62,7 @@ import {
   type RemoteControlRuntime,
 } from "./remote-control/controller";
 import { PushManager } from "./remote-control/push";
+import { HostPushEndpoints } from "./remote-control/host-push-endpoints";
 import type { HostDeps } from "./ipc/types";
 import { handleRelayedControlRequest } from "./control-relay";
 import { createWindow, saveZoomLevel } from "./window";
@@ -481,6 +482,19 @@ export function initApp(devTitle: string | null): void {
   // runs at most once, on the first enable.
   const remoteDeviceStore = new RemoteDeviceStore(secretBox);
   const remotePush = new PushManager(remoteDeviceStore, secretBox);
+  // ADR-218 D3: a phone paired with a host's server hears about that host's
+  // agents from the server, so the desktop skips those subscriptions. Cached
+  // per host, refreshed on every owner-channel connect and after pairing.
+  const hostPushEndpoints = new HostPushEndpoints({
+    status: async (hostId) => {
+      const client = backendRegistry.hostServer(hostId);
+      return client?.state === "connected" ? client.status() : null;
+    },
+  });
+  backendRegistry.onHostServerStateChange((hostId, state) => {
+    if (state === "connected") void hostPushEndpoints.refresh(hostId);
+    else if (state === "unsupported") hostPushEndpoints.forget(hostId);
+  });
   /**
    * The host surface and its two transports (ADR-180 D1/D2). The surface and
    * the desktop's IPC transport are built below, once `ipcDeps` exists: the
@@ -528,6 +542,7 @@ export function initApp(devTitle: string | null): void {
     remotePush,
     appInfo.version,
   );
+  remoteControl.setHostPushEndpoints((hostId) => hostPushEndpoints.get(hostId));
   const paneContextMap = new Map<
     string,
     {
@@ -750,6 +765,7 @@ export function initApp(devTitle: string | null): void {
     registerDetachedWindow,
     backend,
     backendRegistry,
+    hostPushEndpoints,
     getPaneHostId,
     layoutPersistence,
     layoutStore,

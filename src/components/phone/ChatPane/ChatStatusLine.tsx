@@ -1,42 +1,60 @@
+import { useState } from "react";
 import GitPullRequest from "lucide-react/dist/esm/icons/git-pull-request";
 import GitPullRequestDraft from "lucide-react/dist/esm/icons/git-pull-request-draft";
 import { find } from "../../../lib/workspace-directory";
 import { selectActiveWorkspaceKey, useAppStore } from "../../../store/app-store";
 import { useProjectStore } from "../../../store/project-store";
+import { Button } from "../../ui/Button/Button";
 import { Link } from "../../ui/Link/Link";
 import { prStatusChips } from "./chat-status-line";
+import { PhonePrSheet } from "./PhonePrSheet";
 import styles from "./ChatPane.module.css";
 
 /**
  * The line under the chat's input: the active workspace's open pull request
- * as chips — number, CI, diff stat — each linking to its page on GitHub, so
- * "2 failing" is in view while you ask Claude to fix it. Renders nothing
- * without an open PR.
+ * (number, opening a drawer), its CI (linking to GitHub), and the diff stat
+ * (opening the diff pane) as chips, so "2 failing" is in view while you ask
+ * Claude to fix it. Renders nothing without a PR or a diff.
  *
  * Keyed off the active workspace: a phone only ever shows that one, and a
  * background workspace's chat is mounted but hidden.
  */
 export function ChatStatusLine() {
   const activeKey = useAppStore(selectActiveWorkspaceKey);
-  const pr = useProjectStore((s) =>
-    activeKey ? find(s.projects, activeKey)?.workspace.pr : null,
-  );
-  const chips = prStatusChips(pr);
-  if (!chips) return null;
+  const found = useProjectStore((s) => (activeKey ? find(s.projects, activeKey) : undefined));
+  const pr = found?.workspace.pr;
+  const [prOpen, setPrOpen] = useState(false);
+  const chips = prStatusChips({ pr, diffStats: found?.workspace.diffStats });
+  if (!chips.pr && !chips.ci && !chips.diff) return null;
 
-  const PrIcon = chips.draft ? GitPullRequestDraft : GitPullRequest;
+  const PrIcon = chips.pr?.draft ? GitPullRequestDraft : GitPullRequest;
 
   return (
     <div className={styles.statusLine} data-testid="chat-status-line">
-      <Link
-        variant="plain"
-        href={chips.url}
-        className={styles.statusChip}
-        aria-label={`Pull request #${chips.number}: ${chips.title}`}
-      >
-        <PrIcon size={11} className={styles.statusPrIcon} data-draft={chips.draft || undefined} />
-        #{chips.number}
-      </Link>
+      {chips.pr && pr && (
+        <>
+          <Button
+            variant="ghost"
+            className={styles.statusChip}
+            aria-label={`Pull request #${chips.pr.number}: ${chips.pr.title}`}
+            onClick={() => setPrOpen(true)}
+          >
+            <PrIcon
+              size={11}
+              className={styles.statusPrIcon}
+              data-draft={chips.pr.draft || undefined}
+            />
+            #{chips.pr.number}
+          </Button>
+          <PhonePrSheet
+            open={prOpen}
+            onOpenChange={setPrOpen}
+            pr={pr}
+            workspacePath={found?.workspace.path}
+            hostId={found?.project.hostId}
+          />
+        </>
+      )}
       {chips.ci && (
         <Link
           variant="plain"
@@ -50,16 +68,17 @@ export function ChatStatusLine() {
         </Link>
       )}
       {chips.diff && (
-        <Link
-          variant="plain"
-          href={chips.diff.url}
+        <Button
+          variant="ghost"
           className={styles.statusChip}
           aria-label={`${chips.diff.additions} additions, ${chips.diff.deletions} deletions`}
+          onClick={() => useAppStore.getState().openOrFocusDiff()}
         >
           <span className={styles.statusAdditions}>+{chips.diff.additions}</span>
           <span className={styles.statusDeletions}>−{chips.diff.deletions}</span>
-        </Link>
+        </Button>
       )}
+      <span className={styles.statusSpacer} />
     </div>
   );
 }

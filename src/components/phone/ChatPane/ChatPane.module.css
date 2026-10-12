@@ -837,7 +837,13 @@ button.commandChip {
   min-width: 0;
 }
 
-.statusChip {
+.statusChip,
+:global(:root[data-layout="phone"]) .statusChip.statusChip {
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  border: none;
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -858,6 +864,11 @@ button.commandChip {
   content: "";
   position: absolute;
   inset: -8px -2px;
+}
+
+/* Leaves the right of the line to whatever follows (the token chip). */
+.statusSpacer {
+  flex: 1;
 }
 
 .statusChip:active {

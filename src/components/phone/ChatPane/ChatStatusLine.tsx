@@ -21,10 +21,17 @@ import styles from "./ChatPane.module.css";
  */
 export function ChatStatusLine() {
   const activeKey = useAppStore(selectActiveWorkspaceKey);
-  const found = useProjectStore((s) => (activeKey ? find(s.projects, activeKey) : undefined));
-  const pr = found?.workspace.pr;
+  // Two selectors, not one returning `find`'s fresh object: a new object per
+  // store read would re-render forever.
+  const workspace = useProjectStore((s) =>
+    activeKey ? find(s.projects, activeKey)?.workspace : undefined,
+  );
+  const hostId = useProjectStore((s) =>
+    activeKey ? find(s.projects, activeKey)?.project.hostId : undefined,
+  );
+  const pr = workspace?.pr;
   const [prOpen, setPrOpen] = useState(false);
-  const chips = prStatusChips({ pr, diffStats: found?.workspace.diffStats });
+  const chips = prStatusChips({ pr, diffStats: workspace?.diffStats });
   if (!chips.pr && !chips.ci && !chips.diff) return null;
 
   const PrIcon = chips.pr?.draft ? GitPullRequestDraft : GitPullRequest;
@@ -50,8 +57,8 @@ export function ChatStatusLine() {
             open={prOpen}
             onOpenChange={setPrOpen}
             pr={pr}
-            workspacePath={found?.workspace.path}
-            hostId={found?.project.hostId}
+            workspacePath={workspace?.path}
+            hostId={hostId}
           />
         </>
       )}

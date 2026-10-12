@@ -260,6 +260,7 @@ describe("ChatMirror over RemoteTranscriptSource", () => {
       agentForPane: (paneId) => (paneId === PANE ? agent : null),
       write: () => {},
       publish: () => {},
+      publishTask: () => {},
       sourceFor: () => remote,
     });
   });
@@ -319,6 +320,7 @@ describe("ChatMirror over RemoteTranscriptSource", () => {
       agentForPane: () => agent,
       write: () => {},
       publish: () => {},
+      publishTask: () => {},
       sourceFor: () => capped,
     });
     try {

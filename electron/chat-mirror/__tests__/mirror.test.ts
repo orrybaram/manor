@@ -63,6 +63,41 @@ function plan(uuid: string, id: string): string {
   ]);
 }
 
+/** A background `Agent` launch, and its result naming the subagent's agentId. */
+function launch(toolUseId: string, agentId: string): string {
+  return (
+    assistant(`a-${toolUseId}`, [
+      {
+        type: "tool_use",
+        id: toolUseId,
+        name: "Agent",
+        input: { description: "Explore", subagent_type: "Explore", prompt: "go", run_in_background: true },
+      },
+    ]) +
+    line({
+      type: "user",
+      uuid: `r-${toolUseId}`,
+      toolUseResult: { isAsync: true, status: "async_launched", agentId },
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: toolUseId, content: "Async agent launched" }],
+      },
+    })
+  );
+}
+
+function finished(uuid: string, toolUseId: string): string {
+  return user(
+    uuid,
+    `<task-notification><tool-use-id>${toolUseId}</tool-use-id><status>completed</status><summary>done</summary></task-notification>`,
+  );
+}
+
+/** A line of a subagent's own transcript: every one is a sidechain line. */
+function side(uuid: string, text: string): string {
+  return line({ type: "user", uuid, isSidechain: true, message: { role: "user", content: text } });
+}
+
 /** Let the mirror's file reads settle without touching (possibly fake) timers. */
 async function until(cond: () => boolean): Promise<void> {
   for (let i = 0; i < 500; i++) {
@@ -76,6 +111,7 @@ describe("ChatMirror", () => {
   let dir: string;
   let agent: PaneAgent | null;
   let published: { paneId: string; entry: ChatPush }[];
+  let taskPublished: { paneId: string; taskId: string; entry: ChatPush }[];
   let writes: { paneId: string; data: string }[];
   let mirror: ChatMirror;
   let source: TranscriptSource;
@@ -91,6 +127,7 @@ describe("ChatMirror", () => {
       agentForPane: (paneId) => (paneId === PANE ? agent : null),
       write: (paneId, data) => writes.push({ paneId, data }),
       publish: (paneId, entry) => published.push({ paneId, entry }),
+      publishTask: (paneId, taskId, entry) => taskPublished.push({ paneId, taskId, entry }),
       sourceFor: () => source,
       pollIntervalMs: 10,
       unwatchedPollIntervalMs: 10,
@@ -101,6 +138,7 @@ describe("ChatMirror", () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "chat-mirror-"));
     agent = null;
     published = [];
+    taskPublished = [];
     writes = [];
     source = new LocalTranscriptSource();
     mirror = makeMirror();
@@ -501,6 +539,152 @@ describe("ChatMirror", () => {
       ]);
     });
   });
+
+  describe("task streams (ADR-224 D3)", () => {
+    /** The parent at `<dir>/sess.jsonl`, and agent `agentId`'s transcript beside it. */
+    function session(parent: string): string {
+      fs.mkdirSync(path.join(dir, "sess", "subagents"), { recursive: true });
+      return file("sess.jsonl", parent);
+    }
+    function childFile(agentId: string): string {
+      return path.join(dir, "sess", "subagents", `agent-${agentId}.jsonl`);
+    }
+
+    it("reads a task's own transcript, sidechain lines and all", async () => {
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: session(launch("toolu_1", "ag1")) };
+      fs.writeFileSync(childFile("ag1"), side("s1", "go") + assistant("s2", [{ type: "text", text: "on it" }]));
+      expect(await mirror.getTaskHistory(PANE, "toolu_1")).toEqual({
+        ok: true,
+        entries: [
+          { kind: "user", id: "s1", ts: T, text: "go" },
+          { kind: "assistant", id: "s2:0", ts: T, text: "on it" },
+        ],
+        contextTokens: null,
+      });
+      expect(taskPublished).toEqual([]);
+      expect(published).toEqual([]);
+    });
+
+    it("says no-transcript for an unknown task, or one with no transcript", async () => {
+      expect(await mirror.getTaskHistory("other", "toolu_1")).toEqual({ ok: false, reason: "no-agent" });
+      const bg = assistant("a1", [
+        { type: "tool_use", id: "bash1", name: "Bash", input: { command: "sleep 9", run_in_background: true } },
+      ]);
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: session(bg + user("u1", "hi")) };
+      expect(await mirror.getTaskHistory(PANE, "nope")).toEqual({ ok: false, reason: "no-transcript" });
+      expect(await mirror.getTaskHistory(PANE, "u1")).toEqual({ ok: false, reason: "no-transcript" });
+      expect(await mirror.getTaskHistory(PANE, "bash1")).toEqual({ ok: false, reason: "no-transcript" });
+    });
+
+    it("reads a missing transcript as empty, and fills in once it is written", async () => {
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: session(launch("toolu_1", "ag1")) };
+      expect(await mirror.getTaskHistory(PANE, "toolu_1")).toEqual({ ok: true, entries: [], contextTokens: null });
+      fs.writeFileSync(childFile("ag1"), side("s1", "go"));
+      expect(await mirror.getTaskHistory(PANE, "toolu_1")).toMatchObject({ ok: true, entries: [{ id: "s1" }] });
+    });
+
+    it("tails a watched task through publishTask, and nothing through publish", async () => {
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: session(launch("toolu_1", "ag1")) };
+      fs.writeFileSync(childFile("ag1"), side("s1", "go"));
+      mirror.setTaskWatched(PANE, "toolu_1", true);
+      expect(await mirror.getTaskHistory(PANE, "toolu_1")).toMatchObject({ entries: [{ id: "s1" }] });
+
+      fs.appendFileSync(childFile("ag1"), assistant("s2", [{ type: "text", text: "found it" }]));
+      await vi.waitFor(() => expect(taskPublished).toHaveLength(1));
+      expect(taskPublished[0]).toEqual({
+        paneId: PANE,
+        taskId: "toolu_1",
+        entry: { kind: "assistant", id: "s2:0", ts: T, text: "found it" },
+      });
+      expect(published).toEqual([]);
+    });
+
+    it("starts tailing a task watched before its agentId was known", async () => {
+      const parent = session(
+        assistant("a1", [
+          { type: "tool_use", id: "toolu_1", name: "Agent", input: { description: "Explore", prompt: "go" } },
+        ]),
+      );
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: parent };
+      fs.writeFileSync(childFile("ag1"), side("s1", "go"));
+      mirror.setWatched(PANE, true);
+      mirror.setTaskWatched(PANE, "toolu_1", true);
+      expect(await mirror.getTaskHistory(PANE, "toolu_1")).toEqual({ ok: false, reason: "no-transcript" });
+
+      fs.appendFileSync(
+        parent,
+        line({
+          type: "user",
+          uuid: "r1",
+          toolUseResult: { agentId: "ag1" },
+          message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "ok" }] },
+        }),
+      );
+      await vi.waitFor(() => expect(published.map((x) => x.entry.id)).toContain("toolu_1"));
+      fs.appendFileSync(childFile("ag1"), side("s2", "more"));
+      await vi.waitFor(() => expect(taskPublished.map((x) => x.entry.id)).toContain("s2"));
+    });
+
+    it("drops the task streams when the pane's transcript resets", async () => {
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: session(launch("toolu_1", "ag1")) };
+      fs.writeFileSync(childFile("ag1"), side("s1", "go"));
+      mirror.setTaskWatched(PANE, "toolu_1", true);
+      await mirror.getTaskHistory(PANE, "toolu_1");
+
+      // `/clear`: a new transcript, which has no such task.
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: file("next.jsonl", user("u1", "fresh")) };
+      mirror.agentChanged(PANE);
+      fs.appendFileSync(childFile("ag1"), side("s2", "stale"));
+      await new Promise((r) => setTimeout(r, 50));
+      expect(taskPublished).toEqual([]);
+      expect(await mirror.getTaskHistory(PANE, "toolu_1")).toEqual({ ok: false, reason: "no-transcript" });
+    });
+
+    it("drops the task streams when the pane closes", async () => {
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: session(launch("toolu_1", "ag1")) };
+      fs.writeFileSync(childFile("ag1"), side("s1", "go"));
+      mirror.setTaskWatched(PANE, "toolu_1", true);
+      await mirror.getTaskHistory(PANE, "toolu_1");
+      mirror.closePane(PANE);
+      fs.appendFileSync(childFile("ag1"), side("s2", "after"));
+      await new Promise((r) => setTimeout(r, 50));
+      expect(taskPublished).toEqual([]);
+    });
+
+    it("keeps a running task's stream when unwatched, and catches up on the next watch", async () => {
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: session(launch("toolu_1", "ag1")) };
+      fs.writeFileSync(childFile("ag1"), side("s1", "go"));
+      mirror.setTaskWatched(PANE, "toolu_1", true);
+      await mirror.getTaskHistory(PANE, "toolu_1");
+      mirror.setTaskWatched(PANE, "toolu_1", false);
+
+      fs.appendFileSync(childFile("ag1"), side("s2", "while away"));
+      await new Promise((r) => setTimeout(r, 50));
+      expect(taskPublished).toEqual([]);
+
+      mirror.setTaskWatched(PANE, "toolu_1", true);
+      await vi.waitFor(() => expect(taskPublished).toHaveLength(1));
+      expect(taskPublished[0].entry).toMatchObject({ id: "s2" });
+    });
+
+    it("drops a finished task's stream when unwatched", async () => {
+      const parent = session(launch("toolu_1", "ag1") + finished("n1", "toolu_1"));
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: parent };
+      fs.writeFileSync(childFile("ag1"), side("s1", "go"));
+      mirror.setTaskWatched(PANE, "toolu_1", true);
+      await mirror.getTaskHistory(PANE, "toolu_1");
+      mirror.setTaskWatched(PANE, "toolu_1", false);
+
+      fs.appendFileSync(childFile("ag1"), side("s2", "late"));
+      mirror.setTaskWatched(PANE, "toolu_1", true);
+      // A fresh stream: its first read is history, not events.
+      expect(await mirror.getTaskHistory(PANE, "toolu_1")).toMatchObject({
+        entries: [{ id: "s1" }, { id: "s2" }],
+      });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(taskPublished).toEqual([]);
+    });
+  });
 });
 
 describe("ChatMirror — poke and poll (ADR-216 D3)", () => {
@@ -538,6 +722,7 @@ describe("ChatMirror — poke and poll (ADR-216 D3)", () => {
       agentForPane: (paneId) => (paneId === PANE ? agent : null),
       write: () => {},
       publish: (_paneId, entry) => published.push(entry),
+      publishTask: () => {},
       sourceFor: () => source,
       unwatchedPollIntervalMs: pollMs,
     });
@@ -668,5 +853,68 @@ describe("ChatMirror — poke and poll (ADR-216 D3)", () => {
     finishRead();
     await until(() => published.length === 1);
     expect(published.map((e) => e.id)).toEqual(["u2"]);
+  });
+});
+
+describe("ChatMirror — task streams on a source without watch (ADR-224 D3)", () => {
+  const PARENT = "/remote/sess.jsonl";
+  const CHILD = "/remote/sess/subagents/agent-ag1.jsonl";
+  let files: Map<string, string>;
+  let reads: string[];
+  let taskPublished: ChatPush[];
+  let mirror: ChatMirror;
+
+  /** A remote host's files: posix paths, no change signal, only pokes and a slow poll. */
+  const source: TranscriptSource = {
+    read: (p, offset) => {
+      reads.push(p);
+      const bytes = Buffer.from(files.get(p) ?? "");
+      return Promise.resolve({
+        ok: true,
+        size: bytes.length,
+        data: bytes.subarray(offset).toString("utf8"),
+      });
+    },
+  };
+
+  beforeEach(() => {
+    files = new Map([[PARENT, launch("toolu_1", "ag1")], [CHILD, side("s1", "go")]]);
+    reads = [];
+    taskPublished = [];
+    mirror = new ChatMirror({
+      agentForPane: (paneId) =>
+        paneId === PANE ? { hostId: "devbox", agentKind: "claude", transcriptPath: PARENT } : null,
+      write: () => {},
+      publish: () => {},
+      publishTask: (_paneId, _taskId, entry) => taskPublished.push(entry),
+      sourceFor: () => source,
+      unwatchedPollIntervalMs: 60_000,
+    });
+  });
+
+  afterEach(() => {
+    mirror.dispose();
+  });
+
+  it("reads a watched task's transcript on a poke", async () => {
+    mirror.setTaskWatched(PANE, "toolu_1", true);
+    expect(await mirror.getTaskHistory(PANE, "toolu_1")).toMatchObject({ entries: [{ id: "s1" }] });
+    await until(() => reads.includes(CHILD));
+
+    files.set(CHILD, files.get(CHILD) + side("s2", "more"));
+    reads = [];
+    mirror.poke(PANE);
+    await until(() => taskPublished.length === 1);
+    expect(taskPublished[0]).toMatchObject({ id: "s2", text: "more" });
+    // Nobody watches the pane's own chat, so the poke left its transcript alone.
+    expect(reads).toEqual([CHILD]);
+  });
+
+  it("does not read an unwatched task's transcript on a poke", async () => {
+    await mirror.getTaskHistory(PANE, "toolu_1");
+    reads = [];
+    mirror.poke(PANE);
+    await new Promise((r) => setImmediate(r));
+    expect(reads).toEqual([]);
   });
 });

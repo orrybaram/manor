@@ -80,6 +80,12 @@ export interface BridgeEvents {
    */
   chat: {
     entry: [paneId: string, entry: ChatPush];
+    /**
+     * One task's own transcript, new or updated entry or context size
+     * (ADR-224 D3). Keyed by `chatTaskKey(paneId, taskId)`
+     * (`chat-mirror/task-key.ts`), so a subscriber names the task it watches.
+     */
+    taskEntry: [paneId: string, taskId: string, entry: ChatPush];
   };
   layout: {
     changed: [payload: LayoutBroadcast];
@@ -201,7 +207,8 @@ export type WireEventArgs<W extends EventName> = {
  * does for every row.
  *
  * `pty.*` are the five the daemon's stream carries plus `winsizeOwner`.
- * They and `chat.onEntry` are the only ones with a key (the `paneId`). Native subscriptions are *not*
+ * They and `chat.onEntry` are the only ones with a key (the `paneId`);
+ * `chat.onTaskEntry`'s key names a task as well (`chatTaskKey`). Native subscriptions are *not*
  * here: `webview.*`, `updater.*` and `menu.onMenuCommand` are members of a
  * native namespace and are written in the preload.
  */
@@ -213,6 +220,7 @@ export const SUBSCRIPTIONS = {
   "pty.onError": "pty.error",
   "pty.onWinsizeOwner": "pty.winsizeOwner",
   "chat.onEntry": "chat.entry",
+  "chat.onTaskEntry": "chat.taskEntry",
   "layout.onChanged": "layout.changed",
   "layout.onPaneTitle": "layout.paneTitle",
   "projects.onChanged": "projects.changed",

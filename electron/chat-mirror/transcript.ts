@@ -225,7 +225,17 @@ function resultText(content: unknown): string {
   return parts.join("\n");
 }
 
+/** How a `TranscriptParser` reads. */
+export interface TranscriptParserOptions {
+  /**
+   * Keep `isSidechain` lines. A subagent's own transcript is all sidechain
+   * (ADR-224 D3); in the pane's transcript such lines are dropped.
+   */
+  sidechain?: boolean;
+}
+
 export class TranscriptParser {
+  private readonly sidechain: boolean;
   private order: string[] = [];
   private byId = new Map<string, ChatEntry>();
   private skillMap = new Map<string, string>();
@@ -234,6 +244,10 @@ export class TranscriptParser {
   private lastContextTokens: number | null = null;
   /** Notifications already turned into a notice; one may arrive in two forms. */
   private seenNotices = new Set<string>();
+
+  constructor(opts: TranscriptParserOptions = {}) {
+    this.sidechain = opts.sidechain === true;
+  }
 
   /**
    * The context size of the newest main-thread assistant line, or null if
@@ -291,7 +305,7 @@ export class TranscriptParser {
       return [];
     }
     if (!isObject(parsed)) return [];
-    if (parsed.isSidechain === true) return [];
+    if (parsed.isSidechain === true && !this.sidechain) return [];
     const type = parsed.type;
     if (type === "attachment") {
       const att = parsed.attachment;

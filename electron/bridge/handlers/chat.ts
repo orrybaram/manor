@@ -28,6 +28,7 @@ import {
   encodeChatMessage,
   type PickerAnswer,
 } from "../../chat-mirror/picker-keys";
+import { parseChatTaskKey } from "../../chat-mirror/task-key";
 import { method, type HandlerCtx } from "../method";
 
 /** The pause between a prompt's text and its Enter. Long enough that Claude
@@ -59,6 +60,17 @@ export function chatGetHistory(
 ): Promise<ChatHistory> {
   assertString(paneId, "paneId");
   return ctx.deps.chatMirror.getHistory(paneId);
+}
+
+/** A task's own transcript (ADR-224 D3); its pushes are `chat.taskEntry`. */
+export function chatGetTaskHistory(
+  ctx: HandlerCtx,
+  paneId: string,
+  taskId: string,
+): Promise<ChatHistory> {
+  assertString(paneId, "paneId");
+  assertString(taskId, "taskId");
+  return ctx.deps.chatMirror.getTaskHistory(paneId, taskId);
 }
 
 export function chatGetCommands(
@@ -155,7 +167,7 @@ function assertChatAnswer(value: unknown): asserts value is ChatAnswer {
  *   that pane's transcript path: `/clear` and resume switch transcripts, and
  *   the hook that says so updates the agent.
  * - The bridge's subscriber count for `chat.entry` is what turns a pane's
- *   watcher on and off.
+ *   watcher on and off, and for `chat.taskEntry` a task's (ADR-224 D3).
  */
 export function wireChatMirror(
   deps: Pick<HostDeps, "chatMirror">,
@@ -171,8 +183,17 @@ export function wireChatMirror(
     if (agent?.paneId) chatMirror.agentChanged(agent.paneId);
   });
   const offSubscriptions = bridge.onSubscriptionChange((name, key) => {
-    if (name !== "chat.entry") return;
-    chatMirror.setWatched(key, bridge.hasSubscriber("chat", "entry", key));
+    if (name === "chat.entry") {
+      chatMirror.setWatched(key, bridge.hasSubscriber("chat", "entry", key));
+    } else if (name === "chat.taskEntry") {
+      const task = parseChatTaskKey(key);
+      if (!task) return;
+      chatMirror.setTaskWatched(
+        task.paneId,
+        task.taskId,
+        bridge.hasSubscriber("chat", "taskEntry", key),
+      );
+    }
   });
   return () => {
     offAgents();
@@ -183,6 +204,8 @@ export function wireChatMirror(
 export const chat = {
   // A read; its pushes are `chat.entry`.
   getHistory: method(chatGetHistory),
+  // A read; its pushes are `chat.taskEntry`.
+  getTaskHistory: method(chatGetTaskHistory),
   getCommands: method(chatGetCommands),
   // The keyboard, like `pty.write`: a line per message or keystroke is a
   // keylogger (ADR-161), so none of these is audited.

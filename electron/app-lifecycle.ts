@@ -24,6 +24,7 @@ import { AgentManager, agentHostId, type AgentInfo } from "./agent-persistence";
 import { ChatMirror, transcriptSources } from "./chat-mirror/mirror";
 import { pickPaneAgent } from "../src/lib/pane-agent";
 import { LocalTranscriptSource } from "./chat-mirror/transcript-source";
+import { chatTaskKey } from "./chat-mirror/task-key";
 import { NotificationStore } from "./notification-store";
 import { StatsStore } from "./stats-store";
 import { createWorkspaceOps } from "./workspace-ops";
@@ -759,6 +760,14 @@ export function initApp(devTitle: string | null): void {
     write: (paneId, data) => backend.pty.write(paneId, data),
     publish: (paneId, entry) =>
       bridgeServer?.publishKeyed("chat", "entry", [paneId, entry], paneId),
+    // ADR-224 D3: keyed by pane and task, so only that task's subscribers hear it.
+    publishTask: (paneId, taskId, entry) =>
+      bridgeServer?.publishKeyed(
+        "chat",
+        "taskEntry",
+        [paneId, taskId, entry],
+        chatTaskKey(paneId, taskId),
+      ),
   });
 
   backendRegistry.onEvent((hostId: string, event: StreamEvent) => {

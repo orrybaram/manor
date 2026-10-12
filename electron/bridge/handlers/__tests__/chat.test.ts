@@ -1,6 +1,7 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { localCtx } from "../../method";
-import { chatInterrupt, chatKey, chatSend } from "../chat";
+import { chatTaskKey } from "../../../chat-mirror/task-key";
+import { chatInterrupt, chatKey, chatSend, wireChatMirror } from "../chat";
 
 function setup() {
   const write = vi.fn();
@@ -92,5 +93,50 @@ describe("serialized per-pane writes", () => {
     await expect(chatKey(ctx, "p1", "up")).rejects.toThrow("gone");
     await chatKey(ctx, "p1", "down");
     expect(write).toHaveBeenLastCalledWith("p1", "\x1b[B");
+  });
+});
+
+describe("wireChatMirror subscriptions (ADR-224 D3)", () => {
+  function wire(subscribed: Set<string>) {
+    const chatMirror = { setWatched: vi.fn(), setTaskWatched: vi.fn(), agentChanged: vi.fn() };
+    let change: (name: string, key: string) => void = () => {};
+    const off = wireChatMirror({ chatMirror: chatMirror as never }, {
+      onSubscriptionChange: (cb) => {
+        change = cb;
+        return () => {};
+      },
+      hasSubscriber: (ns, event, key) => subscribed.has(`${ns}.${event}@${key}`),
+    });
+    return { chatMirror, change: (name: string, key: string) => change(name, key), off };
+  }
+
+  it("watches a pane's chat while chat.entry has a subscriber", () => {
+    const subscribed = new Set(["chat.entry@p1"]);
+    const { chatMirror, change, off } = wire(subscribed);
+    change("chat.entry", "p1");
+    subscribed.clear();
+    change("chat.entry", "p1");
+    expect(chatMirror.setWatched.mock.calls).toEqual([
+      ["p1", true],
+      ["p1", false],
+    ]);
+    off();
+  });
+
+  it("watches one task's transcript while its chat.taskEntry key has a subscriber", () => {
+    const key = chatTaskKey("p1", "toolu_1");
+    const subscribed = new Set([`chat.taskEntry@${key}`]);
+    const { chatMirror, change, off } = wire(subscribed);
+    change("chat.taskEntry", key);
+    subscribed.clear();
+    change("chat.taskEntry", key);
+    // A key that names no task is ignored.
+    change("chat.taskEntry", "p1");
+    expect(chatMirror.setTaskWatched.mock.calls).toEqual([
+      ["p1", "toolu_1", true],
+      ["p1", "toolu_1", false],
+    ]);
+    expect(chatMirror.setWatched).not.toHaveBeenCalled();
+    off();
   });
 });

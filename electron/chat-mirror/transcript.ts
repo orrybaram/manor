@@ -69,8 +69,11 @@ export type ChatEntry =
       result?: string;
       /** The agent's own id for this task, when it has one. */
       taskRef?: string;
-      /** True when `childTranscriptPath` can resolve a transcript for it. */
-      hasTranscript: boolean;
+      /**
+       * Set by the mirror (`mirror.ts`), never by the parser: the adapter
+       * resolves a transcript for this task (ADR-224 D3).
+       */
+      hasTranscript?: boolean;
     }
   | {
       /** A background task finishing, e.g. `Agent "Map mobile state sync" finished`. */
@@ -212,6 +215,51 @@ function parseQuestions(input: Json): PickerQuestion[] {
   return out;
 }
 
+/**
+ * The entry a `tool_use` block opens: a picker, a task (delegated or
+ * background work, ADR-224 D2), or a plain tool call.
+ */
+function toolUseEntry(id: string, ts: string, name: string, input: Json): ChatEntry {
+  if (name === "AskUserQuestion") {
+    return { kind: "question", id, ts, questions: parseQuestions(input), answer: null };
+  }
+  if (name === "ExitPlanMode") {
+    return { kind: "plan", id, ts, plan: str(input.plan) ?? "", outcome: null };
+  }
+  if (name === "Agent" || name === "Task") {
+    return {
+      kind: "task",
+      id,
+      ts,
+      taskKind: "agent",
+      title: str(input.description)?.trim() || str(input.subagent_type) || "Agent",
+      agentType: str(input.subagent_type),
+      model: str(input.model),
+      background: isTrue(input.run_in_background),
+      status: "running",
+    };
+  }
+  if (name === "Bash" && isTrue(input.run_in_background)) {
+    return {
+      kind: "task",
+      id,
+      ts,
+      taskKind: "shell",
+      title: summarizeTool(name, input),
+      background: true,
+      status: "running",
+    };
+  }
+  return { kind: "tool", id, ts, name, summary: summarizeTool(name, input), status: "pending" };
+}
+
+/** A `<task-notification>`'s `<status>` as a task's. */
+function notifiedStatus(status: string | undefined): ChatTaskEntry["status"] {
+  if (status === "failed") return "error";
+  if (status === "killed") return "killed";
+  return "ok";
+}
+
 /** Flatten a tool_result `content` (string or block array) to plain text. */
 function resultText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -280,6 +328,11 @@ export class TranscriptParser {
     return out;
   }
 
+  /** The entry with `id`, as it stands now. */
+  entry(id: string): ChatEntry | undefined {
+    return this.byId.get(id);
+  }
+
   /** Feed one JSONL line; returns entries that are new or updated by it. */
   push(line: string): ChatEntry[] {
     try {
@@ -307,8 +360,11 @@ export class TranscriptParser {
     if (!isObject(parsed)) return [];
     if (parsed.isSidechain === true && !this.sidechain) return [];
     const type = parsed.type;
+    const ts = str(parsed.timestamp) ?? "";
+    const uuid = str(parsed.uuid) ?? `line-${this.order.length}`;
     if (type === "attachment") {
       const att = parsed.attachment;
+      // A notification that lands mid-turn is queued, not a user line.
       if (
         isObject(att) &&
         att.type === "queued_command" &&
@@ -316,11 +372,7 @@ export class TranscriptParser {
         (att.commandMode === "task-notification" ||
           att.prompt.trimStart().startsWith("<task-notification>"))
       ) {
-        const e = this.notification(
-          str(parsed.uuid) ?? `line-${this.order.length}`,
-          str(parsed.timestamp) ?? "",
-          att.prompt,
-        );
+        const e = this.notification(uuid, ts, att.prompt);
         return e ? [e] : [];
       }
       this.skillListing(att);
@@ -330,8 +382,6 @@ export class TranscriptParser {
     const message = parsed.message;
     if (!isObject(message)) return [];
 
-    const ts = str(parsed.timestamp) ?? "";
-    const uuid = str(parsed.uuid) ?? `line-${this.order.length}`;
     const content = message.content;
     const out: ChatEntry[] = [];
 
@@ -385,61 +435,7 @@ export class TranscriptParser {
         const name = str(block.name);
         if (!id || !name) return;
         const input = isObject(block.input) ? block.input : {};
-        let entry: ChatEntry;
-        if (name === "AskUserQuestion") {
-          entry = {
-            kind: "question",
-            id,
-            ts,
-            questions: parseQuestions(input),
-            answer: null,
-          };
-        } else if (name === "ExitPlanMode") {
-          entry = {
-            kind: "plan",
-            id,
-            ts,
-            plan: str(input.plan) ?? "",
-            outcome: null,
-          };
-        } else if (name === "Agent" || name === "Task") {
-          entry = {
-            kind: "task",
-            id,
-            ts,
-            taskKind: "agent",
-            title:
-              str(input.description)?.trim() ||
-              str(input.subagent_type) ||
-              "Agent",
-            agentType: str(input.subagent_type),
-            model: str(input.model),
-            background: isTrue(input.run_in_background),
-            status: "running",
-            hasTranscript: false,
-          };
-        } else if (name === "Bash" && isTrue(input.run_in_background)) {
-          entry = {
-            kind: "task",
-            id,
-            ts,
-            taskKind: "shell",
-            title: summarizeTool(name, input),
-            background: true,
-            status: "running",
-            hasTranscript: false,
-          };
-        } else {
-          entry = {
-            kind: "tool",
-            id,
-            ts,
-            name,
-            summary: summarizeTool(name, input),
-            status: "pending",
-          };
-        }
-        const e = this.add(entry);
+        const e = this.add(toolUseEntry(id, ts, name, input));
         if (e) out.push(e);
       }
       // thinking and unknown block types: dropped
@@ -510,12 +506,7 @@ export class TranscriptParser {
     if (task && task.kind === "task") {
       const next: ChatEntry = {
         ...task,
-        status:
-          status === "failed"
-            ? "error"
-            : status === "killed"
-              ? "killed"
-              : "ok",
+        status: notifiedStatus(status),
         result: summary.slice(0, MAX_DETAIL),
       };
       this.byId.set(task.id, next);
@@ -532,7 +523,7 @@ export class TranscriptParser {
       id: uuid,
       ts,
       text: summary,
-      status: status === "failed" || status === "killed" ? "error" : "ok",
+      status: notifiedStatus(status) === "ok" ? "ok" : "error",
     });
   }
 
@@ -567,9 +558,6 @@ export class TranscriptParser {
         next = { ...existing };
         if (info.isAsync === true) next.background = true;
         if (ref) next.taskRef = ref;
-        if (str(info.agentId) && existing.taskKind === "agent") {
-          next.hasTranscript = true;
-        }
         // A launch, not a finish: the notification settles it later.
         if (!next.background) {
           next.status = isError ? "error" : "ok";

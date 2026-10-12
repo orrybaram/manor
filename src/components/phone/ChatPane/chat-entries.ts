@@ -4,7 +4,7 @@
  * DOM (ADR-215 D5, D7).
  */
 
-import type { AgentStatus, ChatEntry } from "../../../electron.d";
+import type { AgentStatus, ChatEntry, ChatTaskEntry } from "../../../electron.d";
 
 /** Add `entry`, or replace the one with its id in place. Updates keep their position. */
 export function upsertEntry(
@@ -64,12 +64,30 @@ export type ToolGroup = {
   tools: ToolEntry[];
 };
 
-export type ChatItem = Exclude<ChatEntry, { kind: "tool" }> | ToolGroup;
+/** What a task card shows: its entry's status, or "unknown" when it can't be trusted. */
+export type TaskDisplayStatus = ChatTaskEntry["status"] | "unknown";
 
-/** Fold each run of consecutive tool entries into one group. Anything else ends a run. */
-export function groupEntries(entries: readonly ChatEntry[]): ChatItem[] {
+/** A task as the chat draws it (ADR-224 D4): its entry, and the status it shows. */
+export type TaskItem = ChatTaskEntry & { display: TaskDisplayStatus };
+
+export type ChatItem = Exclude<ChatEntry, { kind: "tool" | "task" }> | ToolGroup | TaskItem;
+
+/**
+ * The chat's items: each run of consecutive tool entries folded into one
+ * group (anything else ends a run), and each task with the status it shows
+ * while the pane's agent is `agentStatus` (`staleTaskIds`).
+ */
+export function groupEntries(
+  entries: readonly ChatEntry[],
+  agentStatus: AgentStatus | null = null,
+): ChatItem[] {
+  const stale = staleTaskIds(entries, agentStatus);
   const items: ChatItem[] = [];
   for (const entry of entries) {
+    if (entry.kind === "task") {
+      items.push({ ...entry, display: stale.has(entry.id) ? "unknown" : entry.status });
+      continue;
+    }
     if (entry.kind !== "tool") {
       items.push(entry);
       continue;
@@ -130,9 +148,6 @@ function phraseText(phrase: Phrase, n: number): string {
   return `${phrase.verb} ${/^[aeiou]/.test(one) ? "an" : "a"} ${one}`;
 }
 
-/** What a task card shows: its entry's status, or "unknown" when it can't be trusted. */
-export type TaskDisplayStatus = Extract<ChatEntry, { kind: "task" }>["status"] | "unknown";
-
 /**
  * The ids of running tasks the card should call "unknown" (ADR-224 D4). A task
  * that never gets a notification (its session was killed) stays "running" in
@@ -167,13 +182,9 @@ export function staleTaskIds(
   return stale;
 }
 
-/** How many tasks are running, not counting the stale ones. */
-export function runningTaskCount(
-  entries: readonly ChatEntry[],
-  stale: ReadonlySet<string>,
-): number {
-  return entries.filter((e) => e.kind === "task" && e.status === "running" && !stale.has(e.id))
-    .length;
+/** How many tasks show as running (the stale ones show as unknown). */
+export function runningTaskCount(items: readonly ChatItem[]): number {
+  return items.filter((i) => i.kind === "task" && i.display === "running").length;
 }
 
 /** The dot's `data-status`: the shared dot styles know pending, ok and error. */

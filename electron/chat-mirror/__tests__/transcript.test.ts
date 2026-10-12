@@ -411,10 +411,9 @@ describe("TranscriptParser tasks", () => {
       model: "sonnet",
       background: true,
       status: "running",
-      hasTranscript: false,
     });
     const [r] = p.push(result("tu1", "Async agent launched", { isAsync: true, status: "async_launched", agentId: "a688" }));
-    expect(r).toMatchObject({ status: "running", taskRef: "a688", hasTranscript: true });
+    expect(r).toMatchObject({ status: "running", taskRef: "a688" });
     expect((r as { result?: string }).result).toBeUndefined();
     const out = p.push(notify("n1", "tu1", "completed"));
     expect(out).toHaveLength(1);
@@ -426,14 +425,14 @@ describe("TranscriptParser tasks", () => {
     const p = new TranscriptParser();
     p.push(launch("tu2", "Agent", { description: "Look" }));
     const [r] = p.push(result("tu2", "found it", { agentId: "b1" }));
-    expect(r).toMatchObject({ status: "ok", result: "found it", taskRef: "b1", hasTranscript: true, background: false });
+    expect(r).toMatchObject({ status: "ok", result: "found it", taskRef: "b1", background: false });
   });
 
   it("marks a failed foreground agent as error", () => {
     const p = new TranscriptParser();
     p.push(launch("tu3", "Agent", {}));
     const [r] = p.push(result("tu3", "boom", undefined, { is_error: true }));
-    expect(r).toMatchObject({ title: "Agent", status: "error", result: "boom", hasTranscript: false });
+    expect(r).toMatchObject({ title: "Agent", status: "error", result: "boom" });
   });
 
   it("tracks a background Bash and its killed notification", () => {
@@ -441,7 +440,7 @@ describe("TranscriptParser tasks", () => {
     const [t] = p.push(launch("tu4", "Bash", { command: "sleep 99\necho hi", run_in_background: true }));
     expect(t).toMatchObject({ kind: "task", taskKind: "shell", title: "sleep 99", background: true, status: "running" });
     const [r] = p.push(result("tu4", "Command running in background with ID: bjl", { backgroundTaskId: "bjl" }));
-    expect(r).toMatchObject({ status: "running", taskRef: "bjl", hasTranscript: false });
+    expect(r).toMatchObject({ status: "running", taskRef: "bjl" });
     expect((r as { result?: string }).result).toBeUndefined();
     expect(p.push(notify("n2", "tu4", "killed"))[0]).toMatchObject({ status: "killed", result: "All done" });
   });
@@ -470,7 +469,7 @@ describe("TranscriptParser tasks", () => {
     const p = new TranscriptParser();
     p.push(launch("tu7", "Agent", { description: "d", run_in_background: true }));
     const [r] = p.push(result("tu7", "ok", "weird"));
-    expect(r).toMatchObject({ status: "running", hasTranscript: false });
+    expect(r).toMatchObject({ status: "running" });
     expect(p.push(userBlocks("n4", "<task-notification><tool-use-id>tu7</tool-use-id></task-notification>"))).toEqual([]);
     expect(p.entries().find((e) => e.id === "tu7")).toMatchObject({ status: "running" });
   });

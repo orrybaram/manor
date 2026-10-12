@@ -18,14 +18,12 @@ type ChatEntryViewProps = {
   answerableId: string | null;
   /** Arrived while the chat was open, rather than with its history. */
   live: boolean;
-  /** A running task shown as unknown (`staleTaskIds`). */
-  stale: boolean;
   onShowTerminal: () => void;
 };
 
 /** One transcript entry, or a run of tool calls, drawn for its kind (ADR-215 D3, D7). */
 export function ChatEntryView(props: ChatEntryViewProps) {
-  const { paneId, entry, answerableId, live, stale, onShowTerminal } = props;
+  const { paneId, entry, answerableId, live, onShowTerminal } = props;
 
   switch (entry.kind) {
     case "user":
@@ -63,7 +61,7 @@ export function ChatEntryView(props: ChatEntryViewProps) {
         </div>
       );
     case "task":
-      return <TaskCard paneId={paneId} entry={entry} stale={stale} />;
+      return <TaskCard paneId={paneId} task={entry} />;
     case "question":
       return entry.answer === null ? (
         <QuestionCard

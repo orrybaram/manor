@@ -2,61 +2,59 @@
  * One tailed transcript (ADR-224 D3): the agent-neutral half of the chat
  * mirror, shared by a pane's own transcript and by each task's.
  *
- * It holds the path, the source, the adapter's parser and the byte offset,
- * and reads through the source in turn. The offset only ever advances by the
- * byte length of complete lines; a partial trailing line is left unconsumed
- * and re-read, with what follows it, once its newline arrives. Reads never
- * overlap, and triggers that land while one is waiting coalesce into it.
+ * It holds what it reads (the path, the source, the adapter's parser) and
+ * how far it has read (the byte offset), and reads through the source in
+ * turn. The offset only ever advances by the byte length of complete lines;
+ * a partial trailing line is left unconsumed and re-read, with what follows
+ * it, once its newline arrives. Reads never overlap, and triggers that land
+ * while one is waiting coalesce into it.
  *
- * What it does with a parsed entry is its owner's business (`hooks`): the
- * pane publishes to `chat.entry` and settles pickers, a task's stream
- * publishes to `chat.taskEntry`.
+ * Everything it finds goes to its owner's `onPush`: each new or updated
+ * entry, and the context size whenever that changes (ADR-223 D4).
  */
 
-import { claudeAdapter } from "./adapters/claude";
 import type { TranscriptAdapter, TranscriptLineParser } from "./adapters/types";
-import type { ChatEntry } from "./transcript";
+import type { ChatPush } from "./transcript";
 import type { TranscriptSource } from "./transcript-source";
 
-export interface TranscriptStreamHooks {
-  /**
-   * A new or updated entry. `publish` is false on the first read of a path,
-   * which subscribers fetch as history rather than as events.
-   */
-  onEntry(entry: ChatEntry, publish: boolean): void;
-  /** After every batch of complete lines, entries included. */
-  onConsumed(publish: boolean): void;
-  /** The stream forgot everything read: a new path, or the file was rewritten. */
-  onReset(): void;
+/** What a stream reads: one file, in one agent's format, from one host. */
+export interface TranscriptTarget {
+  path: string;
+  adapter: TranscriptAdapter;
+  source: TranscriptSource;
 }
 
 export interface TranscriptStreamOptions {
   /** Names the stream in a failed read's log line. */
   label: string;
+  /** The format it starts in, until `point` says otherwise. */
+  adapter: TranscriptAdapter;
   /** A delegated task's transcript, not the pane's own (ADR-224 D3). */
   child?: boolean;
   /** The poll fallback's interval for a source with `watch`. */
   pollIntervalMs: number;
   /** The poll's interval for a source without `watch` (a remote host). */
   unwatchedPollIntervalMs: number;
-  hooks: TranscriptStreamHooks;
+  /**
+   * A new or updated entry, or a new context size. `publish` is false on the
+   * first read of a path, which subscribers fetch as history, not as events.
+   */
+  onPush(push: ChatPush, publish: boolean): void;
+  /** The stream forgot everything read: a new path, or the file was rewritten. */
+  onReset?(): void;
 }
 
 export class TranscriptStream {
-  path: string | null = null;
-  /**
-   * The adapter the parser was built by; a change of agent resets. Starts as
-   * Claude's until the owner says otherwise.
-   */
-  adapter: TranscriptAdapter = claudeAdapter;
-  parser: TranscriptLineParser;
+  private target: { path: string | null; adapter: TranscriptAdapter; source: TranscriptSource | null };
+  private currentParser: TranscriptLineParser;
   /** Bytes of the file consumed: the end of the last complete line. */
-  offset = 0;
-  source: TranscriptSource | null = null;
+  private offset = 0;
   /** The first read of this path is done; later reads publish what they find. */
-  primed = false;
+  private primed = false;
+  /** The context size last pushed, or that the history carries. */
+  private contextTokens: number | null = null;
   /** Bumped on every reset, so a read or timer from before it is discarded. */
-  generation = 0;
+  private currentGeneration = 0;
   /** Why the last read failed; null once one succeeds. */
   readError: string | null = null;
   private unwatch: (() => void) | null = null;
@@ -71,55 +69,64 @@ export class TranscriptStream {
   private pending: Promise<void> | null = null;
 
   constructor(private readonly opts: TranscriptStreamOptions) {
-    this.parser = this.adapter.createParser(this.parserOptions());
+    this.target = { path: null, adapter: opts.adapter, source: null };
+    this.currentParser = this.newParser();
   }
 
-  /** Whether a watcher or poll is running. */
-  get watching(): boolean {
-    return this.unwatch !== null || this.poll !== null;
+  get path(): string | null {
+    return this.target.path;
+  }
+
+  get adapter(): TranscriptAdapter {
+    return this.target.adapter;
+  }
+
+  get source(): TranscriptSource | null {
+    return this.target.source;
+  }
+
+  get parser(): TranscriptLineParser {
+    return this.currentParser;
+  }
+
+  get generation(): number {
+    return this.currentGeneration;
   }
 
   /**
-   * Point the stream at `path`, read with `adapter`. A different path or a
-   * different agent kind (a different format) starts over; a stream that was
-   * watching, or that `watched` says should be, watches the new path.
-   * Returns whether anything changed.
+   * Point the stream at `target`, or at nothing. The source is taken as is;
+   * a different path or format (a different agent kind) starts over, and a
+   * stream that was watching, or that `watched` says should be, watches the
+   * new path.
    */
-  usePath(
-    path: string | null,
-    adapter: TranscriptAdapter,
-    watched: boolean,
-  ): boolean {
-    if (this.path === path && this.adapter === adapter) return false;
-    this.adapter = adapter;
-    const watching = this.watching;
+  point(target: TranscriptTarget | null, watched: boolean): void {
+    if (target) this.target.source = target.source;
+    const path = target?.path ?? null;
+    const adapter = target?.adapter ?? this.target.adapter;
+    if (path === this.target.path && adapter === this.target.adapter) return;
+    const watching = this.unwatch !== null || this.poll !== null;
     this.stopWatching();
+    this.target.adapter = adapter;
     this.reset(path);
     if (watching || watched) this.startWatching();
-    return true;
   }
 
-  /** Forget everything read, and start over at `path`. */
-  reset(path: string | null): void {
-    this.opts.hooks.onReset();
-    this.generation++;
-    this.path = path;
-    this.parser = this.adapter.createParser(this.parserOptions());
-    this.offset = 0;
-    this.primed = false;
-    this.readError = null;
+  /** Stop, forget everything read, and discard any read in flight. */
+  release(): void {
+    this.stopWatching();
+    this.reset(null);
   }
 
   startWatching(): void {
-    if (!this.path || this.poll !== null) return;
+    const { path, source } = this.target;
+    if (!path || this.poll !== null) return;
     const onChange = () => {
       void this.read();
     };
-    const watchable = typeof this.source?.watch === "function";
-    this.unwatch = this.source?.watch?.(this.path, onChange) ?? null;
+    this.unwatch = source?.watch?.(path, onChange) ?? null;
     this.poll = setInterval(
       onChange,
-      watchable ? this.opts.pollIntervalMs : this.opts.unwatchedPollIntervalMs,
+      source?.watch ? this.opts.pollIntervalMs : this.opts.unwatchedPollIntervalMs,
     );
     this.poll.unref?.();
     onChange();
@@ -151,18 +158,29 @@ export class TranscriptStream {
     return next;
   }
 
-  private parserOptions(): { child?: boolean } | undefined {
-    return this.opts.child ? { child: true } : undefined;
+  /** Forget everything read, and start over at `path`. */
+  private reset(path: string | null): void {
+    this.opts.onReset?.();
+    this.currentGeneration++;
+    this.target.path = path;
+    this.currentParser = this.newParser();
+    this.offset = 0;
+    this.primed = false;
+    this.contextTokens = null;
+    this.readError = null;
+  }
+
+  private newParser(): TranscriptLineParser {
+    return this.target.adapter.createParser({ child: this.opts.child === true });
   }
 
   private async readNow(): Promise<void> {
-    const path = this.path;
-    const source = this.source;
+    const { path, source } = this.target;
     if (!path || !source) return;
-    let generation = this.generation;
+    let generation = this.currentGeneration;
     for (;;) {
       const result = await source.read(path, this.offset);
-      if (generation !== this.generation) return;
+      if (generation !== this.currentGeneration) return;
       // Keep what was read so far; the next trigger tries again.
       if (!result.ok) {
         this.readError = result.error;
@@ -173,7 +191,7 @@ export class TranscriptStream {
       // offset, so read again from the start.
       if (result.size < this.offset) {
         this.reset(path);
-        generation = this.generation;
+        generation = this.currentGeneration;
         continue;
       }
       this.readError = null;
@@ -199,10 +217,18 @@ export class TranscriptStream {
     const complete = data.slice(0, end + 1);
     this.offset += Buffer.byteLength(complete, "utf8");
     for (const line of complete.slice(0, -1).split("\n")) {
-      for (const entry of this.parser.push(line)) {
-        this.opts.hooks.onEntry(entry, publish);
+      for (const entry of this.currentParser.push(line)) {
+        this.opts.onPush(entry, publish);
       }
     }
-    this.opts.hooks.onConsumed(publish);
+    const tokens = this.currentParser.contextTokens();
+    if (tokens === this.contextTokens) return;
+    this.contextTokens = tokens;
+    if (tokens !== null) {
+      this.opts.onPush(
+        { kind: "usage", id: "usage", ts: new Date().toISOString(), contextTokens: tokens },
+        publish,
+      );
+    }
   }
 }

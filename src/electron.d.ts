@@ -496,6 +496,7 @@ export type {
   ChatEntry,
   ChatPush,
   ChatSkill,
+  ChatTaskEntry,
 } from "../electron/chat-mirror/transcript";
 export type { ChatKey } from "../electron/chat-mirror/chat-keys";
 export type {

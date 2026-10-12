@@ -11,6 +11,8 @@ import type { ChatEntry, ChatSkill, ChatTaskEntry } from "../transcript";
 export interface TranscriptLineParser {
   push(line: string): ChatEntry[];
   entries(): ChatEntry[];
+  /** The entry with `id`, as it stands now. */
+  entry(id: string): ChatEntry | undefined;
   contextTokens(): number | null;
   skills(): ChatSkill[];
   hasSkillListing(): boolean;

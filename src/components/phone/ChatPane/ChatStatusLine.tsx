@@ -139,6 +139,6 @@ export function ChatStatusLine(props: ChatStatusLineProps) {
 function scrollToNewestRunningTask(from: HTMLElement): void {
   const cards = from
     .closest("[data-chat-pane]")
-    ?.querySelectorAll('[data-testid="chat-task"][data-task-status="running"]');
+    ?.querySelectorAll('[data-task-id][data-task-status="running"]');
   cards?.[cards.length - 1]?.scrollIntoView({ block: "center", behavior: "smooth" });
 }

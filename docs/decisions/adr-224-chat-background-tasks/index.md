@@ -124,8 +124,11 @@ hosts, child streams (D3) and the phone UI without further changes.
     result?: string;
     /** The agent's own id for this task, when it has one (Claude: agentId). */
     taskRef?: string;
-    /** True when `childTranscriptPath` can resolve a transcript for it. */
-    hasTranscript: boolean;
+    /**
+     * Set by the mirror, never by the parser: the adapter's
+     * `childTranscriptPath` resolves a transcript for it (one source of truth).
+     */
+    hasTranscript?: boolean;
   }
 ```
 
@@ -136,12 +139,13 @@ How the Claude adapter fills it in (`transcript.ts`):
 
 - **A `tool_use` named `Agent` or `Task`.** Becomes a `task`: `taskKind:
   "agent"`, `title` = `description`, `agentType` = `subagent_type`,
-  `background` = `run_in_background === true`, `status: "running"`.
+  `background` = `run_in_background` (written as `true` or the string
+  `"true"`), `status: "running"`.
 - **A `tool_use` of `Bash` with `run_in_background: true`.** Becomes a
   `task`: `taskKind: "shell"`, `title` = `description` or the command's first
   line. A foreground `Bash` stays a `tool`.
 - **The `tool_result` for a task.** Read the line's top-level `toolUseResult`:
-  - It has `agentId`: set `taskRef`. For an agent, set `hasTranscript: true`.
+  - It has `agentId` (or `backgroundTaskId`): set `taskRef`.
   - `isAsync === true`, or the result is a background launch: keep `status:
     "running"`, and don't store the launch text as `result`.
   - Otherwise (foreground): `status` = `is_error ? "error" : "ok"`, `result`
@@ -150,7 +154,10 @@ How the Claude adapter fills it in (`transcript.ts`):
   that entry: `status` from `<status>` (`completed` → ok, `failed` → error,
   `killed` → killed), `result` = `<summary>`. **No separate `notice`.** With
   no matching task (it scrolled away before a `/clear`, or a kind we don't
-  model), keep today's `notice` as the fallback.
+  model), keep today's `notice` as the fallback. A notification that lands
+  mid-turn is written as a `queued_command` attachment rather than a user
+  line, and may later appear as a user line too: both are read, and the
+  fallback notice is made once.
 
 Entries are replaced, not mutated, as `resolve` does today, so an update is a
 republish of the same id. The renderer already upserts by id.
@@ -159,11 +166,15 @@ republish of the same id. The renderer already upserts by id.
 
 `ChatMirror` gains child streams, keyed `(paneId, taskId)`:
 
-- **Its own state.** A child stream is a `PaneMirror`-like record (path,
-  offset, parser, generation, watch/poll) holding its own parser from the
-  same adapter. Refactor the tail-and-consume parts of `PaneMirror` into a
-  `TranscriptStream` that both use. Pickers and answers stay on the pane
-  stream only: a subagent's chat is read-only.
+- **Its own state.** The tailing (path, source and adapter, set together by
+  `point`; offset, parser, generation, watch/poll; the context size) is a
+  `TranscriptStream` (`stream.ts`). A pane mirror owns one for its own
+  transcript and one per opened task, from the same adapter. Pickers,
+  answers and skills stay on the pane: a subagent's chat is read-only.
+- **Subscriptions apart from streams.** Who is subscribed (`chat.entry` per
+  pane, `chat.taskEntry` per task) is kept by `ChatMirror` itself, not by
+  the streams, so a pane's streams can be dropped and rebuilt under its
+  subscribers.
 - **Finding the path.** `adapter.childTranscriptPath(parentPath, task)`. For
   Claude: `join(dirname(parentPath), basename(parentPath, ".jsonl"),
   "subagents", "agent-" + task.taskRef + ".jsonl")`. It's computed, not
@@ -176,11 +187,13 @@ republish of the same id. The renderer already upserts by id.
   - `chat.getTaskHistory(paneId, taskId)` returns `ChatHistory`, or `{ok:
     false, reason: "no-transcript"}` when the task has none.
   - A new event, `chat.taskEntry: [paneId, taskId, entry]`, is published keyed
-    by `paneId`. Subscribing to it watches that child stream, using the same
-    `setWatched` mechanics as `chat.entry`.
+    by `chatTaskKey(paneId, taskId)` (`<paneId>/<taskId>`, `task-key.ts`):
+    a pane-only key could not say which task is watched. Subscribing to it
+    watches that child stream, using the same `setWatched` mechanics as
+    `chat.entry`.
 - **Cleanup.** A child stream is dropped when the pane's path resets (`/clear`,
-  resume), when the pane closes, or when its last subscriber leaves *and*
-  its task is no longer running.
+  resume), when the pane closes, or when its last subscriber leaves. The
+  next subscriber reads it again from the start.
 - **Remote hosts.** These keep working because the child read goes through the
   same `sourceFor(agent)`. A `poke` from a hook also reads every watched
   child stream of that pane. Subagent hooks already arrive as root-session
@@ -234,10 +247,12 @@ republish of the same id. The renderer already upserts by id.
   and a missing child file reads as size 0 (an empty sheet that fills in
   later).
 - **A task that never gets a notification stays "running".** That happens
-  when the session is killed mid-task. Mitigation: once the pane's agent
-  status is idle and there are no active subagents by the reconciler's
-  count, the phone renders running tasks older than the last turn as
-  "unknown". It does this from the status store, without changing the entry.
+  when the session is killed mid-task. Mitigation: while the pane's agent
+  status is idle or responded (the status holds a Stop while subagents run,
+  ADR-186), the phone renders a running *agent* task older than the last
+  user turn as "unknown". `groupEntries` does this as it builds the chat's
+  items, without changing the entry. A background shell command has no
+  hooks and can outlive the turn, so it is never marked.
 - More watchers. Each open `TaskSheet` adds one tail. They're bounded by
   open sheets, not by the number of tasks.
 - `PaneMirror` → `TranscriptStream` is a refactor of tested code, so the

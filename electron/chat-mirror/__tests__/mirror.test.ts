@@ -651,24 +651,29 @@ describe("ChatMirror", () => {
       expect(taskPublished).toEqual([]);
     });
 
-    it("keeps a running task's stream when unwatched, and catches up on the next watch", async () => {
+    it("marks a task with a transcript the adapter can find, in history and in pushes", async () => {
       agent = { hostId: "local", agentKind: "claude", transcriptPath: session(launch("toolu_1", "ag1")) };
-      fs.writeFileSync(childFile("ag1"), side("s1", "go"));
-      mirror.setTaskWatched(PANE, "toolu_1", true);
-      await mirror.getTaskHistory(PANE, "toolu_1");
-      mirror.setTaskWatched(PANE, "toolu_1", false);
+      const history = await mirror.getHistory(PANE);
+      expect(history.ok && history.entries.find((e) => e.id === "toolu_1")).toMatchObject({
+        kind: "task",
+        hasTranscript: true,
+      });
 
-      fs.appendFileSync(childFile("ag1"), side("s2", "while away"));
-      await new Promise((r) => setTimeout(r, 50));
-      expect(taskPublished).toEqual([]);
-
-      mirror.setTaskWatched(PANE, "toolu_1", true);
-      await vi.waitFor(() => expect(taskPublished).toHaveLength(1));
-      expect(taskPublished[0].entry).toMatchObject({ id: "s2" });
+      mirror.setWatched(PANE, true);
+      fs.appendFileSync(agent.transcriptPath!, finished("n1", "toolu_1"));
+      await vi.waitFor(() =>
+        expect(published.find((p) => p.entry.id === "toolu_1")?.entry).toMatchObject({
+          status: "ok",
+          hasTranscript: true,
+        }),
+      );
     });
 
-    it("drops a finished task's stream when unwatched", async () => {
-      const parent = session(launch("toolu_1", "ag1") + finished("n1", "toolu_1"));
+    it.each([
+      ["running", ""],
+      ["finished", finished("n1", "toolu_1")],
+    ])("drops a %s task's stream when unwatched", async (_state, tail) => {
+      const parent = session(launch("toolu_1", "ag1") + tail);
       agent = { hostId: "local", agentKind: "claude", transcriptPath: parent };
       fs.writeFileSync(childFile("ag1"), side("s1", "go"));
       mirror.setTaskWatched(PANE, "toolu_1", true);

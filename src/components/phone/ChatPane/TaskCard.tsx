@@ -1,25 +1,15 @@
 import { useState } from "react";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
-import type { ChatEntry } from "../../../electron.d";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { Button } from "../../ui/Button/Button";
-import {
-  resultPreview,
-  formatElapsed,
-  TASK_DOT,
-  TASK_LABEL,
-  type TaskDisplayStatus,
-} from "./chat-entries";
+import { formatElapsed, resultPreview, type TaskItem } from "./chat-entries";
 import { TaskSheet } from "./TaskSheet";
+import { TaskStatusDot } from "./TaskStatusDot";
 import styles from "./ChatPane.module.css";
-
-type TaskEntry = Extract<ChatEntry, { kind: "task" }>;
 
 type TaskCardProps = {
   paneId: string;
-  entry: TaskEntry;
-  /** A running task that can no longer be trusted to be (see `staleTaskIds`). */
-  stale: boolean;
+  task: TaskItem;
 };
 
 /**
@@ -29,21 +19,21 @@ type TaskCardProps = {
  * running, a shell command) expands its result inline.
  */
 export function TaskCard(props: TaskCardProps) {
-  const { paneId, entry, stale } = props;
+  const { paneId, task } = props;
 
   const [open, setOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const status: TaskDisplayStatus = stale ? "unknown" : entry.status;
-  const preview = status === "running" ? null : resultPreview(entry.result);
-  const hasSheet = entry.hasTranscript;
-  const expandable = !hasSheet && Boolean(entry.result);
+  const running = task.display === "running";
+  const preview = running ? null : resultPreview(task.result);
+  const hasSheet = task.hasTranscript === true;
+  const expandable = !hasSheet && Boolean(task.result);
 
   return (
     <div
       className={styles.taskCard}
       data-testid="chat-task"
-      data-task-status={status}
-      data-task-id={entry.id}
+      data-task-status={task.display}
+      data-task-id={task.id}
     >
       <Button
         variant="ghost"
@@ -53,30 +43,19 @@ export function TaskCard(props: TaskCardProps) {
         disabled={!hasSheet && !expandable}
         onClick={() => (hasSheet ? setSheetOpen(true) : setOpen((v) => !v))}
       >
-        <span
-          className={styles.statusDot}
-          data-status={TASK_DOT[status]}
-          role="img"
-          aria-label={TASK_LABEL[status]}
-        />
-        <span className={styles.taskTitle}>{entry.title}</span>
-        {entry.agentType && <span className={styles.taskChip}>{entry.agentType}</span>}
-        {entry.background && <span className={styles.taskBackground}>background</span>}
-        {status === "running" && <TaskElapsed since={entry.ts} />}
+        <TaskStatusDot status={task.display} />
+        <span className={styles.taskTitle}>{task.title}</span>
+        {task.agentType && <span className={styles.taskChip}>{task.agentType}</span>}
+        {task.background && <span className={styles.taskBackground}>background</span>}
+        {running && <TaskElapsed since={task.ts} />}
         {(hasSheet || expandable) && (
           <ChevronRight className={styles.taskChevron} size={14} aria-hidden />
         )}
       </Button>
       {preview && !open && <div className={styles.taskPreview}>{preview}</div>}
-      {open && expandable && <pre className={styles.toolDetail}>{entry.result}</pre>}
+      {open && expandable && <pre className={styles.toolDetail}>{task.result}</pre>}
       {hasSheet && (
-        <TaskSheet
-          open={sheetOpen}
-          onOpenChange={setSheetOpen}
-          paneId={paneId}
-          entry={entry}
-          status={status}
-        />
+        <TaskSheet open={sheetOpen} onOpenChange={setSheetOpen} paneId={paneId} task={task} />
       )}
     </div>
   );

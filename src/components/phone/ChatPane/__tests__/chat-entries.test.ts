@@ -2,7 +2,7 @@
  * Runs of tool calls fold into one group, summed up as a sentence.
  */
 import { describe, expect, it } from "vitest";
-import type { ChatEntry } from "../../../../electron.d";
+import type { ChatEntry, ChatTaskEntry } from "../../../../electron.d";
 import {
   formatElapsed,
   groupEntries,
@@ -13,7 +13,6 @@ import {
 } from "../chat-entries";
 
 type Tool = Extract<ChatEntry, { kind: "tool" }>;
-type TaskEntry = Extract<ChatEntry, { kind: "task" }>;
 
 const tool = (id: string, name: string, status: Tool["status"] = "ok"): Tool => ({
   kind: "tool",
@@ -65,7 +64,7 @@ describe("summarizeTools", () => {
 });
 
 describe("staleTaskIds", () => {
-  const task = (id: string, status: TaskEntry["status"] = "running"): TaskEntry => ({
+  const task = (id: string, status: ChatTaskEntry["status"] = "running"): ChatTaskEntry => ({
     kind: "task",
     id,
     ts: "",
@@ -73,7 +72,6 @@ describe("staleTaskIds", () => {
     title: id,
     background: true,
     status,
-    hasTranscript: false,
   });
   const user = (id: string): ChatEntry => ({ kind: "user", id, ts: "", text: id });
 
@@ -84,7 +82,7 @@ describe("staleTaskIds", () => {
   });
 
   it("never marks a shell task: the agent's status says nothing about it", () => {
-    const shell: TaskEntry = { ...task("s1"), taskKind: "shell" };
+    const shell: ChatTaskEntry = { ...task("s1"), taskKind: "shell" };
     expect([...staleTaskIds([shell, user("u1")], "idle")]).toEqual([]);
   });
 
@@ -101,11 +99,17 @@ describe("staleTaskIds", () => {
     expect(staleTaskIds([task("t1")], "idle").size).toBe(0);
   });
 
-  it("counts running tasks without the stale ones", () => {
+  it("groups tasks with the status they show, and counts the running ones", () => {
     const entries = [task("t1"), user("u1"), task("t2"), task("t3", "ok"), task("t4")];
-    const stale = staleTaskIds(entries, "idle");
-    expect(runningTaskCount(entries, stale)).toBe(2);
-    expect(runningTaskCount(entries, new Set())).toBe(3);
+    const idle = groupEntries(entries, "idle");
+    expect(idle.flatMap((i) => (i.kind === "task" ? [[i.id, i.display]] : []))).toEqual([
+      ["t1", "unknown"],
+      ["t2", "running"],
+      ["t3", "ok"],
+      ["t4", "running"],
+    ]);
+    expect(runningTaskCount(idle)).toBe(2);
+    expect(runningTaskCount(groupEntries(entries))).toBe(3);
   });
 });
 

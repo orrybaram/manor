@@ -132,6 +132,11 @@ function contextSize(usage: unknown): number | null {
   return parts.reduce<number>((sum, p) => sum + (p ?? 0), 0);
 }
 
+/** Claude Code writes `run_in_background` as the string "true" as often as a boolean. */
+function isTrue(v: unknown): boolean {
+  return v === true || v === "true";
+}
+
 function firstLine(s: string): string {
   return s.split("\n", 1)[0].trim();
 }
@@ -227,6 +232,8 @@ export class TranscriptParser {
   private sawSkillListing = false;
   private lastCommandId: string | null = null;
   private lastContextTokens: number | null = null;
+  /** Notifications already turned into a notice; one may arrive in two forms. */
+  private seenNotices = new Set<string>();
 
   /**
    * The context size of the newest main-thread assistant line, or null if
@@ -287,7 +294,22 @@ export class TranscriptParser {
     if (parsed.isSidechain === true) return [];
     const type = parsed.type;
     if (type === "attachment") {
-      this.skillListing(parsed.attachment);
+      const att = parsed.attachment;
+      if (
+        isObject(att) &&
+        att.type === "queued_command" &&
+        typeof att.prompt === "string" &&
+        (att.commandMode === "task-notification" ||
+          att.prompt.trimStart().startsWith("<task-notification>"))
+      ) {
+        const e = this.notification(
+          str(parsed.uuid) ?? `line-${this.order.length}`,
+          str(parsed.timestamp) ?? "",
+          att.prompt,
+        );
+        return e ? [e] : [];
+      }
+      this.skillListing(att);
       return [];
     }
     if (type !== "user" && type !== "assistant") return [];
@@ -378,11 +400,11 @@ export class TranscriptParser {
               "Agent",
             agentType: str(input.subagent_type),
             model: str(input.model),
-            background: input.run_in_background === true,
+            background: isTrue(input.run_in_background),
             status: "running",
             hasTranscript: false,
           };
-        } else if (name === "Bash" && input.run_in_background === true) {
+        } else if (name === "Bash" && isTrue(input.run_in_background)) {
           entry = {
             kind: "task",
             id,
@@ -454,35 +476,50 @@ export class TranscriptParser {
     }
     // A background task finishing lands as a user turn the user never typed.
     if (text.trimStart().startsWith("<task-notification>")) {
-      const summary = tagText(text, "summary")?.trim();
-      if (!summary) return null;
-      const status = tagText(text, "status")?.trim();
-      const target = tagText(text, "tool-use-id")?.trim();
-      const task = target ? this.byId.get(target) : undefined;
-      if (task && task.kind === "task") {
-        const next: ChatEntry = {
-          ...task,
-          status:
-            status === "failed"
-              ? "error"
-              : status === "killed"
-                ? "killed"
-                : "ok",
-          result: summary.slice(0, MAX_DETAIL),
-        };
-        this.byId.set(task.id, next);
-        return next;
-      }
-      return this.add({
-        kind: "notice",
-        id: uuid,
-        ts,
-        text: summary,
-        status: status === "failed" || status === "killed" ? "error" : "ok",
-      });
+      return this.notification(uuid, ts, text);
     }
     if (isMetaText(text)) return null;
     return this.add({ kind: "user", id: uuid, ts, text });
+  }
+
+  /**
+   * A `<task-notification>`: settle the task it names, else fall back to a
+   * notice. It can arrive as a queued attachment and again as a user line, so
+   * updating a task twice is fine and a notice is made once.
+   */
+  private notification(uuid: string, ts: string, text: string): ChatEntry | null {
+    const summary = tagText(text, "summary")?.trim();
+    if (!summary) return null;
+    const status = tagText(text, "status")?.trim();
+    const target = tagText(text, "tool-use-id")?.trim();
+    const task = target ? this.byId.get(target) : undefined;
+    if (task && task.kind === "task") {
+      const next: ChatEntry = {
+        ...task,
+        status:
+          status === "failed"
+            ? "error"
+            : status === "killed"
+              ? "killed"
+              : "ok",
+        result: summary.slice(0, MAX_DETAIL),
+      };
+      this.byId.set(task.id, next);
+      return next;
+    }
+    const id = tagText(text, "task-id")?.trim() || target;
+    if (id) {
+      const key = `${id}:${status ?? ""}`;
+      if (this.seenNotices.has(key)) return null;
+      this.seenNotices.add(key);
+    }
+    return this.add({
+      kind: "notice",
+      id: uuid,
+      ts,
+      text: summary,
+      status: status === "failed" || status === "killed" ? "error" : "ok",
+    });
   }
 
   /** Apply a tool_result block to its pending entry. */
@@ -514,12 +551,13 @@ export class TranscriptParser {
         const info = isObject(toolUseResult) ? toolUseResult : {};
         const ref = str(info.agentId) ?? str(info.backgroundTaskId);
         next = { ...existing };
+        if (info.isAsync === true) next.background = true;
         if (ref) next.taskRef = ref;
         if (str(info.agentId) && existing.taskKind === "agent") {
           next.hasTranscript = true;
         }
         // A launch, not a finish: the notification settles it later.
-        if (info.isAsync !== true && !existing.background) {
+        if (!next.background) {
           next.status = isError ? "error" : "ok";
           next.result = text ? text.slice(0, MAX_DETAIL) : undefined;
         }

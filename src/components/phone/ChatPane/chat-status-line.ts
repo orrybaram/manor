@@ -3,9 +3,9 @@ import type { DiffStats } from "../../../store/project-store";
 
 export type CiTone = "passing" | "failing" | "pending";
 
-export type PrStatusChips = {
-  /** The open PR's number, title and draft state; null without an open PR. */
-  pr: { number: number; title: string; draft: boolean } | null;
+export type StatusLineModel = {
+  /** The workspace's open (or draft) PR; null without one. */
+  pr: PrInfo | null;
   /** Absent when GitHub reports no checks for the PR. */
   ci: { tone: CiTone; label: string; url: string } | null;
   /** Absent when there is neither a local nor a PR diff stat. */
@@ -20,14 +20,14 @@ export type PrStatusChips = {
  * working tree's when it has changes, else the open PR's, so the line works
  * without a PR.
  */
-export function prStatusChips(input: {
+export function statusLineModel(input: {
   pr: PrInfo | null | undefined;
   diffStats: DiffStats | null | undefined;
-}): PrStatusChips {
+}): StatusLineModel {
   const { diffStats } = input;
   const pr = input.pr?.state === "open" ? input.pr : null;
 
-  let ci: PrStatusChips["ci"] = null;
+  let ci: StatusLineModel["ci"] = null;
   const checks = pr?.checks;
   if (pr && checks && checks.total - (checks.skipped ?? 0) > 0) {
     const checksUrl = `${pr.url}/checks`;
@@ -45,18 +45,14 @@ export function prStatusChips(input: {
     }
   }
 
-  let diff: PrStatusChips["diff"] = null;
+  let diff: StatusLineModel["diff"] = null;
   if (diffStats && (diffStats.added > 0 || diffStats.removed > 0)) {
     diff = { additions: diffStats.added, deletions: diffStats.removed };
   } else if (pr && pr.additions != null && pr.deletions != null) {
     diff = { additions: pr.additions, deletions: pr.deletions };
   }
 
-  return {
-    pr: pr ? { number: pr.number, title: pr.title, draft: pr.isDraft === true } : null,
-    ci,
-    diff,
-  };
+  return { pr, ci, diff };
 }
 
 /** A context size as the status line shows it: `8k`, `100k`, `420k`. */

@@ -1,12 +1,13 @@
 import { useState } from "react";
 import GitPullRequest from "lucide-react/dist/esm/icons/git-pull-request";
 import GitPullRequestDraft from "lucide-react/dist/esm/icons/git-pull-request-draft";
+import { useShallow } from "zustand/react/shallow";
 import { find } from "../../../lib/workspace-directory";
 import { selectActiveWorkspaceKey, useAppStore } from "../../../store/app-store";
 import { useProjectStore } from "../../../store/project-store";
 import { Button } from "../../ui/Button/Button";
 import { Link } from "../../ui/Link/Link";
-import { formatContextTokens, prStatusChips } from "./chat-status-line";
+import { formatContextTokens, statusLineModel } from "./chat-status-line";
 import { PhonePrSheet } from "./PhonePrSheet";
 import styles from "./ChatPane.module.css";
 
@@ -28,38 +29,41 @@ type ChatStatusLineProps = {
 export function ChatStatusLine(props: ChatStatusLineProps) {
   const { contextTokens } = props;
   const activeKey = useAppStore(selectActiveWorkspaceKey);
-  // Two selectors, not one returning `find`'s fresh object: a new object per
-  // store read would re-render forever.
-  const workspace = useProjectStore((s) =>
-    activeKey ? find(s.projects, activeKey)?.workspace : undefined,
+  // Shallow-compared: `find` builds a fresh object per store read, but the
+  // fields picked from it are the store's own.
+  const { workspace, hostId } = useProjectStore(
+    useShallow((s) => {
+      const found = activeKey ? find(s.projects, activeKey) : undefined;
+      return { workspace: found?.workspace, hostId: found?.project.hostId };
+    }),
   );
-  const hostId = useProjectStore((s) =>
-    activeKey ? find(s.projects, activeKey)?.project.hostId : undefined,
-  );
-  const pr = workspace?.pr;
   const [prOpen, setPrOpen] = useState(false);
-  const chips = prStatusChips({ pr, diffStats: workspace?.diffStats });
+  const { pr, ci, diff } = statusLineModel({
+    pr: workspace?.pr,
+    diffStats: workspace?.diffStats,
+  });
   const hasTokens = contextTokens != null;
-  if (!chips.pr && !chips.ci && !chips.diff && !hasTokens) return null;
+  if (!pr && !ci && !diff && !hasTokens) return null;
 
-  const PrIcon = chips.pr?.draft ? GitPullRequestDraft : GitPullRequest;
+  const draft = pr?.isDraft === true;
+  const PrIcon = draft ? GitPullRequestDraft : GitPullRequest;
 
   return (
     <div className={styles.statusLine} data-testid="chat-status-line">
-      {chips.pr && pr && (
+      {pr && (
         <>
           <Button
             variant="ghost"
             className={styles.statusChip}
-            aria-label={`Pull request #${chips.pr.number}: ${chips.pr.title}`}
+            aria-label={`Pull request #${pr.number}: ${pr.title}`}
             onClick={() => setPrOpen(true)}
           >
             <PrIcon
               size={11}
               className={styles.statusPrIcon}
-              data-draft={chips.pr.draft || undefined}
+              data-draft={draft || undefined}
             />
-            #{chips.pr.number}
+            #{pr.number}
           </Button>
           <PhonePrSheet
             open={prOpen}
@@ -70,27 +74,27 @@ export function ChatStatusLine(props: ChatStatusLineProps) {
           />
         </>
       )}
-      {chips.ci && (
+      {ci && (
         <Link
           variant="plain"
-          href={chips.ci.url}
+          href={ci.url}
           className={styles.statusChip}
-          data-tone={chips.ci.tone}
-          aria-label={`Checks ${chips.ci.tone}`}
+          data-tone={ci.tone}
+          aria-label={`Checks ${ci.tone}`}
         >
           <span className={styles.statusDot} />
-          {chips.ci.label}
+          {ci.label}
         </Link>
       )}
-      {chips.diff && (
+      {diff && (
         <Button
           variant="ghost"
           className={styles.statusChip}
-          aria-label={`${chips.diff.additions} additions, ${chips.diff.deletions} deletions`}
+          aria-label={`${diff.additions} additions, ${diff.deletions} deletions`}
           onClick={() => useAppStore.getState().openOrFocusDiff()}
         >
-          <span className={styles.statusAdditions}>+{chips.diff.additions}</span>
-          <span className={styles.statusDeletions}>−{chips.diff.deletions}</span>
+          <span className={styles.statusAdditions}>+{diff.additions}</span>
+          <span className={styles.statusDeletions}>−{diff.deletions}</span>
         </Button>
       )}
       <span className={styles.statusSpacer} />

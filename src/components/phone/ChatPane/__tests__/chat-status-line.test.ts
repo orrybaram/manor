@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PrInfo } from "../../../../lib/pr-info";
-import { formatContextTokens, prStatusChips } from "../chat-status-line";
+import { formatContextTokens, statusLineModel } from "../chat-status-line";
 
 const URL = "https://github.com/o/r/pull/7";
 
@@ -11,18 +11,19 @@ function pr(over: Partial<PrInfo>): PrInfo {
 const NO_DIFF = null;
 
 function chips(prInfo: PrInfo | null, diffStats: { added: number; removed: number } | null = null) {
-  return prStatusChips({ pr: prInfo, diffStats });
+  return statusLineModel({ pr: prInfo, diffStats });
 }
 
-describe("prStatusChips", () => {
+describe("statusLineModel", () => {
   it("shows no PR or CI without an open PR", () => {
     expect(chips(null)).toEqual({ pr: null, ci: null, diff: null });
     expect(chips(pr({ state: "merged" })).pr).toBeNull();
     expect(chips(pr({ state: "closed" })).pr).toBeNull();
   });
 
-  it("describes the open PR", () => {
-    expect(chips(pr({ isDraft: true })).pr).toEqual({ number: 7, title: "Fix it", draft: true });
+  it("passes the open PR through", () => {
+    const draft = pr({ isDraft: true });
+    expect(chips(draft).pr).toBe(draft);
   });
 
   it("links a failing CI chip to the first failing run", () => {

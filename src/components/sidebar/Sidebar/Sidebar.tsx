@@ -25,9 +25,6 @@ import {
   useRovingRows,
 } from "../../../lib/sidebar-row";
 import { openContextMenuFromKeyboard } from "../../../lib/keyboard-context-menu";
-import { useBranchWatcher } from "../../../hooks/useBranchWatcher";
-import { useDiffWatcher } from "../../../hooks/useDiffWatcher";
-import { usePrWatcher } from "../../../hooks/usePrWatcher";
 import { useLayoutMode } from "../../../hooks/useLayoutMode";
 import { useSidebarNav } from "../../../hooks/useSidebarNav";
 import { SidebarEntry } from "../SidebarEntry";
@@ -90,10 +87,6 @@ export function Sidebar(props: SidebarProps) {
   const { providers: connected } = useTrackerStatus();
   const ghReady = connected.includes("github");
   const linearConnected = connected.includes("linear");
-
-  useBranchWatcher();
-  useDiffWatcher();
-  usePrWatcher();
 
   const handleAddProject = onAddProject ?? (() => {});
 

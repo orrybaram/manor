@@ -96,6 +96,7 @@ import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults"
 import { isHomePath, HOME_PATH } from "./lib/home";
 import { isWebApp } from "./lib/platform";
 import { useLayoutMode } from "./hooks/useLayoutMode";
+import { WorkspaceWatchers } from "./components/WorkspaceWatchers";
 import { PhoneNewAgentComposer } from "./components/phone/NewAgent/PhoneNewAgentComposer";
 import { PhoneChrome } from "./components/phone/PhoneChrome";
 import "./App.css";
@@ -761,6 +762,7 @@ function App() {
   } else {
     content = (
       <>
+          <WorkspaceWatchers />
           <div
             className="app-body"
             style={layoutMode === "desk" ? appBodyStyle : undefined}

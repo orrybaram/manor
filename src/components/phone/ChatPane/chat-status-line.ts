@@ -60,3 +60,8 @@ export function formatContextTokens(n: number): string {
   if (n < 1000) return "<1k";
   return `${Math.round(n / 1000)}k`;
 }
+
+/** The status line's running-tasks chip: "2 running", or null with none. */
+export function runningChipLabel(count: number): string | null {
+  return count > 0 ? `${count} running` : null;
+}

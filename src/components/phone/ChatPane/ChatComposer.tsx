@@ -20,6 +20,8 @@ type ChatComposerProps = {
   transcript?: string;
   /** The session's context size, for the status line (ADR-223 D4). */
   contextTokens?: number | null;
+  /** Tasks running in the chat, for the status line's chip (ADR-224 D4). */
+  runningTasks?: number;
 };
 
 /**
@@ -40,7 +42,7 @@ type ChatComposerProps = {
  * keyboard.
  */
 export function ChatComposer(props: ChatComposerProps) {
-  const { paneId, busy, transcript, contextTokens } = props;
+  const { paneId, busy, transcript, contextTokens, runningTasks } = props;
 
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
@@ -211,7 +213,7 @@ export function ChatComposer(props: ChatComposerProps) {
           </Button>
         )}
       </div>
-      <ChatStatusLine contextTokens={contextTokens} />
+      <ChatStatusLine contextTokens={contextTokens} runningTasks={runningTasks} />
     </div>
   );
 }

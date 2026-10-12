@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PrInfo } from "../../../../lib/pr-info";
-import { formatContextTokens, statusLineModel } from "../chat-status-line";
+import { formatContextTokens, runningChipLabel, statusLineModel } from "../chat-status-line";
 
 const URL = "https://github.com/o/r/pull/7";
 
@@ -103,5 +103,12 @@ describe("formatContextTokens", () => {
     expect(formatContextTokens(8_400)).toBe("8k");
     expect(formatContextTokens(100_200)).toBe("100k");
     expect(formatContextTokens(419_600)).toBe("420k");
+  });
+});
+
+describe("runningChipLabel", () => {
+  it("shows the count only while something runs", () => {
+    expect(runningChipLabel(0)).toBeNull();
+    expect(runningChipLabel(3)).toBe("3 running");
   });
 });

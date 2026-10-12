@@ -7,7 +7,7 @@ import { selectActiveWorkspaceKey, useAppStore } from "../../../store/app-store"
 import { useProjectStore } from "../../../store/project-store";
 import { Button } from "../../ui/Button/Button";
 import { Link } from "../../ui/Link/Link";
-import { formatContextTokens, statusLineModel } from "./chat-status-line";
+import { formatContextTokens, runningChipLabel, statusLineModel } from "./chat-status-line";
 import { PhonePrSheet } from "./PhonePrSheet";
 import styles from "./ChatPane.module.css";
 
@@ -24,10 +24,12 @@ import styles from "./ChatPane.module.css";
 type ChatStatusLineProps = {
   /** The session's context size in tokens, or null if not known (ADR-223 D4). */
   contextTokens?: number | null;
+  /** How many tasks are running in the chat (ADR-224 D4). */
+  runningTasks?: number;
 };
 
 export function ChatStatusLine(props: ChatStatusLineProps) {
-  const { contextTokens } = props;
+  const { contextTokens, runningTasks = 0 } = props;
   const activeKey = useAppStore(selectActiveWorkspaceKey);
   // Shallow-compared: `find` builds a fresh object per store read, but the
   // fields picked from it are the store's own.
@@ -43,7 +45,8 @@ export function ChatStatusLine(props: ChatStatusLineProps) {
     diffStats: workspace?.diffStats,
   });
   const hasTokens = contextTokens != null;
-  if (!pr && !ci && !diff && !hasTokens) return null;
+  const running = runningChipLabel(runningTasks);
+  if (!pr && !ci && !diff && !hasTokens && !running) return null;
 
   const draft = pr?.isDraft === true;
   const PrIcon = draft ? GitPullRequestDraft : GitPullRequest;
@@ -97,6 +100,18 @@ export function ChatStatusLine(props: ChatStatusLineProps) {
           <span className={styles.statusDeletions}>−{diff.deletions}</span>
         </Button>
       )}
+      {running && (
+        <Button
+          variant="ghost"
+          className={styles.statusChip}
+          data-testid="chat-running-chip"
+          data-tone="pending"
+          onClick={(e) => scrollToNewestRunningTask(e.currentTarget)}
+        >
+          <span className={styles.statusDot} />
+          {running}
+        </Button>
+      )}
       <span className={styles.statusSpacer} />
       {hasTokens && (
         <span
@@ -109,4 +124,12 @@ export function ChatStatusLine(props: ChatStatusLineProps) {
       )}
     </div>
   );
+}
+
+/** Scroll the chat holding `from` to its newest running task card. */
+function scrollToNewestRunningTask(from: HTMLElement): void {
+  const cards = from
+    .closest("[data-chat-pane]")
+    ?.querySelectorAll('[data-testid="chat-task"][data-task-status="running"]');
+  cards?.[cards.length - 1]?.scrollIntoView({ block: "center", behavior: "smooth" });
 }

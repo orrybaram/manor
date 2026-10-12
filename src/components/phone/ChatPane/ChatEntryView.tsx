@@ -8,6 +8,7 @@ import { ChatMarkdown } from "./ChatMarkdown";
 import { ChatTypewriter } from "./ChatTypewriter";
 import { PlanCard } from "./PlanCard";
 import { AnsweredQuestion, QuestionCard } from "./QuestionCard";
+import { TaskCard } from "./TaskCard";
 import styles from "./ChatPane.module.css";
 
 type ChatEntryViewProps = {
@@ -17,12 +18,14 @@ type ChatEntryViewProps = {
   answerableId: string | null;
   /** Arrived while the chat was open, rather than with its history. */
   live: boolean;
+  /** A running task shown as unknown (`staleTaskIds`). */
+  stale: boolean;
   onShowTerminal: () => void;
 };
 
 /** One transcript entry, or a run of tool calls, drawn for its kind (ADR-215 D3, D7). */
 export function ChatEntryView(props: ChatEntryViewProps) {
-  const { paneId, entry, answerableId, live, onShowTerminal } = props;
+  const { paneId, entry, answerableId, live, stale, onShowTerminal } = props;
 
   switch (entry.kind) {
     case "user":
@@ -60,17 +63,7 @@ export function ChatEntryView(props: ChatEntryViewProps) {
         </div>
       );
     case "task":
-      return (
-        <div className={styles.notice} data-testid="chat-task">
-          <span
-            className={styles.statusDot}
-            data-status={TASK_DOT[entry.status]}
-            role="img"
-            aria-label={TASK_LABEL[entry.status]}
-          />
-          <span className={styles.noticeText}>{entry.title}</span>
-        </div>
-      );
+      return <TaskCard paneId={paneId} entry={entry} stale={stale} />;
     case "question":
       return entry.answer === null ? (
         <QuestionCard
@@ -198,20 +191,6 @@ function RunningTool(props: RunningToolProps) {
 type ToolEntryProps = {
   entry: Extract<ChatEntry, { kind: "tool" }>;
 };
-
-const TASK_DOT = {
-  running: "pending",
-  ok: "ok",
-  error: "error",
-  killed: "error",
-} as const;
-
-const TASK_LABEL = {
-  running: "running",
-  ok: "done",
-  error: "failed",
-  killed: "stopped",
-} as const;
 
 const STATUS_LABEL = {
   pending: "running",

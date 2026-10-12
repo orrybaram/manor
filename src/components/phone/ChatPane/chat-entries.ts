@@ -4,7 +4,7 @@
  * DOM (ADR-215 D5, D7).
  */
 
-import type { ChatEntry } from "../../../electron.d";
+import type { AgentStatus, ChatEntry } from "../../../electron.d";
 
 /** Add `entry`, or replace the one with its id in place. Updates keep their position. */
 export function upsertEntry(
@@ -128,4 +128,71 @@ function phraseText(phrase: Phrase, n: number): string {
   if (one === many) return `${phrase.verb} ${one}`;
   if (n > 1) return `${phrase.verb} ${n} ${many}`;
   return `${phrase.verb} ${/^[aeiou]/.test(one) ? "an" : "a"} ${one}`;
+}
+
+/** What a task card shows: its entry's status, or "unknown" when it can't be trusted. */
+export type TaskDisplayStatus = Extract<ChatEntry, { kind: "task" }>["status"] | "unknown";
+
+/**
+ * The ids of running tasks the card should call "unknown" (ADR-224 D4). A task
+ * that never gets a notification (its session was killed) stays "running" in
+ * the transcript for good, so while the pane's agent is idle or has answered,
+ * a running task from before the latest user turn is shown as unknown. Display
+ * only: the entry is untouched.
+ */
+export function staleTaskIds(
+  entries: readonly ChatEntry[],
+  agentStatus: AgentStatus | null,
+): Set<string> {
+  const stale = new Set<string>();
+  if (agentStatus !== "idle" && agentStatus !== "responded") return stale;
+  let lastUser = -1;
+  entries.forEach((e, i) => {
+    if (e.kind === "user") lastUser = i;
+  });
+  entries.forEach((e, i) => {
+    if (e.kind === "task" && e.status === "running" && i < lastUser) stale.add(e.id);
+  });
+  return stale;
+}
+
+/** How many tasks are running, not counting the stale ones. */
+export function runningTaskCount(
+  entries: readonly ChatEntry[],
+  stale: ReadonlySet<string>,
+): number {
+  return entries.filter((e) => e.kind === "task" && e.status === "running" && !stale.has(e.id))
+    .length;
+}
+
+/** The dot's `data-status`: the shared dot styles know pending, ok and error. */
+export const TASK_DOT: Record<TaskDisplayStatus, string> = {
+  running: "pending",
+  ok: "ok",
+  error: "error",
+  killed: "error",
+  unknown: "unknown",
+};
+
+export const TASK_LABEL: Record<TaskDisplayStatus, string> = {
+  running: "running",
+  ok: "done",
+  error: "failed",
+  killed: "stopped",
+  unknown: "status unknown",
+};
+
+/** Seconds as `42s`, `3m 05s`, `1h 02m`. */
+export function formatElapsed(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${String(s % 60).padStart(2, "0")}s`;
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
+}
+
+/** The first line of a result, for the one-line preview. */
+export function resultPreview(result: string | undefined): string | null {
+  const line = result?.split("\n").find((l) => l.trim() !== "");
+  return line ? line.trim() : null;
 }

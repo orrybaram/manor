@@ -275,6 +275,11 @@ button.toolLine:disabled {
   animation: toolPulse 1.2s ease-in-out infinite;
 }
 
+.statusDot[data-status="unknown"] {
+  background: var(--text-dim);
+  opacity: 0.5;
+}
+
 @keyframes toolPulse {
   50% {
     opacity: 0.3;
@@ -920,4 +925,92 @@ button.commandChip {
   font-size: 11px;
   line-height: 16px;
   font-variant-numeric: tabular-nums;
+}
+
+/* A delegated or background task (`TaskCard`): one tappable line, and under
+   it a line of what it found. */
+.taskCard {
+  min-width: 0;
+}
+
+.taskLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  justify-content: flex-start;
+  font-size: 14px;
+}
+
+.taskTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.taskChip {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.taskBackground {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.taskChevron {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.taskPreview {
+  padding: 0 0 4px 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+/* `TaskSheet`: the header stays put and the transcript below scrolls. */
+.taskSheetHeader {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 4px 4px 4px 16px;
+  min-width: 0;
+}
+
+.taskSheetTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-selected);
+}
+
+.taskSheetStatus {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.taskSheetBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 16px;
 }

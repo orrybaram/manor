@@ -10,6 +10,8 @@ import {
   answerablePickerId,
   groupEntries,
   mergeHistory,
+  runningTaskCount,
+  staleTaskIds,
   upsertEntry,
 } from "./chat-entries";
 import { ChatComposer } from "./ChatComposer";
@@ -199,6 +201,7 @@ export function ChatPane(props: ChatPaneProps) {
   const answerableId = answerablePickerId(entries);
   const busy = status === "thinking" || status === "working";
   const items = groupEntries(entries);
+  const stale = staleTaskIds(entries, status);
   const newest = items[items.length - 1];
   newestId.current = newest?.id;
   // A running tool call already has its own live line.
@@ -242,6 +245,7 @@ export function ChatPane(props: ChatPaneProps) {
                       entry={entry}
                       answerableId={answerableId}
                       live={live}
+                      stale={stale.has(entry.id)}
                       onShowTerminal={onShowTerminal}
                     />
                   </div>
@@ -263,6 +267,7 @@ export function ChatPane(props: ChatPaneProps) {
             busy={busy}
             transcript={transcript}
             contextTokens={contextTokens}
+            runningTasks={runningTaskCount(entries, stale)}
           />
         </>
       )}

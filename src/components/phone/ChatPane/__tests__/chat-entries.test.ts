@@ -3,9 +3,17 @@
  */
 import { describe, expect, it } from "vitest";
 import type { ChatEntry } from "../../../../electron.d";
-import { groupEntries, summarizeTools } from "../chat-entries";
+import {
+  formatElapsed,
+  groupEntries,
+  resultPreview,
+  runningTaskCount,
+  staleTaskIds,
+  summarizeTools,
+} from "../chat-entries";
 
 type Tool = Extract<ChatEntry, { kind: "tool" }>;
+type TaskEntry = Extract<ChatEntry, { kind: "task" }>;
 
 const tool = (id: string, name: string, status: Tool["status"] = "ok"): Tool => ({
   kind: "tool",
@@ -53,5 +61,60 @@ describe("summarizeTools", () => {
 
   it("calls anything unknown a tool", () => {
     expect(text([tool("1", "mcp__manor__list_panes"), tool("2", "Skill")])).toBe("Used 2 tools");
+  });
+});
+
+describe("staleTaskIds", () => {
+  const task = (id: string, status: TaskEntry["status"] = "running"): TaskEntry => ({
+    kind: "task",
+    id,
+    ts: "",
+    taskKind: "agent",
+    title: id,
+    background: true,
+    status,
+    hasTranscript: false,
+  });
+  const user = (id: string): ChatEntry => ({ kind: "user", id, ts: "", text: id });
+
+  it("marks a running task from before the latest user turn once the agent is idle or responded", () => {
+    const entries = [task("t1"), user("u1"), task("t2")];
+    expect([...staleTaskIds(entries, "idle")]).toEqual(["t1"]);
+    expect([...staleTaskIds(entries, "responded")]).toEqual(["t1"]);
+  });
+
+  it("trusts every task while the agent is busy or its status is not known", () => {
+    const entries = [task("t1"), user("u1")];
+    for (const status of ["thinking", "working", "requires_input", "error", null] as const) {
+      expect(staleTaskIds(entries, status).size).toBe(0);
+    }
+  });
+
+  it("leaves finished tasks and tasks after the latest user turn alone", () => {
+    expect(staleTaskIds([task("t1", "ok"), user("u1")], "idle").size).toBe(0);
+    expect(staleTaskIds([user("u1"), task("t1")], "idle").size).toBe(0);
+    expect(staleTaskIds([task("t1")], "idle").size).toBe(0);
+  });
+
+  it("counts running tasks without the stale ones", () => {
+    const entries = [task("t1"), user("u1"), task("t2"), task("t3", "ok"), task("t4")];
+    const stale = staleTaskIds(entries, "idle");
+    expect(runningTaskCount(entries, stale)).toBe(2);
+    expect(runningTaskCount(entries, new Set())).toBe(3);
+  });
+});
+
+describe("task card text", () => {
+  it("formats elapsed time", () => {
+    expect(formatElapsed(0)).toBe("0s");
+    expect(formatElapsed(59.9)).toBe("59s");
+    expect(formatElapsed(185)).toBe("3m 05s");
+    expect(formatElapsed(3720)).toBe("1h 02m");
+  });
+
+  it("previews the first non-empty line of a result", () => {
+    expect(resultPreview(undefined)).toBeNull();
+    expect(resultPreview("\n  \n")).toBeNull();
+    expect(resultPreview("\n  Found it.\nMore")).toBe("Found it.");
   });
 });

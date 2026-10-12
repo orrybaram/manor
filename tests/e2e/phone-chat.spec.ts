@@ -563,3 +563,116 @@ test.describe("phone chat slash commands (ADR-217)", () => {
     }
   });
 });
+
+/** An assistant or user transcript line with arbitrary content blocks. */
+function blockLine(
+  role: "user" | "assistant",
+  uuid: string,
+  content: unknown,
+  extra: Record<string, unknown> = {},
+): string {
+  return JSON.stringify({
+    type: role,
+    uuid,
+    timestamp: new Date().toISOString(),
+    message: { role, content },
+    ...extra,
+  });
+}
+
+test.describe("phone chat background tasks (ADR-224)", () => {
+  test.setTimeout(240_000);
+
+  test("a background agent shows as a running card with a chip, opens its transcript, and settles on its notification", async ({
+    app,
+    window,
+    tempHome,
+    request,
+  }) => {
+    const toolUseId = "toolu_fake_bgagent";
+    const agentId = "afake01";
+    const childReply = "subagent found three files";
+    const summary = "Agent finished the survey";
+    const { client, chat, transcriptFile } = await openChatPhone(
+      { app, window, tempHome, request },
+      "phone-chat-task",
+      () => {},
+    );
+    try {
+      // The child transcript lives beside the parent's, under its basename.
+      const subagentsDir = path.join(
+        path.dirname(transcriptFile),
+        path.basename(transcriptFile, ".jsonl"),
+        "subagents",
+      );
+      fs.mkdirSync(subagentsDir, { recursive: true });
+      appendTranscript(
+        path.join(subagentsDir, `agent-${agentId}.jsonl`),
+        blockLine("user", "sub-u1", "survey the repo", { isSidechain: true, agentId }),
+        blockLine("assistant", "sub-a1", [{ type: "text", text: childReply }], {
+          isSidechain: true,
+          agentId,
+        }),
+      );
+      appendTranscript(
+        transcriptFile,
+        blockLine("assistant", "a-bg-agent", [
+          {
+            type: "tool_use",
+            id: toolUseId,
+            name: "Agent",
+            input: {
+              description: "Survey the repo",
+              subagent_type: "Explore",
+              prompt: "survey the repo",
+              run_in_background: true,
+            },
+          },
+        ]),
+        blockLine(
+          "user",
+          "u-bg-result",
+          [
+            {
+              type: "tool_result",
+              tool_use_id: toolUseId,
+              content: "Async agent launched successfully.",
+            },
+          ],
+          { toolUseResult: { isAsync: true, status: "async_launched", agentId } },
+        ),
+      );
+
+      const task = chat.getByTestId("chat-task");
+      await expect(task).toBeVisible({ timeout: 20_000 });
+      await expect(task).toHaveAttribute("data-task-status", "running");
+      await expect(task).toHaveAttribute("data-task-id", toolUseId);
+      await expect(task).toContainText("Survey the repo");
+      await expect(chat.getByTestId("chat-running-chip")).toHaveText(/1 running/);
+
+      // Tap: the sheet shows the subagent's own conversation.
+      await task.getByRole("button").first().tap();
+      const sheet = client.page.getByTestId("chat-task-sheet");
+      await expect(sheet).toBeVisible({ timeout: 15_000 });
+      await expect(sheet.getByTestId("chat-assistant").filter({ hasText: childReply })).toBeVisible({
+        timeout: 15_000,
+      });
+      await client.page.keyboard.press("Escape");
+      await expect(sheet).toHaveCount(0);
+
+      // The notification settles the card; no separate notice, no chip.
+      appendTranscript(
+        transcriptFile,
+        userLine(
+          `<task-notification>\n<task-id>${agentId}</task-id>\n<tool-use-id>${toolUseId}</tool-use-id>\n<status>completed</status>\n<summary>${summary}</summary>\n</task-notification>`,
+        ),
+      );
+      await expect(task).toHaveAttribute("data-task-status", "ok", { timeout: 20_000 });
+      await expect(task).toContainText(summary);
+      await expect(chat.getByTestId("chat-running-chip")).toHaveCount(0);
+      await expect(chat.getByTestId("chat-notice")).toHaveCount(0);
+    } finally {
+      await client.close();
+    }
+  });
+});

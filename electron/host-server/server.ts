@@ -65,6 +65,7 @@ import {
   type HostAgents,
 } from "./agents";
 import { HOST_TABLE, type HostServerDeps } from "./handlers";
+import { createHostWinsize } from "./winsize";
 import { createOwnerSync, paneContextFrom } from "./owner";
 import { fileHookCursorStore } from "./hook-cursor";
 import { readLayoutSnapshot } from "./layout";
@@ -238,8 +239,14 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     publish: (ns, event, args) => bridge?.broadcast(ns, event, args),
   });
 
+  const winsize = createHostWinsize({
+    listSessions: () => daemon.pty.listSessions(),
+    onChange: (paneId) => void bridge?.refreshWinsizeOwner(paneId),
+  });
+
   const deps: HostServerDeps = {
     backend: { pty: daemon.pty },
+    winsize,
     daemonStatus,
     agentManager,
     agentStatus: driver,
@@ -274,6 +281,8 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     unavailableCode: UNAVAILABLE_HOST_CODE,
     // The desktop on the owner socket may pair, revoke and sync (D4).
     admitsOwner: true,
+    // The daemon's attach count, not only this server's registry (D5).
+    heldElsewhere: (paneId) => winsize.isForeign(paneId),
     audit: new RemoteAuditLog(`${paths.dataDir}/remote-audit.jsonl`),
   });
   const frames = new WsBridgeServer(bridge, { appVersion: appInfo.version });
@@ -449,6 +458,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       await builtRelay.stop();
       frames.closeAll();
       unwireChat();
+      winsize.dispose();
       bridge?.dispose();
       chatMirror?.dispose();
       // agents.json first, then the cursor that says how much of the

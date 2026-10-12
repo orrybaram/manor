@@ -336,6 +336,31 @@ describe("Session", () => {
     });
   });
 
+  describe("attachedClients (ADR-218 D5)", () => {
+    it("counts attached stream sockets in the session info", () => {
+      const a = mockSocket();
+      const b = mockSocket();
+      expect(session.info.attachedClients).toBe(0);
+      session.attachClient(a.socket);
+      session.attachClient(a.socket); // a no-op the second time
+      expect(session.info.attachedClients).toBe(1);
+      session.attachClient(b.socket);
+      expect(session.info.attachedClients).toBe(2);
+      session.detachClient(a.socket);
+      expect(session.info.attachedClients).toBe(1);
+    });
+
+    it("drops a socket that closes", () => {
+      const a = mockSocket();
+      session.attachClient(a.socket);
+      const onClose = a.socket.on.mock.calls.find(
+        (c: unknown[]) => c[0] === "close",
+      )![1] as () => void;
+      onClose();
+      expect(session.info.attachedClients).toBe(0);
+    });
+  });
+
   describe("client broadcast", () => {
     it("broadcasts data events to attached clients", () => {
       const { socket, written } = mockSocket();

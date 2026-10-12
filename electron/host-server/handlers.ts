@@ -66,6 +66,15 @@ import {
 } from "../bridge/handlers/remote-control";
 import type { RemoteDeviceInfo } from "../remote-control/devices";
 import type { HostRemoteControl, HostServerStatus } from "./relay";
+import {
+  missingSessions,
+  withStartedWhileAway,
+} from "./started-while-away";
+import {
+  hasOtherClients,
+  ownSocketsFor,
+  type HostWinsize,
+} from "./winsize";
 
 /** The daemon calls the host server's handlers make. */
 export type HostPty = Pick<
@@ -103,6 +112,8 @@ export interface HostServerDeps
     workspaces: Record<string, LayoutEntry>;
     lastActiveWorkspacePath: string | null;
   };
+  /** The daemon's attach count decides who owns a pane's winsize (D5). */
+  winsize: HostWinsize;
   /** This server's preferences: the defaults until the desktop syncs any. */
   preferences(): AppPreferences;
   /** The theme a phone draws terminals in: Manor's default. */
@@ -129,8 +140,9 @@ type Ctx = HandlerCtx<HostServerDeps>;
  * one. Starting terminals from the phone waits for slice 2, when the host
  * server owns the layout a new pane would go into (ADR-218 D5).
  *
- * The winsize answer is the desktop's rule (`createShaped`); ticket 6
- * replaces it with the daemon's attach count.
+ * The winsize answer is the daemon's (ADR-218 D5, `./winsize.ts`): a follower
+ * whenever a client other than this server is attached to the session — or
+ * the daemon does not say — and the owner otherwise.
  */
 export async function hostPtyCreate(
   ctx: Ctx,
@@ -145,10 +157,10 @@ export async function hostPtyCreate(
   assertPositiveInt(cols, "cols");
   assertPositiveInt(rows, "rows");
   const { pty } = ctx.deps.backend;
-  let alive: boolean;
+  let session: { alive: boolean; attachedClients?: number } | undefined;
   try {
     const sessions = await pty.listSessions();
-    alive = sessions.some((s) => s.sessionId === paneId && s.alive);
+    session = sessions.find((s) => s.sessionId === paneId);
   } catch (err) {
     return {
       ok: false,
@@ -157,7 +169,7 @@ export async function hostPtyCreate(
       error: errorMessage(err),
     };
   }
-  if (!alive) {
+  if (!session?.alive) {
     return {
       ok: false,
       reason: "error",
@@ -165,6 +177,12 @@ export async function hostPtyCreate(
         "This terminal isn't running on the host. Starting terminals from here comes in a later version.",
     };
   }
+  const foreign = hasOtherClients(
+    session.attachedClients,
+    ownSocketsFor(paneId),
+  );
+  // Before the attach, so the ownership push it triggers already knows.
+  ctx.deps.winsize.watch(paneId, foreign);
   return createShaped(ctx, paneId, cols, rows, async (c, r) => {
     try {
       const result = await pty.createOrAttach(
@@ -187,7 +205,30 @@ export async function hostPtyCreate(
         error: errorMessage(err),
       };
     }
-  });
+  }, foreign);
+}
+
+/**
+ * A resize from a viewer that does not own the pane is dropped, as on the
+ * desktop. Here that includes every device while another client of the daemon
+ * has the session: it is not this phone's grid to move.
+ */
+function hostPtyResize(
+  ctx: Ctx,
+  paneId: string,
+  cols: number,
+  rows: number,
+): Promise<void> {
+  assertString(paneId, "paneId");
+  if (ctx.deps.winsize.isForeign(paneId)) return Promise.resolve();
+  return ptyResize(ctx, paneId, cols, rows);
+}
+
+/** No claim while another client of the daemon has the session. */
+function hostPtyClaimWinsize(ctx: Ctx, paneId: string): boolean {
+  assertString(paneId, "paneId");
+  if (ctx.deps.winsize.isForeign(paneId)) return false;
+  return ptyClaimWinsize(ctx, paneId);
 }
 
 // ── agents ──
@@ -234,8 +275,32 @@ function projectsGetSelectedIndex(): number {
   return 0;
 }
 
-function layoutGetAll(ctx: Ctx): Record<string, LayoutEntry> {
-  return ctx.deps.layout().workspaces;
+/**
+ * The desktop's snapshot, plus a "Started while away" tab for each live
+ * daemon session it does not place (ADR-218 D5). Only the snapshot when the
+ * daemon or git cannot be asked: a phone still gets its layout.
+ */
+async function layoutGetAll(ctx: Ctx): Promise<Record<string, LayoutEntry>> {
+  const { workspaces } = ctx.deps.layout();
+  try {
+    const missing = missingSessions(
+      workspaces,
+      await ctx.deps.backend.pty.listSessions(),
+    );
+    if (missing.length === 0) return workspaces;
+    // Bounded: a git that hangs must not hold up the layout the phone needs.
+    const projects = await Promise.race([
+      ctx.deps.projects(),
+      new Promise<never>((_, reject) => {
+        const t = setTimeout(() => reject(new Error("projects timed out")), 3_000);
+        t.unref?.();
+      }),
+    ]);
+    const paths = projects.flatMap((p) => p.workspaces.map((w) => w.path));
+    return withStartedWhileAway(workspaces, missing, paths);
+  } catch {
+    return workspaces;
+  }
 }
 
 function layoutGetLastActive(ctx: Ctx): string | null {
@@ -341,8 +406,8 @@ const METHODS = flatten({
     // Attaching is audited like the desktop's create; typing is not.
     create: hostMethod(hostPtyCreate, { mutating: true }),
     write: hostMethod(ptyWrite),
-    resize: hostMethod(ptyResize),
-    claimWinsize: hostMethod(ptyClaimWinsize),
+    resize: hostMethod(hostPtyResize),
+    claimWinsize: hostMethod(hostPtyClaimWinsize),
     detach: hostMethod(ptyDetach),
   },
   agents: {
@@ -357,6 +422,10 @@ const METHODS = flatten({
     getAll: hostMethod(projectsGetAll),
     getSelectedIndex: hostMethod(projectsGetSelectedIndex),
   },
+  // Reads only. Every layout write (`apply`, `setPaneTitle`,
+  // `setPendingCommand`) and the viewport report are absent, so a device is
+  // answered `unavailable:host` — the renderer's once-per-session "read and
+  // type" toast (`handleBridgeUnavailable`), not an error (ADR-218 D5).
   layout: {
     getAll: hostMethod(layoutGetAll),
     getLastActive: hostMethod(layoutGetLastActive),

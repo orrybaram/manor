@@ -1,6 +1,6 @@
 ---
 title: TranscriptAdapter seam and agentKind on PaneAgent
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

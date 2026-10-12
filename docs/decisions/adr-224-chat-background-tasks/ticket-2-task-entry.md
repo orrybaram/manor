@@ -1,6 +1,6 @@
 ---
 title: Parse background and delegated work into task entries
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [1]

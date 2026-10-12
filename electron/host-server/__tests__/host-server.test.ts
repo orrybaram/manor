@@ -19,6 +19,7 @@ import {
 } from "vitest";
 import fs from "node:fs";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 import { PassThrough, type Duplex } from "node:stream";
 import { execFile } from "node:child_process";
@@ -282,6 +283,7 @@ describe("host server", () => {
   /** A phone: through the relay to the room in `pairingUrl`, hello'd. */
   async function phone(pairingUrl: string): Promise<{
     viewer: FakeViewer;
+    hello: Frame;
     call(ns: string, method: string, ...args: unknown[]): Promise<Frame>;
   }> {
     const link = parsePairingUrl(pairingUrl);
@@ -297,6 +299,7 @@ describe("host server", () => {
     let nextId = 1;
     return {
       viewer,
+      hello,
       async call(ns, methodName, ...args) {
         const id = nextId++;
         viewer.send({ kind: "invoke", id, ns, method: methodName, args });
@@ -569,6 +572,7 @@ describe("host server", () => {
         ["hostServer", "resetIdentity"],
         ["hostServer", "syncManifest", { version: 1 }],
         ["hostServer", "syncLayout", { version: 1 }],
+        ["hostServer", "setVapidKeys", { publicKey: "a", privateKey: "b" }],
       ] as Array<[string, string, ...unknown[]]>) {
         expect(await p.call(ns, methodName, ...args)).toMatchObject({
           ok: false,
@@ -643,6 +647,52 @@ describe("host server", () => {
           payload: expect.objectContaining({ title: "Agent needs input" }),
         },
       ]);
+    });
+
+    it("signs with the desktop's VAPID key, and clears subscriptions only when it changes", async () => {
+      const server = await serve();
+      await relayUp(server);
+      const client = await owner();
+      const paired = await client.invoke<PairResult>("remoteControl", "pair", "phone");
+      const p = await phone(paired.pairingUrl);
+      const subscription = {
+        endpoint: "https://push.example/endpoint-1",
+        keys: { p256dh: "p256", auth: "auth" },
+      };
+      const endpoints = async () =>
+        (await client.invoke<HostServerStatus>("hostServer", "status")).pushEndpoints;
+
+      expect(await p.call("remoteControl", "vapidPublicKey")).toMatchObject({
+        result: "vapid-pub",
+      });
+      await p.call("remoteControl", "subscribePush", subscription);
+      expect(await endpoints()).toEqual(["https://push.example/endpoint-1"]);
+
+      // The host's own pair is replaced; the subscription was made against
+      // the old key, so it goes.
+      const desktop = { publicKey: "desktop-pub", privateKey: "desktop-priv" };
+      expect(await client.invoke("hostServer", "setVapidKeys", desktop)).toBe(true);
+      expect(await p.call("remoteControl", "vapidPublicKey")).toMatchObject({
+        result: "desktop-pub",
+      });
+      expect(await endpoints()).toEqual([]);
+
+      // The phone re-subscribes; the same key again leaves that alone.
+      await p.call("remoteControl", "subscribePush", subscription);
+      expect(await client.invoke("hostServer", "setVapidKeys", desktop)).toBe(true);
+      expect(await endpoints()).toEqual(["https://push.example/endpoint-1"]);
+      expect(
+        fs.existsSync(paths.vapid) &&
+          fs.readFileSync(paths.vapid, "utf-8").includes("desktop-priv"),
+      ).toBe(true);
+
+      // Malformed keys are refused whole.
+      expect(
+        await client.call("hostServer", "setVapidKeys", { publicKey: "x" }),
+      ).toMatchObject({ ok: false, code: "failed" });
+      expect(await p.call("remoteControl", "vapidPublicKey")).toMatchObject({
+        result: "desktop-pub",
+      });
     });
 
     it("resetIdentity moves to a new room and revokes every device", async () => {
@@ -755,6 +805,22 @@ describe("host server", () => {
         code: 4401,
       });
       expect(auth("nope", { type: "hello", token: "nope" })).toMatchObject({ ok: false });
+    });
+
+    it("names itself in the hello, and the desktop's name wins", async () => {
+      const server = await serve();
+      await relayUp(server);
+      const client = await owner();
+      const paired = await client.invoke<PairResult>("remoteControl", "pair", "phone");
+      const first = await phone(paired.pairingUrl);
+      expect(first.hello.hostName).toBe(os.hostname());
+
+      await client.invoke("hostServer", "syncManifest", {
+        ...manifest(tmp),
+        hostName: "me@devbox",
+      });
+      const second = await phone(paired.pairingUrl);
+      expect(second.hello.hostName).toBe("me@devbox");
     });
 
     it("persists a synced manifest, serves it, and tells a subscribed phone", async () => {

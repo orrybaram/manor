@@ -38,6 +38,7 @@ import type { HostLayoutSnapshot } from "../host-server/layout";
 import type { HostManifest } from "../host-server/manifest";
 import type { HostServerStatus } from "../host-server/relay";
 import type { PairResult } from "../remote-control/controller";
+import type { VapidKeys } from "../remote-control/push";
 import type { RemoteDeviceInfo } from "../remote-control/devices";
 import { createLineReader } from "../terminal-host/line-reader";
 import { isUnavailableCode, type EventFrame, type ResultFrame } from "../bridge/types";
@@ -249,6 +250,11 @@ export class HostServerClient {
   /** The desktop's projects on this host (ADR-218 D4, D8). */
   syncManifest(manifest: HostManifest): Promise<true> {
     return this.invoke("hostServer", "syncManifest", manifest);
+  }
+
+  /** The desktop's VAPID pair, so this server's pushes share its key (ADR-218 D3). */
+  setVapidKeys(keys: VapidKeys): Promise<true> {
+    return this.invoke("hostServer", "setVapidKeys", keys);
   }
 
   /** The desktop's layout for this host's workspaces (ADR-218 D5). */

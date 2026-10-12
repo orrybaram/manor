@@ -229,6 +229,24 @@ export class RemoteDeviceStore {
     return true;
   }
 
+  /**
+   * Drop every device's push subscription, keeping the devices paired. For a
+   * VAPID key change: the old subscriptions are bound to the old key, so a
+   * push signed with the new one would be refused. The phone re-subscribes on
+   * its next load.
+   */
+  clearPushSubscriptions(): void {
+    this.load();
+    let changed = false;
+    for (const device of this.devices.values()) {
+      if (device.pushSubscription) {
+        device.pushSubscription = null;
+        changed = true;
+      }
+    }
+    if (changed) this.persist();
+  }
+
   /** Every device that can currently receive a push. */
   pushTargets(): Array<{
     device: RemoteDeviceInfo;

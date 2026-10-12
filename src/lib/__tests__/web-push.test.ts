@@ -146,6 +146,20 @@ describe("web push", () => {
     expect(subscribePush).toHaveBeenCalledWith({ endpoint: "kept" });
   });
 
+  it("keeps one subscription across two rooms that share a key", async () => {
+    permission = "granted";
+    existing = subscription(KEY_BYTES, "shared");
+    // Room A, then room B (same VAPID key): each server is handed the same
+    // endpoint, and nothing is unsubscribed or re-created in between.
+    await resubscribePush();
+    await resubscribePush();
+    expect(existing.unsubscribe).not.toHaveBeenCalled();
+    expect(subscribe).not.toHaveBeenCalled();
+    expect(subscribePush).toHaveBeenCalledTimes(2);
+    expect(subscribePush).toHaveBeenNthCalledWith(1, { endpoint: "shared" });
+    expect(subscribePush).toHaveBeenNthCalledWith(2, { endpoint: "shared" });
+  });
+
   it.each([
     ["another desktop's key", new Uint8Array(65).fill(5)],
     ["a key of another length", new Uint8Array(32).fill(4)],

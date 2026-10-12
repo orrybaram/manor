@@ -267,6 +267,7 @@ describe("HostServerClient over server-bridge", () => {
         workspaces: { [tmp]: entry(1) },
         lastActiveWorkspacePath: null,
       }),
+      vapidKeys: async () => ({ publicKey: "desktop-pub", privateKey: "desktop-priv" }),
       debounceMs: 10,
       log: quiet,
     });
@@ -274,6 +275,8 @@ describe("HostServerClient over server-bridge", () => {
 
     c.hostConnected();
     await vi.waitFor(() => expect(fs.existsSync(paths.layout)).toBe(true));
+    // The desktop's VAPID pair rides along with the manifest and layout.
+    await vi.waitFor(() => expect(fs.existsSync(paths.vapid)).toBe(true));
     expect(fs.existsSync(paths.manifest)).toBe(true);
 
     // An unchanged manifest is not sent again on a change notice.
@@ -454,6 +457,15 @@ describe("buildHostManifest", () => {
       cachedPr: () => undefined,
     });
     expect(built.version).toBe(1);
+    expect(built.hostName).toBeUndefined();
+    expect(
+      buildHostManifest("box", {
+        projects: (id) => pm.manifestRecords(id),
+        workspaces: () => [],
+        cachedPr: () => undefined,
+        hostName: () => "me@box",
+      }).hostName,
+    ).toBe("me@box");
     expect(built.projects.map((p) => [p.id, p.hostId, p.name])).toEqual([
       ["on-box", "local", "Manor"],
     ]);

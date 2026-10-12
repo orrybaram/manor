@@ -62,6 +62,11 @@ export interface HostManifest {
   version: typeof HOST_MANIFEST_VERSION;
   /** ISO time the desktop sent it. */
   sentAt: string;
+  /**
+   * The desktop's name for this host (its hosts record). The phone's
+   * pairings show it; absent, the server names itself by `os.hostname()`.
+   */
+  hostName?: string;
   projects: ManifestProject[];
   /** Workspace path → its last-known issue and PR. */
   integrationSnapshot: Record<string, WorkspaceIntegrationSnapshot>;

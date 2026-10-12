@@ -100,6 +100,83 @@ describe("PushManager", () => {
     });
   });
 
+  describe("importKeys (ADR-218 D3)", () => {
+    const DESKTOP = { publicKey: "desktop-pub", privateKey: "desktop-priv" };
+
+    it("replaces the active pair, persists it, and clears subscriptions made against the old one", async () => {
+      const device = pairedWithPush();
+      expect(await push.publicKey()).toBe("pub-key");
+
+      expect(await push.importKeys(DESKTOP)).toBe(true);
+      expect(await push.publicKey()).toBe("desktop-pub");
+      expect(await push.vapidKeys()).toEqual(DESKTOP);
+      expect(devices.pushTargets()).toEqual([]);
+      // The device itself stays paired.
+      expect(devices.list().map((d) => d.id)).toEqual([device.id]);
+
+      const reopened = new PushManager(
+        devices,
+        keychain,
+        path.join(dir, "vapid.enc"),
+        send as never,
+        () => {
+          throw new Error("must not regenerate");
+        },
+      );
+      expect(await reopened.publicKey()).toBe("desktop-pub");
+    });
+
+    it("is idempotent: the same pair changes nothing and keeps subscriptions", async () => {
+      await push.importKeys(DESKTOP);
+      pairedWithPush();
+      expect(await push.importKeys(DESKTOP)).toBe(false);
+      expect(devices.pushTargets()).toHaveLength(1);
+    });
+
+    it("signs pushes with the imported key", async () => {
+      await push.importKeys(DESKTOP);
+      pairedWithPush();
+      await push.notify({ agentId: "a", title: "t", body: "b" });
+      expect(send.mock.calls[0][2]).toMatchObject({
+        vapidDetails: { publicKey: "desktop-pub", privateKey: "desktop-priv" },
+      });
+    });
+
+    it("refuses when it cannot encrypt, leaving the old pair", async () => {
+      expect(await push.publicKey()).toBe("pub-key");
+      keychain.setAvailable(false);
+      await expect(push.importKeys(DESKTOP)).rejects.toThrow();
+      expect(await push.publicKey()).toBe("pub-key");
+    });
+
+    it("a phone paired both ways hears once: same key, same endpoint, desktop skips", async () => {
+      const hostDevices = new RemoteDeviceStore(keychain, path.join(dir, "host-devices.enc"));
+      await hostDevices.init();
+      const hostSend = vi.fn(async () => ({}));
+      const host = new PushManager(
+        hostDevices,
+        keychain,
+        path.join(dir, "host-vapid.enc"),
+        hostSend as never,
+        () => ({ publicKey: "host-own", privateKey: "host-own-priv" }),
+      );
+      await host.importKeys((await push.vapidKeys())!);
+      expect(await host.publicKey()).toBe(await push.publicKey());
+
+      // The phone's one browser subscription goes to both servers.
+      pairedWithPush();
+      host.subscribe(hostDevices.pair("phone", "room").device.id, SUBSCRIPTION);
+
+      const payload = { agentId: "a", title: "t", body: "b" };
+      const hostSent = await host.notify(payload);
+      const desktopSent = await push.notify(payload, {
+        skipEndpoints: new Set(hostDevices.pushTargets().map((t) => t.subscription.endpoint)),
+      });
+      expect(hostSent + desktopSent).toBe(1);
+      await hostDevices.flush();
+    });
+  });
+
   it("generates a key pair once and reuses it", async () => {
     const generate = vi.fn(() => ({
       publicKey: "pub-key",

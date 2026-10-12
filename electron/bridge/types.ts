@@ -103,6 +103,12 @@ export interface HelloReplyFrame {
   v: number;
   rendererId: string;
   appVersion?: string;
+  /**
+   * What the server calls its host (ADR-218 D7): the phone's pairings show
+   * it. Optional because the desktop's own server and older hosts may not
+   * send it.
+   */
+  hostName?: string;
 }
 
 /** A call: `ns.method(...args)`, answered with a `ResultFrame` carrying `id`. */

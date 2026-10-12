@@ -167,6 +167,18 @@ function assertIntegrationSnapshot(value: unknown, name: string): void {
   }
 }
 
+/** Throws unless `value` is a VAPID key pair (`hostServer.setVapidKeys`). */
+export function assertVapidKeys(
+  value: unknown,
+): asserts value is { publicKey: string; privateKey: string } {
+  assertRecord(value, "vapidKeys");
+  assertString(value.publicKey, "vapidKeys.publicKey");
+  assertString(value.privateKey, "vapidKeys.privateKey");
+  if (value.publicKey === "" || value.privateKey === "") {
+    throw new Error("vapidKeys: keys must not be empty");
+  }
+}
+
 /** Throws unless `value` is a manifest `./manifest.ts` can serve. */
 export function assertHostManifest(value: unknown): asserts value is HostManifest {
   assertRecord(value, "manifest");
@@ -176,6 +188,9 @@ export function assertHostManifest(value: unknown): asserts value is HostManifes
     );
   }
   assertString(value.sentAt, "manifest.sentAt");
+  if (value.hostName !== undefined) {
+    assertString(value.hostName, "manifest.hostName");
+  }
   if (!Array.isArray(value.projects)) {
     throw new Error("manifest.projects: expected an array");
   }

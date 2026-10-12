@@ -122,6 +122,11 @@ export interface HostRelay {
   deviceCount(): number;
   pushEndpoints(): string[];
   /**
+   * Adopt the desktop's VAPID pair (ADR-218 D3). True when the key changed,
+   * in which case the subscriptions made against the old one were cleared.
+   */
+  setVapidKeys(keys: VapidKeys): Promise<boolean>;
+  /**
    * New relay identity, so a new room; every device and with it every push
    * subscription revoked; the connector redialled to the new room. The
    * recovery step for a box that may be compromised (ADR-218 D6).
@@ -288,6 +293,8 @@ export function createHostRelay(deps: HostRelayDeps): HostRelay {
 
     pushEndpoints: () =>
       devices.pushTargets().map((target) => target.subscription.endpoint),
+
+    setVapidKeys: (keys) => push.importKeys(keys),
 
     async resetIdentity() {
       // The desktop's `resetRelayAddress` order: revoke and close while the

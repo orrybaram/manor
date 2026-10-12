@@ -1,5 +1,6 @@
 import { app, BrowserWindow, nativeImage, powerMonitor } from "electron";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { TerminalHostClient } from "./terminal-host/client";
@@ -466,10 +467,13 @@ export function initApp(devTitle: string | null): void {
         projects: (id) => projectManager.manifestRecords(id),
         workspaces: (projectId) => projectManager.knownWorkspaces(projectId),
         cachedPr: (repo, branch) => githubManager.cachedPr(repo, branch),
+        hostName: (id) => backendRegistry.hostDisplayName(id),
       }),
     layout: (hostId) => layoutSnapshotFor(hostId, layoutStore),
+    // The desktop's own VAPID pair, so a phone's one browser subscription is
+    // valid in every room (D3). Read lazily: `remotePush` is built below.
+    vapidKeys: () => remotePush.vapidKeys(),
   });
-  hostServerSync.start();
   projectManager.onStateSaved(() => hostServerSync.manifestChanged());
   githubManager.onPrCacheChange((hostId) => hostServerSync.manifestChanged(hostId));
   layoutStore.onPersisted(() => hostServerSync.layoutPersisted());
@@ -482,6 +486,8 @@ export function initApp(devTitle: string | null): void {
   // runs at most once, on the first enable.
   const remoteDeviceStore = new RemoteDeviceStore(secretBox);
   const remotePush = new PushManager(remoteDeviceStore, secretBox);
+  // After `remotePush`: starting sends to hosts already connected.
+  hostServerSync.start();
   // ADR-218 D3: a phone paired with a host's server hears about that host's
   // agents from the server, so the desktop skips those subscriptions. Cached
   // per host, refreshed on every owner-channel connect and after pairing.
@@ -525,6 +531,8 @@ export function initApp(devTitle: string | null): void {
     // (ADR-206 D4).
     const ws = new WsBridgeServer(bridgeServer!, {
       appVersion: appInfo.version,
+      // So a phone's pairings show this machine's real name (ADR-218 D7).
+      hostName: () => os.hostname(),
     });
     wsBridge = ws;
     // The hello gate every relay channel passes (ADR-207 D3): device verify,

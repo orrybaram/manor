@@ -247,6 +247,16 @@ export class BackendRegistry {
     return Array.from(this.hosts.values(), (conn) => conn.info());
   }
 
+  /**
+   * How the user names a remote host: its ssh target, as the sidebar does.
+   * Undefined for the local host and unknown ids.
+   */
+  hostDisplayName(hostId: string): string | undefined {
+    if (hostId === LOCAL_HOST_ID) return undefined;
+    const target = this.hosts.get(hostId)?.info().spec?.target;
+    return target || undefined;
+  }
+
   status(hostId: string): HostStatus | undefined {
     return this.hosts.get(hostId)?.status;
   }

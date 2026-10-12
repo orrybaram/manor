@@ -97,6 +97,53 @@ export class PushManager {
     }
   }
 
+  /**
+   * The active key pair, generated on first use, for sharing with a host
+   * server (ADR-218 D3). Null when it cannot be stored safely.
+   */
+  async vapidKeys(): Promise<VapidKeys | null> {
+    try {
+      return await this.ensureKeys();
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Adopt `keys` as this manager's pair (ADR-218 D3). A browser holds one
+   * push subscription per origin, tied to one VAPID key, so every server a
+   * phone is paired with signs with the desktop's. When the public key
+   * actually changes, the stored subscriptions (made against the old key)
+   * are cleared; unchanged keys are a no-op. Returns whether it changed.
+   * Throws if the key cannot be stored safely.
+   */
+  async importKeys(keys: VapidKeys): Promise<boolean> {
+    if (!this.secretBox.available()) {
+      throw new Error("OS encryption is unavailable; the push key cannot be stored");
+    }
+    // Wait out a generation in flight, then compare with what is active.
+    if (!this.loaded) {
+      this.loaded = true;
+      this.keys = await this.read();
+    }
+    if (this.generating) await this.generating.catch(() => undefined);
+    const current = this.keys;
+    if (
+      current &&
+      current.publicKey === keys.publicKey &&
+      current.privateKey === keys.privateKey
+    ) {
+      return false;
+    }
+    const next = { publicKey: keys.publicKey, privateKey: keys.privateKey };
+    await writeSealed(this.secretBox, this.filePath, JSON.stringify(next));
+    this.keys = next;
+    if (!current || current.publicKey !== next.publicKey) {
+      this.devices.clearPushSubscriptions();
+    }
+    return true;
+  }
+
   /** Record a device's subscription. False means there is no such device. */
   subscribe(deviceId: string, subscription: PushSubscriptionRecord): boolean {
     return this.devices.setPushSubscription(deviceId, subscription);

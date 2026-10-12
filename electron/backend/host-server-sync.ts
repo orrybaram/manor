@@ -38,6 +38,7 @@ import {
   type WorkspaceIntegrationSnapshot,
 } from "../host-server/manifest";
 import { hostLayoutSnapshot } from "../host-server/owner";
+import type { VapidKeys } from "../remote-control/push";
 import type { HostServerClient } from "./host-server-client";
 
 /** What the manifest is built from: the desktop's memory, never the network. */
@@ -46,6 +47,8 @@ export interface ManifestSources {
   projects(hostId: string): PersistedProject[];
   /** `ProjectManager.knownWorkspaces`: a project's last worktree listing. */
   workspaces(projectId: string): Pick<WorkspaceInfo, "path" | "branch">[];
+  /** The user's name for the host (its ssh target); absent if it has none. */
+  hostName?(hostId: string): string | undefined;
   /** `GitHubManager.cachedPr`: a branch's last-seen PR, and when. */
   cachedPr(
     repo: { path: string; hostId: string },
@@ -116,7 +119,14 @@ export function buildHostManifest(
     }
   }
 
-  return { version: HOST_MANIFEST_VERSION, sentAt, projects, integrationSnapshot };
+  const hostName = sources.hostName?.(hostId);
+  return {
+    version: HOST_MANIFEST_VERSION,
+    sentAt,
+    ...(hostName && { hostName }),
+    projects,
+    integrationSnapshot,
+  };
 }
 
 /** A manifest without its timestamps, to tell a real change from a re-stamp. */
@@ -125,7 +135,7 @@ function manifestFingerprint(manifest: HostManifest): string {
   for (const [path, entry] of Object.entries(manifest.integrationSnapshot)) {
     snapshot[path] = { issue: entry.issue, pr: entry.pr };
   }
-  return JSON.stringify([manifest.projects, snapshot]);
+  return JSON.stringify([manifest.projects, snapshot, manifest.hostName ?? null]);
 }
 
 function layoutFingerprint(snapshot: HostLayoutSnapshot): string {
@@ -145,6 +155,11 @@ export interface HostServerSyncOptions {
   manifest(hostId: string): HostManifest;
   /** The layout for a host, now (`hostLayoutSnapshot` over the store). */
   layout(hostId: string): HostLayoutSnapshot;
+  /**
+   * The desktop's VAPID pair, sent so the host server signs pushes with it
+   * (D3). Null when it cannot be stored safely; nothing is sent then.
+   */
+  vapidKeys?(): Promise<VapidKeys | null>;
   /** Manifest debounce. Defaults to 1 s. */
   debounceMs?: number;
   log?: Pick<Console, "warn">;
@@ -154,6 +169,7 @@ export class HostServerSync {
   private readonly registry: HostServerRegistry;
   private readonly buildManifest: (hostId: string) => HostManifest;
   private readonly buildLayout: (hostId: string) => HostLayoutSnapshot;
+  private readonly vapidKeys: (() => Promise<VapidKeys | null>) | undefined;
   private readonly debounceMs: number;
   private readonly log: Pick<Console, "warn">;
   /** What each host's server was last sent, without timestamps. */
@@ -165,6 +181,7 @@ export class HostServerSync {
     this.registry = opts.registry;
     this.buildManifest = opts.manifest;
     this.buildLayout = opts.layout;
+    this.vapidKeys = opts.vapidKeys;
     this.debounceMs = opts.debounceMs ?? 1_000;
     this.log = opts.log ?? console;
   }
@@ -216,7 +233,19 @@ export class HostServerSync {
     await Promise.all([
       this.pushManifest(hostId, client),
       this.pushLayout(hostId, client, true),
+      this.pushVapidKeys(hostId, client),
     ]);
+  }
+
+  /** Whole, every connect: idempotent on the server unless the key changed. */
+  private async pushVapidKeys(hostId: string, client: HostServerClient): Promise<void> {
+    if (!this.vapidKeys) return;
+    try {
+      const keys = await this.vapidKeys();
+      if (keys) await client.setVapidKeys(keys);
+    } catch (err) {
+      this.log.warn(`[host-server-sync] ${hostId}: setVapidKeys failed: ${errorMessage(err)}`);
+    }
   }
 
   private async pushManifest(

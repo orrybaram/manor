@@ -34,6 +34,7 @@
  */
 
 import fs from "node:fs";
+import os from "node:os";
 import { dispatchStreamEvent } from "../agent-stream-events";
 import { HostHookFeed } from "../backend/hook-feed";
 import { createLocalBackend } from "../backend/host-backend";
@@ -66,7 +67,7 @@ import {
 } from "./agents";
 import { HOST_TABLE, type HostServerDeps } from "./handlers";
 import { createHostWinsize } from "./winsize";
-import { createOwnerSync, paneContextFrom } from "./owner";
+import { assertVapidKeys, createOwnerSync, paneContextFrom } from "./owner";
 import { fileHookCursorStore } from "./hook-cursor";
 import { readLayoutSnapshot } from "./layout";
 import { manifestProjects, readManifest } from "./manifest";
@@ -272,6 +273,11 @@ export function createHostServer(opts: HostServerOptions): HostServer {
         return hostStatus();
       },
       syncManifest: (manifest) => ownerSync.syncManifest(manifest),
+      setVapidKeys: async (keys) => {
+        assertVapidKeys(keys);
+        await hostRelay().setVapidKeys(keys);
+        return true;
+      },
       syncLayout: (snapshot) => ownerSync.syncLayout(snapshot),
     },
   };
@@ -285,7 +291,11 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     heldElsewhere: (paneId) => winsize.isForeign(paneId),
     audit: new RemoteAuditLog(`${paths.dataDir}/remote-audit.jsonl`),
   });
-  const frames = new WsBridgeServer(bridge, { appVersion: appInfo.version });
+  const frames = new WsBridgeServer(bridge, {
+    appVersion: appInfo.version,
+    // The desktop's name for this host wins; else the box's own (ADR-218 D7).
+    hostName: () => readManifest(paths.manifest).hostName ?? os.hostname(),
+  });
   // Relay channels pass the device gate, then this same hello gate, so the
   // host table's device rules (LOCAL_ONLY refusals) apply to every phone.
   const builtRelay = createHostRelay({

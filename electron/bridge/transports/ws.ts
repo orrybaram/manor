@@ -137,7 +137,11 @@ export class WsBridgeServer {
    */
   constructor(
     private readonly server: BridgeHost,
-    private readonly options: { appVersion?: string } = {},
+    private readonly options: {
+      appVersion?: string;
+      /** The host's display name for the hello (ADR-218 D7). */
+      hostName?: () => string | undefined;
+    } = {},
   ) {}
 
   /** Live bridge sockets. The UI's "a browser is attached" signal. */
@@ -287,6 +291,8 @@ export class WsBridgeServer {
         appVersion: this.options.appVersion,
       }),
     };
+    const hostName = this.options.hostName?.();
+    if (hostName) reply.hostName = hostName;
     this.send(entry, reply);
   }
 

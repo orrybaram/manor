@@ -126,6 +126,7 @@ export interface HostServerDeps
     resetIdentity(): Promise<HostServerStatus>;
     /** Validates, persists and announces (`./owner.ts`). */
     syncManifest(manifest: unknown): true;
+    setVapidKeys(keys: unknown): Promise<true>;
     /** Validates, persists and announces (`./owner.ts`). */
     syncLayout(snapshot: unknown): true;
   };
@@ -381,6 +382,15 @@ function hostServerSyncManifest(ctx: Ctx, manifest: unknown): true {
 }
 
 /**
+ * The desktop's VAPID key pair (ADR-218 D3): this server signs pushes with
+ * it, so a phone's one browser subscription is valid in every room. A key
+ * that differs from the current one clears the subscriptions made against it.
+ */
+function hostServerSetVapidKeys(ctx: Ctx, keys: unknown): Promise<true> {
+  return ctx.deps.hostServer.setVapidKeys(keys);
+}
+
+/**
  * The desktop's layout for this host's workspaces, keys already bare paths
  * (ADR-218 D5): persisted to `layout.json` and served by `layout.getAll`;
  * every phone hears `layout.changed` for the workspaces that changed.
@@ -468,6 +478,7 @@ const METHODS = flatten({
     resetIdentity: hostMethod(hostServerResetIdentity, { localOnly: true }),
     syncManifest: hostMethod(hostServerSyncManifest, { localOnly: true }),
     syncLayout: hostMethod(hostServerSyncLayout, { localOnly: true }),
+    setVapidKeys: hostMethod(hostServerSetVapidKeys, { localOnly: true, secretFirstArg: true }),
   },
 });
 

@@ -1,6 +1,6 @@
 ---
 title: Shared VAPID key and host name in the hello
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [6, 7, 8]

@@ -1,6 +1,6 @@
 ---
 title: End-to-end test with the laptop gone, and docs
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [5, 6, 7, 8, 10]

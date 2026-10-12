@@ -1,6 +1,6 @@
 ---
 title: Child transcript streams and chat.getTaskHistory / chat.taskEntry
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [2]

@@ -146,9 +146,19 @@ holds two pairings. The relay does not change.
   `remoteControl.pair` runs on the host server; the desktop renders the QR.
 - **Capability is `full` only**, the same rule as ADR-206 relay pairing.
   `full` on a host server reaches only that host.
-- **Push.** The host server holds its own VAPID keys and subscriptions. It
-  sends pushes from its own notification coalescer, so a phone hears
-  "requires input" from `wsl-box` with the lid closed.
+- **Push.** The host server holds its own subscriptions and sends pushes from
+  its own notification coalescer, so a phone hears "requires input" from
+  `wsl-box` with the lid closed.
+  - **Every server signs pushes with the desktop's VAPID key.** The desktop
+    sends it over the owner channel, and the host stores it through its
+    `SecretBox`.
+  - The reason: a browser's service worker holds one push subscription, tied
+    to one VAPID key. If each server had its own key, every room switch would
+    replace the subscription, and only the last-opened room would push.
+  - With one shared key, the phone's single endpoint works for every paired
+    server, and the dedupe below is by that endpoint.
+  - A host that has never received the desktop's key uses its own until it
+    does.
 - **No duplicate pushes.** The desktop also sees those agents. It suppresses
   its own push for an agent on host H to any push endpoint that H's server
   also holds. The desktop learns those endpoints over the owner channel.

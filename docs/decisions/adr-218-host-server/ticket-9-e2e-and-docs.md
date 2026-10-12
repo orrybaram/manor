@@ -3,7 +3,7 @@ title: End-to-end test with the laptop gone, and docs
 status: todo
 priority: high
 assignee: sonnet
-blocked_by: [5, 6, 7, 8]
+blocked_by: [5, 6, 7, 8, 10]
 ---
 
 # End-to-end test with the laptop gone, and docs

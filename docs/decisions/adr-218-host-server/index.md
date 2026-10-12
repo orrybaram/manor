@@ -394,8 +394,9 @@ supports this as a third path or only documents it.
   PR data on the phone is a timestamped snapshot, and live calls wait for
   slice 2.
 - **More pairings to manage.** One QR per host until slice 3.
-- **Node on the box needs a WebSocket client.** The relay connector uses the
-  global `WebSocket`, which Node 20 lacks. The tarball adds `ws`.
+- **The tarball grows.** The relay connector uses the `ws` package (for
+  `maxPayload`, handshake timeouts and `terminate()`), and push uses
+  `web-push`. Both ship in the host tarball.
 
 **Risks**
 - The read-only intermediate state (no launching from the phone) will be

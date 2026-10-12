@@ -679,7 +679,8 @@ describe("host server", () => {
 
       // The phone re-subscribes; the same key again leaves that alone.
       await p.call("remoteControl", "subscribePush", subscription);
-      expect(await client.invoke("hostServer", "setVapidKeys", desktop)).toBe(true);
+      // `false`: unchanged, so nothing was cleared.
+      expect(await client.invoke("hostServer", "setVapidKeys", desktop)).toBe(false);
       expect(await endpoints()).toEqual(["https://push.example/endpoint-1"]);
       expect(
         fs.existsSync(paths.vapid) &&

@@ -126,7 +126,8 @@ export interface HostServerDeps
     resetIdentity(): Promise<HostServerStatus>;
     /** Validates, persists and announces (`./owner.ts`). */
     syncManifest(manifest: unknown): true;
-    setVapidKeys(keys: unknown): Promise<true>;
+    /** True when the key changed (and subscriptions were cleared). */
+    setVapidKeys(keys: unknown): Promise<boolean>;
     /** Validates, persists and announces (`./owner.ts`). */
     syncLayout(snapshot: unknown): true;
   };
@@ -386,7 +387,7 @@ function hostServerSyncManifest(ctx: Ctx, manifest: unknown): true {
  * it, so a phone's one browser subscription is valid in every room. A key
  * that differs from the current one clears the subscriptions made against it.
  */
-function hostServerSetVapidKeys(ctx: Ctx, keys: unknown): Promise<true> {
+function hostServerSetVapidKeys(ctx: Ctx, keys: unknown): Promise<boolean> {
   return ctx.deps.hostServer.setVapidKeys(keys);
 }
 

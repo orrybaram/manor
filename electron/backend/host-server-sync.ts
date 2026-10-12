@@ -160,6 +160,12 @@ export interface HostServerSyncOptions {
    * (D3). Null when it cannot be stored safely; nothing is sent then.
    */
   vapidKeys?(): Promise<VapidKeys | null>;
+  /**
+   * The host's server changed its key and so cleared its subscriptions:
+   * whatever the desktop cached about its push endpoints is stale (a stale
+   * skip would drop the push, not duplicate it).
+   */
+  onVapidKeysChanged?(hostId: string): void;
   /** Manifest debounce. Defaults to 1 s. */
   debounceMs?: number;
   log?: Pick<Console, "warn">;
@@ -169,6 +175,7 @@ export class HostServerSync {
   private readonly registry: HostServerRegistry;
   private readonly buildManifest: (hostId: string) => HostManifest;
   private readonly buildLayout: (hostId: string) => HostLayoutSnapshot;
+  private readonly onVapidKeysChanged: ((hostId: string) => void) | undefined;
   private readonly vapidKeys: (() => Promise<VapidKeys | null>) | undefined;
   private readonly debounceMs: number;
   private readonly log: Pick<Console, "warn">;
@@ -182,6 +189,7 @@ export class HostServerSync {
     this.buildManifest = opts.manifest;
     this.buildLayout = opts.layout;
     this.vapidKeys = opts.vapidKeys;
+    this.onVapidKeysChanged = opts.onVapidKeysChanged;
     this.debounceMs = opts.debounceMs ?? 1_000;
     this.log = opts.log ?? console;
   }
@@ -242,7 +250,7 @@ export class HostServerSync {
     if (!this.vapidKeys) return;
     try {
       const keys = await this.vapidKeys();
-      if (keys) await client.setVapidKeys(keys);
+      if (keys && (await client.setVapidKeys(keys))) this.onVapidKeysChanged?.(hostId);
     } catch (err) {
       this.log.warn(`[host-server-sync] ${hostId}: setVapidKeys failed: ${errorMessage(err)}`);
     }

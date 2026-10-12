@@ -253,7 +253,7 @@ export class HostServerClient {
   }
 
   /** The desktop's VAPID pair, so this server's pushes share its key (ADR-218 D3). */
-  setVapidKeys(keys: VapidKeys): Promise<true> {
+  setVapidKeys(keys: VapidKeys): Promise<boolean> {
     return this.invoke("hostServer", "setVapidKeys", keys);
   }
 

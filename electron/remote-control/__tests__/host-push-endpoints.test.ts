@@ -35,3 +35,29 @@ describe("HostPushEndpoints", () => {
     expect(cache.get("box").size).toBe(0);
   });
 });
+
+describe("after a VAPID key change", () => {
+  it("stops skipping an endpoint the host cleared, and clears the cache if the refresh fails", async () => {
+    let endpoints: string[] = ["https://push.example/e1"];
+    let fail = false;
+    const cache = new HostPushEndpoints({
+      status: async () => {
+        if (fail) throw new Error("down");
+        return { pushEndpoints: endpoints };
+      },
+    });
+    await cache.refresh("box");
+    expect(cache.get("box").has("https://push.example/e1")).toBe(true);
+
+    // The host's key changed and its subscriptions went.
+    endpoints = [];
+    await cache.refresh("box");
+    expect(cache.get("box").has("https://push.example/e1")).toBe(false);
+
+    // A refresh that fails never leaves a stale skip behind.
+    cache.set("box", ["https://push.example/e1"]);
+    fail = true;
+    await cache.refresh("box");
+    expect(cache.get("box").size).toBe(0);
+  });
+});

@@ -275,8 +275,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       syncManifest: (manifest) => ownerSync.syncManifest(manifest),
       setVapidKeys: async (keys) => {
         assertVapidKeys(keys);
-        await hostRelay().setVapidKeys(keys);
-        return true;
+        return hostRelay().setVapidKeys(keys);
       },
       syncLayout: (snapshot) => ownerSync.syncLayout(snapshot),
     },

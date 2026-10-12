@@ -473,6 +473,9 @@ export function initApp(devTitle: string | null): void {
     // The desktop's own VAPID pair, so a phone's one browser subscription is
     // valid in every room (D3). Read lazily: `remotePush` is built below.
     vapidKeys: () => remotePush.vapidKeys(),
+    // A changed key cleared the host's subscriptions; re-read them (a failed
+    // refresh clears the cache) so the desktop stops skipping gone endpoints.
+    onVapidKeysChanged: (hostId) => void hostPushEndpoints.refresh(hostId),
   });
   projectManager.onStateSaved(() => hostServerSync.manifestChanged());
   githubManager.onPrCacheChange((hostId) => hostServerSync.manifestChanged(hostId));
@@ -486,8 +489,6 @@ export function initApp(devTitle: string | null): void {
   // runs at most once, on the first enable.
   const remoteDeviceStore = new RemoteDeviceStore(secretBox);
   const remotePush = new PushManager(remoteDeviceStore, secretBox);
-  // After `remotePush`: starting sends to hosts already connected.
-  hostServerSync.start();
   // ADR-218 D3: a phone paired with a host's server hears about that host's
   // agents from the server, so the desktop skips those subscriptions. Cached
   // per host, refreshed on every owner-channel connect and after pairing.
@@ -497,6 +498,9 @@ export function initApp(devTitle: string | null): void {
       return client?.state === "connected" ? client.status() : null;
     },
   });
+  // After `remotePush` and `hostPushEndpoints`: starting syncs hosts that
+  // are already connected.
+  hostServerSync.start();
   backendRegistry.onHostServerStateChange((hostId, state) => {
     if (state === "connected") void hostPushEndpoints.refresh(hostId);
     else if (state === "unsupported") hostPushEndpoints.forget(hostId);

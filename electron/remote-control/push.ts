@@ -215,6 +215,23 @@ export function pushPayloadFor(
 }
 
 /**
+ * One agent-status transition, as a push to every subscribed device — or
+ * nothing, when the status is not worth waking a phone for or did not change.
+ * The one rule for both the desktop's controller and a host server
+ * (ADR-218 D3), each of which hands it transitions already coalesced across a
+ * hook replay (`NotificationCoalescer`).
+ */
+export function pushAgentTransition(
+  push: Pick<PushManager, "notify">,
+  agent: { id: string; name: string | null; projectName: string | null },
+  previousStatus: string | null | undefined,
+  status: string,
+): void {
+  if (!isPushable(status) || status === previousStatus) return;
+  void push.notify(pushPayloadFor(status, agent));
+}
+
+/**
  * Validate a subscription body. `endpoint` must be https — a push endpoint is a
  * capability URL, and we will not store one that would be sent in the clear.
  * Used by the bridge's `remoteControl.subscribePush`.

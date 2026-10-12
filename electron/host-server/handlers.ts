@@ -59,6 +59,13 @@ import type { LayoutEntry } from "../../src/lib/layout/protocol";
 import type { PtyCreateOptions, PtyCreateResult } from "../../src/electron.d";
 import { errorMessage } from "../lib/errors";
 import type { AgentQuery } from "../bridge/handlers/agents";
+import {
+  remoteControlPair,
+  remoteControlSubscribePush,
+  remoteControlVapidPublicKey,
+} from "../bridge/handlers/remote-control";
+import type { RemoteDeviceInfo } from "../remote-control/devices";
+import type { HostRemoteControl, HostServerStatus } from "./relay";
 
 /** The daemon calls the host server's handlers make. */
 export type HostPty = Pick<
@@ -100,6 +107,13 @@ export interface HostServerDeps
   preferences(): AppPreferences;
   /** The theme a phone draws terminals in: Manor's default. */
   theme(): Theme;
+  /** This server's own relay room: pairing, devices, push (ADR-218 D3). */
+  remoteControl: HostRemoteControl;
+  /** The owner's view of this server (ADR-218 D4). */
+  hostServer: {
+    status(): HostServerStatus;
+    resetIdentity(): Promise<HostServerStatus>;
+  };
 }
 
 type Ctx = HandlerCtx<HostServerDeps>;
@@ -259,6 +273,34 @@ function hostsList(ctx: Ctx): HostStatusInfo[] {
   return [ctx.deps.daemonStatus()];
 }
 
+// ── remote control, this server's own room (ADR-218 D3) ──
+
+function remoteControlListDevices(ctx: Ctx): RemoteDeviceInfo[] {
+  return ctx.deps.remoteControl.listDevices();
+}
+
+function remoteControlRevoke(ctx: Ctx, id: string): RemoteDeviceInfo[] {
+  assertString(id, "remoteControl.revoke.id");
+  return ctx.deps.remoteControl.revoke(id);
+}
+
+// ── the owner's view of this server (ADR-218 D4) ──
+
+function hostServerStatus(ctx: Ctx): HostServerStatus {
+  return ctx.deps.hostServer.status();
+}
+
+/**
+ * New relay identity; every phone and push subscription revoked.
+ *
+ * Owner-only, like pairing. When delegated integration tokens arrive (ADR-218
+ * D8, slice 2) this must delete those too: "Reset pairing keys" is the
+ * recovery step for a box that may be compromised.
+ */
+function hostServerResetIdentity(ctx: Ctx): Promise<HostServerStatus> {
+  return ctx.deps.hostServer.resetIdentity();
+}
+
 /**
  * A host table entry: `method`, checked against `HostServerDeps`, so a
  * desktop handler that reads more than this server has fails to compile here
@@ -315,6 +357,22 @@ const METHODS = flatten({
   },
   hosts: {
     list: hostMethod(hostsList),
+  },
+  // A token that can pair more devices survives its own revocation: what
+  // changes who can reach this room is the owner's alone (`localOnly`, so a
+  // device is answered `unavailable:host`). The push pair is for devices.
+  remoteControl: {
+    pair: hostMethod(remoteControlPair, { localOnly: true }),
+    listDevices: hostMethod(remoteControlListDevices, { localOnly: true }),
+    revoke: hostMethod(remoteControlRevoke, { localOnly: true }),
+    vapidPublicKey: hostMethod(remoteControlVapidPublicKey),
+    subscribePush: hostMethod(remoteControlSubscribePush),
+  },
+  // TODO(ADR-218 ticket 4): `localOnly` admits the `local` caller, which
+  // today is the owner socket's; the `owner` caller class replaces it.
+  hostServer: {
+    status: hostMethod(hostServerStatus, { localOnly: true }),
+    resetIdentity: hostMethod(hostServerResetIdentity, { localOnly: true }),
   },
 });
 

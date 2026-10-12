@@ -53,3 +53,27 @@ export function parseRelayUrl(raw: string): RelayEndpoint {
 export function resolveRelayUrl(env: NodeJS.ProcessEnv = process.env): string {
   return env.MANOR_RELAY_URL?.trim() || DEFAULT_RELAY_URL;
 }
+
+/**
+ * The web app on the relay, with no credentials in it: what an already-paired
+ * browser opens (`https://<relay>/app/<version>/`).
+ */
+export function relayAppUrl(origin: string, appVersion: string): string {
+  return `${origin}/app/${appVersion}/`;
+}
+
+/**
+ * A pairing link (ADR-206 D3): the web app, with the room, the Noise static
+ * public key and the device's raw token in the fragment, which never reaches
+ * the relay. Built by the desktop's controller and by a host server
+ * (ADR-218 D3) alike, so a phone pairs with either the same way.
+ */
+export function relayPairingUrl(link: {
+  origin: string;
+  appVersion: string;
+  roomId: string;
+  x25519Pub: string;
+  rawToken: string;
+}): string {
+  return `${relayAppUrl(link.origin, link.appVersion)}#relay=${link.roomId}.${link.x25519Pub}&t=${link.rawToken}`;
+}

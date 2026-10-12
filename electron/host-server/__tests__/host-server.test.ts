@@ -46,6 +46,15 @@ import { hostServerPaths, type HostServerPaths } from "../../paths";
 import type { AgentInfo } from "../../agent-persistence";
 import type { PaneStatusUpdate } from "../../agent-status/effects";
 import { runServe, type RunningServer } from "../serve";
+import type { HostServerStatus } from "../relay";
+import type { PairResult } from "../../remote-control/controller";
+import type { RemoteDeviceInfo } from "../../remote-control/devices";
+import {
+  FakeRelay,
+  FakeViewer,
+} from "../../remote-control/relay/__tests__/fake-relay";
+import { base64urlDecode } from "../../../src/lib/relay-crypto";
+import { WebSocket as WsWebSocket, type ClientOptions } from "ws";
 
 /** Sockets to an already-running `E2EDaemon`; nothing is ever spawned. */
 class HarnessTransport implements HostTransport {
@@ -177,12 +186,51 @@ function hook(eventType: string, extra: Record<string, string> = {}) {
   };
 }
 
+/** What a pairing link carries in its fragment. */
+function parsePairingUrl(url: string): {
+  base: string;
+  roomId: string;
+  x25519Pub: string;
+  token: string;
+} {
+  const match = /^(.*)#relay=([^.]+)\.([^&]+)&t=(.+)$/.exec(url);
+  if (!match) throw new Error(`not a pairing link: ${url}`);
+  return {
+    base: match[1],
+    roomId: match[2],
+    x25519Pub: match[3],
+    token: match[4],
+  };
+}
+
+async function until(check: () => boolean, what: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (!check()) {
+    if (Date.now() > deadline) throw new Error(`timed out: ${what}`);
+    await delay(10);
+  }
+}
+
+type PushCall = { endpoint: string; payload: unknown };
+
 describe("host server", () => {
   let tmp: string;
   let daemon: E2EDaemon;
   let paths: HostServerPaths;
   let running: RunningServer | null = null;
+  let relay: FakeRelay;
+  let pushes: PushCall[];
+  let socketsMade: number;
   const clients: OwnerClient[] = [];
+  const viewers: FakeViewer[] = [];
+
+  /** `ws`'s WebSocket, counted: what the server passes the connector. */
+  class CountingWebSocket extends WsWebSocket {
+    constructor(url: string, options: ClientOptions) {
+      super(url, options);
+      socketsMade += 1;
+    }
+  }
 
   async function serve(): Promise<RunningServer> {
     running = await runServe({
@@ -190,9 +238,56 @@ describe("host server", () => {
       version: "1.2.3-test",
       transport: new HarnessTransport(daemon),
       logToFile: false,
+      relay: {
+        relayUrl: relay.url,
+        webSocket: CountingWebSocket,
+        timing: { backoffMinMs: 20, backoffMaxMs: 100 },
+        pushSend: async (subscription, payload) => {
+          pushes.push({
+            endpoint: subscription.endpoint,
+            payload: JSON.parse(String(payload)),
+          });
+          return { statusCode: 201, body: "", headers: {} };
+        },
+        pushGenerate: () => ({ publicKey: "vapid-pub", privateKey: "vapid" }),
+      },
     });
     await running.server.whenCaughtUp();
     return running;
+  }
+
+  /** Wait for the server's relay connector to hold its room. */
+  async function relayUp(server: RunningServer): Promise<void> {
+    await until(
+      () => server.server.relay.relayStatus().connected,
+      "relay connected",
+    );
+  }
+
+  /** A phone: through the relay to the room in `pairingUrl`, hello'd. */
+  async function phone(pairingUrl: string): Promise<{
+    viewer: FakeViewer;
+    call(ns: string, method: string, ...args: unknown[]): Promise<Frame>;
+  }> {
+    const link = parsePairingUrl(pairingUrl);
+    const viewer = await FakeViewer.open(
+      relay.url,
+      link.roomId,
+      base64urlDecode(link.x25519Pub),
+    );
+    viewers.push(viewer);
+    viewer.send({ type: "hello", token: link.token });
+    const hello = await viewer.next((f) => f.type === "hello");
+    expect(hello).toMatchObject({ ok: true });
+    let nextId = 1;
+    return {
+      viewer,
+      async call(ns, methodName, ...args) {
+        const id = nextId++;
+        viewer.send({ kind: "invoke", id, ns, method: methodName, args });
+        return viewer.next((f) => f.kind === "result" && f.id === id);
+      },
+    };
   }
 
   async function owner(): Promise<OwnerClient> {
@@ -203,6 +298,10 @@ describe("host server", () => {
   }
 
   beforeEach(async () => {
+    relay = new FakeRelay();
+    await relay.listen();
+    pushes = [];
+    socketsMade = 0;
     tmp = makeTmpDir();
     daemon = new E2EDaemon(path.join(tmp, "daemon"));
     await daemon.start();
@@ -219,9 +318,11 @@ describe("host server", () => {
 
   afterEach(async () => {
     for (const client of clients.splice(0)) client.close();
+    for (const viewer of viewers.splice(0)) viewer.ws.terminate();
     await running?.stop();
     running = null;
     await daemon.stop();
+    await relay.close();
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
@@ -379,5 +480,197 @@ describe("host server", () => {
     expect(attached).toEqual(
       expect.objectContaining({ ok: true, hostId: "local" }),
     );
+  });
+  describe("its own relay room (ADR-218 D3)", () => {
+    it("dials its room through the injected WebSocket constructor", async () => {
+      const server = await serve();
+      await relayUp(server);
+      expect(socketsMade).toBeGreaterThanOrEqual(1);
+      const { roomId } = server.server.relay.relayStatus();
+      expect(relay.liveHost?.roomId).toBe(roomId);
+    });
+
+    it("pairs a phone with a link to the room derived from its identity", async () => {
+      const server = await serve();
+      const client = await owner();
+      const status = await client.invoke<HostServerStatus>(
+        "hostServer",
+        "status",
+      );
+      expect(status).toMatchObject({
+        version: "1.2.3-test",
+        secretBackend: "plaintext",
+        devices: 0,
+        pushEndpoints: [],
+      });
+      expect(status.relay.roomId).toMatch(/^[A-Za-z0-9_-]{22}$/);
+      expect(status.uptimeMs).toBeGreaterThanOrEqual(0);
+
+      const paired = await client.invoke<PairResult>(
+        "remoteControl",
+        "pair",
+        "phone",
+      );
+      const link = parsePairingUrl(paired.pairingUrl);
+      const origin = relay.url.replace("ws://", "http://");
+      expect(link.base).toBe(`${origin}/app/1.2.3-test/`);
+      expect(link.roomId).toBe(status.relay.roomId);
+      expect(link.token).toBe(paired.rawToken);
+      expect(paired.device).toMatchObject({ label: "phone", hasPush: false });
+
+      const devices = await client.invoke<RemoteDeviceInfo[]>(
+        "remoteControl",
+        "listDevices",
+      );
+      expect(devices.map((d) => d.id)).toEqual([paired.device.id]);
+
+      // The phone reaches this server's bridge through the room, as a device.
+      await relayUp(server);
+      const p = await phone(paired.pairingUrl);
+      const agents = await p.call("agents", "getAll");
+      expect(agents).toMatchObject({ ok: true, result: [] });
+    });
+
+    it("refuses a device the owner's methods", async () => {
+      const server = await serve();
+      await relayUp(server);
+      const client = await owner();
+      const paired = await client.invoke<PairResult>(
+        "remoteControl",
+        "pair",
+        "phone",
+      );
+      const p = await phone(paired.pairingUrl);
+      for (const [ns, methodName, ...args] of [
+        ["remoteControl", "pair", "another"],
+        ["remoteControl", "listDevices"],
+        ["remoteControl", "revoke", paired.device.id],
+        ["hostServer", "status"],
+        ["hostServer", "resetIdentity"],
+      ]) {
+        expect(await p.call(ns, methodName, ...args)).toMatchObject({
+          ok: false,
+          code: "unavailable:host",
+        });
+      }
+      // Nothing changed hands.
+      expect(
+        await client.invoke<RemoteDeviceInfo[]>("remoteControl", "listDevices"),
+      ).toHaveLength(1);
+    });
+
+    it("revokes a device and closes its channel", async () => {
+      const server = await serve();
+      await relayUp(server);
+      const client = await owner();
+      const paired = await client.invoke<PairResult>(
+        "remoteControl",
+        "pair",
+        "phone",
+      );
+      const p = await phone(paired.pairingUrl);
+      expect(
+        await client.invoke("remoteControl", "revoke", paired.device.id),
+      ).toEqual([]);
+      await until(
+        () =>
+          p.viewer.frames.some((f) => f.kind === "close") ||
+          p.viewer.ws.readyState >= WsWebSocket.CLOSING,
+        "revoked channel closed",
+      );
+    });
+
+    it("pushes a requires_input transition to a subscribed phone", async () => {
+      const server = await serve();
+      await relayUp(server);
+      const client = await owner();
+      const paired = await client.invoke<PairResult>(
+        "remoteControl",
+        "pair",
+        "phone",
+      );
+      const p = await phone(paired.pairingUrl);
+      expect(await p.call("remoteControl", "vapidPublicKey")).toMatchObject({
+        ok: true,
+        result: "vapid-pub",
+      });
+      const subscription = {
+        endpoint: "https://push.example/endpoint-1",
+        keys: { p256dh: "p256", auth: "auth" },
+      };
+      expect(
+        await p.call("remoteControl", "subscribePush", subscription),
+      ).toMatchObject({ ok: true, result: true });
+      // The owner can't subscribe: there is no device behind it.
+      expect(
+        await client.call("remoteControl", "subscribePush", subscription),
+      ).toMatchObject({ ok: false });
+
+      expect(
+        (await client.invoke<HostServerStatus>("hostServer", "status"))
+          .pushEndpoints,
+      ).toEqual(["https://push.example/endpoint-1"]);
+
+      daemon.emitHook(hook("SessionStart"));
+      daemon.emitHook(hook("UserPromptSubmit"));
+      daemon.emitHook(hook("PermissionRequest"));
+      await until(() => pushes.length > 0, "a push");
+      expect(pushes).toEqual([
+        {
+          endpoint: "https://push.example/endpoint-1",
+          payload: expect.objectContaining({ title: "Agent needs input" }),
+        },
+      ]);
+    });
+
+    it("resetIdentity moves to a new room and revokes every device", async () => {
+      const server = await serve();
+      await relayUp(server);
+      const client = await owner();
+      const before = await client.invoke<HostServerStatus>(
+        "hostServer",
+        "status",
+      );
+      const paired = await client.invoke<PairResult>(
+        "remoteControl",
+        "pair",
+        "phone",
+      );
+      const p = await phone(paired.pairingUrl);
+      await p.call("remoteControl", "subscribePush", {
+        endpoint: "https://push.example/endpoint-1",
+        keys: { p256dh: "p256", auth: "auth" },
+      });
+
+      const after = await client.invoke<HostServerStatus>(
+        "hostServer",
+        "resetIdentity",
+      );
+      expect(after.relay.roomId).not.toBe(before.relay.roomId);
+      expect(after.devices).toBe(0);
+      expect(after.pushEndpoints).toEqual([]);
+      expect(await client.invoke("remoteControl", "listDevices")).toEqual([]);
+
+      // The connector holds the new room.
+      await until(
+        () => relay.liveHost?.roomId === after.relay.roomId,
+        "connector on the new room",
+      );
+      // The old link is dead: its token no longer passes the hello.
+      const relink = await client.invoke<PairResult>(
+        "remoteControl",
+        "pair",
+        "phone-2",
+      );
+      expect(parsePairingUrl(relink.pairingUrl).roomId).toBe(
+        after.relay.roomId,
+      );
+
+      // And it survives a restart: the identity was persisted.
+      await server.stop();
+      running = null;
+      const again = await serve();
+      expect(again.server.relay.relayStatus().roomId).toBe(after.relay.roomId);
+    });
   });
 });

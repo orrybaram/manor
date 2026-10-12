@@ -10,7 +10,9 @@
  * - `server.pid` and `server.version` — who is running, for the lifecycle
  *   check that replaces a server whose version is stale (ticket 5);
  * - `logs/host-server.log` — console output, rotated (`main-log.ts`);
- * - `secret-backend` — which `SecretBox` sealed this server's keys.
+ * - `secret-backend` — which `SecretBox` sealed this server's keys;
+ * - `relay-identity.enc`, `remote-devices.enc`, `remote-vapid.enc` — its own
+ *   relay room, the phones paired to it and its push keys, sealed (D3).
  *
  * Kept apart from `index.ts` so a test can run a whole server in-process.
  */
@@ -21,6 +23,7 @@ import { installMainLog } from "../main-log";
 import { hostServerPaths, type DaemonNamespace } from "../paths";
 import { pickHostSecretBox } from "../platform/secret-box";
 import type { HostTransport } from "../terminal-host/transport";
+import type { HostRelayOptions } from "./relay";
 import { createHostServer, type HostServer } from "./server";
 import {
   listenHostSocket,
@@ -37,6 +40,8 @@ export interface ServeOptions {
   /** Tests: reach the daemon some other way, and keep console output local. */
   transport?: HostTransport;
   logToFile?: boolean;
+  /** Tests: a local relay, and push with no push service behind it. */
+  relay?: HostRelayOptions;
 }
 
 export interface RunningServer {
@@ -103,6 +108,7 @@ export async function runServe(opts: ServeOptions): Promise<RunningServer> {
       logsDir: paths.logsDir,
     },
     transport: opts.transport,
+    relay: opts.relay,
   });
 
   const token = newOwnerToken();

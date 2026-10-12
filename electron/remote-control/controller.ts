@@ -36,7 +36,8 @@ import { lazy, type Lazy } from "../lib/lazy";
 import type { RemoteDeviceInfo, RemoteDeviceStore } from "./devices";
 import type { RelayConnector, RelayStatus } from "./relay/connector";
 import type { RelayIdentityStore } from "./relay/identity";
-import { isPushable, pushPayloadFor, type PushManager } from "./push";
+import { pushAgentTransition, type PushManager } from "./push";
+import { relayAppUrl, relayPairingUrl } from "./relay/url";
 import type { PushSubscriptionRecord } from "./devices";
 import type { RelayGate } from "./relay-gate";
 
@@ -175,8 +176,7 @@ export class RemoteControlController {
     { notify }: { notify: boolean },
   ): void {
     if (!this.push || !notify) return;
-    if (!isPushable(status) || status === previousStatus) return;
-    void this.push.notify(pushPayloadFor(status, agent));
+    pushAgentTransition(this.push, agent, previousStatus, status);
   }
 
   onChange(listener: (status: RemoteControlStatus) => void): () => void {
@@ -241,7 +241,13 @@ export class RemoteControlController {
     return {
       device,
       rawToken,
-      pairingUrl: `${origin}/app/${this.appVersion}/#relay=${roomId}.${x25519Pub}&t=${rawToken}`,
+      pairingUrl: relayPairingUrl({
+        origin,
+        appVersion: this.appVersion,
+        roomId,
+        x25519Pub,
+        rawToken,
+      }),
     };
   }
 
@@ -398,7 +404,9 @@ export class RemoteControlController {
       enabled: this.enabled,
       relay: relay?.status ?? { ...STOPPED_RELAY_STATUS },
       relayOrigin,
-      relayAppUrl: relayOrigin ? `${relayOrigin}/app/${this.appVersion}/` : null,
+      relayAppUrl: relayOrigin
+        ? relayAppUrl(relayOrigin, this.appVersion)
+        : null,
       relayViewers: relay?.channelCount ?? 0,
     };
   }

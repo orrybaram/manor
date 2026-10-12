@@ -214,6 +214,12 @@ export interface HostServerPaths {
   manifest: string;
   /** The desktop's last layout snapshot for this host (ADR-218 D5). */
   layout: string;
+  /** This server's relay identity: its own room (ADR-218 D3). Sealed. */
+  relayIdentity: string;
+  /** Phones paired to this server's room, token hashes only. Sealed. */
+  devices: string;
+  /** This server's VAPID key pair, for its own push (ADR-218 D3). Sealed. */
+  vapid: string;
   logsDir: string;
 }
 
@@ -228,6 +234,9 @@ export function hostServerPaths(dataDir: string = remoteServerDir()): HostServer
     secretBackend: path.join(dataDir, "secret-backend"),
     manifest: path.join(dataDir, "manifest.json"),
     layout: path.join(dataDir, "layout.json"),
+    relayIdentity: path.join(dataDir, "relay-identity.enc"),
+    devices: path.join(dataDir, "remote-devices.enc"),
+    vapid: path.join(dataDir, "remote-vapid.enc"),
     logsDir: path.join(dataDir, "logs"),
   };
 }

@@ -380,3 +380,98 @@ describe("TranscriptParser", () => {
     });
   });
 });
+
+describe("TranscriptParser tasks", () => {
+  const launch = (id: string, name: string, input: Record<string, unknown>) =>
+    assistant(`a-${id}`, [{ type: "tool_use", id, name, input }]);
+  const result = (id: string, text: string, toolUseResult?: unknown, extra = {}) =>
+    line({
+      type: "user",
+      uuid: `r-${id}`,
+      message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: text, ...extra }] },
+      ...(toolUseResult === undefined ? {} : { toolUseResult }),
+    });
+  const notify = (uuid: string, toolUseId: string, status: string) =>
+    userBlocks(
+      uuid,
+      `<task-notification>\n<task-id>x</task-id>\n<tool-use-id>${toolUseId}</tool-use-id>\n<status>${status}</status>\n<summary>All done</summary>\n</task-notification>`,
+    );
+
+  it("tracks an async agent from launch to notification without a notice", () => {
+    const p = new TranscriptParser();
+    const [t] = p.push(
+      launch("tu1", "Agent", { description: "Map sync", subagent_type: "Explore", model: "sonnet", run_in_background: true }),
+    );
+    expect(t).toMatchObject({
+      kind: "task",
+      id: "tu1",
+      taskKind: "agent",
+      title: "Map sync",
+      agentType: "Explore",
+      model: "sonnet",
+      background: true,
+      status: "running",
+      hasTranscript: false,
+    });
+    const [r] = p.push(result("tu1", "Async agent launched", { isAsync: true, status: "async_launched", agentId: "a688" }));
+    expect(r).toMatchObject({ status: "running", taskRef: "a688", hasTranscript: true });
+    expect((r as { result?: string }).result).toBeUndefined();
+    const out = p.push(notify("n1", "tu1", "completed"));
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ kind: "task", id: "tu1", status: "ok", result: "All done" });
+    expect(p.entries().filter((e) => e.kind === "notice")).toEqual([]);
+  });
+
+  it("resolves a foreground agent from its result", () => {
+    const p = new TranscriptParser();
+    p.push(launch("tu2", "Agent", { description: "Look" }));
+    const [r] = p.push(result("tu2", "found it", { agentId: "b1" }));
+    expect(r).toMatchObject({ status: "ok", result: "found it", taskRef: "b1", hasTranscript: true, background: false });
+  });
+
+  it("marks a failed foreground agent as error", () => {
+    const p = new TranscriptParser();
+    p.push(launch("tu3", "Agent", {}));
+    const [r] = p.push(result("tu3", "boom", undefined, { is_error: true }));
+    expect(r).toMatchObject({ title: "Agent", status: "error", result: "boom", hasTranscript: false });
+  });
+
+  it("tracks a background Bash and its killed notification", () => {
+    const p = new TranscriptParser();
+    const [t] = p.push(launch("tu4", "Bash", { command: "sleep 99\necho hi", run_in_background: true }));
+    expect(t).toMatchObject({ kind: "task", taskKind: "shell", title: "sleep 99", background: true, status: "running" });
+    const [r] = p.push(result("tu4", "Command running in background with ID: bjl", { backgroundTaskId: "bjl" }));
+    expect(r).toMatchObject({ status: "running", taskRef: "bjl", hasTranscript: false });
+    expect((r as { result?: string }).result).toBeUndefined();
+    expect(p.push(notify("n2", "tu4", "killed"))[0]).toMatchObject({ status: "killed", result: "All done" });
+  });
+
+  it("keeps a foreground Bash as a tool", () => {
+    const p = new TranscriptParser();
+    expect(p.push(launch("tu5", "Bash", { command: "ls" }))[0].kind).toBe("tool");
+  });
+
+  it("still makes a notice for a notification with an unknown tool-use-id", () => {
+    const p = new TranscriptParser();
+    const [n] = p.push(notify("n3", "nope", "failed"));
+    expect(n).toMatchObject({ kind: "notice", text: "All done", status: "error" });
+  });
+
+  it("parses the legacy Task tool name", () => {
+    const p = new TranscriptParser();
+    expect(p.push(launch("tu6", "Task", { subagent_type: "general-purpose" }))[0]).toMatchObject({
+      kind: "task",
+      taskKind: "agent",
+      title: "general-purpose",
+    });
+  });
+
+  it("tolerates a result with no toolUseResult and a malformed notification", () => {
+    const p = new TranscriptParser();
+    p.push(launch("tu7", "Agent", { description: "d", run_in_background: true }));
+    const [r] = p.push(result("tu7", "ok", "weird"));
+    expect(r).toMatchObject({ status: "running", hasTranscript: false });
+    expect(p.push(userBlocks("n4", "<task-notification><tool-use-id>tu7</tool-use-id></task-notification>"))).toEqual([]);
+    expect(p.entries().find((e) => e.id === "tu7")).toMatchObject({ status: "running" });
+  });
+});

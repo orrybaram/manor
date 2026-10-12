@@ -52,6 +52,27 @@ export type ChatEntry =
       output?: string;
     }
   | {
+      /** Delegated or background work: an agent, or a shell command (ADR-224 D2). */
+      kind: "task";
+      /** The launching tool_use id. */
+      id: string;
+      ts: string;
+      taskKind: "agent" | "shell" | "other";
+      /** One line: the description, else the command's first line. */
+      title: string;
+      /** e.g. "implementer", "Explore". Agent tasks only. */
+      agentType?: string;
+      model?: string;
+      background: boolean;
+      status: "running" | "ok" | "error" | "killed";
+      /** The final summary or result text, capped at MAX_DETAIL. */
+      result?: string;
+      /** The agent's own id for this task, when it has one. */
+      taskRef?: string;
+      /** True when `childTranscriptPath` can resolve a transcript for it. */
+      hasTranscript: boolean;
+    }
+  | {
       /** A background task finishing, e.g. `Agent "Map mobile state sync" finished`. */
       kind: "notice";
       id: string;
@@ -59,6 +80,8 @@ export type ChatEntry =
       text: string;
       status: "ok" | "error";
     };
+
+export type ChatTaskEntry = Extract<ChatEntry, { kind: "task" }>;
 
 /**
  * The session's context size in tokens (ADR-223 D4). Published by the mirror
@@ -288,7 +311,7 @@ export class TranscriptParser {
       for (const block of content) {
         if (!isObject(block)) continue;
         if (block.type === "tool_result") {
-          const e = this.resolve(block);
+          const e = this.resolve(block, parsed.toolUseResult);
           if (e) out.push(e);
         } else if (block.type === "text" && typeof block.text === "string") {
           texts.push(block.text);
@@ -342,6 +365,33 @@ export class TranscriptParser {
             ts,
             plan: str(input.plan) ?? "",
             outcome: null,
+          };
+        } else if (name === "Agent" || name === "Task") {
+          entry = {
+            kind: "task",
+            id,
+            ts,
+            taskKind: "agent",
+            title:
+              str(input.description)?.trim() ||
+              str(input.subagent_type) ||
+              "Agent",
+            agentType: str(input.subagent_type),
+            model: str(input.model),
+            background: input.run_in_background === true,
+            status: "running",
+            hasTranscript: false,
+          };
+        } else if (name === "Bash" && input.run_in_background === true) {
+          entry = {
+            kind: "task",
+            id,
+            ts,
+            taskKind: "shell",
+            title: summarizeTool(name, input),
+            background: true,
+            status: "running",
+            hasTranscript: false,
           };
         } else {
           entry = {
@@ -407,6 +457,22 @@ export class TranscriptParser {
       const summary = tagText(text, "summary")?.trim();
       if (!summary) return null;
       const status = tagText(text, "status")?.trim();
+      const target = tagText(text, "tool-use-id")?.trim();
+      const task = target ? this.byId.get(target) : undefined;
+      if (task && task.kind === "task") {
+        const next: ChatEntry = {
+          ...task,
+          status:
+            status === "failed"
+              ? "error"
+              : status === "killed"
+                ? "killed"
+                : "ok",
+          result: summary.slice(0, MAX_DETAIL),
+        };
+        this.byId.set(task.id, next);
+        return next;
+      }
       return this.add({
         kind: "notice",
         id: uuid,
@@ -420,7 +486,7 @@ export class TranscriptParser {
   }
 
   /** Apply a tool_result block to its pending entry. */
-  private resolve(block: Json): ChatEntry | null {
+  private resolve(block: Json, toolUseResult?: unknown): ChatEntry | null {
     const id = str(block.tool_use_id);
     if (!id) return null;
     const existing = this.byId.get(id);
@@ -444,6 +510,21 @@ export class TranscriptParser {
       case "plan":
         next = { ...existing, outcome: text };
         break;
+      case "task": {
+        const info = isObject(toolUseResult) ? toolUseResult : {};
+        const ref = str(info.agentId) ?? str(info.backgroundTaskId);
+        next = { ...existing };
+        if (ref) next.taskRef = ref;
+        if (str(info.agentId) && existing.taskKind === "agent") {
+          next.hasTranscript = true;
+        }
+        // A launch, not a finish: the notification settles it later.
+        if (info.isAsync !== true && !existing.background) {
+          next.status = isError ? "error" : "ok";
+          next.result = text ? text.slice(0, MAX_DETAIL) : undefined;
+        }
+        break;
+      }
       default:
         return null;
     }

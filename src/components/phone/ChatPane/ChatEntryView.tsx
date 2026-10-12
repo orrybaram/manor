@@ -59,6 +59,18 @@ export function ChatEntryView(props: ChatEntryViewProps) {
           <span className={styles.noticeText}>{entry.text}</span>
         </div>
       );
+    case "task":
+      return (
+        <div className={styles.notice} data-testid="chat-task">
+          <span
+            className={styles.statusDot}
+            data-status={TASK_DOT[entry.status]}
+            role="img"
+            aria-label={TASK_LABEL[entry.status]}
+          />
+          <span className={styles.noticeText}>{entry.title}</span>
+        </div>
+      );
     case "question":
       return entry.answer === null ? (
         <QuestionCard
@@ -186,6 +198,20 @@ function RunningTool(props: RunningToolProps) {
 type ToolEntryProps = {
   entry: Extract<ChatEntry, { kind: "tool" }>;
 };
+
+const TASK_DOT = {
+  running: "pending",
+  ok: "ok",
+  error: "error",
+  killed: "error",
+} as const;
+
+const TASK_LABEL = {
+  running: "running",
+  ok: "done",
+  error: "failed",
+  killed: "stopped",
+} as const;
 
 const STATUS_LABEL = {
   pending: "running",

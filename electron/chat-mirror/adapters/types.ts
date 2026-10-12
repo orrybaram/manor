@@ -5,7 +5,7 @@
  * `ChatEntry` union.
  */
 
-import type { ChatEntry, ChatSkill } from "../transcript";
+import type { ChatEntry, ChatSkill, ChatTaskEntry } from "../transcript";
 
 /** Reads one transcript, a line at a time. */
 export interface TranscriptLineParser {
@@ -26,5 +26,5 @@ export interface TranscriptAdapter {
    * Where a task's own transcript lives, given the parent's path and the
    * task entry. Null when the agent writes none, or this task has none.
    */
-  childTranscriptPath(parentPath: string, task: ChatEntry): string | null;
+  childTranscriptPath(parentPath: string, task: ChatTaskEntry): string | null;
 }

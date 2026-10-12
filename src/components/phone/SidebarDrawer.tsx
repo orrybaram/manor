@@ -11,9 +11,9 @@ type SidebarDrawerProps = {
   /** The agents view's settings button. */
   onOpenSettings: () => void;
   /** The nav group's Search row. */
-  onOpenSearch?: () => void;
+  onOpenSearch: () => void;
   /** The nav group's Notifications row (phone only). */
-  onOpenNotifications?: () => void;
+  onOpenNotifications: () => void;
 };
 
 /**

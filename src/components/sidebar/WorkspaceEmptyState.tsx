@@ -5,7 +5,7 @@ import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import FolderPlus from "lucide-react/dist/esm/icons/folder-plus";
 import Globe from "lucide-react/dist/esm/icons/globe";
-import { useAppStore } from "../../store/app-store";
+import { selectActiveWorkspaceKey, useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { removeWorktreeWithToast } from "../../store/workspace-actions";
 import { EmptyStateShell, type ActionItem } from "./EmptyStateShell";
@@ -13,7 +13,7 @@ import { useIssuesShortcut } from "./useIssuesShortcut";
 import { WorkspaceSetupView } from "./WorkspaceSetupView";
 import { GitHubNudge } from "./GitHubNudge";
 import { useLayoutMode } from "../../hooks/useLayoutMode";
-import { PhoneEmptyWorkspace } from "../phone/PhoneEmptyWorkspace";
+import { PhoneNewAgentComposer } from "../phone/NewAgent/PhoneNewAgentComposer";
 import styles from "../EmptyState.module.css";
 
 type WorkspaceEmptyStateProps = {
@@ -27,6 +27,7 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
   const addTab = useAppStore((s) => s.addTab);
   const addBrowserTab = useAppStore((s) => s.addBrowserTab);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
+  const activeWorkspaceKey = useAppStore(selectActiveWorkspaceKey);
   const worktreeSetupState = useAppStore((s) => s.worktreeSetupState);
   const clearWorktreeSetup = useAppStore((s) => s.clearWorktreeSetup);
   const projects = useProjectStore((s) => s.projects);
@@ -145,9 +146,13 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
   }
 
   // A phone has no use for a list of shortcuts: its empty workspace is a
-  // chat waiting for the first message.
+  // chat that hasn't started yet. The first message is the new agent's
+  // prompt, and nothing is launched until it is sent, so closing the last
+  // agent lands back here rather than spawning another one. It is the
+  // new-agent composer (ADR-222) with nothing to close back to, keyed by
+  // workspace so each workspace's screen starts on that workspace.
   const content = phone ? (
-    <PhoneEmptyWorkspace />
+    <PhoneNewAgentComposer key={activeWorkspaceKey ?? ""} closable={false} />
   ) : (
     <EmptyStateShell actions={actions} banner={banner} />
   );

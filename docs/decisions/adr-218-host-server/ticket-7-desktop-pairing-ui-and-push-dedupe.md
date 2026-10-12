@@ -1,6 +1,6 @@
 ---
 title: Pair a phone with a host from the desktop, and dedupe push
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [3, 4]

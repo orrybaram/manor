@@ -1,6 +1,6 @@
 ---
 title: Ship the host server in the tarball and keep it running
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2]

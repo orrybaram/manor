@@ -1,6 +1,6 @@
 ---
 title: Phone holds several pairings and switches between hosts
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [3]

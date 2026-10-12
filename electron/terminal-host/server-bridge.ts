@@ -34,6 +34,7 @@ import {
   remoteServerDir,
   type HostServerPaths,
 } from "../paths";
+import { ensureServerRunning } from "../host-server/lifecycle";
 import { pump, teardown, type BridgeIO } from "./bridge";
 
 /** The exit code for "there is no host server running on this box". */
@@ -52,21 +53,10 @@ export interface ServerBridgeOptions {
   paths?: Pick<HostServerPaths, "socket" | "ownerToken">;
   /**
    * Make sure a host server is running, starting one if not, before the
-   * token is read. Defaults to `ensureServerRunning` below.
+   * token is read. Defaults to `ensureServerRunning` (`../host-server/lifecycle`).
    */
   ensureServerRunning?: () => Promise<void>;
 }
-
-/**
- * Start the host server if it is not running, or replace one whose version
- * is stale.
- *
- * TODO(ADR-218 ticket 5): spawn `manor-host serve` detached and wait for
- * its socket, the way `LocalTransport.ensureRunning` does for the daemon.
- * Until then a box runs a server only if one was started by hand, and the
- * bridge fails with "not running" otherwise.
- */
-async function ensureServerRunning(): Promise<void> {}
 
 /** The owner token, or `HostServerNotRunningError` when there is none. */
 function readOwnerToken(file: string): string {

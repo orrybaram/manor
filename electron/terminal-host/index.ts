@@ -11,7 +11,8 @@ import "./xterm-env-polyfill";
 import * as net from "node:net";
 import * as fs from "node:fs";
 import * as crypto from "node:crypto";
-import { dirname } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import {
   mkdir as fsMkdir,
   readFile as fsReadFile,
@@ -717,6 +718,13 @@ async function main(): Promise<void> {
 
   if (mode === "server-bridge") {
     await runServerBridgeProcess();
+    return;
+  }
+
+  if (mode === "serve") {
+    // The host server (ADR-218) ships as a sibling bundle in the same install
+    // dir; it reads `serve [--data-dir]` and `MANOR_VERSION` itself.
+    createRequire(__filename)(join(__dirname, "host-server-index.js"));
     return;
   }
 

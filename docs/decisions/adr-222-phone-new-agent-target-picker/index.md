@@ -101,11 +101,18 @@ New `worktreeNameFromPrompt(prompt, takenNames)` in `src/utils/branch-name.ts`.
   40 characters.
 - It falls back to `agent` when the slug is empty.
 - It adds a `-2`, `-3`, … suffix until the name doesn't collide with an
-  existing workspace name, branch or directory in the project.
+  existing workspace name, worktree branch or local branch in the project,
+  compared case-insensitively (local branches from `listLocalBranches`; a
+  collision would otherwise make `git worktree add -b` fall back to checking
+  out the old branch).
 
-The branch is `sanitizeBranchName(name)`, exactly as in `NewWorkspaceDialog`.
-The base is the chosen workspace's branch: for main it is `project.defaultBranch`, as in `NewWorkspaceDialog`, so main
-uses the local default branch; otherwise it is `baseBranch: workspace.branch`.
+The name is already a valid ref, so no separate `branch` is passed; the main
+process sanitizes `branch || name` itself. The base comes from one pure
+`baseBranchOf(resolved)` in `new-agent-target.ts`, used by both the greeting
+and the send: for main it is `project.defaultBranch || "main"`, as in
+`NewWorkspaceDialog`, so main uses the local default branch; otherwise it is
+the workspace's branch, or undefined (so `origin/<default>` applies) for a
+detached HEAD.
 In other words, "existing workspace + new worktree" means "branch off that
 workspace". This matches the Claude chip, where the branch chip picks the base.
 
@@ -123,8 +130,10 @@ New file `src/components/phone/NewAgent/PhoneNewAgentComposer.tsx` (plus
 `.module.css`). It absorbs `PhoneEmptyWorkspace`'s greeting, recents rail and
 composer.
 
-- **One component for both surfaces.** `PhoneEmptyWorkspace` becomes a thin
-  wrapper, and the empty-workspace screen gets the chips too.
+- **One component for both surfaces.** `PhoneEmptyWorkspace` is inlined into
+  `WorkspaceEmptyState`, and the empty-workspace screen gets the chips too.
+  The empty screen keeps its target pick in local state; only the
+  `"composer"` surface reads and writes `composerDraft.target`.
 - **Chip row.** It sits directly above the textarea, scrolls sideways, and
   has the `data-keyboard-lift` container, laid out as:
   `[host]` `[📁 project]` `[⑂ workspace │ ☐ worktree]`.
@@ -151,13 +160,16 @@ composer.
 
 ### D6. Send
 
-A new hook `useNewAgentSend` (in the same folder) handles sending.
+A plain function `sendNewAgent(prompt, target)` (`send-new-agent.ts`, same
+folder) handles sending. ⌘N and "New agent" go through one `newAgent()` in
+`keybinding-commands.ts`, which opens the composer on a phone.
 
 - **Existing workspace or main:**
   1. `launchAgentInWorkspace(workspacePath, { prompt, hostId: project.hostId })`.
   2. `markChatStarting(paneId)` for a Claude agent kind.
   3. If the project is in a group, `setGroupLastUsedHost(group.id, hostId)`.
-  4. `closeComposer()`.
+  4. Clear the draft, only once a tab opened. Opening the tab already leaves
+     the composer surface (`leaveTasksView()`).
 - **New worktree:**
   1. `createWorktree(projectId, name, { branch, baseBranch, agentPrompt: prompt, onAgentPane: markChatStarting })`.
      The worktree setup view and toast already cover progress. Main records

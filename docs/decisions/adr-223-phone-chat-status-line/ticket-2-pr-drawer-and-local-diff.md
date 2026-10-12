@@ -34,7 +34,7 @@ ADR-223 D2 + D3. Builds on `ChatStatusLine.tsx` / `chat-status-line.ts`
 
 ## Local diff chip (D3)
 
-- `prStatusChips` in `chat-status-line.ts` is renamed/reshaped into a model
+- `prStatusChips` in `chat-status-line.ts` (since renamed `statusLineModel`) is reshaped into a model
   that takes `{ pr, diffStats }` (`DiffStats` from `src/store/project-store`:
   `added`, `removed`) and returns `{ pr: …|null, ci: …|null, diff: …|null }`,
   so the line can render without a PR.

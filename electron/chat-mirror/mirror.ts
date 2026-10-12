@@ -114,9 +114,10 @@ const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_UNWATCHED_POLL_INTERVAL_MS = 2_000;
 
 /**
- * The agent a pane's chat is about: its active agent, or failing that the
- * newest one that ran in it. A pane keeps old, completed agents' records
- * pointing at it, so "the first agent with this paneId" can be the wrong one.
+ * The agent a pane's chat is about: its active agent, or failing that its
+ * newest one while that one errored (a `StopFailure` turn: Claude is still
+ * running). A pane keeps old agents' records pointing at it; a completed or
+ * abandoned one has exited and left the pane to its shell, so it gets none.
  */
 export function pickPaneAgent<
   A extends { paneId: string | null; status: string; createdAt: string },
@@ -127,7 +128,7 @@ export function pickPaneAgent<
     if (agent.status === "active") return agent;
     if (!newest || agent.createdAt > newest.createdAt) newest = agent;
   }
-  return newest;
+  return newest?.status === "error" ? newest : null;
 }
 
 /**

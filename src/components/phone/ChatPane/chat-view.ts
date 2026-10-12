@@ -31,8 +31,11 @@ export function writeChatView(paneId: string, view: ChatView): void {
 }
 
 /**
- * The agent a pane's chat follows: its active agent, or failing that the
- * newest one that ran in it. Mirrors `pickPaneAgent` in
+ * The agent a pane's chat follows: its active agent, or failing that its
+ * newest one while that one errored (a `StopFailure` turn: Claude is still
+ * running). A completed or abandoned agent has exited and left the pane to
+ * its shell, which may be running anything since, so the pane gets no chat.
+ * Mirrors `pickPaneAgent` in
  * `electron/chat-mirror/mirror.ts`, which the renderer can't import (it pulls
  * in `fs`), so main and the phone agree on which transcript is shown.
  */
@@ -46,7 +49,7 @@ export function pickPaneAgent(
     if (agent.status === "active") return agent;
     if (!newest || agent.createdAt > newest.createdAt) newest = agent;
   }
-  return newest;
+  return newest?.status === "error" ? newest : null;
 }
 
 /**

@@ -70,7 +70,11 @@ function bridgeStream(paths: HostServerPaths): Promise<Duplex> {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   const stderr = new PassThrough();
-  runServerBridge({ stdin, stdout, stderr }, { paths }).catch((err: Error) => {
+  // The server is already running in-process; never spawn a real one.
+  runServerBridge(
+    { stdin, stdout, stderr },
+    { paths, ensureServerRunning: async () => {} },
+  ).catch((err: Error) => {
     stdout.destroy(err);
   });
   return Promise.resolve(joined(stdin, stdout));

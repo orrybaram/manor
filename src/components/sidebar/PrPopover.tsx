@@ -315,7 +315,7 @@ export function PrDetails(props: {
   );
 
   return (
-    <>
+    <div className={styles.prDetails}>
       <div className={styles.prPopoverHeader}>
         <PrIcon size={14} />
         <span>#{pr.number}</span>
@@ -349,7 +349,7 @@ export function PrDetails(props: {
         />
         <ChecksSection pr={pr} />
       </div>
-    </>
+    </div>
   );
 }
 

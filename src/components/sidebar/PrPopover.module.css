@@ -119,6 +119,8 @@
 
 /* ── Popover shell ── */
 
+/* The card; `PrDetails` lays out what's in it. A column, so the details can
+   shrink to its max-height and their checks and comments scroll. */
 .prPopover {
   background: var(--dim);
   border: 1px solid var(--border);
@@ -126,12 +128,10 @@
   padding: 12px;
   width: 420px;
   max-height: min(520px, calc(100vh - 32px));
-  font-size: 11px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   z-index: 100;
   display: flex;
   flex-direction: column;
-  gap: 8px;
   animation: popoverFadeIn 150ms ease-out;
 }
 
@@ -145,6 +145,20 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+
+/*
+ * `PrDetails`' own layout, wherever it sits. `min-height: 0` lets it shrink
+ * inside the desk card so `.prPopoverScroll` scrolls; in a container that
+ * doesn't cap its height (the phone's PR sheet) it grows to fit and the
+ * container scrolls instead.
+ */
+.prDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  font-size: 11px;
 }
 
 .prPopoverHeader {

@@ -36,6 +36,7 @@ import {
 } from "./commands";
 import { findPanelWithTab } from "./layout/workspace-layout";
 import { isWebApp } from "./platform";
+import { currentLayoutMode } from "../hooks/useLayoutMode";
 
 /**
  * The renderer half of the command table (`commands.ts`) for commands that
@@ -192,7 +193,12 @@ export function createSharedCommandContext(
     },
     focusedPaneId: () => selectFocusedPaneOfActiveTab(useAppStore.getState()),
     copyToClipboard,
-    startNewAgent: () => void startNewAgent({ prewarm: prewarmNewAgent }),
+    // A phone opens the new-agent composer instead, as App's handleNewAgent
+    // does: nothing launches until the first message (ADR-222 D1).
+    startNewAgent: () =>
+      currentLayoutMode() === "phone"
+        ? useAppStore.getState().showComposer()
+        : void startNewAgent({ prewarm: prewarmNewAgent }),
     moveTabToNextPanel: () => moveTabToNextPanel(),
     focusedBrowser: getFocusedBrowserRef,
     focusedBrowserPaneId,

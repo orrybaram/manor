@@ -139,6 +139,10 @@ export type TaskDisplayStatus = Extract<ChatEntry, { kind: "task" }>["status"] |
  * the transcript for good, so while the pane's agent is idle or has answered,
  * a running task from before the latest user turn is shown as unknown. Display
  * only: the entry is untouched.
+ *
+ * Agent tasks only. The status holds a Stop while subagents run (ADR-186), so
+ * idle or responded means none is; a background shell command has no hooks
+ * and can outlive the turn, so the status says nothing about it.
  */
 export function staleTaskIds(
   entries: readonly ChatEntry[],
@@ -151,7 +155,14 @@ export function staleTaskIds(
     if (e.kind === "user") lastUser = i;
   });
   entries.forEach((e, i) => {
-    if (e.kind === "task" && e.status === "running" && i < lastUser) stale.add(e.id);
+    if (
+      e.kind === "task" &&
+      e.taskKind === "agent" &&
+      e.status === "running" &&
+      i < lastUser
+    ) {
+      stale.add(e.id);
+    }
   });
   return stale;
 }

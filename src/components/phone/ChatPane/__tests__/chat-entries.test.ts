@@ -83,6 +83,11 @@ describe("staleTaskIds", () => {
     expect([...staleTaskIds(entries, "responded")]).toEqual(["t1"]);
   });
 
+  it("never marks a shell task: the agent's status says nothing about it", () => {
+    const shell: TaskEntry = { ...task("s1"), taskKind: "shell" };
+    expect([...staleTaskIds([shell, user("u1")], "idle")]).toEqual([]);
+  });
+
   it("trusts every task while the agent is busy or its status is not known", () => {
     const entries = [task("t1"), user("u1")];
     for (const status of ["thinking", "working", "requires_input", "error", null] as const) {

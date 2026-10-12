@@ -69,11 +69,13 @@
 import { SUBSCRIPTIONS } from "../../electron/bridge/events";
 import {
   UNAVAILABLE_CODE,
+  UNAVAILABLE_HOST_CODE,
   isUnavailableCode,
   type ResultFrame,
 } from "../../electron/bridge/types";
 import type { ElectronAPI } from "../electron";
 import type { Listener } from "./subscription-registry";
+import { markHostRestricted } from "./host-restrictions";
 import { UNAVAILABLE_NAMESPACES } from "./unavailable";
 
 /** Delivered a frame's `args`, spread — the shape an `onX` callback has. */
@@ -162,6 +164,7 @@ export function settle(frame: ResultFrame): unknown {
   if (frame.ok === true) return frame.result;
   const message =
     typeof frame.error === "string" ? frame.error : "The host refused";
+  if (frame.code === UNAVAILABLE_HOST_CODE) markHostRestricted();
   throw isUnavailableCode(frame.code)
     ? new BridgeUnavailableError(message, frame.code)
     : new Error(message);

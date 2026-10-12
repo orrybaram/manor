@@ -24,3 +24,10 @@
   opacity: 0.6;
   color: var(--fg-a10);
 }
+
+.unavailable {
+  padding: 0 16px 8px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-secondary, var(--fg-a10));
+}

@@ -26,10 +26,15 @@
  * Anything else is `none`: left in the URL, nothing read, nothing forgotten.
  */
 
-import { ROOM_ID_LENGTH, base64urlDecode } from "../lib/relay-crypto";
-
-/** Where a relay pairing is kept: `{ roomId, serverKey, token }` as JSON. */
-export const WEB_RELAY_KEY = "manor.web.relay";
+import {
+  decodeX25519,
+  isValidRoomId,
+  listPairings,
+  lastUsedPairing,
+  removePairing,
+  upsertPairing,
+  type StoredPairing,
+} from "./pairings";
 
 /** `sessionStorage`: the versions this tab already redirected to (JSON array). */
 export const VERSION_REDIRECT_KEY = "manor.web.versionRedirect";
@@ -54,26 +59,15 @@ export type FragmentPairing =
    */
   | { kind: "invalid" };
 
-const ROOM_ID_PATTERN = new RegExp(`^[A-Za-z0-9_-]{${ROOM_ID_LENGTH}}$`);
 /**
  * A device token exactly as `electron/remote-control/devices.ts` mints it:
  * `randomBytes(32).toString("base64url")`, unpadded — 43 characters.
  */
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-const X25519_KEY_BYTES = 32;
-
-function decodeKey(text: string): Uint8Array | null {
-  try {
-    const key = base64urlDecode(text);
-    return key.length === X25519_KEY_BYTES ? key : null;
-  } catch {
-    return null;
-  }
-}
 
 /** The desktop's key as bytes, or null if the stored text is not one. */
 export function serverKeyBytes(relay: RelayCredentials): Uint8Array | null {
-  return decodeKey(relay.serverKey);
+  return decodeX25519(relay.serverKey);
 }
 
 function isRelayCredentials(value: unknown): value is RelayCredentials {
@@ -81,9 +75,9 @@ function isRelayCredentials(value: unknown): value is RelayCredentials {
   const v = value as Record<string, unknown>;
   return (
     typeof v.roomId === "string" &&
-    ROOM_ID_PATTERN.test(v.roomId) &&
+    isValidRoomId(v.roomId) &&
     typeof v.serverKey === "string" &&
-    decodeKey(v.serverKey) !== null &&
+    decodeX25519(v.serverKey) !== null &&
     typeof v.token === "string" &&
     v.token.length > 0
   );
@@ -122,47 +116,16 @@ export function parseFragment(hash: string): FragmentPairing {
     : { kind: "invalid" };
 }
 
-function storageGet(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function storageSet(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    // Storage denied (private browsing): this session still works, the
-    // next reload asks for the link again.
-  }
-}
-
-function storageRemove(key: string): void {
-  try {
-    localStorage.removeItem(key);
-  } catch {
-    // Nothing to forget.
-  }
-}
-
-function storedRelay(): RelayCredentials | null {
-  const raw = storageGet(WEB_RELAY_KEY);
-  if (raw === null) return null;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return isRelayCredentials(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
+function toCredentials(p: StoredPairing): RelayCredentials {
+  return { roomId: p.roomId, serverKey: p.x25519Pub, token: p.token };
 }
 
 /**
- * Take a pairing out of the fragment on this load, store it, and strip the
- * fragment so it cannot linger in history or a screenshot; otherwise read
- * what was stored. A fresh link replaces whatever was stored before it, so
- * the most recent link is the one that counts.
+ * Take a pairing out of the fragment on this load, add it to the stored
+ * pairings (or update the one for the same room) and strip the fragment so it
+ * cannot linger in history or a screenshot. That pairing is the one this tab
+ * dials; with no link, the last-used stored pairing is. A link never drops
+ * the other pairings (ADR-218 D7).
  */
 export function readPairing(): Pairing {
   const fresh = parseFragment(location.hash);
@@ -170,27 +133,27 @@ export function readPairing(): Pairing {
     history.replaceState(null, "", location.pathname + location.search);
   }
   if (fresh.kind === "relay") {
-    storageSet(WEB_RELAY_KEY, JSON.stringify(fresh.relay));
+    upsertPairing({
+      roomId: fresh.relay.roomId,
+      x25519Pub: fresh.relay.serverKey,
+      token: fresh.relay.token,
+    });
     return fresh.relay;
   }
-  return storedRelay();
+  const last = lastUsedPairing();
+  return last ? toCredentials(last) : null;
 }
 
 /**
  * The host refused `pairing` (4401): drop it — but only if it is still what
  * is stored. Another tab may have taken a newer link since this one loaded,
- * and a stale tab's refusal must not erase that.
+ * and a stale tab's refusal must not erase that. The other pairings stay.
  */
 export function forgetPairing(pairing: Pairing): void {
   if (pairing === null) return;
-  const stored = storedRelay();
-  if (
-    stored !== null &&
-    stored.roomId === pairing.roomId &&
-    stored.serverKey === pairing.serverKey &&
-    stored.token === pairing.token
-  ) {
-    storageRemove(WEB_RELAY_KEY);
+  const stored = listPairings().find((p) => p.roomId === pairing.roomId);
+  if (stored && stored.x25519Pub === pairing.serverKey) {
+    removePairing(pairing.roomId, pairing.token);
   }
 }
 

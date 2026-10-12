@@ -1,4 +1,5 @@
 .root {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -183,4 +184,125 @@
 
 .card[data-tone="error"] .cardDot {
   background: var(--red);
+}
+
+/* × back to the workspace, when opened as the "New agent" surface. */
+:global(:root[data-layout="phone"]) .close.close,
+.close.close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  width: 36px;
+  height: 36px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--text-primary);
+}
+
+/* ── Target chips (ADR-222 D5): one row above the field, scrolling sideways. ── */
+
+.chips {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.chips::-webkit-scrollbar {
+  display: none;
+}
+
+/* Beats Button's phone tap-target floor (min-height 40px): the row is the target. */
+:global(:root[data-layout="phone"]) .chip.chip,
+.chip.chip {
+  flex-shrink: 0;
+  height: 30px;
+  min-height: 0;
+  min-width: 0;
+  padding: 0 10px;
+  gap: 6px;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-selected);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.chip.chip:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface) 80%, var(--text-selected));
+}
+
+.chipLabel {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The workspace chip: the branch button, a divider, the worktree toggle. */
+.chipGroup {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+:global(:root[data-layout="phone"]) .chipPart.chipPart,
+.chipPart.chipPart {
+  padding-right: 8px;
+}
+
+.divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+}
+
+.worktree {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  padding: 0 10px 0 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+/* ── Choice lists ── */
+
+.choiceHeader {
+  font-family: inherit;
+}
+
+.choiceLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.choiceDescription {
+  white-space: normal;
+}
+
+.check {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--accent);
+}
+
+.dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-dim);
 }

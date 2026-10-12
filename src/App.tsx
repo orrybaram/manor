@@ -96,9 +96,8 @@ import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults"
 import { isHomePath, HOME_PATH } from "./lib/home";
 import { isWebApp } from "./lib/platform";
 import { useLayoutMode } from "./hooks/useLayoutMode";
-import { PhoneEmptyWorkspace } from "./components/phone/PhoneEmptyWorkspace";
+import { PhoneNewAgentComposer } from "./components/phone/NewAgent/PhoneNewAgentComposer";
 import { PhoneChrome } from "./components/phone/PhoneChrome";
-import { markChatStarting } from "./components/phone/ChatPane/usePaneChatView";
 import "./App.css";
 
 function App() {
@@ -698,16 +697,17 @@ function App() {
   });
 
   const handleNewAgent = useCallback(async () => {
+    // A phone opens the new-agent composer instead: the agent launches on
+    // its first message, wherever its chips point (ADR-222 D1).
+    if (layoutMode === "phone") {
+      useAppStore.getState().showComposer();
+      return;
+    }
     // Every surface — Home and project workspaces alike — consumes a prewarmed
     // session when one is ready. On a cold start (no prewarm, or the command
     // hadn't been injected yet) seed the surface's launch command; the pty
     // boundary resolves the cwd, so Home needs no special casing here.
-    const started = await startNewAgent({ prewarm: true });
-    // A phone reads a new Claude agent as a chat from the start, not only
-    // once its transcript is known (ADR-215 D7).
-    if (started && layoutMode === "phone" && started.agentKind === "claude") {
-      markChatStarting(started.paneId);
-    }
+    await startNewAgent({ prewarm: true });
   }, [layoutMode]);
 
   // A detached window's one panel: the one holding the tab it claims, in this
@@ -849,7 +849,7 @@ function App() {
                           : showTasksView
                           ? <TasksView onNewWorkspace={handleNewWorkspace} />
                           : composerShown
-                          ? <PhoneEmptyWorkspace />
+                          ? <PhoneNewAgentComposer closable />
                           : !hasTabs &&
                             (isHomePath(activeWorkspacePath)
                               ? (

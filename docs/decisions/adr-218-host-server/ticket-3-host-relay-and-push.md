@@ -1,6 +1,6 @@
 ---
 title: Relay identity, pairing and push on the host server
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [2]

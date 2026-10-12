@@ -909,3 +909,15 @@ button.commandChip {
 .statusDeletions {
   color: var(--red);
 }
+
+/* The session's context size, right of the chips. It never shrinks: the
+   chips give way first on a narrow phone. */
+.statusTokens {
+  flex-shrink: 0;
+  padding: 3px 4px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PrInfo } from "../../../../lib/pr-info";
-import { prStatusChips } from "../chat-status-line";
+import { formatContextTokens, prStatusChips } from "../chat-status-line";
 
 const URL = "https://github.com/o/r/pull/7";
 
@@ -92,5 +92,15 @@ describe("prStatusChips", () => {
     const merged = pr({ state: "merged", additions: 9, deletions: 9 });
     expect(chips(merged, { added: 2, removed: 3 }).diff).toEqual({ additions: 2, deletions: 3 });
     expect(chips(merged).diff).toBeNull();
+  });
+});
+
+describe("formatContextTokens", () => {
+  it("rounds to thousands", () => {
+    expect(formatContextTokens(999)).toBe("<1k");
+    expect(formatContextTokens(1000)).toBe("1k");
+    expect(formatContextTokens(8_400)).toBe("8k");
+    expect(formatContextTokens(100_200)).toBe("100k");
+    expect(formatContextTokens(419_600)).toBe("420k");
   });
 });

@@ -58,3 +58,9 @@ export function prStatusChips(input: {
     diff,
   };
 }
+
+/** A context size as the status line shows it: `8k`, `100k`, `420k`. */
+export function formatContextTokens(n: number): string {
+  if (n < 1000) return "<1k";
+  return `${Math.round(n / 1000)}k`;
+}

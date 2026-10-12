@@ -6,7 +6,7 @@ import { selectActiveWorkspaceKey, useAppStore } from "../../../store/app-store"
 import { useProjectStore } from "../../../store/project-store";
 import { Button } from "../../ui/Button/Button";
 import { Link } from "../../ui/Link/Link";
-import { prStatusChips } from "./chat-status-line";
+import { formatContextTokens, prStatusChips } from "./chat-status-line";
 import { PhonePrSheet } from "./PhonePrSheet";
 import styles from "./ChatPane.module.css";
 
@@ -14,7 +14,8 @@ import styles from "./ChatPane.module.css";
  * The line under the chat's input: the active workspace's open pull request
  * (number, opening a drawer), its CI (linking to GitHub), and the diff stat
  * (opening the diff pane) as chips, so "2 failing" is in view while you ask
- * Claude to fix it. Renders nothing without a PR or a diff.
+ * Claude to fix it. The session's context size sits on the right. Renders
+ * nothing when none of them has anything to show.
  *
  * Keyed off the active workspace: a phone only ever shows that one, and a
  * background workspace's chat is mounted but hidden.
@@ -24,8 +25,8 @@ type ChatStatusLineProps = {
   contextTokens?: number | null;
 };
 
-// `_props.contextTokens` is drawn by ADR-223 ticket 4.
-export function ChatStatusLine(_props: ChatStatusLineProps) {
+export function ChatStatusLine(props: ChatStatusLineProps) {
+  const { contextTokens } = props;
   const activeKey = useAppStore(selectActiveWorkspaceKey);
   // Two selectors, not one returning `find`'s fresh object: a new object per
   // store read would re-render forever.
@@ -38,7 +39,8 @@ export function ChatStatusLine(_props: ChatStatusLineProps) {
   const pr = workspace?.pr;
   const [prOpen, setPrOpen] = useState(false);
   const chips = prStatusChips({ pr, diffStats: workspace?.diffStats });
-  if (!chips.pr && !chips.ci && !chips.diff) return null;
+  const hasTokens = contextTokens != null;
+  if (!chips.pr && !chips.ci && !chips.diff && !hasTokens) return null;
 
   const PrIcon = chips.pr?.draft ? GitPullRequestDraft : GitPullRequest;
 
@@ -92,6 +94,15 @@ export function ChatStatusLine(_props: ChatStatusLineProps) {
         </Button>
       )}
       <span className={styles.statusSpacer} />
+      {hasTokens && (
+        <span
+          className={styles.statusTokens}
+          title={`${contextTokens.toLocaleString()} tokens`}
+          aria-label={`${contextTokens} tokens in context`}
+        >
+          {formatContextTokens(contextTokens)}
+        </span>
+      )}
     </div>
   );
 }

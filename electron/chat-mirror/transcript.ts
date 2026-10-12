@@ -58,17 +58,21 @@ export type ChatEntry =
       ts: string;
       text: string;
       status: "ok" | "error";
-    }
-  | {
-      /**
-       * The session's context size in tokens (ADR-223 D4). Published by the
-       * mirror when it changes; never in `entries()`, never drawn.
-       */
-      kind: "usage";
-      id: "usage";
-      ts: string;
-      contextTokens: number;
     };
+
+/**
+ * The session's context size in tokens (ADR-223 D4). Published by the mirror
+ * when it changes; never a `ChatEntry`, never drawn.
+ */
+export type ChatUsage = {
+  kind: "usage";
+  id: "usage";
+  ts: string;
+  contextTokens: number;
+};
+
+/** What the `chat.entry` channel carries: an entry or a context-size update. */
+export type ChatPush = ChatEntry | ChatUsage;
 
 /** A skill from Claude Code's `skill_listing` attachment (ADR-217 D1). */
 export type ChatSkill = { name: string; description: string };

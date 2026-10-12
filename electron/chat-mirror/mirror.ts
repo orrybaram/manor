@@ -42,7 +42,12 @@ import {
   RemoteTranscriptSource,
   type TranscriptExec,
 } from "./remote-transcript-source";
-import { TranscriptParser, type ChatEntry, type ChatSkill } from "./transcript";
+import {
+  TranscriptParser,
+  type ChatEntry,
+  type ChatPush,
+  type ChatSkill,
+} from "./transcript";
 import type { TranscriptSource } from "./transcript-source";
 
 /**
@@ -97,8 +102,11 @@ export interface ChatMirrorDeps {
   agentForPane(paneId: string): PaneAgent | null;
   /** Type into the pane's PTY. */
   write(paneId: string, data: string): void;
-  /** Push a new or updated entry to the pane's `chat.entry` subscribers. */
-  publish(paneId: string, entry: ChatEntry): void;
+  /**
+   * Push a new or updated entry, or a context-size update, to the pane's
+   * `chat.entry` subscribers.
+   */
+  publish(paneId: string, entry: ChatPush): void;
   /** Where the agent's transcript is read from (ADR-216 D1). */
   sourceFor(agent: PaneAgent): TranscriptSource;
   /** How long an answer waits for its `tool_result`. Default 8s. */

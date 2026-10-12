@@ -8,7 +8,7 @@ import {
   type TranscriptSource,
 } from "../transcript-source";
 import { ChatMirror, pickPaneAgent, type PaneAgent } from "../mirror";
-import type { ChatEntry } from "../transcript";
+import type { ChatPush } from "../transcript";
 
 const T = "2026-01-01T00:00:00.000Z";
 const PANE = "pane-1";
@@ -75,7 +75,7 @@ async function until(cond: () => boolean): Promise<void> {
 describe("ChatMirror", () => {
   let dir: string;
   let agent: PaneAgent | null;
-  let published: { paneId: string; entry: ChatEntry }[];
+  let published: { paneId: string; entry: ChatPush }[];
   let writes: { paneId: string; data: string }[];
   let mirror: ChatMirror;
   let source: TranscriptSource;
@@ -494,7 +494,7 @@ describe("ChatMirror — poke and poll (ADR-216 D3)", () => {
   /** A source with no `watch`, whose reads finish when the test says. */
   let reads: { offset: number; finish: (r: TranscriptRead) => void }[];
   let agent: PaneAgent | null;
-  let published: ChatEntry[];
+  let published: ChatPush[];
   let mirror: ChatMirror;
   let content: string;
 

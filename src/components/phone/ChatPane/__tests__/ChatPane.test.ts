@@ -14,7 +14,7 @@ vi.hoisted(() => {
   (window as unknown as { electronAPI: unknown }).electronAPI = { claim: null };
 });
 
-import type { ChatAnswerResult, ChatEntry, ChatHistory } from "../../../../electron.d";
+import type { ChatAnswerResult, ChatEntry, ChatHistory, ChatPush } from "../../../../electron.d";
 import { BUILTIN_COMMANDS } from "../../../../../electron/chat-mirror/builtin-commands";
 import { ChatPane } from "../ChatPane";
 import {
@@ -34,7 +34,7 @@ import { emitBridgeResync } from "../../../../bridge/resync";
 const PANE = "pane-1";
 const TRANSCRIPT = "/t/a.jsonl";
 
-type EntryListener = (paneId: string, entry: ChatEntry) => void;
+type EntryListener = (paneId: string, entry: ChatPush) => void;
 
 let container: HTMLDivElement;
 let root: Root;

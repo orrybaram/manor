@@ -46,7 +46,7 @@ import type {
 import type { SetupProgressEvent } from "../../src/store/project-store";
 import type { Theme } from "../../src/store/theme-store";
 import type { AppCommand } from "../renderer-bridge";
-import type { ChatEntry } from "../chat-mirror/transcript";
+import type { ChatPush } from "../chat-mirror/transcript";
 import type { PushProgressEvent } from "./handlers/branches-diffs";
 
 /**
@@ -74,11 +74,12 @@ export interface BridgeEvents {
     winsizeOwner: [payload: WinsizeOwnerEvent];
   };
   /**
-   * A pane's chat entry, new or updated (ADR-215 D4). Keyed by `paneId` like
-   * `pty.*`; an updated entry keeps its id, so a listener upserts by it.
+   * A pane's chat entry, new or updated (ADR-215 D4), or its context size
+   * (ADR-223 D4). Keyed by `paneId` like `pty.*`; an updated entry keeps its
+   * id, so a listener upserts by it.
    */
   chat: {
-    entry: [paneId: string, entry: ChatEntry];
+    entry: [paneId: string, entry: ChatPush];
   };
   layout: {
     changed: [payload: LayoutBroadcast];

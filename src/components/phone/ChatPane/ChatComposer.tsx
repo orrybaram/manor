@@ -18,6 +18,8 @@ type ChatComposerProps = {
   /** The transcript the chat shows, which a `/clear` leaves behind. Absent
    *  while the chat is already fresh. */
   transcript?: string;
+  /** The session's context size, for the status line (ADR-223 D4). */
+  contextTokens?: number | null;
 };
 
 /**
@@ -38,7 +40,7 @@ type ChatComposerProps = {
  * keyboard.
  */
 export function ChatComposer(props: ChatComposerProps) {
-  const { paneId, busy, transcript } = props;
+  const { paneId, busy, transcript, contextTokens } = props;
 
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
@@ -209,7 +211,7 @@ export function ChatComposer(props: ChatComposerProps) {
           </Button>
         )}
       </div>
-      <ChatStatusLine />
+      <ChatStatusLine contextTokens={contextTokens} />
     </div>
   );
 }

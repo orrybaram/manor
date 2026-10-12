@@ -74,6 +74,8 @@ export function ChatPane(props: ChatPaneProps) {
   const [unavailable, setUnavailable] = useState<Unavailable | null>(null);
   /** Ids the first history load drew: only entries after it animate in. */
   const [settledIds, setSettledIds] = useState<Set<string> | null>(null);
+  /** The session's context size (ADR-223 D4); a fresh transcript remounts this. */
+  const [contextTokens, setContextTokens] = useState<number | null>(null);
   const status = useAppStore((s) => s.paneAgentStatus[paneId]?.status ?? null);
 
   useMountEffect(() => {
@@ -107,6 +109,8 @@ export function ChatPane(props: ChatPaneProps) {
             noteChatEntries(paneId, transcript, history.entries);
             setEntries((prev) => mergeHistory(history.entries, prev));
             setSettledIds((prev) => prev ?? new Set(history.entries.map((e) => e.id)));
+            // An older host's history has no size: keep what a push said.
+            if (history.contextTokens != null) setContextTokens(history.contextTokens);
             setUnavailable(null);
           } else {
             shown = false;
@@ -130,8 +134,13 @@ export function ChatPane(props: ChatPaneProps) {
     // Subscribe first: the mirror only watches the transcript while someone
     // is subscribed, and nothing published during the fetch is lost.
     const unsubscribe = chat.onEntry(paneId, (_paneId, entry) => {
-      setEntries((prev) => upsertEntry(prev, entry));
-      noteChatEntries(paneId, transcript, [entry]);
+      // The context size rides the entry channel but is no entry.
+      if (entry.kind === "usage") {
+        setContextTokens(entry.contextTokens);
+      } else {
+        setEntries((prev) => upsertEntry(prev, entry));
+        noteChatEntries(paneId, transcript, [entry]);
+      }
       // The transcript is readable again: catch up on what was missed.
       if (offline) void fetchHistory();
     });
@@ -248,7 +257,12 @@ export function ChatPane(props: ChatPaneProps) {
               </Button>
             </div>
           )}
-          <ChatComposer paneId={paneId} busy={busy} transcript={transcript} />
+          <ChatComposer
+            paneId={paneId}
+            busy={busy}
+            transcript={transcript}
+            contextTokens={contextTokens}
+          />
         </>
       )}
     </div>

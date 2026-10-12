@@ -58,6 +58,16 @@ export type ChatEntry =
       ts: string;
       text: string;
       status: "ok" | "error";
+    }
+  | {
+      /**
+       * The session's context size in tokens (ADR-223 D4). Published by the
+       * mirror when it changes; never in `entries()`, never drawn.
+       */
+      kind: "usage";
+      id: "usage";
+      ts: string;
+      contextTokens: number;
     };
 
 /** A skill from Claude Code's `skill_listing` attachment (ADR-217 D1). */
@@ -74,6 +84,25 @@ function isObject(v: unknown): v is Json {
 
 function str(v: unknown): string | undefined {
   return typeof v === "string" ? v : undefined;
+}
+
+function tokenCount(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+
+/**
+ * Context size from a message's `usage`: everything the model read, fresh
+ * or cached. Output tokens are excluded. Null when none of it is there.
+ */
+function contextSize(usage: unknown): number | null {
+  if (!isObject(usage)) return null;
+  const parts = [
+    tokenCount(usage.input_tokens),
+    tokenCount(usage.cache_creation_input_tokens),
+    tokenCount(usage.cache_read_input_tokens),
+  ];
+  if (parts.every((p) => p === undefined)) return null;
+  return parts.reduce<number>((sum, p) => sum + (p ?? 0), 0);
 }
 
 function firstLine(s: string): string {
@@ -170,6 +199,16 @@ export class TranscriptParser {
   private skillMap = new Map<string, string>();
   private sawSkillListing = false;
   private lastCommandId: string | null = null;
+  private lastContextTokens: number | null = null;
+
+  /**
+   * The context size of the newest main-thread assistant line, or null if
+   * none carried a usable `usage`. Claude Code writes one line per content
+   * block, each with the whole message's usage, so the newest is right.
+   */
+  contextTokens(): number | null {
+    return this.lastContextTokens;
+  }
 
   /** Skills from the transcript's skill listings, sorted by name. */
   skills(): ChatSkill[] {
@@ -259,6 +298,12 @@ export class TranscriptParser {
     }
 
     // assistant
+    // Claude Code's own synthetic lines (an API error, an interrupt) carry
+    // zeroed usage that says nothing about the context.
+    if (message.model !== "<synthetic>") {
+      const size = contextSize(message.usage);
+      if (size !== null) this.lastContextTokens = size;
+    }
     if (!Array.isArray(content)) return [];
     content.forEach((block, i) => {
       if (!isObject(block)) return;

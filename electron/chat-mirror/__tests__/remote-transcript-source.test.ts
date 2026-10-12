@@ -276,6 +276,7 @@ describe("ChatMirror over RemoteTranscriptSource", () => {
     expect(await mirror.getHistory(PANE)).toEqual({
       ok: true,
       entries: [{ kind: "user", id: "u1", ts: T, text: "héllo" }],
+      contextTokens: null,
     });
 
     fs.appendFileSync(p, Buffer.from(second).subarray(cut));
@@ -285,6 +286,7 @@ describe("ChatMirror over RemoteTranscriptSource", () => {
         { kind: "user", id: "u1", ts: T, text: "héllo" },
         { kind: "user", id: "u2", ts: T, text: "日本 😀" },
       ],
+      contextTokens: null,
     });
 
     await mirror.getHistory(PANE);

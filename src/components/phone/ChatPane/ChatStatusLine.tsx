@@ -19,7 +19,13 @@ import styles from "./ChatPane.module.css";
  * Keyed off the active workspace: a phone only ever shows that one, and a
  * background workspace's chat is mounted but hidden.
  */
-export function ChatStatusLine() {
+type ChatStatusLineProps = {
+  /** The session's context size in tokens, or null if not known (ADR-223 D4). */
+  contextTokens?: number | null;
+};
+
+// `_props.contextTokens` is drawn by ADR-223 ticket 4.
+export function ChatStatusLine(_props: ChatStatusLineProps) {
   const activeKey = useAppStore(selectActiveWorkspaceKey);
   // Two selectors, not one returning `find`'s fresh object: a new object per
   // store read would re-render forever.

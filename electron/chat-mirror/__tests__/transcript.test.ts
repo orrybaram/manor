@@ -306,4 +306,77 @@ describe("TranscriptParser", () => {
       expect(p.entries()).toHaveLength(1);
     });
   });
+
+  describe("context tokens", () => {
+    function withUsage(uuid: string, usage: unknown, extra = {}): string {
+      return line({
+        type: "assistant",
+        uuid,
+        message: { role: "assistant", content: [{ type: "text", text: "hi" }], usage },
+        ...extra,
+      });
+    }
+
+    it("sums input, cache creation and cache read tokens, not output", () => {
+      const p = new TranscriptParser();
+      p.push(
+        withUsage("a1", {
+          input_tokens: 10,
+          cache_creation_input_tokens: 200,
+          cache_read_input_tokens: 3000,
+          output_tokens: 99,
+        }),
+      );
+      expect(p.contextTokens()).toBe(3210);
+    });
+
+    it("counts absent or non-numeric fields as zero", () => {
+      const p = new TranscriptParser();
+      p.push(withUsage("a1", { input_tokens: 5, cache_read_input_tokens: "lots" }));
+      expect(p.contextTokens()).toBe(5);
+    });
+
+    it("takes the newest assistant line", () => {
+      const p = new TranscriptParser();
+      p.push(withUsage("a1", { input_tokens: 100 }));
+      p.push(withUsage("a2", { input_tokens: 50, cache_read_input_tokens: 400 }));
+      expect(p.contextTokens()).toBe(450);
+    });
+
+    it("ignores sidechain and synthetic lines", () => {
+      const p = new TranscriptParser();
+      p.push(withUsage("a1", { input_tokens: 100 }));
+      p.push(withUsage("a2", { input_tokens: 9000 }, { isSidechain: true }));
+      p.push(
+        line({
+          type: "assistant",
+          uuid: "a3",
+          message: {
+            role: "assistant",
+            model: "<synthetic>",
+            content: [{ type: "text", text: "API Error" }],
+            usage: { input_tokens: 0, cache_read_input_tokens: 0 },
+          },
+        }),
+      );
+      expect(p.contextTokens()).toBe(100);
+    });
+
+    it("is null without usage, and keeps the last known size past a line without it", () => {
+      const p = new TranscriptParser();
+      p.push(assistant("a1", [{ type: "text", text: "hi" }]));
+      p.push(withUsage("a2", { output_tokens: 3 }));
+      p.push(withUsage("a3", "garbage"));
+      expect(p.contextTokens()).toBeNull();
+      p.push(withUsage("a4", { input_tokens: 7 }));
+      p.push(assistant("a5", [{ type: "text", text: "more" }]));
+      expect(p.contextTokens()).toBe(7);
+    });
+
+    it("never puts usage in the entries", () => {
+      const p = new TranscriptParser();
+      p.push(withUsage("a1", { input_tokens: 7 }));
+      expect(p.entries().map((e) => e.kind)).toEqual(["assistant"]);
+    });
+  });
 });

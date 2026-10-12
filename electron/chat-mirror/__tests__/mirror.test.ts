@@ -124,12 +124,13 @@ describe("ChatMirror", () => {
       expect(await mirror.getHistory(PANE)).toEqual({
         ok: true,
         entries: [{ kind: "user", id: "u1", ts: T, text: "hi" }],
+        contextTokens: null,
       });
     });
 
     it("treats a transcript that is not written yet as empty", async () => {
       agent = { hostId: "local", transcriptPath: path.join(dir, "missing.jsonl") };
-      expect(await mirror.getHistory(PANE)).toEqual({ ok: true, entries: [] });
+      expect(await mirror.getHistory(PANE)).toEqual({ ok: true, entries: [], contextTokens: null });
     });
 
     it("reads the transcript from the start without publishing it", async () => {
@@ -138,6 +139,7 @@ describe("ChatMirror", () => {
       expect(history).toEqual({
         ok: true,
         entries: [{ kind: "user", id: "u1", ts: T, text: "hi" }],
+        contextTokens: null,
       });
       expect(published).toEqual([]);
     });
@@ -239,6 +241,33 @@ describe("ChatMirror", () => {
       ]);
     });
 
+    it("carries the context size in history and publishes a usage entry when it changes", async () => {
+      const said = (uuid: string, text: string, input: number) =>
+        line({
+          type: "assistant",
+          uuid,
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text }],
+            usage: { input_tokens: input, cache_read_input_tokens: 1000 },
+          },
+        });
+      const p = file("t.jsonl", said("a1", "hi", 5));
+      agent = { hostId: "local", transcriptPath: p };
+      mirror.setWatched(PANE, true);
+      expect(await mirror.getHistory(PANE)).toMatchObject({ contextTokens: 1005 });
+      expect(published).toEqual([]);
+
+      // The same size again (another block of one message) publishes no usage.
+      fs.appendFileSync(p, said("a2", "same", 5));
+      await vi.waitFor(() => expect(published).toHaveLength(1));
+      fs.appendFileSync(p, said("a3", "more", 50));
+      await vi.waitFor(() => expect(published).toHaveLength(3));
+      expect(published.map((x) => x.entry.kind)).toEqual(["assistant", "assistant", "usage"]);
+      expect(published[2].entry).toMatchObject({ kind: "usage", id: "usage", contextTokens: 1050 });
+      expect(await mirror.getHistory(PANE)).toMatchObject({ contextTokens: 1050 });
+    });
+
     it("stops publishing once nobody watches, and catches up on the next watch", async () => {
       const p = file("t.jsonl", user("u1", "hi"));
       agent = { hostId: "local", transcriptPath: p };
@@ -264,12 +293,13 @@ describe("ChatMirror", () => {
       const bytes = Buffer.from(user("u1", "héllo"), "utf8");
       const cut = bytes.indexOf(Buffer.from("é", "utf8")) + 1;
       fs.appendFileSync(p, bytes.subarray(0, cut));
-      expect(await mirror.getHistory(PANE)).toEqual({ ok: true, entries: [] });
+      expect(await mirror.getHistory(PANE)).toEqual({ ok: true, entries: [], contextTokens: null });
 
       fs.appendFileSync(p, bytes.subarray(cut));
       expect(await mirror.getHistory(PANE)).toEqual({
         ok: true,
         entries: [{ kind: "user", id: "u1", ts: T, text: "héllo" }],
+        contextTokens: null,
       });
       expect(published.map((x) => x.entry.id)).toEqual(["u1"]);
     });
@@ -286,6 +316,7 @@ describe("ChatMirror", () => {
       expect(await mirror.getHistory(PANE)).toEqual({
         ok: true,
         entries: [{ kind: "user", id: "u9", ts: T, text: "new session" }],
+        contextTokens: null,
       });
       // The new file is tailed; the old one is not.
       fs.appendFileSync(a, user("u2", "stale"));
@@ -319,6 +350,7 @@ describe("ChatMirror", () => {
       expect(await mirror.getHistory(PANE)).toEqual({
         ok: true,
         entries: [{ kind: "user", id: "u1", ts: T, text: "hi" }],
+        contextTokens: null,
       });
     });
 

@@ -58,7 +58,7 @@ export type ChatUnavailableReason =
 
 /** What `chat.getHistory` answers. */
 export type ChatHistory =
-  | { ok: true; entries: ChatEntry[] }
+  | { ok: true; entries: ChatEntry[]; contextTokens: number | null }
   | { ok: false; reason: ChatUnavailableReason };
 
 export type { ChatCommand } from "./builtin-commands";
@@ -162,6 +162,11 @@ class PaneMirror {
    * resume start a transcript with no listing until its first prompt.
    */
   lastSkills: ChatSkill[] = [];
+  /**
+   * The context size subscribers were last told of, or that the history
+   * carries (ADR-223 D4). A `usage` entry is published only on a change.
+   */
+  lastContextTokens: number | null = null;
   /** Bytes of the file consumed: the end of the last complete line. */
   offset = 0;
   source: TranscriptSource | null = null;
@@ -216,7 +221,11 @@ export class ChatMirror {
     this.usePath(paneId, m, resolved.path);
     await this.read(paneId, m);
     if (m.readError !== null) return { ok: false, reason: "host-offline" };
-    return { ok: true, entries: this.entries(m) };
+    return {
+      ok: true,
+      entries: this.entries(m),
+      contextTokens: m.parser.contextTokens(),
+    };
   }
 
   /** Built-in commands plus the session's skills (ADR-217 D3). */
@@ -410,6 +419,7 @@ export class ChatMirror {
     m.generation++;
     m.path = path;
     m.parser = new TranscriptParser();
+    m.lastContextTokens = null;
     m.offset = 0;
     m.primed = false;
     m.readError = null;
@@ -508,6 +518,18 @@ export class ChatMirror {
       for (const entry of m.parser.push(line)) {
         if (!isOpenPicker(entry)) this.settle(m, entry.id);
         if (publish) this.deps.publish(paneId, this.decorate(m, entry));
+      }
+    }
+    const tokens = m.parser.contextTokens();
+    if (tokens !== m.lastContextTokens) {
+      m.lastContextTokens = tokens;
+      if (publish && tokens !== null) {
+        this.deps.publish(paneId, {
+          kind: "usage",
+          id: "usage",
+          ts: new Date().toISOString(),
+          contextTokens: tokens,
+        });
       }
     }
     if (m.parser.hasSkillListing()) {

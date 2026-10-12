@@ -140,6 +140,7 @@ describe("ChatPane — entries", () => {
   it("subscribes before fetching, and renders each kind", async () => {
     installChat({
       ok: true,
+      contextTokens: null,
       entries: [
         { kind: "user", id: "u1", ts: "", text: "hello there" },
         { kind: "assistant", id: "a1", ts: "", text: "Some **bold** words" },
@@ -175,8 +176,18 @@ describe("ChatPane — entries", () => {
     expect(all("chat-question-answered")[0].textContent).toContain("Alpha");
   });
 
+  it("keeps a usage push out of the entry list (ADR-223 D4)", async () => {
+    installChat({ ok: true, contextTokens: 1200, entries: [] });
+    await renderChat();
+    await act(async () =>
+      listener?.(PANE, { kind: "usage", id: "usage", ts: "", contextTokens: 4500 }),
+    );
+    expect(container.textContent).toContain("Nothing in this conversation yet.");
+    expect(container.querySelectorAll("[data-enter]")).toHaveLength(0);
+  });
+
   it("upserts live entries by id", async () => {
-    installChat({ ok: true, entries: [] });
+    installChat({ ok: true, contextTokens: null, entries: [] });
     await renderChat();
     const pending: ChatEntry = { kind: "tool", id: "t1", ts: "", name: "Read", summary: "x", status: "pending" };
     await act(async () => listener?.(PANE, pending));
@@ -188,7 +199,7 @@ describe("ChatPane — entries", () => {
   });
 
   it("folds back-to-back tool calls into one line, showing the running call", async () => {
-    installChat({ ok: true, entries: [] });
+    installChat({ ok: true, contextTokens: null, entries: [] });
     await renderChat();
     const tool = (id: string, name: string, status: "pending" | "ok"): ChatEntry => ({
       kind: "tool",
@@ -215,7 +226,7 @@ describe("ChatPane — entries", () => {
   it("shows Thinking while Claude works with nothing to show", async () => {
     vi.useFakeTimers();
     try {
-      installChat({ ok: true, entries: [] });
+      installChat({ ok: true, contextTokens: null, entries: [] });
       useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "thinking", reason: "", kind: "claude" } } });
       await renderChat();
       expect(all("chat-thinking")).toHaveLength(0);
@@ -248,7 +259,7 @@ describe("ChatPane — entries", () => {
   });
 
   it("shows the needs-you banner only with no answerable picker", async () => {
-    installChat({ ok: true, entries: [] });
+    installChat({ ok: true, contextTokens: null, entries: [] });
     useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "requires_input", reason: "", kind: "claude" } } });
     await renderChat();
     expect(all("chat-needs-you")).toHaveLength(1);
@@ -257,7 +268,7 @@ describe("ChatPane — entries", () => {
   });
 
   it("offers Stop while Claude is working", async () => {
-    installChat({ ok: true, entries: [] });
+    installChat({ ok: true, contextTokens: null, entries: [] });
     useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "working", reason: "", kind: "claude" } } });
     await renderChat();
     expect(all("chat-send")).toHaveLength(0);
@@ -266,7 +277,7 @@ describe("ChatPane — entries", () => {
   });
 
   it("typing mid-turn turns Stop back into Send, with Stop beside it", async () => {
-    installChat({ ok: true, entries: [] });
+    installChat({ ok: true, contextTokens: null, entries: [] });
     useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "working", reason: "", kind: "claude" } } });
     await renderChat();
     await typeInto(all("chat-composer-input")[0] as HTMLTextAreaElement, "and then this");
@@ -279,7 +290,7 @@ describe("ChatPane — entries", () => {
 
   it("sending /clear leaves this transcript behind for a fresh chat", async () => {
     usePaneChatViewStore.setState({ starting: {} });
-    installChat({ ok: true, entries: [] });
+    installChat({ ok: true, contextTokens: null, entries: [] });
     Object.assign(chat, {
       getCommands: vi.fn(() => Promise.resolve({ ok: false, reason: "no-agent" })),
     });
@@ -293,7 +304,7 @@ describe("ChatPane — entries", () => {
 
 describe("ChatPane — question cards", () => {
   it("single question: a tap answers it", async () => {
-    installChat({ ok: true, entries: [question("q1", [{ multiSelect: false, header: "H" }])] });
+    installChat({ ok: true, contextTokens: null, entries: [question("q1", [{ multiSelect: false, header: "H" }])] });
     await renderChat();
     await click(optionNamed("Beta"));
     expect(chat.answer).toHaveBeenCalledWith(PANE, "q1", {
@@ -306,7 +317,7 @@ describe("ChatPane — question cards", () => {
   });
 
   it("multi-select: toggles, then Submit", async () => {
-    installChat({ ok: true, entries: [question("q1", [{ multiSelect: true, header: "H" }])] });
+    installChat({ ok: true, contextTokens: null, entries: [question("q1", [{ multiSelect: true, header: "H" }])] });
     await renderChat();
     expect(all("chat-question-other")).toHaveLength(0);
     await click(optionNamed("Gamma"));
@@ -320,7 +331,7 @@ describe("ChatPane — question cards", () => {
   });
 
   it("other: reveals a field, and Submit sends its text", async () => {
-    installChat({ ok: true, entries: [question("q1", [{ multiSelect: false, header: "H" }])] });
+    installChat({ ok: true, contextTokens: null, entries: [question("q1", [{ multiSelect: false, header: "H" }])] });
     await renderChat();
     await click(all("chat-question-other")[0]);
     const input = all("chat-question-other-input")[0] as HTMLInputElement;
@@ -335,6 +346,7 @@ describe("ChatPane — question cards", () => {
   it("two questions: collects both, then sends one answer", async () => {
     installChat({
       ok: true,
+      contextTokens: null,
       entries: [
         question("q1", [
           { multiSelect: false, header: "First" },
@@ -362,7 +374,7 @@ describe("ChatPane — question cards", () => {
 
   it("stale: falls back to the terminal", async () => {
     installChat(
-      { ok: true, entries: [question("q1", [{ multiSelect: false, header: "H" }])] },
+      { ok: true, contextTokens: null, entries: [question("q1", [{ multiSelect: false, header: "H" }])] },
       { ok: false, reason: "stale" },
     );
     const onShowTerminal = await renderChat();
@@ -376,6 +388,7 @@ describe("ChatPane — question cards", () => {
   it("needsTerminal and older open pickers go to the terminal without sending", async () => {
     installChat({
       ok: true,
+      contextTokens: null,
       entries: [
         question("old", [{ multiSelect: false, header: "Old" }]),
         { ...question("q1", [{ multiSelect: false, header: "H" }]), needsTerminal: true },
@@ -388,7 +401,7 @@ describe("ChatPane — question cards", () => {
   });
 
   it("plan: Approve sends plan-approve; Change plan opens the terminal", async () => {
-    installChat({ ok: true, entries: [{ kind: "plan", id: "p1", ts: "", plan: "1. Do it", outcome: null }] });
+    installChat({ ok: true, contextTokens: null, entries: [{ kind: "plan", id: "p1", ts: "", plan: "1. Do it", outcome: null }] });
     const onShowTerminal = await renderChat();
     await click(all("chat-plan-change")[0]);
     expect(onShowTerminal).toHaveBeenCalledTimes(1);
@@ -528,7 +541,7 @@ describe("menu handoff (ADR-218 D3)", () => {
   }
 
   it("a bare menu command hands off, and its transcript line brings the chat back", async () => {
-    installChat({ ok: true, entries: [] });
+    installChat({ ok: true, contextTokens: null, entries: [] });
     await sendBareConfig();
     expect(chat.send).toHaveBeenCalledWith(PANE, "/config");
     expect(handoffs()[PANE]).toMatchObject({ name: "config", transcript: TRANSCRIPT });
@@ -553,7 +566,7 @@ describe("menu handoff (ADR-218 D3)", () => {
   });
 
   it("a command with an argument that skips the menu stays on the chat", async () => {
-    installChat({ ok: true, entries: [] });
+    installChat({ ok: true, contextTokens: null, entries: [] });
     Object.assign(chat, {
       getCommands: vi.fn(() => Promise.resolve({ ok: false, reason: "no-agent" })),
     });
@@ -575,7 +588,7 @@ describe("ChatPane — choice sheet (ADR-218 D2)", () => {
   });
 
   async function openSheet(): Promise<HTMLTextAreaElement> {
-    installChat({ ok: true, entries: [] });
+    installChat({ ok: true, contextTokens: null, entries: [] });
     Object.assign(chat, {
       getCommands: vi.fn(() =>
         Promise.resolve({ ok: true, skillsKnown: true, commands: BUILTIN_COMMANDS }),
@@ -699,6 +712,7 @@ describe("ChatPane — host offline (ADR-216 D4)", () => {
   const OFFLINE: ChatHistory = { ok: false, reason: "host-offline" };
   const BACK: ChatHistory = {
     ok: true,
+    contextTokens: null,
     entries: [{ kind: "user", id: "u1", ts: "", text: "from before" }],
   };
 
@@ -762,13 +776,14 @@ describe("ChatPane — host offline (ADR-216 D4)", () => {
 
 describe("ChatPane — bridge resync (ADR-220 D3)", () => {
   it("fetches history again and merges what was missed", async () => {
-    installChat({ ok: true, entries: [{ kind: "user", id: "u1", ts: "", text: "before" }] });
+    installChat({ ok: true, contextTokens: null, entries: [{ kind: "user", id: "u1", ts: "", text: "before" }] });
     await renderChat();
     await act(async () => listener?.(PANE, { kind: "assistant", id: "a1", ts: "", text: "live" }));
 
     chat.getHistory.mockImplementation(() =>
       Promise.resolve({
         ok: true,
+        contextTokens: null,
         entries: [
           { kind: "user", id: "u1", ts: "", text: "before" },
           { kind: "assistant", id: "a1", ts: "", text: "live" },
@@ -783,7 +798,7 @@ describe("ChatPane — bridge resync (ADR-220 D3)", () => {
   });
 
   it("keeps the chat when the refetch fails, and stops listening once unmounted", async () => {
-    installChat({ ok: true, entries: [{ kind: "user", id: "u1", ts: "", text: "before" }] });
+    installChat({ ok: true, contextTokens: null, entries: [{ kind: "user", id: "u1", ts: "", text: "before" }] });
     await renderChat();
     chat.getHistory.mockImplementation(() => Promise.reject(new Error("dropped")));
     await act(async () => emitBridgeResync());
@@ -799,7 +814,7 @@ describe("ChatPane — bridge resync (ADR-220 D3)", () => {
   });
 
   it("refetches slash commands it already has on the next open, and not ones it never fetched", async () => {
-    installChat({ ok: true, entries: [] });
+    installChat({ ok: true, contextTokens: null, entries: [] });
     const getCommands = vi.fn(() =>
       Promise.resolve({ ok: true, skillsKnown: true, commands: BUILTIN_COMMANDS }),
     );

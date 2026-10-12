@@ -115,7 +115,7 @@ describe("useNewAgentSend", () => {
     createWorktree.mockResolvedValue(null);
     await send("fix the login bug", { projectId: "solo", workspacePath: "/code/solo", newWorktree: true });
 
-    expect(createWorktree.mock.calls[0][2].baseBranch).toBeUndefined();
+    expect(createWorktree.mock.calls[0][2].baseBranch).toBe("main");
     expect(useAppStore.getState().composerDraft.text).toBe("fix the login bug");
   });
 });

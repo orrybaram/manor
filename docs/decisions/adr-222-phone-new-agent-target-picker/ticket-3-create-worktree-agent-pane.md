@@ -1,6 +1,6 @@
 ---
 title: createWorktree reports the agent pane id
-status: todo
+status: done
 priority: medium
 assignee: haiku
 blocked_by: []

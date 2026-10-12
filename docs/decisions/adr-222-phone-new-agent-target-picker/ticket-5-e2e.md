@@ -1,6 +1,6 @@
 ---
 title: E2E — phone new agent picks a target
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [4]

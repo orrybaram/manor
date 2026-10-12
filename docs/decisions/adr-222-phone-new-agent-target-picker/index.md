@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -104,8 +104,8 @@ New `worktreeNameFromPrompt(prompt, takenNames)` in `src/utils/branch-name.ts`.
   existing workspace name, branch or directory in the project.
 
 The branch is `sanitizeBranchName(name)`, exactly as in `NewWorkspaceDialog`.
-The base is the chosen workspace's branch: for main it is `undefined`, so main
-uses `origin/<defaultBranch>`; otherwise it is `baseBranch: workspace.branch`.
+The base is the chosen workspace's branch: for main it is `project.defaultBranch`, as in `NewWorkspaceDialog`, so main
+uses the local default branch; otherwise it is `baseBranch: workspace.branch`.
 In other words, "existing workspace + new worktree" means "branch off that
 workspace". This matches the Claude chip, where the branch chip picks the base.
 

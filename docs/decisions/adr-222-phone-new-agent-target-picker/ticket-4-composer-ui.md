@@ -1,6 +1,6 @@
 ---
 title: PhoneNewAgentComposer with target chips, send, and wiring
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [1, 2, 3]

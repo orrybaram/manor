@@ -53,7 +53,10 @@ async function sendToNewWorktree(prompt: string, resolved: ResolvedTarget<Projec
   app.closeComposer();
   const created = await useProjectStore.getState().createWorktree(project.id, name, {
     branch: sanitizeBranchName(name),
-    baseBranch: workspace.isMain ? undefined : workspace.branch,
+    // Main bases off the project's default branch, as NewWorkspaceDialog does:
+    // left unset, main would try `origin/<default>`, which a repo with no
+    // remote doesn't have.
+    baseBranch: workspace.isMain ? project.defaultBranch || "main" : workspace.branch,
     agentPrompt: prompt,
     onAgentPane: (paneId) => {
       if (claude) markChatStarting(paneId);

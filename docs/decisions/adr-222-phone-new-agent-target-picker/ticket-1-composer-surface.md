@@ -1,6 +1,6 @@
 ---
 title: Composer app surface and draft state
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

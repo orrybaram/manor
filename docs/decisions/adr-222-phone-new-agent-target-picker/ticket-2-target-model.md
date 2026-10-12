@@ -1,6 +1,6 @@
 ---
 title: New-agent target model and prompt-derived worktree names
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

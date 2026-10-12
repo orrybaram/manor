@@ -17,7 +17,8 @@ import {
   useAppStore,
 } from "../../store/app-store";
 import { useAgentStore } from "../../store/agent-store";
-import { chatTranscriptPath, pickPaneAgent } from "./ChatPane/chat-view";
+import { paneCanChat, selectPaneChatAgent } from "../../lib/pane-agent";
+import { chatTranscriptPath } from "./ChatPane/chat-view";
 import {
   endMenuHandoff,
   usePaneChatView,
@@ -58,19 +59,12 @@ function useMenuTargets(): MenuTargets {
   const contentType = useAppStore((s) =>
     paneId ? selectPaneContentType(s, paneId) : null,
   );
-  const agentId = useAgentStore((s) =>
-    paneId !== null && contentType !== "diff" && contentType !== "browser"
-      ? (pickPaneAgent(s.agents, paneId)?.id ?? null)
-      : null,
-  );
   const chatTranscript = useAgentStore((s) =>
-    agentId !== null ? chatTranscriptPath(s.agents.find((a) => a.id === agentId) ?? null) : null,
+    chatTranscriptPath(selectPaneChatAgent(s.agents, paneId, contentType)),
   );
   // A Claude agent the phone just started has the chat before its transcript.
   const chatStarting = usePaneChatViewStore((s) =>
-    paneId !== null && contentType !== "diff" && contentType !== "browser"
-      ? paneId in s.starting
-      : false,
+    paneId !== null && paneCanChat(contentType) ? paneId in s.starting : false,
   );
 
   if (!workspaceKey) return NO_TARGETS;

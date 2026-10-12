@@ -21,7 +21,8 @@ import { createAgentStatusDriver, type AgentStatusDriver } from "./agent-status/
 import type { PaneStatusUpdate } from "./agent-status/effects";
 import { ensureManorCli } from "./manor-cli-install";
 import { AgentManager, agentHostId, type AgentInfo } from "./agent-persistence";
-import { ChatMirror, pickPaneAgent, transcriptSources } from "./chat-mirror/mirror";
+import { ChatMirror, transcriptSources } from "./chat-mirror/mirror";
+import { pickPaneAgent } from "../src/lib/pane-agent";
 import { LocalTranscriptSource } from "./chat-mirror/transcript-source";
 import { NotificationStore } from "./notification-store";
 import { StatsStore } from "./stats-store";

@@ -59,7 +59,8 @@ import { useWorkspaceProjectId } from "../../hooks/useWorkspaceProjectId";
 import { isWebApp } from "../../lib/platform";
 import { useLayoutMode } from "../../hooks/useLayoutMode";
 import { useAgentStore } from "../../store/agent-store";
-import { chatTranscriptPath, pickPaneAgent } from "../phone/ChatPane/chat-view";
+import { chatTranscriptPath } from "../phone/ChatPane/chat-view";
+import { selectPaneChatAgent } from "../../lib/pane-agent";
 import {
   endMenuHandoff,
   usePaneChatStarting,
@@ -116,9 +117,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   // resume remounts the chat with the new session's history.
   const phone = useLayoutMode() === "phone";
   const chatTranscript = useAgentStore((s) =>
-    phone && contentType !== "diff" && contentType !== "browser"
-      ? chatTranscriptPath(pickPaneAgent(s.agents, paneId))
-      : null,
+    phone ? chatTranscriptPath(selectPaneChatAgent(s.agents, paneId, contentType)) : null,
   );
   // A Claude agent the phone just started opens on the chat while it boots,
   // and a `/clear` sent from the chat shows a fresh one until the new

@@ -7,7 +7,7 @@ import {
   type TranscriptRead,
   type TranscriptSource,
 } from "../transcript-source";
-import { ChatMirror, pickPaneAgent, type PaneAgent } from "../mirror";
+import { ChatMirror, type PaneAgent } from "../mirror";
 import type { ChatPush } from "../transcript";
 
 const T = "2026-01-01T00:00:00.000Z";
@@ -655,27 +655,5 @@ describe("ChatMirror — poke and poll (ADR-216 D3)", () => {
     finishRead();
     await until(() => published.length === 1);
     expect(published.map((e) => e.id)).toEqual(["u2"]);
-  });
-});
-
-describe("pickPaneAgent", () => {
-  const base = { paneId: "p", status: "completed", createdAt: "2026-01-01" };
-
-  it("prefers the pane's active agent, else its newest when that one errored", () => {
-    const old = { ...base, createdAt: "2026-01-01" };
-    const newer = { ...base, createdAt: "2026-02-01" };
-    const active = { ...base, status: "active", createdAt: "2025-12-01" };
-    const errored = { ...base, status: "error", createdAt: "2026-03-01" };
-    expect(pickPaneAgent([old, active, newer], "p")).toBe(active);
-    expect(pickPaneAgent([old, errored, newer], "p")).toBe(errored);
-    expect(pickPaneAgent([{ ...base, paneId: "q" }], "p")).toBeNull();
-  });
-
-  it("gives a pane whose agents have all exited no agent", () => {
-    const old = { ...base, createdAt: "2026-01-01" };
-    const newer = { ...base, status: "abandoned", createdAt: "2026-02-01" };
-    const staleError = { ...base, status: "error", createdAt: "2025-12-01" };
-    expect(pickPaneAgent([old, newer], "p")).toBeNull();
-    expect(pickPaneAgent([staleError, newer], "p")).toBeNull();
   });
 });

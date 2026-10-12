@@ -909,10 +909,12 @@ button.commandChip {
 
 .statusAdditions {
   color: var(--green);
+  font-variant-numeric: tabular-nums;
 }
 
 .statusDeletions {
   color: var(--red);
+  font-variant-numeric: tabular-nums;
 }
 
 /* The session's context size, right of the chips. It never shrinks: the

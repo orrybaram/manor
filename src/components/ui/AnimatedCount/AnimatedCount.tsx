@@ -5,10 +5,13 @@ const DURATION = 300;
 export function AnimatedCount({
   value,
   prefix,
+  format,
   className,
 }: {
   value: number;
   prefix?: string;
+  /** Renders each animated frame's value; defaults to the bare integer. */
+  format?: (n: number) => string;
   className?: string;
 }) {
   const [display, setDisplay] = useState(value);
@@ -42,7 +45,7 @@ export function AnimatedCount({
   return (
     <span className={className}>
       {prefix}
-      {display}
+      {format ? format(display) : display}
     </span>
   );
 }

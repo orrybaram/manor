@@ -5,6 +5,7 @@ import { useShallow } from "zustand/react/shallow";
 import { find } from "../../../lib/workspace-directory";
 import { selectActiveWorkspaceKey, useAppStore } from "../../../store/app-store";
 import { useProjectStore } from "../../../store/project-store";
+import { AnimatedCount } from "../../ui/AnimatedCount/AnimatedCount";
 import { Button } from "../../ui/Button/Button";
 import { Link } from "../../ui/Link/Link";
 import { formatContextTokens, runningChipLabel, statusLineModel } from "./chat-status-line";
@@ -96,8 +97,16 @@ export function ChatStatusLine(props: ChatStatusLineProps) {
           aria-label={`${diff.additions} additions, ${diff.deletions} deletions`}
           onClick={() => useAppStore.getState().openOrFocusDiff()}
         >
-          <span className={styles.statusAdditions}>+{diff.additions}</span>
-          <span className={styles.statusDeletions}>−{diff.deletions}</span>
+          <AnimatedCount
+            className={styles.statusAdditions}
+            prefix="+"
+            value={diff.additions}
+          />
+          <AnimatedCount
+            className={styles.statusDeletions}
+            prefix="−"
+            value={diff.deletions}
+          />
         </Button>
       )}
       {running && (
@@ -119,7 +128,7 @@ export function ChatStatusLine(props: ChatStatusLineProps) {
           title={`${contextTokens.toLocaleString()} tokens`}
           aria-label={`${contextTokens} tokens in context`}
         >
-          {formatContextTokens(contextTokens)}
+          <AnimatedCount value={contextTokens} format={formatContextTokens} />
         </span>
       )}
     </div>

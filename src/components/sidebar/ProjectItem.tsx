@@ -85,6 +85,7 @@ import {
 } from "../../lib/keyboard-context-menu";
 import { useEmojiAutocomplete } from "../ui/EmojiAutocomplete/useEmojiAutocomplete";
 import { composeHandlers } from "../ui/EmojiAutocomplete/compose";
+import { AnimatedCount } from "../ui/AnimatedCount/AnimatedCount";
 import { Button } from "../ui/Button/Button";
 import { Collapse } from "../ui/Collapse/Collapse";
 import styles from "./ProjectItem.module.css";
@@ -249,14 +250,18 @@ const WorkspaceItem = React.forwardRef<
                     }}
                   >
                     {ws.diffStats.added > 0 && (
-                      <span className={styles.diffAdded}>
-                        +{ws.diffStats.added}
-                      </span>
+                      <AnimatedCount
+                        className={styles.diffAdded}
+                        prefix="+"
+                        value={ws.diffStats.added}
+                      />
                     )}
                     {ws.diffStats.removed > 0 && (
-                      <span className={styles.diffRemoved}>
-                        -{ws.diffStats.removed}
-                      </span>
+                      <AnimatedCount
+                        className={styles.diffRemoved}
+                        prefix="-"
+                        value={ws.diffStats.removed}
+                      />
                     )}
                   </Button>
                 )}

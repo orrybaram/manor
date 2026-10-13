@@ -102,7 +102,17 @@ import {
   githubGetViewerName,
   githubListRepos,
   githubProxyImage,
+  linearAutoMatch,
+  linearCloseIssue,
+  linearGetAllIssues,
+  linearGetIssueDetail,
+  linearGetMyIssues,
+  linearGetTeams,
+  linearGetViewer,
+  linearIsConnected,
   linearLinkIssueToWorkspace,
+  linearProxyImage,
+  linearStartIssue,
   linearUnlinkIssueFromWorkspace,
 } from "../bridge/handlers/integrations";
 import {
@@ -112,7 +122,7 @@ import {
   type HandlerCtx,
 } from "../bridge/method";
 import type { BridgeServerDeps } from "../bridge/server";
-import { UNAVAILABLE_HOST_CODE } from "../bridge/types";
+import { BridgeUnavailableRefusal, UNAVAILABLE_HOST_CODE } from "../bridge/types";
 import type { AppPreferences } from "../preferences";
 import type { ProjectInfo } from "../projects/types";
 import type { Theme, ThemeColors } from "../theme";
@@ -178,6 +188,8 @@ export interface HostServerDeps
   adopt: Adopt;
   /** What `hostServer.status` answers the owner (ADR-225 D4). */
   serverStatus(): HostServerStatus;
+  /** This box's name, for the messages that say which host refused. */
+  hostName(): string;
 }
 
 type Ctx = HandlerCtx<HostServerDeps>;
@@ -335,12 +347,13 @@ function hostServerStatus(ctx: Ctx): HostServerStatus {
 /**
  * New relay identity; every phone and push subscription revoked.
  *
- * Owner-only, like pairing. When delegated integration tokens arrive (ADR-225
- * D8, slice 2) this must delete those too: "Reset pairing keys" is the
- * recovery step for a box that may be compromised.
+ * Owner-only, like pairing. It deletes the delegated Linear token too:
+ * "Reset pairing keys" is the recovery step for a box that may be
+ * compromised (ADR-227 D7).
  */
 async function hostServerResetIdentity(ctx: Ctx): Promise<HostServerStatus> {
   await ctx.deps.relay.resetIdentity();
+  ctx.deps.linearManager.clearToken();
   return ctx.deps.serverStatus();
 }
 
@@ -352,6 +365,40 @@ async function hostServerResetIdentity(ctx: Ctx): Promise<HostServerStatus> {
 function hostServerSetVapidKeys(ctx: Ctx, keys: VapidKeys): Promise<boolean> {
   assertVapidKeys(keys);
   return ctx.deps.relay.setVapidKeys(keys);
+}
+
+/**
+ * The desktop's Linear key for this host (ADR-227 D7), sealed in this host's
+ * `SecretBox`; null deletes it. Answers whether Linear is on. `secretFirstArg`
+ * keeps the key out of the audit line.
+ */
+async function hostServerSetLinearToken(ctx: Ctx, token: string | null): Promise<boolean> {
+  if (token === null) {
+    ctx.deps.linearManager.clearToken();
+  } else {
+    assertString(token, "hostServer.setLinearToken.token");
+    if (token.trim() === "") throw new Error("hostServer.setLinearToken.token is empty");
+    await ctx.deps.linearManager.saveToken(token);
+  }
+  return ctx.deps.linearManager.isConnected();
+}
+
+/**
+ * `fn`, refused `unavailable:host` until the user has turned Linear on for
+ * this host: no token is here, so there is nothing to call Linear with.
+ */
+function withLinear<A extends unknown[], R>(
+  fn: (ctx: HandlerCtx<Pick<SharedDeps, "linearManager" | "projectManager">>, ...args: A) => R,
+): (ctx: Ctx, ...args: A) => R {
+  return (ctx, ...args) => {
+    if (!ctx.deps.linearManager.isConnected()) {
+      throw new BridgeUnavailableRefusal(
+        `Linear isn't turned on for ${ctx.deps.hostName()}`,
+        UNAVAILABLE_HOST_CODE,
+      );
+    }
+    return fn(ctx, ...args);
+  };
 }
 
 /**
@@ -451,7 +498,20 @@ const METHODS = flatten({
   },
   // A workspace's linked issues are project records; the rest of Linear is
   // not on this host yet.
+  //
+  // The rest of `linear.*` runs here with the token the user delegated (D7);
+  // `connect` and `disconnect` stay the desktop's.
   linear: {
+    isConnected: method(linearIsConnected),
+    getViewer: method(withLinear(linearGetViewer)),
+    getTeams: method(withLinear(linearGetTeams)),
+    getMyIssues: method(withLinear(linearGetMyIssues)),
+    getIssueDetail: method(withLinear(linearGetIssueDetail)),
+    getAllIssues: method(withLinear(linearGetAllIssues)),
+    proxyImage: method(withLinear(linearProxyImage)),
+    autoMatch: method(withLinear(linearAutoMatch), { mutating: true }),
+    startIssue: method(withLinear(linearStartIssue), { mutating: true }),
+    closeIssue: method(withLinear(linearCloseIssue), { mutating: true }),
     linkIssueToWorkspace: method(owned(linearLinkIssueToWorkspace), { mutating: true }),
     unlinkIssueFromWorkspace: method(owned(linearUnlinkIssueFromWorkspace), {
       mutating: true,
@@ -496,6 +556,7 @@ const METHODS = flatten({
     status: method(hostServerStatus, { localOnly: true }),
     resetIdentity: method(hostServerResetIdentity, { localOnly: true }),
     setVapidKeys: method(hostServerSetVapidKeys, { localOnly: true, secretFirstArg: true }),
+    setLinearToken: method(hostServerSetLinearToken, { localOnly: true, secretFirstArg: true }),
     adopt: method(hostServerAdopt, { localOnly: true }),
   },
 });

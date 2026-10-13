@@ -67,8 +67,15 @@ export class LinearManager {
   /** The decrypted key, loaded by `init()` so `getToken()` can stay synchronous. */
   private token: string | null = null;
 
-  constructor(private readonly secretBox: SecretBox) {
-    this.tokenPath = linearTokenFile();
+  /**
+   * `tokenPath` is where the sealed key lives: the desktop's own file by
+   * default, a host server's under its data dir (ADR-227 D7).
+   */
+  constructor(
+    private readonly secretBox: SecretBox,
+    tokenPath: string = linearTokenFile(),
+  ) {
+    this.tokenPath = tokenPath;
   }
 
   /**

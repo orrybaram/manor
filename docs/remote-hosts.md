@@ -128,8 +128,8 @@ and it exposes your keys to anyone with root on the box. You sign in to
 `gh`, `claude` and `codex` on the box yourself, once. The one key the desktop
 does send is its Web Push signing key, so the host server can send phone
 notifications (see [Where secrets live](#where-secrets-live)). Integration
-tokens such as Linear's API key never go to the box (see
-[Integrations](#integrations)).
+tokens such as Linear's API key go to the box only if you turn on "Use Linear
+on \<host\>" (see [Integrations](#integrations)).
 
 Upgrades happen automatically. When the app version changes, the next
 connect installs the matching host package next to the old one and swaps it
@@ -320,20 +320,28 @@ backend.
 Every integration is one of two kinds:
 
 - **Host-native**: the credential is already on the box because your agents
-  use it, such as `gh` and git. Agents keep using the box's own sign-ins, as
-  they always have. A future host server may run these with the box's own
-  sign-in, and nothing gets copied. If `gh` isn't signed in on the box, it
-  will say so rather than fail.
+  use it, such as `gh` and git. The host server runs these with the box's own
+  sign-in, in the checkout, and nothing gets copied. If `gh` isn't signed in on
+  the box, Manor says so ("gh isn't signed in on \<host\>") rather than
+  failing. PR badges for a remote workspace come from the box's `gh`.
 - **User-delegated**: a credential you gave Manor itself, such as Linear's API
-  key. It stays on your laptop. Copying one to a box will be an explicit,
-  per-host choice ("Use Linear on \<host\>"), stored through the box's secret
-  backend and deleted by **Reset pairing keys**.
+  key. It stays on your laptop unless you choose otherwise. Settings → Remote
+  control → the host has a **Use Linear on \<host\>** switch (shown when Linear
+  is connected on this computer). Turning it on copies your Linear key to the
+  box, sealed by the box's secret backend (see
+  [Where secrets live](#where-secrets-live)); Linear has no narrower key to
+  send. Until then every Linear call on the host answers "Linear isn't turned
+  on for \<host\>". Turning the switch off, or **Reset pairing keys**, deletes
+  the copy. Linear on your laptop for a remote project always uses your laptop's
+  key; the copy is only for phones and the box's own server.
 
-**Today the host server makes no integration calls at all.** With the lid
-closed, a phone sees each workspace's linked issue (id, title, link) and its
-PR (number, state, checks) as the desktop last knew them, sent in the
-manifest with the time they were taken. Browsing issues, starting work from an
-issue and issue images aren't available from a host server yet.
+### Linear without a key on the box
+
+If you don't want the key on the box, skip the switch and use Linear's MCP
+server in the agent instead. It needs nothing from Manor: add the Linear MCP
+server to the agent's own configuration on the box and sign in there. The
+trade-off is that Manor doesn't see those issues, so there is no issue link on
+the workspace and no "start work from an issue" flow.
 
 ## Laptop closed
 

@@ -37,6 +37,7 @@ export const LOCAL_ONLY_METHODS = [
   "hosts.pairDevice",
   "hosts.revokeDevice",
   "hosts.resetPairingKeys",
+  "hosts.setLinearOnHost",
 ] as const;
 
 export type LocalOnlyMethod = (typeof LOCAL_ONLY_METHODS)[number];

@@ -230,6 +230,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       identityFile: paths.relayIdentity,
       devicesFile: paths.devices,
       vapidFile: paths.vapid,
+      linearTokenFile: paths.linearToken,
       pushSend: opts.relay?.pushSend,
       pushGenerate: opts.relay?.pushGenerate,
     },
@@ -279,11 +280,13 @@ export function createHostServer(opts: HostServerOptions): HostServer {
           publishAgent: (agent) => shared.notifier.sendAgentUpdate(agent),
         }),
         serverStatus: hostStatus,
+        hostName: () => hostPlatform.hostName(),
       };
     },
   });
   const { client, deps, bridge } = server;
   const { agentManager } = server.shared;
+  const { shared } = server;
   // The local daemon reconnects quietly on the desktop; a server that has to
   // stay up keeps trying, like a remote host's connection does.
   client.setReconnectPolicy(daemonRetryDelayMs);
@@ -297,6 +300,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       relay: relay.relayStatus(),
       devices: relay.deviceCount(),
       pushEndpoints: relay.pushEndpoints(),
+      linear: shared.linearManager.isConnected(),
     };
   }
 
@@ -408,6 +412,8 @@ export function createHostServer(opts: HostServerOptions): HostServer {
 
     async start() {
       server.start();
+      // The delegated Linear key, decrypted before the first call (ADR-227 D7).
+      await shared.linearManager.init();
       const relayUp = startRelay();
       await Promise.all([relayUp, connectLoop(relayUp)]);
     },

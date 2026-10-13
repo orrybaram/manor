@@ -210,6 +210,8 @@ export interface HostServerPaths {
   hookCursor: string;
   /** Which SecretBox backend sealed this server's keys (`pickHostSecretBox`). */
   secretBackend: string;
+  /** The desktop's Linear key, when the user turned Linear on for this host (ADR-227 D7). */
+  linearToken: string;
   /** This host's projects and workspace records (ADR-227 D2). */
   projects: string;
   /** This host's layout, keyed by bare workspace path (ADR-227 D2). */
@@ -239,6 +241,7 @@ export function hostServerPaths(dataDir: string = remoteServerDir()): HostServer
     version: path.join(dataDir, "server.version"),
     hookCursor: path.join(dataDir, "hook-cursor.json"),
     secretBackend: path.join(dataDir, "secret-backend"),
+    linearToken: path.join(dataDir, "linear-token.enc"),
     projects: path.join(dataDir, "projects.json"),
     layout: path.join(dataDir, "layout.json"),
     ownership: path.join(dataDir, "ownership.json"),

@@ -183,6 +183,29 @@ export async function hostsResetPairingKeys(
 }
 
 /**
+ * "Use Linear on <host>" (ADR-227 D7): copy this computer's Linear key to the
+ * host's server, or delete the copy. The key goes over the owner channel to
+ * the host's own `SecretBox`; it is never returned or logged. Answers whether
+ * Linear is on for the host afterwards.
+ */
+export async function hostsSetLinearOnHost(
+  ctx: HandlerCtx<ServerDeps>,
+  hostId: string,
+  on: boolean,
+): Promise<boolean> {
+  if (typeof on !== "boolean") throw new Error("hosts:setLinearOnHost.on must be a boolean");
+  const client = connectedServer(ctx, hostId);
+  let token: string | null = null;
+  if (on) {
+    token = ctx.deps.linearManager.getToken();
+    if (token === null) throw new Error("Connect Linear on this computer first.");
+  }
+  const enabled = await client.api.hostServer.setLinearToken(token);
+  publishRendererBroadcast("hosts", "pairingChanged", hostId);
+  return enabled;
+}
+
+/**
  * Wire the two host broadcasts, once, at boot (`app-lifecycle.ts`).
  *
  * `hosts.statusChanged` carries the full host list whenever any host's status
@@ -229,4 +252,7 @@ export const hosts = {
     localOnly: true,
     mutating: true,
   }),
+  // Sends the Linear key to the host. `mutating` is safe for the audit line:
+  // its arguments are the host id and a flag; the key is read here.
+  setLinearOnHost: method(hostsSetLinearOnHost, { localOnly: true, mutating: true }),
 };

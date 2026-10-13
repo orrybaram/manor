@@ -104,6 +104,8 @@ export interface HostServerStatus {
    * push for this host's agents to these (D3, "no duplicate pushes").
    */
   pushEndpoints: string[];
+  /** Whether the user turned Linear on for this host: its token is here (ADR-227 D7). */
+  linear: boolean;
 }
 
 /** The `remoteControl.*` surface the host table exposes. */

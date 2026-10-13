@@ -147,6 +147,8 @@ export interface ManorServerOptions<D extends BridgeServerDeps> {
     identityFile?: string;
     devicesFile?: string;
     vapidFile?: string;
+    /** Where the Linear key is sealed; the desktop's own file by default (ADR-227 D7). */
+    linearTokenFile?: string;
     pushSend?: ConstructorParameters<typeof PushManager>[3];
     pushGenerate?: () => VapidKeys | Promise<VapidKeys>;
   };
@@ -344,7 +346,7 @@ export function createManorServer<D extends BridgeServerDeps>(
   const githubManager = new GitHubManager();
   // The remote-control and relay modules take their platform from these ports
   // rather than importing Electron, so every server can build them (ADR-225 D6).
-  const linearManager = new LinearManager(secretBox);
+  const linearManager = new LinearManager(secretBox, opts.relayStores?.linearTokenFile);
   // One identity store for Jev and the relay: each caches the decrypted keys,
   // so a second instance would go stale when the relay address is reset.
   const relayFiles = opts.relayStores ?? {};

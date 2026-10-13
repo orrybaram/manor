@@ -39,10 +39,12 @@ import type {
 import type { PrInfo } from "../../../src/lib/pr-info";
 import { proxyGitHubImage } from "../../github-images";
 import { byGhRepo, byHost, byProject, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
-import type { ServerDeps, SharedDeps } from "../../ipc/types";
+import type { SharedDeps } from "../../ipc/types";
 
 /** What `gh` needs: the host server carries this and no more of `ServerDeps`. */
 type GithubDeps = Pick<SharedDeps, "githubManager">;
+/** What Linear needs: the host server carries this and no more of `ServerDeps`. */
+type LinearDeps = Pick<SharedDeps, "linearManager" | "projectManager">;
 
 type IssueState = "open" | "closed" | "all";
 type LinearIssueOptions = { stateTypes?: string[]; limit?: number };
@@ -194,7 +196,7 @@ export function githubUploadFeedbackImages(
  * key never leaves a connected-looking Linear panel behind.
  */
 export async function linearConnect(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<LinearDeps>,
   apiKey: string,
 ): Promise<{ name: string; email: string }> {
   assertString(apiKey, "apiKey");
@@ -208,28 +210,28 @@ export async function linearConnect(
 }
 
 /** Forget the key. Carries no credential in either direction. */
-export function linearDisconnect(ctx: HandlerCtx<ServerDeps>): void {
+export function linearDisconnect(ctx: HandlerCtx<LinearDeps>): void {
   ctx.deps.linearManager.clearToken();
 }
 
-export function linearIsConnected(ctx: HandlerCtx<ServerDeps>): boolean {
+export function linearIsConnected(ctx: HandlerCtx<LinearDeps>): boolean {
   return ctx.deps.linearManager.isConnected();
 }
 
 export function linearGetViewer(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<LinearDeps>,
 ): Promise<{ name: string; email: string }> {
   return ctx.deps.linearManager.getViewer();
 }
 
 export function linearGetTeams(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<LinearDeps>,
 ): Promise<LinearTeam[]> {
   return ctx.deps.linearManager.getTeams();
 }
 
 export function linearGetMyIssues(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<LinearDeps>,
   teamIds: string[],
   options?: LinearIssueOptions,
 ): Promise<LinearIssue[]> {
@@ -237,14 +239,14 @@ export function linearGetMyIssues(
 }
 
 export function linearGetIssueDetail(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<LinearDeps>,
   issueId: string,
 ): Promise<LinearIssueDetail> {
   return ctx.deps.linearManager.getIssueDetail(issueId);
 }
 
 export function linearGetAllIssues(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<LinearDeps>,
   teamIds: string[],
   options?: LinearIssueOptions,
 ): Promise<LinearIssue[]> {
@@ -252,14 +254,14 @@ export function linearGetAllIssues(
 }
 
 export function linearStartIssue(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<LinearDeps>,
   issueId: string,
 ): Promise<void> {
   return ctx.deps.linearManager.startIssue(issueId);
 }
 
 export function linearCloseIssue(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<LinearDeps>,
   issueId: string,
 ): Promise<void> {
   return ctx.deps.linearManager.closeIssue(issueId);
@@ -313,7 +315,7 @@ export function githubProxyImage(
  * credential crossing under another name.
  */
 export function linearProxyImage(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<LinearDeps>,
   url: string,
 ): Promise<string> {
   assertString(url, "url");
@@ -328,7 +330,7 @@ export function linearProxyImage(
  * suggests.
  */
 export async function linearAutoMatch(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<LinearDeps>,
 ): Promise<Record<string, LinearAssociation>> {
   const projects = await ctx.deps.projectManager.getProjects();
   const teams = await ctx.deps.linearManager.getTeams();

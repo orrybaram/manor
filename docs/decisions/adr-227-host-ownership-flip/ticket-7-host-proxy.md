@@ -1,6 +1,6 @@
 ---
 title: Owner-channel events and a per-host HostProxy with cache
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: [5]

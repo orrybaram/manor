@@ -76,3 +76,11 @@ ADR-227 D4 (Deleted on the desktop).
   locally, and they are never handed over. Deleting the desktop replay stops
   new ones. Also drop any of these leftovers on load: remote agents of an
   `adopted` host.
+
+## Carried over from ticket 7
+- **Republish agents.** Turn on `republishAgents: true` in the desktop's
+  `HostProxyContext` (`createManorServer`) once the desktop replay is
+  deleted.
+- **Readiness per connection.** `proxy.ready` resolves only at the first
+  snapshot ever. The resume announcement needs one per connection: add a
+  "next snapshot" promise, or a `snapshotted` event.

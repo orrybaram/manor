@@ -1,6 +1,6 @@
 ---
 title: Desktop routes remote-host calls to the host server
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: [6, 7]
@@ -82,3 +82,29 @@ ADR-227 D4 (routing, merged reads, control and data plane).
 - **No event when agents are removed.** The desktop sends none, so the
   renderer's agent list only catches up on its next fetch. The merged
   `agents.*` reads should publish on change.
+
+## Carried over from ticket 7 (the proxy API)
+- **Proxy calls.**
+  - `registry.hostProxy(hostId)` and `proxy.invoke(ns, method, args)` rewrite
+    the arguments and results.
+  - While the host is away, `invoke` throws
+    `HostServerUnavailableError(hostId, state, "<alias> is offline")`. Map it
+    to `unavailable:host-away`.
+- **Reads.**
+  - `proxy.away`.
+  - `proxy.projects()`, `agents()`, `layout()` and `lastActiveWorkspace()`
+    return the desktop's form, live or from cache. Use them for the merged
+    reads.
+- **Chat.** `proxy.watchChat(event, key)` returns a release function. Wire it
+  from `bridge.onSubscriptionChange` for remote panes, so remote chat
+  history and entries flow. `publishKeyed` is already wired.
+- **Layout command origins.** A layout command forwarded through the proxy
+  carries the owner connection as its origin, so a desktop renderer's `hint`
+  won't match its own `rendererId`. Carry the calling renderer's origin
+  through, or translate it on the way back.
+- **Agent changes during a disconnect.** After a reconnect, the snapshot
+  doesn't publish `agents.updated` for agents that changed while the desktop
+  wasn't listening. The merged `agents.*` reads should publish on change.
+- **Two events not yet proxied.** Decide whether to proxy `layout.paneTitle`
+  and `agents.status`. The desktop stops producing its own for remote panes
+  in ticket 9.

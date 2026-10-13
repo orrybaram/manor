@@ -433,14 +433,17 @@ most of them back to the host. Instead:
   `enableControlRelay`'s optional `role: "server"` is backward-compatible
   (wire hash re-recorded, protocol stays 6).
 - **Moving a project off an adopted host ends its panes there**, because the
-  host's `projects.remove` tears down its layout. `hostPaths` (the remembered
+  host's `projects.remove` tears down its layout. The layouts themselves are
+  taken to the desktop first and move with the project. `hostPaths` (the remembered
   path) is lost after adoption. A transfer onto an adopted host doesn't carry
   the source's main-workspace name and issues.
 - **Detached-window viewport claims** for a remote workspace are lost: a host
   has no windows, so a forwarded `reportViewport` goes nowhere.
-- **Each remote pane mount costs one extra round trip** (the host's
+- **A remote pane's first mount costs one extra round trip** (the host's
   `pty.create` before the daemon attach). Deliberate: it is how the host
   delivers a pending command, such as a resume, into a session it lost.
+  A re-mount of a session the desktop attached and has not seen exit skips
+  it.
 - **`github.proxyImage`, `createIssue` and `listRepos` stay on the laptop's
   `gh`.** A private-repo image in a remote project's PR uses the laptop's
   sign-in. The GitHub nudge and settings section check `gh` on the laptop only.

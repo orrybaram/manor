@@ -23,6 +23,7 @@ import { installMainLog } from "../main-log";
 import { hostServerPaths, type DaemonNamespace } from "../paths";
 import { pickHostSecretBox } from "../platform/secret-box";
 import type { HostTransport } from "../terminal-host/transport";
+import { isAlive, readPid, removeIfOurs } from "./pid-file";
 import type { HostRelayOptions } from "./relay";
 import { createHostServer, type HostServer } from "./server";
 import {
@@ -51,31 +52,7 @@ export interface RunningServer {
 
 /** Whether `pid` names a live process other than this one. */
 function isOtherLiveProcess(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    // EPERM: alive, but someone else's — still not ours to replace.
-    return (err as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-
-function readPid(file: string): number | null {
-  try {
-    return Number.parseInt(fs.readFileSync(file, "utf-8").trim(), 10);
-  } catch {
-    return null;
-  }
-}
-
-/** Remove `file` only if it still holds what this process wrote there. */
-function removeIfOurs(file: string, contents: string): void {
-  try {
-    if (fs.readFileSync(file, "utf-8") === contents) fs.unlinkSync(file);
-  } catch {
-    // Gone, or replaced by a newer server.
-  }
+  return pid !== process.pid && isAlive(pid);
 }
 
 export async function runServe(opts: ServeOptions): Promise<RunningServer> {

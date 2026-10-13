@@ -21,6 +21,7 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { hostServerPaths, remoteServerDir, type HostServerPaths } from "../paths";
+import { isAlive, readPid, removeIfOurs } from "./pid-file";
 
 const SOCKET_WAIT_MS = 5000;
 const KILL_GRACE_MS = 5000;
@@ -51,13 +52,6 @@ function readTrimmed(file: string): string | null {
   }
 }
 
-function readPid(file: string): number | null {
-  const raw = readTrimmed(file);
-  if (!raw) return null;
-  const pid = Number.parseInt(raw, 10);
-  return Number.isInteger(pid) && pid > 0 ? pid : null;
-}
-
 export function probeSocket(socketPath: string): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = net.createConnection(socketPath);
@@ -70,15 +64,6 @@ export function probeSocket(socketPath: string): Promise<boolean> {
       resolve(false);
     });
   });
-}
-
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === "EPERM";
-  }
 }
 
 /** Spawn `<node> <this bundle> serve --data-dir <dir>`, detached, logging to a file. */
@@ -161,17 +146,11 @@ async function acquireLock(deps: LifecycleDeps): Promise<(() => void) | null> {
       const fd = fs.openSync(lockPath, "wx", 0o600);
       fs.writeSync(fd, mine);
       fs.closeSync(fd);
-      return () => {
-        try {
-          if (fs.readFileSync(lockPath, "utf-8") === mine) fs.unlinkSync(lockPath);
-        } catch {
-          // Already gone.
-        }
-      };
+      return () => removeIfOurs(lockPath, mine);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
     }
-    let stale = false;
+    let stale: boolean;
     try {
       const holder = readPid(lockPath);
       const age = deps.now() - fs.statSync(lockPath).mtimeMs;

@@ -145,8 +145,12 @@ export interface HostRelayDeps {
   secretBox: SecretBox;
   /** The version segment of pairing links (`/app/<version>/`). */
   appVersion: string;
-  /** The server's hello gate over `FrameSocket`s. */
-  frames: Pick<WsBridgeServer, "attach" | "closeDevice" | "closeAll">;
+  /**
+   * The server's hello gate over `FrameSocket`s. A getter: the gate is built
+   * over the bridge, whose deps hold this relay, so it exists only once this
+   * relay does. Read no earlier than the first channel, revoke or `stop()`.
+   */
+  frames: () => Pick<WsBridgeServer, "attach" | "closeDevice" | "closeAll">;
   /** The user's "agent needs input" preference, read per transition. */
   notifyOnRequiresInput: () => boolean;
   options?: HostRelayOptions;
@@ -163,7 +167,11 @@ export function createHostRelay(deps: HostRelayDeps): HostRelay {
     options.pushSend,
     options.pushGenerate,
   );
-  const gate = new RelayGate(devices, deps.frames);
+  const gate = new RelayGate(devices, {
+    attach: (socket, authenticate) => deps.frames().attach(socket, authenticate),
+    closeDevice: (deviceId) => deps.frames().closeDevice(deviceId),
+    closeAll: () => deps.frames().closeAll(),
+  });
   const connector = new RelayConnector({
     identity,
     gate,

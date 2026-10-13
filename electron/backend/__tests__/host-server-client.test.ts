@@ -22,6 +22,7 @@ import {
 } from "../../host-server/socket";
 import type { HostManifest } from "../../host-server/manifest";
 import type { HostLayoutSnapshot } from "../../host-server/layout";
+import type { HostRelay } from "../../host-server/relay";
 import { hostServerPaths, type HostServerPaths } from "../../paths";
 import { plainFileSecretBox } from "../../platform/secret-box";
 import type { HostTransport } from "../../terminal-host/transport";
@@ -155,14 +156,18 @@ describe("HostServerClient over server-bridge", () => {
     quiet.warn.mockClear();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "manor-hsc-"));
     paths = hostServerPaths(path.join(tmp, "server"));
+    let relay!: HostRelay;
     server = createHostServer({
       dataDir: paths.dataDir,
       secretBox: plainFileSecretBox,
       appVersion: "9.9.9-test",
       transport: noDaemon,
+      internals: (parts) => {
+        relay = parts.relay;
+      },
     });
     // Its identity and device stores, without dialling the relay.
-    await server.relay.init();
+    await relay.init();
     await listen();
   });
 

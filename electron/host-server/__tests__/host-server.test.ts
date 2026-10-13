@@ -60,7 +60,7 @@ import { hostServerPaths, type HostServerPaths } from "../../paths";
 import type { AgentInfo } from "../../agent-persistence";
 import type { PaneStatusUpdate } from "../../agent-status/effects";
 import { runServe, type RunningServer } from "../serve";
-import { hostLayoutSnapshot } from "../owner";
+import { hostLayoutSnapshot } from "../../backend/host-server-sync";
 import { ownerTokenAuthenticator } from "../socket";
 import type { HostManifest } from "../manifest";
 import type { HostLayoutSnapshot } from "../layout";
@@ -272,14 +272,14 @@ describe("host server", () => {
         pushGenerate: () => ({ publicKey: "vapid-pub", privateKey: "vapid" }),
       },
     });
-    await running.server.whenCaughtUp();
+    // The daemon is up, so `start()` (in `runServe`) has caught up.
     return running;
   }
 
   /** Wait for the server's relay connector to hold its room. */
   async function relayUp(server: RunningServer): Promise<void> {
     await until(
-      () => server.server.relay.relayStatus().connected,
+      () => server.server.status().relay.connected,
       "relay connected",
     );
   }
@@ -513,7 +513,7 @@ describe("host server", () => {
       const server = await serve();
       await relayUp(server);
       expect(socketsMade).toBeGreaterThanOrEqual(1);
-      const { roomId } = server.server.relay.relayStatus();
+      const { roomId } = server.server.status().relay;
       expect(relay.liveHost?.roomId).toBe(roomId);
     });
 
@@ -747,7 +747,7 @@ describe("host server", () => {
       await server.stop();
       running = null;
       const again = await serve();
-      expect(again.server.relay.relayStatus().roomId).toBe(after.relay.roomId);
+      expect(again.server.status().relay.roomId).toBe(after.relay.roomId);
     });
   });
   describe("the owner channel (ADR-218 D4)", () => {

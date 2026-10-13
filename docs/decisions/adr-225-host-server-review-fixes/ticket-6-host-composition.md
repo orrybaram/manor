@@ -1,6 +1,6 @@
 ---
 title: Host server composition without nullables, OwnerSnapshotStore, hook-feed firstContact
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [5]

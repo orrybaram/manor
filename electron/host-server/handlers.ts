@@ -68,7 +68,16 @@ import {
   remoteControlVapidPublicKey,
 } from "../bridge/handlers/remote-control";
 import type { RemoteDeviceInfo } from "../remote-control/devices";
-import type { HostRemoteControl, HostServerStatus } from "./relay";
+import type { VapidKeys } from "../remote-control/push";
+import type { HostLayoutSnapshot } from "./layout";
+import type { HostManifest } from "./manifest";
+import {
+  assertHostLayoutSnapshot,
+  assertHostManifest,
+  assertVapidKeys,
+  type OwnerSync,
+} from "./owner";
+import type { HostRelay, HostRemoteControl, HostServerStatus } from "./relay";
 import {
   missingSessions,
   withStartedWhileAway,
@@ -111,17 +120,12 @@ export interface HostServerDeps
   theme(): Theme;
   /** This server's own relay room: pairing, devices, push (ADR-218 D3). */
   remoteControl: HostRemoteControl;
-  /** The owner's view of this server (ADR-218 D4). */
-  hostServer: {
-    status(): HostServerStatus;
-    resetIdentity(): Promise<HostServerStatus>;
-    /** Validates, persists and announces (`./owner.ts`). */
-    syncManifest(manifest: unknown): true;
-    /** True when the key changed (and subscriptions were cleared). */
-    setVapidKeys(keys: unknown): Promise<boolean>;
-    /** Validates, persists and announces (`./owner.ts`). */
-    syncLayout(snapshot: unknown): true;
-  };
+  /** The same room's owner-only side: reset, the desktop's VAPID pair. */
+  relay: Pick<HostRelay, "resetIdentity" | "setVapidKeys">;
+  /** Persists and announces what the owner synced (`./owner.ts`). */
+  ownerSync: OwnerSync;
+  /** What `hostServer.status` answers the owner (ADR-218 D4). */
+  serverStatus(): HostServerStatus;
 }
 
 type Ctx = HandlerCtx<HostServerDeps>;
@@ -293,7 +297,7 @@ function remoteControlRevoke(
 // ── the owner's view of this server (ADR-218 D4) ──
 
 function hostServerStatus(ctx: Ctx): HostServerStatus {
-  return ctx.deps.hostServer.status();
+  return ctx.deps.serverStatus();
 }
 
 /**
@@ -303,8 +307,9 @@ function hostServerStatus(ctx: Ctx): HostServerStatus {
  * D8, slice 2) this must delete those too: "Reset pairing keys" is the
  * recovery step for a box that may be compromised.
  */
-function hostServerResetIdentity(ctx: Ctx): Promise<HostServerStatus> {
-  return ctx.deps.hostServer.resetIdentity();
+async function hostServerResetIdentity(ctx: Ctx): Promise<HostServerStatus> {
+  await ctx.deps.relay.resetIdentity();
+  return ctx.deps.serverStatus();
 }
 
 /**
@@ -313,8 +318,9 @@ function hostServerResetIdentity(ctx: Ctx): Promise<HostServerStatus> {
  * `projects.changed`. The payload is checked whole before anything is
  * written (`./owner.ts`).
  */
-function hostServerSyncManifest(ctx: Ctx, manifest: unknown): true {
-  return ctx.deps.hostServer.syncManifest(manifest);
+function hostServerSyncManifest(ctx: Ctx, manifest: HostManifest): true {
+  assertHostManifest(manifest);
+  return ctx.deps.ownerSync.syncManifest(manifest);
 }
 
 /**
@@ -322,8 +328,9 @@ function hostServerSyncManifest(ctx: Ctx, manifest: unknown): true {
  * it, so a phone's one browser subscription is valid in every room. A key
  * that differs from the current one clears the subscriptions made against it.
  */
-function hostServerSetVapidKeys(ctx: Ctx, keys: unknown): Promise<boolean> {
-  return ctx.deps.hostServer.setVapidKeys(keys);
+function hostServerSetVapidKeys(ctx: Ctx, keys: VapidKeys): Promise<boolean> {
+  assertVapidKeys(keys);
+  return ctx.deps.relay.setVapidKeys(keys);
 }
 
 /**
@@ -331,8 +338,9 @@ function hostServerSetVapidKeys(ctx: Ctx, keys: unknown): Promise<boolean> {
  * (ADR-218 D5): persisted to `layout.json` and served by `layout.getAll`;
  * every phone hears `layout.changed` for the workspaces that changed.
  */
-function hostServerSyncLayout(ctx: Ctx, snapshot: unknown): true {
-  return ctx.deps.hostServer.syncLayout(snapshot);
+function hostServerSyncLayout(ctx: Ctx, snapshot: HostLayoutSnapshot): true {
+  assertHostLayoutSnapshot(snapshot);
+  return ctx.deps.ownerSync.syncLayout(snapshot);
 }
 
 const METHODS = flatten({

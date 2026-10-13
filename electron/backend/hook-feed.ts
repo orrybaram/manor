@@ -27,7 +27,8 @@
  * The first time the feed meets a host's journal (nothing stored), it does
  * not replay it: that history — days of SessionStarts for agents long gone —
  * predates this app knowing the host, and replaying it would conjure phantom
- * agents. It fast-forwards to the journal's head instead.
+ * agents. It fast-forwards to the journal's head instead. A reader whose
+ * history the journal *is* asks for `firstContact: "replayAll"`.
  *
  * When the journal no longer has everything after `lastSeq` (compacted past
  * it while the laptop was away), the feed replays what is there, logs the
@@ -85,6 +86,13 @@ export interface HostHookFeedOptions {
   beforeCatchUp?: () => Promise<void>;
   /** Delay before retrying a failed replay; defaults to 1s doubling to 30s. */
   retryDelayMs?: (attempt: number) => number;
+  /**
+   * What the first contact with a journal (nothing stored) does: `head`
+   * (the default, the desktop's) starts at its head without replaying its
+   * history; `replayAll` replays every hook it still holds — for a reader
+   * to whom that history is news (the host server, `host-server/server.ts`).
+   */
+  firstContact?: "head" | "replayAll";
 }
 
 /** Live events held during a catch-up; past this they are left to the journal. */
@@ -209,7 +217,14 @@ export class HostHookFeed {
         if (generation !== this.generation) return;
       }
       const cursor = this.cursor;
-      if (cursor === null) {
+      if (cursor === null && this.opts.firstContact === "replayAll") {
+        result = await this.opts.replay(0);
+        if (generation !== this.generation) return;
+        console.info(
+          `[hook-feed] ${hostId}: first contact with its hook journal; replaying all of it (to seq ${result.lastSeq})`,
+        );
+        this.setCursor({ seq: 0, epoch: result.epoch });
+      } else if (cursor === null) {
         result = await this.opts.replay(0, { headOnly: true });
         if (generation !== this.generation) return;
         console.info(

@@ -8,44 +8,35 @@
  *
  * - **Validation at the boundary.** The payloads arrive as JSON from the
  *   owner. The owner is trusted (ssh authenticated it), but a malformed
- *   payload written to disk would break every later read for every phone,
- *   so the shapes the readers rely on (`./manifest.ts`, `./layout.ts`) are
- *   checked before anything is written. A bad one is refused whole.
- * - **Persisting** — atomically (temp file + rename), so a phone that reads
- *   while the owner writes sees the old file or the new one, never half.
+ *   payload would break every later read for every phone, so the shapes the
+ *   readers rely on (`./manifest.ts`, `./layout.ts`) are checked — by the
+ *   host table's handlers before a sync, and by `./owner-snapshot.ts` on the
+ *   files at boot. A bad one is refused whole.
  * - **Telling the phones**: `projects.changed` after a manifest, and one
  *   `layout.changed` per workspace whose layout the snapshot changed (or
  *   `removed` for one it no longer has), so a phone updates live.
+ * - **Pane context**: which project a new agent's pane is in.
  *
- * `hostLayoutSnapshot` is the desktop's half of D5 — the layout v3 entries
- * filtered to one host's `<hostId>:<path>` keys and rekeyed to bare paths —
- * kept here, beside the reader it must agree with.
+ * Persisting, and holding what was synced, is `./owner-snapshot.ts`'s.
  */
 
-import fs from "node:fs";
-import path from "node:path";
 import type { BroadcastBus } from "../renderer-broadcast";
-import { assertNumber, assertString } from "../ipc-validate";
-import type { HostServerPaths } from "../paths";
 import {
-  parseWorkspaceKey,
-  LOCAL_HOST_ID,
-} from "../../src/lib/workspace-key";
-import type {
-  LayoutBroadcast,
-  LayoutEntry,
-} from "../../src/lib/layout/protocol";
-import {
-  HOST_LAYOUT_VERSION,
-  readLayoutSnapshot,
-  type HostLayoutSnapshot,
-} from "./layout";
+  assertBoolean,
+  assertNumber,
+  assertString,
+  assertStringArray,
+} from "../ipc-validate";
+import { LOCAL_HOST_ID } from "../../src/lib/workspace-key";
+import type { LayoutBroadcast } from "../../src/lib/layout/protocol";
+import { HOST_LAYOUT_VERSION, type HostLayoutSnapshot } from "./layout";
 import type { PaneContext } from "../agent-status/effects";
 import {
   HOST_MANIFEST_VERSION,
   type HostManifest,
   type ManifestProject,
 } from "./manifest";
+import type { OwnerSnapshotStore } from "./owner-snapshot";
 
 /** Generous ceilings: a manifest past these is a bug, not a big user. */
 const MAX_PROJECTS = 1_000;
@@ -53,15 +44,13 @@ const MAX_WORKSPACES = 10_000;
 
 // ── validation ──
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function assertRecord(
   value: unknown,
   name: string,
 ): asserts value is Record<string, unknown> {
-  if (!isRecord(value)) throw new Error(`${name}: expected an object`);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${name}: expected an object`);
+  }
 }
 
 function assertAbsolutePath(value: unknown, name: string): asserts value is string {
@@ -124,17 +113,10 @@ function assertManifestProject(value: unknown, name: string): void {
     if (!Array.isArray(issues)) throw new Error(`${n}: expected an array`);
     issues.forEach((issue, i) => assertIssueLike(issue, `${n}[${i}]`));
   });
-  assertOptionalRecordOf(value.workspaceHidden, `${name}.workspaceHidden`, (v, n) => {
-    if (typeof v !== "boolean") throw new Error(`${n}: expected boolean`);
-  });
+  assertOptionalRecordOf(value.workspaceHidden, `${name}.workspaceHidden`, assertBoolean);
   assertOptionalRecordOf(value.workspaceFolderIds, `${name}.workspaceFolderIds`, assertString);
   if (value.workspaceOrder !== undefined) {
-    if (
-      !Array.isArray(value.workspaceOrder) ||
-      !value.workspaceOrder.every((p) => typeof p === "string")
-    ) {
-      throw new Error(`${name}.workspaceOrder: expected an array of strings`);
-    }
+    assertStringArray(value.workspaceOrder, `${name}.workspaceOrder`);
   }
   if (value.workspaceFolders !== undefined) {
     if (!Array.isArray(value.workspaceFolders)) {
@@ -248,40 +230,6 @@ export function assertHostLayoutSnapshot(
   }
 }
 
-// ── the desktop's half: one host's part of the layout ──
-
-/**
- * The layout snapshot for `hostId` (ADR-218 D5): the entries of the desktop's
- * layout (`LayoutStore.getAll()`, keyed `<hostId>:<path>` for a remote
- * workspace) that belong to `hostId`, rekeyed to their bare path, with no
- * window claims (a claim is a desktop window's, and means nothing on the
- * box). `lastActiveWorkspacePath` survives only when it is on this host.
- */
-export function hostLayoutSnapshot(
-  all: Readonly<Record<string, LayoutEntry>>,
-  lastActive: string | null,
-  hostId: string,
-  takenAt: string,
-): HostLayoutSnapshot {
-  const workspaces: Record<string, LayoutEntry> = {};
-  for (const [key, entry] of Object.entries(all)) {
-    const parsed = parseWorkspaceKey(key);
-    if (parsed.hostId !== hostId) continue;
-    workspaces[parsed.path] = { ...entry, claims: [] };
-  }
-  let lastActiveWorkspacePath: string | null = null;
-  if (lastActive !== null) {
-    const parsed = parseWorkspaceKey(lastActive);
-    if (parsed.hostId === hostId) lastActiveWorkspacePath = parsed.path;
-  }
-  return {
-    version: HOST_LAYOUT_VERSION,
-    takenAt,
-    workspaces,
-    lastActiveWorkspacePath,
-  };
-}
-
 // ── pane context, for a new agent's record ──
 
 /** Every workspace path a manifest project's own records name. */
@@ -335,58 +283,34 @@ export function paneContextFrom(
 
 // ── the box's half: persist and tell the phones ──
 
-/**
- * Write `value` as JSON to `file`, mode 0600, atomically: a temp file in the
- * same directory, then a rename over the old one.
- */
-export function writeJsonAtomic(file: string, value: unknown): void {
-  const tmp = path.join(
-    path.dirname(file),
-    `.${path.basename(file)}.${process.pid}.${Date.now()}.tmp`,
-  );
-  try {
-    fs.writeFileSync(tmp, JSON.stringify(value), { mode: 0o600 });
-    fs.renameSync(tmp, file);
-  } catch (err) {
-    try {
-      fs.unlinkSync(tmp);
-    } catch {
-      // Never written.
-    }
-    throw err;
-  }
-}
-
 /** A keyless event to this server's connections: its bus (`./server.ts`). */
 type OwnerSyncPublish = BroadcastBus["publish"];
 
 export interface OwnerSync {
-  /** Validate, persist and announce a manifest. */
-  syncManifest(manifest: unknown): true;
-  /** Validate, persist and announce a layout snapshot. */
-  syncLayout(snapshot: unknown): true;
+  /** Persist and announce a manifest the handler validated. */
+  syncManifest(manifest: HostManifest): true;
+  /** Persist and announce a layout snapshot the handler validated. */
+  syncLayout(snapshot: HostLayoutSnapshot): true;
 }
 
 /** The origin a synced layout's broadcasts carry: the owner, not a viewer. */
 const OWNER_ORIGIN = { kind: "route", id: "owner" } as const;
 
 export function createOwnerSync(opts: {
-  paths: Pick<HostServerPaths, "manifest" | "layout">;
+  store: OwnerSnapshotStore;
   publish: OwnerSyncPublish;
 }): OwnerSync {
-  const { paths, publish } = opts;
+  const { store, publish } = opts;
   return {
     syncManifest(manifest) {
-      assertHostManifest(manifest);
-      writeJsonAtomic(paths.manifest, manifest);
+      store.setManifest(manifest);
       publish("projects", "changed");
       return true;
     },
 
     syncLayout(snapshot) {
-      assertHostLayoutSnapshot(snapshot);
-      const before = readLayoutSnapshot(paths.layout).workspaces;
-      writeJsonAtomic(paths.layout, snapshot);
+      const before = store.layout().workspaces;
+      store.setLayout(snapshot);
       // A phone replaces its replica of a workspace on `layout.changed`
       // (ADR-179 D1), so only the workspaces that changed are announced.
       for (const [workspacePath, entry] of Object.entries(snapshot.workspaces)) {

@@ -18,3 +18,7 @@ blocked_by: [11]
 ## Files to touch
 - `electron/host-server/__tests__/*`
 - `tests/e2e/helpers/settings.ts`, `remote-host.ts`, `tests/e2e/host-server.spec.ts`, `tests/e2e/remote-host.spec.ts`
+
+## Added from ticket 5
+
+5. `two-readers.test.ts` builds the desktop reader via `createAgentPipeline` but still hand-writes the desktop's arguments. Extract a small `desktopAgentPipelineOptions(...)` (or similar) helper that `initApp` (`electron/app-lifecycle.ts`) and the test both call, so a change in how the desktop configures the pipeline is caught. Keep it Electron-free.

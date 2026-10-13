@@ -16,7 +16,12 @@
 import type { PaneNode } from "../../src/lib/layout/pane-tree";
 import { allPanelIds } from "../../src/lib/layout/panel-tree";
 import type { LayoutEntry, PersistedPaneSession } from "../../src/lib/layout/protocol";
-import { layoutPaneIds, type Panel, type Tab } from "../../src/lib/layout/workspace-layout";
+import {
+  layoutPaneIds,
+  type Panel,
+  type Tab,
+  type WorkspaceLayout,
+} from "../../src/lib/layout/workspace-layout";
 import { emptyViewport } from "../../src/lib/layout/viewport";
 import type { SessionInfo } from "../terminal-host/types";
 
@@ -76,6 +81,15 @@ function stack(paneIds: readonly string[]): PaneNode {
   };
 }
 
+/** A layout of one panel holding just `tab`, for a workspace that has none. */
+function singleTabPanel(workspacePath: string, tab: Tab): WorkspaceLayout {
+  const panelId = `away-panel:${workspacePath}`;
+  return {
+    panelTree: { type: "leaf", panelId },
+    panels: { [panelId]: { id: panelId, tabs: [tab], pinnedTabIds: [] } },
+  };
+}
+
 /**
  * `workspaces` with the missing sessions appended as a "Started while away"
  * tab in the workspace each runs in. A workspace with no layout yet gets one
@@ -111,13 +125,9 @@ export function withStartedWhileAway(
     }
     const entry = out[path];
     if (!entry) {
-      const panelId = `away-panel:${path}`;
       out[path] = {
         version: 0,
-        layout: {
-          panelTree: { type: "leaf", panelId },
-          panels: { [panelId]: { id: panelId, tabs: [tab], pinnedTabIds: [] } },
-        },
+        layout: singleTabPanel(path, tab),
         defaultViewport: emptyViewport(),
         paneSessions,
         claims: [],
@@ -139,16 +149,7 @@ export function withStartedWhileAway(
             } satisfies Panel,
           },
         }
-      : {
-          panelTree: { type: "leaf" as const, panelId: `away-panel:${path}` },
-          panels: {
-            [`away-panel:${path}`]: {
-              id: `away-panel:${path}`,
-              tabs: [tab],
-              pinnedTabIds: [],
-            },
-          },
-        };
+      : singleTabPanel(path, tab);
     out[path] = {
       ...entry,
       layout,

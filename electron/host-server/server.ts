@@ -48,11 +48,7 @@ import { WsBridgeServer } from "../bridge/transports/ws";
 import { ChatMirror, pickPaneAgent } from "../chat-mirror/mirror";
 import { LocalTranscriptSource } from "../chat-mirror/transcript-source";
 import { errorMessage } from "../lib/errors";
-import {
-  hostServerPaths,
-  type DaemonNamespace,
-  type HostServerPaths,
-} from "../paths";
+import { hostServerPaths, type DaemonNamespace } from "../paths";
 import type { SecretBox } from "../platform/secret-box";
 import { PreferencesManager } from "../preferences";
 import { RemoteAuditLog } from "../remote-control/audit";
@@ -61,17 +57,13 @@ import { TerminalHostClient } from "../terminal-host/client";
 import type { HostTransport } from "../terminal-host/transport";
 import { LocalTransport } from "../terminal-host/transport-local";
 import { ThemeManager } from "../theme";
-import {
-  createHostAgents,
-  type AgentStatusSink,
-  type HostAgents,
-} from "./agents";
+import { createHostAgents, type AgentStatusSink } from "./agents";
 import { HOST_TABLE, type HostServerDeps } from "./handlers";
 import { createHostWinsize } from "./winsize";
-import { assertVapidKeys, createOwnerSync, paneContextFrom } from "./owner";
+import { createOwnerSync, paneContextFrom } from "./owner";
+import { OwnerSnapshotStore } from "./owner-snapshot";
 import { fileHookCursorStore } from "./hook-cursor";
-import { readLayoutSnapshot } from "./layout";
-import { manifestProjects, readManifest } from "./manifest";
+import { manifestProjects } from "./manifest";
 import {
   createHostRelay,
   type HostRelay,
@@ -100,28 +92,31 @@ export interface HostServerOptions {
   /** Driver clocks, for tests. */
   monoClock?: () => number;
   wallClock?: () => number;
+  /** Tests: handed the server's parts once they are built. */
+  internals?: (parts: HostServerInternals) => void;
 }
 
 export interface HostServer {
-  /** Connect to the daemon (retrying in the background) and start the tick. */
+  /**
+   * Bring up the relay and connect to the daemon, side by side; resolves
+   * once the first hook catch-up has settled, or the first connect failed
+   * (it is then retried in the background).
+   */
   start(): Promise<void>;
   /** Close every connection, persist agents and the hook cursor, let go. */
   stop(): Promise<void>;
-  /** The dispatcher every transport attaches to. */
-  readonly bridge: BridgeServer<HostServerDeps>;
   /**
-   * The hello gate over `FrameSocket`s: the owner socket (`serve.ts`) and,
-   * in ticket 3, the relay's channels.
+   * The hello gate over `FrameSocket`s: the owner socket (`serve.ts`) and
+   * the relay's channels.
    */
   readonly frames: WsBridgeServer;
-  readonly paths: HostServerPaths;
-  readonly secretBox: SecretBox;
-  /** The agents side, for tests. */
-  readonly agents: HostAgents;
-  /** This server's relay room, pairing and push (ADR-218 D3). */
-  readonly relay: HostRelay;
-  /** Resolves once the first hook catch-up after `start()` has settled. */
-  whenCaughtUp(): Promise<void>;
+  /** What `hostServer.status` answers the owner (ADR-218 D4). */
+  status(): HostServerStatus;
+}
+
+/** The parts a test reaches past `HostServer` for (`HostServerOptions.internals`). */
+export interface HostServerInternals {
+  relay: HostRelay;
 }
 
 /** Retry the daemon connection at 0.5 s, doubling to 30 s, forever. */
@@ -165,35 +160,47 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   client.setReconnectPolicy(daemonRetryDelayMs);
   const daemon = createLocalBackend(client);
 
-  let bridge: BridgeServer<HostServerDeps> | null = null;
-  let chatMirror: ChatMirror | null = null;
-  let relay: HostRelay | null = null;
   // This server's keyless pushes — agents, the owner's syncs — heard by its
   // bridge and chat mirror and nobody else in the process.
   const events = createBroadcastBus();
+  const preferences = new PreferencesManager(paths.dataDir);
+  const theme = new ThemeManager();
+  const startedAt = Date.now();
+
+  // What the owner last synced (ADR-218 D4, D5), read once and held.
+  const snapshots = new OwnerSnapshotStore(paths);
+  const ownerSync = createOwnerSync({ store: snapshots, publish: events.publish });
+
+  // Relay channels pass the device gate, then this server's hello gate
+  // (`frames`, below), so the host table's device rules (LOCAL_ONLY
+  // refusals) apply to every phone.
+  const relay = createHostRelay({
+    paths,
+    secretBox: opts.secretBox,
+    appVersion,
+    frames: () => frames,
+    notifyOnRequiresInput: () => preferences.get("notifyOnRequiresInput"),
+    options: opts.relay,
+  });
 
   const agents = createHostAgents({
     dataDir: paths.dataDir,
     publish: events.publish,
     // A new agent's project, from the owner's last manifest and layout.
     getPaneContext: (paneId) =>
-      paneContextFrom(
-        readManifest(paths.manifest),
-        readLayoutSnapshot(paths.layout),
-        paneId,
-      ),
+      paneContextFrom(snapshots.manifest(), snapshots.layout(), paneId),
     onAgentStatus: (agent, prevStatus, newStatus) => {
-      relay?.onAgentStatus(agent, prevStatus, newStatus);
+      relay.onAgentStatus(agent, prevStatus, newStatus);
       opts.onAgentStatus?.(agent, prevStatus, newStatus);
     },
-    onHook: (event) => chatMirror?.poke(event.paneId),
+    onHook: (event) => chatMirror.poke(event.paneId),
     monoClock: opts.monoClock,
     wallClock: opts.wallClock,
   });
   const { agentManager, driver } = agents;
 
   const localTranscripts = new LocalTranscriptSource();
-  chatMirror = new ChatMirror({
+  const chatMirror = new ChatMirror({
     agentForPane: (paneId) => {
       const agent = pickPaneAgent(agentManager.getAllAgents(), paneId);
       return agent
@@ -204,7 +211,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     sourceFor: () => localTranscripts,
     write: (paneId, data) => daemon.pty.write(paneId, data),
     publish: (paneId, entry) =>
-      bridge?.publish("chat", "entry", [paneId, entry], paneId),
+      bridge.publish("chat", "entry", [paneId, entry], paneId),
   });
 
   // ── the daemon's connection, as `hosts.list` reports it ──
@@ -217,31 +224,14 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     ...daemonState,
   });
 
-  const preferences = new PreferencesManager(paths.dataDir);
-  const theme = new ThemeManager();
-  const startedAt = Date.now();
-
-  // `relay` is built below: it needs the hello gate, which needs the bridge,
-  // which needs these deps.
-  const hostRelay = (): HostRelay => {
-    if (!relay) throw new Error("the relay is not built yet");
-    return relay;
-  };
-  const hostStatus = (): HostServerStatus => {
-    const r = hostRelay();
-    return {
-      version: appVersion,
-      uptimeMs: Date.now() - startedAt,
-      secretBackend: opts.secretBox.backend(),
-      relay: r.relayStatus(),
-      devices: r.deviceCount(),
-      pushEndpoints: r.pushEndpoints(),
-    };
-  };
-
-  // The owner's manifest and layout pushes (ADR-218 D4, D5), announced on
-  // this server's own bus.
-  const ownerSync = createOwnerSync({ paths, publish: events.publish });
+  const hostStatus = (): HostServerStatus => ({
+    version: appVersion,
+    uptimeMs: Date.now() - startedAt,
+    secretBackend: opts.secretBox.backend(),
+    relay: relay.relayStatus(),
+    devices: relay.deviceCount(),
+    pushEndpoints: relay.pushEndpoints(),
+  });
 
   const winsize = createHostWinsize({
     listSessions: () => daemon.pty.listSessions(),
@@ -256,69 +246,50 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     unseenRespondedAgents: agents.unseenRespondedAgents,
     unseenInputAgents: agents.unseenInputAgents,
     chatMirror,
-    projects: () => manifestProjects(readManifest(paths.manifest), daemon.git),
-    layout: () => readLayoutSnapshot(paths.layout),
+    projects: () => manifestProjects(snapshots.manifest(), daemon.git),
+    layout: () => snapshots.layout(),
     preferences: () => preferences.getAll(),
     theme: () => theme.getThemeByName("__default__"),
-    remoteControl: {
-      pair: (label) => hostRelay().remoteControl.pair(label),
-      listDevices: () => hostRelay().remoteControl.listDevices(),
-      revoke: (id) => hostRelay().remoteControl.revoke(id),
-      vapidPublicKey: () => hostRelay().remoteControl.vapidPublicKey(),
-      subscribePush: (deviceId, subscription) =>
-        hostRelay().remoteControl.subscribePush(deviceId, subscription),
-    },
-    hostServer: {
-      status: hostStatus,
-      resetIdentity: async () => {
-        await hostRelay().resetIdentity();
-        return hostStatus();
-      },
-      syncManifest: (manifest) => ownerSync.syncManifest(manifest),
-      setVapidKeys: async (keys) => {
-        assertVapidKeys(keys);
-        return hostRelay().setVapidKeys(keys);
-      },
-      syncLayout: (snapshot) => ownerSync.syncLayout(snapshot),
-    },
+    remoteControl: relay.remoteControl,
+    relay,
+    ownerSync,
+    serverStatus: hostStatus,
   };
 
-  bridge = new BridgeServer(deps, {
+  const bridge = new BridgeServer(deps, {
     table: HOST_TABLE,
     events: events.subscribe,
     audit: new RemoteAuditLog(`${paths.dataDir}/remote-audit.jsonl`),
   });
   const frames = new WsBridgeServer(bridge, {
-    appVersion: appVersion,
+    appVersion,
     // The desktop's name for this host wins; else the box's own (ADR-218 D7).
-    hostName: () => readManifest(paths.manifest).hostName ?? os.hostname(),
+    hostName: () => snapshots.manifest().hostName ?? os.hostname(),
   });
-  // Relay channels pass the device gate, then this same hello gate, so the
-  // host table's device rules (LOCAL_ONLY refusals) apply to every phone.
-  const builtRelay = createHostRelay({
-    paths,
-    secretBox: opts.secretBox,
-    appVersion: appVersion,
-    frames,
-    notifyOnRequiresInput: () => preferences.get("notifyOnRequiresInput"),
-    options: opts.relay,
-  });
-  relay = builtRelay;
   const unwireChat = wireChatMirror({ chatMirror }, bridge, events.subscribe);
+  opts.internals?.({ relay });
 
   // ── hooks ──
   const cursorStore = fileHookCursorStore(paths.hookCursor, {
     beforeWrite: () => agentManager.flushNow(),
   });
-  let feed: HostHookFeed | null = null;
+  // A server meeting the journal for the first time replays all of it (see
+  // the header).
+  const feed = new HostHookFeed({
+    hostId: LOCAL_HOST_ID,
+    replay: (sinceSeq, replayOpts) => client.replayHooks(sinceSeq, replayOpts),
+    store: cursorStore,
+    sink: () => agents.hookSink,
+    firstContact: "replayAll",
+  });
 
   client.onEvent((event) => {
     if (event.type === "hookEvent") {
-      feed?.onLiveEvent(event.seq, event.payload);
+      feed.onLiveEvent(event.seq, event.payload);
       return;
     }
     if (event.type === "controlRequest") return;
-    if (event.type === "exit") chatMirror?.closePane(event.sessionId);
+    if (event.type === "exit") chatMirror.closePane(event.sessionId);
     dispatchStreamEvent(
       event,
       {
@@ -326,42 +297,21 @@ export function createHostServer(opts: HostServerOptions): HostServer {
         agentStatus: driver,
         broadcastAgent: agents.broadcastAgent,
       },
-      (e) => bridge?.handleStreamEvent(e),
+      (e) => bridge.handleStreamEvent(e),
     );
   });
 
   client.setConnectionListener({
     onLost: () => {
       daemonState = { status: "reconnecting" };
-      feed?.pause();
+      feed.pause();
     },
     onReconnected: ({ sessionIds }) => {
       daemonState = { status: "connected" };
-      void feed?.catchUp();
+      void feed.catchUp();
       void resyncPanes(sessionIds);
     },
   });
-
-  /**
-   * The feed, built on first connect: a server meeting the journal for the
-   * first time starts its cursor at seq 0 of the journal's epoch, so the
-   * catch-up replays every hook the journal still holds (see the header).
-   */
-  async function ensureFeed(): Promise<HostHookFeed> {
-    if (feed) return feed;
-    if (cursorStore.get(LOCAL_HOST_ID) === null) {
-      const head = await client.replayHooks(0, { headOnly: true });
-      cursorStore.set(LOCAL_HOST_ID, { seq: 0, epoch: head.epoch });
-    }
-    feed = new HostHookFeed({
-      hostId: LOCAL_HOST_ID,
-      replay: (sinceSeq, replayOpts) =>
-        client.replayHooks(sinceSeq, replayOpts),
-      store: cursorStore,
-      sink: () => agents.hookSink,
-    });
-    return feed;
-  }
 
   /** Resync pane facts; a daemon that cannot be asked is retried on reconnect. */
   async function resyncPanes(sessionIds?: readonly string[]): Promise<void> {
@@ -399,22 +349,38 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   // ── lifecycle ──
   let stopped = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
-  let markCaughtUp: () => void = () => {};
-  const caughtUp = new Promise<void>((resolve) => {
-    markCaughtUp = resolve;
-  });
 
-  async function connectLoop(attempt = 0): Promise<void> {
+  /**
+   * The relay comes up independently of the daemon: a phone may pair and
+   * connect while the daemon is still being reached. Never rejects.
+   */
+  async function startRelay(): Promise<void> {
+    try {
+      await relay.init();
+      if (!stopped) relay.start();
+    } catch (err) {
+      console.error("[host-server] relay unavailable:", errorMessage(err));
+    }
+  }
+
+  /**
+   * Connect, then catch up. The catch-up waits for `relayUp` — the relay's
+   * stores, read or given up on — so a transition it replays can still be
+   * pushed to a phone.
+   */
+  async function connectLoop(
+    relayUp: Promise<void>,
+    attempt = 0,
+  ): Promise<void> {
     if (stopped) return;
     daemonState = { status: "connecting" };
     try {
       await client.connect();
-      const hookFeed = await ensureFeed();
       if (stopped) return;
       daemonState = { status: "connected" };
-      await hookFeed.catchUp();
+      await relayUp;
+      await feed.catchUp();
       await afterFirstCatchUp();
-      markCaughtUp();
     } catch (err) {
       if (stopped) return;
       const delay = daemonRetryDelayMs(attempt);
@@ -424,31 +390,19 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       );
       retryTimer = setTimeout(() => {
         retryTimer = null;
-        void connectLoop(attempt + 1);
+        void connectLoop(relayUp, attempt + 1);
       }, delay);
     }
   }
 
   return {
-    bridge,
     frames,
-    paths,
-    secretBox: opts.secretBox,
-    agents,
-    relay: builtRelay,
-    whenCaughtUp: () => caughtUp,
+    status: hostStatus,
 
     async start() {
-      // The relay comes up independently of the daemon: a phone may pair
-      // and connect while the daemon is still being reached.
-      try {
-        await builtRelay.init();
-        builtRelay.start();
-      } catch (err) {
-        console.error("[host-server] relay unavailable:", errorMessage(err));
-      }
       agents.start();
-      await connectLoop();
+      const relayUp = startRelay();
+      await Promise.all([relayUp, connectLoop(relayUp)]);
     },
 
     async stop() {
@@ -456,13 +410,13 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       stopped = true;
       if (retryTimer) clearTimeout(retryTimer);
       agents.stop();
-      feed?.pause();
-      await builtRelay.stop();
+      feed.pause();
+      await relay.stop();
       frames.closeAll();
       unwireChat();
       winsize.dispose();
-      bridge?.dispose();
-      chatMirror?.dispose();
+      bridge.dispose();
+      chatMirror.dispose();
       // agents.json first, then the cursor that says how much of the
       // journal it reflects (`./hook-cursor.ts`).
       agentManager.flushNow();

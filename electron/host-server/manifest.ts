@@ -4,7 +4,7 @@
  *
  * In slice 1 the desktop owns projects. It pushes this over the owner channel
  * on connect and on change (`hostServer.syncManifest`, `./owner.ts`), and the
- * host server caches it in `dataDir/manifest.json`, so a phone that connects
+ * host server caches it in `dataDir/manifest.json` (`./owner-snapshot.ts`), so a phone that connects
  * with the lid closed still sees the sidebar it would have seen.
  *
  * - **Projects** are the desktop's `projects.json` records for this host —
@@ -23,7 +23,6 @@
  * the `projects` reads list them (`listGitWorkspaces`).
  */
 
-import fs from "node:fs";
 import type { GitBackend } from "../backend/types";
 import { LOCAL_HOST_ID } from "../backend/types";
 import { buildProjectInfo } from "../projects/project-info";
@@ -80,37 +79,6 @@ export function emptyManifest(): HostManifest {
     projects: [],
     integrationSnapshot: {},
   };
-}
-
-function isManifest(value: unknown): value is HostManifest {
-  if (!value || typeof value !== "object") return false;
-  const m = value as Record<string, unknown>;
-  return (
-    m.version === HOST_MANIFEST_VERSION &&
-    Array.isArray(m.projects) &&
-    !!m.integrationSnapshot &&
-    typeof m.integrationSnapshot === "object"
-  );
-}
-
-/**
- * The cached manifest at `file`, or an empty one when there is none yet —
- * or one this version cannot read, which the desktop replaces on its next
- * connect.
- */
-export function readManifest(file: string): HostManifest {
-  try {
-    const parsed: unknown = JSON.parse(fs.readFileSync(file, "utf-8"));
-    if (isManifest(parsed)) return parsed;
-    console.warn(
-      `[host-server] ignoring ${file}: not a v${HOST_MANIFEST_VERSION} manifest`,
-    );
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      console.warn(`[host-server] could not read ${file}:`, err);
-    }
-  }
-  return emptyManifest();
 }
 
 /** The host server routes nothing by path: every path is this host's. */

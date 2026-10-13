@@ -27,8 +27,12 @@ import type { PersistedProject, WorkspaceInfo } from "../projects/types";
 import type { LayoutEntry } from "../../src/lib/layout/protocol";
 import type { PrInfo } from "../../src/lib/pr-info";
 import { LOCAL_HOST_ID } from "./types";
+import { parseWorkspaceKey } from "../../src/lib/workspace-key";
 import { errorMessage } from "../lib/errors";
-import type { HostLayoutSnapshot } from "../host-server/layout";
+import {
+  HOST_LAYOUT_VERSION,
+  type HostLayoutSnapshot,
+} from "../host-server/layout";
 import {
   HOST_MANIFEST_VERSION,
   type HostManifest,
@@ -37,7 +41,6 @@ import {
   type PrSnapshot,
   type WorkspaceIntegrationSnapshot,
 } from "../host-server/manifest";
-import { hostLayoutSnapshot } from "../host-server/owner";
 import type { VapidKeys } from "../remote-control/push";
 import type { HostServerClient } from "./host-server-client";
 
@@ -302,6 +305,40 @@ export class HostServerSync {
       this.log.warn(`[host-server-sync] ${hostId}: syncLayout failed: ${errorMessage(err)}`);
     }
   }
+}
+
+/**
+ * The layout snapshot for `hostId` (ADR-218 D5): the entries of the desktop's
+ * layout (`LayoutStore.getAll()`, keyed `<hostId>:<path>` for a remote
+ * workspace) that belong to `hostId`, rekeyed to their bare path, with no
+ * window claims (a claim is a desktop window's, and means nothing on the
+ * box). `lastActiveWorkspacePath` survives only when it is on this host. The
+ * box's reader (`host-server/owner.ts` `assertHostLayoutSnapshot`) must
+ * accept what this builds.
+ */
+export function hostLayoutSnapshot(
+  all: Readonly<Record<string, LayoutEntry>>,
+  lastActive: string | null,
+  hostId: string,
+  takenAt: string,
+): HostLayoutSnapshot {
+  const workspaces: Record<string, LayoutEntry> = {};
+  for (const [key, entry] of Object.entries(all)) {
+    const parsed = parseWorkspaceKey(key);
+    if (parsed.hostId !== hostId) continue;
+    workspaces[parsed.path] = { ...entry, claims: [] };
+  }
+  let lastActiveWorkspacePath: string | null = null;
+  if (lastActive !== null) {
+    const parsed = parseWorkspaceKey(lastActive);
+    if (parsed.hostId === hostId) lastActiveWorkspacePath = parsed.path;
+  }
+  return {
+    version: HOST_LAYOUT_VERSION,
+    takenAt,
+    workspaces,
+    lastActiveWorkspacePath,
+  };
 }
 
 /** `hostLayoutSnapshot` over a layout store's current state. */

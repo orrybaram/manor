@@ -1,0 +1,55 @@
+---
+title: The box's manor CLI is answered by the host server
+status: todo
+priority: medium
+assignee: opus
+blocked_by: [5]
+---
+
+# The box's manor CLI is answered by the host server
+
+ADR-227 D8.
+
+Today a CLI request on a remote host takes this path: daemon
+`controlRequest`, then the desktop's `RemoteHostConnection.answerControlRequest`,
+then `handleRelayedControlRequest` (`electron/app-lifecycle.ts:811-815`,
+ADR-189). With the lid closed it fails with "Manor desktop is not connected
+to this host".
+
+## Do
+- **The host server becomes the daemon's control-relay answerer.** It is a
+  daemon client too. Add a daemon-side registration, so the host server
+  claims the relay for its namespace and the desktop no longer receives
+  relayed requests. Check whether the daemon protocol needs a bump. If it
+  does, it restarts the daemon and ends sessions (ADR-185), so prefer a
+  backward-compatible message.
+- **Route table.** Answer with the existing routes (`electron/routes/*`),
+  run over `ServerDeps` with the host's deps:
+  - projects, workspaces and folders (`routes/projects.ts`)
+  - agents list and launch (`routes/agents.ts`)
+  - issues (`issue-backends.ts`)
+  - `current-workspace`
+  
+  Desktop-only routes answer the same "needs Manor desktop" wording. These
+  are webview, panes, browser and system (`routes/system.ts` imports
+  `shell`).
+- **Scoping.** `callerMaySee` (`electron/routes/caller-host.ts`) still
+  applies, and every caller counts as local on the host.
+- **Desktop side.** Remove `setControlRelaySink` and
+  `answerControlRequest`, or keep them only as a fallback for a host whose
+  server is not running. Choose one and document the choice in the ticket
+  when done.
+- **Test.** With no desktop connected, the CLI on the box runs
+  `create-workspace` and `list-workspaces`, and the workspace appears to a
+  device on the host server.
+
+## Files to touch
+- `electron/terminal-host/index.ts`: control relay registration.
+- `electron/terminal-host/types.ts`
+- `electron/terminal-host/client.ts`
+- `electron/host-server/server.ts`
+- `electron/routes/*`: retype over `ServerDeps` where needed.
+- `electron/routes/caller-host.ts`
+- `electron/backend/host-connection.ts`
+- `electron/app-lifecycle.ts`
+- `electron/host-server/__tests__/cli-relay.test.ts` (new)

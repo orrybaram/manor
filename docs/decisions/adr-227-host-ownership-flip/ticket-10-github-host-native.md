@@ -1,6 +1,6 @@
 ---
 title: GitHub runs host-native on the host server
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [5, 8]

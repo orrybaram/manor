@@ -94,3 +94,13 @@ Extend `tests/e2e/host-server.spec.ts`, or add
 - **Legacy boxes regress.** A box with no host server (or an old one) now gets no agent status, chat or worktree polling on the desktop, and no last-known workspaces while away; `removeProject` for such a project while its host is away only tears down the main path's layout. This follows D4's deletions; document it in the ADR's Consequences and the user docs (upgrade the box).
 - `ChatMirror`'s `unwatchedPollIntervalMs` path is now unused in production; remove it if knip doesn't need it.
 - Two `read-state.spec` tests assert `app.dock.getBadge()`, which is macOS-only; they fail on Linux. Confirm they fail on main too and add to the known-failures note (or skip them off macOS).
+
+## Carried over from ticket 10
+
+- **"gh isn't signed in on <host>" in the sidebar.** `usePrWatcher` already records the state in `useGhHostStore` (`src/lib/gh-host-status.ts`), but only `TasksView` shows it. Add a small sidebar notice near the PR badges that reads the store.
+- `GitHubNudge`, `GitHubIntegrationSection` and `useIssuesShortcut` still call `checkStatus()` for the local machine only; the tracker's `statusQuery` is global. Pass the project's host where it matters (`checkStatus(hostId)` routes with `byHost`).
+- **`github.proxyImage` stays local**, so a remote project's private-repo images use the laptop's `gh` sign-in. Route it to the host (add a route rule by project/host) or document it.
+- `createIssue` and `listRepos` stay `LOCAL_ROUTE` (no `GhRepo` arg). Document, or give them a host argument.
+- No e2e for the gh empty state (no remote fake-`gh` fixture). Add one if cheap.
+- Known local e2e failures on the pre-ticket-10 commit too: `pr-badge-matrix` ("g-queued-mergequeue readiness" expects queued, gets ready) and `sidebar-pr-tweaks`. Confirm against main and add to the known-failures note.
+- The remote e2e runner needs `DISPLAY=:0` on this box; note it in the e2e docs.

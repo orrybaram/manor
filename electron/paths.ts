@@ -287,6 +287,15 @@ export function viewportFile(): string {
   return path.join(manorHomeDir(), "viewport.json");
 }
 
+/**
+ * Copies of records Manor removed from its own files, kept for the user to
+ * restore by hand — `pre-adr-227-<hostId>.json`, what the desktop held for a
+ * host before that host's server adopted it (ADR-227 D3).
+ */
+export function backupsDir(): string {
+  return path.join(manorHomeDir(), "backups");
+}
+
 export function worktreesDir(): string {
   return path.join(manorHomeDir(), "worktrees");
 }

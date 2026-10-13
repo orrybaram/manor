@@ -88,6 +88,32 @@ describe("ProjectManager linked-project groups (ADR-192)", () => {
     return projects.find((p) => p.id === id)!.group ?? null;
   }
 
+  it("keeps a member its host's server adopted, and drops one nobody knows (ADR-227 D3)", async () => {
+    seed({
+      projects: [project("local-app", undefined), project("mac-app", "mac")],
+      hosts: {
+        box: { spec: { kind: "ssh", target: "me@box" }, adopted: true, adoptedProjectIds: ["box-app"] },
+        mac: { spec: { kind: "ssh", target: "me@mac" } },
+      },
+      groups: [
+        { id: "g1", name: "App", memberIds: ["local-app", "box-app"], lastUsedHostId: "box" },
+        { id: "g2", name: "Gone", memberIds: ["mac-app", "nowhere"], lastUsedHostId: null },
+      ],
+      dismissedLinkSuggestions: [["box-app", "mac-app"]],
+    });
+    const mgr = manager();
+
+    expect(await groupOf(mgr, "local-app")).toEqual({
+      id: "g1",
+      name: "App",
+      memberIds: ["local-app", "box-app"],
+      lastUsedHostId: "box",
+    });
+    expect(await groupOf(mgr, "mac-app")).toBeNull();
+    mgr.selectProject(0);
+    expect(readState()).toMatchObject({ dismissedLinkSuggestions: [["box-app", "mac-app"]] });
+  });
+
   it("links a local and a remote project into a new group", async () => {
     seed();
     const mgr = manager();

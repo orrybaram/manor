@@ -15,6 +15,7 @@ import { initAutoUpdater, checkForUpdates, setBeforeInstallHook } from "./update
 import { portlessManager } from "./portless";
 import { loginPathReady } from "./login-path";
 import { LOCAL_HOST_ID } from "./backend/types";
+import { HostAdoption } from "./backend/host-adoption";
 import { HostServerSync } from "./backend/host-server-sync";
 import { PrewarmManager } from "./prewarm-manager";
 import { rendererBus } from "./renderer-broadcast";
@@ -305,12 +306,23 @@ export function initApp(devTitle: string | null): void {
     // desktop's VAPID pair, sent on every connect of the owner channel; the
     // sync also caches each host's push endpoints, which the controller below
     // reads so the desktop skips what the host server sends. The host server
-    // owns its projects and layout (ADR-227 D2): neither is pushed.
+    // owns its projects and layout (ADR-227 D2): neither is pushed, but what
+    // the desktop held for a host is handed over once (D3).
     const hostServerSync = new HostServerSync({
       registry: backendRegistry,
       // The desktop's own VAPID pair, so a phone's one browser subscription is
       // valid in every room (D3).
       vapidKeys: () => core.relayStores.push.vapidKeys(),
+      // What the desktop still holds for each host, handed to its server
+      // (ADR-227 D3). Until the desktop reads a host's state through that
+      // server (D4), an adopted host's projects leave the sidebar.
+      adoption: new HostAdoption({
+        projectManager: shared.projectManager,
+        agentManager: shared.agentManager,
+        layoutStore: shared.layoutStore,
+        getPaneHostId: shared.getPaneHostId,
+        onProjectsRemoved: () => core.bus.publish("projects", "changed"),
+      }),
     });
     // After the push store exists: starting syncs hosts that are already
     // connected.

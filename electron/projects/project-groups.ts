@@ -112,6 +112,22 @@ function sharedFrom(
 }
 
 /**
+ * The projects this desktop handed over to their host's server (ADR-227 D3):
+ * id → the host each now lives on. They are no longer in `state.projects`,
+ * but groups and dismissed link suggestions still name them.
+ */
+export function adoptedProjectHosts(state: PersistedState): Map<string, string> {
+  const hosts = new Map<string, string>();
+  for (const [hostId, host] of Object.entries(state.hosts ?? {})) {
+    if (!Array.isArray(host?.adoptedProjectIds)) continue;
+    for (const id of host.adoptedProjectIds) {
+      if (typeof id === "string") hosts.set(id, hostId);
+    }
+  }
+  return hosts;
+}
+
+/**
  * Bring groups read from disk back in line with the invariants: drop
  * unknown or repeated members, a second member on a host already taken,
  * members claimed by an earlier group, and groups left with fewer than two
@@ -119,6 +135,9 @@ function sharedFrom(
  * or stale file loads as the nearest valid state. A group dropped for
  * having one member left dissolves as an unlink would: that member keeps
  * the group's shared settings.
+ *
+ * A project handed over to its host's server (ADR-227 D3) is a known
+ * member, on that host, though `projects` no longer lists it.
  */
 export function normalizeGroups(state: PersistedState): void {
   if (!Array.isArray(state.groups)) {
@@ -126,6 +145,9 @@ export function normalizeGroups(state: PersistedState): void {
     return;
   }
   const byId = new Map(state.projects.map((p) => [p.id, p]));
+  const adopted = adoptedProjectHosts(state);
+  const hostOf = (id: unknown): string | undefined =>
+    typeof id === "string" ? (byId.get(id)?.hostId ?? adopted.get(id)) : undefined;
   const claimed = new Set<string>();
   const groups: PersistedProjectGroup[] = [];
   const dissolved: PersistedProjectGroup[] = [];
@@ -134,10 +156,10 @@ export function normalizeGroups(state: PersistedState): void {
     const hosts = new Set<string>();
     const memberIds: string[] = [];
     for (const id of raw.memberIds) {
-      const project = typeof id === "string" ? byId.get(id) : undefined;
-      if (!project || claimed.has(project.id) || hosts.has(project.hostId)) continue;
-      hosts.add(project.hostId);
-      memberIds.push(project.id);
+      const hostId = hostOf(id);
+      if (hostId === undefined || claimed.has(id) || hosts.has(hostId)) continue;
+      hosts.add(hostId);
+      memberIds.push(id);
     }
     const shared = sharedFrom(raw);
     if (memberIds.length < 2) {
@@ -150,7 +172,10 @@ export function normalizeGroups(state: PersistedState): void {
     const lastUsed = raw.lastUsedHostId;
     groups.push({
       id: raw.id,
-      name: typeof raw.name === "string" ? raw.name : byId.get(memberIds[0])!.name,
+      name:
+        typeof raw.name === "string"
+          ? raw.name
+          : (memberIds.map((id) => byId.get(id)?.name).find(Boolean) ?? "Untitled"),
       memberIds,
       lastUsedHostId: typeof lastUsed === "string" && hosts.has(lastUsed) ? lastUsed : null,
       ...shared,

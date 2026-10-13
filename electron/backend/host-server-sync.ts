@@ -6,14 +6,17 @@
  *   channel — the first, and each after a host reconnect
  *   (`BackendRegistry.onHostServerStateChange` reporting `connected`) — so a
  *   phone's one browser subscription is valid in every room.
+ * - **Adoption** (ADR-227 D3), after the key: what the desktop still holds
+ *   for the host — its projects, agents and layout, the layout in the shape
+ *   `hostLayoutSnapshot` builds, below — handed to the host's server and
+ *   then let go of (`./host-adoption.ts`). Once a host is adopted, this is
+ *   one status read.
  * - **The host's push endpoints** are read back after it, and again whenever
  *   a phone is paired or revoked (`pairingChanged`): the desktop skips its
  *   own push to those for that host's agents.
  *
  * The host server owns its projects and layout (ADR-227 D2), so neither is
- * pushed any more. What the desktop still holds for a host is handed over
- * once, on adoption (ADR-227 D3): its layout in the shape
- * `hostLayoutSnapshot` builds, below.
+ * pushed any more.
  */
 
 import type { LayoutEntry } from "../../src/lib/layout/protocol";
@@ -25,6 +28,7 @@ import {
 } from "../host-server/layout";
 import type { VapidKeys } from "../remote-control/push";
 import { HostPushEndpoints } from "../remote-control/host-push-endpoints";
+import type { HostAdoption } from "./host-adoption";
 import type { HostServerClient, HostServerClientState } from "./host-server-client";
 
 /** The registry's side of the push: each remote host's owner channel. */
@@ -43,12 +47,15 @@ export interface HostServerSyncOptions {
    * (D3). Null when it cannot be stored safely; nothing is sent then.
    */
   vapidKeys?(): Promise<VapidKeys | null>;
+  /** Hands each host's records to its server (ADR-227 D3). */
+  adoption?: Pick<HostAdoption, "run">;
   log?: Pick<Console, "warn">;
 }
 
 export class HostServerSync {
   private readonly registry: HostServerRegistry;
   private readonly vapidKeys: (() => Promise<VapidKeys | null>) | undefined;
+  private readonly adoption: Pick<HostAdoption, "run"> | undefined;
   private readonly log: Pick<Console, "warn">;
   private unsubscribe: (() => void) | null = null;
   /** The push endpoints each host's server sends to (ADR-225 D3). */
@@ -57,6 +64,7 @@ export class HostServerSync {
   constructor(opts: HostServerSyncOptions) {
     this.registry = opts.registry;
     this.vapidKeys = opts.vapidKeys;
+    this.adoption = opts.adoption;
     this.endpoints = new HostPushEndpoints({
       status: async (hostId) => {
         const client = opts.registry.hostServer(hostId);
@@ -108,7 +116,18 @@ export class HostServerSync {
     // A changed key clears the host's subscriptions, so its endpoints are
     // read only after the key is in.
     await this.pushVapidKeys(hostId, client);
+    await this.adopt(hostId, client);
     await this.endpoints.refresh(hostId);
+  }
+
+  /** Every connect: a status read, and a hand-over when one is owed. */
+  private async adopt(hostId: string, client: HostServerClient): Promise<void> {
+    if (!this.adoption) return;
+    try {
+      await this.adoption.run(hostId, client);
+    } catch (err) {
+      this.log.warn(`[host-server-sync] ${hostId}: adoption failed: ${errorMessage(err)}`);
+    }
   }
 
   /** Whole, every connect: idempotent on the server unless the key changed. */

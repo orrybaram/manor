@@ -236,8 +236,8 @@ export interface HostServerHarness {
   readonly running: RunningServer | null;
   serve(): Promise<RunningServer>;
   /**
-   * Mark the host adopted (ADR-227 D3) before the next `serve()`, as
-   * `hostServer.adopt` will (ticket 6): its project and layout writes open.
+   * Mark the host adopted (ADR-227 D3) before the next `serve()`, as an
+   * empty `hostServer.adopt` would: its project and layout writes open.
    */
   adopt(): void;
   /** Stop the running server (and forget it). */

@@ -58,6 +58,7 @@ import { createManorServer } from "../server/create-manor-server";
 import type { Platform } from "../server/platform";
 import type { HostTransport } from "../terminal-host/transport";
 import { LocalTransport } from "../terminal-host/transport-local";
+import { createAdoption } from "./adopt";
 import { HOST_TABLE, type HostServerDeps } from "./handlers";
 import { createHostWinsize, type HostWinsize } from "./winsize";
 import { fileHookCursorStore } from "./hook-cursor";
@@ -115,7 +116,7 @@ export interface HostServer {
 /** The parts a test reaches past `HostServer` for (`HostServerOptions.internals`). */
 export interface HostServerInternals {
   relay: HostRelay;
-  /** Flips `pending` to `host` until adoption does (ADR-227 D3, ticket 6). */
+  /** Flips `pending` to `host` directly, without an adoption (ADR-227 D3). */
   ownership: OwnershipState;
 }
 
@@ -268,6 +269,15 @@ export function createHostServer(opts: HostServerOptions): HostServer {
         remoteControl: relay.remoteControl,
         relay,
         ownership,
+        // The desktop's records for this host, merged in (ADR-227 D3).
+        adopt: createAdoption({
+          projectManager: shared.projectManager,
+          agentManager: shared.agentManager,
+          layoutStore: shared.layoutStore,
+          ownership,
+          publishProjectsChanged: () => core.bus.publish("projects", "changed"),
+          publishAgent: (agent) => shared.notifier.sendAgentUpdate(agent),
+        }),
         serverStatus: hostStatus,
       };
     },

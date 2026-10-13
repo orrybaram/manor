@@ -15,6 +15,7 @@ import { manorDataDir } from "../paths";
 import type { HostPath } from "../per-host-poller";
 import { detectDefaultBranch, listLocalBranches, listRemoteBranches, resyncDefaultBranches } from "./branches";
 import type { ProjectContext, WorkspaceLayoutOwner } from "./context";
+import { mergeAdoptedProject } from "./adopt-records";
 import { HostRecords } from "./host-records";
 import {
   OriginLinks,
@@ -45,6 +46,7 @@ import type {
   LinkedIssue,
   LinkSuggestion,
   PersistedProject,
+  PersistedProjectGroup,
   ProjectGroupInfo,
   ProjectHostResolver,
   ProjectInfo,
@@ -251,6 +253,77 @@ export class ProjectManager {
           linearAssociations: structuredClone(shared.linearAssociations),
         };
       });
+  }
+
+  /**
+   * The projects on `hostId` exactly as `projects.json` holds them, copied —
+   * what adoption backs up before it removes them (ADR-227 D3) — with the
+   * groups that name any of them.
+   */
+  hostProjectRecords(hostId: string): {
+    projects: PersistedProject[];
+    groups: PersistedProjectGroup[];
+  } {
+    const state = this.store.state;
+    const projects = state.projects.filter((p) => p.hostId === hostId);
+    const ids = new Set(projects.map((p) => p.id));
+    return structuredClone({
+      projects,
+      groups: (state.groups ?? []).filter((g) => g.memberIds.some((id) => ids.has(id))),
+    });
+  }
+
+  /**
+   * Forget `projectIds` on `hostId` once its server has adopted them (ADR-227
+   * D3). Unlike `removeProject` this ends nothing: their workspaces, layout
+   * and sessions live on, on the host. A linked-project group keeps their ids
+   * in `memberIds` — the ids survive adoption — and the host's record keeps
+   * them too (`adoptedProjectIds`), so the next load does not drop them as
+   * unknown. Returns the ids removed.
+   */
+  removeAdoptedProjects(hostId: string, projectIds: readonly string[]): string[] {
+    const state = this.store.state;
+    const wanted = new Set(projectIds);
+    const removed = state.projects.filter((p) => p.hostId === hostId && wanted.has(p.id));
+    if (removed.length === 0) return [];
+    const selectedId = state.projects[state.selectedProjectIndex]?.id;
+    state.projects = state.projects.filter((p) => !removed.includes(p));
+    const selected = selectedId ? state.projects.findIndex((p) => p.id === selectedId) : -1;
+    state.selectedProjectIndex =
+      selected >= 0 ? selected : Math.min(state.selectedProjectIndex, Math.max(0, state.projects.length - 1));
+    const ids = removed.map((p) => p.id);
+    for (const id of ids) this.lastKnownWorkspaces.forget(id);
+    this.hosts.recordAdoptedProjects(hostId, ids);
+    this.store.save();
+    return ids;
+  }
+
+  /** Whether `hostId`'s records have been handed over (ADR-227 D3). */
+  isHostAdopted(hostId: string): boolean {
+    return this.hosts.isAdopted(hostId);
+  }
+
+  /** The hand-over of `hostId`'s records is complete (ADR-227 D3). */
+  markHostAdopted(hostId: string): void {
+    this.hosts.markAdopted(hostId);
+  }
+
+  /**
+   * On a host server: take in the desktop's records for this host (ADR-227
+   * D3). A project matched by id — or, failing that, by path — is merged with
+   * the host winning every conflict (`mergeAdoptedProject`); any other is
+   * added, as this host's own. Writes once.
+   */
+  adoptProjects(records: readonly ManifestProject[]): void {
+    const state = this.store.state;
+    for (const record of records) {
+      const existing =
+        this.findProject(record.id) ??
+        state.projects.find((p) => p.hostId === LOCAL_HOST_ID && p.path === record.path);
+      if (existing) mergeAdoptedProject(existing, record);
+      else state.projects.push({ ...structuredClone(record), hostId: LOCAL_HOST_ID });
+    }
+    this.store.save();
   }
 
   /**

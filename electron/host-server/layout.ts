@@ -6,7 +6,7 @@
  * persisted to `dataDir/layout.json` (`hostServerPaths().layout`) and keyed
  * by bare workspace paths, because to the host server its own host is
  * local. Before the flip that layout lived in the desktop's `layout.json`,
- * under `<hostId>:<path>` keys; adoption (`hostServer.adopt`, ticket 6)
+ * under `<hostId>:<path>` keys; adoption (`hostServer.adopt`, `./adopt.ts`)
  * moves it onto the box in this shape — rekeyed to the bare path, window
  * claims cleared (`hostLayoutSnapshot` in `../backend/host-server-sync.ts`).
  */

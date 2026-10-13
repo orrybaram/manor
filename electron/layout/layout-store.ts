@@ -541,6 +541,87 @@ export class LayoutStore {
   }
 
   /**
+   * On a host server: take in the layout the desktop held for this host
+   * (ADR-227 D3), keyed by bare path. The host wins: a workspace it already
+   * has keeps its own layout, and only the rest are added — each broadcast,
+   * so a connected phone sees it. `lastActive` is taken only when this store
+   * has none. Written at once. Returns the workspaces added.
+   */
+  async adopt(
+    workspaces: Readonly<Record<string, LayoutEntry>>,
+    lastActive: string | null,
+  ): Promise<string[]> {
+    await this.loaded;
+    const origin: LayoutOrigin = { kind: "route", id: "layout-adopt" };
+    const added: string[] = [];
+    for (const [workspacePath, entry] of Object.entries(workspaces)) {
+      if (isHomePath(workspacePath) || this.entries.has(workspacePath)) continue;
+      const layout = structuredClone(entry.layout);
+      const firstPanelId = Object.keys(layout.panels)[0] ?? null;
+      const state: WorkspaceState = {
+        version: entry.version,
+        layout,
+        defaultViewport: entry.defaultViewport
+          ? structuredClone(entry.defaultViewport)
+          : { activePanelId: firstPanelId, selectedTabIds: {}, focusedPaneIds: {} },
+        paneSessions: structuredClone(entry.paneSessions),
+        closedStack: [],
+      };
+      this.entries.set(workspacePath, state);
+      added.push(workspacePath);
+      this.broadcast({
+        workspacePath,
+        version: state.version,
+        layout: state.layout,
+        claims: this.claimsFor(workspacePath),
+        origin,
+      });
+    }
+    if (this.lastActiveWorkspacePath === null && lastActive !== null) {
+      this.lastActiveWorkspacePath = lastActive;
+    }
+    this.dirty = true;
+    this.persistNow();
+    return added;
+  }
+
+  /**
+   * Let go of workspaces whose layout now lives on another server — a remote
+   * host's, once it has adopted them (ADR-227 D3). Unlike `remove` this ends
+   * nothing: their panes, sessions and agents carry on, on that host. Every
+   * renderer drops its copy, as on `remove`, and a command still queued for
+   * one is refused. Written at once.
+   */
+  async release(workspacePaths: readonly string[]): Promise<void> {
+    await this.loaded;
+    for (const workspacePath of workspacePaths) {
+      const state = this.entries.get(workspacePath);
+      if (!state) continue;
+      this.removals.set(workspacePath, (this.removals.get(workspacePath) ?? 0) + 1);
+      this.entries.delete(workspacePath);
+      this.queues.delete(workspacePath);
+      this.windowViewports.delete(workspacePath);
+      this.primaryViewports.delete(workspacePath);
+      for (const [windowId, claim] of [...this.claims]) {
+        if (claim.workspacePath === workspacePath) this.claims.delete(windowId);
+      }
+      if (this.lastActiveWorkspacePath === workspacePath) {
+        this.lastActiveWorkspacePath = null;
+      }
+      this.broadcast({
+        workspacePath,
+        version: state.version,
+        layout: state.layout,
+        claims: [],
+        origin: { kind: "route", id: "layout-release" },
+        removed: true,
+      });
+    }
+    this.dirty = true;
+    this.persistNow();
+  }
+
+  /**
    * A PTY event, folded into the owning pane's `paneSessions` (D3).
    *
    * Deliberately silent: every renderer already receives this same event

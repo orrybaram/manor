@@ -283,6 +283,19 @@ export interface PersistedHost {
   lastHookSeq?: number;
   /** The epoch of the journal `lastHookSeq` counts in (ADR-178 §2). */
   hookJournalEpoch?: string;
+  /**
+   * The host's server owns its projects, agents and layout, and this desktop
+   * has handed over what it held for it (ADR-227 D3,
+   * `backend/host-adoption.ts`). Absent until then.
+   */
+  adopted?: true;
+  /**
+   * The ids of the projects handed over, which now live only on the host. A
+   * linked-project group (ADR-192) still names them in `memberIds`, so
+   * loading `projects.json` keeps them there (`normalizeGroups`) rather than
+   * dropping them as unknown.
+   */
+  adoptedProjectIds?: string[];
 }
 
 /**

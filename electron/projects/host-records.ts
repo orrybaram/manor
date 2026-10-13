@@ -86,4 +86,31 @@ export class HostRecords {
   flushHookCursors(): void {
     this.store.flush();
   }
+
+  /**
+   * Whether this desktop has handed `hostId`'s records over to its host
+   * server (ADR-227 D3).
+   */
+  isAdopted(hostId: string): boolean {
+    return this.store.state.hosts?.[hostId]?.adopted === true;
+  }
+
+  /**
+   * Remember that `projectIds` now live on `hostId`'s server, without
+   * saving: the caller removes them in the same write, so a group's
+   * `memberIds` keep them on the next load (`normalizeGroups`).
+   */
+  recordAdoptedProjects(hostId: string, projectIds: readonly string[]): void {
+    const host = this.store.state.hosts?.[hostId];
+    if (!host || projectIds.length === 0) return;
+    host.adoptedProjectIds = [...new Set([...(host.adoptedProjectIds ?? []), ...projectIds])];
+  }
+
+  /** Mark `hostId` adopted (ADR-227 D3): the last step of the hand-over. */
+  markAdopted(hostId: string): void {
+    const host = this.store.state.hosts?.[hostId];
+    if (!host || host.adopted) return;
+    host.adopted = true;
+    this.store.save();
+  }
 }

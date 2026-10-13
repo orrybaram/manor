@@ -18,7 +18,7 @@
 
 import { memberOnHost } from "../../src/lib/project-groups";
 import type { ProjectContext } from "./context";
-import { groupOf } from "./project-groups";
+import { adoptedProjectHosts, groupOf } from "./project-groups";
 import { normalizeOriginUrl } from "./remote-clone";
 import type {
   LinkSuggestion,
@@ -70,7 +70,8 @@ export function isDismissed(state: PersistedState, a: string, b: string): boolea
  */
 export function normalizeLinkDismissals(state: PersistedState): void {
   const raw: unknown = state.dismissedLinkSuggestions;
-  const known = new Set(state.projects.map((p) => p.id));
+  // A project handed over to its host's server is still known (ADR-227 D3).
+  const known = new Set([...state.projects.map((p) => p.id), ...adoptedProjectHosts(state).keys()]);
   const pairs: Array<[string, string]> = [];
   if (Array.isArray(raw)) {
     for (const entry of raw) {

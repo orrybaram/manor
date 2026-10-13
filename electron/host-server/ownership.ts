@@ -3,7 +3,7 @@
  *
  * A host server starts `pending`: the desktop still holds this host's
  * projects, agents and layout from before the flip. Until it has handed them
- * over (`hostServer.adopt`, ticket 6), the server serves no project or layout
+ * over (`hostServer.adopt`, `./adopt.ts`), the server serves no project or layout
  * write and lists no projects, so nothing is created here that adoption
  * would then have to merge with. After that it is `host`, for good: the box
  * is the source of truth for its own state (ADR-227 D2).

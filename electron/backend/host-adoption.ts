@@ -1,0 +1,240 @@
+/**
+ * The desktop's half of adoption (ADR-227 D3): handing what it holds for a
+ * remote host — that host's projects, agents and layout — to the host's own
+ * server, then letting go of it.
+ *
+ * Run on every connect of a host's owner channel (`HostServerSync`):
+ *
+ * 1. **Read the host's `ownership`** (`hostServer.status`).
+ * 2. **Send** the bundle (`hostServer.adopt`) when the host is `pending` —
+ *    empty for a host this desktop holds nothing for — or when it is `host`
+ *    but this desktop has not finished handing over (`PersistedHost.adopted`
+ *    unset) and still holds records for it: a crash after the ack, a second
+ *    laptop. The host merges by id and wins every conflict, so a resend adds
+ *    what it lacks and overwrites nothing.
+ * 3. **Only after the ack** (`ownership: "host"`), and only the records that
+ *    were sent:
+ *    1. write a backup, `~/.manor/backups/pre-adr-227-<hostId>.json`;
+ *    2. remove the projects from `projects.json`, keeping their ids in
+ *       groups' `memberIds`;
+ *    3. remove the agents from `agents.json`;
+ *    4. release the `<hostId>:*` layout entries (nothing ends: the sessions
+ *       carry on, on the host);
+ *    5. mark the host `adopted`.
+ *
+ * A crash anywhere leaves the host `pending` (nothing merged yet) or `host`
+ * with the desktop not yet `adopted`; either way the next connect sends what
+ * is left and finishes. Once the desktop is `adopted`, a connect to a `host`
+ * is only the status read. A host server that predates ownership (no
+ * `ownership` in its status) is left alone.
+ *
+ * Until the desktop reads and writes a host's state through its server
+ * (ADR-227 D4), an adopted host's projects are not in the desktop's lists,
+ * and what the desktop still records for that host afterwards (its own hook
+ * feed's agents, a project added from the desktop) stays on the desktop.
+ */
+
+import fs from "node:fs";
+import path from "node:path";
+import { LOCAL_HOST_ID } from "./types";
+import { agentHostId, type AgentInfo, type AgentManager, type PaneHostLookup } from "../agent-persistence";
+import type { AdoptionBundle } from "../host-server/adopt";
+import type { LayoutStore } from "../layout/layout-store";
+import { writeFileAtomic } from "../lib/fs-atomic";
+import { backupsDir } from "../paths";
+import type { ProjectManager } from "../projects/project-manager";
+import type { LayoutEntry } from "../../src/lib/layout/protocol";
+import { parseWorkspaceKey } from "../../src/lib/workspace-key";
+import type { HostServerApi } from "./host-server-client";
+import { hostLayoutSnapshot } from "./host-server-sync";
+
+/** What adoption needs of a host's owner channel. */
+export interface AdoptionChannel {
+  api: { hostServer: Pick<HostServerApi["hostServer"], "status" | "adopt"> };
+}
+
+export interface HostAdoptionOptions {
+  projectManager: Pick<
+    ProjectManager,
+    | "manifestRecords"
+    | "hostProjectRecords"
+    | "removeAdoptedProjects"
+    | "isHostAdopted"
+    | "markHostAdopted"
+  >;
+  agentManager: Pick<AgentManager, "getAllAgents" | "removeAgents">;
+  layoutStore: Pick<
+    LayoutStore,
+    "whenLoaded" | "getAll" | "getLastActiveWorkspacePath" | "release"
+  >;
+  /** A pane's session owner: which host an agent runs on (ADR-191 §5). */
+  getPaneHostId: PaneHostLookup;
+  /** Told after a host's projects left `projects.json`. */
+  onProjectsRemoved?(hostId: string): void;
+  /** Defaults to `backupsDir()`. */
+  backupDir?: string;
+  now?: () => Date;
+  log?: Pick<Console, "info" | "warn">;
+}
+
+/** What one run did, for the log and for tests. */
+export interface AdoptionOutcome {
+  /** The host's ownership when asked; `null` for a server that has none. */
+  ownership: "pending" | "host" | null;
+  /** Whether a bundle was sent (and acknowledged). */
+  sent: boolean;
+  /** Where the removed records were copied to; null when none were removed. */
+  backup: string | null;
+  removed: { projects: number; agents: number; workspaces: number };
+}
+
+/** Bumped when the backup file's shape changes. */
+const BACKUP_VERSION = 1;
+
+/** What this desktop still holds for one host, as sent and as stored. */
+interface LocalRecords {
+  bundle: AdoptionBundle;
+  projectIds: string[];
+  agents: AgentInfo[];
+  /** The desktop's own `<hostId>:<path>` keys, and their entries. */
+  layout: Record<string, LayoutEntry>;
+}
+
+/** A host id as a file-name part. */
+function fileSafe(hostId: string): string {
+  return hostId.replace(/[^A-Za-z0-9._-]/g, "_");
+}
+
+export class HostAdoption {
+  private readonly opts: HostAdoptionOptions;
+  private readonly log: Pick<Console, "info" | "warn">;
+  /** One run per host at a time: a reconnect waits for the run before it. */
+  private readonly runs = new Map<string, Promise<unknown>>();
+
+  constructor(opts: HostAdoptionOptions) {
+    this.opts = opts;
+    this.log = opts.log ?? console;
+  }
+
+  /** Adopt `hostId` onto its server, or finish an adoption left part-way. */
+  run(hostId: string, channel: AdoptionChannel): Promise<AdoptionOutcome> {
+    const previous = this.runs.get(hostId) ?? Promise.resolve();
+    const run = previous.catch(() => {}).then(() => this.runNow(hostId, channel));
+    const settled = run.catch(() => {});
+    this.runs.set(hostId, settled);
+    void settled.then(() => {
+      if (this.runs.get(hostId) === settled) this.runs.delete(hostId);
+    });
+    return run;
+  }
+
+  private async runNow(hostId: string, channel: AdoptionChannel): Promise<AdoptionOutcome> {
+    const outcome: AdoptionOutcome = {
+      ownership: null,
+      sent: false,
+      backup: null,
+      removed: { projects: 0, agents: 0, workspaces: 0 },
+    };
+    const status = await channel.api.hostServer.status();
+    const ownership = (status as { ownership?: unknown }).ownership;
+    // A server from before the flip owns nothing and has no `adopt`.
+    if (ownership !== "pending" && ownership !== "host") return outcome;
+    outcome.ownership = ownership;
+    // Handed over already: a connect is this read, and nothing more.
+    if (ownership === "host" && this.opts.projectManager.isHostAdopted(hostId)) return outcome;
+
+    await this.opts.layoutStore.whenLoaded();
+    const local = this.localRecords(hostId);
+    const holdsAny =
+      local.projectIds.length > 0 ||
+      local.agents.length > 0 ||
+      Object.keys(local.layout).length > 0;
+
+    if (ownership === "pending" || holdsAny) {
+      const ack = await channel.api.hostServer.adopt(local.bundle);
+      if (ack.ownership !== "host") {
+        throw new Error(`${hostId} did not take its records (ownership ${String(ack.ownership)})`);
+      }
+      outcome.sent = true;
+      this.log.info(
+        `[host-adoption] ${hostId}: adopted ${local.projectIds.length} projects, ${local.agents.length} agents, ${Object.keys(local.layout).length} workspaces`,
+      );
+    }
+
+    // Only after the ack, and only what was sent.
+    if (holdsAny) {
+      outcome.backup = this.writeBackup(hostId, local);
+      const { projectManager, agentManager, layoutStore } = this.opts;
+      outcome.removed.projects = projectManager.removeAdoptedProjects(hostId, local.projectIds).length;
+      if (outcome.removed.projects > 0) this.opts.onProjectsRemoved?.(hostId);
+      outcome.removed.agents = agentManager.removeAgents(local.agents.map((a) => a.id));
+      await layoutStore.release(Object.keys(local.layout));
+      outcome.removed.workspaces = Object.keys(local.layout).length;
+    }
+    this.opts.projectManager.markHostAdopted(hostId);
+    return outcome;
+  }
+
+  /** Everything this desktop holds for `hostId`, and the bundle it makes. */
+  private localRecords(hostId: string): LocalRecords {
+    const { projectManager, agentManager, layoutStore, getPaneHostId } = this.opts;
+    const projects = projectManager.manifestRecords(hostId);
+    const agents = agentManager
+      .getAllAgents()
+      .filter((agent) => agentHostId(agent, getPaneHostId) === hostId);
+    const all = layoutStore.getAll();
+    const layout: Record<string, LayoutEntry> = {};
+    for (const [key, entry] of Object.entries(all)) {
+      if (parseWorkspaceKey(key).hostId === hostId) layout[key] = entry;
+    }
+    const now = (this.opts.now ?? (() => new Date()))();
+    return {
+      bundle: {
+        projects,
+        // To the host server its own host is local.
+        agents: agents.map((agent) => ({ ...agent, hostId: LOCAL_HOST_ID })),
+        layout: hostLayoutSnapshot(
+          layout,
+          layoutStore.getLastActiveWorkspacePath(),
+          hostId,
+          now.toISOString(),
+        ),
+      },
+      projectIds: projects.map((p) => p.id),
+      agents,
+      layout,
+    };
+  }
+
+  /**
+   * Copy the records about to be removed, as this desktop stores them, to
+   * `pre-adr-227-<hostId>.json` — or, when an earlier run already wrote that,
+   * beside it under a timestamped name: a backup is never overwritten.
+   * Throws when it cannot be written, and then nothing is removed.
+   */
+  private writeBackup(hostId: string, local: LocalRecords): string {
+    const dir = this.opts.backupDir ?? backupsDir();
+    const now = (this.opts.now ?? (() => new Date()))();
+    const base = `pre-adr-227-${fileSafe(hostId)}`;
+    let file = path.join(dir, `${base}.json`);
+    if (fs.existsSync(file)) {
+      file = path.join(dir, `${base}-${now.toISOString().replace(/[:.]/g, "-")}.json`);
+    }
+    const { projects, groups } = this.opts.projectManager.hostProjectRecords(hostId);
+    const sent = new Set(local.projectIds);
+    const backup = {
+      version: BACKUP_VERSION,
+      hostId,
+      takenAt: now.toISOString(),
+      projects: projects.filter((p) => sent.has(p.id)),
+      groups,
+      agents: local.agents,
+      layout: {
+        workspaces: local.layout,
+        lastActiveWorkspacePath: this.opts.layoutStore.getLastActiveWorkspacePath(),
+      },
+    };
+    writeFileAtomic(file, JSON.stringify(backup, null, 2), { mode: 0o600, dirMode: 0o700 });
+    return file;
+  }
+}

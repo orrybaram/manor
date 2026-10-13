@@ -117,7 +117,8 @@ import {
 } from "../bridge/handlers/remote-control";
 import type { RemoteDeviceInfo } from "../remote-control/devices";
 import type { VapidKeys } from "../remote-control/push";
-import { assertVapidKeys } from "./owner";
+import type { Adopt, AdoptionBundle } from "./adopt";
+import { assertAdoptionBundle, assertVapidKeys } from "./owner";
 import { assertOwned, type OwnershipState } from "./ownership";
 import type { HostRelay, HostRemoteControl, HostServerStatus } from "./relay";
 import type { HostWinsize } from "./winsize";
@@ -152,6 +153,8 @@ export interface HostServerDeps
   relay: Pick<HostRelay, "resetIdentity" | "setVapidKeys">;
   /** Whether this host has been adopted yet (ADR-227 D3, `./ownership.ts`). */
   ownership: OwnershipState;
+  /** Merge the desktop's records for this host into its stores (`./adopt.ts`). */
+  adopt: Adopt;
   /** What `hostServer.status` answers the owner (ADR-225 D4). */
   serverStatus(): HostServerStatus;
 }
@@ -330,6 +333,18 @@ function hostServerSetVapidKeys(ctx: Ctx, keys: VapidKeys): Promise<boolean> {
   return ctx.deps.relay.setVapidKeys(keys);
 }
 
+/**
+ * Adoption (ADR-227 D3): the desktop's projects, agents and layout for this
+ * host, merged into this server's stores with the host winning every
+ * conflict, then `ownership: "host"`. Checked whole first: a bad bundle
+ * writes nothing. Sending it again is harmless. Answers the new status.
+ */
+async function hostServerAdopt(ctx: Ctx, bundle: AdoptionBundle): Promise<HostServerStatus> {
+  assertAdoptionBundle(bundle);
+  await ctx.deps.adopt(bundle);
+  return ctx.deps.serverStatus();
+}
+
 const METHODS = flatten({
   pty: {
     // Spawns, or attaches; audited like the desktop's create. Typing is not.
@@ -434,6 +449,7 @@ const METHODS = flatten({
     status: method(hostServerStatus, { localOnly: true }),
     resetIdentity: method(hostServerResetIdentity, { localOnly: true }),
     setVapidKeys: method(hostServerSetVapidKeys, { localOnly: true, secretFirstArg: true }),
+    adopt: method(hostServerAdopt, { localOnly: true }),
   },
 });
 

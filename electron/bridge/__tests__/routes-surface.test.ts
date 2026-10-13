@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import { DESKTOP_TABLE } from "../handlers";
 import { SERVER_METHODS } from "../server-methods";
 import { LOCAL_ROUTE, type Method } from "../method";
+import { ROUTES } from "../routes";
 import { HOST_TABLE } from "../../host-server/handlers";
 
 /** The namespaces that read or write a host's projects, layout or agents. */
@@ -59,5 +60,30 @@ describe("routing surface (ADR-227 D4)", () => {
       // with a default.
       expect({ key, inRange: rule.arg < fn.length - 1 }).toEqual({ key, inRange: true });
     }
+  });
+
+  it("agrees with the route manifest (ADR-228 D1)", () => {
+    // `merge` and `home` are both `LOCAL_ROUTE` on a table.
+    const disagree = Object.entries(methods)
+      .filter(([key, entry]) => entry.rules.route !== undefined && key in ROUTES)
+      .filter(([key, entry]) => {
+        const manifest = ROUTES[key];
+        const route = entry.rules.route;
+        return manifest === "merge" || manifest === "home"
+          ? route !== LOCAL_ROUTE
+          : JSON.stringify(route) !== JSON.stringify(manifest);
+      })
+      .map(([key]) => key);
+    expect(disagree).toEqual([]);
+  });
+
+  it.each(ROUTED_NAMESPACES)("lists every %s method in the route manifest", (ns) => {
+    const keys = Object.keys(methods).filter((key) => inNamespace(key, ns));
+    expect(keys.filter((key) => !(key in ROUTES))).toEqual([]);
+  });
+
+  it("lists in the manifest only methods that declare a route", () => {
+    const stray = Object.keys(ROUTES).filter((key) => methods[key]?.rules.route === undefined);
+    expect(stray).toEqual([]);
   });
 });

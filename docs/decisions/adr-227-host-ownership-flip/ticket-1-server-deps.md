@@ -1,6 +1,6 @@
 ---
 title: Split HostDeps into window-free ServerDeps and DesktopDeps
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: []

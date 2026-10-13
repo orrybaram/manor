@@ -1,6 +1,6 @@
 ---
 title: Move process-global server state onto the server
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [1]

@@ -47,3 +47,13 @@ ADR-228 D4 and D5 (desktop renderer), and D6 (away hosts on the desktop).
   `src/store/remote-pane-store.ts`
 - `electron/bridge/routes.ts` (`layout.reportViewport` home)
 - `e2e/` remote-host specs
+
+## Carried over from ticket 2
+- **Winsize.** Main's `RoutedBackend` still attaches remote panes over the
+  daemon stream until ticket 6. Until then, the host's foreign hold makes a
+  desktop viewer a follower. The E2E for "resizes over the direct bridge"
+  should expect follower behavior until ticket 6 lands, or be written so
+  that ticket 6 can turn it on.
+- `roomId` and `viewerBridge` in `hosts.list` only appear after the first
+  status read; before that they are absent. Treat absent as "no direct
+  bridge yet" and add the server when the status event arrives.

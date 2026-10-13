@@ -1,6 +1,6 @@
 ---
 title: hostPipe IPC and the renderer host pipe transport
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [2]
@@ -52,3 +52,10 @@ ADR-228 D4 (main carries frames, renderer pipe).
   `electron/terminal-host/transport.ts`
 - a new `electron/ipc/host-pipe.ts` (or wherever native IPC modules live)
 - `src/bridge/transports/host-pipe.ts` (new), `src/bridge/transports/ws.ts`
+
+## Carried over from ticket 2
+- Open the stream with `remoteServerBridgeCommand({ viewer: true })`
+  (`electron/terminal-host/ssh-config.ts`).
+- `HostStatusInfo.viewerBridge` / `roomId` come from
+  `BackendRegistry.setServerFacts` (`hasViewerBridge` in
+  `electron/host-server/capabilities.ts`).

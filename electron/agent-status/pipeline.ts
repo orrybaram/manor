@@ -1,19 +1,20 @@
 /**
  * The agent pipeline (ADR-178 §2, ADR-184, ADR-226 S1): how a hook becomes
- * an Agent's status, built once for both compositions that own agents — the
- * desktop's `initApp()` and the host server's `createHostAgents`.
+ * an Agent's status, built once for every server that owns agents, by
+ * `createManorServer` (`../server/create-manor-server.ts`).
  *
  *   hook feed / HTTP ──▶ hookSink ──▶ AgentHookServer.ingestHookPayload
  *     ──▶ relay ──▶ Status reconciler's driver ──▶ agents.json, broadcasts
  *
  * Replayed hooks hold their notifications until the catch-up is done
  * (`NotificationCoalescer`): a night of hooks is one notification per agent.
- * What differs between the two compositions — the host a pane runs on, where
+ * What differs between the two platforms — the host a pane runs on, where
  * an Agent's broadcast and a pane's status go, who hears a transition — is
  * passed in. Electron-free: the host server bundles it.
  *
  * `../host-server/__tests__/two-readers.test.ts` builds the desktop's and the
- * host server's pipelines through this factory and requires them to agree.
+ * host server's pipelines through `serverAgentPipelineOptions` and requires
+ * them to agree.
  */
 
 import { AgentHookServer } from "../agent-hooks";
@@ -49,21 +50,32 @@ export interface AgentPipelineOptions
   clocks?: Pick<AgentStatusDriverDeps, "monoClock" | "wallClock" | "log">;
 }
 
+/** A status transition worth telling someone about (`AgentPipelineOptions.onStatus`). */
+export type AgentStatusSink = AgentPipelineOptions["onStatus"];
+
 /**
- * What the desktop's `initApp()` hands the pipeline: the renderer's pane
- * contexts as a map, everything else as `AgentPipelineOptions`.
+ * What `createManorServer` hands the pipeline: the pane contexts renderers
+ * set as a map, everything else as `AgentPipelineOptions`.
  */
-export interface DesktopAgentPipelineDeps extends Omit<AgentPipelineOptions, "getPaneContext"> {
+export interface ServerAgentPipelineDeps extends Omit<AgentPipelineOptions, "getPaneContext"> {
   paneContexts: ReadonlyMap<string, PaneContext>;
+  /**
+   * A pane's context when no renderer has set one: the host server derives
+   * it from what its owner synced. The desktop has none.
+   */
+  derivePaneContext?: (paneId: string) => PaneContext | undefined;
 }
 
 /**
- * The desktop's configuration of the pipeline, in one place so the
- * two-readers test builds its desktop reader the way `initApp()` does.
+ * The server's configuration of the pipeline, in one place so the
+ * two-readers test builds both readers the way `createManorServer` does.
  */
-export function desktopAgentPipelineOptions(deps: DesktopAgentPipelineDeps): AgentPipelineOptions {
-  const { paneContexts, ...rest } = deps;
-  return { ...rest, getPaneContext: (paneId) => paneContexts.get(paneId) };
+export function serverAgentPipelineOptions(deps: ServerAgentPipelineDeps): AgentPipelineOptions {
+  const { paneContexts, derivePaneContext, ...rest } = deps;
+  return {
+    ...rest,
+    getPaneContext: (paneId) => paneContexts.get(paneId) ?? derivePaneContext?.(paneId),
+  };
 }
 
 export interface AgentPipeline {

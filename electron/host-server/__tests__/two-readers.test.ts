@@ -7,9 +7,10 @@
  * into the reconciler, or a host-server shortcut around
  * `AgentHookServer.ingestHookPayload`, would split them. This feeds one
  * recorded journal — part replayed, part live, as each reader meets it —
- * into the desktop's pipeline (`createAgentPipeline` as `app-lifecycle.ts`
- * configures it for a remote host) and into the host server's
- * (`createHostAgents`), and requires every pane to end in the same state.
+ * into the desktop's pipeline and the host server's, each configured as
+ * `createManorServer` configures it on that platform
+ * (`serverAgentPipelineOptions`), and requires every pane to end in the same
+ * state.
  */
 
 import fs from "node:fs";
@@ -21,13 +22,12 @@ import { UnseenAgents } from "../../agent-status/unseen-agents";
 import type { AgentStatusDriver } from "../../agent-status/driver";
 import {
   createAgentPipeline,
-  desktopAgentPipelineOptions,
+  serverAgentPipelineOptions,
 } from "../../agent-status/pipeline";
 import { HostHookFeed, memoryHookSeqStore } from "../../backend/hook-feed";
 import { LOCAL_HOST_ID } from "../../backend/types";
 import { HookJournal } from "../../terminal-host/hook-journal";
 import type { HookPayload, HookReplay } from "../../terminal-host/types";
-import { createHostAgents } from "../agents";
 import { fileHookCursorStore } from "../hook-cursor";
 
 const REMOTE_HOST = "wsl-box";
@@ -120,7 +120,7 @@ function replaySource(journal: HookJournal) {
  */
 function desktopReader(dir: string, journal: HookJournal): Reader {
   const agentManager = new AgentManager(dir, 90, () => REMOTE_HOST);
-  const pipeline = createAgentPipeline(desktopAgentPipelineOptions({
+  const pipeline = createAgentPipeline(serverAgentPipelineOptions({
     agentManager,
     paneContexts: new Map(),
     getPaneHostId: () => REMOTE_HOST,
@@ -142,32 +142,36 @@ function desktopReader(dir: string, journal: HookJournal): Reader {
   return { agentManager, driver: pipeline.driver, feed, stop: pipeline.stop };
 }
 
-/** The host server's reader, as `createHostServer` wires it. */
+/**
+ * The host server's reader, as `createHostServer` wires it: a server with no
+ * remote hosts, so every pane and every project is local, and nobody has set
+ * a pane context (the owner's manifest is empty).
+ */
 function hostReader(dir: string, journal: HookJournal): Reader {
-  const agents = createHostAgents({
-    dataDir: dir,
-    publish: () => {},
-    monoClock: clock,
-    wallClock: clock,
-    log: () => {},
-  });
-  agents.start();
+  const agentManager = new AgentManager(dir, 90, () => LOCAL_HOST_ID);
+  const pipeline = createAgentPipeline(serverAgentPipelineOptions({
+    agentManager,
+    paneContexts: new Map(),
+    derivePaneContext: () => undefined,
+    getPaneHostId: () => LOCAL_HOST_ID,
+    unseen: new UnseenAgents(),
+    broadcastAgent: () => {},
+    publishPaneStatus: () => {},
+    onStatus: () => {},
+    clocks: { monoClock: clock, wallClock: clock, log: () => {} },
+  }));
+  pipeline.start();
   const store = fileHookCursorStore(path.join(dir, "hook-cursor.json"), {
-    beforeWrite: () => agents.agentManager.flushNow(),
+    beforeWrite: () => agentManager.flushNow(),
   });
   store.set(LOCAL_HOST_ID, { seq: 0, epoch: journal.epoch });
   const feed = new HostHookFeed({
     hostId: LOCAL_HOST_ID,
     replay: replaySource(journal),
     store,
-    sink: () => agents.hookSink,
+    sink: () => pipeline.hookSink,
   });
-  return {
-    agentManager: agents.agentManager,
-    driver: agents.driver,
-    feed,
-    stop: agents.stop,
-  };
+  return { agentManager, driver: pipeline.driver, feed, stop: pipeline.stop };
 }
 
 /** An agent as both readers must agree on it: all but ids, times and host. */

@@ -124,7 +124,7 @@ function connectedServer(
 
 /** Have the sync re-read the host's push endpoints, then tell the page its pairing changed. */
 function pairingChanged(ctx: HandlerCtx<ServerDeps>, hostId: string): void {
-  void ctx.deps.hostServerSync.pairingChanged(hostId).then(() => {
+  void Promise.resolve(ctx.deps.hostServerSync?.pairingChanged(hostId)).then(() => {
     publishRendererBroadcast("hosts", "pairingChanged", hostId);
   });
 }

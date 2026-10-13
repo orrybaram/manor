@@ -6,7 +6,7 @@
  * — what only Electron can do — take it too, and so does every control route
  * under `electron/routes/` (ADR-182 D8). There is one shape of deps to build,
  * one place (`app-lifecycle.ts`) that builds it, and nothing in it is null
- * (the optional sinks a server without a desktop leaves out aside).
+ * (what a server without a desktop or remote hosts leaves out aside).
  *
  * It is two halves (ADR-227 D1). `ServerDeps` is window-free: what a Manor
  * server has wherever it runs, and what the shared handlers
@@ -63,8 +63,11 @@ export interface ServerDeps {
   backend: RoutedBackend;
   /** Every host and its connection status (ADR-160). */
   backendRegistry: BackendRegistry;
-  /** What is pushed to each remote host's server, and its push endpoints. */
-  hostServerSync: HostServerSync;
+  /**
+   * What is pushed to each remote host's server, and its push endpoints.
+   * Absent on a server with no remote hosts (`Platform.remoteHosts`).
+   */
+  hostServerSync?: HostServerSync;
   /** A pane's session owner, if any host has claimed it (ADR-191 §5). */
   getPaneHostId: PaneHostLookup;
   layoutPersistence: LayoutPersistence;
@@ -73,8 +76,11 @@ export interface ServerDeps {
   projectManager: ProjectManager;
   themeManager: ThemeManager;
   portScanner: PortScanner;
-  /** Port forwards to remote projects' dev servers (ADR-178 §5). */
-  remoteForwards: RemoteForwards;
+  /**
+   * Port forwards to remote projects' dev servers (ADR-178 §5). Absent on a
+   * server with no remote hosts.
+   */
+  remoteForwards?: RemoteForwards;
   /**
    * Turns a URL opened in a remote host's context into the one to load
    * (ADR-178 §5). Built once in `app-lifecycle.ts` alongside `paneHosts` so
@@ -190,6 +196,9 @@ export interface DesktopDeps {
   resolvePaneUrl: (paneId: string, url: string) => Promise<string>;
   /** ADR-170. The native application menu controller. */
   appMenu: AppMenuController;
+  /** The desktop always has remote hosts, so always these (`ServerDeps`). */
+  hostServerSync: HostServerSync;
+  remoteForwards: RemoteForwards;
 }
 
 export type HostDeps = ServerDeps & DesktopDeps;

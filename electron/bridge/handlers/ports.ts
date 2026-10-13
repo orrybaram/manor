@@ -55,7 +55,7 @@ function enrichPorts(deps: ServerDeps, ports: ActivePort[]): ActivePort[] {
     const target =
       host.kind === "local"
         ? port.port
-        : remoteForwards.localPort(port.hostId, port.port);
+        : remoteForwards?.localPort(port.hostId, port.port);
     if (target !== undefined) routes.push({ hostname, port: target });
     // Include proxy port in hostname so renderer can build correct URLs
     return { ...port, hostname: `${hostname}:${proxyPort}` };
@@ -75,7 +75,7 @@ function enrichPorts(deps: ServerDeps, ports: ActivePort[]): ActivePort[] {
  */
 export function installPortEnricher(deps: ServerDeps): void {
   deps.portScanner.setEnricher((ports) => enrichPorts(deps, ports));
-  deps.remoteForwards.onChange(() => {
+  deps.remoteForwards?.onChange(() => {
     deps.portScanner.refresh();
   });
 }
@@ -146,7 +146,7 @@ export function portsRemoteUrl(
   assertString(hostId, "hostId");
   if (hostId === LOCAL_HOST_ID) return url;
   return remoteFormOfUrl(url, (localPort) =>
-    deps.remoteForwards.remotePortFor(hostId, localPort),
+    deps.remoteForwards?.remotePortFor(hostId, localPort),
   );
 }
 

@@ -14,6 +14,7 @@ import type { StatCounter, StatsStore } from "./stats-store";
 import type { BroadcastBus } from "./renderer-broadcast";
 import type { AgentUnseenFlags, UnseenAgents } from "./agent-status/unseen-agents";
 import type { Caller } from "./bridge/method";
+import { HeadlessNotifier } from "./server/headless-notifier";
 
 /**
  * An E2E run kept in the background (`electron/e2e-background.ts`). Read at
@@ -147,33 +148,14 @@ export function playNotificationSound(soundName: string | false): void {
  * The desktop's notifications: the log, the stats taps, the dock badge and
  * native banners, for one server's state (ADR-227 D1).
  */
-export class Notifier implements ServerNotifier {
-  constructor(private readonly opts: NotifierOptions) {}
+export class Notifier extends HeadlessNotifier implements ServerNotifier {
+  declare protected readonly opts: NotifierOptions;
 
-  sendNotificationsUpdate(): void {
-    this.opts.publish(
-      "notifications",
-      "changed",
-      this.opts.notificationStore.getAll(),
-    );
+  constructor(opts: NotifierOptions) {
+    super(opts);
   }
 
-  markAgentNotificationsRead(agentId: string): void {
-    if (!this.opts.notificationStore.markReadByAgent(agentId)) return;
-    this.sendNotificationsUpdate();
-  }
-
-  sendAgentUpdate(agent: AgentInfo): void {
-    this.opts.publish(
-      "agents",
-      "updated",
-      agent,
-      this.opts.unseen.flagsFor(agent.id),
-    );
-    this.updateDockBadge();
-  }
-
-  updateDockBadge(): void {
+  override updateDockBadge(): void {
     const { preferencesManager, unseen } = this.opts;
     if (!preferencesManager.get("dockBadgeEnabled")) {
       app.dock?.setBadge("");

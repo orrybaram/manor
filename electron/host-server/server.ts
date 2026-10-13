@@ -1,6 +1,8 @@
 /**
  * The host server (ADR-225 D1): a headless Manor server for one remote host,
- * composed from the parts the desktop's `initApp()` uses, with no Electron.
+ * `createManorServer(hostPlatform)` (ADR-227 D1) plus what only a host
+ * server has — the owner's snapshots, the winsize hold, the daemon retry
+ * loop, its hook feed and its always-on relay room. No Electron.
  *
  * It runs beside the `remote` daemon as its own process, and reaches that
  * daemon as a plain local client over `~/.manor/remote/daemon/
@@ -12,10 +14,10 @@
  *   bridge ◀── socket (owner channel, `serve.ts`)
  *          ◀── relay channels, as devices (`./relay.ts`, its own room)
  *
- * **Agents** come from the daemon's hook journal (`./agents.ts`): live
- * `hookEvent`s, plus `replayHooks` from the cursor persisted in
- * `dataDir/hook-cursor.json` on every (re)connect (`HostHookFeed`, the same
- * class the desktop runs per remote host). Unlike the desktop, a server that
+ * **Agents** come from the daemon's hook journal, into the server's agent
+ * pipeline: live `hookEvent`s, plus `replayHooks` from the cursor persisted
+ * in `dataDir/hook-cursor.json` on every (re)connect (`HostHookFeed`, the
+ * same class the desktop runs per remote host). Unlike the desktop, a server that
  * meets the journal for the first time replays all of it rather than
  * starting at its head: the desktop skips history it was never shown, but
  * for this server the journal *is* its history — it was installed after
@@ -35,33 +37,22 @@
 
 import fs from "node:fs";
 import os from "node:os";
-import { dispatchStreamEvent } from "../agent-stream-events";
-import { resyncPaneFacts } from "../agent-status/pipeline";
+import path from "node:path";
+import type { AgentStatusSink } from "../agent-status/pipeline";
 import { HostHookFeed } from "../backend/hook-feed";
-import { createLocalBackend } from "../backend/host-backend";
 import type { HostStatus, HostStatusInfo } from "../backend/host-connection";
 import { LOCAL_HOST_ID } from "../backend/types";
 import { reconcileStaleAgents } from "../bridge/handlers/agents-read";
-import { wireChatMirror } from "../bridge/handlers/chat";
-import { BridgeServer } from "../bridge/server";
 import { WsBridgeServer } from "../bridge/transports/ws";
-import { ChatMirror } from "../chat-mirror/mirror";
-import { chatTaskKey } from "../chat-mirror/task-key";
-import { LocalTranscriptSource } from "../chat-mirror/transcript-source";
 import { errorMessage } from "../lib/errors";
 import { hostServerPaths, type DaemonNamespace } from "../paths";
 import type { SecretBox } from "../platform/secret-box";
-import { PreferencesManager } from "../preferences";
-import { RemoteAuditLog } from "../remote-control/audit";
-import { createBroadcastBus } from "../renderer-broadcast";
-import { TerminalHostClient } from "../terminal-host/client";
+import { createManorServer } from "../server/create-manor-server";
+import type { Platform } from "../server/platform";
 import type { HostTransport } from "../terminal-host/transport";
 import { LocalTransport } from "../terminal-host/transport-local";
-import { ThemeManager } from "../theme";
-import { pickPaneAgent } from "../../src/lib/pane-agent";
-import { createHostAgents, type AgentStatusSink } from "./agents";
 import { HOST_TABLE, type HostServerDeps } from "./handlers";
-import { createHostWinsize } from "./winsize";
+import { createHostWinsize, type HostWinsize } from "./winsize";
 import { createOwnerSync, paneContextFrom } from "./owner";
 import { OwnerSnapshotStore } from "./owner-snapshot";
 import { fileHookCursorStore } from "./hook-cursor";
@@ -153,79 +144,22 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   fs.mkdirSync(paths.dataDir, { recursive: true, mode: 0o700 });
   const { appVersion } = opts;
 
-  const client = new TerminalHostClient(
+  const hostPlatform: Platform = {
+    dataDir: paths.dataDir,
+    // Not `paths.layout`: that is the owner's layout snapshot, which this
+    // server only reads until it owns its layout (ADR-227 D2).
+    layoutFile: path.join(paths.dataDir, "server-layout.json"),
+    secretBox: opts.secretBox,
     appVersion,
-    opts.transport ?? daemonTransport(opts.daemonNamespace ?? "remote"),
-  );
-  // The local daemon reconnects quietly on the desktop; a server that has to
-  // stay up keeps trying, like a remote host's connection does.
-  client.setReconnectPolicy(daemonRetryDelayMs);
-  const daemon = createLocalBackend(client);
+    hostName: () => os.hostname(),
+    daemonTransport:
+      opts.transport ?? daemonTransport(opts.daemonNamespace ?? "remote"),
+  };
 
-  // This server's keyless pushes — agents, the owner's syncs — heard by its
-  // bridge and chat mirror and nobody else in the process.
-  const events = createBroadcastBus();
-  const preferences = new PreferencesManager(paths.dataDir);
-  const theme = new ThemeManager();
   const startedAt = Date.now();
 
   // What the owner last synced (ADR-225 D4, D5), read once and held.
   const snapshots = new OwnerSnapshotStore(paths);
-  const ownerSync = createOwnerSync({ store: snapshots, publish: events.publish });
-
-  // Relay channels pass the device gate, then this server's hello gate
-  // (`frames`, below), so the host table's device rules (LOCAL_ONLY
-  // refusals) apply to every phone.
-  const relay = createHostRelay({
-    paths,
-    secretBox: opts.secretBox,
-    appVersion,
-    frames: () => frames,
-    notifyOnRequiresInput: () => preferences.get("notifyOnRequiresInput"),
-    options: opts.relay,
-  });
-
-  const agents = createHostAgents({
-    dataDir: paths.dataDir,
-    publish: events.publish,
-    // A new agent's project, from the owner's last manifest and layout.
-    getPaneContext: (paneId) =>
-      paneContextFrom(snapshots.manifest(), snapshots.layout(), paneId),
-    onAgentStatus: (agent, prevStatus, newStatus) => {
-      relay.onAgentStatus(agent, prevStatus, newStatus);
-      opts.onAgentStatus?.(agent, prevStatus, newStatus);
-    },
-    onHook: (event) => chatMirror.poke(event.paneId),
-    monoClock: opts.monoClock,
-    wallClock: opts.wallClock,
-  });
-  const { agentManager, driver } = agents;
-
-  const localTranscripts = new LocalTranscriptSource();
-  const chatMirror = new ChatMirror({
-    agentForPane: (paneId) => {
-      const agent = pickPaneAgent(agentManager.getAllAgents(), paneId);
-      return agent
-        ? {
-            hostId: LOCAL_HOST_ID,
-            agentKind: agent.agentKind,
-            transcriptPath: agent.transcriptPath,
-          }
-        : null;
-    },
-    // Transcripts are files on this box.
-    sourceFor: () => localTranscripts,
-    write: (paneId, data) => daemon.pty.write(paneId, data),
-    publish: (paneId, entry) =>
-      bridge.publish("chat", "entry", [paneId, entry], paneId),
-    publishTask: (paneId, taskId, entry) =>
-      bridge.publish(
-        "chat",
-        "taskEntry",
-        [paneId, taskId, entry],
-        chatTaskKey(paneId, taskId),
-      ),
-  });
 
   // ── the daemon's connection, as `hosts.list` reports it ──
   let daemonState: { status: HostStatus; error?: string } = {
@@ -237,50 +171,106 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     ...daemonState,
   });
 
-  const hostStatus = (): HostServerStatus => ({
-    version: appVersion,
-    uptimeMs: Date.now() - startedAt,
-    secretBackend: opts.secretBox.backend(),
-    relay: relay.relayStatus(),
-    devices: relay.deviceCount(),
-    pushEndpoints: relay.pushEndpoints(),
-  });
+  // Built with the deps, over the server's relay stores.
+  let relay!: HostRelay;
+  let winsize!: HostWinsize;
 
-  const winsize = createHostWinsize({
-    listSessions: () => daemon.pty.listSessions(),
-  });
-
-  const deps: HostServerDeps = {
-    backend: { pty: daemon.pty },
-    winsize,
-    daemonStatus,
-    agentManager,
-    agentStatus: driver,
-    unseen: agents.unseen,
-    chatMirror,
-    projects: () => manifestProjects(snapshots.manifest(), daemon.git),
-    layout: () => snapshots.layout(),
-    preferences: () => preferences.getAll(),
-    theme: () => theme.getThemeByName("__default__"),
-    remoteControl: relay.remoteControl,
-    relay,
-    ownerSync,
-    serverStatus: hostStatus,
-  };
-
-  const bridge = new BridgeServer(deps, {
+  const server = createManorServer<HostServerDeps>(hostPlatform, {
     table: HOST_TABLE,
-    events: events.subscribe,
-    audit: new RemoteAuditLog(`${paths.dataDir}/remote-audit.jsonl`),
+    // A new agent's project, from the owner's last manifest and layout.
+    derivePaneContext: (paneId) =>
+      paneContextFrom(snapshots.manifest(), snapshots.layout(), paneId),
+    onAgentStatus: (agent, prevStatus, newStatus) => {
+      relay.onAgentStatus(agent, prevStatus, newStatus);
+      opts.onAgentStatus?.(agent, prevStatus, newStatus);
+    },
+    daemonListener: {
+      onLost: () => {
+        daemonState = { status: "reconnecting" };
+        feed.pause();
+      },
+      // The server resyncs the panes' facts after this.
+      onReconnected: () => {
+        daemonState = { status: "connected" };
+        void feed.catchUp();
+      },
+    },
+    relayStores: {
+      identityFile: paths.relayIdentity,
+      devicesFile: paths.devices,
+      vapidFile: paths.vapid,
+      pushSend: opts.relay?.pushSend,
+      pushGenerate: opts.relay?.pushGenerate,
+    },
+    ...(opts.monoClock || opts.wallClock
+      ? {
+          clocks: {
+            ...(opts.monoClock ? { monoClock: opts.monoClock } : {}),
+            ...(opts.wallClock ? { wallClock: opts.wallClock } : {}),
+          },
+        }
+      : {}),
+    deps: (core) => {
+      const { shared } = core;
+      // Relay channels pass the device gate, then this server's hello gate
+      // (`frames`, below), so the host table's device rules (LOCAL_ONLY
+      // refusals) apply to every phone.
+      relay = createHostRelay({
+        stores: core.relayStores,
+        appVersion,
+        frames: () => frames,
+        notifyOnRequiresInput: () =>
+          shared.preferencesManager.get("notifyOnRequiresInput"),
+        options: opts.relay,
+      });
+      winsize = createHostWinsize({
+        listSessions: () => core.localBackend.pty.listSessions(),
+      });
+      return {
+        backend: { pty: core.localBackend.pty },
+        winsize,
+        daemonStatus,
+        agentManager: shared.agentManager,
+        agentStatus: shared.agentStatus,
+        unseen: shared.unseen,
+        chatMirror: shared.chatMirror,
+        projects: () => manifestProjects(snapshots.manifest(), core.localBackend.git),
+        layout: () => snapshots.layout(),
+        preferences: () => shared.preferencesManager.getAll(),
+        theme: () => shared.themeManager.getThemeByName("__default__"),
+        remoteControl: relay.remoteControl,
+        relay,
+        // This server's keyless pushes — agents, the owner's syncs — heard by
+        // its bridge and chat mirror and nobody else in the process.
+        ownerSync: createOwnerSync({ store: snapshots, publish: core.bus.publish }),
+        serverStatus: hostStatus,
+      };
+    },
   });
+  const { client, deps, bridge } = server;
+  const { agentManager } = server.shared;
+  // The local daemon reconnects quietly on the desktop; a server that has to
+  // stay up keeps trying, like a remote host's connection does.
+  client.setReconnectPolicy(daemonRetryDelayMs);
+
+  function hostStatus(): HostServerStatus {
+    return {
+      version: appVersion,
+      uptimeMs: Date.now() - startedAt,
+      secretBackend: opts.secretBox.backend(),
+      relay: relay.relayStatus(),
+      devices: relay.deviceCount(),
+      pushEndpoints: relay.pushEndpoints(),
+    };
+  }
+
   const frames = new WsBridgeServer(bridge, {
     appVersion,
     // The desktop's name for this host wins; else the box's own (ADR-225 D7).
-    hostName: () => snapshots.manifest().hostName ?? os.hostname(),
+    hostName: () => snapshots.manifest().hostName ?? hostPlatform.hostName(),
     // The page reads this, not `hostName`, to know it is on a host server.
     hostServer: true,
   });
-  const unwireChat = wireChatMirror({ chatMirror }, bridge, events.subscribe);
   opts.internals?.({ relay });
 
   // ── hooks ──
@@ -293,51 +283,15 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     hostId: LOCAL_HOST_ID,
     replay: (sinceSeq, replayOpts) => client.replayHooks(sinceSeq, replayOpts),
     store: cursorStore,
-    sink: () => agents.hookSink,
+    sink: () => server.agentPipeline.hookSink,
     firstContact: "replayAll",
   });
 
+  // The rest of the stream reaches the server's own fan-out, through its
+  // backend registry; the journal's hooks are this server's to read.
   client.onEvent((event) => {
-    if (event.type === "hookEvent") {
-      feed.onLiveEvent(event.seq, event.payload);
-      return;
-    }
-    if (event.type === "controlRequest") return;
-    if (event.type === "exit") chatMirror.closePane(event.sessionId);
-    dispatchStreamEvent(
-      event,
-      {
-        agentManager,
-        agentStatus: driver,
-        broadcastAgent: agents.broadcastAgent,
-      },
-      (e) => bridge.handleStreamEvent(e),
-    );
+    if (event.type === "hookEvent") feed.onLiveEvent(event.seq, event.payload);
   });
-
-  client.setConnectionListener({
-    onLost: () => {
-      daemonState = { status: "reconnecting" };
-      feed.pause();
-    },
-    onReconnected: ({ sessionIds }) => {
-      daemonState = { status: "connected" };
-      void feed.catchUp();
-      void resyncPanes(sessionIds);
-    },
-  });
-
-  /** Resync pane facts; a daemon that cannot be asked is retried on reconnect. */
-  async function resyncPanes(sessionIds?: readonly string[]): Promise<void> {
-    try {
-      await resyncPaneFacts(daemon.pty, driver, sessionIds);
-    } catch (err) {
-      console.debug(
-        "[host-server] pane facts resync failed:",
-        errorMessage(err),
-      );
-    }
-  }
 
   /**
    * The first catch-up's follow-through, over one `listSessions`: abandon
@@ -348,7 +302,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   async function afterFirstCatchUp(): Promise<void> {
     let live: Array<{ sessionId: string }>;
     try {
-      live = await daemon.pty.listSessions();
+      live = await server.localBackend.pty.listSessions();
     } catch (err) {
       console.debug(
         "[host-server] cannot list sessions after catch-up:",
@@ -357,7 +311,10 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       return;
     }
     reconcileStaleAgents(deps, live);
-    await resyncPanes(live.map((s) => s.sessionId));
+    await server.resyncHostPanes(
+      LOCAL_HOST_ID,
+      live.map((s) => s.sessionId),
+    );
   }
 
   // ── lifecycle ──
@@ -414,7 +371,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     status: hostStatus,
 
     async start() {
-      agents.start();
+      server.start();
       const relayUp = startRelay();
       await Promise.all([relayUp, connectLoop(relayUp)]);
     },
@@ -423,14 +380,13 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       if (stopped) return;
       stopped = true;
       if (retryTimer) clearTimeout(retryTimer);
-      agents.stop();
+      server.agentPipeline.stop();
       feed.pause();
       await relay.stop();
       frames.closeAll();
-      unwireChat();
       winsize.dispose();
-      bridge.dispose();
-      chatMirror.dispose();
+      // The bridge, the chat mirror and the server's stores.
+      server.stop();
       // agents.json first, then the cursor that says how much of the
       // journal it reflects (`./hook-cursor.ts`).
       agentManager.flushNow();

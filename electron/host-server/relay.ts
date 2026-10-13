@@ -36,16 +36,15 @@ import { WebSocket } from "ws";
 
 import type { WsBridgeServer } from "../bridge/transports/ws";
 import { errorMessage } from "../lib/errors";
-import type { HostServerPaths } from "../paths";
-import type { SecretBackend, SecretBox } from "../platform/secret-box";
-import {
+import type { SecretBackend } from "../platform/secret-box";
+import type {
+  PushSubscriptionRecord,
+  RemoteDeviceInfo,
   RemoteDeviceStore,
-  type PushSubscriptionRecord,
-  type RemoteDeviceInfo,
 } from "../remote-control/devices";
 import {
-  PushManager,
   pushAgentTransition,
+  type PushManager,
   type VapidKeys,
 } from "../remote-control/push";
 import { RelayGate } from "../remote-control/relay-gate";
@@ -55,9 +54,9 @@ import {
   type RelayTiming,
   type RelayWebSocketCtor,
 } from "../remote-control/relay/connector";
-import { RelayIdentityStore } from "../remote-control/relay/identity";
+import type { RelayIdentityStore } from "../remote-control/relay/identity";
 import { RelayRoom, type PairResult } from "../remote-control/relay-room";
-import type { AgentStatusSink } from "./agents";
+import type { AgentStatusSink } from "../agent-status/pipeline";
 
 /** How long a relay the connector gave up on waits before it is redialled. */
 const FAILED_RETRY_MS = 5 * 60_000;
@@ -71,7 +70,10 @@ export interface HostRelayOptions {
   timing?: Partial<RelayTiming>;
   /** After the connector gives up (`failed`), redial this much later. */
   failedRetryMs?: number;
-  /** Push's send and key generation, injected so tests reach no push service. */
+  /**
+   * Push's send and key generation, injected so tests reach no push service.
+   * The push store is the server's (`createManorServer`'s `relayStores`).
+   */
   pushSend?: ConstructorParameters<typeof PushManager>[3];
   pushGenerate?: () => VapidKeys | Promise<VapidKeys>;
 }
@@ -143,8 +145,15 @@ export interface HostRelay {
 }
 
 export interface HostRelayDeps {
-  paths: HostServerPaths;
-  secretBox: SecretBox;
+  /**
+   * The room's sealed stores, built by `createManorServer` over this host's
+   * `SecretBox` in `dataDir` (`hostServerPaths`). Decrypted by `init()`.
+   */
+  stores: {
+    identity: RelayIdentityStore;
+    devices: RemoteDeviceStore;
+    push: PushManager;
+  };
   /** The version segment of pairing links (`/app/<version>/`). */
   appVersion: string;
   /**
@@ -159,16 +168,8 @@ export interface HostRelayDeps {
 }
 
 export function createHostRelay(deps: HostRelayDeps): HostRelay {
-  const { paths, secretBox, options = {} } = deps;
-  const identity = new RelayIdentityStore(secretBox, paths.relayIdentity);
-  const devices = new RemoteDeviceStore(secretBox, paths.devices);
-  const push = new PushManager(
-    devices,
-    secretBox,
-    paths.vapid,
-    options.pushSend,
-    options.pushGenerate,
-  );
+  const { options = {} } = deps;
+  const { identity, devices, push } = deps.stores;
   const gate = new RelayGate(devices, {
     attach: (socket, authenticate) => deps.frames().attach(socket, authenticate),
     closeDevice: (deviceId) => deps.frames().closeDevice(deviceId),

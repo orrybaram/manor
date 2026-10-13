@@ -81,6 +81,8 @@ export interface BroadcastBus {
     event: E,
     ...args: EventArgs<N, E>
   ): void;
+  /** The same, for one connection only, or everyone when it is null. */
+  publishTo: PublishToRenderer;
 }
 
 export function createBroadcastBus(): BroadcastBus {
@@ -88,6 +90,7 @@ export function createBroadcastBus(): BroadcastBus {
   return {
     subscribe: bus.add,
     publish: (ns, event, ...args) => bus.emit(null, ns, event, args),
+    publishTo: (to, ns, event, ...args) => bus.emit(to, ns, event, args),
   };
 }
 
@@ -206,3 +209,13 @@ export function publishToRenderer<N extends EventNs, E extends EventOf<N>>(
 
 /** What {@link publishToRenderer} is, for code handed one rather than importing it. */
 export type PublishToRenderer = typeof publishToRenderer;
+
+/**
+ * The process-wide sinks as a {@link BroadcastBus}: what the desktop hands
+ * `createManorServer` as its server's bus (`electron/server/`).
+ */
+export const rendererBus: BroadcastBus = {
+  subscribe: addRendererBroadcastSink,
+  publish: publishRendererBroadcast,
+  publishTo: publishToRenderer,
+};

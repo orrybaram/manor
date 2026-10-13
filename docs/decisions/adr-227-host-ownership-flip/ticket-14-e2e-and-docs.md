@@ -72,3 +72,11 @@ Extend `tests/e2e/host-server.spec.ts`, or add
 - **A known failure that predates this branch.** `remote-host.spec.ts`
   "laptop closed … one notification" sends 2 notifications instead of 1. It
   fails on main too. Note it if it is still failing.
+
+## Carried over from ticket 6
+- **Make adoption an explicit step in the spec.** The spec passes only
+  because the owner channel's empty adoption lands before the spec adds its
+  project. Make adoption an explicit, awaited step.
+- **Adopted agents that are still active.** The host doesn't reconcile them
+  at once. One whose pane is gone is only abandoned at the next boot sweep.
+  Test for this, or make adopt run `reconcileStaleAgents`.

@@ -69,3 +69,10 @@ ADR-227 D4 (Deleted on the desktop).
   `ProjectManager.knownWorkspaces`, and the "manifest snapshot" comments in
   `github.ts` and `project-info.ts`. Delete them, unless ticket 8's merged
   reads need `knownWorkspaces`.
+
+## Carried over from ticket 6
+- **Agents written after adoption stay on the desktop.** After the first
+  adoption, the desktop's own hook feed keeps writing agents for that host
+  locally, and they are never handed over. Deleting the desktop replay stops
+  new ones. Also drop any of these leftovers on load: remote agents of an
+  `adopted` host.

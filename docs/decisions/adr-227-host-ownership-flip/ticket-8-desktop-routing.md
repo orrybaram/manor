@@ -68,3 +68,17 @@ ADR-227 D4 (routing, merged reads, control and data plane).
 - `electron/projects/project-info.ts`
 - `electron/server/create-manor-server.ts`
 - `electron/bridge/__tests__/routes-surface.test.ts` (new)
+
+## Carried over from ticket 6
+- **Group code can't find adopted members.** `memberOnHost`,
+  `assertRoomOnHost`, `setGroupLastUsedHost` and the origin-key lookup find
+  members with `ctx.find`, which misses adopted ids. Read
+  `PersistedHost.adoptedProjectIds` (`adoptedProjectHosts`) and the proxies'
+  project lists instead.
+- **Path matches with a different id.** A second laptop's record that matches
+  a host project by path but has a different id merges into the host's id. That
+  laptop's group then points at an id that is gone. After adoption, remap the
+  member ids by path.
+- **No event when agents are removed.** The desktop sends none, so the
+  renderer's agent list only catches up on its next fetch. The merged
+  `agents.*` reads should publish on change.

@@ -218,6 +218,18 @@ over the owner channel:
 A host that has never been connected adopts an empty bundle the first time a
 project is set up on it.
 
+*As built (ticket 6):*
+- **No step-5 resend from an adopted desktop.** A desktop that is already
+  `adopted` does not resend leftovers. Until tickets 8 and 9 land, the
+  desktop still writes some records for an adopted host locally, and
+  resending would hand those over and delete them on every reconnect. A
+  second laptop is not `adopted`, so it still sends through the merge.
+- **Crash recovery resends.** The merge can't overwrite anything, so
+  resending is harmless.
+- **Group ids survive a reload.** Adopted project ids are kept in
+  `PersistedHost.adoptedProjectIds`, so groups don't prune them on load.
+
+
 ### D4. The desktop is a client of each host server
 
 The desktop reaches a remote host's state only through that host's server.

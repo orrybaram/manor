@@ -27,7 +27,7 @@ import type {
 import { LOCAL_HOST_ID } from "../../backend/types";
 import { workspaceKey } from "../../../src/lib/workspace-key";
 import type { TransferMode, TransferResult } from "../../projects/types";
-import type { ServerDeps } from "../../ipc/types";
+import type { ServerDeps, SharedDeps } from "../../ipc/types";
 import { method, type HandlerCtx } from "../method";
 
 /**
@@ -54,7 +54,7 @@ async function moveLayouts(
 
 /** The four the sidebar needs to paint itself. */
 export function projectsGetAll(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
 ): Promise<ProjectInfo[]> {
   return ctx.deps.projectManager.getProjects();
 }
@@ -66,7 +66,7 @@ export function projectsGetRemote(
   return ctx.deps.projectManager.getRemoteProjects();
 }
 
-export function projectsGetSelectedIndex(ctx: HandlerCtx<ServerDeps>): number {
+export function projectsGetSelectedIndex(ctx: HandlerCtx<SharedDeps>): number {
   return ctx.deps.projectManager.getSelectedProjectIndex();
 }
 
@@ -86,7 +86,7 @@ export function projectsSelectWorkspace(
 }
 
 export function projectsAdd(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   name: string,
   projectPath: string,
 ): Promise<ProjectInfo> {
@@ -96,7 +96,7 @@ export function projectsAdd(
 }
 
 export function projectsRemove(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
 ): Promise<void> {
   return ctx.deps.projectManager.removeProject(projectId);
@@ -107,7 +107,7 @@ export function projectsRemove(
  * Progress goes out as `projects.cloneProgress`.
  */
 export async function projectsClone(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   opts: { hostId: string; repoUrl: string; targetDir: string; name: string },
 ): Promise<ProjectInfo> {
   const { deps } = ctx;
@@ -244,7 +244,7 @@ export async function projectsSwitchHost(
  * `projects.removeWorktreeProgress` event (ADR-180 D5).
  */
 export async function projectsRemoveWorktree(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
   worktreePath: string,
   deleteBranch?: boolean,
@@ -287,7 +287,7 @@ export async function projectsQuickMergeWorktree(
  * takes the caller's id as the connection its setup progress goes back to.
  */
 export async function projectsCreateWorktree(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
   name: string,
   opts: Omit<CreateWorktreeOptions, "origin"> = {},
@@ -317,21 +317,21 @@ export function projectsConvertMainToWorktree(
 }
 
 export function projectsListRemoteBranches(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
 ): Promise<string[]> {
   return ctx.deps.projectManager.listRemoteBranches(projectId);
 }
 
 export function projectsListLocalBranches(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
 ): Promise<string[]> {
   return ctx.deps.projectManager.listLocalBranches(projectId);
 }
 
 export function projectsRenameWorkspace(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
   workspacePath: string,
   newName: string,
@@ -340,7 +340,7 @@ export function projectsRenameWorkspace(
 }
 
 export function projectsSetWorkspaceHidden(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
   workspacePath: string,
   hidden: boolean,
@@ -349,7 +349,7 @@ export function projectsSetWorkspaceHidden(
 }
 
 export function projectsCreateWorkspaceFolder(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
   name: string,
   parentId?: string | null,
@@ -364,7 +364,7 @@ export function projectsCreateWorkspaceFolder(
 
 /** Returns false when the move would create a folder cycle (ADR-172). */
 export function projectsSetFolderParent(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
   folderId: string,
   parentId: string | null,
@@ -373,7 +373,7 @@ export function projectsSetFolderParent(
 }
 
 export function projectsRenameWorkspaceFolder(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
   folderId: string,
   name: string,
@@ -383,7 +383,7 @@ export function projectsRenameWorkspaceFolder(
 }
 
 export function projectsDeleteWorkspaceFolder(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
   folderId: string,
 ): void {
@@ -391,7 +391,7 @@ export function projectsDeleteWorkspaceFolder(
 }
 
 export function projectsSetWorkspaceFolder(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
   workspacePath: string,
   folderId: string | null,
@@ -405,7 +405,7 @@ export function projectsSetWorkspaceFolder(
 
 /** `orderedKeys` entries may be workspace paths or folder ids (ADR-167). */
 export function projectsReorderWorkspaces(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
   orderedKeys: string[],
 ): void {
@@ -538,7 +538,7 @@ export function projectsUndoAutoJoin(
 }
 
 export function projectsUpdate(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
   updates: ProjectUpdatableFields,
 ): Promise<ProjectInfo | null> {

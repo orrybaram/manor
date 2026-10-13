@@ -57,6 +57,7 @@ import {
 import type { RelayIdentityStore } from "../remote-control/relay/identity";
 import { RelayRoom, type PairResult } from "../remote-control/relay-room";
 import type { AgentStatusSink } from "../agent-status/pipeline";
+import type { HostOwnership } from "./ownership";
 
 /** How long a relay the connector gave up on waits before it is redialled. */
 const FAILED_RETRY_MS = 5 * 60_000;
@@ -81,6 +82,11 @@ export interface HostRelayOptions {
 /** What `hostServer.status()` answers the owner (ADR-225 D4). */
 export interface HostServerStatus {
   version: string;
+  /**
+   * Whether this host's projects, agents and layout are the server's yet
+   * (ADR-227 D3): `pending` until the desktop has handed them over.
+   */
+  ownership: HostOwnership;
   uptimeMs: number;
   /** Which `SecretBox` seals the keys; `plaintext` is warned about (D6). */
   secretBackend: SecretBackend;

@@ -228,8 +228,8 @@ export class ProjectManager {
   }
 
   /**
-   * The projects on `hostId` as `projects.json` holds them, for that host's
-   * host server manifest (ADR-225 D4): copies, with a linked-project group's
+   * The projects on `hostId` as `projects.json` holds them, for adoption
+   * onto that host's server (ADR-227 D3): copies, with a linked-project group's
    * shared settings (ADR-192) already resolved into each one — the host
    * server knows nothing of groups — without `hostPaths` (which name other
    * hosts) and with `hostId` rewritten to `local`, as the box knows it.

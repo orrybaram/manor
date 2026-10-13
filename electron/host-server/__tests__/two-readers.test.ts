@@ -145,14 +145,14 @@ function desktopReader(dir: string, journal: HookJournal): Reader {
 /**
  * The host server's reader, as `createHostServer` wires it: a server with no
  * remote hosts, so every pane and every project is local, and nobody has set
- * a pane context (the owner's manifest is empty).
+ * a pane context (its layout holds none of these panes).
  */
 function hostReader(dir: string, journal: HookJournal): Reader {
   const agentManager = new AgentManager(dir, 90, () => LOCAL_HOST_ID);
   const pipeline = createAgentPipeline(serverAgentPipelineOptions({
     agentManager,
     paneContexts: new Map(),
-    derivePaneContext: () => undefined,
+    layoutPaneContext: () => undefined,
     getPaneHostId: () => LOCAL_HOST_ID,
     unseen: new UnseenAgents(),
     broadcastAgent: () => {},

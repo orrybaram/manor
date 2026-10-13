@@ -11,7 +11,7 @@ import type {
 } from "../../layout/pending-commands";
 import { assertString } from "../../ipc-validate";
 import { method, type Caller, type HandlerCtx } from "../method";
-import type { ServerDeps } from "../../ipc/types";
+import type { SharedDeps } from "../../ipc/types";
 
 /**
  * Layout, as every renderer sees it (ADR-179 D1, ADR-180 D8).
@@ -39,7 +39,7 @@ function originOf(caller: Caller): LayoutOrigin {
 }
 
 export async function layoutGetAll(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
 ): Promise<Record<string, LayoutEntry>> {
   // Waits for the file, and so for the one-time workspace-key migration
   // (ADR-191) under it: a renderer only ever sees host-qualified keys.
@@ -49,7 +49,7 @@ export async function layoutGetAll(
 
 /** The fallback surface for a renderer with no viewport file of its own. */
 export async function layoutGetLastActive(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
 ): Promise<string | null> {
   await ctx.deps.layoutStore.whenLoaded();
   return ctx.deps.layoutStore.getLastActiveWorkspacePath();
@@ -61,7 +61,7 @@ export async function layoutGetLastActive(
  * `layout.changed`, at every renderer at once.
  */
 export function layoutApply(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   workspacePath: string,
   command: LayoutCommand,
 ): Promise<LayoutApplyResult> {
@@ -87,7 +87,7 @@ export function layoutApply(
  * the broadcast that makes a renderer mount the pane goes out.
  */
 export function layoutSetPendingCommand(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   paneId: string,
   text: string,
   kind: PendingCommandKind = "shell",
@@ -117,7 +117,7 @@ export function layoutSetPendingCommand(
  * paneId: a stale id from a slow renderer is normal, not an error.
  */
 export function layoutSetPaneTitle(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   paneId: string,
   title: string | null,
 ): void {
@@ -136,7 +136,7 @@ export function layoutSetPaneTitle(
  * desk.
  */
 export function layoutReportViewport(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   workspacePath: string,
   viewport: WorkspaceViewport,
 ): void {

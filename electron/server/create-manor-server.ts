@@ -15,7 +15,7 @@
  *
  * What differs between platforms comes in through `Platform`
  * (`./platform.ts`). What only one caller has — the desktop's windows,
- * menu, webview server and remote control; the host server's owner sync,
+ * menu, webview server and remote control; the host server's ownership state,
  * relay room and winsize hold — the caller adds in `opts.deps`, which is
  * handed every shared part and answers the deps object the bridge's table
  * runs over. So the bridge is built once its deps exist, never late.
@@ -39,7 +39,6 @@ import {
   type AgentStatusSink,
 } from "../agent-status/pipeline";
 import type { AgentStatusDriverDeps } from "../agent-status/driver";
-import type { PaneContext } from "../agent-status/effects";
 import { UnseenAgents } from "../agent-status/unseen-agents";
 import { dispatchStreamEvent } from "../agent-stream-events";
 import type { HookCursor } from "../backend/hook-feed";
@@ -60,7 +59,7 @@ import { ChatMirror, transcriptSources } from "../chat-mirror/mirror";
 import { chatTaskKey } from "../chat-mirror/task-key";
 import { LocalTranscriptSource } from "../chat-mirror/transcript-source";
 import { GitHubManager, ghRepoFromRemoteUrl } from "../github";
-import type { ServerDeps } from "../ipc/types";
+import type { ServerDeps, SharedDeps } from "../ipc/types";
 import { KeybindingsManager } from "../keybindings";
 import { LayoutStore } from "../layout/layout-store";
 import { LinearManager } from "../linear";
@@ -99,38 +98,6 @@ import { createServerLaunches } from "./spawn-pane";
  */
 const LAYOUT_MIGRATION_HOST_WAIT_MS = 5_000;
 
-/** The `ServerDeps` every server builds the same way; the caller adds the rest. */
-export type SharedDeps = Pick<
-  ServerDeps,
-  | "backend"
-  | "backendRegistry"
-  | "getPaneHostId"
-  | "layoutPersistence"
-  | "layoutStore"
-  | "projectManager"
-  | "themeManager"
-  | "portScanner"
-  | "githubManager"
-  | "linearManager"
-  | "agentHookServer"
-  | "agentManager"
-  | "agentStatus"
-  | "chatMirror"
-  | "notificationStore"
-  | "statsStore"
-  | "workspaceOps"
-  | "agentActivityStore"
-  | "preferencesManager"
-  | "keybindingsManager"
-  | "paneContextMap"
-  | "unseen"
-  | "notifier"
-  | "sessionOwners"
-  | "hostStatus"
-  | "playSound"
-  | "appCommandResult"
->;
-
 /** Every shared part: what `opts.deps` is handed and `ManorServer` exposes. */
 export interface ManorCore {
   platform: Platform;
@@ -162,11 +129,6 @@ export interface ManorServerOptions<D extends BridgeServerDeps> {
    * a replay's are coalesced. Read once the pipeline has started.
    */
   onAgentStatus?: AgentStatusSink;
-  /**
-   * A pane's context when neither a renderer nor the server's own layout
-   * knows it (`serverAgentPipelineOptions`).
-   */
-  derivePaneContext?: (paneId: string) => PaneContext | undefined;
   /** The daemon connection's own listener; the resync on reconnect is added. */
   daemonListener?: ConnectionListener;
   /** The relay stores' files and push's network, where they are not the defaults. */
@@ -440,7 +402,6 @@ export function createManorServer<D extends BridgeServerDeps>(
     // Which project and workspace a pane is in, from this server's own layout
     // and projects (ADR-227 D5): a launched agent has no renderer to say.
     layoutPaneContext: (paneId) => layoutPaneContext(layoutStore, projectManager, paneId),
-    derivePaneContext: opts.derivePaneContext,
     getPaneHostId,
     unseen,
     broadcastAgent,

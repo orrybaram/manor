@@ -33,6 +33,7 @@ import {
   spawnPane,
   toPtyFailure,
   validatePtyArgs,
+  type SpawnPaneDeps,
 } from "../../server/spawn-pane";
 import type {
   PtyAttachResult,
@@ -153,9 +154,12 @@ export async function createShaped<T extends { ok: boolean }>(
  * A renderer window and a paired device go through the same `assert*`
  * validation — a browser on the far end of the relay is not more trusted than
  * a renderer, it is less.
+ *
+ * Reads only what spawning does (`SpawnPaneDeps`), so a host server — which
+ * has no prewarm — runs it as it is (ADR-227 D6).
  */
 export function ptyCreate(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SpawnPaneDeps & BridgeServerDeps>,
   paneId: string,
   cwd: string | null,
   cols: number,

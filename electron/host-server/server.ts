@@ -1,7 +1,7 @@
 /**
  * The host server (ADR-225 D1): a headless Manor server for one remote host,
  * `createManorServer(hostPlatform)` (ADR-227 D1) plus what only a host
- * server has — the owner's snapshots, the winsize hold, the daemon retry
+ * server has — its ownership state, the winsize hold, the daemon retry
  * loop, its hook feed and its always-on relay room. No Electron.
  *
  * It runs beside the `remote` daemon as its own process, and reaches that
@@ -25,9 +25,13 @@
  * then abandons the agents whose panes are gone, as the desktop's
  * `agents.reconcileStale` does.
  *
- * **Projects and layout** are the desktop's in slice 1 and are only read
- * here, from the manifest and layout snapshot it pushes over the owner
- * channel (`./manifest.ts`, `./layout.ts`, `./owner.ts`).
+ * **Projects, workspaces and layout** are this server's (ADR-227 D2): the
+ * `ProjectManager` and `LayoutStore` `createManorServer` builds, persisted to
+ * `dataDir/projects.json` and `dataDir/layout.json`, every project
+ * `hostId: "local"`. A device creates workspaces and launches agents here
+ * with no owner connected (`./handlers.ts`). Until the desktop has handed
+ * over what it held for this host the server is `pending` and refuses those
+ * writes (`./ownership.ts`, ADR-227 D3).
  *
  * **The daemon is never replaced** by this server. A daemon restart ends
  * every session (ADR-185), so it is the desktop's call, made through
@@ -37,7 +41,6 @@
 
 import fs from "node:fs";
 import os from "node:os";
-import path from "node:path";
 import type { AgentStatusSink } from "../agent-status/pipeline";
 import { HostHookFeed } from "../backend/hook-feed";
 import type { HostStatus, HostStatusInfo } from "../backend/host-connection";
@@ -45,7 +48,11 @@ import { LOCAL_HOST_ID } from "../backend/types";
 import { reconcileStaleAgents } from "../bridge/handlers/agents-read";
 import { WsBridgeServer } from "../bridge/transports/ws";
 import { errorMessage } from "../lib/errors";
-import { hostServerPaths, type DaemonNamespace } from "../paths";
+import {
+  hostServerPaths,
+  type DaemonNamespace,
+  type HostServerPaths,
+} from "../paths";
 import type { SecretBox } from "../platform/secret-box";
 import { createManorServer } from "../server/create-manor-server";
 import type { Platform } from "../server/platform";
@@ -53,10 +60,8 @@ import type { HostTransport } from "../terminal-host/transport";
 import { LocalTransport } from "../terminal-host/transport-local";
 import { HOST_TABLE, type HostServerDeps } from "./handlers";
 import { createHostWinsize, type HostWinsize } from "./winsize";
-import { createOwnerSync, paneContextFrom } from "./owner";
-import { OwnerSnapshotStore } from "./owner-snapshot";
 import { fileHookCursorStore } from "./hook-cursor";
-import { manifestProjects } from "./manifest";
+import { fileOwnershipState, type OwnershipState } from "./ownership";
 import {
   createHostRelay,
   type HostRelay,
@@ -110,6 +115,34 @@ export interface HostServer {
 /** The parts a test reaches past `HostServer` for (`HostServerOptions.internals`). */
 export interface HostServerInternals {
   relay: HostRelay;
+  /** Flips `pending` to `host` until adoption does (ADR-227 D3, ticket 6). */
+  ownership: OwnershipState;
+}
+
+/**
+ * Slice 1's owner snapshots (ADR-225 D4, D5): the desktop's manifest, and the
+ * layout snapshot that `layout.json` held before it was this server's own
+ * `LayoutStore` file. Discarded rather than migrated: the desktop still has
+ * every record they copied, and hands them over on adoption (ADR-227 D3).
+ */
+function discardOwnerSnapshots(paths: HostServerPaths): void {
+  fs.rmSync(paths.legacyManifest, { force: true });
+  let raw: string;
+  try {
+    raw = fs.readFileSync(paths.layout, "utf-8");
+  } catch {
+    return;
+  }
+  try {
+    // A snapshot says when the desktop took it; a layout file never does.
+    const parsed = JSON.parse(raw) as { takenAt?: unknown };
+    if (typeof parsed.takenAt !== "string") return;
+  } catch {
+    // Unreadable either way: the store starts empty, as it would.
+    return;
+  }
+  console.info(`[host-server] discarding the owner's layout snapshot in ${paths.layout}`);
+  fs.rmSync(paths.layout, { force: true });
 }
 
 /** Retry the daemon connection at 0.5 s, doubling to 30 s, forever. */
@@ -144,11 +177,11 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   fs.mkdirSync(paths.dataDir, { recursive: true, mode: 0o700 });
   const { appVersion } = opts;
 
+  discardOwnerSnapshots(paths);
+
   const hostPlatform: Platform = {
     dataDir: paths.dataDir,
-    // Not `paths.layout`: that is the owner's layout snapshot, which this
-    // server only reads until it owns its layout (ADR-227 D2).
-    layoutFile: path.join(paths.dataDir, "server-layout.json"),
+    layoutFile: paths.layout,
     secretBox: opts.secretBox,
     appVersion,
     hostName: () => os.hostname(),
@@ -158,8 +191,8 @@ export function createHostServer(opts: HostServerOptions): HostServer {
 
   const startedAt = Date.now();
 
-  // What the owner last synced (ADR-225 D4, D5), read once and held.
-  const snapshots = new OwnerSnapshotStore(paths);
+  // Whether the desktop has handed this host over yet (ADR-227 D3).
+  const ownership = fileOwnershipState(paths.ownership);
 
   // ── the daemon's connection, as `hosts.list` reports it ──
   let daemonState: { status: HostStatus; error?: string } = {
@@ -177,10 +210,6 @@ export function createHostServer(opts: HostServerOptions): HostServer {
 
   const server = createManorServer<HostServerDeps>(hostPlatform, {
     table: HOST_TABLE,
-    // A new agent's project, from the owner's last manifest and layout, for
-    // a pane its own layout does not hold (ADR-227 D5 derives the rest).
-    derivePaneContext: (paneId) =>
-      paneContextFrom(snapshots.manifest(), snapshots.layout(), paneId),
     onAgentStatus: (agent, prevStatus, newStatus) => {
       relay.onAgentStatus(agent, prevStatus, newStatus);
       opts.onAgentStatus?.(agent, prevStatus, newStatus);
@@ -226,24 +255,19 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       });
       winsize = createHostWinsize({
         listSessions: () => core.localBackend.pty.listSessions(),
+        // A session this server launched is subscribed with nobody viewing.
+        isSubscribed: (sessionId) => core.client.isSubscribed(sessionId),
       });
       return {
-        backend: { pty: core.localBackend.pty },
+        // Every shared part: the shared handlers in the table read them.
+        ...shared,
         winsize,
         daemonStatus,
-        agentManager: shared.agentManager,
-        agentStatus: shared.agentStatus,
-        unseen: shared.unseen,
-        chatMirror: shared.chatMirror,
-        projects: () => manifestProjects(snapshots.manifest(), core.localBackend.git),
-        layout: () => snapshots.layout(),
         preferences: () => shared.preferencesManager.getAll(),
         theme: () => shared.themeManager.getThemeByName("__default__"),
         remoteControl: relay.remoteControl,
         relay,
-        // This server's keyless pushes — agents, the owner's syncs — heard by
-        // its bridge and chat mirror and nobody else in the process.
-        ownerSync: createOwnerSync({ store: snapshots, publish: core.bus.publish }),
+        ownership,
         serverStatus: hostStatus,
       };
     },
@@ -257,6 +281,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   function hostStatus(): HostServerStatus {
     return {
       version: appVersion,
+      ownership: ownership.current(),
       uptimeMs: Date.now() - startedAt,
       secretBackend: opts.secretBox.backend(),
       relay: relay.relayStatus(),
@@ -267,12 +292,12 @@ export function createHostServer(opts: HostServerOptions): HostServer {
 
   const frames = new WsBridgeServer(bridge, {
     appVersion,
-    // The desktop's name for this host wins; else the box's own (ADR-225 D7).
-    hostName: () => snapshots.manifest().hostName ?? hostPlatform.hostName(),
+    // The box's own name: pairings show it (ADR-225 D7).
+    hostName: () => hostPlatform.hostName(),
     // The page reads this, not `hostName`, to know it is on a host server.
     hostServer: true,
   });
-  opts.internals?.({ relay });
+  opts.internals?.({ relay, ownership });
 
   // ── hooks ──
   const cursorStore = fileHookCursorStore(paths.hookCursor, {

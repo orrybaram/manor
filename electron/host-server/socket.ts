@@ -94,8 +94,8 @@ const OWNER_CALLER = {
 /**
  * The hello check for the owner socket (ADR-225 D4): the token must be the
  * owner token, compared in constant time. Answers an `owner` caller, which
- * the host table lets call `LOCAL_ONLY` methods such as pairing and the
- * manifest sync.
+ * the host table lets call `LOCAL_ONLY` methods such as pairing and adding
+ * a project.
  */
 export function ownerTokenAuthenticator(token: string): BridgeAuthenticator {
   const expected = digest(token);

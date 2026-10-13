@@ -210,10 +210,17 @@ export interface HostServerPaths {
   hookCursor: string;
   /** Which SecretBox backend sealed this server's keys (`pickHostSecretBox`). */
   secretBackend: string;
-  /** The desktop's last manifest of this host's projects (ADR-225 D4). */
-  manifest: string;
-  /** The desktop's last layout snapshot for this host (ADR-225 D5). */
+  /** This host's projects and workspace records (ADR-227 D2). */
+  projects: string;
+  /** This host's layout, keyed by bare workspace path (ADR-227 D2). */
   layout: string;
+  /** Whether the host has been adopted yet (ADR-227 D3). */
+  ownership: string;
+  /**
+   * Slice 1's owner snapshots (ADR-225 D4, D5), discarded at boot: the
+   * desktop's manifest, and the layout snapshot `layout` used to hold.
+   */
+  legacyManifest: string;
   /** This server's relay identity: its own room (ADR-225 D3). Sealed. */
   relayIdentity: string;
   /** Phones paired to this server's room, token hashes only. Sealed. */
@@ -232,8 +239,10 @@ export function hostServerPaths(dataDir: string = remoteServerDir()): HostServer
     version: path.join(dataDir, "server.version"),
     hookCursor: path.join(dataDir, "hook-cursor.json"),
     secretBackend: path.join(dataDir, "secret-backend"),
-    manifest: path.join(dataDir, "manifest.json"),
+    projects: path.join(dataDir, "projects.json"),
     layout: path.join(dataDir, "layout.json"),
+    ownership: path.join(dataDir, "ownership.json"),
+    legacyManifest: path.join(dataDir, "manifest.json"),
     relayIdentity: path.join(dataDir, "relay-identity.enc"),
     devices: path.join(dataDir, "remote-devices.enc"),
     vapid: path.join(dataDir, "remote-vapid.enc"),

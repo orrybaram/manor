@@ -1,26 +1,22 @@
 /**
- * What the owner tells a host server (ADR-225 D4, D5): the manifest of this
- * host's projects and the layout snapshot of its workspaces, pushed by the
- * desktop over the owner channel (`hostServer.syncManifest`,
- * `hostServer.syncLayout`) on every connect and on every change.
+ * What the owner hands a host server (ADR-225 D4, ADR-227 D3), checked at
+ * the boundary.
  *
- * Three things live here, all Electron-free:
+ * The payloads arrive as JSON over the owner channel. The owner is trusted
+ * (ssh authenticated it), but a malformed payload written into this server's
+ * stores would break every later read for every phone, so the shapes are
+ * checked by the host table's handlers before anything is written. A bad one
+ * is refused whole.
  *
- * - **Validation at the boundary.** The payloads arrive as JSON from the
- *   owner. The owner is trusted (ssh authenticated it), but a malformed
- *   payload would break every later read for every phone, so the shapes the
- *   readers rely on (`./manifest.ts`, `./layout.ts`) are checked — by the
- *   host table's handlers before a sync, and by `./owner-snapshot.ts` on the
- *   files at boot. A bad one is refused whole.
- * - **Telling the phones**: `projects.changed` after a manifest, and one
- *   `layout.changed` per workspace whose layout the snapshot changed (or
- *   `removed` for one it no longer has), so a phone updates live.
- * - **Pane context**: which project a new agent's pane is in.
+ * - **The desktop's VAPID pair** (`hostServer.setVapidKeys`, ADR-225 D3).
+ * - **Adoption's records** (`hostServer.adopt`, ticket 6): this host's
+ *   projects (`ManifestProject`) and its part of the layout, rekeyed to bare
+ *   paths. The project and layout-entry checks below are what its bundle
+ *   check is built from.
  *
- * Persisting, and holding what was synced, is `./owner-snapshot.ts`'s.
+ * Electron-free.
  */
 
-import type { BroadcastBus } from "../renderer-broadcast";
 import {
   assertBoolean,
   assertNumber,
@@ -28,21 +24,11 @@ import {
   assertStringArray,
 } from "../ipc-validate";
 import { LOCAL_HOST_ID } from "../../src/lib/workspace-key";
-import type { LayoutBroadcast } from "../../src/lib/layout/protocol";
-import { HOST_LAYOUT_VERSION, type HostLayoutSnapshot } from "./layout";
-import type { PaneContext } from "../agent-status/effects";
-import {
-  HOST_MANIFEST_VERSION,
-  type HostManifest,
-  type ManifestProject,
-} from "./manifest";
-import type { OwnerSnapshotStore } from "./owner-snapshot";
+import type { LayoutEntry } from "../../src/lib/layout/protocol";
+import type { ManifestProject } from "./manifest";
 
-/** Generous ceilings: a manifest past these is a bug, not a big user. */
-const MAX_PROJECTS = 1_000;
+/** A generous ceiling: a record past this is a bug, not a big user. */
 const MAX_WORKSPACES = 10_000;
-
-// ── validation ──
 
 function assertRecord(
   value: unknown,
@@ -89,7 +75,15 @@ function assertIssueLike(value: unknown, name: string): void {
   }
 }
 
-function assertManifestProject(value: unknown, name: string): void {
+/**
+ * Throws unless `value` is a project this server can own: absolute path,
+ * `hostId` rewritten to `local` (to the host server its own host is local),
+ * and workspace records of the shapes `ProjectManager` reads.
+ */
+export function assertManifestProject(
+  value: unknown,
+  name: string,
+): asserts value is ManifestProject {
   assertRecord(value, name);
   assertString(value.id, `${name}.id`);
   assertString(value.name, `${name}.name`);
@@ -132,20 +126,27 @@ function assertManifestProject(value: unknown, name: string): void {
   }
 }
 
-function assertIntegrationSnapshot(value: unknown, name: string): void {
+/**
+ * Throws unless `value` maps bare absolute workspace paths to layout
+ * entries — never a host-qualified key: a phone asking for `/a/b` must find
+ * it at `/a/b`.
+ */
+export function assertBareLayoutEntries(
+  value: unknown,
+  name: string,
+): asserts value is Record<string, LayoutEntry> {
   assertRecord(value, name);
-  assertString(value.takenAt, `${name}.takenAt`);
-  if (value.issue !== null) assertIssueLike(value.issue, `${name}.issue`);
-  if (value.pr !== null) {
-    const n = `${name}.pr`;
-    assertRecord(value.pr, n);
-    assertNumber(value.pr.number, `${n}.number`);
-    assertString(value.pr.state, `${n}.state`);
-    assertString(value.pr.title, `${n}.title`);
-    assertString(value.pr.url, `${n}.url`);
-    if (value.pr.checks !== undefined && value.pr.checks !== null) {
-      assertRecord(value.pr.checks, `${n}.checks`);
-    }
+  const keys = Object.keys(value);
+  if (keys.length > MAX_WORKSPACES) throw new Error(`${name}: too many entries`);
+  for (const key of keys) {
+    assertAbsolutePath(key, `${name} key`);
+    const n = `${name}[${JSON.stringify(key)}]`;
+    const entry = value[key];
+    assertRecord(entry, n);
+    assertNumber(entry.version, `${n}.version`);
+    assertRecord(entry.layout, `${n}.layout`);
+    assertRecord(entry.paneSessions, `${n}.paneSessions`);
+    if (!Array.isArray(entry.claims)) throw new Error(`${n}.claims: expected an array`);
   }
 }
 
@@ -159,187 +160,4 @@ export function assertVapidKeys(
   if (value.publicKey === "" || value.privateKey === "") {
     throw new Error("vapidKeys: keys must not be empty");
   }
-}
-
-/** Throws unless `value` is a manifest `./manifest.ts` can serve. */
-export function assertHostManifest(value: unknown): asserts value is HostManifest {
-  assertRecord(value, "manifest");
-  if (value.version !== HOST_MANIFEST_VERSION) {
-    throw new Error(
-      `manifest.version: expected ${HOST_MANIFEST_VERSION}, got ${JSON.stringify(value.version)}`,
-    );
-  }
-  assertString(value.sentAt, "manifest.sentAt");
-  if (value.hostName !== undefined) {
-    assertString(value.hostName, "manifest.hostName");
-  }
-  if (!Array.isArray(value.projects)) {
-    throw new Error("manifest.projects: expected an array");
-  }
-  if (value.projects.length > MAX_PROJECTS) {
-    throw new Error("manifest.projects: too many projects");
-  }
-  value.projects.forEach((p, i) => assertManifestProject(p, `manifest.projects[${i}]`));
-  const snapshot = value.integrationSnapshot;
-  assertRecord(snapshot, "manifest.integrationSnapshot");
-  const paths = Object.keys(snapshot);
-  if (paths.length > MAX_WORKSPACES) {
-    throw new Error("manifest.integrationSnapshot: too many entries");
-  }
-  for (const key of paths) {
-    assertAbsolutePath(key, "manifest.integrationSnapshot key");
-    assertIntegrationSnapshot(
-      snapshot[key],
-      `manifest.integrationSnapshot[${JSON.stringify(key)}]`,
-    );
-  }
-}
-
-function assertLayoutEntry(value: unknown, name: string): void {
-  assertRecord(value, name);
-  assertNumber(value.version, `${name}.version`);
-  assertRecord(value.layout, `${name}.layout`);
-  assertRecord(value.paneSessions, `${name}.paneSessions`);
-  if (!Array.isArray(value.claims)) throw new Error(`${name}.claims: expected an array`);
-}
-
-/**
- * Throws unless `value` is a layout snapshot `./layout.ts` can serve: every
- * key a bare absolute path (the desktop strips `<hostId>:`), never a
- * host-qualified key — a phone asking for `/a/b` must find it at `/a/b`.
- */
-export function assertHostLayoutSnapshot(
-  value: unknown,
-): asserts value is HostLayoutSnapshot {
-  assertRecord(value, "layout");
-  if (value.version !== HOST_LAYOUT_VERSION) {
-    throw new Error(
-      `layout.version: expected ${HOST_LAYOUT_VERSION}, got ${JSON.stringify(value.version)}`,
-    );
-  }
-  assertString(value.takenAt, "layout.takenAt");
-  if (value.lastActiveWorkspacePath !== null) {
-    assertAbsolutePath(value.lastActiveWorkspacePath, "layout.lastActiveWorkspacePath");
-  }
-  assertRecord(value.workspaces, "layout.workspaces");
-  const keys = Object.keys(value.workspaces);
-  if (keys.length > MAX_WORKSPACES) throw new Error("layout.workspaces: too many entries");
-  for (const key of keys) {
-    assertAbsolutePath(key, "layout.workspaces key");
-    assertLayoutEntry(value.workspaces[key], `layout.workspaces[${JSON.stringify(key)}]`);
-  }
-}
-
-// ── pane context, for a new agent's record ──
-
-/** Every workspace path a manifest project's own records name. */
-function knownWorkspacePaths(project: ManifestProject): Set<string> {
-  const known = new Set<string>([project.path]);
-  for (const record of [
-    project.workspaceNames,
-    project.workspaceIssues,
-    project.workspaceHidden,
-    project.workspaceFolderIds,
-  ]) {
-    for (const key of Object.keys(record ?? {})) known.add(key);
-  }
-  for (const key of project.workspaceOrder ?? []) known.add(key);
-  return known;
-}
-
-/**
- * Which project and workspace a pane is in, from what the owner synced
- * (ADR-225 D2): the workspace whose layout holds the pane, and the manifest
- * project that names that workspace (its root, a workspace it keeps a name,
- * issue, folder or place in the order for, or one under its worktree
- * directory). Undefined when the snapshot predates the pane — the agent is
- * then recorded without a project, as on the desktop before its renderer
- * says.
- */
-export function paneContextFrom(
-  manifest: HostManifest,
-  layout: HostLayoutSnapshot,
-  paneId: string,
-): PaneContext | undefined {
-  const workspacePath = Object.entries(layout.workspaces).find(
-    ([, entry]) => paneId in entry.paneSessions,
-  )?.[0];
-  if (!workspacePath) return undefined;
-  const project = manifest.projects.find(
-    (p) =>
-      knownWorkspacePaths(p).has(workspacePath) ||
-      (!!p.worktreePath &&
-        p.worktreePath.startsWith("/") &&
-        workspacePath.startsWith(`${p.worktreePath.replace(/\/+$/, "")}/`)),
-  );
-  if (!project) return undefined;
-  return {
-    projectId: project.id,
-    projectName: project.name,
-    workspacePath,
-    agentCommand: project.agentCommand ?? null,
-  };
-}
-
-// ── the box's half: persist and tell the phones ──
-
-/** A keyless event to this server's connections: its bus (`./server.ts`). */
-type OwnerSyncPublish = BroadcastBus["publish"];
-
-export interface OwnerSync {
-  /** Persist and announce a manifest the handler validated. */
-  syncManifest(manifest: HostManifest): true;
-  /** Persist and announce a layout snapshot the handler validated. */
-  syncLayout(snapshot: HostLayoutSnapshot): true;
-}
-
-/** The origin a synced layout's broadcasts carry: the owner, not a viewer. */
-const OWNER_ORIGIN = { kind: "route", id: "owner" } as const;
-
-export function createOwnerSync(opts: {
-  store: OwnerSnapshotStore;
-  publish: OwnerSyncPublish;
-}): OwnerSync {
-  const { store, publish } = opts;
-  return {
-    syncManifest(manifest) {
-      store.setManifest(manifest);
-      publish("projects", "changed");
-      return true;
-    },
-
-    syncLayout(snapshot) {
-      const before = store.layout().workspaces;
-      store.setLayout(snapshot);
-      // A phone replaces its replica of a workspace on `layout.changed`
-      // (ADR-179 D1), so only the workspaces that changed are announced.
-      for (const [workspacePath, entry] of Object.entries(snapshot.workspaces)) {
-        const previous = before[workspacePath];
-        if (previous && JSON.stringify(previous) === JSON.stringify(entry)) {
-          continue;
-        }
-        const payload: LayoutBroadcast = {
-          workspacePath,
-          version: entry.version,
-          layout: entry.layout,
-          claims: [],
-          origin: OWNER_ORIGIN,
-        };
-        publish("layout", "changed", payload);
-      }
-      for (const [workspacePath, entry] of Object.entries(before)) {
-        if (workspacePath in snapshot.workspaces) continue;
-        const payload: LayoutBroadcast = {
-          workspacePath,
-          version: entry.version,
-          layout: entry.layout,
-          claims: [],
-          origin: OWNER_ORIGIN,
-          removed: true,
-        };
-        publish("layout", "changed", payload);
-      }
-      return true;
-    },
-  };
 }

@@ -289,8 +289,8 @@ describe("server-side launches", () => {
     });
     expect(layoutPaneContext(store, { workspaceProject: () => null }, "pane-nowhere")).toBeUndefined();
 
-    // In the agent pipeline: a renderer's context still overrides it, and the
-    // host server's manifest fallback only answers for a pane it lacks.
+    // In the agent pipeline: a renderer's context still overrides it, and a
+    // pane in no layout has none.
     const rendererContext = { ...context!, projectName: "from the renderer" };
     const paneContexts = new Map([["pane-set", rendererContext]]);
     const { getPaneContext } = serverAgentPipelineOptions({
@@ -301,10 +301,9 @@ describe("server-side launches", () => {
           { workspaceProject: (hostId, path) => projects[`${hostId}:${path}`] ?? null },
           id,
         ),
-      derivePaneContext: () => ({ ...context!, projectName: "from the manifest" }),
     } as unknown as Parameters<typeof serverAgentPipelineOptions>[0]);
     expect(getPaneContext(paneId)).toEqual(context);
     expect(getPaneContext("pane-set")).toBe(rendererContext);
-    expect(getPaneContext("pane-elsewhere")?.projectName).toBe("from the manifest");
+    expect(getPaneContext("pane-elsewhere")).toBeUndefined();
   });
 });

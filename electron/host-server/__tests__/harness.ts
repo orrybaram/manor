@@ -52,6 +52,7 @@ import { readPastServerHello } from "./hello-stream";
 import { hostServerPaths, type HostServerPaths } from "../../paths";
 import { HostServerClient } from "../../backend/host-server-client";
 import { runServe, type RunningServer } from "../serve";
+import { writeOwnership } from "../ownership";
 import {
   FakeRelay,
   FakeViewer,
@@ -152,6 +153,32 @@ export function withoutGit(): void {
 }
 
 /**
+ * Real git in this test: `execFile` runs the command, answering the way the
+ * backends' `promisify(execFile)` of a plain mock reads it — one value,
+ * `{ stdout, stderr }`.
+ */
+export async function withGit(): Promise<void> {
+  const real =
+    await vi.importActual<typeof import("node:child_process")>("node:child_process");
+  vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+    const callback = args[args.length - 1] as (
+      err: Error | null,
+      out?: { stdout: string; stderr: string },
+    ) => void;
+    const [cmd, cmdArgs, opts] = args as [string, string[], object | undefined];
+    return real.execFile(
+      cmd,
+      cmdArgs,
+      { ...(typeof opts === "object" && opts !== null ? opts : {}), encoding: "utf-8" },
+      (err, stdout, stderr) => callback(err, { stdout, stderr }),
+    );
+  }) as never);
+  onTestFinished(() => {
+    vi.mocked(execFile).mockReset();
+  });
+}
+
+/**
  * One owner stream on `server.sock`, as `SshTransport.openServerBridge`
  * gives it: the owner hello sent, the server's reply read, the stream
  * handed over past it. Rejects when the server refuses the token.
@@ -208,6 +235,11 @@ export interface HostServerHarness {
   /** The server, if one is up. */
   readonly running: RunningServer | null;
   serve(): Promise<RunningServer>;
+  /**
+   * Mark the host adopted (ADR-227 D3) before the next `serve()`, as
+   * `hostServer.adopt` will (ticket 6): its project and layout writes open.
+   */
+  adopt(): void;
   /** Stop the running server (and forget it). */
   stop(): Promise<void>;
   /** Wait for the server's relay connector to hold its room. */
@@ -311,6 +343,10 @@ export function useHostServerHarness(): HostServerHarness {
       });
       // The daemon is up, so `start()` (in `runServe`) has caught up.
       return running;
+    },
+
+    adopt() {
+      writeOwnership(paths.ownership, "host");
     },
 
     async stop() {

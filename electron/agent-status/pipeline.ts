@@ -67,11 +67,6 @@ export interface ServerAgentPipelineDeps extends Omit<AgentPipelineOptions, "get
    * mounted it.
    */
   layoutPaneContext?: (paneId: string) => PaneContext | undefined;
-  /**
-   * A pane's context when neither knows it: the host server derives it from
-   * what its owner synced. The desktop has none.
-   */
-  derivePaneContext?: (paneId: string) => PaneContext | undefined;
 }
 
 /**
@@ -79,13 +74,10 @@ export interface ServerAgentPipelineDeps extends Omit<AgentPipelineOptions, "get
  * two-readers test builds both readers the way `createManorServer` does.
  */
 export function serverAgentPipelineOptions(deps: ServerAgentPipelineDeps): AgentPipelineOptions {
-  const { paneContexts, layoutPaneContext, derivePaneContext, ...rest } = deps;
+  const { paneContexts, layoutPaneContext, ...rest } = deps;
   return {
     ...rest,
-    getPaneContext: (paneId) =>
-      paneContexts.get(paneId) ??
-      layoutPaneContext?.(paneId) ??
-      derivePaneContext?.(paneId),
+    getPaneContext: (paneId) => paneContexts.get(paneId) ?? layoutPaneContext?.(paneId),
   };
 }
 

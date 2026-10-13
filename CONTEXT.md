@@ -88,11 +88,11 @@ Everything in `electron/` that is not Electron: projects, routes, integrations, 
 _Avoid_: main process, backend, the API
 
 **Host server**:
-A headless **Manor server** running on a remote **Host**, next to its **Daemon** but in its own process (`manor-host serve`, `electron/host-server/`), so a **Paired device** can reach that host's agents with the laptop closed. It has its own **Room** and its own paired devices; in slice 1 it reads the same hook journal the desktop does and shows the projects and layout the desktop last sent it (ADR-225).
+A headless **Manor server** running on a remote **Host**, next to its **Daemon** but in its own process (`manor-host serve`, `electron/host-server/`), so a **Paired device** can reach that host's agents with the laptop closed. It has its own **Room** and its own paired devices, reads the same hook journal the desktop does (ADR-225), and owns its host's projects, workspaces and layout once adopted (ADR-227).
 _Avoid_: remote server, box server, cloud server, the daemon (the daemon owns PTYs; the host server is the Manor server beside it)
 
 **Owner channel**:
-The desktop's own connection to a **Host server**: the bridge protocol, carried over the host's SSH connection (`manor-host server-bridge`), as **Caller class** `owner`. SSH is the authentication. The desktop pushes the manifest and layout over it, and pairs phones with the host through it.
+The desktop's own connection to a **Host server**: the bridge protocol, carried over the host's SSH connection (`manor-host server-bridge`), as **Caller class** `owner`. SSH is the authentication. The desktop sets up projects on the host, sends its push keys and pairs phones with the host through it.
 _Avoid_: control channel, sync channel, admin connection
 
 **Daemon**:

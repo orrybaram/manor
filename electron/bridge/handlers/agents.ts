@@ -8,7 +8,7 @@ import { killCounters } from "../../stats-signals";
 import { cleanAgentTitle } from "../../title-utils";
 import type { AgentService, EndedPane } from "../../layout/layout-store";
 import { method, type HandlerCtx } from "../method";
-import type { ServerDeps } from "../../ipc/types";
+import type { ServerDeps, SharedDeps } from "../../ipc/types";
 import {
   agentsGet,
   agentsGetActive,
@@ -101,7 +101,7 @@ async function fallbackAgentCommand(
  * bridge, audited by paneId the same way `pty.create` is.
  */
 export function agentsSetPaneContext(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   paneId: string,
   context: PaneContext,
 ): void {

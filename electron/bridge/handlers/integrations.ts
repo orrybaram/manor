@@ -39,7 +39,7 @@ import type {
 import type { PrInfo } from "../../../src/lib/pr-info";
 import { proxyGitHubImage } from "../../github-images";
 import { method, type HandlerCtx } from "../method";
-import type { ServerDeps } from "../../ipc/types";
+import type { ServerDeps, SharedDeps } from "../../ipc/types";
 
 type IssueState = "open" | "closed" | "all";
 type LinearIssueOptions = { stateTypes?: string[]; limit?: number };
@@ -260,7 +260,7 @@ export function linearCloseIssue(
 }
 
 export function linearLinkIssueToWorkspace(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
   workspacePath: string,
   issue: LinkedIssue,
@@ -273,7 +273,7 @@ export function linearLinkIssueToWorkspace(
 }
 
 export function linearUnlinkIssueFromWorkspace(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
   workspacePath: string,
   issueId: string,

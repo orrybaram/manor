@@ -44,6 +44,7 @@ import type { EventArgs, EventNs, EventOf } from "./events";
 import type { HandlerCtx, HandlerTable } from "./method";
 import {
   ALL_KEYS,
+  BridgeUnavailableRefusal,
   readInvokeFrame,
   readSubscribeFrame,
   type BridgeConnection,
@@ -324,13 +325,18 @@ export class BridgeServer<D extends BridgeServerDeps> {
       if (audited) this.auditInvoke(connection, key, args, "sent", 200);
       return { id, kind: "result", ok: true, result };
     } catch (err) {
-      if (audited) this.auditInvoke(connection, key, args, "failed", 500);
+      // A handler's refusal is the same stated empty state as a method
+      // absent from the table, with the handler's own words.
+      const refused = err instanceof BridgeUnavailableRefusal;
+      if (audited) {
+        this.auditInvoke(connection, key, args, refused ? "rejected" : "failed", refused ? 403 : 500);
+      }
       return {
         id,
         kind: "result",
         ok: false,
         error: err instanceof Error ? err.message : String(err),
-        code: "failed",
+        code: refused ? err.code : "failed",
       };
     }
   }

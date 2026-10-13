@@ -166,6 +166,43 @@ export interface ServerDeps {
 }
 
 /**
+ * The `ServerDeps` every server builds the same way, in `createManorServer`
+ * (ADR-227 D1): what a host server has of them. A shared handler the host
+ * table lists declares this rather than `ServerDeps`, which also names what
+ * only the desktop composes (remote control, Jev, prewarm, the watchers).
+ */
+export type SharedDeps = Pick<
+  ServerDeps,
+  | "backend"
+  | "backendRegistry"
+  | "getPaneHostId"
+  | "layoutPersistence"
+  | "layoutStore"
+  | "projectManager"
+  | "themeManager"
+  | "portScanner"
+  | "githubManager"
+  | "linearManager"
+  | "agentHookServer"
+  | "agentManager"
+  | "agentStatus"
+  | "chatMirror"
+  | "notificationStore"
+  | "statsStore"
+  | "workspaceOps"
+  | "agentActivityStore"
+  | "preferencesManager"
+  | "keybindingsManager"
+  | "paneContextMap"
+  | "unseen"
+  | "notifier"
+  | "sessionOwners"
+  | "hostStatus"
+  | "playSound"
+  | "appCommandResult"
+>;
+
+/**
  * What only the desktop has: renderer windows, the app menu and the webview
  * server. Desktop-only handlers (`DESKTOP_METHODS`) and the IPC modules read
  * these; nothing in `SERVER_METHODS` may.

@@ -15,11 +15,7 @@ import { initAutoUpdater, checkForUpdates, setBeforeInstallHook } from "./update
 import { portlessManager } from "./portless";
 import { loginPathReady } from "./login-path";
 import { LOCAL_HOST_ID } from "./backend/types";
-import {
-  HostServerSync,
-  buildHostManifest,
-  layoutSnapshotFor,
-} from "./backend/host-server-sync";
+import { HostServerSync } from "./backend/host-server-sync";
 import { PrewarmManager } from "./prewarm-manager";
 import { rendererBus } from "./renderer-broadcast";
 import { DESKTOP_TABLE } from "./bridge/handlers";
@@ -305,33 +301,19 @@ export function initApp(devTitle: string | null): void {
     });
     const prewarmManager = new PrewarmManager(client, process.env.HOME || "/");
 
-    // ADR-225 D4/D5/D8: each remote host's host server holds the desktop's
-    // view of that host — its projects (with the issue and PR data already in
-    // memory here) and its part of the layout — so a phone sees them with the
-    // lid closed. Sent whole on every connect of the owner channel; after
-    // that the manifest on any project or PR change (debounced, and only when
-    // it differs), the layout on the store's own save debounce.
+    // ADR-225 D3: each remote host's host server signs pushes with the
+    // desktop's VAPID pair, sent on every connect of the owner channel; the
+    // sync also caches each host's push endpoints, which the controller below
+    // reads so the desktop skips what the host server sends. The host server
+    // owns its projects and layout (ADR-227 D2): neither is pushed.
     const hostServerSync = new HostServerSync({
       registry: backendRegistry,
-      manifest: (hostId) =>
-        buildHostManifest(hostId, {
-          projects: (id) => projectManager.manifestRecords(id),
-          workspaces: (projectId) => projectManager.knownWorkspaces(projectId),
-          cachedPr: (repo, branch) => githubManager.cachedPr(repo, branch),
-          hostName: (id) => backendRegistry.hostDisplayName(id),
-        }),
-      layout: (hostId) => layoutSnapshotFor(hostId, layoutStore),
       // The desktop's own VAPID pair, so a phone's one browser subscription is
       // valid in every room (D3).
       vapidKeys: () => core.relayStores.push.vapidKeys(),
     });
-    projectManager.onStateSaved(() => hostServerSync.manifestChanged());
-    githubManager.onPrCacheChange((hostId) => hostServerSync.manifestChanged(hostId));
-    layoutStore.onPersisted(() => hostServerSync.layoutPersisted());
     // After the push store exists: starting syncs hosts that are already
-    // connected. ADR-225 D3: the sync also caches each host's push endpoints,
-    // which the controller below reads so the desktop skips what the host
-    // server sends.
+    // connected.
     hostServerSync.start();
 
     // ADR-161's remote control. Constructed here so the status sink and the

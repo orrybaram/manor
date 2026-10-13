@@ -1,6 +1,6 @@
 ---
 title: E2E for the ownership flip, and docs
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [6, 8, 9, 10, 11, 12, 13]

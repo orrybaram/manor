@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -420,6 +420,38 @@ most of them back to the host. Instead:
 - **The size of the change.** This is the biggest slice. The tickets order
   it so that the refactors (1–4) land with no change in behavior, before the
   flip (5–9).
+
+**Known limits as built**
+- **Legacy boxes regress.** A box with no current host server (it failed to
+  start, or its upgrade failed) gets no agent status, chat or worktree polling
+  on the desktop, and no last-known workspaces while away. `removeProject` for
+  such a project while its host is away only tears down the main path's
+  layout. This follows from the D4 deletions; the fix is to upgrade the box,
+  which the next connect does.
+- **An old host server without `hostServer.control`** answers the desktop's
+  MCP/CLI writes for its projects with 503/502 until the box is upgraded.
+  `enableControlRelay`'s optional `role: "server"` is backward-compatible
+  (wire hash re-recorded, protocol stays 6).
+- **Moving a project off an adopted host ends its panes there**, because the
+  host's `projects.remove` tears down its layout. `hostPaths` (the remembered
+  path) is lost after adoption. A transfer onto an adopted host doesn't carry
+  the source's main-workspace name and issues.
+- **Detached-window viewport claims** for a remote workspace are lost: a host
+  has no windows, so a forwarded `reportViewport` goes nowhere.
+- **Each remote pane mount costs one extra round trip** (the host's
+  `pty.create` before the daemon attach). Deliberate: it is how the host
+  delivers a pending command, such as a resume, into a session it lost.
+- **`github.proxyImage`, `createIssue` and `listRepos` stay on the laptop's
+  `gh`.** A private-repo image in a remote project's PR uses the laptop's
+  sign-in. The GitHub nudge and settings section check `gh` on the laptop only.
+- **Stats-only reads** (kill counters, busy-agent count) ignore remote agents.
+- **`callerHostId` / `callerMaySee` are never set any more.** Every CLI caller
+  on the box is local to its host server; the scoping branches are dead but kept.
+- **E2E gaps:** no test for the "Use Linear on \<host\>" toggle (no Linear
+  stub) or the "gh isn't signed in" empty state. Known Linux e2e failures that
+  also fail on main are listed in `docs/remote-hosts.md#testing`; remote-host
+  "laptop closed … one notification", which fails on main, passes here (it
+  flaked once in three full runs during integration).
 
 ## Tickets
 
